@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any -- Requires uses `any` intentionally for loose contract matching */
+/* oxlint-disable @typescript-eslint/no-explicit-any -- Requires uses `any` intentionally for loose contract matching */
 // ---------------------------------------------------------------------------
 // Socket contract
 // ---------------------------------------------------------------------------
