@@ -22,10 +22,11 @@
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"
   },
-  "dependencies": {
-    "@better-websocket/client": "workspace:*"
+  "peerDependencies": {
+    "@better-websocket/client": ">=0.0.1"
   },
   "devDependencies": {
+    "@better-websocket/client": "workspace:*",
     "vite": "^8.0.1",
     "vite-plugin-dts": "^4.5.4"
   }

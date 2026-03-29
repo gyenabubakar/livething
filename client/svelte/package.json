@@ -24,13 +24,12 @@
     "typecheck": "svelte-check",
     "clean": "rm -rf dist"
   },
-  "dependencies": {
-    "@better-websocket/client": "workspace:*"
-  },
   "peerDependencies": {
+    "@better-websocket/client": ">=0.0.1",
     "svelte": ">=5"
   },
   "devDependencies": {
+    "@better-websocket/client": "workspace:*",
     "@sveltejs/vite-plugin-svelte": "^7.0.0",
     "svelte": "^5.53.12",
     "svelte-check": "^4.4.5",

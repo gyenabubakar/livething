@@ -22,10 +22,18 @@
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"
   },
-  "dependencies": {
-    "@better-websocket/client": "workspace:*"
+  "peerDependencies": {
+    "@better-websocket/client": ">=0.0.1",
+    "react": ">=18",
+    "react-native": "*"
+  },
+  "peerDependenciesMeta": {
+    "@react-native-community/netinfo": {
+      "optional": true
+    }
   },
   "devDependencies": {
+    "@better-websocket/client": "workspace:*",
     "vite": "^8.0.1",
     "vite-plugin-dts": "^4.5.4"
   }

@@ -22,13 +22,12 @@
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"
   },
-  "dependencies": {
-    "@better-websocket/client": "workspace:*"
-  },
   "peerDependencies": {
+    "@better-websocket/client": ">=0.0.1",
     "react": ">=18"
   },
   "devDependencies": {
+    "@better-websocket/client": "workspace:*",
     "@types/react": "^19.2.14",
     "@vitejs/plugin-react": "^6.0.1",
     "react": "^19.2.4",

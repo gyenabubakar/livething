@@ -22,13 +22,12 @@
     "typecheck": "vue-tsc --noEmit",
     "clean": "rm -rf dist"
   },
-  "dependencies": {
-    "@better-websocket/client": "workspace:*"
-  },
   "peerDependencies": {
+    "@better-websocket/client": ">=0.0.1",
     "vue": ">=3.3"
   },
   "devDependencies": {
+    "@better-websocket/client": "workspace:*",
     "@vitejs/plugin-vue": "^6.0.5",
     "vue": "^3.5.30",
     "vue-tsc": "^3.2.5",
