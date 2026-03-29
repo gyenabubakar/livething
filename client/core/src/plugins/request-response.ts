@@ -6,6 +6,11 @@ import type { TypeFn } from '@/plugins/types.ts';
 // Type function
 // ---------------------------------------------------------------------------
 
+/**
+ * Type function that adds `socket.request(event, payload)` — a typed
+ * request-response method. Reads `requests` from the contract to determine
+ * valid event names, payload types, and response types.
+ */
 export interface RequestResponseTypeFn extends TypeFn {
   readonly _api: this['_contract'] extends {
     requests: infer R extends Record<string, { payload: any; response: any }>;
@@ -24,6 +29,7 @@ export interface RequestResponseTypeFn extends TypeFn {
 // Options
 // ---------------------------------------------------------------------------
 
+/** Configuration for the RequestResponse plugin. */
 export interface RequestResponseOptions {
   /** Default timeout in ms for all requests. Overridable per-call. Default: `10_000`. */
   timeout?: number;
@@ -61,7 +67,7 @@ export class RequestResponse extends Plugin<
     this.defaultTimeout = options?.timeout ?? 10_000;
   }
 
-  /** Tag an outgoing request with a correlation ID. */
+  /** Tag an outgoing request with a correlation ID. Default: adds `_correlationId` to the payload. Override to use a different field name. */
   tagRequest(_event: string, payload: unknown, correlationId: string): unknown {
     return { ...(payload as Record<string, unknown>), _correlationId: correlationId };
   }

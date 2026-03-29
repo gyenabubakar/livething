@@ -11,6 +11,7 @@ import type { TypeFn } from '@/plugins/types.ts';
  *                 events must exist. Omit if the plugin works with any contract.
  */
 export abstract class Plugin<F extends TypeFn = TypeFn, TRequires = {}> {
+  /** Unique plugin identifier (e.g., `'channels'`, `'request-response'`). Used for debug logging. */
   abstract id: string;
 
   /** Intercept incoming messages. Return the message, a modified message, or `null` to drop. */
@@ -28,7 +29,7 @@ export abstract class Plugin<F extends TypeFn = TypeFn, TRequires = {}> {
   /** Called on reconnection only (not first connect), after `onOpen`. Return messages to send. */
   onReconnect?(): { event: string; payload: unknown }[] | null;
 
-  /** Called when the connection closes. */
+  /** Called when the connection closes. Receives the close code and reason. Use for cleanup (e.g., rejecting pending promises, clearing state). */
   onClose?(code: number, reason: string): void;
 
   /** Decide whether to reconnect. Return `false` to suppress, `true` to force, `void` to defer. */

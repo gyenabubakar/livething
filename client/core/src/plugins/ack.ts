@@ -6,6 +6,12 @@ import type { TypeFn } from '@/plugins/types.ts';
 // Type function
 // ---------------------------------------------------------------------------
 
+/**
+ * Type function that adds `socket.send.withAck(event, payload)` — a typed
+ * send-with-acknowledgement method. Reads `outgoing` from the contract to
+ * determine valid event names and payload types. Resolves when the server
+ * confirms receipt.
+ */
 export interface AckTypeFn extends TypeFn {
   readonly _api: this['_contract'] extends { outgoing: infer O extends Record<string, any> }
     ? {
@@ -24,6 +30,7 @@ export interface AckTypeFn extends TypeFn {
 // Options
 // ---------------------------------------------------------------------------
 
+/** Configuration for the Ack plugin. */
 export interface AckOptions {
   /** Default timeout in ms for all acks. Overridable per-call. Default: `10_000`. */
   timeout?: number;
@@ -59,7 +66,7 @@ export class Ack extends Plugin<AckTypeFn> {
     this.defaultTimeout = options?.timeout ?? 10_000;
   }
 
-  /** Tag an outgoing message with an ack ID. */
+  /** Tag an outgoing message with an ack ID. Default: adds `_ackId` to the payload. Override to use a different field name. */
   tagMessage(_event: string, payload: unknown, ackId: string): unknown {
     return { ...(payload as Record<string, unknown>), _ackId: ackId };
   }

@@ -11,9 +11,13 @@
 // Send options
 // ---------------------------------------------------------------------------
 
-/** Options for `send()` — per-message TTL override. */
+/** Options for individual `send()` calls. */
 export interface SendOptions {
-  /** Time-to-live in ms. Overrides the `bufferTTL` config for this message. */
+  /**
+   * Time-to-live in milliseconds for this specific message when buffered.
+   * Overrides the global `bufferTTL` config. If the message isn't sent
+   * before the TTL expires, it's silently dropped from the buffer.
+   */
   ttl?: number;
 }
 

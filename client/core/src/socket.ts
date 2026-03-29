@@ -15,10 +15,19 @@ import type {
 // Close event
 // ---------------------------------------------------------------------------
 
-/** The event object passed to `onClose` handlers. */
+/**
+ * Describes a WebSocket close, passed to `onClose` handlers.
+ *
+ * - `code` — numeric close code (e.g., 1000 = normal, 1006 = abnormal, 4001 = app-defined)
+ * - `reason` — optional string from the server (e.g., "token expired")
+ * - `wasClean` — `true` if the close handshake completed properly
+ */
 export interface CloseEvent {
+  /** WebSocket close code (e.g., 1000 for normal, 4001 for app-defined). */
   code: number;
+  /** Optional close reason from the server. */
   reason: string;
+  /** Whether the close handshake completed properly. */
   wasClean: boolean;
 }
 
@@ -26,13 +35,24 @@ export interface CloseEvent {
 // Middleware
 // ---------------------------------------------------------------------------
 
-/** A parsed message as seen by middleware. */
+/**
+ * A deserialized incoming message. Middleware receives this and can
+ * inspect, modify, or drop it before it reaches event handlers.
+ */
 export interface MiddlewareMessage {
+  /** The event name (e.g., `'notification'`, `'chat-message'`). */
   event: string;
+  /** The event payload, already parsed from the wire format. */
   payload: unknown;
 }
 
-/** Middleware function signature. Return the message, a modified message, or `null` to drop. */
+/**
+ * Middleware function. Called in registration order for each incoming message.
+ *
+ * - Return nothing (or `undefined`) → message passes through unchanged
+ * - Return a new `{ event, payload }` → replaces the original message
+ * - Return `null` → message is dropped, no handlers fire
+ */
 export type MiddlewareFn = (message: MiddlewareMessage) => MiddlewareMessage | null | void;
 
 // ---------------------------------------------------------------------------
@@ -58,7 +78,16 @@ export class Socket<TContract extends SocketContract> {
     throw new Error('Not implemented');
   }
 
-  /** Close the connection and tear down the socket. */
+  /**
+   * Close the connection and fully tear down the socket.
+   *
+   * Stops reconnection, clears the message buffer, rejects all pending
+   * `request()` and `send.withAck()` promises, and detaches platform listeners.
+   * All `.on()` handlers remain registered — call `connect()` to reconnect.
+   *
+   * @param _code WebSocket close code. Default: `1000` (normal closure).
+   * @param _reason Close reason string sent to the server. Default: `''`.
+   */
   disconnect(_code?: number, _reason?: string): void {
     throw new Error('Not implemented');
   }
@@ -88,7 +117,7 @@ export class Socket<TContract extends SocketContract> {
 
   // ── Event callbacks ──────────────────────────────────────────
 
-  /** Listen for incoming events. Typed against `TContract['incoming']`. */
+  /** Listen for incoming events. Typed against `TContract['incoming']`. Returns an unsubscribe function. */
   on<K extends keyof IncomingOf<TContract> & string>(
     _event: K,
     _handler: (data: IncomingOf<TContract>[K]) => void,
@@ -105,7 +134,10 @@ export class Socket<TContract extends SocketContract> {
     throw new Error('Not implemented');
   }
 
-  /** Send raw binary data. Not typed against `outgoing`. */
+  /**
+   * Send raw binary data directly over the WebSocket. Bypasses the `serialize`
+   * option and contract typing — you handle the encoding.
+   */
   sendBinary(_data: ArrayBuffer | ArrayBufferView | Blob): void {
     throw new Error('Not implemented');
   }
@@ -137,7 +169,11 @@ export class Socket<TContract extends SocketContract> {
     throw new Error('Not implemented');
   }
 
-  /** Fires when connection quality changes tier. */
+  /**
+   * Fires when connection quality transitions between tiers
+   * (e.g., `'good'` → `'degraded'`). Callback receives the new quality
+   * tier and the current round-trip latency in milliseconds.
+   */
   onQualityChange(_callback: (quality: ConnectionQuality, latency: number) => void): () => void {
     throw new Error('Not implemented');
   }
@@ -151,7 +187,7 @@ export class Socket<TContract extends SocketContract> {
 
   // ── Debug ────────────────────────────────────────────────────
 
-  /** Toggle debug logging at runtime. */
+  /** Enable or disable console debug logging for connection events, message flow, and plugin activity. */
   setDebug(_enabled: boolean): void {
     throw new Error('Not implemented');
   }
@@ -163,10 +199,10 @@ export class Socket<TContract extends SocketContract> {
 
 /** Options for `createSocket`. All options are optional. */
 export interface SocketOptions<_TContract extends SocketContract = SocketContract> {
-  /** Platform adapter for visibility and network detection. */
+  /** Adapter for platform-specific behavior (browser tab visibility, network online/offline). Use `Adapter` from `@better-websocket/client-web` or `@better-websocket/client-react-native`. */
   adapter?: unknown;
 
-  /** Plugins that add server-dependent features. */
+  /** Plugin instances that extend socket functionality (e.g., Channels, RequestResponse, Ack, Stream). Each plugin can add methods, intercept messages, and hook into the connection lifecycle. */
   plugins?: readonly Plugin<any, any>[];
 
   /** Whether to reconnect automatically when the connection drops. Default: `true`. */
@@ -178,19 +214,19 @@ export interface SocketOptions<_TContract extends SocketContract = SocketContrac
   /** Maximum delay between reconnection attempts in ms. Default: `30000`. */
   maxReconnectDelay?: number;
 
-  /** Callback to decide whether to reconnect after a close. */
+  /** Callback to decide whether to reconnect after a close. Return `true` to force reconnect, `false` to suppress, `undefined` to fall through to `nonRetryableCodes` / default behavior. */
   shouldReconnect?: (code: number, reason: string) => boolean | void;
 
   /** Close codes that should not trigger reconnection. */
   nonRetryableCodes?: number[];
 
-  /** Don't connect until something needs the connection. Default: `false`. */
+  /** Delay connection until the first `on()`, `send()`, `request()`, or `send.withAck()` call. Default: `false`. */
   lazy?: boolean;
 
   /** How long to wait with no activity before disconnecting in lazy mode. Default: `10000`. */
   lazyIdleTimeout?: number;
 
-  /** Subprotocols to pass to the WebSocket constructor. */
+  /** WebSocket subprotocol strings (e.g., `['graphql-ws']`). The server selects one — check `socket.protocol` after connecting. */
   protocols?: string[];
 
   /** How often to send a keepalive ping in ms. `0` to disable. Default: `30000`. */
@@ -211,7 +247,7 @@ export interface SocketOptions<_TContract extends SocketContract = SocketContrac
   /** Maximum buffered messages. Oldest dropped when full. Default: `50`. */
   maxBufferSize?: number;
 
-  /** Per-event TTL for buffered top-level messages. */
+  /** Time-to-live for buffered messages. A number applies to all events; a record maps event names to individual TTLs. Messages exceeding their TTL are silently dropped on flush. */
   bufferTTL?: number | Record<string, number>;
 
   /** Milliseconds between each buffered message flush on reconnect. Default: `0`. */
@@ -223,34 +259,49 @@ export interface SocketOptions<_TContract extends SocketContract = SocketContrac
   /** Disconnect after this many ms of inactivity. `0` to disable. Default: `0`. */
   inactiveTimeout?: number;
 
-  /** Override connection quality thresholds. */
+  /** Latency thresholds in ms for quality tiers. Values are upper bounds: `{ excellent: 100, good: 300, degraded: 1000 }`. Everything above `degraded` is `'poor'`. */
   qualityThresholds?: { excellent: number; good: number; degraded: number };
 
-  /** Search params appended to the URL on every connect/reconnect. */
+  /** Function returning query params to append to the WebSocket URL on every connect/reconnect. Can be async (e.g., to refresh auth tokens). */
   searchParams?: () => URLSearchParams | Promise<URLSearchParams>;
 
   /** Custom message parser. Return `{ event, payload }` or `null` to skip. */
   parse?: (raw: string) => { event: string; payload: unknown } | null;
 
-  /** Custom message serializer. */
+  /** Custom message serializer. Receives `(event, payload)` and returns the string to send over the wire. Inverse of `parse`. Default: `JSON.stringify({ event, payload })`. */
   serialize?: (event: string, payload: unknown) => string;
 
   /** Log every internal event to the console. Default: `false`. */
   debug?: boolean;
 }
 
-// Binary options are linked — both or neither.
+/**
+ * Binary message handling with ArrayBuffer format.
+ * Both `binaryType` and `parseBinary` must be provided together — one without the other is a type error.
+ */
 interface BinaryOptionsArrayBuffer {
+  /** Receive binary data as `ArrayBuffer`. */
   binaryType: 'arraybuffer';
+  /** Parse binary data into `{ event, payload }`. Return `null` to skip the message. */
   parseBinary: (data: ArrayBuffer) => { event: string; payload: unknown } | null;
 }
 
+/**
+ * Binary message handling with Blob format.
+ * Both `binaryType` and `parseBinary` must be provided together — one without the other is a type error.
+ */
 interface BinaryOptionsBlob {
+  /** Receive binary data as `Blob`. */
   binaryType: 'blob';
+  /** Parse binary data into `{ event, payload }`. Return `null` to skip the message. */
   parseBinary: (data: Blob) => { event: string; payload: unknown } | null;
 }
 
-/** Full options type with linked binary options. */
+/**
+ * Complete socket options. Extends `SocketOptions` with linked binary options:
+ * provide both `binaryType` and `parseBinary`, or neither. Providing one
+ * without the other is a type error.
+ */
 export type FullSocketOptions<TContract extends SocketContract> = SocketOptions<TContract> &
   (BinaryOptionsArrayBuffer | BinaryOptionsBlob | {});
 

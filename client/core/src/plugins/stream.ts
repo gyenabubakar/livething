@@ -6,6 +6,12 @@ import type { TypeFn } from '@/plugins/types.ts';
 // Type function
 // ---------------------------------------------------------------------------
 
+/**
+ * Type function that adds `socket.onStream(event, handlers)` — a typed
+ * streaming handler. Reads `incoming` from the contract to type the
+ * chunk payload. Each chunk fires `onChunk`, stream completion fires
+ * `onEnd`, and timeout fires `onTimeout`.
+ */
 export interface StreamTypeFn extends TypeFn {
   readonly _api: this['_contract'] extends { incoming: infer I extends Record<string, any> }
     ? {
@@ -25,6 +31,7 @@ export interface StreamTypeFn extends TypeFn {
 // Options
 // ---------------------------------------------------------------------------
 
+/** Configuration for the Stream plugin. */
 export interface StreamOptions {
   /** Max time in ms an incomplete stream can remain open. Default: `30_000`. */
   timeout?: number;
@@ -34,9 +41,13 @@ export interface StreamOptions {
 // Types
 // ---------------------------------------------------------------------------
 
+/** Lifecycle callbacks for a stream session. Passed to `socket.onStream()`. */
 export interface StreamHandlers {
+  /** Called for each message chunk in the stream. Receives the chunk payload and the stream's unique ID. */
   onChunk: (chunk: unknown, streamId: string) => void;
+  /** Called once when the stream ends normally (server sent `_streamEnd: true`). Receives the stream ID. */
   onEnd?: (streamId: string) => void;
+  /** Called if the stream exceeds the timeout without completing. Receives the stream ID. */
   onTimeout?: (streamId: string) => void;
 }
 

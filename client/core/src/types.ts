@@ -23,14 +23,23 @@ export interface SocketContract {
   requests?: Record<string, RequestContract>;
 }
 
-/** Shape of a single channel inside `SocketContract['channels']`. */
+/**
+ * A channel's type definition. Each channel has its own incoming/outgoing
+ * events and requests, separate from the top-level socket events. This lets
+ * the same event name (e.g., `'message'`) have different payload types in
+ * different channels.
+ */
 export interface ChannelContract {
   incoming?: Record<string, unknown>;
   outgoing?: Record<string, unknown>;
   requests?: Record<string, RequestContract>;
 }
 
-/** Shape of a single request inside `requests`. */
+/**
+ * A request-response pair. `payload` is what the client sends, `response` is
+ * what the server replies with. Used by the `RequestResponse` plugin to type
+ * `socket.request(event, payload): Promise<response>`.
+ */
 export interface RequestContract {
   payload: unknown;
   response: unknown;
@@ -78,8 +87,25 @@ export type Requires<
 // Connection types
 // ---------------------------------------------------------------------------
 
+/**
+ * The WebSocket connection state.
+ *
+ * - `'closed'` — not connected, not trying to connect
+ * - `'connecting'` — attempting to establish a connection
+ * - `'open'` — connected and ready to send/receive
+ * - `'reconnecting'` — connection dropped, waiting to retry
+ */
 export type ConnectionState = 'closed' | 'connecting' | 'open' | 'reconnecting';
 
+/**
+ * Connection quality derived from ping/pong latency measurement.
+ *
+ * - `'excellent'` — latency under 100ms (configurable)
+ * - `'good'` — latency 100–300ms
+ * - `'degraded'` — latency 300–1000ms
+ * - `'poor'` — latency over 1000ms or missed pongs
+ * - `'disconnected'` — socket is not open
+ */
 export type ConnectionQuality = 'excellent' | 'good' | 'degraded' | 'poor' | 'disconnected';
 
 // ---------------------------------------------------------------------------
