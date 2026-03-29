@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- plugin type merging requires `any` */
 import { Emitter } from '@/socket/emitter.ts';
+import { Reconnection } from '@/socket/reconnection.ts';
 import type { SendOptions } from '@/endpoint.ts';
 import type { FullSocketOptions } from '@/options.ts';
 import type { Plugin } from '@/plugins/base.ts';
@@ -120,6 +121,8 @@ export class Socket<TContract extends SocketContract> {
   _intentionalClose = false;
   /** @internal — cancel in-flight async URL/searchParams resolution */
   _connectAttemptId = 0;
+  /** @internal */
+  _reconnection: Reconnection;
 
   /** @internal */
   constructor(
@@ -131,6 +134,7 @@ export class Socket<TContract extends SocketContract> {
     this._options = options;
     this._plugins = plugins;
     this._debug = options.debug ?? false;
+    this._reconnection = new Reconnection(options, plugins);
   }
 
   // ── Connection lifecycle ─────────────────────────────────────
@@ -155,6 +159,7 @@ export class Socket<TContract extends SocketContract> {
   disconnect(code = 1000, reason = ''): void {
     this._intentionalClose = true;
     this._connectAttemptId++;
+    this._reconnection.stop();
 
     if (this.ws) {
       this.ws.onopen = null;
@@ -350,6 +355,7 @@ export class Socket<TContract extends SocketContract> {
         }
         this.ws = ws;
         this.protocol = ws.protocol || null;
+        this._reconnection.reset();
         this._setState('open');
 
         const isReconnect = !this._isFirstConnect;
@@ -403,9 +409,15 @@ export class Socket<TContract extends SocketContract> {
           return;
         }
 
-        // TODO: trigger reconnection logic
+        if (!this._reconnection.shouldReconnect(event.code, event.reason)) {
+          this._log(`reconnection suppressed (code ${event.code})`);
+          this._setState('closed');
+          return;
+        }
+
         this._setState('reconnecting');
-        this._log(`connection closed (code ${event.code}), will reconnect`);
+        this._log(`connection closed (code ${event.code}), reconnecting`);
+        this._scheduleReconnect();
       };
 
       ws.onerror = (event) => {
@@ -419,8 +431,8 @@ export class Socket<TContract extends SocketContract> {
     } catch (error) {
       if (attemptId !== this._connectAttemptId) return;
       this._log('connection failed', error);
-      // TODO: trigger reconnection logic
       this._setState('reconnecting');
+      this._scheduleReconnect();
     }
   }
 
@@ -485,6 +497,25 @@ export class Socket<TContract extends SocketContract> {
     // Dispatch to on() handlers
     this._log(`received '${pluginMsg!.event}'`, pluginMsg!.payload);
     this._emitter.emit('message', pluginMsg!.event, pluginMsg!.payload);
+  }
+
+  /** @internal — schedule a reconnection attempt via the Reconnection module */
+  private _scheduleReconnect(): void {
+    const scheduled = this._reconnection.schedule(
+      () => {
+        this._log(`reconnect attempt ${this._reconnection.currentAttempt}`);
+        this._openConnection();
+      },
+      () => {
+        this._log('reconnection attempts exhausted');
+        this._setState('closed');
+        this._emitter.emit('reconnectFailed');
+      },
+    );
+
+    if (scheduled) {
+      this._log(`reconnect scheduled (attempt ${this._reconnection.currentAttempt})`);
+    }
   }
 
   /** @internal — send a raw message, bypassing plugin onOutgoing hooks */
