@@ -7,7 +7,13 @@ describe('RequestResponse', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
+    let counter = 0;
     rr = new RequestResponse({ timeout: 5_000 });
+    rr.helpers = {
+      rawSend: vi.fn(),
+      generateId: (prefix?: string) => (prefix ? `${prefix}-${++counter}` : `${++counter}`),
+      getState: () => 'open',
+    };
     sendSpy = vi.fn<(event: string, payload: unknown) => void>();
   });
 
@@ -120,7 +126,13 @@ describe('RequestResponse', () => {
 
   describe('defaults', () => {
     it('uses 10s default timeout', async () => {
+      let c = 0;
       const defaultRr = new RequestResponse();
+      defaultRr.helpers = {
+        rawSend: vi.fn(),
+        generateId: (p?: string) => (p ? `${p}-${++c}` : `${++c}`),
+        getState: () => 'open',
+      };
       const promise = defaultRr.sendRequest('test', {}, sendSpy);
 
       vi.advanceTimersByTime(10_000);

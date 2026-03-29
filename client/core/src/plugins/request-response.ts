@@ -59,7 +59,6 @@ export class RequestResponse extends Plugin<
   id = 'request-response';
 
   private pending = new Map<string, PendingRequest>();
-  private counter = 0;
   readonly defaultTimeout: number;
 
   constructor(options?: RequestResponseOptions) {
@@ -78,11 +77,6 @@ export class RequestResponse extends Plugin<
     return typeof p._correlationId === 'string' ? p._correlationId : null;
   }
 
-  /** Generate a unique correlation ID. */
-  private generateId(): string {
-    return `req-${++this.counter}-${Date.now()}`;
-  }
-
   /**
    * Send a request and wait for the matching response. Called by the socket
    * when `socket.request()` is invoked.
@@ -93,7 +87,7 @@ export class RequestResponse extends Plugin<
     send: (event: string, payload: unknown) => void,
     timeout?: number,
   ): Promise<unknown> {
-    const id = this.generateId();
+    const id = this.helpers.generateId('req');
     const tagged = this.tagRequest(event, payload, id);
     const ms = timeout ?? this.defaultTimeout;
 

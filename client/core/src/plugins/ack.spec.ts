@@ -7,7 +7,13 @@ describe('Ack', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
+    let counter = 0;
     ack = new Ack({ timeout: 5_000 });
+    ack.helpers = {
+      rawSend: vi.fn(),
+      generateId: (prefix?: string) => (prefix ? `${prefix}-${++counter}` : `${++counter}`),
+      getState: () => 'open',
+    };
     sendSpy = vi.fn<(event: string, payload: unknown) => void>();
   });
 
@@ -118,7 +124,13 @@ describe('Ack', () => {
 
   describe('defaults', () => {
     it('uses 10s default timeout', async () => {
+      let c = 0;
       const defaultAck = new Ack();
+      defaultAck.helpers = {
+        rawSend: vi.fn(),
+        generateId: (p?: string) => (p ? `${p}-${++c}` : `${++c}`),
+        getState: () => 'open',
+      };
       const promise = defaultAck.sendWithAck('test', {}, sendSpy);
 
       vi.advanceTimersByTime(10_000);

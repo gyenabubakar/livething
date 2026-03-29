@@ -1,4 +1,5 @@
 import type { TypeFn } from '@/plugins/types.ts';
+import type { ConnectionState } from '@/types.ts';
 
 /**
  * Utilities for interacting with the socket internals. Set on the plugin
@@ -8,6 +9,22 @@ import type { TypeFn } from '@/plugins/types.ts';
 export interface PluginHelpers {
   /** Send a raw message over the WebSocket. Bypasses plugin `onOutgoing` hooks to avoid infinite loops. */
   rawSend: (event: string, payload: unknown) => void;
+
+  /**
+   * Generate a unique ID, optionally prefixed for traceability.
+   * Uses a single monotonic counter shared across all plugins on this socket,
+   * so IDs never collide.
+   *
+   * ```ts
+   * this.helpers.generateId('req')  // 'req-1'
+   * this.helpers.generateId('ack')  // 'ack-2'
+   * this.helpers.generateId()       // '3'
+   * ```
+   */
+  generateId: (prefix?: string) => string;
+
+  /** Current connection state. Useful for conditional plugin behavior. */
+  getState: () => ConnectionState;
 }
 
 /**

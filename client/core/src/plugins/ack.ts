@@ -58,7 +58,6 @@ export class Ack extends Plugin<AckTypeFn> {
   id = 'ack';
 
   private pending = new Map<string, PendingAck>();
-  private counter = 0;
   readonly defaultTimeout: number;
 
   constructor(options?: AckOptions) {
@@ -78,10 +77,6 @@ export class Ack extends Plugin<AckTypeFn> {
     return typeof p.id === 'string' ? p.id : null;
   }
 
-  private generateId(): string {
-    return `ack-${++this.counter}-${Date.now()}`;
-  }
-
   /**
    * Send a message and wait for the server to acknowledge it. Called by the
    * socket when `socket.send.withAck()` is invoked.
@@ -92,7 +87,7 @@ export class Ack extends Plugin<AckTypeFn> {
     send: (event: string, payload: unknown) => void,
     timeout?: number,
   ): Promise<void> {
-    const id = this.generateId();
+    const id = this.helpers.generateId('ack');
     const tagged = this.tagMessage(event, payload, id);
     const ms = timeout ?? this.defaultTimeout;
 

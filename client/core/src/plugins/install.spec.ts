@@ -7,7 +7,12 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Plugin, PluginHelpers } from '@/plugins/base.ts';
 
 function createHelpers(): PluginHelpers {
-  return { rawSend: vi.fn() };
+  let counter = 0;
+  return {
+    rawSend: vi.fn(),
+    generateId: (prefix?: string) => (prefix ? `${prefix}-${++counter}` : `${++counter}`),
+    getState: () => 'open',
+  };
 }
 
 function createFakeSocket(): Record<string, unknown> {
