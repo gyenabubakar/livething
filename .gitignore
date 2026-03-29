@@ -24,3 +24,4 @@ SPECIFICATION_CLIENT.md
 
 # Vite
 vite.config.*.timestamp-*.*
+*.bak
