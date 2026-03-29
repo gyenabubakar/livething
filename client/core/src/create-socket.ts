@@ -49,7 +49,7 @@ export function createSocket<
       return socket.getState();
     },
     getOptions() {
-      return opts as Readonly<Record<string, unknown>>;
+      return Object.freeze({ ...opts }) as Readonly<Record<string, unknown>>;
     },
   };
 
