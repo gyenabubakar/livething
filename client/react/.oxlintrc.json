@@ -1,0 +1,32 @@
+{
+  "extends": ["../../.oxlintrc.json"],
+  "plugins": ["react", "jsx-a11y"],
+  "rules": {
+    "react-hooks/rules-of-hooks": "error",
+    "react-hooks/exhaustive-deps": "error",
+    "react/jsx-key": "error",
+    "react/no-array-index-key": "warn",
+    "react/self-closing-comp": "error",
+    "react/jsx-no-useless-fragment": "error",
+    "react/jsx-pascal-case": "error",
+    "react/jsx-no-target-blank": "error",
+    "react/no-children-prop": "error",
+    "react/void-dom-elements-no-children": "error",
+    "react/jsx-curly-brace-presence": ["warn", { "props": "never", "children": "never" }],
+    "react/jsx-boolean-value": ["warn", "never"],
+    "jsx-a11y/alt-text": "error",
+    "jsx-a11y/anchor-has-content": "error",
+    "jsx-a11y/anchor-is-valid": "error",
+    "jsx-a11y/aria-props": "error",
+    "jsx-a11y/aria-proptypes": "error",
+    "jsx-a11y/aria-role": "error",
+    "jsx-a11y/heading-has-content": "error",
+    "jsx-a11y/html-has-lang": "error",
+    "jsx-a11y/iframe-has-title": "error",
+    "jsx-a11y/img-redundant-alt": "error",
+    "jsx-a11y/no-access-key": "error",
+    "jsx-a11y/no-redundant-roles": "error",
+    "jsx-a11y/role-has-required-aria-props": "error",
+    "jsx-a11y/tabindex-no-positive": "error"
+  }
+}
