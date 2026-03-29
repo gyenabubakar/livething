@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- plugin type merging requires `any` */
+import { MessageBuffer } from '@/socket/buffer.ts';
 import { Emitter } from '@/socket/emitter.ts';
 import { Keepalive } from '@/socket/keepalive.ts';
 import { Reconnection } from '@/socket/reconnection.ts';
@@ -126,6 +127,8 @@ export class Socket<TContract extends SocketContract> {
   _reconnection: Reconnection;
   /** @internal */
   _keepalive: Keepalive;
+  /** @internal */
+  _buffer: MessageBuffer;
 
   /** @internal */
   constructor(
@@ -138,6 +141,7 @@ export class Socket<TContract extends SocketContract> {
     this._plugins = plugins;
     this._debug = options.debug ?? false;
     this._reconnection = new Reconnection(options, plugins);
+    this._buffer = new MessageBuffer(options);
     this._keepalive = new Keepalive(options, {
       sendPing: (message) => {
         if (!this.ws || this._state !== 'open') return;
@@ -180,6 +184,7 @@ export class Socket<TContract extends SocketContract> {
     this._connectAttemptId++;
     this._reconnection.stop();
     this._keepalive.stop();
+    this._buffer.clear();
 
     if (this.ws) {
       this.ws.onopen = null;
@@ -259,7 +264,10 @@ export class Socket<TContract extends SocketContract> {
     }
 
     if (this._state !== 'open' || !this.ws) {
-      // TODO: buffer if bufferWhileDisconnected is true
+      if (this._buffer.enqueue(msg.event, msg.payload, _options?.ttl)) {
+        this._log(`send('${msg.event}') buffered`);
+        return true;
+      }
       this._log(`send('${event}') dropped — not connected`);
       return false;
     }
@@ -400,6 +408,12 @@ export class Socket<TContract extends SocketContract> {
             }
           }
         }
+
+        // Flush buffered messages
+        this._buffer.flush(
+          (event, payload) => this._rawSend(event, payload),
+          () => this._log('buffer flush complete'),
+        );
 
         // Socket callbacks
         this._emitter.emit('open');
