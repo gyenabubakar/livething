@@ -35,6 +35,19 @@ importers:
         specifier: ^4.5.4
         version: 4.5.4(typescript@5.9.3)(vite@8.0.3(@emnapi/core@1.9.1)(@emnapi/runtime@1.9.1)(yaml@2.8.3))
 
+  client/react-native:
+    dependencies:
+      '@better-websocket/client':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      vite:
+        specifier: ^8.0.1
+        version: 8.0.3(@emnapi/core@1.9.1)(@emnapi/runtime@1.9.1)(yaml@2.8.3)
+      vite-plugin-dts:
+        specifier: ^4.5.4
+        version: 4.5.4(typescript@5.9.3)(vite@8.0.3(@emnapi/core@1.9.1)(@emnapi/runtime@1.9.1)(yaml@2.8.3))
+
   client/web:
     dependencies:
       '@better-websocket/client':
