@@ -1,3 +1,4 @@
+import type { SocketOptions } from '@/options.ts';
 import type { TypeFn } from '@/plugins/types.ts';
 import type { ConnectionState } from '@/types.ts';
 
@@ -26,8 +27,8 @@ export interface PluginHelpers {
   /** Current connection state. Useful for conditional plugin behavior. */
   getState: () => ConnectionState;
 
-  /** Read-only access to the socket options. Plugins can read config but not mutate it. */
-  getOptions: () => Readonly<Record<string, unknown>>;
+  /** Read-only, frozen copy of the socket options. Plugins can read config but not mutate it. */
+  getOptions: () => Readonly<SocketOptions>;
 }
 
 /**

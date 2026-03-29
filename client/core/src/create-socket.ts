@@ -1,8 +1,8 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- plugin type merging requires `any` */
 import { Socket } from '@/socket.ts';
+import type { FullSocketOptions } from '@/options.ts';
 import type { Plugin, PluginHelpers } from '@/plugins/base.ts';
 import type { ApplyPlugins, ValidatePlugins } from '@/plugins/types.ts';
-import type { FullSocketOptions } from '@/socket.ts';
 import type { Simplify, SocketContract } from '@/types.ts';
 
 /**
@@ -49,7 +49,7 @@ export function createSocket<
       return socket.getState();
     },
     getOptions() {
-      return Object.freeze({ ...opts }) as Readonly<Record<string, unknown>>;
+      return Object.freeze({ ...opts });
     },
   };
 
