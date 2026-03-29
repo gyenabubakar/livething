@@ -37,9 +37,7 @@ export function createSocket<
 
   const helpers: PluginHelpers = {
     rawSend(event: string, payload: unknown) {
-      // TODO: send directly over the WebSocket, bypassing onOutgoing hooks
-      const serialized = (opts.serialize ?? defaultSerialize)(event, payload);
-      socket.ws?.send(serialized);
+      socket._rawSend(event, payload);
     },
     generateId(prefix?: string) {
       const id = ++idCounter;
@@ -60,9 +58,4 @@ export function createSocket<
   }
 
   return socket as unknown as Simplify<Socket<TContract> & ApplyPlugins<TPlugins, TContract>>;
-}
-
-/** Default message serializer: `{ event, payload }` as JSON. */
-function defaultSerialize(event: string, payload: unknown): string {
-  return JSON.stringify({ event, payload });
 }
