@@ -29,6 +29,15 @@ export interface PluginHelpers {
 
   /** Read-only, frozen copy of the socket options. Plugins can read config but not mutate it. */
   getOptions: () => Readonly<SocketOptions>;
+
+  /**
+   * Trigger a lazy connection if the socket is in lazy mode and not yet
+   * connected. No-op if the socket is already open, connecting, or not lazy.
+   *
+   * Call this in plugin-installed methods (e.g., `request()`, `send.withAck()`,
+   * `channel.on()`) so they work on a lazy socket that hasn't connected yet.
+   */
+  ensureConnected: () => void;
 }
 
 /**

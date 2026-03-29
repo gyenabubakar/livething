@@ -113,7 +113,10 @@ export class Ack extends Plugin<AckTypeFn> {
         event: string,
         payload: unknown,
         options?: { timeout?: number; ttl?: number },
-      ) => this.sendWithAck(event, payload, this.helpers.rawSend, options?.timeout);
+      ) => {
+        this.helpers.ensureConnected();
+        return this.sendWithAck(event, payload, this.helpers.rawSend, options?.timeout);
+      };
     }
   }
 

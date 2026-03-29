@@ -96,8 +96,10 @@ export class Stream extends Plugin<StreamTypeFn> {
   }
 
   override install(socket: Record<string, unknown>) {
-    socket.onStream = (event: string, handlers: StreamHandlers) =>
-      this.registerStream(event, handlers);
+    socket.onStream = (event: string, handlers: StreamHandlers) => {
+      this.helpers.ensureConnected();
+      return this.registerStream(event, handlers);
+    };
   }
 
   /**

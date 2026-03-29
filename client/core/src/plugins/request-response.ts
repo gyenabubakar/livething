@@ -103,8 +103,10 @@ export class RequestResponse extends Plugin<
   }
 
   override install(socket: Record<string, unknown>) {
-    socket.request = (event: string, payload: unknown, options?: { timeout?: number }) =>
-      this.sendRequest(event, payload, this.helpers.rawSend, options?.timeout);
+    socket.request = (event: string, payload: unknown, options?: { timeout?: number }) => {
+      this.helpers.ensureConnected();
+      return this.sendRequest(event, payload, this.helpers.rawSend, options?.timeout);
+    };
   }
 
   override onIncoming(message: { event: string; payload: unknown }) {

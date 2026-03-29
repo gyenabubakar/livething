@@ -66,9 +66,12 @@ export class Channels extends Plugin<ChannelsTypeFn, { channels: Record<string, 
    */
   private createChannelEndpoint(name: string): Record<string, unknown> {
     return {
-      on: (event: string, handler: (data: unknown) => void) =>
-        this.registerHandler(name, event, handler),
+      on: (event: string, handler: (data: unknown) => void) => {
+        this.helpers.ensureConnected();
+        return this.registerHandler(name, event, handler);
+      },
       send: (event: string, payload: unknown) => {
+        this.helpers.ensureConnected();
         const tagged = this.tagChannel(event, payload, name);
         this.helpers.rawSend(event, tagged);
         return true;

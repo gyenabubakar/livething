@@ -14,6 +14,7 @@ describe('Ack', () => {
       generateId: (prefix?: string) => (prefix ? `${prefix}-${++counter}` : `${++counter}`),
       getState: () => 'open',
       getOptions: () => ({}),
+      ensureConnected: vi.fn(),
     };
     sendSpy = vi.fn<(event: string, payload: unknown) => void>();
   });
@@ -132,6 +133,7 @@ describe('Ack', () => {
         generateId: (p?: string) => (p ? `${p}-${++c}` : `${++c}`),
         getState: () => 'open',
         getOptions: () => ({}),
+        ensureConnected: vi.fn(),
       };
       const promise = defaultAck.sendWithAck('test', {}, sendSpy);
 

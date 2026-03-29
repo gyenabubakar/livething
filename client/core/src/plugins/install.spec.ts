@@ -13,6 +13,7 @@ function createHelpers(): PluginHelpers {
     generateId: (prefix?: string) => (prefix ? `${prefix}-${++counter}` : `${++counter}`),
     getState: () => 'open',
     getOptions: () => ({}),
+    ensureConnected: vi.fn(),
   };
 }
 
@@ -181,6 +182,71 @@ describe('Plugin.install', () => {
 
       stream.onIncoming({ event: 'ai-response', payload: { _streamId: 's1', text: 'hi' } });
       expect(onChunk).toHaveBeenCalledWith({ _streamId: 's1', text: 'hi' }, 's1');
+    });
+  });
+
+  describe('ensureConnected', () => {
+    it('request() calls ensureConnected', () => {
+      vi.useFakeTimers();
+      const socket = createFakeSocket();
+      const helpers = createHelpers();
+      const rr = new RequestResponse({ timeout: 5_000 });
+
+      installPlugin(rr, socket, helpers);
+      (socket.request as any)('get-balance', {});
+
+      expect(helpers.ensureConnected).toHaveBeenCalledTimes(1);
+      vi.useRealTimers();
+    });
+
+    it('send.withAck() calls ensureConnected', () => {
+      vi.useFakeTimers();
+      const socket = createFakeSocket();
+      const helpers = createHelpers();
+      const ack = new Ack({ timeout: 5_000 });
+
+      installPlugin(ack, socket, helpers);
+      (socket.send as any).withAck('test', {});
+
+      expect(helpers.ensureConnected).toHaveBeenCalledTimes(1);
+      vi.useRealTimers();
+    });
+
+    it('channel().on() calls ensureConnected', () => {
+      const socket = createFakeSocket();
+      const helpers = createHelpers();
+      const channels = new Channels();
+
+      installPlugin(channels, socket, helpers);
+
+      const ch = (socket.channel as any)('chat') as Record<string, any>;
+      ch.on('message', vi.fn());
+
+      expect(helpers.ensureConnected).toHaveBeenCalledTimes(1);
+    });
+
+    it('channel().send() calls ensureConnected', () => {
+      const socket = createFakeSocket();
+      const helpers = createHelpers();
+      const channels = new Channels();
+
+      installPlugin(channels, socket, helpers);
+
+      const ch = (socket.channel as any)('chat') as Record<string, any>;
+      ch.send('typing', {});
+
+      expect(helpers.ensureConnected).toHaveBeenCalledTimes(1);
+    });
+
+    it('onStream() calls ensureConnected', () => {
+      const socket = createFakeSocket();
+      const helpers = createHelpers();
+      const stream = new Stream();
+
+      installPlugin(stream, socket, helpers);
+      (socket.onStream as any)('ai-response', { onChunk: vi.fn() });
+
+      expect(helpers.ensureConnected).toHaveBeenCalledTimes(1);
     });
   });
 

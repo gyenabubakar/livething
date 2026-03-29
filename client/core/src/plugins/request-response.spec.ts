@@ -14,6 +14,7 @@ describe('RequestResponse', () => {
       generateId: (prefix?: string) => (prefix ? `${prefix}-${++counter}` : `${++counter}`),
       getState: () => 'open',
       getOptions: () => ({}),
+      ensureConnected: vi.fn(),
     };
     sendSpy = vi.fn<(event: string, payload: unknown) => void>();
   });
@@ -134,6 +135,7 @@ describe('RequestResponse', () => {
         generateId: (p?: string) => (p ? `${p}-${++c}` : `${++c}`),
         getState: () => 'open',
         getOptions: () => ({}),
+        ensureConnected: vi.fn(),
       };
       const promise = defaultRr.sendRequest('test', {}, sendSpy);
 

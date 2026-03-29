@@ -113,6 +113,12 @@ export class Socket<TContract extends SocketContract> {
   _platformBound = false;
   /** @internal — inactivity disconnect timer */
   _inactivityTimer: ReturnType<typeof setTimeout> | null = null;
+  /** @internal — lazy mode: whether to defer connection */
+  _lazy: boolean;
+  /** @internal — lazy mode: idle disconnect timer */
+  _lazyIdleTimer: ReturnType<typeof setTimeout> | null = null;
+  /** @internal — lazy mode: number of active consumers (on() listeners, pending requests, etc.) */
+  _lazyConsumers = 0;
 
   /** @internal */
   constructor(
@@ -124,6 +130,7 @@ export class Socket<TContract extends SocketContract> {
     this._options = options;
     this._plugins = plugins;
     this._debug = options.debug ?? false;
+    this._lazy = options.lazy ?? false;
     this._reconnection = new Reconnection(options, plugins);
     this._buffer = new MessageBuffer(options);
     this._platform = new Platform(options);
@@ -171,6 +178,7 @@ export class Socket<TContract extends SocketContract> {
     this._reconnection.stop();
     this._keepalive.stop();
     this._buffer.clear();
+    this._clearLazyIdleTimer();
     this._unbindPlatform();
 
     if (this.ws) {
@@ -226,11 +234,18 @@ export class Socket<TContract extends SocketContract> {
     event: K,
     handler: (data: IncomingOf<TContract>[K]) => void,
   ): () => void {
-    return this._emitter.on('message', (incomingEvent: string, payload: unknown) => {
+    this._lazyAcquire();
+
+    const unsub = this._emitter.on('message', (incomingEvent: string, payload: unknown) => {
       if (incomingEvent === event) {
         handler(payload as IncomingOf<TContract>[K]);
       }
     });
+
+    return () => {
+      unsub();
+      this._lazyRelease();
+    };
   }
 
   /** Send an outgoing event. Typed against `TContract['outgoing']`. Returns `true` if sent or buffered. */
@@ -239,6 +254,8 @@ export class Socket<TContract extends SocketContract> {
     payload: OutgoingOf<TContract>[K],
     _options?: SendOptions,
   ): boolean {
+    this._ensureConnected();
+
     // Run through plugin onOutgoing hooks
     let msg: { event: string; payload: unknown } | null = { event, payload };
     for (const plugin of this._plugins) {
@@ -614,6 +631,61 @@ export class Socket<TContract extends SocketContract> {
     if (this._inactivityTimer !== null) {
       clearTimeout(this._inactivityTimer);
       this._inactivityTimer = null;
+    }
+  }
+
+  // ── Lazy mode ──────────────────────────────────────────────
+
+  /**
+   * @internal — trigger connection if in lazy mode and not connected.
+   * Called by `send()` and exposed to plugins via `helpers.ensureConnected`.
+   */
+  _ensureConnected(): void {
+    if (!this._lazy) return;
+    if (this._state === 'open' || this._state === 'connecting' || this._state === 'reconnecting') {
+      return;
+    }
+    this._clearLazyIdleTimer();
+    this._log('lazy connect triggered');
+    this.connect();
+  }
+
+  /**
+   * @internal — increment lazy consumer count and trigger connection.
+   * Called when `on()` registers a listener or a plugin acquires a consumer.
+   */
+  _lazyAcquire(): void {
+    this._lazyConsumers++;
+    this._clearLazyIdleTimer();
+    this._ensureConnected();
+  }
+
+  /**
+   * @internal — decrement lazy consumer count and start idle timer if zero.
+   * Called when an `on()` listener unsubscribes or a plugin releases a consumer.
+   */
+  _lazyRelease(): void {
+    this._lazyConsumers = Math.max(0, this._lazyConsumers - 1);
+    if (this._lazy && this._lazyConsumers === 0 && this._state === 'open') {
+      this._startLazyIdleTimer();
+    }
+  }
+
+  /** @internal */
+  private _startLazyIdleTimer(): void {
+    this._clearLazyIdleTimer();
+    const timeout = this._options.lazyIdleTimeout ?? 10_000;
+    this._lazyIdleTimer = setTimeout(() => {
+      this._log('lazy idle timeout — disconnecting');
+      this.disconnect();
+    }, timeout);
+  }
+
+  /** @internal */
+  private _clearLazyIdleTimer(): void {
+    if (this._lazyIdleTimer !== null) {
+      clearTimeout(this._lazyIdleTimer);
+      this._lazyIdleTimer = null;
     }
   }
 

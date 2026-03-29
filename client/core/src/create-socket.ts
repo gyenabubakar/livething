@@ -49,6 +49,9 @@ export function createSocket<
     getOptions() {
       return Object.freeze({ ...opts });
     },
+    ensureConnected() {
+      socket._ensureConnected();
+    },
   };
 
   // Wire up each plugin: set helpers, then let it attach its methods
