@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- plugin type merging requires `any` */
 import { Emitter } from '@/socket/emitter.ts';
+import { Keepalive } from '@/socket/keepalive.ts';
 import { Reconnection } from '@/socket/reconnection.ts';
 import type { SendOptions } from '@/endpoint.ts';
 import type { FullSocketOptions } from '@/options.ts';
@@ -123,6 +124,8 @@ export class Socket<TContract extends SocketContract> {
   _connectAttemptId = 0;
   /** @internal */
   _reconnection: Reconnection;
+  /** @internal */
+  _keepalive: Keepalive;
 
   /** @internal */
   constructor(
@@ -135,6 +138,22 @@ export class Socket<TContract extends SocketContract> {
     this._plugins = plugins;
     this._debug = options.debug ?? false;
     this._reconnection = new Reconnection(options, plugins);
+    this._keepalive = new Keepalive(options, {
+      sendPing: (message) => {
+        if (!this.ws || this._state !== 'open') return;
+        this.ws.send(message);
+        this._log('ping sent');
+      },
+      forceClose: () => {
+        this._log('missed pong threshold reached — force closing');
+        if (this.ws) {
+          this.ws.close(4000, 'missed pong');
+        }
+      },
+      onQualityChange: (quality, latency) => {
+        this._emitter.emit('qualityChange', quality, latency);
+      },
+    });
   }
 
   // ── Connection lifecycle ─────────────────────────────────────
@@ -160,6 +179,7 @@ export class Socket<TContract extends SocketContract> {
     this._intentionalClose = true;
     this._connectAttemptId++;
     this._reconnection.stop();
+    this._keepalive.stop();
 
     if (this.ws) {
       this.ws.onopen = null;
@@ -191,14 +211,12 @@ export class Socket<TContract extends SocketContract> {
   /** Current connection quality based on ping latency. */
   getQuality(): ConnectionQuality {
     if (this._state !== 'open') return 'disconnected';
-    // TODO: implement quality tracking in keepalive module
-    return 'good';
+    return this._keepalive.getQuality();
   }
 
   /** Last measured round-trip time in milliseconds, or `null` if unknown. */
   getLatency(): number | null {
-    // TODO: implement in keepalive module
-    return null;
+    return this._keepalive.getLatency();
   }
 
   /**
@@ -361,6 +379,8 @@ export class Socket<TContract extends SocketContract> {
         const isReconnect = !this._isFirstConnect;
         this._isFirstConnect = false;
 
+        this._keepalive.start();
+
         // Plugin onOpen hooks (fire on every open)
         for (const plugin of this._plugins) {
           const messages = plugin.onOpen?.();
@@ -392,6 +412,7 @@ export class Socket<TContract extends SocketContract> {
         if (attemptId !== this._connectAttemptId) return;
         this.ws = null;
         this.protocol = null;
+        this._keepalive.stop();
 
         // Notify plugins
         for (const plugin of this._plugins) {
@@ -444,7 +465,7 @@ export class Socket<TContract extends SocketContract> {
     const pongMessage = this._options.pongMessage ?? 'pong';
     if (raw === pongMessage) {
       this._log('pong received');
-      // TODO: update latency/quality in keepalive module
+      this._keepalive.onPong();
       return;
     }
 
