@@ -1,0 +1,26 @@
+node_modules
+dist
+*.tsbuildinfo
+.turbo
+coverage
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Spec docs
+SPECIFICATION_CLIENT.md
+
+# Vite
+vite.config.*.timestamp-*.*
