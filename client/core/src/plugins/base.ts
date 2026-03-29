@@ -1,8 +1,9 @@
 import type { TypeFn } from '@/plugins/types.ts';
 
 /**
- * Utilities passed to `Plugin.install()`. Provides access to socket internals
- * that plugins need to function (e.g., sending raw messages over the wire).
+ * Utilities for interacting with the socket internals. Set on the plugin
+ * instance by `createSocket` before `install()` is called, and available
+ * in all lifecycle hooks via `this.helpers`.
  */
 export interface PluginHelpers {
   /** Send a raw message over the WebSocket. Bypasses plugin `onOutgoing` hooks to avoid infinite loops. */
@@ -22,6 +23,16 @@ export interface PluginHelpers {
 export abstract class Plugin<F extends TypeFn = TypeFn, TRequires = {}> {
   /** Unique plugin identifier (e.g., `'channels'`, `'request-response'`). Used for debug logging. */
   abstract id: string;
+
+  /**
+   * Socket utilities available in all hooks and `install()`. Set by `createSocket`
+   * before any hooks are called — never `undefined` during normal usage.
+   *
+   * Access `this.helpers.rawSend(event, payload)` to send messages directly
+   * over the wire, bypassing plugin `onOutgoing` hooks.
+   * @internal
+   */
+  helpers!: PluginHelpers;
 
   /** Intercept incoming messages. Return the message, a modified message, or `null` to drop. */
   onIncoming?(message: {
@@ -52,13 +63,14 @@ export abstract class Plugin<F extends TypeFn = TypeFn, TRequires = {}> {
    * there at runtime. `createSocket` does not know about any specific plugin —
    * it just calls `install` on each one.
    *
-   * @param socket The socket instance. Use `Record<string, unknown>` to attach
-   *   arbitrary properties. The type system already guarantees the developer can
-   *   only call methods that the plugin's type function declared.
-   * @param helpers Utilities the plugin may need to interact with the socket
-   *   internals (e.g., sending raw messages, accessing the send function).
+   * `this.helpers` is available here — use `this.helpers.rawSend` to send
+   * messages over the wire.
+   *
+   * @param socket The socket instance. Attach methods as properties. The type
+   *   system guarantees the developer can only call methods that the plugin's
+   *   type function declared.
    */
-  install?(socket: Record<string, unknown>, helpers: PluginHelpers): void;
+  install?(socket: Record<string, unknown>): void;
 
   /**
    * Phantom type that carries the type function. Never assigned at runtime —

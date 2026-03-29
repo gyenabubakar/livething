@@ -4,7 +4,7 @@ import { Channels } from '@/plugins/channels.ts';
 import { RequestResponse } from '@/plugins/request-response.ts';
 import { Stream } from '@/plugins/stream.ts';
 import { describe, expect, it, vi } from 'vitest';
-import type { PluginHelpers } from '@/plugins/base.ts';
+import type { Plugin, PluginHelpers } from '@/plugins/base.ts';
 
 function createHelpers(): PluginHelpers {
   return { rawSend: vi.fn() };
@@ -16,14 +16,23 @@ function createFakeSocket(): Record<string, unknown> {
   };
 }
 
+/** Simulate what createSocket does: set helpers, then call install. */
+function installPlugin(
+  plugin: Plugin<any, any>,
+  socket: Record<string, unknown>,
+  helpers: PluginHelpers,
+) {
+  plugin.helpers = helpers;
+  plugin.install?.(socket);
+}
+
 describe('Plugin.install', () => {
   describe('Ack', () => {
     it('attaches send.withAck to the socket', () => {
       const socket = createFakeSocket();
-      const helpers = createHelpers();
       const ack = new Ack();
 
-      ack.install?.(socket, helpers);
+      installPlugin(ack, socket, createHelpers());
 
       expect(typeof (socket.send as any).withAck).toBe('function');
     });
@@ -34,7 +43,7 @@ describe('Plugin.install', () => {
       const helpers = createHelpers();
       const ack = new Ack({ timeout: 5_000 });
 
-      ack.install?.(socket, helpers);
+      installPlugin(ack, socket, helpers);
 
       const promise = (socket.send as any).withAck('test', { data: 1 });
       expect(helpers.rawSend).toHaveBeenCalledOnce();
@@ -53,7 +62,7 @@ describe('Plugin.install', () => {
       const socket = createFakeSocket();
       const ack = new Ack();
 
-      ack.install?.(socket, createHelpers());
+      installPlugin(ack, socket, createHelpers());
 
       expect(typeof socket.send).toBe('function');
       expect((socket.send as any)('event', {})).toBe(true);
@@ -63,10 +72,9 @@ describe('Plugin.install', () => {
   describe('RequestResponse', () => {
     it('attaches request to the socket', () => {
       const socket = createFakeSocket();
-      const helpers = createHelpers();
       const rr = new RequestResponse();
 
-      rr.install?.(socket, helpers);
+      installPlugin(rr, socket, createHelpers());
 
       expect(typeof socket.request).toBe('function');
     });
@@ -77,7 +85,7 @@ describe('Plugin.install', () => {
       const helpers = createHelpers();
       const rr = new RequestResponse({ timeout: 5_000 });
 
-      rr.install?.(socket, helpers);
+      installPlugin(rr, socket, helpers);
 
       const promise = (socket.request as any)('get-balance', { userId: '1' });
       expect(helpers.rawSend).toHaveBeenCalledOnce();
@@ -97,20 +105,18 @@ describe('Plugin.install', () => {
   describe('Channels', () => {
     it('attaches channel to the socket', () => {
       const socket = createFakeSocket();
-      const helpers = createHelpers();
       const channels = new Channels();
 
-      channels.install?.(socket, helpers);
+      installPlugin(channels, socket, createHelpers());
 
       expect(typeof socket.channel).toBe('function');
     });
 
     it('channel() returns an object with on and send', () => {
       const socket = createFakeSocket();
-      const helpers = createHelpers();
       const channels = new Channels();
 
-      channels.install?.(socket, helpers);
+      installPlugin(channels, socket, createHelpers());
 
       const ch = (socket.channel as any)('chat') as Record<string, unknown>;
       expect(typeof ch.on).toBe('function');
@@ -119,10 +125,9 @@ describe('Plugin.install', () => {
 
     it('channel().on routes through registerHandler', () => {
       const socket = createFakeSocket();
-      const helpers = createHelpers();
       const channels = new Channels();
 
-      channels.install?.(socket, helpers);
+      installPlugin(channels, socket, createHelpers());
 
       const handler = vi.fn();
       const ch = (socket.channel as any)('chat') as Record<string, any>;
@@ -132,12 +137,12 @@ describe('Plugin.install', () => {
       expect(handler).toHaveBeenCalledWith({ _channel: 'chat', text: 'hi' });
     });
 
-    it('channel().send tags and sends via rawSend', () => {
+    it('channel().send tags and sends via this.helpers.rawSend', () => {
       const socket = createFakeSocket();
       const helpers = createHelpers();
       const channels = new Channels();
 
-      channels.install?.(socket, helpers);
+      installPlugin(channels, socket, helpers);
 
       const ch = (socket.channel as any)('chat') as Record<string, any>;
       ch.send('send-message', { text: 'hello' });
@@ -154,7 +159,7 @@ describe('Plugin.install', () => {
       const socket = createFakeSocket();
       const stream = new Stream();
 
-      stream.install?.(socket, createHelpers());
+      installPlugin(stream, socket, createHelpers());
 
       expect(typeof socket.onStream).toBe('function');
     });
@@ -163,7 +168,7 @@ describe('Plugin.install', () => {
       const socket = createFakeSocket();
       const stream = new Stream({ timeout: 5_000 });
 
-      stream.install?.(socket, createHelpers());
+      installPlugin(stream, socket, createHelpers());
 
       const onChunk = vi.fn();
       (socket.onStream as any)('ai-response', { onChunk });

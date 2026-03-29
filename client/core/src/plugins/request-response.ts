@@ -1,6 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- type-level request matching requires `any` */
 import { Plugin } from '@/plugins/base.ts';
-import type { PluginHelpers } from '@/plugins/base.ts';
 import type { TypeFn } from '@/plugins/types.ts';
 
 // ---------------------------------------------------------------------------
@@ -109,9 +108,9 @@ export class RequestResponse extends Plugin<
     });
   }
 
-  override install(socket: Record<string, unknown>, helpers: PluginHelpers) {
+  override install(socket: Record<string, unknown>) {
     socket.request = (event: string, payload: unknown, options?: { timeout?: number }) =>
-      this.sendRequest(event, payload, helpers.rawSend, options?.timeout);
+      this.sendRequest(event, payload, this.helpers.rawSend, options?.timeout);
   }
 
   override onIncoming(message: { event: string; payload: unknown }) {

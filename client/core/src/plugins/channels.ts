@@ -1,6 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- type-level channel routing requires `any` */
 import { Plugin } from '@/plugins/base.ts';
-import type { PluginHelpers } from '@/plugins/base.ts';
 import type { Endpoint } from '@/endpoint.ts';
 import type { TypeFn } from '@/plugins/types.ts';
 import type { IncomingOf, OutgoingOf } from '@/types.ts';
@@ -57,21 +56,21 @@ export class Channels extends Plugin<ChannelsTypeFn, { channels: Record<string, 
     this.ttl = options?.ttl;
   }
 
-  override install(socket: Record<string, unknown>, helpers: PluginHelpers) {
-    socket.channel = (name: string) => this.createChannelEndpoint(name, helpers);
+  override install(socket: Record<string, unknown>) {
+    socket.channel = (name: string) => this.createChannelEndpoint(name);
   }
 
   /**
    * Create a channel endpoint object with `on()` and `send()` methods
    * that route through this plugin.
    */
-  private createChannelEndpoint(name: string, helpers: PluginHelpers): Record<string, unknown> {
+  private createChannelEndpoint(name: string): Record<string, unknown> {
     return {
       on: (event: string, handler: (data: unknown) => void) =>
         this.registerHandler(name, event, handler),
       send: (event: string, payload: unknown) => {
         const tagged = this.tagChannel(event, payload, name);
-        helpers.rawSend(event, tagged);
+        this.helpers.rawSend(event, tagged);
         return true;
       },
     };

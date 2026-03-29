@@ -1,6 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- type-level ack matching requires `any` */
 import { Plugin } from '@/plugins/base.ts';
-import type { PluginHelpers } from '@/plugins/base.ts';
 import type { TypeFn } from '@/plugins/types.ts';
 
 // ---------------------------------------------------------------------------
@@ -108,7 +107,7 @@ export class Ack extends Plugin<AckTypeFn> {
     });
   }
 
-  override install(socket: Record<string, unknown>, helpers: PluginHelpers) {
+  override install(socket: Record<string, unknown>) {
     const existingSend = socket.send;
     if (typeof existingSend === 'function') {
       // Functions are objects in JS — we can add properties to them.
@@ -119,7 +118,7 @@ export class Ack extends Plugin<AckTypeFn> {
         event: string,
         payload: unknown,
         options?: { timeout?: number; ttl?: number },
-      ) => this.sendWithAck(event, payload, helpers.rawSend, options?.timeout);
+      ) => this.sendWithAck(event, payload, this.helpers.rawSend, options?.timeout);
     }
   }
 
