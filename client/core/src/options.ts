@@ -8,7 +8,7 @@ import type { SocketContract } from '@/types.ts';
 
 /** Options for `createSocket`. All options are optional. */
 export interface SocketOptions<_TContract extends SocketContract = SocketContract> {
-  /** Adapter for platform-specific behavior (browser tab visibility, network online/offline). Use `Adapter` from `@better-websocket/client-web` or `@better-websocket/client-react-native`. */
+  /** Override platform detection. Web APIs (visibility, network) are auto-detected — only needed for React Native (`@better-websocket/client-react-native`) or custom platforms (Electron, Capacitor). */
   adapter?: unknown;
 
   /** Plugin instances that extend socket functionality (e.g., Channels, RequestResponse, Ack, Stream). Each plugin can add methods, intercept messages, and hook into the connection lifecycle. */
