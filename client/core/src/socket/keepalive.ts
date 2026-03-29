@@ -68,7 +68,11 @@ export class Keepalive {
     this.quality = 'disconnected';
   }
 
-  /** Called when a pong message is received. Updates latency and quality. */
+  /**
+   * Called when a pong message is received from the server. Measures the
+   * round-trip latency, resets the missed pong counter, and recalculates
+   * the connection quality tier.
+   */
   onPong(): void {
     if (this.pingSentAt === null) return;
 

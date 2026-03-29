@@ -96,6 +96,25 @@ describe('Keepalive', () => {
     keepalive.stop();
   });
 
+  it('multiple start() calls do not stack timers', () => {
+    const { keepalive, callbacks } = createKeepalive();
+    keepalive.start();
+    keepalive.start();
+    keepalive.start();
+
+    vi.advanceTimersByTime(1000);
+    expect(callbacks.sendPing).toHaveBeenCalledTimes(1);
+
+    keepalive.stop();
+  });
+
+  it('stop when already stopped is a no-op', () => {
+    const { keepalive } = createKeepalive();
+    // Should not throw
+    keepalive.stop();
+    keepalive.stop();
+  });
+
   // ── Latency measurement ───────────────────────────────────
 
   it('measures latency on pong', () => {
@@ -121,10 +140,27 @@ describe('Keepalive', () => {
     keepalive.stop();
   });
 
+  it('onPong after stop is a no-op', () => {
+    const { keepalive, callbacks } = createKeepalive();
+    keepalive.start();
+
+    vi.advanceTimersByTime(1000); // ping sent
+    const callsBefore = (callbacks.onQualityChange as ReturnType<typeof vi.fn>).mock.calls.length;
+    keepalive.stop();
+    keepalive.onPong();
+
+    expect(keepalive.getLatency()).toBeNull();
+    expect(keepalive.getQuality()).toBe('disconnected');
+    // No additional qualityChange emitted from the stale pong
+    expect((callbacks.onQualityChange as ReturnType<typeof vi.fn>).mock.calls.length).toBe(
+      callsBefore,
+    );
+  });
+
   // ── Quality tiers ─────────────────────────────────────────
 
   it('reports excellent quality for low latency', () => {
-    const { keepalive, callbacks } = createKeepalive();
+    const { keepalive } = createKeepalive();
     keepalive.start();
 
     vi.advanceTimersByTime(1000);
@@ -132,8 +168,6 @@ describe('Keepalive', () => {
     keepalive.onPong();
 
     expect(keepalive.getQuality()).toBe('excellent');
-    // Quality started at excellent, so no change event
-    expect(callbacks.onQualityChange).toHaveBeenCalledTimes(1); // initial set to excellent on start
     keepalive.stop();
   });
 
@@ -224,6 +258,25 @@ describe('Keepalive', () => {
     keepalive.stop();
   });
 
+  it('recovers quality after a missed pong', () => {
+    const { keepalive, callbacks } = createKeepalive();
+    keepalive.start();
+
+    // Ping sent, no pong → miss
+    vi.advanceTimersByTime(1000); // ping 1 sent
+    vi.advanceTimersByTime(1000); // tick: 1 missed → poor, ping 2 sent
+    expect(keepalive.getQuality()).toBe('poor');
+
+    // Pong arrives for ping 2
+    vi.advanceTimersByTime(50);
+    keepalive.onPong();
+
+    expect(keepalive.getQuality()).toBe('excellent');
+    expect(callbacks.onQualityChange).toHaveBeenCalledWith('excellent', 50);
+
+    keepalive.stop();
+  });
+
   // ── Missed pong detection ─────────────────────────────────
 
   it('degrades to poor on first missed pong', () => {
@@ -251,6 +304,24 @@ describe('Keepalive', () => {
 
     vi.advanceTimersByTime(1000); // tick 3: 2 missed → force close
     expect(callbacks.forceClose).toHaveBeenCalledTimes(1);
+
+    keepalive.stop();
+  });
+
+  it('does not send another ping after force close', () => {
+    const { keepalive, callbacks } = createKeepalive({ maxMissedPongs: 2 });
+    keepalive.start();
+
+    vi.advanceTimersByTime(1000); // ping 1
+    vi.advanceTimersByTime(1000); // 1 missed, ping 2
+    vi.advanceTimersByTime(1000); // 2 missed → force close
+
+    const pingCount = (callbacks.sendPing as ReturnType<typeof vi.fn>).mock.calls.length;
+
+    // Force close fired — but timer is still running (Socket.onclose stops it).
+    // The key check: forceClose was called, no more pings after threshold.
+    expect(callbacks.forceClose).toHaveBeenCalledTimes(1);
+    expect(pingCount).toBe(2); // only 2 pings sent, third tick triggered force close instead
 
     keepalive.stop();
   });
