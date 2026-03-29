@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- plugin type merging requires `any` */
 import type { SendOptions } from '@/endpoint.ts';
-import type { Plugin } from '@/plugins/base.ts';
+import type { Plugin, PluginHelpers } from '@/plugins/base.ts';
 import type { ApplyPlugins, ValidatePlugins } from '@/plugins/types.ts';
 import type {
   ConnectionQuality,
@@ -73,6 +73,26 @@ export class Socket<TContract extends SocketContract> {
   /** The subprotocol selected by the server during handshake. `null` if none. */
   readonly protocol: string | null = null;
 
+  /** @internal */
+  _url: string | (() => string | Promise<string>);
+  /** @internal */
+  _options: FullSocketOptions<TContract>;
+  /** @internal */
+  _plugins: readonly Plugin<any, any>[];
+  /** @internal */
+  _state: ConnectionState = 'closed';
+
+  /** @internal */
+  constructor(
+    url: string | (() => string | Promise<string>),
+    options: FullSocketOptions<TContract>,
+    plugins: readonly Plugin<any, any>[],
+  ) {
+    this._url = url;
+    this._options = options;
+    this._plugins = plugins;
+  }
+
   /** Open the WebSocket connection. Safe to call multiple times. */
   connect(): void {
     throw new Error('Not implemented');
@@ -94,7 +114,7 @@ export class Socket<TContract extends SocketContract> {
 
   /** Current connection state. */
   getState(): ConnectionState {
-    throw new Error('Not implemented');
+    return this._state;
   }
 
   /** Current connection quality based on ping latency. */
@@ -308,6 +328,9 @@ export type FullSocketOptions<TContract extends SocketContract> = SocketOptions<
 /**
  * Create a typed WebSocket client.
  *
+ * Constructs a `Socket`, wires up plugins (sets `helpers`, calls `install`),
+ * and returns the socket with plugin APIs merged onto the type.
+ *
  * ```ts
  * const socket = createSocket<MySocket>('wss://example.com/ws', {
  *   adapter: new Adapter(),
@@ -315,7 +338,7 @@ export type FullSocketOptions<TContract extends SocketContract> = SocketOptions<
  * });
  * ```
  */
-export declare function createSocket<
+export function createSocket<
   TContract extends SocketContract,
   const TPlugins extends readonly Plugin<any, any>[] = [],
 >(
@@ -323,4 +346,40 @@ export declare function createSocket<
   options?: FullSocketOptions<TContract> & {
     plugins?: ValidatePlugins<TContract, TPlugins> & TPlugins;
   },
-): Simplify<Socket<TContract> & ApplyPlugins<TPlugins, TContract>>;
+): Simplify<Socket<TContract> & ApplyPlugins<TPlugins, TContract>> {
+  const opts = (options ?? {}) as FullSocketOptions<TContract>;
+  const plugins = (opts.plugins ?? []) as readonly Plugin<any, any>[];
+
+  const socket = new Socket<TContract>(url, opts, plugins);
+
+  // Shared monotonic counter for plugin ID generation
+  let idCounter = 0;
+
+  const helpers: PluginHelpers = {
+    rawSend(event: string, payload: unknown) {
+      // TODO: send directly over the WebSocket, bypassing onOutgoing hooks
+      const serialized = (opts.serialize ?? defaultSerialize)(event, payload);
+      socket.ws?.send(serialized);
+    },
+    generateId(prefix?: string) {
+      const id = ++idCounter;
+      return prefix ? `${prefix}-${id}` : `${id}`;
+    },
+    getState() {
+      return socket.getState();
+    },
+  };
+
+  // Wire up each plugin: set helpers, then let it attach its methods
+  for (const plugin of plugins) {
+    plugin.helpers = helpers;
+    plugin.install?.(socket as unknown as Record<string, unknown>);
+  }
+
+  return socket as unknown as Simplify<Socket<TContract> & ApplyPlugins<TPlugins, TContract>>;
+}
+
+/** Default message serializer: `{ event, payload }` as JSON. */
+function defaultSerialize(event: string, payload: unknown): string {
+  return JSON.stringify({ event, payload });
+}
