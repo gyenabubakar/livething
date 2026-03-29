@@ -1,14 +1,16 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- plugin array typing */
+import type { SocketOptions } from '@/options.ts';
 import type { Plugin } from '@/plugins/base.ts';
 
-/** Options that control reconnection behavior. */
-export interface ReconnectionOptions {
-  reconnect?: boolean;
-  maxReconnectAttempts?: number;
-  maxReconnectDelay?: number;
-  shouldReconnect?: (code: number, reason: string) => boolean | void;
-  nonRetryableCodes?: number[];
-}
+/** Reconnection-relevant subset of SocketOptions. */
+export type ReconnectionOptions = Pick<
+  SocketOptions,
+  | 'reconnect'
+  | 'maxReconnectAttempts'
+  | 'maxReconnectDelay'
+  | 'shouldReconnect'
+  | 'nonRetryableCodes'
+>;
 
 /**
  * Manages reconnection with exponential backoff and jitter.
