@@ -10,18 +10,20 @@
     "prepare": "husky",
     "build": "pnpm -r --parallel run build",
     "dev": "pnpm -r --parallel run dev",
+    "test": "pnpm -r --parallel run test",
     "typecheck": "pnpm -r --parallel run typecheck",
     "oxlint": "oxlint --fix .",
     "format": "prettier --cache --log-level=error --write .",
     "clean": "pnpm -r --parallel run clean"
   },
   "devDependencies": {
+    "@ianvs/prettier-plugin-sort-imports": "^4.4.2",
     "@types/node": "^24.12.0",
     "husky": "^9.1.7",
     "lint-staged": "^15.4.3",
     "oxlint": "^0.16.10",
     "prettier": "^3.5.3",
-    "@ianvs/prettier-plugin-sort-imports": "^4.4.2",
-    "typescript": "^5.8.2"
+    "typescript": "^5.8.2",
+    "vitest": "^4.1.2"
   }
 }
