@@ -26,6 +26,7 @@ export type { CloseEvent } from '@/socket/index.ts';
 export type { SocketOptions, FullSocketOptions } from '@/options.ts';
 
 export { Plugin } from '@/plugins/base.ts';
+export type { PluginHelpers } from '@/plugins/base.ts';
 export type {
   TypeFn,
   Apply,

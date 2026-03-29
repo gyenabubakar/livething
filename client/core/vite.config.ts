@@ -12,9 +12,11 @@ export default defineConfig({
   },
   build: {
     lib: {
-      entry: resolve(__dirname, 'src/index.ts'),
+      entry: {
+        index: resolve(__dirname, 'src/index.ts'),
+        plugins: resolve(__dirname, 'src/plugins/index.ts'),
+      },
       formats: ['es'],
-      fileName: 'index',
     },
   },
   test: {
