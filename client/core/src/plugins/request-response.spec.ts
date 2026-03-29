@@ -128,4 +128,24 @@ describe('RequestResponse', () => {
       await expect(promise).rejects.toThrow('timed out');
     });
   });
+
+  describe('edge cases', () => {
+    it('ignores responses that arrive after timeout', async () => {
+      const promise = rr.sendRequest('slow', {}, sendSpy);
+      const id = (sendSpy.mock.calls[0]![1] as Record<string, unknown>)._correlationId as string;
+
+      vi.advanceTimersByTime(5_000);
+      await expect(promise).rejects.toThrow('timed out');
+
+      const result = rr.onIncoming({ event: 'slow', payload: { _correlationId: id, late: true } });
+      expect(result).toEqual({ event: 'slow', payload: { _correlationId: id, late: true } });
+    });
+
+    it('calling onClose multiple times is safe', async () => {
+      const p = rr.sendRequest('test', {}, sendSpy);
+      rr.onClose?.(1000, 'normal');
+      expect(() => rr.onClose?.(1000, 'normal')).not.toThrow();
+      await expect(p).rejects.toThrow('Disconnected');
+    });
+  });
 });

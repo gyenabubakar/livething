@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
 import { Channels } from '@/plugins/channels.ts';
+import { describe, expect, it, vi } from 'vitest';
 
 describe('Channels', () => {
   describe('extractChannel', () => {
@@ -143,6 +143,42 @@ describe('Channels', () => {
     it('defaults ttl to undefined', () => {
       const channels = new Channels();
       expect(channels.ttl).toBeUndefined();
+    });
+  });
+
+  describe('edge cases', () => {
+    it('calling unsubscribe twice is safe', () => {
+      const channels = new Channels();
+      const unsub = channels.registerHandler('chat', 'message', vi.fn());
+      unsub();
+      expect(() => unsub()).not.toThrow();
+    });
+
+    it('re-registering after unsubscribe works', () => {
+      const channels = new Channels();
+      const handler = vi.fn();
+      const unsub = channels.registerHandler('chat', 'message', handler);
+      unsub();
+
+      const handler2 = vi.fn();
+      channels.registerHandler('chat', 'message', handler2);
+
+      const msg = { event: 'message', payload: { _channel: 'chat', text: 'hi' } };
+      channels.onIncoming(msg);
+
+      expect(handler).not.toHaveBeenCalled();
+      expect(handler2).toHaveBeenCalledOnce();
+    });
+
+    it('routes messages with empty string channel name', () => {
+      const channels = new Channels();
+      const handler = vi.fn();
+      channels.registerHandler('', 'message', handler);
+
+      const msg = { event: 'message', payload: { _channel: '', text: 'hi' } };
+      channels.onIncoming(msg);
+
+      expect(handler).toHaveBeenCalledOnce();
     });
   });
 });

@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Stream } from '@/plugins/stream.ts';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 describe('Stream', () => {
   let stream: Stream;
@@ -168,6 +168,43 @@ describe('Stream', () => {
 
       vi.advanceTimersByTime(2_000);
       expect(onTimeout).toHaveBeenCalledWith('s1');
+    });
+  });
+
+  describe('edge cases', () => {
+    it('only ends stream when _streamEnd is exactly true', () => {
+      const onEnd = vi.fn();
+      stream.registerStream('ai-response', { onChunk: vi.fn(), onEnd });
+
+      stream.onIncoming({ event: 'ai-response', payload: { _streamId: 's1', _streamEnd: 1 } });
+      expect(onEnd).not.toHaveBeenCalled();
+
+      stream.onIncoming({
+        event: 'ai-response',
+        payload: { _streamId: 's1', _streamEnd: true },
+      });
+      expect(onEnd).toHaveBeenCalledWith('s1');
+    });
+
+    it('calling unsubscribe twice is safe', () => {
+      const unsub = stream.registerStream('ai-response', { onChunk: vi.fn() });
+      unsub();
+      expect(() => unsub()).not.toThrow();
+    });
+
+    it('new chunks after stream end start a fresh stream', () => {
+      const onChunk = vi.fn();
+      const onEnd = vi.fn();
+      stream.registerStream('ai-response', { onChunk, onEnd });
+
+      stream.onIncoming({
+        event: 'ai-response',
+        payload: { _streamId: 's1', text: 'a', _streamEnd: true },
+      });
+      expect(onEnd).toHaveBeenCalledTimes(1);
+
+      stream.onIncoming({ event: 'ai-response', payload: { _streamId: 's1', text: 'b' } });
+      expect(onChunk).toHaveBeenCalledTimes(2);
     });
   });
 });

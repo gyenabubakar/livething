@@ -74,4 +74,15 @@ describe('Dedup', () => {
   it('returns the ID for extractId when _messageId is present', () => {
     expect(dedup.extractId('test', { _messageId: 'abc' })).toBe('abc');
   });
+
+  it('treats non-string _messageId as missing (passes through)', () => {
+    const msg = { event: 'test', payload: { _messageId: 42 } };
+    expect(dedup.onIncoming(msg)).toEqual(msg);
+    expect(dedup.onIncoming(msg)).toEqual(msg);
+  });
+
+  it('handles non-object payloads gracefully', () => {
+    const msg = { event: 'test', payload: 'just a string' };
+    expect(dedup.onIncoming(msg)).toEqual(msg);
+  });
 });

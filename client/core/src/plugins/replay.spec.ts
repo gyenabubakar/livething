@@ -38,4 +38,24 @@ describe('Replay', () => {
     expect(replay.extractSequence('msg', { data: 'hi' })).toBeNull();
     expect(replay.extractSequence('msg', { _seq: 'not a number' })).toBeNull();
   });
+
+  it('tracks sequence number 0', () => {
+    const replay = new Replay();
+    replay.onIncoming({ event: 'msg', payload: { _seq: 0 } });
+    expect(replay.onReconnect()).toEqual([{ event: '_replay', payload: { since: 0 } }]);
+  });
+
+  it('tracks the latest sequence regardless of arrival order', () => {
+    const replay = new Replay();
+    replay.onIncoming({ event: 'msg', payload: { _seq: 10 } });
+    replay.onIncoming({ event: 'msg', payload: { _seq: 3 } });
+    expect(replay.onReconnect()).toEqual([{ event: '_replay', payload: { since: 3 } }]);
+  });
+
+  it('returns consistent results on multiple onReconnect calls', () => {
+    const replay = new Replay();
+    replay.onIncoming({ event: 'msg', payload: { _seq: 7 } });
+    expect(replay.onReconnect()).toEqual([{ event: '_replay', payload: { since: 7 } }]);
+    expect(replay.onReconnect()).toEqual([{ event: '_replay', payload: { since: 7 } }]);
+  });
 });

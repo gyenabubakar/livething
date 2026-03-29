@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Ack } from '@/plugins/ack.ts';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 describe('Ack', () => {
   let ack: Ack;
@@ -124,6 +124,26 @@ describe('Ack', () => {
       vi.advanceTimersByTime(10_000);
 
       await expect(promise).rejects.toThrow('timed out');
+    });
+  });
+
+  describe('edge cases', () => {
+    it('ignores acks that arrive after timeout', async () => {
+      const promise = ack.sendWithAck('msg', {}, sendSpy);
+      const ackId = (sendSpy.mock.calls[0]![1] as Record<string, unknown>)._ackId as string;
+
+      vi.advanceTimersByTime(5_000);
+      await expect(promise).rejects.toThrow('timed out');
+
+      const result = ack.onIncoming({ event: '_ack', payload: { id: ackId } });
+      expect(result).toEqual({ event: '_ack', payload: { id: ackId } });
+    });
+
+    it('calling onClose multiple times is safe', async () => {
+      const p = ack.sendWithAck('test', {}, sendSpy);
+      ack.onClose?.(1000, 'normal');
+      expect(() => ack.onClose?.(1000, 'normal')).not.toThrow();
+      await expect(p).rejects.toThrow('Disconnected');
     });
   });
 });
