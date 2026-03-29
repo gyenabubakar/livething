@@ -9,7 +9,7 @@
 import { Plugin } from '@/plugins/base.ts';
 import type { createSocket } from '@/create-socket.ts';
 import type { TypeFn } from '@/plugins/types.ts';
-import type { CloseEvent, MiddlewareMessage } from '@/socket.ts';
+import type { CloseEvent, MiddlewareMessage } from '@/socket/socket.ts';
 import type { ConnectionQuality, ConnectionState, SocketContract, StaticApi } from '@/types.ts';
 
 // ===========================================================================
