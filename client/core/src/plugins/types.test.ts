@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- type test file uses `any` for casting in type assertions */
 /**
  * Type-level tests for the plugin type system.
  *

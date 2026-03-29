@@ -13,6 +13,8 @@ export type {
   StaticApi,
 } from '@/types.ts';
 
+export type { Endpoint, SendOptions } from '@/endpoint.ts';
+
 export { Plugin } from '@/plugins/base.ts';
 export type {
   TypeFn,
