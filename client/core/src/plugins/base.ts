@@ -25,6 +25,9 @@ export interface PluginHelpers {
 
   /** Current connection state. Useful for conditional plugin behavior. */
   getState: () => ConnectionState;
+
+  /** Read-only access to the socket options. Plugins can read config but not mutate it. */
+  getOptions: () => Readonly<Record<string, unknown>>;
 }
 
 /**

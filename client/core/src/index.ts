@@ -16,7 +16,7 @@ export type {
 export type { Endpoint, SendOptions } from '@/endpoint.ts';
 
 export { Socket } from '@/socket.ts';
-export { createSocket } from '@/socket.ts';
+export { createSocket } from '@/create-socket.ts';
 export type {
   CloseEvent,
   MiddlewareFn,

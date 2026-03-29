@@ -12,6 +12,7 @@ function createHelpers(): PluginHelpers {
     rawSend: vi.fn(),
     generateId: (prefix?: string) => (prefix ? `${prefix}-${++counter}` : `${++counter}`),
     getState: () => 'open',
+    getOptions: () => ({}),
   };
 }
 
