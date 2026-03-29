@@ -2,8 +2,10 @@
 import { MessageBuffer } from '@/socket/buffer.ts';
 import { Emitter } from '@/socket/emitter.ts';
 import { Keepalive } from '@/socket/keepalive.ts';
+import { Platform } from '@/socket/platform.ts';
 import { Reconnection } from '@/socket/reconnection.ts';
 import type { SendOptions } from '@/endpoint.ts';
+import type { MiddlewareFn, MiddlewareMessage } from '@/middleware.ts';
 import type { FullSocketOptions } from '@/options.ts';
 import type { Plugin } from '@/plugins/base.ts';
 import type {
@@ -33,30 +35,6 @@ export interface CloseEvent {
   /** Whether the close handshake completed properly. */
   wasClean: boolean;
 }
-
-// ---------------------------------------------------------------------------
-// Middleware
-// ---------------------------------------------------------------------------
-
-/**
- * A deserialized incoming message. Middleware receives this and can
- * inspect, modify, or drop it before it reaches event handlers.
- */
-export interface MiddlewareMessage {
-  /** The event name (e.g., `'notification'`, `'chat-message'`). */
-  event: string;
-  /** The event payload, already parsed from the wire format. */
-  payload: unknown;
-}
-
-/**
- * Middleware function. Called in registration order for each incoming message.
- *
- * - Return nothing (or `undefined`) → message passes through unchanged
- * - Return a new `{ event, payload }` → replaces the original message
- * - Return `null` → message is dropped, no handlers fire
- */
-export type MiddlewareFn = (message: MiddlewareMessage) => MiddlewareMessage | null | void;
 
 // ---------------------------------------------------------------------------
 // Internal event map
@@ -129,6 +107,12 @@ export class Socket<TContract extends SocketContract> {
   _keepalive: Keepalive;
   /** @internal */
   _buffer: MessageBuffer;
+  /** @internal */
+  _platform: Platform;
+  /** @internal — whether platform listeners have been bound */
+  _platformBound = false;
+  /** @internal — inactivity disconnect timer */
+  _inactivityTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** @internal */
   constructor(
@@ -142,6 +126,7 @@ export class Socket<TContract extends SocketContract> {
     this._debug = options.debug ?? false;
     this._reconnection = new Reconnection(options, plugins);
     this._buffer = new MessageBuffer(options);
+    this._platform = new Platform(options);
     this._keepalive = new Keepalive(options, {
       sendPing: (message) => {
         if (!this.ws || this._state !== 'open') return;
@@ -166,6 +151,7 @@ export class Socket<TContract extends SocketContract> {
   connect(): void {
     if (this._state === 'open' || this._state === 'connecting') return;
     this._intentionalClose = false;
+    this._bindPlatform();
     this._openConnection();
   }
 
@@ -185,6 +171,7 @@ export class Socket<TContract extends SocketContract> {
     this._reconnection.stop();
     this._keepalive.stop();
     this._buffer.clear();
+    this._unbindPlatform();
 
     if (this.ws) {
       this.ws.onopen = null;
@@ -282,7 +269,7 @@ export class Socket<TContract extends SocketContract> {
    * Send raw binary data directly over the WebSocket. Bypasses the `serialize`
    * option and contract typing — you handle the encoding.
    */
-  sendBinary(data: ArrayBuffer | ArrayBufferView | Blob): void {
+  sendBinary(data: ArrayBuffer | ArrayBufferView<ArrayBuffer> | Blob): void {
     if (this._state !== 'open' || !this.ws) return;
     this.ws.send(data);
   }
@@ -550,6 +537,83 @@ export class Socket<TContract extends SocketContract> {
 
     if (scheduled) {
       this._log(`reconnect scheduled (attempt ${this._reconnection.currentAttempt})`);
+    }
+  }
+
+  /** @internal — bind platform listeners (network, visibility). Idempotent. */
+  private _bindPlatform(): void {
+    if (this._platformBound) return;
+    this._platformBound = true;
+
+    const inactiveTimeout = this._options.inactiveTimeout ?? 0;
+
+    this._platform.bind({
+      onNetworkOnline: () => {
+        this._log('network online');
+        if (this._state === 'reconnecting') {
+          this._reconnection.resume(
+            () => {
+              this._log('reconnect attempt (network resumed)');
+              this._openConnection();
+            },
+            () => {
+              this._log('reconnection attempts exhausted');
+              this._setState('closed');
+              this._emitter.emit('reconnectFailed');
+            },
+          );
+        }
+      },
+      onNetworkOffline: () => {
+        this._log('network offline');
+        if (this._state === 'reconnecting') {
+          this._reconnection.pause();
+        }
+      },
+      onActive: () => {
+        this._log('app active');
+        this._clearInactivityTimer();
+        if (this._state === 'closed' && !this._intentionalClose) {
+          this.connect();
+        }
+      },
+      onInactive: () => {
+        this._log('app inactive');
+        if (inactiveTimeout > 0 && this._state === 'open') {
+          this._inactivityTimer = setTimeout(() => {
+            this._log('inactivity timeout — disconnecting');
+            this._intentionalClose = false;
+            this._keepalive.stop();
+            this._reconnection.stop();
+            if (this.ws) {
+              this.ws.onopen = null;
+              this.ws.onclose = null;
+              this.ws.onerror = null;
+              this.ws.onmessage = null;
+              this.ws.close(1000, 'inactive');
+              this.ws = null;
+            }
+            this.protocol = null;
+            this._setState('closed');
+            this._emitter.emit('close', { code: 1000, reason: 'inactive', wasClean: true });
+          }, inactiveTimeout);
+        }
+      },
+    });
+  }
+
+  /** @internal — unbind platform listeners and clear inactivity timer */
+  private _unbindPlatform(): void {
+    this._platform.unbind();
+    this._platformBound = false;
+    this._clearInactivityTimer();
+  }
+
+  /** @internal */
+  private _clearInactivityTimer(): void {
+    if (this._inactivityTimer !== null) {
+      clearTimeout(this._inactivityTimer);
+      this._inactivityTimer = null;
     }
   }
 
