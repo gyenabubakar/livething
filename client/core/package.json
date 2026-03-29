@@ -25,6 +25,7 @@
     "clean": "rm -rf dist"
   },
   "devDependencies": {
+    "msw": "^2.12.14",
     "vite": "^8.0.1",
     "vite-plugin-dts": "^4.5.4"
   }
