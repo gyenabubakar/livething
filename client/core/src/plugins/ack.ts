@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- type-level ack matching requires `any` */
 import { Plugin } from '@/plugins/base.ts';
+import type { PluginHelpers } from '@/plugins/base.ts';
 import type { TypeFn } from '@/plugins/types.ts';
 
 // ---------------------------------------------------------------------------
@@ -105,6 +106,21 @@ export class Ack extends Plugin<AckTypeFn> {
       this.pending.set(id, { resolve, reject, timer });
       send(event, tagged);
     });
+  }
+
+  override install(socket: Record<string, unknown>, helpers: PluginHelpers) {
+    const existingSend = socket.send;
+    if (typeof existingSend === 'function') {
+      // Functions are objects in JS — we can add properties to them.
+      // socket.send('event', payload) still works as a function call,
+      // and socket.send.withAck('event', payload) works as a method.
+      const sendObj = existingSend as unknown as Record<string, unknown>;
+      sendObj.withAck = (
+        event: string,
+        payload: unknown,
+        options?: { timeout?: number; ttl?: number },
+      ) => this.sendWithAck(event, payload, helpers.rawSend, options?.timeout);
+    }
   }
 
   override onIncoming(message: { event: string; payload: unknown }) {

@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- type-level stream routing requires `any` */
 import { Plugin } from '@/plugins/base.ts';
+import type { PluginHelpers } from '@/plugins/base.ts';
 import type { TypeFn } from '@/plugins/types.ts';
 
 // ---------------------------------------------------------------------------
@@ -93,6 +94,11 @@ export class Stream extends Plugin<StreamTypeFn> {
   isStreamEnd(_event: string, payload: unknown): boolean {
     const p = payload as Record<string, unknown>;
     return p._streamEnd === true;
+  }
+
+  override install(socket: Record<string, unknown>, _helpers: PluginHelpers) {
+    socket.onStream = (event: string, handlers: StreamHandlers) =>
+      this.registerStream(event, handlers);
   }
 
   /**

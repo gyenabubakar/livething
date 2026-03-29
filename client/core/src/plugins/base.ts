@@ -1,6 +1,15 @@
 import type { TypeFn } from '@/plugins/types.ts';
 
 /**
+ * Utilities passed to `Plugin.install()`. Provides access to socket internals
+ * that plugins need to function (e.g., sending raw messages over the wire).
+ */
+export interface PluginHelpers {
+  /** Send a raw message over the WebSocket. Bypasses plugin `onOutgoing` hooks to avoid infinite loops. */
+  rawSend: (event: string, payload: unknown) => void;
+}
+
+/**
  * Base class for all plugins. Subclass this to create built-in or custom plugins.
  *
  * Type parameters:
@@ -34,6 +43,22 @@ export abstract class Plugin<F extends TypeFn = TypeFn, TRequires = {}> {
 
   /** Decide whether to reconnect. Return `false` to suppress, `true` to force, `void` to defer. */
   shouldReconnect?(code: number, reason: string): boolean | void;
+
+  /**
+   * Called once during `createSocket` to attach runtime methods to the socket.
+   *
+   * This is how plugins add their API to the socket object. The type function
+   * (`_typeFn`) tells TypeScript the methods exist; `install` actually puts them
+   * there at runtime. `createSocket` does not know about any specific plugin —
+   * it just calls `install` on each one.
+   *
+   * @param socket The socket instance. Use `Record<string, unknown>` to attach
+   *   arbitrary properties. The type system already guarantees the developer can
+   *   only call methods that the plugin's type function declared.
+   * @param helpers Utilities the plugin may need to interact with the socket
+   *   internals (e.g., sending raw messages, accessing the send function).
+   */
+  install?(socket: Record<string, unknown>, helpers: PluginHelpers): void;
 
   /**
    * Phantom type that carries the type function. Never assigned at runtime —

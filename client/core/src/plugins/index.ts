@@ -1,4 +1,5 @@
 export { Plugin } from '@/plugins/base.ts';
+export type { PluginHelpers } from '@/plugins/base.ts';
 export type {
   TypeFn,
   Apply,
