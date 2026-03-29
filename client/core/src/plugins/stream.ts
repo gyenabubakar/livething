@@ -143,15 +143,15 @@ export class Stream extends Plugin<StreamTypeFn> {
       handlers.onChunk(message.payload, streamId);
     }
 
-    if (isEnd) {
-      const active = this.streams.get(streamId);
-      if (active) {
-        clearTimeout(active.timer);
-        this.streams.delete(streamId);
-      }
-      for (const handlers of subs) {
-        handlers.onEnd?.(streamId);
-      }
+    if (!isEnd) return message;
+
+    const active = this.streams.get(streamId);
+    if (active) {
+      clearTimeout(active.timer);
+      this.streams.delete(streamId);
+    }
+    for (const handlers of subs) {
+      handlers.onEnd?.(streamId);
     }
 
     return message;

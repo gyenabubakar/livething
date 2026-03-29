@@ -358,10 +358,9 @@ export class Socket<TContract extends SocketContract> {
         // Plugin onOpen hooks (fire on every open)
         for (const plugin of this._plugins) {
           const messages = plugin.onOpen?.();
-          if (messages) {
-            for (const msg of messages) {
-              this._rawSend(msg.event, msg.payload);
-            }
+          if (!messages) continue;
+          for (const msg of messages) {
+            this._rawSend(msg.event, msg.payload);
           }
         }
 
@@ -369,10 +368,9 @@ export class Socket<TContract extends SocketContract> {
         if (isReconnect) {
           for (const plugin of this._plugins) {
             const messages = plugin.onReconnect?.();
-            if (messages) {
-              for (const msg of messages) {
-                this._rawSend(msg.event, msg.payload);
-              }
+            if (!messages) continue;
+            for (const msg of messages) {
+              this._rawSend(msg.event, msg.payload);
             }
           }
         }
@@ -400,13 +398,14 @@ export class Socket<TContract extends SocketContract> {
           wasClean: event.wasClean,
         });
 
-        if (!this._intentionalClose) {
-          // TODO: trigger reconnection logic
-          this._setState('reconnecting');
-          this._log(`connection closed (code ${event.code}), will reconnect`);
-        } else {
+        if (this._intentionalClose) {
           this._setState('closed');
+          return;
         }
+
+        // TODO: trigger reconnection logic
+        this._setState('reconnecting');
+        this._log(`connection closed (code ${event.code}), will reconnect`);
       };
 
       ws.onerror = (event) => {
