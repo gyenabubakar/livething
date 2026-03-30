@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- type-level ack matching requires `any` */
+import { DisconnectedError, TimeoutError } from '@/errors.ts';
 import { Plugin } from '@/plugins/base.ts';
 import type { TypeFn } from '@/plugins/types.ts';
 
@@ -86,36 +87,64 @@ export class Ack extends Plugin<AckTypeFn> {
     payload: unknown,
     send: (event: string, payload: unknown) => void,
     timeout?: number,
+    ttl?: number,
   ): Promise<void> {
     const id = this.helpers.generateId('ack');
     const tagged = this.tagMessage(event, payload, id);
     const ms = timeout ?? this.defaultTimeout;
 
+    this.helpers.lazyAcquire();
+
     return new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => {
+      const cleanup = () => {
         this.pending.delete(id);
-        reject(new Error(`Ack for "${event}" timed out after ${ms}ms`));
+        this.helpers.lazyRelease();
+      };
+
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(new TimeoutError(`Ack for "${event}"`, ms));
       }, ms);
 
-      this.pending.set(id, { resolve, reject, timer });
-      send(event, tagged);
+      this.pending.set(id, {
+        resolve: () => {
+          clearTimeout(timer);
+          cleanup();
+          resolve();
+        },
+        reject: (reason) => {
+          clearTimeout(timer);
+          cleanup();
+          reject(reason);
+        },
+        timer,
+      });
+
+      // Use helpers.send for buffer support + TTL, fall back to raw send
+      if (ttl !== undefined) {
+        this.helpers.send(event, tagged, { ttl });
+      } else {
+        send(event, tagged);
+      }
     });
   }
 
   override install(socket: Record<string, unknown>) {
     const existingSend = socket.send;
     if (typeof existingSend === 'function') {
-      // Functions are objects in JS — we can add properties to them.
-      // socket.send('event', payload) still works as a function call,
-      // and socket.send.withAck('event', payload) works as a method.
       const sendObj = existingSend as unknown as Record<string, unknown>;
       sendObj.withAck = (
         event: string,
         payload: unknown,
         options?: { timeout?: number; ttl?: number },
       ) => {
-        this.helpers.ensureConnected();
-        return this.sendWithAck(event, payload, this.helpers.rawSend, options?.timeout);
+        return this.sendWithAck(
+          event,
+          payload,
+          this.helpers.rawSend,
+          options?.timeout,
+          options?.ttl,
+        );
       };
     }
   }
@@ -127,16 +156,13 @@ export class Ack extends Plugin<AckTypeFn> {
     const pending = this.pending.get(id);
     if (!pending) return message;
 
-    clearTimeout(pending.timer);
-    this.pending.delete(id);
     pending.resolve();
     return null;
   }
 
   override onClose(_code: number, _reason: string) {
     for (const [id, pending] of this.pending) {
-      clearTimeout(pending.timer);
-      pending.reject(new Error('Disconnected'));
+      pending.reject(new DisconnectedError());
       this.pending.delete(id);
     }
   }

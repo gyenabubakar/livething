@@ -252,11 +252,19 @@ export class Socket<TContract extends SocketContract> {
   send<K extends keyof OutgoingOf<TContract> & string>(
     event: K,
     payload: OutgoingOf<TContract>[K],
-    _options?: SendOptions,
+    options?: SendOptions,
   ): boolean {
+    return this._send(event, payload, options);
+  }
+
+  /**
+   * @internal — untyped send that runs the full pipeline: lazy connect →
+   * onOutgoing hooks → buffer fallback → WebSocket. Used by `send()` and
+   * exposed to plugins via `helpers.send`.
+   */
+  _send(event: string, payload: unknown, options?: SendOptions): boolean {
     this._ensureConnected();
 
-    // Run through plugin onOutgoing hooks
     let msg: { event: string; payload: unknown } | null = { event, payload };
     for (const plugin of this._plugins) {
       if (!plugin.onOutgoing) continue;
@@ -268,7 +276,7 @@ export class Socket<TContract extends SocketContract> {
     }
 
     if (this._state !== 'open' || !this.ws) {
-      if (this._buffer.enqueue(msg.event, msg.payload, _options?.ttl)) {
+      if (this._buffer.enqueue(msg.event, msg.payload, options?.ttl)) {
         this._log(`send('${msg.event}') buffered`);
         return true;
       }

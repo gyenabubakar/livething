@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- type-level request matching requires `any` */
+import { DisconnectedError, TimeoutError } from '@/errors.ts';
 import { Plugin } from '@/plugins/base.ts';
 import type { TypeFn } from '@/plugins/types.ts';
 
@@ -91,20 +92,39 @@ export class RequestResponse extends Plugin<
     const tagged = this.tagRequest(event, payload, id);
     const ms = timeout ?? this.defaultTimeout;
 
+    this.helpers.lazyAcquire();
+
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
+      const cleanup = () => {
         this.pending.delete(id);
-        reject(new Error(`Request "${event}" timed out after ${ms}ms`));
+        this.helpers.lazyRelease();
+      };
+
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(new TimeoutError(`Request "${event}"`, ms));
       }, ms);
 
-      this.pending.set(id, { resolve, reject, timer });
+      this.pending.set(id, {
+        resolve: (value) => {
+          clearTimeout(timer);
+          cleanup();
+          resolve(value);
+        },
+        reject: (reason) => {
+          clearTimeout(timer);
+          cleanup();
+          reject(reason);
+        },
+        timer,
+      });
+
       send(event, tagged);
     });
   }
 
   override install(socket: Record<string, unknown>) {
     socket.request = (event: string, payload: unknown, options?: { timeout?: number }) => {
-      this.helpers.ensureConnected();
       return this.sendRequest(event, payload, this.helpers.rawSend, options?.timeout);
     };
   }
@@ -116,16 +136,13 @@ export class RequestResponse extends Plugin<
     const pending = this.pending.get(id);
     if (!pending) return message;
 
-    clearTimeout(pending.timer);
-    this.pending.delete(id);
     pending.resolve(message.payload);
     return null;
   }
 
   override onClose(_code: number, _reason: string) {
     for (const [id, pending] of this.pending) {
-      clearTimeout(pending.timer);
-      pending.reject(new Error('Disconnected'));
+      pending.reject(new DisconnectedError());
       this.pending.delete(id);
     }
   }

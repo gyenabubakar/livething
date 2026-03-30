@@ -38,6 +38,27 @@ export interface PluginHelpers {
    * `channel.on()`) so they work on a lazy socket that hasn't connected yet.
    */
   ensureConnected: () => void;
+
+  /**
+   * Send a message through the full pipeline: onOutgoing hooks → buffer
+   * fallback → WebSocket. Unlike `rawSend`, this respects the buffer and
+   * plugin hooks. Use this for plugin-installed methods that should behave
+   * like `socket.send()` (e.g., channel send).
+   */
+  send: (event: string, payload: unknown, options?: { ttl?: number }) => boolean;
+
+  /**
+   * Increment the lazy consumer count and trigger connection if needed.
+   * Call when registering a listener or starting a pending operation
+   * (request, ack) that requires the socket to stay open.
+   */
+  lazyAcquire: () => void;
+
+  /**
+   * Decrement the lazy consumer count. When it reaches 0 and the socket
+   * is in lazy mode, the idle disconnect timer starts.
+   */
+  lazyRelease: () => void;
 }
 
 /**

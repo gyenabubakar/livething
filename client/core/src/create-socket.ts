@@ -52,6 +52,15 @@ export function createSocket<
     ensureConnected() {
       socket._ensureConnected();
     },
+    send(event: string, payload: unknown, options?: { ttl?: number }) {
+      return socket._send(event, payload, options);
+    },
+    lazyAcquire() {
+      socket._lazyAcquire();
+    },
+    lazyRelease() {
+      socket._lazyRelease();
+    },
   };
 
   // Wire up each plugin: set helpers, then let it attach its methods

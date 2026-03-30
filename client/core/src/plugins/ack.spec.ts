@@ -15,6 +15,9 @@ describe('Ack', () => {
       getState: () => 'open',
       getOptions: () => ({}),
       ensureConnected: vi.fn(),
+      send: vi.fn(() => true),
+      lazyAcquire: vi.fn(),
+      lazyRelease: vi.fn(),
     };
     sendSpy = vi.fn<(event: string, payload: unknown) => void>();
   });
@@ -134,6 +137,9 @@ describe('Ack', () => {
         getState: () => 'open',
         getOptions: () => ({}),
         ensureConnected: vi.fn(),
+        send: vi.fn(() => true),
+        lazyAcquire: vi.fn(),
+        lazyRelease: vi.fn(),
       };
       const promise = defaultAck.sendWithAck('test', {}, sendSpy);
 

@@ -15,6 +15,8 @@ export type {
 
 export type { Endpoint, SendOptions } from '@/endpoint.ts';
 
+export { DisconnectedError, TimeoutError } from '@/errors.ts';
+
 export { PlatformAdapter } from '@/adapter.ts';
 export type { VisibilityState, NetworkState } from '@/adapter.ts';
 

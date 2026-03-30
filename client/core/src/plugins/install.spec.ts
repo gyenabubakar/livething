@@ -14,6 +14,9 @@ function createHelpers(): PluginHelpers {
     getState: () => 'open',
     getOptions: () => ({}),
     ensureConnected: vi.fn(),
+    send: vi.fn(() => true),
+    lazyAcquire: vi.fn(),
+    lazyRelease: vi.fn(),
   };
 }
 
@@ -144,7 +147,7 @@ describe('Plugin.install', () => {
       expect(handler).toHaveBeenCalledWith({ _channel: 'chat', text: 'hi' });
     });
 
-    it('channel().send tags and sends via this.helpers.rawSend', () => {
+    it('channel().send tags and sends via helpers.send', () => {
       const socket = createFakeSocket();
       const helpers = createHelpers();
       const channels = new Channels();
@@ -154,10 +157,14 @@ describe('Plugin.install', () => {
       const ch = (socket.channel as any)('chat') as Record<string, any>;
       ch.send('send-message', { text: 'hello' });
 
-      expect(helpers.rawSend).toHaveBeenCalledWith('send-message', {
-        text: 'hello',
-        _channel: 'chat',
-      });
+      expect(helpers.send).toHaveBeenCalledWith(
+        'send-message',
+        {
+          text: 'hello',
+          _channel: 'chat',
+        },
+        undefined,
+      );
     });
   });
 
@@ -185,8 +192,8 @@ describe('Plugin.install', () => {
     });
   });
 
-  describe('ensureConnected', () => {
-    it('request() calls ensureConnected', () => {
+  describe('lazy consumer tracking', () => {
+    it('request() calls lazyAcquire', () => {
       vi.useFakeTimers();
       const socket = createFakeSocket();
       const helpers = createHelpers();
@@ -195,11 +202,11 @@ describe('Plugin.install', () => {
       installPlugin(rr, socket, helpers);
       (socket.request as any)('get-balance', {});
 
-      expect(helpers.ensureConnected).toHaveBeenCalledTimes(1);
+      expect(helpers.lazyAcquire).toHaveBeenCalledTimes(1);
       vi.useRealTimers();
     });
 
-    it('send.withAck() calls ensureConnected', () => {
+    it('send.withAck() calls lazyAcquire', () => {
       vi.useFakeTimers();
       const socket = createFakeSocket();
       const helpers = createHelpers();
@@ -208,11 +215,11 @@ describe('Plugin.install', () => {
       installPlugin(ack, socket, helpers);
       (socket.send as any).withAck('test', {});
 
-      expect(helpers.ensureConnected).toHaveBeenCalledTimes(1);
+      expect(helpers.lazyAcquire).toHaveBeenCalledTimes(1);
       vi.useRealTimers();
     });
 
-    it('channel().on() calls ensureConnected', () => {
+    it('channel().on() calls lazyAcquire', () => {
       const socket = createFakeSocket();
       const helpers = createHelpers();
       const channels = new Channels();
@@ -222,10 +229,10 @@ describe('Plugin.install', () => {
       const ch = (socket.channel as any)('chat') as Record<string, any>;
       ch.on('message', vi.fn());
 
-      expect(helpers.ensureConnected).toHaveBeenCalledTimes(1);
+      expect(helpers.lazyAcquire).toHaveBeenCalledTimes(1);
     });
 
-    it('channel().send() calls ensureConnected', () => {
+    it('channel().on() unsubscribe calls lazyRelease', () => {
       const socket = createFakeSocket();
       const helpers = createHelpers();
       const channels = new Channels();
@@ -233,9 +240,10 @@ describe('Plugin.install', () => {
       installPlugin(channels, socket, helpers);
 
       const ch = (socket.channel as any)('chat') as Record<string, any>;
-      ch.send('typing', {});
+      const unsub = ch.on('message', vi.fn());
+      unsub();
 
-      expect(helpers.ensureConnected).toHaveBeenCalledTimes(1);
+      expect(helpers.lazyRelease).toHaveBeenCalledTimes(1);
     });
 
     it('onStream() calls ensureConnected', () => {
