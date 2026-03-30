@@ -19,7 +19,18 @@ import type {
   TypeFn,
   ValidatePlugins,
 } from '@/plugins/types.ts';
-import type { IncomingOf, OutgoingOf, Requires, SocketContract, StaticApi } from '@/types.ts';
+import type {
+  IncomingMethod,
+  IncomingOf,
+  OutgoingMethod,
+  OutgoingOf,
+  RequestMethod,
+  Requires,
+  ScopedApi,
+  ScopedEndpoint,
+  SocketContract,
+  StaticApi,
+} from '@/types.ts';
 
 // ===========================================================================
 // Test contracts
@@ -272,3 +283,188 @@ type HooksOnlyMerged = ApplyPlugins<[HooksOnlyPlugin], FullContract>;
 // Should be an empty-ish object — the plugin declared no API
 const _hooksOnly: HooksOnlyMerged = {} as any;
 void _hooksOnly;
+
+// ===========================================================================
+// 10. OutgoingMethod — one-liner for outgoing-typed methods
+// ===========================================================================
+
+interface BroadcastTypeFn2 extends TypeFn {
+  readonly _api: OutgoingMethod<this['_contract'], 'broadcast', void>;
+}
+
+type BroadcastApi2 = Apply<BroadcastTypeFn2, FullContract>;
+const _broadcast2: BroadcastApi2 = {} as any;
+_broadcast2.broadcast('mark-read', { notificationId: '123' });
+_broadcast2.broadcast('typing', { channelId: '456' });
+// @ts-expect-error — invalid event
+_broadcast2.broadcast('foo', {});
+// @ts-expect-error — wrong payload
+_broadcast2.broadcast('mark-read', { wrong: true });
+
+// Empty when contract has no outgoing
+type NoBroadcast2 = Apply<BroadcastTypeFn2, MinimalContract>;
+const _noBroadcast2: NoBroadcast2 = {};
+void _noBroadcast2;
+
+// ===========================================================================
+// 11. IncomingMethod — one-liner for incoming-typed methods
+// ===========================================================================
+
+interface TapTypeFn extends TypeFn {
+  readonly _api: IncomingMethod<this['_contract'], 'tap'>;
+}
+
+type TapApi = Apply<TapTypeFn, FullContract>;
+const _tap: TapApi = {} as any;
+const _unsub: () => void = _tap.tap('notification', (data) => {
+  const _id: string = data.id;
+  void _id;
+});
+void _unsub;
+// @ts-expect-error — invalid event
+_tap.tap('foo', () => {});
+
+// Empty when contract has no incoming
+interface NoIncomingContract extends SocketContract {
+  outgoing: { ping: {} };
+}
+type NoTap = Apply<TapTypeFn, NoIncomingContract>;
+const _noTap: NoTap = {};
+void _noTap;
+
+// ===========================================================================
+// 12. RequestMethod — one-liner for request-typed methods
+// ===========================================================================
+
+interface QueryTypeFn extends TypeFn {
+  readonly _api: RequestMethod<this['_contract'], 'query'>;
+}
+
+type QueryApi = Apply<QueryTypeFn, FullContract>;
+const _query: QueryApi = {} as any;
+const _balance: Promise<{ balance: number }> = _query.query('get-balance', { userId: '1' });
+void _balance;
+// @ts-expect-error — invalid request
+_query.query('foo', {});
+// @ts-expect-error — wrong payload
+_query.query('get-balance', { wrong: true });
+
+// Empty when contract has no requests
+type NoQuery = Apply<QueryTypeFn, MinimalContract>;
+const _noQuery: NoQuery = {};
+void _noQuery;
+
+// ===========================================================================
+// 13. ScopedEndpoint — full endpoint for scoped contracts
+// ===========================================================================
+
+// Chat channel has incoming, outgoing, and requests
+type ChatEndpoint = ScopedEndpoint<FullContract['channels']['chat']>;
+const _chat: ChatEndpoint = {} as any;
+
+// on() typed against channel incoming
+_chat.on('message', (data) => {
+  const _text: string = data.text;
+  void _text;
+});
+// @ts-expect-error — invalid event for this channel
+_chat.on('alert', () => {});
+
+// send() typed against channel outgoing
+_chat.send('send-message', { text: 'hi' });
+// @ts-expect-error — invalid event
+_chat.send('foo', {});
+
+// request() present because chat has requests
+const _history: Promise<{ messages: { text: string }[] }> = _chat.request('get-history', {
+  before: '123',
+});
+void _history;
+// @ts-expect-error — invalid request
+_chat.request('foo', {});
+
+// send.withAck() present because chat has outgoing
+_chat.send.withAck('send-message', { text: 'hi' });
+
+// Alerts channel: incoming only — no send, no request, no withAck
+type AlertsEndpoint = ScopedEndpoint<FullContract['channels']['alerts']>;
+const _alerts: AlertsEndpoint = {} as any;
+_alerts.on('alert', (data) => {
+  const _level: string = data.level;
+  void _level;
+});
+// @ts-expect-error — no send on incoming-only channel
+_alerts.send;
+// @ts-expect-error — no request on channel without requests
+_alerts.request;
+
+// ===========================================================================
+// 14. ScopedApi — one-liner for scoped plugins
+// ===========================================================================
+
+// Channels plugin TypeFn using ScopedApi
+interface TestScopedChannelsTypeFn extends TypeFn {
+  readonly _api: ScopedApi<this['_contract'], 'channels', 'channel'>;
+}
+
+type ScopedChannelsApi = Apply<TestScopedChannelsTypeFn, FullContract>;
+const _scopedChannels: ScopedChannelsApi = {} as any;
+
+// channel() returns ScopedEndpoint for the named channel
+const _chatEp = _scopedChannels.channel('chat');
+_chatEp.on('message', (data) => {
+  const _from: string = data.from;
+  void _from;
+});
+_chatEp.send('send-message', { text: 'hello' });
+_chatEp.request('get-history', { before: '123' });
+
+// @ts-expect-error — invalid channel name
+_scopedChannels.channel('nonexistent');
+
+// Empty when contract has no channels
+type NoScopedChannels = Apply<TestScopedChannelsTypeFn, MinimalContract>;
+const _noScopedChannels: NoScopedChannels = {};
+void _noScopedChannels;
+
+// Custom scoped plugin (Rooms) — same one-liner pattern
+interface RoomsTypeFn extends TypeFn {
+  readonly _api: ScopedApi<this['_contract'], 'rooms', 'room'>;
+}
+
+interface RoomContract extends SocketContract {
+  rooms: {
+    lobby: {
+      incoming: { 'user-joined': { name: string } };
+      outgoing: { chat: { text: string } };
+      requests: {
+        'get-members': { payload: {}; response: { members: string[] } };
+      };
+    };
+  };
+}
+
+type RoomsApi = Apply<RoomsTypeFn, RoomContract>;
+const _rooms: RoomsApi = {} as any;
+const _lobby = _rooms.room('lobby');
+_lobby.on('user-joined', (data) => {
+  const _name: string = data.name;
+  void _name;
+});
+_lobby.send('chat', { text: 'hi' });
+const _members: Promise<{ members: string[] }> = _lobby.request('get-members', {});
+void _members;
+
+// ===========================================================================
+// 15. Composing utilities — multiple methods from one TypeFn
+// ===========================================================================
+
+interface ComposedTypeFn extends TypeFn {
+  readonly _api: OutgoingMethod<this['_contract'], 'broadcast', void> &
+    RequestMethod<this['_contract'], 'query'>;
+}
+
+type ComposedApi = Apply<ComposedTypeFn, FullContract>;
+const _composed: ComposedApi = {} as any;
+_composed.broadcast('mark-read', { notificationId: '1' });
+_composed.query('get-balance', { userId: '1' });

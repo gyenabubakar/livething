@@ -11,6 +11,11 @@ export type {
   Requires,
   Simplify,
   StaticApi,
+  OutgoingMethod,
+  IncomingMethod,
+  RequestMethod,
+  ScopedEndpoint,
+  ScopedApi,
 } from '@/types.ts';
 
 export type { Endpoint, SendOptions } from '@/endpoint.ts';

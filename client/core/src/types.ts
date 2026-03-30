@@ -1,4 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- Requires uses `any` intentionally for loose contract matching */
+import type { Endpoint } from '@/endpoint.ts';
+
 // ---------------------------------------------------------------------------
 // Socket contract
 // ---------------------------------------------------------------------------
@@ -126,3 +128,121 @@ export type StaticApi<Api> = {
   readonly _contract: unknown;
   readonly _api: Api;
 };
+
+// ---------------------------------------------------------------------------
+// Plugin type function utilities
+// ---------------------------------------------------------------------------
+
+/* oxlint-disable @typescript-eslint/no-explicit-any -- plugin type utilities require `any` for generic matching */
+
+/**
+ * A method typed against `outgoing` events. Produces `{ method(event, payload): Return }`
+ * when the contract has outgoing events, `{}` otherwise.
+ *
+ * ```ts
+ * interface BroadcastTypeFn extends TypeFn {
+ *   readonly _api: OutgoingMethod<this['_contract'], 'broadcast', void>;
+ * }
+ * ```
+ */
+export type OutgoingMethod<
+  TContract,
+  TMethod extends string,
+  TReturn = boolean,
+> = TContract extends { outgoing: infer O extends Record<string, any> }
+  ? { [M in TMethod]: <K extends keyof O & string>(event: K, payload: O[K]) => TReturn }
+  : {};
+
+/**
+ * A method typed against `incoming` events. Produces `{ method(event, handler): unsubscribe }`
+ * when the contract has incoming events, `{}` otherwise.
+ *
+ * ```ts
+ * interface TapTypeFn extends TypeFn {
+ *   readonly _api: IncomingMethod<this['_contract'], 'tap'>;
+ * }
+ * ```
+ */
+export type IncomingMethod<TContract, TMethod extends string> = TContract extends {
+  incoming: infer I extends Record<string, any>;
+}
+  ? {
+      [M in TMethod]: <K extends keyof I & string>(
+        event: K,
+        handler: (data: I[K]) => void,
+      ) => () => void;
+    }
+  : {};
+
+/**
+ * A method typed against `requests`. Produces `{ method(event, payload, options?): Promise<response> }`
+ * when the contract has requests, `{}` otherwise.
+ *
+ * ```ts
+ * interface QueryTypeFn extends TypeFn {
+ *   readonly _api: RequestMethod<this['_contract'], 'query'>;
+ * }
+ * ```
+ */
+export type RequestMethod<TContract, TMethod extends string> = TContract extends {
+  requests: infer R extends Record<string, { payload: any; response: any }>;
+}
+  ? {
+      [M in TMethod]: <K extends keyof R & string>(
+        event: K,
+        payload: R[K]['payload'],
+        options?: { timeout?: number },
+      ) => Promise<R[K]['response']>;
+    }
+  : {};
+
+/**
+ * Full endpoint type for a scoped contract (channel, room, topic, etc.).
+ * Includes `on()` + `send()` from `Endpoint`, plus `request()` if the scope
+ * has `requests`, and `send.withAck()` if the scope has `outgoing`.
+ *
+ * ```ts
+ * type ChatEndpoint = ScopedEndpoint<MySocket['channels']['chat']>;
+ * ```
+ */
+export type ScopedEndpoint<C> = Endpoint<IncomingOf<C> & object, OutgoingOf<C> & object> &
+  (C extends { requests: infer R extends Record<string, { payload: any; response: any }> }
+    ? {
+        request<E extends keyof R & string>(
+          event: E,
+          payload: R[E]['payload'],
+          options?: { timeout?: number },
+        ): Promise<R[E]['response']>;
+      }
+    : {}) &
+  (keyof OutgoingOf<C> extends never
+    ? {}
+    : {
+        send: {
+          withAck<E extends keyof OutgoingOf<C> & string>(
+            event: E,
+            payload: OutgoingOf<C>[E],
+            options?: { timeout?: number; ttl?: number },
+          ): Promise<void>;
+        };
+      });
+
+/**
+ * One-liner for scoped plugins (channels, rooms, topics). Given a contract key
+ * containing a named map of scoped contracts, produces a method that returns
+ * a fully-typed `ScopedEndpoint` for each name.
+ *
+ * ```ts
+ * interface ChannelsTypeFn extends TypeFn {
+ *   readonly _api: ScopedApi<this['_contract'], 'channels', 'channel'>;
+ * }
+ *
+ * interface RoomsTypeFn extends TypeFn {
+ *   readonly _api: ScopedApi<this['_contract'], 'rooms', 'room'>;
+ * }
+ * ```
+ */
+export type ScopedApi<TContract, TKey extends string, TMethod extends string> =
+  TContract extends Record<TKey, infer Map extends Record<string, any>>
+    ? { [M in TMethod]: <K extends keyof Map & string>(name: K) => ScopedEndpoint<Map[K]> }
+    : {};

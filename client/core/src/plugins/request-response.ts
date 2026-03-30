@@ -127,6 +127,45 @@ export class RequestResponse extends Plugin<
     socket.request = (event: string, payload: unknown, options?: { timeout?: number }) => {
       return this.sendRequest(event, payload, this.helpers.rawSend, options?.timeout);
     };
+
+    this.wrapScopedMethods(socket);
+  }
+
+  /**
+   * Wrap any scoped method (e.g., `socket.channel`, `socket.room`) to add
+   * `request()` to the returned endpoint. Uses the endpoint's `_tag` function
+   * to scope the payload before delegating to `socket.request()`.
+   *
+   * A "scoped method" is any function on the socket that was registered via
+   * `_scopedKeys` — a convention where plugins that create scoped endpoints
+   * push their key name onto this array during `install()`.
+   */
+  private wrapScopedMethods(socket: Record<string, unknown>) {
+    const scopedKeys = socket._scopedKeys as string[] | undefined;
+    if (!scopedKeys?.length) return;
+
+    const socketRequest = socket.request as (
+      event: string,
+      payload: unknown,
+      options?: { timeout?: number },
+    ) => Promise<unknown>;
+
+    for (const key of scopedKeys) {
+      if (typeof socket[key] !== 'function') continue;
+
+      const original = socket[key] as (name: string) => Record<string, any>;
+      socket[key] = (name: string) => {
+        const endpoint = original(name);
+        const tag = endpoint._tag as ((event: string, payload: unknown) => unknown) | undefined;
+
+        endpoint.request = (event: string, payload: unknown, options?: { timeout?: number }) => {
+          const tagged = tag ? tag(event, payload) : payload;
+          return socketRequest(event, tagged, options);
+        };
+
+        return endpoint;
+      };
+    }
   }
 
   override onIncoming(message: { event: string; payload: unknown }) {

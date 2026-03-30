@@ -147,6 +147,47 @@ export class Ack extends Plugin<AckTypeFn> {
         );
       };
     }
+
+    this.wrapScopedMethods(socket);
+  }
+
+  /**
+   * Wrap any scoped method to add `send.withAck()` to the returned endpoint.
+   * Uses the endpoint's `_tag` and `send` to scope and send the message.
+   */
+  private wrapScopedMethods(socket: Record<string, unknown>) {
+    const scopedKeys = socket._scopedKeys as string[] | undefined;
+    if (!scopedKeys?.length) return;
+
+    for (const key of scopedKeys) {
+      if (typeof socket[key] !== 'function') continue;
+
+      const original = socket[key] as (name: string) => Record<string, any>;
+      socket[key] = (name: string) => {
+        const endpoint = original(name);
+        const tag = endpoint._tag as ((event: string, payload: unknown) => unknown) | undefined;
+        const endpointSend = endpoint.send;
+
+        if (typeof endpointSend === 'function') {
+          endpointSend.withAck = (
+            event: string,
+            payload: unknown,
+            options?: { timeout?: number; ttl?: number },
+          ) => {
+            const tagged = tag ? tag(event, payload) : payload;
+            return this.sendWithAck(
+              event,
+              tagged,
+              this.helpers.rawSend,
+              options?.timeout,
+              options?.ttl,
+            );
+          };
+        }
+
+        return endpoint;
+      };
+    }
   }
 
   override onIncoming(message: { event: string; payload: unknown }) {
