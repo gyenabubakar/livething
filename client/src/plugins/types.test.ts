@@ -456,7 +456,92 @@ const _members: Promise<{ members: string[] }> = _lobby.request('get-members', {
 void _members;
 
 // ===========================================================================
-// 15. Composing utilities — multiple methods from one TypeFn
+// 15. Dynamic channels — index signature contracts
+// ===========================================================================
+
+// A contract where any string is a valid channel name (index signature)
+interface DynamicChannelContract extends SocketContract {
+  incoming: { status: { online: boolean } };
+  channels: {
+    [roomName: string]: {
+      incoming: {
+        message: { text: string; from: string };
+        typing: { userId: string };
+      };
+      outgoing: {
+        'send-message': { text: string };
+      };
+      requests: {
+        'get-history': {
+          payload: { limit: number };
+          response: { messages: string[] };
+        };
+      };
+    };
+  };
+}
+
+// ScopedApi with index signature → channel() accepts any string
+type DynamicChannelsApi = Apply<TestScopedChannelsTypeFn, DynamicChannelContract>;
+const _dynamicChannels: DynamicChannelsApi = {} as any;
+
+// Any string name is valid — these all compile
+const _room1 = _dynamicChannels.channel('general');
+void _dynamicChannels.channel('random');
+void _dynamicChannels.channel('any-runtime-string');
+
+// Variable name works — the key type is `string`
+const roomName = 'computed-at-runtime' as string;
+void _dynamicChannels.channel(roomName);
+
+// Endpoints have correct types
+_room1.on('message', (data) => {
+  const _text: string = data.text;
+  const _from: string = data.from;
+  void _text;
+  void _from;
+});
+_room1.on('typing', (data) => {
+  const _userId: string = data.userId;
+  void _userId;
+});
+_room1.send('send-message', { text: 'hi' });
+
+// @ts-expect-error — invalid event for this channel shape
+_room1.on('nonexistent', () => {});
+// @ts-expect-error — invalid outgoing event
+_room1.send('foo', {});
+// @ts-expect-error — wrong payload shape
+_room1.send('send-message', { wrong: true });
+
+// request() works on dynamic channels
+const _dynamicHistory: Promise<{ messages: string[] }> = _room1.request('get-history', {
+  limit: 10,
+});
+void _dynamicHistory;
+// @ts-expect-error — invalid request
+_room1.request('foo', {});
+// @ts-expect-error — wrong payload
+_room1.request('get-history', { wrong: true });
+
+// send.withAck() works on dynamic channels
+_room1.send.withAck('send-message', { text: 'hi' });
+// @ts-expect-error — invalid event for withAck
+_room1.send.withAck('foo', {});
+
+// ScopedEndpoint for a dynamic channel entry
+type DynamicRoomEndpoint = ScopedEndpoint<DynamicChannelContract['channels'][string]>;
+const _dynEp: DynamicRoomEndpoint = {} as any;
+_dynEp.on('message', (data) => {
+  const _t: string = data.text;
+  void _t;
+});
+_dynEp.send('send-message', { text: 'x' });
+_dynEp.request('get-history', { limit: 5 });
+_dynEp.send.withAck('send-message', { text: 'y' });
+
+// ===========================================================================
+// 16. Composing utilities — multiple methods from one TypeFn
 // ===========================================================================
 
 interface ComposedTypeFn extends TypeFn {

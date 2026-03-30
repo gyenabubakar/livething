@@ -1259,7 +1259,193 @@ describe('Integration: Full plugin suite', () => {
 });
 
 // ==========================================================================
-// Group 10: Custom adapter
+// Group 10: Dynamic channels (index signature contracts)
+// ==========================================================================
+
+interface DynamicContract {
+  incoming: { status: { online: boolean } };
+  outgoing: { ping: {} };
+  channels: {
+    [roomName: string]: {
+      incoming: { message: { text: string; from: string } };
+      outgoing: { 'send-message': { text: string } };
+      requests: {
+        'get-history': { payload: { limit: number }; response: { messages: string[] } };
+      };
+    };
+  };
+  requests: {
+    'get-balance': { payload: { userId: string }; response: { balance: number } };
+  };
+}
+
+describe('Integration: Dynamic channels', () => {
+  it('routes messages to dynamically-named channels', async () => {
+    server.use(
+      link.addEventListener('connection', ({ client }) => {
+        client.addEventListener('message', () => {
+          sendJson(client, 'message', { _channel: 'room-alpha', text: 'hello', from: 'server' });
+          sendJson(client, 'message', { _channel: 'room-beta', text: 'world', from: 'server' });
+        });
+      }),
+    );
+
+    const socket = createIntSocket<DynamicContract>({
+      plugins: [new Channels(), new RequestResponse(), new Ack()],
+    });
+
+    const alphaMessages: any[] = [];
+    const betaMessages: any[] = [];
+
+    (socket as any).channel('room-alpha').on('message', (d: any) => alphaMessages.push(d));
+    (socket as any).channel('room-beta').on('message', (d: any) => betaMessages.push(d));
+
+    const opened = onceOpen(socket as any);
+    socket.connect();
+    await opened;
+
+    socket.send('ping', {});
+    await waitFor(200);
+
+    expect(alphaMessages).toHaveLength(1);
+    expect(alphaMessages[0].text).toBe('hello');
+    expect(betaMessages).toHaveLength(1);
+    expect(betaMessages[0].text).toBe('world');
+
+    socket.disconnect();
+  });
+
+  it('dynamic channel send tags with correct _channel', async () => {
+    const received: string[] = [];
+    server.use(
+      link.addEventListener('connection', ({ client }) => {
+        client.addEventListener('message', (event) => {
+          received.push(event.data as string);
+        });
+      }),
+    );
+
+    const socket = createIntSocket<DynamicContract>({
+      plugins: [new Channels(), new RequestResponse(), new Ack()],
+    });
+
+    const opened = onceOpen(socket as any);
+    socket.connect();
+    await opened;
+
+    (socket as any).channel('room-xyz').send('send-message', { text: 'hi' });
+    await waitFor(100);
+
+    expect(received.length).toBeGreaterThan(0);
+    const msg = parseMessage(received[0]!);
+    expect(msg.event).toBe('send-message');
+    expect((msg.payload as any)._channel).toBe('room-xyz');
+    expect((msg.payload as any).text).toBe('hi');
+
+    socket.disconnect();
+  });
+
+  it('dynamic channel request() round-trip', async () => {
+    server.use(
+      link.addEventListener('connection', ({ client }) => {
+        client.addEventListener('message', (event) => {
+          const msg = JSON.parse(event.data as string);
+          const payload = msg.payload as Record<string, unknown>;
+          if (msg.event === 'get-history' && payload._correlationId) {
+            sendJson(client, 'get-history', {
+              _correlationId: payload._correlationId,
+              _channel: payload._channel,
+              messages: ['dynamic-msg-1', 'dynamic-msg-2'],
+            });
+          }
+        });
+      }),
+    );
+
+    const socket = createIntSocket<DynamicContract>({
+      plugins: [new Channels(), new RequestResponse(), new Ack()],
+    });
+
+    const opened = onceOpen(socket as any);
+    socket.connect();
+    await opened;
+
+    const result = await (socket as any)
+      .channel('room-runtime')
+      .request('get-history', { limit: 5 });
+    expect(result.messages).toEqual(['dynamic-msg-1', 'dynamic-msg-2']);
+
+    socket.disconnect();
+  });
+
+  it('dynamic channel send.withAck() round-trip', async () => {
+    server.use(
+      link.addEventListener('connection', ({ client }) => {
+        client.addEventListener('message', (event) => {
+          const msg = JSON.parse(event.data as string);
+          const payload = msg.payload as Record<string, unknown>;
+          if (payload._ackId) {
+            sendJson(client, '_ack', { id: payload._ackId as string });
+          }
+        });
+      }),
+    );
+
+    const socket = createIntSocket<DynamicContract>({
+      plugins: [new Channels(), new RequestResponse(), new Ack()],
+    });
+
+    const opened = onceOpen(socket as any);
+    socket.connect();
+    await opened;
+
+    await (socket as any).channel('room-ack-test').send.withAck('send-message', { text: 'ack me' });
+
+    socket.disconnect();
+  });
+
+  it('multiple dynamic channels with concurrent requests resolve independently', async () => {
+    server.use(
+      link.addEventListener('connection', ({ client }) => {
+        client.addEventListener('message', (event) => {
+          const msg = JSON.parse(event.data as string);
+          const payload = msg.payload as Record<string, unknown>;
+          if (msg.event === 'get-history' && payload._correlationId) {
+            const channel = payload._channel as string;
+            sendJson(client, 'get-history', {
+              _correlationId: payload._correlationId,
+              _channel: channel,
+              messages: [`from-${channel}`],
+            });
+          }
+        });
+      }),
+    );
+
+    const socket = createIntSocket<DynamicContract>({
+      plugins: [new Channels(), new RequestResponse(), new Ack()],
+    });
+
+    const opened = onceOpen(socket as any);
+    socket.connect();
+    await opened;
+
+    const [r1, r2, r3] = await Promise.all([
+      (socket as any).channel('room-a').request('get-history', { limit: 1 }),
+      (socket as any).channel('room-b').request('get-history', { limit: 1 }),
+      (socket as any).channel('room-c').request('get-history', { limit: 1 }),
+    ]);
+
+    expect(r1.messages).toEqual(['from-room-a']);
+    expect(r2.messages).toEqual(['from-room-b']);
+    expect(r3.messages).toEqual(['from-room-c']);
+
+    socket.disconnect();
+  });
+});
+
+// ==========================================================================
+// Group 11: Custom adapter
 // ==========================================================================
 
 describe('Integration: Custom adapter', () => {

@@ -146,6 +146,64 @@ describe('Channels', () => {
     });
   });
 
+  describe('dynamic channels (arbitrary names)', () => {
+    it('routes to different dynamically-named channels independently', () => {
+      const channels = new Channels();
+      const generalHandler = vi.fn();
+      const randomHandler = vi.fn();
+
+      channels.registerHandler('room-general', 'message', generalHandler);
+      channels.registerHandler('room-random', 'message', randomHandler);
+
+      channels.onIncoming({ event: 'message', payload: { _channel: 'room-general', text: 'a' } });
+      channels.onIncoming({ event: 'message', payload: { _channel: 'room-random', text: 'b' } });
+
+      expect(generalHandler).toHaveBeenCalledOnce();
+      expect(randomHandler).toHaveBeenCalledOnce();
+      expect(generalHandler).toHaveBeenCalledWith({ _channel: 'room-general', text: 'a' });
+      expect(randomHandler).toHaveBeenCalledWith({ _channel: 'room-random', text: 'b' });
+    });
+
+    it('handles many dynamically-created channels', () => {
+      const channels = new Channels();
+      const handlers: ReturnType<typeof vi.fn>[] = [];
+
+      for (let i = 0; i < 20; i++) {
+        const handler = vi.fn();
+        handlers.push(handler);
+        channels.registerHandler(`room-${i}`, 'message', handler);
+      }
+
+      for (let i = 0; i < 20; i++) {
+        channels.onIncoming({
+          event: 'message',
+          payload: { _channel: `room-${i}`, text: `msg-${i}` },
+        });
+      }
+
+      for (let i = 0; i < 20; i++) {
+        expect(handlers[i]).toHaveBeenCalledOnce();
+      }
+    });
+
+    it('unsubscribe from one dynamic channel does not affect others', () => {
+      const channels = new Channels();
+      const keepHandler = vi.fn();
+      const removeHandler = vi.fn();
+
+      channels.registerHandler('room-keep', 'message', keepHandler);
+      const unsub = channels.registerHandler('room-remove', 'message', removeHandler);
+
+      unsub();
+
+      channels.onIncoming({ event: 'message', payload: { _channel: 'room-keep', text: 'a' } });
+      channels.onIncoming({ event: 'message', payload: { _channel: 'room-remove', text: 'b' } });
+
+      expect(keepHandler).toHaveBeenCalledOnce();
+      expect(removeHandler).not.toHaveBeenCalled();
+    });
+  });
+
   describe('edge cases', () => {
     it('calling unsubscribe twice is safe', () => {
       const channels = new Channels();
