@@ -12,7 +12,7 @@
  */
 
 import type { Socket } from '@/socket/socket.ts';
-import type { IncomingOf, SocketContract } from '@/types.ts';
+import type { ChannelsOf, IncomingOf, SocketContract } from '@/types.ts';
 
 /**
  * Inject a fake message into the socket as if the server sent it.
@@ -32,7 +32,45 @@ export function inject<
   TContract extends SocketContract,
   K extends keyof IncomingOf<TContract> & string,
 >(socket: Socket<TContract>, event: K, payload: IncomingOf<TContract>[K]): void {
-  // Run through middleware chain
+  dispatchMessage(socket, event, payload);
+}
+
+/**
+ * Inject a fake message into a channel as if the server sent it.
+ * Tags the payload with `_channel` and runs it through the full
+ * pipeline — middleware, plugin `onIncoming` hooks (including the
+ * Channels plugin which routes it to `channel().on()` handlers).
+ *
+ * Works even when the socket is disconnected.
+ *
+ * ```ts
+ * injectChannel(socket, 'chat', 'message', { text: 'hello' });
+ * ```
+ */
+export function injectChannel<
+  TContract extends SocketContract,
+  TChannel extends keyof ChannelsOf<TContract> & string,
+  K extends keyof IncomingOf<ChannelsOf<TContract>[TChannel]> & string,
+>(
+  socket: Socket<TContract>,
+  channel: TChannel,
+  event: K,
+  payload: IncomingOf<ChannelsOf<TContract>[TChannel]>[K],
+): void {
+  // Tag the payload with _channel so the Channels plugin routes it
+  const tagged = { ...(payload as Record<string, unknown>), _channel: channel };
+  dispatchMessage(socket, event, tagged);
+}
+
+/**
+ * Shared dispatch logic: runs a message through middleware → plugin
+ * onIncoming hooks → emitter. Used by both inject() and injectChannel().
+ */
+function dispatchMessage<TContract extends SocketContract>(
+  socket: Socket<TContract>,
+  event: string,
+  payload: unknown,
+): void {
   let msg: { event: string; payload: unknown } | null = { event, payload };
   for (const mw of socket._middleware) {
     const result = mw(msg!);
@@ -40,7 +78,6 @@ export function inject<
     if (result !== undefined) msg = result;
   }
 
-  // Run through plugin onIncoming hooks
   let pluginMsg: { event: string; payload: unknown } | null = msg;
   for (const plugin of socket._plugins) {
     if (!plugin.onIncoming) continue;
@@ -48,6 +85,5 @@ export function inject<
     if (pluginMsg === null) return;
   }
 
-  // Dispatch to on() handlers
   socket._emitter.emit('message', pluginMsg!.event, pluginMsg!.payload);
 }

@@ -1,6 +1,8 @@
+/* oxlint-disable @typescript-eslint/no-explicit-any -- testing utility tests */
 import { Plugin } from '@/plugins/base.ts';
+import { Channels } from '@/plugins/channels.ts';
 import { Socket } from '@/socket/socket.ts';
-import { inject } from '@/testing.ts';
+import { inject, injectChannel } from '@/testing.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { FullSocketOptions } from '@/options.ts';
 import type { PluginHelpers } from '@/plugins/base.ts';
@@ -8,14 +10,42 @@ import type { PluginHelpers } from '@/plugins/base.ts';
 interface TestContract {
   incoming: { notification: { id: string; title: string }; alert: { level: string } };
   outgoing: { ack: { id: string } };
+  channels: {
+    chat: {
+      incoming: { message: { text: string; from: string } };
+      outgoing: { 'send-message': { text: string } };
+    };
+  };
+}
+
+function createHelpers(): PluginHelpers {
+  let counter = 0;
+  return {
+    rawSend: vi.fn(),
+    generateId: (prefix?: string) => (prefix ? `${prefix}-${++counter}` : `${++counter}`),
+    getState: () => 'open',
+    getOptions: () => ({}),
+    ensureConnected: vi.fn(),
+    send: vi.fn(() => true),
+    lazyAcquire: vi.fn(),
+    lazyRelease: vi.fn(),
+  };
 }
 
 function createSocket(plugins: Plugin[] = []) {
-  return new Socket<TestContract>(
+  const socket = new Socket<TestContract>(
     'ws://localhost',
     { pingInterval: 0 } as FullSocketOptions<TestContract>,
     plugins,
   );
+
+  // If plugins are provided, wire up their helpers and install them
+  for (const plugin of plugins) {
+    plugin.helpers = createHelpers();
+    plugin.install?.(socket as unknown as Record<string, unknown>);
+  }
+
+  return socket;
 }
 
 describe('inject()', () => {
@@ -130,5 +160,61 @@ describe('inject()', () => {
     expect(handler).toHaveBeenCalledTimes(2);
     expect(handler).toHaveBeenNthCalledWith(1, { id: '1', title: 'First' });
     expect(handler).toHaveBeenNthCalledWith(2, { id: '2', title: 'Second' });
+  });
+});
+
+describe('injectChannel()', () => {
+  it('dispatches to channel on() handlers', () => {
+    const channels = new Channels();
+    const socket = createSocket([channels]);
+
+    const handler = vi.fn();
+    const ch = (socket as any).channel('chat');
+    ch.on('message', handler);
+
+    injectChannel(socket, 'chat', 'message', { text: 'hello', from: 'test' });
+
+    expect(handler).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'hello', from: 'test', _channel: 'chat' }),
+    );
+  });
+
+  it('works when socket is disconnected', () => {
+    const channels = new Channels();
+    const socket = createSocket([channels]);
+    expect(socket.getState()).toBe('closed');
+
+    const handler = vi.fn();
+    (socket as any).channel('chat').on('message', handler);
+
+    injectChannel(socket, 'chat', 'message', { text: 'hi', from: 'test' });
+
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not dispatch to other channels', () => {
+    const channels = new Channels();
+    const socket = createSocket([channels]);
+
+    const chatHandler = vi.fn();
+    (socket as any).channel('chat').on('message', chatHandler);
+
+    // Inject into a non-existent channel — should not reach chat handler
+    inject(socket, 'message' as any, { text: 'wrong', _channel: 'other' } as any);
+
+    expect(chatHandler).not.toHaveBeenCalled();
+  });
+
+  it('runs through middleware before channel routing', () => {
+    const channels = new Channels();
+    const socket = createSocket([channels]);
+    socket.use(() => null); // drop everything
+
+    const handler = vi.fn();
+    (socket as any).channel('chat').on('message', handler);
+
+    injectChannel(socket, 'chat', 'message', { text: 'dropped', from: 'test' });
+
+    expect(handler).not.toHaveBeenCalled();
   });
 });
