@@ -9,6 +9,7 @@
 import { Plugin } from '@/plugins/base.ts';
 import type { createSocket } from '@/create-socket.ts';
 import type { MiddlewareMessage } from '@/middleware.ts';
+import type { FullSocketOptions } from '@/options.ts';
 import type { TypeFn } from '@/plugins/types.ts';
 import type { CloseEvent } from '@/socket/socket.ts';
 import type { ConnectionQuality, ConnectionState, SocketContract, StaticApi } from '@/types.ts';
@@ -233,3 +234,25 @@ empty.on('anything', () => {});
 
 // @ts-expect-error — no outgoing events
 empty.send('anything', {});
+
+// ===========================================================================
+// 6. Binary options — linked pair enforcement
+// ===========================================================================
+
+// Both binaryType and parseBinary provided — valid
+const _validBinaryOpts: FullSocketOptions<EmptyContract> = {
+  binaryType: 'arraybuffer',
+  parseBinary: (_data: ArrayBuffer) => null,
+};
+void _validBinaryOpts;
+
+// Neither provided — valid
+const _noBinaryOpts: FullSocketOptions<EmptyContract> = {};
+void _noBinaryOpts;
+
+// binaryType without parseBinary — should be a type error
+// @ts-expect-error — binaryType requires parseBinary
+const _binaryNoParser: FullSocketOptions<EmptyContract> = {
+  binaryType: 'arraybuffer',
+};
+void _binaryNoParser;

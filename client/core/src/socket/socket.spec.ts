@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- runtime test file */
+import { Plugin } from '@/plugins/base.ts';
 import { Socket } from '@/socket/socket.ts';
 import {
   collectServerMessages,
@@ -7,10 +8,14 @@ import {
   link,
   onceClose,
   onceOpen,
+  onceReconnect,
   parseMessage,
   waitFor,
+  WS_URL,
 } from '@/test-helpers.ts';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import type { PluginHelpers } from '@/plugins/base.ts';
+import type { TestContract } from '@/test-helpers.ts';
 
 // ---------------------------------------------------------------------------
 // MSW setup
@@ -392,5 +397,336 @@ describe('Socket (runtime)', () => {
 
     socket.disconnect();
     logSpy.mockRestore();
+  });
+
+  // ── ws and protocol properties ──────────────────────────
+
+  it('ws is null when disconnected, set when open', async () => {
+    server.use(link.addEventListener('connection', () => {}));
+
+    const socket = createTestSocket();
+    expect(socket.ws).toBeNull();
+
+    const opened = onceOpen(socket);
+    socket.connect();
+    await opened;
+    expect(socket.ws).not.toBeNull();
+
+    socket.disconnect();
+    expect(socket.ws).toBeNull();
+  });
+
+  it('protocol is null when disconnected', async () => {
+    server.use(link.addEventListener('connection', () => {}));
+
+    const socket = createTestSocket();
+    expect(socket.protocol).toBeNull();
+
+    const opened = onceOpen(socket);
+    socket.connect();
+    await opened;
+
+    socket.disconnect();
+    expect(socket.protocol).toBeNull();
+  });
+
+  // ── Malformed messages ──────────────────────────────────
+
+  it('silently drops malformed JSON', async () => {
+    server.use(
+      link.addEventListener('connection', ({ client }) => {
+        client.send('not valid json {{{');
+        client.send(JSON.stringify({ event: 'greeting', payload: { text: 'after' } }));
+      }),
+    );
+
+    const socket = createTestSocket();
+    const messages: unknown[] = [];
+    socket.on('greeting', (data) => messages.push(data));
+
+    const opened = onceOpen(socket);
+    socket.connect();
+    await opened;
+    await waitFor(50);
+
+    expect(messages).toEqual([{ text: 'after' }]);
+
+    socket.disconnect();
+  });
+
+  it('silently drops messages without event field', async () => {
+    server.use(
+      link.addEventListener('connection', ({ client }) => {
+        client.send(JSON.stringify({ noEvent: true }));
+        client.send(JSON.stringify({ event: 'greeting', payload: { text: 'valid' } }));
+      }),
+    );
+
+    const socket = createTestSocket();
+    const messages: unknown[] = [];
+    socket.on('greeting', (data) => messages.push(data));
+
+    const opened = onceOpen(socket);
+    socket.connect();
+    await opened;
+    await waitFor(50);
+
+    expect(messages).toEqual([{ text: 'valid' }]);
+
+    socket.disconnect();
+  });
+
+  // ── Plugin onOutgoing hooks ─────────────────────────────
+
+  it('plugin onOutgoing can modify outgoing messages', async () => {
+    let received: string[] = [];
+
+    server.use(
+      link.addEventListener('connection', ({ client }) => {
+        received = collectServerMessages(client);
+      }),
+    );
+
+    class Tagger extends Plugin {
+      id = 'tagger';
+      override onOutgoing(event: string, payload: unknown) {
+        return { event, payload: { ...(payload as Record<string, unknown>), _tagged: true } };
+      }
+    }
+
+    const tagger = new Tagger();
+    tagger.helpers = {} as PluginHelpers;
+    const socket = new Socket<TestContract>(WS_URL, { pingInterval: 0 } as any, [tagger]);
+
+    const opened = onceOpen(socket);
+    socket.connect();
+    await opened;
+
+    socket.send('chat', { text: 'hi' });
+    await waitFor(50);
+
+    const parsed = parseMessage(received[0]!);
+    expect(parsed.payload).toEqual({ text: 'hi', _tagged: true });
+
+    socket.disconnect();
+  });
+
+  it('plugin onOutgoing returning null cancels the send', async () => {
+    let received: string[] = [];
+
+    server.use(
+      link.addEventListener('connection', ({ client }) => {
+        received = collectServerMessages(client);
+      }),
+    );
+
+    class Blocker extends Plugin {
+      id = 'blocker';
+      override onOutgoing() {
+        return null;
+      }
+    }
+
+    const blocker = new Blocker();
+    blocker.helpers = {} as PluginHelpers;
+    const socket = new Socket<TestContract>(WS_URL, { pingInterval: 0 } as any, [blocker]);
+
+    const opened = onceOpen(socket);
+    socket.connect();
+    await opened;
+
+    const result = socket.send('chat' as any, { text: 'hi' } as any);
+    await waitFor(50);
+
+    expect(result).toBe(false);
+    expect(received.length).toBe(0);
+
+    socket.disconnect();
+  });
+
+  // ── Plugin onOpen/onReconnect messages ──────────────────
+
+  it('messages returned from plugin onOpen are sent over the wire', async () => {
+    let received: string[] = [];
+
+    server.use(
+      link.addEventListener('connection', ({ client }) => {
+        received = collectServerMessages(client);
+      }),
+    );
+
+    class Greeter extends Plugin {
+      id = 'greeter';
+      override onOpen() {
+        return [{ event: 'identify', payload: { userId: '42' } }];
+      }
+    }
+
+    const greeter = new Greeter();
+    greeter.helpers = {} as PluginHelpers;
+    const socket = new Socket<TestContract>(WS_URL, { pingInterval: 0 } as any, [greeter]);
+
+    const opened = onceOpen(socket);
+    socket.connect();
+    await opened;
+    await waitFor(50);
+
+    expect(received.length).toBe(1);
+    const parsed = parseMessage(received[0]!);
+    expect(parsed.event).toBe('identify');
+    expect(parsed.payload).toEqual({ userId: '42' });
+
+    socket.disconnect();
+  });
+
+  // ── searchParams ────────────────────────────────────────
+
+  it('appends searchParams to the URL', async () => {
+    server.use(link.addEventListener('connection', () => {}));
+
+    const socket = createTestSocket({
+      searchParams: async () => new URLSearchParams({ token: 'abc123' }),
+    });
+
+    const opened = onceOpen(socket);
+    socket.connect();
+    await opened;
+
+    // The socket connected — searchParams didn't break anything
+    expect(socket.getState()).toBe('open');
+
+    socket.disconnect();
+  });
+
+  // ── Reconnection cycle ──────────────────────────────────
+
+  it('enters reconnecting state after server close', async () => {
+    server.use(
+      link.addEventListener('connection', ({ client }) => {
+        setTimeout(() => client.close(4000, 'drop'), 50);
+      }),
+    );
+
+    const socket = createTestSocket({ maxReconnectAttempts: 3 });
+    const closed = onceClose(socket);
+    socket.connect();
+    await closed;
+
+    expect(socket.getState()).toBe('reconnecting');
+
+    socket.disconnect();
+  });
+
+  it('reconnects after server-initiated close', { timeout: 10_000 }, async () => {
+    let connectionCount = 0;
+
+    server.use(
+      link.addEventListener('connection', ({ client }) => {
+        connectionCount++;
+        if (connectionCount === 1) {
+          setTimeout(() => client.close(4000, 'test close'), 50);
+        }
+      }),
+    );
+
+    const socket = createTestSocket({ maxReconnectAttempts: 3 });
+    const reconnected = onceReconnect(socket);
+    socket.connect();
+    await reconnected;
+
+    expect(connectionCount).toBe(2);
+    expect(socket.getState()).toBe('open');
+
+    socket.disconnect();
+  });
+
+  it('onReconnect fires on reconnection but not first connect', { timeout: 10_000 }, async () => {
+    let connectionCount = 0;
+
+    server.use(
+      link.addEventListener('connection', ({ client }) => {
+        connectionCount++;
+        if (connectionCount === 1) {
+          setTimeout(() => client.close(4000, 'test close'), 50);
+        }
+      }),
+    );
+
+    const socket = createTestSocket({ maxReconnectAttempts: 3 });
+    let openCount = 0;
+    let reconnectCount = 0;
+    socket.onOpen(() => openCount++);
+    socket.onReconnect(() => reconnectCount++);
+
+    const reconnected = onceReconnect(socket);
+    socket.connect();
+    await reconnected;
+
+    expect(openCount).toBe(2);
+    expect(reconnectCount).toBe(1);
+
+    socket.disconnect();
+  });
+
+  it('onReconnectFailed does not fire on intentional disconnect', async () => {
+    server.use(link.addEventListener('connection', () => {}));
+
+    const socket = createTestSocket();
+    let reconnectFailed = false;
+    socket.onReconnectFailed(() => {
+      reconnectFailed = true;
+    });
+
+    const opened = onceOpen(socket);
+    socket.connect();
+    await opened;
+    socket.disconnect();
+
+    await waitFor(100);
+    expect(reconnectFailed).toBe(false);
+  });
+
+  // ── Buffer flush on reconnect ───────────────────────────
+
+  it('flushes buffered messages on reconnect', { timeout: 10_000 }, async () => {
+    let connectionCount = 0;
+    let received: string[] = [];
+
+    server.use(
+      link.addEventListener('connection', ({ client }) => {
+        connectionCount++;
+        received = collectServerMessages(client);
+        if (connectionCount === 1) {
+          setTimeout(() => client.close(4000, 'drop'), 50);
+        }
+      }),
+    );
+
+    const socket = createTestSocket({
+      bufferWhileDisconnected: true,
+      maxReconnectAttempts: 3,
+    });
+
+    const firstOpen = onceOpen(socket);
+    socket.connect();
+    await firstOpen;
+
+    // Connection drops, socket enters reconnecting
+    const reconnected = onceReconnect(socket);
+
+    // Wait for close, then buffer a message while reconnecting
+    await waitFor(200);
+    socket.send('chat', { text: 'buffered' });
+
+    await reconnected;
+    await waitFor(50);
+
+    const bufferedMsg = received.find((r) => {
+      const p = parseMessage(r);
+      return p.event === 'chat' && (p.payload as any).text === 'buffered';
+    });
+    expect(bufferedMsg).toBeDefined();
+
+    socket.disconnect();
   });
 });
