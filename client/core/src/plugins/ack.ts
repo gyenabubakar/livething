@@ -96,6 +96,10 @@ export class Ack extends Plugin<AckTypeFn> {
     this.helpers.lazyAcquire();
 
     return new Promise<void>((resolve, reject) => {
+      // cleanup() is extracted because it must run from every exit path:
+      // timeout, resolve, reject, and disconnect (onClose). Without a shared
+      // function, each path would duplicate the Map deletion + lazyRelease,
+      // risking missed cleanup and leaked resources.
       const cleanup = () => {
         this.pending.delete(id);
         this.helpers.lazyRelease();
@@ -120,7 +124,10 @@ export class Ack extends Plugin<AckTypeFn> {
         timer,
       });
 
-      // Use helpers.send for buffer support + TTL, fall back to raw send
+      // When a TTL is specified, route through helpers.send which supports
+      // buffering (queues the message if disconnected, auto-expires after TTL).
+      // Otherwise, use the raw send callback passed by the caller — this is
+      // either helpers.rawSend (top-level) or a scoped send from a channel endpoint.
       if (ttl !== undefined) {
         this.helpers.send(event, tagged, { ttl });
       } else {
@@ -130,6 +137,11 @@ export class Ack extends Plugin<AckTypeFn> {
   }
 
   override install(socket: Record<string, unknown>) {
+    // In JavaScript, functions are objects — you can attach properties to them.
+    // `socket.send` is already a function; we add `.withAck` as a property on it
+    // so users can call `socket.send.withAck(event, payload)`.
+    // We cast to Record<string, unknown> because TypeScript's Function type
+    // doesn't allow arbitrary property access.
     const existingSend = socket.send;
     if (typeof existingSend === 'function') {
       const sendObj = existingSend as unknown as Record<string, unknown>;
@@ -154,6 +166,16 @@ export class Ack extends Plugin<AckTypeFn> {
   /**
    * Wrap any scoped method to add `send.withAck()` to the returned endpoint.
    * Uses the endpoint's `_tag` and `send` to scope and send the message.
+   *
+   * "Scoped methods" are factory functions like `socket.channel("chat")` that
+   * return an endpoint object. Other plugins register their factory key in
+   * `_scopedKeys` during install(). This method iterates that list, wraps each
+   * factory, and augments the returned endpoint with `.send.withAck()`.
+   *
+   * The `_tag` convention: each endpoint exposes a `_tag(event, payload)` function
+   * that scopes a payload (e.g., adds `_channel: "chat"`). We call it before
+   * delegating to the top-level sendWithAck so the ack is sent with the
+   * correct scope.
    */
   private wrapScopedMethods(socket: Record<string, unknown>) {
     const scopedKeys = socket._scopedKeys as string[] | undefined;

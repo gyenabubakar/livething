@@ -32,9 +32,15 @@ export function createSocket<
 
   const socket = new Socket<TContract>(url, opts, plugins);
 
-  // Shared monotonic counter for plugin ID generation
+  // Shared monotonic counter for plugin ID generation. All plugins on this
+  // socket share the same closure, so IDs from different plugins (e.g.,
+  // "ack-1", "req-2", "ack-3") never collide.
   let idCounter = 0;
 
+  // helpers is constructed once, before the plugin loop, so every plugin
+  // receives the same object. This is important because plugins installed
+  // later (e.g., Ack) may need helpers methods that reference the socket,
+  // and the socket is already created at this point.
   const helpers: PluginHelpers = {
     rawSend(event: string, payload: unknown) {
       socket._rawSend(event, payload);
@@ -63,7 +69,10 @@ export function createSocket<
     },
   };
 
-  // Wire up each plugin: set helpers, then let it attach its methods
+  // Wire up each plugin: set helpers, then let it attach its methods.
+  // Order matters: Channels must install before Ack and RequestResponse,
+  // because those plugins read _scopedKeys (populated by Channels.install())
+  // to wrap channel endpoints with .withAck() and .request().
   for (const plugin of plugins) {
     plugin.helpers = helpers;
     plugin.install?.(socket as unknown as Record<string, unknown>);

@@ -99,7 +99,12 @@ export class Socket<TContract extends SocketContract> {
   _isFirstConnect = true;
   /** @internal — tracks whether disconnect() was called to prevent reconnection */
   _intentionalClose = false;
-  /** @internal — cancel in-flight async URL/searchParams resolution */
+  /**
+   * @internal — cancel in-flight async URL/searchParams resolution.
+   * Async operations (URL resolution, searchParams) can overlap with disconnect().
+   * This counter invalidates stale callbacks: if disconnect() was called while we
+   * were resolving the URL, the attemptId won't match and we bail out.
+   */
   _connectAttemptId = 0;
   /** @internal */
   _reconnection: Reconnection;
@@ -261,6 +266,10 @@ export class Socket<TContract extends SocketContract> {
    * @internal — untyped send that runs the full pipeline: lazy connect →
    * onOutgoing hooks → buffer fallback → WebSocket. Used by `send()` and
    * exposed to plugins via `helpers.send`.
+   *
+   * See also `_rawSend` which bypasses onOutgoing hooks — used by plugins to
+   * avoid infinite loops (e.g., an onOpen hook sending a message that re-triggers
+   * onOutgoing). Plugins that want buffer support use `helpers.send` (calls _send).
    */
   _send(event: string, payload: unknown, options?: SendOptions): boolean {
     this._ensureConnected();
@@ -517,7 +526,10 @@ export class Socket<TContract extends SocketContract> {
 
     if (!parsed) return;
 
-    // Middleware chain
+    // Middleware chain — each middleware returns one of three values:
+    //   null      → drop the message entirely (stop processing)
+    //   new msg   → replace the message with the returned value
+    //   undefined → pass through unchanged (undefined and void mean "no change", null means "drop")
     let msg: MiddlewareMessage | null = parsed;
     for (const mw of this._middleware) {
       const result = mw(msg!);
@@ -530,7 +542,10 @@ export class Socket<TContract extends SocketContract> {
       }
     }
 
-    // Plugin onIncoming hooks
+    // Plugin onIncoming hooks — same null = "consumed" convention as middleware.
+    // When a plugin returns null, it means the plugin fully handled the message
+    // (e.g., an ack plugin matching a response to a pending request), so we exit
+    // the loop and skip dispatch to on() handlers.
     let pluginMsg: { event: string; payload: unknown } | null = msg;
     for (const plugin of this._plugins) {
       if (!plugin.onIncoming) continue;
@@ -565,7 +580,16 @@ export class Socket<TContract extends SocketContract> {
     }
   }
 
-  /** @internal — bind platform listeners (network, visibility). Idempotent. */
+  /**
+   * @internal — bind platform event listeners (network online/offline, app visibility).
+   * Called once on first connect(); unbound on disconnect(). Idempotent — the
+   * `_platformBound` flag prevents double-binding across reconnects.
+   *
+   * The inactivity handler (onInactive) starts a timer when the app goes to the
+   * background. If the user doesn't return within `inactiveTimeout` ms, the socket
+   * closes cleanly to save resources. Returning (onActive) cancels the timer and
+   * reconnects if needed.
+   */
   private _bindPlatform(): void {
     if (this._platformBound) return;
     this._platformBound = true;
@@ -643,6 +667,11 @@ export class Socket<TContract extends SocketContract> {
   }
 
   // ── Lazy mode ──────────────────────────────────────────────
+  //
+  // Consumer tracking model: every on() listener and pending request/ack is a
+  // "consumer". The socket stays open as long as consumers > 0. When the last
+  // consumer leaves and the socket is lazy, an idle timer starts. If no new
+  // consumers arrive before it fires, the socket disconnects automatically.
 
   /**
    * @internal — trigger connection if in lazy mode and not connected.
@@ -697,7 +726,11 @@ export class Socket<TContract extends SocketContract> {
     }
   }
 
-  /** @internal — send a raw message, bypassing plugin onOutgoing hooks */
+  /**
+   * @internal — send a raw message, bypassing plugin onOutgoing hooks.
+   * Used by plugins and internal code (buffer flush, onOpen hooks) to avoid
+   * infinite loops that would occur if outgoing hooks re-triggered themselves.
+   */
   _rawSend(event: string, payload: unknown): void {
     if (!this.ws || this._state !== 'open') return;
     const serialize = this._options.serialize ?? defaultSerialize;

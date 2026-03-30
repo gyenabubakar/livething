@@ -56,8 +56,11 @@ export class Channels extends Plugin<ChannelsTypeFn, { channels: Record<string, 
   override install(socket: Record<string, unknown>) {
     socket.channel = (name: string) => this.createChannelEndpoint(name);
 
-    // Register as a scoped method so other plugins (RequestResponse, Ack)
-    // can discover and wrap it to add their features to channel endpoints.
+    // _scopedKeys is a shared string[] on the socket object. Plugins that create
+    // scoped endpoints (like Channels) register their key here. Other plugins
+    // (RequestResponse, Ack) iterate this list during their install() to discover
+    // scoped methods and wrap them with additional features (e.g., adding
+    // `.request()` or `.send.withAck()` to channel endpoints).
     if (!socket._scopedKeys) socket._scopedKeys = [];
     (socket._scopedKeys as string[]).push('channel');
   }
@@ -84,6 +87,9 @@ export class Channels extends Plugin<ChannelsTypeFn, { channels: Record<string, 
         const ttl = resolveTTL(options?.ttl);
         return this.helpers.send(event, tagged, ttl !== undefined ? { ttl } : undefined);
       },
+      // Generic tagging function exposed on the endpoint. Other plugins use it
+      // to scope payloads (e.g., add `_channel`) before delegating to top-level
+      // methods like `socket.request()` or `socket.send.withAck()`.
       _tag: (event: string, payload: unknown) => this.tagChannel(event, payload, name),
     };
   }

@@ -80,10 +80,16 @@ export type Requires<
     channels?: string[];
     requests?: string[];
   },
-> = (R['incoming'] extends string[] ? { incoming: Record<R['incoming'][number], any> } : {}) &
-  (R['outgoing'] extends string[] ? { outgoing: Record<R['outgoing'][number], any> } : {}) &
-  (R['channels'] extends string[] ? { channels: Record<R['channels'][number], any> } : {}) &
-  (R['requests'] extends string[] ? { requests: Record<R['requests'][number], any> } : {});
+> =
+  // For each category, if the user provided a list of event names, convert it
+  // into a Record constraint. E.g. `['user-joined', 'user-left']` becomes
+  // `{ incoming: { 'user-joined': any; 'user-left': any } }`.
+  // `[number]` turns the array into a union of its elements (the event names).
+  // If the category wasn't provided, contribute `{}` (no constraint).
+  (R['incoming'] extends string[] ? { incoming: Record<R['incoming'][number], any> } : {}) &
+    (R['outgoing'] extends string[] ? { outgoing: Record<R['outgoing'][number], any> } : {}) &
+    (R['channels'] extends string[] ? { channels: Record<R['channels'][number], any> } : {}) &
+    (R['requests'] extends string[] ? { requests: Record<R['requests'][number], any> } : {});
 
 // ---------------------------------------------------------------------------
 // Connection types
@@ -149,6 +155,7 @@ export type OutgoingMethod<
   TContract,
   TMethod extends string,
   TReturn = boolean,
+  // If the contract has `outgoing`, produce the method; otherwise `{}` (no method).
 > = TContract extends { outgoing: infer O extends Record<string, any> }
   ? { [M in TMethod]: <K extends keyof O & string>(event: K, payload: O[K]) => TReturn }
   : {};
@@ -163,6 +170,7 @@ export type OutgoingMethod<
  * }
  * ```
  */
+// If the contract has `incoming`, produce the method; otherwise `{}` (no method).
 export type IncomingMethod<TContract, TMethod extends string> = TContract extends {
   incoming: infer I extends Record<string, any>;
 }
@@ -184,6 +192,7 @@ export type IncomingMethod<TContract, TMethod extends string> = TContract extend
  * }
  * ```
  */
+// If the contract has `requests`, produce the method; otherwise `{}` (no method).
 export type RequestMethod<TContract, TMethod extends string> = TContract extends {
   requests: infer R extends Record<string, { payload: any; response: any }>;
 }
@@ -198,39 +207,53 @@ export type RequestMethod<TContract, TMethod extends string> = TContract extends
 
 /**
  * Full endpoint type for a scoped contract (channel, room, topic, etc.).
- * Includes `on()` + `send()` from `Endpoint`, plus `request()` if the scope
- * has `requests`, and `send.withAck()` if the scope has `outgoing`.
+ * Built from three intersected parts:
+ *
+ * 1. **Base endpoint** — `on()` and `send()` from `Endpoint`, typed against
+ *    the scope's incoming/outgoing events.
+ * 2. **Request conditional** — if the scope has `requests`, add a `request()` method.
+ * 3. **withAck conditional** — if the scope has any outgoing events, add `send.withAck()`.
  *
  * ```ts
  * type ChatEndpoint = ScopedEndpoint<MySocket['channels']['chat']>;
  * ```
  */
-export type ScopedEndpoint<C> = Endpoint<IncomingOf<C> & object, OutgoingOf<C> & object> &
-  (C extends { requests: infer R extends Record<string, { payload: any; response: any }> }
-    ? {
-        request<E extends keyof R & string>(
-          event: E,
-          payload: R[E]['payload'],
-          options?: { timeout?: number },
-        ): Promise<R[E]['response']>;
-      }
-    : {}) &
-  (keyof OutgoingOf<C> extends never
-    ? {}
-    : {
-        send: {
-          withAck<E extends keyof OutgoingOf<C> & string>(
+export type ScopedEndpoint<C> =
+  // Part 1: base endpoint with on() and send()
+  Endpoint<IncomingOf<C> & object, OutgoingOf<C> & object> &
+    // Part 2: add request() if this scope defines requests
+    (C extends { requests: infer R extends Record<string, { payload: any; response: any }> }
+      ? {
+          request<E extends keyof R & string>(
             event: E,
-            payload: OutgoingOf<C>[E],
-            options?: { timeout?: number; ttl?: number },
-          ): Promise<void>;
-        };
-      });
+            payload: R[E]['payload'],
+            options?: { timeout?: number },
+          ): Promise<R[E]['response']>;
+        }
+      : {}) &
+    // Part 3: add send.withAck() if there are any outgoing events.
+    // `keyof OutgoingOf<C> extends never` checks if the outgoing type has zero
+    // keys — i.e., no outgoing events were defined. If true, skip withAck.
+    (keyof OutgoingOf<C> extends never
+      ? {}
+      : {
+          send: {
+            withAck<E extends keyof OutgoingOf<C> & string>(
+              event: E,
+              payload: OutgoingOf<C>[E],
+              options?: { timeout?: number; ttl?: number },
+            ): Promise<void>;
+          };
+        });
 
 /**
  * One-liner for scoped plugins (channels, rooms, topics). Given a contract key
  * containing a named map of scoped contracts, produces a method that returns
  * a fully-typed `ScopedEndpoint` for each name.
+ *
+ * The mapped type `[M in TMethod]` is a trick to create a computed property
+ * name from a string literal. Think of it as: "create one property whose name
+ * is whatever `TMethod` is". E.g. `TMethod = 'channel'` produces `{ channel: ... }`.
  *
  * ```ts
  * interface ChannelsTypeFn extends TypeFn {

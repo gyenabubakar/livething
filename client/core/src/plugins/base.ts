@@ -83,6 +83,9 @@ export abstract class Plugin<F extends TypeFn = TypeFn, TRequires = {}> {
    * over the wire, bypassing plugin `onOutgoing` hooks.
    * @internal
    */
+  // Set by createSocket before install() is called. The `!` (definite assignment
+  // assertion) tells TypeScript "trust me, this will be set before use" — it's
+  // never undefined during normal plugin usage.
   helpers!: PluginHelpers;
 
   /** Intercept incoming messages. Return the message, a modified message, or `null` to drop. */

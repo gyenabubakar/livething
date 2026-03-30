@@ -95,6 +95,10 @@ export class RequestResponse extends Plugin<
     this.helpers.lazyAcquire();
 
     return new Promise((resolve, reject) => {
+      // cleanup() is extracted because it must run from every exit path:
+      // timeout, resolve, reject, and disconnect (onClose). Without a shared
+      // function, each path would duplicate the Map deletion + lazyRelease,
+      // risking missed cleanup and leaked resources.
       const cleanup = () => {
         this.pending.delete(id);
         this.helpers.lazyRelease();
@@ -105,6 +109,10 @@ export class RequestResponse extends Plugin<
         reject(new TimeoutError(`Request "${event}"`, ms));
       }, ms);
 
+      // resolve/reject are wrapped (not stored directly) so that each one
+      // automatically runs cleanup + clears the timer. This guarantees that
+      // no matter which path settles the promise (server response, timeout,
+      // or disconnect), resources are always freed.
       this.pending.set(id, {
         resolve: (value) => {
           clearTimeout(timer);
@@ -136,9 +144,15 @@ export class RequestResponse extends Plugin<
    * `request()` to the returned endpoint. Uses the endpoint's `_tag` function
    * to scope the payload before delegating to `socket.request()`.
    *
-   * A "scoped method" is any function on the socket that was registered via
-   * `_scopedKeys` — a convention where plugins that create scoped endpoints
-   * push their key name onto this array during `install()`.
+   * "Scoped methods" are factory functions like `socket.channel("chat")` that
+   * return an endpoint object. Other plugins register their factory key in
+   * `_scopedKeys` during install(). This method iterates that list, wraps each
+   * factory, and augments the returned endpoint with `.request()`.
+   *
+   * The `_tag` convention: each endpoint exposes a `_tag(event, payload)` function
+   * that scopes a payload (e.g., adds `_channel: "chat"`). We call it before
+   * delegating to the top-level request so the request is sent with the
+   * correct scope.
    */
   private wrapScopedMethods(socket: Record<string, unknown>) {
     const scopedKeys = socket._scopedKeys as string[] | undefined;
