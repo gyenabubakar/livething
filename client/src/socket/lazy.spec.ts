@@ -246,3 +246,64 @@ describe('Lazy mode', () => {
     expect(socket.getState()).toBe('closed');
   });
 });
+
+describe('Lazy mode edge cases', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('send() after lazy idle disconnect buffers the message and triggers reconnect', () => {
+    const socket = createLazySocket({
+      lazyIdleTimeout: 500,
+      bufferWhileDisconnected: true,
+    });
+
+    const unsub = socket.on('test', vi.fn());
+    socket._state = 'open';
+
+    unsub();
+    vi.advanceTimersByTime(500);
+    expect(socket.getState()).toBe('closed');
+    expect(socket._lazyConsumers).toBe(0);
+
+    (socket as any)._openConnection.mockClear();
+    const result = socket.send('test', { data: 'buffered' });
+
+    expect(result).toBe(true);
+    expect((socket as any)._openConnection).toHaveBeenCalledTimes(1);
+  });
+
+  it('manual disconnect() while lazy consumers exist resets consumers', () => {
+    const socket = createLazySocket();
+
+    socket.on('test', vi.fn());
+    socket._state = 'open';
+    expect(socket._lazyConsumers).toBe(1);
+
+    socket.disconnect();
+    expect(socket.getState()).toBe('closed');
+    expect(socket._lazyConsumers).toBe(0);
+
+    (socket as any)._openConnection.mockClear();
+    socket.on('test2', vi.fn());
+
+    expect((socket as any)._openConnection).toHaveBeenCalledTimes(1);
+    expect(socket._lazyConsumers).toBe(1);
+  });
+
+  it('lazyIdleTimeout of 0 does not disconnect', () => {
+    const socket = createLazySocket({ lazyIdleTimeout: 0 });
+    socket._state = 'open';
+
+    const unsub = socket.on('test', vi.fn());
+    unsub();
+
+    vi.advanceTimersByTime(60_000);
+    expect(socket._lazyIdleTimer).toBeNull();
+    expect(socket.getState()).toBe('open');
+  });
+});

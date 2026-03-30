@@ -1,10 +1,11 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- testing install with raw socket objects */
 import { Ack } from '@/plugins/ack.ts';
+import { Plugin } from '@/plugins/base.ts';
 import { Channels } from '@/plugins/channels.ts';
 import { RequestResponse } from '@/plugins/request-response.ts';
 import { Stream } from '@/plugins/stream.ts';
 import { describe, expect, it, vi } from 'vitest';
-import type { Plugin, PluginHelpers } from '@/plugins/base.ts';
+import type { PluginHelpers } from '@/plugins/base.ts';
 
 function createHelpers(): PluginHelpers {
   let counter = 0;
@@ -267,6 +268,154 @@ describe('Plugin.install', () => {
       unsub();
 
       expect(helpers.lazyRelease).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('Plugin interaction edge cases', () => {
+    it('Ack works without Channels plugin', () => {
+      vi.useFakeTimers();
+      const socket = createFakeSocket();
+      const helpers = createHelpers();
+      const ack = new Ack({ timeout: 5_000 });
+
+      installPlugin(ack, socket, helpers);
+
+      const promise = (socket.send as any).withAck('ping', { ts: 1 });
+      expect(helpers.rawSend).toHaveBeenCalledOnce();
+
+      const [event, payload] = (helpers.rawSend as ReturnType<typeof vi.fn>).mock.calls[0]!;
+      expect(event).toBe('ping');
+      expect(payload).toHaveProperty('_ackId');
+      expect(payload).toHaveProperty('ts', 1);
+
+      const ackId = (payload as Record<string, unknown>)._ackId as string;
+      ack.onIncoming({ event: '_ack', payload: { id: ackId } });
+
+      vi.useRealTimers();
+      return expect(promise).resolves.toBeUndefined();
+    });
+
+    it('RequestResponse works without Channels plugin', () => {
+      vi.useFakeTimers();
+      const socket = createFakeSocket();
+      const helpers = createHelpers();
+      const rr = new RequestResponse({ timeout: 5_000 });
+
+      installPlugin(rr, socket, helpers);
+
+      const promise = (socket.request as any)('get-user', { id: '42' });
+      expect(helpers.rawSend).toHaveBeenCalledOnce();
+
+      const [event, payload] = (helpers.rawSend as ReturnType<typeof vi.fn>).mock.calls[0]!;
+      expect(event).toBe('get-user');
+      const correlationId = (payload as Record<string, unknown>)._correlationId as string;
+
+      rr.onIncoming({
+        event: 'get-user',
+        payload: { _correlationId: correlationId, name: 'Alice' },
+      });
+
+      vi.useRealTimers();
+      return expect(promise).resolves.toHaveProperty('name', 'Alice');
+    });
+
+    it('multiple plugins modify payload in onOutgoing chain', () => {
+      const pluginA = new (class extends Plugin {
+        id = 'a';
+        override onOutgoing(_event: string, payload: unknown) {
+          return {
+            event: _event,
+            payload: { ...(payload as Record<string, unknown>), fromA: true },
+          };
+        }
+      })();
+
+      const pluginB = new (class extends Plugin {
+        id = 'b';
+        override onOutgoing(_event: string, payload: unknown) {
+          return {
+            event: _event,
+            payload: { ...(payload as Record<string, unknown>), fromB: true },
+          };
+        }
+      })();
+
+      const helpers = createHelpers();
+      pluginA.helpers = helpers;
+      pluginB.helpers = helpers;
+
+      const original = { data: 1 };
+      const afterA = pluginA.onOutgoing!('test', original);
+      const afterB = pluginB.onOutgoing!(afterA!.event, afterA!.payload);
+
+      expect(afterB!.payload).toEqual({ data: 1, fromA: true, fromB: true });
+    });
+
+    it('Channels consumes messages before Stream sees them', () => {
+      vi.useFakeTimers();
+      const socket = createFakeSocket();
+      const helpers = createHelpers();
+      const channels = new Channels();
+      const stream = new Stream({ timeout: 5_000 });
+
+      installPlugin(channels, socket, helpers);
+      installPlugin(stream, socket, helpers);
+
+      const channelHandler = vi.fn();
+      const ch = (socket.channel as any)('chat') as Record<string, any>;
+      ch.on('data', channelHandler);
+
+      const streamChunk = vi.fn();
+      (socket.onStream as any)('data', { onChunk: streamChunk });
+
+      const message = {
+        event: 'data',
+        payload: { _channel: 'chat', _streamId: 's1', text: 'chunk1' },
+      };
+
+      const afterChannels = channels.onIncoming(message);
+
+      expect(channelHandler).toHaveBeenCalledWith(message.payload);
+      expect(afterChannels).toBeNull();
+
+      if (afterChannels !== null) {
+        stream.onIncoming(afterChannels);
+      }
+
+      expect(streamChunk).not.toHaveBeenCalled();
+
+      vi.useRealTimers();
+    });
+
+    it('Dedup runs before Channels and blocks duplicate channel messages', async () => {
+      const socket = createFakeSocket();
+      const helpers = createHelpers();
+
+      const { Dedup } = await import('@/plugins/dedup.ts');
+      const dedup = new Dedup();
+      const channels = new Channels();
+
+      dedup.helpers = helpers;
+      installPlugin(channels, socket, helpers);
+
+      const channelHandler = vi.fn();
+      const ch = (socket.channel as any)('room') as Record<string, any>;
+      ch.on('msg', channelHandler);
+
+      const message = {
+        event: 'msg',
+        payload: { _channel: 'room', _messageId: 'dup-1', text: 'hello' },
+      };
+
+      const firstPass = dedup.onIncoming(message);
+      expect(firstPass).not.toBeNull();
+      channels.onIncoming(firstPass!);
+      expect(channelHandler).toHaveBeenCalledTimes(1);
+
+      const secondPass = dedup.onIncoming(message);
+      expect(secondPass).toBeNull();
+
+      expect(channelHandler).toHaveBeenCalledTimes(1);
     });
   });
 

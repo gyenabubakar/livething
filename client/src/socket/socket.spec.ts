@@ -219,6 +219,89 @@ describe('Socket (runtime)', () => {
     socket.disconnect();
   });
 
+  // ── Middleware edge cases ─────────────────────────────────
+
+  describe('Middleware edge cases', () => {
+    it('middleware can modify the event name', async () => {
+      server.use(
+        link.addEventListener('connection', ({ client }) => {
+          client.send(JSON.stringify({ event: 'ping', payload: { ts: 1 } }));
+        }),
+      );
+
+      const socket = createTestSocket();
+      socket.use((msg) => ({ event: 'pong', payload: msg.payload }));
+
+      const pongMessages: unknown[] = [];
+      const pingMessages: unknown[] = [];
+      socket.on('pong' as any, (data: any) => pongMessages.push(data));
+      socket.on('ping' as any, (data: any) => pingMessages.push(data));
+
+      const opened = onceOpen(socket);
+      socket.connect();
+      await opened;
+      await waitFor(50);
+
+      expect(pongMessages).toEqual([{ ts: 1 }]);
+      expect(pingMessages).toEqual([]);
+
+      socket.disconnect();
+    });
+
+    it('chained middleware (multiple use() calls) composes modifications', async () => {
+      server.use(
+        link.addEventListener('connection', ({ client }) => {
+          client.send(JSON.stringify({ event: 'greeting', payload: { text: 'hi' } }));
+        }),
+      );
+
+      const socket = createTestSocket();
+      socket.use((msg) => ({
+        event: msg.event,
+        payload: { ...(msg.payload as Record<string, unknown>), receivedAt: 100 },
+      }));
+      socket.use((msg) => ({
+        event: msg.event,
+        payload: { ...(msg.payload as Record<string, unknown>), processed: true },
+      }));
+
+      const messages: unknown[] = [];
+      socket.on('greeting', (data) => messages.push(data));
+
+      const opened = onceOpen(socket);
+      socket.connect();
+      await opened;
+      await waitFor(50);
+
+      expect(messages).toEqual([{ text: 'hi', receivedAt: 100, processed: true }]);
+
+      socket.disconnect();
+    });
+
+    it('middleware returning undefined passes message through unchanged', async () => {
+      server.use(
+        link.addEventListener('connection', ({ client }) => {
+          client.send(JSON.stringify({ event: 'greeting', payload: { text: 'pass-through' } }));
+        }),
+      );
+
+      const socket = createTestSocket();
+      socket.use(() => undefined);
+
+      const messages: unknown[] = [];
+      socket.on('greeting', (data) => messages.push(data));
+
+      const opened = onceOpen(socket);
+      socket.connect();
+      await opened;
+      await waitFor(50);
+
+      expect(messages).toEqual([{ text: 'pass-through' }]);
+
+      socket.disconnect();
+    });
+  });
+
   // ── Pong filtering ──────────────────────────────────────
 
   it('filters pong messages from reaching on() handlers', async () => {
@@ -686,6 +769,83 @@ describe('Socket (runtime)', () => {
     expect(reconnectFailed).toBe(false);
   });
 
+  // ── State machine edge cases ─────────────────────────────
+
+  describe('State machine edge cases', () => {
+    it('rapid connect/disconnect does not leave socket in inconsistent state', async () => {
+      server.use(link.addEventListener('connection', () => {}));
+
+      const socket = createTestSocket();
+      socket.connect();
+      socket.disconnect();
+
+      expect(socket.getState()).toBe('closed');
+
+      const opened = onceOpen(socket);
+      socket.connect();
+      await opened;
+
+      expect(socket.getState()).toBe('open');
+
+      socket.disconnect();
+    });
+
+    it('disconnect() during connecting state', async () => {
+      server.use(link.addEventListener('connection', () => {}));
+
+      const socket = createTestSocket();
+      socket.connect();
+
+      expect(socket.getState()).toBe('connecting');
+
+      socket.disconnect();
+
+      expect(socket.getState()).toBe('closed');
+      expect(socket.ws).toBeNull();
+    });
+
+    it('getState() inside middleware returns open', async () => {
+      server.use(
+        link.addEventListener('connection', ({ client }) => {
+          client.send(JSON.stringify({ event: 'greeting', payload: { text: 'hi' } }));
+        }),
+      );
+
+      const socket = createTestSocket();
+      let capturedState: string | undefined;
+      socket.use(() => {
+        capturedState = socket.getState();
+      });
+
+      const opened = onceOpen(socket);
+      socket.connect();
+      await opened;
+      await waitFor(50);
+
+      expect(capturedState).toBe('open');
+
+      socket.disconnect();
+    });
+
+    it('getState() inside onClose callback reflects closed', async () => {
+      server.use(link.addEventListener('connection', () => {}));
+
+      const socket = createTestSocket();
+      let capturedState: string | undefined;
+      socket.onClose(() => {
+        capturedState = socket.getState();
+      });
+
+      const opened = onceOpen(socket);
+      socket.connect();
+      await opened;
+
+      socket.disconnect();
+
+      expect(capturedState).toBe('closed');
+    });
+  });
+
   // ── Buffer flush on reconnect ───────────────────────────
 
   it('flushes buffered messages on reconnect', { timeout: 10_000 }, async () => {
@@ -728,5 +888,156 @@ describe('Socket (runtime)', () => {
     expect(bufferedMsg).toBeDefined();
 
     socket.disconnect();
+  });
+
+  // ── Error resilience ──────────────────────────────────────
+
+  describe('Error resilience', () => {
+    function swallowUncaught(): { errors: Error[]; cleanup: () => void } {
+      const errors: Error[] = [];
+      function handler(err: Error) {
+        errors.push(err);
+      }
+      process.on('uncaughtException', handler);
+      return { errors, cleanup: () => process.removeListener('uncaughtException', handler) };
+    }
+
+    it('middleware that throws does not crash the socket', async () => {
+      const trap = swallowUncaught();
+      let msgCount = 0;
+
+      server.use(
+        link.addEventListener('connection', ({ client }) => {
+          client.send(JSON.stringify({ event: 'boom', payload: {} }));
+          setTimeout(() => {
+            client.send(JSON.stringify({ event: 'greeting', payload: { text: 'ok' } }));
+          }, 50);
+        }),
+      );
+
+      const socket = createTestSocket();
+      socket.use((msg) => {
+        if (msg.event === 'boom') throw new Error('middleware explosion');
+        return undefined;
+      });
+
+      const messages: unknown[] = [];
+      socket.on('greeting', (data) => {
+        messages.push(data);
+        msgCount++;
+      });
+      socket.on('boom' as any, () => {
+        msgCount++;
+      });
+
+      const opened = onceOpen(socket);
+      socket.connect();
+      await opened;
+      await waitFor(150);
+
+      expect(msgCount).toBe(1);
+      expect(messages).toEqual([{ text: 'ok' }]);
+      expect(socket.getState()).toBe('open');
+      expect(trap.errors.some((e) => e.message === 'middleware explosion')).toBe(true);
+
+      socket.disconnect();
+      trap.cleanup();
+    });
+
+    it('plugin onIncoming that throws does not crash subsequent messages', async () => {
+      const trap = swallowUncaught();
+
+      server.use(
+        link.addEventListener('connection', ({ client }) => {
+          client.send(JSON.stringify({ event: 'explode', payload: {} }));
+          setTimeout(() => {
+            client.send(JSON.stringify({ event: 'greeting', payload: { text: 'safe' } }));
+          }, 50);
+        }),
+      );
+
+      class Exploder extends Plugin {
+        id = 'exploder';
+        override onIncoming(message: { event: string; payload: unknown }) {
+          if (message.event === 'explode') throw new Error('plugin boom');
+          return message;
+        }
+      }
+
+      const exploder = new Exploder();
+      exploder.helpers = {} as PluginHelpers;
+
+      const socket = new Socket<TestContract>(WS_URL, { pingInterval: 0 } as any, [exploder]);
+
+      const messages: unknown[] = [];
+      socket.on('greeting', (data) => messages.push(data));
+      socket.on('explode' as any, () => messages.push('should-not-appear'));
+
+      const opened = onceOpen(socket);
+      socket.connect();
+      await opened;
+      await waitFor(150);
+
+      expect(messages).toEqual([{ text: 'safe' }]);
+      expect(socket.getState()).toBe('open');
+      expect(trap.errors.some((e) => e.message === 'plugin boom')).toBe(true);
+
+      socket.disconnect();
+      trap.cleanup();
+    });
+
+    it('onClose callback throwing prevents subsequent onClose callbacks', async () => {
+      const trap = swallowUncaught();
+
+      server.use(
+        link.addEventListener('connection', ({ client }) => {
+          client.close(4001, 'test');
+        }),
+      );
+
+      const socket = createTestSocket({ reconnect: false });
+
+      const calls: string[] = [];
+      socket.onClose(() => {
+        calls.push('first');
+        throw new Error('onClose explosion');
+      });
+      socket.onClose(() => {
+        calls.push('second');
+      });
+
+      socket.connect();
+      await waitFor(150);
+
+      expect(calls).toEqual(['first']);
+      expect(trap.errors.some((e) => e.message === 'onClose explosion')).toBe(true);
+
+      trap.cleanup();
+    });
+
+    it('parseBinary returning object without payload field dispatches undefined', async () => {
+      server.use(
+        link.addEventListener('connection', ({ client }) => {
+          client.send(new TextEncoder().encode('binary-data'));
+        }),
+      );
+
+      const socket = createTestSocket({
+        binaryType: 'arraybuffer',
+        parseBinary: () => ({ event: 'binEvent' }) as any,
+      });
+
+      const messages: unknown[] = [];
+      socket.on('binEvent' as any, (data: any) => messages.push(data));
+
+      const opened = onceOpen(socket);
+      socket.connect();
+      await opened;
+      await waitFor(50);
+
+      expect(messages).toEqual([undefined]);
+
+      socket.disconnect();
+    });
   });
 });

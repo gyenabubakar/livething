@@ -331,4 +331,118 @@ describe('MessageBuffer', () => {
     const buffer = new MessageBuffer({});
     expect(buffer.isEnabled).toBe(false);
   });
+
+  // ── Edge cases ──────────────────────────────────────────────
+
+  it('TTL expired before flush sends all surviving messages (TTL checked once at flush start)', () => {
+    const buffer = createBuffer({ flushInterval: 100 });
+
+    buffer.enqueue('a', 1);
+    buffer.enqueue('b', 2, 50);
+    buffer.enqueue('c', 3);
+
+    // Advance past the per-call TTL of message "b"
+    vi.advanceTimersByTime(60);
+
+    const sent: [string, unknown][] = [];
+    const onComplete = vi.fn();
+    buffer.flush((e, p) => sent.push([e, p]), onComplete);
+
+    // "a" sent immediately (first tick)
+    expect(sent).toEqual([['a', 1]]);
+
+    vi.advanceTimersByTime(100);
+    // "b" was purged before flush started — skipped to "c"
+    expect(sent).toEqual([
+      ['a', 1],
+      ['c', 3],
+    ]);
+
+    vi.advanceTimersByTime(100);
+    expect(onComplete).toHaveBeenCalledTimes(1);
+    expect(sent.length).toBe(2);
+  });
+
+  it('clear() during throttled flush stops remaining messages', () => {
+    const buffer = createBuffer({ flushInterval: 100 });
+    buffer.enqueue('a', 1);
+    buffer.enqueue('b', 2);
+    buffer.enqueue('c', 3);
+
+    const sent: [string, unknown][] = [];
+    buffer.flush((e, p) => sent.push([e, p]));
+
+    // First message sent immediately
+    expect(sent).toEqual([['a', 1]]);
+
+    vi.advanceTimersByTime(50);
+    buffer.clear();
+
+    vi.advanceTimersByTime(500);
+    expect(sent).toEqual([['a', 1]]);
+  });
+
+  it('flush completes correctly regardless of new enqueues on separate buffer', () => {
+    const buffer = createBuffer({ flushInterval: 100, maxBufferSize: 3 });
+    buffer.enqueue('a', 1);
+    buffer.enqueue('b', 2);
+    buffer.enqueue('c', 3);
+
+    const sent: [string, unknown][] = [];
+    const onComplete = vi.fn();
+    buffer.flush((e, p) => sent.push([e, p]), onComplete);
+
+    expect(sent).toEqual([['a', 1]]);
+
+    // Messages enqueued after flush started go into the new (empty) queue,
+    // not the snapshot being flushed.
+    buffer.enqueue('d', 4);
+    expect(buffer.size).toBe(1);
+
+    vi.advanceTimersByTime(100);
+    expect(sent).toEqual([
+      ['a', 1],
+      ['b', 2],
+    ]);
+
+    vi.advanceTimersByTime(100);
+    expect(sent).toEqual([
+      ['a', 1],
+      ['b', 2],
+      ['c', 3],
+    ]);
+
+    vi.advanceTimersByTime(100);
+    expect(onComplete).toHaveBeenCalledTimes(1);
+    // The enqueued-during-flush message is still in the buffer
+    expect(buffer.size).toBe(1);
+  });
+
+  it('duplicate flush() calls do not send messages twice', () => {
+    const buffer = createBuffer({ flushInterval: 100 });
+    buffer.enqueue('a', 1);
+    buffer.enqueue('b', 2);
+
+    const sent: [string, unknown][] = [];
+    const onComplete1 = vi.fn();
+    const onComplete2 = vi.fn();
+
+    buffer.flush((e, p) => sent.push([e, p]), onComplete1);
+    // Second flush — queue is already empty (snapshot taken by first flush)
+    buffer.flush((e, p) => sent.push([e, p]), onComplete2);
+
+    // First flush sends "a" immediately, second flush has nothing
+    expect(sent).toEqual([['a', 1]]);
+    expect(onComplete2).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(100);
+    expect(sent).toEqual([
+      ['a', 1],
+      ['b', 2],
+    ]);
+
+    vi.advanceTimersByTime(100);
+    expect(onComplete1).toHaveBeenCalledTimes(1);
+    expect(sent.length).toBe(2);
+  });
 });

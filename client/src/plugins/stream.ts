@@ -122,6 +122,13 @@ export class Stream extends Plugin<StreamTypeFn> {
         subs.delete(handlers);
         if (subs.size === 0) this.subscriptions.delete(event);
       }
+
+      for (const [streamId, active] of this.streams) {
+        if (active.handlers === handlers) {
+          clearTimeout(active.timer);
+          this.streams.delete(streamId);
+        }
+      }
     };
   }
 

@@ -184,6 +184,7 @@ export class Socket<TContract extends SocketContract> {
     this._keepalive.stop();
     this._buffer.clear();
     this._clearLazyIdleTimer();
+    this._lazyConsumers = 0;
     this._unbindPlatform();
 
     if (this.ws) {
@@ -712,6 +713,7 @@ export class Socket<TContract extends SocketContract> {
   private _startLazyIdleTimer(): void {
     this._clearLazyIdleTimer();
     const timeout = this._options.lazyIdleTimeout ?? 10_000;
+    if (timeout <= 0) return;
     this._lazyIdleTimer = setTimeout(() => {
       this._log('lazy idle timeout — disconnecting');
       this.disconnect();

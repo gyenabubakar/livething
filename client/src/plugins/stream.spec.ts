@@ -207,4 +207,68 @@ describe('Stream', () => {
       expect(onChunk).toHaveBeenCalledTimes(2);
     });
   });
+
+  describe('edge cases — lifecycle', () => {
+    it('unsubscribe during active stream cleans up timeout timer', () => {
+      const onChunk = vi.fn();
+      const onTimeout = vi.fn();
+      const unsub = stream.registerStream('ai-response', { onChunk, onTimeout });
+
+      stream.onIncoming({ event: 'ai-response', payload: { _streamId: 's1', text: 'a' } });
+      expect(onChunk).toHaveBeenCalledTimes(1);
+
+      unsub();
+
+      vi.advanceTimersByTime(10_000);
+      expect(onTimeout).not.toHaveBeenCalled();
+
+      stream.onIncoming({ event: 'ai-response', payload: { _streamId: 's1', text: 'b' } });
+      expect(onChunk).toHaveBeenCalledTimes(1);
+    });
+
+    it('multiple handlers for same stream event', () => {
+      const onChunk1 = vi.fn();
+      const onEnd1 = vi.fn();
+      const onChunk2 = vi.fn();
+      const onEnd2 = vi.fn();
+
+      stream.registerStream('ai-response', { onChunk: onChunk1, onEnd: onEnd1 });
+      stream.registerStream('ai-response', { onChunk: onChunk2, onEnd: onEnd2 });
+
+      stream.onIncoming({ event: 'ai-response', payload: { _streamId: 's1', text: 'a' } });
+      stream.onIncoming({ event: 'ai-response', payload: { _streamId: 's1', text: 'b' } });
+
+      expect(onChunk1).toHaveBeenCalledTimes(2);
+      expect(onChunk2).toHaveBeenCalledTimes(2);
+
+      stream.onIncoming({
+        event: 'ai-response',
+        payload: { _streamId: 's1', _streamEnd: true },
+      });
+
+      expect(onEnd1).toHaveBeenCalledWith('s1');
+      expect(onEnd2).toHaveBeenCalledWith('s1');
+    });
+
+    it('chunks arriving after timeout fired start a fresh stream', () => {
+      const onChunk = vi.fn();
+      const onTimeout = vi.fn();
+      stream.registerStream('ai-response', { onChunk, onTimeout });
+
+      stream.onIncoming({ event: 'ai-response', payload: { _streamId: 's1', text: 'a' } });
+      expect(onChunk).toHaveBeenCalledTimes(1);
+
+      vi.advanceTimersByTime(5_000);
+      expect(onTimeout).toHaveBeenCalledWith('s1');
+
+      stream.onIncoming({ event: 'ai-response', payload: { _streamId: 's1', text: 'b' } });
+      expect(onChunk).toHaveBeenCalledTimes(2);
+
+      vi.advanceTimersByTime(4_000);
+      expect(onTimeout).toHaveBeenCalledTimes(1);
+
+      vi.advanceTimersByTime(2_000);
+      expect(onTimeout).toHaveBeenCalledTimes(2);
+    });
+  });
 });
