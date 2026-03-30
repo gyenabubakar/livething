@@ -246,7 +246,7 @@ describe('Plugin.install', () => {
       expect(helpers.lazyRelease).toHaveBeenCalledTimes(1);
     });
 
-    it('onStream() calls ensureConnected', () => {
+    it('onStream() calls lazyAcquire', () => {
       const socket = createFakeSocket();
       const helpers = createHelpers();
       const stream = new Stream();
@@ -254,7 +254,19 @@ describe('Plugin.install', () => {
       installPlugin(stream, socket, helpers);
       (socket.onStream as any)('ai-response', { onChunk: vi.fn() });
 
-      expect(helpers.ensureConnected).toHaveBeenCalledTimes(1);
+      expect(helpers.lazyAcquire).toHaveBeenCalledTimes(1);
+    });
+
+    it('onStream() unsubscribe calls lazyRelease', () => {
+      const socket = createFakeSocket();
+      const helpers = createHelpers();
+      const stream = new Stream();
+
+      installPlugin(stream, socket, helpers);
+      const unsub = (socket.onStream as any)('ai-response', { onChunk: vi.fn() });
+      unsub();
+
+      expect(helpers.lazyRelease).toHaveBeenCalledTimes(1);
     });
   });
 

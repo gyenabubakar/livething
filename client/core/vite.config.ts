@@ -15,6 +15,7 @@ export default defineConfig({
       entry: {
         index: resolve(__dirname, 'src/index.ts'),
         plugins: resolve(__dirname, 'src/plugins/index.ts'),
+        testing: resolve(__dirname, 'src/testing.ts'),
       },
       formats: ['es'],
     },
