@@ -1537,3 +1537,173 @@ describe('Integration: Custom adapter', () => {
     socket.disconnect();
   });
 });
+
+// ==========================================================================
+// Group 12: Channel streaming
+// ==========================================================================
+
+describe('Integration: Channel streaming', () => {
+  it('channel.onStream receives chunks from server', async () => {
+    server.use(
+      link.addEventListener('connection', ({ client }) => {
+        setTimeout(() => {
+          sendJson(client, 'message', {
+            _channel: 'lobby',
+            _streamId: 'cs1',
+            text: 'chunk1',
+            from: 'server',
+          });
+          sendJson(client, 'message', {
+            _channel: 'lobby',
+            _streamId: 'cs1',
+            text: 'chunk2',
+            from: 'server',
+          });
+          sendJson(client, 'message', {
+            _channel: 'lobby',
+            _streamId: 'cs1',
+            text: 'chunk3',
+            from: 'server',
+            _streamEnd: true,
+          });
+        }, 50);
+      }),
+    );
+
+    const socket = createIntSocket<FullContract>({
+      plugins: [new Channels(), new Stream()],
+    });
+
+    const chunks: string[] = [];
+    let endedStreamId: string | null = null;
+
+    (socket as any).channel('lobby').onStream('message', {
+      onChunk: (chunk: any) => chunks.push(chunk.text),
+      onEnd: (id: string) => {
+        endedStreamId = id;
+      },
+    });
+
+    const opened = onceOpen(socket as any);
+    socket.connect();
+    await opened;
+    await waitFor(300);
+
+    expect(chunks).toEqual(['chunk1', 'chunk2', 'chunk3']);
+    expect(endedStreamId).toBe('cs1');
+
+    socket.disconnect();
+  });
+
+  it('dynamic channel streaming', async () => {
+    server.use(
+      link.addEventListener('connection', ({ client }) => {
+        setTimeout(() => {
+          sendJson(client, 'message', {
+            _channel: 'room-xyz',
+            _streamId: 'ds1',
+            text: 'dynamic-chunk1',
+            from: 'server',
+          });
+          sendJson(client, 'message', {
+            _channel: 'room-xyz',
+            _streamId: 'ds1',
+            text: 'dynamic-chunk2',
+            from: 'server',
+            _streamEnd: true,
+          });
+        }, 50);
+      }),
+    );
+
+    const socket = createIntSocket<DynamicContract>({
+      plugins: [new Channels(), new Stream()],
+    });
+
+    const chunks: string[] = [];
+    let endedStreamId: string | null = null;
+
+    (socket as any).channel('room-xyz').onStream('message', {
+      onChunk: (chunk: any) => chunks.push(chunk.text),
+      onEnd: (id: string) => {
+        endedStreamId = id;
+      },
+    });
+
+    const opened = onceOpen(socket as any);
+    socket.connect();
+    await opened;
+    await waitFor(300);
+
+    expect(chunks).toEqual(['dynamic-chunk1', 'dynamic-chunk2']);
+    expect(endedStreamId).toBe('ds1');
+
+    socket.disconnect();
+  });
+
+  it('concurrent streams on different channels', async () => {
+    server.use(
+      link.addEventListener('connection', ({ client }) => {
+        setTimeout(() => {
+          sendJson(client, 'message', {
+            _channel: 'lobby',
+            _streamId: 'ls1',
+            text: 'lobby-1',
+            from: 'a',
+          });
+          sendJson(client, 'alert', {
+            _channel: 'alerts',
+            _streamId: 'as1',
+            level: 'info',
+            text: 'alert-1',
+          });
+          sendJson(client, 'message', {
+            _channel: 'lobby',
+            _streamId: 'ls1',
+            text: 'lobby-2',
+            from: 'a',
+            _streamEnd: true,
+          });
+          sendJson(client, 'alert', {
+            _channel: 'alerts',
+            _streamId: 'as1',
+            level: 'warn',
+            text: 'alert-2',
+            _streamEnd: true,
+          });
+        }, 50);
+      }),
+    );
+
+    const socket = createIntSocket<FullContract>({
+      plugins: [new Channels(), new Stream()],
+    });
+
+    const lobbyChunks: string[] = [];
+    const alertChunks: string[] = [];
+    const ended: string[] = [];
+
+    (socket as any).channel('lobby').onStream('message', {
+      onChunk: (chunk: any) => lobbyChunks.push(chunk.text),
+      onEnd: (id: string) => ended.push(`lobby:${id}`),
+    });
+
+    (socket as any).channel('alerts').onStream('alert', {
+      onChunk: (chunk: any) => alertChunks.push(chunk.text),
+      onEnd: (id: string) => ended.push(`alerts:${id}`),
+    });
+
+    const opened = onceOpen(socket as any);
+    socket.connect();
+    await opened;
+    await waitFor(300);
+
+    expect(lobbyChunks).toEqual(['lobby-1', 'lobby-2']);
+    expect(alertChunks).toEqual(['alert-1', 'alert-2']);
+    expect(ended).toContain('lobby:ls1');
+    expect(ended).toContain('alerts:as1');
+    expect(ended).toHaveLength(2);
+
+    socket.disconnect();
+  });
+});

@@ -553,3 +553,82 @@ type ComposedApi = Apply<ComposedTypeFn, FullContract>;
 const _composed: ComposedApi = {} as any;
 _composed.broadcast('mark-read', { notificationId: '1' });
 _composed.query('get-balance', { userId: '1' });
+
+// ===========================================================================
+// 17. ScopedEndpoint — onStream() for scoped contracts
+// ===========================================================================
+
+// --- 17a. Static channel with incoming: onStream() exists ---
+type ChatOnStreamEndpoint = ScopedEndpoint<FullContract['channels']['chat']>;
+const _chatStream: ChatOnStreamEndpoint = {} as any;
+
+// onStream() returns an unsubscribe function
+const _streamUnsub: () => void = _chatStream.onStream('message', {
+  onChunk: (chunk, streamId) => {
+    const _text: string = chunk.text;
+    const _from: string = chunk.from;
+    const _sid: string = streamId;
+    void _text;
+    void _from;
+    void _sid;
+  },
+  onEnd: (streamId) => {
+    const _sid: string = streamId;
+    void _sid;
+  },
+  onTimeout: (streamId) => {
+    const _sid: string = streamId;
+    void _sid;
+  },
+});
+void _streamUnsub;
+
+// --- 17b. Static channel without incoming: onStream() does not exist ---
+interface OutgoingOnlyChannelContract extends SocketContract {
+  channels: {
+    firehose: {
+      outgoing: { emit: { value: number } };
+    };
+  };
+}
+type FirehoseEndpoint = ScopedEndpoint<OutgoingOnlyChannelContract['channels']['firehose']>;
+const _firehose: FirehoseEndpoint = {} as any;
+_firehose.send('emit', { value: 42 });
+// @ts-expect-error — no onStream on channel without incoming
+_firehose.onStream;
+
+// --- 17c. Dynamic channels: onStream() exists ---
+const _dynStreamRoom = _dynamicChannels.channel('any-name');
+const _dynStreamUnsub: () => void = _dynStreamRoom.onStream('message', {
+  onChunk: (chunk) => {
+    const _text: string = chunk.text;
+    const _from: string = chunk.from;
+    void _text;
+    void _from;
+  },
+});
+void _dynStreamUnsub;
+
+// --- 17d. onStream with wrong event name is a type error ---
+// @ts-expect-error — 'nonexistent' is not an incoming event on chat
+_chatStream.onStream('nonexistent', { onChunk: () => {} });
+
+// --- 17e. onStream with wrong chunk type is a type error ---
+_chatStream.onStream('message', {
+  // @ts-expect-error — chunk is { text: string; from: string }, not { wrong: true }
+  onChunk: (chunk: { wrong: true }) => {
+    void chunk;
+  },
+});
+
+// --- 17f. Alerts channel (incoming only): onStream exists, send.withAck doesn't ---
+const _alertsStream: AlertsEndpoint = {} as any;
+const _alertStreamUnsub: () => void = _alertsStream.onStream('alert', {
+  onChunk: (chunk) => {
+    const _level: string = chunk.level;
+    void _level;
+  },
+});
+void _alertStreamUnsub;
+// @ts-expect-error — no send on incoming-only channel, so no send.withAck
+_alertsStream.send;

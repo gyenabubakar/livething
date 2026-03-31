@@ -104,6 +104,68 @@ export class Stream extends Plugin<StreamTypeFn> {
         this.helpers.lazyRelease();
       };
     };
+    this.wrapScopedMethods(socket);
+  }
+
+  /**
+   * Wrap scoped methods (e.g., `socket.channel()`) to add `onStream()` to
+   * returned endpoints. Uses the endpoint's `on()` handler internally to
+   * receive messages, then applies stream lifecycle tracking on top.
+   *
+   * This means channel.onStream() works regardless of plugin ordering —
+   * it doesn't rely on the Stream plugin's onIncoming hook seeing the
+   * message before Channels consumes it.
+   */
+  private wrapScopedMethods(socket: Record<string, unknown>) {
+    const scopedKeys = socket._scopedKeys as string[] | undefined;
+    if (!scopedKeys?.length) return;
+
+    for (const key of scopedKeys) {
+      if (typeof socket[key] !== 'function') continue;
+
+      const original = socket[key] as (name: string) => Record<string, any>;
+      socket[key] = (name: string) => {
+        const endpoint = original(name);
+
+        endpoint.onStream = (event: string, handlers: StreamHandlers) => {
+          this.helpers.lazyAcquire();
+          const streams = new Map<string, ReturnType<typeof setTimeout>>();
+
+          const unsub = endpoint.on(event, (data: unknown) => {
+            const streamId = this.extractStreamId(event, data);
+            if (streamId === null) return;
+
+            if (!streams.has(streamId)) {
+              const timer = setTimeout(() => {
+                streams.delete(streamId);
+                handlers.onTimeout?.(streamId);
+              }, this.defaultTimeout);
+              streams.set(streamId, timer);
+            }
+
+            handlers.onChunk(data, streamId);
+
+            if (this.isStreamEnd(event, data)) {
+              const timer = streams.get(streamId);
+              if (timer !== undefined) clearTimeout(timer);
+              streams.delete(streamId);
+              handlers.onEnd?.(streamId);
+            }
+          });
+
+          return () => {
+            unsub();
+            for (const timer of streams.values()) {
+              clearTimeout(timer);
+            }
+            streams.clear();
+            this.helpers.lazyRelease();
+          };
+        };
+
+        return endpoint;
+      };
+    }
   }
 
   /**

@@ -213,6 +213,7 @@ export type RequestMethod<TContract, TMethod extends string> = TContract extends
  *    the scope's incoming/outgoing events.
  * 2. **Request conditional** — if the scope has `requests`, add a `request()` method.
  * 3. **withAck conditional** — if the scope has any outgoing events, add `send.withAck()`.
+ * 4. **onStream conditional** — if the scope has any incoming events, add `onStream()`.
  *
  * ```ts
  * type ChatEndpoint = ScopedEndpoint<MySocket['channels']['chat']>;
@@ -244,6 +245,19 @@ export type ScopedEndpoint<C> =
               options?: { timeout?: number; ttl?: number },
             ): Promise<void>;
           };
+        }) &
+    // Part 4: add onStream() if there are any incoming events.
+    (keyof IncomingOf<C> extends never
+      ? {}
+      : {
+          onStream<E extends keyof IncomingOf<C> & string>(
+            event: E,
+            handlers: {
+              onChunk: (chunk: IncomingOf<C>[E], streamId: string) => void;
+              onEnd?: (streamId: string) => void;
+              onTimeout?: (streamId: string) => void;
+            },
+          ): () => void;
         });
 
 /**

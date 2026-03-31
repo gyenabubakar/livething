@@ -191,6 +191,102 @@ describe('Plugin.install', () => {
       stream.onIncoming({ event: 'ai-response', payload: { _streamId: 's1', text: 'hi' } });
       expect(onChunk).toHaveBeenCalledWith({ _streamId: 's1', text: 'hi' }, 's1');
     });
+
+    it('channel().onStream is attached when Channels + Stream installed', () => {
+      const socket = createFakeSocket();
+      const helpers = createHelpers();
+      const channels = new Channels();
+      const stream = new Stream();
+
+      installPlugin(channels, socket, helpers);
+      installPlugin(stream, socket, helpers);
+
+      const ch = (socket.channel as any)('chat') as Record<string, any>;
+      expect(typeof ch.onStream).toBe('function');
+    });
+
+    it('channel().onStream dispatches chunks via channel on() handler', () => {
+      vi.useFakeTimers();
+      const socket = createFakeSocket();
+      const helpers = createHelpers();
+      const channels = new Channels();
+      const stream = new Stream({ timeout: 5_000 });
+
+      installPlugin(channels, socket, helpers);
+      installPlugin(stream, socket, helpers);
+
+      const onChunk = vi.fn();
+      (socket.channel as any)('chat').onStream('message', { onChunk });
+
+      channels.onIncoming({
+        event: 'message',
+        payload: { _channel: 'chat', _streamId: 's1', text: 'hi' },
+      });
+
+      expect(onChunk).toHaveBeenCalledWith({ _channel: 'chat', _streamId: 's1', text: 'hi' }, 's1');
+
+      vi.useRealTimers();
+    });
+
+    it('channel().onStream fires onEnd on stream completion', () => {
+      vi.useFakeTimers();
+      const socket = createFakeSocket();
+      const helpers = createHelpers();
+      const channels = new Channels();
+      const stream = new Stream({ timeout: 5_000 });
+
+      installPlugin(channels, socket, helpers);
+      installPlugin(stream, socket, helpers);
+
+      const onChunk = vi.fn();
+      const onEnd = vi.fn();
+      (socket.channel as any)('chat').onStream('message', { onChunk, onEnd });
+
+      channels.onIncoming({
+        event: 'message',
+        payload: { _channel: 'chat', _streamId: 's1', text: 'hi' },
+      });
+      channels.onIncoming({
+        event: 'message',
+        payload: { _channel: 'chat', _streamId: 's1', text: 'bye', _streamEnd: true },
+      });
+
+      expect(onChunk).toHaveBeenCalledTimes(2);
+      expect(onEnd).toHaveBeenCalledWith('s1');
+
+      vi.useRealTimers();
+    });
+
+    it('channel().onStream unsubscribe cleans up', () => {
+      vi.useFakeTimers();
+      const socket = createFakeSocket();
+      const helpers = createHelpers();
+      const channels = new Channels();
+      const stream = new Stream({ timeout: 5_000 });
+
+      installPlugin(channels, socket, helpers);
+      installPlugin(stream, socket, helpers);
+
+      const onChunk = vi.fn();
+      const onEnd = vi.fn();
+      const unsub = (socket.channel as any)('chat').onStream('message', { onChunk, onEnd });
+
+      unsub();
+
+      channels.onIncoming({
+        event: 'message',
+        payload: { _channel: 'chat', _streamId: 's1', text: 'hi' },
+      });
+      channels.onIncoming({
+        event: 'message',
+        payload: { _channel: 'chat', _streamId: 's1', _streamEnd: true },
+      });
+
+      expect(onChunk).not.toHaveBeenCalled();
+      expect(onEnd).not.toHaveBeenCalled();
+
+      vi.useRealTimers();
+    });
   });
 
   describe('lazy consumer tracking', () => {
