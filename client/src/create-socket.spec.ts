@@ -1,14 +1,14 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- testing createSocket with plugin wiring */
-import { createSocket } from '@/create-socket.ts';
-import { Ack } from '@/plugins/ack.ts';
-import { Plugin } from '@/plugins/base.ts';
-import { Channels } from '@/plugins/channels.ts';
-import { Dedup } from '@/plugins/dedup.ts';
-import { Replay } from '@/plugins/replay.ts';
-import { RequestResponse } from '@/plugins/request-response.ts';
-import { Stream } from '@/plugins/stream.ts';
+import { createSocket } from '~/create-socket.ts';
+import { Ack } from '~/plugins/ack.ts';
+import { Plugin } from '~/plugins/base.ts';
+import { Channels } from '~/plugins/channels.ts';
+import { Dedup } from '~/plugins/dedup.ts';
+import { Replay } from '~/plugins/replay.ts';
+import { RequestResponse } from '~/plugins/request-response.ts';
+import { Stream } from '~/plugins/stream.ts';
 import { describe, expect, it, vi } from 'vitest';
-import type { StaticApi } from '@/types.ts';
+import type { StaticApi } from '~/types.ts';
 
 describe('createSocket', () => {
   it('returns a socket with base methods', () => {

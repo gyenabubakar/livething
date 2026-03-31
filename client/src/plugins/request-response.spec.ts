@@ -1,4 +1,4 @@
-import { RequestResponse } from '@/plugins/request-response.ts';
+import { RequestResponse } from '~/plugins/request-response.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 describe('RequestResponse', () => {

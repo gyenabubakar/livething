@@ -1,7 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- plugin array typing requires `any` */
-import type { PlatformAdapter } from '@/adapter.ts';
-import type { Plugin } from '@/plugins/base.ts';
-import type { SocketContract } from '@/types.ts';
+import type { PlatformAdapter } from '~/adapter.ts';
+import type { Plugin } from '~/plugins/base.ts';
+import type { SocketContract } from '~/types.ts';
 
 // ---------------------------------------------------------------------------
 // Socket options
@@ -9,7 +9,7 @@ import type { SocketContract } from '@/types.ts';
 
 /** Options for `createSocket`. All options are optional. */
 export interface SocketOptions<_TContract extends SocketContract = SocketContract> {
-  /** Override platform detection. Web APIs (visibility, network) are auto-detected — only needed for React Native (`@better-websocket/client-react-native`) or custom platforms (Electron, Capacitor). */
+  /** Override platform detection. Web APIs (visibility, network) are auto-detected — only needed for React Native (`@wskit/client-react-native`) or custom platforms (Electron, Capacitor). */
   adapter?: PlatformAdapter;
 
   /** Plugin instances that extend socket functionality (e.g., Channels, RequestResponse, Ack, Stream). Each plugin can add methods, intercept messages, and hook into the connection lifecycle. */

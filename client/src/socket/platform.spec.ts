@@ -1,8 +1,8 @@
-import { PlatformAdapter } from '@/adapter.ts';
-import { Platform } from '@/socket/platform.ts';
+import { PlatformAdapter } from '~/adapter.ts';
+import { Platform } from '~/socket/platform.ts';
 import { describe, expect, it, vi } from 'vitest';
-import type { NetworkState, VisibilityState } from '@/adapter.ts';
-import type { PlatformOptions } from '@/socket/platform.ts';
+import type { NetworkState, VisibilityState } from '~/adapter.ts';
+import type { PlatformOptions } from '~/socket/platform.ts';
 
 function createMockAdapter(options: { visibility?: boolean; network?: boolean } = {}) {
   const adapter = new PlatformAdapter();

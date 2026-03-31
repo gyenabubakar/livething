@@ -1,20 +1,20 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- plugin type merging requires `any` */
-import { MessageBuffer } from '@/socket/buffer.ts';
-import { Emitter } from '@/socket/emitter.ts';
-import { Keepalive } from '@/socket/keepalive.ts';
-import { Platform } from '@/socket/platform.ts';
-import { Reconnection } from '@/socket/reconnection.ts';
-import type { SendOptions } from '@/endpoint.ts';
-import type { MiddlewareFn, MiddlewareMessage } from '@/middleware.ts';
-import type { FullSocketOptions } from '@/options.ts';
-import type { Plugin } from '@/plugins/base.ts';
+import { MessageBuffer } from '~/socket/buffer.ts';
+import { Emitter } from '~/socket/emitter.ts';
+import { Keepalive } from '~/socket/keepalive.ts';
+import { Platform } from '~/socket/platform.ts';
+import { Reconnection } from '~/socket/reconnection.ts';
+import type { SendOptions } from '~/endpoint.ts';
+import type { MiddlewareFn, MiddlewareMessage } from '~/middleware.ts';
+import type { FullSocketOptions } from '~/options.ts';
+import type { Plugin } from '~/plugins/base.ts';
 import type {
   ConnectionQuality,
   ConnectionState,
   IncomingOf,
   OutgoingOf,
   SocketContract,
-} from '@/types.ts';
+} from '~/types.ts';
 
 // ---------------------------------------------------------------------------
 // Close event

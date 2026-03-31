@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- type-level variance requires `any` for Plugin generics in conditional types */
-import type { Plugin } from '@/plugins/base.ts';
-import type { Simplify } from '@/types.ts';
+import type { Plugin } from '~/plugins/base.ts';
+import type { Simplify } from '~/types.ts';
 
 // ---------------------------------------------------------------------------
 // HKT — the "type function" pattern

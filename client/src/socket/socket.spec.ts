@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- runtime test file */
-import { Plugin } from '@/plugins/base.ts';
-import { Socket } from '@/socket/socket.ts';
+import { Plugin } from '~/plugins/base.ts';
+import { Socket } from '~/socket/socket.ts';
 import {
   collectServerMessages,
   createTestSocket,
@@ -12,10 +12,10 @@ import {
   parseMessage,
   waitFor,
   WS_URL,
-} from '@/test-helpers.ts';
+} from '~/test-helpers.ts';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import type { PluginHelpers } from '@/plugins/base.ts';
-import type { TestContract } from '@/test-helpers.ts';
+import type { PluginHelpers } from '~/plugins/base.ts';
+import type { TestContract } from '~/test-helpers.ts';
 
 // ---------------------------------------------------------------------------
 // MSW setup

@@ -16,28 +16,28 @@ export type {
   RequestMethod,
   ScopedEndpoint,
   ScopedApi,
-} from '@/types.ts';
+} from '~/types.ts';
 
-export type { Endpoint, SendOptions } from '@/endpoint.ts';
+export type { Endpoint, SendOptions } from '~/endpoint.ts';
 
-export { DisconnectedError, TimeoutError } from '@/errors.ts';
+export { DisconnectedError, TimeoutError } from '~/errors.ts';
 
-export { PlatformAdapter } from '@/adapter.ts';
-export type { VisibilityState, NetworkState } from '@/adapter.ts';
+export { PlatformAdapter } from '~/adapter.ts';
+export type { VisibilityState, NetworkState } from '~/adapter.ts';
 
-export type { MiddlewareFn, MiddlewareMessage } from '@/middleware.ts';
+export type { MiddlewareFn, MiddlewareMessage } from '~/middleware.ts';
 
-export { Socket } from '@/socket/index.ts';
-export { createSocket } from '@/create-socket.ts';
-export type { CloseEvent } from '@/socket/index.ts';
-export type { SocketOptions, FullSocketOptions } from '@/options.ts';
+export { Socket } from '~/socket/index.ts';
+export { createSocket } from '~/create-socket.ts';
+export type { CloseEvent } from '~/socket/index.ts';
+export type { SocketOptions, FullSocketOptions } from '~/options.ts';
 
-export { Plugin } from '@/plugins/base.ts';
-export type { PluginHelpers } from '@/plugins/base.ts';
+export { Plugin } from '~/plugins/base.ts';
+export type { PluginHelpers } from '~/plugins/base.ts';
 export type {
   TypeFn,
   Apply,
   ApplyPlugins,
   ValidatePlugins,
   SocketWithPlugins,
-} from '@/plugins/types.ts';
+} from '~/plugins/types.ts';

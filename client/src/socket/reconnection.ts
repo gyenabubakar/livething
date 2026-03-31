@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- plugin array typing */
-import type { SocketOptions } from '@/options.ts';
-import type { Plugin } from '@/plugins/base.ts';
+import type { SocketOptions } from '~/options.ts';
+import type { Plugin } from '~/plugins/base.ts';
 
 /** Reconnection-relevant subset of SocketOptions. */
 export type ReconnectionOptions = Pick<

@@ -1,4 +1,4 @@
-import { Emitter } from '@/socket/emitter.ts';
+import { Emitter } from '~/socket/emitter.ts';
 import { describe, expect, it, vi } from 'vitest';
 
 type TestEvents = {

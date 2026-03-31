@@ -3,7 +3,7 @@
  * because the socket disconnected before a response arrived.
  *
  * ```ts
- * import { DisconnectedError } from '@better-websocket/client';
+ * import { DisconnectedError } from '@wskit/client';
  *
  * try {
  *   await socket.request('get-balance', { userId });
@@ -26,7 +26,7 @@ export class DisconnectedError extends Error {
  * response within the configured timeout.
  *
  * ```ts
- * import { TimeoutError } from '@better-websocket/client';
+ * import { TimeoutError } from '@wskit/client';
  *
  * try {
  *   await socket.request('slow-query', data, { timeout: 5000 });

@@ -1,11 +1,11 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- testing install with raw socket objects */
-import { Ack } from '@/plugins/ack.ts';
-import { Plugin } from '@/plugins/base.ts';
-import { Channels } from '@/plugins/channels.ts';
-import { RequestResponse } from '@/plugins/request-response.ts';
-import { Stream } from '@/plugins/stream.ts';
+import { Ack } from '~/plugins/ack.ts';
+import { Plugin } from '~/plugins/base.ts';
+import { Channels } from '~/plugins/channels.ts';
+import { RequestResponse } from '~/plugins/request-response.ts';
+import { Stream } from '~/plugins/stream.ts';
 import { describe, expect, it, vi } from 'vitest';
-import type { PluginHelpers } from '@/plugins/base.ts';
+import type { PluginHelpers } from '~/plugins/base.ts';
 
 function createHelpers(): PluginHelpers {
   let counter = 0;
@@ -487,7 +487,7 @@ describe('Plugin.install', () => {
       const socket = createFakeSocket();
       const helpers = createHelpers();
 
-      const { Dedup } = await import('@/plugins/dedup.ts');
+      const { Dedup } = await import('~/plugins/dedup.ts');
       const dedup = new Dedup();
       const channels = new Channels();
 
@@ -517,13 +517,13 @@ describe('Plugin.install', () => {
 
   describe('Plugins without install', () => {
     it('Dedup has no install (hooks only)', async () => {
-      const { Dedup } = await import('@/plugins/dedup.ts');
+      const { Dedup } = await import('~/plugins/dedup.ts');
       const dedup = new Dedup();
       expect(dedup.install).toBeUndefined();
     });
 
     it('Replay has no install (hooks only)', async () => {
-      const { Replay } = await import('@/plugins/replay.ts');
+      const { Replay } = await import('~/plugins/replay.ts');
       const replay = new Replay();
       expect(replay.install).toBeUndefined();
     });

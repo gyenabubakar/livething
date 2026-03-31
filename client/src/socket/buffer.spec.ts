@@ -1,6 +1,6 @@
-import { MessageBuffer } from '@/socket/buffer.ts';
+import { MessageBuffer } from '~/socket/buffer.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { BufferOptions } from '@/socket/buffer.ts';
+import type { BufferOptions } from '~/socket/buffer.ts';
 
 function createBuffer(overrides: Partial<BufferOptions> = {}) {
   const opts: BufferOptions = {

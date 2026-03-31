@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- type-level stream routing requires `any` */
-import { Plugin } from '@/plugins/base.ts';
-import type { TypeFn } from '@/plugins/types.ts';
+import { Plugin } from '~/plugins/base.ts';
+import type { TypeFn } from '~/plugins/types.ts';
 
 // ---------------------------------------------------------------------------
 // Type function

@@ -1,4 +1,4 @@
-import { Dedup } from '@/plugins/dedup.ts';
+import { Dedup } from '~/plugins/dedup.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 describe('Dedup', () => {

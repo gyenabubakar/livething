@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- Requires uses `any` intentionally for loose contract matching */
-import type { Endpoint } from '@/endpoint.ts';
+import type { Endpoint } from '~/endpoint.ts';
 
 // ---------------------------------------------------------------------------
 // Socket contract

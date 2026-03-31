@@ -1,7 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- type-level request matching requires `any` */
-import { DisconnectedError, TimeoutError } from '@/errors.ts';
-import { Plugin } from '@/plugins/base.ts';
-import type { TypeFn } from '@/plugins/types.ts';
+import { DisconnectedError, TimeoutError } from '~/errors.ts';
+import { Plugin } from '~/plugins/base.ts';
+import type { TypeFn } from '~/plugins/types.ts';
 
 // ---------------------------------------------------------------------------
 // Type function

@@ -7,7 +7,7 @@
  * payloads are correctly constrained.
  */
 
-import type { Endpoint } from '@/endpoint.ts';
+import type { Endpoint } from '~/endpoint.ts';
 
 // ===========================================================================
 // Test event maps

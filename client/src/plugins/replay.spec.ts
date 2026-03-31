@@ -1,4 +1,4 @@
-import { Replay } from '@/plugins/replay.ts';
+import { Replay } from '~/plugins/replay.ts';
 import { describe, expect, it } from 'vitest';
 
 describe('Replay', () => {

@@ -11,14 +11,14 @@
  * Each section explains what's being tested and why.
  */
 
-import { Plugin } from '@/plugins/base.ts';
+import { Plugin } from '~/plugins/base.ts';
 import type {
   Apply,
   ApplyPlugins,
   SocketWithPlugins,
   TypeFn,
   ValidatePlugins,
-} from '@/plugins/types.ts';
+} from '~/plugins/types.ts';
 import type {
   IncomingMethod,
   IncomingOf,
@@ -30,7 +30,7 @@ import type {
   ScopedEndpoint,
   SocketContract,
   StaticApi,
-} from '@/types.ts';
+} from '~/types.ts';
 
 // ===========================================================================
 // Test contracts

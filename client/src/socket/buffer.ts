@@ -1,4 +1,4 @@
-import type { SocketOptions } from '@/options.ts';
+import type { SocketOptions } from '~/options.ts';
 
 /** Buffer-relevant subset of SocketOptions. */
 export type BufferOptions = Pick<

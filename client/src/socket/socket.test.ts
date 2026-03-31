@@ -6,13 +6,13 @@
  * merging, plugin validation, options typing, and the linked binary options.
  */
 
-import { Plugin } from '@/plugins/base.ts';
-import type { createSocket } from '@/create-socket.ts';
-import type { MiddlewareMessage } from '@/middleware.ts';
-import type { FullSocketOptions } from '@/options.ts';
-import type { TypeFn } from '@/plugins/types.ts';
-import type { CloseEvent } from '@/socket/socket.ts';
-import type { ConnectionQuality, ConnectionState, SocketContract, StaticApi } from '@/types.ts';
+import { Plugin } from '~/plugins/base.ts';
+import type { createSocket } from '~/create-socket.ts';
+import type { MiddlewareMessage } from '~/middleware.ts';
+import type { FullSocketOptions } from '~/options.ts';
+import type { TypeFn } from '~/plugins/types.ts';
+import type { CloseEvent } from '~/socket/socket.ts';
+import type { ConnectionQuality, ConnectionState, SocketContract, StaticApi } from '~/types.ts';
 
 // ===========================================================================
 // Test contract

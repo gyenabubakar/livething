@@ -1,11 +1,11 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- testing utility tests */
-import { Plugin } from '@/plugins/base.ts';
-import { Channels } from '@/plugins/channels.ts';
-import { Socket } from '@/socket/socket.ts';
-import { inject, injectChannel } from '@/testing.ts';
+import { Plugin } from '~/plugins/base.ts';
+import { Channels } from '~/plugins/channels.ts';
+import { Socket } from '~/socket/socket.ts';
+import { inject, injectChannel } from '~/testing.ts';
 import { describe, expect, it, vi } from 'vitest';
-import type { FullSocketOptions } from '@/options.ts';
-import type { PluginHelpers } from '@/plugins/base.ts';
+import type { FullSocketOptions } from '~/options.ts';
+import type { PluginHelpers } from '~/plugins/base.ts';
 
 interface TestContract {
   incoming: { notification: { id: string; title: string }; alert: { level: string } };

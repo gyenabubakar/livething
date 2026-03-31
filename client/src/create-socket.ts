@@ -1,9 +1,9 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- plugin type merging requires `any` */
-import { Socket } from '@/socket/socket.ts';
-import type { FullSocketOptions } from '@/options.ts';
-import type { Plugin, PluginHelpers } from '@/plugins/base.ts';
-import type { ApplyPlugins, ValidatePlugins } from '@/plugins/types.ts';
-import type { Simplify, SocketContract } from '@/types.ts';
+import { Socket } from '~/socket/socket.ts';
+import type { FullSocketOptions } from '~/options.ts';
+import type { Plugin, PluginHelpers } from '~/plugins/base.ts';
+import type { ApplyPlugins, ValidatePlugins } from '~/plugins/types.ts';
+import type { Simplify, SocketContract } from '~/types.ts';
 
 /**
  * Create a typed WebSocket client.

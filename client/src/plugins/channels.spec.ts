@@ -1,4 +1,4 @@
-import { Channels } from '@/plugins/channels.ts';
+import { Channels } from '~/plugins/channels.ts';
 import { describe, expect, it, vi } from 'vitest';
 
 describe('Channels', () => {

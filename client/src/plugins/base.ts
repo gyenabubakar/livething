@@ -1,6 +1,6 @@
-import type { SocketOptions } from '@/options.ts';
-import type { TypeFn } from '@/plugins/types.ts';
-import type { ConnectionState } from '@/types.ts';
+import type { SocketOptions } from '~/options.ts';
+import type { TypeFn } from '~/plugins/types.ts';
+import type { ConnectionState } from '~/types.ts';
 
 /**
  * Utilities for interacting with the socket internals. Set on the plugin

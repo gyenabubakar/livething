@@ -1,7 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- testing internal lazy mode state */
-import { Socket } from '@/socket/socket.ts';
+import { Socket } from '~/socket/socket.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { FullSocketOptions } from '@/options.ts';
+import type { FullSocketOptions } from '~/options.ts';
 
 interface TestContract {
   incoming: { test: { data: string }; a: unknown; b: unknown; test2: unknown };

@@ -1,4 +1,4 @@
-import { Plugin } from '@/plugins/base.ts';
+import { Plugin } from '~/plugins/base.ts';
 
 /** Options for the Dedup plugin. */
 export interface DedupOptions {

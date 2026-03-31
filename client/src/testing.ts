@@ -1,18 +1,18 @@
 /**
- * Testing utilities for `@better-websocket/client`.
+ * Testing utilities for `@wskit/client`.
  *
- * Import from `@better-websocket/client/testing` in test files only.
+ * Import from `@wskit/client/testing` in test files only.
  * These utilities are never needed in production.
  *
  * ```ts
- * import { inject } from '@better-websocket/client/testing';
+ * import { inject } from '@wskit/client/testing';
  *
  * inject(socket, 'notification', { id: '123', title: 'Test' });
  * ```
  */
 
-import type { Socket } from '@/socket/socket.ts';
-import type { ChannelsOf, IncomingOf, SocketContract } from '@/types.ts';
+import type { Socket } from '~/socket/socket.ts';
+import type { ChannelsOf, IncomingOf, SocketContract } from '~/types.ts';
 
 /**
  * Inject a fake message into the socket as if the server sent it.

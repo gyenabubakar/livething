@@ -1,7 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- type-level channel routing requires `any` */
-import { Plugin } from '@/plugins/base.ts';
-import type { TypeFn } from '@/plugins/types.ts';
-import type { ScopedApi } from '@/types.ts';
+import { Plugin } from '~/plugins/base.ts';
+import type { TypeFn } from '~/plugins/types.ts';
+import type { ScopedApi } from '~/types.ts';
 
 // ---------------------------------------------------------------------------
 // Type function

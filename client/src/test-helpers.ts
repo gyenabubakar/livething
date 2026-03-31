@@ -6,13 +6,13 @@
  */
 
 /* oxlint-disable @typescript-eslint/no-explicit-any -- test helper file */
-import { Socket } from '@/socket/socket.ts';
+import { Socket } from '~/socket/socket.ts';
 import { ws } from 'msw';
 import { setupServer } from 'msw/node';
-import type { FullSocketOptions } from '@/options.ts';
-import type { Plugin } from '@/plugins/base.ts';
-import type { CloseEvent } from '@/socket/socket.ts';
-import type { SocketContract } from '@/types.ts';
+import type { FullSocketOptions } from '~/options.ts';
+import type { Plugin } from '~/plugins/base.ts';
+import type { CloseEvent } from '~/socket/socket.ts';
+import type { SocketContract } from '~/types.ts';
 import type { SetupServerApi } from 'msw/node';
 
 // ---------------------------------------------------------------------------

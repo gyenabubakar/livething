@@ -1,7 +1,7 @@
-import { Keepalive } from '@/socket/keepalive.ts';
+import { Keepalive } from '~/socket/keepalive.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { KeepaliveOptions } from '@/socket/keepalive.ts';
-import type { ConnectionQuality } from '@/types.ts';
+import type { KeepaliveOptions } from '~/socket/keepalive.ts';
+import type { ConnectionQuality } from '~/types.ts';
 
 function createKeepalive(
   overrides: Partial<KeepaliveOptions> = {},

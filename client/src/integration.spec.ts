@@ -1,13 +1,13 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- integration test file */
-import { PlatformAdapter } from '@/adapter.ts';
-import { createSocket } from '@/create-socket.ts';
-import { DisconnectedError, TimeoutError } from '@/errors.ts';
-import { Ack } from '@/plugins/ack.ts';
-import { Channels } from '@/plugins/channels.ts';
-import { Dedup } from '@/plugins/dedup.ts';
-import { Replay } from '@/plugins/replay.ts';
-import { RequestResponse } from '@/plugins/request-response.ts';
-import { Stream } from '@/plugins/stream.ts';
+import { PlatformAdapter } from '~/adapter.ts';
+import { createSocket } from '~/create-socket.ts';
+import { DisconnectedError, TimeoutError } from '~/errors.ts';
+import { Ack } from '~/plugins/ack.ts';
+import { Channels } from '~/plugins/channels.ts';
+import { Dedup } from '~/plugins/dedup.ts';
+import { Replay } from '~/plugins/replay.ts';
+import { RequestResponse } from '~/plugins/request-response.ts';
+import { Stream } from '~/plugins/stream.ts';
 import {
   collectServerMessages,
   getMswServer,
@@ -18,9 +18,9 @@ import {
   parseMessage,
   waitFor,
   WS_URL,
-} from '@/test-helpers.ts';
+} from '~/test-helpers.ts';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import type { NetworkState, VisibilityState } from '@/adapter.ts';
+import type { NetworkState, VisibilityState } from '~/adapter.ts';
 
 // ---------------------------------------------------------------------------
 // Contracts

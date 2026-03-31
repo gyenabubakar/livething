@@ -1,5 +1,5 @@
-import type { SocketOptions } from '@/options.ts';
-import type { ConnectionQuality } from '@/types.ts';
+import type { SocketOptions } from '~/options.ts';
+import type { ConnectionQuality } from '~/types.ts';
 
 /** Keepalive-relevant subset of SocketOptions. */
 export type KeepaliveOptions = Pick<

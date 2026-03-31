@@ -1,4 +1,4 @@
-import { Ack } from '@/plugins/ack.ts';
+import { Ack } from '~/plugins/ack.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 describe('Ack', () => {

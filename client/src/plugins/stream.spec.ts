@@ -1,4 +1,4 @@
-import { Stream } from '@/plugins/stream.ts';
+import { Stream } from '~/plugins/stream.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 describe('Stream', () => {

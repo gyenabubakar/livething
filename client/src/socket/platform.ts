@@ -1,6 +1,6 @@
-import { PlatformAdapter } from '@/adapter.ts';
-import type { NetworkState, VisibilityState } from '@/adapter.ts';
-import type { SocketOptions } from '@/options.ts';
+import { PlatformAdapter } from '~/adapter.ts';
+import type { NetworkState, VisibilityState } from '~/adapter.ts';
+import type { SocketOptions } from '~/options.ts';
 
 // ---------------------------------------------------------------------------
 // Built-in web adapter (auto-detected)

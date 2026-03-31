@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- testing with mock plugins */
-import { Plugin } from '@/plugins/base.ts';
-import { Reconnection } from '@/socket/reconnection.ts';
+import { Plugin } from '~/plugins/base.ts';
+import { Reconnection } from '~/socket/reconnection.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 describe('Reconnection', () => {

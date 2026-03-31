@@ -1,4 +1,4 @@
-import { Plugin } from '@/plugins/base.ts';
+import { Plugin } from '~/plugins/base.ts';
 
 /**
  * Tracks sequence numbers on incoming messages. On reconnection, sends a
