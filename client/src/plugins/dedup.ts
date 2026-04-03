@@ -44,9 +44,8 @@ export class Dedup extends Plugin {
 
   private cleanup(now: number): void {
     for (const [id, timestamp] of this.seen) {
-      if (now - timestamp > this.windowMs) {
-        this.seen.delete(id);
-      }
+      if (now - timestamp <= this.windowMs) break;
+      this.seen.delete(id);
     }
   }
 }

@@ -17,10 +17,15 @@ interface BufferedMessage {
  * Queues outgoing messages while disconnected, flushes them on reconnect.
  * Supports per-message TTL, max buffer size, and throttled flushing.
  *
+ * Uses a ring buffer internally so overflow eviction is O(1) instead of
+ * O(n) array shifting.
+ *
  * Internal module — not exported from the package. Used by Socket.
  */
 export class MessageBuffer {
-  private queue: BufferedMessage[] = [];
+  private ring: (BufferedMessage | null)[];
+  private head = 0;
+  private count = 0;
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
 
   private readonly enabled: boolean;
@@ -33,6 +38,7 @@ export class MessageBuffer {
     this.maxSize = options.maxBufferSize ?? 50;
     this.ttlConfig = options.bufferTTL;
     this.flushInterval = options.flushInterval ?? 0;
+    this.ring = new Array(this.maxSize).fill(null);
   }
 
   /**
@@ -46,12 +52,15 @@ export class MessageBuffer {
     if (!this.enabled) return false;
 
     const ttl = this.resolveTTL(event, perCallTtl);
+    const tail = (this.head + this.count) % this.maxSize;
+    this.ring[tail] = { event, payload, ttl, queuedAt: Date.now() };
 
-    if (this.queue.length >= this.maxSize) {
-      this.queue.shift();
+    if (this.count >= this.maxSize) {
+      this.head = (this.head + 1) % this.maxSize;
+    } else {
+      this.count++;
     }
 
-    this.queue.push({ event, payload, ttl, queuedAt: Date.now() });
     return true;
   }
 
@@ -64,18 +73,22 @@ export class MessageBuffer {
    * `flushInterval` ms (use this to avoid flooding rate-limited servers).
    */
   flush(send: (event: string, payload: unknown) => void, onComplete?: () => void): void {
-    this.purgeExpired();
+    const messages = this.drain();
+    const now = Date.now();
+    const valid: BufferedMessage[] = [];
+    for (const msg of messages) {
+      if (msg.ttl === null || now - msg.queuedAt < msg.ttl) {
+        valid.push(msg);
+      }
+    }
 
-    const messages = this.queue;
-    this.queue = [];
-
-    if (messages.length === 0) {
+    if (valid.length === 0) {
       onComplete?.();
       return;
     }
 
     if (this.flushInterval <= 0) {
-      for (const msg of messages) {
+      for (const msg of valid) {
         send(msg.event, msg.payload);
       }
       onComplete?.();
@@ -84,12 +97,12 @@ export class MessageBuffer {
 
     let index = 0;
     const tick = (): void => {
-      if (index >= messages.length) {
+      if (index >= valid.length) {
         this.flushTimer = null;
         onComplete?.();
         return;
       }
-      const msg = messages[index++]!;
+      const msg = valid[index++]!;
       send(msg.event, msg.payload);
       this.flushTimer = setTimeout(tick, this.flushInterval);
     };
@@ -99,13 +112,17 @@ export class MessageBuffer {
 
   /** Discard all buffered messages and cancel any in-progress flush. */
   clear(): void {
-    this.queue = [];
+    for (let i = 0; i < this.count; i++) {
+      this.ring[(this.head + i) % this.maxSize] = null;
+    }
+    this.head = 0;
+    this.count = 0;
     this.stopFlush();
   }
 
   /** Number of messages currently in the buffer. */
   get size(): number {
-    return this.queue.length;
+    return this.count;
   }
 
   /** Whether buffering is enabled. */
@@ -120,12 +137,17 @@ export class MessageBuffer {
     }
   }
 
-  private purgeExpired(): void {
-    const now = Date.now();
-    this.queue = this.queue.filter((msg) => {
-      if (msg.ttl === null) return true;
-      return now - msg.queuedAt < msg.ttl;
-    });
+  /** Extract all messages from the ring in order, resetting the buffer. */
+  private drain(): BufferedMessage[] {
+    const result: BufferedMessage[] = [];
+    for (let i = 0; i < this.count; i++) {
+      const idx = (this.head + i) % this.maxSize;
+      result.push(this.ring[idx]!);
+      this.ring[idx] = null;
+    }
+    this.head = 0;
+    this.count = 0;
+    return result;
   }
 
   /**

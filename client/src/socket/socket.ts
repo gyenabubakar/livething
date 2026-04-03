@@ -48,7 +48,6 @@ type SocketEvents = {
   close: [event: CloseEvent];
   error: [error: Event];
   qualityChange: [quality: ConnectionQuality, latency: number];
-  message: [event: string, payload: unknown];
 };
 
 // ---------------------------------------------------------------------------
@@ -124,6 +123,15 @@ export class Socket<TContract extends SocketContract> {
   _lazyIdleTimer: ReturnType<typeof setTimeout> | null = null;
   /** @internal — lazy mode: number of active consumers (on() listeners, pending requests, etc.) */
   _lazyConsumers = 0;
+  /** @internal — direct dispatch map for on() handlers, keyed by event name */
+  _messageHandlers = new Map<string, Set<(payload: unknown) => void>>();
+
+  private readonly _pongMessage: string;
+  private readonly _parse: (raw: string) => { event: string; payload: unknown } | null;
+  private readonly _parseBinary:
+    | ((data: unknown) => { event: string; payload: unknown } | null)
+    | null;
+  private readonly _serialize: (event: string, payload: unknown) => string;
 
   /** @internal */
   constructor(
@@ -136,6 +144,15 @@ export class Socket<TContract extends SocketContract> {
     this._plugins = plugins;
     this._debug = options.debug ?? false;
     this._lazy = options.lazy ?? false;
+    this._pongMessage = options.pongMessage ?? 'pong';
+    this._parse = options.parse ?? defaultParse;
+    this._parseBinary =
+      (
+        options as {
+          parseBinary?: (data: unknown) => { event: string; payload: unknown } | null;
+        }
+      ).parseBinary ?? null;
+    this._serialize = options.serialize ?? defaultSerialize;
     this._reconnection = new Reconnection(options, plugins);
     this._buffer = new MessageBuffer(options);
     this._platform = new Platform(options);
@@ -242,14 +259,15 @@ export class Socket<TContract extends SocketContract> {
   ): () => void {
     this._lazyAcquire();
 
-    const unsub = this._emitter.on('message', (incomingEvent: string, payload: unknown) => {
-      if (incomingEvent === event) {
-        handler(payload as IncomingOf<TContract>[K]);
-      }
-    });
+    if (!this._messageHandlers.has(event)) {
+      this._messageHandlers.set(event, new Set());
+    }
+    const set = this._messageHandlers.get(event)!;
+    set.add(handler as (payload: unknown) => void);
 
     return () => {
-      unsub();
+      set.delete(handler as (payload: unknown) => void);
+      if (set.size === 0) this._messageHandlers.delete(event);
       this._lazyRelease();
     };
   }
@@ -294,8 +312,7 @@ export class Socket<TContract extends SocketContract> {
       return false;
     }
 
-    const serialize = this._options.serialize ?? defaultSerialize;
-    this.ws.send(serialize(msg.event, msg.payload));
+    this.ws.send(this._serialize(msg.event, msg.payload));
     this._log(`send('${msg.event}')`, msg.payload);
     return true;
   }
@@ -498,8 +515,7 @@ export class Socket<TContract extends SocketContract> {
     const raw = event.data;
 
     // Handle pong messages
-    const pongMessage = this._options.pongMessage ?? 'pong';
-    if (raw === pongMessage) {
+    if (raw === this._pongMessage) {
       this._log('pong received');
       this._keepalive.onPong();
       return;
@@ -510,15 +526,14 @@ export class Socket<TContract extends SocketContract> {
 
     if (typeof raw === 'string') {
       try {
-        const parse = this._options.parse ?? defaultParse;
-        parsed = parse(raw);
+        parsed = this._parse(raw);
       } catch {
         this._log('parse error — message dropped');
         return;
       }
-    } else if ('parseBinary' in this._options && this._options.parseBinary) {
+    } else if (this._parseBinary) {
       try {
-        parsed = this._options.parseBinary(raw as any);
+        parsed = this._parseBinary(raw);
       } catch {
         this._log('parseBinary error — message dropped');
         return;
@@ -559,7 +574,7 @@ export class Socket<TContract extends SocketContract> {
 
     // Dispatch to on() handlers
     this._log(`received '${pluginMsg!.event}'`, pluginMsg!.payload);
-    this._emitter.emit('message', pluginMsg!.event, pluginMsg!.payload);
+    this._dispatchMessage(pluginMsg!.event, pluginMsg!.payload);
   }
 
   /** @internal — schedule a reconnection attempt via the Reconnection module */
@@ -735,8 +750,16 @@ export class Socket<TContract extends SocketContract> {
    */
   _rawSend(event: string, payload: unknown): void {
     if (!this.ws || this._state !== 'open') return;
-    const serialize = this._options.serialize ?? defaultSerialize;
-    this.ws.send(serialize(event, payload));
+    this.ws.send(this._serialize(event, payload));
+  }
+
+  /** @internal — dispatch a parsed message to on() handlers by event name */
+  _dispatchMessage(event: string, payload: unknown): void {
+    const handlers = this._messageHandlers.get(event);
+    if (!handlers) return;
+    for (const handler of handlers) {
+      handler(payload);
+    }
   }
 
   /** @internal */

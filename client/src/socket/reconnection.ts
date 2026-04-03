@@ -25,6 +25,7 @@ export class Reconnection {
 
   private readonly maxAttempts: number;
   private readonly maxDelay: number;
+  private readonly nonRetryableCodes: Set<number>;
   private readonly options: ReconnectionOptions;
   private readonly plugins: readonly Plugin<any, any>[];
 
@@ -33,6 +34,7 @@ export class Reconnection {
     this.plugins = plugins;
     this.maxAttempts = options.maxReconnectAttempts ?? 10;
     this.maxDelay = options.maxReconnectDelay ?? 30_000;
+    this.nonRetryableCodes = new Set(options.nonRetryableCodes);
   }
 
   /**
@@ -63,7 +65,7 @@ export class Reconnection {
     }
 
     // 3. Non-retryable codes
-    if (this.options.nonRetryableCodes?.includes(code)) return false;
+    if (this.nonRetryableCodes.has(code)) return false;
 
     // 4. Default: reconnect
     return true;

@@ -85,5 +85,5 @@ function dispatchMessage<TContract extends SocketContract>(
     if (pluginMsg === null) return;
   }
 
-  socket._emitter.emit('message', pluginMsg!.event, pluginMsg!.payload);
+  socket._dispatchMessage(pluginMsg!.event, pluginMsg!.payload);
 }

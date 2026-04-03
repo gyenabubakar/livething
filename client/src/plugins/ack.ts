@@ -224,9 +224,8 @@ export class Ack extends Plugin<AckTypeFn> {
   }
 
   override onClose(_code: number, _reason: string) {
-    for (const [id, pending] of this.pending) {
+    for (const [, pending] of this.pending) {
       pending.reject(new DisconnectedError());
-      this.pending.delete(id);
     }
   }
 }
