@@ -1,7 +1,32 @@
-/* oxlint-disable @typescript-eslint/no-explicit-any */
+/* oxlint-disable @typescript-eslint/no-explicit-any -- internal emitter uses `any` for listener casting */
+
+// ---------------------------------------------------------------------------
+// Emitter
+// ---------------------------------------------------------------------------
+
+/**
+ * Minimal typed event emitter for internal use. Not exported from any
+ * public package — shared between server and client internals.
+ *
+ * Supports multiple listeners per event, returns unsubscribe functions,
+ * and cleans up empty listener sets automatically.
+ *
+ * ```ts
+ * type Events = {
+ *   message: [text: string, from: string];
+ *   close: [code: number];
+ * };
+ *
+ * const emitter = new Emitter<Events>();
+ * const unsub = emitter.on('message', (text, from) => { ... });
+ * emitter.emit('message', 'hello', 'alice');
+ * unsub(); // stop listening
+ * ```
+ */
 export class Emitter<TEvents extends Record<string, any[]> = Record<string, any[]>> {
   private listeners = new Map<string, Set<(...args: any[]) => void>>();
 
+  /** Register a listener. Returns an unsubscribe function. */
   on<K extends string & keyof TEvents>(
     event: K,
     listener: (...args: TEvents[K]) => void,
@@ -18,6 +43,7 @@ export class Emitter<TEvents extends Record<string, any[]> = Record<string, any[
     };
   }
 
+  /** Emit an event, calling all registered listeners synchronously in registration order. */
   emit<K extends keyof TEvents & string>(event: K, ...args: TEvents[K]): void {
     const set = this.listeners.get(event);
     if (!set) return;
@@ -26,10 +52,12 @@ export class Emitter<TEvents extends Record<string, any[]> = Record<string, any[
     }
   }
 
+  /** Remove all listeners for all events. */
   clear(): void {
     this.listeners.clear();
   }
 
+  /** Number of listeners for a given event. */
   listenerCount<K extends keyof TEvents & string>(event: K): number {
     return this.listeners.get(event)?.size ?? 0;
   }
