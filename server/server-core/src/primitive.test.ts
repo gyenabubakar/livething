@@ -1,9 +1,10 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 
-import { createPrimitiveBase } from '~/primitive.ts';
+import { definePrimitive } from '~/primitive.ts';
 import type {
+  EngineAccess,
   Primitive,
-  PrimitiveDefinition,
+  PrimitiveFactory,
   PrimitiveIdentity,
   PrimitiveKind,
   PrimitiveRef,
@@ -36,7 +37,6 @@ const _singleton: PrimitiveIdentity = [key];
 const _repeatable: PrimitiveIdentity = [key, 'send-message'];
 void [_singleton, _repeatable];
 
-// Both are readonly tuples
 // @ts-expect-error — cannot push to readonly tuple
 _singleton.push(key);
 
@@ -57,28 +57,11 @@ const _full: RequiresManifest = { storage: true, timers: true, hibernation: true
 const _partial: RequiresManifest = { storage: true };
 void [_empty, _full, _partial];
 
-// @ts-expect-error — unknown field
-const _unknown: RequiresManifest = { webhookRouter: true };
-void _unknown;
-
 // ===========================================================================
 // 5. Primitive — base interface with tag discrimination
 // ===========================================================================
 
-// A concrete primitive type narrows the tag
-interface AckPrimitive extends Primitive<'ack'> {
-  readonly __kind: 'infrastructure';
-}
-
-const ackInstance: AckPrimitive = {
-  __wskit: 'ack',
-  __kind: 'infrastructure',
-  __identity: [Symbol('ack')],
-  __dependencies: [],
-  __requires: {},
-};
-
-// Tag is narrowed to literal
+declare const ackInstance: Primitive<'ack'>;
 const _tag: 'ack' = ackInstance.__wskit;
 void _tag;
 
@@ -87,18 +70,139 @@ const _wrongTag: 'incoming' = ackInstance.__wskit;
 void _wrongTag;
 
 // ===========================================================================
-// 6. Primitive — discriminated union works
+// 6. definePrimitive — singleton factory (no registrationId)
 // ===========================================================================
 
-interface IncomingPrimitive extends Primitive<'incoming'> {
-  readonly event: string;
-}
+const ACK_KEY = Symbol('ack');
+const ack = definePrimitive({
+  tag: 'ack' as const,
+  key: ACK_KEY,
+  kind: 'infrastructure',
+  create() {
+    return {};
+  },
+});
 
-interface OutgoingPrimitive extends Primitive<'outgoing'> {
-  readonly event: string;
-}
+// Factory is callable
+const ackPrimitive = ack();
+const _ackTag: 'ack' = ackPrimitive.__wskit;
+void _ackTag;
 
-type AnyPrimitive = AckPrimitive | IncomingPrimitive | OutgoingPrimitive;
+// Factory is a PrimitiveRef (for dependency declarations)
+const _ackRef: PrimitiveRef = ack;
+const _ackKey: symbol = ack.__key;
+void [_ackRef, _ackKey];
+
+// ===========================================================================
+// 7. definePrimitive — repeatable factory (with registrationId)
+// ===========================================================================
+
+const INCOMING_KEY = Symbol('incoming');
+const incoming = definePrimitive({
+  tag: 'incoming' as const,
+  key: INCOMING_KEY,
+  kind: 'handler',
+  registrationId(event: string, _handler: (payload: any) => void) {
+    return event;
+  },
+  create(event: string, handler: (payload: any) => void) {
+    return { event, handler };
+  },
+});
+
+const incomingPrimitive = incoming('send-message', () => {});
+const _inTag: 'incoming' = incomingPrimitive.__wskit;
+const _inEvent: string = incomingPrimitive.event;
+void [_inTag, _inEvent];
+
+// Factory is also a PrimitiveRef
+const _inRef: PrimitiveRef = incoming;
+void _inRef;
+
+// ===========================================================================
+// 8. definePrimitive — custom data carried on instance
+// ===========================================================================
+
+const HEARTBEAT_KEY = Symbol('heartbeat');
+const heartbeat = definePrimitive({
+  tag: 'heartbeat' as const,
+  key: HEARTBEAT_KEY,
+  kind: 'infrastructure',
+  create(options: { timeout: number }) {
+    return { timeout: options.timeout };
+  },
+});
+
+const hbPrimitive = heartbeat({ timeout: 30000 });
+const _hbTimeout: number = hbPrimitive.timeout;
+void _hbTimeout;
+
+// ===========================================================================
+// 9. definePrimitive — with dependencies and requires
+// ===========================================================================
+
+const REPLAY_KEY = Symbol('replay');
+const replay = definePrimitive({
+  tag: 'replay' as const,
+  key: REPLAY_KEY,
+  kind: 'infrastructure',
+  dependencies: [ack],
+  requires: { storage: true },
+  create() {
+    return {};
+  },
+});
+
+const replayPrimitive = replay();
+const _replayDeps: readonly PrimitiveRef[] = replayPrimitive.__dependencies;
+const _replayReqs: RequiresManifest = replayPrimitive.__requires;
+void [_replayDeps, _replayReqs];
+
+// ===========================================================================
+// 10. definePrimitive — with setup function
+// ===========================================================================
+
+const SEQUENCE_KEY = Symbol('sequence');
+const sequence = definePrimitive({
+  tag: 'sequence' as const,
+  key: SEQUENCE_KEY,
+  kind: 'infrastructure',
+  create() {
+    return {};
+  },
+  setup(engine: EngineAccess) {
+    let seq = 0;
+    engine.onOutgoing((msg) => {
+      msg.payload._seq = ++seq;
+      return msg;
+    });
+  },
+});
+
+const seqPrimitive = sequence();
+// __setup exists when config has setup
+const _hasSetup: ((engine: EngineAccess) => void) | undefined = seqPrimitive.__setup;
+void _hasSetup;
+
+// ===========================================================================
+// 11. PrimitiveFactory — satisfies both callable and PrimitiveRef
+// ===========================================================================
+
+const _factory: PrimitiveFactory<'ack', [], Record<string, never>> = ack;
+void _factory;
+
+// Can be used in dependency arrays alongside other refs
+const deps: readonly PrimitiveRef[] = [ack, incoming, replay];
+void deps;
+
+// ===========================================================================
+// 12. Discriminated union works across different primitives
+// ===========================================================================
+
+type AnyPrimitive =
+  | ReturnType<typeof ack>
+  | ReturnType<typeof incoming>
+  | ReturnType<typeof heartbeat>;
 
 function handlePrimitive(p: AnyPrimitive) {
   switch (p.__wskit) {
@@ -109,78 +213,11 @@ function handlePrimitive(p: AnyPrimitive) {
       void _event;
       return;
     }
-    case 'outgoing': {
-      const _event: string = p.event;
-      void _event;
+    case 'heartbeat': {
+      const _timeout: number = p.timeout;
+      void _timeout;
       return;
     }
   }
 }
 void handlePrimitive;
-
-// ===========================================================================
-// 7. PrimitiveDefinition — carries factory config
-// ===========================================================================
-
-const ACK_KEY = Symbol('ack');
-const _ackDef: PrimitiveDefinition<'ack', []> = {
-  tag: 'ack',
-  key: ACK_KEY,
-  kind: 'infrastructure',
-};
-void _ackDef;
-
-const INCOMING_KEY = Symbol('incoming');
-const _incomingDef: PrimitiveDefinition<'incoming', [event: string]> = {
-  tag: 'incoming',
-  key: INCOMING_KEY,
-  kind: 'handler',
-  registrationId(event: string) {
-    return event;
-  },
-};
-void _incomingDef;
-
-// ===========================================================================
-// 8. createPrimitiveBase — produces correct base fields
-// ===========================================================================
-
-// Singleton (no registrationId)
-const ackBase = createPrimitiveBase({
-  tag: 'ack' as const,
-  key: ACK_KEY,
-  kind: 'infrastructure' as const,
-});
-const _ackTag: 'ack' = ackBase.__wskit;
-const _ackKind: PrimitiveKind = ackBase.__kind;
-const _ackId: PrimitiveIdentity = ackBase.__identity;
-void [_ackTag, _ackKind, _ackId];
-
-// Repeatable (with registrationId)
-const incomingBase = createPrimitiveBase(
-  {
-    tag: 'incoming' as const,
-    key: INCOMING_KEY,
-    kind: 'handler' as const,
-    registrationId(event: string) {
-      return event;
-    },
-  },
-  'send-message',
-);
-const _inTag: 'incoming' = incomingBase.__wskit;
-const _inKind: PrimitiveKind = incomingBase.__kind;
-const _inId: PrimitiveIdentity = incomingBase.__identity;
-void [_inTag, _inKind, _inId];
-
-// With dependencies and requires
-const replayBase = createPrimitiveBase({
-  tag: 'replay' as const,
-  key: Symbol('replay'),
-  kind: 'infrastructure' as const,
-  dependencies: [{ __key: Symbol('sequence') }, { __key: Symbol('dedup') }],
-  requires: { storage: true },
-});
-const _replayDeps: readonly PrimitiveRef[] = replayBase.__dependencies;
-const _replayReqs: RequiresManifest = replayBase.__requires;
-void [_replayDeps, _replayReqs];

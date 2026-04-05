@@ -1,84 +1,156 @@
-import { createPrimitiveBase } from '~/primitive.ts';
-import { describe, expect, it } from 'vitest';
-import type { PrimitiveDefinition } from '~/primitive.ts';
+import { definePrimitive } from '~/primitive.ts';
+import { describe, expect, it, vi } from 'vitest';
+import type { EngineAccess } from '~/primitive.ts';
 
-// ===========================================================================
-// createPrimitiveBase
-// ===========================================================================
+describe('definePrimitive', () => {
+  // =========================================================================
+  // Singleton primitives (no registrationId)
+  // =========================================================================
 
-describe('createPrimitiveBase', () => {
-  const ACK_KEY = Symbol('ack');
-  const INCOMING_KEY = Symbol('incoming');
-
-  it('creates singleton identity when no registrationId', () => {
-    const base = createPrimitiveBase({
+  describe('singleton factory', () => {
+    const ACK_KEY = Symbol('ack');
+    const ack = definePrimitive({
       tag: 'ack',
       key: ACK_KEY,
       kind: 'infrastructure',
+      create() {
+        return {};
+      },
     });
 
-    expect(base.__wskit).toBe('ack');
-    expect(base.__kind).toBe('infrastructure');
-    expect(base.__identity).toEqual([ACK_KEY]);
-    expect(base.__dependencies).toEqual([]);
-    expect(base.__requires).toEqual({});
+    it('produces correct base fields', () => {
+      const p = ack();
+      expect(p.__wskit).toBe('ack');
+      expect(p.__kind).toBe('infrastructure');
+      expect(p.__identity).toEqual([ACK_KEY]);
+      expect(p.__dependencies).toEqual([]);
+      expect(p.__requires).toEqual({});
+    });
+
+    it('carries __key on the factory for dependency refs', () => {
+      expect(ack.__key).toBe(ACK_KEY);
+    });
+
+    it('creates distinct instances per call', () => {
+      expect(ack()).not.toBe(ack());
+    });
   });
 
-  it('creates compound identity when registrationId is provided', () => {
-    const base = createPrimitiveBase(
-      {
-        tag: 'incoming',
-        key: INCOMING_KEY,
-        kind: 'handler',
-        registrationId(event: string) {
-          return event;
-        },
+  // =========================================================================
+  // Repeatable primitives (with registrationId)
+  // =========================================================================
+
+  describe('repeatable factory', () => {
+    const INCOMING_KEY = Symbol('incoming');
+    const incoming = definePrimitive({
+      tag: 'incoming',
+      key: INCOMING_KEY,
+      kind: 'handler',
+      registrationId(event: string, _handler: () => void) {
+        return event;
       },
-      'send-message',
-    );
+      create(event: string, handler: () => void) {
+        return { event, handler };
+      },
+    });
 
-    expect(base.__wskit).toBe('incoming');
-    expect(base.__identity).toEqual([INCOMING_KEY, 'send-message']);
+    it('produces compound identity from registrationId', () => {
+      const p = incoming('send-message', () => {});
+      expect(p.__identity).toEqual([INCOMING_KEY, 'send-message']);
+    });
+
+    it('carries custom data from create()', () => {
+      function handler() {}
+      const p = incoming('send-message', handler);
+      expect(p.event).toBe('send-message');
+      expect(p.handler).toBe(handler);
+    });
+
+    it('different events produce different identities', () => {
+      const a = incoming('send-message', () => {});
+      const b = incoming('join-room', () => {});
+      expect(a.__identity[1]).toBe('send-message');
+      expect(b.__identity[1]).toBe('join-room');
+    });
   });
 
-  it('passes through dependencies', () => {
+  // =========================================================================
+  // Dependencies and requires
+  // =========================================================================
+
+  describe('dependencies and requires', () => {
     const seqRef = { __key: Symbol('sequence') };
     const dedupRef = { __key: Symbol('dedup') };
 
-    const base = createPrimitiveBase({
+    const replay = definePrimitive({
       tag: 'replay',
       key: Symbol('replay'),
       kind: 'infrastructure',
       dependencies: [seqRef, dedupRef],
+      requires: { storage: true },
+      create() {
+        return {};
+      },
     });
 
-    expect(base.__dependencies).toEqual([seqRef, dedupRef]);
-  });
-
-  it('passes through requires', () => {
-    const base = createPrimitiveBase({
-      tag: 'scheduled',
-      key: Symbol('scheduled'),
-      kind: 'infrastructure',
-      requires: { storage: true, timers: true },
+    it('passes through dependencies', () => {
+      const p = replay();
+      expect(p.__dependencies).toEqual([seqRef, dedupRef]);
     });
 
-    expect(base.__requires).toEqual({ storage: true, timers: true });
+    it('passes through requires', () => {
+      const p = replay();
+      expect(p.__requires).toEqual({ storage: true });
+    });
   });
 
-  it('defaults dependencies and requires to empty', () => {
-    const base = createPrimitiveBase({
-      tag: 'dedup',
-      key: Symbol('dedup'),
-      kind: 'infrastructure',
+  // =========================================================================
+  // Setup function
+  // =========================================================================
+
+  describe('setup', () => {
+    it('binds setup to the primitive instance with data', () => {
+      const setupFn = vi.fn();
+
+      const heartbeat = definePrimitive({
+        tag: 'heartbeat',
+        key: Symbol('heartbeat'),
+        kind: 'infrastructure',
+        create(options: { timeout: number }) {
+          return { timeout: options.timeout };
+        },
+        setup(_engine, data) {
+          setupFn(data.timeout);
+        },
+      });
+
+      const p = heartbeat({ timeout: 30000 });
+      expect(p.__setup).toBeDefined();
+
+      p.__setup!({} as EngineAccess);
+      expect(setupFn).toHaveBeenCalledWith(30000);
     });
 
-    expect(base.__dependencies).toEqual([]);
-    expect(base.__requires).toEqual({});
+    it('is undefined when config has no setup', () => {
+      const dedup = definePrimitive({
+        tag: 'dedup',
+        key: Symbol('dedup'),
+        kind: 'infrastructure',
+        create() {
+          return {};
+        },
+      });
+
+      expect(dedup().__setup).toBeUndefined();
+    });
   });
 
-  it('serializes regex patterns in registrationId', () => {
-    const def: PrimitiveDefinition<'channel', [pattern: string | RegExp]> = {
+  // =========================================================================
+  // Regex pattern in registrationId
+  // =========================================================================
+
+  describe('regex registrationId', () => {
+    const channel = definePrimitive({
       tag: 'channel',
       key: Symbol('channel'),
       kind: 'scope',
@@ -86,12 +158,17 @@ describe('createPrimitiveBase', () => {
         if (pattern instanceof RegExp) return `${pattern.source}|${pattern.flags}`;
         return String(pattern);
       },
-    };
+      create(pattern: string | RegExp) {
+        return { pattern };
+      },
+    });
 
-    const stringBase = createPrimitiveBase(def, 'general');
-    expect(stringBase.__identity[1]).toBe('general');
+    it('serializes string patterns', () => {
+      expect(channel('general').__identity[1]).toBe('general');
+    });
 
-    const regexBase = createPrimitiveBase(def, /^room-/i);
-    expect(regexBase.__identity[1]).toBe('^room-|i');
+    it('serializes regex patterns', () => {
+      expect(channel(/^room-/i).__identity[1]).toBe('^room-|i');
+    });
   });
 });

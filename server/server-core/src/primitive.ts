@@ -32,7 +32,6 @@ export type PrimitiveKind =
  * everything required.
  *
  * ```ts
- * // A primitive that needs persistent storage and timers:
  * { storage: true, timers: true }
  * ```
  */
@@ -50,13 +49,11 @@ export interface RequiresManifest {
  * A reference to a primitive, used in dependency declarations. Each primitive
  * factory function carries a `__key` symbol that uniquely identifies it.
  *
- * Dependencies are assertions — they say "this primitive must be registered
- * in defineServer, or throw at build time." They don't configure anything.
+ * Dependencies are assertions — "this primitive must be registered in
+ * defineServer, or throw at build time." They don't configure anything.
  *
  * ```ts
- * // Inside a module or primitive definition:
  * dependencies: [ack, replay]
- * // means: "I need ack and replay to be registered. Fail fast if they're not."
  * ```
  */
 export interface PrimitiveRef {
@@ -68,18 +65,11 @@ export interface PrimitiveRef {
 // ---------------------------------------------------------------------------
 
 /**
- * How `defineServer` checks for duplicate registrations. Each primitive
- * computes its identity at build time:
+ * How `defineServer` checks for duplicate registrations:
  *
- * - `[key]` — pure singleton. Only one instance allowed per handler.
- *   Used by infrastructure primitives (`ack`, `replay`, `heartbeat`, etc.)
- *   and lifecycle hooks (`onConnect`, `onShutdown`, etc.).
+ * - `[key]` — pure singleton. One instance per handler.
+ * - `[key, registrationId]` — multiple allowed if registrationId differs.
  *
- * - `[key, registrationId]` — multiple instances allowed if their
- *   `registrationId` differs. Used by handler primitives (keyed by event
- *   name), scope primitives (keyed by pattern), and modules (keyed by id).
- *
- * Duplicate identities throw immediately in `defineServer`:
  * ```
  * [wskit] Duplicate registration: incoming('send-message') is registered twice.
  * ```
@@ -89,104 +79,191 @@ export type PrimitiveIdentity =
   | readonly [key: symbol, registrationId: string];
 
 // ---------------------------------------------------------------------------
-// Primitive base
+// Engine access — what the engine gives to built-in primitives
 // ---------------------------------------------------------------------------
 
 /**
- * Base interface for all primitives. Every factory function (`incoming()`,
- * `ack()`, `channel()`, modules, etc.) returns an object extending this.
+ * The interface the engine exposes to built-in primitives during setup.
+ * This is the "special access" that makes a primitive a primitive — modules
+ * don't get this, they get the restricted `ModuleHooks` interface instead.
  *
- * `defineServer` reads these fields to:
- * 1. Discriminate the primitive type (`__wskit` tag)
- * 2. Check for duplicate registrations (`__identity`)
- * 3. Topologically sort by dependencies (`__dependencies`)
- * 4. Validate platform capabilities (`__requires`)
- *
- * Type parameter `Tag` is a string literal (e.g. `'incoming'`, `'ack'`)
- * used as a discriminated union tag.
+ * Primitives use this to wire into the engine's internals: register pipeline
+ * hooks, extend the connection context, access the connection registry, etc.
  */
-export interface Primitive<Tag extends string = string> {
-  /** Discriminator tag — identifies what kind of primitive this is. */
-  readonly __wskit: Tag;
+export interface EngineAccess {
+  /** Register a hook that runs on every incoming message (sorted by dependency order). */
+  onIncoming(
+    handler: (message: { event: string; payload: any }) => { event: string; payload: any } | void,
+  ): void;
 
-  /** Which category this primitive belongs to. */
-  readonly __kind: PrimitiveKind;
+  /** Register a hook that runs on every outgoing message (sorted by dependency order). */
+  onOutgoing(
+    handler: (message: { event: string; payload: any }) => { event: string; payload: any } | void,
+  ): void;
+
+  /** Register a hook that runs when a connection is established. */
+  onConnect(handler: (connectionId: string) => void | Promise<void>): void;
+
+  /** Register a hook that runs when a connection closes. */
+  onDisconnect(handler: (connectionId: string) => void | Promise<void>): void;
+
+  /** Register a hook that runs during graceful shutdown. */
+  onShutdown(handler: () => void | Promise<void>): void;
 
   /**
-   * Compound identity for singleton enforcement.
-   * `[key]` for singletons, `[key, registrationId]` for repeatables.
+   * Extend the ConnectionContext with additional methods. The factory is
+   * called for each connection, receiving the base context and returning
+   * the methods to add.
+   *
+   * This is how `ack` adds `ctx.ack()` and `replay` adds `ctx.sendReplay()`.
    */
-  readonly __identity: PrimitiveIdentity;
+  extendContext(factory: (baseCtx: any) => Record<string, unknown>): void;
+
+  /** Generate a unique ID, optionally prefixed. Monotonic counter shared across the engine. */
+  generateId(prefix?: string): string;
 
   /**
-   * Other primitives that must be registered in `defineServer`.
-   * Empty array if no dependencies. The engine throws at build time
-   * if any dependency is missing — dependencies are never auto-included.
+   * Send a raw message to a specific connection, bypassing the outgoing
+   * pipeline. Used by primitives that send protocol messages (_ack, _replay, etc.).
    */
-  readonly __dependencies: readonly PrimitiveRef[];
-
-  /**
-   * Platform capabilities this primitive needs. The engine merges these
-   * from all primitives and validates at startup.
-   */
-  readonly __requires: RequiresManifest;
+  rawSend(connectionId: string, event: string, payload: any): void;
 }
 
 // ---------------------------------------------------------------------------
-// definePrimitive — internal helper for building primitive factories
+// Primitive instance — what factory functions return
 // ---------------------------------------------------------------------------
 
 /**
- * Configuration for defining a primitive factory. Used internally by
- * wskit to create the built-in primitive functions (`incoming`, `ack`, etc.).
+ * Base interface for all primitive instances. Every factory function
+ * (`incoming()`, `ack()`, `channel()`, etc.) returns an object extending this.
  *
- * - `key` — unique Symbol identifying this primitive type
- * - `kind` — which category (`handler`, `infrastructure`, etc.)
- * - `registrationId` — optional function that derives the registration ID
- *   from the factory arguments. If omitted, the primitive is a singleton.
+ * `defineServer` reads the base fields to collect, validate, sort, and freeze.
+ * The engine later calls `__setup` with engine access to wire the primitive
+ * into the runtime pipeline.
  */
-export interface PrimitiveDefinition<TTag extends string, TArgs extends readonly any[]> {
+export interface Primitive<Tag extends string = string> {
+  readonly __wskit: Tag;
+  readonly __kind: PrimitiveKind;
+  readonly __identity: PrimitiveIdentity;
+  readonly __dependencies: readonly PrimitiveRef[];
+  readonly __requires: RequiresManifest;
+
+  /**
+   * Called by the engine during initialization. Receives direct engine access —
+   * the primitive uses this to register hooks, extend ctx, and wire into
+   * the pipeline. Modules don't get this — they get `ModuleHooks` instead.
+   */
+  readonly __setup?: (engine: EngineAccess) => void;
+}
+
+// ---------------------------------------------------------------------------
+// definePrimitive — create a built-in primitive factory
+// ---------------------------------------------------------------------------
+
+/**
+ * Configuration for `definePrimitive`. Describes how a primitive factory
+ * behaves — what tag it produces, whether it's singleton or repeatable,
+ * what it needs from the platform, and how it wires into the engine.
+ *
+ * `TTag` — the discriminator tag (e.g. `'ack'`, `'incoming'`)
+ * `TArgs` — the arguments the factory function accepts from the developer
+ * `TData` — additional data the primitive instance carries (event name, handler, etc.)
+ */
+export interface PrimitiveConfig<
+  TTag extends string,
+  TArgs extends readonly any[],
+  TData extends Record<string, any>,
+> {
   readonly tag: TTag;
   readonly key: symbol;
   readonly kind: PrimitiveKind;
   readonly registrationId?: (...args: TArgs) => string;
   readonly dependencies?: readonly PrimitiveRef[];
   readonly requires?: RequiresManifest;
+
+  /** Transform factory arguments into the data stored on the primitive instance. */
+  create(...args: TArgs): TData;
+
+  /**
+   * Wire this primitive into the engine. Called once during engine initialization.
+   * `data` is the output of `create()` — the developer's arguments, transformed.
+   *
+   * Built-in primitives get full `EngineAccess`. This is the key difference
+   * from modules, which only get `ModuleHooks` (a restricted subset).
+   */
+  setup?(engine: EngineAccess, data: TData): void;
 }
 
 /**
- * Create the identity, dependencies, and requires fields for a primitive
- * instance. Called by each primitive factory to build the base fields
- * that `defineServer` reads.
+ * The return type of `definePrimitive` — a factory function that also
+ * serves as a `PrimitiveRef` for dependency declarations.
  *
  * ```ts
- * // Inside a primitive factory implementation:
+ * const ack = definePrimitive({ ... });
+ *
+ * // As a factory — creates a primitive instance:
+ * defineServer(ack())
+ *
+ * // As a dependency ref — declares "I need ack":
+ * defineModule({ dependencies: [ack] })
+ * ```
+ */
+export interface PrimitiveFactory<
+  TTag extends string,
+  TArgs extends readonly any[],
+  TData extends Record<string, any>,
+> extends PrimitiveRef {
+  (...args: TArgs): Primitive<TTag> & TData;
+}
+
+/**
+ * Define a built-in primitive. Returns a factory function that:
+ * 1. When **called** — creates a primitive instance with base fields + custom data
+ * 2. When **referenced** — acts as a `PrimitiveRef` for dependency declarations
+ *
+ * This is internal to wskit — product developers don't call this.
+ * They use `defineModule` for custom primitives.
+ *
+ * ```ts
  * const ACK_KEY = Symbol('ack');
  *
- * const ACK_DEF: PrimitiveDefinition<'ack', []> = {
+ * const ack = definePrimitive({
  *   tag: 'ack',
  *   key: ACK_KEY,
  *   kind: 'infrastructure',
- * };
- *
- * function ack(): AckPrimitive {
- *   return { ...createPrimitiveBase(ACK_DEF) };
- * }
+ *   create() { return {}; },
+ *   setup(engine) {
+ *     engine.onIncoming((msg) => { ... });
+ *     engine.extendContext((ctx) => ({
+ *       ack() { engine.rawSend(ctx.id, '_ack', { _ackId: ... }); }
+ *     }));
+ *   },
+ * });
  * ```
  */
-export function createPrimitiveBase<TTag extends string, TArgs extends readonly any[]>(
-  def: PrimitiveDefinition<TTag, TArgs>,
-  ...args: TArgs
-): Pick<Primitive<TTag>, '__wskit' | '__kind' | '__identity' | '__dependencies' | '__requires'> {
-  const identity: PrimitiveIdentity = def.registrationId
-    ? [def.key, def.registrationId(...args)]
-    : [def.key];
+export function definePrimitive<
+  TTag extends string,
+  TArgs extends readonly any[],
+  TData extends Record<string, any>,
+>(config: PrimitiveConfig<TTag, TArgs, TData>): PrimitiveFactory<TTag, TArgs, TData> {
+  function factory(...args: TArgs): Primitive<TTag> & TData {
+    const identity: PrimitiveIdentity = config.registrationId
+      ? [config.key, config.registrationId(...args)]
+      : [config.key];
 
-  return {
-    __wskit: def.tag,
-    __kind: def.kind,
-    __identity: identity,
-    __dependencies: def.dependencies ?? [],
-    __requires: def.requires ?? {},
-  };
+    const data = config.create(...args);
+
+    return {
+      __wskit: config.tag,
+      __kind: config.kind,
+      __identity: identity,
+      __dependencies: config.dependencies ?? [],
+      __requires: config.requires ?? {},
+      __setup: config.setup ? (engine: EngineAccess) => config.setup!(engine, data) : undefined,
+      ...data,
+    } as Primitive<TTag> & TData;
+  }
+
+  factory.__key = config.key;
+  return factory as PrimitiveFactory<TTag, TArgs, TData>;
 }
