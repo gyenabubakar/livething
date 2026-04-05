@@ -1,12 +1,12 @@
 {
-  "name": "@wskit/server",
+  "name": "@wskit/core",
   "version": "0.0.1",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
+      "types": "./src/index.ts",
       "import": "./dist/index.js"
     }
   },
@@ -19,11 +19,16 @@
   "scripts": {
     "dev": "vite build --watch",
     "build": "tsc && vite build",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"
   },
   "devDependencies": {
     "vite": "^8.0.1",
     "vite-plugin-dts": "^4.5.4"
+  },
+  "dependencies": {
+    "@standard-schema/spec": "^1.1.0"
   }
 }
