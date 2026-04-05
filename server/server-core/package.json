@@ -33,6 +33,7 @@
     "@wskit/shared": "workspace:*"
   },
   "devDependencies": {
+    "@standard-schema/spec": "^1.1.0",
     "vite": "^8.0.1",
     "vite-plugin-dts": "^4.5.4"
   }

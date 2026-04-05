@@ -1,6 +1,6 @@
-import { definePrimitive } from '~/primitive.ts';
+import { definePrimitive } from '~/primitives/define.ts';
 import { describe, expect, it, vi } from 'vitest';
-import type { EngineAccess } from '~/primitive.ts';
+import type { EngineAccess } from '~/primitives/define.ts';
 
 describe('definePrimitive', () => {
   // =========================================================================

@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 
-import { definePrimitive } from '~/primitive.ts';
+import { definePrimitive } from '~/primitives/define.ts';
 import type {
   EngineAccess,
   Primitive,
@@ -9,7 +9,7 @@ import type {
   PrimitiveKind,
   PrimitiveRef,
   RequiresManifest,
-} from '~/primitive.ts';
+} from '~/primitives/define.ts';
 
 // ===========================================================================
 // 1. PrimitiveKind — all valid kinds
