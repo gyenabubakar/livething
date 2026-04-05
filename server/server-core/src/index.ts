@@ -14,3 +14,5 @@ export type {
 } from './primitives/define.ts';
 export { incoming } from './primitives/incoming.ts';
 export type { IncomingPrimitive, IncomingHandler } from './primitives/incoming.ts';
+export { request } from './primitives/request.ts';
+export type { RequestPrimitive, RequestHandler } from './primitives/request.ts';

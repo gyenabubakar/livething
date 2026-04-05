@@ -1,5 +1,7 @@
 import { Block, CloseCodes, error, Skip, ValidationFailed, WskitError } from '~/errors.ts';
+import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 
 // ===========================================================================
 // CloseCodes
@@ -134,30 +136,8 @@ describe('error() with parse function', () => {
 // error() — StandardSchema
 // ===========================================================================
 
-describe('error() with StandardSchema', () => {
-  function createMockSchema<T>(validateFn: (value: unknown) => T) {
-    return {
-      '~standard': {
-        version: 1 as const,
-        vendor: 'mock',
-        validate(value: unknown) {
-          try {
-            return { value: validateFn(value) };
-          } catch (e) {
-            return { issues: [{ message: (e as Error).message }] };
-          }
-        },
-      },
-    };
-  }
-
-  const limitSchema = createMockSchema((v: unknown) => {
-    const obj = v as Record<string, unknown>;
-    if (typeof obj.limit !== 'number') throw new Error('limit must be a number');
-    return { limit: obj.limit };
-  });
-
-  const QuotaExceeded = error('quota-exceeded', limitSchema);
+describe('error() with valibot', () => {
+  const QuotaExceeded = error('quota-exceeded', v.object({ limit: v.number() }));
 
   it('has the correct code', () => {
     expect(QuotaExceeded.code).toBe('quota-exceeded');
@@ -170,8 +150,10 @@ describe('error() with StandardSchema', () => {
     expect(err.detail).toEqual({ limit: 100 });
   });
 
-  it('throws when schema validation fails on creation', () => {
-    expect(() => QuotaExceeded({ limit: 'not a number' })).toThrow('Validation failed');
+  it('throws when runtime data fails validation', () => {
+    // Simulates bad data arriving over the wire — TS can't catch this
+    // oxlint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(() => QuotaExceeded({ limit: 'not a number' } as any)).toThrow('Validation failed');
   });
 
   it('.matches() returns true for valid detail', () => {
@@ -183,20 +165,26 @@ describe('error() with StandardSchema', () => {
     const err = new WskitError('quota-exceeded', { limit: 'nope' });
     expect(QuotaExceeded.matches(err)).toBe(false);
   });
+});
 
-  it('rejects async schemas at creation time', () => {
-    const asyncSchema = {
-      '~standard': {
-        version: 1 as const,
-        vendor: 'async-mock',
-        validate(_value: unknown) {
-          return Promise.resolve({ value: {} });
-        },
-      },
-    };
+describe('error() with zod', () => {
+  const RateLimited = error('rate-limited', z.object({ retryAfter: z.number() }));
 
-    const AsyncError = error('async-fail', asyncSchema);
-    expect(() => AsyncError({})).toThrow('does not support async validators');
+  it('is callable and returns WskitError with validated detail', () => {
+    const err = RateLimited({ retryAfter: 5000 });
+    expect(err).toBeInstanceOf(WskitError);
+    expect(err.code).toBe('rate-limited');
+    expect(err.detail).toEqual({ retryAfter: 5000 });
+  });
+
+  it('throws when runtime data fails validation', () => {
+    // oxlint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(() => RateLimited({ retryAfter: 'not a number' } as any)).toThrow('Validation failed');
+  });
+
+  it('.matches() returns true for valid detail', () => {
+    const err = new WskitError('rate-limited', { retryAfter: 3000 });
+    expect(RateLimited.matches(err)).toBe(true);
   });
 });
 

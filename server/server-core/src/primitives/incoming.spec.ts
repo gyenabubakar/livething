@@ -1,5 +1,7 @@
 import { incoming } from '~/primitives/incoming.ts';
+import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 
 describe('incoming', () => {
   // =========================================================================
@@ -57,17 +59,29 @@ describe('incoming', () => {
     expect(p.validator).toBe(validate);
   });
 
-  it('stores a StandardSchema validator', () => {
-    const schema = {
-      '~standard': {
-        version: 1 as const,
-        vendor: 'mock',
-        validate(value: unknown) {
-          return { value };
-        },
+  it('stores a valibot schema', () => {
+    const schema = v.object({ text: v.string() });
+    const p = incoming(
+      'send-message',
+      async (_ctx, payload) => {
+        const _text: string = payload.text;
+        void _text;
       },
-    };
-    const p = incoming('send-message', async () => {}, { validator: schema });
+      { validator: schema },
+    );
+    expect(p.validator).toBe(schema);
+  });
+
+  it('stores a zod schema', () => {
+    const schema = z.object({ text: z.string() });
+    const p = incoming(
+      'send-message',
+      async (_ctx, payload) => {
+        const _text: string = payload.text;
+        void _text;
+      },
+      { validator: schema },
+    );
     expect(p.validator).toBe(schema);
   });
 
