@@ -3,6 +3,7 @@ import { error } from '~/errors.ts';
 import { ack } from '~/primitives/ack.ts';
 import { errors } from '~/primitives/errors.ts';
 import { incoming } from '~/primitives/incoming.ts';
+import { namespace } from '~/primitives/namespace.ts';
 import { outgoing } from '~/primitives/outgoing.ts';
 import { request } from '~/primitives/request.ts';
 import { chunks, generate, nudge, start, stream } from '~/primitives/stream.ts';
@@ -160,3 +161,69 @@ const withGenerateOnly = defineServer(
   }),
 );
 void withGenerateOnly;
+
+// ===========================================================================
+// 5. namespace() types nested handlers against namespace-local outgoing only
+// ===========================================================================
+
+const namespaceStream = stream(
+  start('namespace-stream', (value: unknown) => value as { prompt: string }),
+  chunks(t<{ text: string }>()),
+  nudge('cancel'),
+);
+
+const withNamespace = defineServer(
+  ack(),
+  outgoing('message', t<{ text: string }>()),
+  incoming('top-ping', async (ctx) => {
+    ctx.send('message', { text: 'top' });
+
+    // @ts-expect-error — top-level ctx has no namespaceName
+    ctx.namespaceName;
+  }),
+  namespace(
+    'notifications',
+    outgoing('alert', t<{ id: string }>()),
+    outgoing('dismissed', t<{ id: string }>()),
+    incoming(
+      'dismiss',
+      async (ctx, payload) => {
+        const _name: string = ctx.namespaceName;
+        void _name;
+
+        ctx.send('dismissed', { id: payload.id });
+        ctx.broadcast('alert', { id: payload.id });
+
+        // @ts-expect-error — namespace handlers do not see top-level outgoing
+        ctx.send('message', { text: payload.id });
+
+        // @ts-expect-error — ack is not available in namespace scope
+        ctx.ack();
+      },
+      { validator: (value: unknown) => value as { id: string } },
+    ),
+    request('get-unread', async (ctx) => {
+      const _name: string = ctx.namespaceName;
+      void _name;
+
+      ctx.send('alert', { id: 'a1' });
+      return { ok: true };
+    }),
+    generate(namespaceStream, async function* (ctx, payload) {
+      const _name: string = ctx.namespaceName;
+      void _name;
+
+      ctx.send('alert', { id: payload.prompt });
+      const nudges = ctx.nudges(yield { text: payload.prompt });
+      const _event: 'cancel' = nudges[0]!.event;
+      void _event;
+
+      // @ts-expect-error — namespace stream handlers do not see top-level outgoing
+      ctx.send('message', { text: payload.prompt });
+
+      // @ts-expect-error — ack is not available in namespace stream scope
+      ctx.ack();
+    }),
+  ),
+);
+void withNamespace;

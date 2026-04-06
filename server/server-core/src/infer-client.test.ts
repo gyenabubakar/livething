@@ -3,6 +3,7 @@ import { error } from '~/errors.ts';
 import { ack } from '~/primitives/ack.ts';
 import { errors } from '~/primitives/errors.ts';
 import { incoming } from '~/primitives/incoming.ts';
+import { namespace } from '~/primitives/namespace.ts';
 import { outgoing } from '~/primitives/outgoing.ts';
 import { request } from '~/primitives/request.ts';
 import { chunks, generate, nudge, start, stream } from '~/primitives/stream.ts';
@@ -114,3 +115,48 @@ void [_plainPayload, _plainChunk, _builtInValidationError];
 
 // @ts-expect-error — nudges is omitted when no nudges are declared
 noNudgeClient.streams['plain-stream'].nudges;
+
+const namespacedServer = defineServer(
+  namespace(
+    'notifications',
+    outgoing('alert', t<{ id: string; message: string }>()),
+    incoming('dismiss', async () => {}, { validator: (value: unknown) => value as { id: string } }),
+    request('get-unread', async () => ({
+      alerts: [{ id: 'a1', message: 'hi' }],
+    })),
+    generate(
+      stream(
+        start('ask-ai', (value: unknown) => value as { prompt: string }),
+        chunks(t<{ text: string }>()),
+        nudge('cancel'),
+      ),
+      async function* () {
+        yield { text: 'hi' };
+      },
+    ),
+  ),
+);
+
+type NamespacedClient = InferClient<typeof namespacedServer>;
+
+declare const namespacedClient: NamespacedClient;
+
+const _namespaceIncomingMessage: string =
+  namespacedClient.namespaces.notifications.incoming.alert.message;
+const _namespaceOutgoingId: string = namespacedClient.namespaces.notifications.outgoing.dismiss.id;
+const _namespaceRequestResponse: string =
+  namespacedClient.namespaces.notifications.requests['get-unread'].response.alerts[0]!.message;
+const _namespaceStreamChunk: string =
+  namespacedClient.namespaces.notifications.streams['ask-ai'].chunks.text;
+const _namespaceStreamNudge: unknown =
+  namespacedClient.namespaces.notifications.streams['ask-ai'].nudges.cancel;
+void [
+  _namespaceIncomingMessage,
+  _namespaceOutgoingId,
+  _namespaceRequestResponse,
+  _namespaceStreamChunk,
+  _namespaceStreamNudge,
+];
+
+// @ts-expect-error — namespace events are not top-level incoming events
+namespacedClient.incoming.alert;

@@ -3,6 +3,7 @@ import type { AckPrimitive } from '~/primitives/ack.ts';
 import type { Primitive } from '~/primitives/define.ts';
 import type { ErrorsPrimitive } from '~/primitives/errors.ts';
 import type { IncomingPrimitive } from '~/primitives/incoming.ts';
+import type { NamespacePrimitive } from '~/primitives/namespace.ts';
 import type { OutgoingPrimitive } from '~/primitives/outgoing.ts';
 import type { RequestPrimitive } from '~/primitives/request.ts';
 import type { GeneratePrimitive, NudgeDeclaration, StreamPrimitive } from '~/primitives/stream.ts';
@@ -211,6 +212,32 @@ export function defineServer<
       ServerHandlerContext<OutgoingMap<[O1, O2]>, true>
     >,
     GeneratePrimitive<TStream, StreamServerHandlerContext<OutgoingMap<[O1, O2]>>, any>,
+  ]
+>;
+export function defineServer<
+  O1 extends AnyOutgoing,
+  TIncomingEvent extends string,
+  TIncomingPayload,
+  TNamespace extends NamespacePrimitive,
+>(
+  ackPrimitive: AckPrimitive,
+  o1: O1,
+  incomingPrimitive: IncomingPrimitive<
+    TIncomingEvent,
+    TIncomingPayload,
+    ServerHandlerContext<OutgoingMap<[O1]>, true>
+  >,
+  namespacePrimitive: TNamespace,
+): ServerDefinition<
+  readonly [
+    AckPrimitive,
+    O1,
+    IncomingPrimitive<
+      TIncomingEvent,
+      TIncomingPayload,
+      ServerHandlerContext<OutgoingMap<[O1]>, true>
+    >,
+    TNamespace,
   ]
 >;
 export function defineServer<const TPrimitives extends readonly Primitive[]>(

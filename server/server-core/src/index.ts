@@ -25,6 +25,13 @@ export { incoming } from './primitives/incoming.ts';
 export type { IncomingPrimitive, IncomingHandler } from './primitives/incoming.ts';
 export { outgoing } from './primitives/outgoing.ts';
 export type { OutgoingPrimitive } from './primitives/outgoing.ts';
+export { namespace } from './primitives/namespace.ts';
+export type {
+  NamespaceChild,
+  NamespaceHandlerContext,
+  NamespacePrimitive,
+  NamespaceStreamHandlerContext,
+} from './primitives/namespace.ts';
 export { errors } from './primitives/errors.ts';
 export type { ErrorsPrimitive } from './primitives/errors.ts';
 export { request } from './primitives/request.ts';

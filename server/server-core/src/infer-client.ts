@@ -3,6 +3,7 @@ import type { ServerDefinition } from '~/define-server.ts';
 import type { ErrorDef, ValidationFailed } from '~/errors.ts';
 import type { ErrorsPrimitive } from '~/primitives/errors.ts';
 import type { IncomingPrimitive } from '~/primitives/incoming.ts';
+import type { NamespaceChild, NamespacePrimitive } from '~/primitives/namespace.ts';
 import type { OutgoingPrimitive } from '~/primitives/outgoing.ts';
 import type { RequestPrimitive } from '~/primitives/request.ts';
 import type { GeneratePrimitive, NudgeDeclaration, StreamPrimitive } from '~/primitives/stream.ts';
@@ -15,6 +16,7 @@ type AnyGenerate = GeneratePrimitive<
   any,
   any
 >;
+type AnyNamespace = NamespacePrimitive<string, readonly NamespaceChild[]>;
 type AnyErrorDef = ErrorDef<string, any>;
 
 type SimplifyDeep<T> = T extends (...args: any[]) => any
@@ -89,6 +91,24 @@ type StreamsMap<TPrimitives extends readonly unknown[]> = {
     : never;
 };
 
+type NamespaceContract<TPrimitives extends readonly unknown[]> = SimplifyDeep<{
+  incoming: OutgoingToIncoming<TPrimitives>;
+  outgoing: IncomingToOutgoing<TPrimitives>;
+  requests: RequestsMap<TPrimitives>;
+  streams: StreamsMap<TPrimitives>;
+}>;
+
+type StaticNamespacesMap<TPrimitives extends readonly unknown[]> = {
+  [TPrimitive in Extract<
+    TPrimitives[number],
+    AnyNamespace
+  > as TPrimitive extends NamespacePrimitive<infer TPattern, any>
+    ? TPattern
+    : never]: TPrimitive extends NamespacePrimitive<any, infer TChildren>
+    ? NamespaceContract<TChildren>
+    : never;
+};
+
 type DeclaredErrorUnion<TPrimitives extends readonly unknown[]> =
   Extract<TPrimitives[number], ErrorsPrimitive<readonly AnyErrorDef[]>> extends ErrorsPrimitive<
     infer TDefs
@@ -117,7 +137,7 @@ type BuiltInErrorUnion = typeof ValidationFailed;
 export type InferClient<TServer extends ServerDefinition> = SimplifyDeep<{
   incoming: OutgoingToIncoming<PrimitivesOf<TServer>>;
   outgoing: IncomingToOutgoing<PrimitivesOf<TServer>>;
-  namespaces: {};
+  namespaces: StaticNamespacesMap<PrimitivesOf<TServer>>;
   channels: {};
   streams: StreamsMap<PrimitivesOf<TServer>>;
   requests: RequestsMap<PrimitivesOf<TServer>>;
