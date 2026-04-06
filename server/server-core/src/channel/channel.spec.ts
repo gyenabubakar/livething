@@ -1,6 +1,7 @@
 import { channel, scope } from '~/channel/channel.ts';
 import { incoming } from '~/incoming/incoming.ts';
 import { outgoing } from '~/outgoing/outgoing.ts';
+import { received } from '~/received.ts';
 import { request } from '~/request/request.ts';
 import { chunks, generate, start, stream } from '~/stream/stream.ts';
 import { t } from '~/t.ts';
@@ -19,7 +20,7 @@ describe('channel', () => {
     const p = channel(
       'general',
       outgoing('message', t<{ text: string }>()),
-      incoming('send-message', async () => {}),
+      incoming(received('send-message'), async () => {}),
     );
     expect(p.__wskit).toBe('channel');
     expect(p.__kind).toBe('scope');
@@ -29,7 +30,7 @@ describe('channel', () => {
     const p = channel(
       'general',
       outgoing('message', t<{ text: string }>()),
-      incoming('send-message', async () => {}),
+      incoming(received('send-message'), async () => {}),
     );
     expect(p.__identity[1]).toBe('general');
   });
@@ -38,7 +39,7 @@ describe('channel', () => {
     const p = channel(
       scope('rooms', /^room-/),
       outgoing('message', t<{ text: string }>()),
-      incoming('send-message', async () => {}),
+      incoming(received('send-message'), async () => {}),
     );
     expect(p.__identity[1]).toBe('rooms');
   });
@@ -47,7 +48,7 @@ describe('channel', () => {
     const p = channel(
       'general',
       outgoing('message', t<{ text: string }>()),
-      incoming('send-message', async () => {}),
+      incoming(received('send-message'), async () => {}),
       request('status', async () => ({ ok: true })),
     );
     expect(p.primitives).toHaveLength(3);
@@ -62,7 +63,7 @@ describe('channel', () => {
     const p = channel(
       scope('aiRooms', /^ai-room-/),
       outgoing('chunk', t<{ text: string }>()),
-      incoming('ping', async () => {}),
+      incoming(received('ping'), async () => {}),
       request('status', async () => ({ ok: true })),
       generate(aiStream, async function* () {
         yield { text: 'hi' };
@@ -77,7 +78,7 @@ describe('channel', () => {
     const p = channel(
       'general',
       outgoing('message', t<{ text: string }>()),
-      incoming('send-message', async () => {}),
+      incoming(received('send-message'), async () => {}),
     );
     expect(p.__dependencies).toEqual([]);
     expect(p.__requires).toEqual({});

@@ -1,6 +1,7 @@
 import { incoming } from '~/incoming/incoming.ts';
 import { namespace } from '~/namespace/namespace.ts';
 import { outgoing } from '~/outgoing/outgoing.ts';
+import { received } from '~/received.ts';
 import { request } from '~/request/request.ts';
 import { chunks, generate, start, stream } from '~/stream/stream.ts';
 import { t } from '~/t.ts';
@@ -11,7 +12,7 @@ describe('namespace', () => {
     const p = namespace(
       'notifications',
       outgoing('alert', t<{ id: string }>()),
-      incoming('dismiss', async () => {}),
+      incoming(received('dismiss'), async () => {}),
     );
     expect(p.__wskit).toBe('namespace');
     expect(p.__kind).toBe('scope');
@@ -21,7 +22,7 @@ describe('namespace', () => {
     const p = namespace(
       'notifications',
       outgoing('alert', t<{ id: string }>()),
-      incoming('dismiss', async () => {}),
+      incoming(received('dismiss'), async () => {}),
     );
     expect(p.__identity[1]).toBe('notifications');
   });
@@ -30,7 +31,7 @@ describe('namespace', () => {
     const p = namespace(
       'notifications',
       outgoing('alert', t<{ id: string }>()),
-      incoming('dismiss', async () => {}),
+      incoming(received('dismiss'), async () => {}),
     );
     expect(p.pattern).toBe('notifications');
     expect(p.primitives).toHaveLength(2);
@@ -44,7 +45,7 @@ describe('namespace', () => {
     const p = namespace(
       'reports',
       outgoing('chunk', t<{ text: string }>()),
-      incoming('ping', async () => {}),
+      incoming(received('ping'), async () => {}),
       request('status', async () => ({ ok: true })),
       generate(aiStream, async function* () {
         yield { text: 'hi' };
@@ -59,7 +60,7 @@ describe('namespace', () => {
     const p = namespace(
       'notifications',
       outgoing('alert', t<{ id: string }>()),
-      incoming('dismiss', async () => {}),
+      incoming(received('dismiss'), async () => {}),
     );
     expect(p.__dependencies).toEqual([]);
     expect(p.__requires).toEqual({});

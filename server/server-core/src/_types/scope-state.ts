@@ -3,9 +3,11 @@ import type { AckPrimitive } from '~/ack/ack.ts';
 import type { DedupPrimitive } from '~/dedup/dedup.ts';
 import type { ErrorDef } from '~/errors.ts';
 import type { ErrorsPrimitive } from '~/errors/errors.ts';
+import type { HeartbeatPrimitive } from '~/heartbeat/heartbeat.ts';
 import type { IncomingPrimitive } from '~/incoming/incoming.ts';
 import type { InterceptPrimitive } from '~/intercept/intercept.ts';
 import type { OutgoingPrimitive } from '~/outgoing/outgoing.ts';
+import type { PassivePrimitive } from '~/passive/passive.ts';
 import type { ReplayPrimitive } from '~/replay/replay.ts';
 import type { RequestPrimitive } from '~/request/request.ts';
 import type { SequencePrimitive } from '~/sequence/sequence.ts';
@@ -28,6 +30,7 @@ type AnyGenerate = GeneratePrimitive<
 type AnyErrors = ErrorsPrimitive<readonly AnyErrorDef[]>;
 type AnyReplay = ReplayPrimitive<any>;
 type AnyIntercept = InterceptPrimitive<string, any, any>;
+type AnyPassive = PassivePrimitive<readonly any[]>;
 
 /**
  * Every primitive shape that the fold engine knows how to process.
@@ -37,6 +40,8 @@ type AnyIntercept = InterceptPrimitive<string, any, any>;
  */
 export type FoldablePrimitive =
   | AckPrimitive
+  | AnyPassive
+  | HeartbeatPrimitive
   | SequencePrimitive
   | DedupPrimitive
   | AnyReplay
@@ -188,6 +193,7 @@ type StreamEntry<TStream extends StreamPrimitive> =
  *
  * This is the heart of the fold. Each branch says what a primitive changes:
  * - `ack()` flips `hasAck`
+ * - passive infrastructure like `heartbeat()` leaves handler ctx unchanged
  * - `replay()` flips `hasReplay`
  * - `outgoing()` adds sendable events
  * - `incoming()` and `request()` extend the client contract
@@ -196,7 +202,9 @@ type StreamEntry<TStream extends StreamPrimitive> =
 export type NextState<
   TState extends ScopeStateShape,
   TPrimitive extends FoldablePrimitive,
-> = TPrimitive extends AckPrimitive
+> = TPrimitive extends AnyPassive
+  ? FoldState<TPrimitive['primitives'], TState>
+  : TPrimitive extends AckPrimitive
   ? {
       readonly kind: TState['kind'];
       readonly outgoing: TState['outgoing'];
@@ -205,7 +213,7 @@ export type NextState<
       readonly contract: TState['contract'];
       readonly errors: TState['errors'];
     }
-  : TPrimitive extends SequencePrimitive | DedupPrimitive
+  : TPrimitive extends HeartbeatPrimitive | SequencePrimitive | DedupPrimitive
     ? {
         readonly kind: TState['kind'];
         readonly outgoing: TState['outgoing'];

@@ -1,7 +1,10 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { h } from '~/h.ts';
 import { incoming } from '~/incoming/incoming.ts';
 import { namespace } from '~/namespace/namespace.ts';
 import { outgoing } from '~/outgoing/outgoing.ts';
+import { passive } from '~/passive/passive.ts';
+import { received } from '~/received.ts';
 import { replay } from '~/replay/replay.ts';
 import { request } from '~/request/request.ts';
 import { chunks, generate, nudge, start, stream } from '~/stream/stream.ts';
@@ -17,8 +20,8 @@ const notifications = namespace(
   'notifications',
   outgoing('alert', t<{ id: string }>()),
   incoming(
-    'dismiss',
-    async (ctx, payload) => {
+    received('dismiss', (value: unknown) => value as { id: string }),
+    h(async (ctx, payload) => {
       const _name: string = ctx.namespaceName;
       const _id: string = payload.id;
       void [_name, _id];
@@ -30,8 +33,7 @@ const notifications = namespace(
 
       // @ts-expect-error — ack is not available in namespace scope
       ctx.ack();
-    },
-    { validator: (value: unknown) => value as { id: string } },
+    }),
   ),
 );
 
@@ -55,7 +57,7 @@ const reports = namespace(
   'reports',
   outgoing('chunk', t<{ text: string }>()),
   outgoing('done', t<{ ok: true }>()),
-  incoming('ping', async () => {}),
+  incoming(received('ping'), async () => {}),
   request('status', async (ctx) => {
     const _name: string = ctx.namespaceName;
     void _name;
@@ -103,3 +105,6 @@ namespace(
 const _ref: PrimitiveRef = namespace;
 const _key: symbol = namespace.__key;
 void [_ref, _key];
+
+// @ts-expect-error — passive() is top-level only
+namespace('invalid', passive());

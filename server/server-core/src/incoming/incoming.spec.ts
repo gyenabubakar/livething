@@ -1,4 +1,6 @@
+import { h } from '~/h.ts';
 import { incoming } from '~/incoming/incoming.ts';
+import { received } from '~/received.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
@@ -9,19 +11,19 @@ describe('incoming', () => {
   // =========================================================================
 
   it('produces correct tag and kind', () => {
-    const p = incoming('send-message', async () => {});
+    const p = incoming(received('send-message'), async () => {});
     expect(p.__wskit).toBe('incoming');
     expect(p.__kind).toBe('handler');
   });
 
   it('produces compound identity keyed by event name', () => {
-    const p = incoming('send-message', async () => {});
+    const p = incoming(received('send-message'), async () => {});
     expect(p.__identity[1]).toBe('send-message');
   });
 
   it('different events have different identities', () => {
-    const a = incoming('send-message', async () => {});
-    const b = incoming('join-room', async () => {});
+    const a = incoming(received('send-message'), async () => {});
+    const b = incoming(received('join-room'), async () => {});
     expect(a.__identity[1]).toBe('send-message');
     expect(b.__identity[1]).toBe('join-room');
     expect(a.__identity[0]).toBe(b.__identity[0]);
@@ -32,13 +34,24 @@ describe('incoming', () => {
   // =========================================================================
 
   it('stores the event name', () => {
-    const p = incoming('send-message', async () => {});
+    const p = incoming(received('send-message'), async () => {});
+    expect(p.event).toBe('send-message');
+  });
+
+  it('reads the event name from received(...)', () => {
+    const p = incoming(received('send-message'), async () => {});
     expect(p.event).toBe('send-message');
   });
 
   it('stores the handler function', () => {
     const handler = vi.fn();
-    const p = incoming('send-message', handler);
+    const p = incoming(received('send-message'), handler);
+    expect(p.handler).toBe(handler);
+  });
+
+  it('unwraps h() and stores the original handler function', () => {
+    const handler = vi.fn();
+    const p = incoming(received('send-message'), h(handler));
     expect(p.handler).toBe(handler);
   });
 
@@ -47,7 +60,7 @@ describe('incoming', () => {
   // =========================================================================
 
   it('stores no validator when omitted', () => {
-    const p = incoming('ping', async () => {});
+    const p = incoming(received('ping'), async () => {});
     expect(p.validator).toBeUndefined();
   });
 
@@ -55,19 +68,40 @@ describe('incoming', () => {
     function validate(p: unknown) {
       return p as { text: string };
     }
-    const p = incoming('send-message', async () => {}, { validator: validate });
+    const p = incoming(received('send-message', validate), async () => {});
+    expect(p.validator).toBe(validate);
+  });
+
+  it('reads the validator from received(...)', () => {
+    function validate(p: unknown) {
+      return p as { text: string };
+    }
+
+    const p = incoming(received('send-message', validate), async () => {});
+    expect(p.validator).toBe(validate);
+  });
+
+  it('keeps the validator from received(...) when the handler is wrapped with h()', () => {
+    function validate(p: unknown) {
+      return p as { text: string };
+    }
+
+    const p = incoming(
+      received('send-message', validate),
+      h(async () => {}),
+    );
+
     expect(p.validator).toBe(validate);
   });
 
   it('stores a valibot schema', () => {
     const schema = v.object({ text: v.string() });
     const p = incoming(
-      'send-message',
+      received('send-message', schema),
       async (_ctx, payload) => {
         const _text: string = payload.text;
         void _text;
       },
-      { validator: schema },
     );
     expect(p.validator).toBe(schema);
   });
@@ -75,12 +109,11 @@ describe('incoming', () => {
   it('stores a zod schema', () => {
     const schema = z.object({ text: z.string() });
     const p = incoming(
-      'send-message',
+      received('send-message', schema),
       async (_ctx, payload) => {
         const _text: string = payload.text;
         void _text;
       },
-      { validator: schema },
     );
     expect(p.validator).toBe(schema);
   });
@@ -98,7 +131,7 @@ describe('incoming', () => {
   // =========================================================================
 
   it('has empty dependencies and requires', () => {
-    const p = incoming('test', async () => {});
+    const p = incoming(received('test'), async () => {});
     expect(p.__dependencies).toEqual([]);
     expect(p.__requires).toEqual({});
   });

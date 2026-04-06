@@ -4,10 +4,13 @@ import { dedup } from '~/dedup/dedup.ts';
 import { defineServer } from '~/define-server.ts';
 import { error } from '~/errors.ts';
 import { errors } from '~/errors/errors.ts';
+import { heartbeat } from '~/heartbeat/heartbeat.ts';
 import { incoming } from '~/incoming/incoming.ts';
 import { intercept } from '~/intercept/intercept.ts';
 import { namespace } from '~/namespace/namespace.ts';
 import { outgoing } from '~/outgoing/outgoing.ts';
+import { passive } from '~/passive/passive.ts';
+import { received } from '~/received.ts';
 import { replay } from '~/replay/replay.ts';
 import { request } from '~/request/request.ts';
 import { sequence } from '~/sequence/sequence.ts';
@@ -23,7 +26,7 @@ describe('defineServer', () => {
     const server = defineServer(
       ack(),
       outgoing('message', t<{ text: string }>()),
-      incoming('ping', async () => {}),
+      incoming(received('ping'), async () => {}),
     );
 
     expect(server.__wskit).toBe('server');
@@ -35,7 +38,7 @@ describe('defineServer', () => {
     const server = defineServer(
       ack(),
       outgoing('message', t<{ text: string }>()),
-      incoming('ping', async () => {}),
+      incoming(received('ping'), async () => {}),
     );
 
     expect(server.primitives).toHaveLength(3);
@@ -50,7 +53,7 @@ describe('defineServer', () => {
       ack(),
       outgoing('message', t<{ text: string }>()),
       outgoing('alert', t<{ level: string }>()),
-      incoming('ping', async () => {}),
+      incoming(received('ping'), async () => {}),
       request('get-status', async () => ({ ok: true })),
       generate(aiStream, async function* () {
         yield { text: 'hi' };
@@ -69,7 +72,7 @@ describe('defineServer', () => {
       errors(Forbidden),
       outgoing('message', t<{ text: string }>()),
       outgoing('alert', t<{ level: string }>()),
-      incoming('ping', async () => {}),
+      incoming(received('ping'), async () => {}),
       request('get-status', async () => ({ ok: true })),
       generate(aiStream, async function* () {
         yield { text: 'hi' };
@@ -90,7 +93,7 @@ describe('defineServer', () => {
       dedup(),
       replay(),
       outgoing('message', t<{ text: string }>()),
-      incoming('ping', async () => {}),
+      incoming(received('ping'), async () => {}),
       request('status', async () => ({ ok: true })),
       generate(replayStream, async function* () {
         yield { text: 'hi' };
@@ -103,15 +106,67 @@ describe('defineServer', () => {
     expect(server.primitives[2]!.__wskit).toBe('replay');
   });
 
+  it('stores heartbeat() before handler primitives without affecting order', () => {
+    const server = defineServer(
+      heartbeat({ timeout: 30_000 }),
+      outgoing('message', t<{ text: string }>()),
+      incoming(received('ping'), async () => {}),
+    );
+
+    expect(server.primitives).toHaveLength(3);
+    expect(server.primitives[0]!.__wskit).toBe('heartbeat');
+    expect(server.primitives[1]!.__wskit).toBe('outgoing');
+    expect(server.primitives[2]!.__wskit).toBe('incoming');
+  });
+
+  it('stores passive() as one top-level primitive and keeps child order', () => {
+    const server = defineServer(
+      passive(heartbeat({ timeout: 30_000 }), sequence(), dedup()),
+      outgoing('message', t<{ text: string }>()),
+      incoming(received('ping'), async () => {}),
+    );
+
+    expect(server.primitives).toHaveLength(3);
+    expect(server.primitives[0]!.__wskit).toBe('passive');
+    const group = server.primitives[0]! as ReturnType<typeof passive>;
+    expect(group.primitives.map((primitive) => primitive.__wskit)).toEqual([
+      'heartbeat',
+      'sequence',
+      'dedup',
+    ]);
+  });
+
+  it('lets replay() satisfy dependencies from inside passive()', () => {
+    expect(() =>
+      defineServer(
+        passive(sequence(), dedup()),
+        replay(),
+        outgoing('message', t<{ text: string }>()),
+        incoming(received('ping'), async () => {}),
+      ),
+    ).not.toThrow();
+  });
+
+  it('still throws when passive() only includes one replay dependency', () => {
+    expect(() =>
+      defineServer(
+        passive(sequence()),
+        replay(),
+        outgoing('message', t<{ text: string }>()),
+        incoming(received('ping'), async () => {}),
+      ),
+    ).toThrow(/requires a missing dependency/);
+  });
+
   it('stores namespace() alongside top-level primitives in order', () => {
     const server = defineServer(
       ack(),
       outgoing('message', t<{ text: string }>()),
-      incoming('ping', async () => {}),
+      incoming(received('ping'), async () => {}),
       namespace(
         'notifications',
         outgoing('alert', t<{ id: string }>()),
-        incoming('dismiss', async () => {}),
+        incoming(received('dismiss'), async () => {}),
       ),
     );
 
@@ -128,7 +183,7 @@ describe('defineServer', () => {
       ack(),
       outgoing('message', t<{ text: string }>()),
       intercept(async () => {}),
-      incoming('ping', async () => {}),
+      incoming(received('ping'), async () => {}),
     );
 
     expect(server.primitives).toHaveLength(4);
@@ -140,11 +195,11 @@ describe('defineServer', () => {
     const server = defineServer(
       ack(),
       outgoing('message', t<{ text: string }>()),
-      incoming('ping', async () => {}),
+      incoming(received('ping'), async () => {}),
       channel(
         scope('rooms', /^room-/),
         outgoing('typing', t<{ userId: string }>()),
-        incoming('start-typing', async () => {}),
+        incoming(received('start-typing'), async () => {}),
       ),
     );
 
@@ -162,13 +217,13 @@ describe('defineServer', () => {
         'notifications',
         outgoing('alert', t<{ id: string }>()),
         intercept(async () => {}),
-        incoming('dismiss', async () => {}),
+        incoming(received('dismiss'), async () => {}),
       ),
       channel(
         scope('rooms', /^room-/),
         outgoing('message', t<{ text: string }>()),
         intercept('send-message', async () => {}),
-        incoming('send-message', async () => {}),
+        incoming(received('send-message'), async () => {}),
       ),
     );
 
@@ -191,7 +246,7 @@ describe('defineServer', () => {
         scope('replayRooms', /^replay-room-/),
         replay({ onReplay }),
         outgoing('message', t<{ text: string }>()),
-        incoming('replay-message', async () => {}),
+        incoming(received('replay-message'), async () => {}),
       ),
     );
 
@@ -207,7 +262,7 @@ describe('defineServer', () => {
         dedup(),
         replay(),
         outgoing('message', t<{ text: string }>()),
-        incoming('ping', async () => {}),
+        incoming(received('ping'), async () => {}),
       ),
     ).toThrow(/requires a missing dependency/);
   });
@@ -218,7 +273,7 @@ describe('defineServer', () => {
         sequence(),
         replay(),
         outgoing('message', t<{ text: string }>()),
-        incoming('ping', async () => {}),
+        incoming(received('ping'), async () => {}),
       ),
     ).toThrow(/requires a missing dependency/);
   });
@@ -230,7 +285,7 @@ describe('defineServer', () => {
           scope('replayRooms', /^replay-room-/),
           replay(),
           outgoing('message', t<{ text: string }>()),
-          incoming('replay-message', async () => {}),
+          incoming(received('replay-message'), async () => {}),
         ),
       ),
     ).toThrow(/requires a missing dependency/);

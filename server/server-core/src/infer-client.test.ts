@@ -3,10 +3,16 @@ import { channel, scope } from '~/channel/channel.ts';
 import { defineServer } from '~/define-server.ts';
 import { error } from '~/errors.ts';
 import { errors } from '~/errors/errors.ts';
+import { heartbeat } from '~/heartbeat/heartbeat.ts';
 import { incoming } from '~/incoming/incoming.ts';
 import { namespace } from '~/namespace/namespace.ts';
 import { outgoing } from '~/outgoing/outgoing.ts';
+import { passive } from '~/passive/passive.ts';
+import { received } from '~/received.ts';
+import { replay } from '~/replay/replay.ts';
 import { request } from '~/request/request.ts';
+import { dedup } from '~/dedup/dedup.ts';
+import { sequence } from '~/sequence/sequence.ts';
 import { chunks, generate, nudge, start, stream } from '~/stream/stream.ts';
 import { t } from '~/t.ts';
 import type { InferClient } from '~/infer-client.ts';
@@ -27,12 +33,11 @@ const server = defineServer(
   outgoing('message', t<{ text: string }>()),
   outgoing('usage', t<{ inputTokens: number; outputTokens: number }>()),
   incoming(
-    'send-message',
+    received('send-message', (value: unknown) => value as { text: string }),
     async (ctx, payload) => {
       ctx.send('message', { text: payload.text });
       ctx.ack();
     },
-    { validator: (value: unknown) => value as { text: string } },
   ),
   request(
     'get-usage',
@@ -121,7 +126,7 @@ const namespacedServer = defineServer(
   namespace(
     'notifications',
     outgoing('alert', t<{ id: string; message: string }>()),
-    incoming('dismiss', async () => {}, { validator: (value: unknown) => value as { id: string } }),
+    incoming(received('dismiss', (value: unknown) => value as { id: string }), async () => {}),
     request('get-unread', async () => ({
       alerts: [{ id: 'a1', message: 'hi' }],
     })),
@@ -166,9 +171,7 @@ const channelServer = defineServer(
   channel(
     'general',
     outgoing('message', t<{ text: string; from: string }>()),
-    incoming('send-message', async () => {}, {
-      validator: (value: unknown) => value as { text: string },
-    }),
+    incoming(received('send-message', (value: unknown) => value as { text: string }), async () => {}),
     request('get-history', async () => ({
       messages: [{ text: 'hi', from: 'u1' }],
     })),
@@ -176,9 +179,7 @@ const channelServer = defineServer(
   channel(
     scope('rooms', /^room-/),
     outgoing('typing', t<{ userId: string }>()),
-    incoming('start-typing', async () => {}, {
-      validator: (value: unknown) => value as { fast: boolean },
-    }),
+    incoming(received('start-typing', (value: unknown) => value as { fast: boolean }), async () => {}),
     generate(
       stream(
         start('ask-ai', (value: unknown) => value as { prompt: string }),
@@ -219,3 +220,39 @@ void [
 
 // @ts-expect-error — channel events are not top-level events
 channelClient.incoming.message;
+
+const passiveServer = defineServer(
+  passive(heartbeat({ timeout: 30_000 }), sequence(), dedup()),
+  replay(),
+  outgoing('message', t<{ text: string }>()),
+  incoming(
+    received('send-message', (value: unknown) => value as { text: string }),
+    async () => {},
+  ),
+  request(
+    'get-status',
+    async () => ({ ok: true as const }),
+    { validator: (value: unknown) => value as { roomId: string } },
+  ),
+);
+
+type PassiveClient = InferClient<typeof passiveServer>;
+
+declare const passiveClient: PassiveClient;
+
+const _passiveIncomingText: string = passiveClient.incoming.message.text;
+const _passiveOutgoingText: string = passiveClient.outgoing['send-message'].text;
+const _passiveRequestPayload: string = passiveClient.requests['get-status'].payload.roomId;
+const _passiveRequestResponse: true = passiveClient.requests['get-status'].response.ok;
+const _passiveValidationError: string =
+  passiveClient.__errors__['validation-failed'].issues[0]!.message;
+void [
+  _passiveIncomingText,
+  _passiveOutgoingText,
+  _passiveRequestPayload,
+  _passiveRequestResponse,
+  _passiveValidationError,
+];
+
+// @ts-expect-error — passive infrastructure does not create client events
+passiveClient.incoming.heartbeat;

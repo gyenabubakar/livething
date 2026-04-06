@@ -1,5 +1,4 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-
 import { request } from '~/request/request.ts';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type { PrimitiveKind, PrimitiveRef } from '~/primitive.ts';

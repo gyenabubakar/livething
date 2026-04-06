@@ -1,3 +1,4 @@
+import { h } from '~/h.ts';
 import { intercept } from '~/intercept/intercept.ts';
 import { describe, expect, it } from 'vitest';
 
@@ -12,6 +13,12 @@ describe('intercept', () => {
     expect(p.handler).toBe(handler);
   });
 
+  it('unwraps h() for a pre-validation intercept', () => {
+    async function handler() {}
+    const p = intercept(h(handler));
+    expect(p.handler).toBe(handler);
+  });
+
   it('creates a post-validation intercept', () => {
     async function handler() {}
     const p = intercept('send-message', handler);
@@ -20,6 +27,12 @@ describe('intercept', () => {
     expect(p.__kind).toBe('infrastructure');
     expect(p.mode).toBe('post');
     expect(p.event).toBe('send-message');
+    expect(p.handler).toBe(handler);
+  });
+
+  it('unwraps h() for a post-validation intercept', () => {
+    async function handler() {}
+    const p = intercept('send-message', h(handler));
     expect(p.handler).toBe(handler);
   });
 

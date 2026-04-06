@@ -17,10 +17,12 @@ import type { AckPrimitive } from '~/ack/ack.ts';
 import type { ChannelPrimitive } from '~/channel/channel.ts';
 import type { DedupPrimitive } from '~/dedup/dedup.ts';
 import type { ErrorsPrimitive } from '~/errors/errors.ts';
+import type { HeartbeatPrimitive } from '~/heartbeat/heartbeat.ts';
 import type { IncomingPrimitive } from '~/incoming/incoming.ts';
 import type { PostInterceptPrimitive, PreInterceptPrimitive } from '~/intercept/intercept.ts';
 import type { NamespacePrimitive } from '~/namespace/namespace.ts';
 import type { OutgoingPrimitive } from '~/outgoing/outgoing.ts';
+import type { PassivePrimitive } from '~/passive/passive.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { ReplayPrimitive } from '~/replay/replay.ts';
 import type { RequestPrimitive } from '~/request/request.ts';
@@ -39,6 +41,7 @@ type AnyGenerate = GeneratePrimitive<
 >;
 type TopLevelStatePrimitive =
   | AckPrimitive
+  | HeartbeatPrimitive
   | SequencePrimitive
   | DedupPrimitive
   | ReplayPrimitive<any>
@@ -50,7 +53,11 @@ type TopLevelStatePrimitive =
   | AnyRequest
   | AnyGenerate;
 
-type TopLevelPrimitive = TopLevelStatePrimitive | NamespacePrimitive | ChannelPrimitive;
+type TopLevelPrimitive =
+  | TopLevelStatePrimitive
+  | PassivePrimitive<any>
+  | NamespacePrimitive
+  | ChannelPrimitive;
 
 type TopLevelIncoming<
   TPrefix extends readonly TopLevelStatePrimitive[],
@@ -94,14 +101,26 @@ export interface ServerDefinition<TPrimitives extends readonly Primitive[] = rea
   readonly primitives: TPrimitives;
 }
 
-function isScopePrimitive(
+function hasNestedPrimitives(
   primitive: Primitive,
-): primitive is NamespacePrimitive | ChannelPrimitive {
-  return primitive.__wskit === 'namespace' || primitive.__wskit === 'channel';
+): primitive is NamespacePrimitive | ChannelPrimitive | PassivePrimitive<any> {
+  return (
+    primitive.__wskit === 'namespace' ||
+    primitive.__wskit === 'channel' ||
+    primitive.__wskit === 'passive'
+  );
 }
 
-function collectRegisteredRefs(primitives: readonly Primitive[]): Set<symbol> {
-  return new Set(primitives.map((primitive) => primitive.__identity[0]));
+function collectRegisteredRefs(primitives: readonly Primitive[], refs = new Set<symbol>()): Set<symbol> {
+  for (const primitive of primitives) {
+    refs.add(primitive.__identity[0]);
+
+    if (hasNestedPrimitives(primitive)) {
+      collectRegisteredRefs(primitive.primitives, refs);
+    }
+  }
+
+  return refs;
 }
 
 function validateDependencies(
@@ -117,7 +136,7 @@ function validateDependencies(
       }
     }
 
-    if (isScopePrimitive(primitive)) {
+    if (hasNestedPrimitives(primitive)) {
       validateDependencies(primitive.primitives, registeredRefs);
     }
   }

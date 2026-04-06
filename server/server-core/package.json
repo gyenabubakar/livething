@@ -25,9 +25,17 @@
       "types": "./dist/dedup.d.ts",
       "import": "./dist/dedup.js"
     },
+    "./heartbeat": {
+      "types": "./dist/heartbeat.d.ts",
+      "import": "./dist/heartbeat.js"
+    },
     "./namespace": {
       "types": "./dist/namespace.d.ts",
       "import": "./dist/namespace.js"
+    },
+    "./passive": {
+      "types": "./dist/passive.d.ts",
+      "import": "./dist/passive.js"
     },
     "./replay": {
       "types": "./dist/replay.d.ts",
