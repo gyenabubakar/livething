@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "paths": {
+      "~/*": ["./src/*"],
+      "@wskit/server-codegen": ["./src/index.ts"],
+      "@wskit/server-codegen/registry": ["./src/registry.ts"]
+    }
+  },
+  "include": ["src"]
+}

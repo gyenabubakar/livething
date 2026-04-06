@@ -96,25 +96,19 @@ describe('incoming', () => {
 
   it('stores a valibot schema', () => {
     const schema = v.object({ text: v.string() });
-    const p = incoming(
-      received('send-message', schema),
-      async (_ctx, payload) => {
-        const _text: string = payload.text;
-        void _text;
-      },
-    );
+    const p = incoming(received('send-message', schema), async (_ctx, payload) => {
+      const _text: string = payload.text;
+      void _text;
+    });
     expect(p.validator).toBe(schema);
   });
 
   it('stores a zod schema', () => {
     const schema = z.object({ text: z.string() });
-    const p = incoming(
-      received('send-message', schema),
-      async (_ctx, payload) => {
-        const _text: string = payload.text;
-        void _text;
-      },
-    );
+    const p = incoming(received('send-message', schema), async (_ctx, payload) => {
+      const _text: string = payload.text;
+      void _text;
+    });
     expect(p.validator).toBe(schema);
   });
 

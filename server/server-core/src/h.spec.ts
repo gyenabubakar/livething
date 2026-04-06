@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 describe('h', () => {
   it('wraps a handler with a stable tag', () => {
-    const handler = async () => {};
+    async function handler() {}
     const wrapped = h(handler);
 
     expect(wrapped.__wskit).toBe('h');
@@ -16,7 +16,7 @@ describe('h', () => {
   });
 
   it('unwraps both raw and wrapped handlers', () => {
-    const handler = async () => {};
+    async function handler() {}
 
     expect(unwrapHandled(handler)).toBe(handler);
     expect(unwrapHandled(h(handler))).toBe(handler);

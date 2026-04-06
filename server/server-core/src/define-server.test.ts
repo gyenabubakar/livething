@@ -105,10 +105,7 @@ const _serverTag: 'server' = withAck.__wskit;
 const _serverType: ServerDefinition = withAck;
 void [_serverTag, _serverType];
 
-const receivedMessage = received(
-  'received-message',
-  (value: unknown) => value as { text: string },
-);
+const receivedMessage = received('received-message', (value: unknown) => value as { text: string });
 
 const withReceived = defineServer(
   outgoing('message', t<{ text: string }>()),
@@ -212,32 +209,36 @@ const withIntercept = defineServer(
   ack(),
   outgoing('message', t<{ text: string }>()),
   intercept(
-    h(async (
-      ctx: ServerHandlerContext<{ message: { text: string } }, true>,
-      message: InterceptMessage,
-    ) => {
-      ctx.send('message', { text: 'seen' });
-      ctx.ack();
+    h(
+      async (
+        ctx: ServerHandlerContext<{ message: { text: string } }, true>,
+        message: InterceptMessage,
+      ) => {
+        ctx.send('message', { text: 'seen' });
+        ctx.ack();
 
-      const _event: string = message.event;
-      const _payload: unknown = message.payload;
-      void [_event, _payload];
+        const _event: string = message.event;
+        const _payload: unknown = message.payload;
+        void [_event, _payload];
 
-      // @ts-expect-error — pre-validation payload is unknown
-      message.payload.text;
+        // @ts-expect-error — pre-validation payload is unknown
+        message.payload.text;
 
-      return message;
-    }),
+        return message;
+      },
+    ),
   ),
   incoming(
     received('send-intercepted', (value: unknown) => value as { text: string }),
-    h(async (
-      ctx: ServerHandlerContext<{ message: { text: string } }, true>,
-      payload: { text: string },
-    ) => {
-      ctx.send('message', { text: payload.text });
-      ctx.ack();
-    }),
+    h(
+      async (
+        ctx: ServerHandlerContext<{ message: { text: string } }, true>,
+        payload: { text: string },
+      ) => {
+        ctx.send('message', { text: payload.text });
+        ctx.ack();
+      },
+    ),
   ),
 );
 void withIntercept;
@@ -247,31 +248,35 @@ const withPostIntercept = defineServer(
   outgoing('message', t<{ text: string }>()),
   incoming(
     received('send-intercepted', (value: unknown) => value as { text: string }),
-    h(async (
-      ctx: ServerHandlerContext<{ message: { text: string } }, true>,
-      payload: { text: string },
-    ) => {
-      ctx.send('message', { text: payload.text });
-      ctx.ack();
-    }),
+    h(
+      async (
+        ctx: ServerHandlerContext<{ message: { text: string } }, true>,
+        payload: { text: string },
+      ) => {
+        ctx.send('message', { text: payload.text });
+        ctx.ack();
+      },
+    ),
   ),
   intercept(
     'send-intercepted',
-    h(async (
-      ctx: ServerHandlerContext<{ message: { text: string } }, true>,
-      payload: { text: string },
-    ) => {
-      ctx.send('message', { text: payload.text });
-      ctx.ack();
+    h(
+      async (
+        ctx: ServerHandlerContext<{ message: { text: string } }, true>,
+        payload: { text: string },
+      ) => {
+        ctx.send('message', { text: payload.text });
+        ctx.ack();
 
-      const _text: string = payload.text;
-      void _text;
+        const _text: string = payload.text;
+        void _text;
 
-      // @ts-expect-error — payload is typed from the event validator
-      payload.missing;
+        // @ts-expect-error — payload is typed from the event validator
+        payload.missing;
 
-      return payload;
-    }),
+        return payload;
+      },
+    ),
   ),
 );
 void withPostIntercept;
@@ -305,12 +310,15 @@ const namespaceStream = stream(
 const withNamespace = defineServer(
   ack(),
   outgoing('message', t<{ text: string }>()),
-  incoming(received('top-ping'), h(async (ctx) => {
-    ctx.send('message', { text: 'top' });
+  incoming(
+    received('top-ping'),
+    h(async (ctx) => {
+      ctx.send('message', { text: 'top' });
 
-    // @ts-expect-error — top-level ctx has no namespaceName
-    ctx.namespaceName;
-  })),
+      // @ts-expect-error — top-level ctx has no namespaceName
+      ctx.namespaceName;
+    }),
+  ),
   namespace(
     'notifications',
     outgoing('alert', t<{ id: string }>()),
@@ -376,35 +384,41 @@ const channelStream = stream(
 const withChannel = defineServer(
   ack(),
   outgoing('message', t<{ text: string }>()),
-  incoming(received('top-channel-ping'), h(async (ctx) => {
-    ctx.send('message', { text: 'top' });
+  incoming(
+    received('top-channel-ping'),
+    h(async (ctx) => {
+      ctx.send('message', { text: 'top' });
 
-    // @ts-expect-error — top-level ctx has no channelName
-    ctx.channelName;
-  })),
+      // @ts-expect-error — top-level ctx has no channelName
+      ctx.channelName;
+    }),
+  ),
   channel(
     scope('rooms', /^room-/),
     outgoing('typing', t<{ userId: string }>()),
     outgoing('room-message', t<{ text: string }>()),
-    incoming(received('start-typing'), h(async (ctx) => {
-      const _name: string = ctx.channelName;
-      void _name;
+    incoming(
+      received('start-typing'),
+      h(async (ctx) => {
+        const _name: string = ctx.channelName;
+        void _name;
 
-      ctx.send('typing', { userId: 'u1' });
-      ctx.broadcast('room-message', { text: 'hi' });
+        ctx.send('typing', { userId: 'u1' });
+        ctx.broadcast('room-message', { text: 'hi' });
 
-      // @ts-expect-error — channel handlers do not get ack() in this API shape
-      ctx.ack();
+        // @ts-expect-error — channel handlers do not get ack() in this API shape
+        ctx.ack();
 
-      // @ts-expect-error — channel handlers do not see top-level outgoing
-      ctx.send('message', { text: 'nope' });
+        // @ts-expect-error — channel handlers do not see top-level outgoing
+        ctx.send('message', { text: 'nope' });
 
-      // @ts-expect-error — replay is not available in channel scope
-      ctx.sendReplay('room-message', { text: 'history' }, { seq: 1, messageId: 'm1' });
+        // @ts-expect-error — replay is not available in channel scope
+        ctx.sendReplay('room-message', { text: 'history' }, { seq: 1, messageId: 'm1' });
 
-      // @ts-expect-error — channel handlers do not get namespaceName
-      ctx.namespaceName;
-    })),
+        // @ts-expect-error — channel handlers do not get namespaceName
+        ctx.namespaceName;
+      }),
+    ),
     request('room-status', async (ctx) => {
       const _name: string = ctx.channelName;
       void _name;
@@ -447,26 +461,32 @@ void withChannel;
 
 const withoutAckChannel = defineServer(
   outgoing('message', t<{ text: string }>()),
-  incoming(received('top-channel-ping-without-ack'), h(async (ctx) => {
-    ctx.send('message', { text: 'top' });
+  incoming(
+    received('top-channel-ping-without-ack'),
+    h(async (ctx) => {
+      ctx.send('message', { text: 'top' });
 
-    // @ts-expect-error — ack() was not registered at the top level
-    ctx.ack();
-  })),
+      // @ts-expect-error — ack() was not registered at the top level
+      ctx.ack();
+    }),
+  ),
   channel(
     scope('rooms-without-ack', /^room-without-ack-/),
     outgoing('typing', t<{ userId: string }>()),
     outgoing('room-message', t<{ text: string }>()),
-    incoming(received('start-typing'), h(async (ctx) => {
-      const _name: string = ctx.channelName;
-      void _name;
+    incoming(
+      received('start-typing'),
+      h(async (ctx) => {
+        const _name: string = ctx.channelName;
+        void _name;
 
-      ctx.send('typing', { userId: 'u1' });
-      ctx.broadcast('room-message', { text: 'hi' });
+        ctx.send('typing', { userId: 'u1' });
+        ctx.broadcast('room-message', { text: 'hi' });
 
-      // @ts-expect-error — ack() was not registered at the top level
-      ctx.ack();
-    })),
+        // @ts-expect-error — ack() was not registered at the top level
+        ctx.ack();
+      }),
+    ),
     request('room-status', async (ctx) => {
       const _name: string = ctx.channelName;
       void _name;
@@ -538,33 +558,43 @@ const withNamespaceIntercept = defineServer(
     'notifications',
     outgoing('alert', t<{ id: string }>()),
     intercept(
-      h(async (
-        ctx: NamespaceHandlerContext<{ alert: { id: string } }>,
-        message: InterceptMessage,
-      ) => {
-        const _name: string = ctx.namespaceName;
-        const _event: string = message.event;
-        void [_name, _event];
+      h(
+        async (
+          ctx: NamespaceHandlerContext<{ alert: { id: string } }>,
+          message: InterceptMessage,
+        ) => {
+          const _name: string = ctx.namespaceName;
+          const _event: string = message.event;
+          void [_name, _event];
 
-        // @ts-expect-error — namespace intercept does not see top-level helpers
-        ctx.channelName;
+          // @ts-expect-error — namespace intercept does not see top-level helpers
+          ctx.channelName;
 
-        return message;
-      }),
+          return message;
+        },
+      ),
     ),
-    incoming(received('dismiss', (value: unknown) => value as { id: string }), async () => {}),
+    incoming(
+      received('dismiss', (value: unknown) => value as { id: string }),
+      async () => {},
+    ),
     intercept(
       'dismiss',
-      h(async (ctx: NamespaceHandlerContext<{ alert: { id: string } }>, payload: { id: string }) => {
-        const _name: string = ctx.namespaceName;
-        const _id: string = payload.id;
-        void [_name, _id];
+      h(
+        async (
+          ctx: NamespaceHandlerContext<{ alert: { id: string } }>,
+          payload: { id: string },
+        ) => {
+          const _name: string = ctx.namespaceName;
+          const _id: string = payload.id;
+          void [_name, _id];
 
-        // @ts-expect-error — payload is typed from the namespace event validator
-        payload.missing;
+          // @ts-expect-error — payload is typed from the namespace event validator
+          payload.missing;
 
-        return payload;
-      }),
+          return payload;
+        },
+      ),
     ),
   ),
 );
@@ -575,28 +605,35 @@ const withChannelIntercept = defineServer(
     scope('intercept-rooms', /^intercept-room-/),
     outgoing('message', t<{ text: string }>()),
     intercept(
-      h(async (
-        ctx: ChannelHandlerContext<{ message: { text: string } }>,
-        message: InterceptMessage,
-      ) => {
-        const _name: string = ctx.channelName;
-        const _event: string = message.event;
-        void [_name, _event];
-        return message;
-      }),
+      h(
+        async (
+          ctx: ChannelHandlerContext<{ message: { text: string } }>,
+          message: InterceptMessage,
+        ) => {
+          const _name: string = ctx.channelName;
+          const _event: string = message.event;
+          void [_name, _event];
+          return message;
+        },
+      ),
     ),
-    incoming(received('send-message', (value: unknown) => value as { text: string }), async () => {}),
+    incoming(
+      received('send-message', (value: unknown) => value as { text: string }),
+      async () => {},
+    ),
     intercept(
       'send-message',
-      h(async (
-        ctx: ChannelHandlerContext<{ message: { text: string } }>,
-        payload: { text: string },
-      ) => {
-        const _name: string = ctx.channelName;
-        const _text: string = payload.text;
-        void [_name, _text];
-        return payload;
-      }),
+      h(
+        async (
+          ctx: ChannelHandlerContext<{ message: { text: string } }>,
+          payload: { text: string },
+        ) => {
+          const _name: string = ctx.channelName;
+          const _text: string = payload.text;
+          void [_name, _text];
+          return payload;
+        },
+      ),
     ),
   ),
 );

@@ -97,7 +97,7 @@ const _request = definePrimitive({
  * with a typed `WskitError`. If it throws an unrecognized error, the
  * client gets `{ code: 'internal-error' }`.
  */
-export function request<TCtx, TEvent extends string, TPayload, TResponse>(
+export function request<TCtx, TEvent extends string, TResponse>(
   event: TEvent,
   handler: RequestHandler<TCtx, unknown, TResponse>,
 ): RequestPrimitive<TEvent, unknown, TResponse, TCtx>;

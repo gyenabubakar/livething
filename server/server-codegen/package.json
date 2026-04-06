@@ -1,0 +1,99 @@
+{
+  "name": "@wskit/server-codegen",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./server": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js"
+    },
+    "./registry": {
+      "types": "./dist/registry.d.ts",
+      "import": "./dist/registry.js"
+    },
+    "./incoming": {
+      "types": "./dist/incoming.d.ts",
+      "import": "./dist/incoming.js"
+    },
+    "./intercept": {
+      "types": "./dist/intercept.d.ts",
+      "import": "./dist/intercept.js"
+    },
+    "./outgoing": {
+      "types": "./dist/outgoing.d.ts",
+      "import": "./dist/outgoing.js"
+    },
+    "./errors": {
+      "types": "./dist/errors.d.ts",
+      "import": "./dist/errors.js"
+    },
+    "./ack": {
+      "types": "./dist/ack.d.ts",
+      "import": "./dist/ack.js"
+    },
+    "./channel": {
+      "types": "./dist/channel.d.ts",
+      "import": "./dist/channel.js"
+    },
+    "./dedup": {
+      "types": "./dist/dedup.d.ts",
+      "import": "./dist/dedup.js"
+    },
+    "./heartbeat": {
+      "types": "./dist/heartbeat.d.ts",
+      "import": "./dist/heartbeat.js"
+    },
+    "./namespace": {
+      "types": "./dist/namespace.d.ts",
+      "import": "./dist/namespace.js"
+    },
+    "./replay": {
+      "types": "./dist/replay.d.ts",
+      "import": "./dist/replay.js"
+    },
+    "./request": {
+      "types": "./dist/request.d.ts",
+      "import": "./dist/request.js"
+    },
+    "./sequence": {
+      "types": "./dist/sequence.d.ts",
+      "import": "./dist/sequence.js"
+    },
+    "./stream": {
+      "types": "./dist/stream.d.ts",
+      "import": "./dist/stream.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "dev": "vite build --watch",
+    "build": "tsc && vite build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@wskit/core": "workspace:*",
+    "@wskit/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@standard-schema/spec": "^1.1.0",
+    "@wskit/server-vite": "workspace:*",
+    "valibot": "^1.3.1",
+    "vite": "^8.0.1",
+    "vite-plugin-dts": "^4.5.4",
+    "zod": "^4.3.6"
+  }
+}

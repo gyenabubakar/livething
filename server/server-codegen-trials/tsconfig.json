@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "baseUrl": ".",
+    "paths": {
+      "@wskit/server-codegen": ["../server-codegen/src/index.ts"],
+      "@wskit/server-codegen/server": ["../server-codegen/src/server.ts"],
+      "@wskit/server-codegen/*": ["../server-codegen/src/*/index.ts"],
+      "@wskit/server-vite": ["../server-vite/src/index.ts"],
+      "@wskit/core": ["../../core/src/index.ts"],
+      "@wskit/shared": ["../../shared/src/index.ts"],
+      "~/*": ["../server-codegen/src/*"]
+    }
+  },
+  "include": ["src", ".wskit/**/*.d.ts"]
+}

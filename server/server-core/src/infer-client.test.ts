@@ -1,5 +1,6 @@
 import { ack } from '~/ack/ack.ts';
 import { channel, scope } from '~/channel/channel.ts';
+import { dedup } from '~/dedup/dedup.ts';
 import { defineServer } from '~/define-server.ts';
 import { error } from '~/errors.ts';
 import { errors } from '~/errors/errors.ts';
@@ -11,7 +12,6 @@ import { passive } from '~/passive/passive.ts';
 import { received } from '~/received.ts';
 import { replay } from '~/replay/replay.ts';
 import { request } from '~/request/request.ts';
-import { dedup } from '~/dedup/dedup.ts';
 import { sequence } from '~/sequence/sequence.ts';
 import { chunks, generate, nudge, start, stream } from '~/stream/stream.ts';
 import { t } from '~/t.ts';
@@ -126,7 +126,10 @@ const namespacedServer = defineServer(
   namespace(
     'notifications',
     outgoing('alert', t<{ id: string; message: string }>()),
-    incoming(received('dismiss', (value: unknown) => value as { id: string }), async () => {}),
+    incoming(
+      received('dismiss', (value: unknown) => value as { id: string }),
+      async () => {},
+    ),
     request('get-unread', async () => ({
       alerts: [{ id: 'a1', message: 'hi' }],
     })),
@@ -171,7 +174,10 @@ const channelServer = defineServer(
   channel(
     'general',
     outgoing('message', t<{ text: string; from: string }>()),
-    incoming(received('send-message', (value: unknown) => value as { text: string }), async () => {}),
+    incoming(
+      received('send-message', (value: unknown) => value as { text: string }),
+      async () => {},
+    ),
     request('get-history', async () => ({
       messages: [{ text: 'hi', from: 'u1' }],
     })),
@@ -179,7 +185,10 @@ const channelServer = defineServer(
   channel(
     scope('rooms', /^room-/),
     outgoing('typing', t<{ userId: string }>()),
-    incoming(received('start-typing', (value: unknown) => value as { fast: boolean }), async () => {}),
+    incoming(
+      received('start-typing', (value: unknown) => value as { fast: boolean }),
+      async () => {},
+    ),
     generate(
       stream(
         start('ask-ai', (value: unknown) => value as { prompt: string }),
@@ -229,11 +238,9 @@ const passiveServer = defineServer(
     received('send-message', (value: unknown) => value as { text: string }),
     async () => {},
   ),
-  request(
-    'get-status',
-    async () => ({ ok: true as const }),
-    { validator: (value: unknown) => value as { roomId: string } },
-  ),
+  request('get-status', async () => ({ ok: true as const }), {
+    validator: (value: unknown) => value as { roomId: string },
+  }),
 );
 
 type PassiveClient = InferClient<typeof passiveServer>;

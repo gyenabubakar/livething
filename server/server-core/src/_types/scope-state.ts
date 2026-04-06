@@ -205,110 +205,113 @@ export type NextState<
 > = TPrimitive extends AnyPassive
   ? FoldState<TPrimitive['primitives'], TState>
   : TPrimitive extends AckPrimitive
-  ? {
-      readonly kind: TState['kind'];
-      readonly outgoing: TState['outgoing'];
-      readonly hasAck: true;
-      readonly hasReplay: TState['hasReplay'];
-      readonly contract: TState['contract'];
-      readonly errors: TState['errors'];
-    }
-  : TPrimitive extends HeartbeatPrimitive | SequencePrimitive | DedupPrimitive
     ? {
         readonly kind: TState['kind'];
         readonly outgoing: TState['outgoing'];
-        readonly hasAck: TState['hasAck'];
+        readonly hasAck: true;
         readonly hasReplay: TState['hasReplay'];
         readonly contract: TState['contract'];
         readonly errors: TState['errors'];
       }
-    : TPrimitive extends AnyReplay
+    : TPrimitive extends HeartbeatPrimitive | SequencePrimitive | DedupPrimitive
       ? {
           readonly kind: TState['kind'];
           readonly outgoing: TState['outgoing'];
           readonly hasAck: TState['hasAck'];
-          readonly hasReplay: true;
+          readonly hasReplay: TState['hasReplay'];
           readonly contract: TState['contract'];
           readonly errors: TState['errors'];
         }
-      : TPrimitive extends AnyErrors
-        ? TPrimitive extends ErrorsPrimitive<infer TDefs extends readonly AnyErrorDef[]>
-          ? {
-              readonly kind: TState['kind'];
-              readonly outgoing: TState['outgoing'];
-              readonly hasAck: TState['hasAck'];
-              readonly hasReplay: TState['hasReplay'];
-              readonly contract: TState['contract'];
-              readonly errors: TDefs;
-            }
-          : TState
-        : TPrimitive extends AnyOutgoing
-          ? {
-              readonly kind: TState['kind'];
-              readonly outgoing: MergeRecords<TState['outgoing'], OutgoingEntry<TPrimitive>>;
-              readonly hasAck: TState['hasAck'];
-              readonly hasReplay: TState['hasReplay'];
-              readonly contract: {
-                incoming: MergeRecords<TState['contract']['incoming'], OutgoingEntry<TPrimitive>>;
-                outgoing: TState['contract']['outgoing'];
-                requests: TState['contract']['requests'];
-                streams: TState['contract']['streams'];
-              };
-              readonly errors: TState['errors'];
-            }
-          : TPrimitive extends AnyIncoming
-            ? TPrimitive extends IncomingPrimitive<infer TEvent, infer TPayload, any>
-              ? {
-                  readonly kind: TState['kind'];
-                  readonly outgoing: TState['outgoing'];
-                  readonly hasAck: TState['hasAck'];
-                  readonly hasReplay: TState['hasReplay'];
-                  readonly contract: {
-                    incoming: TState['contract']['incoming'];
-                    outgoing: MergeRecords<
-                      TState['contract']['outgoing'],
-                      Record<TEvent, TPayload>
-                    >;
-                    requests: TState['contract']['requests'];
-                    streams: TState['contract']['streams'];
-                  };
-                  readonly errors: TState['errors'];
-                }
-              : TState
-            : TPrimitive extends AnyRequest
-              ? {
-                  readonly kind: TState['kind'];
-                  readonly outgoing: TState['outgoing'];
-                  readonly hasAck: TState['hasAck'];
-                  readonly hasReplay: TState['hasReplay'];
-                  readonly contract: {
-                    incoming: TState['contract']['incoming'];
-                    outgoing: TState['contract']['outgoing'];
-                    requests: MergeRecords<
-                      TState['contract']['requests'],
-                      RequestEntry<TPrimitive>
-                    >;
-                    streams: TState['contract']['streams'];
-                  };
-                  readonly errors: TState['errors'];
-                }
-              : TPrimitive extends AnyGenerate
-                ? TPrimitive extends GeneratePrimitive<infer TStream, any, any>
-                  ? {
-                      readonly kind: TState['kind'];
-                      readonly outgoing: TState['outgoing'];
-                      readonly hasAck: TState['hasAck'];
-                      readonly hasReplay: TState['hasReplay'];
-                      readonly contract: {
-                        incoming: TState['contract']['incoming'];
-                        outgoing: TState['contract']['outgoing'];
-                        requests: TState['contract']['requests'];
-                        streams: MergeRecords<TState['contract']['streams'], StreamEntry<TStream>>;
-                      };
-                      readonly errors: TState['errors'];
-                    }
-                  : TState
-                : TState;
+      : TPrimitive extends AnyReplay
+        ? {
+            readonly kind: TState['kind'];
+            readonly outgoing: TState['outgoing'];
+            readonly hasAck: TState['hasAck'];
+            readonly hasReplay: true;
+            readonly contract: TState['contract'];
+            readonly errors: TState['errors'];
+          }
+        : TPrimitive extends AnyErrors
+          ? TPrimitive extends ErrorsPrimitive<infer TDefs extends readonly AnyErrorDef[]>
+            ? {
+                readonly kind: TState['kind'];
+                readonly outgoing: TState['outgoing'];
+                readonly hasAck: TState['hasAck'];
+                readonly hasReplay: TState['hasReplay'];
+                readonly contract: TState['contract'];
+                readonly errors: TDefs;
+              }
+            : TState
+          : TPrimitive extends AnyOutgoing
+            ? {
+                readonly kind: TState['kind'];
+                readonly outgoing: MergeRecords<TState['outgoing'], OutgoingEntry<TPrimitive>>;
+                readonly hasAck: TState['hasAck'];
+                readonly hasReplay: TState['hasReplay'];
+                readonly contract: {
+                  incoming: MergeRecords<TState['contract']['incoming'], OutgoingEntry<TPrimitive>>;
+                  outgoing: TState['contract']['outgoing'];
+                  requests: TState['contract']['requests'];
+                  streams: TState['contract']['streams'];
+                };
+                readonly errors: TState['errors'];
+              }
+            : TPrimitive extends AnyIncoming
+              ? TPrimitive extends IncomingPrimitive<infer TEvent, infer TPayload, any>
+                ? {
+                    readonly kind: TState['kind'];
+                    readonly outgoing: TState['outgoing'];
+                    readonly hasAck: TState['hasAck'];
+                    readonly hasReplay: TState['hasReplay'];
+                    readonly contract: {
+                      incoming: TState['contract']['incoming'];
+                      outgoing: MergeRecords<
+                        TState['contract']['outgoing'],
+                        Record<TEvent, TPayload>
+                      >;
+                      requests: TState['contract']['requests'];
+                      streams: TState['contract']['streams'];
+                    };
+                    readonly errors: TState['errors'];
+                  }
+                : TState
+              : TPrimitive extends AnyRequest
+                ? {
+                    readonly kind: TState['kind'];
+                    readonly outgoing: TState['outgoing'];
+                    readonly hasAck: TState['hasAck'];
+                    readonly hasReplay: TState['hasReplay'];
+                    readonly contract: {
+                      incoming: TState['contract']['incoming'];
+                      outgoing: TState['contract']['outgoing'];
+                      requests: MergeRecords<
+                        TState['contract']['requests'],
+                        RequestEntry<TPrimitive>
+                      >;
+                      streams: TState['contract']['streams'];
+                    };
+                    readonly errors: TState['errors'];
+                  }
+                : TPrimitive extends AnyGenerate
+                  ? TPrimitive extends GeneratePrimitive<infer TStream, any, any>
+                    ? {
+                        readonly kind: TState['kind'];
+                        readonly outgoing: TState['outgoing'];
+                        readonly hasAck: TState['hasAck'];
+                        readonly hasReplay: TState['hasReplay'];
+                        readonly contract: {
+                          incoming: TState['contract']['incoming'];
+                          outgoing: TState['contract']['outgoing'];
+                          requests: TState['contract']['requests'];
+                          streams: MergeRecords<
+                            TState['contract']['streams'],
+                            StreamEntry<TStream>
+                          >;
+                        };
+                        readonly errors: TState['errors'];
+                      }
+                    : TState
+                  : TState;
 
 /**
  * Fold a tuple of primitives from left to right into one final scope state.

@@ -34,12 +34,14 @@ const _ref: PrimitiveRef = intercept;
 const _key: symbol = intercept.__key;
 void [_ref, _key];
 
-const wrappedPre = intercept(h(async (ctx: { orgId: string }, message) => {
-  const _org: string = ctx.orgId;
-  const _event: string = message.event;
-  void [_org, _event];
-  return message;
-}));
+const wrappedPre = intercept(
+  h(async (ctx: { orgId: string }, message) => {
+    const _org: string = ctx.orgId;
+    const _event: string = message.event;
+    void [_org, _event];
+    return message;
+  }),
+);
 
 const wrappedPost = intercept(
   'wrapped-send-message',

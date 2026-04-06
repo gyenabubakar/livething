@@ -111,7 +111,10 @@ function hasNestedPrimitives(
   );
 }
 
-function collectRegisteredRefs(primitives: readonly Primitive[], refs = new Set<symbol>()): Set<symbol> {
+function collectRegisteredRefs(
+  primitives: readonly Primitive[],
+  refs = new Set<symbol>(),
+): Set<symbol> {
   for (const primitive of primitives) {
     refs.add(primitive.__identity[0]);
 

@@ -31,8 +31,8 @@ defineServer(
     async (ctx, payload) => {
       type CtxIsAny = IsAny<typeof ctx>;
       type CtxIsUnknown = IsUnknown<typeof ctx>;
-      const _ctxIsNotAny: false = null as any as CtxIsAny;
-      const _ctxIsUnknown: true = null as any as CtxIsUnknown;
+      const _ctxIsNotAny: false = null as unknown as CtxIsAny;
+      const _ctxIsUnknown: true = null as unknown as CtxIsUnknown;
       void _ctxIsNotAny;
       void _ctxIsUnknown;
       void payload;
@@ -46,7 +46,7 @@ defineServer(
   outgoing('message', t<{ text: string }>()),
   incoming(receivedMessage, async (ctx, payload) => {
     type CtxIsAny = IsAny<typeof ctx>;
-    const _ctxIsNotAny: false = null as any as CtxIsAny;
+    const _ctxIsNotAny: false = null as unknown as CtxIsAny;
     void _ctxIsNotAny;
 
     ctx.send('message', { text: payload.text });
@@ -62,7 +62,7 @@ defineServer(
     received('with-h', (value: unknown) => value as { text: string }),
     h(async (ctx, payload) => {
       type CtxIsAny = IsAny<typeof ctx>;
-      const _ctxIsNotAny: false = null as any as CtxIsAny;
+      const _ctxIsNotAny: false = null as unknown as CtxIsAny;
       void _ctxIsNotAny;
 
       ctx.send('message', { text: payload.text });

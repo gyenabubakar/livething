@@ -1,10 +1,10 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { unwrapHandled } from '~/h.ts';
 import { definePrimitive } from '~/primitive.ts';
 import type { Handled } from '~/h.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { ReceivedEvent } from '~/received.ts';
 import type { Validator } from '~/types.ts';
-import { unwrapHandled } from '~/h.ts';
 
 /**
  * The handler function for an incoming event. Receives the connection
@@ -117,10 +117,7 @@ const _incoming = definePrimitive({
  */
 export function incoming<TCtx, TReceived extends ReceivedEvent<string, unknown>>(
   event: TReceived,
-  handler: Handled<
-    IncomingHandler<TCtx, ReceivedPayload<TReceived>>,
-    ReceivedPayload<TReceived>
-  >,
+  handler: Handled<IncomingHandler<TCtx, ReceivedPayload<TReceived>>, ReceivedPayload<TReceived>>,
 ): IncomingPrimitive<ReceivedEventName<TReceived>, ReceivedPayload<TReceived>, TCtx>;
 export function incoming<TCtx, TReceived extends ReceivedEvent<string, unknown>>(
   event: TReceived,

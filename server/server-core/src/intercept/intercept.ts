@@ -1,8 +1,8 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { unwrapHandled } from '~/h.ts';
 import { definePrimitive } from '~/primitive.ts';
 import type { Handled } from '~/h.ts';
 import type { Primitive } from '~/primitive.ts';
-import { unwrapHandled } from '~/h.ts';
 
 export interface InterceptMessage {
   readonly event: string;
@@ -83,7 +83,9 @@ const _intercept = definePrimitive<
  * Wrap the callback in `h(...)` when you want the scope-specific `ctx`
  * type to show up in the editor.
  */
-export function intercept<TCtx>(handler: Handled<PreInterceptHandler<TCtx>>): PreInterceptPrimitive<TCtx>;
+export function intercept<TCtx>(
+  handler: Handled<PreInterceptHandler<TCtx>>,
+): PreInterceptPrimitive<TCtx>;
 export function intercept(handler: PreInterceptHandler<any>): PreInterceptPrimitive<any>;
 
 /**
