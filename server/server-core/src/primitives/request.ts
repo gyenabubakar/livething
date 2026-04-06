@@ -12,11 +12,12 @@ import type { Validator } from '~/types.ts';
  * The handler function for a request. Like `IncomingHandler` but returns
  * a value — the response sent back to the client.
  *
- * `ctx` is typed as `any` here — `defineServer` narrows it based on
- * which primitives are registered.
+ * `request()` just carries the handler type through. `defineServer()`
+ * gives `ctx` its final type later based on what is registered in the
+ * same scope.
  */
-export type RequestHandler<TPayload = unknown, TResponse = unknown> = (
-  ctx: any,
+export type RequestHandler<TCtx = any, TPayload = unknown, TResponse = unknown> = (
+  ctx: TCtx,
   payload: TPayload,
 ) => TResponse | Promise<TResponse>;
 
@@ -37,9 +38,10 @@ export interface RequestPrimitive<
   TEvent extends string = string,
   TPayload = unknown,
   TResponse = unknown,
+  TCtx = any,
 > extends Primitive<'request'> {
   readonly event: TEvent;
-  readonly handler: RequestHandler<TPayload, TResponse>;
+  readonly handler: RequestHandler<TCtx, TPayload, TResponse>;
   readonly validator?: Validator<TPayload>;
 }
 
@@ -95,21 +97,35 @@ const _request = definePrimitive({
  */
 export function request<TEvent extends string, TResponse>(
   event: TEvent,
-  handler: RequestHandler<unknown, TResponse>,
-): RequestPrimitive<TEvent, unknown, TResponse>;
+  handler: RequestHandler<any, unknown, TResponse>,
+): RequestPrimitive<TEvent, unknown, TResponse, any>;
+export function request<TCtx, TEvent extends string, TResponse>(
+  event: TEvent,
+  handler: RequestHandler<TCtx, unknown, TResponse>,
+): RequestPrimitive<TEvent, unknown, TResponse, TCtx>;
 export function request<TEvent extends string, TPayload, TResponse>(
   event: TEvent,
-  handler: RequestHandler<TPayload, TResponse>,
+  handler: RequestHandler<any, TPayload, TResponse>,
   options: { validator: (value: unknown) => TPayload },
-): RequestPrimitive<TEvent, TPayload, TResponse>;
+): RequestPrimitive<TEvent, TPayload, TResponse, any>;
+export function request<TCtx, TEvent extends string, TPayload, TResponse>(
+  event: TEvent,
+  handler: RequestHandler<TCtx, TPayload, TResponse>,
+  options: { validator: (value: unknown) => TPayload },
+): RequestPrimitive<TEvent, TPayload, TResponse, TCtx>;
 export function request<TEvent extends string, TSchema extends StandardSchemaV1, TResponse>(
   event: TEvent,
-  handler: RequestHandler<StandardSchemaV1.InferOutput<TSchema>, TResponse>,
+  handler: RequestHandler<any, StandardSchemaV1.InferOutput<TSchema>, TResponse>,
   options: { validator: TSchema },
-): RequestPrimitive<TEvent, StandardSchemaV1.InferOutput<TSchema>, TResponse>;
+): RequestPrimitive<TEvent, StandardSchemaV1.InferOutput<TSchema>, TResponse, any>;
+export function request<TCtx, TEvent extends string, TSchema extends StandardSchemaV1, TResponse>(
+  event: TEvent,
+  handler: RequestHandler<TCtx, StandardSchemaV1.InferOutput<TSchema>, TResponse>,
+  options: { validator: TSchema },
+): RequestPrimitive<TEvent, StandardSchemaV1.InferOutput<TSchema>, TResponse, TCtx>;
 export function request(
   event: string,
-  handler: RequestHandler,
+  handler: RequestHandler<any, any, any>,
   options?: { validator?: Validator },
 ): RequestPrimitive {
   return _request(event, handler, options) as unknown as RequestPrimitive;

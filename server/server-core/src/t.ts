@@ -29,7 +29,7 @@ export interface TypeMarker<out T> {
  * outgoing('message', t<{ text: string; from: string }>())
  *
  * stream(
- *   stream.event('ask-ai', AskAIValidator),
+ *   start('ask-ai', AskAIValidator),
  *   generate(async function* (ctx, payload) { ... }, {
  *     chunks: t<{ text: string }>(),
  *   }),

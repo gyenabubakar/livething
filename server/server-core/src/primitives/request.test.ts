@@ -96,7 +96,23 @@ const _schemaType: RequestPrimitive<
 void _schemaType;
 
 // ===========================================================================
-// 6. Primitive base fields
+// 6. Carried ctx type
+// ===========================================================================
+
+type RequestCtx = {
+  log(message: string): void;
+};
+
+const withCtx = request('ping', async (ctx: RequestCtx) => {
+  ctx.log('pong');
+  return { ok: true };
+});
+
+const _ctxType: RequestPrimitive<'ping', unknown, { ok: boolean }, RequestCtx> = withCtx;
+void _ctxType;
+
+// ===========================================================================
+// 7. Primitive base fields
 // ===========================================================================
 
 const _tag: 'request' = getHistory.__wskit;
@@ -104,7 +120,7 @@ const _kind: PrimitiveKind = getHistory.__kind;
 void [_tag, _kind];
 
 // ===========================================================================
-// 7. request is a PrimitiveRef
+// 8. request is a PrimitiveRef
 // ===========================================================================
 
 const _ref: PrimitiveRef = request;

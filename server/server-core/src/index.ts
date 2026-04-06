@@ -16,3 +16,13 @@ export { incoming } from './primitives/incoming.ts';
 export type { IncomingPrimitive, IncomingHandler } from './primitives/incoming.ts';
 export { request } from './primitives/request.ts';
 export type { RequestPrimitive, RequestHandler } from './primitives/request.ts';
+export { stream, start, generate, nudge } from './primitives/stream.ts';
+export type {
+  StreamPrimitive,
+  StreamStartDeclaration,
+  StreamEventDeclaration,
+  GenerateDeclaration,
+  GeneratorFn,
+  NudgeDeclaration,
+  NudgeMessage,
+} from './primitives/stream.ts';

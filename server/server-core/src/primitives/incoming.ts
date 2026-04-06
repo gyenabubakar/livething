@@ -8,11 +8,12 @@ import type { Validator } from '~/types.ts';
  * The handler function for an incoming event. Receives the connection
  * context and the validated payload.
  *
- * `ctx` is typed as `any` here — `defineServer` narrows it based on
- * which primitives are registered (e.g. ack adds `ctx.ack()`).
+ * `incoming()` just carries the handler type through. `defineServer()`
+ * gives `ctx` its final type later based on what is registered in the
+ * same scope.
  */
-export type IncomingHandler<TPayload = unknown> = (
-  ctx: any,
+export type IncomingHandler<TCtx = any, TPayload = unknown> = (
+  ctx: TCtx,
   payload: TPayload,
 ) => void | Promise<void>;
 
@@ -30,9 +31,10 @@ export type IncomingHandler<TPayload = unknown> = (
 export interface IncomingPrimitive<
   TEvent extends string = string,
   TPayload = unknown,
+  TCtx = any,
 > extends Primitive<'incoming'> {
   readonly event: TEvent;
-  readonly handler: IncomingHandler<TPayload>;
+  readonly handler: IncomingHandler<TCtx, TPayload>;
   readonly validator?: Validator<TPayload>;
 }
 
@@ -93,21 +95,35 @@ const _incoming = definePrimitive({
  */
 export function incoming<TEvent extends string>(
   event: TEvent,
-  handler: IncomingHandler<unknown>,
-): IncomingPrimitive<TEvent, unknown>;
+  handler: IncomingHandler<any, unknown>,
+): IncomingPrimitive<TEvent, unknown, any>;
+export function incoming<TCtx, TEvent extends string>(
+  event: TEvent,
+  handler: IncomingHandler<TCtx, unknown>,
+): IncomingPrimitive<TEvent, unknown, TCtx>;
 export function incoming<TEvent extends string, TPayload>(
   event: TEvent,
-  handler: IncomingHandler<TPayload>,
+  handler: IncomingHandler<any, TPayload>,
   options: { validator: (value: unknown) => TPayload },
-): IncomingPrimitive<TEvent, TPayload>;
+): IncomingPrimitive<TEvent, TPayload, any>;
+export function incoming<TCtx, TEvent extends string, TPayload>(
+  event: TEvent,
+  handler: IncomingHandler<TCtx, TPayload>,
+  options: { validator: (value: unknown) => TPayload },
+): IncomingPrimitive<TEvent, TPayload, TCtx>;
 export function incoming<TEvent extends string, TSchema extends StandardSchemaV1>(
   event: TEvent,
-  handler: IncomingHandler<StandardSchemaV1.InferOutput<TSchema>>,
+  handler: IncomingHandler<any, StandardSchemaV1.InferOutput<TSchema>>,
   options: { validator: TSchema },
-): IncomingPrimitive<TEvent, StandardSchemaV1.InferOutput<TSchema>>;
+): IncomingPrimitive<TEvent, StandardSchemaV1.InferOutput<TSchema>, any>;
+export function incoming<TCtx, TEvent extends string, TSchema extends StandardSchemaV1>(
+  event: TEvent,
+  handler: IncomingHandler<TCtx, StandardSchemaV1.InferOutput<TSchema>>,
+  options: { validator: TSchema },
+): IncomingPrimitive<TEvent, StandardSchemaV1.InferOutput<TSchema>, TCtx>;
 export function incoming(
   event: string,
-  handler: IncomingHandler,
+  handler: IncomingHandler<any, any>,
   options?: { validator?: Validator },
 ): IncomingPrimitive {
   return _incoming(event, handler, options) as unknown as IncomingPrimitive;

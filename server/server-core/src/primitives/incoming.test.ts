@@ -17,7 +17,6 @@ void _eventLiteral;
 const _wrongEvent: 'join' = sendMsg.event;
 void _wrongEvent;
 
-// Different events produce different literal types
 const join = incoming('join-room', async () => {});
 const _joinEvent: 'join-room' = join.event;
 void _joinEvent;
@@ -76,7 +75,24 @@ const _schemaType: IncomingPrimitive<'send-message', { text: string; from: strin
 void _schemaType;
 
 // ===========================================================================
-// 5. Primitive base fields present
+// 5. Carried ctx type
+// ===========================================================================
+
+type ChatCtx = {
+  reply(text: string): void;
+};
+
+const withCtx = incoming('ping', async (ctx: ChatCtx, payload) => {
+  ctx.reply('pong');
+  const _unknown: unknown = payload;
+  void _unknown;
+});
+
+const _ctxType: IncomingPrimitive<'ping', unknown, ChatCtx> = withCtx;
+void _ctxType;
+
+// ===========================================================================
+// 6. Primitive base fields present
 // ===========================================================================
 
 const _tag: 'incoming' = sendMsg.__wskit;
@@ -84,7 +100,7 @@ const _kind: PrimitiveKind = sendMsg.__kind;
 void [_tag, _kind];
 
 // ===========================================================================
-// 6. incoming is a PrimitiveRef (for dependency declarations)
+// 7. incoming is a PrimitiveRef
 // ===========================================================================
 
 const _ref: PrimitiveRef = incoming;
@@ -92,7 +108,7 @@ const _key: symbol = incoming.__key;
 void [_ref, _key];
 
 // ===========================================================================
-// 7. Handler function is stored on the instance
+// 8. Handler function is stored on the instance
 // ===========================================================================
 
 async function myHandler(_ctx: any, _payload: unknown) {}
@@ -101,7 +117,7 @@ const _storedHandler: (_ctx: any, _payload: unknown) => void | Promise<void> = w
 void _storedHandler;
 
 // ===========================================================================
-// 8. Validator is stored on the instance
+// 9. Validator is stored on the instance
 // ===========================================================================
 
 const _hasValidator: typeof withParse.validator = withParse.validator;
