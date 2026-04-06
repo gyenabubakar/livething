@@ -19,7 +19,7 @@ export type IncomingHandler<TCtx = any, TPayload = unknown> = (
 
 /**
  * The primitive instance returned by `incoming()`. Carries the event name,
- * handler, and optional validator. `InferClientType` reads `TEvent` and
+ * handler, and optional validator. `InferClient` reads `TEvent` and
  * `TPayload` to produce the client's `outgoing` type.
  *
  * ```ts
@@ -63,7 +63,7 @@ const _incoming = definePrimitive({
 /**
  * Handle an incoming event from the client.
  *
- * The event name is preserved as a literal type for `InferClientType`.
+ * The event name is preserved as a literal type for `InferClient`.
  * The payload type is inferred from the validator (if provided).
  *
  * **Without validator** — payload is `unknown`, validate manually:

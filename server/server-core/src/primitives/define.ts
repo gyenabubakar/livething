@@ -8,7 +8,7 @@
  * The kind of a primitive. Determines how `defineServer` processes it:
  *
  * - `'handler'` — registers an event handler (`incoming`, `request`, `stream`)
- * - `'contract'` — declares types for `InferClientType` (`outgoing`, `errors`)
+ * - `'contract'` — declares types for `InferClient` (`outgoing`, `errors`)
  * - `'infrastructure'` — configures the message pipeline (`ack`, `replay`, etc.)
  * - `'lifecycle'` — hooks into connection/server lifecycle events
  * - `'scope'` — groups primitives into namespaces or channels

@@ -7,7 +7,7 @@ type AnyErrorDef = ErrorDef<string, any>;
 
 /**
  * The primitive instance returned by `errors()`. Carries the tuple of
- * registered error definitions for `InferClientType` and later runtime
+ * registered error definitions for `InferClient` and later runtime
  * enforcement.
  */
 export interface ErrorsPrimitive<

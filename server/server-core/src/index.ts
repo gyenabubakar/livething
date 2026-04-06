@@ -2,6 +2,7 @@ export { t } from './t.ts';
 export type { TypeMarker } from './t.ts';
 export type { Validator } from './types.ts';
 export { defineServer } from './define-server.ts';
+export type { InferClient } from './infer-client.ts';
 export type {
   ServerDefinition,
   ServerHandlerContext,

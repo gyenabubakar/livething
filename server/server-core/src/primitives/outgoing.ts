@@ -5,7 +5,7 @@ import type { TypeMarker } from '~/t.ts';
 /**
  * The primitive instance returned by `outgoing()`. Carries the event name
  * and payload marker. `defineServer()` uses this to type `ctx.send()` and
- * `ctx.broadcast()`. `InferClientType` reads it later to build the client
+ * `ctx.broadcast()`. `InferClient` reads it later to build the client
  * server -> client event map.
  */
 export interface OutgoingPrimitive<

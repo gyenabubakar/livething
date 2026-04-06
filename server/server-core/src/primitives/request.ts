@@ -23,7 +23,7 @@ export type RequestHandler<TCtx = any, TPayload = unknown, TResponse = unknown> 
 
 /**
  * The primitive instance returned by `request()`. Carries the event name,
- * handler, and optional validator. `InferClientType` reads `TEvent`,
+ * handler, and optional validator. `InferClient` reads `TEvent`,
  * `TPayload`, and `TResponse` to produce the client's `requests` type.
  *
  * ```ts
