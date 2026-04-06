@@ -93,34 +93,34 @@ const _incoming = definePrimitive({
  * }, { validator: v.object({ text: v.string() }) })
  * ```
  */
-export function incoming<TEvent extends string>(
-  event: TEvent,
-  handler: IncomingHandler<any, unknown>,
-): IncomingPrimitive<TEvent, unknown, any>;
 export function incoming<TCtx, TEvent extends string>(
   event: TEvent,
   handler: IncomingHandler<TCtx, unknown>,
 ): IncomingPrimitive<TEvent, unknown, TCtx>;
-export function incoming<TEvent extends string, TPayload>(
-  event: TEvent,
-  handler: IncomingHandler<any, TPayload>,
-  options: { validator: (value: unknown) => TPayload },
-): IncomingPrimitive<TEvent, TPayload, any>;
 export function incoming<TCtx, TEvent extends string, TPayload>(
   event: TEvent,
   handler: IncomingHandler<TCtx, TPayload>,
   options: { validator: (value: unknown) => TPayload },
 ): IncomingPrimitive<TEvent, TPayload, TCtx>;
-export function incoming<TEvent extends string, TSchema extends StandardSchemaV1>(
-  event: TEvent,
-  handler: IncomingHandler<any, StandardSchemaV1.InferOutput<TSchema>>,
-  options: { validator: TSchema },
-): IncomingPrimitive<TEvent, StandardSchemaV1.InferOutput<TSchema>, any>;
 export function incoming<TCtx, TEvent extends string, TSchema extends StandardSchemaV1>(
   event: TEvent,
   handler: IncomingHandler<TCtx, StandardSchemaV1.InferOutput<TSchema>>,
   options: { validator: TSchema },
 ): IncomingPrimitive<TEvent, StandardSchemaV1.InferOutput<TSchema>, TCtx>;
+export function incoming<TEvent extends string>(
+  event: TEvent,
+  handler: IncomingHandler<any, unknown>,
+): IncomingPrimitive<TEvent, unknown, any>;
+export function incoming<TEvent extends string, TPayload>(
+  event: TEvent,
+  handler: IncomingHandler<any, TPayload>,
+  options: { validator: (value: unknown) => TPayload },
+): IncomingPrimitive<TEvent, TPayload, any>;
+export function incoming<TEvent extends string, TSchema extends StandardSchemaV1>(
+  event: TEvent,
+  handler: IncomingHandler<any, StandardSchemaV1.InferOutput<TSchema>>,
+  options: { validator: TSchema },
+): IncomingPrimitive<TEvent, StandardSchemaV1.InferOutput<TSchema>, any>;
 export function incoming(
   event: string,
   handler: IncomingHandler<any, any>,

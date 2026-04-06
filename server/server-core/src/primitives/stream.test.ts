@@ -5,6 +5,7 @@ import { t } from '~/t.ts';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type { PrimitiveKind, PrimitiveRef } from '~/primitives/define.ts';
 import type {
+  GeneratePrimitive,
   NudgeDeclaration,
   NudgeMessage,
   StreamPrimitive,
@@ -27,16 +28,7 @@ void _wrongStart;
 // 2. stream() — event name preserved as literal
 // ===========================================================================
 
-const basic = stream(
-  start('ask-ai'),
-  generate(
-    async function* () {
-      yield { text: 'hello' };
-    },
-    { chunks: t<{ text: string }>() },
-  ),
-);
-
+const basic = stream(start('ask-ai'));
 const _eventLiteral: 'ask-ai' = basic.event;
 void _eventLiteral;
 
@@ -45,12 +37,22 @@ const _wrongEvent: 'other' = basic.event;
 void _wrongEvent;
 
 // ===========================================================================
-// 3. Chunk type carried from generate options
+// 3. stream() carries nudges only
 // ===========================================================================
 
-const _tag: 'stream' = basic.__wskit;
-const _kind: PrimitiveKind = basic.__kind;
-void [_tag, _kind];
+const withNudges = stream(
+  start('ask-ai'),
+  nudge('cancel'),
+  nudge('add-context', (p: unknown) => p as { context: string }),
+);
+
+const _streamTag: 'stream' = withNudges.__wskit;
+const _streamKind: PrimitiveKind = withNudges.__kind;
+const _nudges: readonly [
+  NudgeDeclaration<'cancel', unknown>,
+  NudgeDeclaration<'add-context', { context: string }>,
+] = withNudges.nudges;
+void [_streamTag, _streamKind, _nudges];
 
 // ===========================================================================
 // 4. start() with parse function validator
@@ -61,17 +63,9 @@ const withParse = stream(
     const obj = p as Record<string, unknown>;
     return { prompt: String(obj.prompt) };
   }),
-  generate(
-    async function* (_ctx, payload) {
-      const _prompt: string = payload.prompt;
-      void _prompt;
-      yield { text: 'token' };
-    },
-    { chunks: t<{ text: string }>() },
-  ),
 );
 
-const _parseType: StreamPrimitive<'ask-ai', { prompt: string }, { text: string }> = withParse;
+const _parseType: StreamPrimitive<'ask-ai', { prompt: string }, readonly []> = withParse;
 void _parseType;
 
 // ===========================================================================
@@ -80,143 +74,92 @@ void _parseType;
 
 declare const askSchema: StandardSchemaV1<unknown, { prompt: string; model: string }>;
 
-const withSchema = stream(
-  start('ask-ai', askSchema),
-  generate(
-    async function* (_ctx, payload) {
-      const _prompt: string = payload.prompt;
-      const _model: string = payload.model;
-      void [_prompt, _model];
-      yield { text: 'token' };
-    },
-    { chunks: t<{ text: string }>() },
-  ),
-);
-
-const _schemaType: StreamPrimitive<'ask-ai', { prompt: string; model: string }, { text: string }> =
+const withSchema = stream(start('ask-ai', askSchema));
+const _schemaType: StreamPrimitive<'ask-ai', { prompt: string; model: string }, readonly []> =
   withSchema;
 void _schemaType;
 
 // ===========================================================================
-// 6. Nudge declarations carried on the primitive
+// 6. generate() — event name preserved as literal
 // ===========================================================================
 
-const withNudges = stream(
-  start('ask-ai'),
-  nudge('cancel'),
-  nudge('add-context', (p: unknown) => p as { context: string }),
-  generate(
-    async function* () {
-      yield { text: 'token' };
-    },
-    { chunks: t<{ text: string }>() },
-  ),
+const basicGenerate = generate(
+  'ask-ai',
+  async function* () {
+    yield { text: 'hello' };
+  },
+  { chunks: t<{ text: string }>() },
 );
 
-const _nudges: readonly [
-  NudgeDeclaration<'cancel', unknown>,
-  NudgeDeclaration<'add-context', { context: string }>,
-] = withNudges.nudges;
-void _nudges;
+const _generateEvent: 'ask-ai' = basicGenerate.event;
+const _generateTag: 'generate' = basicGenerate.__wskit;
+const _generateKind: PrimitiveKind = basicGenerate.__kind;
+void [_generateEvent, _generateTag, _generateKind];
 
 // ===========================================================================
-// 7. nudge() — event name preserved as literal
-// ===========================================================================
-
-const cancelNudge = nudge('cancel');
-const _nudgeEvent: 'cancel' = cancelNudge.event;
-void _nudgeEvent;
-
-const contextNudge = nudge('add-context', (p: unknown) => p as { context: string });
-const _contextEvent: 'add-context' = contextNudge.event;
-void _contextEvent;
-
-// ===========================================================================
-// 8. nudge() with StandardSchema
-// ===========================================================================
-
-declare const contextSchema: StandardSchemaV1<unknown, { context: string }>;
-const schemaNudge = nudge('add-context', contextSchema);
-const _schemaNudgeType: NudgeDeclaration<'add-context', { context: string }> = schemaNudge;
-void _schemaNudgeType;
-
-// ===========================================================================
-// 9. Generator can carry a custom ctx type
+// 7. generate() can carry a custom ctx type
 // ===========================================================================
 
 type StreamCtx = {
   send(event: 'message', payload: { text: string }): void;
-  nudges<T>(value: T): T;
+  nudges(value: unknown): readonly NudgeMessage<'cancel', unknown>[];
 };
 
-const withCtx = stream(
-  start('ask-ai', (p: unknown) => p as { prompt: string }),
-  nudge('cancel'),
-  generate(
-    async function* (ctx: StreamCtx, payload) {
-      ctx.send('message', { text: payload.prompt });
-      const raw = yield { text: 'token' };
-      const _nudges = ctx.nudges(raw);
-      void _nudges;
-    },
-    { chunks: t<{ text: string }>() },
-  ),
+const withCtx = generate(
+  'ask-ai',
+  async function* (ctx: StreamCtx, payload: { prompt: string }) {
+    ctx.send('message', { text: payload.prompt });
+    const nudges = ctx.nudges(yield { text: payload.prompt });
+    const _event: 'cancel' = nudges[0]!.event;
+    void _event;
+  },
+  { chunks: t<{ text: string }>() },
 );
 
-const _ctxType: StreamPrimitive<
+const _ctxType: GeneratePrimitive<
   'ask-ai',
   { prompt: string },
   { text: string },
-  readonly [NudgeDeclaration<'cancel', unknown>],
+  readonly NudgeDeclaration[],
   StreamCtx
 > = withCtx;
 void _ctxType;
 
 // ===========================================================================
-// 10. A generator can still annotate yield-return manually
+// 8. A generator can still annotate yield-return manually
 // ===========================================================================
 
-const _manualYield = stream(
-  start('ask-ai'),
-  nudge('cancel'),
-  generate(
-    async function* () {
-      const nudges: readonly NudgeMessage<'cancel', unknown>[] = yield { text: 'token' };
-      for (const n of nudges) {
-        const _event: 'cancel' = n.event;
-        void _event;
-      }
-    },
-    { chunks: t<{ text: string }>() },
-  ),
+const _manualYield = generate(
+  'ask-ai',
+  async function* () {
+    const nudges: readonly NudgeMessage<'cancel', unknown>[] = yield { text: 'token' };
+    for (const n of nudges) {
+      const _event: 'cancel' = n.event;
+      void _event;
+    }
+  },
+  { chunks: t<{ text: string }>() },
 );
 void _manualYield;
 
 // ===========================================================================
-// 11. start() carries broadcast option
+// 9. start() carries broadcast option
 // ===========================================================================
 
 const broadcastStart = start('ask-ai', undefined, { broadcast: true });
 const _broadcastStart: StreamStartDeclaration<'ask-ai', unknown> = broadcastStart;
 void _broadcastStart;
 
-const broadcastStream = stream(
-  start('ask-ai', undefined, { broadcast: true }),
-  generate(
-    async function* () {
-      yield { text: 'token' };
-    },
-    { chunks: t<{ text: string }>() },
-  ),
-);
-
+const broadcastStream = stream(start('ask-ai', undefined, { broadcast: true }));
 const _broadcast: boolean = broadcastStream.broadcast;
 void _broadcast;
 
 // ===========================================================================
-// 12. stream is a PrimitiveRef
+// 10. stream and generate are PrimitiveRefs
 // ===========================================================================
 
-const _ref: PrimitiveRef = stream;
-const _key: symbol = stream.__key;
-void [_ref, _key];
+const _streamRef: PrimitiveRef = stream;
+const _streamKey: symbol = stream.__key;
+const _generateRef: PrimitiveRef = generate;
+const _generateKey: symbol = generate.__key;
+void [_streamRef, _streamKey, _generateRef, _generateKey];

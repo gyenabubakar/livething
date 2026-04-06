@@ -6,76 +6,36 @@ import { z } from 'zod';
 
 describe('stream', () => {
   it('produces correct tag and kind', () => {
-    const p = stream(
-      start('ask-ai'),
-      generate(
-        async function* () {
-          yield { text: 'hello' };
-        },
-        { chunks: t<{ text: string }>() },
-      ),
-    );
+    const p = stream(start('ask-ai'));
     expect(p.__wskit).toBe('stream');
     expect(p.__kind).toBe('handler');
   });
 
   it('produces compound identity keyed by event name', () => {
-    const p = stream(
-      start('ask-ai'),
-      generate(
-        async function* () {
-          yield {};
-        },
-        { chunks: t() },
-      ),
-    );
+    const p = stream(start('ask-ai'));
     expect(p.__identity[1]).toBe('ask-ai');
   });
 
   it('stores event name from start()', () => {
-    const p = stream(
-      start('generate-report'),
-      generate(
-        async function* () {
-          yield {};
-        },
-        { chunks: t() },
-      ),
-    );
+    const p = stream(start('generate-report'));
     expect(p.event).toBe('generate-report');
   });
 
-  it('stores the generator function', () => {
-    async function* gen() {
-      yield { text: 'hi' };
-    }
-    const p = stream(start('ask-ai'), generate(gen, { chunks: t<{ text: string }>() }));
-    expect(p.generator).toBe(gen);
+  it('different stream events have different identities with the same primitive key', () => {
+    const a = stream(start('ask-ai'));
+    const b = stream(start('summarize-doc'));
+    expect(a.__identity[0]).toBe(b.__identity[0]);
+    expect(a.__identity[1]).toBe('ask-ai');
+    expect(b.__identity[1]).toBe('summarize-doc');
   });
 
   it('defaults broadcast to false', () => {
-    const p = stream(
-      start('ask-ai'),
-      generate(
-        async function* () {
-          yield {};
-        },
-        { chunks: t() },
-      ),
-    );
+    const p = stream(start('ask-ai'));
     expect(p.broadcast).toBe(false);
   });
 
   it('stores broadcast from start() options', () => {
-    const p = stream(
-      start('ask-ai', undefined, { broadcast: true }),
-      generate(
-        async function* () {
-          yield {};
-        },
-        { chunks: t() },
-      ),
-    );
+    const p = stream(start('ask-ai', undefined, { broadcast: true }));
     expect(p.broadcast).toBe(true);
   });
 });
@@ -83,33 +43,13 @@ describe('stream', () => {
 describe('stream with validators', () => {
   it('stores a valibot trigger validator', () => {
     const schema = v.object({ prompt: v.string() });
-    const p = stream(
-      start('ask-ai', schema),
-      generate(
-        async function* (_ctx, payload) {
-          const _prompt: string = payload.prompt;
-          void _prompt;
-          yield { text: 'token' };
-        },
-        { chunks: t<{ text: string }>() },
-      ),
-    );
+    const p = stream(start('ask-ai', schema));
     expect(p.validator).toBe(schema);
   });
 
   it('stores a zod trigger validator', () => {
     const schema = z.object({ prompt: z.string() });
-    const p = stream(
-      start('ask-ai', schema),
-      generate(
-        async function* (_ctx, payload) {
-          const _prompt: string = payload.prompt;
-          void _prompt;
-          yield { text: 'token' };
-        },
-        { chunks: t<{ text: string }>() },
-      ),
-    );
+    const p = stream(start('ask-ai', schema));
     expect(p.validator).toBe(schema);
   });
 
@@ -117,28 +57,12 @@ describe('stream with validators', () => {
     function validate(p: unknown) {
       return p as { prompt: string };
     }
-    const p = stream(
-      start('ask-ai', validate),
-      generate(
-        async function* () {
-          yield { text: 'token' };
-        },
-        { chunks: t<{ text: string }>() },
-      ),
-    );
+    const p = stream(start('ask-ai', validate));
     expect(p.validator).toBe(validate);
   });
 
   it('stores no validator when omitted', () => {
-    const p = stream(
-      start('ask-ai'),
-      generate(
-        async function* () {
-          yield {};
-        },
-        { chunks: t() },
-      ),
-    );
+    const p = stream(start('ask-ai'));
     expect(p.validator).toBeUndefined();
   });
 });
@@ -188,52 +112,118 @@ describe('nudge', () => {
 });
 
 describe('stream with nudges', () => {
-  it('stores nudge declarations in order before generate()', () => {
-    const p = stream(
-      start('ask-ai'),
-      nudge('cancel'),
-      nudge('add-context'),
-      generate(
-        async function* () {
-          yield {};
-        },
-        { chunks: t() },
-      ),
-    );
+  it('stores nudge declarations in order', () => {
+    const p = stream(start('ask-ai'), nudge('cancel'), nudge('add-context'));
     expect(p.nudges).toHaveLength(2);
     expect(p.nudges[0]!.event).toBe('cancel');
     expect(p.nudges[1]!.event).toBe('add-context');
   });
 
   it('stores empty nudges when none are provided', () => {
-    const p = stream(
-      start('ask-ai'),
-      generate(
-        async function* () {
-          yield {};
-        },
-        { chunks: t() },
-      ),
-    );
+    const p = stream(start('ask-ai'));
     expect(p.nudges).toHaveLength(0);
   });
 });
 
-describe('stream PrimitiveRef', () => {
-  it('factory has __key for dependency references', () => {
+describe('generate', () => {
+  it('produces correct tag and kind', () => {
+    const p = generate(
+      'ask-ai',
+      async function* () {
+        yield { text: 'hello' };
+      },
+      { chunks: t<{ text: string }>() },
+    );
+    expect(p.__wskit).toBe('generate');
+    expect(p.__kind).toBe('handler');
+  });
+
+  it('produces compound identity keyed by event name', () => {
+    const p = generate(
+      'ask-ai',
+      async function* () {
+        yield {};
+      },
+      { chunks: t() },
+    );
+    expect(p.__identity[1]).toBe('ask-ai');
+  });
+
+  it('stores the generator function', () => {
+    async function* gen() {
+      yield { text: 'hi' };
+    }
+    const p = generate('ask-ai', gen, { chunks: t<{ text: string }>() });
+    expect(p.generator).toBe(gen);
+  });
+
+  it('stores the event name', () => {
+    const p = generate(
+      'summarize-doc',
+      async function* () {
+        yield { text: 'hi' };
+      },
+      { chunks: t<{ text: string }>() },
+    );
+    expect(p.event).toBe('summarize-doc');
+  });
+
+  it('stores the chunk marker', () => {
+    const marker = t<{ text: string }>();
+    const p = generate(
+      'ask-ai',
+      async function* () {
+        yield { text: 'hi' };
+      },
+      { chunks: marker },
+    );
+    expect(p.chunks).toBe(marker);
+  });
+
+  it('different generate events have different identities with the same primitive key', () => {
+    const a = generate(
+      'ask-ai',
+      async function* () {
+        yield {};
+      },
+      { chunks: t() },
+    );
+    const b = generate(
+      'summarize-doc',
+      async function* () {
+        yield {};
+      },
+      { chunks: t() },
+    );
+    expect(a.__identity[0]).toBe(b.__identity[0]);
+    expect(a.__identity[1]).toBe('ask-ai');
+    expect(b.__identity[1]).toBe('summarize-doc');
+  });
+
+  it('instances have empty dependencies and requires', () => {
+    const p = generate(
+      'ask-ai',
+      async function* () {
+        yield {};
+      },
+      { chunks: t() },
+    );
+    expect(p.__dependencies).toEqual([]);
+    expect(p.__requires).toEqual({});
+  });
+});
+
+describe('PrimitiveRef', () => {
+  it('stream factory has __key for dependency references', () => {
     expect(typeof stream.__key).toBe('symbol');
   });
 
-  it('has empty dependencies and requires', () => {
-    const p = stream(
-      start('ask-ai'),
-      generate(
-        async function* () {
-          yield {};
-        },
-        { chunks: t() },
-      ),
-    );
+  it('generate factory has __key for dependency references', () => {
+    expect(typeof generate.__key).toBe('symbol');
+  });
+
+  it('stream instance has empty dependencies and requires', () => {
+    const p = stream(start('ask-ai'));
     expect(p.__dependencies).toEqual([]);
     expect(p.__requires).toEqual({});
   });

@@ -95,34 +95,34 @@ const _request = definePrimitive({
  * with a typed `WskitError`. If it throws an unrecognized error, the
  * client gets `{ code: 'internal-error' }`.
  */
-export function request<TEvent extends string, TResponse>(
-  event: TEvent,
-  handler: RequestHandler<any, unknown, TResponse>,
-): RequestPrimitive<TEvent, unknown, TResponse, any>;
 export function request<TCtx, TEvent extends string, TResponse>(
   event: TEvent,
   handler: RequestHandler<TCtx, unknown, TResponse>,
 ): RequestPrimitive<TEvent, unknown, TResponse, TCtx>;
-export function request<TEvent extends string, TPayload, TResponse>(
-  event: TEvent,
-  handler: RequestHandler<any, TPayload, TResponse>,
-  options: { validator: (value: unknown) => TPayload },
-): RequestPrimitive<TEvent, TPayload, TResponse, any>;
 export function request<TCtx, TEvent extends string, TPayload, TResponse>(
   event: TEvent,
   handler: RequestHandler<TCtx, TPayload, TResponse>,
   options: { validator: (value: unknown) => TPayload },
 ): RequestPrimitive<TEvent, TPayload, TResponse, TCtx>;
-export function request<TEvent extends string, TSchema extends StandardSchemaV1, TResponse>(
-  event: TEvent,
-  handler: RequestHandler<any, StandardSchemaV1.InferOutput<TSchema>, TResponse>,
-  options: { validator: TSchema },
-): RequestPrimitive<TEvent, StandardSchemaV1.InferOutput<TSchema>, TResponse, any>;
 export function request<TCtx, TEvent extends string, TSchema extends StandardSchemaV1, TResponse>(
   event: TEvent,
   handler: RequestHandler<TCtx, StandardSchemaV1.InferOutput<TSchema>, TResponse>,
   options: { validator: TSchema },
 ): RequestPrimitive<TEvent, StandardSchemaV1.InferOutput<TSchema>, TResponse, TCtx>;
+export function request<TEvent extends string, TResponse>(
+  event: TEvent,
+  handler: RequestHandler<any, unknown, TResponse>,
+): RequestPrimitive<TEvent, unknown, TResponse, any>;
+export function request<TEvent extends string, TPayload, TResponse>(
+  event: TEvent,
+  handler: RequestHandler<any, TPayload, TResponse>,
+  options: { validator: (value: unknown) => TPayload },
+): RequestPrimitive<TEvent, TPayload, TResponse, any>;
+export function request<TEvent extends string, TSchema extends StandardSchemaV1, TResponse>(
+  event: TEvent,
+  handler: RequestHandler<any, StandardSchemaV1.InferOutput<TSchema>, TResponse>,
+  options: { validator: TSchema },
+): RequestPrimitive<TEvent, StandardSchemaV1.InferOutput<TSchema>, TResponse, any>;
 export function request(
   event: string,
   handler: RequestHandler<any, any, any>,

@@ -30,10 +30,11 @@ export interface TypeMarker<out T> {
  *
  * stream(
  *   start('ask-ai', AskAIValidator),
- *   generate(async function* (ctx, payload) { ... }, {
- *     chunks: t<{ text: string }>(),
- *   }),
  * )
+ *
+ * generate('ask-ai', async function* (ctx, payload) { ... }, {
+ *   chunks: t<{ text: string }>(),
+ * })
  * ```
  */
 export function t<T>(): TypeMarker<T> {
