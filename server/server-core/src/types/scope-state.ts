@@ -1,10 +1,13 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import type { ErrorDef } from '~/errors.ts';
 import type { AckPrimitive } from '~/primitives/ack.ts';
+import type { DedupPrimitive } from '~/primitives/dedup.ts';
 import type { ErrorsPrimitive } from '~/primitives/errors.ts';
 import type { IncomingPrimitive } from '~/primitives/incoming.ts';
 import type { OutgoingPrimitive } from '~/primitives/outgoing.ts';
+import type { ReplayPrimitive } from '~/primitives/replay.ts';
 import type { RequestPrimitive } from '~/primitives/request.ts';
+import type { SequencePrimitive } from '~/primitives/sequence.ts';
 import type {
   GeneratePrimitive,
   NudgeDeclaration,
@@ -22,9 +25,13 @@ type AnyGenerate = GeneratePrimitive<
   any
 >;
 type AnyErrors = ErrorsPrimitive<readonly AnyErrorDef[]>;
+type AnyReplay = ReplayPrimitive<any>;
 
 export type FoldablePrimitive =
   | AckPrimitive
+  | SequencePrimitive
+  | DedupPrimitive
+  | AnyReplay
   | AnyErrors
   | AnyOutgoing
   | AnyIncoming
@@ -44,6 +51,7 @@ export interface ScopeStateShape {
   readonly kind: ScopeKind;
   readonly outgoing: Record<string, any>;
   readonly hasAck: boolean;
+  readonly hasReplay: boolean;
   readonly contract: ClientContractState;
   readonly errors: readonly AnyErrorDef[];
 }
@@ -54,6 +62,7 @@ export type ScopeState<
   TKind extends ScopeKind = 'top',
   TOutgoing extends Record<string, any> = NoOutgoing,
   THasAck extends boolean = false,
+  THasReplay extends boolean = false,
   TContract extends ClientContractState = {
     incoming: {};
     outgoing: {};
@@ -65,6 +74,7 @@ export type ScopeState<
   readonly kind: TKind;
   readonly outgoing: TOutgoing;
   readonly hasAck: THasAck;
+  readonly hasReplay: THasReplay;
   readonly contract: TContract;
   readonly errors: TErrors;
 };
@@ -115,76 +125,106 @@ export type NextState<
       readonly kind: TState['kind'];
       readonly outgoing: TState['outgoing'];
       readonly hasAck: true;
+      readonly hasReplay: TState['hasReplay'];
       readonly contract: TState['contract'];
       readonly errors: TState['errors'];
     }
-  : TPrimitive extends AnyErrors
-    ? TPrimitive extends ErrorsPrimitive<infer TDefs extends readonly AnyErrorDef[]>
+  : TPrimitive extends SequencePrimitive | DedupPrimitive
+    ? {
+        readonly kind: TState['kind'];
+        readonly outgoing: TState['outgoing'];
+        readonly hasAck: TState['hasAck'];
+        readonly hasReplay: TState['hasReplay'];
+        readonly contract: TState['contract'];
+        readonly errors: TState['errors'];
+      }
+    : TPrimitive extends AnyReplay
       ? {
           readonly kind: TState['kind'];
           readonly outgoing: TState['outgoing'];
           readonly hasAck: TState['hasAck'];
+          readonly hasReplay: true;
           readonly contract: TState['contract'];
-          readonly errors: TDefs;
-        }
-      : TState
-    : TPrimitive extends AnyOutgoing
-      ? {
-          readonly kind: TState['kind'];
-          readonly outgoing: MergeRecords<TState['outgoing'], OutgoingEntry<TPrimitive>>;
-          readonly hasAck: TState['hasAck'];
-          readonly contract: {
-            incoming: MergeRecords<TState['contract']['incoming'], OutgoingEntry<TPrimitive>>;
-            outgoing: TState['contract']['outgoing'];
-            requests: TState['contract']['requests'];
-            streams: TState['contract']['streams'];
-          };
           readonly errors: TState['errors'];
         }
-      : TPrimitive extends AnyIncoming
-        ? TPrimitive extends IncomingPrimitive<infer TEvent, infer TPayload, any>
+      : TPrimitive extends AnyErrors
+        ? TPrimitive extends ErrorsPrimitive<infer TDefs extends readonly AnyErrorDef[]>
           ? {
               readonly kind: TState['kind'];
               readonly outgoing: TState['outgoing'];
               readonly hasAck: TState['hasAck'];
+              readonly hasReplay: TState['hasReplay'];
+              readonly contract: TState['contract'];
+              readonly errors: TDefs;
+            }
+          : TState
+        : TPrimitive extends AnyOutgoing
+          ? {
+              readonly kind: TState['kind'];
+              readonly outgoing: MergeRecords<TState['outgoing'], OutgoingEntry<TPrimitive>>;
+              readonly hasAck: TState['hasAck'];
+              readonly hasReplay: TState['hasReplay'];
               readonly contract: {
-                incoming: TState['contract']['incoming'];
-                outgoing: MergeRecords<TState['contract']['outgoing'], Record<TEvent, TPayload>>;
+                incoming: MergeRecords<TState['contract']['incoming'], OutgoingEntry<TPrimitive>>;
+                outgoing: TState['contract']['outgoing'];
                 requests: TState['contract']['requests'];
                 streams: TState['contract']['streams'];
               };
               readonly errors: TState['errors'];
             }
-          : TState
-        : TPrimitive extends AnyRequest
-          ? {
-              readonly kind: TState['kind'];
-              readonly outgoing: TState['outgoing'];
-              readonly hasAck: TState['hasAck'];
-              readonly contract: {
-                incoming: TState['contract']['incoming'];
-                outgoing: TState['contract']['outgoing'];
-                requests: MergeRecords<TState['contract']['requests'], RequestEntry<TPrimitive>>;
-                streams: TState['contract']['streams'];
-              };
-              readonly errors: TState['errors'];
-            }
-          : TPrimitive extends AnyGenerate
-            ? TPrimitive extends GeneratePrimitive<infer TStream, any, any>
+          : TPrimitive extends AnyIncoming
+            ? TPrimitive extends IncomingPrimitive<infer TEvent, infer TPayload, any>
               ? {
                   readonly kind: TState['kind'];
                   readonly outgoing: TState['outgoing'];
                   readonly hasAck: TState['hasAck'];
+                  readonly hasReplay: TState['hasReplay'];
                   readonly contract: {
                     incoming: TState['contract']['incoming'];
-                    outgoing: TState['contract']['outgoing'];
+                    outgoing: MergeRecords<
+                      TState['contract']['outgoing'],
+                      Record<TEvent, TPayload>
+                    >;
                     requests: TState['contract']['requests'];
-                    streams: MergeRecords<TState['contract']['streams'], StreamEntry<TStream>>;
+                    streams: TState['contract']['streams'];
                   };
                   readonly errors: TState['errors'];
                 }
               : TState
-            : TState;
+            : TPrimitive extends AnyRequest
+              ? {
+                  readonly kind: TState['kind'];
+                  readonly outgoing: TState['outgoing'];
+                  readonly hasAck: TState['hasAck'];
+                  readonly hasReplay: TState['hasReplay'];
+                  readonly contract: {
+                    incoming: TState['contract']['incoming'];
+                    outgoing: TState['contract']['outgoing'];
+                    requests: MergeRecords<
+                      TState['contract']['requests'],
+                      RequestEntry<TPrimitive>
+                    >;
+                    streams: TState['contract']['streams'];
+                  };
+                  readonly errors: TState['errors'];
+                }
+              : TPrimitive extends AnyGenerate
+                ? TPrimitive extends GeneratePrimitive<infer TStream, any, any>
+                  ? {
+                      readonly kind: TState['kind'];
+                      readonly outgoing: TState['outgoing'];
+                      readonly hasAck: TState['hasAck'];
+                      readonly hasReplay: TState['hasReplay'];
+                      readonly contract: {
+                        incoming: TState['contract']['incoming'];
+                        outgoing: TState['contract']['outgoing'];
+                        requests: TState['contract']['requests'];
+                        streams: MergeRecords<TState['contract']['streams'], StreamEntry<TStream>>;
+                      };
+                      readonly errors: TState['errors'];
+                    }
+                  : TState
+                : TState;
 
 export type FoldState<
   TItems extends readonly FoldablePrimitive[],
@@ -224,6 +264,23 @@ export interface AckMethods {
   ack(): void;
 }
 
+export interface ReplayWire {
+  readonly seq: number;
+  readonly messageId: string;
+  readonly channel?: string;
+}
+
+export interface ReplayMethods<TOutgoing extends Record<string, any>> {
+  /**
+   * Send a replay message directly with explicit wire metadata.
+   */
+  sendReplay<TEvent extends keyof TOutgoing & string>(
+    event: TEvent,
+    payload: TOutgoing[TEvent],
+    wire: ReplayWire,
+  ): void;
+}
+
 export interface NamespaceScopeMethods {
   /**
    * The matched namespace name for the current handler call.
@@ -248,6 +305,14 @@ type AckApi<TState extends ScopeStateShape> = TState['kind'] extends 'top'
     : {}
   : {};
 
+type ReplayApi<TState extends ScopeStateShape> = TState['hasReplay'] extends true
+  ? keyof TState['outgoing'] extends never
+    ? {
+        sendReplay(event: string, payload: unknown, wire: ReplayWire): void;
+      }
+    : ReplayMethods<TState['outgoing']>
+  : {};
+
 type ScopeExtras<TKind extends ScopeKind> = TKind extends 'namespace'
   ? NamespaceScopeMethods
   : TKind extends 'channel'
@@ -256,9 +321,11 @@ type ScopeExtras<TKind extends ScopeKind> = TKind extends 'namespace'
 
 export type HandlerCtxFromState<TState extends ScopeStateShape> = SendApi<TState['outgoing']> &
   AckApi<TState> &
+  ReplayApi<TState> &
   ScopeExtras<TState['kind']>;
 
 export type StreamBaseCtxFromState<TState extends ScopeStateShape> = SendApi<TState['outgoing']> &
+  ReplayApi<TState> &
   ScopeExtras<TState['kind']>;
 
 export type StreamCtxFromState<

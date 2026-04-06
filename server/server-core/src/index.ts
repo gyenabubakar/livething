@@ -21,6 +21,8 @@ export type {
 } from './primitives/define.ts';
 export { ack } from './primitives/ack.ts';
 export type { AckPrimitive } from './primitives/ack.ts';
+export { dedup } from './primitives/dedup.ts';
+export type { DedupPrimitive } from './primitives/dedup.ts';
 export { channel, scope } from './primitives/channel.ts';
 export type {
   ChannelChild,
@@ -34,6 +36,10 @@ export { incoming } from './primitives/incoming.ts';
 export type { IncomingPrimitive, IncomingHandler } from './primitives/incoming.ts';
 export { outgoing } from './primitives/outgoing.ts';
 export type { OutgoingPrimitive } from './primitives/outgoing.ts';
+export { replay } from './primitives/replay.ts';
+export type { ReplayHandler, ReplayOptions, ReplayPrimitive } from './primitives/replay.ts';
+export { sequence } from './primitives/sequence.ts';
+export type { SequencePrimitive } from './primitives/sequence.ts';
 export { namespace } from './primitives/namespace.ts';
 export type {
   NamespaceChild,

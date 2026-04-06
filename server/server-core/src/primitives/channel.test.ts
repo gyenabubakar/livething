@@ -2,6 +2,7 @@
 import { channel, scope } from '~/primitives/channel.ts';
 import { incoming } from '~/primitives/incoming.ts';
 import { outgoing } from '~/primitives/outgoing.ts';
+import { replay } from '~/primitives/replay.ts';
 import { request } from '~/primitives/request.ts';
 import { chunks, generate, nudge, start, stream } from '~/primitives/stream.ts';
 import { t } from '~/t.ts';
@@ -107,7 +108,42 @@ const _aiRoomType: ChannelPrimitive<ScopeDeclaration<'aiRooms'>> = aiRoom;
 void _aiRoomType;
 
 // ===========================================================================
-// 4. channel and scope are usable from type positions
+// 4. channel() accepts replay() and types sendReplay()
+// ===========================================================================
+
+const replayRoom = channel(
+  scope('replayRooms', /^replay-room-/),
+  replay(),
+  outgoing('message', t<{ text: string }>()),
+  incoming(
+    'replay-message',
+    async (ctx, payload) => {
+      const _name: string = ctx.channelName;
+      const _text: string = payload.text;
+      void [_name, _text];
+
+      ctx.sendReplay('message', { text: payload.text }, { seq: 1, messageId: 'm1' });
+
+      // @ts-expect-error — only channel-local outgoing events are allowed
+      ctx.sendReplay('typing', { userId: 'u1' }, { seq: 1, messageId: 'm1' });
+    },
+    { validator: (value: unknown) => value as { text: string } },
+  ),
+  request('replay-status', async (ctx) => {
+    ctx.sendReplay('message', { text: 'history' }, { seq: 2, messageId: 'm2' });
+    return { ok: true };
+  }),
+  generate(aiStream, async function* (ctx, payload) {
+    ctx.sendReplay('message', { text: payload.prompt }, { seq: 3, messageId: 'm3' });
+    yield { text: payload.prompt };
+  }),
+);
+
+const _replayRoomType: ChannelPrimitive<ScopeDeclaration<'replayRooms'>> = replayRoom;
+void _replayRoomType;
+
+// ===========================================================================
+// 5. channel and scope are usable from type positions
 // ===========================================================================
 
 const _channelRef: PrimitiveRef = channel;

@@ -2,6 +2,7 @@
 import { incoming } from '~/primitives/incoming.ts';
 import { namespace } from '~/primitives/namespace.ts';
 import { outgoing } from '~/primitives/outgoing.ts';
+import { replay } from '~/primitives/replay.ts';
 import { request } from '~/primitives/request.ts';
 import { chunks, generate, nudge, start, stream } from '~/primitives/stream.ts';
 import { t } from '~/t.ts';
@@ -85,7 +86,18 @@ const _reportsType: NamespacePrimitive<'reports'> = reports;
 void _reportsType;
 
 // ===========================================================================
-// 3. namespace is a PrimitiveRef
+// 3. namespace() does not accept replay()
+// ===========================================================================
+
+namespace(
+  'no-replay',
+  outgoing('alert', t<{ id: string }>()),
+  // @ts-expect-error — replay is not allowed in namespace scope
+  replay(),
+);
+
+// ===========================================================================
+// 4. namespace is a PrimitiveRef
 // ===========================================================================
 
 const _ref: PrimitiveRef = namespace;

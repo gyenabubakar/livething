@@ -2,11 +2,14 @@ import { defineServer } from '~/define-server.ts';
 import { error } from '~/errors.ts';
 import { ack } from '~/primitives/ack.ts';
 import { channel, scope } from '~/primitives/channel.ts';
+import { dedup } from '~/primitives/dedup.ts';
 import { errors } from '~/primitives/errors.ts';
 import { incoming } from '~/primitives/incoming.ts';
 import { namespace } from '~/primitives/namespace.ts';
 import { outgoing } from '~/primitives/outgoing.ts';
+import { replay } from '~/primitives/replay.ts';
 import { request } from '~/primitives/request.ts';
+import { sequence } from '~/primitives/sequence.ts';
 import { chunks, generate, nudge, start, stream } from '~/primitives/stream.ts';
 import { t } from '~/t.ts';
 import type { ServerDefinition } from '~/define-server.ts';
@@ -43,6 +46,9 @@ const withAck = defineServer(
 
       // @ts-expect-error — stream-only helper
       ctx.nudges(undefined);
+
+      // @ts-expect-error — replay() was not registered
+      ctx.sendReplay('message', { text: payload.text }, { seq: 1, messageId: 'm1' });
     },
     { validator: (value: unknown) => value as { text: string } },
   ),
@@ -107,6 +113,9 @@ const withoutAck = defineServer(
 
       // @ts-expect-error — ack() was not registered
       ctx.ack();
+
+      // @ts-expect-error — replay() was not registered
+      ctx.sendReplay('message', { text: payload.text }, { seq: 1, messageId: 'm1' });
     },
     { validator: (value: unknown) => value as { text: string } },
   ),
@@ -148,7 +157,37 @@ const withErrors = defineServer(
 void withErrors;
 
 // ===========================================================================
-// 4. defineServer() only needs generate(streamDecl, fn)
+// 4. replay() adds ctx.sendReplay() after sequence() and dedup()
+// ===========================================================================
+
+const withReplay = defineServer(
+  sequence(),
+  dedup(),
+  replay(),
+  outgoing('message', t<{ text: string }>()),
+  incoming(
+    'replay-message',
+    async (ctx, payload) => {
+      ctx.sendReplay('message', { text: payload.text }, { seq: 1, messageId: 'm1' });
+
+      // @ts-expect-error — top-level ctx only sees registered outgoing events
+      ctx.sendReplay('unknown', {}, { seq: 1, messageId: 'm1' });
+    },
+    { validator: (value: unknown) => value as { text: string } },
+  ),
+  request('replay-status', async (ctx) => {
+    ctx.sendReplay('message', { text: 'history' }, { seq: 2, messageId: 'm2' });
+    return { ok: true };
+  }),
+  generate(askAiStream, async function* (ctx, payload) {
+    ctx.sendReplay('message', { text: payload.prompt }, { seq: 3, messageId: 'm3' });
+    yield { text: payload.prompt };
+  }),
+);
+void withReplay;
+
+// ===========================================================================
+// 5. defineServer() only needs generate(streamDecl, fn)
 // ===========================================================================
 
 const withGenerateOnly = defineServer(
@@ -164,7 +203,7 @@ const withGenerateOnly = defineServer(
 void withGenerateOnly;
 
 // ===========================================================================
-// 5. namespace() types nested handlers against namespace-local outgoing only
+// 6. namespace() types nested handlers against namespace-local outgoing only
 // ===========================================================================
 
 const namespaceStream = stream(
@@ -198,6 +237,9 @@ const withNamespace = defineServer(
         // @ts-expect-error — namespace handlers do not see top-level outgoing
         ctx.send('message', { text: payload.id });
 
+        // @ts-expect-error — replay is not available in namespace scope
+        ctx.sendReplay('alert', { id: payload.id }, { seq: 1, messageId: 'm1' });
+
         // @ts-expect-error — ack is not available in namespace scope
         ctx.ack();
       },
@@ -222,6 +264,9 @@ const withNamespace = defineServer(
       // @ts-expect-error — namespace stream handlers do not see top-level outgoing
       ctx.send('message', { text: payload.prompt });
 
+      // @ts-expect-error — replay is not available in namespace stream scope
+      ctx.sendReplay('alert', { id: payload.prompt }, { seq: 1, messageId: 'm1' });
+
       // @ts-expect-error — ack is not available in namespace stream scope
       ctx.ack();
     }),
@@ -230,7 +275,7 @@ const withNamespace = defineServer(
 void withNamespace;
 
 // ===========================================================================
-// 6. channel() types nested handlers against channel-local outgoing only
+// 7. channel() types nested handlers against channel-local outgoing only
 // ===========================================================================
 
 const channelStream = stream(
@@ -265,6 +310,9 @@ const withChannel = defineServer(
       // @ts-expect-error — channel handlers do not see top-level outgoing
       ctx.send('message', { text: 'nope' });
 
+      // @ts-expect-error — replay is not available in channel scope
+      ctx.sendReplay('room-message', { text: 'history' }, { seq: 1, messageId: 'm1' });
+
       // @ts-expect-error — channel handlers do not get namespaceName
       ctx.namespaceName;
     }),
@@ -291,6 +339,9 @@ const withChannel = defineServer(
       // @ts-expect-error — stream handlers still do not get ack()
       ctx.ack();
 
+      // @ts-expect-error — replay is not available in channel stream scope
+      ctx.sendReplay('room-message', { text: payload.prompt }, { seq: 1, messageId: 'm1' });
+
       // @ts-expect-error — channel scope does not see top-level outgoing
       ctx.send('message', { text: payload.prompt });
 
@@ -302,7 +353,7 @@ const withChannel = defineServer(
 void withChannel;
 
 // ===========================================================================
-// 7. channel() loses ack() when top-level ack() is not registered
+// 8. channel() loses ack() when top-level ack() is not registered
 // ===========================================================================
 
 const withoutAckChannel = defineServer(
@@ -353,3 +404,39 @@ const withoutAckChannel = defineServer(
   ),
 );
 void withoutAckChannel;
+
+// ===========================================================================
+// 9. channel() can use replay() with channel-local sendReplay typing
+// ===========================================================================
+
+const withChannelReplay = defineServer(
+  sequence(),
+  dedup(),
+  channel(
+    scope('replay-rooms', /^replay-room-/),
+    replay(),
+    outgoing('room-message', t<{ text: string }>()),
+    incoming(
+      'room-replay',
+      async (ctx, payload) => {
+        const _name: string = ctx.channelName;
+        void _name;
+
+        ctx.sendReplay('room-message', { text: payload.text }, { seq: 1, messageId: 'm1' });
+
+        // @ts-expect-error — channel replay only sees channel-local outgoing
+        ctx.sendReplay('message', { text: payload.text }, { seq: 1, messageId: 'm1' });
+      },
+      { validator: (value: unknown) => value as { text: string } },
+    ),
+    request('room-replay-status', async (ctx) => {
+      ctx.sendReplay('room-message', { text: 'history' }, { seq: 2, messageId: 'm2' });
+      return { ok: true };
+    }),
+    generate(channelStream, async function* (ctx, payload) {
+      ctx.sendReplay('room-message', { text: payload.prompt }, { seq: 3, messageId: 'm3' });
+      yield { text: payload.prompt };
+    }),
+  ),
+);
+void withChannelReplay;

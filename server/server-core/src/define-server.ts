@@ -1,12 +1,15 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import type { AckPrimitive } from '~/primitives/ack.ts';
 import type { ChannelPrimitive } from '~/primitives/channel.ts';
+import type { DedupPrimitive } from '~/primitives/dedup.ts';
 import type { Primitive } from '~/primitives/define.ts';
 import type { ErrorsPrimitive } from '~/primitives/errors.ts';
 import type { IncomingPrimitive } from '~/primitives/incoming.ts';
 import type { NamespacePrimitive } from '~/primitives/namespace.ts';
 import type { OutgoingPrimitive } from '~/primitives/outgoing.ts';
+import type { ReplayPrimitive } from '~/primitives/replay.ts';
 import type { RequestPrimitive } from '~/primitives/request.ts';
+import type { SequencePrimitive } from '~/primitives/sequence.ts';
 import type { GeneratePrimitive, NudgeDeclaration, StreamPrimitive } from '~/primitives/stream.ts';
 import type {
   FoldState,
@@ -26,6 +29,9 @@ type AnyGenerate = GeneratePrimitive<
 >;
 type TopLevelStatePrimitive =
   | AckPrimitive
+  | SequencePrimitive
+  | DedupPrimitive
+  | ReplayPrimitive<any>
   | ErrorsPrimitive
   | AnyOutgoing
   | AnyIncoming
@@ -43,14 +49,46 @@ type TopLevelStreamBaseCtx<TPrefix extends readonly TopLevelStatePrimitive[]> =
 export type ServerHandlerContext<
   TOutgoing extends Record<string, any> = NoOutgoing,
   THasAck extends boolean = false,
-> = HandlerCtxFromState<ScopeState<'top', TOutgoing, THasAck>>;
+  THasReplay extends boolean = false,
+> = HandlerCtxFromState<ScopeState<'top', TOutgoing, THasAck, THasReplay>>;
 
-export type StreamServerHandlerContext<TOutgoing extends Record<string, any> = NoOutgoing> =
-  StreamBaseCtxFromState<ScopeState<'top', TOutgoing, false>>;
+export type StreamServerHandlerContext<
+  TOutgoing extends Record<string, any> = NoOutgoing,
+  THasReplay extends boolean = false,
+> = StreamBaseCtxFromState<ScopeState<'top', TOutgoing, false, THasReplay>>;
 
 export interface ServerDefinition<TPrimitives extends readonly Primitive[] = readonly Primitive[]> {
   readonly __wskit: 'server';
   readonly primitives: TPrimitives;
+}
+
+function isScopePrimitive(
+  primitive: Primitive,
+): primitive is NamespacePrimitive | ChannelPrimitive {
+  return primitive.__wskit === 'namespace' || primitive.__wskit === 'channel';
+}
+
+function collectRegisteredRefs(primitives: readonly Primitive[]): Set<symbol> {
+  return new Set(primitives.map((primitive) => primitive.__identity[0]));
+}
+
+function validateDependencies(
+  primitives: readonly Primitive[],
+  registeredRefs: ReadonlySet<symbol>,
+): void {
+  for (const primitive of primitives) {
+    for (const dependency of primitive.__dependencies) {
+      if (!registeredRefs.has(dependency.__key)) {
+        throw new Error(
+          `[wskit] ${primitive.__wskit} requires a missing dependency. Register the required primitive in defineServer.`,
+        );
+      }
+    }
+
+    if (isScopePrimitive(primitive)) {
+      validateDependencies(primitive.primitives, registeredRefs);
+    }
+  }
 }
 
 /**
@@ -207,6 +245,7 @@ export function defineServer<const TPrimitives extends readonly TopLevelPrimitiv
 export function defineServer(
   ...primitives: readonly Primitive[]
 ): ServerDefinition<readonly Primitive[]> {
+  validateDependencies(primitives, collectRegisteredRefs(primitives));
   return Object.freeze({
     __wskit: 'server' as const,
     primitives: Object.freeze([...primitives]) as readonly Primitive[],

@@ -3,6 +3,7 @@ import { definePrimitive } from '~/primitives/define.ts';
 import type { Primitive } from '~/primitives/define.ts';
 import type { IncomingPrimitive } from '~/primitives/incoming.ts';
 import type { OutgoingPrimitive } from '~/primitives/outgoing.ts';
+import type { ReplayPrimitive } from '~/primitives/replay.ts';
 import type { RequestPrimitive } from '~/primitives/request.ts';
 import type { GeneratePrimitive, NudgeDeclaration, StreamPrimitive } from '~/primitives/stream.ts';
 import type {
@@ -21,7 +22,12 @@ type AnyGenerate = GeneratePrimitive<
   any,
   any
 >;
-type ChannelStatePrimitive = AnyOutgoing | AnyIncoming | AnyRequest | AnyGenerate;
+type ChannelStatePrimitive =
+  | AnyOutgoing
+  | ReplayPrimitive<any>
+  | AnyIncoming
+  | AnyRequest
+  | AnyGenerate;
 
 type ChannelHandlerCtx<TPrefix extends readonly ChannelStatePrimitive[]> = HandlerCtxFromState<
   FoldState<TPrefix, ScopeState<'channel'>>
@@ -42,10 +48,13 @@ export type ChannelChild = ChannelStatePrimitive;
 export type ChannelHandlerContext<
   TOutgoing extends Record<string, any> = NoOutgoing,
   THasAck extends boolean = false,
-> = HandlerCtxFromState<ScopeState<'channel', TOutgoing, THasAck>>;
+  THasReplay extends boolean = false,
+> = HandlerCtxFromState<ScopeState<'channel', TOutgoing, THasAck, THasReplay>>;
 
-export type ChannelStreamHandlerContext<TOutgoing extends Record<string, any> = NoOutgoing> =
-  StreamBaseCtxFromState<ScopeState<'channel', TOutgoing, false>>;
+export type ChannelStreamHandlerContext<
+  TOutgoing extends Record<string, any> = NoOutgoing,
+  THasReplay extends boolean = false,
+> = StreamBaseCtxFromState<ScopeState<'channel', TOutgoing, false, THasReplay>>;
 
 export interface ChannelPrimitive<
   TPattern extends ChannelPattern = ChannelPattern,

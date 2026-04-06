@@ -2,11 +2,14 @@ import { defineServer } from '~/define-server.ts';
 import { error } from '~/errors.ts';
 import { ack } from '~/primitives/ack.ts';
 import { channel, scope } from '~/primitives/channel.ts';
+import { dedup } from '~/primitives/dedup.ts';
 import { errors } from '~/primitives/errors.ts';
 import { incoming } from '~/primitives/incoming.ts';
 import { namespace } from '~/primitives/namespace.ts';
 import { outgoing } from '~/primitives/outgoing.ts';
+import { replay } from '~/primitives/replay.ts';
 import { request } from '~/primitives/request.ts';
+import { sequence } from '~/primitives/sequence.ts';
 import { chunks, generate, nudge, start, stream } from '~/primitives/stream.ts';
 import { t } from '~/t.ts';
 import { describe, expect, it } from 'vitest';
@@ -78,6 +81,26 @@ describe('defineServer', () => {
     expect(server.primitives[6]!.__wskit).toBe('generate');
   });
 
+  it('stores sequence(), dedup(), and replay() in order', () => {
+    const replayStream = stream(start('replay-ai'), chunks(t<{ text: string }>()), nudge('cancel'));
+    const server = defineServer(
+      sequence(),
+      dedup(),
+      replay(),
+      outgoing('message', t<{ text: string }>()),
+      incoming('ping', async () => {}),
+      request('status', async () => ({ ok: true })),
+      generate(replayStream, async function* () {
+        yield { text: 'hi' };
+      }),
+    );
+
+    expect(server.primitives).toHaveLength(7);
+    expect(server.primitives[0]!.__wskit).toBe('sequence');
+    expect(server.primitives[1]!.__wskit).toBe('dedup');
+    expect(server.primitives[2]!.__wskit).toBe('replay');
+  });
+
   it('stores namespace() alongside top-level primitives in order', () => {
     const server = defineServer(
       ack(),
@@ -116,5 +139,60 @@ describe('defineServer', () => {
     expect((server.primitives[3]! as ReturnType<typeof channel>).primitives[0]!.__wskit).toBe(
       'outgoing',
     );
+  });
+
+  it('stores channel-scoped replay alongside other channel primitives', () => {
+    async function onReplay() {}
+
+    const server = defineServer(
+      sequence(),
+      dedup(),
+      channel(
+        scope('replayRooms', /^replay-room-/),
+        replay({ onReplay }),
+        outgoing('message', t<{ text: string }>()),
+        incoming('replay-message', async () => {}),
+      ),
+    );
+
+    const replayChannel = server.primitives[2]! as ReturnType<typeof channel>;
+    expect(replayChannel.__wskit).toBe('channel');
+    expect(replayChannel.primitives[0]!.__wskit).toBe('replay');
+    expect((replayChannel.primitives[0]! as ReturnType<typeof replay>).onReplay).toBe(onReplay);
+  });
+
+  it('throws when replay() is missing sequence()', () => {
+    expect(() =>
+      defineServer(
+        dedup(),
+        replay(),
+        outgoing('message', t<{ text: string }>()),
+        incoming('ping', async () => {}),
+      ),
+    ).toThrow(/requires a missing dependency/);
+  });
+
+  it('throws when replay() is missing dedup()', () => {
+    expect(() =>
+      defineServer(
+        sequence(),
+        replay(),
+        outgoing('message', t<{ text: string }>()),
+        incoming('ping', async () => {}),
+      ),
+    ).toThrow(/requires a missing dependency/);
+  });
+
+  it('throws when channel-scoped replay() is missing top-level dependencies', () => {
+    expect(() =>
+      defineServer(
+        channel(
+          scope('replayRooms', /^replay-room-/),
+          replay(),
+          outgoing('message', t<{ text: string }>()),
+          incoming('replay-message', async () => {}),
+        ),
+      ),
+    ).toThrow(/requires a missing dependency/);
   });
 });
