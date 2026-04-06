@@ -61,9 +61,14 @@ export type StreamNudgeMessages<TNudges extends readonly NudgeDeclaration[]> = r
 /**
  * The extra helper methods that exist only in stream handlers.
  */
-export type StreamNudgesApi<TNudges extends readonly NudgeDeclaration[]> = {
+export interface StreamNudgesApi<TNudges extends readonly NudgeDeclaration[]> {
+  /**
+   * Read the nudge messages that arrived since the last yielded chunk.
+   *
+   * If no nudges arrived, this gives you an empty array.
+   */
   nudges(value: unknown): StreamNudgeMessages<TNudges>;
-};
+}
 
 /**
  * The full context seen by a stream generator: the server-level base ctx

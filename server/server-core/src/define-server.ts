@@ -16,24 +16,39 @@ type OutgoingMap<TOutgoing extends readonly AnyOutgoing[]> = {
   [TItem in TOutgoing[number] as TItem['event']]: OutgoingPayload<TItem>;
 };
 
+interface SendMethods<TOutgoing extends Record<string, any>> {
+  /**
+   * Send an event to the current connection.
+   *
+   * Only events declared with `outgoing()` in the same scope are allowed.
+   */
+  send<TEvent extends keyof TOutgoing & string>(event: TEvent, payload: TOutgoing[TEvent]): void;
+
+  /**
+   * Broadcast an event to other connections in the current scope.
+   *
+   * Only events declared with `outgoing()` in the same scope are allowed.
+   */
+  broadcast<TEvent extends keyof TOutgoing & string>(
+    event: TEvent,
+    payload: TOutgoing[TEvent],
+  ): void;
+}
+
 type SendApi<TOutgoing extends Record<string, any>> = keyof TOutgoing extends never
   ? {}
-  : {
-      send<TEvent extends keyof TOutgoing & string>(
-        event: TEvent,
-        payload: TOutgoing[TEvent],
-      ): void;
-      broadcast<TEvent extends keyof TOutgoing & string>(
-        event: TEvent,
-        payload: TOutgoing[TEvent],
-      ): void;
-    };
+  : SendMethods<TOutgoing>;
 
-type AckApi<THasAck extends boolean> = THasAck extends true
-  ? {
-      ack(): void;
-    }
-  : {};
+interface AckMethods {
+  /**
+   * Confirm receipt of the current incoming message.
+   *
+   * This only exists when `ack()` is registered in the same scope.
+   */
+  ack(): void;
+}
+
+type AckApi<THasAck extends boolean> = THasAck extends true ? AckMethods : {};
 
 export type ServerHandlerContext<
   TOutgoing extends Record<string, any> = NoOutgoing,
