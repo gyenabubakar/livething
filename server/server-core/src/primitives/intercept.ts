@@ -74,12 +74,18 @@ const _intercept = definePrimitive<
 
 /**
  * Intercept messages before validation.
+ *
+ * Use this to inspect or rewrite raw incoming messages before wskit checks
+ * their schema. At this stage, the payload is still `unknown`.
  */
 export function intercept<TCtx>(handler: PreInterceptHandler<TCtx>): PreInterceptPrimitive<TCtx>;
 export function intercept(handler: PreInterceptHandler<any>): PreInterceptPrimitive<any>;
 
 /**
- * Intercept a specific event after validation.
+ * Intercept one event after validation.
+ *
+ * Use this when you want to inspect or rewrite a typed payload after wskit
+ * has already validated it.
  */
 export function intercept<TCtx, TEvent extends string, TPayload>(
   event: TEvent,

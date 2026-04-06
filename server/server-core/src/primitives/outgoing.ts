@@ -3,10 +3,12 @@ import type { Primitive } from '~/primitives/define.ts';
 import type { TypeMarker } from '~/t.ts';
 
 /**
- * The primitive instance returned by `outgoing()`. Carries the event name
- * and payload marker. `defineServer()` uses this to type `ctx.send()` and
- * `ctx.broadcast()`. `InferClient` reads it later to build the client
- * server -> client event map.
+ * The primitive instance returned by `outgoing()`.
+ *
+ * It declares a server -> client event. That declaration is used in two
+ * places:
+ * - handlers in the same scope get typed `ctx.send()` / `ctx.broadcast()`
+ * - `InferClient` adds the event to the client contract
  */
 export interface OutgoingPrimitive<
   TEvent extends string = string,
@@ -32,6 +34,9 @@ const _outgoing = definePrimitive({
 
 /**
  * Declare a server -> client event.
+ *
+ * Handlers in the same scope can only send events that were declared with
+ * `outgoing()`.
  *
  * ```ts
  * outgoing('message', t<{ text: string; from: string }>())

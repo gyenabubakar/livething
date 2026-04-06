@@ -4,7 +4,8 @@ import type { Primitive } from '~/primitives/define.ts';
 /**
  * The primitive instance returned by `sequence()`.
  *
- * It marks the server so the engine injects `_seq` on outgoing messages.
+ * It marks the scope so outgoing app messages get an ever-increasing `_seq`
+ * number.
  */
 export interface SequencePrimitive extends Primitive<'sequence'> {}
 
@@ -20,7 +21,11 @@ const _sequence = definePrimitive({
 });
 
 /**
- * Turn on automatic `_seq` injection for outgoing messages.
+ * Add an ever-increasing `_seq` number to each normal outgoing message.
+ *
+ * This gives replay a clear order. After reconnecting, the client can say
+ * "send me everything after seq N", and the server can fetch those
+ * messages in the same order they were originally sent.
  */
 export function sequence(): SequencePrimitive {
   return _sequence() as SequencePrimitive;

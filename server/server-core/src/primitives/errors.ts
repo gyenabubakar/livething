@@ -6,9 +6,10 @@ import type { Primitive } from '~/primitives/define.ts';
 type AnyErrorDef = ErrorDef<string, any>;
 
 /**
- * The primitive instance returned by `errors()`. Carries the tuple of
- * registered error definitions for `InferClient` and later runtime
- * enforcement.
+ * The primitive instance returned by `errors()`.
+ *
+ * It holds the list of application errors your server may throw, so the
+ * client contract can know about them too.
  */
 export interface ErrorsPrimitive<
   TDefs extends readonly AnyErrorDef[] = readonly AnyErrorDef[],
@@ -34,9 +35,9 @@ const _errors = definePrimitive<
 /**
  * Register the application's typed errors.
  *
- * `errors()` is a singleton contract primitive. It does not change runtime
- * behavior by itself here — it carries the declared error definitions so the
- * engine and client contract can read them later.
+ * This tells wskit which named application errors belong to this server.
+ * It does not add methods to `ctx`, but it lets the engine and
+ * `InferClient` understand the typed error surface.
  *
  * ```ts
  * errors(Forbidden, ChannelNotFound, QuotaExceeded)

@@ -22,9 +22,11 @@ export type RequestHandler<TCtx = any, TPayload = unknown, TResponse = unknown> 
 ) => TResponse | Promise<TResponse>;
 
 /**
- * The primitive instance returned by `request()`. Carries the event name,
- * handler, and optional validator. `InferClient` reads `TEvent`,
- * `TPayload`, and `TResponse` to produce the client's `requests` type.
+ * The primitive instance returned by `request()`.
+ *
+ * It represents one client -> server request handler, including the event
+ * name, the handler, the optional validator, and the response type.
+ * `InferClient` reads it later to understand the client's request API.
  *
  * ```ts
  * request('get-history', async (ctx, payload) => {

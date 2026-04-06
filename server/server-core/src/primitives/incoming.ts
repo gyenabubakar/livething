@@ -18,9 +18,11 @@ export type IncomingHandler<TCtx = any, TPayload = unknown> = (
 ) => void | Promise<void>;
 
 /**
- * The primitive instance returned by `incoming()`. Carries the event name,
- * handler, and optional validator. `InferClient` reads `TEvent` and
- * `TPayload` to produce the client's `outgoing` type.
+ * The primitive instance returned by `incoming()`.
+ *
+ * It represents one client -> server event handler, including the event
+ * name, the handler function, and the optional validator. `InferClient`
+ * reads it later to understand what the client is allowed to send.
  *
  * ```ts
  * incoming('send-message', async (ctx, payload) => {

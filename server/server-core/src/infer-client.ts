@@ -79,7 +79,10 @@ type ErrorMap<TDefs> = {
 type BuiltInErrorUnion = typeof ValidationFailed;
 
 /**
- * Read a wskit server definition and produce the client contract type.
+ * Read a wskit server definition and turn it into the client contract type.
+ *
+ * This gives you the plain shape the client sees: top-level events,
+ * requests, streams, namespaces, channels, and typed errors.
  */
 export type InferClient<TServer extends ServerDefinition> = SimplifyDeep<
   ContractFromItems<PrimitivesOf<TServer>, 'top'> & {

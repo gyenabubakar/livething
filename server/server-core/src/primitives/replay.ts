@@ -14,8 +14,9 @@ export interface ReplayOptions<TCtx = any> {
 /**
  * The primitive instance returned by `replay()`.
  *
- * `defineServer()` and `channel()` use this to decide whether `ctx.sendReplay()`
- * exists later in the same scope.
+ * Registering this lets the server resend missed messages after a client
+ * reconnects. When it is present, later handlers in the same supported
+ * scope get `ctx.sendReplay()`.
  */
 export interface ReplayPrimitive<TCtx = any> extends Primitive<'replay'> {
   readonly onReplay?: ReplayHandler<TCtx>;
@@ -47,7 +48,11 @@ const _replay = definePrimitive<
 });
 
 /**
- * Turn on replay support for the current scope.
+ * Let this scope resend missed messages after reconnect.
+ *
+ * The client asks for messages after a known sequence number, and your
+ * `onReplay` handler can load them from storage and send them back in
+ * order with `ctx.sendReplay(...)`.
  */
 export function replay<TCtx>(options?: ReplayOptions<TCtx>): ReplayPrimitive<TCtx>;
 export function replay(options?: ReplayOptions<any>): ReplayPrimitive<any>;

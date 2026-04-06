@@ -121,8 +121,11 @@ export type StreamEventDeclaration<
 // ---------------------------------------------------------------------------
 
 /**
- * The primitive instance returned by `stream()`. Carries the event name,
- * trigger validator, chunk marker, and nudge declarations.
+ * The primitive instance returned by `stream()`.
+ *
+ * It is the stream contract: what starts the stream, what chunk shape the
+ * server yields, and which nudges the client may send while the stream is
+ * running.
  */
 export interface StreamPrimitive<
   TEvent extends string = string,
@@ -151,8 +154,10 @@ type StreamNudges<TStream extends StreamPrimitive> =
 // ---------------------------------------------------------------------------
 
 /**
- * The primitive instance returned by `generate()`. Carries the stream
- * contract plus the async generator.
+ * The primitive instance returned by `generate()`.
+ *
+ * It connects a stream contract to the async generator that actually runs
+ * when the client starts that stream.
  */
 export interface GeneratePrimitive<
   TStream extends StreamPrimitive = StreamPrimitive,

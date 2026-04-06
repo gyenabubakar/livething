@@ -4,7 +4,7 @@ import type { Primitive } from '~/primitives/define.ts';
 /**
  * The primitive instance returned by `dedup()`.
  *
- * It marks the server so the engine injects `_messageId` on outgoing messages.
+ * It marks the scope so outgoing app messages get a unique `_messageId`.
  */
 export interface DedupPrimitive extends Primitive<'dedup'> {}
 
@@ -20,7 +20,10 @@ const _dedup = definePrimitive({
 });
 
 /**
- * Turn on automatic `_messageId` injection for outgoing messages.
+ * Add a unique `_messageId` to each normal outgoing message.
+ *
+ * This helps the client ignore duplicates, which matters most during
+ * reconnect and replay when the same logical message might be seen twice.
  */
 export function dedup(): DedupPrimitive {
   return _dedup() as DedupPrimitive;
