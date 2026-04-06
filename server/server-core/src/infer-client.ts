@@ -1,9 +1,9 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import type { ContractFromItems, ErrorsFromItems } from '~/_types/scope-state.ts';
+import type { ChannelChild, ChannelPrimitive, ScopeDeclaration } from '~/channel/channel.ts';
 import type { ServerDefinition } from '~/define-server.ts';
 import type { ErrorDef, ValidationFailed } from '~/errors.ts';
-import type { ChannelChild, ChannelPrimitive, ScopeDeclaration } from '~/primitives/channel.ts';
-import type { NamespaceChild, NamespacePrimitive } from '~/primitives/namespace.ts';
-import type { ContractFromItems, ErrorsFromItems } from '~/types/scope-state.ts';
+import type { NamespaceChild, NamespacePrimitive } from '~/namespace/namespace.ts';
 
 type AnyChannel = ChannelPrimitive<string | ScopeDeclaration<string>, readonly ChannelChild[]>;
 type AnyNamespace = NamespacePrimitive<string, readonly NamespaceChild[]>;

@@ -1,13 +1,13 @@
+import { ack } from '~/ack/ack.ts';
+import { channel, scope } from '~/channel/channel.ts';
 import { defineServer } from '~/define-server.ts';
 import { error } from '~/errors.ts';
-import { ack } from '~/primitives/ack.ts';
-import { channel, scope } from '~/primitives/channel.ts';
-import { errors } from '~/primitives/errors.ts';
-import { incoming } from '~/primitives/incoming.ts';
-import { namespace } from '~/primitives/namespace.ts';
-import { outgoing } from '~/primitives/outgoing.ts';
-import { request } from '~/primitives/request.ts';
-import { chunks, generate, nudge, start, stream } from '~/primitives/stream.ts';
+import { errors } from '~/errors/errors.ts';
+import { incoming } from '~/incoming/incoming.ts';
+import { namespace } from '~/namespace/namespace.ts';
+import { outgoing } from '~/outgoing/outgoing.ts';
+import { request } from '~/request/request.ts';
+import { chunks, generate, nudge, start, stream } from '~/stream/stream.ts';
 import { t } from '~/t.ts';
 import type { InferClient } from '~/infer-client.ts';
 

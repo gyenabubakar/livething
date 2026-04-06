@@ -1,17 +1,4 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import type { AckPrimitive } from '~/primitives/ack.ts';
-import type { ChannelPrimitive } from '~/primitives/channel.ts';
-import type { DedupPrimitive } from '~/primitives/dedup.ts';
-import type { Primitive } from '~/primitives/define.ts';
-import type { ErrorsPrimitive } from '~/primitives/errors.ts';
-import type { IncomingPrimitive } from '~/primitives/incoming.ts';
-import type { PostInterceptPrimitive, PreInterceptPrimitive } from '~/primitives/intercept.ts';
-import type { NamespacePrimitive } from '~/primitives/namespace.ts';
-import type { OutgoingPrimitive } from '~/primitives/outgoing.ts';
-import type { ReplayPrimitive } from '~/primitives/replay.ts';
-import type { RequestPrimitive } from '~/primitives/request.ts';
-import type { SequencePrimitive } from '~/primitives/sequence.ts';
-import type { GeneratePrimitive, NudgeDeclaration, StreamPrimitive } from '~/primitives/stream.ts';
 import type {
   AppendFoldable,
   GenerateForPrefix,
@@ -19,13 +6,26 @@ import type {
   PostInterceptForIncoming,
   PreInterceptForPrefix,
   RequestForPrefix,
-} from '~/types/callback-bridge.ts';
+} from '~/_types/callback-bridge.ts';
 import type {
   HandlerCtxFromState,
   NoOutgoing,
   ScopeState,
   StreamBaseCtxFromState,
-} from '~/types/scope-state.ts';
+} from '~/_types/scope-state.ts';
+import type { AckPrimitive } from '~/ack/ack.ts';
+import type { ChannelPrimitive } from '~/channel/channel.ts';
+import type { DedupPrimitive } from '~/dedup/dedup.ts';
+import type { ErrorsPrimitive } from '~/errors/errors.ts';
+import type { IncomingPrimitive } from '~/incoming/incoming.ts';
+import type { PostInterceptPrimitive, PreInterceptPrimitive } from '~/intercept/intercept.ts';
+import type { NamespacePrimitive } from '~/namespace/namespace.ts';
+import type { OutgoingPrimitive } from '~/outgoing/outgoing.ts';
+import type { Primitive } from '~/primitive.ts';
+import type { ReplayPrimitive } from '~/replay/replay.ts';
+import type { RequestPrimitive } from '~/request/request.ts';
+import type { SequencePrimitive } from '~/sequence/sequence.ts';
+import type { GeneratePrimitive, NudgeDeclaration, StreamPrimitive } from '~/stream/stream.ts';
 
 type AnyOutgoing = OutgoingPrimitive<string, any>;
 type AnyRequest = RequestPrimitive<string, any, any, any>;

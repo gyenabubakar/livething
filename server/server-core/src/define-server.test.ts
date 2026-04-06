@@ -1,22 +1,22 @@
+import { ack } from '~/ack/ack.ts';
+import { channel, scope } from '~/channel/channel.ts';
+import { dedup } from '~/dedup/dedup.ts';
 import { defineServer } from '~/define-server.ts';
 import { error } from '~/errors.ts';
-import { ack } from '~/primitives/ack.ts';
-import { channel, scope } from '~/primitives/channel.ts';
-import { dedup } from '~/primitives/dedup.ts';
-import { errors } from '~/primitives/errors.ts';
-import { incoming } from '~/primitives/incoming.ts';
-import { intercept } from '~/primitives/intercept.ts';
-import { namespace } from '~/primitives/namespace.ts';
-import { outgoing } from '~/primitives/outgoing.ts';
-import { replay } from '~/primitives/replay.ts';
-import { request } from '~/primitives/request.ts';
-import { sequence } from '~/primitives/sequence.ts';
-import { chunks, generate, nudge, start, stream } from '~/primitives/stream.ts';
+import { errors } from '~/errors/errors.ts';
+import { incoming } from '~/incoming/incoming.ts';
+import { intercept } from '~/intercept/intercept.ts';
+import { namespace } from '~/namespace/namespace.ts';
+import { outgoing } from '~/outgoing/outgoing.ts';
+import { replay } from '~/replay/replay.ts';
+import { request } from '~/request/request.ts';
+import { sequence } from '~/sequence/sequence.ts';
+import { chunks, generate, nudge, start, stream } from '~/stream/stream.ts';
 import { t } from '~/t.ts';
+import type { ChannelHandlerContext } from '~/channel/channel.ts';
 import type { ServerDefinition, ServerHandlerContext } from '~/define-server.ts';
-import type { ChannelHandlerContext } from '~/primitives/channel.ts';
-import type { InterceptMessage } from '~/primitives/intercept.ts';
-import type { NamespaceHandlerContext } from '~/primitives/namespace.ts';
+import type { InterceptMessage } from '~/intercept/intercept.ts';
+import type { NamespaceHandlerContext } from '~/namespace/namespace.ts';
 
 // ===========================================================================
 // 1. Top-level outgoing() types ctx.send()/ctx.broadcast()
