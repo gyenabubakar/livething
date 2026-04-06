@@ -4,6 +4,7 @@ import type { AckPrimitive } from '~/primitives/ack.ts';
 import type { DedupPrimitive } from '~/primitives/dedup.ts';
 import type { ErrorsPrimitive } from '~/primitives/errors.ts';
 import type { IncomingPrimitive } from '~/primitives/incoming.ts';
+import type { InterceptPrimitive } from '~/primitives/intercept.ts';
 import type { OutgoingPrimitive } from '~/primitives/outgoing.ts';
 import type { ReplayPrimitive } from '~/primitives/replay.ts';
 import type { RequestPrimitive } from '~/primitives/request.ts';
@@ -26,20 +27,39 @@ type AnyGenerate = GeneratePrimitive<
 >;
 type AnyErrors = ErrorsPrimitive<readonly AnyErrorDef[]>;
 type AnyReplay = ReplayPrimitive<any>;
+type AnyIntercept = InterceptPrimitive<string, any, any>;
 
+/**
+ * Every primitive shape that the fold engine knows how to process.
+ *
+ * `namespace()` and `channel()` are not included here because they create
+ * their own nested folds.
+ */
 export type FoldablePrimitive =
   | AckPrimitive
   | SequencePrimitive
   | DedupPrimitive
   | AnyReplay
+  | AnyIntercept
   | AnyErrors
   | AnyOutgoing
   | AnyIncoming
   | AnyRequest
   | AnyGenerate;
 
+/**
+ * The scope currently being typed.
+ *
+ * This decides which extra ctx fields exist, like `namespaceName` or
+ * `channelName`.
+ */
 export type ScopeKind = 'top' | 'namespace' | 'channel';
 
+/**
+ * The client-facing contract accumulated while folding primitives.
+ *
+ * This is the raw shape that later powers `InferClient`.
+ */
 export interface ClientContractState {
   readonly incoming: Record<string, any>;
   readonly outgoing: Record<string, any>;
@@ -47,6 +67,12 @@ export interface ClientContractState {
   readonly streams: Record<string, any>;
 }
 
+/**
+ * The minimal shape every scope state must have while folding.
+ *
+ * Most helper types only care about these fields, not the exact generic
+ * parameters of `ScopeState`.
+ */
 export interface ScopeStateShape {
   readonly kind: ScopeKind;
   readonly outgoing: Record<string, any>;
@@ -56,8 +82,25 @@ export interface ScopeStateShape {
   readonly errors: readonly AnyErrorDef[];
 }
 
+/**
+ * A helper for "no outgoing events registered yet".
+ *
+ * Using `Record<never, never>` keeps the object empty without widening it
+ * to a generic `Record<string, unknown>`.
+ */
 export type NoOutgoing = Record<never, never>;
 
+/**
+ * The full accumulated state for one scope.
+ *
+ * As primitives are registered, this type records:
+ * - which scope we are in
+ * - which outgoing events are available to handlers
+ * - whether `ack()` is enabled
+ * - whether `replay()` is enabled
+ * - the client contract gathered so far
+ * - the defined server errors
+ */
 export type ScopeState<
   TKind extends ScopeKind = 'top',
   TOutgoing extends Record<string, any> = NoOutgoing,
@@ -79,6 +122,11 @@ export type ScopeState<
   readonly errors: TErrors;
 };
 
+/**
+ * Merge two object maps, with keys from `B` overriding keys from `A`.
+ *
+ * This is the core "append to contract" helper used by the fold.
+ */
 export type MergeRecords<A, B> = {
   [TKey in keyof A | keyof B]: TKey extends keyof B
     ? B[TKey]
@@ -87,16 +135,31 @@ export type MergeRecords<A, B> = {
       : never;
 };
 
+/**
+ * Turn an `outgoing()` primitive into `{ eventName: payloadType }`.
+ */
 type OutgoingEntry<TPrimitive extends AnyOutgoing> =
   TPrimitive extends OutgoingPrimitive<infer TEvent, infer TPayload>
     ? Record<TEvent, TPayload>
     : never;
 
+/**
+ * Turn a `request()` primitive into
+ * `{ eventName: { payload, response } }`.
+ */
 type RequestEntry<TPrimitive extends AnyRequest> =
   TPrimitive extends RequestPrimitive<infer TEvent, infer TPayload, infer TResponse, any>
     ? Record<TEvent, { payload: TPayload; response: TResponse }>
     : never;
 
+/**
+ * Convert a stream's nudges into a simple event -> payload map.
+ *
+ * Example:
+ * `readonly [nudge('cancel'), nudge('add-context', ...)]`
+ * becomes
+ * `{ cancel: unknown; 'add-context': AddContextPayload }`
+ */
 type NudgeMap<TNudges extends readonly NudgeDeclaration[]> = {
   [TNudge in TNudges[number] as TNudge['event']]: TNudge extends NudgeDeclaration<
     string,
@@ -106,6 +169,9 @@ type NudgeMap<TNudges extends readonly NudgeDeclaration[]> = {
     : never;
 };
 
+/**
+ * Convert a stream contract into the client-facing stream entry.
+ */
 type StreamEntry<TStream extends StreamPrimitive> =
   TStream extends StreamPrimitive<string, infer TPayload, infer TChunks, infer TNudges>
     ? Record<
@@ -117,6 +183,16 @@ type StreamEntry<TStream extends StreamPrimitive> =
       >
     : never;
 
+/**
+ * Apply one primitive to the current scope state.
+ *
+ * This is the heart of the fold. Each branch says what a primitive changes:
+ * - `ack()` flips `hasAck`
+ * - `replay()` flips `hasReplay`
+ * - `outgoing()` adds sendable events
+ * - `incoming()` and `request()` extend the client contract
+ * - `generate()` adds a stream to the client contract
+ */
 export type NextState<
   TState extends ScopeStateShape,
   TPrimitive extends FoldablePrimitive,
@@ -226,6 +302,11 @@ export type NextState<
                   : TState
                 : TState;
 
+/**
+ * Fold a tuple of primitives from left to right into one final scope state.
+ *
+ * This is why primitive order matters for typed ctx.
+ */
 export type FoldState<
   TItems extends readonly FoldablePrimitive[],
   TState extends ScopeStateShape = ScopeState,
@@ -295,16 +376,29 @@ export interface ChannelScopeMethods {
   readonly channelName: string;
 }
 
+/**
+ * Only expose `send` / `broadcast` when the scope actually has outgoing
+ * events. Without this, empty scopes would still show useless methods.
+ */
 type SendApi<TOutgoing extends Record<string, any>> = keyof TOutgoing extends never
   ? {}
   : SendMethods<TOutgoing>;
 
+/**
+ * Only expose `ack()` in top-level scopes that registered `ack()`.
+ */
 type AckApi<TState extends ScopeStateShape> = TState['kind'] extends 'top'
   ? TState['hasAck'] extends true
     ? AckMethods
     : {}
   : {};
 
+/**
+ * Only expose `sendReplay(...)` when replay is enabled in this scope.
+ *
+ * If there are no known outgoing events yet, the method falls back to a
+ * broad `(event: string, payload: unknown)` signature.
+ */
 type ReplayApi<TState extends ScopeStateShape> = TState['hasReplay'] extends true
   ? keyof TState['outgoing'] extends never
     ? {
@@ -313,29 +407,60 @@ type ReplayApi<TState extends ScopeStateShape> = TState['hasReplay'] extends tru
     : ReplayMethods<TState['outgoing']>
   : {};
 
+/**
+ * Add scope-specific ctx fields like `namespaceName` or `channelName`.
+ */
 type ScopeExtras<TKind extends ScopeKind> = TKind extends 'namespace'
   ? NamespaceScopeMethods
   : TKind extends 'channel'
     ? ChannelScopeMethods
     : {};
 
+/**
+ * Build the normal handler ctx from folded state.
+ *
+ * This is what `incoming()`, `request()`, and most intercept callbacks see.
+ */
 export type HandlerCtxFromState<TState extends ScopeStateShape> = SendApi<TState['outgoing']> &
   AckApi<TState> &
   ReplayApi<TState> &
   ScopeExtras<TState['kind']>;
 
+/**
+ * Build the base ctx for stream generators.
+ *
+ * Streams intentionally do not get `ack()`, but they do get send/broadcast,
+ * replay helpers, and scope extras.
+ */
 export type StreamBaseCtxFromState<TState extends ScopeStateShape> = SendApi<TState['outgoing']> &
   ReplayApi<TState> &
   ScopeExtras<TState['kind']>;
 
+/**
+ * Build the full stream ctx by adding `ctx.nudges(...)` on top of the
+ * regular stream base ctx.
+ */
 export type StreamCtxFromState<
   TState extends ScopeStateShape,
   TNudges extends readonly NudgeDeclaration[],
 > = StreamBaseCtxFromState<TState> & StreamNudgesApi<TNudges>;
 
+/**
+ * Read the client contract out of a folded scope state.
+ */
 export type ContractFromState<TState extends ScopeStateShape> = TState['contract'];
+
+/**
+ * Read the declared error list out of a folded scope state.
+ */
 export type ErrorsFromState<TState extends ScopeStateShape> = TState['errors'];
 
+/**
+ * Filter a mixed tuple down to just the primitives that participate in the
+ * fold engine.
+ *
+ * This is how `InferClient` can accept tuples that also contain scopes.
+ */
 export type FoldableItemsOf<TItems extends readonly unknown[]> = TItems extends readonly [
   infer THead,
   ...infer TTail,
@@ -345,11 +470,19 @@ export type FoldableItemsOf<TItems extends readonly unknown[]> = TItems extends 
     : FoldableItemsOf<TTail>
   : readonly [];
 
+/**
+ * Compute the client contract directly from a tuple of items.
+ *
+ * Items that are not foldable primitives are skipped automatically.
+ */
 export type ContractFromItems<
   TItems extends readonly unknown[],
   TKind extends ScopeKind = 'top',
 > = ContractFromState<FoldState<FoldableItemsOf<TItems>, ScopeState<TKind>>>;
 
+/**
+ * Compute the declared error list directly from a tuple of items.
+ */
 export type ErrorsFromItems<
   TItems extends readonly unknown[],
   TKind extends ScopeKind = 'top',

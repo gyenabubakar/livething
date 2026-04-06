@@ -5,6 +5,7 @@ import type { DedupPrimitive } from '~/primitives/dedup.ts';
 import type { Primitive } from '~/primitives/define.ts';
 import type { ErrorsPrimitive } from '~/primitives/errors.ts';
 import type { IncomingPrimitive } from '~/primitives/incoming.ts';
+import type { PostInterceptPrimitive, PreInterceptPrimitive } from '~/primitives/intercept.ts';
 import type { NamespacePrimitive } from '~/primitives/namespace.ts';
 import type { OutgoingPrimitive } from '~/primitives/outgoing.ts';
 import type { ReplayPrimitive } from '~/primitives/replay.ts';
@@ -12,7 +13,14 @@ import type { RequestPrimitive } from '~/primitives/request.ts';
 import type { SequencePrimitive } from '~/primitives/sequence.ts';
 import type { GeneratePrimitive, NudgeDeclaration, StreamPrimitive } from '~/primitives/stream.ts';
 import type {
-  FoldState,
+  AppendFoldable,
+  GenerateForPrefix,
+  IncomingForPrefix,
+  PostInterceptForIncoming,
+  PreInterceptForPrefix,
+  RequestForPrefix,
+} from '~/types/callback-bridge.ts';
+import type {
   HandlerCtxFromState,
   NoOutgoing,
   ScopeState,
@@ -22,6 +30,8 @@ import type {
 type AnyOutgoing = OutgoingPrimitive<string, any>;
 type AnyRequest = RequestPrimitive<string, any, any, any>;
 type AnyIncoming = IncomingPrimitive<string, any, any>;
+type AnyPreIntercept = PreInterceptPrimitive<any>;
+type AnyPostIntercept = PostInterceptPrimitive<string, any, any>;
 type AnyGenerate = GeneratePrimitive<
   StreamPrimitive<string, any, any, readonly NudgeDeclaration[]>,
   any,
@@ -34,17 +44,39 @@ type TopLevelStatePrimitive =
   | ReplayPrimitive<any>
   | ErrorsPrimitive
   | AnyOutgoing
+  | AnyPreIntercept
+  | AnyPostIntercept
   | AnyIncoming
   | AnyRequest
   | AnyGenerate;
+
 type TopLevelPrimitive = TopLevelStatePrimitive | NamespacePrimitive | ChannelPrimitive;
 
-type TopLevelHandlerCtx<TPrefix extends readonly TopLevelStatePrimitive[]> = HandlerCtxFromState<
-  FoldState<TPrefix, ScopeState<'top'>>
->;
+type TopLevelIncoming<
+  TPrefix extends readonly TopLevelStatePrimitive[],
+  TEvent extends string,
+  TPayload,
+> = IncomingForPrefix<'top', TPrefix, TEvent, TPayload>;
 
-type TopLevelStreamBaseCtx<TPrefix extends readonly TopLevelStatePrimitive[]> =
-  StreamBaseCtxFromState<FoldState<TPrefix, ScopeState<'top'>>>;
+type TopLevelRequest<
+  TPrefix extends readonly TopLevelStatePrimitive[],
+  TEvent extends string,
+  TPayload,
+  TResponse,
+> = RequestForPrefix<'top', TPrefix, TEvent, TPayload, TResponse>;
+
+type TopLevelGenerate<
+  TPrefix extends readonly TopLevelStatePrimitive[],
+  TStream extends StreamPrimitive<string, any, any, readonly NudgeDeclaration[]>,
+> = GenerateForPrefix<'top', TPrefix, TStream>;
+
+type TopLevelPreIntercept<TPrefix extends readonly TopLevelStatePrimitive[]> =
+  PreInterceptForPrefix<'top', TPrefix>;
+
+type TopLevelPostIntercept<
+  TPrefix extends readonly TopLevelStatePrimitive[],
+  TIncoming extends IncomingPrimitive<string, any, any>,
+> = PostInterceptForIncoming<'top', TPrefix, TIncoming>;
 
 export type ServerHandlerContext<
   TOutgoing extends Record<string, any> = NoOutgoing,
@@ -103,7 +135,7 @@ export function defineServer<
   TIncomingPayload,
 >(
   p1: P1,
-  incomingPrimitive: IncomingPrimitive<TIncomingEvent, TIncomingPayload, TopLevelHandlerCtx<[P1]>>,
+  incomingPrimitive: TopLevelIncoming<[P1], TIncomingEvent, TIncomingPayload>,
 ): ServerDefinition<readonly [P1, typeof incomingPrimitive]>;
 export function defineServer<
   P1 extends TopLevelStatePrimitive,
@@ -112,7 +144,7 @@ export function defineServer<
   TNamespace extends NamespacePrimitive,
 >(
   p1: P1,
-  incomingPrimitive: IncomingPrimitive<TIncomingEvent, TIncomingPayload, TopLevelHandlerCtx<[P1]>>,
+  incomingPrimitive: TopLevelIncoming<[P1], TIncomingEvent, TIncomingPayload>,
   namespacePrimitive: TNamespace,
 ): ServerDefinition<readonly [P1, typeof incomingPrimitive, TNamespace]>;
 export function defineServer<
@@ -124,11 +156,7 @@ export function defineServer<
 >(
   p1: P1,
   p2: P2,
-  incomingPrimitive: IncomingPrimitive<
-    TIncomingEvent,
-    TIncomingPayload,
-    TopLevelHandlerCtx<[P1, P2]>
-  >,
+  incomingPrimitive: TopLevelIncoming<[P1, P2], TIncomingEvent, TIncomingPayload>,
   namespacePrimitive: TNamespace,
 ): ServerDefinition<readonly [P1, P2, typeof incomingPrimitive, TNamespace]>;
 export function defineServer<
@@ -138,7 +166,7 @@ export function defineServer<
   TChannel extends ChannelPrimitive,
 >(
   p1: P1,
-  incomingPrimitive: IncomingPrimitive<TIncomingEvent, TIncomingPayload, TopLevelHandlerCtx<[P1]>>,
+  incomingPrimitive: TopLevelIncoming<[P1], TIncomingEvent, TIncomingPayload>,
   channelPrimitive: TChannel,
 ): ServerDefinition<readonly [P1, typeof incomingPrimitive, TChannel]>;
 export function defineServer<
@@ -150,13 +178,22 @@ export function defineServer<
 >(
   p1: P1,
   p2: P2,
-  incomingPrimitive: IncomingPrimitive<
-    TIncomingEvent,
-    TIncomingPayload,
-    TopLevelHandlerCtx<[P1, P2]>
-  >,
+  incomingPrimitive: TopLevelIncoming<[P1, P2], TIncomingEvent, TIncomingPayload>,
   channelPrimitive: TChannel,
 ): ServerDefinition<readonly [P1, P2, typeof incomingPrimitive, TChannel]>;
+export function defineServer<
+  P1 extends TopLevelStatePrimitive,
+  TIncomingEvent extends string,
+  TIncomingPayload,
+>(
+  p1: P1,
+  interceptPrimitive: TopLevelPreIntercept<[P1]>,
+  incomingPrimitive: TopLevelIncoming<
+    AppendFoldable<[P1], typeof interceptPrimitive>,
+    TIncomingEvent,
+    TIncomingPayload
+  >,
+): ServerDefinition<readonly [P1, typeof interceptPrimitive, typeof incomingPrimitive]>;
 export function defineServer<
   P1 extends TopLevelStatePrimitive,
   P2 extends TopLevelStatePrimitive,
@@ -165,12 +202,30 @@ export function defineServer<
 >(
   p1: P1,
   p2: P2,
-  incomingPrimitive: IncomingPrimitive<
-    TIncomingEvent,
-    TIncomingPayload,
-    TopLevelHandlerCtx<[P1, P2]>
-  >,
+  interceptPrimitive: TopLevelPreIntercept<[P1, P2]>,
+  incomingPrimitive: TopLevelIncoming<[P1, P2], TIncomingEvent, TIncomingPayload>,
+): ServerDefinition<readonly [P1, P2, typeof interceptPrimitive, typeof incomingPrimitive]>;
+export function defineServer<
+  P1 extends TopLevelStatePrimitive,
+  P2 extends TopLevelStatePrimitive,
+  TIncomingEvent extends string,
+  TIncomingPayload,
+>(
+  p1: P1,
+  p2: P2,
+  incomingPrimitive: TopLevelIncoming<[P1, P2], TIncomingEvent, TIncomingPayload>,
 ): ServerDefinition<readonly [P1, P2, typeof incomingPrimitive]>;
+export function defineServer<
+  P1 extends TopLevelStatePrimitive,
+  P2 extends TopLevelStatePrimitive,
+  TIncomingEvent extends string,
+  TIncomingPayload,
+>(
+  p1: P1,
+  p2: P2,
+  incomingPrimitive: TopLevelIncoming<[P1, P2], TIncomingEvent, TIncomingPayload>,
+  interceptPrimitive: TopLevelPostIntercept<[P1, P2], typeof incomingPrimitive>,
+): ServerDefinition<readonly [P1, P2, typeof incomingPrimitive, typeof interceptPrimitive]>;
 export function defineServer<
   P1 extends TopLevelStatePrimitive,
   P2 extends TopLevelStatePrimitive,
@@ -185,18 +240,9 @@ export function defineServer<
   p1: P1,
   p2: P2,
   p3: P3,
-  incomingPrimitive: IncomingPrimitive<
-    TIncomingEvent,
-    TIncomingPayload,
-    TopLevelHandlerCtx<[P1, P2, P3]>
-  >,
-  requestPrimitive: RequestPrimitive<
-    TRequestEvent,
-    TRequestPayload,
-    TRequestResponse,
-    TopLevelHandlerCtx<[P1, P2, P3]>
-  >,
-  generatePrimitive: GeneratePrimitive<TStream, TopLevelStreamBaseCtx<[P1, P2, P3]>, any>,
+  incomingPrimitive: TopLevelIncoming<[P1, P2, P3], TIncomingEvent, TIncomingPayload>,
+  requestPrimitive: TopLevelRequest<[P1, P2, P3], TRequestEvent, TRequestPayload, TRequestResponse>,
+  generatePrimitive: TopLevelGenerate<[P1, P2, P3], TStream>,
 ): ServerDefinition<
   readonly [P1, P2, P3, typeof incomingPrimitive, typeof requestPrimitive, typeof generatePrimitive]
 >;
@@ -216,18 +262,14 @@ export function defineServer<
   p2: P2,
   p3: P3,
   p4: P4,
-  incomingPrimitive: IncomingPrimitive<
-    TIncomingEvent,
-    TIncomingPayload,
-    TopLevelHandlerCtx<[P1, P2, P3, P4]>
-  >,
-  requestPrimitive: RequestPrimitive<
+  incomingPrimitive: TopLevelIncoming<[P1, P2, P3, P4], TIncomingEvent, TIncomingPayload>,
+  requestPrimitive: TopLevelRequest<
+    [P1, P2, P3, P4],
     TRequestEvent,
     TRequestPayload,
-    TRequestResponse,
-    TopLevelHandlerCtx<[P1, P2, P3, P4]>
+    TRequestResponse
   >,
-  generatePrimitive: GeneratePrimitive<TStream, TopLevelStreamBaseCtx<[P1, P2, P3, P4]>, any>,
+  generatePrimitive: TopLevelGenerate<[P1, P2, P3, P4], TStream>,
 ): ServerDefinition<
   readonly [
     P1,

@@ -5,6 +5,7 @@ import { channel, scope } from '~/primitives/channel.ts';
 import { dedup } from '~/primitives/dedup.ts';
 import { errors } from '~/primitives/errors.ts';
 import { incoming } from '~/primitives/incoming.ts';
+import { intercept } from '~/primitives/intercept.ts';
 import { namespace } from '~/primitives/namespace.ts';
 import { outgoing } from '~/primitives/outgoing.ts';
 import { replay } from '~/primitives/replay.ts';
@@ -13,6 +14,7 @@ import { sequence } from '~/primitives/sequence.ts';
 import { chunks, generate, nudge, start, stream } from '~/primitives/stream.ts';
 import { t } from '~/t.ts';
 import { describe, expect, it } from 'vitest';
+import type { PostInterceptPrimitive, PreInterceptPrimitive } from '~/primitives/intercept.ts';
 
 describe('defineServer', () => {
   const Forbidden = error('forbidden', (value: unknown) => value as { reason: string });
@@ -121,6 +123,19 @@ describe('defineServer', () => {
     );
   });
 
+  it('stores intercept() primitives in order at the top level', () => {
+    const server = defineServer(
+      ack(),
+      outgoing('message', t<{ text: string }>()),
+      intercept(async () => {}),
+      incoming('ping', async () => {}),
+    );
+
+    expect(server.primitives).toHaveLength(4);
+    expect(server.primitives[2]!.__wskit).toBe('intercept');
+    expect((server.primitives[2]! as PreInterceptPrimitive).mode).toBe('pre');
+  });
+
   it('stores channel() alongside top-level primitives in order', () => {
     const server = defineServer(
       ack(),
@@ -139,6 +154,31 @@ describe('defineServer', () => {
     expect((server.primitives[3]! as ReturnType<typeof channel>).primitives[0]!.__wskit).toBe(
       'outgoing',
     );
+  });
+
+  it('stores scoped intercept() primitives inside namespace and channel blocks', () => {
+    const server = defineServer(
+      namespace(
+        'notifications',
+        outgoing('alert', t<{ id: string }>()),
+        intercept(async () => {}),
+        incoming('dismiss', async () => {}),
+      ),
+      channel(
+        scope('rooms', /^room-/),
+        outgoing('message', t<{ text: string }>()),
+        intercept('send-message', async () => {}),
+        incoming('send-message', async () => {}),
+      ),
+    );
+
+    const ns = server.primitives[0]! as ReturnType<typeof namespace>;
+    const ch = server.primitives[1]! as ReturnType<typeof channel>;
+
+    expect(ns.primitives[1]!.__wskit).toBe('intercept');
+    expect((ns.primitives[1]! as PreInterceptPrimitive).mode).toBe('pre');
+    expect(ch.primitives[1]!.__wskit).toBe('intercept');
+    expect((ch.primitives[1]! as PostInterceptPrimitive).mode).toBe('post');
   });
 
   it('stores channel-scoped replay alongside other channel primitives', () => {

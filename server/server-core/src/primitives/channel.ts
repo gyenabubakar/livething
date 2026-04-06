@@ -2,12 +2,20 @@
 import { definePrimitive } from '~/primitives/define.ts';
 import type { Primitive } from '~/primitives/define.ts';
 import type { IncomingPrimitive } from '~/primitives/incoming.ts';
+import type { PostInterceptPrimitive, PreInterceptPrimitive } from '~/primitives/intercept.ts';
 import type { OutgoingPrimitive } from '~/primitives/outgoing.ts';
 import type { ReplayPrimitive } from '~/primitives/replay.ts';
 import type { RequestPrimitive } from '~/primitives/request.ts';
 import type { GeneratePrimitive, NudgeDeclaration, StreamPrimitive } from '~/primitives/stream.ts';
 import type {
-  FoldState,
+  AppendFoldable,
+  GenerateForPrefix,
+  IncomingForPrefix,
+  PostInterceptForIncoming,
+  PreInterceptForPrefix,
+  RequestForPrefix,
+} from '~/types/callback-bridge.ts';
+import type {
   HandlerCtxFromState,
   NoOutgoing,
   ScopeState,
@@ -16,6 +24,8 @@ import type {
 
 type AnyOutgoing = OutgoingPrimitive<string, any>;
 type AnyIncoming = IncomingPrimitive<string, any, any>;
+type AnyPreIntercept = PreInterceptPrimitive<any>;
+type AnyPostIntercept = PostInterceptPrimitive<string, any, any>;
 type AnyRequest = RequestPrimitive<string, any, any, any>;
 type AnyGenerate = GeneratePrimitive<
   StreamPrimitive<string, any, any, readonly NudgeDeclaration[]>,
@@ -25,16 +35,35 @@ type AnyGenerate = GeneratePrimitive<
 type ChannelStatePrimitive =
   | AnyOutgoing
   | ReplayPrimitive<any>
+  | AnyPreIntercept
+  | AnyPostIntercept
   | AnyIncoming
   | AnyRequest
   | AnyGenerate;
 
-type ChannelHandlerCtx<TPrefix extends readonly ChannelStatePrimitive[]> = HandlerCtxFromState<
-  FoldState<TPrefix, ScopeState<'channel'>>
+type ChannelIncoming<
+  TPrefix extends readonly ChannelStatePrimitive[],
+  TEvent extends string,
+  TPayload,
+> = IncomingForPrefix<'channel', TPrefix, TEvent, TPayload>;
+type ChannelRequest<
+  TPrefix extends readonly ChannelStatePrimitive[],
+  TEvent extends string,
+  TPayload,
+  TResponse,
+> = RequestForPrefix<'channel', TPrefix, TEvent, TPayload, TResponse>;
+type ChannelGenerate<
+  TPrefix extends readonly ChannelStatePrimitive[],
+  TStream extends StreamPrimitive<string, any, any, readonly NudgeDeclaration[]>,
+> = GenerateForPrefix<'channel', TPrefix, TStream>;
+type ChannelPreIntercept<TPrefix extends readonly ChannelStatePrimitive[]> = PreInterceptForPrefix<
+  'channel',
+  TPrefix
 >;
-
-type ChannelStreamBaseCtx<TPrefix extends readonly ChannelStatePrimitive[]> =
-  StreamBaseCtxFromState<FoldState<TPrefix, ScopeState<'channel'>>>;
+type ChannelPostIntercept<
+  TPrefix extends readonly ChannelStatePrimitive[],
+  TIncoming extends IncomingPrimitive<string, any, any>,
+> = PostInterceptForIncoming<'channel', TPrefix, TIncoming>;
 
 export interface ScopeDeclaration<TKey extends string = string> {
   readonly key: TKey;
@@ -106,8 +135,34 @@ export function channel<
 >(
   pattern: TPattern,
   p1: P1,
-  incomingPrimitive: IncomingPrimitive<TIncomingEvent, TIncomingPayload, ChannelHandlerCtx<[P1]>>,
+  interceptPrimitive: ChannelPreIntercept<[P1]>,
+  incomingPrimitive: ChannelIncoming<
+    AppendFoldable<[P1], typeof interceptPrimitive>,
+    TIncomingEvent,
+    TIncomingPayload
+  >,
+): ChannelPrimitive<TPattern, readonly [P1, typeof interceptPrimitive, typeof incomingPrimitive]>;
+export function channel<
+  TPattern extends ChannelPattern,
+  P1 extends ChannelStatePrimitive,
+  TIncomingEvent extends string,
+  TIncomingPayload,
+>(
+  pattern: TPattern,
+  p1: P1,
+  incomingPrimitive: ChannelIncoming<[P1], TIncomingEvent, TIncomingPayload>,
 ): ChannelPrimitive<TPattern, readonly [P1, typeof incomingPrimitive]>;
+export function channel<
+  TPattern extends ChannelPattern,
+  P1 extends ChannelStatePrimitive,
+  TIncomingEvent extends string,
+  TIncomingPayload,
+>(
+  pattern: TPattern,
+  p1: P1,
+  incomingPrimitive: ChannelIncoming<[P1], TIncomingEvent, TIncomingPayload>,
+  interceptPrimitive: ChannelPostIntercept<[P1], typeof incomingPrimitive>,
+): ChannelPrimitive<TPattern, readonly [P1, typeof incomingPrimitive, typeof interceptPrimitive]>;
 export function channel<
   TPattern extends ChannelPattern,
   P1 extends ChannelStatePrimitive,
@@ -122,18 +177,9 @@ export function channel<
   pattern: TPattern,
   p1: P1,
   p2: P2,
-  incomingPrimitive: IncomingPrimitive<
-    TIncomingEvent,
-    TIncomingPayload,
-    ChannelHandlerCtx<[P1, P2]>
-  >,
-  requestPrimitive: RequestPrimitive<
-    TRequestEvent,
-    TRequestPayload,
-    TRequestResponse,
-    ChannelHandlerCtx<[P1, P2]>
-  >,
-  generatePrimitive: GeneratePrimitive<TStream, ChannelStreamBaseCtx<[P1, P2]>, any>,
+  incomingPrimitive: ChannelIncoming<[P1, P2], TIncomingEvent, TIncomingPayload>,
+  requestPrimitive: ChannelRequest<[P1, P2], TRequestEvent, TRequestPayload, TRequestResponse>,
+  generatePrimitive: ChannelGenerate<[P1, P2], TStream>,
 ): ChannelPrimitive<
   TPattern,
   readonly [P1, P2, typeof incomingPrimitive, typeof requestPrimitive, typeof generatePrimitive]

@@ -34,6 +34,15 @@ export type {
 } from './primitives/channel.ts';
 export { incoming } from './primitives/incoming.ts';
 export type { IncomingPrimitive, IncomingHandler } from './primitives/incoming.ts';
+export { intercept } from './primitives/intercept.ts';
+export type {
+  InterceptMessage,
+  InterceptPrimitive,
+  PostInterceptHandler,
+  PostInterceptPrimitive,
+  PreInterceptHandler,
+  PreInterceptPrimitive,
+} from './primitives/intercept.ts';
 export { outgoing } from './primitives/outgoing.ts';
 export type { OutgoingPrimitive } from './primitives/outgoing.ts';
 export { replay } from './primitives/replay.ts';

@@ -2,11 +2,19 @@
 import { definePrimitive } from '~/primitives/define.ts';
 import type { Primitive } from '~/primitives/define.ts';
 import type { IncomingPrimitive } from '~/primitives/incoming.ts';
+import type { PostInterceptPrimitive, PreInterceptPrimitive } from '~/primitives/intercept.ts';
 import type { OutgoingPrimitive } from '~/primitives/outgoing.ts';
 import type { RequestPrimitive } from '~/primitives/request.ts';
 import type { GeneratePrimitive, NudgeDeclaration, StreamPrimitive } from '~/primitives/stream.ts';
 import type {
-  FoldState,
+  AppendFoldable,
+  GenerateForPrefix,
+  IncomingForPrefix,
+  PostInterceptForIncoming,
+  PreInterceptForPrefix,
+  RequestForPrefix,
+} from '~/types/callback-bridge.ts';
+import type {
   HandlerCtxFromState,
   NoOutgoing,
   ScopeState,
@@ -15,20 +23,43 @@ import type {
 
 type AnyOutgoing = OutgoingPrimitive<string, any>;
 type AnyIncoming = IncomingPrimitive<string, any, any>;
+type AnyPreIntercept = PreInterceptPrimitive<any>;
+type AnyPostIntercept = PostInterceptPrimitive<string, any, any>;
 type AnyRequest = RequestPrimitive<string, any, any, any>;
 type AnyGenerate = GeneratePrimitive<
   StreamPrimitive<string, any, any, readonly NudgeDeclaration[]>,
   any,
   any
 >;
-type NamespaceStatePrimitive = AnyOutgoing | AnyIncoming | AnyRequest | AnyGenerate;
+type NamespaceStatePrimitive =
+  | AnyOutgoing
+  | AnyPreIntercept
+  | AnyPostIntercept
+  | AnyIncoming
+  | AnyRequest
+  | AnyGenerate;
 
-type NamespaceHandlerCtx<TPrefix extends readonly NamespaceStatePrimitive[]> = HandlerCtxFromState<
-  FoldState<TPrefix, ScopeState<'namespace'>>
->;
-
-type NamespaceStreamBaseCtx<TPrefix extends readonly NamespaceStatePrimitive[]> =
-  StreamBaseCtxFromState<FoldState<TPrefix, ScopeState<'namespace'>>>;
+type NamespaceIncoming<
+  TPrefix extends readonly NamespaceStatePrimitive[],
+  TEvent extends string,
+  TPayload,
+> = IncomingForPrefix<'namespace', TPrefix, TEvent, TPayload>;
+type NamespaceRequest<
+  TPrefix extends readonly NamespaceStatePrimitive[],
+  TEvent extends string,
+  TPayload,
+  TResponse,
+> = RequestForPrefix<'namespace', TPrefix, TEvent, TPayload, TResponse>;
+type NamespaceGenerate<
+  TPrefix extends readonly NamespaceStatePrimitive[],
+  TStream extends StreamPrimitive<string, any, any, readonly NudgeDeclaration[]>,
+> = GenerateForPrefix<'namespace', TPrefix, TStream>;
+type NamespacePreIntercept<TPrefix extends readonly NamespaceStatePrimitive[]> =
+  PreInterceptForPrefix<'namespace', TPrefix>;
+type NamespacePostIntercept<
+  TPrefix extends readonly NamespaceStatePrimitive[],
+  TIncoming extends IncomingPrimitive<string, any, any>,
+> = PostInterceptForIncoming<'namespace', TPrefix, TIncoming>;
 
 export type NamespaceChild = NamespaceStatePrimitive;
 
@@ -81,8 +112,34 @@ export function namespace<
 >(
   pattern: TPattern,
   p1: P1,
-  incomingPrimitive: IncomingPrimitive<TIncomingEvent, TIncomingPayload, NamespaceHandlerCtx<[P1]>>,
+  interceptPrimitive: NamespacePreIntercept<[P1]>,
+  incomingPrimitive: NamespaceIncoming<
+    AppendFoldable<[P1], typeof interceptPrimitive>,
+    TIncomingEvent,
+    TIncomingPayload
+  >,
+): NamespacePrimitive<TPattern, readonly [P1, typeof interceptPrimitive, typeof incomingPrimitive]>;
+export function namespace<
+  TPattern extends string,
+  P1 extends NamespaceStatePrimitive,
+  TIncomingEvent extends string,
+  TIncomingPayload,
+>(
+  pattern: TPattern,
+  p1: P1,
+  incomingPrimitive: NamespaceIncoming<[P1], TIncomingEvent, TIncomingPayload>,
 ): NamespacePrimitive<TPattern, readonly [P1, typeof incomingPrimitive]>;
+export function namespace<
+  TPattern extends string,
+  P1 extends NamespaceStatePrimitive,
+  TIncomingEvent extends string,
+  TIncomingPayload,
+>(
+  pattern: TPattern,
+  p1: P1,
+  incomingPrimitive: NamespaceIncoming<[P1], TIncomingEvent, TIncomingPayload>,
+  interceptPrimitive: NamespacePostIntercept<[P1], typeof incomingPrimitive>,
+): NamespacePrimitive<TPattern, readonly [P1, typeof incomingPrimitive, typeof interceptPrimitive]>;
 export function namespace<
   TPattern extends string,
   P1 extends NamespaceStatePrimitive,
@@ -97,18 +154,9 @@ export function namespace<
   pattern: TPattern,
   p1: P1,
   p2: P2,
-  incomingPrimitive: IncomingPrimitive<
-    TIncomingEvent,
-    TIncomingPayload,
-    NamespaceHandlerCtx<[P1, P2]>
-  >,
-  requestPrimitive: RequestPrimitive<
-    TRequestEvent,
-    TRequestPayload,
-    TRequestResponse,
-    NamespaceHandlerCtx<[P1, P2]>
-  >,
-  generatePrimitive: GeneratePrimitive<TStream, NamespaceStreamBaseCtx<[P1, P2]>, any>,
+  incomingPrimitive: NamespaceIncoming<[P1, P2], TIncomingEvent, TIncomingPayload>,
+  requestPrimitive: NamespaceRequest<[P1, P2], TRequestEvent, TRequestPayload, TRequestResponse>,
+  generatePrimitive: NamespaceGenerate<[P1, P2], TStream>,
 ): NamespacePrimitive<
   TPattern,
   readonly [P1, P2, typeof incomingPrimitive, typeof requestPrimitive, typeof generatePrimitive]

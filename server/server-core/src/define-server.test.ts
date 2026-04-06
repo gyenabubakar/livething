@@ -5,6 +5,7 @@ import { channel, scope } from '~/primitives/channel.ts';
 import { dedup } from '~/primitives/dedup.ts';
 import { errors } from '~/primitives/errors.ts';
 import { incoming } from '~/primitives/incoming.ts';
+import { intercept } from '~/primitives/intercept.ts';
 import { namespace } from '~/primitives/namespace.ts';
 import { outgoing } from '~/primitives/outgoing.ts';
 import { replay } from '~/primitives/replay.ts';
@@ -12,7 +13,10 @@ import { request } from '~/primitives/request.ts';
 import { sequence } from '~/primitives/sequence.ts';
 import { chunks, generate, nudge, start, stream } from '~/primitives/stream.ts';
 import { t } from '~/t.ts';
-import type { ServerDefinition } from '~/define-server.ts';
+import type { ServerDefinition, ServerHandlerContext } from '~/define-server.ts';
+import type { ChannelHandlerContext } from '~/primitives/channel.ts';
+import type { InterceptMessage } from '~/primitives/intercept.ts';
+import type { NamespaceHandlerContext } from '~/primitives/namespace.ts';
 
 // ===========================================================================
 // 1. Top-level outgoing() types ctx.send()/ctx.broadcast()
@@ -187,7 +191,78 @@ const withReplay = defineServer(
 void withReplay;
 
 // ===========================================================================
-// 5. defineServer() only needs generate(streamDecl, fn)
+// 5. intercept() types pre-validation and post-validation callbacks
+// ===========================================================================
+
+const withIntercept = defineServer(
+  ack(),
+  outgoing('message', t<{ text: string }>()),
+  intercept(
+    async (
+      ctx: ServerHandlerContext<{ message: { text: string } }, true>,
+      message: InterceptMessage,
+    ) => {
+      ctx.send('message', { text: 'seen' });
+      ctx.ack();
+
+      const _event: string = message.event;
+      const _payload: unknown = message.payload;
+      void [_event, _payload];
+
+      // @ts-expect-error — pre-validation payload is unknown
+      message.payload.text;
+
+      return message;
+    },
+  ),
+  incoming(
+    'send-intercepted',
+    async (
+      ctx: ServerHandlerContext<{ message: { text: string } }, true>,
+      payload: { text: string },
+    ) => {
+      ctx.send('message', { text: payload.text });
+      ctx.ack();
+    },
+    { validator: (value: unknown) => value as { text: string } },
+  ),
+);
+void withIntercept;
+
+const withPostIntercept = defineServer(
+  ack(),
+  outgoing('message', t<{ text: string }>()),
+  incoming(
+    'send-intercepted',
+    async (ctx, payload) => {
+      ctx.send('message', { text: payload.text });
+      ctx.ack();
+    },
+    { validator: (value: unknown) => value as { text: string } },
+  ),
+  intercept(
+    'send-intercepted',
+    async (
+      ctx: ServerHandlerContext<{ message: { text: string } }, true>,
+      payload: { text: string },
+    ) => {
+      ctx.send('message', { text: payload.text });
+      ctx.ack();
+
+      const _text: string = payload.text;
+      void _text;
+
+      // @ts-expect-error — payload is typed from the event validator
+      payload.missing;
+
+      return payload;
+    },
+  ),
+);
+void withPostIntercept;
+
+// ===========================================================================
+// 6. defineServer() only needs generate(streamDecl, fn)
 // ===========================================================================
 
 const withGenerateOnly = defineServer(
@@ -203,7 +278,7 @@ const withGenerateOnly = defineServer(
 void withGenerateOnly;
 
 // ===========================================================================
-// 6. namespace() types nested handlers against namespace-local outgoing only
+// 7. namespace() types nested handlers against namespace-local outgoing only
 // ===========================================================================
 
 const namespaceStream = stream(
@@ -275,7 +350,7 @@ const withNamespace = defineServer(
 void withNamespace;
 
 // ===========================================================================
-// 7. channel() types nested handlers against channel-local outgoing only
+// 8. channel() types nested handlers against channel-local outgoing only
 // ===========================================================================
 
 const channelStream = stream(
@@ -353,7 +428,7 @@ const withChannel = defineServer(
 void withChannel;
 
 // ===========================================================================
-// 8. channel() loses ack() when top-level ack() is not registered
+// 9. channel() loses ack() when top-level ack() is not registered
 // ===========================================================================
 
 const withoutAckChannel = defineServer(
@@ -406,7 +481,7 @@ const withoutAckChannel = defineServer(
 void withoutAckChannel;
 
 // ===========================================================================
-// 9. channel() can use replay() with channel-local sendReplay typing
+// 10. channel() can use replay() with channel-local sendReplay typing
 // ===========================================================================
 
 const withChannelReplay = defineServer(
@@ -440,3 +515,78 @@ const withChannelReplay = defineServer(
   ),
 );
 void withChannelReplay;
+
+// ===========================================================================
+// 11. scoped intercept() callbacks are typed from the scoped contract
+// ===========================================================================
+
+const withNamespaceIntercept = defineServer(
+  namespace(
+    'notifications',
+    outgoing('alert', t<{ id: string }>()),
+    intercept(
+      async (
+        ctx: NamespaceHandlerContext<{ alert: { id: string } }>,
+        message: InterceptMessage,
+      ) => {
+        const _name: string = ctx.namespaceName;
+        const _event: string = message.event;
+        void [_name, _event];
+
+        // @ts-expect-error — namespace intercept does not see top-level helpers
+        ctx.channelName;
+
+        return message;
+      },
+    ),
+    incoming('dismiss', async () => {}, { validator: (value: unknown) => value as { id: string } }),
+    intercept(
+      'dismiss',
+      async (ctx: NamespaceHandlerContext<{ alert: { id: string } }>, payload: { id: string }) => {
+        const _name: string = ctx.namespaceName;
+        const _id: string = payload.id;
+        void [_name, _id];
+
+        // @ts-expect-error — payload is typed from the namespace event validator
+        payload.missing;
+
+        return payload;
+      },
+    ),
+  ),
+);
+void withNamespaceIntercept;
+
+const withChannelIntercept = defineServer(
+  channel(
+    scope('intercept-rooms', /^intercept-room-/),
+    outgoing('message', t<{ text: string }>()),
+    intercept(
+      async (
+        ctx: ChannelHandlerContext<{ message: { text: string } }>,
+        message: InterceptMessage,
+      ) => {
+        const _name: string = ctx.channelName;
+        const _event: string = message.event;
+        void [_name, _event];
+        return message;
+      },
+    ),
+    incoming('send-message', async () => {}, {
+      validator: (value: unknown) => value as { text: string },
+    }),
+    intercept(
+      'send-message',
+      async (
+        ctx: ChannelHandlerContext<{ message: { text: string } }>,
+        payload: { text: string },
+      ) => {
+        const _name: string = ctx.channelName;
+        const _text: string = payload.text;
+        void [_name, _text];
+        return payload;
+      },
+    ),
+  ),
+);
+void withChannelIntercept;
