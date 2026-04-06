@@ -1,6 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import type { ServerDefinition } from '~/define-server.ts';
 import type { ErrorDef, ValidationFailed } from '~/errors.ts';
+import type { ChannelChild, ChannelPrimitive, ScopeDeclaration } from '~/primitives/channel.ts';
 import type { ErrorsPrimitive } from '~/primitives/errors.ts';
 import type { IncomingPrimitive } from '~/primitives/incoming.ts';
 import type { NamespaceChild, NamespacePrimitive } from '~/primitives/namespace.ts';
@@ -16,6 +17,7 @@ type AnyGenerate = GeneratePrimitive<
   any,
   any
 >;
+type AnyChannel = ChannelPrimitive<string | ScopeDeclaration<string>, readonly ChannelChild[]>;
 type AnyNamespace = NamespacePrimitive<string, readonly NamespaceChild[]>;
 type AnyErrorDef = ErrorDef<string, any>;
 
@@ -109,6 +111,39 @@ type StaticNamespacesMap<TPrimitives extends readonly unknown[]> = {
     : never;
 };
 
+type ChannelContract<TPrimitives extends readonly unknown[]> = SimplifyDeep<{
+  incoming: OutgoingToIncoming<TPrimitives>;
+  outgoing: IncomingToOutgoing<TPrimitives>;
+  requests: RequestsMap<TPrimitives>;
+  streams: StreamsMap<TPrimitives>;
+}>;
+
+type StaticChannelsMap<TPrimitives extends readonly unknown[]> = {
+  [TPrimitive in Extract<TPrimitives[number], AnyChannel> as TPrimitive extends ChannelPrimitive<
+    infer TPattern,
+    any
+  >
+    ? TPattern extends string
+      ? TPattern
+      : never
+    : never]: TPrimitive extends ChannelPrimitive<any, infer TChildren>
+    ? ChannelContract<TChildren>
+    : never;
+};
+
+type DynamicChannelsMap<TPrimitives extends readonly unknown[]> = {
+  [TPrimitive in Extract<TPrimitives[number], AnyChannel> as TPrimitive extends ChannelPrimitive<
+    infer TPattern,
+    any
+  >
+    ? TPattern extends ScopeDeclaration<infer TKey>
+      ? TKey
+      : never
+    : never]: TPrimitive extends ChannelPrimitive<any, infer TChildren>
+    ? { [name: string]: ChannelContract<TChildren> }
+    : never;
+};
+
 type DeclaredErrorUnion<TPrimitives extends readonly unknown[]> =
   Extract<TPrimitives[number], ErrorsPrimitive<readonly AnyErrorDef[]>> extends ErrorsPrimitive<
     infer TDefs
@@ -138,7 +173,7 @@ export type InferClient<TServer extends ServerDefinition> = SimplifyDeep<{
   incoming: OutgoingToIncoming<PrimitivesOf<TServer>>;
   outgoing: IncomingToOutgoing<PrimitivesOf<TServer>>;
   namespaces: StaticNamespacesMap<PrimitivesOf<TServer>>;
-  channels: {};
+  channels: StaticChannelsMap<PrimitivesOf<TServer>> & DynamicChannelsMap<PrimitivesOf<TServer>>;
   streams: StreamsMap<PrimitivesOf<TServer>>;
   requests: RequestsMap<PrimitivesOf<TServer>>;
   __errors__: ErrorMap<DeclaredErrorUnion<PrimitivesOf<TServer>> | BuiltInErrorUnion>;

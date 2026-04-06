@@ -1,6 +1,7 @@
 import { defineServer } from '~/define-server.ts';
 import { error } from '~/errors.ts';
 import { ack } from '~/primitives/ack.ts';
+import { channel, scope } from '~/primitives/channel.ts';
 import { errors } from '~/primitives/errors.ts';
 import { incoming } from '~/primitives/incoming.ts';
 import { namespace } from '~/primitives/namespace.ts';
@@ -93,6 +94,26 @@ describe('defineServer', () => {
     expect(server.primitives[3]!.__wskit).toBe('namespace');
     expect(server.primitives[3]!.__identity[1]).toBe('notifications');
     expect((server.primitives[3]! as ReturnType<typeof namespace>).primitives[0]!.__wskit).toBe(
+      'outgoing',
+    );
+  });
+
+  it('stores channel() alongside top-level primitives in order', () => {
+    const server = defineServer(
+      ack(),
+      outgoing('message', t<{ text: string }>()),
+      incoming('ping', async () => {}),
+      channel(
+        scope('rooms', /^room-/),
+        outgoing('typing', t<{ userId: string }>()),
+        incoming('start-typing', async () => {}),
+      ),
+    );
+
+    expect(server.primitives).toHaveLength(4);
+    expect(server.primitives[3]!.__wskit).toBe('channel');
+    expect(server.primitives[3]!.__identity[1]).toBe('rooms');
+    expect((server.primitives[3]! as ReturnType<typeof channel>).primitives[0]!.__wskit).toBe(
       'outgoing',
     );
   });

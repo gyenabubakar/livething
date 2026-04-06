@@ -1,6 +1,7 @@
 import { defineServer } from '~/define-server.ts';
 import { error } from '~/errors.ts';
 import { ack } from '~/primitives/ack.ts';
+import { channel, scope } from '~/primitives/channel.ts';
 import { errors } from '~/primitives/errors.ts';
 import { incoming } from '~/primitives/incoming.ts';
 import { namespace } from '~/primitives/namespace.ts';
@@ -227,3 +228,128 @@ const withNamespace = defineServer(
   ),
 );
 void withNamespace;
+
+// ===========================================================================
+// 6. channel() types nested handlers against channel-local outgoing only
+// ===========================================================================
+
+const channelStream = stream(
+  start('channel-stream', (value: unknown) => value as { prompt: string }),
+  chunks(t<{ text: string }>()),
+  nudge('cancel'),
+);
+
+const withChannel = defineServer(
+  ack(),
+  outgoing('message', t<{ text: string }>()),
+  incoming('top-channel-ping', async (ctx) => {
+    ctx.send('message', { text: 'top' });
+
+    // @ts-expect-error — top-level ctx has no channelName
+    ctx.channelName;
+  }),
+  channel(
+    scope('rooms', /^room-/),
+    outgoing('typing', t<{ userId: string }>()),
+    outgoing('room-message', t<{ text: string }>()),
+    incoming('start-typing', async (ctx) => {
+      const _name: string = ctx.channelName;
+      void _name;
+
+      ctx.send('typing', { userId: 'u1' });
+      ctx.broadcast('room-message', { text: 'hi' });
+
+      // @ts-expect-error — channel handlers do not get ack() in this API shape
+      ctx.ack();
+
+      // @ts-expect-error — channel handlers do not see top-level outgoing
+      ctx.send('message', { text: 'nope' });
+
+      // @ts-expect-error — channel handlers do not get namespaceName
+      ctx.namespaceName;
+    }),
+    request('room-status', async (ctx) => {
+      const _name: string = ctx.channelName;
+      void _name;
+
+      ctx.send('typing', { userId: 'u2' });
+
+      // @ts-expect-error — channel handlers do not get ack() in this API shape
+      ctx.ack();
+
+      return { ok: true };
+    }),
+    generate(channelStream, async function* (ctx, payload) {
+      const _name: string = ctx.channelName;
+      void _name;
+
+      ctx.send('room-message', { text: payload.prompt });
+      const nudges = ctx.nudges(yield { text: payload.prompt });
+      const _event: 'cancel' = nudges[0]!.event;
+      void _event;
+
+      // @ts-expect-error — stream handlers still do not get ack()
+      ctx.ack();
+
+      // @ts-expect-error — channel scope does not see top-level outgoing
+      ctx.send('message', { text: payload.prompt });
+
+      // @ts-expect-error — channel stream handlers do not get namespaceName
+      ctx.namespaceName;
+    }),
+  ),
+);
+void withChannel;
+
+// ===========================================================================
+// 7. channel() loses ack() when top-level ack() is not registered
+// ===========================================================================
+
+const withoutAckChannel = defineServer(
+  outgoing('message', t<{ text: string }>()),
+  incoming('top-channel-ping-without-ack', async (ctx) => {
+    ctx.send('message', { text: 'top' });
+
+    // @ts-expect-error — ack() was not registered at the top level
+    ctx.ack();
+  }),
+  channel(
+    scope('rooms-without-ack', /^room-without-ack-/),
+    outgoing('typing', t<{ userId: string }>()),
+    outgoing('room-message', t<{ text: string }>()),
+    incoming('start-typing', async (ctx) => {
+      const _name: string = ctx.channelName;
+      void _name;
+
+      ctx.send('typing', { userId: 'u1' });
+      ctx.broadcast('room-message', { text: 'hi' });
+
+      // @ts-expect-error — ack() was not registered at the top level
+      ctx.ack();
+    }),
+    request('room-status', async (ctx) => {
+      const _name: string = ctx.channelName;
+      void _name;
+
+      ctx.send('typing', { userId: 'u2' });
+
+      // @ts-expect-error — ack() was not registered at the top level
+      ctx.ack();
+
+      return { ok: true };
+    }),
+    generate(channelStream, async function* (ctx, payload) {
+      const _name: string = ctx.channelName;
+      void _name;
+
+      ctx.send('room-message', { text: payload.prompt });
+      const nudges = ctx.nudges(yield { text: payload.prompt });
+      const _event: 'cancel' = nudges[0]!.event;
+      void _event;
+
+      // @ts-expect-error — stream handlers still do not get ack()
+      ctx.ack();
+    }),
+  ),
+);
+void withoutAckChannel;

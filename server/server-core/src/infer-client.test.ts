@@ -1,6 +1,7 @@
 import { defineServer } from '~/define-server.ts';
 import { error } from '~/errors.ts';
 import { ack } from '~/primitives/ack.ts';
+import { channel, scope } from '~/primitives/channel.ts';
 import { errors } from '~/primitives/errors.ts';
 import { incoming } from '~/primitives/incoming.ts';
 import { namespace } from '~/primitives/namespace.ts';
@@ -160,3 +161,61 @@ void [
 
 // @ts-expect-error — namespace events are not top-level incoming events
 namespacedClient.incoming.alert;
+
+const channelServer = defineServer(
+  channel(
+    'general',
+    outgoing('message', t<{ text: string; from: string }>()),
+    incoming('send-message', async () => {}, {
+      validator: (value: unknown) => value as { text: string },
+    }),
+    request('get-history', async () => ({
+      messages: [{ text: 'hi', from: 'u1' }],
+    })),
+  ),
+  channel(
+    scope('rooms', /^room-/),
+    outgoing('typing', t<{ userId: string }>()),
+    incoming('start-typing', async () => {}, {
+      validator: (value: unknown) => value as { fast: boolean },
+    }),
+    generate(
+      stream(
+        start('ask-ai', (value: unknown) => value as { prompt: string }),
+        chunks(t<{ text: string }>()),
+        nudge('cancel'),
+      ),
+      async function* () {
+        yield { text: 'hi' };
+      },
+    ),
+  ),
+);
+
+type ChannelClient = InferClient<typeof channelServer>;
+
+declare const channelClient: ChannelClient;
+
+const _generalIncomingText: string = channelClient.channels.general.incoming.message.text;
+const _generalOutgoingText: string = channelClient.channels.general.outgoing['send-message'].text;
+const _generalRequestResponse: string =
+  channelClient.channels.general.requests['get-history'].response.messages[0]!.from;
+const _roomIncomingUser: string = channelClient.channels.rooms['room-123']!.incoming.typing.userId;
+const _roomOutgoingFast: boolean =
+  channelClient.channels.rooms['room-123']!.outgoing['start-typing'].fast;
+const _roomStreamChunk: string =
+  channelClient.channels.rooms['room-123']!.streams['ask-ai'].chunks.text;
+const _roomStreamNudge: unknown =
+  channelClient.channels.rooms['room-123']!.streams['ask-ai'].nudges.cancel;
+void [
+  _generalIncomingText,
+  _generalOutgoingText,
+  _generalRequestResponse,
+  _roomIncomingUser,
+  _roomOutgoingFast,
+  _roomStreamChunk,
+  _roomStreamNudge,
+];
+
+// @ts-expect-error — channel events are not top-level events
+channelClient.incoming.message;

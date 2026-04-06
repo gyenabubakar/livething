@@ -1,5 +1,11 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import type { AckPrimitive } from '~/primitives/ack.ts';
+import type {
+  ChannelHandlerContext,
+  ChannelPattern,
+  ChannelPrimitive,
+  ChannelStreamHandlerContext,
+} from '~/primitives/channel.ts';
 import type { Primitive } from '~/primitives/define.ts';
 import type { ErrorsPrimitive } from '~/primitives/errors.ts';
 import type { IncomingPrimitive } from '~/primitives/incoming.ts';
@@ -71,6 +77,30 @@ export interface ServerDefinition<TPrimitives extends readonly Primitive[] = rea
  * Typing rule: primitives that affect handler ctx must come before the
  * handlers they type in the same scope.
  */
+export function defineServer<
+  O1 extends AnyOutgoing,
+  TIncomingEvent extends string,
+  TIncomingPayload,
+  TChannel extends ChannelPrimitive,
+>(
+  o1: O1,
+  incomingPrimitive: IncomingPrimitive<
+    TIncomingEvent,
+    TIncomingPayload,
+    ServerHandlerContext<OutgoingMap<[O1]>, false>
+  >,
+  channelPrimitive: TChannel,
+): ServerDefinition<
+  readonly [
+    O1,
+    IncomingPrimitive<
+      TIncomingEvent,
+      TIncomingPayload,
+      ServerHandlerContext<OutgoingMap<[O1]>, false>
+    >,
+    TChannel,
+  ]
+>;
 export function defineServer<
   O1 extends AnyOutgoing,
   TIncomingEvent extends string,
@@ -216,6 +246,74 @@ export function defineServer<
 >;
 export function defineServer<
   O1 extends AnyOutgoing,
+  TChannelPattern extends ChannelPattern,
+  CO1 extends AnyOutgoing,
+  CO2 extends AnyOutgoing,
+  CTStream extends StreamPrimitive<string, any, any, readonly NudgeDeclaration[]>,
+  CIncomingEvent extends string,
+  CIncomingPayload,
+  CRequestEvent extends string,
+  CRequestPayload,
+  CRequestResponse,
+  TIncomingEvent extends string,
+  TIncomingPayload,
+>(
+  o1: O1,
+  incomingPrimitive: IncomingPrimitive<
+    TIncomingEvent,
+    TIncomingPayload,
+    ServerHandlerContext<OutgoingMap<[O1]>, false>
+  >,
+  channelPrimitive: ChannelPrimitive<
+    TChannelPattern,
+    readonly [
+      CO1,
+      CO2,
+      IncomingPrimitive<
+        CIncomingEvent,
+        CIncomingPayload,
+        ChannelHandlerContext<OutgoingMap<[CO1, CO2]>, false>
+      >,
+      RequestPrimitive<
+        CRequestEvent,
+        CRequestPayload,
+        CRequestResponse,
+        ChannelHandlerContext<OutgoingMap<[CO1, CO2]>, false>
+      >,
+      GeneratePrimitive<CTStream, ChannelStreamHandlerContext<OutgoingMap<[CO1, CO2]>>, any>,
+    ]
+  >,
+): ServerDefinition<
+  readonly [
+    O1,
+    IncomingPrimitive<
+      TIncomingEvent,
+      TIncomingPayload,
+      ServerHandlerContext<OutgoingMap<[O1]>, false>
+    >,
+    ChannelPrimitive<
+      TChannelPattern,
+      readonly [
+        CO1,
+        CO2,
+        IncomingPrimitive<
+          CIncomingEvent,
+          CIncomingPayload,
+          ChannelHandlerContext<OutgoingMap<[CO1, CO2]>, false>
+        >,
+        RequestPrimitive<
+          CRequestEvent,
+          CRequestPayload,
+          CRequestResponse,
+          ChannelHandlerContext<OutgoingMap<[CO1, CO2]>, false>
+        >,
+        GeneratePrimitive<CTStream, ChannelStreamHandlerContext<OutgoingMap<[CO1, CO2]>>, any>,
+      ]
+    >,
+  ]
+>;
+export function defineServer<
+  O1 extends AnyOutgoing,
   TIncomingEvent extends string,
   TIncomingPayload,
   TNamespace extends NamespacePrimitive,
@@ -238,6 +336,102 @@ export function defineServer<
       ServerHandlerContext<OutgoingMap<[O1]>, true>
     >,
     TNamespace,
+  ]
+>;
+export function defineServer<
+  O1 extends AnyOutgoing,
+  TIncomingEvent extends string,
+  TIncomingPayload,
+  TChannel extends ChannelPrimitive,
+>(
+  ackPrimitive: AckPrimitive,
+  o1: O1,
+  incomingPrimitive: IncomingPrimitive<
+    TIncomingEvent,
+    TIncomingPayload,
+    ServerHandlerContext<OutgoingMap<[O1]>, true>
+  >,
+  channelPrimitive: TChannel,
+): ServerDefinition<
+  readonly [
+    AckPrimitive,
+    O1,
+    IncomingPrimitive<
+      TIncomingEvent,
+      TIncomingPayload,
+      ServerHandlerContext<OutgoingMap<[O1]>, true>
+    >,
+    TChannel,
+  ]
+>;
+export function defineServer<
+  O1 extends AnyOutgoing,
+  TChannelPattern extends ChannelPattern,
+  CO1 extends AnyOutgoing,
+  CO2 extends AnyOutgoing,
+  CTStream extends StreamPrimitive<string, any, any, readonly NudgeDeclaration[]>,
+  CIncomingEvent extends string,
+  CIncomingPayload,
+  CRequestEvent extends string,
+  CRequestPayload,
+  CRequestResponse,
+  TIncomingEvent extends string,
+  TIncomingPayload,
+>(
+  ackPrimitive: AckPrimitive,
+  o1: O1,
+  incomingPrimitive: IncomingPrimitive<
+    TIncomingEvent,
+    TIncomingPayload,
+    ServerHandlerContext<OutgoingMap<[O1]>, true>
+  >,
+  channelPrimitive: ChannelPrimitive<
+    TChannelPattern,
+    readonly [
+      CO1,
+      CO2,
+      IncomingPrimitive<
+        CIncomingEvent,
+        CIncomingPayload,
+        ChannelHandlerContext<OutgoingMap<[CO1, CO2]>, false>
+      >,
+      RequestPrimitive<
+        CRequestEvent,
+        CRequestPayload,
+        CRequestResponse,
+        ChannelHandlerContext<OutgoingMap<[CO1, CO2]>, false>
+      >,
+      GeneratePrimitive<CTStream, ChannelStreamHandlerContext<OutgoingMap<[CO1, CO2]>>, any>,
+    ]
+  >,
+): ServerDefinition<
+  readonly [
+    AckPrimitive,
+    O1,
+    IncomingPrimitive<
+      TIncomingEvent,
+      TIncomingPayload,
+      ServerHandlerContext<OutgoingMap<[O1]>, true>
+    >,
+    ChannelPrimitive<
+      TChannelPattern,
+      readonly [
+        CO1,
+        CO2,
+        IncomingPrimitive<
+          CIncomingEvent,
+          CIncomingPayload,
+          ChannelHandlerContext<OutgoingMap<[CO1, CO2]>, false>
+        >,
+        RequestPrimitive<
+          CRequestEvent,
+          CRequestPayload,
+          CRequestResponse,
+          ChannelHandlerContext<OutgoingMap<[CO1, CO2]>, false>
+        >,
+        GeneratePrimitive<CTStream, ChannelStreamHandlerContext<OutgoingMap<[CO1, CO2]>>, any>,
+      ]
+    >,
   ]
 >;
 export function defineServer<const TPrimitives extends readonly Primitive[]>(

@@ -21,6 +21,15 @@ export type {
 } from './primitives/define.ts';
 export { ack } from './primitives/ack.ts';
 export type { AckPrimitive } from './primitives/ack.ts';
+export { channel, scope } from './primitives/channel.ts';
+export type {
+  ChannelChild,
+  ChannelHandlerContext,
+  ChannelPattern,
+  ChannelPrimitive,
+  ChannelStreamHandlerContext,
+  ScopeDeclaration,
+} from './primitives/channel.ts';
 export { incoming } from './primitives/incoming.ts';
 export type { IncomingPrimitive, IncomingHandler } from './primitives/incoming.ts';
 export { outgoing } from './primitives/outgoing.ts';
