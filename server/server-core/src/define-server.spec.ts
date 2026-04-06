@@ -3,7 +3,7 @@ import { ack } from '~/primitives/ack.ts';
 import { incoming } from '~/primitives/incoming.ts';
 import { outgoing } from '~/primitives/outgoing.ts';
 import { request } from '~/primitives/request.ts';
-import { generate, nudge, start, stream } from '~/primitives/stream.ts';
+import { chunks, generate, nudge, start, stream } from '~/primitives/stream.ts';
 import { t } from '~/t.ts';
 import { describe, expect, it } from 'vitest';
 
@@ -34,26 +34,20 @@ describe('defineServer', () => {
   });
 
   it('stores sibling stream and generate primitives in order', () => {
+    const aiStream = stream(start('ask-ai'), chunks(t<{ text: string }>()), nudge('cancel'));
     const server = defineServer(
       ack(),
       outgoing('message', t<{ text: string }>()),
       outgoing('alert', t<{ level: string }>()),
       incoming('ping', async () => {}),
       request('get-status', async () => ({ ok: true })),
-      stream(start('ask-ai'), nudge('cancel')),
-      generate(
-        'ask-ai',
-        async function* () {
-          yield { text: 'hi' };
-        },
-        { chunks: t<{ text: string }>() },
-      ),
+      generate(aiStream, async function* () {
+        yield { text: 'hi' };
+      }),
     );
 
-    expect(server.primitives).toHaveLength(7);
-    expect(server.primitives[5]!.__wskit).toBe('stream');
-    expect(server.primitives[6]!.__wskit).toBe('generate');
+    expect(server.primitives).toHaveLength(6);
+    expect(server.primitives[5]!.__wskit).toBe('generate');
     expect(server.primitives[5]!.__identity[1]).toBe('ask-ai');
-    expect(server.primitives[6]!.__identity[1]).toBe('ask-ai');
   });
 });

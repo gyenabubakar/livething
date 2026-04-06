@@ -22,14 +22,6 @@ export interface NudgeDeclaration<TEvent extends string = string, TPayload = unk
  * Declare a mid-stream event the client can send while a stream is running.
  * Nudge events are scoped to the stream — they don't conflict with
  * top-level `incoming` handlers.
- *
- * ```ts
- * stream(
- *   start('ask-ai', AskAIValidator),
- *   nudge('cancel'),
- *   nudge('add-context', AddContextValidator),
- * )
- * ```
  */
 export function nudge<TEvent extends string>(event: TEvent): NudgeDeclaration<TEvent, unknown>;
 export function nudge<TEvent extends string, TPayload>(
@@ -84,16 +76,16 @@ export type StreamHandlerContext<TBaseCtx, TNudges extends readonly NudgeDeclara
  * The async generator function for a stream. Receives context and the
  * validated trigger payload. Yields chunks to the client.
  *
- * `generate()` just carries the generator type through. `defineServer()`
- * gives `ctx` its final type later based on what is registered in the
- * same scope.
+ * `generate()` gets payload/chunks/nudges from the stream declaration.
+ * `defineServer()` gives `ctx` its final server-level type later based on
+ * what is registered in the same scope.
  */
 export type GeneratorFn<TCtx = any, TPayload = unknown, TChunks = unknown, TNext = any> = {
   bivarianceHack(ctx: TCtx, payload: TPayload): AsyncGenerator<TChunks, void, TNext>;
 }['bivarianceHack'];
 
 // ---------------------------------------------------------------------------
-// Stream start identity
+// Stream declarations
 // ---------------------------------------------------------------------------
 
 /**
@@ -106,6 +98,13 @@ export interface StreamStartDeclaration<TEvent extends string = string, TPayload
   readonly broadcast?: boolean;
 }
 
+/**
+ * The chunk declaration for a stream.
+ */
+export interface StreamChunksDeclaration<TChunks = unknown> {
+  readonly chunks: TypeMarker<TChunks>;
+}
+
 /** Back-compat type alias while the API settles. */
 export type StreamEventDeclaration<
   TEvent extends string = string,
@@ -113,52 +112,57 @@ export type StreamEventDeclaration<
 > = StreamStartDeclaration<TEvent, TPayload>;
 
 // ---------------------------------------------------------------------------
-// StreamPrimitive — contract only
+// StreamPrimitive — full contract
 // ---------------------------------------------------------------------------
 
 /**
  * The primitive instance returned by `stream()`. Carries the event name,
- * trigger validator, and nudge declarations.
- *
- * `InferClientType` reads this together with the matching `generate(...)`
- * primitive to produce the client's `streams` type.
+ * trigger validator, chunk marker, and nudge declarations.
  */
 export interface StreamPrimitive<
   TEvent extends string = string,
   TPayload = unknown,
+  TChunks = unknown,
   TNudges extends readonly NudgeDeclaration[] = readonly NudgeDeclaration[],
 > extends Primitive<'stream'> {
   readonly event: TEvent;
-  readonly nudges: TNudges;
   readonly validator?: Validator<TPayload>;
+  readonly chunks: TypeMarker<TChunks>;
+  readonly nudges: TNudges;
   readonly broadcast: boolean;
 }
+
+type StreamPayload<TStream extends StreamPrimitive> =
+  TStream extends StreamPrimitive<string, infer TPayload, any, any> ? TPayload : never;
+
+type StreamChunks<TStream extends StreamPrimitive> =
+  TStream extends StreamPrimitive<string, any, infer TChunks, any> ? TChunks : never;
+
+type StreamNudges<TStream extends StreamPrimitive> =
+  TStream extends StreamPrimitive<string, any, any, infer TNudges> ? TNudges : never;
 
 // ---------------------------------------------------------------------------
 // GeneratePrimitive — stream generator registration
 // ---------------------------------------------------------------------------
 
 /**
- * The primitive instance returned by `generate()`. Carries the event name,
- * async generator, and chunk type. `defineServer()` matches it to the
- * sibling `stream(...)` primitive by event name.
+ * The primitive instance returned by `generate()`. Carries the stream
+ * contract plus the async generator.
  */
 export interface GeneratePrimitive<
-  TEvent extends string = string,
-  TPayload = unknown,
-  TChunks = unknown,
-  TNudges extends readonly NudgeDeclaration[] = readonly NudgeDeclaration[],
+  TStream extends StreamPrimitive = StreamPrimitive,
   TBaseCtx = any,
   TNext = any,
 > extends Primitive<'generate'> {
-  readonly event: TEvent;
+  readonly stream: TStream;
+  readonly event: TStream['event'];
+  readonly chunks: TStream['chunks'];
   readonly generator: GeneratorFn<
-    StreamHandlerContext<TBaseCtx, TNudges>,
-    TPayload,
-    TChunks,
+    StreamHandlerContext<TBaseCtx, StreamNudges<TStream>>,
+    StreamPayload<TStream>,
+    StreamChunks<TStream>,
     TNext
   >;
-  readonly chunks: TypeMarker<TChunks>;
 }
 
 // ---------------------------------------------------------------------------
@@ -170,11 +174,16 @@ const GENERATE_KEY = Symbol('generate');
 
 const _stream = definePrimitive<
   'stream',
-  [startDecl: StreamStartDeclaration, ...nudges: NudgeDeclaration[]],
+  [
+    startDecl: StreamStartDeclaration,
+    chunksDecl: StreamChunksDeclaration,
+    ...nudges: NudgeDeclaration[],
+  ],
   {
     event: string;
-    nudges: readonly NudgeDeclaration[];
     validator?: Validator;
+    chunks: TypeMarker<unknown>;
+    nudges: readonly NudgeDeclaration[];
     broadcast: boolean;
   }
 >({
@@ -184,11 +193,16 @@ const _stream = definePrimitive<
   registrationId(startDecl: StreamStartDeclaration) {
     return startDecl.event;
   },
-  create(startDecl: StreamStartDeclaration, ...nudges: NudgeDeclaration[]) {
+  create(
+    startDecl: StreamStartDeclaration,
+    chunksDecl: StreamChunksDeclaration,
+    ...nudges: NudgeDeclaration[]
+  ) {
     return {
       event: startDecl.event,
-      nudges,
       validator: startDecl.validator,
+      chunks: chunksDecl.chunks,
+      nudges,
       broadcast: startDecl.broadcast ?? false,
     };
   },
@@ -196,24 +210,26 @@ const _stream = definePrimitive<
 
 const _generate = definePrimitive<
   'generate',
-  [event: string, generator: GeneratorFn, options: { chunks: TypeMarker<unknown> }],
+  [streamDecl: StreamPrimitive, generator: GeneratorFn],
   {
+    stream: StreamPrimitive;
     event: string;
-    generator: GeneratorFn;
     chunks: TypeMarker<unknown>;
+    generator: GeneratorFn;
   }
 >({
   tag: 'generate' as const,
   key: GENERATE_KEY,
   kind: 'handler' as const,
-  registrationId(event: string) {
-    return event;
+  registrationId(streamDecl: StreamPrimitive) {
+    return streamDecl.event;
   },
-  create(event: string, generator: GeneratorFn, options: { chunks: TypeMarker<unknown> }) {
+  create(streamDecl: StreamPrimitive, generator: GeneratorFn) {
     return {
-      event,
+      stream: streamDecl,
+      event: streamDecl.event,
+      chunks: streamDecl.chunks,
       generator,
-      chunks: options.chunks,
     };
   },
 });
@@ -223,83 +239,60 @@ const _generate = definePrimitive<
 // ---------------------------------------------------------------------------
 
 /**
- * Declare a stream contract. This defines the trigger event, trigger
- * validator, and optional nudges. Pair it with a sibling
- * `generate(event, fn, { chunks })` primitive in `defineServer(...)`.
+ * Declare a stream contract. This defines the trigger event, chunk shape,
+ * and optional nudges. Pass the returned value to `generate(streamDecl, fn)`.
+ * The `generate(...)` primitive is what you register in `defineServer(...)`.
  *
  * ```ts
- * stream(
+ * const aiStream = stream(
  *   start('ask-ai', AskAIValidator),
+ *   chunks(t<{ text: string }>()),
  *   nudge('add-context', AddContextValidator),
- *   nudge('cancel', CancelValidator),
+ *   nudge('cancel'),
  * )
  *
- * generate(
- *   'ask-ai',
- *   async function* (ctx, payload) {
- *     const nudges = ctx.nudges(yield { text: payload.prompt });
- *   },
- *   { chunks: t<{ text: string }>() },
- * )
+ * generate(aiStream, async function* (ctx, payload) {
+ *   const nudges = ctx.nudges(yield { text: payload.prompt });
+ * })
  * ```
  */
 export function stream<
   TEvent extends string,
   TPayload,
+  TChunks,
   const TNudges extends readonly NudgeDeclaration[],
 >(
   startDecl: StreamStartDeclaration<TEvent, TPayload>,
+  chunksDecl: StreamChunksDeclaration<TChunks>,
   ...nudges: TNudges
-): StreamPrimitive<TEvent, TPayload, TNudges>;
+): StreamPrimitive<TEvent, TPayload, TChunks, TNudges>;
 export function stream(
   startDecl: StreamStartDeclaration,
+  chunksDecl: StreamChunksDeclaration,
   ...nudges: NudgeDeclaration[]
 ): StreamPrimitive {
-  return _stream(startDecl, ...nudges) as unknown as StreamPrimitive;
+  return _stream(startDecl, chunksDecl, ...nudges) as unknown as StreamPrimitive;
 }
 
 /**
- * Register the async generator for a stream declared by a sibling
- * `stream(...)` primitive. The event name is the join key.
- *
- * ```ts
- * generate(
- *   'ask-ai',
- *   async function* (ctx, payload) {
- *     yield { text: payload.prompt };
- *   },
- *   { chunks: t<{ text: string }>() },
- * )
- * ```
+ * Register the async generator for a stream declaration.
  */
-export function generate<
-  TBaseCtx,
-  TEvent extends string,
-  TPayload,
-  TChunks,
-  const TNudges extends readonly NudgeDeclaration[] = readonly NudgeDeclaration[],
-  TNext = any,
->(
-  event: TEvent,
-  generator: GeneratorFn<StreamHandlerContext<TBaseCtx, TNudges>, TPayload, TChunks, TNext>,
-  options: { chunks: TypeMarker<TChunks> },
-): GeneratePrimitive<TEvent, TPayload, TChunks, TNudges, TBaseCtx, TNext>;
-export function generate(
-  event: string,
-  generator: GeneratorFn,
-  options: { chunks: TypeMarker<unknown> },
-): GeneratePrimitive {
-  return _generate(event, generator, options) as unknown as GeneratePrimitive;
+export function generate<TBaseCtx, TStream extends StreamPrimitive, TNext = any>(
+  streamDecl: TStream,
+  generator: GeneratorFn<
+    StreamHandlerContext<TBaseCtx, StreamNudges<TStream>>,
+    StreamPayload<TStream>,
+    StreamChunks<TStream>,
+    TNext
+  >,
+): GeneratePrimitive<TStream, TBaseCtx, TNext>;
+export function generate(streamDecl: StreamPrimitive, generator: GeneratorFn): GeneratePrimitive {
+  return _generate(streamDecl, generator) as unknown as GeneratePrimitive;
 }
 
 /**
  * Define the stream's start identity — the event name, trigger validator,
  * and optional broadcast flag.
- *
- * ```ts
- * start('ask-ai', AskAIValidator)
- * start('ask-ai', AskAIValidator, { broadcast: true })
- * ```
  */
 export function start<TEvent extends string>(
   name: TEvent,
@@ -322,6 +315,13 @@ export function start(
   options?: { broadcast?: boolean },
 ): StreamStartDeclaration {
   return { event: name, validator, broadcast: options?.broadcast };
+}
+
+/**
+ * Define the chunk shape a stream yields.
+ */
+export function chunks<TChunks>(marker: TypeMarker<TChunks>): StreamChunksDeclaration<TChunks> {
+  return { chunks: marker };
 }
 
 /** Dependency ref — use in `dependencies: [stream]` to assert it's registered. */

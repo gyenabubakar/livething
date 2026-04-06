@@ -22,7 +22,7 @@ export interface TypeMarker<out T> {
  * the implementation literally returns `undefined`. Its only job is to
  * carry the generic `T` so the event name can come first in the argument list.
  *
- * Used by `outgoing`, `generate`, and `scheduled` to declare what shape
+ * Used by `outgoing`, `chunks`, and `scheduled` to declare what shape
  * the data has without providing a runtime value.
  *
  * ```ts
@@ -30,11 +30,10 @@ export interface TypeMarker<out T> {
  *
  * stream(
  *   start('ask-ai', AskAIValidator),
+ *   chunks(t<{ text: string }>()),
  * )
  *
- * generate('ask-ai', async function* (ctx, payload) { ... }, {
- *   chunks: t<{ text: string }>(),
- * })
+ * generate(aiStream, async function* (ctx, payload) { ... })
  * ```
  */
 export function t<T>(): TypeMarker<T> {

@@ -26,11 +26,12 @@ export { outgoing } from './primitives/outgoing.ts';
 export type { OutgoingPrimitive } from './primitives/outgoing.ts';
 export { request } from './primitives/request.ts';
 export type { RequestPrimitive, RequestHandler } from './primitives/request.ts';
-export { stream, start, generate, nudge } from './primitives/stream.ts';
+export { stream, start, chunks, generate, nudge } from './primitives/stream.ts';
 export type {
   StreamPrimitive,
   GeneratePrimitive,
   StreamStartDeclaration,
+  StreamChunksDeclaration,
   StreamEventDeclaration,
   GeneratorFn,
   NudgeDeclaration,

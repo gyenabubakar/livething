@@ -43,11 +43,6 @@ export type ServerHandlerContext<
 export type StreamServerHandlerContext<TOutgoing extends Record<string, any> = NoOutgoing> =
   SendApi<TOutgoing>;
 
-type MatchGenerate<TContract, TOutgoing extends Record<string, any>> =
-  TContract extends StreamPrimitive<infer TEvent, infer TPayload, infer TNudges>
-    ? GeneratePrimitive<TEvent, TPayload, any, TNudges, StreamServerHandlerContext<TOutgoing>, any>
-    : never;
-
 export interface ServerDefinition<TPrimitives extends readonly Primitive[] = readonly Primitive[]> {
   readonly __wskit: 'server';
   readonly primitives: TPrimitives;
@@ -71,7 +66,7 @@ export function defineServer<O1 extends AnyOutgoing>(
 export function defineServer<
   O1 extends AnyOutgoing,
   O2 extends AnyOutgoing,
-  TStream extends StreamPrimitive<string, any, readonly NudgeDeclaration[]>,
+  TStream extends StreamPrimitive<string, any, any, readonly NudgeDeclaration[]>,
 >(
   ackPrimitive: AckPrimitive,
   o1: O1,
@@ -87,8 +82,11 @@ export function defineServer<
     any,
     ServerHandlerContext<OutgoingMap<[O1, O2]>, true>
   >,
-  streamPrimitive: TStream,
-  generatePrimitive: MatchGenerate<TStream, OutgoingMap<[O1, O2]>>,
+  generatePrimitive: GeneratePrimitive<
+    TStream,
+    StreamServerHandlerContext<OutgoingMap<[O1, O2]>>,
+    any
+  >,
 ): ServerDefinition<
   readonly [
     AckPrimitive,
@@ -96,8 +94,7 @@ export function defineServer<
     O2,
     typeof incomingPrimitive,
     typeof requestPrimitive,
-    TStream,
-    MatchGenerate<TStream, OutgoingMap<[O1, O2]>>,
+    typeof generatePrimitive,
   ]
 >;
 export function defineServer(
