@@ -1,5 +1,7 @@
 import { defineServer } from '~/define-server.ts';
+import { error } from '~/errors.ts';
 import { ack } from '~/primitives/ack.ts';
+import { errors } from '~/primitives/errors.ts';
 import { incoming } from '~/primitives/incoming.ts';
 import { outgoing } from '~/primitives/outgoing.ts';
 import { request } from '~/primitives/request.ts';
@@ -17,6 +19,8 @@ const askAiStream = stream(
   nudge('cancel'),
   nudge('add-context', (value: unknown) => value as { text: string }),
 );
+const Forbidden = error('forbidden', (value: unknown) => value as { reason: string });
+const QuotaExceeded = error('quota-exceeded', (value: unknown) => value as { limit: number });
 
 const withAck = defineServer(
   ack(),
@@ -108,7 +112,41 @@ const withoutAck = defineServer(
 void withoutAck;
 
 // ===========================================================================
-// 3. defineServer() only needs generate(streamDecl, fn)
+// 3. errors() composes with other primitives without losing ctx typing
+// ===========================================================================
+
+const withErrors = defineServer(
+  ack(),
+  errors(Forbidden, QuotaExceeded),
+  outgoing('message', t<{ text: string }>()),
+  outgoing('alert', t<{ level: string }>()),
+  incoming(
+    'send-with-errors',
+    async (ctx, payload) => {
+      ctx.send('message', { text: payload.text });
+      ctx.broadcast('alert', { level: 'warn' });
+      ctx.ack();
+    },
+    { validator: (value: unknown) => value as { text: string } },
+  ),
+  request('status-with-errors', async (ctx) => {
+    ctx.send('alert', { level: 'debug' });
+    ctx.ack();
+    return { ok: true };
+  }),
+  generate(askAiStream, async function* (ctx, payload) {
+    ctx.send('message', { text: payload.prompt });
+    const nudges = ctx.nudges(yield { text: payload.prompt });
+    void nudges;
+
+    // @ts-expect-error — streams still do not get ack()
+    ctx.ack();
+  }),
+);
+void withErrors;
+
+// ===========================================================================
+// 4. defineServer() only needs generate(streamDecl, fn)
 // ===========================================================================
 
 const withGenerateOnly = defineServer(

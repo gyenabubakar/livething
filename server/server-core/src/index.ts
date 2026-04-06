@@ -24,6 +24,8 @@ export { incoming } from './primitives/incoming.ts';
 export type { IncomingPrimitive, IncomingHandler } from './primitives/incoming.ts';
 export { outgoing } from './primitives/outgoing.ts';
 export type { OutgoingPrimitive } from './primitives/outgoing.ts';
+export { errors } from './primitives/errors.ts';
+export type { ErrorsPrimitive } from './primitives/errors.ts';
 export { request } from './primitives/request.ts';
 export type { RequestPrimitive, RequestHandler } from './primitives/request.ts';
 export { stream, start, chunks, generate, nudge } from './primitives/stream.ts';

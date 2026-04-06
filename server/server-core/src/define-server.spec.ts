@@ -1,5 +1,7 @@
 import { defineServer } from '~/define-server.ts';
+import { error } from '~/errors.ts';
 import { ack } from '~/primitives/ack.ts';
+import { errors } from '~/primitives/errors.ts';
 import { incoming } from '~/primitives/incoming.ts';
 import { outgoing } from '~/primitives/outgoing.ts';
 import { request } from '~/primitives/request.ts';
@@ -8,6 +10,8 @@ import { t } from '~/t.ts';
 import { describe, expect, it } from 'vitest';
 
 describe('defineServer', () => {
+  const Forbidden = error('forbidden', (value: unknown) => value as { reason: string });
+
   it('returns a frozen server definition', () => {
     const server = defineServer(
       ack(),
@@ -49,5 +53,26 @@ describe('defineServer', () => {
     expect(server.primitives).toHaveLength(6);
     expect(server.primitives[5]!.__wskit).toBe('generate');
     expect(server.primitives[5]!.__identity[1]).toBe('ask-ai');
+  });
+
+  it('stores errors() alongside other primitives in order', () => {
+    const aiStream = stream(start('ask-ai'), chunks(t<{ text: string }>()), nudge('cancel'));
+    const server = defineServer(
+      ack(),
+      errors(Forbidden),
+      outgoing('message', t<{ text: string }>()),
+      outgoing('alert', t<{ level: string }>()),
+      incoming('ping', async () => {}),
+      request('get-status', async () => ({ ok: true })),
+      generate(aiStream, async function* () {
+        yield { text: 'hi' };
+      }),
+    );
+
+    expect(server.primitives).toHaveLength(7);
+    expect(server.primitives[0]!.__wskit).toBe('ack');
+    expect(server.primitives[1]!.__wskit).toBe('errors');
+    expect(server.primitives[1]!.__identity[0]).toBe(errors.__key);
+    expect(server.primitives[6]!.__wskit).toBe('generate');
   });
 });
