@@ -12,6 +12,38 @@
     "./errors": {
       "types": "./dist/errors.d.ts",
       "import": "./dist/errors.js"
+    },
+    "./ack": {
+      "types": "./dist/ack.d.ts",
+      "import": "./dist/ack.js"
+    },
+    "./channel": {
+      "types": "./dist/channel.d.ts",
+      "import": "./dist/channel.js"
+    },
+    "./dedup": {
+      "types": "./dist/dedup.d.ts",
+      "import": "./dist/dedup.js"
+    },
+    "./namespace": {
+      "types": "./dist/namespace.d.ts",
+      "import": "./dist/namespace.js"
+    },
+    "./replay": {
+      "types": "./dist/replay.d.ts",
+      "import": "./dist/replay.js"
+    },
+    "./request": {
+      "types": "./dist/request.d.ts",
+      "import": "./dist/request.js"
+    },
+    "./sequence": {
+      "types": "./dist/sequence.d.ts",
+      "import": "./dist/sequence.js"
+    },
+    "./stream": {
+      "types": "./dist/stream.d.ts",
+      "import": "./dist/stream.js"
     }
   },
   "publishConfig": {

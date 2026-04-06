@@ -4,7 +4,7 @@ import { defineConfig } from 'vite';
 import dts from 'vite-plugin-dts';
 
 export default defineConfig({
-  plugins: [dts({ rollupTypes: true })],
+  plugins: [dts()],
   resolve: {
     alias: {
       '~': resolve(__dirname, 'src'),
@@ -17,6 +17,14 @@ export default defineConfig({
       entry: {
         index: resolve(__dirname, 'src/index.ts'),
         errors: resolve(__dirname, 'src/errors.ts'),
+        ack: resolve(__dirname, 'src/ack/index.ts'),
+        channel: resolve(__dirname, 'src/channel/index.ts'),
+        dedup: resolve(__dirname, 'src/dedup/index.ts'),
+        namespace: resolve(__dirname, 'src/namespace/index.ts'),
+        replay: resolve(__dirname, 'src/replay/index.ts'),
+        request: resolve(__dirname, 'src/request/index.ts'),
+        sequence: resolve(__dirname, 'src/sequence/index.ts'),
+        stream: resolve(__dirname, 'src/stream/index.ts'),
       },
       formats: ['es'],
     },
