@@ -1,46 +1,42 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { definePrimitive } from '~/primitives/define.ts';
-import type { ServerHandlerContext, StreamServerHandlerContext } from '~/define-server.ts';
 import type { Primitive } from '~/primitives/define.ts';
 import type { IncomingPrimitive } from '~/primitives/incoming.ts';
 import type { OutgoingPrimitive } from '~/primitives/outgoing.ts';
 import type { RequestPrimitive } from '~/primitives/request.ts';
 import type { GeneratePrimitive, NudgeDeclaration, StreamPrimitive } from '~/primitives/stream.ts';
+import type {
+  FoldState,
+  HandlerCtxFromState,
+  NoOutgoing,
+  ScopeState,
+  StreamBaseCtxFromState,
+} from '~/types/scope-state.ts';
 
 type AnyOutgoing = OutgoingPrimitive<string, any>;
+type AnyIncoming = IncomingPrimitive<string, any, any>;
+type AnyRequest = RequestPrimitive<string, any, any, any>;
 type AnyGenerate = GeneratePrimitive<
   StreamPrimitive<string, any, any, readonly NudgeDeclaration[]>,
   any,
   any
 >;
+type NamespaceStatePrimitive = AnyOutgoing | AnyIncoming | AnyRequest | AnyGenerate;
 
-export type NamespaceChild =
-  | AnyOutgoing
-  | IncomingPrimitive<string, any, any>
-  | RequestPrimitive<string, any, any, any>
-  | AnyGenerate;
+type NamespaceHandlerCtx<TPrefix extends readonly NamespaceStatePrimitive[]> = HandlerCtxFromState<
+  FoldState<TPrefix, ScopeState<'namespace'>>
+>;
 
-type NoOutgoing = Record<never, never>;
+type NamespaceStreamBaseCtx<TPrefix extends readonly NamespaceStatePrimitive[]> =
+  StreamBaseCtxFromState<FoldState<TPrefix, ScopeState<'namespace'>>>;
 
-type OutgoingPayload<TOutgoing extends AnyOutgoing> =
-  TOutgoing extends OutgoingPrimitive<string, infer TPayload> ? TPayload : never;
-
-type OutgoingMap<TOutgoing extends readonly AnyOutgoing[]> = {
-  [TItem in TOutgoing[number] as TItem['event']]: OutgoingPayload<TItem>;
-};
-
-interface NamespaceScopeMethods {
-  /**
-   * The matched namespace name for the current handler call.
-   */
-  readonly namespaceName: string;
-}
+export type NamespaceChild = NamespaceStatePrimitive;
 
 export type NamespaceHandlerContext<TOutgoing extends Record<string, any> = NoOutgoing> =
-  ServerHandlerContext<TOutgoing, false> & NamespaceScopeMethods;
+  HandlerCtxFromState<ScopeState<'namespace', TOutgoing, false>>;
 
 export type NamespaceStreamHandlerContext<TOutgoing extends Record<string, any> = NoOutgoing> =
-  StreamServerHandlerContext<TOutgoing> & NamespaceScopeMethods;
+  StreamBaseCtxFromState<ScopeState<'namespace', TOutgoing, false>>;
 
 export interface NamespacePrimitive<
   TPattern extends string = string,
@@ -74,77 +70,48 @@ const _namespace = definePrimitive<
 /**
  * Group events under a routing-only scope within a single connection.
  *
- * Typing rule: namespace-local `outgoing()` declarations must come before
- * the namespace handlers they type.
+ * Typing rule: namespace-local primitives that affect handler ctx must come
+ * before the handlers they type.
  */
 export function namespace<
   TPattern extends string,
-  O1 extends AnyOutgoing,
+  P1 extends NamespaceStatePrimitive,
   TIncomingEvent extends string,
   TIncomingPayload,
 >(
   pattern: TPattern,
-  o1: O1,
-  incomingPrimitive: IncomingPrimitive<
-    TIncomingEvent,
-    TIncomingPayload,
-    NamespaceHandlerContext<OutgoingMap<[O1]>>
-  >,
-): NamespacePrimitive<
-  TPattern,
-  readonly [
-    O1,
-    IncomingPrimitive<TIncomingEvent, TIncomingPayload, NamespaceHandlerContext<OutgoingMap<[O1]>>>,
-  ]
->;
+  p1: P1,
+  incomingPrimitive: IncomingPrimitive<TIncomingEvent, TIncomingPayload, NamespaceHandlerCtx<[P1]>>,
+): NamespacePrimitive<TPattern, readonly [P1, typeof incomingPrimitive]>;
 export function namespace<
   TPattern extends string,
-  O1 extends AnyOutgoing,
-  O2 extends AnyOutgoing,
-  TStream extends StreamPrimitive<string, any, any, readonly NudgeDeclaration[]>,
+  P1 extends NamespaceStatePrimitive,
+  P2 extends NamespaceStatePrimitive,
   TIncomingEvent extends string,
   TIncomingPayload,
   TRequestEvent extends string,
   TRequestPayload,
   TRequestResponse,
+  TStream extends StreamPrimitive<string, any, any, readonly NudgeDeclaration[]>,
 >(
   pattern: TPattern,
-  o1: O1,
-  o2: O2,
+  p1: P1,
+  p2: P2,
   incomingPrimitive: IncomingPrimitive<
     TIncomingEvent,
     TIncomingPayload,
-    NamespaceHandlerContext<OutgoingMap<[O1, O2]>>
+    NamespaceHandlerCtx<[P1, P2]>
   >,
   requestPrimitive: RequestPrimitive<
     TRequestEvent,
     TRequestPayload,
     TRequestResponse,
-    NamespaceHandlerContext<OutgoingMap<[O1, O2]>>
+    NamespaceHandlerCtx<[P1, P2]>
   >,
-  generatePrimitive: GeneratePrimitive<
-    TStream,
-    NamespaceStreamHandlerContext<OutgoingMap<[O1, O2]>>,
-    any
-  >,
+  generatePrimitive: GeneratePrimitive<TStream, NamespaceStreamBaseCtx<[P1, P2]>, any>,
 ): NamespacePrimitive<
   TPattern,
-  readonly [
-    O1,
-    O2,
-    IncomingPrimitive<
-      TIncomingEvent,
-      TIncomingPayload,
-      NamespaceHandlerContext<OutgoingMap<[O1, O2]>>
-    >,
-    RequestPrimitive<
-      TRequestEvent,
-      TRequestPayload,
-      TRequestResponse,
-      NamespaceHandlerContext<OutgoingMap<[O1, O2]>>
-    >,
-    GeneratePrimitive<TStream, NamespaceStreamHandlerContext<OutgoingMap<[O1, O2]>>, any>,
-  ]
+  readonly [P1, P2, typeof incomingPrimitive, typeof requestPrimitive, typeof generatePrimitive]
 >;
 export function namespace<
   const TPattern extends string,

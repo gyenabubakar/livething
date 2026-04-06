@@ -1,11 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import type { AckPrimitive } from '~/primitives/ack.ts';
-import type {
-  ChannelHandlerContext,
-  ChannelPattern,
-  ChannelPrimitive,
-  ChannelStreamHandlerContext,
-} from '~/primitives/channel.ts';
+import type { ChannelPrimitive } from '~/primitives/channel.ts';
 import type { Primitive } from '~/primitives/define.ts';
 import type { ErrorsPrimitive } from '~/primitives/errors.ts';
 import type { IncomingPrimitive } from '~/primitives/incoming.ts';
@@ -13,58 +8,45 @@ import type { NamespacePrimitive } from '~/primitives/namespace.ts';
 import type { OutgoingPrimitive } from '~/primitives/outgoing.ts';
 import type { RequestPrimitive } from '~/primitives/request.ts';
 import type { GeneratePrimitive, NudgeDeclaration, StreamPrimitive } from '~/primitives/stream.ts';
+import type {
+  FoldState,
+  HandlerCtxFromState,
+  NoOutgoing,
+  ScopeState,
+  StreamBaseCtxFromState,
+} from '~/types/scope-state.ts';
 
 type AnyOutgoing = OutgoingPrimitive<string, any>;
-type NoOutgoing = Record<never, never>;
+type AnyRequest = RequestPrimitive<string, any, any, any>;
+type AnyIncoming = IncomingPrimitive<string, any, any>;
+type AnyGenerate = GeneratePrimitive<
+  StreamPrimitive<string, any, any, readonly NudgeDeclaration[]>,
+  any,
+  any
+>;
+type TopLevelStatePrimitive =
+  | AckPrimitive
+  | ErrorsPrimitive
+  | AnyOutgoing
+  | AnyIncoming
+  | AnyRequest
+  | AnyGenerate;
+type TopLevelPrimitive = TopLevelStatePrimitive | NamespacePrimitive | ChannelPrimitive;
 
-type OutgoingPayload<TOutgoing extends AnyOutgoing> =
-  TOutgoing extends OutgoingPrimitive<string, infer TPayload> ? TPayload : never;
+type TopLevelHandlerCtx<TPrefix extends readonly TopLevelStatePrimitive[]> = HandlerCtxFromState<
+  FoldState<TPrefix, ScopeState<'top'>>
+>;
 
-type OutgoingMap<TOutgoing extends readonly AnyOutgoing[]> = {
-  [TItem in TOutgoing[number] as TItem['event']]: OutgoingPayload<TItem>;
-};
-
-interface SendMethods<TOutgoing extends Record<string, any>> {
-  /**
-   * Send an event to the current connection.
-   *
-   * Only events declared with `outgoing()` in the same scope are allowed.
-   */
-  send<TEvent extends keyof TOutgoing & string>(event: TEvent, payload: TOutgoing[TEvent]): void;
-
-  /**
-   * Broadcast an event to other connections in the current scope.
-   *
-   * Only events declared with `outgoing()` in the same scope are allowed.
-   */
-  broadcast<TEvent extends keyof TOutgoing & string>(
-    event: TEvent,
-    payload: TOutgoing[TEvent],
-  ): void;
-}
-
-type SendApi<TOutgoing extends Record<string, any>> = keyof TOutgoing extends never
-  ? {}
-  : SendMethods<TOutgoing>;
-
-interface AckMethods {
-  /**
-   * Confirm receipt of the current incoming message.
-   *
-   * This only exists when `ack()` is registered in the same scope.
-   */
-  ack(): void;
-}
-
-type AckApi<THasAck extends boolean> = THasAck extends true ? AckMethods : {};
+type TopLevelStreamBaseCtx<TPrefix extends readonly TopLevelStatePrimitive[]> =
+  StreamBaseCtxFromState<FoldState<TPrefix, ScopeState<'top'>>>;
 
 export type ServerHandlerContext<
   TOutgoing extends Record<string, any> = NoOutgoing,
   THasAck extends boolean = false,
-> = SendApi<TOutgoing> & AckApi<THasAck>;
+> = HandlerCtxFromState<ScopeState<'top', TOutgoing, THasAck>>;
 
 export type StreamServerHandlerContext<TOutgoing extends Record<string, any> = NoOutgoing> =
-  SendApi<TOutgoing>;
+  StreamBaseCtxFromState<ScopeState<'top', TOutgoing, false>>;
 
 export interface ServerDefinition<TPrimitives extends readonly Primitive[] = readonly Primitive[]> {
   readonly __wskit: 'server';
@@ -78,363 +60,148 @@ export interface ServerDefinition<TPrimitives extends readonly Primitive[] = rea
  * handlers they type in the same scope.
  */
 export function defineServer<
-  O1 extends AnyOutgoing,
-  TIncomingEvent extends string,
-  TIncomingPayload,
-  TChannel extends ChannelPrimitive,
->(
-  o1: O1,
-  incomingPrimitive: IncomingPrimitive<
-    TIncomingEvent,
-    TIncomingPayload,
-    ServerHandlerContext<OutgoingMap<[O1]>, false>
-  >,
-  channelPrimitive: TChannel,
-): ServerDefinition<
-  readonly [
-    O1,
-    IncomingPrimitive<
-      TIncomingEvent,
-      TIncomingPayload,
-      ServerHandlerContext<OutgoingMap<[O1]>, false>
-    >,
-    TChannel,
-  ]
->;
-export function defineServer<
-  O1 extends AnyOutgoing,
+  P1 extends TopLevelStatePrimitive,
   TIncomingEvent extends string,
   TIncomingPayload,
 >(
-  o1: O1,
-  incomingPrimitive: IncomingPrimitive<
-    TIncomingEvent,
-    TIncomingPayload,
-    ServerHandlerContext<OutgoingMap<[O1]>, false>
-  >,
-): ServerDefinition<
-  readonly [
-    O1,
-    IncomingPrimitive<
-      TIncomingEvent,
-      TIncomingPayload,
-      ServerHandlerContext<OutgoingMap<[O1]>, false>
-    >,
-  ]
->;
+  p1: P1,
+  incomingPrimitive: IncomingPrimitive<TIncomingEvent, TIncomingPayload, TopLevelHandlerCtx<[P1]>>,
+): ServerDefinition<readonly [P1, typeof incomingPrimitive]>;
 export function defineServer<
-  O1 extends AnyOutgoing,
-  TIncomingEvent extends string,
-  TIncomingPayload,
->(
-  ackPrimitive: AckPrimitive,
-  o1: O1,
-  incomingPrimitive: IncomingPrimitive<
-    TIncomingEvent,
-    TIncomingPayload,
-    ServerHandlerContext<OutgoingMap<[O1]>, true>
-  >,
-): ServerDefinition<
-  readonly [
-    AckPrimitive,
-    O1,
-    IncomingPrimitive<
-      TIncomingEvent,
-      TIncomingPayload,
-      ServerHandlerContext<OutgoingMap<[O1]>, true>
-    >,
-  ]
->;
-export function defineServer<
-  TErrors extends ErrorsPrimitive,
-  O1 extends AnyOutgoing,
-  O2 extends AnyOutgoing,
-  TStream extends StreamPrimitive<string, any, any, readonly NudgeDeclaration[]>,
-  TIncomingEvent extends string,
-  TIncomingPayload,
-  TRequestEvent extends string,
-  TRequestPayload,
-  TRequestResponse,
->(
-  ackPrimitive: AckPrimitive,
-  errorsPrimitive: TErrors,
-  o1: O1,
-  o2: O2,
-  incomingPrimitive: IncomingPrimitive<
-    TIncomingEvent,
-    TIncomingPayload,
-    ServerHandlerContext<OutgoingMap<[O1, O2]>, true>
-  >,
-  requestPrimitive: RequestPrimitive<
-    TRequestEvent,
-    TRequestPayload,
-    TRequestResponse,
-    ServerHandlerContext<OutgoingMap<[O1, O2]>, true>
-  >,
-  generatePrimitive: GeneratePrimitive<
-    TStream,
-    StreamServerHandlerContext<OutgoingMap<[O1, O2]>>,
-    any
-  >,
-): ServerDefinition<
-  readonly [
-    AckPrimitive,
-    TErrors,
-    O1,
-    O2,
-    IncomingPrimitive<
-      TIncomingEvent,
-      TIncomingPayload,
-      ServerHandlerContext<OutgoingMap<[O1, O2]>, true>
-    >,
-    RequestPrimitive<
-      TRequestEvent,
-      TRequestPayload,
-      TRequestResponse,
-      ServerHandlerContext<OutgoingMap<[O1, O2]>, true>
-    >,
-    GeneratePrimitive<TStream, StreamServerHandlerContext<OutgoingMap<[O1, O2]>>, any>,
-  ]
->;
-export function defineServer<
-  O1 extends AnyOutgoing,
-  O2 extends AnyOutgoing,
-  TStream extends StreamPrimitive<string, any, any, readonly NudgeDeclaration[]>,
-  TIncomingEvent extends string,
-  TIncomingPayload,
-  TRequestEvent extends string,
-  TRequestPayload,
-  TRequestResponse,
->(
-  ackPrimitive: AckPrimitive,
-  o1: O1,
-  o2: O2,
-  incomingPrimitive: IncomingPrimitive<
-    TIncomingEvent,
-    TIncomingPayload,
-    ServerHandlerContext<OutgoingMap<[O1, O2]>, true>
-  >,
-  requestPrimitive: RequestPrimitive<
-    TRequestEvent,
-    TRequestPayload,
-    TRequestResponse,
-    ServerHandlerContext<OutgoingMap<[O1, O2]>, true>
-  >,
-  generatePrimitive: GeneratePrimitive<
-    TStream,
-    StreamServerHandlerContext<OutgoingMap<[O1, O2]>>,
-    any
-  >,
-): ServerDefinition<
-  readonly [
-    AckPrimitive,
-    O1,
-    O2,
-    IncomingPrimitive<
-      TIncomingEvent,
-      TIncomingPayload,
-      ServerHandlerContext<OutgoingMap<[O1, O2]>, true>
-    >,
-    RequestPrimitive<
-      TRequestEvent,
-      TRequestPayload,
-      TRequestResponse,
-      ServerHandlerContext<OutgoingMap<[O1, O2]>, true>
-    >,
-    GeneratePrimitive<TStream, StreamServerHandlerContext<OutgoingMap<[O1, O2]>>, any>,
-  ]
->;
-export function defineServer<
-  O1 extends AnyOutgoing,
-  TChannelPattern extends ChannelPattern,
-  CO1 extends AnyOutgoing,
-  CO2 extends AnyOutgoing,
-  CTStream extends StreamPrimitive<string, any, any, readonly NudgeDeclaration[]>,
-  CIncomingEvent extends string,
-  CIncomingPayload,
-  CRequestEvent extends string,
-  CRequestPayload,
-  CRequestResponse,
-  TIncomingEvent extends string,
-  TIncomingPayload,
->(
-  o1: O1,
-  incomingPrimitive: IncomingPrimitive<
-    TIncomingEvent,
-    TIncomingPayload,
-    ServerHandlerContext<OutgoingMap<[O1]>, false>
-  >,
-  channelPrimitive: ChannelPrimitive<
-    TChannelPattern,
-    readonly [
-      CO1,
-      CO2,
-      IncomingPrimitive<
-        CIncomingEvent,
-        CIncomingPayload,
-        ChannelHandlerContext<OutgoingMap<[CO1, CO2]>, false>
-      >,
-      RequestPrimitive<
-        CRequestEvent,
-        CRequestPayload,
-        CRequestResponse,
-        ChannelHandlerContext<OutgoingMap<[CO1, CO2]>, false>
-      >,
-      GeneratePrimitive<CTStream, ChannelStreamHandlerContext<OutgoingMap<[CO1, CO2]>>, any>,
-    ]
-  >,
-): ServerDefinition<
-  readonly [
-    O1,
-    IncomingPrimitive<
-      TIncomingEvent,
-      TIncomingPayload,
-      ServerHandlerContext<OutgoingMap<[O1]>, false>
-    >,
-    ChannelPrimitive<
-      TChannelPattern,
-      readonly [
-        CO1,
-        CO2,
-        IncomingPrimitive<
-          CIncomingEvent,
-          CIncomingPayload,
-          ChannelHandlerContext<OutgoingMap<[CO1, CO2]>, false>
-        >,
-        RequestPrimitive<
-          CRequestEvent,
-          CRequestPayload,
-          CRequestResponse,
-          ChannelHandlerContext<OutgoingMap<[CO1, CO2]>, false>
-        >,
-        GeneratePrimitive<CTStream, ChannelStreamHandlerContext<OutgoingMap<[CO1, CO2]>>, any>,
-      ]
-    >,
-  ]
->;
-export function defineServer<
-  O1 extends AnyOutgoing,
+  P1 extends TopLevelStatePrimitive,
   TIncomingEvent extends string,
   TIncomingPayload,
   TNamespace extends NamespacePrimitive,
 >(
-  ackPrimitive: AckPrimitive,
-  o1: O1,
+  p1: P1,
+  incomingPrimitive: IncomingPrimitive<TIncomingEvent, TIncomingPayload, TopLevelHandlerCtx<[P1]>>,
+  namespacePrimitive: TNamespace,
+): ServerDefinition<readonly [P1, typeof incomingPrimitive, TNamespace]>;
+export function defineServer<
+  P1 extends TopLevelStatePrimitive,
+  P2 extends TopLevelStatePrimitive,
+  TIncomingEvent extends string,
+  TIncomingPayload,
+  TNamespace extends NamespacePrimitive,
+>(
+  p1: P1,
+  p2: P2,
   incomingPrimitive: IncomingPrimitive<
     TIncomingEvent,
     TIncomingPayload,
-    ServerHandlerContext<OutgoingMap<[O1]>, true>
+    TopLevelHandlerCtx<[P1, P2]>
   >,
   namespacePrimitive: TNamespace,
-): ServerDefinition<
-  readonly [
-    AckPrimitive,
-    O1,
-    IncomingPrimitive<
-      TIncomingEvent,
-      TIncomingPayload,
-      ServerHandlerContext<OutgoingMap<[O1]>, true>
-    >,
-    TNamespace,
-  ]
->;
+): ServerDefinition<readonly [P1, P2, typeof incomingPrimitive, TNamespace]>;
 export function defineServer<
-  O1 extends AnyOutgoing,
+  P1 extends TopLevelStatePrimitive,
   TIncomingEvent extends string,
   TIncomingPayload,
   TChannel extends ChannelPrimitive,
 >(
-  ackPrimitive: AckPrimitive,
-  o1: O1,
+  p1: P1,
+  incomingPrimitive: IncomingPrimitive<TIncomingEvent, TIncomingPayload, TopLevelHandlerCtx<[P1]>>,
+  channelPrimitive: TChannel,
+): ServerDefinition<readonly [P1, typeof incomingPrimitive, TChannel]>;
+export function defineServer<
+  P1 extends TopLevelStatePrimitive,
+  P2 extends TopLevelStatePrimitive,
+  TIncomingEvent extends string,
+  TIncomingPayload,
+  TChannel extends ChannelPrimitive,
+>(
+  p1: P1,
+  p2: P2,
   incomingPrimitive: IncomingPrimitive<
     TIncomingEvent,
     TIncomingPayload,
-    ServerHandlerContext<OutgoingMap<[O1]>, true>
+    TopLevelHandlerCtx<[P1, P2]>
   >,
   channelPrimitive: TChannel,
-): ServerDefinition<
-  readonly [
-    AckPrimitive,
-    O1,
-    IncomingPrimitive<
-      TIncomingEvent,
-      TIncomingPayload,
-      ServerHandlerContext<OutgoingMap<[O1]>, true>
-    >,
-    TChannel,
-  ]
->;
+): ServerDefinition<readonly [P1, P2, typeof incomingPrimitive, TChannel]>;
 export function defineServer<
-  O1 extends AnyOutgoing,
-  TChannelPattern extends ChannelPattern,
-  CO1 extends AnyOutgoing,
-  CO2 extends AnyOutgoing,
-  CTStream extends StreamPrimitive<string, any, any, readonly NudgeDeclaration[]>,
-  CIncomingEvent extends string,
-  CIncomingPayload,
-  CRequestEvent extends string,
-  CRequestPayload,
-  CRequestResponse,
+  P1 extends TopLevelStatePrimitive,
+  P2 extends TopLevelStatePrimitive,
   TIncomingEvent extends string,
   TIncomingPayload,
 >(
-  ackPrimitive: AckPrimitive,
-  o1: O1,
+  p1: P1,
+  p2: P2,
   incomingPrimitive: IncomingPrimitive<
     TIncomingEvent,
     TIncomingPayload,
-    ServerHandlerContext<OutgoingMap<[O1]>, true>
+    TopLevelHandlerCtx<[P1, P2]>
   >,
-  channelPrimitive: ChannelPrimitive<
-    TChannelPattern,
-    readonly [
-      CO1,
-      CO2,
-      IncomingPrimitive<
-        CIncomingEvent,
-        CIncomingPayload,
-        ChannelHandlerContext<OutgoingMap<[CO1, CO2]>, false>
-      >,
-      RequestPrimitive<
-        CRequestEvent,
-        CRequestPayload,
-        CRequestResponse,
-        ChannelHandlerContext<OutgoingMap<[CO1, CO2]>, false>
-      >,
-      GeneratePrimitive<CTStream, ChannelStreamHandlerContext<OutgoingMap<[CO1, CO2]>>, any>,
-    ]
+): ServerDefinition<readonly [P1, P2, typeof incomingPrimitive]>;
+export function defineServer<
+  P1 extends TopLevelStatePrimitive,
+  P2 extends TopLevelStatePrimitive,
+  P3 extends TopLevelStatePrimitive,
+  TIncomingEvent extends string,
+  TIncomingPayload,
+  TRequestEvent extends string,
+  TRequestPayload,
+  TRequestResponse,
+  TStream extends StreamPrimitive<string, any, any, readonly NudgeDeclaration[]>,
+>(
+  p1: P1,
+  p2: P2,
+  p3: P3,
+  incomingPrimitive: IncomingPrimitive<
+    TIncomingEvent,
+    TIncomingPayload,
+    TopLevelHandlerCtx<[P1, P2, P3]>
   >,
+  requestPrimitive: RequestPrimitive<
+    TRequestEvent,
+    TRequestPayload,
+    TRequestResponse,
+    TopLevelHandlerCtx<[P1, P2, P3]>
+  >,
+  generatePrimitive: GeneratePrimitive<TStream, TopLevelStreamBaseCtx<[P1, P2, P3]>, any>,
+): ServerDefinition<
+  readonly [P1, P2, P3, typeof incomingPrimitive, typeof requestPrimitive, typeof generatePrimitive]
+>;
+export function defineServer<
+  P1 extends TopLevelStatePrimitive,
+  P2 extends TopLevelStatePrimitive,
+  P3 extends TopLevelStatePrimitive,
+  P4 extends TopLevelStatePrimitive,
+  TIncomingEvent extends string,
+  TIncomingPayload,
+  TRequestEvent extends string,
+  TRequestPayload,
+  TRequestResponse,
+  TStream extends StreamPrimitive<string, any, any, readonly NudgeDeclaration[]>,
+>(
+  p1: P1,
+  p2: P2,
+  p3: P3,
+  p4: P4,
+  incomingPrimitive: IncomingPrimitive<
+    TIncomingEvent,
+    TIncomingPayload,
+    TopLevelHandlerCtx<[P1, P2, P3, P4]>
+  >,
+  requestPrimitive: RequestPrimitive<
+    TRequestEvent,
+    TRequestPayload,
+    TRequestResponse,
+    TopLevelHandlerCtx<[P1, P2, P3, P4]>
+  >,
+  generatePrimitive: GeneratePrimitive<TStream, TopLevelStreamBaseCtx<[P1, P2, P3, P4]>, any>,
 ): ServerDefinition<
   readonly [
-    AckPrimitive,
-    O1,
-    IncomingPrimitive<
-      TIncomingEvent,
-      TIncomingPayload,
-      ServerHandlerContext<OutgoingMap<[O1]>, true>
-    >,
-    ChannelPrimitive<
-      TChannelPattern,
-      readonly [
-        CO1,
-        CO2,
-        IncomingPrimitive<
-          CIncomingEvent,
-          CIncomingPayload,
-          ChannelHandlerContext<OutgoingMap<[CO1, CO2]>, false>
-        >,
-        RequestPrimitive<
-          CRequestEvent,
-          CRequestPayload,
-          CRequestResponse,
-          ChannelHandlerContext<OutgoingMap<[CO1, CO2]>, false>
-        >,
-        GeneratePrimitive<CTStream, ChannelStreamHandlerContext<OutgoingMap<[CO1, CO2]>>, any>,
-      ]
-    >,
+    P1,
+    P2,
+    P3,
+    P4,
+    typeof incomingPrimitive,
+    typeof requestPrimitive,
+    typeof generatePrimitive,
   ]
 >;
-export function defineServer<const TPrimitives extends readonly Primitive[]>(
+export function defineServer<const TPrimitives extends readonly TopLevelPrimitive[]>(
   ...primitives: TPrimitives
 ): ServerDefinition<TPrimitives>;
 export function defineServer(

@@ -1,18 +1,34 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { definePrimitive } from '~/primitives/define.ts';
-import type { ServerHandlerContext, StreamServerHandlerContext } from '~/define-server.ts';
 import type { Primitive } from '~/primitives/define.ts';
 import type { IncomingPrimitive } from '~/primitives/incoming.ts';
 import type { OutgoingPrimitive } from '~/primitives/outgoing.ts';
 import type { RequestPrimitive } from '~/primitives/request.ts';
 import type { GeneratePrimitive, NudgeDeclaration, StreamPrimitive } from '~/primitives/stream.ts';
+import type {
+  FoldState,
+  HandlerCtxFromState,
+  NoOutgoing,
+  ScopeState,
+  StreamBaseCtxFromState,
+} from '~/types/scope-state.ts';
 
 type AnyOutgoing = OutgoingPrimitive<string, any>;
+type AnyIncoming = IncomingPrimitive<string, any, any>;
+type AnyRequest = RequestPrimitive<string, any, any, any>;
 type AnyGenerate = GeneratePrimitive<
   StreamPrimitive<string, any, any, readonly NudgeDeclaration[]>,
   any,
   any
 >;
+type ChannelStatePrimitive = AnyOutgoing | AnyIncoming | AnyRequest | AnyGenerate;
+
+type ChannelHandlerCtx<TPrefix extends readonly ChannelStatePrimitive[]> = HandlerCtxFromState<
+  FoldState<TPrefix, ScopeState<'channel'>>
+>;
+
+type ChannelStreamBaseCtx<TPrefix extends readonly ChannelStatePrimitive[]> =
+  StreamBaseCtxFromState<FoldState<TPrefix, ScopeState<'channel'>>>;
 
 export interface ScopeDeclaration<TKey extends string = string> {
   readonly key: TKey;
@@ -21,35 +37,15 @@ export interface ScopeDeclaration<TKey extends string = string> {
 
 export type ChannelPattern = string | ScopeDeclaration<string>;
 
-export type ChannelChild =
-  | AnyOutgoing
-  | IncomingPrimitive<string, any, any>
-  | RequestPrimitive<string, any, any, any>
-  | AnyGenerate;
-
-type NoOutgoing = Record<never, never>;
-
-type OutgoingPayload<TOutgoing extends AnyOutgoing> =
-  TOutgoing extends OutgoingPrimitive<string, infer TPayload> ? TPayload : never;
-
-type OutgoingMap<TOutgoing extends readonly AnyOutgoing[]> = {
-  [TItem in TOutgoing[number] as TItem['event']]: OutgoingPayload<TItem>;
-};
-
-interface ChannelScopeMethods {
-  /**
-   * The current channel name for this handler call.
-   */
-  readonly channelName: string;
-}
+export type ChannelChild = ChannelStatePrimitive;
 
 export type ChannelHandlerContext<
   TOutgoing extends Record<string, any> = NoOutgoing,
   THasAck extends boolean = false,
-> = ServerHandlerContext<TOutgoing, THasAck> & ChannelScopeMethods;
+> = HandlerCtxFromState<ScopeState<'channel', TOutgoing, THasAck>>;
 
 export type ChannelStreamHandlerContext<TOutgoing extends Record<string, any> = NoOutgoing> =
-  StreamServerHandlerContext<TOutgoing> & ChannelScopeMethods;
+  StreamBaseCtxFromState<ScopeState<'channel', TOutgoing, false>>;
 
 export interface ChannelPrimitive<
   TPattern extends ChannelPattern = ChannelPattern,
@@ -90,81 +86,48 @@ export function scope<TKey extends string>(key: TKey, pattern: RegExp): ScopeDec
 /**
  * Group events under a channel scope.
  *
- * Typing rule: channel-local `outgoing()` declarations must come before
- * the channel handlers they type.
+ * Typing rule: channel-local primitives that affect handler ctx must come
+ * before the handlers they type.
  */
 export function channel<
   TPattern extends ChannelPattern,
-  O1 extends AnyOutgoing,
+  P1 extends ChannelStatePrimitive,
   TIncomingEvent extends string,
   TIncomingPayload,
 >(
   pattern: TPattern,
-  o1: O1,
-  incomingPrimitive: IncomingPrimitive<
-    TIncomingEvent,
-    TIncomingPayload,
-    ChannelHandlerContext<OutgoingMap<[O1]>, false>
-  >,
-): ChannelPrimitive<
-  TPattern,
-  readonly [
-    O1,
-    IncomingPrimitive<
-      TIncomingEvent,
-      TIncomingPayload,
-      ChannelHandlerContext<OutgoingMap<[O1]>, false>
-    >,
-  ]
->;
+  p1: P1,
+  incomingPrimitive: IncomingPrimitive<TIncomingEvent, TIncomingPayload, ChannelHandlerCtx<[P1]>>,
+): ChannelPrimitive<TPattern, readonly [P1, typeof incomingPrimitive]>;
 export function channel<
   TPattern extends ChannelPattern,
-  O1 extends AnyOutgoing,
-  O2 extends AnyOutgoing,
-  TStream extends StreamPrimitive<string, any, any, readonly NudgeDeclaration[]>,
+  P1 extends ChannelStatePrimitive,
+  P2 extends ChannelStatePrimitive,
   TIncomingEvent extends string,
   TIncomingPayload,
   TRequestEvent extends string,
   TRequestPayload,
   TRequestResponse,
+  TStream extends StreamPrimitive<string, any, any, readonly NudgeDeclaration[]>,
 >(
   pattern: TPattern,
-  o1: O1,
-  o2: O2,
+  p1: P1,
+  p2: P2,
   incomingPrimitive: IncomingPrimitive<
     TIncomingEvent,
     TIncomingPayload,
-    ChannelHandlerContext<OutgoingMap<[O1, O2]>, false>
+    ChannelHandlerCtx<[P1, P2]>
   >,
   requestPrimitive: RequestPrimitive<
     TRequestEvent,
     TRequestPayload,
     TRequestResponse,
-    ChannelHandlerContext<OutgoingMap<[O1, O2]>, false>
+    ChannelHandlerCtx<[P1, P2]>
   >,
-  generatePrimitive: GeneratePrimitive<
-    TStream,
-    ChannelStreamHandlerContext<OutgoingMap<[O1, O2]>>,
-    any
-  >,
+  generatePrimitive: GeneratePrimitive<TStream, ChannelStreamBaseCtx<[P1, P2]>, any>,
 ): ChannelPrimitive<
   TPattern,
-  readonly [
-    O1,
-    O2,
-    IncomingPrimitive<
-      TIncomingEvent,
-      TIncomingPayload,
-      ChannelHandlerContext<OutgoingMap<[O1, O2]>, false>
-    >,
-    RequestPrimitive<
-      TRequestEvent,
-      TRequestPayload,
-      TRequestResponse,
-      ChannelHandlerContext<OutgoingMap<[O1, O2]>, false>
-    >,
-    GeneratePrimitive<TStream, ChannelStreamHandlerContext<OutgoingMap<[O1, O2]>>, any>,
-  ]
+  readonly [P1, P2, typeof incomingPrimitive, typeof requestPrimitive, typeof generatePrimitive]
 >;
 export function channel<
   const TPattern extends ChannelPattern,

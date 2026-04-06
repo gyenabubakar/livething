@@ -2,24 +2,11 @@
 import type { ServerDefinition } from '~/define-server.ts';
 import type { ErrorDef, ValidationFailed } from '~/errors.ts';
 import type { ChannelChild, ChannelPrimitive, ScopeDeclaration } from '~/primitives/channel.ts';
-import type { ErrorsPrimitive } from '~/primitives/errors.ts';
-import type { IncomingPrimitive } from '~/primitives/incoming.ts';
 import type { NamespaceChild, NamespacePrimitive } from '~/primitives/namespace.ts';
-import type { OutgoingPrimitive } from '~/primitives/outgoing.ts';
-import type { RequestPrimitive } from '~/primitives/request.ts';
-import type { GeneratePrimitive, NudgeDeclaration, StreamPrimitive } from '~/primitives/stream.ts';
+import type { ContractFromItems, ErrorsFromItems } from '~/types/scope-state.ts';
 
-type AnyOutgoing = OutgoingPrimitive<string, any>;
-type AnyIncoming = IncomingPrimitive<string, any, any>;
-type AnyRequest = RequestPrimitive<string, any, any, any>;
-type AnyGenerate = GeneratePrimitive<
-  StreamPrimitive<string, any, any, readonly NudgeDeclaration[]>,
-  any,
-  any
->;
 type AnyChannel = ChannelPrimitive<string | ScopeDeclaration<string>, readonly ChannelChild[]>;
 type AnyNamespace = NamespacePrimitive<string, readonly NamespaceChild[]>;
-type AnyErrorDef = ErrorDef<string, any>;
 
 type SimplifyDeep<T> = T extends (...args: any[]) => any
   ? T
@@ -32,73 +19,9 @@ type SimplifyDeep<T> = T extends (...args: any[]) => any
 type PrimitivesOf<TServer> =
   TServer extends ServerDefinition<infer TPrimitives> ? TPrimitives : never;
 
-type OutgoingToIncoming<TPrimitives extends readonly unknown[]> = {
-  [TPrimitive in Extract<
-    TPrimitives[number],
-    AnyOutgoing
-  > as TPrimitive['event']]: TPrimitive extends OutgoingPrimitive<string, infer TPayload>
-    ? TPayload
-    : never;
-};
-
-type IncomingToOutgoing<TPrimitives extends readonly unknown[]> = {
-  [TPrimitive in Extract<
-    TPrimitives[number],
-    AnyIncoming
-  > as TPrimitive['event']]: TPrimitive extends IncomingPrimitive<string, infer TPayload, any>
-    ? TPayload
-    : never;
-};
-
-type RequestsMap<TPrimitives extends readonly unknown[]> = {
-  [TPrimitive in Extract<
-    TPrimitives[number],
-    AnyRequest
-  > as TPrimitive['event']]: TPrimitive extends RequestPrimitive<
-    string,
-    infer TPayload,
-    infer TResponse,
-    any
-  >
-    ? {
-        payload: TPayload;
-        response: TResponse;
-      }
-    : never;
-};
-
-type NudgeMap<TNudges extends readonly NudgeDeclaration[]> = {
-  [TNudge in TNudges[number] as TNudge['event']]: TNudge extends NudgeDeclaration<
-    string,
-    infer TPayload
-  >
-    ? TPayload
-    : never;
-};
-
-type StreamEntry<TStream extends StreamPrimitive> =
-  TStream extends StreamPrimitive<string, infer TPayload, infer TChunks, infer TNudges>
-    ? {
-        payload: TPayload;
-        chunks: TChunks;
-      } & (keyof NudgeMap<TNudges> extends never ? {} : { nudges: NudgeMap<TNudges> })
-    : never;
-
-type StreamsMap<TPrimitives extends readonly unknown[]> = {
-  [TPrimitive in Extract<
-    TPrimitives[number],
-    AnyGenerate
-  > as TPrimitive['event']]: TPrimitive extends GeneratePrimitive<infer TStream, any, any>
-    ? StreamEntry<TStream>
-    : never;
-};
-
-type NamespaceContract<TPrimitives extends readonly unknown[]> = SimplifyDeep<{
-  incoming: OutgoingToIncoming<TPrimitives>;
-  outgoing: IncomingToOutgoing<TPrimitives>;
-  requests: RequestsMap<TPrimitives>;
-  streams: StreamsMap<TPrimitives>;
-}>;
+type NamespaceContract<TPrimitives extends readonly unknown[]> = SimplifyDeep<
+  ContractFromItems<TPrimitives, 'namespace'>
+>;
 
 type StaticNamespacesMap<TPrimitives extends readonly unknown[]> = {
   [TPrimitive in Extract<
@@ -111,12 +34,9 @@ type StaticNamespacesMap<TPrimitives extends readonly unknown[]> = {
     : never;
 };
 
-type ChannelContract<TPrimitives extends readonly unknown[]> = SimplifyDeep<{
-  incoming: OutgoingToIncoming<TPrimitives>;
-  outgoing: IncomingToOutgoing<TPrimitives>;
-  requests: RequestsMap<TPrimitives>;
-  streams: StreamsMap<TPrimitives>;
-}>;
+type ChannelContract<TPrimitives extends readonly unknown[]> = SimplifyDeep<
+  ContractFromItems<TPrimitives, 'channel'>
+>;
 
 type StaticChannelsMap<TPrimitives extends readonly unknown[]> = {
   [TPrimitive in Extract<TPrimitives[number], AnyChannel> as TPrimitive extends ChannelPrimitive<
@@ -145,11 +65,7 @@ type DynamicChannelsMap<TPrimitives extends readonly unknown[]> = {
 };
 
 type DeclaredErrorUnion<TPrimitives extends readonly unknown[]> =
-  Extract<TPrimitives[number], ErrorsPrimitive<readonly AnyErrorDef[]>> extends ErrorsPrimitive<
-    infer TDefs
-  >
-    ? TDefs[number]
-    : never;
+  ErrorsFromItems<TPrimitives>[number];
 
 type ErrorMap<TDefs> = {
   [TDef in TDefs as TDef extends ErrorDef<infer TCode, any> ? TCode : never]: TDef extends ErrorDef<
@@ -164,17 +80,11 @@ type BuiltInErrorUnion = typeof ValidationFailed;
 
 /**
  * Read a wskit server definition and produce the client contract type.
- *
- * This first pass covers the top-level contract:
- * `incoming`, `outgoing`, `requests`, `streams`, and `__errors__`.
- * Namespace and channel inference will layer on top of this later.
  */
-export type InferClient<TServer extends ServerDefinition> = SimplifyDeep<{
-  incoming: OutgoingToIncoming<PrimitivesOf<TServer>>;
-  outgoing: IncomingToOutgoing<PrimitivesOf<TServer>>;
-  namespaces: StaticNamespacesMap<PrimitivesOf<TServer>>;
-  channels: StaticChannelsMap<PrimitivesOf<TServer>> & DynamicChannelsMap<PrimitivesOf<TServer>>;
-  streams: StreamsMap<PrimitivesOf<TServer>>;
-  requests: RequestsMap<PrimitivesOf<TServer>>;
-  __errors__: ErrorMap<DeclaredErrorUnion<PrimitivesOf<TServer>> | BuiltInErrorUnion>;
-}>;
+export type InferClient<TServer extends ServerDefinition> = SimplifyDeep<
+  ContractFromItems<PrimitivesOf<TServer>, 'top'> & {
+    namespaces: StaticNamespacesMap<PrimitivesOf<TServer>>;
+    channels: StaticChannelsMap<PrimitivesOf<TServer>> & DynamicChannelsMap<PrimitivesOf<TServer>>;
+    __errors__: ErrorMap<DeclaredErrorUnion<PrimitivesOf<TServer>> | BuiltInErrorUnion>;
+  }
+>;
