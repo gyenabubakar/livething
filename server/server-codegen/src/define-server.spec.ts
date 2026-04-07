@@ -106,6 +106,28 @@ describe('defineServer', () => {
     expect(server.primitives[2]!.__wskit).toBe('replay');
   });
 
+  it('throws when sequence() is registered twice at the top level', () => {
+    expect(() =>
+      defineServer(
+        sequence(),
+        sequence(),
+        outgoing('message', t<{ text: string }>()),
+        incoming(received('ping'), async () => {}),
+      ),
+    ).toThrow(/Duplicate registration: sequence/);
+  });
+
+  it('throws when sequence() is registered both directly and through passive()', () => {
+    expect(() =>
+      defineServer(
+        sequence(),
+        passive(dedup(), sequence()),
+        outgoing('message', t<{ text: string }>()),
+        incoming(received('ping'), async () => {}),
+      ),
+    ).toThrow(/Duplicate registration: sequence/);
+  });
+
   it('stores heartbeat() before handler primitives without affecting order', () => {
     const server = defineServer(
       heartbeat({ timeout: 30_000 }),

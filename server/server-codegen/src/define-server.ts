@@ -142,6 +142,10 @@ function hasNestedPrimitives(
   );
 }
 
+function isPassivePrimitive(primitive: Primitive): primitive is PassivePrimitive<any> {
+  return primitive.__wskit === 'passive';
+}
+
 function collectRegisteredRefs(
   primitives: readonly Primitive[],
   refs = new Set<symbol>(),
@@ -180,7 +184,10 @@ function validateUniqueIdentities(
     seen.set(key, registrations);
 
     if (hasNestedPrimitives(primitive)) {
-      validateUniqueIdentities(primitive.primitives);
+      validateUniqueIdentities(
+        primitive.primitives,
+        isPassivePrimitive(primitive) ? seen : new Map(),
+      );
     }
   }
 }
