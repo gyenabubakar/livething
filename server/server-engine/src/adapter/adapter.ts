@@ -1,6 +1,6 @@
 import type { ServerDefinition } from '@wskit/server-codegen/internal/define-server';
-import { Engine } from './engine.ts';
-import type { AdapterConfig } from './engine.ts';
+import { Engine } from '../engine.ts';
+import type { AdapterConfig } from './types.ts';
 
 /**
  * Define a platform adapter.

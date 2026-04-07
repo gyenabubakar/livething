@@ -5,5 +5,5 @@ export type {
   ConnectionHandle,
   EngineOptions,
   UpgradeDecision,
-} from './engine.ts';
-export { defineServerAdapter } from './define-server-adapter.ts';
+} from './adapter/types.ts';
+export { defineServerAdapter } from './adapter/adapter.ts';

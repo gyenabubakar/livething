@@ -1,0 +1,811 @@
+/* oxlint-disable @typescript-eslint/no-explicit-any */
+import { Block, Skip, WskitError } from '@wskit/core';
+import { DeferExhausted } from '@wskit/server-codegen/errors';
+import type { BroadcastOptions, ConnectionInfo, TimerProvider } from '@wskit/server-codegen';
+import { prefixedModuleEvent, validateValue } from '../compile/utils.ts';
+import type { CompiledChannel, CompiledServer } from '../compile/types.ts';
+import type {
+  ActiveStream,
+  ConnectionMembersRuntime,
+  ModuleRuntime,
+  ResolvedScope,
+  RoutingTarget,
+  RuntimeConnection,
+} from './types.ts';
+
+/**
+ * Minimal dependency bag for outgoing message helpers.
+ */
+interface OutgoingRuntime {
+  compiled: CompiledServer;
+  moduleRuntimes: readonly ModuleRuntime[];
+  seqState: { current: number };
+  generateId(prefix?: string): string;
+}
+
+/**
+ * Larger dependency bag for inbound message dispatch.
+ */
+interface DispatchRuntime extends OutgoingRuntime, ConnectionMembersRuntime {
+  logger: { warn(message: string, data?: unknown): void };
+  activeStreams: Map<string, ActiveStream>;
+  requireTimers(): TimerProvider;
+  buildConnectionContext(
+    connection: RuntimeConnection,
+    scope?: ResolvedScope,
+  ): Record<PropertyKey, unknown>;
+  sendProtocolMessage(
+    connection: RuntimeConnection,
+    event: string,
+    payload: Record<string, unknown>,
+  ): void;
+  sendReplay(
+    connection: RuntimeConnection,
+    channelName: string | undefined,
+    channelScope: string | undefined,
+    event: string,
+    payload: unknown,
+    wire: { seq: number; messageId: string; channel?: string },
+  ): void;
+  persistAttachment(connection: RuntimeConnection): void;
+  setActiveConnectionId(id?: string): void;
+  handleRuntimeError(
+    connection: RuntimeConnection,
+    error: unknown,
+    event?: string,
+    routing?: Record<string, unknown>,
+  ): Promise<void>;
+  handleSubscribe(
+    connection: RuntimeConnection,
+    payload: Record<string, unknown> | undefined,
+  ): Promise<void>;
+  handleUnsubscribe(
+    connection: RuntimeConnection,
+    payload: Record<string, unknown> | undefined,
+  ): Promise<void>;
+  handleReplay(
+    connection: RuntimeConnection,
+    payload: Record<string, unknown> | undefined,
+  ): Promise<void>;
+}
+
+/**
+ * Dependency bag for channel subscribe/unsubscribe helpers.
+ */
+interface ChannelRuntime extends ConnectionMembersRuntime {
+  buildConnectionContext(
+    connection: RuntimeConnection,
+    scope?: ResolvedScope,
+  ): Record<PropertyKey, unknown>;
+  persistAttachment(connection: RuntimeConnection): void;
+  sendProtocolMessage(
+    connection: RuntimeConnection,
+    event: string,
+    payload: Record<string, unknown>,
+  ): void;
+}
+
+/**
+ * Read routing markers from an incoming payload and resolve the active scope.
+ */
+export function resolveScope(compiled: CompiledServer, payload: unknown): ResolvedScope {
+  if (!payload || typeof payload !== 'object') return {};
+  const record = payload as Record<string, unknown>;
+
+  if (typeof record._namespace === 'string') {
+    return {
+      namespace: compiled.namespaces.get(record._namespace),
+    };
+  }
+
+  if (typeof record._channel === 'string') {
+    if (typeof record._channelScope === 'string') {
+      return {
+        channel: compiled.channelFamilies.get(record._channelScope),
+        channelName: record._channel,
+        channelScope: record._channelScope,
+      };
+    }
+
+    return {
+      channel: compiled.channels.get(record._channel),
+      channelName: record._channel,
+    };
+  }
+
+  return {};
+}
+
+function isDeclaredModuleEvent(compiled: CompiledServer, event: string): boolean {
+  for (const moduleInstance of compiled.modules) {
+    for (const declaration of moduleInstance.outgoing) {
+      if (prefixedModuleEvent(moduleInstance.id, declaration.event) === event) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function isDeclaredOutgoingEvent(
+  compiled: CompiledServer,
+  event: string,
+  routing?: RoutingTarget,
+): boolean {
+  if (event.startsWith('_')) return true;
+  if (event.startsWith('__')) return isDeclaredModuleEvent(compiled, event);
+
+  if (routing?.namespace) {
+    const namespace = compiled.namespaces.get(routing.namespace);
+    return (namespace?.outgoing.has(event) ?? false) || (namespace?.streams.has(event) ?? false);
+  }
+
+  if (routing?.channel) {
+    const channel = routing.channelScope
+      ? compiled.channelFamilies.get(routing.channelScope)
+      : compiled.channels.get(routing.channel);
+    return (channel?.outgoing.has(event) ?? false) || (channel?.streams.has(event) ?? false);
+  }
+
+  return compiled.outgoing.has(event) || compiled.streams.has(event);
+}
+
+/**
+ * Push one outgoing event through module hooks, declaration checks, and wire
+ * metadata injection before sending it to a connection.
+ */
+export function sendThroughPipeline(
+  runtime: OutgoingRuntime,
+  connection: RuntimeConnection,
+  routing: RoutingTarget | undefined,
+  event: string,
+  payload: unknown,
+): boolean {
+  let message = { event, payload };
+
+  for (const moduleRuntime of runtime.moduleRuntimes) {
+    if (!moduleRuntime.onOutgoing) continue;
+    const next = moduleRuntime.onOutgoing(message);
+    if (next) message = next;
+  }
+
+  const finalPayload: Record<string, unknown> =
+    message.payload && typeof message.payload === 'object'
+      ? { ...(message.payload as Record<string, unknown>) }
+      : { value: message.payload };
+
+  for (const key of Object.keys(finalPayload)) {
+    if (key.startsWith('_')) {
+      throw new Error(
+        '[wskit] Outgoing payload fields starting with "_" are reserved for the engine.',
+      );
+    }
+  }
+
+  if (!isDeclaredOutgoingEvent(runtime.compiled, message.event, routing)) {
+    throw new Error(
+      `[wskit] Outgoing event "${message.event}" was not declared in the active scope.`,
+    );
+  }
+
+  if (runtime.compiled.sequence && !message.event.startsWith('_')) {
+    runtime.seqState.current += 1;
+    finalPayload._seq = runtime.seqState.current;
+  }
+  if (runtime.compiled.dedup && !message.event.startsWith('_')) {
+    finalPayload._messageId = runtime.generateId('msg');
+  }
+  if (routing?.namespace) finalPayload._namespace = routing.namespace;
+  if (routing?.channel) finalPayload._channel = routing.channel;
+  if (routing?.channelScope) finalPayload._channelScope = routing.channelScope;
+  if (routing?.correlationId) finalPayload._correlationId = routing.correlationId;
+  if (routing?.streamId) finalPayload._streamId = routing.streamId;
+
+  connection.descriptor.send(JSON.stringify({ event: message.event, payload: finalPayload }));
+  return true;
+}
+
+/**
+ * Broadcast one event to a set of already-selected connections.
+ */
+export function broadcastToConnections(
+  runtime: Pick<OutgoingRuntime, 'compiled' | 'generateId' | 'moduleRuntimes' | 'seqState'>,
+  connections: readonly RuntimeConnection[],
+  event: string,
+  payload: unknown,
+  options?: BroadcastOptions & { namespace?: string },
+  excludeConnectionId?: string,
+): void {
+  for (const connection of connections) {
+    if (options?.excludeSelf && connection.id === excludeConnectionId) continue;
+    sendThroughPipeline(
+      runtime,
+      connection,
+      {
+        namespace: options?.namespace,
+        channel: options?.channel,
+      },
+      event,
+      payload,
+    );
+  }
+}
+
+/**
+ * Broadcast one event to every member currently in a channel.
+ */
+export function broadcastToChannel(
+  runtime: ConnectionMembersRuntime &
+    Pick<OutgoingRuntime, 'compiled' | 'generateId' | 'moduleRuntimes' | 'seqState'>,
+  channelName: string,
+  event: string,
+  payload: unknown,
+  excludeConnectionId?: string,
+  channelScope?: string,
+): void {
+  const connections = [...runtime.connections.values()].filter((connection) =>
+    connection.channels.has(channelName),
+  );
+
+  for (const connection of connections) {
+    if (excludeConnectionId && connection.id === excludeConnectionId) continue;
+    sendThroughPipeline(
+      runtime,
+      connection,
+      { channel: channelName, channelScope },
+      event,
+      payload,
+    );
+  }
+}
+
+/**
+ * Return the current public member snapshot for a channel.
+ */
+export function getChannelMembers(
+  runtime: ConnectionMembersRuntime,
+  channelName: string,
+): ConnectionInfo<Record<string, unknown>>[] {
+  return [...runtime.connections.values()]
+    .filter((connection) => connection.channels.has(channelName))
+    .map((connection) => runtime.toConnectionInfo(connection));
+}
+
+/**
+ * Leave a channel, fire unsubscribe hooks, and notify remaining members.
+ */
+export async function leaveChannel(
+  runtime: ChannelRuntime &
+    Pick<OutgoingRuntime, 'compiled' | 'generateId' | 'moduleRuntimes' | 'seqState'>,
+  connection: RuntimeConnection,
+  scope: { channel?: CompiledChannel; channelName: string; channelScope?: string },
+  kickedReason?: string,
+): Promise<void> {
+  if (!connection.channels.has(scope.channelName)) return;
+
+  const ctx = runtime.buildConnectionContext(connection, scope);
+
+  if (scope.channel?.onUnsubscribe) {
+    await scope.channel.onUnsubscribe.handler(ctx);
+  }
+
+  connection.channels.delete(scope.channelName);
+  connection.tags.delete(`channel:${scope.channelName}`);
+  runtime.persistAttachment(connection);
+
+  if (kickedReason) {
+    runtime.sendProtocolMessage(connection, '_kicked', {
+      _channel: scope.channelName,
+      ...(scope.channelScope ? { _channelScope: scope.channelScope } : {}),
+      reason: kickedReason,
+    });
+  }
+
+  broadcastToChannel(
+    runtime,
+    scope.channelName,
+    '_memberLeave',
+    { connectionId: connection.id },
+    connection.id,
+    scope.channelScope,
+  );
+}
+
+/**
+ * Remove tagged members from a channel, typically for moderation or access
+ * control.
+ */
+export function kickChannelMembers(
+  runtime: ChannelRuntime &
+    Pick<OutgoingRuntime, 'compiled' | 'generateId' | 'moduleRuntimes' | 'seqState'> & {
+      leaveChannel(
+        connection: RuntimeConnection,
+        scope: { channel?: CompiledChannel; channelName: string; channelScope?: string },
+        kickedReason?: string,
+      ): Promise<void>;
+    },
+  channelName: string,
+  tag: string,
+  reason: string,
+): void {
+  for (const connection of runtime.connections.values()) {
+    if (!connection.channels.has(channelName) || !connection.tags.has(tag)) continue;
+    const resolved = runtime.compiled.channels.get(channelName);
+    void runtime.leaveChannel(connection, { channel: resolved, channelName }, reason);
+  }
+}
+
+/**
+ * Handle the `_subscribe` protocol message for a channel.
+ */
+export async function handleSubscribe(
+  runtime: ChannelRuntime &
+    Pick<OutgoingRuntime, 'compiled' | 'generateId' | 'moduleRuntimes' | 'seqState'>,
+  connection: RuntimeConnection,
+  payload: Record<string, unknown> | undefined,
+): Promise<void> {
+  if (!payload || typeof payload._channel !== 'string') return;
+
+  const resolved =
+    typeof payload._channelScope === 'string'
+      ? runtime.compiled.channelFamilies.get(payload._channelScope)
+      : runtime.compiled.channels.get(payload._channel);
+  if (!resolved) return;
+
+  const existingMembers = getChannelMembers(runtime, payload._channel);
+  const scope = {
+    channel: resolved,
+    channelName: payload._channel,
+    channelScope: typeof payload._channelScope === 'string' ? payload._channelScope : undefined,
+  };
+  const ctx = runtime.buildConnectionContext(connection, scope);
+
+  if (resolved.onBeforeSubscribe) {
+    const data = { ...payload };
+    delete data._channel;
+    delete data._channelScope;
+    await resolved.onBeforeSubscribe.handler(
+      ctx,
+      resolved.onBeforeSubscribe.validator
+        ? validateValue(resolved.onBeforeSubscribe.validator, data, '_subscribe')
+        : data,
+    );
+  }
+
+  connection.channels.add(payload._channel);
+  connection.tags.add(`channel:${payload._channel}`);
+  runtime.persistAttachment(connection);
+
+  if (resolved.onSubscribe) {
+    await resolved.onSubscribe.handler(ctx);
+  }
+
+  runtime.sendProtocolMessage(connection, '_subscribeOk', {
+    _channel: payload._channel,
+    ...(scope.channelScope ? { _channelScope: scope.channelScope } : {}),
+  });
+
+  for (const member of existingMembers) {
+    runtime.sendProtocolMessage(connection, '_memberJoin', {
+      _channel: payload._channel,
+      ...(scope.channelScope ? { _channelScope: scope.channelScope } : {}),
+      connectionId: member.id,
+      meta: member.meta,
+    });
+  }
+
+  broadcastToChannel(
+    runtime,
+    payload._channel,
+    '_memberJoin',
+    {
+      connectionId: connection.id,
+      meta: connection.meta,
+    },
+    connection.id,
+    scope.channelScope,
+  );
+}
+
+/**
+ * Handle the `_unsubscribe` protocol message for a channel.
+ */
+export async function handleUnsubscribe(
+  runtime: ChannelRuntime &
+    Pick<OutgoingRuntime, 'compiled' | 'generateId' | 'moduleRuntimes' | 'seqState'> & {
+      leaveChannel(
+        connection: RuntimeConnection,
+        scope: { channel?: CompiledChannel; channelName: string; channelScope?: string },
+      ): Promise<void>;
+    },
+  connection: RuntimeConnection,
+  payload: Record<string, unknown> | undefined,
+): Promise<void> {
+  if (!payload || typeof payload._channel !== 'string') return;
+  const resolved =
+    typeof payload._channelScope === 'string'
+      ? runtime.compiled.channelFamilies.get(payload._channelScope)
+      : runtime.compiled.channels.get(payload._channel);
+  if (!resolved) return;
+
+  await runtime.leaveChannel(connection, {
+    channel: resolved,
+    channelName: payload._channel,
+    channelScope: typeof payload._channelScope === 'string' ? payload._channelScope : undefined,
+  });
+}
+
+/**
+ * Dispatch a replay request into the top-level or channel replay primitive.
+ */
+export async function handleReplay(
+  runtime: Pick<DispatchRuntime, 'compiled' | 'buildConnectionContext'>,
+  connection: RuntimeConnection,
+  payload: Record<string, unknown> | undefined,
+  resolve: (payload: unknown) => ResolvedScope,
+): Promise<void> {
+  const since = Number(payload?.since ?? 0);
+  const scope = resolve(payload);
+  const replay = scope.channel?.replay ?? runtime.compiled.replay;
+  if (!replay?.onReplay) return;
+  const ctx = runtime.buildConnectionContext(connection, scope);
+  await replay.onReplay(ctx, since);
+}
+
+/**
+ * Cancel one active stream from the owning connection.
+ */
+export async function handleStreamCancel(
+  runtime: Pick<DispatchRuntime, 'activeStreams'>,
+  connection: RuntimeConnection,
+  payload: Record<string, unknown> | undefined,
+): Promise<void> {
+  if (!payload || typeof payload._streamId !== 'string') return;
+  const activeStream = runtime.activeStreams.get(payload._streamId);
+  if (!activeStream || activeStream.connectionId !== connection.id || activeStream.closed) {
+    return;
+  }
+
+  activeStream.closed = true;
+  try {
+    await activeStream.generator.return(undefined);
+  } finally {
+    runtime.activeStreams.delete(activeStream.id);
+  }
+}
+
+/**
+ * Buffer one validated nudge for an active stream.
+ */
+export async function handleStreamNudge(
+  runtime: Pick<DispatchRuntime, 'activeStreams'>,
+  connection: RuntimeConnection,
+  event: string,
+  payload: Record<string, unknown> | undefined,
+): Promise<boolean> {
+  if (!payload || typeof payload._streamId !== 'string') return false;
+  const activeStream = runtime.activeStreams.get(payload._streamId);
+  if (!activeStream || activeStream.connectionId !== connection.id || activeStream.closed) {
+    return false;
+  }
+
+  const validator = activeStream.nudgeValidators.get(event);
+  if (!activeStream.nudgeValidators.has(event)) return false;
+
+  const nudgePayload = { ...payload };
+  delete nudgePayload._streamId;
+
+  activeStream.nudges.push({
+    event,
+    payload: validateValue(validator, nudgePayload, event),
+  });
+  return true;
+}
+
+/**
+ * Send a normalized `_error` protocol message, optionally after the error hook
+ * has decided whether it should be forwarded.
+ */
+export async function handleRuntimeError(
+  runtime: Pick<DispatchRuntime, 'compiled' | 'buildConnectionContext' | 'sendProtocolMessage'>,
+  connection: RuntimeConnection,
+  error: unknown,
+  event?: string,
+  routing?: Record<string, unknown>,
+): Promise<void> {
+  if (runtime.compiled.lifecycle.onError) {
+    const ctx = runtime.buildConnectionContext(connection);
+    const shouldSend = await runtime.compiled.lifecycle.onError.handler(ctx, error, event);
+    if (shouldSend === false) return;
+  }
+
+  const payload =
+    error instanceof WskitError
+      ? { code: error.code, detail: error.detail, ...routing }
+      : { code: 'internal-error', ...routing };
+  runtime.sendProtocolMessage(connection, '_error', payload);
+}
+
+/**
+ * Main inbound event dispatcher.
+ *
+ * This runs module hooks, pre/post intercepts, validation, incoming handlers,
+ * requests, and streams in the order described by the server spec.
+ */
+export async function dispatchIncoming(
+  runtime: DispatchRuntime,
+  connection: RuntimeConnection,
+  event: string,
+  rawPayload: unknown,
+  attempt = 0,
+): Promise<void> {
+  const scope = resolveScope(runtime.compiled, rawPayload);
+  if (scope.channelName && !connection.channels.has(scope.channelName)) {
+    return;
+  }
+
+  const scopedIncoming = scope.channel?.incoming.get(event) ?? scope.namespace?.incoming.get(event);
+  const scopedRequest = scope.channel?.requests.get(event) ?? scope.namespace?.requests.get(event);
+  const scopedStream = scope.channel?.streams.get(event) ?? scope.namespace?.streams.get(event);
+  const incoming = scopedIncoming ?? runtime.compiled.incoming.get(event);
+  const request = scopedRequest ?? runtime.compiled.requests.get(event);
+  const stream = scopedStream ?? runtime.compiled.streams.get(event);
+
+  let message = { event, payload: rawPayload };
+
+  try {
+    for (const moduleRuntime of runtime.moduleRuntimes) {
+      if (!moduleRuntime.onIncoming) continue;
+      const next = moduleRuntime.onIncoming(message);
+      if (next) message = next;
+    }
+
+    for (const intercept of runtime.compiled.preIntercepts) {
+      const ctx = runtime.buildConnectionContext(connection, scope);
+      runtime.setActiveConnectionId(connection.id);
+      const next = await intercept.handler(ctx, message);
+      runtime.setActiveConnectionId(undefined);
+      if (next) message = next;
+    }
+
+    if (scope.namespace) {
+      for (const intercept of scope.namespace.preIntercepts) {
+        const ctx = runtime.buildConnectionContext(connection, scope);
+        runtime.setActiveConnectionId(connection.id);
+        const next = await intercept.handler(ctx, message);
+        runtime.setActiveConnectionId(undefined);
+        if (next) message = next;
+      }
+    }
+
+    if (scope.channel) {
+      for (const intercept of scope.channel.preIntercepts) {
+        const ctx = runtime.buildConnectionContext(connection, scope);
+        runtime.setActiveConnectionId(connection.id);
+        const next = await intercept.handler(ctx, message);
+        runtime.setActiveConnectionId(undefined);
+        if (next) message = next;
+      }
+    }
+
+    const primitive = incoming ?? request ?? stream;
+    if (!primitive) return;
+
+    const payload = validateValue(
+      'stream' in primitive ? primitive.stream.validator : primitive.validator,
+      message.payload,
+      event,
+    );
+
+    const topPost = runtime.compiled.postIntercepts.get(event) ?? [];
+    const scopedPost =
+      scope.channel?.postIntercepts.get(event) ?? scope.namespace?.postIntercepts.get(event) ?? [];
+    let postPayload = payload;
+
+    for (const intercept of [...topPost, ...scopedPost]) {
+      const ctx = runtime.buildConnectionContext(connection, scope);
+      runtime.setActiveConnectionId(connection.id);
+      const next = await intercept.handler(ctx, postPayload);
+      runtime.setActiveConnectionId(undefined);
+      if (next !== undefined) postPayload = next;
+    }
+
+    connection.activeAckId =
+      message.payload &&
+      typeof message.payload === 'object' &&
+      '_ackId' in (message.payload as object)
+        ? String((message.payload as Record<string, unknown>)._ackId)
+        : undefined;
+
+    if (incoming) {
+      const ctx = runtime.buildConnectionContext(connection, scope);
+      runtime.setActiveConnectionId(connection.id);
+      await incoming.handler(ctx, postPayload);
+      runtime.setActiveConnectionId(undefined);
+      return;
+    }
+
+    if (request) {
+      const correlationId =
+        message.payload &&
+        typeof message.payload === 'object' &&
+        '_correlationId' in (message.payload as object)
+          ? String((message.payload as Record<string, unknown>)._correlationId)
+          : undefined;
+      const ctx = runtime.buildConnectionContext(connection, scope);
+      runtime.setActiveConnectionId(connection.id);
+      const response = await request.handler(ctx, postPayload);
+      runtime.setActiveConnectionId(undefined);
+      sendThroughPipeline(
+        runtime,
+        connection,
+        {
+          namespace: scope.namespace?.name,
+          channel: scope.channelName,
+          channelScope: scope.channelScope,
+          correlationId,
+        },
+        event,
+        response,
+      );
+      return;
+    }
+
+    if (stream) {
+      const streamId = runtime.generateId('stream');
+      runtime.sendProtocolMessage(connection, '_streamOk', { _streamId: streamId });
+      const ctx = runtime.buildConnectionContext(connection, scope) as Record<string, unknown>;
+      ctx.nudges = (value: unknown) => (Array.isArray(value) ? value : []);
+      runtime.setActiveConnectionId(connection.id);
+      const iterator = stream.generator(ctx, postPayload);
+      runtime.setActiveConnectionId(undefined);
+      const activeStream: ActiveStream = {
+        id: streamId,
+        connectionId: connection.id,
+        generator: iterator as AsyncGenerator<unknown, void, unknown>,
+        nudges: [],
+        nudgeValidators: new Map(
+          stream.stream.nudges.map((declaration) => [declaration.event, declaration.validator]),
+        ),
+        closed: false,
+      };
+      runtime.activeStreams.set(streamId, activeStream);
+
+      try {
+        let nextInput: unknown = stream.stream.nudges.length > 0 ? [] : undefined;
+
+        while (!activeStream.closed) {
+          const result = await iterator.next(nextInput);
+          if (result.done) break;
+
+          sendThroughPipeline(
+            runtime,
+            connection,
+            {
+              namespace: scope.namespace?.name,
+              channel: scope.channelName,
+              channelScope: scope.channelScope,
+              streamId,
+            },
+            event,
+            result.value,
+          );
+
+          nextInput = stream.stream.nudges.length > 0 ? [...activeStream.nudges] : undefined;
+          activeStream.nudges.length = 0;
+        }
+
+        if (!activeStream.closed) {
+          runtime.sendProtocolMessage(connection, '_streamEnd', { _streamId: streamId });
+        }
+      } catch (streamError) {
+        await runtime.handleRuntimeError(connection, streamError, event, {
+          _streamId: streamId,
+          ...(scope.namespace?.name ? { _namespace: scope.namespace.name } : {}),
+          ...(scope.channelName ? { _channel: scope.channelName } : {}),
+          ...(scope.channelScope ? { _channelScope: scope.channelScope } : {}),
+        });
+      } finally {
+        runtime.activeStreams.delete(streamId);
+      }
+    }
+  } catch (error) {
+    if (error === Block) return;
+    if (error === Skip) return;
+    if (
+      error &&
+      typeof error === 'object' &&
+      (error as { __wskit?: string }).__wskit === 'disconnect'
+    ) {
+      connection.descriptor.close(
+        (error as { code: number }).code,
+        (error as { reason: string }).reason,
+      );
+      return;
+    }
+    if (error && typeof error === 'object' && (error as { __wskit?: string }).__wskit === 'defer') {
+      if (attempt >= 3) {
+        await runtime.handleRuntimeError(
+          connection,
+          DeferExhausted({ event, payload: rawPayload, retries: attempt + 1 }),
+          event,
+        );
+        return;
+      }
+
+      const delay = Number((error as { delay: number }).delay);
+      runtime.requireTimers().setTimeout(() => {
+        void dispatchIncoming(runtime, connection, event, rawPayload, attempt + 1);
+      }, delay);
+      return;
+    }
+    await runtime.handleRuntimeError(connection, error, event);
+  }
+}
+
+/**
+ * Parse one websocket text frame and route protocol messages or app events.
+ */
+export async function processTextMessage(
+  runtime: DispatchRuntime & {
+    refreshHeartbeat(connection: RuntimeConnection): void;
+  },
+  connection: RuntimeConnection,
+  data: string,
+): Promise<void> {
+  runtime.refreshHeartbeat(connection);
+
+  let parsed: { event: string; payload?: unknown };
+
+  try {
+    parsed = JSON.parse(data) as { event: string; payload?: unknown };
+  } catch {
+    runtime.logger.warn('Invalid JSON message dropped');
+    return;
+  }
+
+  if (parsed.event === 'ping') {
+    connection.descriptor.send(JSON.stringify({ event: 'pong' }));
+    return;
+  }
+
+  if (parsed.event === '_subscribe') {
+    await runtime.handleSubscribe(
+      connection,
+      parsed.payload as Record<string, unknown> | undefined,
+    );
+    return;
+  }
+  if (parsed.event === '_unsubscribe') {
+    await runtime.handleUnsubscribe(
+      connection,
+      parsed.payload as Record<string, unknown> | undefined,
+    );
+    return;
+  }
+  if (parsed.event === '_replay') {
+    await runtime.handleReplay(connection, parsed.payload as Record<string, unknown> | undefined);
+    return;
+  }
+  if (parsed.event === '_streamCancel') {
+    await handleStreamCancel(
+      runtime,
+      connection,
+      parsed.payload as Record<string, unknown> | undefined,
+    );
+    return;
+  }
+  if (
+    await handleStreamNudge(
+      runtime,
+      connection,
+      parsed.event,
+      parsed.payload as Record<string, unknown> | undefined,
+    )
+  ) {
+    return;
+  }
+
+  await dispatchIncoming(runtime, connection, parsed.event, parsed.payload);
+}
