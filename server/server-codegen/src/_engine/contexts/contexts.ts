@@ -1,6 +1,6 @@
-import { MODULE_API_MAP } from '@wskit/server-codegen/internal/define-module';
-import type { Primitive } from '@wskit/server-codegen/primitive';
+import { MODULE_API_MAP } from '../../define-module.ts';
 import { prefixedModuleEvent } from '../compile/utils.ts';
+import type { Primitive } from '../../primitive.ts';
 import type {
   BroadcastOptions,
   BuildConnectionContextDeps,

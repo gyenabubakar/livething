@@ -1,12 +1,9 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import type { ChannelPrimitive, ScopeDeclaration } from '@wskit/server-codegen/channel';
-import type { ErrorsPrimitive } from '@wskit/server-codegen/errors/errors';
-import type { IncomingPrimitive } from '@wskit/server-codegen/incoming';
-import type {
-  PostInterceptPrimitive,
-  PreInterceptPrimitive,
-} from '@wskit/server-codegen/intercept';
-import type { ModuleInstance } from '@wskit/server-codegen/internal/define-module';
+import type { ChannelPrimitive, ScopeDeclaration } from '../../channel/index.ts';
+import type { ModuleInstance } from '../../define-module.ts';
+import type { ErrorsPrimitive } from '../../errors/index.ts';
+import type { IncomingPrimitive } from '../../incoming/index.ts';
+import type { PostInterceptPrimitive, PreInterceptPrimitive } from '../../intercept/index.ts';
 import type {
   BeforeSubscribePrimitive,
   BinaryPrimitive,
@@ -19,18 +16,14 @@ import type {
   UnsubscribePrimitive,
   UpgradePrimitive,
   ValidationErrorPrimitive,
-} from '@wskit/server-codegen/lifecycle';
-import type { NamespacePrimitive } from '@wskit/server-codegen/namespace';
-import type { OutgoingPrimitive } from '@wskit/server-codegen/outgoing';
-import type { RequiresManifest } from '@wskit/server-codegen/primitive';
-import type { ReplayPrimitive } from '@wskit/server-codegen/replay';
-import type { RequestPrimitive } from '@wskit/server-codegen/request';
-import type { ScheduledPrimitive } from '@wskit/server-codegen/scheduled';
-import type {
-  GeneratePrimitive,
-  NudgeDeclaration,
-  StreamPrimitive,
-} from '@wskit/server-codegen/stream';
+} from '../../lifecycle.ts';
+import type { NamespacePrimitive } from '../../namespace/index.ts';
+import type { OutgoingPrimitive } from '../../outgoing/index.ts';
+import type { RequiresManifest } from '../../primitive.ts';
+import type { ReplayPrimitive } from '../../replay/index.ts';
+import type { RequestPrimitive } from '../../request/index.ts';
+import type { ScheduledPrimitive } from '../../scheduled/index.ts';
+import type { GeneratePrimitive, NudgeDeclaration, StreamPrimitive } from '../../stream/index.ts';
 
 export type AnyOutgoing = OutgoingPrimitive<string, any>;
 export type AnyIncoming = IncomingPrimitive<string, any, any>;

@@ -8,7 +8,7 @@ import type {
   StorageProvider,
   TaskContext,
   TimerProvider,
-} from '@wskit/server-codegen';
+} from '../../index.ts';
 import type { CompiledChannel, CompiledNamespace, CompiledServer } from '../compile/types.ts';
 import type { ModuleRuntime, RuntimeConnection } from '../runtime/types.ts';
 

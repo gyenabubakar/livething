@@ -2,9 +2,11 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "outDir": "dist",
+    "rootDir": "src",
     "paths": {
       "~/*": ["./src/*"],
       "@wskit/server-codegen": ["./src/index.ts"],
+      "@wskit/server-codegen/adapters": ["./src/adapters.ts"],
       "@wskit/server-codegen/registry": ["./src/registry.ts"]
     }
   },

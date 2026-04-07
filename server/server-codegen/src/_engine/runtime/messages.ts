@@ -1,8 +1,8 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { Block, Skip, WskitError } from '@wskit/core';
-import { DeferExhausted } from '@wskit/server-codegen/errors';
-import type { BroadcastOptions, ConnectionInfo, TimerProvider } from '@wskit/server-codegen';
+import { DeferExhausted } from '../../errors.ts';
 import { prefixedModuleEvent, validateValue } from '../compile/utils.ts';
+import type { BroadcastOptions, ConnectionInfo, TimerProvider } from '../../index.ts';
 import type { CompiledChannel, CompiledServer } from '../compile/types.ts';
 import type {
   ActiveStream,

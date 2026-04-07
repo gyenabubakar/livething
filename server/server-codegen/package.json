@@ -17,6 +17,10 @@
       "types": "./dist/registry.d.ts",
       "import": "./dist/registry.js"
     },
+    "./adapters": {
+      "types": "./dist/adapters.d.ts",
+      "import": "./dist/adapters.js"
+    },
     "./incoming": {
       "types": "./dist/incoming/index.d.ts",
       "import": "./dist/incoming.js"

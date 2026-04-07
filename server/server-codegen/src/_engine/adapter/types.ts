@@ -1,4 +1,4 @@
-import type { ServerDefinition } from '@wskit/server-codegen/internal/define-server';
+import type { ServerDefinition } from '../../define-server.ts';
 import type { Engine } from '../engine.ts';
 
 /**

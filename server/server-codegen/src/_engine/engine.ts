@@ -1,7 +1,4 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import type { BroadcastOptions, StorageProvider, TimerProvider } from '@wskit/server-codegen';
-import type { ModuleHooks } from '@wskit/server-codegen/internal/define-module';
-import type { ServerDefinition } from '@wskit/server-codegen/internal/define-server';
 import { compileHandlerDefinition } from './compile/compile.ts';
 import {
   attachModuleApis,
@@ -46,6 +43,9 @@ import {
   restoreScheduledRuns,
   scheduleTask,
 } from './runtime/scheduling.ts';
+import type { ModuleHooks } from '../define-module.ts';
+import type { ServerDefinition } from '../define-server.ts';
+import type { BroadcastOptions, StorageProvider, TimerProvider } from '../index.ts';
 import type {
   ConnectionDescriptor,
   ConnectionHandle,

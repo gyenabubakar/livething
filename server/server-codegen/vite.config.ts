@@ -11,6 +11,7 @@ export default defineConfig({
       '@wskit/core': resolve(__dirname, '../../core/src/index.ts'),
       '@wskit/shared': resolve(__dirname, '../../shared/src/index.ts'),
       '@wskit/server-codegen': resolve(__dirname, './src/index.ts'),
+      '@wskit/server-codegen/adapters': resolve(__dirname, './src/adapters.ts'),
       '@wskit/server-codegen/registry': resolve(__dirname, './src/registry.ts'),
     },
   },
@@ -18,6 +19,7 @@ export default defineConfig({
     lib: {
       entry: {
         index: resolve(__dirname, 'src/index.ts'),
+        adapters: resolve(__dirname, 'src/adapters.ts'),
         registry: resolve(__dirname, 'src/registry.ts'),
         server: resolve(__dirname, 'src/server.ts'),
         incoming: resolve(__dirname, 'src/incoming/index.ts'),

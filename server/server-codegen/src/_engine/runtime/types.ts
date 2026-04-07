@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import type { ConnectionInfo, TimerProvider } from '@wskit/server-codegen';
+import type { ConnectionInfo, TimerProvider } from '../../index.ts';
 import type { ConnectionDescriptor } from '../adapter/types.ts';
 import type {
   AnyModule,

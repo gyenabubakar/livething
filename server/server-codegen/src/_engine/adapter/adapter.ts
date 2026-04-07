@@ -1,5 +1,5 @@
-import type { ServerDefinition } from '@wskit/server-codegen/internal/define-server';
 import { Engine } from '../engine.ts';
+import type { ServerDefinition } from '../../define-server.ts';
 import type { AdapterConfig } from './types.ts';
 
 /**
@@ -8,7 +8,7 @@ import type { AdapterConfig } from './types.ts';
  * The returned `serve()` creates a fresh engine per handler and hands it to the
  * adapter setup function.
  */
-export function defineServerAdapter<TOptions, TService>(config: AdapterConfig<TOptions, TService>) {
+export function createServerAdapter<TOptions, TService>(config: AdapterConfig<TOptions, TService>) {
   return function serve(
     handler: ServerDefinition,
     options: TOptions,
@@ -21,3 +21,5 @@ export function defineServerAdapter<TOptions, TService>(config: AdapterConfig<TO
     return config.setup(handler, engine, options);
   };
 }
+
+export const defineServerAdapter = createServerAdapter;
