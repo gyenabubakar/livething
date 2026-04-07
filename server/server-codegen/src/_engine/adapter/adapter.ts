@@ -1,5 +1,5 @@
-import { Engine } from '../index.ts';
-import type { ServerDefinition } from '../../define-server.ts';
+import { Engine } from '~/_engine/index.ts';
+import type { ServerDefinition } from '~/define-server.ts';
 import type { AdapterConfig } from './types.ts';
 
 /**

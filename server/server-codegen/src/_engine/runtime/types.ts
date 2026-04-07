@@ -1,44 +1,56 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import type { ConnectionInfo, TimerProvider } from '../../index.ts';
-import type { Validator } from '../../types.ts';
-import type { ConnectionDescriptor } from '../adapter/types.ts';
+import type { ConnectionDescriptor } from '~/_engine/adapter/types.ts';
 import type {
   AnyModule,
   CompiledChannel,
   CompiledNamespace,
   CompiledServer,
-} from '../compile/types.ts';
+} from '~/_engine/compile/types.ts';
+import type { ConnectionInfo } from '~/index.ts';
+import type { Validator } from '~/types.ts';
 
+/**
+ * One `onBeforeSubscribe` hook plus its optional validator.
+ *
+ * The validator runs first so the hook can receive a typed, already-checked
+ * subscription payload.
+ */
 export interface ChannelBeforeSubscribeHook {
   handler: (ctx: any, data?: unknown) => void | Promise<void>;
   validator?: Validator<any>;
 }
 
+/**
+ * All hook registries the engine fills during primitive setup.
+ *
+ * These are the runtime lists and maps the engine dispatches later while
+ * processing messages, connections, shutdown, and alarms.
+ */
 export interface RegisteredEngineHooks {
-  incoming: ((
-    message: { event: string; payload: unknown },
-  ) => { event: string; payload: unknown } | void)[];
-  outgoing: ((
-    message: { event: string; payload: unknown },
-  ) => { event: string; payload: unknown } | void)[];
+  incoming: ((message: {
+    event: string;
+    payload: unknown;
+  }) => { event: string; payload: unknown } | void)[];
+  outgoing: ((message: {
+    event: string;
+    payload: unknown;
+  }) => { event: string; payload: unknown } | void)[];
   contextExtenders: ((ctx: any) => Record<string, unknown>)[];
   init: ((ctx: any) => void | Promise<void>)[];
   connect: ((ctx: any) => void | Promise<void>)[];
   disconnect: ((ctx: any) => void | Promise<void>)[];
   shutdown: ((ctx: any) => void | Promise<void>)[];
   error: ((ctx: any, error: unknown, event?: string) => boolean | void | Promise<boolean | void>)[];
-  upgrade: ((
-    request: Request,
-  ) => { meta?: Record<string, unknown>; tags?: readonly string[] } | Promise<{
-    meta?: Record<string, unknown>;
-    tags?: readonly string[];
-  }>)[];
+  upgrade: ((request: Request) =>
+    | { meta?: Record<string, unknown>; tags?: readonly string[] }
+    | Promise<{
+        meta?: Record<string, unknown>;
+        tags?: readonly string[];
+      }>)[];
   binary: ((ctx: any, data: ArrayBuffer) => void | Promise<void>)[];
-  validationError: ((
-    ctx: any,
-    event: string,
-    validationError: unknown,
-  ) => void | Promise<void>)[];
+  validationError: ((ctx: any, event: string, validationError: unknown) => void | Promise<void>)[];
+  boot: (() => void | Promise<void>)[];
+  alarm: (() => void | Promise<void>)[];
   beforeSubscribe: Map<string, ChannelBeforeSubscribeHook[]>;
   subscribe: Map<string, ((ctx: any) => void | Promise<void>)[]>;
   unsubscribe: Map<string, ((ctx: any) => void | Promise<void>)[]>;
@@ -46,6 +58,9 @@ export interface RegisteredEngineHooks {
 
 /**
  * Mutable in-memory state for one live connection.
+ *
+ * This is the engine's private record for a websocket connection while it is
+ * active.
  */
 export interface RuntimeConnection {
   id: string;
@@ -61,18 +76,10 @@ export interface RuntimeConnection {
 }
 
 /**
- * One scheduled task instance waiting to run.
- */
-export interface ScheduledRun {
-  id: string;
-  taskId: string;
-  time: number;
-  data: unknown;
-  every?: number;
-}
-
-/**
- * Runtime bookkeeping for an active stream generator.
+ * Runtime bookkeeping for one active stream generator.
+ *
+ * This tracks the live generator, any queued nudges, and whether the stream
+ * has been closed.
  */
 export interface ActiveStream {
   id: string;
@@ -85,9 +92,13 @@ export interface ActiveStream {
 
 /**
  * Runtime hooks and context factory for one installed module.
+ *
+ * Each installed module gets one of these records so the engine can call the
+ * module's hooks and build its scoped helper API when needed.
  */
 export interface ModuleRuntime {
   instance: AnyModule;
+  onInit?: (ctx: any) => void | Promise<void>;
   onIncoming?: (message: {
     event: string;
     payload: unknown;
@@ -103,7 +114,10 @@ export interface ModuleRuntime {
 }
 
 /**
- * Extra routing metadata the engine adds to outgoing wire payloads.
+ * Extra routing metadata attached to one outgoing message.
+ *
+ * The engine uses this to carry namespace, channel, correlation, and stream
+ * routing information through the send pipeline.
  */
 export interface RoutingTarget {
   namespace?: string;
@@ -114,8 +128,10 @@ export interface RoutingTarget {
 }
 
 /**
- * Result of resolving `_namespace`, `_channel`, and `_channelScope` markers
- * from an incoming payload.
+ * The resolved scope for one incoming message.
+ *
+ * This is the engine's parsed view of `_namespace`, `_channel`, and
+ * `_channelScope` markers from the incoming payload.
  */
 export interface ResolvedScope {
   namespace?: CompiledNamespace;
@@ -125,34 +141,8 @@ export interface ResolvedScope {
 }
 
 /**
- * Small dependency bag for the scheduling helpers.
- */
-export interface SchedulingRuntime {
-  storage?: {
-    sql: {
-      exec(
-        sql: string,
-        ...bindings: unknown[]
-      ): {
-        toArray(): Record<string, unknown>[];
-      };
-      transaction(
-        callback: (tx: { exec(sql: string, ...bindings: unknown[]): void }) => void,
-      ): void;
-    };
-  };
-  timers?: TimerProvider;
-  scheduledRuns: Map<string, ScheduledRun>;
-  compiled: Pick<CompiledServer, 'scheduled'>;
-  alarmState: { current: unknown | null };
-  generateId(prefix?: string): string;
-  createTaskContext(): unknown;
-  onAlarm(): Promise<void>;
-}
-
-/**
- * Shared dependency bag for helpers that need access to channel membership and
- * connection lookup.
+ * Shared dependency bag for helpers that need connection lookup and channel
+ * membership data.
  */
 export interface ConnectionMembersRuntime {
   connections: Map<string, RuntimeConnection>;

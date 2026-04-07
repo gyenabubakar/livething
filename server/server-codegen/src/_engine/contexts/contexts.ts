@@ -1,6 +1,6 @@
-import { MODULE_API_MAP } from '../../define-module.ts';
-import { prefixedModuleEvent } from '../compile/utils.ts';
-import type { Primitive } from '../../primitive.ts';
+import { prefixedModuleEvent } from '~/_engine/compile/utils.ts';
+import { MODULE_API_MAP } from '~/define-module.ts';
+import type { Primitive } from '~/primitive.ts';
 import type {
   BroadcastOptions,
   BuildConnectionContextDeps,

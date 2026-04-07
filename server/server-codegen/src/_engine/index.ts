@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { compileHandlerDefinition } from './compile/compile.ts';
+import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
 import {
   attachModuleApis,
   buildConnectionContext,
@@ -9,7 +9,7 @@ import {
   createTaskContext,
   persistAttachment,
   toConnectionInfo,
-} from './contexts/contexts.ts';
+} from '~/_engine/contexts/contexts.ts';
 import {
   acceptConnection,
   cancelActiveStreamsForConnection,
@@ -20,7 +20,7 @@ import {
   refreshHeartbeat,
   runConnectionLifecycle,
   wakeHibernatedConnection,
-} from './runtime/connection.ts';
+} from '~/_engine/runtime/connection.ts';
 import {
   broadcastToChannel,
   broadcastToConnections,
@@ -34,32 +34,25 @@ import {
   processTextMessage,
   resolveScope,
   sendThroughPipeline,
-} from './runtime/messages.ts';
+} from '~/_engine/runtime/messages.ts';
 import {
-  cancelScheduled,
-  handleAlarm,
-  persistScheduledRuns,
-  rescheduleAlarm,
-  restoreScheduledRuns,
-  scheduleTask,
-} from './runtime/scheduling.ts';
-import type { ModuleHooks } from '../define-module.ts';
-import type { ServerDefinition } from '../define-server.ts';
-import type { BroadcastOptions, StorageProvider, TimerProvider } from '../index.ts';
-import type { Primitive } from '../primitive.ts';
-import type { EngineAccess } from './access.ts';
+  cancelScheduledRuns,
+  rescheduleScheduledAlarm,
+  scheduleTaskRun,
+} from '~/scheduled/runtime.ts';
+import type { EngineAccess } from '~/_engine/access.ts';
 import type {
   ConnectionDescriptor,
   ConnectionHandle,
   EngineOptions,
   UpgradeDecision,
-} from './adapter/types.ts';
+} from '~/_engine/adapter/types.ts';
 import type {
   AnyScheduled,
   CompiledChannel,
   CompiledNamespace,
   CompiledServer,
-} from './compile/types.ts';
+} from '~/_engine/compile/types.ts';
 import type {
   ActiveStream,
   ModuleRuntime,
@@ -67,8 +60,12 @@ import type {
   ResolvedScope,
   RoutingTarget,
   RuntimeConnection,
-  ScheduledRun,
-} from './runtime/types.ts';
+} from '~/_engine/runtime/types.ts';
+import type { ModuleHooks } from '~/define-module.ts';
+import type { ServerDefinition } from '~/define-server.ts';
+import type { BroadcastOptions, StorageProvider, TimerProvider } from '~/index.ts';
+import type { Primitive } from '~/primitive.ts';
+import type { ScheduledRun } from '~/scheduled/runtime.ts';
 
 export type {
   AdapterConfig,
@@ -76,13 +73,17 @@ export type {
   ConnectionHandle,
   EngineOptions,
   UpgradeDecision,
-} from './adapter/types.ts';
+} from '~/_engine/adapter/types.ts';
 
+/**
+ * Create the empty hook registries the engine fills during primitive setup.
+ */
 function createRegisteredHooks(): RegisteredEngineHooks {
   return {
     incoming: [],
     outgoing: [],
     contextExtenders: [],
+    boot: [],
     init: [],
     connect: [],
     disconnect: [],
@@ -91,6 +92,7 @@ function createRegisteredHooks(): RegisteredEngineHooks {
     upgrade: [],
     binary: [],
     validationError: [],
+    alarm: [],
     beforeSubscribe: new Map(),
     subscribe: new Map(),
     unsubscribe: new Map(),
@@ -114,6 +116,7 @@ export class Engine {
   private timers?: TimerProvider;
   private platform: unknown = {};
   private waitUntilImpl: (promise: Promise<unknown>) => void = () => {};
+  /** Default logger used when the adapter does not provide a custom one. */
   private readonly logger = {
     info(message: string, data?: unknown) {
       console.log(message, data ?? {});
@@ -130,6 +133,7 @@ export class Engine {
   private readonly wsToConnectionId = new Map<unknown, string>();
   private readonly activeStreams = new Map<string, ActiveStream>();
   private readonly scheduledRuns = new Map<string, ScheduledRun>();
+  private readonly installedFeatures = new Set<symbol>();
   private alarmHandle: unknown | null = null;
   private idCounter = 0;
   private seqCounter = 0;
@@ -226,7 +230,10 @@ export class Engine {
   }
 
   /**
-   * Build the module registration callbacks used during module setup.
+   * Build the hook-registration object passed into one module's setup phase.
+   *
+   * Modules do not get direct engine access. They get this smaller surface,
+   * which lets them register lifecycle and message hooks in a controlled way.
    */
   private createModuleHooks(runtime: ModuleRuntime): ModuleHooks<any> {
     return {
@@ -235,6 +242,9 @@ export class Engine {
       },
       onOutgoing: (handler) => {
         runtime.onOutgoing = handler;
+      },
+      onInit: (handler) => {
+        runtime.onInit = handler;
       },
       onConnect: (handler) => {
         runtime.onConnect = handler;
@@ -282,7 +292,10 @@ export class Engine {
   }
 
   /**
-   * Append one hook to a channel-scoped hook registry.
+   * Append one hook to a channel-scoped registry.
+   *
+   * Channel lifecycle hooks only make sense inside `channel(...)`, so this
+   * helper enforces that rule before the hook is stored.
    */
   private pushChannelHook<T>(
     hooks: Map<string, T[]>,
@@ -301,9 +314,21 @@ export class Engine {
 
   /**
    * Create the runtime registration API passed to built-in primitives.
+   *
+   * This is the boundary between the generic engine and primitive-owned
+   * behavior. Primitives can register hooks and use shared services, but they
+   * do not receive the full `Engine` instance directly.
    */
   private createEngineAccess(scope?: { channelKey?: string }): EngineAccess {
     return {
+      installOnce: (key, install) => {
+        if (this.installedFeatures.has(key)) return;
+        this.installedFeatures.add(key);
+        install();
+      },
+      onBoot: (handler) => {
+        this.hooks.boot.push(handler);
+      },
       onIncoming: (handler) => {
         this.hooks.incoming.push(handler);
       },
@@ -334,6 +359,9 @@ export class Engine {
       onValidationError: (handler) => {
         this.hooks.validationError.push(handler);
       },
+      onAlarm: (handler) => {
+        this.hooks.alarm.push(handler);
+      },
       onBeforeSubscribe: (handler, validator) => {
         this.pushChannelHook(
           this.hooks.beforeSubscribe,
@@ -351,6 +379,12 @@ export class Engine {
       extendContext: (factory) => {
         this.hooks.contextExtenders.push(factory);
       },
+      requireStorage: () => this.requireStorage(),
+      requireTimers: () => this.requireTimers(),
+      getScheduledRuns: () => this.scheduledRuns,
+      getScheduledTask: (taskId) => this.compiled.scheduled.get(taskId),
+      createTaskContext: () => this.createTaskContext(),
+      rescheduleAlarm: () => this.rescheduleAlarm(),
       generateId: (prefix) => this.generateId(prefix),
       rawSend: (connectionId, event, payload) => {
         const connection = this.connections.get(connectionId);
@@ -361,7 +395,10 @@ export class Engine {
   }
 
   /**
-   * Walk the primitive tree and let built-in primitives register engine hooks.
+   * Walk the primitive tree and let built-in primitives register runtime hooks.
+   *
+   * Scope information is threaded through the walk so channel-specific
+   * lifecycle hooks know which channel family they belong to.
    */
   private installPrimitiveHooks(): void {
     const visit = (primitives: readonly Primitive[], scope?: { channelKey?: string }) => {
@@ -393,7 +430,7 @@ export class Engine {
 
   /**
    * Finish one-time startup work: validate adapter capabilities, install
-   * modules, restore schedules, and run the init hook.
+   * modules, run primitive boot hooks, and then run the init hook.
    */
   async initialize(): Promise<void> {
     if (this.initialized) return;
@@ -401,10 +438,6 @@ export class Engine {
     this.installPrimitiveHooks();
 
     for (const moduleInstance of this.compiled.modules) {
-      if (moduleInstance.migrate) {
-        moduleInstance.migrate(this.requireStorage().sql);
-      }
-
       const runtime: ModuleRuntime = {
         instance: moduleInstance,
         contextFactory: () => ({}),
@@ -416,39 +449,29 @@ export class Engine {
       this.moduleRuntimes.push(runtime);
     }
 
-    this.restoreScheduledRuns();
+    for (const hook of this.hooks.boot) {
+      await hook();
+    }
 
     const initCtx = this.createInitContext();
     for (const hook of this.hooks.init) {
       await hook(initCtx);
     }
-
-    this.rescheduleAlarm();
+    for (const runtime of this.moduleRuntimes) {
+      if (runtime.onInit) {
+        await runtime.onInit(
+          this.createModuleScopedContext(
+            runtime.instance.id,
+            initCtx as unknown as Record<PropertyKey, unknown>,
+          ),
+        );
+      }
+    }
     this.initialized = true;
   }
 
   /**
-   * Load persisted scheduled runs back into memory.
-   */
-  private restoreScheduledRuns(): void {
-    restoreScheduledRuns({
-      storage: this.storage,
-      scheduledRuns: this.scheduledRuns,
-    });
-  }
-
-  /**
-   * Persist the in-memory scheduled-run table.
-   */
-  private persistScheduledRuns(): void {
-    persistScheduledRuns({
-      storage: this.storage,
-      scheduledRuns: this.scheduledRuns,
-    });
-  }
-
-  /**
-   * Build the init hook context from current adapter dependencies.
+   * Build the context object used by init hooks.
    */
   private createInitContext() {
     return createInitContext({
@@ -460,7 +483,7 @@ export class Engine {
   }
 
   /**
-   * Build the shutdown hook context from current runtime state.
+   * Build the context object used while the engine is shutting down.
    */
   private createShutdownContext() {
     return createShutdownContext({
@@ -494,7 +517,7 @@ export class Engine {
   }
 
   /**
-   * Build the scheduled-task context from current runtime state.
+   * Build the context object passed into scheduled task handlers.
    */
   private createTaskContext() {
     return createTaskContext({
@@ -528,8 +551,10 @@ export class Engine {
   }
 
   /**
-   * Build a live handler context for one connection, optionally scoped to a
-   * namespace or channel.
+   * Build the live handler context for one connection.
+   *
+   * When a handler runs inside a namespace or channel, the matching scoped APIs
+   * are attached to the returned context.
    */
   private buildConnectionContext(
     connection: RuntimeConnection,
@@ -571,15 +596,15 @@ export class Engine {
   }
 
   /**
-   * Wrap a context so module event helpers automatically target the module's
-   * private event namespace.
+   * Wrap one context so module event helpers automatically target that
+   * module's private event namespace.
    */
   private createModuleScopedContext(moduleId: string, ctx: Record<PropertyKey, unknown>) {
     return createModuleScopedContext(moduleId, ctx);
   }
 
   /**
-   * Attach every installed module API object to a context.
+   * Attach every installed module API object to one context.
    */
   private attachModuleApis(
     ctx: Record<PropertyKey, unknown>,
@@ -650,7 +675,8 @@ export class Engine {
   }
 
   /**
-   * Shared dependency bag for pure outgoing helpers.
+   * Build the dependency bag used by helpers that only care about outgoing
+   * message processing.
    */
   private outgoingRuntime() {
     const engine = this;
@@ -672,8 +698,8 @@ export class Engine {
   }
 
   /**
-   * Shared dependency bag for helpers that need connection lookups and channel
-   * membership state.
+   * Build the dependency bag used by helpers that also need live connection and
+   * channel membership data.
    */
   private memberRuntime() {
     return {
@@ -690,7 +716,7 @@ export class Engine {
   }
 
   /**
-   * Shared dependency bag for channel subscribe/unsubscribe helpers.
+   * Build the dependency bag used by channel subscribe and unsubscribe helpers.
    */
   private channelRuntime() {
     return {
@@ -716,7 +742,7 @@ export class Engine {
   }
 
   /**
-   * Shared dependency bag for inbound text-message dispatch.
+   * Build the dependency bag used by inbound text-message dispatch.
    */
   private dispatchRuntime() {
     return {
@@ -772,7 +798,7 @@ export class Engine {
   }
 
   /**
-   * Shared dependency bag for accept/wake/close helpers.
+   * Build the dependency bag used by connection accept, wake, and close logic.
    */
   private connectionRuntime() {
     return {
@@ -851,39 +877,32 @@ export class Engine {
   }
 
   /**
-   * Run due scheduled tasks after an alarm/timer wake-up.
+   * Run primitive-owned alarm hooks after an alarm or timer wake-up.
+   *
+   * The scheduled primitive currently uses this to process queued task runs.
    */
   async handleAlarm(): Promise<void> {
-    const engine = this;
-    return handleAlarm({
-      storage: this.storage,
-      timers: this.timers,
-      scheduledRuns: this.scheduledRuns,
-      compiled: this.compiled,
-      alarmState: {
-        get current() {
-          return engine.alarmHandle;
-        },
-        set current(value: unknown | null) {
-          engine.alarmHandle = value;
-        },
-      },
-      generateId: (prefix) => this.generateId(prefix),
-      createTaskContext: () => this.createTaskContext() as unknown,
-      onAlarm: () => this.handleAlarm(),
-    });
+    await this.initialize();
+    for (const hook of this.hooks.alarm) {
+      await hook();
+    }
   }
 
   /**
    * Queue one future scheduled task run.
+   *
+   * The queueing rules themselves live in the scheduled primitive helpers; the
+   * engine is only providing shared state and services here.
    */
   private scheduleTask(taskId: string, time: number, data: unknown): void {
-    scheduleTask(
+    scheduleTaskRun(
       {
-        compiled: this.compiled,
-        scheduledRuns: this.scheduledRuns,
+        requireStorage: () => this.requireStorage(),
+        requireTimers: () => this.requireTimers(),
         generateId: (prefix) => this.generateId(prefix),
-        persistScheduledRuns: () => this.persistScheduledRuns(),
+        getScheduledRuns: () => this.scheduledRuns,
+        getScheduledTask: (scheduledTaskId) => this.compiled.scheduled.get(scheduledTaskId),
+        createTaskContext: () => this.createTaskContext(),
         rescheduleAlarm: () => this.rescheduleAlarm(),
       },
       taskId,
@@ -893,13 +912,17 @@ export class Engine {
   }
 
   /**
-   * Remove every queued run for a scheduled task id.
+   * Remove every queued run for one scheduled task id.
    */
   private cancelScheduled(taskId: string): void {
-    cancelScheduled(
+    cancelScheduledRuns(
       {
-        scheduledRuns: this.scheduledRuns,
-        persistScheduledRuns: () => this.persistScheduledRuns(),
+        requireStorage: () => this.requireStorage(),
+        requireTimers: () => this.requireTimers(),
+        generateId: (prefix) => this.generateId(prefix),
+        getScheduledRuns: () => this.scheduledRuns,
+        getScheduledTask: (scheduledTaskId) => this.compiled.scheduled.get(scheduledTaskId),
+        createTaskContext: () => this.createTaskContext(),
         rescheduleAlarm: () => this.rescheduleAlarm(),
       },
       taskId,
@@ -907,26 +930,17 @@ export class Engine {
   }
 
   /**
-   * Ask the adapter timer API to wake the engine when the next scheduled task
+   * Ask the adapter timer API to wake the engine when the next queued task
    * becomes due.
    */
   private rescheduleAlarm(): void {
-    const engine = this;
-    rescheduleAlarm({
-      storage: this.storage,
-      timers: this.timers,
-      scheduledRuns: this.scheduledRuns,
-      compiled: this.compiled,
-      alarmState: {
-        get current() {
-          return engine.alarmHandle;
-        },
-        set current(value: unknown | null) {
-          engine.alarmHandle = value;
-        },
+    rescheduleScheduledAlarm({
+      requireTimers: () => this.requireTimers(),
+      getScheduledRuns: () => this.scheduledRuns,
+      getAlarmHandle: () => this.alarmHandle,
+      setAlarmHandle: (handle) => {
+        this.alarmHandle = handle;
       },
-      generateId: (prefix) => this.generateId(prefix),
-      createTaskContext: () => this.createTaskContext() as unknown,
       onAlarm: () => this.handleAlarm(),
     });
   }

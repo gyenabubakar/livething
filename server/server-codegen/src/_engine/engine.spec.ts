@@ -1,9 +1,8 @@
 import { WskitError } from '@wskit/core';
-import { describe, expect, it } from 'vitest';
-import { ack } from '../ack/index.ts';
-import { channel, scope } from '../channel/index.ts';
-import { hibernation } from '../hibernation/index.ts';
-import { incoming } from '../incoming/index.ts';
+import { ack } from '~/ack/index.ts';
+import { channel, scope } from '~/channel/index.ts';
+import { hibernation } from '~/hibernation/index.ts';
+import { incoming } from '~/incoming/index.ts';
 import {
   defineModule,
   onBeforeSubscribe,
@@ -22,8 +21,9 @@ import {
   scheduled,
   server,
   t,
-} from '../index.ts';
-import { chunks, generate, nudge, start, stream } from '../stream/index.ts';
+} from '~/index.ts';
+import { chunks, generate, nudge, start, stream } from '~/stream/index.ts';
+import { describe, expect, it } from 'vitest';
 import { Engine } from './index.ts';
 
 class FakeSqlResult {

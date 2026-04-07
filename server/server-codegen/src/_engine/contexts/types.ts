@@ -1,4 +1,10 @@
 import type {
+  CompiledChannel,
+  CompiledNamespace,
+  CompiledServer,
+} from '~/_engine/compile/types.ts';
+import type { ModuleRuntime, RuntimeConnection } from '~/_engine/runtime/types.ts';
+import type {
   BroadcastOptions,
   ConnectionContext,
   ConnectionInfo,
@@ -8,9 +14,7 @@ import type {
   StorageProvider,
   TaskContext,
   TimerProvider,
-} from '../../index.ts';
-import type { CompiledChannel, CompiledNamespace, CompiledServer } from '../compile/types.ts';
-import type { ModuleRuntime, RuntimeConnection } from '../runtime/types.ts';
+} from '~/index.ts';
 
 /**
  * Shared capabilities needed to build init, task, shutdown, and connection

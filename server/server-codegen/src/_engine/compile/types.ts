@@ -1,16 +1,16 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import type { ChannelPrimitive, ScopeDeclaration } from '../../channel/index.ts';
-import type { ModuleInstance } from '../../define-module.ts';
-import type { ErrorsPrimitive } from '../../errors/index.ts';
-import type { IncomingPrimitive } from '../../incoming/index.ts';
-import type { PostInterceptPrimitive, PreInterceptPrimitive } from '../../intercept/index.ts';
-import type { NamespacePrimitive } from '../../namespace/index.ts';
-import type { OutgoingPrimitive } from '../../outgoing/index.ts';
-import type { RequiresManifest } from '../../primitive.ts';
-import type { ReplayPrimitive } from '../../replay/index.ts';
-import type { RequestPrimitive } from '../../request/index.ts';
-import type { ScheduledPrimitive } from '../../scheduled/index.ts';
-import type { GeneratePrimitive, NudgeDeclaration, StreamPrimitive } from '../../stream/index.ts';
+import type { ChannelPrimitive, ScopeDeclaration } from '~/channel/index.ts';
+import type { ModuleInstance } from '~/define-module.ts';
+import type { ErrorsPrimitive } from '~/errors/index.ts';
+import type { IncomingPrimitive } from '~/incoming/index.ts';
+import type { PostInterceptPrimitive, PreInterceptPrimitive } from '~/intercept/index.ts';
+import type { NamespacePrimitive } from '~/namespace/index.ts';
+import type { OutgoingPrimitive } from '~/outgoing/index.ts';
+import type { RequiresManifest } from '~/primitive.ts';
+import type { ReplayPrimitive } from '~/replay/index.ts';
+import type { RequestPrimitive } from '~/request/index.ts';
+import type { ScheduledPrimitive } from '~/scheduled/index.ts';
+import type { GeneratePrimitive, NudgeDeclaration, StreamPrimitive } from '~/stream/index.ts';
 
 export type AnyOutgoing = OutgoingPrimitive<string, any>;
 export type AnyIncoming = IncomingPrimitive<string, any, any>;

@@ -1,5 +1,5 @@
-import type { ServerDefinition } from '../../define-server.ts';
-import type { Engine } from '../index.ts';
+import type { Engine } from '~/_engine/index.ts';
+import type { ServerDefinition } from '~/define-server.ts';
 
 /**
  * Minimal websocket-like handle the engine can write to.

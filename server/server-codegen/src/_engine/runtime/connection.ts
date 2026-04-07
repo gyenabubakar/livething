@@ -1,6 +1,10 @@
 import { CloseCodes } from '@wskit/core';
-import type { ConnectionDescriptor, ConnectionHandle, UpgradeDecision } from '../adapter/types.ts';
-import type { CompiledChannel, CompiledServer } from '../compile/types.ts';
+import type {
+  ConnectionDescriptor,
+  ConnectionHandle,
+  UpgradeDecision,
+} from '~/_engine/adapter/types.ts';
+import type { CompiledChannel, CompiledServer } from '~/_engine/compile/types.ts';
 import type { ResolvedScope, RuntimeConnection } from './types.ts';
 
 /**

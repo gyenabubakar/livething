@@ -20,6 +20,7 @@ export interface ModuleHooks<TCtx = any> {
       payload: unknown;
     }) => { event: string; payload: unknown } | void,
   ): void;
+  onInit(handler: (ctx: any) => void | Promise<void>): void;
   onConnect(handler: (ctx: TCtx) => void | Promise<void>): void;
   onDisconnect(handler: (ctx: TCtx) => void | Promise<void>): void;
   onShutdown(handler: () => void | Promise<void>): void;
@@ -47,9 +48,6 @@ export interface ModuleConfig<
   readonly requires?: RequiresManifest;
   readonly outgoing?: TOutgoing;
   readonly errors?: ErrorsPrimitive<TErrors>;
-  readonly migrate?: (sql: {
-    exec(query: string, ...params: unknown[]): unknown;
-  }) => void | Promise<void>;
   readonly setup: (args: TArgs, hooks: ModuleHooks<TCtx>) => ModuleContextFactory<TCtx, TApi>;
 }
 
@@ -64,7 +62,6 @@ export interface ModuleInstance<
   readonly args: TArgs;
   readonly outgoing: TOutgoing;
   readonly errors?: ErrorsPrimitive<TErrors>;
-  readonly migrate?: ModuleConfig<TArgs, TApi, any, TOutgoing, TErrors>['migrate'];
   readonly setupModule: ModuleConfig<TArgs, TApi, any, TOutgoing, TErrors>['setup'];
 }
 
@@ -112,7 +109,6 @@ export function defineModule<
       args: TArgs;
       outgoing: TOutgoing;
       errors?: ErrorsPrimitive<TErrors>;
-      migrate?: ModuleConfig<TArgs, TApi, TCtx, TOutgoing, TErrors>['migrate'];
       setupModule: ModuleConfig<TArgs, TApi, TCtx, TOutgoing, TErrors>['setup'];
     }
   >({
@@ -127,7 +123,6 @@ export function defineModule<
         args,
         outgoing: (config.outgoing ?? []) as TOutgoing,
         errors: config.errors,
-        migrate: config.migrate,
         setupModule: config.setup,
       };
     },

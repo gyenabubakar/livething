@@ -1,14 +1,14 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import type { ServerDefinition } from '~/define-server.ts';
+import type { HibernationPrimitive } from '~/hibernation/index.ts';
+import type { Primitive } from '~/primitive.ts';
+import type { ReplayPrimitive } from '~/replay/index.ts';
 import {
   isChannelPrimitive,
   isNamespacePrimitive,
   isPassivePrimitive,
   mergeRequires,
 } from './utils.ts';
-import type { ServerDefinition } from '../../define-server.ts';
-import type { HibernationPrimitive } from '../../hibernation/index.ts';
-import type { Primitive } from '../../primitive.ts';
-import type { ReplayPrimitive } from '../../replay/index.ts';
 import type {
   AnyGenerate,
   AnyIncoming,

@@ -2,6 +2,7 @@
 import { definePrimitive } from '~/primitive.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { TypeMarker } from '~/t.ts';
+import { bootstrapScheduledRuntime, handleScheduledAlarm } from './runtime.ts';
 
 export interface ScheduledOptions {
   readonly every?: number;
@@ -20,8 +21,9 @@ export type ScheduledHandler<TCtx = any, TData = unknown> = (
 /**
  * The primitive instance returned by `scheduled()`.
  *
- * This declares a named scheduled task and, optionally, the handler that runs
- * when the task fires.
+ * A scheduled primitive does two jobs:
+ * 1. it declares one named task in the server definition
+ * 2. it can optionally provide the handler that should run when that task fires
  */
 export interface ScheduledPrimitive<
   TTaskId extends string = string,
@@ -35,6 +37,7 @@ export interface ScheduledPrimitive<
 }
 
 const SCHEDULED_KEY = Symbol('scheduled');
+const SCHEDULED_RUNTIME_KEY = Symbol('scheduled-runtime');
 
 const _scheduled = definePrimitive<
   'scheduled',
@@ -53,6 +56,7 @@ const _scheduled = definePrimitive<
     return taskId;
   },
   requires: {
+    storage: true,
     timers: true,
   },
   create(
@@ -73,6 +77,30 @@ const _scheduled = definePrimitive<
       data: handlerOrData,
       options,
     };
+  },
+  setup(engine) {
+    engine.installOnce(SCHEDULED_RUNTIME_KEY, () => {
+      const runtime = {
+        requireStorage: () => engine.requireStorage(),
+        requireTimers: () => engine.requireTimers(),
+        generateId: (prefix?: string) => engine.generateId(prefix),
+        getScheduledRuns: () => engine.getScheduledRuns(),
+        getScheduledTask: (taskId: string) => engine.getScheduledTask(taskId),
+        createTaskContext: () => engine.createTaskContext(),
+        rescheduleAlarm: () => engine.rescheduleAlarm(),
+      };
+
+      // Restore persisted task runs before normal init hooks begin.
+      engine.onBoot(() => {
+        bootstrapScheduledRuntime(runtime);
+      });
+
+      // When the adapter wakes the engine for an alarm, let scheduled own the
+      // due-task execution logic.
+      engine.onAlarm(async () => {
+        await handleScheduledAlarm(runtime);
+      });
+    });
   },
 });
 

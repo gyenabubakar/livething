@@ -1,9 +1,9 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { ValidationFailed } from '@wskit/core';
-import type { ChannelPrimitive } from '../../channel/index.ts';
-import type { NamespacePrimitive } from '../../namespace/index.ts';
-import type { PassivePrimitive } from '../../passive/index.ts';
-import type { Primitive, RequiresManifest } from '../../primitive.ts';
+import type { ChannelPrimitive } from '~/channel/index.ts';
+import type { NamespacePrimitive } from '~/namespace/index.ts';
+import type { PassivePrimitive } from '~/passive/index.ts';
+import type { Primitive, RequiresManifest } from '~/primitive.ts';
 
 /**
  * Runtime-only wrapper primitives are unwrapped during compilation.
