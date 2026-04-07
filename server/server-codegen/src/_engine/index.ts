@@ -65,7 +65,7 @@ import type { ModuleHooks } from '~/define-module.ts';
 import type { ServerDefinition } from '~/define-server.ts';
 import type { BroadcastOptions, StorageProvider, TimerProvider } from '~/index.ts';
 import type { Primitive } from '~/primitive.ts';
-import type { ScheduledRun } from '~/scheduled/runtime.ts';
+import type { ScheduledDeadLetter, ScheduledRun } from '~/scheduled/types.ts';
 
 export type {
   AdapterConfig,
@@ -133,6 +133,7 @@ export class Engine {
   private readonly wsToConnectionId = new Map<unknown, string>();
   private readonly activeStreams = new Map<string, ActiveStream>();
   private readonly scheduledRuns = new Map<string, ScheduledRun>();
+  private readonly scheduledDlq = new Map<string, ScheduledDeadLetter>();
   private readonly installedFeatures = new Set<symbol>();
   private alarmHandle: unknown | null = null;
   private idCounter = 0;
@@ -382,7 +383,9 @@ export class Engine {
       requireStorage: () => this.requireStorage(),
       requireTimers: () => this.requireTimers(),
       getScheduledRuns: () => this.scheduledRuns,
+      getScheduledDlq: () => this.scheduledDlq,
       getScheduledTask: (taskId) => this.compiled.scheduled.get(taskId),
+      getScheduledTasks: () => this.compiled.scheduled.values(),
       createTaskContext: () => this.createTaskContext(),
       rescheduleAlarm: () => this.rescheduleAlarm(),
       generateId: (prefix) => this.generateId(prefix),
@@ -495,7 +498,7 @@ export class Engine {
       requireStorage: () => this.requireStorage(),
       requireTimers: () => this.requireTimers(),
       scheduleTask: (taskId, time, data) => this.scheduleTask(taskId, time, data),
-      cancelScheduled: (taskId) => this.cancelScheduled(taskId),
+      cancelScheduled: (taskId, filter) => this.cancelScheduled(taskId, filter),
       broadcastToConnections: (connections, event, payload, options, excludeConnectionId) =>
         this.broadcastToConnections(connections, event, payload, options, excludeConnectionId),
       sendThroughPipeline: (connection, routing, event, payload) =>
@@ -529,7 +532,7 @@ export class Engine {
       requireStorage: () => this.requireStorage(),
       requireTimers: () => this.requireTimers(),
       scheduleTask: (taskId, time, data) => this.scheduleTask(taskId, time, data),
-      cancelScheduled: (taskId) => this.cancelScheduled(taskId),
+      cancelScheduled: (taskId, filter) => this.cancelScheduled(taskId, filter),
       broadcastToConnections: (connections, event, payload, options, excludeConnectionId) =>
         this.broadcastToConnections(connections, event, payload, options, excludeConnectionId),
       sendThroughPipeline: (connection, routing, event, payload) =>
@@ -571,7 +574,7 @@ export class Engine {
         requireStorage: () => this.requireStorage(),
         requireTimers: () => this.requireTimers(),
         scheduleTask: (taskId, time, data) => this.scheduleTask(taskId, time, data),
-        cancelScheduled: (taskId) => this.cancelScheduled(taskId),
+        cancelScheduled: (taskId, filter) => this.cancelScheduled(taskId, filter),
         broadcastToConnections: (connections, event, payload, options, excludeConnectionId) =>
           this.broadcastToConnections(connections, event, payload, options, excludeConnectionId),
         sendThroughPipeline: (connectionArg, routing, event, payload) =>
@@ -901,7 +904,9 @@ export class Engine {
         requireTimers: () => this.requireTimers(),
         generateId: (prefix) => this.generateId(prefix),
         getScheduledRuns: () => this.scheduledRuns,
+        getScheduledDlq: () => this.scheduledDlq,
         getScheduledTask: (scheduledTaskId) => this.compiled.scheduled.get(scheduledTaskId),
+        getScheduledTasks: () => this.compiled.scheduled.values(),
         createTaskContext: () => this.createTaskContext(),
         rescheduleAlarm: () => this.rescheduleAlarm(),
       },
@@ -914,18 +919,21 @@ export class Engine {
   /**
    * Remove every queued run for one scheduled task id.
    */
-  private cancelScheduled(taskId: string): void {
+  private cancelScheduled(taskId: string, filter?: Record<string, unknown>): void {
     cancelScheduledRuns(
       {
         requireStorage: () => this.requireStorage(),
         requireTimers: () => this.requireTimers(),
         generateId: (prefix) => this.generateId(prefix),
         getScheduledRuns: () => this.scheduledRuns,
+        getScheduledDlq: () => this.scheduledDlq,
         getScheduledTask: (scheduledTaskId) => this.compiled.scheduled.get(scheduledTaskId),
+        getScheduledTasks: () => this.compiled.scheduled.values(),
         createTaskContext: () => this.createTaskContext(),
         rescheduleAlarm: () => this.rescheduleAlarm(),
       },
       taskId,
+      filter,
     );
   }
 

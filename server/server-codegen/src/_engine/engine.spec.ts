@@ -51,30 +51,84 @@ class FakeSqlProvider {
       time: number;
       data: string | null;
       everyMs: number | null;
+      attempts: number;
+      recurring: number;
+      retry: number;
+    }
+  >();
+  scheduledDlq = new Map<
+    string,
+    {
+      id: string;
+      taskId: string;
+      time: number;
+      failedAt: number;
+      data: string | null;
+      attempts: number;
+      error: string;
     }
   >();
 
   exec(query: string, ...params: unknown[]) {
-    if (query.startsWith('CREATE TABLE IF NOT EXISTS _wskit_scheduled')) {
+    const normalizedQuery = query.replaceAll(/\s+/g, ' ').trim();
+
+    if (normalizedQuery.startsWith('CREATE TABLE IF NOT EXISTS _wskit_scheduled_dlq')) {
       return new FakeSqlResult([]);
     }
 
-    if (query.startsWith('SELECT id, taskId, time, data, everyMs FROM _wskit_scheduled')) {
+    if (normalizedQuery.startsWith('CREATE TABLE IF NOT EXISTS _wskit_scheduled')) {
+      return new FakeSqlResult([]);
+    }
+
+    if (
+      normalizedQuery.startsWith(
+        'SELECT id, taskId, time, data, everyMs, attempts, recurring, retry FROM _wskit_scheduled',
+      )
+    ) {
       return new FakeSqlResult([...this.scheduled.values()]);
     }
 
-    if (query.startsWith('DELETE FROM _wskit_scheduled')) {
+    if (
+      normalizedQuery.startsWith(
+        'SELECT id, taskId, time, failedAt, data, attempts, error FROM _wskit_scheduled_dlq',
+      )
+    ) {
+      return new FakeSqlResult([...this.scheduledDlq.values()]);
+    }
+
+    if (normalizedQuery.startsWith('DELETE FROM _wskit_scheduled_dlq')) {
+      this.scheduledDlq.clear();
+      return new FakeSqlResult([]);
+    }
+
+    if (normalizedQuery.startsWith('DELETE FROM _wskit_scheduled')) {
       this.scheduled.clear();
       return new FakeSqlResult([]);
     }
 
-    if (query.startsWith('INSERT INTO _wskit_scheduled')) {
+    if (normalizedQuery.startsWith('INSERT INTO _wskit_scheduled ')) {
       this.scheduled.set(String(params[0]), {
         id: String(params[0]),
         taskId: String(params[1]),
         time: Number(params[2]),
         data: (params[3] as string | null) ?? null,
         everyMs: (params[4] as number | null) ?? null,
+        attempts: Number(params[5]),
+        recurring: Number(params[6]),
+        retry: Number(params[7]),
+      });
+      return new FakeSqlResult([]);
+    }
+
+    if (normalizedQuery.startsWith('INSERT INTO _wskit_scheduled_dlq')) {
+      this.scheduledDlq.set(String(params[0]), {
+        id: String(params[0]),
+        taskId: String(params[1]),
+        time: Number(params[2]),
+        failedAt: Number(params[3]),
+        data: (params[4] as string | null) ?? null,
+        attempts: Number(params[5]),
+        error: String(params[6]),
       });
       return new FakeSqlResult([]);
     }
@@ -219,7 +273,9 @@ describe('Engine', () => {
     conn.handleMessage(JSON.stringify({ event: 'queue-task', payload: { force: true } }));
     await Promise.resolve();
 
-    expect(storage.sql.scheduled.size).toBe(1);
+    // One recurring baseline run exists already, and ctx.schedule(...) adds a
+    // separate one-shot run without changing that recurring schedule.
+    expect(storage.sql.scheduled.size).toBe(2);
 
     await engine.handleAlarm();
 

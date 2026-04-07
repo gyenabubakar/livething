@@ -1,95 +1,107 @@
-import type { AnyScheduled } from '~/_engine/compile/types.ts';
-import type { StorageProvider, TimerProvider } from '~/context.ts';
+import type { ScheduledDeadLetter, ScheduledRuntimeAccess } from './types.ts';
 
-/**
- * One queued scheduled task run.
- *
- * This is the runtime record the scheduler keeps in memory and also persists
- * into adapter storage so the queue can survive restarts or hibernation.
- */
-export interface ScheduledRun {
-  id: string;
-  taskId: string;
-  time: number;
-  data: unknown;
-  every?: number;
-}
+const SCHEDULED_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS _wskit_scheduled (
+    id TEXT PRIMARY KEY,
+    taskId TEXT NOT NULL,
+    time INTEGER NOT NULL,
+    data TEXT,
+    everyMs INTEGER,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    recurring INTEGER NOT NULL DEFAULT 0,
+    retry INTEGER NOT NULL DEFAULT 1
+  )
+`;
 
-/**
- * The small runtime surface the scheduled primitive needs from the engine.
- *
- * The engine still owns shared state like the in-memory run table and timer
- * handle. The scheduled primitive uses this access object to read that state
- * and perform its own scheduling logic.
- */
-export interface ScheduledRuntimeAccess {
-  /** Read persistent storage. Throws if storage was not provided by the adapter. */
-  requireStorage(): StorageProvider;
+const SCHEDULED_DLQ_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS _wskit_scheduled_dlq (
+    id TEXT PRIMARY KEY,
+    taskId TEXT NOT NULL,
+    time INTEGER NOT NULL,
+    failedAt INTEGER NOT NULL,
+    data TEXT,
+    attempts INTEGER NOT NULL,
+    error TEXT NOT NULL
+  )
+`;
+const SELECT_SCHEDULED_SQL = `
+  SELECT id, taskId, time, data, everyMs, attempts, recurring, retry
+  FROM _wskit_scheduled
+`;
+const SELECT_SCHEDULED_DLQ_SQL = `
+  SELECT id, taskId, time, failedAt, data, attempts, error
+  FROM _wskit_scheduled_dlq
+`;
 
-  /** Read timers/alarm APIs. Throws if timers were not provided by the adapter. */
-  requireTimers(): TimerProvider;
-
-  /** Create a framework-generated id, usually for one queued task run. */
-  generateId(prefix?: string): string;
-
-  /** Read the engine-owned in-memory table of queued runs. */
-  getScheduledRuns(): Map<string, ScheduledRun>;
-
-  /** Read one declared scheduled task by its task id. */
-  getScheduledTask(taskId: string): AnyScheduled | undefined;
-
-  /** Build the context object passed to a scheduled task handler. */
-  createTaskContext(): unknown;
-
-  /** Ask the engine to recompute when the next alarm should fire. */
-  rescheduleAlarm(): void;
-}
-
-const SCHEDULED_TABLE_SQL =
-  'CREATE TABLE IF NOT EXISTS _wskit_scheduled (id TEXT PRIMARY KEY, taskId TEXT NOT NULL, time INTEGER NOT NULL, data TEXT, everyMs INTEGER)';
-const SELECT_SCHEDULED_SQL = 'SELECT id, taskId, time, data, everyMs FROM _wskit_scheduled';
 const DELETE_SCHEDULED_SQL = 'DELETE FROM _wskit_scheduled';
-const INSERT_SCHEDULED_SQL =
-  'INSERT INTO _wskit_scheduled (id, taskId, time, data, everyMs) VALUES (?, ?, ?, ?, ?)';
+const DELETE_SCHEDULED_DLQ_SQL = 'DELETE FROM _wskit_scheduled_dlq';
 
-/**
- * Prepare scheduler storage and restore queued runs into memory.
- *
- * This runs during engine boot, before normal init hooks. It makes sure the
- * scheduler table exists, reads every saved run, and then asks the engine to
- * plan the next alarm.
- */
-export function bootstrapScheduledRuntime(runtime: ScheduledRuntimeAccess): void {
-  const storage = runtime.requireStorage();
-  const scheduledRuns = runtime.getScheduledRuns();
+const INSERT_SCHEDULED_SQL = `
+  INSERT INTO _wskit_scheduled (
+    id,
+    taskId,
+    time,
+    data,
+    everyMs,
+    attempts,
+    recurring,
+    retry
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+`;
 
-  storage.sql.exec(SCHEDULED_TABLE_SQL);
+const INSERT_SCHEDULED_DLQ_SQL = `
+  INSERT INTO _wskit_scheduled_dlq (
+    id,
+    taskId,
+    time,
+    failedAt,
+    data,
+    attempts,
+    error
+  ) VALUES (?, ?, ?, ?, ?, ?, ?)
+`;
 
-  const rows = storage.sql.exec(SELECT_SCHEDULED_SQL).toArray();
-  scheduledRuns.clear();
+const RETRY_BACKOFF_MS = [1_000, 5_000, 25_000] as const;
 
-  for (const row of rows) {
-    scheduledRuns.set(String(row.id), {
-      id: String(row.id),
-      taskId: String(row.taskId),
-      time: Number(row.time),
-      data: typeof row.data === 'string' && row.data.length > 0 ? JSON.parse(row.data) : undefined,
-      every: row.everyMs == null ? undefined : Number(row.everyMs),
-    });
+function toRetryFlag(value: unknown): boolean {
+  if (value === 0 || value === false) return false;
+  return true;
+}
+
+function serializeError(error: unknown): ScheduledDeadLetter['error'] {
+  if (error instanceof Error) {
+    return {
+      message: error.message,
+      name: error.name,
+      stack: error.stack,
+    };
   }
 
-  runtime.rescheduleAlarm();
+  return {
+    message: typeof error === 'string' ? error : JSON.stringify(error),
+  };
 }
 
-/**
- * Save the full in-memory scheduled queue back to storage.
- *
- * The current implementation rewrites the table each time so the database
- * stays in sync with the in-memory queue.
- */
-export function persistScheduledRuns(runtime: ScheduledRuntimeAccess): void {
+function dataMatchesFilter(data: unknown, filter?: Record<string, unknown>): boolean {
+  if (!filter) return true;
+  if (!data || typeof data !== 'object') return false;
+
+  const object = data as Record<string, unknown>;
+  for (const [key, expected] of Object.entries(filter)) {
+    if (object[key] !== expected) return false;
+  }
+
+  return true;
+}
+
+function getRetryDelay(attempts: number): number | undefined {
+  return RETRY_BACKOFF_MS[attempts];
+}
+
+function persistSchedulerState(runtime: ScheduledRuntimeAccess): void {
   const storage = runtime.requireStorage();
   const runs = [...runtime.getScheduledRuns().values()];
+  const deadLetters = [...runtime.getScheduledDlq().values()];
 
   storage.sql.transaction((tx) => {
     tx.exec(DELETE_SCHEDULED_SQL);
@@ -101,48 +113,203 @@ export function persistScheduledRuns(runtime: ScheduledRuntimeAccess): void {
         run.time,
         run.data === undefined ? null : JSON.stringify(run.data),
         run.every ?? null,
+        run.attempts,
+        run.recurring ? 1 : 0,
+        run.retry ? 1 : 0,
+      );
+    }
+
+    tx.exec(DELETE_SCHEDULED_DLQ_SQL);
+    for (const entry of deadLetters) {
+      tx.exec(
+        INSERT_SCHEDULED_DLQ_SQL,
+        entry.id,
+        entry.taskId,
+        entry.time,
+        entry.failedAt,
+        entry.data === undefined ? null : JSON.stringify(entry.data),
+        entry.attempts,
+        JSON.stringify(entry.error),
       );
     }
   });
 }
 
+function ensureRecurringRuns(runtime: ScheduledRuntimeAccess): void {
+  const scheduledRuns = runtime.getScheduledRuns();
+  const now = Date.now();
+
+  for (const task of runtime.getScheduledTasks()) {
+    const every = task.options?.every;
+    if (!every) continue;
+
+    const hasRecurringRun = [...scheduledRuns.values()].some(
+      (run) => run.taskId === task.taskId && run.recurring,
+    );
+
+    if (!hasRecurringRun) {
+      const id = runtime.generateId('task');
+      scheduledRuns.set(id, {
+        id,
+        taskId: task.taskId,
+        time: now + every,
+        data: undefined,
+        every,
+        attempts: 0,
+        recurring: true,
+        retry: task.options?.retry ?? true,
+      });
+    }
+  }
+}
+
+/**
+ * Prepare scheduler storage and restore queued runs into memory.
+ *
+ * This runs during engine boot, before normal init hooks. It makes sure the
+ * scheduler tables exist, restores queued and dead-lettered runs, rebuilds the
+ * recurring baseline queue, and then asks the engine to plan the next alarm.
+ */
+export function bootstrapScheduledRuntime(runtime: ScheduledRuntimeAccess): void {
+  const storage = runtime.requireStorage();
+  const scheduledRuns = runtime.getScheduledRuns();
+  const deadLetters = runtime.getScheduledDlq();
+
+  storage.sql.exec(SCHEDULED_TABLE_SQL);
+  storage.sql.exec(SCHEDULED_DLQ_TABLE_SQL);
+
+  scheduledRuns.clear();
+  deadLetters.clear();
+
+  for (const row of storage.sql.exec(SELECT_SCHEDULED_SQL).toArray()) {
+    scheduledRuns.set(String(row.id), {
+      id: String(row.id),
+      taskId: String(row.taskId),
+      time: Number(row.time),
+      data: typeof row.data === 'string' && row.data.length > 0 ? JSON.parse(row.data) : undefined,
+      every: row.everyMs == null ? undefined : Number(row.everyMs),
+      attempts: row.attempts == null ? 0 : Number(row.attempts),
+      recurring: row.recurring === 1 || row.recurring === true,
+      retry: toRetryFlag(row.retry),
+    });
+  }
+
+  for (const row of storage.sql.exec(SELECT_SCHEDULED_DLQ_SQL).toArray()) {
+    deadLetters.set(String(row.id), {
+      id: String(row.id),
+      taskId: String(row.taskId),
+      time: Number(row.time),
+      failedAt: Number(row.failedAt),
+      data: typeof row.data === 'string' && row.data.length > 0 ? JSON.parse(row.data) : undefined,
+      attempts: Number(row.attempts),
+      error:
+        typeof row.error === 'string' && row.error.length > 0
+          ? (JSON.parse(row.error) as ScheduledDeadLetter['error'])
+          : { message: 'Unknown scheduled task failure' },
+    });
+  }
+
+  ensureRecurringRuns(runtime);
+  persistSchedulerState(runtime);
+  runtime.rescheduleAlarm();
+}
+
 /**
  * Execute every scheduled run that is due right now.
  *
- * After each run, recurring tasks are queued again using their `every` value.
- * When the due work is finished, the queue is persisted and the next alarm is
- * recalculated.
+ * Due runs are first claimed from the live queue, then executed in parallel.
+ * Failed runs are retried with backoff or moved into the internal dead-letter
+ * queue, depending on the task's retry policy.
  */
 export async function handleScheduledAlarm(runtime: ScheduledRuntimeAccess): Promise<void> {
   const now = Date.now();
   const scheduledRuns = runtime.getScheduledRuns();
   const due = [...scheduledRuns.values()].filter((run) => run.time <= now);
 
+  if (due.length === 0) {
+    runtime.rescheduleAlarm();
+    return;
+  }
+
   for (const run of due) {
-    const task = runtime.getScheduledTask(run.taskId);
-    if (task?.handler) {
-      await task.handler(runtime.createTaskContext(), run.data);
+    scheduledRuns.delete(run.id);
+  }
+
+  persistSchedulerState(runtime);
+
+  const results = await Promise.allSettled(
+    due.map(async (run) => {
+      const task = runtime.getScheduledTask(run.taskId);
+      if (task?.handler) {
+        await task.handler(runtime.createTaskContext(), run.data);
+      }
+      return run;
+    }),
+  );
+
+  const deadLetters = runtime.getScheduledDlq();
+
+  for (const [index, result] of results.entries()) {
+    const run = due[index];
+    if (!run) continue;
+
+    if (result.status === 'fulfilled') {
+      if (run.recurring && run.every) {
+        scheduledRuns.set(run.id, {
+          ...run,
+          time: now + run.every,
+          attempts: 0,
+        });
+      }
+      continue;
     }
 
-    scheduledRuns.delete(run.id);
+    const nextAttempts = run.attempts + 1;
+    const retryDelay = run.retry ? getRetryDelay(run.attempts) : undefined;
 
-    if (run.every) {
+    if (retryDelay !== undefined) {
       scheduledRuns.set(run.id, {
         ...run,
+        time: now + retryDelay,
+        attempts: nextAttempts,
+      });
+      continue;
+    }
+
+    deadLetters.set(run.id, {
+      id: run.id,
+      taskId: run.taskId,
+      time: run.time,
+      failedAt: now,
+      data: run.data,
+      attempts: nextAttempts,
+      error: serializeError(result.reason),
+    });
+
+    if (run.recurring && run.every) {
+      const id = runtime.generateId('task');
+      scheduledRuns.set(id, {
+        id,
+        taskId: run.taskId,
         time: now + run.every,
+        data: undefined,
+        every: run.every,
+        attempts: 0,
+        recurring: true,
+        retry: run.retry,
       });
     }
   }
 
-  persistScheduledRuns(runtime);
+  persistSchedulerState(runtime);
   runtime.rescheduleAlarm();
 }
 
 /**
  * Queue one future run of a scheduled task.
  *
- * The run is added to the in-memory queue, persisted, and then the next alarm
- * is recalculated.
+ * This always creates a one-shot run, even if the task also has a recurring
+ * `every` schedule.
  */
 export function scheduleTaskRun(
   runtime: ScheduledRuntimeAccess,
@@ -151,35 +318,51 @@ export function scheduleTaskRun(
   data: unknown,
 ): void {
   const task = runtime.getScheduledTask(taskId);
-  const run: ScheduledRun = {
-    id: runtime.generateId('task'),
+  const id = runtime.generateId('task');
+
+  runtime.getScheduledRuns().set(id, {
+    id,
     taskId,
     time,
     data,
-    every: task?.options?.every,
-  };
+    attempts: 0,
+    recurring: false,
+    retry: task?.options?.retry ?? true,
+  });
 
-  runtime.getScheduledRuns().set(run.id, run);
-  persistScheduledRuns(runtime);
+  persistSchedulerState(runtime);
   runtime.rescheduleAlarm();
 }
 
 /**
- * Remove every queued run for one scheduled task id.
+ * Remove queued runs for one task id.
  *
- * This is a broad cancel. It removes all queued runs for the task, then saves
- * the updated queue and recalculates the next alarm.
+ * With no filter, all one-shot runs are removed and recurring runs are stopped.
+ * With a filter, only runs whose data matches the provided keys are removed.
  */
-export function cancelScheduledRuns(runtime: ScheduledRuntimeAccess, taskId: string): void {
+export function cancelScheduledRuns(
+  runtime: ScheduledRuntimeAccess,
+  taskId: string,
+  filter?: Record<string, unknown>,
+): void {
   const scheduledRuns = runtime.getScheduledRuns();
 
   for (const [id, run] of scheduledRuns) {
-    if (run.taskId === taskId) {
+    if (run.taskId !== taskId) continue;
+
+    if (run.recurring) {
+      if (!filter) {
+        scheduledRuns.delete(id);
+      }
+      continue;
+    }
+
+    if (dataMatchesFilter(run.data, filter)) {
       scheduledRuns.delete(id);
     }
   }
 
-  persistScheduledRuns(runtime);
+  persistSchedulerState(runtime);
   runtime.rescheduleAlarm();
 }
 

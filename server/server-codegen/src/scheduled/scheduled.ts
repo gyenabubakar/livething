@@ -3,9 +3,41 @@ import { definePrimitive } from '~/primitive.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { TypeMarker } from '~/t.ts';
 import { bootstrapScheduledRuntime, handleScheduledAlarm } from './runtime.ts';
+import type { ScheduledRuntimeAccess } from './types.ts';
 
+/**
+ * Options for one scheduled task declaration.
+ *
+ * These options belong to the task definition itself, not to one specific
+ * queued run created later with `ctx.schedule(...)`.
+ */
 export interface ScheduledOptions {
+  /**
+   * Run this task on a fixed interval, in milliseconds.
+   *
+   * Example:
+   * - `every: 60_000` means "run every minute"
+   *
+   * The first recurring run is scheduled one interval after the handler starts.
+   * One-shot runs scheduled later with `ctx.schedule(...)` stay one-shot and do
+   * not change the recurring schedule.
+   */
   readonly every?: number;
+
+  /**
+   * Whether failed runs should be retried automatically.
+   *
+   * Default: `true`
+   *
+   * Retry backoff is fixed by the framework:
+   * - 1st retry after 1 second
+   * - 2nd retry after 5 seconds
+   * - 3rd retry after 25 seconds
+   *
+   * After that, or immediately when `retry: false`, the failed run is moved to
+   * the scheduler's internal dead-letter queue (DLQ).
+   */
+  readonly retry?: boolean;
 }
 
 export interface ScheduledHandle<TData = unknown> {
@@ -80,12 +112,14 @@ const _scheduled = definePrimitive<
   },
   setup(engine) {
     engine.installOnce(SCHEDULED_RUNTIME_KEY, () => {
-      const runtime = {
+      const runtime: ScheduledRuntimeAccess = {
         requireStorage: () => engine.requireStorage(),
         requireTimers: () => engine.requireTimers(),
         generateId: (prefix?: string) => engine.generateId(prefix),
         getScheduledRuns: () => engine.getScheduledRuns(),
+        getScheduledDlq: () => engine.getScheduledDlq(),
         getScheduledTask: (taskId: string) => engine.getScheduledTask(taskId),
+        getScheduledTasks: () => engine.getScheduledTasks(),
         createTaskContext: () => engine.createTaskContext(),
         rescheduleAlarm: () => engine.rescheduleAlarm(),
       };

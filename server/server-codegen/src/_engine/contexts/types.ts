@@ -28,7 +28,7 @@ export interface ContextCommonDeps {
   requireStorage(): StorageProvider;
   requireTimers(): TimerProvider;
   scheduleTask(taskId: string, time: number, data: unknown): void;
-  cancelScheduled(taskId: string): void;
+  cancelScheduled(taskId: string, filter?: Record<string, unknown>): void;
   broadcastToConnections(
     connections: readonly RuntimeConnection[],
     event: string,

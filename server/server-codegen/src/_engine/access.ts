@@ -1,6 +1,6 @@
 import type { AnyScheduled } from '~/_engine/compile/types.ts';
 import type { StorageProvider, TimerProvider } from '~/context.ts';
-import type { ScheduledRun } from '~/scheduled/runtime.ts';
+import type { ScheduledDeadLetter, ScheduledRun } from '~/scheduled/types.ts';
 import type { Validator } from '~/types.ts';
 
 /**
@@ -171,9 +171,19 @@ export interface EngineAccess {
   getScheduledRuns(): Map<string, ScheduledRun>;
 
   /**
+   * Access the engine's in-memory dead-letter queue for scheduled runs.
+   */
+  getScheduledDlq(): Map<string, ScheduledDeadLetter>;
+
+  /**
    * Look up one declared scheduled task by task id.
    */
   getScheduledTask(taskId: string): AnyScheduled | undefined;
+
+  /**
+   * Read every declared scheduled task.
+   */
+  getScheduledTasks(): Iterable<AnyScheduled>;
 
   /**
    * Build the runtime task context object used when scheduled work runs.

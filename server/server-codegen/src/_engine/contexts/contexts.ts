@@ -53,8 +53,8 @@ export function createShutdownContext(
     schedule: (taskId, options) => {
       deps.scheduleTask(taskId, options.time, options.data);
     },
-    cancelScheduled: (taskId) => {
-      deps.cancelScheduled(taskId);
+    cancelScheduled: (taskId, filter) => {
+      deps.cancelScheduled(taskId, filter);
     },
     connectionCount: deps.connections.size,
     getConnections: () =>
@@ -106,8 +106,8 @@ export function createTaskContext(
     schedule: (taskId, options) => {
       deps.scheduleTask(taskId, options.time, options.data);
     },
-    cancelScheduled: (taskId) => {
-      deps.cancelScheduled(taskId);
+    cancelScheduled: (taskId, filter) => {
+      deps.cancelScheduled(taskId, filter);
     },
     env: deps.env,
     log: deps.logger,
@@ -197,8 +197,8 @@ export function buildConnectionContext(
     schedule: (taskId, options) => {
       deps.scheduleTask(taskId, options.time, options.data);
     },
-    cancelScheduled: (taskId) => {
-      deps.cancelScheduled(taskId);
+    cancelScheduled: (taskId, filter) => {
+      deps.cancelScheduled(taskId, filter);
     },
     setAlarm: (time) => {
       const timers = deps.requireTimers();
