@@ -1,0 +1,178 @@
+import type { SqlResult } from '~/context.ts';
+import type { scheduled } from './scheduled.ts';
+import type { ScheduledDeadLetter, ScheduledRun, ScheduledRuntimeAccess } from './types.ts';
+
+export class FakeSqlResult implements SqlResult {
+  constructor(private readonly rows: Record<string, unknown>[]) {}
+
+  toArray(): Record<string, unknown>[] {
+    return [...this.rows];
+  }
+
+  one(): Record<string, unknown> | null {
+    return this.rows[0] ?? null;
+  }
+
+  raw(): unknown[][] {
+    return this.rows.map((row) => Object.values(row));
+  }
+}
+
+export class FakeSqlProvider {
+  scheduled = new Map<
+    string,
+    {
+      id: string;
+      taskId: string;
+      time: number;
+      data: string | null;
+      everyMs: number | null;
+      attempts: number;
+      recurring: number;
+      retry: number;
+    }
+  >();
+
+  scheduledDlq = new Map<
+    string,
+    {
+      id: string;
+      taskId: string;
+      time: number;
+      failedAt: number;
+      data: string | null;
+      attempts: number;
+      error: string;
+    }
+  >();
+
+  exec(query: string, ...params: unknown[]): FakeSqlResult {
+    const normalizedQuery = query.replaceAll(/\s+/g, ' ').trim();
+
+    if (normalizedQuery.startsWith('CREATE TABLE IF NOT EXISTS _wskit_scheduled_dlq')) {
+      return new FakeSqlResult([]);
+    }
+
+    if (normalizedQuery.startsWith('CREATE TABLE IF NOT EXISTS _wskit_scheduled')) {
+      return new FakeSqlResult([]);
+    }
+
+    if (
+      normalizedQuery.startsWith(
+        'SELECT id, taskId, time, data, everyMs, attempts, recurring, retry FROM _wskit_scheduled',
+      )
+    ) {
+      return new FakeSqlResult([...this.scheduled.values()]);
+    }
+
+    if (
+      normalizedQuery.startsWith(
+        'SELECT id, taskId, time, failedAt, data, attempts, error FROM _wskit_scheduled_dlq',
+      )
+    ) {
+      return new FakeSqlResult([...this.scheduledDlq.values()]);
+    }
+
+    if (normalizedQuery.startsWith('DELETE FROM _wskit_scheduled_dlq')) {
+      this.scheduledDlq.clear();
+      return new FakeSqlResult([]);
+    }
+
+    if (normalizedQuery.startsWith('DELETE FROM _wskit_scheduled')) {
+      this.scheduled.clear();
+      return new FakeSqlResult([]);
+    }
+
+    if (normalizedQuery.startsWith('INSERT INTO _wskit_scheduled ')) {
+      this.scheduled.set(String(params[0]), {
+        id: String(params[0]),
+        taskId: String(params[1]),
+        time: Number(params[2]),
+        data: (params[3] as string | null) ?? null,
+        everyMs: (params[4] as number | null) ?? null,
+        attempts: Number(params[5]),
+        recurring: Number(params[6]),
+        retry: Number(params[7]),
+      });
+      return new FakeSqlResult([]);
+    }
+
+    if (normalizedQuery.startsWith('INSERT INTO _wskit_scheduled_dlq')) {
+      this.scheduledDlq.set(String(params[0]), {
+        id: String(params[0]),
+        taskId: String(params[1]),
+        time: Number(params[2]),
+        failedAt: Number(params[3]),
+        data: (params[4] as string | null) ?? null,
+        attempts: Number(params[5]),
+        error: String(params[6]),
+      });
+      return new FakeSqlResult([]);
+    }
+
+    return new FakeSqlResult([]);
+  }
+
+  transaction<T>(fn: (tx: { exec(query: string, ...params: unknown[]): FakeSqlResult }) => T): T {
+    return fn({ exec: this.exec.bind(this) });
+  }
+}
+
+export function createRuntime(tasksInput: ReturnType<typeof scheduled>[]) {
+  const sql = new FakeSqlProvider();
+  const scheduledRuns = new Map<string, ScheduledRun>();
+  const scheduledDlq = new Map<string, ScheduledDeadLetter>();
+  const tasks = new Map(tasksInput.map((task) => [task.taskId, task]));
+  const alarmTimes: number[] = [];
+  let nextId = 1;
+  let rescheduleCount = 0;
+
+  const runtime: ScheduledRuntimeAccess = {
+    requireStorage: () => ({
+      sql,
+      kv: {
+        async get() {
+          return undefined;
+        },
+        async set() {},
+        async delete() {},
+        async list() {
+          return [];
+        },
+      },
+    }),
+    requireTimers: () => ({
+      async setAlarm(timeMs: number) {
+        alarmTimes.push(timeMs);
+      },
+      async deleteAlarm() {},
+      async getAlarm() {
+        return alarmTimes.at(-1) ?? null;
+      },
+      setTimeout() {
+        return Symbol('timeout');
+      },
+      clearTimeout() {},
+    }),
+    generateId(prefix = 'id') {
+      return `${prefix}-${nextId++}`;
+    },
+    getScheduledRuns: () => scheduledRuns,
+    getScheduledDlq: () => scheduledDlq,
+    getScheduledTask: (taskId) => tasks.get(taskId),
+    getScheduledTasks: () => tasks.values(),
+    createTaskContext: () => ({ kind: 'task-context' }),
+    rescheduleAlarm: () => {
+      rescheduleCount += 1;
+    },
+  };
+
+  return {
+    runtime,
+    sql,
+    scheduledRuns,
+    scheduledDlq,
+    alarmTimes,
+    getRescheduleCount: () => rescheduleCount,
+  };
+}
