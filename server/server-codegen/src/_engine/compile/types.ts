@@ -4,19 +4,6 @@ import type { ModuleInstance } from '../../define-module.ts';
 import type { ErrorsPrimitive } from '../../errors/index.ts';
 import type { IncomingPrimitive } from '../../incoming/index.ts';
 import type { PostInterceptPrimitive, PreInterceptPrimitive } from '../../intercept/index.ts';
-import type {
-  BeforeSubscribePrimitive,
-  BinaryPrimitive,
-  ConnectPrimitive,
-  DisconnectPrimitive,
-  ErrorPrimitive,
-  InitPrimitive,
-  ShutdownPrimitive,
-  SubscribePrimitive,
-  UnsubscribePrimitive,
-  UpgradePrimitive,
-  ValidationErrorPrimitive,
-} from '../../lifecycle.ts';
 import type { NamespacePrimitive } from '../../namespace/index.ts';
 import type { OutgoingPrimitive } from '../../outgoing/index.ts';
 import type { RequiresManifest } from '../../primitive.ts';
@@ -66,9 +53,6 @@ export interface CompiledChannel {
   preIntercepts: AnyPreIntercept[];
   postIntercepts: Map<string, AnyPostIntercept[]>;
   replay?: ReplayPrimitive<any>;
-  onBeforeSubscribe?: BeforeSubscribePrimitive<any, any>;
-  onSubscribe?: SubscribePrimitive<any>;
-  onUnsubscribe?: UnsubscribePrimitive<any>;
 }
 
 /**
@@ -96,36 +80,15 @@ export interface CompiledServer {
   replay?: ReplayPrimitive<any>;
   heartbeatTimeout?: number;
   hibernationEnabled: boolean;
-  lifecycle: {
-    onInit?: InitPrimitive<any>;
-    onConnect?: ConnectPrimitive<any>;
-    onDisconnect?: DisconnectPrimitive<any>;
-    onShutdown?: ShutdownPrimitive<any>;
-    onError?: ErrorPrimitive<any>;
-    onUpgrade?: UpgradePrimitive;
-    onBinary?: BinaryPrimitive<any>;
-    onValidationError?: ValidationErrorPrimitive<any>;
-  };
   requires: RequiresManifest;
 }
 
 export type {
-  BeforeSubscribePrimitive,
-  BinaryPrimitive,
   ChannelPrimitive,
-  ConnectPrimitive,
-  DisconnectPrimitive,
-  ErrorPrimitive,
   ErrorsPrimitive,
-  InitPrimitive,
   NamespacePrimitive,
   OutgoingPrimitive,
   RequestPrimitive,
   RequiresManifest,
   ScopeDeclaration,
-  ShutdownPrimitive,
-  SubscribePrimitive,
-  UnsubscribePrimitive,
-  UpgradePrimitive,
-  ValidationErrorPrimitive,
 };

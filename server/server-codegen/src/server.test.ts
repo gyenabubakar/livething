@@ -1,16 +1,16 @@
 import { ack as _ack } from '~/ack/index.ts';
-import { channel as _channel, scope } from '~/channel/index.ts';
+import {
+  channel as _channel,
+  onBeforeSubscribe as _onBeforeSubscribe,
+  onSubscribe as _onSubscribe,
+  onUnsubscribe as _onUnsubscribe,
+  scope,
+} from '~/channel/index.ts';
 import { heartbeat as _heartbeat } from '~/heartbeat/index.ts';
 import { incoming as _incoming } from '~/incoming/index.ts';
 import { received, server, t } from '~/index.ts';
 import { intercept as _intercept } from '~/intercept/index.ts';
-import {
-  onBeforeSubscribe as _onBeforeSubscribe,
-  onConnect as _onConnect,
-  onError as _onError,
-  onSubscribe as _onSubscribe,
-  onUnsubscribe as _onUnsubscribe,
-} from '~/lifecycle.ts';
+import { onConnect as _onConnect, onError as _onError } from '~/lifecycle.ts';
 import { namespace as _namespace } from '~/namespace/index.ts';
 import { outgoing as _outgoing } from '~/outgoing/index.ts';
 import { passive as _passive } from '~/passive/index.ts';

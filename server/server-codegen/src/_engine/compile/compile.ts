@@ -18,23 +18,12 @@ import type {
   AnyPreIntercept,
   AnyRequest,
   AnyScheduled,
-  BeforeSubscribePrimitive,
-  BinaryPrimitive,
   ChannelPrimitive,
   CompiledChannel,
   CompiledNamespace,
   CompiledServer,
-  ConnectPrimitive,
-  DisconnectPrimitive,
-  ErrorPrimitive,
   ErrorsPrimitive,
-  InitPrimitive,
   NamespacePrimitive,
-  ShutdownPrimitive,
-  SubscribePrimitive,
-  UnsubscribePrimitive,
-  UpgradePrimitive,
-  ValidationErrorPrimitive,
 } from './types.ts';
 
 /**
@@ -107,12 +96,6 @@ function compileChannel(primitive: ChannelPrimitive): CompiledChannel {
       const intercept = child as AnyPreIntercept | AnyPostIntercept;
       if (intercept.mode === 'pre') scope.preIntercepts.push(intercept);
       else addPostIntercept(intercept.event, intercept, scope.postIntercepts);
-    } else if (child.__wskit === 'onBeforeSubscribe') {
-      scope.onBeforeSubscribe = child as BeforeSubscribePrimitive<any, any>;
-    } else if (child.__wskit === 'onSubscribe') {
-      scope.onSubscribe = child as SubscribePrimitive<any>;
-    } else if (child.__wskit === 'onUnsubscribe') {
-      scope.onUnsubscribe = child as UnsubscribePrimitive<any>;
     }
   }
 
@@ -157,22 +140,6 @@ function visitCompiledPrimitives(compiled: CompiledServer, primitives: readonly 
       compiled.errors.push(primitive as ErrorsPrimitive<any>);
     } else if (primitive.__wskit === 'module') {
       compiled.modules.push(primitive as AnyModule);
-    } else if (primitive.__wskit === 'onInit') {
-      compiled.lifecycle.onInit = primitive as InitPrimitive<any>;
-    } else if (primitive.__wskit === 'onConnect') {
-      compiled.lifecycle.onConnect = primitive as ConnectPrimitive<any>;
-    } else if (primitive.__wskit === 'onDisconnect') {
-      compiled.lifecycle.onDisconnect = primitive as DisconnectPrimitive<any>;
-    } else if (primitive.__wskit === 'onShutdown') {
-      compiled.lifecycle.onShutdown = primitive as ShutdownPrimitive<any>;
-    } else if (primitive.__wskit === 'onError') {
-      compiled.lifecycle.onError = primitive as ErrorPrimitive<any>;
-    } else if (primitive.__wskit === 'onUpgrade') {
-      compiled.lifecycle.onUpgrade = primitive as UpgradePrimitive;
-    } else if (primitive.__wskit === 'onBinary') {
-      compiled.lifecycle.onBinary = primitive as BinaryPrimitive<any>;
-    } else if (primitive.__wskit === 'onValidationError') {
-      compiled.lifecycle.onValidationError = primitive as ValidationErrorPrimitive<any>;
     } else if (isNamespacePrimitive(primitive)) {
       compiled.namespaces.set(primitive.pattern, compileNamespace(primitive));
     } else if (isChannelPrimitive(primitive)) {
@@ -206,7 +173,6 @@ export function compileHandlerDefinition(handler: ServerDefinition): CompiledSer
     sequence: false,
     dedup: false,
     hibernationEnabled: false,
-    lifecycle: {},
     requires: {},
   };
 

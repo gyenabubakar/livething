@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import type { EngineAccess } from './_engine/access.ts';
 
 // ---------------------------------------------------------------------------
 // Primitive kind
@@ -77,57 +78,6 @@ export interface PrimitiveRef {
 export type PrimitiveIdentity =
   | readonly [key: symbol]
   | readonly [key: symbol, registrationId: string];
-
-// ---------------------------------------------------------------------------
-// Engine access — what the engine gives to built-in primitives
-// ---------------------------------------------------------------------------
-
-/**
- * The interface the engine exposes to built-in primitives during setup.
- * This is the "special access" that makes a primitive a primitive — modules
- * don't get this, they get the restricted `ModuleHooks` interface instead.
- *
- * Primitives use this to wire into the engine's internals: register pipeline
- * hooks, extend the connection context, access the connection registry, etc.
- */
-export interface EngineAccess {
-  /** Register a hook that runs on every incoming message (sorted by dependency order). */
-  onIncoming(
-    handler: (message: { event: string; payload: any }) => { event: string; payload: any } | void,
-  ): void;
-
-  /** Register a hook that runs on every outgoing message (sorted by dependency order). */
-  onOutgoing(
-    handler: (message: { event: string; payload: any }) => { event: string; payload: any } | void,
-  ): void;
-
-  /** Register a hook that runs when a connection is established. */
-  onConnect(handler: (connectionId: string) => void | Promise<void>): void;
-
-  /** Register a hook that runs when a connection closes. */
-  onDisconnect(handler: (connectionId: string) => void | Promise<void>): void;
-
-  /** Register a hook that runs during graceful shutdown. */
-  onShutdown(handler: () => void | Promise<void>): void;
-
-  /**
-   * Extend the ConnectionContext with additional methods. The factory is
-   * called for each connection, receiving the base context and returning
-   * the methods to add.
-   *
-   * This is how `ack` adds `ctx.ack()` and `replay` adds `ctx.sendReplay()`.
-   */
-  extendContext(factory: (baseCtx: any) => Record<string, unknown>): void;
-
-  /** Generate a unique ID, optionally prefixed. Monotonic counter shared across the engine. */
-  generateId(prefix?: string): string;
-
-  /**
-   * Send a raw message to a specific connection, bypassing the outgoing
-   * pipeline. Used by primitives that send protocol messages (_ack, _replay, etc.).
-   */
-  rawSend(connectionId: string, event: string, payload: any): void;
-}
 
 // ---------------------------------------------------------------------------
 // Primitive instance — what factory functions return

@@ -57,21 +57,16 @@ export type { ErrorsPrimitive } from './errors/index.ts';
 export { hibernation } from './hibernation/index.ts';
 export type { HibernationPrimitive } from './hibernation/index.ts';
 export {
-  onBeforeSubscribe,
   onBinary,
   onConnect,
   onDisconnect,
   onError,
   onInit,
   onShutdown,
-  onSubscribe,
-  onUnsubscribe,
   onUpgrade,
   onValidationError,
 } from './lifecycle.ts';
 export type {
-  BeforeSubscribeHandler,
-  BeforeSubscribePrimitive,
   BinaryHandler,
   BinaryPrimitive,
   ConnectHandler,
@@ -84,16 +79,23 @@ export type {
   InitPrimitive,
   ShutdownHandler,
   ShutdownPrimitive,
-  SubscribeHandler,
-  SubscribePrimitive,
-  UnsubscribeHandler,
-  UnsubscribePrimitive,
   UpgradeHandler,
   UpgradePrimitive,
   UpgradeResult,
   ValidationErrorHandler,
   ValidationErrorPrimitive,
 } from './lifecycle.ts';
+export { channel, onBeforeSubscribe, onSubscribe, onUnsubscribe, scope } from './channel/index.ts';
+export type {
+  BeforeSubscribeHandler,
+  BeforeSubscribePrimitive,
+  ChannelPrimitive,
+  ScopeDeclaration,
+  SubscribeHandler,
+  SubscribePrimitive,
+  UnsubscribeHandler,
+  UnsubscribePrimitive,
+} from './channel/index.ts';
 export { scheduled } from './scheduled/index.ts';
 export type {
   ScheduledHandle,

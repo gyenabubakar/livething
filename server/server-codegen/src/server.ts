@@ -10,7 +10,16 @@ import { replay as replayPrimitive } from './replay/index.ts';
 import { sequence as sequencePrimitive } from './sequence/index.ts';
 import type * as AckModule from './ack/index.ts';
 import type * as ChannelModule from './channel/index.ts';
-import type { ChannelPattern, ChannelPrimitive } from './channel/index.ts';
+import type {
+  BeforeSubscribeHandler,
+  BeforeSubscribePrimitive,
+  ChannelPattern,
+  ChannelPrimitive,
+  SubscribeHandler,
+  SubscribePrimitive,
+  UnsubscribeHandler,
+  UnsubscribePrimitive,
+} from './channel/index.ts';
 import type { InitContext, ShutdownContext, TaskContext } from './context.ts';
 import type * as DedupModule from './dedup/index.ts';
 import type * as ErrorsModule from './errors/index.ts';
@@ -28,8 +37,6 @@ import type {
 } from './intercept/index.ts';
 import type * as LifecycleModule from './lifecycle.ts';
 import type {
-  BeforeSubscribeHandler,
-  BeforeSubscribePrimitive,
   BinaryHandler,
   BinaryPrimitive,
   ConnectHandler,
@@ -42,10 +49,6 @@ import type {
   InitPrimitive,
   ShutdownHandler,
   ShutdownPrimitive,
-  SubscribeHandler,
-  SubscribePrimitive,
-  UnsubscribeHandler,
-  UnsubscribePrimitive,
   UpgradeHandler,
   UpgradePrimitive,
   ValidationErrorHandler,
@@ -79,15 +82,15 @@ type HeartbeatFactory = typeof HeartbeatModule.heartbeat;
 type HibernationFactory = typeof HibernationModule.hibernation;
 type IncomingFactory = typeof IncomingModule.incoming;
 type InterceptFactory = typeof InterceptModule.intercept;
-type OnBeforeSubscribeFactory = typeof LifecycleModule.onBeforeSubscribe;
+type OnBeforeSubscribeFactory = typeof ChannelModule.onBeforeSubscribe;
 type OnBinaryFactory = typeof LifecycleModule.onBinary;
 type OnConnectFactory = typeof LifecycleModule.onConnect;
 type OnDisconnectFactory = typeof LifecycleModule.onDisconnect;
 type OnErrorFactory = typeof LifecycleModule.onError;
 type OnInitFactory = typeof LifecycleModule.onInit;
 type OnShutdownFactory = typeof LifecycleModule.onShutdown;
-type OnSubscribeFactory = typeof LifecycleModule.onSubscribe;
-type OnUnsubscribeFactory = typeof LifecycleModule.onUnsubscribe;
+type OnSubscribeFactory = typeof ChannelModule.onSubscribe;
+type OnUnsubscribeFactory = typeof ChannelModule.onUnsubscribe;
 type OnUpgradeFactory = typeof LifecycleModule.onUpgrade;
 type OnValidationErrorFactory = typeof LifecycleModule.onValidationError;
 type NamespaceFactory = typeof NamespaceModule.namespace;

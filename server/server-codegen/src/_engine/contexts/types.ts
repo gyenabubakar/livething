@@ -71,6 +71,7 @@ export interface ContextCommonDeps {
   persistAttachment(connection: RuntimeConnection): void;
   toConnectionInfo(connection: RuntimeConnection): ConnectionInfo<Record<string, unknown>>;
   attachModuleApis(ctx: Record<PropertyKey, unknown>, connection?: RuntimeConnection): void;
+  contextExtenders?: readonly ((ctx: unknown) => Record<string, unknown>)[];
 }
 
 /**

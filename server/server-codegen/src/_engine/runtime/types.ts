@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import type { ConnectionInfo, TimerProvider } from '../../index.ts';
+import type { Validator } from '../../types.ts';
 import type { ConnectionDescriptor } from '../adapter/types.ts';
 import type {
   AnyModule,
@@ -7,6 +8,41 @@ import type {
   CompiledNamespace,
   CompiledServer,
 } from '../compile/types.ts';
+
+export interface ChannelBeforeSubscribeHook {
+  handler: (ctx: any, data?: unknown) => void | Promise<void>;
+  validator?: Validator<any>;
+}
+
+export interface RegisteredEngineHooks {
+  incoming: ((
+    message: { event: string; payload: unknown },
+  ) => { event: string; payload: unknown } | void)[];
+  outgoing: ((
+    message: { event: string; payload: unknown },
+  ) => { event: string; payload: unknown } | void)[];
+  contextExtenders: ((ctx: any) => Record<string, unknown>)[];
+  init: ((ctx: any) => void | Promise<void>)[];
+  connect: ((ctx: any) => void | Promise<void>)[];
+  disconnect: ((ctx: any) => void | Promise<void>)[];
+  shutdown: ((ctx: any) => void | Promise<void>)[];
+  error: ((ctx: any, error: unknown, event?: string) => boolean | void | Promise<boolean | void>)[];
+  upgrade: ((
+    request: Request,
+  ) => { meta?: Record<string, unknown>; tags?: readonly string[] } | Promise<{
+    meta?: Record<string, unknown>;
+    tags?: readonly string[];
+  }>)[];
+  binary: ((ctx: any, data: ArrayBuffer) => void | Promise<void>)[];
+  validationError: ((
+    ctx: any,
+    event: string,
+    validationError: unknown,
+  ) => void | Promise<void>)[];
+  beforeSubscribe: Map<string, ChannelBeforeSubscribeHook[]>;
+  subscribe: Map<string, ((ctx: any) => void | Promise<void>)[]>;
+  unsubscribe: Map<string, ((ctx: any) => void | Promise<void>)[]>;
+}
 
 /**
  * Mutable in-memory state for one live connection.

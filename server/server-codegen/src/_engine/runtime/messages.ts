@@ -19,6 +19,10 @@ import type {
 interface OutgoingRuntime {
   compiled: CompiledServer;
   moduleRuntimes: readonly ModuleRuntime[];
+  outgoingHooks: readonly ((message: {
+    event: string;
+    payload: unknown;
+  }) => { event: string; payload: unknown } | void)[];
   seqState: { current: number };
   generateId(prefix?: string): string;
 }
@@ -29,6 +33,15 @@ interface OutgoingRuntime {
 interface DispatchRuntime extends OutgoingRuntime, ConnectionMembersRuntime {
   logger: { warn(message: string, data?: unknown): void };
   activeStreams: Map<string, ActiveStream>;
+  incomingHooks: readonly ((message: {
+    event: string;
+    payload: unknown;
+  }) => { event: string; payload: unknown } | void)[];
+  errorHooks: readonly ((
+    ctx: any,
+    error: unknown,
+    event?: string,
+  ) => boolean | void | Promise<boolean | void>)[];
   requireTimers(): TimerProvider;
   buildConnectionContext(
     connection: RuntimeConnection,
@@ -55,6 +68,12 @@ interface DispatchRuntime extends OutgoingRuntime, ConnectionMembersRuntime {
     event?: string,
     routing?: Record<string, unknown>,
   ): Promise<void>;
+  handleValidationError(
+    connection: RuntimeConnection,
+    event: string,
+    validationError: unknown,
+    scope?: ResolvedScope,
+  ): Promise<void>;
   handleSubscribe(
     connection: RuntimeConnection,
     payload: Record<string, unknown> | undefined,
@@ -73,6 +92,12 @@ interface DispatchRuntime extends OutgoingRuntime, ConnectionMembersRuntime {
  * Dependency bag for channel subscribe/unsubscribe helpers.
  */
 interface ChannelRuntime extends ConnectionMembersRuntime {
+  beforeSubscribeHooks: ReadonlyMap<
+    string,
+    readonly { handler: (ctx: any, data?: unknown) => void | Promise<void>; validator?: unknown }[]
+  >;
+  subscribeHooks: ReadonlyMap<string, readonly ((ctx: any) => void | Promise<void>)[]>;
+  unsubscribeHooks: ReadonlyMap<string, readonly ((ctx: any) => void | Promise<void>)[]>;
   buildConnectionContext(
     connection: RuntimeConnection,
     scope?: ResolvedScope,
@@ -83,6 +108,12 @@ interface ChannelRuntime extends ConnectionMembersRuntime {
     event: string,
     payload: Record<string, unknown>,
   ): void;
+  handleValidationError(
+    connection: RuntimeConnection,
+    event: string,
+    validationError: unknown,
+    scope?: ResolvedScope,
+  ): Promise<void>;
 }
 
 /**
@@ -164,6 +195,11 @@ export function sendThroughPipeline(
 ): boolean {
   let message = { event, payload };
 
+  for (const hook of runtime.outgoingHooks) {
+    const next = hook(message);
+    if (next) message = next;
+  }
+
   for (const moduleRuntime of runtime.moduleRuntimes) {
     if (!moduleRuntime.onOutgoing) continue;
     const next = moduleRuntime.onOutgoing(message);
@@ -210,7 +246,10 @@ export function sendThroughPipeline(
  * Broadcast one event to a set of already-selected connections.
  */
 export function broadcastToConnections(
-  runtime: Pick<OutgoingRuntime, 'compiled' | 'generateId' | 'moduleRuntimes' | 'seqState'>,
+  runtime: Pick<
+    OutgoingRuntime,
+    'compiled' | 'generateId' | 'moduleRuntimes' | 'outgoingHooks' | 'seqState'
+  >,
   connections: readonly RuntimeConnection[],
   event: string,
   payload: unknown,
@@ -237,7 +276,10 @@ export function broadcastToConnections(
  */
 export function broadcastToChannel(
   runtime: ConnectionMembersRuntime &
-    Pick<OutgoingRuntime, 'compiled' | 'generateId' | 'moduleRuntimes' | 'seqState'>,
+    Pick<
+      OutgoingRuntime,
+      'compiled' | 'generateId' | 'moduleRuntimes' | 'outgoingHooks' | 'seqState'
+    >,
   channelName: string,
   event: string,
   payload: unknown,
@@ -277,7 +319,10 @@ export function getChannelMembers(
  */
 export async function leaveChannel(
   runtime: ChannelRuntime &
-    Pick<OutgoingRuntime, 'compiled' | 'generateId' | 'moduleRuntimes' | 'seqState'>,
+    Pick<
+      OutgoingRuntime,
+      'compiled' | 'generateId' | 'moduleRuntimes' | 'outgoingHooks' | 'seqState'
+    >,
   connection: RuntimeConnection,
   scope: { channel?: CompiledChannel; channelName: string; channelScope?: string },
   kickedReason?: string,
@@ -286,8 +331,8 @@ export async function leaveChannel(
 
   const ctx = runtime.buildConnectionContext(connection, scope);
 
-  if (scope.channel?.onUnsubscribe) {
-    await scope.channel.onUnsubscribe.handler(ctx);
+  for (const hook of runtime.unsubscribeHooks.get(scope.channel?.key ?? '') ?? []) {
+    await hook(ctx);
   }
 
   connection.channels.delete(scope.channelName);
@@ -318,7 +363,10 @@ export async function leaveChannel(
  */
 export function kickChannelMembers(
   runtime: ChannelRuntime &
-    Pick<OutgoingRuntime, 'compiled' | 'generateId' | 'moduleRuntimes' | 'seqState'> & {
+    Pick<
+      OutgoingRuntime,
+      'compiled' | 'generateId' | 'moduleRuntimes' | 'outgoingHooks' | 'seqState'
+    > & {
       leaveChannel(
         connection: RuntimeConnection,
         scope: { channel?: CompiledChannel; channelName: string; channelScope?: string },
@@ -341,7 +389,10 @@ export function kickChannelMembers(
  */
 export async function handleSubscribe(
   runtime: ChannelRuntime &
-    Pick<OutgoingRuntime, 'compiled' | 'generateId' | 'moduleRuntimes' | 'seqState'>,
+    Pick<
+      OutgoingRuntime,
+      'compiled' | 'generateId' | 'moduleRuntimes' | 'outgoingHooks' | 'seqState'
+    >,
   connection: RuntimeConnection,
   payload: Record<string, unknown> | undefined,
 ): Promise<void> {
@@ -360,25 +411,30 @@ export async function handleSubscribe(
     channelScope: typeof payload._channelScope === 'string' ? payload._channelScope : undefined,
   };
   const ctx = runtime.buildConnectionContext(connection, scope);
+  const data = { ...payload };
+  delete data._channel;
+  delete data._channelScope;
 
-  if (resolved.onBeforeSubscribe) {
-    const data = { ...payload };
-    delete data._channel;
-    delete data._channelScope;
-    await resolved.onBeforeSubscribe.handler(
-      ctx,
-      resolved.onBeforeSubscribe.validator
-        ? validateValue(resolved.onBeforeSubscribe.validator, data, '_subscribe')
-        : data,
-    );
+  for (const hook of runtime.beforeSubscribeHooks.get(resolved.key) ?? []) {
+    let validatedData: unknown = data;
+    if (hook.validator) {
+      try {
+        validatedData = validateValue(hook.validator, data, '_subscribe');
+      } catch (error) {
+        await runtime.handleValidationError(connection, '_subscribe', error, scope);
+        throw error;
+      }
+    }
+
+    await hook.handler(ctx, validatedData);
   }
 
   connection.channels.add(payload._channel);
   connection.tags.add(`channel:${payload._channel}`);
   runtime.persistAttachment(connection);
 
-  if (resolved.onSubscribe) {
-    await resolved.onSubscribe.handler(ctx);
+  for (const hook of runtime.subscribeHooks.get(resolved.key) ?? []) {
+    await hook(ctx);
   }
 
   runtime.sendProtocolMessage(connection, '_subscribeOk', {
@@ -413,7 +469,10 @@ export async function handleSubscribe(
  */
 export async function handleUnsubscribe(
   runtime: ChannelRuntime &
-    Pick<OutgoingRuntime, 'compiled' | 'generateId' | 'moduleRuntimes' | 'seqState'> & {
+    Pick<
+      OutgoingRuntime,
+      'compiled' | 'generateId' | 'moduleRuntimes' | 'outgoingHooks' | 'seqState'
+    > & {
       leaveChannel(
         connection: RuntimeConnection,
         scope: { channel?: CompiledChannel; channelName: string; channelScope?: string },
@@ -479,7 +538,7 @@ export async function handleStreamCancel(
  * Buffer one validated nudge for an active stream.
  */
 export async function handleStreamNudge(
-  runtime: Pick<DispatchRuntime, 'activeStreams'>,
+  runtime: Pick<DispatchRuntime, 'activeStreams' | 'handleValidationError'>,
   connection: RuntimeConnection,
   event: string,
   payload: Record<string, unknown> | undefined,
@@ -496,10 +555,15 @@ export async function handleStreamNudge(
   const nudgePayload = { ...payload };
   delete nudgePayload._streamId;
 
-  activeStream.nudges.push({
-    event,
-    payload: validateValue(validator, nudgePayload, event),
-  });
+  try {
+    activeStream.nudges.push({
+      event,
+      payload: validateValue(validator, nudgePayload, event),
+    });
+  } catch (error) {
+    await runtime.handleValidationError(connection, event, error);
+    return false;
+  }
   return true;
 }
 
@@ -508,15 +572,15 @@ export async function handleStreamNudge(
  * has decided whether it should be forwarded.
  */
 export async function handleRuntimeError(
-  runtime: Pick<DispatchRuntime, 'compiled' | 'buildConnectionContext' | 'sendProtocolMessage'>,
+  runtime: Pick<DispatchRuntime, 'buildConnectionContext' | 'errorHooks' | 'sendProtocolMessage'>,
   connection: RuntimeConnection,
   error: unknown,
   event?: string,
   routing?: Record<string, unknown>,
 ): Promise<void> {
-  if (runtime.compiled.lifecycle.onError) {
+  for (const hook of runtime.errorHooks) {
     const ctx = runtime.buildConnectionContext(connection);
-    const shouldSend = await runtime.compiled.lifecycle.onError.handler(ctx, error, event);
+    const shouldSend = await hook(ctx, error, event);
     if (shouldSend === false) return;
   }
 
@@ -555,6 +619,11 @@ export async function dispatchIncoming(
   let message = { event, payload: rawPayload };
 
   try {
+    for (const hook of runtime.incomingHooks) {
+      const next = hook(message);
+      if (next) message = next;
+    }
+
     for (const moduleRuntime of runtime.moduleRuntimes) {
       if (!moduleRuntime.onIncoming) continue;
       const next = moduleRuntime.onIncoming(message);
@@ -592,11 +661,17 @@ export async function dispatchIncoming(
     const primitive = incoming ?? request ?? stream;
     if (!primitive) return;
 
-    const payload = validateValue(
-      'stream' in primitive ? primitive.stream.validator : primitive.validator,
-      message.payload,
-      event,
-    );
+    let payload: unknown;
+    try {
+      payload = validateValue(
+        'stream' in primitive ? primitive.stream.validator : primitive.validator,
+        message.payload,
+        event,
+      );
+    } catch (error) {
+      await runtime.handleValidationError(connection, event, error, scope);
+      throw error;
+    }
 
     const topPost = runtime.compiled.postIntercepts.get(event) ?? [];
     const scopedPost =

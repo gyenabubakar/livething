@@ -46,6 +46,8 @@ import {
 import type { ModuleHooks } from '../define-module.ts';
 import type { ServerDefinition } from '../define-server.ts';
 import type { BroadcastOptions, StorageProvider, TimerProvider } from '../index.ts';
+import type { Primitive } from '../primitive.ts';
+import type { EngineAccess } from './access.ts';
 import type {
   ConnectionDescriptor,
   ConnectionHandle,
@@ -61,6 +63,7 @@ import type {
 import type {
   ActiveStream,
   ModuleRuntime,
+  RegisteredEngineHooks,
   ResolvedScope,
   RoutingTarget,
   RuntimeConnection,
@@ -75,6 +78,25 @@ export type {
   UpgradeDecision,
 } from './adapter/types.ts';
 
+function createRegisteredHooks(): RegisteredEngineHooks {
+  return {
+    incoming: [],
+    outgoing: [],
+    contextExtenders: [],
+    init: [],
+    connect: [],
+    disconnect: [],
+    shutdown: [],
+    error: [],
+    upgrade: [],
+    binary: [],
+    validationError: [],
+    beforeSubscribe: new Map(),
+    subscribe: new Map(),
+    unsubscribe: new Map(),
+  };
+}
+
 /**
  * Stateful runtime executor for one compiled server definition.
  *
@@ -84,7 +106,9 @@ export type {
  */
 export class Engine {
   private readonly options: EngineOptions;
+  private readonly primitives: readonly Primitive[];
   private readonly compiled: CompiledServer;
+  private readonly hooks = createRegisteredHooks();
   private storage?: StorageProvider;
   private env: Record<string, unknown> = {};
   private timers?: TimerProvider;
@@ -118,6 +142,7 @@ export class Engine {
    */
   constructor(handler: ServerDefinition, options: EngineOptions) {
     this.options = options;
+    this.primitives = handler.primitives;
     this.compiled = compileHandlerDefinition(handler);
   }
 
@@ -257,12 +282,123 @@ export class Engine {
   }
 
   /**
+   * Append one hook to a channel-scoped hook registry.
+   */
+  private pushChannelHook<T>(
+    hooks: Map<string, T[]>,
+    channelKey: string | undefined,
+    hook: T,
+    hookName: 'onBeforeSubscribe' | 'onSubscribe' | 'onUnsubscribe',
+  ): void {
+    if (!channelKey) {
+      throw new Error(`[wskit] ${hookName}() can only be registered inside channel(...).`);
+    }
+
+    const existing = hooks.get(channelKey) ?? [];
+    existing.push(hook);
+    hooks.set(channelKey, existing);
+  }
+
+  /**
+   * Create the runtime registration API passed to built-in primitives.
+   */
+  private createEngineAccess(scope?: { channelKey?: string }): EngineAccess {
+    return {
+      onIncoming: (handler) => {
+        this.hooks.incoming.push(handler);
+      },
+      onOutgoing: (handler) => {
+        this.hooks.outgoing.push(handler);
+      },
+      onInit: (handler) => {
+        this.hooks.init.push(handler);
+      },
+      onConnect: (handler) => {
+        this.hooks.connect.push(handler);
+      },
+      onDisconnect: (handler) => {
+        this.hooks.disconnect.push(handler);
+      },
+      onShutdown: (handler) => {
+        this.hooks.shutdown.push(handler);
+      },
+      onError: (handler) => {
+        this.hooks.error.push(handler);
+      },
+      onUpgrade: (handler) => {
+        this.hooks.upgrade.push(handler);
+      },
+      onBinary: (handler) => {
+        this.hooks.binary.push(handler);
+      },
+      onValidationError: (handler) => {
+        this.hooks.validationError.push(handler);
+      },
+      onBeforeSubscribe: (handler, validator) => {
+        this.pushChannelHook(
+          this.hooks.beforeSubscribe,
+          scope?.channelKey,
+          { handler, validator },
+          'onBeforeSubscribe',
+        );
+      },
+      onSubscribe: (handler) => {
+        this.pushChannelHook(this.hooks.subscribe, scope?.channelKey, handler, 'onSubscribe');
+      },
+      onUnsubscribe: (handler) => {
+        this.pushChannelHook(this.hooks.unsubscribe, scope?.channelKey, handler, 'onUnsubscribe');
+      },
+      extendContext: (factory) => {
+        this.hooks.contextExtenders.push(factory);
+      },
+      generateId: (prefix) => this.generateId(prefix),
+      rawSend: (connectionId, event, payload) => {
+        const connection = this.connections.get(connectionId);
+        if (!connection) return;
+        this.sendProtocolMessage(connection, event, payload as Record<string, unknown>);
+      },
+    };
+  }
+
+  /**
+   * Walk the primitive tree and let built-in primitives register engine hooks.
+   */
+  private installPrimitiveHooks(): void {
+    const visit = (primitives: readonly Primitive[], scope?: { channelKey?: string }) => {
+      for (const primitive of primitives) {
+        primitive.__setup?.(this.createEngineAccess(scope));
+
+        if (primitive.__wskit === 'passive' || primitive.__wskit === 'namespace') {
+          visit((primitive as Primitive & { primitives: readonly Primitive[] }).primitives, scope);
+          continue;
+        }
+
+        if (primitive.__wskit === 'channel') {
+          const channelPrimitive = primitive as Primitive & {
+            pattern: string | { key: string };
+            primitives: readonly Primitive[];
+          };
+          visit(channelPrimitive.primitives, {
+            channelKey:
+              typeof channelPrimitive.pattern === 'string'
+                ? channelPrimitive.pattern
+                : channelPrimitive.pattern.key,
+          });
+        }
+      }
+    };
+
+    visit(this.primitives);
+  }
+
+  /**
    * Finish one-time startup work: validate adapter capabilities, install
    * modules, restore schedules, and run the init hook.
    */
   async initialize(): Promise<void> {
     if (this.initialized) return;
     this.validateRequires();
+    this.installPrimitiveHooks();
 
     for (const moduleInstance of this.compiled.modules) {
       if (moduleInstance.migrate) {
@@ -282,8 +418,9 @@ export class Engine {
 
     this.restoreScheduledRuns();
 
-    if (this.compiled.lifecycle.onInit) {
-      await this.compiled.lifecycle.onInit.handler(this.createInitContext());
+    const initCtx = this.createInitContext();
+    for (const hook of this.hooks.init) {
+      await hook(initCtx);
     }
 
     this.rescheduleAlarm();
@@ -352,6 +489,7 @@ export class Engine {
       persistAttachment: (connection) => this.persistAttachment(connection),
       toConnectionInfo: (connection) => this.toConnectionInfo(connection),
       attachModuleApis: (ctx, connection) => this.attachModuleApis(ctx, connection),
+      contextExtenders: this.hooks.contextExtenders,
     });
   }
 
@@ -385,6 +523,7 @@ export class Engine {
       persistAttachment: (connection) => this.persistAttachment(connection),
       toConnectionInfo: (connection) => this.toConnectionInfo(connection),
       attachModuleApis: (ctx, connection) => this.attachModuleApis(ctx, connection),
+      contextExtenders: this.hooks.contextExtenders,
     });
   }
 
@@ -424,6 +563,7 @@ export class Engine {
         persistAttachment: (connectionArg) => this.persistAttachment(connectionArg),
         toConnectionInfo: (connectionArg) => this.toConnectionInfo(connectionArg),
         attachModuleApis: (ctx, connectionArg) => this.attachModuleApis(ctx, connectionArg),
+        contextExtenders: this.hooks.contextExtenders,
       },
       connection,
       scope,
@@ -518,6 +658,7 @@ export class Engine {
     return {
       compiled: this.compiled,
       moduleRuntimes: this.moduleRuntimes,
+      outgoingHooks: this.hooks.outgoing,
       seqState: {
         get current() {
           return engine.seqCounter;
@@ -554,6 +695,9 @@ export class Engine {
   private channelRuntime() {
     return {
       ...this.memberRuntime(),
+      beforeSubscribeHooks: this.hooks.beforeSubscribe,
+      subscribeHooks: this.hooks.subscribe,
+      unsubscribeHooks: this.hooks.unsubscribe,
       buildConnectionContext: (connection: RuntimeConnection, scope?: ResolvedScope) =>
         this.buildConnectionContext(connection, scope),
       persistAttachment: (connection: RuntimeConnection) => this.persistAttachment(connection),
@@ -562,6 +706,12 @@ export class Engine {
         event: string,
         payload: Record<string, unknown>,
       ) => this.sendProtocolMessage(connection, event, payload),
+      handleValidationError: (
+        connection: RuntimeConnection,
+        event: string,
+        validationError: unknown,
+        scope?: ResolvedScope,
+      ) => this.handleValidationError(connection, event, validationError, scope),
     };
   }
 
@@ -573,6 +723,8 @@ export class Engine {
       ...this.memberRuntime(),
       logger: this.logger,
       activeStreams: this.activeStreams,
+      incomingHooks: this.hooks.incoming,
+      errorHooks: this.hooks.error,
       requireTimers: () => this.requireTimers(),
       buildConnectionContext: (connection: RuntimeConnection, scope?: ResolvedScope) =>
         this.buildConnectionContext(connection, scope),
@@ -599,6 +751,12 @@ export class Engine {
         event?: string,
         routing?: Record<string, unknown>,
       ) => this.handleRuntimeError(connection, error, event, routing),
+      handleValidationError: (
+        connection: RuntimeConnection,
+        event: string,
+        validationError: unknown,
+        scope?: ResolvedScope,
+      ) => this.handleValidationError(connection, event, validationError, scope),
       handleSubscribe: (
         connection: RuntimeConnection,
         payload: Record<string, unknown> | undefined,
@@ -662,7 +820,7 @@ export class Engine {
   async handleUpgrade(request: Request): Promise<UpgradeDecision> {
     return handleUpgrade(
       {
-        compiled: this.compiled,
+        upgradeHooks: this.hooks.upgrade,
       },
       request,
     );
@@ -674,9 +832,9 @@ export class Engine {
   async handleShutdown(): Promise<void> {
     const engine = this;
     return handleShutdown({
-      compiled: this.compiled,
       connections: this.connections,
       timers: this.timers,
+      shutdownHooks: this.hooks.shutdown,
       moduleRuntimes: this.moduleRuntimes,
       createShutdownContext: () => this.createShutdownContext(),
       cancelActiveStreamsForConnection: (connectionId) =>
@@ -797,7 +955,6 @@ export class Engine {
     const engine = this;
     return runConnectionLifecycle(
       {
-        compiled: this.compiled,
         moduleRuntimes: this.moduleRuntimes,
         activeConnectionState: {
           get current() {
@@ -807,6 +964,8 @@ export class Engine {
             engine.activeConnectionId = value;
           },
         },
+        connectHooks: this.hooks.connect,
+        disconnectHooks: this.hooks.disconnect,
         createModuleScopedContext: (moduleId, targetCtx) =>
           this.createModuleScopedContext(moduleId, targetCtx),
       },
@@ -862,9 +1021,9 @@ export class Engine {
   ): Promise<void> {
     return handleBinaryMessage(
       {
-        compiled: this.compiled,
         buildConnectionContext: (targetConnection, scope) =>
           this.buildConnectionContext(targetConnection, scope),
+        binaryHooks: this.hooks.binary,
         refreshHeartbeat: (targetConnection) => this.refreshHeartbeat(targetConnection),
       },
       connection,
@@ -1035,9 +1194,9 @@ export class Engine {
   ): Promise<void> {
     return handleRuntimeError(
       {
-        compiled: this.compiled,
         buildConnectionContext: (targetConnection, scope) =>
           this.buildConnectionContext(targetConnection, scope),
+        errorHooks: this.hooks.error,
         sendProtocolMessage: (targetConnection, outgoingEvent, payload) =>
           this.sendProtocolMessage(targetConnection, outgoingEvent, payload),
       },
@@ -1046,5 +1205,22 @@ export class Engine {
       event,
       routing,
     );
+  }
+
+  /**
+   * Run validation-error hooks before normal error handling continues.
+   */
+  private async handleValidationError(
+    connection: RuntimeConnection,
+    event: string,
+    validationError: unknown,
+    scope?: ResolvedScope,
+  ): Promise<void> {
+    if (this.hooks.validationError.length === 0) return;
+
+    const ctx = this.buildConnectionContext(connection, scope);
+    for (const hook of this.hooks.validationError) {
+      await hook(ctx, event, validationError);
+    }
   }
 }

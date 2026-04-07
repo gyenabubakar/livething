@@ -1,4 +1,4 @@
-import { Engine } from '../engine.ts';
+import { Engine } from '../index.ts';
 import type { ServerDefinition } from '../../define-server.ts';
 import type { AdapterConfig } from './types.ts';
 
@@ -8,7 +8,7 @@ import type { AdapterConfig } from './types.ts';
  * The returned `serve()` creates a fresh engine per handler and hands it to the
  * adapter setup function.
  */
-export function createServerAdapter<TOptions, TService>(config: AdapterConfig<TOptions, TService>) {
+export function defineServerAdapter<TOptions, TService>(config: AdapterConfig<TOptions, TService>) {
   return function serve(
     handler: ServerDefinition,
     options: TOptions,
@@ -21,5 +21,3 @@ export function createServerAdapter<TOptions, TService>(config: AdapterConfig<TO
     return config.setup(handler, engine, options);
   };
 }
-
-export const defineServerAdapter = createServerAdapter;

@@ -1,7 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { definePrimitive } from '~/primitive.ts';
 import type { Primitive } from '~/primitive.ts';
-import type { Validator } from '~/types.ts';
 
 export interface UpgradeResult {
   readonly meta?: Record<string, unknown>;
@@ -24,12 +23,6 @@ export type ValidationErrorHandler<TCtx = any> = (
   event: string,
   validationError: unknown,
 ) => void | Promise<void>;
-export type BeforeSubscribeHandler<TCtx = any, TData = unknown> = (
-  ctx: TCtx,
-  data?: TData,
-) => void | Promise<void>;
-export type SubscribeHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
-export type UnsubscribeHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
 
 export interface InitPrimitive<TCtx = any> extends Primitive<'onInit'> {
   readonly handler: InitHandler<TCtx>;
@@ -55,20 +48,6 @@ export interface BinaryPrimitive<TCtx = any> extends Primitive<'onBinary'> {
 export interface ValidationErrorPrimitive<TCtx = any> extends Primitive<'onValidationError'> {
   readonly handler: ValidationErrorHandler<TCtx>;
 }
-export interface BeforeSubscribePrimitive<
-  TCtx = any,
-  TData = unknown,
-> extends Primitive<'onBeforeSubscribe'> {
-  readonly handler: BeforeSubscribeHandler<TCtx, TData>;
-  readonly validator?: Validator<TData>;
-}
-export interface SubscribePrimitive<TCtx = any> extends Primitive<'onSubscribe'> {
-  readonly handler: SubscribeHandler<TCtx>;
-}
-export interface UnsubscribePrimitive<TCtx = any> extends Primitive<'onUnsubscribe'> {
-  readonly handler: UnsubscribeHandler<TCtx>;
-}
-
 function defineLifecyclePrimitive<TTag extends string, THandler>(tag: TTag, key: symbol) {
   return definePrimitive<TTag, [handler: THandler], { handler: THandler }>({
     tag,
@@ -76,6 +55,34 @@ function defineLifecyclePrimitive<TTag extends string, THandler>(tag: TTag, key:
     kind: 'lifecycle' as const,
     create(handler: THandler) {
       return { handler };
+    },
+    setup(engine, data) {
+      switch (tag) {
+        case 'onInit':
+          engine.onInit(data.handler as InitHandler<any>);
+          break;
+        case 'onConnect':
+          engine.onConnect(data.handler as ConnectHandler<any>);
+          break;
+        case 'onDisconnect':
+          engine.onDisconnect(data.handler as DisconnectHandler<any>);
+          break;
+        case 'onShutdown':
+          engine.onShutdown(data.handler as ShutdownHandler<any>);
+          break;
+        case 'onError':
+          engine.onError(data.handler as ErrorHandler<any>);
+          break;
+        case 'onUpgrade':
+          engine.onUpgrade(data.handler as UpgradeHandler);
+          break;
+        case 'onBinary':
+          engine.onBinary(data.handler as BinaryHandler<any>);
+          break;
+        case 'onValidationError':
+          engine.onValidationError(data.handler as ValidationErrorHandler<any>);
+          break;
+      }
     },
   });
 }
@@ -88,10 +95,6 @@ const ON_ERROR_KEY = Symbol('onError');
 const ON_UPGRADE_KEY = Symbol('onUpgrade');
 const ON_BINARY_KEY = Symbol('onBinary');
 const ON_VALIDATION_ERROR_KEY = Symbol('onValidationError');
-const ON_BEFORE_SUBSCRIBE_KEY = Symbol('onBeforeSubscribe');
-const ON_SUBSCRIBE_KEY = Symbol('onSubscribe');
-const ON_UNSUBSCRIBE_KEY = Symbol('onUnsubscribe');
-
 const _onInit = defineLifecyclePrimitive('onInit', ON_INIT_KEY);
 const _onConnect = defineLifecyclePrimitive('onConnect', ON_CONNECT_KEY);
 const _onDisconnect = defineLifecyclePrimitive('onDisconnect', ON_DISCONNECT_KEY);
@@ -100,24 +103,6 @@ const _onError = defineLifecyclePrimitive('onError', ON_ERROR_KEY);
 const _onUpgrade = defineLifecyclePrimitive('onUpgrade', ON_UPGRADE_KEY);
 const _onBinary = defineLifecyclePrimitive('onBinary', ON_BINARY_KEY);
 const _onValidationError = defineLifecyclePrimitive('onValidationError', ON_VALIDATION_ERROR_KEY);
-const _onSubscribe = defineLifecyclePrimitive('onSubscribe', ON_SUBSCRIBE_KEY);
-const _onUnsubscribe = defineLifecyclePrimitive('onUnsubscribe', ON_UNSUBSCRIBE_KEY);
-
-const _onBeforeSubscribe = definePrimitive<
-  'onBeforeSubscribe',
-  [handler: BeforeSubscribeHandler<any, any>, options?: { validator?: Validator<any> }],
-  { handler: BeforeSubscribeHandler<any, any>; validator?: Validator<any> }
->({
-  tag: 'onBeforeSubscribe' as const,
-  key: ON_BEFORE_SUBSCRIBE_KEY,
-  kind: 'lifecycle' as const,
-  create(handler: BeforeSubscribeHandler<any, any>, options?: { validator?: Validator<any> }) {
-    return {
-      handler,
-      validator: options?.validator,
-    };
-  },
-});
 
 export function onInit<TCtx>(handler: InitHandler<TCtx>): InitPrimitive<TCtx> {
   return _onInit(handler) as InitPrimitive<TCtx>;
@@ -145,19 +130,6 @@ export function onValidationError<TCtx>(
 ): ValidationErrorPrimitive<TCtx> {
   return _onValidationError(handler) as ValidationErrorPrimitive<TCtx>;
 }
-export function onBeforeSubscribe<TCtx, TData = unknown>(
-  handler: BeforeSubscribeHandler<TCtx, TData>,
-  options?: { validator?: Validator<TData> },
-): BeforeSubscribePrimitive<TCtx, TData> {
-  return _onBeforeSubscribe(handler, options) as BeforeSubscribePrimitive<TCtx, TData>;
-}
-export function onSubscribe<TCtx>(handler: SubscribeHandler<TCtx>): SubscribePrimitive<TCtx> {
-  return _onSubscribe(handler) as SubscribePrimitive<TCtx>;
-}
-export function onUnsubscribe<TCtx>(handler: UnsubscribeHandler<TCtx>): UnsubscribePrimitive<TCtx> {
-  return _onUnsubscribe(handler) as UnsubscribePrimitive<TCtx>;
-}
-
 onInit.__key = ON_INIT_KEY;
 onConnect.__key = ON_CONNECT_KEY;
 onDisconnect.__key = ON_DISCONNECT_KEY;
@@ -166,6 +138,3 @@ onError.__key = ON_ERROR_KEY;
 onUpgrade.__key = ON_UPGRADE_KEY;
 onBinary.__key = ON_BINARY_KEY;
 onValidationError.__key = ON_VALIDATION_ERROR_KEY;
-onBeforeSubscribe.__key = ON_BEFORE_SUBSCRIBE_KEY;
-onSubscribe.__key = ON_SUBSCRIBE_KEY;
-onUnsubscribe.__key = ON_UNSUBSCRIBE_KEY;

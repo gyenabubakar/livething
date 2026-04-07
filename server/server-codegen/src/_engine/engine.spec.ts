@@ -7,8 +7,16 @@ import { incoming } from '../incoming/index.ts';
 import {
   defineModule,
   onBeforeSubscribe,
+  onBinary,
+  onConnect,
+  onDisconnect,
+  onError,
+  onInit,
+  onShutdown,
   onSubscribe,
   onUnsubscribe,
+  onUpgrade,
+  onValidationError,
   outgoing,
   received,
   scheduled,
@@ -16,7 +24,7 @@ import {
   t,
 } from '../index.ts';
 import { chunks, generate, nudge, start, stream } from '../stream/index.ts';
-import { Engine } from './engine.ts';
+import { Engine } from './index.ts';
 
 class FakeSqlResult {
   constructor(private readonly rows: Record<string, unknown>[]) {}
@@ -255,6 +263,109 @@ describe('Engine', () => {
       event: '__acme:analytics:flushed',
       payload: { count: 1 },
     });
+  });
+
+  it('registers built-in lifecycle hooks through primitive setup', async () => {
+    const events: string[] = [];
+    const s = server('engine-lifecycle', {
+      _incoming: incoming,
+      _onBinary: onBinary,
+      _onConnect: onConnect,
+      _onDisconnect: onDisconnect,
+      _onError: onError,
+      _onInit: onInit,
+      _onShutdown: onShutdown,
+      _onUpgrade: onUpgrade,
+      _onValidationError: onValidationError,
+      _outgoing: outgoing,
+    });
+
+    const handler = s.define(
+      onInit(async () => {
+        events.push('init');
+      }),
+      onConnect(async () => {
+        events.push('connect');
+      }),
+      onDisconnect(async () => {
+        events.push('disconnect');
+      }),
+      onShutdown(async () => {
+        events.push('shutdown');
+      }),
+      onUpgrade(async () => {
+        events.push('upgrade');
+        return { meta: { role: 'member' }, tags: ['ready'] };
+      }),
+      onBinary(async (_ctx, data) => {
+        events.push(`binary:${data.byteLength}`);
+      }),
+      onValidationError(async (_ctx, event) => {
+        events.push(`invalid:${event}`);
+      }),
+      onError(async (_ctx, error, event) => {
+        events.push(`error:${event}:${error instanceof WskitError ? error.code : 'internal'}`);
+        return false;
+      }),
+      outgoing('message', t<{ text: string }>()),
+      incoming(
+        received('echo', (value: unknown) => value as { text: string }),
+        async (ctx: { send(event: 'message', payload: { text: string }): boolean }, payload) => {
+          ctx.send('message', payload);
+        },
+      ),
+      incoming(
+        received('bad', (_value: unknown): { text: string } => {
+          throw new Error('bad payload');
+        }),
+        async () => {},
+      ),
+    );
+
+    const engine = new Engine(handler, {
+      adapterId: 'test',
+      hibernation: false,
+    });
+
+    engine.setStorage(createStorage());
+    engine.setTimerProvider(createTimers().timers);
+    await engine.initialize();
+
+    expect(events).toContain('init');
+
+    const upgrade = await engine.handleUpgrade(new Request('https://example.com/ws'));
+    expect(upgrade.meta).toEqual({ role: 'member' });
+    expect(upgrade.tags).toEqual(['ready']);
+
+    const socket = createDescriptor();
+    const conn = engine.accept(Symbol('ws-lifecycle'), socket.descriptor);
+    await flushAsyncWork();
+
+    conn.handleBinary(new Uint8Array([1, 2, 3]).buffer);
+    await flushAsyncWork();
+
+    conn.handleMessage(JSON.stringify({ event: 'bad', payload: {} }));
+    await flushAsyncWork();
+    await flushAsyncWork();
+
+    conn.handleClose(1000, 'done');
+    await flushAsyncWork();
+
+    await engine.handleShutdown();
+
+    expect(events).toEqual(
+      expect.arrayContaining([
+        'init',
+        'upgrade',
+        'connect',
+        'binary:3',
+        'invalid:bad',
+        'error:bad:internal',
+        'disconnect',
+        'shutdown',
+      ]),
+    );
+    expect(socket.sent.some((entry) => entry.event === '_error')).toBe(false);
   });
 
   it('runs channel subscribe lifecycle and membership protocol', async () => {

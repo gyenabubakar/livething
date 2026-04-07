@@ -1,8 +1,8 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 
 import { definePrimitive } from '~/primitive.ts';
+import type { EngineAccess } from '~/_engine/access.ts';
 import type {
-  EngineAccess,
   Primitive,
   PrimitiveFactory,
   PrimitiveIdentity,
@@ -173,7 +173,8 @@ const sequence = definePrimitive({
   setup(engine: EngineAccess) {
     let seq = 0;
     engine.onOutgoing((msg) => {
-      msg.payload._seq = ++seq;
+      const payload = msg.payload as { _seq?: number };
+      payload._seq = ++seq;
       return msg;
     });
   },

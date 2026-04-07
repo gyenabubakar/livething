@@ -20,7 +20,7 @@ import type {
   BeforeSubscribePrimitive,
   SubscribePrimitive,
   UnsubscribePrimitive,
-} from '~/lifecycle.ts';
+} from '~/channel/lifecycle.ts';
 import type { OutgoingPrimitive } from '~/outgoing/outgoing.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { ReplayPrimitive } from '~/replay/replay.ts';

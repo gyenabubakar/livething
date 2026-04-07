@@ -1,5 +1,5 @@
-export { Engine } from './_engine/engine.ts';
-export { createServerAdapter, defineServerAdapter } from './_engine/adapter/adapter.ts';
+export { Engine } from './_engine/index.ts';
+export { defineServerAdapter } from './_engine/adapter/adapter.ts';
 export type {
   AdapterConfig,
   ConnectionDescriptor,

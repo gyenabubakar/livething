@@ -74,7 +74,9 @@ function createHandle(runtime: ConnectionRuntime, connection: RuntimeConnection)
  * Run connect/disconnect hooks for both the handler and installed modules.
  */
 export async function runConnectionLifecycle(
-  runtime: Pick<ConnectionRuntime, 'compiled'> & {
+  runtime: {
+    connectHooks: readonly ((ctx: Record<PropertyKey, unknown>) => void | Promise<void>)[];
+    disconnectHooks: readonly ((ctx: Record<PropertyKey, unknown>) => void | Promise<void>)[];
     moduleRuntimes: readonly {
       instance: { id: string };
       onConnect?: (ctx: Record<PropertyKey, unknown>) => void | Promise<void>;
@@ -92,8 +94,8 @@ export async function runConnectionLifecycle(
   runtime.activeConnectionState.current = String(ctx.id);
 
   if (kind === 'connect') {
-    if (runtime.compiled.lifecycle.onConnect) {
-      await runtime.compiled.lifecycle.onConnect.handler(ctx);
+    for (const hook of runtime.connectHooks) {
+      await hook(ctx);
     }
     for (const moduleRuntime of runtime.moduleRuntimes) {
       if (moduleRuntime.onConnect) {
@@ -103,8 +105,8 @@ export async function runConnectionLifecycle(
       }
     }
   } else {
-    if (runtime.compiled.lifecycle.onDisconnect) {
-      await runtime.compiled.lifecycle.onDisconnect.handler(ctx);
+    for (const hook of runtime.disconnectHooks) {
+      await hook(ctx);
     }
     for (const moduleRuntime of runtime.moduleRuntimes) {
       if (moduleRuntime.onDisconnect) {
@@ -193,16 +195,22 @@ export async function handleConnectionClose(
  * Route binary frames into the optional binary lifecycle hook.
  */
 export async function handleBinaryMessage(
-  runtime: Pick<ConnectionRuntime, 'compiled' | 'buildConnectionContext'> & {
+  runtime: Pick<ConnectionRuntime, 'buildConnectionContext'> & {
+    binaryHooks: readonly ((
+      ctx: Record<PropertyKey, unknown>,
+      data: ArrayBuffer,
+    ) => void | Promise<void>)[];
     refreshHeartbeat(connection: RuntimeConnection): void;
   },
   connection: RuntimeConnection,
   data: ArrayBuffer,
 ): Promise<void> {
   runtime.refreshHeartbeat(connection);
-  if (!runtime.compiled.lifecycle.onBinary) return;
+  if (runtime.binaryHooks.length === 0) return;
   const ctx = runtime.buildConnectionContext(connection);
-  await runtime.compiled.lifecycle.onBinary.handler(ctx, data);
+  for (const hook of runtime.binaryHooks) {
+    await hook(ctx, data);
+  }
 }
 
 /**
@@ -292,19 +300,26 @@ export function wakeHibernatedConnection(
  * accept/reject data.
  */
 export async function handleUpgrade(
-  runtime: Pick<ConnectionRuntime, 'compiled'>,
+  runtime: {
+    upgradeHooks: readonly ((request: Request) =>
+      | { meta?: Record<string, unknown>; tags?: readonly string[] }
+      | Promise<{
+          meta?: Record<string, unknown>;
+          tags?: readonly string[];
+        }>)[];
+  },
   request: Request,
 ): Promise<UpgradeDecision> {
-  if (!runtime.compiled.lifecycle.onUpgrade) {
+  if (runtime.upgradeHooks.length === 0) {
     return {};
   }
 
   try {
-    const result = await runtime.compiled.lifecycle.onUpgrade.handler(request);
-    return {
-      meta: result.meta,
-      tags: result.tags,
-    };
+    let result: { meta?: Record<string, unknown>; tags?: readonly string[] } = {};
+    for (const hook of runtime.upgradeHooks) {
+      result = await hook(request);
+    }
+    return { meta: result.meta, tags: result.tags };
   } catch (error) {
     if (
       error &&
@@ -330,15 +345,16 @@ export async function handleUpgrade(
  * Shut down the engine, module hooks, active streams, and open connections.
  */
 export async function handleShutdown(
-  runtime: Pick<ConnectionRuntime, 'compiled' | 'connections' | 'timers'> & {
+  runtime: Pick<ConnectionRuntime, 'connections' | 'timers'> & {
+    shutdownHooks: readonly ((ctx: unknown) => void | Promise<void>)[];
     moduleRuntimes: readonly { onShutdown?: () => void | Promise<void> }[];
     createShutdownContext(): unknown;
     cancelActiveStreamsForConnection(connectionId: string): Promise<void>;
     alarmState: { current: unknown | null };
   },
 ): Promise<void> {
-  if (runtime.compiled.lifecycle.onShutdown) {
-    await runtime.compiled.lifecycle.onShutdown.handler(runtime.createShutdownContext());
+  for (const hook of runtime.shutdownHooks) {
+    await hook(runtime.createShutdownContext());
   }
 
   for (const moduleRuntime of runtime.moduleRuntimes) {

@@ -128,7 +128,12 @@ export function createTaskContext(
 export function buildConnectionContext(
   deps: BuildConnectionContextDeps,
   connection: RuntimeConnection,
-  scope?: { namespace?: CompiledNamespace; channel?: CompiledChannel },
+  scope?: {
+    namespace?: CompiledNamespace;
+    channel?: CompiledChannel;
+    channelName?: string;
+    channelScope?: string;
+  },
 ): ConnectionContext<Record<string, unknown>, Record<string, unknown>, unknown> &
   Record<PropertyKey, unknown> {
   const storage = deps.requireStorage();
@@ -228,20 +233,22 @@ export function buildConnectionContext(
 
   if (scope?.channel) {
     const channel = scope.channel;
-    const channelName = typeof channel.pattern === 'string' ? channel.pattern : '';
+    const channelName =
+      scope.channelName ?? (typeof channel.pattern === 'string' ? channel.pattern : '');
+    const channelScope = scope.channelScope ?? channel.key;
     base.channel = {
       name: channelName,
       send: (event, payload) =>
         deps.sendThroughPipeline(
           connection,
-          { channel: channelName, channelScope: channel.key },
+          { channel: channelName, channelScope },
           event,
           payload,
         ),
       broadcast: (event, payload) =>
-        deps.broadcastToChannel(channelName, event, payload, connection.id, channel.key),
+        deps.broadcastToChannel(channelName, event, payload, connection.id, channelScope),
       sendReplay: (event, payload, wire) =>
-        deps.sendReplay(connection, channelName, channel.key, event, payload, wire),
+        deps.sendReplay(connection, channelName, channelScope, event, payload, wire),
     };
     base.channels = {
       members: (name) => deps.getChannelMembers(name),
@@ -265,6 +272,10 @@ export function buildConnectionContext(
     ) => {
       deps.sendReplay(connection, wire.channel, undefined, event, payload, wire);
     };
+  }
+
+  for (const extend of deps.contextExtenders ?? []) {
+    Object.assign(base, extend(base));
   }
 
   deps.attachModuleApis(base, connection);
