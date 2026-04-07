@@ -45,9 +45,17 @@
       "types": "./dist/dedup.d.ts",
       "import": "./dist/dedup.js"
     },
+    "./hibernation": {
+      "types": "./dist/hibernation.d.ts",
+      "import": "./dist/hibernation.js"
+    },
     "./heartbeat": {
       "types": "./dist/heartbeat.d.ts",
       "import": "./dist/heartbeat.js"
+    },
+    "./lifecycle": {
+      "types": "./dist/lifecycle.d.ts",
+      "import": "./dist/lifecycle.js"
     },
     "./namespace": {
       "types": "./dist/namespace.d.ts",
@@ -61,6 +69,10 @@
       "types": "./dist/request.d.ts",
       "import": "./dist/request.js"
     },
+    "./scheduled": {
+      "types": "./dist/scheduled.d.ts",
+      "import": "./dist/scheduled.js"
+    },
     "./sequence": {
       "types": "./dist/sequence.d.ts",
       "import": "./dist/sequence.js"
@@ -68,6 +80,10 @@
     "./stream": {
       "types": "./dist/stream.d.ts",
       "import": "./dist/stream.js"
+    },
+    "./define-module": {
+      "types": "./dist/define-module.d.ts",
+      "import": "./dist/define-module.js"
     }
   },
   "publishConfig": {

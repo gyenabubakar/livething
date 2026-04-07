@@ -4,16 +4,19 @@ import { ack as ackPrimitive } from './ack/index.ts';
 import { dedup as dedupPrimitive } from './dedup/index.ts';
 import { defineServer } from './define-server.ts';
 import { heartbeat as heartbeatPrimitive } from './heartbeat/index.ts';
+import { hibernation as hibernationPrimitive } from './hibernation/index.ts';
 import { passive as passivePrimitive } from './passive/index.ts';
 import { replay as replayPrimitive } from './replay/index.ts';
 import { sequence as sequencePrimitive } from './sequence/index.ts';
 import type * as AckModule from './ack/index.ts';
 import type * as ChannelModule from './channel/index.ts';
 import type { ChannelPattern, ChannelPrimitive } from './channel/index.ts';
+import type { InitContext, ShutdownContext, TaskContext } from './context.ts';
 import type * as DedupModule from './dedup/index.ts';
 import type * as ErrorsModule from './errors/index.ts';
 import type { Handled } from './h.ts';
 import type * as HeartbeatModule from './heartbeat/index.ts';
+import type * as HibernationModule from './hibernation/index.ts';
 import type * as IncomingModule from './incoming/index.ts';
 import type { IncomingHandler, IncomingPrimitive } from './incoming/index.ts';
 import type * as InterceptModule from './intercept/index.ts';
@@ -23,6 +26,31 @@ import type {
   PreInterceptHandler,
   PreInterceptPrimitive,
 } from './intercept/index.ts';
+import type * as LifecycleModule from './lifecycle.ts';
+import type {
+  BeforeSubscribeHandler,
+  BeforeSubscribePrimitive,
+  BinaryHandler,
+  BinaryPrimitive,
+  ConnectHandler,
+  ConnectPrimitive,
+  DisconnectHandler,
+  DisconnectPrimitive,
+  ErrorHandler,
+  ErrorPrimitive,
+  InitHandler,
+  InitPrimitive,
+  ShutdownHandler,
+  ShutdownPrimitive,
+  SubscribeHandler,
+  SubscribePrimitive,
+  UnsubscribeHandler,
+  UnsubscribePrimitive,
+  UpgradeHandler,
+  UpgradePrimitive,
+  ValidationErrorHandler,
+  ValidationErrorPrimitive,
+} from './lifecycle.ts';
 import type * as NamespaceModule from './namespace/index.ts';
 import type { NamespacePrimitive } from './namespace/index.ts';
 import type * as OutgoingModule from './outgoing/index.ts';
@@ -34,9 +62,12 @@ import type * as ReplayModule from './replay/index.ts';
 import type { ReplayPrimitive } from './replay/index.ts';
 import type * as RequestModule from './request/index.ts';
 import type { RequestHandler, RequestPrimitive } from './request/index.ts';
+import type * as ScheduledModule from './scheduled/index.ts';
+import type { ScheduledHandler, ScheduledOptions, ScheduledPrimitive } from './scheduled/index.ts';
 import type * as SequenceModule from './sequence/index.ts';
 import type * as StreamModule from './stream/index.ts';
 import type { GeneratePrimitive, NudgeDeclaration, StreamPrimitive } from './stream/index.ts';
+import type { TypeMarker } from './t.ts';
 
 const DEFAULT_HEARTBEAT_TIMEOUT = 30_000;
 
@@ -45,13 +76,26 @@ type ChannelFactory = typeof ChannelModule.channel;
 type DedupFactory = typeof DedupModule.dedup;
 type ErrorsFactory = typeof ErrorsModule.errors;
 type HeartbeatFactory = typeof HeartbeatModule.heartbeat;
+type HibernationFactory = typeof HibernationModule.hibernation;
 type IncomingFactory = typeof IncomingModule.incoming;
 type InterceptFactory = typeof InterceptModule.intercept;
+type OnBeforeSubscribeFactory = typeof LifecycleModule.onBeforeSubscribe;
+type OnBinaryFactory = typeof LifecycleModule.onBinary;
+type OnConnectFactory = typeof LifecycleModule.onConnect;
+type OnDisconnectFactory = typeof LifecycleModule.onDisconnect;
+type OnErrorFactory = typeof LifecycleModule.onError;
+type OnInitFactory = typeof LifecycleModule.onInit;
+type OnShutdownFactory = typeof LifecycleModule.onShutdown;
+type OnSubscribeFactory = typeof LifecycleModule.onSubscribe;
+type OnUnsubscribeFactory = typeof LifecycleModule.onUnsubscribe;
+type OnUpgradeFactory = typeof LifecycleModule.onUpgrade;
+type OnValidationErrorFactory = typeof LifecycleModule.onValidationError;
 type NamespaceFactory = typeof NamespaceModule.namespace;
 type OutgoingFactory = typeof OutgoingModule.outgoing;
 type PassiveFactory = typeof PassiveModule.passive;
 type ReplayFactory = typeof ReplayModule.replay;
 type RequestFactory = typeof RequestModule.request;
+type ScheduledFactory = typeof ScheduledModule.scheduled;
 type SequenceFactory = typeof SequenceModule.sequence;
 type StreamFactory = typeof StreamModule.stream;
 
@@ -240,6 +284,14 @@ export type BoundServerContext<TName extends string, TFactories extends ServerPr
     ? RegisteredCtx<TName>
     : SendApi<TName, TFactories> & AckApi<TFactories> & ReplayApi<TName, TFactories>;
 
+type BoundInitContext = InitContext<Record<string, unknown>, unknown>;
+type BoundShutdownContext = ShutdownContext<
+  Record<string, unknown>,
+  Record<string, unknown>,
+  unknown
+>;
+type BoundTaskContext = TaskContext<Record<string, unknown>, Record<string, unknown>, unknown>;
+
 type GenericScopeApi<TName extends string> = {
   name: TName;
   send(event: string, payload: unknown): void;
@@ -323,13 +375,26 @@ export type ServerPrimitiveFactories = Partial<{
   _dedup: DedupFactory;
   _errors: ErrorsFactory;
   _heartbeat: HeartbeatFactory;
+  _hibernation: HibernationFactory;
   _incoming: IncomingFactory;
   _intercept: InterceptFactory;
+  _onBeforeSubscribe: OnBeforeSubscribeFactory;
+  _onBinary: OnBinaryFactory;
+  _onConnect: OnConnectFactory;
+  _onDisconnect: OnDisconnectFactory;
+  _onError: OnErrorFactory;
+  _onInit: OnInitFactory;
+  _onShutdown: OnShutdownFactory;
+  _onSubscribe: OnSubscribeFactory;
+  _onUnsubscribe: OnUnsubscribeFactory;
+  _onUpgrade: OnUpgradeFactory;
+  _onValidationError: OnValidationErrorFactory;
   _namespace: NamespaceFactory;
   _outgoing: OutgoingFactory;
   _passive: PassiveFactory;
   _replay: ReplayFactory;
   _request: RequestFactory;
+  _scheduled: ScheduledFactory;
   _sequence: SequenceFactory;
   _stream: StreamFactory;
 }>;
@@ -464,6 +529,89 @@ type BoundInterceptFactory<
     }
   : never;
 
+type BoundScheduledFactory = {
+  <TTaskId extends string, TData>(
+    taskId: TTaskId,
+    handler: ScheduledHandler<BoundTaskContext, TData>,
+    options?: ScheduledOptions,
+  ): ScheduledPrimitive<TTaskId, TData, BoundTaskContext>;
+  <TTaskId extends string, TData>(
+    taskId: TTaskId,
+    data: TypeMarker<TData>,
+    options?: ScheduledOptions,
+  ): ScheduledPrimitive<TTaskId, TData>;
+};
+
+type BoundOnInitFactory = {
+  (handler: InitHandler<BoundInitContext>): InitPrimitive<BoundInitContext>;
+};
+
+type BoundOnConnectFactory<TName extends string, TFactories extends ServerPrimitiveFactories> = {
+  (
+    handler: ConnectHandler<BoundServerContext<TName, TFactories>>,
+  ): ConnectPrimitive<BoundServerContext<TName, TFactories>>;
+};
+
+type BoundOnDisconnectFactory<TName extends string, TFactories extends ServerPrimitiveFactories> = {
+  (
+    handler: DisconnectHandler<BoundServerContext<TName, TFactories>>,
+  ): DisconnectPrimitive<BoundServerContext<TName, TFactories>>;
+};
+
+type BoundOnShutdownFactory = {
+  (handler: ShutdownHandler<BoundShutdownContext>): ShutdownPrimitive<BoundShutdownContext>;
+};
+
+type BoundOnErrorFactory<TName extends string, TFactories extends ServerPrimitiveFactories> = {
+  (
+    handler: ErrorHandler<BoundServerContext<TName, TFactories>>,
+  ): ErrorPrimitive<BoundServerContext<TName, TFactories>>;
+};
+
+type BoundOnBinaryFactory<TName extends string, TFactories extends ServerPrimitiveFactories> = {
+  (
+    handler: BinaryHandler<BoundServerContext<TName, TFactories>>,
+  ): BinaryPrimitive<BoundServerContext<TName, TFactories>>;
+};
+
+type BoundOnValidationErrorFactory<
+  TName extends string,
+  TFactories extends ServerPrimitiveFactories,
+> = {
+  (
+    handler: ValidationErrorHandler<BoundServerContext<TName, TFactories>>,
+  ): ValidationErrorPrimitive<BoundServerContext<TName, TFactories>>;
+};
+
+type BoundOnUpgradeFactory = {
+  (handler: UpgradeHandler): UpgradePrimitive;
+};
+
+type BoundOnBeforeSubscribeFactory<
+  TName extends string,
+  TFactories extends ServerPrimitiveFactories,
+> = {
+  <TChannel extends string, TData = unknown>(
+    handler: BeforeSubscribeHandler<BoundChannelContext<TName, TFactories, TChannel>, TData>,
+    options?: { validator?: (value: unknown) => TData } | { validator?: StandardSchemaV1 },
+  ): BeforeSubscribePrimitive<BoundChannelContext<TName, TFactories, TChannel>, TData>;
+};
+
+type BoundOnSubscribeFactory<TName extends string, TFactories extends ServerPrimitiveFactories> = {
+  <TChannel extends string>(
+    handler: SubscribeHandler<BoundChannelContext<TName, TFactories, TChannel>>,
+  ): SubscribePrimitive<BoundChannelContext<TName, TFactories, TChannel>>;
+};
+
+type BoundOnUnsubscribeFactory<
+  TName extends string,
+  TFactories extends ServerPrimitiveFactories,
+> = {
+  <TChannel extends string>(
+    handler: UnsubscribeHandler<BoundChannelContext<TName, TFactories, TChannel>>,
+  ): UnsubscribePrimitive<BoundChannelContext<TName, TFactories, TChannel>>;
+};
+
 type AnyStream = StreamPrimitive<string, any, any, readonly NudgeDeclaration[]>;
 type AnyIncomingPrimitive<TCtx> = IncomingPrimitive<string, any, TCtx>;
 type AnyRequestPrimitive<TCtx> = RequestPrimitive<string, any, any, TCtx>;
@@ -491,6 +639,9 @@ type BoundChannelChild<
 > =
   | ReplayPrimitive<any>
   | AnyOutgoingPrimitive
+  | BeforeSubscribePrimitive<BoundChannelContext<TName, TFactories, TChannel>, any>
+  | SubscribePrimitive<BoundChannelContext<TName, TFactories, TChannel>>
+  | UnsubscribePrimitive<BoundChannelContext<TName, TFactories, TChannel>>
   | AnyPreInterceptPrimitive<BoundChannelContext<TName, TFactories, TChannel>>
   | AnyPostInterceptPrimitive<BoundChannelContext<TName, TFactories, TChannel>>
   | AnyIncomingPrimitive<BoundChannelContext<TName, TFactories, TChannel>>
@@ -708,6 +859,18 @@ type BoundPassthroughFactories<
     | '_intercept'
     | '_namespace'
     | '_channel'
+    | '_scheduled'
+    | '_onInit'
+    | '_onConnect'
+    | '_onDisconnect'
+    | '_onShutdown'
+    | '_onError'
+    | '_onUpgrade'
+    | '_onBinary'
+    | '_onValidationError'
+    | '_onBeforeSubscribe'
+    | '_onSubscribe'
+    | '_onUnsubscribe'
     ? never
     : StripUnderscore<TKey & string>]: TFactories[TKey];
 } & {
@@ -716,6 +879,30 @@ type BoundPassthroughFactories<
   intercept: BoundInterceptFactory<TName, TFactories>;
   namespace: BoundNamespaceFactory<TName, TFactories>;
   channel: BoundChannelFactory<TName, TFactories>;
+  scheduled: '_scheduled' extends keyof TFactories ? BoundScheduledFactory : never;
+  onInit: '_onInit' extends keyof TFactories ? BoundOnInitFactory : never;
+  onConnect: '_onConnect' extends keyof TFactories
+    ? BoundOnConnectFactory<TName, TFactories>
+    : never;
+  onDisconnect: '_onDisconnect' extends keyof TFactories
+    ? BoundOnDisconnectFactory<TName, TFactories>
+    : never;
+  onShutdown: '_onShutdown' extends keyof TFactories ? BoundOnShutdownFactory : never;
+  onError: '_onError' extends keyof TFactories ? BoundOnErrorFactory<TName, TFactories> : never;
+  onUpgrade: '_onUpgrade' extends keyof TFactories ? BoundOnUpgradeFactory : never;
+  onBinary: '_onBinary' extends keyof TFactories ? BoundOnBinaryFactory<TName, TFactories> : never;
+  onValidationError: '_onValidationError' extends keyof TFactories
+    ? BoundOnValidationErrorFactory<TName, TFactories>
+    : never;
+  onBeforeSubscribe: '_onBeforeSubscribe' extends keyof TFactories
+    ? BoundOnBeforeSubscribeFactory<TName, TFactories>
+    : never;
+  onSubscribe: '_onSubscribe' extends keyof TFactories
+    ? BoundOnSubscribeFactory<TName, TFactories>
+    : never;
+  onUnsubscribe: '_onUnsubscribe' extends keyof TFactories
+    ? BoundOnUnsubscribeFactory<TName, TFactories>
+    : never;
 };
 
 export type BoundServer<
@@ -781,6 +968,10 @@ function buildDefaultInfrastructure<TFactories extends ServerPrimitiveFactories>
     injected.push((factories._replay ?? replayPrimitive)());
   }
 
+  if ('_hibernation' in factories && !hasPrimitiveTag(explicitPrimitives, 'hibernation')) {
+    injected.push((factories._hibernation ?? hibernationPrimitive)(true));
+  }
+
   return injected;
 }
 
@@ -831,12 +1022,108 @@ export function server<
       continue;
     }
 
+    if (publicName === 'scheduled') {
+      bound.scheduled = ((...args: any[]) =>
+        (value as (...inner: any[]) => unknown)(...args)) as BoundScheduledFactory;
+      continue;
+    }
+
     if (publicName === 'intercept') {
       bound.intercept = ((...args: any[]) =>
         (value as (...inner: any[]) => unknown)(...args)) as BoundInterceptFactory<
         TName,
         TFactories
       >;
+      continue;
+    }
+
+    if (publicName === 'onInit') {
+      bound.onInit = ((handler: InitHandler<BoundInitContext>) =>
+        (value as (inner: InitHandler<BoundInitContext>) => unknown)(
+          handler,
+        )) as BoundOnInitFactory;
+      continue;
+    }
+
+    if (publicName === 'onConnect') {
+      bound.onConnect = ((handler: ConnectHandler<BoundServerContext<TName, TFactories>>) =>
+        (value as (inner: ConnectHandler<BoundServerContext<TName, TFactories>>) => unknown)(
+          handler,
+        )) as BoundOnConnectFactory<TName, TFactories>;
+      continue;
+    }
+
+    if (publicName === 'onDisconnect') {
+      bound.onDisconnect = ((handler: DisconnectHandler<BoundServerContext<TName, TFactories>>) =>
+        (value as (inner: DisconnectHandler<BoundServerContext<TName, TFactories>>) => unknown)(
+          handler,
+        )) as BoundOnDisconnectFactory<TName, TFactories>;
+      continue;
+    }
+
+    if (publicName === 'onShutdown') {
+      bound.onShutdown = ((handler: ShutdownHandler<BoundShutdownContext>) =>
+        (value as (inner: ShutdownHandler<BoundShutdownContext>) => unknown)(
+          handler,
+        )) as BoundOnShutdownFactory;
+      continue;
+    }
+
+    if (publicName === 'onError') {
+      bound.onError = ((handler: ErrorHandler<BoundServerContext<TName, TFactories>>) =>
+        (value as (inner: ErrorHandler<BoundServerContext<TName, TFactories>>) => unknown)(
+          handler,
+        )) as BoundOnErrorFactory<TName, TFactories>;
+      continue;
+    }
+
+    if (publicName === 'onUpgrade') {
+      bound.onUpgrade = ((handler: UpgradeHandler) =>
+        (value as (inner: UpgradeHandler) => unknown)(handler)) as BoundOnUpgradeFactory;
+      continue;
+    }
+
+    if (publicName === 'onBinary') {
+      bound.onBinary = ((handler: BinaryHandler<BoundServerContext<TName, TFactories>>) =>
+        (value as (inner: BinaryHandler<BoundServerContext<TName, TFactories>>) => unknown)(
+          handler,
+        )) as BoundOnBinaryFactory<TName, TFactories>;
+      continue;
+    }
+
+    if (publicName === 'onValidationError') {
+      bound.onValidationError = ((
+        handler: ValidationErrorHandler<BoundServerContext<TName, TFactories>>,
+      ) =>
+        (
+          value as (inner: ValidationErrorHandler<BoundServerContext<TName, TFactories>>) => unknown
+        )(handler)) as BoundOnValidationErrorFactory<TName, TFactories>;
+      continue;
+    }
+
+    if (publicName === 'onBeforeSubscribe') {
+      bound.onBeforeSubscribe = ((...args: any[]) =>
+        (value as (...inner: any[]) => unknown)(...args)) as BoundOnBeforeSubscribeFactory<
+        TName,
+        TFactories
+      >;
+      continue;
+    }
+
+    if (publicName === 'onSubscribe') {
+      bound.onSubscribe = ((handler: SubscribeHandler<any>) =>
+        (value as (inner: SubscribeHandler<any>) => unknown)(handler)) as BoundOnSubscribeFactory<
+        TName,
+        TFactories
+      >;
+      continue;
+    }
+
+    if (publicName === 'onUnsubscribe') {
+      bound.onUnsubscribe = ((handler: UnsubscribeHandler<any>) =>
+        (value as (inner: UnsubscribeHandler<any>) => unknown)(
+          handler,
+        )) as BoundOnUnsubscribeFactory<TName, TFactories>;
       continue;
     }
 

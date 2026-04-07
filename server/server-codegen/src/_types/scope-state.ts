@@ -4,12 +4,14 @@ import type { DedupPrimitive } from '~/dedup/dedup.ts';
 import type { ErrorDef } from '~/errors.ts';
 import type { ErrorsPrimitive } from '~/errors/errors.ts';
 import type { HeartbeatPrimitive } from '~/heartbeat/heartbeat.ts';
+import type { HibernationPrimitive } from '~/hibernation/hibernation.ts';
 import type { IncomingPrimitive } from '~/incoming/incoming.ts';
 import type { InterceptPrimitive } from '~/intercept/intercept.ts';
 import type { OutgoingPrimitive } from '~/outgoing/outgoing.ts';
 import type { PassivePrimitive } from '~/passive/passive.ts';
 import type { ReplayPrimitive } from '~/replay/replay.ts';
 import type { RequestPrimitive } from '~/request/request.ts';
+import type { ScheduledPrimitive } from '~/scheduled/scheduled.ts';
 import type { SequencePrimitive } from '~/sequence/sequence.ts';
 import type {
   GeneratePrimitive,
@@ -42,9 +44,11 @@ export type FoldablePrimitive =
   | AckPrimitive
   | AnyPassive
   | HeartbeatPrimitive
+  | HibernationPrimitive
   | SequencePrimitive
   | DedupPrimitive
   | AnyReplay
+  | ScheduledPrimitive<string, any, any>
   | AnyIntercept
   | AnyErrors
   | AnyOutgoing
@@ -213,7 +217,12 @@ export type NextState<
         readonly contract: TState['contract'];
         readonly errors: TState['errors'];
       }
-    : TPrimitive extends HeartbeatPrimitive | SequencePrimitive | DedupPrimitive
+    : TPrimitive extends
+          | HeartbeatPrimitive
+          | HibernationPrimitive
+          | SequencePrimitive
+          | DedupPrimitive
+          | ScheduledPrimitive<string, any, any>
       ? {
           readonly kind: TState['kind'];
           readonly outgoing: TState['outgoing'];

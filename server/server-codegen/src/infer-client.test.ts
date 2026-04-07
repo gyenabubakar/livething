@@ -1,6 +1,7 @@
 import { ack } from '~/ack/ack.ts';
 import { channel, scope } from '~/channel/channel.ts';
 import { dedup } from '~/dedup/dedup.ts';
+import { defineModule } from '~/define-module.ts';
 import { defineServer } from '~/define-server.ts';
 import { error } from '~/errors.ts';
 import { errors } from '~/errors/errors.ts';
@@ -263,3 +264,41 @@ void [
 
 // @ts-expect-error — passive infrastructure does not create client events
 passiveClient.incoming.heartbeat;
+
+const ModuleLimited = error('rate-limited', (value: unknown) => value as { retryAfter: number });
+
+const Analytics = defineModule({
+  id: 'acme:analytics',
+  key: Symbol('acme:analytics'),
+  outgoing: [outgoing('flushed', t<{ count: number }>())] as const,
+  errors: errors(ModuleLimited),
+  setup() {
+    return () => ({
+      flush() {
+        return { count: 1 };
+      },
+    });
+  },
+});
+
+const moduleServer = defineServer(
+  outgoing('message', t<{ text: string }>()),
+  Analytics({}),
+  incoming(
+    received('send-message', (value: unknown) => value as { text: string }),
+    async () => {},
+  ),
+);
+
+type ModuleClient = InferClient<typeof moduleServer>;
+
+declare const moduleClient: ModuleClient;
+
+const _moduleIncomingCount: number = moduleClient.incoming['__acme:analytics:flushed']!.count;
+const _moduleOutgoingText: string = moduleClient.outgoing['send-message'].text;
+const _moduleErrorRetryAfter: number =
+  moduleClient.__errors__['__acme:analytics:rate-limited']!.retryAfter;
+void [_moduleIncomingCount, _moduleOutgoingText, _moduleErrorRetryAfter];
+
+// @ts-expect-error — module outgoing uses the prefixed public event name
+moduleClient.incoming.flushed;

@@ -16,16 +16,29 @@ import type {
 import type { AckPrimitive } from '~/ack/ack.ts';
 import type { ChannelPrimitive } from '~/channel/channel.ts';
 import type { DedupPrimitive } from '~/dedup/dedup.ts';
+import type { ModuleInstance } from '~/define-module.ts';
 import type { ErrorsPrimitive } from '~/errors/errors.ts';
 import type { HeartbeatPrimitive } from '~/heartbeat/heartbeat.ts';
+import type { HibernationPrimitive } from '~/hibernation/hibernation.ts';
 import type { IncomingPrimitive } from '~/incoming/incoming.ts';
 import type { PostInterceptPrimitive, PreInterceptPrimitive } from '~/intercept/intercept.ts';
+import type {
+  BinaryPrimitive,
+  ConnectPrimitive,
+  DisconnectPrimitive,
+  ErrorPrimitive,
+  InitPrimitive,
+  ShutdownPrimitive,
+  UpgradePrimitive,
+  ValidationErrorPrimitive,
+} from '~/lifecycle.ts';
 import type { NamespacePrimitive } from '~/namespace/namespace.ts';
 import type { OutgoingPrimitive } from '~/outgoing/outgoing.ts';
 import type { PassivePrimitive } from '~/passive/passive.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { ReplayPrimitive } from '~/replay/replay.ts';
 import type { RequestPrimitive } from '~/request/request.ts';
+import type { ScheduledPrimitive } from '~/scheduled/scheduled.ts';
 import type { SequencePrimitive } from '~/sequence/sequence.ts';
 import type { GeneratePrimitive, NudgeDeclaration, StreamPrimitive } from '~/stream/stream.ts';
 
@@ -39,12 +52,21 @@ type AnyGenerate = GeneratePrimitive<
   any,
   any
 >;
+type AnyModule = ModuleInstance<
+  string,
+  any,
+  any,
+  readonly OutgoingPrimitive<string, any>[],
+  readonly any[]
+>;
 type TopLevelStatePrimitive =
   | AckPrimitive
   | HeartbeatPrimitive
+  | HibernationPrimitive
   | SequencePrimitive
   | DedupPrimitive
   | ReplayPrimitive<any>
+  | ScheduledPrimitive<string, any, any>
   | ErrorsPrimitive
   | AnyOutgoing
   | AnyPreIntercept
@@ -56,6 +78,15 @@ type TopLevelStatePrimitive =
 type TopLevelPrimitive =
   | TopLevelStatePrimitive
   | PassivePrimitive<any>
+  | AnyModule
+  | InitPrimitive<any>
+  | ConnectPrimitive<any>
+  | DisconnectPrimitive<any>
+  | ShutdownPrimitive<any>
+  | ErrorPrimitive<any>
+  | UpgradePrimitive
+  | BinaryPrimitive<any>
+  | ValidationErrorPrimitive<any>
   | NamespacePrimitive
   | ChannelPrimitive;
 
@@ -124,6 +155,34 @@ function collectRegisteredRefs(
   }
 
   return refs;
+}
+
+function identityLabel(primitive: Primitive): string {
+  const [, registrationId] = primitive.__identity;
+  return registrationId ? `${primitive.__wskit}(${registrationId})` : primitive.__wskit;
+}
+
+function validateUniqueIdentities(
+  primitives: readonly Primitive[],
+  seen = new Map<symbol, Set<string | undefined>>(),
+): void {
+  for (const primitive of primitives) {
+    const [key, registrationId] = primitive.__identity;
+    const registrations = seen.get(key) ?? new Set<string | undefined>();
+
+    if (registrations.has(registrationId)) {
+      throw new Error(
+        `[wskit] Duplicate registration: ${identityLabel(primitive)} is registered more than once in the same scope.`,
+      );
+    }
+
+    registrations.add(registrationId);
+    seen.set(key, registrations);
+
+    if (hasNestedPrimitives(primitive)) {
+      validateUniqueIdentities(primitive.primitives);
+    }
+  }
 }
 
 function validateDependencies(
@@ -309,6 +368,7 @@ export function defineServer<const TPrimitives extends readonly TopLevelPrimitiv
 export function defineServer(
   ...primitives: readonly Primitive[]
 ): ServerDefinition<readonly Primitive[]> {
+  validateUniqueIdentities(primitives);
   validateDependencies(primitives, collectRegisteredRefs(primitives));
   return Object.freeze({
     __wskit: 'server' as const,

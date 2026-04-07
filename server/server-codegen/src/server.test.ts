@@ -4,11 +4,19 @@ import { heartbeat as _heartbeat } from '~/heartbeat/index.ts';
 import { incoming as _incoming } from '~/incoming/index.ts';
 import { received, server, t } from '~/index.ts';
 import { intercept as _intercept } from '~/intercept/index.ts';
+import {
+  onBeforeSubscribe as _onBeforeSubscribe,
+  onConnect as _onConnect,
+  onError as _onError,
+  onSubscribe as _onSubscribe,
+  onUnsubscribe as _onUnsubscribe,
+} from '~/lifecycle.ts';
 import { namespace as _namespace } from '~/namespace/index.ts';
 import { outgoing as _outgoing } from '~/outgoing/index.ts';
 import { passive as _passive } from '~/passive/index.ts';
 import { replay as _replay } from '~/replay/index.ts';
 import { request as _request } from '~/request/index.ts';
+import { scheduled as _scheduled } from '~/scheduled/index.ts';
 
 declare global {
   interface WskitServerRegistry {
@@ -283,3 +291,66 @@ const scopedCapabilities = scopedDefine(
 );
 
 void scopedCapabilities;
+
+const {
+  define: lifecycleDefine,
+  channel: lifecycleChannel,
+  incoming: lifecycleIncoming,
+  onBeforeSubscribe,
+  onConnect,
+  onError,
+  onSubscribe,
+  onUnsubscribe,
+  outgoing: lifecycleOutgoing,
+  scheduled,
+} = server('chat', {
+  _ack,
+  _channel,
+  _incoming,
+  _onBeforeSubscribe,
+  _onConnect,
+  _onError,
+  _onSubscribe,
+  _onUnsubscribe,
+  _outgoing,
+  _scheduled,
+});
+
+const lifecycleCapabilities = lifecycleDefine(
+  onConnect(async (ctx) => {
+    ctx.ack();
+    ctx.send('message', { text: 'connected' });
+  }),
+  onError(async (ctx, error) => {
+    ctx.send('message', { text: String(error) });
+    return false;
+  }),
+  scheduled('flush', async (ctx, data: { force: boolean }) => {
+    ctx.broadcast('message', { text: data.force ? 'forced' : 'queued' });
+    ctx.getConnections();
+    ctx.sendTo('admins', 'message', { text: 'scheduled' });
+  }),
+  lifecycleChannel(
+    scope('rooms', /^room-/),
+    lifecycleOutgoing('typing', t<{ userId: string }>()),
+    onBeforeSubscribe(async (ctx, data?: { roomId: string }) => {
+      const channelName: string = ctx.channel.name;
+      void [channelName, data];
+      ctx.channel.broadcast('typing', { userId: 'system' });
+    }),
+    onSubscribe(async (ctx) => {
+      ctx.channel.broadcast('typing', { userId: 'joined' });
+    }),
+    onUnsubscribe(async (ctx) => {
+      ctx.channel.broadcast('typing', { userId: 'left' });
+    }),
+    lifecycleIncoming(
+      received('start-typing', (value: unknown) => value as { userId: string }),
+      async (ctx, payload) => {
+        ctx.channel.send('typing', { userId: payload.userId });
+      },
+    ),
+  ),
+);
+
+void lifecycleCapabilities;

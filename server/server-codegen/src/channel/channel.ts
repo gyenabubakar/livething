@@ -16,6 +16,11 @@ import type {
 } from '~/_types/scope-state.ts';
 import type { IncomingPrimitive } from '~/incoming/incoming.ts';
 import type { PostInterceptPrimitive, PreInterceptPrimitive } from '~/intercept/intercept.ts';
+import type {
+  BeforeSubscribePrimitive,
+  SubscribePrimitive,
+  UnsubscribePrimitive,
+} from '~/lifecycle.ts';
 import type { OutgoingPrimitive } from '~/outgoing/outgoing.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { ReplayPrimitive } from '~/replay/replay.ts';
@@ -72,7 +77,12 @@ export interface ScopeDeclaration<TKey extends string = string> {
 
 export type ChannelPattern = string | ScopeDeclaration<string>;
 
-export type ChannelChild = ChannelStatePrimitive;
+export type ChannelLifecycleChild =
+  | BeforeSubscribePrimitive<any, any>
+  | SubscribePrimitive<any>
+  | UnsubscribePrimitive<any>;
+
+export type ChannelChild = ChannelStatePrimitive | ChannelLifecycleChild;
 
 export type ChannelHandlerContext<
   TOutgoing extends Record<string, any> = NoOutgoing,
