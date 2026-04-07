@@ -52,6 +52,53 @@ describe('wskit codegen parser', () => {
     expect(output).toContain('broadcast(event: "alert", payload: { level: string }): void;');
   });
 
+  it('generates typed schedule and cancelScheduled methods from declared scheduled tasks', () => {
+    const code = `
+      import { received, server, t } from '@wskit/server-codegen';
+      import { incoming as _incoming } from '@wskit/server-codegen/incoming';
+      import { scheduled as _scheduled } from '@wskit/server-codegen/scheduled';
+
+      const { define, incoming, scheduled } = server('chat', {
+        _incoming,
+        _scheduled,
+      });
+
+      export default define(
+        scheduled('cleanup-sessions', async () => {}),
+        scheduled(
+          'expire-hold',
+          async (_ctx, data) => {
+            console.log(data.orderId);
+          },
+          { data: t<{ orderId: string }>() },
+        ),
+        incoming(received('place-order', (value: unknown) => value as { orderId: string }), async (ctx, payload) => {
+          ctx.schedule('expire-hold', {
+            time: Date.now() + 1000,
+            data: { orderId: payload.orderId },
+          });
+        }),
+      );
+    `;
+
+    const parsed = parseWskitModule(code, '/repo/src/chat.wskit.ts');
+    expect(parsed.scope.scheduled).toEqual({
+      'cleanup-sessions': 'unknown',
+      'expire-hold': '{ orderId: string }',
+    });
+
+    const output = generateWskitDeclarationText(parsed);
+    expect(output).toContain(
+      'schedule(taskId: "cleanup-sessions", options: { time: number; data?: unknown }): void;',
+    );
+    expect(output).toContain(
+      'schedule(taskId: "expire-hold", options: { time: number; data?: { orderId: string } }): void;',
+    );
+    expect(output).toContain(
+      'cancelScheduled(taskId: "expire-hold", filter?: { orderId: string } extends Record<string, unknown> ? Partial<{ orderId: string }> : Record<string, unknown>): void;',
+    );
+  });
+
   it('creates .wskit output paths relative to the workspace root', () => {
     expect(
       toGeneratedFilePath('/repo/src/chat.wskit.ts', {

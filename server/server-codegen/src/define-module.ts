@@ -27,7 +27,7 @@ export interface ModuleHooks<TCtx = any> {
   scheduled<TData>(
     name: string,
     handler: (ctx: any, data: TData) => void | Promise<void>,
-    options?: ScheduledOptions,
+    options?: ScheduledOptions<TData>,
   ): ScheduledHandle<TData>;
   generateId(prefix?: string): string;
   getState(): ConnectionInfo;

@@ -11,7 +11,16 @@ import type { ScheduledRuntimeAccess } from './types.ts';
  * These options belong to the task definition itself, not to one specific
  * queued run created later with `ctx.schedule(...)`.
  */
-export interface ScheduledOptions {
+export interface ScheduledOptions<TData = unknown> {
+  /**
+   * Compile-time marker for the task payload shape.
+   *
+   * Use this when you want the handler form to declare its data type through
+   * the options object instead of through an explicit parameter annotation.
+   * This marker is used for typing only and is not read at runtime.
+   */
+  readonly data?: TypeMarker<TData>;
+
   /**
    * Run this task on a fixed interval, in milliseconds.
    *
@@ -65,7 +74,7 @@ export interface ScheduledPrimitive<
   readonly taskId: TTaskId;
   readonly handler?: ScheduledHandler<TCtx, TData>;
   readonly data?: TypeMarker<TData>;
-  readonly options?: ScheduledOptions;
+  readonly options?: ScheduledOptions<TData>;
 }
 
 const SCHEDULED_KEY = Symbol('scheduled');
@@ -73,12 +82,16 @@ const SCHEDULED_RUNTIME_KEY = Symbol('scheduled-runtime');
 
 const _scheduled = definePrimitive<
   'scheduled',
-  [taskId: string, handlerOrData: ScheduledHandler | TypeMarker<any>, options?: ScheduledOptions],
+  [
+    taskId: string,
+    handlerOrData: ScheduledHandler | TypeMarker<any>,
+    options?: ScheduledOptions<any>,
+  ],
   {
     taskId: string;
     handler?: ScheduledHandler;
     data?: TypeMarker<any>;
-    options?: ScheduledOptions;
+    options?: ScheduledOptions<any>;
   }
 >({
   tag: 'scheduled' as const,
@@ -94,12 +107,13 @@ const _scheduled = definePrimitive<
   create(
     taskId: string,
     handlerOrData: ScheduledHandler | TypeMarker<any>,
-    options?: ScheduledOptions,
+    options?: ScheduledOptions<any>,
   ) {
     if (typeof handlerOrData === 'function') {
       return {
         taskId,
         handler: handlerOrData,
+        data: options?.data,
         options,
       };
     }
@@ -144,25 +158,20 @@ const _scheduled = definePrimitive<
  * Use the handler form for real work, or the `t<...>()` form when you only
  * want to declare the task's data shape.
  */
-export function scheduled<TTaskId extends string, TCtx>(
-  taskId: TTaskId,
-  handler: ScheduledHandler<TCtx, unknown>,
-  options?: ScheduledOptions,
-): ScheduledPrimitive<TTaskId, unknown, TCtx>;
 export function scheduled<TTaskId extends string, TData, TCtx>(
   taskId: TTaskId,
   handler: ScheduledHandler<TCtx, TData>,
-  options?: ScheduledOptions,
+  options?: ScheduledOptions<TData>,
 ): ScheduledPrimitive<TTaskId, TData, TCtx>;
 export function scheduled<TTaskId extends string, TData>(
   taskId: TTaskId,
   data: TypeMarker<TData>,
-  options?: ScheduledOptions,
+  options?: ScheduledOptions<TData>,
 ): ScheduledPrimitive<TTaskId, TData>;
 export function scheduled(
   taskId: string,
   handlerOrData: ScheduledHandler<any, any> | TypeMarker<any>,
-  options?: ScheduledOptions,
+  options?: ScheduledOptions<any>,
 ): ScheduledPrimitive {
   return _scheduled(taskId, handlerOrData, options) as ScheduledPrimitive;
 }

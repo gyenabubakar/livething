@@ -12,6 +12,7 @@ export interface WskitCodegenOptions {
 interface BoundNames {
   define: string;
   outgoing?: string;
+  scheduled?: string;
   passive?: string;
   namespace?: string;
   channel?: string;
@@ -24,6 +25,7 @@ interface BoundNames {
 
 interface ParsedScope {
   outgoing: Record<string, string>;
+  scheduled: Record<string, string>;
   namespaces: Record<string, ParsedScope>;
   channels: Record<string, ParsedScope>;
   hasReplay: boolean;
@@ -45,6 +47,7 @@ const DEFAULT_OUT_DIR = '.wskit';
 function createEmptyScope(): ParsedScope {
   return {
     outgoing: {},
+    scheduled: {},
     namespaces: {},
     channels: {},
     hasReplay: false,
@@ -109,6 +112,7 @@ function findServerBinding(sourceFile: ts.SourceFile): {
         const localName = element.name.text;
         if (publicName === 'define') names.define = localName;
         if (publicName === 'outgoing') names.outgoing = localName;
+        if (publicName === 'scheduled') names.scheduled = localName;
         if (publicName === 'passive') names.passive = localName;
         if (publicName === 'namespace') names.namespace = localName;
         if (publicName === 'channel') names.channel = localName;
@@ -175,6 +179,32 @@ function extractOutgoingPayloadType(
   return arg.typeArguments[0] ? getStatementText(sourceFile, arg.typeArguments[0]) : 'unknown';
 }
 
+function extractTypeMarkerType(sourceFile: ts.SourceFile, arg: ts.Expression | undefined): string {
+  if (!arg || !ts.isCallExpression(arg) || !isIdentifierNamed(arg.expression, 't')) {
+    return 'unknown';
+  }
+
+  return arg.typeArguments?.[0] ? getStatementText(sourceFile, arg.typeArguments[0]) : 'unknown';
+}
+
+function extractScheduledPayloadType(
+  sourceFile: ts.SourceFile,
+  handlerOrDataArg: ts.Expression | undefined,
+  optionsArg: ts.Expression | undefined,
+): string {
+  const directType = extractTypeMarkerType(sourceFile, handlerOrDataArg);
+  if (directType !== 'unknown') return directType;
+  if (!optionsArg || !ts.isObjectLiteralExpression(optionsArg)) return 'unknown';
+
+  for (const property of optionsArg.properties) {
+    if (!ts.isPropertyAssignment(property)) continue;
+    if (!ts.isIdentifier(property.name) || property.name.text !== 'data') continue;
+    return extractTypeMarkerType(sourceFile, property.initializer);
+  }
+
+  return 'unknown';
+}
+
 function extractReceivedEventName(arg: ts.Expression | undefined): string | undefined {
   if (!arg || !ts.isCallExpression(arg)) return undefined;
   if (!isIdentifierNamed(arg.expression, 'received')) return undefined;
@@ -203,6 +233,21 @@ function collectScopeFromExpressions(
         (ts.isStringLiteral(eventArg) || ts.isNoSubstitutionTemplateLiteral(eventArg))
       ) {
         scope.outgoing[eventArg.text] = extractOutgoingPayloadType(sourceFile, payloadArg);
+      }
+      continue;
+    }
+
+    if (
+      (names.scheduled && isIdentifierNamed(expression.expression, names.scheduled)) ||
+      isIdentifierNamed(expression.expression, 'scheduled')
+    ) {
+      const [taskArg, handlerOrDataArg, optionsArg] = expression.arguments;
+      if (taskArg && (ts.isStringLiteral(taskArg) || ts.isNoSubstitutionTemplateLiteral(taskArg))) {
+        scope.scheduled[taskArg.text] = extractScheduledPayloadType(
+          sourceFile,
+          handlerOrDataArg,
+          optionsArg,
+        );
       }
       continue;
     }
@@ -247,6 +292,7 @@ function collectScopeFromExpressions(
     if (names.passive && isIdentifierNamed(expression.expression, names.passive)) {
       const nested = collectScopeFromExpressions(sourceFile, expression.arguments, names);
       Object.assign(scope.outgoing, nested.outgoing);
+      Object.assign(scope.scheduled, nested.scheduled);
       Object.assign(scope.namespaces, nested.namespaces);
       Object.assign(scope.channels, nested.channels);
       scope.hasReplay ||= nested.hasReplay;
@@ -420,6 +466,21 @@ function renderReplayMembers(outgoing: Record<string, string>, indent: string): 
   );
 }
 
+function renderScheduledMembers(tasks: Record<string, string>, indent: string): string[] {
+  const entries = Object.entries(tasks);
+  if (!entries.length) {
+    return [
+      `${indent}schedule(taskId: string, options: { time: number; data?: unknown }): void;`,
+      `${indent}cancelScheduled(taskId: string, filter?: Record<string, unknown>): void;`,
+    ];
+  }
+
+  return entries.flatMap(([taskId, payloadType]) => [
+    `${indent}schedule(taskId: ${JSON.stringify(taskId)}, options: { time: number; data?: ${payloadType} }): void;`,
+    `${indent}cancelScheduled(taskId: ${JSON.stringify(taskId)}, filter?: ${payloadType} extends Record<string, unknown> ? Partial<${payloadType}> : Record<string, unknown>): void;`,
+  ]);
+}
+
 function renderObjectBlock(lines: readonly string[], indent: string): string {
   if (!lines.length) return `${indent}{}`;
   return [`${indent}{`, ...lines, `${indent}}`].join('\n');
@@ -438,6 +499,10 @@ function renderTopLevelCtxMembers(parsed: ParsedWskitModule, indent: string): st
 
   if (parsed.enabledFactories.includes('_replay')) {
     lines.push(...renderReplayMembers(parsed.scope.outgoing, indent));
+  }
+
+  if (parsed.enabledFactories.includes('_scheduled')) {
+    lines.push(...renderScheduledMembers(parsed.scope.scheduled, indent));
   }
 
   return lines;

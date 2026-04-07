@@ -134,6 +134,25 @@ declare global {
         };
       };
     };
+    'chat-scheduled': {
+      ctx: {
+        schedule(
+          taskId: 'expire-hold',
+          options: { time: number; data?: { orderId: string } },
+        ): void;
+        cancelScheduled(taskId: 'expire-hold', filter?: Partial<{ orderId: string }>): void;
+      };
+      incomingContexts: {
+        'place-order': {
+          schedule(
+            taskId: 'expire-hold',
+            options: { time: number; data?: { orderId: string } },
+          ): void;
+          cancelScheduled(taskId: 'expire-hold', filter?: Partial<{ orderId: string }>): void;
+        };
+      };
+      outgoing: {};
+    };
   }
 }
 
@@ -159,11 +178,50 @@ const directCapabilities = define(
 
       // @ts-expect-error generated ctx should reject unknown outgoing events
       ctx.broadcast('another-event', payload);
+
+      // @ts-expect-error generated ctx should reject unknown scheduled task names
+      ctx.schedule('missing-task', { time: Date.now() });
+
+      // @ts-expect-error generated ctx should reject wrong scheduled payload shapes
+      ctx.schedule('expire-hold', {
+        time: Date.now(),
+        data: { wrong: true },
+      });
     },
   ),
 );
 
 void directCapabilities;
+
+const { define: scheduledDefine, incoming: scheduledIncoming } = server('chat-scheduled', {
+  _incoming,
+  _scheduled,
+});
+
+const scheduledCapabilities = scheduledDefine(
+  _scheduled('expire-hold', t<{ orderId: string }>()),
+  scheduledIncoming(
+    received('place-order', (value: unknown) => value as { orderId: string }),
+    async (ctx, payload) => {
+      ctx.schedule('expire-hold', {
+        time: Date.now(),
+        data: { orderId: payload.orderId },
+      });
+      ctx.cancelScheduled('expire-hold', { orderId: payload.orderId });
+
+      // @ts-expect-error generated ctx should reject unknown scheduled task names
+      ctx.schedule('missing-task', { time: Date.now() });
+
+      ctx.schedule(
+        'expire-hold',
+        // @ts-expect-error generated ctx should reject wrong scheduled payload shapes
+        { time: Date.now(), data: { wrong: true } },
+      );
+    },
+  ),
+);
+
+void scheduledCapabilities;
 
 const {
   define: noAckDefine,

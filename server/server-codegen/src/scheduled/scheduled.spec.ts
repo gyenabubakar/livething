@@ -29,6 +29,25 @@ describe('scheduled()', () => {
     expect('data' in task).toBe(true);
   });
 
+  it('stores the handler form data marker when provided through options', () => {
+    const task = scheduled(
+      'expire-hold',
+      async (_ctx, data: { orderId: string }) => {
+        void data.orderId;
+      },
+      {
+        data: t<{ orderId: string }>(),
+        every: 60_000,
+      },
+    );
+
+    expect(task.taskId).toBe('expire-hold');
+    expect(task.handler).toBeTypeOf('function');
+    expect('data' in task).toBe(true);
+    expect(task.options?.data).toBe(task.data);
+    expect(task.options?.every).toBe(60_000);
+  });
+
   it('bootstraps tables, restores saved state, and creates missing recurring baseline runs', () => {
     const flush = scheduled('flush', async () => {}, { every: 1_000 });
     const cleanup = scheduled('cleanup', async () => {}, { retry: false });

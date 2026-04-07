@@ -536,12 +536,12 @@ type BoundScheduledFactory = {
   <TTaskId extends string, TData>(
     taskId: TTaskId,
     handler: ScheduledHandler<BoundTaskContext, TData>,
-    options?: ScheduledOptions,
+    options?: ScheduledOptions<TData>,
   ): ScheduledPrimitive<TTaskId, TData, BoundTaskContext>;
   <TTaskId extends string, TData>(
     taskId: TTaskId,
     data: TypeMarker<TData>,
-    options?: ScheduledOptions,
+    options?: ScheduledOptions<TData>,
   ): ScheduledPrimitive<TTaskId, TData>;
 };
 
