@@ -23,7 +23,6 @@ interface OutgoingRuntime {
     event: string;
     payload: unknown;
   }) => { event: string; payload: unknown } | void)[];
-  seqState: { current: number };
   generateId(prefix?: string): string;
 }
 
@@ -182,6 +181,12 @@ function isDeclaredOutgoingEvent(
   return compiled.outgoing.has(event) || compiled.streams.has(event);
 }
 
+function assertPayloadRecord(payload: unknown): asserts payload is Record<string, unknown> {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new Error('[wskit] Outgoing payload must be a plain object.');
+  }
+}
+
 /**
  * Push one outgoing event through module hooks, declaration checks, and wire
  * metadata injection before sending it to a connection.
@@ -193,7 +198,17 @@ export function sendThroughPipeline(
   event: string,
   payload: unknown,
 ): boolean {
-  let message = { event, payload };
+  assertPayloadRecord(payload);
+
+  for (const key of Object.keys(payload)) {
+    if (key.startsWith('_')) {
+      throw new Error(
+        '[wskit] Outgoing payload fields starting with "_" are reserved for the engine.',
+      );
+    }
+  }
+
+  let message: { event: string; payload: unknown } = { event, payload };
 
   for (const hook of runtime.outgoingHooks) {
     const next = hook(message);
@@ -206,18 +221,11 @@ export function sendThroughPipeline(
     if (next) message = next;
   }
 
-  const finalPayload: Record<string, unknown> =
-    message.payload && typeof message.payload === 'object'
-      ? { ...(message.payload as Record<string, unknown>) }
-      : { value: message.payload };
+  assertPayloadRecord(message.payload);
 
-  for (const key of Object.keys(finalPayload)) {
-    if (key.startsWith('_')) {
-      throw new Error(
-        '[wskit] Outgoing payload fields starting with "_" are reserved for the engine.',
-      );
-    }
-  }
+  const finalPayload: Record<string, unknown> = {
+    ...message.payload,
+  };
 
   if (!isDeclaredOutgoingEvent(runtime.compiled, message.event, routing)) {
     throw new Error(
@@ -225,10 +233,6 @@ export function sendThroughPipeline(
     );
   }
 
-  if (runtime.compiled.sequence && !message.event.startsWith('_')) {
-    runtime.seqState.current += 1;
-    finalPayload._seq = runtime.seqState.current;
-  }
   if (runtime.compiled.dedup && !message.event.startsWith('_')) {
     finalPayload._messageId = runtime.generateId('msg');
   }
@@ -246,10 +250,7 @@ export function sendThroughPipeline(
  * Broadcast one event to a set of already-selected connections.
  */
 export function broadcastToConnections(
-  runtime: Pick<
-    OutgoingRuntime,
-    'compiled' | 'generateId' | 'moduleRuntimes' | 'outgoingHooks' | 'seqState'
-  >,
+  runtime: Pick<OutgoingRuntime, 'compiled' | 'generateId' | 'moduleRuntimes' | 'outgoingHooks'>,
   connections: readonly RuntimeConnection[],
   event: string,
   payload: unknown,
@@ -276,10 +277,7 @@ export function broadcastToConnections(
  */
 export function broadcastToChannel(
   runtime: ConnectionMembersRuntime &
-    Pick<
-      OutgoingRuntime,
-      'compiled' | 'generateId' | 'moduleRuntimes' | 'outgoingHooks' | 'seqState'
-    >,
+    Pick<OutgoingRuntime, 'compiled' | 'generateId' | 'moduleRuntimes' | 'outgoingHooks'>,
   channelName: string,
   event: string,
   payload: unknown,
@@ -319,10 +317,7 @@ export function getChannelMembers(
  */
 export async function leaveChannel(
   runtime: ChannelRuntime &
-    Pick<
-      OutgoingRuntime,
-      'compiled' | 'generateId' | 'moduleRuntimes' | 'outgoingHooks' | 'seqState'
-    >,
+    Pick<OutgoingRuntime, 'compiled' | 'generateId' | 'moduleRuntimes' | 'outgoingHooks'>,
   connection: RuntimeConnection,
   scope: { channel?: CompiledChannel; channelName: string; channelScope?: string },
   kickedReason?: string,
@@ -363,10 +358,7 @@ export async function leaveChannel(
  */
 export function kickChannelMembers(
   runtime: ChannelRuntime &
-    Pick<
-      OutgoingRuntime,
-      'compiled' | 'generateId' | 'moduleRuntimes' | 'outgoingHooks' | 'seqState'
-    > & {
+    Pick<OutgoingRuntime, 'compiled' | 'generateId' | 'moduleRuntimes' | 'outgoingHooks'> & {
       leaveChannel(
         connection: RuntimeConnection,
         scope: { channel?: CompiledChannel; channelName: string; channelScope?: string },
@@ -389,10 +381,7 @@ export function kickChannelMembers(
  */
 export async function handleSubscribe(
   runtime: ChannelRuntime &
-    Pick<
-      OutgoingRuntime,
-      'compiled' | 'generateId' | 'moduleRuntimes' | 'outgoingHooks' | 'seqState'
-    >,
+    Pick<OutgoingRuntime, 'compiled' | 'generateId' | 'moduleRuntimes' | 'outgoingHooks'>,
   connection: RuntimeConnection,
   payload: Record<string, unknown> | undefined,
 ): Promise<void> {
@@ -469,10 +458,7 @@ export async function handleSubscribe(
  */
 export async function handleUnsubscribe(
   runtime: ChannelRuntime &
-    Pick<
-      OutgoingRuntime,
-      'compiled' | 'generateId' | 'moduleRuntimes' | 'outgoingHooks' | 'seqState'
-    > & {
+    Pick<OutgoingRuntime, 'compiled' | 'generateId' | 'moduleRuntimes' | 'outgoingHooks'> & {
       leaveChannel(
         connection: RuntimeConnection,
         scope: { channel?: CompiledChannel; channelName: string; channelScope?: string },

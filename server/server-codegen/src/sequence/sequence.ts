@@ -18,6 +18,35 @@ const _sequence = definePrimitive({
   create() {
     return {};
   },
+  setup(engine) {
+    engine.installOnce(SEQUENCE_KEY, () => {
+      let current = 0;
+
+      engine.onOutgoing((message) => {
+        if (message.event.startsWith('_')) return;
+
+        current += 1;
+
+        if (message.payload && typeof message.payload === 'object') {
+          return {
+            event: message.event,
+            payload: {
+              ...(message.payload as Record<string, unknown>),
+              _seq: current,
+            },
+          };
+        }
+
+        return {
+          event: message.event,
+          payload: {
+            value: message.payload,
+            _seq: current,
+          },
+        };
+      });
+    });
+  },
 });
 
 /**

@@ -137,7 +137,6 @@ export class Engine {
   private readonly installedFeatures = new Set<symbol>();
   private alarmHandle: unknown | null = null;
   private idCounter = 0;
-  private seqCounter = 0;
   private readonly moduleRuntimes: ModuleRuntime[] = [];
   private activeConnectionId?: string;
   private initialized = false;
@@ -639,10 +638,12 @@ export class Engine {
     payload: unknown,
     wire: { seq: number; messageId: string; channel?: string },
   ): void {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      throw new Error('[wskit] Outgoing payload must be a plain object.');
+    }
+
     const finalPayload: Record<string, unknown> = {
-      ...(payload && typeof payload === 'object'
-        ? (payload as Record<string, unknown>)
-        : { value: payload }),
+      ...(payload as Record<string, unknown>),
       _seq: wire.seq,
       _messageId: wire.messageId,
     };
@@ -682,20 +683,10 @@ export class Engine {
    * message processing.
    */
   private outgoingRuntime() {
-    const engine = this;
-
     return {
       compiled: this.compiled,
       moduleRuntimes: this.moduleRuntimes,
       outgoingHooks: this.hooks.outgoing,
-      seqState: {
-        get current() {
-          return engine.seqCounter;
-        },
-        set current(value: number) {
-          engine.seqCounter = value;
-        },
-      },
       generateId: (prefix?: string) => this.generateId(prefix),
     };
   }

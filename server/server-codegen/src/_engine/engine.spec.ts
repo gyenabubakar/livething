@@ -1,6 +1,7 @@
 import { WskitError } from '@wskit/core';
 import { ack } from '~/ack/index.ts';
 import { channel, scope } from '~/channel/index.ts';
+import { dedup } from '~/dedup/index.ts';
 import { hibernation } from '~/hibernation/index.ts';
 import { incoming } from '~/incoming/index.ts';
 import {
@@ -22,6 +23,8 @@ import {
   server,
   t,
 } from '~/index.ts';
+import { replay } from '~/replay/index.ts';
+import { sequence } from '~/sequence/index.ts';
 import { chunks, generate, nudge, start, stream } from '~/stream/index.ts';
 import { describe, expect, it } from 'vitest';
 import { Engine } from './index.ts';
@@ -230,6 +233,56 @@ async function flushAsyncWork(): Promise<void> {
 }
 
 describe('Engine', () => {
+  it('lets sequence own _seq injection while skipping protocol events', async () => {
+    const ping = received('echo', (value: unknown) => value as { text: string });
+
+    const handler = server('engine-sequence', {
+      _ack: ack,
+      _incoming: incoming,
+      _outgoing: outgoing,
+      _sequence: sequence,
+    }).define(
+      sequence(),
+      outgoing('message', t<{ text: string }>()),
+      incoming(
+        ping,
+        async (
+          ctx: { ack(): void; send(event: 'message', payload: { text: string }): void },
+          payload,
+        ) => {
+          ctx.ack();
+          ctx.send('message', { text: payload.text });
+          ctx.send('message', { text: `${payload.text}!` });
+        },
+      ),
+    );
+
+    const engine = new Engine(handler, {
+      adapterId: 'test',
+      hibernation: false,
+    });
+
+    engine.setStorage(createStorage());
+    engine.setTimerProvider(createTimers().timers);
+    await engine.initialize();
+
+    const ws = createDescriptor();
+    const connection = engine.accept(Symbol('ws'), ws.descriptor);
+    connection.handleMessage(
+      JSON.stringify({
+        event: 'echo',
+        payload: { text: 'pong', _ackId: 'ack-1' },
+      }),
+    );
+    await Promise.resolve();
+
+    expect(ws.sent).toEqual([
+      { event: '_ack', payload: { _ackId: 'ack-1' } },
+      { event: 'message', payload: { text: 'pong', _seq: 1 } },
+      { event: 'message', payload: { text: 'pong!', _seq: 2 } },
+    ]);
+  });
+
   it('runs scheduled tasks and reschedules recurring tasks', async () => {
     const runs: unknown[] = [];
     const flushTask = scheduled(
@@ -319,6 +372,89 @@ describe('Engine', () => {
       event: '__acme:analytics:flushed',
       payload: { count: 1 },
     });
+  });
+
+  it('rejects non-object payloads on the normal outgoing pipeline', async () => {
+    const handler = server('engine-payload-shape', {
+      _incoming: incoming,
+      _outgoing: outgoing,
+    }).define(
+      outgoing('message', t<{ text: string }>()),
+      incoming(
+        received('echo', (value: unknown) => value as { text: string }),
+        async (ctx: { send(event: 'message', payload: unknown): boolean }) => {
+          ctx.send('message', 'not-an-object');
+        },
+      ),
+    );
+
+    const engine = new Engine(handler, {
+      adapterId: 'test',
+      hibernation: false,
+    });
+
+    engine.setStorage(createStorage());
+    engine.setTimerProvider(createTimers().timers);
+    await engine.initialize();
+
+    const ws = createDescriptor();
+    const conn = engine.accept(Symbol('ws-payload-shape'), ws.descriptor);
+    conn.handleMessage(JSON.stringify({ event: 'echo', payload: { text: 'pong' } }));
+    await flushAsyncWork();
+    await flushAsyncWork();
+
+    expect(ws.sent.at(-1)).toEqual({
+      event: '_error',
+      payload: { code: 'internal-error' },
+    });
+  });
+
+  it('rejects non-object payloads on sendReplay', async () => {
+    const handler = server('engine-replay-payload-shape', {
+      _dedup: dedup,
+      _incoming: incoming,
+      _outgoing: outgoing,
+      _replay: replay,
+      _sequence: sequence,
+    }).define(
+      sequence(),
+      dedup(),
+      outgoing('message', t<{ text: string }>()),
+      replay({
+        async onReplay(ctx: {
+          sendReplay(
+            event: 'message',
+            payload: unknown,
+            wire: { seq: number; messageId: string },
+          ): void;
+        }) {
+          expect(() =>
+            ctx.sendReplay('message', 'not-an-object', {
+              seq: 1,
+              messageId: 'm1',
+            }),
+          ).toThrow('[wskit] Outgoing payload must be a plain object.');
+        },
+      }),
+      incoming(
+        received('echo', (value: unknown) => value as { text: string }),
+        async () => {},
+      ),
+    );
+
+    const engine = new Engine(handler, {
+      adapterId: 'test',
+      hibernation: false,
+    });
+
+    engine.setStorage(createStorage());
+    engine.setTimerProvider(createTimers().timers);
+    await engine.initialize();
+
+    const ws = createDescriptor();
+    const conn = engine.accept(Symbol('ws-replay-shape'), ws.descriptor);
+    conn.handleMessage(JSON.stringify({ event: '_replay', payload: { since: 0 } }));
+    await flushAsyncWork();
   });
 
   it('registers built-in lifecycle hooks through primitive setup', async () => {
