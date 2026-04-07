@@ -82,3 +82,14 @@ export function validateValue(validator: unknown, value: unknown, event = 'unkno
 export function prefixedModuleEvent(moduleId: string, event: string): string {
   return `__${moduleId}:${event}`;
 }
+
+/**
+ * Reserve single-underscore event names for engine protocol traffic.
+ *
+ * Double-underscore names are module-owned outgoing events, not protocol
+ * events, so they still participate in normal outgoing features like
+ * sequence and dedup.
+ */
+export function isProtocolEvent(event: string): boolean {
+  return event.startsWith('_') && !event.startsWith('__');
+}

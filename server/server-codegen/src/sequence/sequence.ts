@@ -1,3 +1,4 @@
+import { isProtocolEvent } from '~/_engine/compile/utils.ts';
 import { definePrimitive } from '~/primitive.ts';
 import type { Primitive } from '~/primitive.ts';
 
@@ -23,24 +24,14 @@ const _sequence = definePrimitive({
       let current = 0;
 
       engine.onOutgoing((message) => {
-        if (message.event.startsWith('_')) return;
+        if (isProtocolEvent(message.event)) return;
 
         current += 1;
-
-        if (message.payload && typeof message.payload === 'object') {
-          return {
-            event: message.event,
-            payload: {
-              ...(message.payload as Record<string, unknown>),
-              _seq: current,
-            },
-          };
-        }
 
         return {
           event: message.event,
           payload: {
-            value: message.payload,
+            ...(message.payload as Record<string, unknown>),
             _seq: current,
           },
         };

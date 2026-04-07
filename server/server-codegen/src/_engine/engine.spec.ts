@@ -283,6 +283,66 @@ describe('Engine', () => {
     ]);
   });
 
+  it('lets dedup own _messageId injection while skipping protocol events', async () => {
+    const ping = received('echo', (value: unknown) => value as { text: string });
+
+    const handler = server('engine-dedup', {
+      _ack: ack,
+      _dedup: dedup,
+      _incoming: incoming,
+      _outgoing: outgoing,
+    }).define(
+      dedup(),
+      outgoing('message', t<{ text: string }>()),
+      incoming(
+        ping,
+        async (
+          ctx: { ack(): void; send(event: 'message', payload: { text: string }): void },
+          payload,
+        ) => {
+          ctx.ack();
+          ctx.send('message', { text: payload.text });
+          ctx.send('message', { text: `${payload.text}!` });
+        },
+      ),
+    );
+
+    const engine = new Engine(handler, {
+      adapterId: 'test',
+      hibernation: false,
+    });
+
+    engine.setStorage(createStorage());
+    engine.setTimerProvider(createTimers().timers);
+    await engine.initialize();
+
+    const ws = createDescriptor();
+    const connection = engine.accept(Symbol('ws-dedup'), ws.descriptor);
+    connection.handleMessage(
+      JSON.stringify({
+        event: 'echo',
+        payload: { text: 'pong', _ackId: 'ack-1' },
+      }),
+    );
+    await Promise.resolve();
+
+    expect(ws.sent[0]).toEqual({
+      event: '_ack',
+      payload: { _ackId: 'ack-1' },
+    });
+    expect(ws.sent[1]).toMatchObject({
+      event: 'message',
+      payload: { text: 'pong' },
+    });
+    expect(ws.sent[2]).toMatchObject({
+      event: 'message',
+      payload: { text: 'pong!' },
+    });
+    expect(ws.sent[1]?.payload?._messageId).toMatch(/^msg_/);
+    expect(ws.sent[2]?.payload?._messageId).toMatch(/^msg_/);
+    expect(ws.sent[1]?.payload?._messageId).not.toBe(ws.sent[2]?.payload?._messageId);
+  });
+
   it('runs scheduled tasks and reschedules recurring tasks', async () => {
     const runs: unknown[] = [];
     const flushTask = scheduled(
@@ -372,6 +432,46 @@ describe('Engine', () => {
       event: '__acme:analytics:flushed',
       payload: { count: 1 },
     });
+  });
+
+  it('still applies sequence and dedup to module outgoing events', async () => {
+    const Analytics = defineModule({
+      id: 'acme:analytics',
+      key: Symbol('acme:analytics'),
+      outgoing: [outgoing('flushed', t<{ count: number }>())] as const,
+      setup(_args, hooks) {
+        hooks.onConnect(async (ctx) => {
+          ctx.send('flushed', { count: 1 });
+        });
+
+        return () => ({});
+      },
+    });
+
+    const handler = server('engine-module-outgoing-metadata', {
+      _dedup: dedup,
+      _outgoing: outgoing,
+      _sequence: sequence,
+    }).define(sequence(), dedup(), Analytics({}));
+
+    const engine = new Engine(handler, {
+      adapterId: 'test',
+      hibernation: false,
+    });
+
+    engine.setStorage(createStorage());
+    engine.setTimerProvider(createTimers().timers);
+    await engine.initialize();
+
+    const ws = createDescriptor();
+    engine.accept(Symbol('ws-module'), ws.descriptor);
+    await Promise.resolve();
+
+    expect(ws.sent[0]).toMatchObject({
+      event: '__acme:analytics:flushed',
+      payload: { count: 1, _seq: 1 },
+    });
+    expect(ws.sent[0]?.payload?._messageId).toMatch(/^msg_/);
   });
 
   it('rejects non-object payloads on the normal outgoing pipeline', async () => {

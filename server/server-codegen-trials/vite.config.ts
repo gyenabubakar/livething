@@ -18,6 +18,14 @@ export default defineConfig({
         find: '@wskit/server-codegen',
         replacement: resolve(__dirname, '../server-codegen/src/index.ts'),
       },
+      {
+        find: '@wskit/core',
+        replacement: resolve(__dirname, '../../core/src/index.ts'),
+      },
+      {
+        find: '@wskit/shared',
+        replacement: resolve(__dirname, '../../shared/src/index.ts'),
+      },
     ],
   },
   build: {

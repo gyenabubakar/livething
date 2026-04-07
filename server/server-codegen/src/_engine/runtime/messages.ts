@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { Block, Skip, WskitError } from '@wskit/core';
-import { prefixedModuleEvent, validateValue } from '~/_engine/compile/utils.ts';
+import { isProtocolEvent, prefixedModuleEvent, validateValue } from '~/_engine/compile/utils.ts';
 import { DeferExhausted } from '~/errors.ts';
 import type { CompiledChannel, CompiledServer } from '~/_engine/compile/types.ts';
 import type { BroadcastOptions, ConnectionInfo, TimerProvider } from '~/index.ts';
@@ -163,8 +163,8 @@ function isDeclaredOutgoingEvent(
   event: string,
   routing?: RoutingTarget,
 ): boolean {
-  if (event.startsWith('_')) return true;
   if (event.startsWith('__')) return isDeclaredModuleEvent(compiled, event);
+  if (isProtocolEvent(event)) return true;
 
   if (routing?.namespace) {
     const namespace = compiled.namespaces.get(routing.namespace);
@@ -233,9 +233,6 @@ export function sendThroughPipeline(
     );
   }
 
-  if (runtime.compiled.dedup && !message.event.startsWith('_')) {
-    finalPayload._messageId = runtime.generateId('msg');
-  }
   if (routing?.namespace) finalPayload._namespace = routing.namespace;
   if (routing?.channel) finalPayload._channel = routing.channel;
   if (routing?.channelScope) finalPayload._channelScope = routing.channelScope;

@@ -99,4 +99,17 @@ describe('sequence', () => {
       payload: { text: 'hello', _seq: 1 },
     });
   });
+
+  it('still sequences module-owned outgoing events with a double underscore prefix', () => {
+    const { hook } = installSequence();
+    const moduleMessage = hook({
+      event: '__acme:analytics:flushed',
+      payload: { count: 1 },
+    });
+
+    expect(moduleMessage).toEqual({
+      event: '__acme:analytics:flushed',
+      payload: { count: 1, _seq: 1 },
+    });
+  });
 });

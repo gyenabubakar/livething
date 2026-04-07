@@ -1,3 +1,4 @@
+import { isProtocolEvent } from '~/_engine/compile/utils.ts';
 import { definePrimitive } from '~/primitive.ts';
 import type { Primitive } from '~/primitive.ts';
 
@@ -16,6 +17,21 @@ const _dedup = definePrimitive({
   kind: 'infrastructure' as const,
   create() {
     return {};
+  },
+  setup(engine) {
+    engine.installOnce(DEDUP_KEY, () => {
+      engine.onOutgoing((message) => {
+        if (isProtocolEvent(message.event)) return;
+
+        return {
+          event: message.event,
+          payload: {
+            ...(message.payload as Record<string, unknown>),
+            _messageId: engine.generateId('msg'),
+          },
+        };
+      });
+    });
   },
 });
 

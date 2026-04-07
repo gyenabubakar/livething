@@ -116,8 +116,6 @@ function visitCompiledPrimitives(compiled: CompiledServer, primitives: readonly 
 
     if (primitive.__wskit === 'ack') compiled.ack = true;
     else if (primitive.__wskit === 'replay') compiled.replay = primitive as ReplayPrimitive<any>;
-    else if (primitive.__wskit === 'sequence') compiled.sequence = true;
-    else if (primitive.__wskit === 'dedup') compiled.dedup = true;
     else if (primitive.__wskit === 'heartbeat')
       compiled.heartbeatTimeout = (primitive as any).timeout;
     else if (primitive.__wskit === 'hibernation') {
@@ -170,8 +168,6 @@ export function compileHandlerDefinition(handler: ServerDefinition): CompiledSer
     modules: [],
     errors: [],
     ack: false,
-    sequence: false,
-    dedup: false,
     hibernationEnabled: false,
     requires: {},
   };
