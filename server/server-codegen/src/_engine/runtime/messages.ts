@@ -7,6 +7,7 @@ import {
   validateValue,
 } from '~/_engine/compile/utils.ts';
 import { DeferExhausted } from '~/errors.ts';
+import { bufferStreamNudge, cancelStream, runStream } from '~/stream/runtime.ts';
 import type { CompiledChannel, CompiledServer } from '~/_engine/compile/types.ts';
 import type { BroadcastOptions, ConnectionInfo, TimerProvider } from '~/index.ts';
 import type {
@@ -582,61 +583,6 @@ export async function handleUnsubscribe(
 }
 
 /**
- * Cancel one active stream from the owning connection.
- */
-export async function handleStreamCancel(
-  runtime: Pick<DispatchRuntime, 'activeStreams'>,
-  connection: RuntimeConnection,
-  payload: Record<string, unknown> | undefined,
-): Promise<void> {
-  if (!payload || typeof payload._streamId !== 'string') return;
-  const activeStream = runtime.activeStreams.get(payload._streamId);
-  if (!activeStream || activeStream.connectionId !== connection.id || activeStream.closed) {
-    return;
-  }
-
-  activeStream.closed = true;
-  try {
-    await activeStream.generator.return(undefined);
-  } finally {
-    runtime.activeStreams.delete(activeStream.id);
-  }
-}
-
-/**
- * Buffer one validated nudge for an active stream.
- */
-export async function handleStreamNudge(
-  runtime: Pick<DispatchRuntime, 'activeStreams' | 'handleValidationError'>,
-  connection: RuntimeConnection,
-  event: string,
-  payload: Record<string, unknown> | undefined,
-): Promise<boolean> {
-  if (!payload || typeof payload._streamId !== 'string') return false;
-  const activeStream = runtime.activeStreams.get(payload._streamId);
-  if (!activeStream || activeStream.connectionId !== connection.id || activeStream.closed) {
-    return false;
-  }
-
-  const validator = activeStream.nudgeValidators.get(event);
-  if (!activeStream.nudgeValidators.has(event)) return false;
-
-  const nudgePayload = { ...payload };
-  delete nudgePayload._streamId;
-
-  try {
-    activeStream.nudges.push({
-      event,
-      payload: validateValue(validator, nudgePayload, event),
-    });
-  } catch (error) {
-    await runtime.handleValidationError(connection, event, error);
-    return false;
-  }
-  return true;
-}
-
-/**
  * Send a normalized `_error` protocol message, optionally after the error hook
  * has decided whether it should be forwarded.
  */
@@ -797,62 +743,7 @@ export async function dispatchIncoming(
     }
 
     if (stream) {
-      const streamId = runtime.generateId('stream');
-      runtime.sendProtocolMessage(connection, '_streamOk', { _streamId: streamId });
-      const ctx = runtime.buildConnectionContext(connection, scope) as Record<string, unknown>;
-      ctx.nudges = (value: unknown) => (Array.isArray(value) ? value : []);
-      runtime.setActiveConnectionId(connection.id);
-      const iterator = stream.generator(ctx, postPayload);
-      runtime.setActiveConnectionId(undefined);
-      const activeStream: ActiveStream = {
-        id: streamId,
-        connectionId: connection.id,
-        generator: iterator as AsyncGenerator<unknown, void, unknown>,
-        nudges: [],
-        nudgeValidators: new Map(
-          stream.stream.nudges.map((declaration) => [declaration.event, declaration.validator]),
-        ),
-        closed: false,
-      };
-      runtime.activeStreams.set(streamId, activeStream);
-
-      try {
-        let nextInput: unknown = stream.stream.nudges.length > 0 ? [] : undefined;
-
-        while (!activeStream.closed) {
-          const result = await iterator.next(nextInput);
-          if (result.done) break;
-
-          sendThroughPipeline(
-            runtime,
-            connection,
-            {
-              namespace: scope.namespace?.name,
-              channel: scope.channelName,
-              channelScope: scope.channelScope,
-              streamId,
-            },
-            event,
-            result.value,
-          );
-
-          nextInput = stream.stream.nudges.length > 0 ? [...activeStream.nudges] : undefined;
-          activeStream.nudges.length = 0;
-        }
-
-        if (!activeStream.closed) {
-          runtime.sendProtocolMessage(connection, '_streamEnd', { _streamId: streamId });
-        }
-      } catch (streamError) {
-        await runtime.handleRuntimeError(connection, streamError, event, {
-          _streamId: streamId,
-          ...(scope.namespace?.name ? { _namespace: scope.namespace.name } : {}),
-          ...(scope.channelName ? { _channel: scope.channelName } : {}),
-          ...(scope.channelScope ? { _channelScope: scope.channelScope } : {}),
-        });
-      } finally {
-        runtime.activeStreams.delete(streamId);
-      }
+      await runStream(runtime, connection, scope, event, stream, postPayload);
     }
   } catch (error) {
     if (error === Block) return;
@@ -931,15 +822,11 @@ export async function processTextMessage(
     return;
   }
   if (parsed.event === '_streamCancel') {
-    await handleStreamCancel(
-      runtime,
-      connection,
-      parsed.payload as Record<string, unknown> | undefined,
-    );
+    await cancelStream(runtime, connection, parsed.payload as Record<string, unknown> | undefined);
     return;
   }
   if (
-    await handleStreamNudge(
+    await bufferStreamNudge(
       runtime,
       connection,
       parsed.event,
