@@ -17,7 +17,6 @@ import {
   handleConnectionClose,
   handleShutdown,
   handleUpgrade,
-  refreshHeartbeat,
   runConnectionLifecycle,
   wakeHibernatedConnection,
 } from '~/_engine/runtime/connection.ts';
@@ -33,6 +32,7 @@ import {
   processTextMessage,
   sendThroughPipeline,
 } from '~/_engine/runtime/messages.ts';
+import { refreshHeartbeatTimeout } from '~/heartbeat/runtime.ts';
 import {
   cancelScheduledRuns,
   rescheduleScheduledAlarm,
@@ -78,6 +78,7 @@ export type {
  */
 function createRegisteredHooks(): RegisteredEngineHooks {
   return {
+    activity: [],
     incoming: [],
     outgoing: [],
     beforeSend: [],
@@ -358,6 +359,9 @@ export class Engine {
       onAfterSend: (handler) => {
         this.hooks.afterSend.push(handler);
       },
+      onConnectionActivity: (handler) => {
+        this.hooks.activity.push(handler);
+      },
       onInit: (handler) => {
         this.hooks.init.push(handler);
       },
@@ -412,6 +416,12 @@ export class Engine {
       },
       requireStorage: () => this.requireStorage(),
       requireTimers: () => this.requireTimers(),
+      refreshConnectionIdleTimeout: (connectionId, timeoutMs) => {
+        const connection = this.connections.get(connectionId);
+        if (!connection) return;
+
+        refreshHeartbeatTimeout(this.requireTimers(), connection, timeoutMs);
+      },
       getScheduledRuns: () => this.scheduledRuns,
       getScheduledDlq: () => this.scheduledDlq,
       getScheduledTask: (taskId) => this.compiled.scheduled.get(taskId),
@@ -732,6 +742,7 @@ export class Engine {
       waitUntil: (promise: Promise<unknown>) => this.waitUntilImpl(promise),
       logger: this.logger,
       generateId: (prefix?: string) => this.generateId(prefix),
+      activityHooks: this.hooks.activity,
     };
   }
 
@@ -830,7 +841,6 @@ export class Engine {
         connection: RuntimeConnection,
         payload: Record<string, unknown> | undefined,
       ) => this.handleUnsubscribe(connection, payload),
-      refreshHeartbeat: (connection: RuntimeConnection) => this.refreshHeartbeat(connection),
     };
   }
 
@@ -988,19 +998,6 @@ export class Engine {
   }
 
   /**
-   * Reset a connection's heartbeat timeout after activity.
-   */
-  private refreshHeartbeat(connection: RuntimeConnection): void {
-    refreshHeartbeat(
-      {
-        compiled: this.compiled,
-        timers: this.timers,
-      },
-      connection,
-    );
-  }
-
-  /**
    * Run connect/disconnect lifecycle hooks for both the handler and installed
    * modules.
    */
@@ -1079,8 +1076,8 @@ export class Engine {
       {
         buildConnectionContext: (targetConnection, scope) =>
           this.buildConnectionContext(targetConnection, scope),
+        activityHooks: this.hooks.activity,
         binaryHooks: this.hooks.binary,
-        refreshHeartbeat: (targetConnection) => this.refreshHeartbeat(targetConnection),
       },
       connection,
       data,

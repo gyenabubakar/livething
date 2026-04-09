@@ -893,12 +893,14 @@ export async function dispatchIncoming(
  */
 export async function processTextMessage(
   runtime: DispatchRuntime & {
-    refreshHeartbeat(connection: RuntimeConnection): void;
+    activityHooks: readonly ((connectionId: string) => void | Promise<void>)[];
   },
   connection: RuntimeConnection,
   data: string,
 ): Promise<void> {
-  runtime.refreshHeartbeat(connection);
+  for (const hook of runtime.activityHooks) {
+    await hook(connection.id);
+  }
 
   let parsed: { event: string; payload?: unknown };
 

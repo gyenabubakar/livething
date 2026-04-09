@@ -117,10 +117,6 @@ function visitCompiledPrimitives(compiled: CompiledServer, primitives: readonly 
         compiled.ack = true;
         continue;
 
-      case 'heartbeat':
-        compiled.heartbeatTimeout = (primitive as any).timeout;
-        continue;
-
       case 'sequence':
         compiled.sequencePersistent = Boolean((primitive as { persist?: boolean }).persist);
         continue;

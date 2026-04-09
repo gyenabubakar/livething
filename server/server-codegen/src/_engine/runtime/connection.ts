@@ -31,32 +31,6 @@ interface ConnectionRuntime {
   handleRuntimeError(connection: RuntimeConnection, error: unknown, event?: string): Promise<void>;
 }
 
-/**
- * Install or refresh the idle timeout for one connection.
- */
-export function installHeartbeat(
-  runtime: Pick<ConnectionRuntime, 'compiled' | 'timers'>,
-  connection: RuntimeConnection,
-): void {
-  if (!runtime.compiled.heartbeatTimeout || !runtime.timers) return;
-  if (connection.heartbeatTimer !== undefined) {
-    runtime.timers.clearTimeout(connection.heartbeatTimer);
-  }
-  connection.heartbeatTimer = runtime.timers.setTimeout(() => {
-    connection.descriptor.close(CloseCodes.IDLE, 'Heartbeat timeout');
-  }, runtime.compiled.heartbeatTimeout);
-}
-
-/**
- * Reset the heartbeat timer after activity from the connection.
- */
-export function refreshHeartbeat(
-  runtime: Pick<ConnectionRuntime, 'compiled' | 'timers'>,
-  connection: RuntimeConnection,
-): void {
-  installHeartbeat(runtime, connection);
-}
-
 function createHandle(runtime: ConnectionRuntime, connection: RuntimeConnection): ConnectionHandle {
   return {
     handleMessage: (data) => {
@@ -189,6 +163,7 @@ export async function handleConnectionClose(
 
   if (connection.heartbeatTimer !== undefined && runtime.timers) {
     runtime.timers.clearTimeout(connection.heartbeatTimer);
+    connection.heartbeatTimer = undefined;
   }
 
   runtime.connections.delete(connection.id);
@@ -200,16 +175,18 @@ export async function handleConnectionClose(
  */
 export async function handleBinaryMessage(
   runtime: Pick<ConnectionRuntime, 'buildConnectionContext'> & {
+    activityHooks: readonly ((connectionId: string) => void | Promise<void>)[];
     binaryHooks: readonly ((
       ctx: Record<PropertyKey, unknown>,
       data: ArrayBuffer,
     ) => void | Promise<void>)[];
-    refreshHeartbeat(connection: RuntimeConnection): void;
   },
   connection: RuntimeConnection,
   data: ArrayBuffer,
 ): Promise<void> {
-  runtime.refreshHeartbeat(connection);
+  for (const hook of runtime.activityHooks) {
+    await hook(connection.id);
+  }
   if (runtime.binaryHooks.length === 0) return;
   const ctx = runtime.buildConnectionContext(connection);
   for (const hook of runtime.binaryHooks) {
@@ -240,7 +217,6 @@ export function acceptConnection(
   runtime.connections.set(connection.id, connection);
   runtime.wsToConnectionId.set(wsKey, connection.id);
   runtime.persistAttachment(connection);
-  installHeartbeat(runtime, connection);
 
   const ctx = runtime.buildConnectionContext(connection);
   void runtime.runConnectionLifecycle('connect', ctx);
@@ -294,7 +270,6 @@ export function wakeHibernatedConnection(
   runtime.connections.set(connection.id, connection);
   runtime.wsToConnectionId.set(wsKey, connection.id);
   runtime.persistAttachment(connection);
-  installHeartbeat(runtime, connection);
 
   return createHandle(runtime, connection);
 }

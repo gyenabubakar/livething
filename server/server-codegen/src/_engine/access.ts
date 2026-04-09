@@ -71,6 +71,13 @@ export interface EngineAccess {
   onAfterSend(handler: (message: WireOutgoingMessage) => void | Promise<void>): void;
 
   /**
+   * Observe activity from one live connection before normal routing continues.
+   *
+   * This runs for each text or binary websocket frame the server receives.
+   */
+  onConnectionActivity(handler: (connectionId: string) => void | Promise<void>): void;
+
+  /**
    * Run logic when the server finishes booting.
    *
    * This receives the same init-style context that user-facing `onInit`
@@ -202,6 +209,14 @@ export interface EngineAccess {
    * This throws if the current adapter did not provide timers.
    */
   requireTimers(): TimerProvider;
+
+  /**
+   * Refresh the idle timeout for one live connection.
+   *
+   * Built-in primitives such as `heartbeat()` use this instead of reaching
+   * into the engine's connection map directly.
+   */
+  refreshConnectionIdleTimeout(connectionId: string, timeoutMs: number): void;
 
   /**
    * Access the engine's in-memory table of queued scheduled runs.

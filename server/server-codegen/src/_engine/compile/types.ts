@@ -73,7 +73,6 @@ export interface CompiledServer {
   modules: AnyModule[];
   errors: ErrorsPrimitive<any>[];
   ack: boolean;
-  heartbeatTimeout?: number;
   hibernationEnabled: boolean;
   replayEnabled: boolean;
   sequencePersistent: boolean;

@@ -2,6 +2,7 @@ import { WskitError } from '@wskit/core';
 import { ack } from '~/ack/index.ts';
 import { channel, scope } from '~/channel/index.ts';
 import { dedup } from '~/dedup/index.ts';
+import { heartbeat } from '~/heartbeat/index.ts';
 import { hibernation } from '~/hibernation/index.ts';
 import { incoming } from '~/incoming/index.ts';
 import {
@@ -488,6 +489,43 @@ describe('Engine', () => {
     expect(ws.sent[1]?.payload?._messageId).toMatch(/^msg_/);
     expect(ws.sent[2]?.payload?._messageId).toMatch(/^msg_/);
     expect(ws.sent[1]?.payload?._messageId).not.toBe(ws.sent[2]?.payload?._messageId);
+  });
+
+  it('lets heartbeat own idle timeout refresh through connect and activity hooks', async () => {
+    const handler = server('engine-heartbeat', {
+      _heartbeat: heartbeat,
+      _incoming: incoming,
+    }).define(
+      heartbeat({ timeout: 30_000 }),
+      incoming(
+        received('echo', (value: unknown) => value as { text: string }),
+        async () => {},
+      ),
+    );
+
+    const engine = new Engine(handler, {
+      adapterId: 'test',
+      hibernation: false,
+    });
+    const storage = createStorage();
+    const timerState = createTimers();
+
+    engine.setStorage(storage);
+    engine.setTimerProvider(timerState.timers);
+    engine.setWaitUntil(() => {});
+    await engine.initialize();
+
+    const ws = createDescriptor();
+    const connection = engine.accept(Symbol('ws-heartbeat'), ws.descriptor);
+
+    expect(ws.closed).toEqual([]);
+
+    connection.handleMessage(JSON.stringify({ event: 'echo', payload: { text: 'pong' } }));
+    await flushAsyncWork();
+
+    timerState.flushTimeouts();
+
+    expect(ws.closed).toEqual([{ code: 4004, reason: 'Heartbeat timeout' }]);
   });
 
   it('runs scheduled tasks and reschedules recurring tasks', async () => {

@@ -53,6 +53,7 @@ export type IncomingProtocolEvent =
  * processing messages, connections, shutdown, and alarms.
  */
 export interface RegisteredEngineHooks {
+  activity: ((connectionId: string) => void | Promise<void>)[];
   incoming: ((message: {
     event: string;
     payload: unknown;
