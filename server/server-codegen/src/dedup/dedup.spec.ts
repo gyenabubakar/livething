@@ -1,6 +1,6 @@
 import { dedup } from '~/dedup/dedup.ts';
-import type { EngineAccess } from '~/_engine/access.ts';
 import { describe, expect, it } from 'vitest';
+import type { EngineAccess } from '~/_engine/access.ts';
 
 function installDedup(): {
   outgoingHandlers: Array<NonNullable<Parameters<EngineAccess['onOutgoing']>[0]>>;

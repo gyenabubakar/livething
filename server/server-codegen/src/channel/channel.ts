@@ -14,15 +14,16 @@ import type {
   ScopeState,
   StreamBaseCtxFromState,
 } from '~/_types/scope-state.ts';
-import type { IncomingPrimitive } from '~/incoming/incoming.ts';
-import type { PostInterceptPrimitive, PreInterceptPrimitive } from '~/intercept/intercept.ts';
 import type {
   BeforeSubscribePrimitive,
   SubscribePrimitive,
   UnsubscribePrimitive,
 } from '~/channel/lifecycle.ts';
+import type { IncomingPrimitive } from '~/incoming/incoming.ts';
+import type { PostInterceptPrimitive, PreInterceptPrimitive } from '~/intercept/intercept.ts';
 import type { OutgoingPrimitive } from '~/outgoing/outgoing.ts';
 import type { Primitive } from '~/primitive.ts';
+import type { CustomReplayPrimitive } from '~/replay/custom.ts';
 import type { ReplayPrimitive } from '~/replay/replay.ts';
 import type { RequestPrimitive } from '~/request/request.ts';
 import type { GeneratePrimitive, NudgeDeclaration, StreamPrimitive } from '~/stream/stream.ts';
@@ -40,6 +41,7 @@ type AnyGenerate = GeneratePrimitive<
 type ChannelStatePrimitive =
   | AnyOutgoing
   | ReplayPrimitive
+  | CustomReplayPrimitive
   | AnyPreIntercept
   | AnyPostIntercept
   | AnyIncoming

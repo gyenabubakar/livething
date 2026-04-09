@@ -9,6 +9,7 @@ import type { IncomingPrimitive } from '~/incoming/incoming.ts';
 import type { InterceptPrimitive } from '~/intercept/intercept.ts';
 import type { OutgoingPrimitive } from '~/outgoing/outgoing.ts';
 import type { PassivePrimitive } from '~/passive/passive.ts';
+import type { CustomReplayPrimitive } from '~/replay/custom.ts';
 import type { ReplayPrimitive } from '~/replay/replay.ts';
 import type { RequestPrimitive } from '~/request/request.ts';
 import type { ScheduledPrimitive } from '~/scheduled/scheduled.ts';
@@ -31,6 +32,7 @@ type AnyGenerate = GeneratePrimitive<
 >;
 type AnyErrors = ErrorsPrimitive<readonly AnyErrorDef[]>;
 type AnyReplay = ReplayPrimitive;
+type AnyCustomReplay = CustomReplayPrimitive;
 type AnyIntercept = InterceptPrimitive<string, any, any>;
 type AnyPassive = PassivePrimitive<readonly any[]>;
 
@@ -48,6 +50,7 @@ export type FoldablePrimitive =
   | SequencePrimitive
   | DedupPrimitive
   | AnyReplay
+  | AnyCustomReplay
   | ScheduledPrimitive<string, any, any>
   | AnyIntercept
   | AnyErrors
@@ -222,6 +225,7 @@ export type NextState<
           | HibernationPrimitive
           | SequencePrimitive
           | DedupPrimitive
+          | AnyCustomReplay
           | ScheduledPrimitive<string, any, any>
       ? {
           readonly kind: TState['kind'];

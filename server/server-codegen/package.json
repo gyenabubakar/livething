@@ -69,6 +69,10 @@
       "types": "./dist/replay/index.d.ts",
       "import": "./dist/replay.js"
     },
+    "./replay/custom": {
+      "types": "./dist/replay/custom.d.ts",
+      "import": "./dist/replay/custom.js"
+    },
     "./request": {
       "types": "./dist/request/index.d.ts",
       "import": "./dist/request.js"

@@ -36,6 +36,7 @@ import type { NamespacePrimitive } from '~/namespace/namespace.ts';
 import type { OutgoingPrimitive } from '~/outgoing/outgoing.ts';
 import type { PassivePrimitive } from '~/passive/passive.ts';
 import type { Primitive } from '~/primitive.ts';
+import type { CustomReplayPrimitive } from '~/replay/custom.ts';
 import type { ReplayPrimitive } from '~/replay/replay.ts';
 import type { RequestPrimitive } from '~/request/request.ts';
 import type { ScheduledPrimitive } from '~/scheduled/scheduled.ts';
@@ -66,6 +67,7 @@ type TopLevelStatePrimitive =
   | SequencePrimitive
   | DedupPrimitive
   | ReplayPrimitive
+  | CustomReplayPrimitive
   | ScheduledPrimitive<string, any, any>
   | ErrorsPrimitive
   | AnyOutgoing

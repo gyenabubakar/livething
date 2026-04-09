@@ -60,14 +60,11 @@ void _parseType;
 
 declare const messageSchema: StandardSchemaV1<unknown, { text: string; from: string }>;
 
-const withSchema = incoming(
-  received('send-message', messageSchema),
-  async (_ctx, payload) => {
-    const _text: string = payload.text;
-    const _from: string = payload.from;
-    void [_text, _from];
-  },
-);
+const withSchema = incoming(received('send-message', messageSchema), async (_ctx, payload) => {
+  const _text: string = payload.text;
+  const _from: string = payload.from;
+  void [_text, _from];
+});
 
 const _schemaType: IncomingPrimitive<'send-message', { text: string; from: string }> = withSchema;
 void _schemaType;
@@ -151,11 +148,14 @@ type WrappedCtx = {
   reply(text: string): void;
 };
 
-const withWrappedCtx = incoming(received('wrapped-ping'), h(async (ctx: WrappedCtx, payload) => {
-  ctx.reply('pong');
-  const _unknown: unknown = payload;
-  void _unknown;
-}));
+const withWrappedCtx = incoming(
+  received('wrapped-ping'),
+  h(async (ctx: WrappedCtx, payload) => {
+    ctx.reply('pong');
+    const _unknown: unknown = payload;
+    void _unknown;
+  }),
+);
 
 const _wrappedCtxType: IncomingPrimitive<'wrapped-ping', unknown, WrappedCtx> = withWrappedCtx;
 void _wrappedCtxType;
