@@ -2,16 +2,15 @@
 import { dedup } from '~/dedup/dedup.ts';
 import { definePrimitive } from '~/primitive.ts';
 import {
-  buildReplayRow,
   ensureReplaySchema,
   loadReplayRows,
   matchesReplayScope,
+  persistReplayMessage,
   pruneExpiredReplayRows,
   pruneReplayScopeRows,
   readReplayContextScope,
   readReplayPayloadScope,
   shouldStoreReplayMessage,
-  storeReplayRow,
 } from '~/replay/runtime.ts';
 import { sequence } from '~/sequence/sequence.ts';
 import type { ReplayWire } from '~/_types/scope-state.ts';
@@ -102,9 +101,14 @@ const _replay = definePrimitive<
       }
 
       const { sql } = engine.requireStorage();
-      const row = buildReplayRow(options, wireMessage.event, wireMessage.payload, Date.now());
-      storeReplayRow(sql, row);
-      pruneExpiredReplayRows(sql, options.retention, row.createdAt);
+      const row = persistReplayMessage(
+        sql,
+        options,
+        wireMessage.event,
+        wireMessage.payload,
+        Date.now(),
+      );
+      pruneExpiredReplayRows(sql, options.retention, row?.createdAt ?? Date.now());
       pruneReplayScopeRows(sql, options.retention, readReplayPayloadScope(wireMessage.payload));
     }
 

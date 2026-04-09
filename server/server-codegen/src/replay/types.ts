@@ -76,6 +76,40 @@ export interface ReplayOptions {
    * latest snapshot for that key. If omitted, the event name is used.
    */
   readonly snapshotKey?: (event: string, payload: Record<string, unknown>) => string;
+
+  /**
+   * Combine snapshot rows over time instead of always replacing them with the
+   * latest outgoing event.
+   *
+   * This runs only in `snapshot` mode.
+   *
+   * - `previous` is the currently stored snapshot value for the same
+   *   `snapshotKey`, or `null` if no snapshot exists yet.
+   * - `next` is the new outgoing event that is about to be recorded.
+   *
+   * Return:
+   * - an `{ event, payload }` object to store the next snapshot value
+   * - `null` to delete the snapshot for that key
+   *
+   * If you do not provide `reduce`, wskit uses the default "latest event wins"
+   * behavior.
+   */
+  readonly reduce?: (
+    previous: ReplaySnapshotValue | null,
+    next: ReplaySnapshotValue,
+  ) => ReplaySnapshotValue | null;
+}
+
+/**
+ * The replay event shape a snapshot reducer reads and returns.
+ *
+ * Snapshot reducers do not manage `_seq`, `_messageId`, or timestamps
+ * directly. They only describe the logical event and payload that should be
+ * stored as the snapshot value.
+ */
+export interface ReplaySnapshotValue {
+  event: string;
+  payload: Record<string, unknown>;
 }
 
 /**

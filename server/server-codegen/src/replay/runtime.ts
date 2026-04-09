@@ -1,6 +1,12 @@
 import { ENGINE_SCOPE_META } from '~/_engine/contexts/types.ts';
 import type { EngineScopeMeta } from '~/_engine/contexts/types.ts';
-import type { ReplayOptions, ReplayPayloadScope, ReplayRow, ReplayType } from '~/replay/types.ts';
+import type {
+  ReplayOptions,
+  ReplayPayloadScope,
+  ReplayRow,
+  ReplaySnapshotValue,
+  ReplayType,
+} from '~/replay/types.ts';
 
 const CREATE_REPLAY_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS _wskit_replay (
@@ -114,7 +120,7 @@ export function buildReplayRow(
   const snapshotKey = type === 'snapshot' ? (options.snapshotKey?.(event, payload) ?? event) : null;
 
   return {
-    rowKey: buildReplayRowKey(type, event, scope, messageId, snapshotKey),
+    rowKey: buildReplayRowKey(type, scope, messageId, snapshotKey),
     messageId,
     seq,
     event,
@@ -127,9 +133,162 @@ export function buildReplayRow(
   };
 }
 
+/**
+ * Load one replay row by its primary key.
+ *
+ * Snapshot mode uses this to read the current stored value before applying a
+ * reducer.
+ */
+export function getReplayRowByKey(
+  sql: {
+    exec(query: string, ...params: unknown[]): { one(): unknown };
+  },
+  rowKey: string,
+): ReplayRow | null {
+  const row = sql
+    .exec(
+      `
+        SELECT
+          rowKey,
+          messageId,
+          seq,
+          event,
+          payload,
+          namespace,
+          channel,
+          channelScope,
+          snapshotKey,
+          createdAt
+        FROM _wskit_replay
+        WHERE rowKey = ?
+      `,
+      rowKey,
+    )
+    .one() as Record<string, unknown> | null;
+
+  if (!row) return null;
+
+  return {
+    rowKey: String(row.rowKey),
+    messageId: String(row.messageId),
+    seq: Number(row.seq),
+    event: String(row.event),
+    payload: String(row.payload),
+    namespace: (row.namespace as string | null) ?? null,
+    channel: (row.channel as string | null) ?? null,
+    channelScope: (row.channelScope as string | null) ?? null,
+    snapshotKey: (row.snapshotKey as string | null) ?? null,
+    createdAt: Number(row.createdAt),
+  };
+}
+
+/**
+ * Delete one replay row by key.
+ *
+ * Snapshot reducers use this when they return `null`.
+ */
+export function deleteReplayRow(
+  sql: {
+    exec(query: string, ...params: unknown[]): unknown;
+  },
+  rowKey: string,
+): void {
+  sql.exec(
+    `
+      DELETE FROM _wskit_replay
+      WHERE rowKey = ?
+    `,
+    rowKey,
+  );
+}
+
+/**
+ * Convert a stored replay row into the reducer-facing snapshot value shape.
+ */
+export function toReplaySnapshotValue(row: ReplayRow): ReplaySnapshotValue {
+  return {
+    event: row.event,
+    payload: stripSnapshotMetadata(JSON.parse(row.payload) as Record<string, unknown>),
+  };
+}
+
+/**
+ * Remove engine-owned wire metadata from the reducer-facing snapshot payload.
+ *
+ * Snapshot reducers should work with the logical app payload, not the replay
+ * bookkeeping fields that wskit can restore automatically later.
+ */
+export function stripSnapshotMetadata(payload: Record<string, unknown>): Record<string, unknown> {
+  const next: Record<string, unknown> = {};
+
+  for (const [key, value] of Object.entries(payload)) {
+    if (key.startsWith('_')) continue;
+    next[key] = value;
+  }
+
+  return next;
+}
+
+/**
+ * Persist one replayable outgoing message.
+ *
+ * History mode stores every message. Snapshot mode stores one current value
+ * per logical key, using the configured reducer when present.
+ */
+export function persistReplayMessage(
+  sql: {
+    exec(query: string, ...params: unknown[]): unknown;
+    transaction<T>(
+      fn: (tx: {
+        exec(
+          query: string,
+          ...params: unknown[]
+        ): {
+          one(): unknown;
+        };
+      }) => T,
+    ): T;
+  },
+  options: ReplayOptions,
+  event: string,
+  payload: Record<string, unknown>,
+  now: number,
+): ReplayRow | null {
+  const row = buildReplayRow(options, event, payload, now);
+
+  if ((options.type ?? 'history') === 'history') {
+    storeReplayRow(sql, row);
+    return row;
+  }
+
+  return sql.transaction((tx) => {
+    const previousRow = getReplayRowByKey(tx, row.rowKey);
+    const nextValue: ReplaySnapshotValue = {
+      event,
+      payload: stripSnapshotMetadata(payload),
+    };
+    const reduced = options.reduce
+      ? options.reduce(previousRow ? toReplaySnapshotValue(previousRow) : null, nextValue)
+      : nextValue;
+
+    if (!reduced) {
+      deleteReplayRow(tx, row.rowKey);
+      return null;
+    }
+
+    const snapshotRow: ReplayRow = {
+      ...row,
+      event: reduced.event,
+      payload: JSON.stringify(reduced.payload),
+    };
+
+    storeReplayRow(tx, snapshotRow);
+    return snapshotRow;
+  });
+}
+
 function buildReplayRowKey(
   type: ReplayType,
-  event: string,
   scope: ReplayPayloadScope,
   messageId: string,
   snapshotKey: string | null,
@@ -141,8 +300,7 @@ function buildReplayRowKey(
     scope.namespace ?? '',
     scope.channel ?? '',
     scope.channelScope ?? '',
-    event,
-    snapshotKey ?? event,
+    snapshotKey ?? messageId,
   ].join('|');
 }
 

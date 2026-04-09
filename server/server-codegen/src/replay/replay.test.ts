@@ -1,7 +1,7 @@
 import { replay } from '~/replay/replay.ts';
 import type { PrimitiveKind, PrimitiveRef } from '~/primitive.ts';
 import type { ReplayPrimitive } from '~/replay/replay.ts';
-import type { ReplayDurability, ReplayType } from '~/replay/types.ts';
+import type { ReplayDurability, ReplaySnapshotValue, ReplayType } from '~/replay/types.ts';
 
 const replayPrimitive = replay();
 const _replayType: ReplayPrimitive = replayPrimitive;
@@ -27,6 +27,21 @@ const configuredReplay = replay({
     const _event: string = event;
     const _payload = payload as { id?: string };
     return _payload.id ?? _event;
+  },
+  reduce(previous, next) {
+    const _previous: ReplaySnapshotValue | null = previous;
+    const _next: ReplaySnapshotValue = next;
+    void [_previous, _next];
+
+    if (next.event === 'message-deleted') return null;
+
+    return {
+      event: 'message-snapshot',
+      payload: {
+        ...(previous?.payload ?? {}),
+        ...next.payload,
+      },
+    };
   },
 });
 
