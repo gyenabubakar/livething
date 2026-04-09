@@ -311,6 +311,13 @@ function createTimers() {
   };
 }
 
+function attachTestAdapter(engine: Engine, storage = createStorage()) {
+  engine.setStorage(storage);
+  engine.setTimerProvider(createTimers().timers);
+  engine.setWaitUntil(() => {});
+  return storage;
+}
+
 function createDescriptor(meta: Record<string, unknown> = {}) {
   const sent: { event: string; payload?: Record<string, unknown> }[] = [];
   const closed: { code?: number; reason?: string }[] = [];
@@ -369,8 +376,7 @@ describe('Engine', () => {
       hibernation: false,
     });
 
-    engine.setStorage(createStorage());
-    engine.setTimerProvider(createTimers().timers);
+    attachTestAdapter(engine);
     await engine.initialize();
 
     const ws = createDescriptor();
@@ -419,8 +425,7 @@ describe('Engine', () => {
       hibernation: false,
     });
 
-    engine.setStorage(createStorage());
-    engine.setTimerProvider(createTimers().timers);
+    attachTestAdapter(engine);
     await engine.initialize();
 
     const ws = createDescriptor();
@@ -486,6 +491,7 @@ describe('Engine', () => {
 
     engine.setStorage(storage);
     engine.setTimerProvider(timers);
+    engine.setWaitUntil(() => {});
     await engine.initialize();
 
     const { descriptor } = createDescriptor();
@@ -527,8 +533,7 @@ describe('Engine', () => {
       hibernation: false,
     });
 
-    engine.setStorage(createStorage());
-    engine.setTimerProvider(createTimers().timers);
+    attachTestAdapter(engine);
     await engine.initialize();
 
     const ws = createDescriptor();
@@ -566,8 +571,7 @@ describe('Engine', () => {
       hibernation: false,
     });
 
-    engine.setStorage(createStorage());
-    engine.setTimerProvider(createTimers().timers);
+    attachTestAdapter(engine);
     await engine.initialize();
 
     const ws = createDescriptor();
@@ -600,8 +604,7 @@ describe('Engine', () => {
       hibernation: false,
     });
 
-    engine.setStorage(createStorage());
-    engine.setTimerProvider(createTimers().timers);
+    attachTestAdapter(engine);
     await engine.initialize();
 
     const ws = createDescriptor();
@@ -652,8 +655,7 @@ describe('Engine', () => {
       hibernation: false,
     });
 
-    engine.setStorage(createStorage());
-    engine.setTimerProvider(createTimers().timers);
+    attachTestAdapter(engine);
     await engine.initialize();
 
     const ws = createDescriptor();
@@ -689,8 +691,7 @@ describe('Engine', () => {
 
     const storage = createStorage();
 
-    engine.setStorage(storage);
-    engine.setTimerProvider(createTimers().timers);
+    attachTestAdapter(engine, storage);
     await engine.initialize();
 
     const ws = createDescriptor();
@@ -773,8 +774,7 @@ describe('Engine', () => {
     });
     const storage = createStorage();
 
-    engine.setStorage(storage);
-    engine.setTimerProvider(createTimers().timers);
+    attachTestAdapter(engine, storage);
     await engine.initialize();
 
     const ws = createDescriptor();
@@ -845,8 +845,7 @@ describe('Engine', () => {
     });
     const storage = createStorage();
 
-    engine.setStorage(storage);
-    engine.setTimerProvider(createTimers().timers);
+    attachTestAdapter(engine, storage);
     await engine.initialize();
 
     const ws = createDescriptor();
@@ -857,6 +856,35 @@ describe('Engine', () => {
 
     expect(replayRowsBeforeSend).toBe(0);
     expect(storage.sql.replay.size).toBe(1);
+  });
+
+  it('fails boot when the adapter does not provide waitUntil', async () => {
+    const handler = server('engine-replay-best-effort-needs-waituntil', {
+      _incoming: incoming,
+      _outgoing: outgoing,
+      _replay: replay,
+      _sequence: sequence,
+      _dedup: dedup,
+    }).define(
+      sequence(),
+      dedup(),
+      replay({ durability: 'best-effort' }),
+      outgoing('message', t<{ text: string }>()),
+      incoming(
+        received('echo', (value: unknown) => value as { text: string }),
+        async () => {},
+      ),
+    );
+
+    const engine = new Engine(handler, {
+      adapterId: 'test',
+      hibernation: false,
+    });
+
+    engine.setStorage(createStorage());
+    engine.setTimerProvider(createTimers().timers);
+
+    await expect(engine.initialize()).rejects.toThrow('did not provide waitUntil');
   });
 
   it('prunes expired replay rows on write', async () => {
@@ -900,8 +928,7 @@ describe('Engine', () => {
       createdAt: now - 10_000,
     });
 
-    engine.setStorage(storage);
-    engine.setTimerProvider(createTimers().timers);
+    attachTestAdapter(engine, storage);
     await engine.initialize();
 
     const realNow = Date.now;
@@ -954,8 +981,7 @@ describe('Engine', () => {
     });
     const storage = createStorage();
 
-    engine.setStorage(storage);
-    engine.setTimerProvider(createTimers().timers);
+    attachTestAdapter(engine, storage);
     await engine.initialize();
 
     const ws = createDescriptor();
@@ -1057,8 +1083,7 @@ describe('Engine', () => {
       hibernation: false,
     });
 
-    engine.setStorage(createStorage());
-    engine.setTimerProvider(createTimers().timers);
+    attachTestAdapter(engine);
     await engine.initialize();
 
     expect(events).toContain('init');
@@ -1130,8 +1155,7 @@ describe('Engine', () => {
       hibernation: false,
     });
 
-    engine.setStorage(createStorage());
-    engine.setTimerProvider(createTimers().timers);
+    attachTestAdapter(engine);
     await engine.initialize();
 
     const first = createDescriptor({ userId: 'a' });
@@ -1209,8 +1233,7 @@ describe('Engine', () => {
       hibernation: true,
     });
 
-    engine.setStorage(createStorage());
-    engine.setTimerProvider(createTimers().timers);
+    attachTestAdapter(engine);
     await engine.initialize();
 
     let attachment: unknown = {
@@ -1268,8 +1291,7 @@ describe('Engine', () => {
       hibernation: false,
     });
 
-    engine.setStorage(createStorage());
-    engine.setTimerProvider(createTimers().timers);
+    attachTestAdapter(engine);
     await engine.initialize();
 
     const socket = createDescriptor();
@@ -1336,8 +1358,7 @@ describe('Engine', () => {
       hibernation: false,
     });
 
-    engine.setStorage(createStorage());
-    engine.setTimerProvider(createTimers().timers);
+    attachTestAdapter(engine);
     await engine.initialize();
 
     const socket = createDescriptor();

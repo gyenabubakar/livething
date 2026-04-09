@@ -117,6 +117,7 @@ export class Engine {
   private timers?: TimerProvider;
   private platform: unknown = {};
   private waitUntilImpl: (promise: Promise<unknown>) => void = () => {};
+  private hasWaitUntil = false;
   /** Default logger used when the adapter does not provide a custom one. */
   private readonly logger = {
     info(message: string, data?: unknown) {
@@ -184,6 +185,7 @@ export class Engine {
    * request or websocket callback.
    */
   setWaitUntil(waitUntil: (promise: Promise<unknown>) => void): void {
+    this.hasWaitUntil = true;
     this.waitUntilImpl = waitUntil;
   }
 
@@ -227,6 +229,16 @@ export class Engine {
       throw new Error(
         `[wskit] Handler requires hibernation, but adapter "${this.options.adapterId}" does not support it.`,
       );
+    }
+  }
+
+  /**
+   * Ensure the adapter provides internal engine guarantees needed by the
+   * runtime hooks that primitives registered during setup.
+   */
+  private validateEngineRequirements(): void {
+    if (!this.hasWaitUntil) {
+      throw new Error(`[wskit] Adapter "${this.options.adapterId}" did not provide waitUntil.`);
     }
   }
 
@@ -461,6 +473,7 @@ export class Engine {
     if (this.initialized) return;
     this.validateRequires();
     this.installPrimitiveHooks();
+    this.validateEngineRequirements();
 
     for (const moduleInstance of this.compiled.modules) {
       const runtime: ModuleRuntime = {
