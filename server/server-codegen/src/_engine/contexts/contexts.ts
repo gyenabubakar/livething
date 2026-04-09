@@ -1,6 +1,7 @@
 import { prefixedModuleEvent } from '~/_engine/compile/utils.ts';
 import { MODULE_API_MAP } from '~/define-module.ts';
 import type { Primitive } from '~/primitive.ts';
+import { ENGINE_SCOPE_META } from './types.ts';
 import type {
   BroadcastOptions,
   BuildConnectionContextDeps,
@@ -9,6 +10,7 @@ import type {
   ConnectionContext,
   ConnectionInfo,
   CreateTaskContextDeps,
+  EngineScopeMeta,
   InitContext,
   ModuleRuntime,
   RuntimeConnection,
@@ -139,6 +141,11 @@ export function buildConnectionContext(
   const storage = deps.requireStorage();
   const base: ConnectionContext<Record<string, unknown>, Record<string, unknown>, unknown> &
     Record<PropertyKey, unknown> = {
+    [ENGINE_SCOPE_META]: {
+      namespaceName: scope?.namespace?.name,
+      channelName: scope?.channelName,
+      channelScope: scope?.channelScope ?? scope?.channel?.key,
+    } satisfies EngineScopeMeta,
     id: connection.id,
     meta: connection.meta,
     tags: [...connection.tags],
@@ -247,8 +254,6 @@ export function buildConnectionContext(
         ),
       broadcast: (event, payload) =>
         deps.broadcastToChannel(channelName, event, payload, connection.id, channelScope),
-      sendReplay: (event, payload, wire) =>
-        deps.sendReplay(connection, channelName, channelScope, event, payload, wire),
     };
     base.channels = {
       members: (name) => deps.getChannelMembers(name),
@@ -261,16 +266,6 @@ export function buildConnectionContext(
     base.ack = () => {
       if (!connection.activeAckId) return;
       deps.sendProtocolMessage(connection, '_ack', { _ackId: connection.activeAckId });
-    };
-  }
-
-  if (deps.compiled.replay && !scope?.namespace && !scope?.channel) {
-    base.sendReplay = (
-      event: string,
-      payload: unknown,
-      wire: { seq: number; messageId: string; channel?: string },
-    ) => {
-      deps.sendReplay(connection, wire.channel, undefined, event, payload, wire);
     };
   }
 

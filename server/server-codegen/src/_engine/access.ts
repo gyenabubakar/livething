@@ -119,6 +119,20 @@ export interface EngineAccess {
   ): void;
 
   /**
+   * Handle one `_replay` protocol request for the active scope.
+   *
+   * Return `true` when this handler matched the scope and handled the replay
+   * request so later replay handlers stop running.
+   */
+  onReplayRequest(
+    handler: (
+      ctx: unknown,
+      since: number,
+      scope: { namespaceName?: string; channelName?: string; channelScope?: string },
+    ) => boolean | void | Promise<boolean | void>,
+  ): void;
+
+  /**
    * Run logic when the adapter wakes the engine for an alarm.
    *
    * Scheduled tasks use this to process due work.
@@ -145,6 +159,14 @@ export interface EngineAccess {
    * Run logic after a channel unsubscription finishes.
    */
   onUnsubscribe(handler: (ctx: unknown) => void | Promise<void>): void;
+
+  /**
+   * Read the scope information for the primitive currently being installed.
+   *
+   * Top-level primitives get an empty object. Channel-scoped primitives get
+   * the channel key they belong to.
+   */
+  getScopeInfo(): { channelKey?: string };
 
   /**
    * Add extra fields or methods to every live connection context.
@@ -192,6 +214,21 @@ export interface EngineAccess {
    * not depend on a concrete engine context type.
    */
   createTaskContext(): unknown;
+
+  /**
+   * Send one replay message to a live connection with explicit wire metadata.
+   *
+   * Primitives use this to resend history without re-running the normal
+   * outgoing pipeline.
+   */
+  sendReplay(
+    connectionId: string,
+    channelName: string | undefined,
+    channelScope: string | undefined,
+    event: string,
+    payload: unknown,
+    wire: { seq: number; messageId: string; channel?: string },
+  ): void;
 
   /**
    * Recompute the next alarm from the current scheduled-run table.

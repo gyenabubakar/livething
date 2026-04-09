@@ -49,6 +49,11 @@ export interface RegisteredEngineHooks {
       }>)[];
   binary: ((ctx: any, data: ArrayBuffer) => void | Promise<void>)[];
   validationError: ((ctx: any, event: string, validationError: unknown) => void | Promise<void>)[];
+  replayRequest: ((
+    ctx: any,
+    since: number,
+    scope: { namespaceName?: string; channelName?: string; channelScope?: string },
+  ) => boolean | void | Promise<boolean | void>)[];
   boot: (() => void | Promise<void>)[];
   alarm: (() => void | Promise<void>)[];
   beforeSubscribe: Map<string, ChannelBeforeSubscribeHook[]>;

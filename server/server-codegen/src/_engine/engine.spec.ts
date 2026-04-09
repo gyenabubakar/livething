@@ -557,6 +557,137 @@ describe('Engine', () => {
     await flushAsyncWork();
   });
 
+  it('dispatches top-level replay requests through the replay primitive', async () => {
+    const seen: number[] = [];
+
+    const handler = server('engine-replay-top-level', {
+      _incoming: incoming,
+      _outgoing: outgoing,
+      _replay: replay,
+      _sequence: sequence,
+      _dedup: dedup,
+    }).define(
+      sequence(),
+      dedup(),
+      outgoing('message', t<{ text: string }>()),
+      replay({
+        async onReplay(
+          ctx: {
+            sendReplay(
+              event: 'message',
+              payload: { text: string },
+              wire: { seq: number; messageId: string },
+            ): void;
+          },
+          since,
+        ) {
+          seen.push(since);
+          ctx.sendReplay('message', { text: 'history' }, { seq: 7, messageId: 'm7' });
+        },
+      }),
+      incoming(
+        received('echo', (value: unknown) => value as { text: string }),
+        async () => {},
+      ),
+    );
+
+    const engine = new Engine(handler, {
+      adapterId: 'test',
+      hibernation: false,
+    });
+
+    engine.setStorage(createStorage());
+    engine.setTimerProvider(createTimers().timers);
+    await engine.initialize();
+
+    const ws = createDescriptor();
+    const conn = engine.accept(Symbol('ws-replay-top-level'), ws.descriptor);
+    conn.handleMessage(JSON.stringify({ event: '_replay', payload: { since: 4 } }));
+    await flushAsyncWork();
+
+    expect(seen).toEqual([4]);
+    expect(ws.sent[0]).toEqual({
+      event: 'message',
+      payload: { text: 'history', _seq: 7, _messageId: 'm7' },
+    });
+  });
+
+  it('dispatches channel replay requests through the matching channel replay primitive', async () => {
+    const seen: number[] = [];
+
+    const handler = server('engine-replay-channel', {
+      _incoming: incoming,
+      _outgoing: outgoing,
+      _replay: replay,
+      _sequence: sequence,
+      _dedup: dedup,
+      _channel: channel,
+    }).define(
+      sequence(),
+      dedup(),
+      channel(
+        scope('rooms', /^room-/),
+        replay({
+          async onReplay(
+            ctx: {
+              channel: {
+                sendReplay(
+                  event: 'message',
+                  payload: { text: string },
+                  wire: { seq: number; messageId: string },
+                ): void;
+              };
+            },
+            since,
+          ) {
+            seen.push(since);
+            ctx.channel.sendReplay(
+              'message',
+              { text: 'room-history' },
+              { seq: 9, messageId: 'm9' },
+            );
+          },
+        }),
+        outgoing('message', t<{ text: string }>()),
+        incoming(
+          received('echo', (value: unknown) => value as { text: string }),
+          async () => {},
+        ),
+      ),
+    );
+
+    const engine = new Engine(handler, {
+      adapterId: 'test',
+      hibernation: false,
+    });
+
+    engine.setStorage(createStorage());
+    engine.setTimerProvider(createTimers().timers);
+    await engine.initialize();
+
+    const ws = createDescriptor();
+    const conn = engine.accept(Symbol('ws-replay-channel'), ws.descriptor);
+    conn.handleMessage(
+      JSON.stringify({
+        event: '_replay',
+        payload: { since: 3, _channel: 'room-1', _channelScope: 'rooms' },
+      }),
+    );
+    await flushAsyncWork();
+
+    expect(seen).toEqual([3]);
+    expect(ws.sent[0]).toEqual({
+      event: 'message',
+      payload: {
+        text: 'room-history',
+        _seq: 9,
+        _messageId: 'm9',
+        _channel: 'room-1',
+        _channelScope: 'rooms',
+      },
+    });
+  });
+
   it('registers built-in lifecycle hooks through primitive setup', async () => {
     const events: string[] = [];
     const s = server('engine-lifecycle', {

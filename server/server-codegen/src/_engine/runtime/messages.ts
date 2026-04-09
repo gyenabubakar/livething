@@ -482,17 +482,30 @@ export async function handleUnsubscribe(
  * Dispatch a replay request into the top-level or channel replay primitive.
  */
 export async function handleReplay(
-  runtime: Pick<DispatchRuntime, 'compiled' | 'buildConnectionContext'>,
+  runtime: Pick<DispatchRuntime, 'buildConnectionContext'> & {
+    replayRequests: readonly ((
+      ctx: any,
+      since: number,
+      scope: { namespaceName?: string; channelName?: string; channelScope?: string },
+    ) => boolean | void | Promise<boolean | void>)[];
+  },
   connection: RuntimeConnection,
   payload: Record<string, unknown> | undefined,
   resolve: (payload: unknown) => ResolvedScope,
 ): Promise<void> {
   const since = Number(payload?.since ?? 0);
   const scope = resolve(payload);
-  const replay = scope.channel?.replay ?? runtime.compiled.replay;
-  if (!replay?.onReplay) return;
   const ctx = runtime.buildConnectionContext(connection, scope);
-  await replay.onReplay(ctx, since);
+
+  for (const handler of runtime.replayRequests) {
+    const handled = await handler(ctx, since, {
+      namespaceName: scope.namespace?.name,
+      channelName: scope.channelName,
+      channelScope: scope.channelScope,
+    });
+
+    if (handled) return;
+  }
 }
 
 /**

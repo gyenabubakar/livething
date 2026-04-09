@@ -7,7 +7,6 @@ import type { PostInterceptPrimitive, PreInterceptPrimitive } from '~/intercept/
 import type { NamespacePrimitive } from '~/namespace/index.ts';
 import type { OutgoingPrimitive } from '~/outgoing/index.ts';
 import type { RequiresManifest } from '~/primitive.ts';
-import type { ReplayPrimitive } from '~/replay/index.ts';
 import type { RequestPrimitive } from '~/request/index.ts';
 import type { ScheduledPrimitive } from '~/scheduled/index.ts';
 import type { GeneratePrimitive, NudgeDeclaration, StreamPrimitive } from '~/stream/index.ts';
@@ -52,7 +51,6 @@ export interface CompiledChannel {
   streams: Map<string, AnyGenerate>;
   preIntercepts: AnyPreIntercept[];
   postIntercepts: Map<string, AnyPostIntercept[]>;
-  replay?: ReplayPrimitive<any>;
 }
 
 /**
@@ -75,7 +73,6 @@ export interface CompiledServer {
   modules: AnyModule[];
   errors: ErrorsPrimitive<any>[];
   ack: boolean;
-  replay?: ReplayPrimitive<any>;
   heartbeatTimeout?: number;
   hibernationEnabled: boolean;
   requires: RequiresManifest;

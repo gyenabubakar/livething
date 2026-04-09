@@ -1,6 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { dedup } from '~/dedup/dedup.ts';
 import { definePrimitive } from '~/primitive.ts';
+import { matchesReplayScope, readReplayContextScope } from '~/replay/runtime.ts';
 import { sequence } from '~/sequence/sequence.ts';
 import type { ReplayWire } from '~/_types/scope-state.ts';
 import type { Primitive } from '~/primitive.ts';
@@ -44,6 +45,52 @@ const _replay = definePrimitive<
     return {
       onReplay: options?.onReplay,
     };
+  },
+  setup(engine, data) {
+    const { channelKey } = engine.getScopeInfo();
+
+    engine.extendContext((ctx) => {
+      const base = ctx as Record<PropertyKey, unknown> & {
+        id?: string;
+        channel?: Record<PropertyKey, unknown>;
+        sendReplay?: (event: string, payload: unknown, wire: ReplayWire) => void;
+      };
+      const scope = readReplayContextScope(base);
+
+      if (channelKey) {
+        if (scope.channelScope !== channelKey || !base.id || !base.channel) return {};
+
+        base.channel.sendReplay = (event: string, payload: unknown, wire: ReplayWire) => {
+          engine.sendReplay(
+            base.id as string,
+            scope.channelName,
+            scope.channelScope,
+            event,
+            payload,
+            wire,
+          );
+        };
+
+        return {};
+      }
+
+      if (scope.namespaceName || scope.channelName || !base.id) return {};
+
+      base.sendReplay = (event: string, payload: unknown, wire: ReplayWire) => {
+        engine.sendReplay(base.id as string, wire.channel, undefined, event, payload, wire);
+      };
+
+      return {};
+    });
+
+    if (!data.onReplay) return;
+
+    engine.onReplayRequest(async (ctx, since, scope) => {
+      if (!matchesReplayScope(channelKey, scope)) return false;
+
+      await data.onReplay?.(ctx, since);
+      return true;
+    });
   },
 });
 

@@ -58,7 +58,10 @@ export interface ScopeSendApi {
 }
 
 export interface ReplayScopeSendApi extends ScopeSendApi {
-  sendReplay(
+  // This stays optional in the broad runtime type because not every channel
+  // context has replay enabled. The precise generated/app-facing types narrow
+  // this to required only when replay() is actually registered for that scope.
+  sendReplay?(
     event: string,
     payload: unknown,
     wire: { seq: number; messageId: string; channel?: string },

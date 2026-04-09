@@ -83,6 +83,7 @@ function createRegisteredHooks(): RegisteredEngineHooks {
     incoming: [],
     outgoing: [],
     contextExtenders: [],
+    replayRequest: [],
     boot: [],
     init: [],
     connect: [],
@@ -359,6 +360,9 @@ export class Engine {
       onValidationError: (handler) => {
         this.hooks.validationError.push(handler);
       },
+      onReplayRequest: (handler) => {
+        this.hooks.replayRequest.push(handler);
+      },
       onAlarm: (handler) => {
         this.hooks.alarm.push(handler);
       },
@@ -376,6 +380,9 @@ export class Engine {
       onUnsubscribe: (handler) => {
         this.pushChannelHook(this.hooks.unsubscribe, scope?.channelKey, handler, 'onUnsubscribe');
       },
+      getScopeInfo: () => ({
+        channelKey: scope?.channelKey,
+      }),
       extendContext: (factory) => {
         this.hooks.contextExtenders.push(factory);
       },
@@ -386,6 +393,11 @@ export class Engine {
       getScheduledTask: (taskId) => this.compiled.scheduled.get(taskId),
       getScheduledTasks: () => this.compiled.scheduled.values(),
       createTaskContext: () => this.createTaskContext(),
+      sendReplay: (connectionId, channelName, channelScope, event, payload, wire) => {
+        const connection = this.connections.get(connectionId);
+        if (!connection) return;
+        this.sendReplay(connection, channelName, channelScope, event, payload, wire);
+      },
       rescheduleAlarm: () => this.rescheduleAlarm(),
       generateId: (prefix) => this.generateId(prefix),
       rawSend: (connectionId, event, payload) => {
@@ -1185,7 +1197,7 @@ export class Engine {
   ): Promise<void> {
     return handleReplay(
       {
-        compiled: this.compiled,
+        replayRequests: this.hooks.replayRequest,
         buildConnectionContext: (targetConnection, scope) =>
           this.buildConnectionContext(targetConnection, scope),
       },

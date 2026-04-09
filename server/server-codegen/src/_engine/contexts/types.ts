@@ -17,6 +17,18 @@ import type {
 } from '~/index.ts';
 
 /**
+ * Hidden scope markers attached to live connection contexts for engine-owned
+ * helpers and primitive context extenders.
+ */
+export interface EngineScopeMeta {
+  namespaceName?: string;
+  channelName?: string;
+  channelScope?: string;
+}
+
+export const ENGINE_SCOPE_META = Symbol('wskit-engine-scope-meta');
+
+/**
  * Shared capabilities needed to build init, task, shutdown, and connection
  * contexts from the engine state.
  */

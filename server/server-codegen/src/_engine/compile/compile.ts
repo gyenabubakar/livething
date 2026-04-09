@@ -2,7 +2,6 @@
 import type { ServerDefinition } from '~/define-server.ts';
 import type { HibernationPrimitive } from '~/hibernation/index.ts';
 import type { Primitive } from '~/primitive.ts';
-import type { ReplayPrimitive } from '~/replay/index.ts';
 import {
   isChannelPrimitive,
   isNamespacePrimitive,
@@ -91,7 +90,6 @@ function compileChannel(primitive: ChannelPrimitive): CompiledChannel {
     else if (child.__wskit === 'incoming') scope.incoming.set(child.event, child as AnyIncoming);
     else if (child.__wskit === 'request') scope.requests.set(child.event, child as AnyRequest);
     else if (child.__wskit === 'generate') scope.streams.set(child.event, child as AnyGenerate);
-    else if (child.__wskit === 'replay') scope.replay = child as ReplayPrimitive<any>;
     else if (child.__wskit === 'intercept') {
       const intercept = child as AnyPreIntercept | AnyPostIntercept;
       if (intercept.mode === 'pre') scope.preIntercepts.push(intercept);
@@ -115,7 +113,6 @@ function visitCompiledPrimitives(compiled: CompiledServer, primitives: readonly 
     }
 
     if (primitive.__wskit === 'ack') compiled.ack = true;
-    else if (primitive.__wskit === 'replay') compiled.replay = primitive as ReplayPrimitive<any>;
     else if (primitive.__wskit === 'heartbeat')
       compiled.heartbeatTimeout = (primitive as any).timeout;
     else if (primitive.__wskit === 'hibernation') {
