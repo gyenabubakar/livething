@@ -158,6 +158,23 @@ const _replayDeps: readonly PrimitiveRef[] = replayPrimitive.__dependencies;
 const _replayReqs: RequiresManifest = replayPrimitive.__requires;
 void [_replayDeps, _replayReqs];
 
+const DURABLE_REPLAY_KEY = Symbol('durable-replay');
+const durableReplay = definePrimitive({
+  tag: 'durable-replay' as const,
+  key: DURABLE_REPLAY_KEY,
+  kind: 'infrastructure',
+  requires(options: { persist?: boolean }) {
+    return options.persist ? { storage: true } : {};
+  },
+  create(options: { persist?: boolean }) {
+    return { persist: options.persist ?? false };
+  },
+});
+
+const _durableReplayReqsOff: RequiresManifest = durableReplay({}).__requires;
+const _durableReplayReqsOn: RequiresManifest = durableReplay({ persist: true }).__requires;
+void [_durableReplayReqsOff, _durableReplayReqsOn];
+
 // ===========================================================================
 // 10. definePrimitive — with setup function
 // ===========================================================================

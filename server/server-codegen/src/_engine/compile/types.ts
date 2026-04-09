@@ -75,6 +75,8 @@ export interface CompiledServer {
   ack: boolean;
   heartbeatTimeout?: number;
   hibernationEnabled: boolean;
+  replayEnabled: boolean;
+  sequencePersistent: boolean;
   requires: RequiresManifest;
 }
 

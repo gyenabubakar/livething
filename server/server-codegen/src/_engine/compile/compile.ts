@@ -115,7 +115,11 @@ function visitCompiledPrimitives(compiled: CompiledServer, primitives: readonly 
     if (primitive.__wskit === 'ack') compiled.ack = true;
     else if (primitive.__wskit === 'heartbeat')
       compiled.heartbeatTimeout = (primitive as any).timeout;
-    else if (primitive.__wskit === 'hibernation') {
+    else if (primitive.__wskit === 'sequence') {
+      compiled.sequencePersistent = Boolean((primitive as { persist?: boolean }).persist);
+    } else if (primitive.__wskit === 'replay') {
+      compiled.replayEnabled = true;
+    } else if (primitive.__wskit === 'hibernation') {
       compiled.hibernationEnabled = (primitive as HibernationPrimitive).enabled;
     } else if (primitive.__wskit === 'outgoing') {
       compiled.outgoing.set((primitive as AnyOutgoing).event, primitive as AnyOutgoing);
@@ -138,6 +142,9 @@ function visitCompiledPrimitives(compiled: CompiledServer, primitives: readonly 
     } else if (isNamespacePrimitive(primitive)) {
       compiled.namespaces.set(primitive.pattern, compileNamespace(primitive));
     } else if (isChannelPrimitive(primitive)) {
+      if (primitive.primitives.some((child) => child.__wskit === 'replay')) {
+        compiled.replayEnabled = true;
+      }
       const compiledChannel = compileChannel(primitive);
       if (typeof primitive.pattern === 'string')
         compiled.channels.set(primitive.pattern, compiledChannel);
@@ -166,6 +173,8 @@ export function compileHandlerDefinition(handler: ServerDefinition): CompiledSer
     errors: [],
     ack: false,
     hibernationEnabled: false,
+    replayEnabled: false,
+    sequencePersistent: false,
     requires: {},
   };
 

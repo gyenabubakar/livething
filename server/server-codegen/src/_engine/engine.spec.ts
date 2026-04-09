@@ -46,6 +46,13 @@ class FakeSqlResult {
 }
 
 class FakeSqlProvider {
+  sequence = new Map<
+    string,
+    {
+      scope: string;
+      nextSeq: number;
+    }
+  >();
   replay = new Map<
     string,
     {
@@ -102,6 +109,10 @@ class FakeSqlProvider {
       return new FakeSqlResult([]);
     }
 
+    if (normalizedQuery.startsWith('CREATE TABLE IF NOT EXISTS _wskit_sequence')) {
+      return new FakeSqlResult([]);
+    }
+
     if (normalizedQuery.startsWith('CREATE INDEX IF NOT EXISTS idx_wskit_replay_')) {
       return new FakeSqlResult([]);
     }
@@ -120,6 +131,12 @@ class FakeSqlProvider {
       )
     ) {
       return new FakeSqlResult([...this.scheduledDlq.values()]);
+    }
+
+    if (normalizedQuery.startsWith('SELECT nextSeq FROM _wskit_sequence WHERE scope = ?')) {
+      const [scope] = params;
+      const row = this.sequence.get(String(scope));
+      return new FakeSqlResult(row ? [row] : []);
     }
 
     if (
@@ -239,6 +256,24 @@ class FakeSqlProvider {
         channelScope: (params[7] as string | null) ?? null,
         snapshotKey: (params[8] as string | null) ?? null,
         createdAt: Number(params[9]),
+      });
+      return new FakeSqlResult([]);
+    }
+
+    if (
+      normalizedQuery.startsWith('INSERT INTO _wskit_sequence ( scope, nextSeq ) VALUES (?, ?)')
+    ) {
+      this.sequence.set(String(params[0]), {
+        scope: String(params[0]),
+        nextSeq: Number(params[1]),
+      });
+      return new FakeSqlResult([]);
+    }
+
+    if (normalizedQuery.startsWith('UPDATE _wskit_sequence SET nextSeq = ? WHERE scope = ?')) {
+      this.sequence.set(String(params[1]), {
+        scope: String(params[1]),
+        nextSeq: Number(params[0]),
       });
       return new FakeSqlResult([]);
     }
@@ -627,7 +662,7 @@ describe('Engine', () => {
       _replay: replay,
       _sequence: sequence,
     }).define(
-      sequence(),
+      sequence({ persist: true }),
       dedup(),
       outgoing('message', t<{ text: string }>()),
       replay(),
@@ -672,7 +707,7 @@ describe('Engine', () => {
       _sequence: sequence,
       _dedup: dedup,
     }).define(
-      sequence(),
+      sequence({ persist: true }),
       dedup(),
       outgoing('message', t<{ text: string }>()),
       replay(),
@@ -724,7 +759,7 @@ describe('Engine', () => {
       _sequence: sequence,
       _dedup: dedup,
     }).define(
-      sequence(),
+      sequence({ persist: true }),
       dedup(),
       replay({ durability: 'strict' }),
       outgoing('message', t<{ text: string }>()),
@@ -795,7 +830,7 @@ describe('Engine', () => {
       _sequence: sequence,
       _dedup: dedup,
     }).define(
-      sequence(),
+      sequence({ persist: true }),
       dedup(),
       replay({ durability: 'best-effort' }),
       outgoing('message', t<{ text: string }>()),
@@ -866,7 +901,7 @@ describe('Engine', () => {
       _sequence: sequence,
       _dedup: dedup,
     }).define(
-      sequence(),
+      sequence({ persist: true }),
       dedup(),
       replay({ durability: 'best-effort' }),
       outgoing('message', t<{ text: string }>()),
@@ -887,6 +922,90 @@ describe('Engine', () => {
     await expect(engine.initialize()).rejects.toThrow('did not provide waitUntil');
   });
 
+  it('fails boot when replay is registered without persistent sequence', async () => {
+    const handler = server('engine-replay-needs-persistent-sequence', {
+      _incoming: incoming,
+      _outgoing: outgoing,
+      _replay: replay,
+      _sequence: sequence,
+      _dedup: dedup,
+    }).define(
+      sequence(),
+      dedup(),
+      replay(),
+      outgoing('message', t<{ text: string }>()),
+      incoming(
+        received('echo', (value: unknown) => value as { text: string }),
+        async () => {},
+      ),
+    );
+
+    const engine = new Engine(handler, {
+      adapterId: 'test',
+      hibernation: false,
+    });
+
+    attachTestAdapter(engine);
+
+    await expect(engine.initialize()).rejects.toThrow(
+      'replay() requires sequence({ persist: true })',
+    );
+  });
+
+  it('keeps sequence numbers increasing across engine restarts when persistence is enabled', async () => {
+    const handler = server('engine-sequence-persistent', {
+      _incoming: incoming,
+      _outgoing: outgoing,
+      _sequence: sequence,
+    }).define(
+      sequence({ persist: true }),
+      outgoing('message', t<{ text: string }>()),
+      incoming(
+        received('echo', (value: unknown) => value as { text: string }),
+        async (ctx: { send(event: 'message', payload: { text: string }): void }, payload) => {
+          ctx.send('message', { text: payload.text });
+        },
+      ),
+    );
+
+    const storage = createStorage();
+
+    const firstEngine = new Engine(handler, {
+      adapterId: 'test',
+      hibernation: false,
+    });
+
+    attachTestAdapter(firstEngine, storage);
+    await firstEngine.initialize();
+
+    const firstWs = createDescriptor();
+    const firstConn = firstEngine.accept(Symbol('ws-seq-first'), firstWs.descriptor);
+    firstConn.handleMessage(JSON.stringify({ event: 'echo', payload: { text: 'one' } }));
+    await flushAsyncWork();
+
+    const secondEngine = new Engine(handler, {
+      adapterId: 'test',
+      hibernation: false,
+    });
+
+    attachTestAdapter(secondEngine, storage);
+    await secondEngine.initialize();
+
+    const secondWs = createDescriptor();
+    const secondConn = secondEngine.accept(Symbol('ws-seq-second'), secondWs.descriptor);
+    secondConn.handleMessage(JSON.stringify({ event: 'echo', payload: { text: 'two' } }));
+    await flushAsyncWork();
+
+    expect(firstWs.sent[0]).toEqual({
+      event: 'message',
+      payload: { text: 'one', _seq: 1 },
+    });
+    expect(secondWs.sent[0]).toEqual({
+      event: 'message',
+      payload: { text: 'two', _seq: 2 },
+    });
+  });
+
   it('prunes expired replay rows on write', async () => {
     const now = Date.now();
 
@@ -897,7 +1016,7 @@ describe('Engine', () => {
       _sequence: sequence,
       _dedup: dedup,
     }).define(
-      sequence(),
+      sequence({ persist: true }),
       dedup(),
       replay({ retention: { maxAgeMs: 1_000 } }),
       outgoing('message', t<{ text: string }>()),
@@ -953,7 +1072,7 @@ describe('Engine', () => {
       _dedup: dedup,
       _channel: channel,
     }).define(
-      sequence(),
+      sequence({ persist: true }),
       dedup(),
       channel(
         scope('rooms', /^room-/),

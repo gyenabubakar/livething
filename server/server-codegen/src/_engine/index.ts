@@ -240,6 +240,10 @@ export class Engine {
     if (!this.hasWaitUntil) {
       throw new Error(`[wskit] Adapter "${this.options.adapterId}" did not provide waitUntil.`);
     }
+
+    if (this.compiled.replayEnabled && !this.compiled.sequencePersistent) {
+      throw new Error('[wskit] replay() requires sequence({ persist: true }) for durable replay.');
+    }
   }
 
   /**

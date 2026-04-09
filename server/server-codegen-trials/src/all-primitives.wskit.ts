@@ -63,7 +63,7 @@ const roomAi = stream(
 
 const allPrimitivesServer = define(
   heartbeat({ timeout: 45_000 }),
-  sequence(),
+  sequence({ persist: true }),
   dedup(),
   errors(Forbidden, QuotaExceeded),
   replay(),

@@ -129,7 +129,7 @@ export interface PrimitiveConfig<
   readonly kind: PrimitiveKind;
   readonly registrationId?: (...args: TArgs) => string;
   readonly dependencies?: readonly PrimitiveRef[];
-  readonly requires?: RequiresManifest;
+  readonly requires?: RequiresManifest | ((...args: TArgs) => RequiresManifest);
 
   /** Transform factory arguments into the data stored on the primitive instance. */
   create(...args: TArgs): TData;
@@ -202,13 +202,15 @@ export function definePrimitive<
       : [config.key];
 
     const data = config.create(...args);
+    const requires =
+      typeof config.requires === 'function' ? config.requires(...args) : (config.requires ?? {});
 
     return {
       __wskit: config.tag,
       __kind: config.kind,
       __identity: identity,
       __dependencies: config.dependencies ?? [],
-      __requires: config.requires ?? {},
+      __requires: requires,
       __setup: config.setup ? (engine: EngineAccess) => config.setup!(engine, data) : undefined,
       ...data,
     } as Primitive<TTag> & TData;
