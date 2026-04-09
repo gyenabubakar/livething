@@ -89,6 +89,7 @@ function installSequence(
     onOutgoing(handler) {
       outgoingHandlers.push(handler);
     },
+    setSequencePersistent() {},
     requireStorage() {
       return {
         sql,
@@ -106,7 +107,7 @@ function installSequence(
     },
   } as Pick<
     EngineAccess,
-    'installOnce' | 'onBoot' | 'onOutgoing' | 'requireStorage'
+    'installOnce' | 'onBoot' | 'onOutgoing' | 'requireStorage' | 'setSequencePersistent'
   > as EngineAccess;
 
   sequence(options).__setup?.(engine);
@@ -161,7 +162,8 @@ describe('sequence', () => {
       onOutgoing(handler) {
         outgoingHandlers.push(handler);
       },
-    } as Pick<EngineAccess, 'installOnce' | 'onOutgoing'> as EngineAccess;
+      setSequencePersistent() {},
+    } as Pick<EngineAccess, 'installOnce' | 'onOutgoing' | 'setSequencePersistent'> as EngineAccess;
 
     sequence().__setup?.(engine);
     sequence().__setup?.(engine);

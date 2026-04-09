@@ -219,6 +219,21 @@ export interface EngineAccess {
   setHibernationEnabled(enabled: boolean): void;
 
   /**
+   * Tell the engine that automatic replay is enabled for this handler.
+   *
+   * The engine uses this only for internal startup validation.
+   */
+  setReplayEnabled(enabled: boolean): void;
+
+  /**
+   * Tell the engine whether `sequence()` is using durable SQLite-backed state.
+   *
+   * This lets startup validation ensure replay is paired with durable
+   * sequence tracking.
+   */
+  setSequencePersistent(enabled: boolean): void;
+
+  /**
    * Refresh the idle timeout for one live connection.
    *
    * Built-in primitives such as `heartbeat()` use this instead of reaching

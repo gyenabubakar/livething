@@ -73,8 +73,6 @@ export interface CompiledServer {
   modules: AnyModule[];
   errors: ErrorsPrimitive<any>[];
   ack: boolean;
-  replayEnabled: boolean;
-  sequencePersistent: boolean;
   requires: RequiresManifest;
 }
 

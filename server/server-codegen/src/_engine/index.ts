@@ -120,6 +120,8 @@ export class Engine {
   private waitUntilImpl: (promise: Promise<unknown>) => void = () => {};
   private hasWaitUntil = false;
   private hibernationEnabled = false;
+  private replayEnabled = false;
+  private sequencePersistent = false;
   /** Default logger used when the adapter does not provide a custom one. */
   private readonly logger = {
     info(message: string, data?: unknown) {
@@ -243,7 +245,7 @@ export class Engine {
       throw new Error(`[wskit] Adapter "${this.options.adapterId}" did not provide waitUntil.`);
     }
 
-    if (this.compiled.replayEnabled && !this.compiled.sequencePersistent) {
+    if (this.replayEnabled && !this.sequencePersistent) {
       throw new Error('[wskit] replay() requires sequence({ persist: true }) for durable replay.');
     }
   }
@@ -419,6 +421,12 @@ export class Engine {
       requireTimers: () => this.requireTimers(),
       setHibernationEnabled: (enabled) => {
         this.hibernationEnabled = enabled;
+      },
+      setReplayEnabled: (enabled) => {
+        this.replayEnabled = enabled;
+      },
+      setSequencePersistent: (enabled) => {
+        this.sequencePersistent = enabled;
       },
       refreshConnectionIdleTimeout: (connectionId, timeoutMs) => {
         const connection = this.connections.get(connectionId);

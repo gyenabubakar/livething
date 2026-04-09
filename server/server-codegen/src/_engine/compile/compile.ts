@@ -117,11 +117,9 @@ function visitCompiledPrimitives(compiled: CompiledServer, primitives: readonly 
         continue;
 
       case 'sequence':
-        compiled.sequencePersistent = Boolean((primitive as { persist?: boolean }).persist);
         continue;
 
       case 'replay':
-        compiled.replayEnabled = true;
         continue;
 
       case 'outgoing':
@@ -166,10 +164,6 @@ function visitCompiledPrimitives(compiled: CompiledServer, primitives: readonly 
     }
 
     if (isChannelPrimitive(primitive)) {
-      if (primitive.primitives.some((child) => child.__wskit === 'replay')) {
-        compiled.replayEnabled = true;
-      }
-
       const compiledChannel = compileChannel(primitive);
 
       if (typeof primitive.pattern === 'string') {
@@ -202,8 +196,6 @@ export function compileHandlerDefinition(handler: ServerDefinition): CompiledSer
     modules: [],
     errors: [],
     ack: false,
-    replayEnabled: false,
-    sequencePersistent: false,
     requires: {},
   };
 

@@ -245,6 +245,7 @@ describe('replay', () => {
       extendContext(factory) {
         extenders.push(factory);
       },
+      setReplayEnabled() {},
       onBeforeSend() {},
       onAfterSend() {},
       onBoot() {},
@@ -258,6 +259,7 @@ describe('replay', () => {
       | 'onBeforeSend'
       | 'onBoot'
       | 'onProtocolMessage'
+      | 'setReplayEnabled'
       | 'sendReplay'
     > as EngineAccess;
 
@@ -282,6 +284,7 @@ describe('replay', () => {
       extendContext(factory) {
         extenders.push(factory);
       },
+      setReplayEnabled() {},
       onBeforeSend() {},
       onAfterSend() {},
       onBoot() {},
@@ -295,6 +298,7 @@ describe('replay', () => {
       | 'onBeforeSend'
       | 'onBoot'
       | 'onProtocolMessage'
+      | 'setReplayEnabled'
       | 'sendReplay'
     > as EngineAccess;
 
@@ -347,6 +351,7 @@ describe('replay', () => {
         return { channelKey: 'rooms' };
       },
       extendContext() {},
+      setReplayEnabled() {},
       onBeforeSend() {},
       onAfterSend() {},
       onBoot() {},
@@ -407,6 +412,7 @@ describe('replay', () => {
       | 'onBoot'
       | 'onProtocolMessage'
       | 'requireStorage'
+      | 'setReplayEnabled'
       | 'sendReplay'
     > as EngineAccess;
 

@@ -51,6 +51,8 @@ const _replay = definePrimitive<
     };
   },
   setup(engine, data) {
+    engine.setReplayEnabled(true);
+
     const { channelKey } = engine.getScopeInfo();
     const options = data.options;
     const exclude = new Set(options.exclude ?? []);

@@ -52,6 +52,8 @@ const _sequence = definePrimitive<
     };
   },
   setup(engine, data) {
+    engine.setSequencePersistent(data.persist);
+
     engine.installOnce(SEQUENCE_KEY, () => {
       let current = 0;
 
