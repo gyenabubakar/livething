@@ -1,4 +1,5 @@
 import type { AnyScheduled } from '~/_engine/compile/types.ts';
+import type { IncomingProtocolEvent, WireOutgoingMessage } from '~/_engine/runtime/types.ts';
 import type { StorageProvider, TimerProvider } from '~/context.ts';
 import type { ScheduledDeadLetter, ScheduledRun } from '~/scheduled/types.ts';
 import type { Validator } from '~/types.ts';
@@ -53,6 +54,21 @@ export interface EngineAccess {
       payload: unknown;
     }) => { event: string; payload: unknown } | void,
   ): void;
+
+  /**
+   * Observe one fully prepared outgoing wire message before it is sent.
+   *
+   * The payload here already includes engine metadata like `_seq`,
+   * `_messageId`, and any scope routing markers. Throw to stop the send.
+   */
+  onBeforeSend(handler: (message: WireOutgoingMessage) => void): void;
+
+  /**
+   * Observe one fully prepared outgoing wire message after it is sent.
+   *
+   * Use this for best-effort side effects that should not block delivery.
+   */
+  onAfterSend(handler: (message: WireOutgoingMessage) => void | Promise<void>): void;
 
   /**
    * Run logic when the server finishes booting.
@@ -119,16 +135,16 @@ export interface EngineAccess {
   ): void;
 
   /**
-   * Handle one `_replay` protocol request for the active scope.
+   * Handle one reserved protocol message sent by the client.
    *
-   * Return `true` when this handler matched the scope and handled the replay
-   * request so later replay handlers stop running.
+   * Return `true` when this handler consumed the protocol message so later
+   * handlers stop running.
    */
-  onReplayRequest(
+  onProtocolMessage(
+    event: IncomingProtocolEvent,
     handler: (
       ctx: unknown,
-      since: number,
-      scope: { namespaceName?: string; channelName?: string; channelScope?: string },
+      payload: Record<string, unknown> | undefined,
     ) => boolean | void | Promise<boolean | void>,
   ): void;
 
@@ -229,6 +245,14 @@ export interface EngineAccess {
     payload: unknown,
     wire: { seq: number; messageId: string; channel?: string },
   ): void;
+
+  /**
+   * Let a background task continue even after the current callback returns.
+   *
+   * Adapters can map this to a platform primitive such as Durable Objects
+   * `waitUntil`.
+   */
+  waitUntil(promise: Promise<unknown>): void;
 
   /**
    * Recompute the next alarm from the current scheduled-run table.

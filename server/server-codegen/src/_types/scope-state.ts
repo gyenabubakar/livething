@@ -30,7 +30,7 @@ type AnyGenerate = GeneratePrimitive<
   any
 >;
 type AnyErrors = ErrorsPrimitive<readonly AnyErrorDef[]>;
-type AnyReplay = ReplayPrimitive<any>;
+type AnyReplay = ReplayPrimitive;
 type AnyIntercept = InterceptPrimitive<string, any, any>;
 type AnyPassive = PassivePrimitive<readonly any[]>;
 

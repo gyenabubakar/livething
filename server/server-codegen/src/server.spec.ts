@@ -188,16 +188,25 @@ describe('server()', () => {
       _replay,
     });
 
-    async function onReplay() {}
     const chat = define(
       sequence(),
       dedup(),
-      boundReplay({ onReplay }),
+      boundReplay({
+        type: 'history',
+        retention: {
+          maxAgeMs: 60_000,
+        },
+      }),
       boundOutgoing('message', t<{ text: string }>()),
       boundIncoming(received('ping'), async () => {}),
     );
 
     expect(chat.primitives.filter((primitive) => primitive.__wskit === 'replay')).toHaveLength(1);
-    expect((chat.primitives[2] as ReturnType<typeof replay>).onReplay).toBe(onReplay);
+    expect((chat.primitives[2] as ReturnType<typeof replay>).options).toEqual({
+      type: 'history',
+      retention: {
+        maxAgeMs: 60_000,
+      },
+    });
   });
 });

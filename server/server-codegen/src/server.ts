@@ -640,7 +640,7 @@ type BoundChannelChild<
   TFactories extends ServerPrimitiveFactories,
   TChannel extends string,
 > =
-  | ReplayPrimitive<any>
+  | ReplayPrimitive
   | AnyOutgoingPrimitive
   | BeforeSubscribePrimitive<BoundChannelContext<TName, TFactories, TChannel>, any>
   | SubscribePrimitive<BoundChannelContext<TName, TFactories, TChannel>>
@@ -785,7 +785,7 @@ type BoundChannelFactory<
         TStream extends AnyStream,
       >(
         pattern: TPattern,
-        p1: ReplayPrimitive<any> | AnyOutgoingPrimitive,
+        p1: ReplayPrimitive | AnyOutgoingPrimitive,
         p2: AnyOutgoingPrimitive,
         p3: AnyOutgoingPrimitive,
         interceptPrimitive: PostInterceptPrimitive<
@@ -812,7 +812,7 @@ type BoundChannelFactory<
       ): ChannelPrimitive<
         TPattern,
         readonly [
-          ReplayPrimitive<any> | AnyOutgoingPrimitive,
+          ReplayPrimitive | AnyOutgoingPrimitive,
           AnyOutgoingPrimitive,
           AnyOutgoingPrimitive,
           PostInterceptPrimitive<

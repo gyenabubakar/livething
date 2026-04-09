@@ -21,6 +21,32 @@ export interface ChannelBeforeSubscribeHook {
 }
 
 /**
+ * One finalized outgoing wire message.
+ *
+ * At this point sequence, dedup, routing markers, and other engine-owned
+ * metadata have already been attached to `payload`.
+ */
+export interface WireOutgoingMessage {
+  connectionId: string;
+  event: string;
+  payload: Record<string, unknown>;
+}
+
+/**
+ * Reserved websocket events that can arrive from the client into the engine.
+ *
+ * These are the protocol-level messages wskit itself understands before app
+ * handlers run. Built-in primitives can hook into these names through
+ * `onProtocolMessage(...)`.
+ */
+export type IncomingProtocolEvent =
+  | 'ping'
+  | '_subscribe'
+  | '_unsubscribe'
+  | '_streamCancel'
+  | '_replay';
+
+/**
  * All hook registries the engine fills during primitive setup.
  *
  * These are the runtime lists and maps the engine dispatches later while
@@ -35,6 +61,15 @@ export interface RegisteredEngineHooks {
     event: string;
     payload: unknown;
   }) => { event: string; payload: unknown } | void)[];
+  beforeSend: ((message: WireOutgoingMessage) => void)[];
+  afterSend: ((message: WireOutgoingMessage) => void | Promise<void>)[];
+  protocol: Map<
+    IncomingProtocolEvent,
+    ((
+      ctx: any,
+      payload: Record<string, unknown> | undefined,
+    ) => boolean | void | Promise<boolean | void>)[]
+  >;
   contextExtenders: ((ctx: any) => Record<string, unknown>)[];
   init: ((ctx: any) => void | Promise<void>)[];
   connect: ((ctx: any) => void | Promise<void>)[];
@@ -49,11 +84,6 @@ export interface RegisteredEngineHooks {
       }>)[];
   binary: ((ctx: any, data: ArrayBuffer) => void | Promise<void>)[];
   validationError: ((ctx: any, event: string, validationError: unknown) => void | Promise<void>)[];
-  replayRequest: ((
-    ctx: any,
-    since: number,
-    scope: { namespaceName?: string; channelName?: string; channelScope?: string },
-  ) => boolean | void | Promise<boolean | void>)[];
   boot: (() => void | Promise<void>)[];
   alarm: (() => void | Promise<void>)[];
   beforeSubscribe: Map<string, ChannelBeforeSubscribeHook[]>;

@@ -259,14 +259,12 @@ describe('defineServer', () => {
   });
 
   it('stores channel-scoped replay alongside other channel primitives', () => {
-    async function onReplay() {}
-
     const server = defineServer(
       sequence(),
       dedup(),
       channel(
         scope('replayRooms', /^replay-room-/),
-        replay({ onReplay }),
+        replay({ type: 'history' }),
         outgoing('message', t<{ text: string }>()),
         incoming(received('replay-message'), async () => {}),
       ),
@@ -275,7 +273,9 @@ describe('defineServer', () => {
     const replayChannel = server.primitives[2]! as ReturnType<typeof channel>;
     expect(replayChannel.__wskit).toBe('channel');
     expect(replayChannel.primitives[0]!.__wskit).toBe('replay');
-    expect((replayChannel.primitives[0]! as ReturnType<typeof replay>).onReplay).toBe(onReplay);
+    expect((replayChannel.primitives[0]! as ReturnType<typeof replay>).options).toEqual({
+      type: 'history',
+    });
   });
 
   it('throws when replay() is missing sequence()', () => {

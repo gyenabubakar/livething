@@ -4,6 +4,8 @@ import { replay } from '~/replay/replay.ts';
 import { sequence } from '~/sequence/sequence.ts';
 import { describe, expect, it } from 'vitest';
 import type { EngineAccess } from '~/_engine/access.ts';
+import type { IncomingProtocolEvent } from '~/_engine/runtime/types.ts';
+import type { StorageProvider } from '~/context.ts';
 
 describe('replay', () => {
   it('produces correct tag and kind', () => {
@@ -24,10 +26,26 @@ describe('replay', () => {
     expect(p.__requires).toEqual({ storage: true });
   });
 
-  it('stores the onReplay handler when provided', () => {
-    async function handler() {}
-    const p = replay({ onReplay: handler });
-    expect(p.onReplay).toBe(handler);
+  it('stores automatic replay options when provided', () => {
+    const p = replay({
+      type: 'snapshot',
+      durability: 'best-effort',
+      exclude: ['typing'],
+      retention: {
+        maxAgeMs: 60_000,
+        maxMessages: 10,
+      },
+    });
+
+    expect(p.options).toEqual({
+      type: 'snapshot',
+      durability: 'best-effort',
+      exclude: ['typing'],
+      retention: {
+        maxAgeMs: 60_000,
+        maxMessages: 10,
+      },
+    });
   });
 
   it('adds top-level sendReplay through a context extender', () => {
@@ -39,11 +57,20 @@ describe('replay', () => {
       extendContext(factory) {
         extenders.push(factory);
       },
+      onBeforeSend() {},
+      onAfterSend() {},
+      onBoot() {},
+      onProtocolMessage() {},
       sendReplay() {},
-      onReplayRequest() {},
     } as Pick<
       EngineAccess,
-      'extendContext' | 'getScopeInfo' | 'onReplayRequest' | 'sendReplay'
+      | 'extendContext'
+      | 'getScopeInfo'
+      | 'onAfterSend'
+      | 'onBeforeSend'
+      | 'onBoot'
+      | 'onProtocolMessage'
+      | 'sendReplay'
     > as EngineAccess;
 
     replay().__setup?.(engine);
@@ -67,11 +94,20 @@ describe('replay', () => {
       extendContext(factory) {
         extenders.push(factory);
       },
+      onBeforeSend() {},
+      onAfterSend() {},
+      onBoot() {},
+      onProtocolMessage() {},
       sendReplay() {},
-      onReplayRequest() {},
     } as Pick<
       EngineAccess,
-      'extendContext' | 'getScopeInfo' | 'onReplayRequest' | 'sendReplay'
+      | 'extendContext'
+      | 'getScopeInfo'
+      | 'onAfterSend'
+      | 'onBeforeSend'
+      | 'onBoot'
+      | 'onProtocolMessage'
+      | 'sendReplay'
     > as EngineAccess;
 
     replay().__setup?.(engine);
@@ -100,33 +136,114 @@ describe('replay', () => {
     expect((otherCtx.channel as { sendReplay?: unknown }).sendReplay).toBeUndefined();
   });
 
-  it('handles only matching replay requests', async () => {
-    const replayRequests: Array<NonNullable<Parameters<EngineAccess['onReplayRequest']>[0]>> = [];
-    const seen: number[] = [];
+  it('handles only matching protocol replay requests', async () => {
+    const protocolHandlers: Array<NonNullable<Parameters<EngineAccess['onProtocolMessage']>[1]>> =
+      [];
+    const sent: Array<Parameters<EngineAccess['sendReplay']>> = [];
+    const rows = [
+      {
+        rowKey: 'row-1',
+        messageId: 'msg-1',
+        seq: 5,
+        event: 'message',
+        payload: JSON.stringify({ text: 'history', _seq: 5, _messageId: 'msg-1' }),
+        namespace: null,
+        channel: 'room-1',
+        channelScope: 'rooms',
+        snapshotKey: null,
+        createdAt: 1,
+      },
+    ];
     const engine = {
       getScopeInfo() {
         return { channelKey: 'rooms' };
       },
       extendContext() {},
-      sendReplay() {},
-      onReplayRequest(handler) {
-        replayRequests.push(handler);
+      onBeforeSend() {},
+      onAfterSend() {},
+      onBoot() {},
+      requireStorage(): StorageProvider {
+        return {
+          sql: {
+            exec() {
+              return {
+                toArray() {
+                  return rows;
+                },
+                one() {
+                  return rows[0] ?? null;
+                },
+                raw() {
+                  return [];
+                },
+              };
+            },
+            transaction<T>(
+              fn: (tx: {
+                exec(
+                  query: string,
+                  ...params: unknown[]
+                ): ReturnType<StorageProvider['sql']['exec']>;
+              }) => T,
+            ) {
+              return fn(this);
+            },
+          },
+          kv: {
+            async get() {
+              return undefined;
+            },
+            async set() {},
+            async delete() {},
+            async list() {
+              return [];
+            },
+          },
+        };
       },
-    } as Pick<
+      sendReplay(...args: Parameters<EngineAccess['sendReplay']>) {
+        sent.push(args);
+      },
+      onProtocolMessage(
+        event: IncomingProtocolEvent,
+        handler: NonNullable<Parameters<EngineAccess['onProtocolMessage']>[1]>,
+      ) {
+        if (event === '_replay') protocolHandlers.push(handler);
+      },
+    } as unknown as Pick<
       EngineAccess,
-      'extendContext' | 'getScopeInfo' | 'onReplayRequest' | 'sendReplay'
+      | 'extendContext'
+      | 'getScopeInfo'
+      | 'onAfterSend'
+      | 'onBeforeSend'
+      | 'onBoot'
+      | 'onProtocolMessage'
+      | 'requireStorage'
+      | 'sendReplay'
     > as EngineAccess;
 
-    replay({
-      async onReplay(_ctx, since) {
-        seen.push(since);
+    replay().__setup?.(engine);
+
+    const handler = protocolHandlers[0]!;
+    const matchingCtx = {
+      id: 'c1',
+      [ENGINE_SCOPE_META]: {
+        channelName: 'room-1',
+        channelScope: 'rooms',
       },
-    }).__setup?.(engine);
+    };
 
-    const handler = replayRequests[0]!;
-
-    expect(await handler({}, 4, { channelName: 'room-1', channelScope: 'rooms' })).toBe(true);
-    expect(await handler({}, 9, {})).toBe(false);
-    expect(seen).toEqual([4]);
+    expect(await handler(matchingCtx, { since: 4 })).toBe(true);
+    expect(await handler({ id: 'c2', [ENGINE_SCOPE_META]: {} }, { since: 9 })).toBe(false);
+    expect(sent).toEqual([
+      [
+        'c1',
+        'room-1',
+        'rooms',
+        'message',
+        { text: 'history', _seq: 5, _messageId: 'msg-1' },
+        { seq: 5, messageId: 'msg-1', channel: 'room-1' },
+      ],
+    ]);
   });
 });

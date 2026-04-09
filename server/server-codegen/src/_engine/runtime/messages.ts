@@ -1,16 +1,23 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { Block, Skip, WskitError } from '@wskit/core';
-import { isProtocolEvent, prefixedModuleEvent, validateValue } from '~/_engine/compile/utils.ts';
+import {
+  isIncomingProtocolEvent,
+  isProtocolEvent,
+  prefixedModuleEvent,
+  validateValue,
+} from '~/_engine/compile/utils.ts';
 import { DeferExhausted } from '~/errors.ts';
 import type { CompiledChannel, CompiledServer } from '~/_engine/compile/types.ts';
 import type { BroadcastOptions, ConnectionInfo, TimerProvider } from '~/index.ts';
 import type {
   ActiveStream,
   ConnectionMembersRuntime,
+  IncomingProtocolEvent,
   ModuleRuntime,
   ResolvedScope,
   RoutingTarget,
   RuntimeConnection,
+  WireOutgoingMessage,
 } from './types.ts';
 
 /**
@@ -23,6 +30,13 @@ interface OutgoingRuntime {
     event: string;
     payload: unknown;
   }) => { event: string; payload: unknown } | void)[];
+  beforeSendHooks: readonly ((message: WireOutgoingMessage) => void)[];
+  afterSendHooks: readonly ((message: WireOutgoingMessage) => void | Promise<void>)[];
+  waitUntil(promise: Promise<unknown>): void;
+  logger: {
+    warn(message: string, data?: unknown): void;
+    error(message: string, data?: unknown): void;
+  };
   generateId(prefix?: string): string;
 }
 
@@ -30,8 +44,14 @@ interface OutgoingRuntime {
  * Larger dependency bag for inbound message dispatch.
  */
 interface DispatchRuntime extends OutgoingRuntime, ConnectionMembersRuntime {
-  logger: { warn(message: string, data?: unknown): void };
   activeStreams: Map<string, ActiveStream>;
+  protocolHandlers: ReadonlyMap<
+    IncomingProtocolEvent,
+    readonly ((
+      ctx: any,
+      payload: Record<string, unknown> | undefined,
+    ) => boolean | void | Promise<boolean | void>)[]
+  >;
   incomingHooks: readonly ((message: {
     event: string;
     payload: unknown;
@@ -78,10 +98,6 @@ interface DispatchRuntime extends OutgoingRuntime, ConnectionMembersRuntime {
     payload: Record<string, unknown> | undefined,
   ): Promise<void>;
   handleUnsubscribe(
-    connection: RuntimeConnection,
-    payload: Record<string, unknown> | undefined,
-  ): Promise<void>;
-  handleReplay(
     connection: RuntimeConnection,
     payload: Record<string, unknown> | undefined,
   ): Promise<void>;
@@ -239,7 +255,34 @@ export function sendThroughPipeline(
   if (routing?.correlationId) finalPayload._correlationId = routing.correlationId;
   if (routing?.streamId) finalPayload._streamId = routing.streamId;
 
+  const wireMessage: WireOutgoingMessage = {
+    connectionId: connection.id,
+    event: message.event,
+    payload: finalPayload,
+  };
+
+  for (const hook of runtime.beforeSendHooks) {
+    hook(wireMessage);
+  }
+
   connection.descriptor.send(JSON.stringify({ event: message.event, payload: finalPayload }));
+
+  for (const hook of runtime.afterSendHooks) {
+    try {
+      const result = hook(wireMessage);
+
+      if (result && typeof (result as Promise<unknown>).then === 'function') {
+        runtime.waitUntil(
+          Promise.resolve(result).catch((error) => {
+            runtime.logger.error('[wskit] after-send hook failed', { error });
+          }),
+        );
+      }
+    } catch (error) {
+      runtime.logger.error('[wskit] after-send hook failed', { error });
+    }
+  }
+
   return true;
 }
 
@@ -247,7 +290,17 @@ export function sendThroughPipeline(
  * Broadcast one event to a set of already-selected connections.
  */
 export function broadcastToConnections(
-  runtime: Pick<OutgoingRuntime, 'compiled' | 'generateId' | 'moduleRuntimes' | 'outgoingHooks'>,
+  runtime: Pick<
+    OutgoingRuntime,
+    | 'afterSendHooks'
+    | 'beforeSendHooks'
+    | 'compiled'
+    | 'generateId'
+    | 'logger'
+    | 'moduleRuntimes'
+    | 'outgoingHooks'
+    | 'waitUntil'
+  >,
   connections: readonly RuntimeConnection[],
   event: string,
   payload: unknown,
@@ -274,7 +327,17 @@ export function broadcastToConnections(
  */
 export function broadcastToChannel(
   runtime: ConnectionMembersRuntime &
-    Pick<OutgoingRuntime, 'compiled' | 'generateId' | 'moduleRuntimes' | 'outgoingHooks'>,
+    Pick<
+      OutgoingRuntime,
+      | 'afterSendHooks'
+      | 'beforeSendHooks'
+      | 'compiled'
+      | 'generateId'
+      | 'logger'
+      | 'moduleRuntimes'
+      | 'outgoingHooks'
+      | 'waitUntil'
+    >,
   channelName: string,
   event: string,
   payload: unknown,
@@ -314,7 +377,17 @@ export function getChannelMembers(
  */
 export async function leaveChannel(
   runtime: ChannelRuntime &
-    Pick<OutgoingRuntime, 'compiled' | 'generateId' | 'moduleRuntimes' | 'outgoingHooks'>,
+    Pick<
+      OutgoingRuntime,
+      | 'afterSendHooks'
+      | 'beforeSendHooks'
+      | 'compiled'
+      | 'generateId'
+      | 'logger'
+      | 'moduleRuntimes'
+      | 'outgoingHooks'
+      | 'waitUntil'
+    >,
   connection: RuntimeConnection,
   scope: { channel?: CompiledChannel; channelName: string; channelScope?: string },
   kickedReason?: string,
@@ -355,7 +428,17 @@ export async function leaveChannel(
  */
 export function kickChannelMembers(
   runtime: ChannelRuntime &
-    Pick<OutgoingRuntime, 'compiled' | 'generateId' | 'moduleRuntimes' | 'outgoingHooks'> & {
+    Pick<
+      OutgoingRuntime,
+      | 'afterSendHooks'
+      | 'beforeSendHooks'
+      | 'compiled'
+      | 'generateId'
+      | 'logger'
+      | 'moduleRuntimes'
+      | 'outgoingHooks'
+      | 'waitUntil'
+    > & {
       leaveChannel(
         connection: RuntimeConnection,
         scope: { channel?: CompiledChannel; channelName: string; channelScope?: string },
@@ -378,7 +461,17 @@ export function kickChannelMembers(
  */
 export async function handleSubscribe(
   runtime: ChannelRuntime &
-    Pick<OutgoingRuntime, 'compiled' | 'generateId' | 'moduleRuntimes' | 'outgoingHooks'>,
+    Pick<
+      OutgoingRuntime,
+      | 'afterSendHooks'
+      | 'beforeSendHooks'
+      | 'compiled'
+      | 'generateId'
+      | 'logger'
+      | 'moduleRuntimes'
+      | 'outgoingHooks'
+      | 'waitUntil'
+    >,
   connection: RuntimeConnection,
   payload: Record<string, unknown> | undefined,
 ): Promise<void> {
@@ -455,7 +548,17 @@ export async function handleSubscribe(
  */
 export async function handleUnsubscribe(
   runtime: ChannelRuntime &
-    Pick<OutgoingRuntime, 'compiled' | 'generateId' | 'moduleRuntimes' | 'outgoingHooks'> & {
+    Pick<
+      OutgoingRuntime,
+      | 'afterSendHooks'
+      | 'beforeSendHooks'
+      | 'compiled'
+      | 'generateId'
+      | 'logger'
+      | 'moduleRuntimes'
+      | 'outgoingHooks'
+      | 'waitUntil'
+    > & {
       leaveChannel(
         connection: RuntimeConnection,
         scope: { channel?: CompiledChannel; channelName: string; channelScope?: string },
@@ -476,36 +579,6 @@ export async function handleUnsubscribe(
     channelName: payload._channel,
     channelScope: typeof payload._channelScope === 'string' ? payload._channelScope : undefined,
   });
-}
-
-/**
- * Dispatch a replay request into the top-level or channel replay primitive.
- */
-export async function handleReplay(
-  runtime: Pick<DispatchRuntime, 'buildConnectionContext'> & {
-    replayRequests: readonly ((
-      ctx: any,
-      since: number,
-      scope: { namespaceName?: string; channelName?: string; channelScope?: string },
-    ) => boolean | void | Promise<boolean | void>)[];
-  },
-  connection: RuntimeConnection,
-  payload: Record<string, unknown> | undefined,
-  resolve: (payload: unknown) => ResolvedScope,
-): Promise<void> {
-  const since = Number(payload?.since ?? 0);
-  const scope = resolve(payload);
-  const ctx = runtime.buildConnectionContext(connection, scope);
-
-  for (const handler of runtime.replayRequests) {
-    const handled = await handler(ctx, since, {
-      namespaceName: scope.namespace?.name,
-      channelName: scope.channelName,
-      channelScope: scope.channelScope,
-    });
-
-    if (handled) return;
-  }
 }
 
 /**
@@ -855,10 +928,6 @@ export async function processTextMessage(
     );
     return;
   }
-  if (parsed.event === '_replay') {
-    await runtime.handleReplay(connection, parsed.payload as Record<string, unknown> | undefined);
-    return;
-  }
   if (parsed.event === '_streamCancel') {
     await handleStreamCancel(
       runtime,
@@ -875,6 +944,20 @@ export async function processTextMessage(
       parsed.payload as Record<string, unknown> | undefined,
     )
   ) {
+    return;
+  }
+
+  if (isIncomingProtocolEvent(parsed.event)) {
+    const handlers = runtime.protocolHandlers.get(parsed.event) ?? [];
+    const scope = resolveScope(runtime.compiled, parsed.payload);
+    const ctx = runtime.buildConnectionContext(connection, scope);
+
+    for (const handler of handlers) {
+      const handled = await handler(ctx, parsed.payload as Record<string, unknown> | undefined);
+
+      if (handled) return;
+    }
+
     return;
   }
 

@@ -46,6 +46,21 @@ class FakeSqlResult {
 }
 
 class FakeSqlProvider {
+  replay = new Map<
+    string,
+    {
+      rowKey: string;
+      messageId: string;
+      seq: number;
+      event: string;
+      payload: string;
+      namespace: string | null;
+      channel: string | null;
+      channelScope: string | null;
+      snapshotKey: string | null;
+      createdAt: number;
+    }
+  >();
   scheduled = new Map<
     string,
     {
@@ -83,6 +98,14 @@ class FakeSqlProvider {
       return new FakeSqlResult([]);
     }
 
+    if (normalizedQuery.startsWith('CREATE TABLE IF NOT EXISTS _wskit_replay')) {
+      return new FakeSqlResult([]);
+    }
+
+    if (normalizedQuery.startsWith('CREATE INDEX IF NOT EXISTS idx_wskit_replay_')) {
+      return new FakeSqlResult([]);
+    }
+
     if (
       normalizedQuery.startsWith(
         'SELECT id, taskId, time, data, everyMs, attempts, recurring, retry FROM _wskit_scheduled',
@@ -99,6 +122,43 @@ class FakeSqlProvider {
       return new FakeSqlResult([...this.scheduledDlq.values()]);
     }
 
+    if (
+      normalizedQuery.startsWith(
+        'SELECT rowKey, messageId, seq, event, payload, namespace, channel, channelScope, snapshotKey, createdAt FROM _wskit_replay WHERE channel IS ?',
+      )
+    ) {
+      const [channel, channelScope, since] = params;
+      return new FakeSqlResult(
+        [...this.replay.values()]
+          .filter(
+            (row) =>
+              row.channel === ((channel as string | null) ?? null) &&
+              row.channelScope === ((channelScope as string | null) ?? null) &&
+              row.seq > Number(since),
+          )
+          .sort((a, b) => a.seq - b.seq),
+      );
+    }
+
+    if (
+      normalizedQuery.startsWith(
+        'SELECT rowKey, messageId, seq, event, payload, namespace, channel, channelScope, snapshotKey, createdAt FROM _wskit_replay WHERE namespace IS NULL',
+      )
+    ) {
+      const [since] = params;
+      return new FakeSqlResult(
+        [...this.replay.values()]
+          .filter(
+            (row) =>
+              row.namespace === null &&
+              row.channel === null &&
+              row.channelScope === null &&
+              row.seq > Number(since),
+          )
+          .sort((a, b) => a.seq - b.seq),
+      );
+    }
+
     if (normalizedQuery.startsWith('DELETE FROM _wskit_scheduled_dlq')) {
       this.scheduledDlq.clear();
       return new FakeSqlResult([]);
@@ -106,6 +166,37 @@ class FakeSqlProvider {
 
     if (normalizedQuery.startsWith('DELETE FROM _wskit_scheduled')) {
       this.scheduled.clear();
+      return new FakeSqlResult([]);
+    }
+
+    if (normalizedQuery.startsWith('DELETE FROM _wskit_replay WHERE createdAt < ?')) {
+      const [cutoff] = params;
+
+      for (const [key, row] of this.replay) {
+        if (row.createdAt < Number(cutoff)) {
+          this.replay.delete(key);
+        }
+      }
+
+      return new FakeSqlResult([]);
+    }
+
+    if (normalizedQuery.startsWith('DELETE FROM _wskit_replay WHERE rowKey IN (')) {
+      const [namespace, channel, channelScope, offset] = params;
+      const candidates = [...this.replay.values()]
+        .filter(
+          (row) =>
+            row.namespace === ((namespace as string | null) ?? null) &&
+            row.channel === ((channel as string | null) ?? null) &&
+            row.channelScope === ((channelScope as string | null) ?? null),
+        )
+        .sort((a, b) => b.seq - a.seq)
+        .slice(Number(offset));
+
+      for (const row of candidates) {
+        this.replay.delete(row.rowKey);
+      }
+
       return new FakeSqlResult([]);
     }
 
@@ -132,6 +223,22 @@ class FakeSqlProvider {
         data: (params[4] as string | null) ?? null,
         attempts: Number(params[5]),
         error: String(params[6]),
+      });
+      return new FakeSqlResult([]);
+    }
+
+    if (normalizedQuery.startsWith('INSERT OR REPLACE INTO _wskit_replay')) {
+      this.replay.set(String(params[0]), {
+        rowKey: String(params[0]),
+        messageId: String(params[1]),
+        seq: Number(params[2]),
+        event: String(params[3]),
+        payload: String(params[4]),
+        namespace: (params[5] as string | null) ?? null,
+        channel: (params[6] as string | null) ?? null,
+        channelScope: (params[7] as string | null) ?? null,
+        snapshotKey: (params[8] as string | null) ?? null,
+        createdAt: Number(params[9]),
       });
       return new FakeSqlResult([]);
     }
@@ -520,14 +627,16 @@ describe('Engine', () => {
       sequence(),
       dedup(),
       outgoing('message', t<{ text: string }>()),
-      replay({
-        async onReplay(ctx: {
+      replay(),
+      incoming(
+        received('echo', (value: unknown) => value as { text: string }),
+        async (ctx: {
           sendReplay(
             event: 'message',
             payload: unknown,
             wire: { seq: number; messageId: string },
           ): void;
-        }) {
+        }) => {
           expect(() =>
             ctx.sendReplay('message', 'not-an-object', {
               seq: 1,
@@ -535,10 +644,6 @@ describe('Engine', () => {
             }),
           ).toThrow('[wskit] Outgoing payload must be a plain object.');
         },
-      }),
-      incoming(
-        received('echo', (value: unknown) => value as { text: string }),
-        async () => {},
       ),
     );
 
@@ -553,13 +658,11 @@ describe('Engine', () => {
 
     const ws = createDescriptor();
     const conn = engine.accept(Symbol('ws-replay-shape'), ws.descriptor);
-    conn.handleMessage(JSON.stringify({ event: '_replay', payload: { since: 0 } }));
+    conn.handleMessage(JSON.stringify({ event: 'echo', payload: { text: 'pong' } }));
     await flushAsyncWork();
   });
 
   it('dispatches top-level replay requests through the replay primitive', async () => {
-    const seen: number[] = [];
-
     const handler = server('engine-replay-top-level', {
       _incoming: incoming,
       _outgoing: outgoing,
@@ -570,24 +673,12 @@ describe('Engine', () => {
       sequence(),
       dedup(),
       outgoing('message', t<{ text: string }>()),
-      replay({
-        async onReplay(
-          ctx: {
-            sendReplay(
-              event: 'message',
-              payload: { text: string },
-              wire: { seq: number; messageId: string },
-            ): void;
-          },
-          since,
-        ) {
-          seen.push(since);
-          ctx.sendReplay('message', { text: 'history' }, { seq: 7, messageId: 'm7' });
-        },
-      }),
+      replay(),
       incoming(
         received('echo', (value: unknown) => value as { text: string }),
-        async () => {},
+        async (ctx: { send(event: 'message', payload: { text: string }): void }, payload) => {
+          ctx.send('message', { text: payload.text });
+        },
       ),
     );
 
@@ -596,25 +687,237 @@ describe('Engine', () => {
       hibernation: false,
     });
 
-    engine.setStorage(createStorage());
+    const storage = createStorage();
+
+    engine.setStorage(storage);
     engine.setTimerProvider(createTimers().timers);
     await engine.initialize();
 
     const ws = createDescriptor();
     const conn = engine.accept(Symbol('ws-replay-top-level'), ws.descriptor);
-    conn.handleMessage(JSON.stringify({ event: '_replay', payload: { since: 4 } }));
+    conn.handleMessage(JSON.stringify({ event: 'echo', payload: { text: 'history' } }));
+    await flushAsyncWork();
+    conn.handleMessage(JSON.stringify({ event: '_replay', payload: { since: 0 } }));
     await flushAsyncWork();
 
-    expect(seen).toEqual([4]);
+    expect(storage.sql.replay.size).toBe(1);
     expect(ws.sent[0]).toEqual({
       event: 'message',
-      payload: { text: 'history', _seq: 7, _messageId: 'm7' },
+      payload: {
+        text: 'history',
+        _seq: expect.any(Number),
+        _messageId: expect.any(String),
+      },
     });
+    expect(ws.sent[1]).toEqual(ws.sent[0]);
+    expect((ws.sent[0]?.payload?._seq as number) > 0).toBe(true);
+  });
+
+  it('stores replay rows before sending when durability is strict', async () => {
+    let replayRowsBeforeSend = 0;
+
+    const handler = server('engine-replay-strict', {
+      _incoming: incoming,
+      _outgoing: outgoing,
+      _replay: replay,
+      _sequence: sequence,
+      _dedup: dedup,
+    }).define(
+      sequence(),
+      dedup(),
+      replay({ durability: 'strict' }),
+      outgoing('message', t<{ text: string }>()),
+      incoming(
+        received('echo', (value: unknown) => value as { text: string }),
+        async (
+          ctx: {
+            send(event: 'message', payload: { text: string }): void;
+            sql: {
+              exec(query: string, ...params: unknown[]): { toArray(): Record<string, unknown>[] };
+            };
+          },
+          payload,
+        ) => {
+          ctx.send('message', { text: payload.text });
+          replayRowsBeforeSend = ctx.sql
+            .exec(
+              `
+                SELECT
+                  rowKey,
+                  messageId,
+                  seq,
+                  event,
+                  payload,
+                  namespace,
+                  channel,
+                  channelScope,
+                  snapshotKey,
+                  createdAt
+                FROM _wskit_replay
+                WHERE namespace IS NULL
+                  AND channel IS NULL
+                  AND channelScope IS NULL
+                  AND seq > ?
+                ORDER BY seq ASC
+              `,
+              0,
+            )
+            .toArray().length;
+        },
+      ),
+    );
+
+    const engine = new Engine(handler, {
+      adapterId: 'test',
+      hibernation: false,
+    });
+    const storage = createStorage();
+
+    engine.setStorage(storage);
+    engine.setTimerProvider(createTimers().timers);
+    await engine.initialize();
+
+    const ws = createDescriptor();
+    const conn = engine.accept(Symbol('ws-replay-strict'), ws.descriptor);
+    conn.handleMessage(JSON.stringify({ event: 'echo', payload: { text: 'pong' } }));
+    await flushAsyncWork();
+
+    expect(replayRowsBeforeSend).toBe(1);
+  });
+
+  it('stores replay rows after sending when durability is best-effort', async () => {
+    let replayRowsBeforeSend = 0;
+
+    const handler = server('engine-replay-best-effort', {
+      _incoming: incoming,
+      _outgoing: outgoing,
+      _replay: replay,
+      _sequence: sequence,
+      _dedup: dedup,
+    }).define(
+      sequence(),
+      dedup(),
+      replay({ durability: 'best-effort' }),
+      outgoing('message', t<{ text: string }>()),
+      incoming(
+        received('echo', (value: unknown) => value as { text: string }),
+        async (
+          ctx: {
+            send(event: 'message', payload: { text: string }): void;
+            sql: {
+              exec(query: string, ...params: unknown[]): { toArray(): Record<string, unknown>[] };
+            };
+          },
+          payload,
+        ) => {
+          ctx.send('message', { text: payload.text });
+          replayRowsBeforeSend = ctx.sql
+            .exec(
+              `
+                SELECT
+                  rowKey,
+                  messageId,
+                  seq,
+                  event,
+                  payload,
+                  namespace,
+                  channel,
+                  channelScope,
+                  snapshotKey,
+                  createdAt
+                FROM _wskit_replay
+                WHERE namespace IS NULL
+                  AND channel IS NULL
+                  AND channelScope IS NULL
+                  AND seq > ?
+                ORDER BY seq ASC
+              `,
+              0,
+            )
+            .toArray().length;
+        },
+      ),
+    );
+
+    const engine = new Engine(handler, {
+      adapterId: 'test',
+      hibernation: false,
+    });
+    const storage = createStorage();
+
+    engine.setStorage(storage);
+    engine.setTimerProvider(createTimers().timers);
+    await engine.initialize();
+
+    const ws = createDescriptor();
+    const conn = engine.accept(Symbol('ws-replay-best-effort'), ws.descriptor);
+    conn.handleMessage(JSON.stringify({ event: 'echo', payload: { text: 'pong' } }));
+    await flushAsyncWork();
+    await flushAsyncWork();
+
+    expect(replayRowsBeforeSend).toBe(0);
+    expect(storage.sql.replay.size).toBe(1);
+  });
+
+  it('prunes expired replay rows on write', async () => {
+    const now = Date.now();
+
+    const handler = server('engine-replay-prune', {
+      _incoming: incoming,
+      _outgoing: outgoing,
+      _replay: replay,
+      _sequence: sequence,
+      _dedup: dedup,
+    }).define(
+      sequence(),
+      dedup(),
+      replay({ retention: { maxAgeMs: 1_000 } }),
+      outgoing('message', t<{ text: string }>()),
+      incoming(
+        received('echo', (value: unknown) => value as { text: string }),
+        async (ctx: { send(event: 'message', payload: { text: string }): void }, payload) => {
+          ctx.send('message', { text: payload.text });
+        },
+      ),
+    );
+
+    const engine = new Engine(handler, {
+      adapterId: 'test',
+      hibernation: false,
+    });
+    const storage = createStorage();
+
+    storage.sql.replay.set('old', {
+      rowKey: 'old',
+      messageId: 'old',
+      seq: 1,
+      event: 'message',
+      payload: JSON.stringify({ text: 'old', _seq: 1, _messageId: 'old' }),
+      namespace: null,
+      channel: null,
+      channelScope: null,
+      snapshotKey: null,
+      createdAt: now - 10_000,
+    });
+
+    engine.setStorage(storage);
+    engine.setTimerProvider(createTimers().timers);
+    await engine.initialize();
+
+    const realNow = Date.now;
+    Date.now = () => now;
+
+    const ws = createDescriptor();
+    const conn = engine.accept(Symbol('ws-replay-prune'), ws.descriptor);
+    conn.handleMessage(JSON.stringify({ event: 'echo', payload: { text: 'fresh' } }));
+    await flushAsyncWork();
+
+    Date.now = realNow;
+
+    expect([...storage.sql.replay.values()].every((row) => row.messageId !== 'old')).toBe(true);
   });
 
   it('dispatches channel replay requests through the matching channel replay primitive', async () => {
-    const seen: number[] = [];
-
     const handler = server('engine-replay-channel', {
       _incoming: incoming,
       _outgoing: outgoing,
@@ -627,31 +930,20 @@ describe('Engine', () => {
       dedup(),
       channel(
         scope('rooms', /^room-/),
-        replay({
-          async onReplay(
-            ctx: {
-              channel: {
-                sendReplay(
-                  event: 'message',
-                  payload: { text: string },
-                  wire: { seq: number; messageId: string },
-                ): void;
-              };
-            },
-            since,
-          ) {
-            seen.push(since);
-            ctx.channel.sendReplay(
-              'message',
-              { text: 'room-history' },
-              { seq: 9, messageId: 'm9' },
-            );
-          },
-        }),
+        replay(),
         outgoing('message', t<{ text: string }>()),
         incoming(
           received('echo', (value: unknown) => value as { text: string }),
-          async () => {},
+          async (
+            ctx: {
+              channel: {
+                send(event: 'message', payload: { text: string }): boolean;
+              };
+            },
+            payload,
+          ) => {
+            ctx.channel.send('message', { text: payload.text });
+          },
         ),
       ),
     );
@@ -660,8 +952,9 @@ describe('Engine', () => {
       adapterId: 'test',
       hibernation: false,
     });
+    const storage = createStorage();
 
-    engine.setStorage(createStorage());
+    engine.setStorage(storage);
     engine.setTimerProvider(createTimers().timers);
     await engine.initialize();
 
@@ -669,23 +962,37 @@ describe('Engine', () => {
     const conn = engine.accept(Symbol('ws-replay-channel'), ws.descriptor);
     conn.handleMessage(
       JSON.stringify({
+        event: '_subscribe',
+        payload: { _channel: 'room-1', _channelScope: 'rooms' },
+      }),
+    );
+    await flushAsyncWork();
+    conn.handleMessage(
+      JSON.stringify({
+        event: 'echo',
+        payload: { text: 'room-history', _channel: 'room-1', _channelScope: 'rooms' },
+      }),
+    );
+    await flushAsyncWork();
+    conn.handleMessage(
+      JSON.stringify({
         event: '_replay',
-        payload: { since: 3, _channel: 'room-1', _channelScope: 'rooms' },
+        payload: { since: 0, _channel: 'room-1', _channelScope: 'rooms' },
       }),
     );
     await flushAsyncWork();
 
-    expect(seen).toEqual([3]);
-    expect(ws.sent[0]).toEqual({
+    expect(ws.sent[2]).toEqual({
       event: 'message',
       payload: {
         text: 'room-history',
-        _seq: 9,
-        _messageId: 'm9',
+        _seq: expect.any(Number),
+        _messageId: expect.any(String),
         _channel: 'room-1',
         _channelScope: 'rooms',
       },
     });
+    expect(ws.sent[2]).toEqual(ws.sent[1]);
   });
 
   it('registers built-in lifecycle hooks through primitive setup', async () => {

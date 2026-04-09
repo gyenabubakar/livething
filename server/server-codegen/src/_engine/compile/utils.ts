@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { ValidationFailed } from '@wskit/core';
+import type { IncomingProtocolEvent } from '~/_engine/runtime/types.ts';
 import type { ChannelPrimitive } from '~/channel/index.ts';
 import type { NamespacePrimitive } from '~/namespace/index.ts';
 import type { PassivePrimitive } from '~/passive/index.ts';
@@ -92,4 +93,18 @@ export function prefixedModuleEvent(moduleId: string, event: string): string {
  */
 export function isProtocolEvent(event: string): boolean {
   return event.startsWith('_') && !event.startsWith('__');
+}
+
+/**
+ * Narrow one event name to the set of protocol messages the client is allowed
+ * to send into the engine.
+ */
+export function isIncomingProtocolEvent(event: string): event is IncomingProtocolEvent {
+  return (
+    event === 'ping' ||
+    event === '_subscribe' ||
+    event === '_unsubscribe' ||
+    event === '_streamCancel' ||
+    event === '_replay'
+  );
 }

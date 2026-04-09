@@ -25,14 +25,12 @@ import {
   broadcastToChannel,
   broadcastToConnections,
   getChannelMembers,
-  handleReplay,
   handleRuntimeError,
   handleSubscribe,
   handleUnsubscribe,
   kickChannelMembers,
   leaveChannel,
   processTextMessage,
-  resolveScope,
   sendThroughPipeline,
 } from '~/_engine/runtime/messages.ts';
 import {
@@ -82,8 +80,10 @@ function createRegisteredHooks(): RegisteredEngineHooks {
   return {
     incoming: [],
     outgoing: [],
+    beforeSend: [],
+    afterSend: [],
+    protocol: new Map(),
     contextExtenders: [],
-    replayRequest: [],
     boot: [],
     init: [],
     connect: [],
@@ -336,6 +336,12 @@ export class Engine {
       onOutgoing: (handler) => {
         this.hooks.outgoing.push(handler);
       },
+      onBeforeSend: (handler) => {
+        this.hooks.beforeSend.push(handler);
+      },
+      onAfterSend: (handler) => {
+        this.hooks.afterSend.push(handler);
+      },
       onInit: (handler) => {
         this.hooks.init.push(handler);
       },
@@ -360,8 +366,10 @@ export class Engine {
       onValidationError: (handler) => {
         this.hooks.validationError.push(handler);
       },
-      onReplayRequest: (handler) => {
-        this.hooks.replayRequest.push(handler);
+      onProtocolMessage: (event, handler) => {
+        const existing = this.hooks.protocol.get(event) ?? [];
+        existing.push(handler);
+        this.hooks.protocol.set(event, existing);
       },
       onAlarm: (handler) => {
         this.hooks.alarm.push(handler);
@@ -400,6 +408,9 @@ export class Engine {
       },
       rescheduleAlarm: () => this.rescheduleAlarm(),
       generateId: (prefix) => this.generateId(prefix),
+      waitUntil: (promise) => {
+        this.waitUntilImpl(promise);
+      },
       rawSend: (connectionId, event, payload) => {
         const connection = this.connections.get(connectionId);
         if (!connection) return;
@@ -699,6 +710,10 @@ export class Engine {
       compiled: this.compiled,
       moduleRuntimes: this.moduleRuntimes,
       outgoingHooks: this.hooks.outgoing,
+      beforeSendHooks: this.hooks.beforeSend,
+      afterSendHooks: this.hooks.afterSend,
+      waitUntil: (promise: Promise<unknown>) => this.waitUntilImpl(promise),
+      logger: this.logger,
       generateId: (prefix?: string) => this.generateId(prefix),
     };
   }
@@ -755,6 +770,7 @@ export class Engine {
       ...this.memberRuntime(),
       logger: this.logger,
       activeStreams: this.activeStreams,
+      protocolHandlers: this.hooks.protocol,
       incomingHooks: this.hooks.incoming,
       errorHooks: this.hooks.error,
       requireTimers: () => this.requireTimers(),
@@ -797,8 +813,6 @@ export class Engine {
         connection: RuntimeConnection,
         payload: Record<string, unknown> | undefined,
       ) => this.handleUnsubscribe(connection, payload),
-      handleReplay: (connection: RuntimeConnection, payload: Record<string, unknown> | undefined) =>
-        this.handleReplay(connection, payload),
       refreshHeartbeat: (connection: RuntimeConnection) => this.refreshHeartbeat(connection),
     };
   }
@@ -1064,18 +1078,6 @@ export class Engine {
   }
 
   /**
-   * Resolve namespace/channel routing markers from an incoming payload.
-   */
-  private resolveScope(payload: unknown): {
-    namespace?: CompiledNamespace;
-    channel?: CompiledChannel;
-    channelName?: string;
-    channelScope?: string;
-  } {
-    return resolveScope(this.compiled, payload);
-  }
-
-  /**
    * Validate and send one outgoing event through the runtime pipeline.
    */
   private sendThroughPipeline(
@@ -1185,25 +1187,6 @@ export class Engine {
       },
       connection,
       payload,
-    );
-  }
-
-  /**
-   * Handle the `_replay` protocol message for the active scope.
-   */
-  private async handleReplay(
-    connection: RuntimeConnection,
-    payload: Record<string, unknown> | undefined,
-  ): Promise<void> {
-    return handleReplay(
-      {
-        replayRequests: this.hooks.replayRequest,
-        buildConnectionContext: (targetConnection, scope) =>
-          this.buildConnectionContext(targetConnection, scope),
-      },
-      connection,
-      payload,
-      (value) => this.resolveScope(value),
     );
   }
 

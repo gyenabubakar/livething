@@ -65,7 +65,7 @@ type TopLevelStatePrimitive =
   | HibernationPrimitive
   | SequencePrimitive
   | DedupPrimitive
-  | ReplayPrimitive<any>
+  | ReplayPrimitive
   | ScheduledPrimitive<string, any, any>
   | ErrorsPrimitive
   | AnyOutgoing

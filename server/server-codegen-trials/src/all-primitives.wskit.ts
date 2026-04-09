@@ -66,9 +66,7 @@ const allPrimitivesServer = define(
   sequence(),
   dedup(),
   errors(Forbidden, QuotaExceeded),
-  replay({
-    async onReplay() {},
-  }),
+  replay(),
   outgoing('message', t<{ text: string; room?: string }>()),
   outgoing('alert', t<{ level: 'info' | 'warn' | 'error' }>()),
   outgoing('usage', t<{ totalTokens: number }>()),
@@ -167,9 +165,7 @@ const allPrimitivesServer = define(
   ),
   channel(
     scope('rooms', /^room-/),
-    replay({
-      async onReplay() {},
-    }),
+    replay(),
     outgoing('typing', t<{ userId: string }>()),
     outgoing('room-message', t<{ text: string }>()),
     intercept('start-typing', async (_ctx, payload: { userId: string }) => payload),

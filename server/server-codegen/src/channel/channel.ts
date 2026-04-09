@@ -39,7 +39,7 @@ type AnyGenerate = GeneratePrimitive<
 >;
 type ChannelStatePrimitive =
   | AnyOutgoing
-  | ReplayPrimitive<any>
+  | ReplayPrimitive
   | AnyPreIntercept
   | AnyPostIntercept
   | AnyIncoming

@@ -1,11 +1,48 @@
 import { ENGINE_SCOPE_META } from '~/_engine/contexts/types.ts';
 import type { EngineScopeMeta } from '~/_engine/contexts/types.ts';
+import type { ReplayOptions, ReplayPayloadScope, ReplayRow, ReplayType } from '~/replay/types.ts';
+
+const CREATE_REPLAY_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS _wskit_replay (
+    rowKey TEXT PRIMARY KEY,
+    messageId TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    event TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    namespace TEXT,
+    channel TEXT,
+    channelScope TEXT,
+    snapshotKey TEXT,
+    createdAt INTEGER NOT NULL
+  )
+`;
+
+const CREATE_REPLAY_SEQ_INDEX_SQL = `
+  CREATE INDEX IF NOT EXISTS idx_wskit_replay_seq
+  ON _wskit_replay (seq)
+`;
+
+const CREATE_REPLAY_SCOPE_SEQ_INDEX_SQL = `
+  CREATE INDEX IF NOT EXISTS idx_wskit_replay_scope_seq
+  ON _wskit_replay (channel, channelScope, seq)
+`;
 
 /**
- * Decide whether one replay primitive instance owns the current replay request.
+ * Create the SQLite tables and indexes the automatic replay primitive needs.
+ */
+export function ensureReplaySchema(sql: {
+  exec(query: string, ...params: unknown[]): unknown;
+}): void {
+  sql.exec(CREATE_REPLAY_TABLE_SQL);
+  sql.exec(CREATE_REPLAY_SEQ_INDEX_SQL);
+  sql.exec(CREATE_REPLAY_SCOPE_SEQ_INDEX_SQL);
+}
+
+/**
+ * Decide whether one replay primitive instance owns the current scope.
  *
- * Top-level replay handles only top-level requests. Channel replay handles only
- * requests for its own concrete channel or channel-family key.
+ * Top-level replay handles only top-level traffic. Channel replay handles only
+ * its own concrete channel or channel-family key.
  */
 export function matchesReplayScope(
   channelKey: string | undefined,
@@ -19,8 +56,254 @@ export function matchesReplayScope(
 }
 
 /**
- * Read the hidden engine scope markers attached to one live connection ctx.
+ * Read the hidden scope markers attached to one live connection ctx.
  */
 export function readReplayContextScope(ctx: Record<PropertyKey, unknown>): EngineScopeMeta {
   return (ctx[ENGINE_SCOPE_META] as EngineScopeMeta | undefined) ?? {};
+}
+
+/**
+ * Read replay scope markers from one final outgoing payload.
+ */
+export function readReplayPayloadScope(payload: Record<string, unknown>): ReplayPayloadScope {
+  return {
+    namespace: typeof payload._namespace === 'string' ? payload._namespace : null,
+    channel: typeof payload._channel === 'string' ? payload._channel : null,
+    channelScope: typeof payload._channelScope === 'string' ? payload._channelScope : null,
+  };
+}
+
+/**
+ * Decide whether one final outgoing message belongs to this replay instance.
+ */
+export function shouldStoreReplayMessage(
+  channelKey: string | undefined,
+  event: string,
+  payload: Record<string, unknown>,
+  exclude: ReadonlySet<string>,
+): boolean {
+  if (exclude.has(event)) return false;
+
+  const scope = readReplayPayloadScope(payload);
+
+  if (channelKey) {
+    return scope.channelScope === channelKey || scope.channel === channelKey;
+  }
+
+  return !scope.namespace && !scope.channel && !scope.channelScope;
+}
+
+/**
+ * Convert one final outgoing message into the replay row that should be stored.
+ */
+export function buildReplayRow(
+  options: ReplayOptions,
+  event: string,
+  payload: Record<string, unknown>,
+  now: number,
+): ReplayRow {
+  const seq = payload._seq;
+  const messageId = payload._messageId;
+
+  if (typeof seq !== 'number' || typeof messageId !== 'string') {
+    throw new Error('[wskit] replay() requires sequence() and dedup() in the same scope.');
+  }
+
+  const scope = readReplayPayloadScope(payload);
+  const type = options.type ?? 'history';
+  const snapshotKey = type === 'snapshot' ? (options.snapshotKey?.(event, payload) ?? event) : null;
+
+  return {
+    rowKey: buildReplayRowKey(type, event, scope, messageId, snapshotKey),
+    messageId,
+    seq,
+    event,
+    payload: JSON.stringify(payload),
+    namespace: scope.namespace,
+    channel: scope.channel,
+    channelScope: scope.channelScope,
+    snapshotKey,
+    createdAt: now,
+  };
+}
+
+function buildReplayRowKey(
+  type: ReplayType,
+  event: string,
+  scope: ReplayPayloadScope,
+  messageId: string,
+  snapshotKey: string | null,
+): string {
+  if (type === 'history') return messageId;
+
+  return [
+    'snapshot',
+    scope.namespace ?? '',
+    scope.channel ?? '',
+    scope.channelScope ?? '',
+    event,
+    snapshotKey ?? event,
+  ].join('|');
+}
+
+/**
+ * Insert or replace one replay row.
+ */
+export function storeReplayRow(
+  sql: {
+    exec(query: string, ...params: unknown[]): unknown;
+  },
+  row: ReplayRow,
+): void {
+  sql.exec(
+    `
+      INSERT OR REPLACE INTO _wskit_replay (
+        rowKey,
+        messageId,
+        seq,
+        event,
+        payload,
+        namespace,
+        channel,
+        channelScope,
+        snapshotKey,
+        createdAt
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+    row.rowKey,
+    row.messageId,
+    row.seq,
+    row.event,
+    row.payload,
+    row.namespace,
+    row.channel,
+    row.channelScope,
+    row.snapshotKey,
+    row.createdAt,
+  );
+}
+
+/**
+ * Delete all replay rows older than the configured max age.
+ */
+export function pruneExpiredReplayRows(
+  sql: {
+    exec(query: string, ...params: unknown[]): unknown;
+  },
+  retention: ReplayOptions['retention'] | undefined,
+  now: number,
+): void {
+  if (!retention?.maxAgeMs) return;
+
+  sql.exec(
+    `
+      DELETE FROM _wskit_replay
+      WHERE createdAt < ?
+    `,
+    now - retention.maxAgeMs,
+  );
+}
+
+/**
+ * Trim one replay scope down to the configured maximum row count.
+ */
+export function pruneReplayScopeRows(
+  sql: {
+    exec(query: string, ...params: unknown[]): unknown;
+  },
+  retention: ReplayOptions['retention'] | undefined,
+  scope: ReplayPayloadScope,
+): void {
+  if (!retention?.maxMessages) return;
+
+  sql.exec(
+    `
+      DELETE FROM _wskit_replay
+      WHERE rowKey IN (
+        SELECT rowKey
+        FROM _wskit_replay
+        WHERE namespace IS ?
+          AND channel IS ?
+          AND channelScope IS ?
+        ORDER BY seq DESC
+        LIMIT -1 OFFSET ?
+      )
+    `,
+    scope.namespace,
+    scope.channel,
+    scope.channelScope,
+    retention.maxMessages,
+  );
+}
+
+/**
+ * Load replay rows for the active scope after the client's last seen seq.
+ */
+export function loadReplayRows(
+  sql: {
+    exec(query: string, ...params: unknown[]): { toArray(): Record<string, unknown>[] };
+  },
+  since: number,
+  scope: { channelName?: string; channelScope?: string },
+): ReplayRow[] {
+  const rows =
+    scope.channelName || scope.channelScope
+      ? sql.exec(
+          `
+            SELECT
+              rowKey,
+              messageId,
+              seq,
+              event,
+              payload,
+              namespace,
+              channel,
+              channelScope,
+              snapshotKey,
+              createdAt
+            FROM _wskit_replay
+            WHERE channel IS ?
+              AND channelScope IS ?
+              AND seq > ?
+            ORDER BY seq ASC
+          `,
+          scope.channelName ?? null,
+          scope.channelScope ?? scope.channelName ?? null,
+          since,
+        )
+      : sql.exec(
+          `
+            SELECT
+              rowKey,
+              messageId,
+              seq,
+              event,
+              payload,
+              namespace,
+              channel,
+              channelScope,
+              snapshotKey,
+              createdAt
+            FROM _wskit_replay
+            WHERE namespace IS NULL
+              AND channel IS NULL
+              AND channelScope IS NULL
+              AND seq > ?
+            ORDER BY seq ASC
+          `,
+          since,
+        );
+
+  return rows.toArray().map((row) => ({
+    rowKey: String(row.rowKey),
+    messageId: String(row.messageId),
+    seq: Number(row.seq),
+    event: String(row.event),
+    payload: String(row.payload),
+    namespace: (row.namespace as string | null) ?? null,
+    channel: (row.channel as string | null) ?? null,
+    channelScope: (row.channelScope as string | null) ?? null,
+    snapshotKey: (row.snapshotKey as string | null) ?? null,
+    createdAt: Number(row.createdAt),
+  }));
 }

@@ -1,6 +1,7 @@
 import { replay } from '~/replay/replay.ts';
 import type { PrimitiveKind, PrimitiveRef } from '~/primitive.ts';
 import type { ReplayPrimitive } from '~/replay/replay.ts';
+import type { ReplayDurability, ReplayType } from '~/replay/types.ts';
 
 const replayPrimitive = replay();
 const _replayType: ReplayPrimitive = replayPrimitive;
@@ -14,19 +15,22 @@ const _ref: PrimitiveRef = replay;
 const _key: symbol = replay.__key;
 void [_ref, _key];
 
-const typedReplay = replay<{
-  sendReplay(
-    event: 'message',
-    payload: { text: string },
-    wire: { seq: number; messageId: string },
-  ): void;
-}>({
-  onReplay(ctx, since) {
-    ctx.sendReplay('message', { text: 'history' }, { seq: 1, messageId: 'm1' });
-    const _since: number = since;
-    void _since;
+const configuredReplay = replay({
+  type: 'snapshot',
+  durability: 'best-effort',
+  retention: {
+    maxAgeMs: 60_000,
+    maxMessages: 25,
+  },
+  exclude: ['typing'],
+  snapshotKey(event, payload) {
+    const _event: string = event;
+    const _payload = payload as { id?: string };
+    return _payload.id ?? _event;
   },
 });
 
-const _typedReplay: ReplayPrimitive = typedReplay;
-void _typedReplay;
+const _configuredReplay: ReplayPrimitive = configuredReplay;
+const _type: ReplayType | undefined = configuredReplay.options.type;
+const _durability: ReplayDurability | undefined = configuredReplay.options.durability;
+void [_configuredReplay, _type, _durability];
