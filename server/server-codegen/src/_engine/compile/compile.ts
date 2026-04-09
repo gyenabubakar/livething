@@ -112,43 +112,82 @@ function visitCompiledPrimitives(compiled: CompiledServer, primitives: readonly 
       continue;
     }
 
-    if (primitive.__wskit === 'ack') compiled.ack = true;
-    else if (primitive.__wskit === 'heartbeat')
-      compiled.heartbeatTimeout = (primitive as any).timeout;
-    else if (primitive.__wskit === 'sequence') {
-      compiled.sequencePersistent = Boolean((primitive as { persist?: boolean }).persist);
-    } else if (primitive.__wskit === 'replay') {
-      compiled.replayEnabled = true;
-    } else if (primitive.__wskit === 'hibernation') {
-      compiled.hibernationEnabled = (primitive as HibernationPrimitive).enabled;
-    } else if (primitive.__wskit === 'outgoing') {
-      compiled.outgoing.set((primitive as AnyOutgoing).event, primitive as AnyOutgoing);
-    } else if (primitive.__wskit === 'incoming') {
-      compiled.incoming.set((primitive as AnyIncoming).event, primitive as AnyIncoming);
-    } else if (primitive.__wskit === 'request') {
-      compiled.requests.set((primitive as AnyRequest).event, primitive as AnyRequest);
-    } else if (primitive.__wskit === 'generate') {
-      compiled.streams.set((primitive as AnyGenerate).event, primitive as AnyGenerate);
-    } else if (primitive.__wskit === 'scheduled') {
-      compiled.scheduled.set((primitive as AnyScheduled).taskId, primitive as AnyScheduled);
-    } else if (primitive.__wskit === 'intercept') {
-      const intercept = primitive as AnyPreIntercept | AnyPostIntercept;
-      if (intercept.mode === 'pre') compiled.preIntercepts.push(intercept);
-      else addPostIntercept(intercept.event, intercept, compiled.postIntercepts);
-    } else if (primitive.__wskit === 'errors') {
-      compiled.errors.push(primitive as ErrorsPrimitive<any>);
-    } else if (primitive.__wskit === 'module') {
-      compiled.modules.push(primitive as AnyModule);
-    } else if (isNamespacePrimitive(primitive)) {
+    switch (primitive.__wskit) {
+      case 'ack':
+        compiled.ack = true;
+        continue;
+
+      case 'heartbeat':
+        compiled.heartbeatTimeout = (primitive as any).timeout;
+        continue;
+
+      case 'sequence':
+        compiled.sequencePersistent = Boolean((primitive as { persist?: boolean }).persist);
+        continue;
+
+      case 'replay':
+        compiled.replayEnabled = true;
+        continue;
+
+      case 'hibernation':
+        compiled.hibernationEnabled = (primitive as HibernationPrimitive).enabled;
+        continue;
+
+      case 'outgoing':
+        compiled.outgoing.set((primitive as AnyOutgoing).event, primitive as AnyOutgoing);
+        continue;
+
+      case 'incoming':
+        compiled.incoming.set((primitive as AnyIncoming).event, primitive as AnyIncoming);
+        continue;
+
+      case 'request':
+        compiled.requests.set((primitive as AnyRequest).event, primitive as AnyRequest);
+        continue;
+
+      case 'generate':
+        compiled.streams.set((primitive as AnyGenerate).event, primitive as AnyGenerate);
+        continue;
+
+      case 'scheduled':
+        compiled.scheduled.set((primitive as AnyScheduled).taskId, primitive as AnyScheduled);
+        continue;
+
+      case 'intercept': {
+        const intercept = primitive as AnyPreIntercept | AnyPostIntercept;
+        if (intercept.mode === 'pre') compiled.preIntercepts.push(intercept);
+        else addPostIntercept(intercept.event, intercept, compiled.postIntercepts);
+        continue;
+      }
+
+      case 'errors':
+        compiled.errors.push(primitive as ErrorsPrimitive<any>);
+        continue;
+
+      case 'module':
+        compiled.modules.push(primitive as AnyModule);
+        continue;
+    }
+
+    if (isNamespacePrimitive(primitive)) {
       compiled.namespaces.set(primitive.pattern, compileNamespace(primitive));
-    } else if (isChannelPrimitive(primitive)) {
+      continue;
+    }
+
+    if (isChannelPrimitive(primitive)) {
       if (primitive.primitives.some((child) => child.__wskit === 'replay')) {
         compiled.replayEnabled = true;
       }
+
       const compiledChannel = compileChannel(primitive);
-      if (typeof primitive.pattern === 'string')
+
+      if (typeof primitive.pattern === 'string') {
         compiled.channels.set(primitive.pattern, compiledChannel);
-      else compiled.channelFamilies.set(primitive.pattern.key, compiledChannel);
+      } else {
+        compiled.channelFamilies.set(primitive.pattern.key, compiledChannel);
+      }
+
+      continue;
     }
   }
 }
