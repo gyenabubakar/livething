@@ -6,6 +6,12 @@ import {
   prefixedModuleEvent,
   validateValue,
 } from '~/_engine/compile/utils.ts';
+import {
+  kickChannelMembers as kickChannelMembersRuntime,
+  leaveChannel as leaveChannelRuntime,
+  subscribeConnection,
+  unsubscribeConnection,
+} from '~/channel/runtime.ts';
 import { DeferExhausted } from '~/errors.ts';
 import { bufferStreamNudge, cancelStream, runStream } from '~/stream/runtime.ts';
 import type { CompiledChannel, CompiledServer } from '~/_engine/compile/types.ts';
@@ -123,6 +129,13 @@ interface ChannelRuntime extends ConnectionMembersRuntime {
     connection: RuntimeConnection,
     event: string,
     payload: Record<string, unknown>,
+  ): void;
+  broadcastToChannel(
+    channelName: string,
+    event: string,
+    payload: unknown,
+    excludeConnectionId?: string,
+    channelScope?: string,
   ): void;
   handleValidationError(
     connection: RuntimeConnection,
@@ -373,55 +386,7 @@ export function getChannelMembers(
     .map((connection) => runtime.toConnectionInfo(connection));
 }
 
-/**
- * Leave a channel, fire unsubscribe hooks, and notify remaining members.
- */
-export async function leaveChannel(
-  runtime: ChannelRuntime &
-    Pick<
-      OutgoingRuntime,
-      | 'afterSendHooks'
-      | 'beforeSendHooks'
-      | 'compiled'
-      | 'generateId'
-      | 'logger'
-      | 'moduleRuntimes'
-      | 'outgoingHooks'
-      | 'waitUntil'
-    >,
-  connection: RuntimeConnection,
-  scope: { channel?: CompiledChannel; channelName: string; channelScope?: string },
-  kickedReason?: string,
-): Promise<void> {
-  if (!connection.channels.has(scope.channelName)) return;
-
-  const ctx = runtime.buildConnectionContext(connection, scope);
-
-  for (const hook of runtime.unsubscribeHooks.get(scope.channel?.key ?? '') ?? []) {
-    await hook(ctx);
-  }
-
-  connection.channels.delete(scope.channelName);
-  connection.tags.delete(`channel:${scope.channelName}`);
-  runtime.persistAttachment(connection);
-
-  if (kickedReason) {
-    runtime.sendProtocolMessage(connection, '_kicked', {
-      _channel: scope.channelName,
-      ...(scope.channelScope ? { _channelScope: scope.channelScope } : {}),
-      reason: kickedReason,
-    });
-  }
-
-  broadcastToChannel(
-    runtime,
-    scope.channelName,
-    '_memberLeave',
-    { connectionId: connection.id },
-    connection.id,
-    scope.channelScope,
-  );
-}
+export const leaveChannel = leaveChannelRuntime;
 
 /**
  * Remove tagged members from a channel, typically for moderation or access
@@ -450,11 +415,7 @@ export function kickChannelMembers(
   tag: string,
   reason: string,
 ): void {
-  for (const connection of runtime.connections.values()) {
-    if (!connection.channels.has(channelName) || !connection.tags.has(tag)) continue;
-    const resolved = runtime.compiled.channels.get(channelName);
-    void runtime.leaveChannel(connection, { channel: resolved, channelName }, reason);
-  }
+  kickChannelMembersRuntime(runtime, channelName, tag, reason);
 }
 
 /**
@@ -476,71 +437,22 @@ export async function handleSubscribe(
   connection: RuntimeConnection,
   payload: Record<string, unknown> | undefined,
 ): Promise<void> {
-  if (!payload || typeof payload._channel !== 'string') return;
-
-  const resolved =
-    typeof payload._channelScope === 'string'
-      ? runtime.compiled.channelFamilies.get(payload._channelScope)
-      : runtime.compiled.channels.get(payload._channel);
-  if (!resolved) return;
-
-  const existingMembers = getChannelMembers(runtime, payload._channel);
-  const scope = {
-    channel: resolved,
-    channelName: payload._channel,
-    channelScope: typeof payload._channelScope === 'string' ? payload._channelScope : undefined,
-  };
-  const ctx = runtime.buildConnectionContext(connection, scope);
-  const data = { ...payload };
-  delete data._channel;
-  delete data._channelScope;
-
-  for (const hook of runtime.beforeSubscribeHooks.get(resolved.key) ?? []) {
-    let validatedData: unknown = data;
-    if (hook.validator) {
-      try {
-        validatedData = validateValue(hook.validator, data, '_subscribe');
-      } catch (error) {
-        await runtime.handleValidationError(connection, '_subscribe', error, scope);
-        throw error;
-      }
-    }
-
-    await hook.handler(ctx, validatedData);
-  }
-
-  connection.channels.add(payload._channel);
-  connection.tags.add(`channel:${payload._channel}`);
-  runtime.persistAttachment(connection);
-
-  for (const hook of runtime.subscribeHooks.get(resolved.key) ?? []) {
-    await hook(ctx);
-  }
-
-  runtime.sendProtocolMessage(connection, '_subscribeOk', {
-    _channel: payload._channel,
-    ...(scope.channelScope ? { _channelScope: scope.channelScope } : {}),
-  });
-
-  for (const member of existingMembers) {
-    runtime.sendProtocolMessage(connection, '_memberJoin', {
-      _channel: payload._channel,
-      ...(scope.channelScope ? { _channelScope: scope.channelScope } : {}),
-      connectionId: member.id,
-      meta: member.meta,
-    });
-  }
-
-  broadcastToChannel(
-    runtime,
-    payload._channel,
-    '_memberJoin',
+  await subscribeConnection(
     {
-      connectionId: connection.id,
-      meta: connection.meta,
+      ...runtime,
+      broadcastToChannel: (channelName, event, nextPayload, excludeConnectionId, channelScope) =>
+        broadcastToChannel(
+          runtime,
+          channelName,
+          event,
+          nextPayload,
+          excludeConnectionId,
+          channelScope,
+        ),
+      toConnectionInfo: (nextConnection) => runtime.toConnectionInfo(nextConnection),
     },
-    connection.id,
-    scope.channelScope,
+    connection,
+    payload,
   );
 }
 
@@ -568,18 +480,7 @@ export async function handleUnsubscribe(
   connection: RuntimeConnection,
   payload: Record<string, unknown> | undefined,
 ): Promise<void> {
-  if (!payload || typeof payload._channel !== 'string') return;
-  const resolved =
-    typeof payload._channelScope === 'string'
-      ? runtime.compiled.channelFamilies.get(payload._channelScope)
-      : runtime.compiled.channels.get(payload._channel);
-  if (!resolved) return;
-
-  await runtime.leaveChannel(connection, {
-    channel: resolved,
-    channelName: payload._channel,
-    channelScope: typeof payload._channelScope === 'string' ? payload._channelScope : undefined,
-  });
+  await unsubscribeConnection(runtime, connection, payload);
 }
 
 /**

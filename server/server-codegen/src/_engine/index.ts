@@ -777,6 +777,21 @@ export class Engine {
       beforeSubscribeHooks: this.hooks.beforeSubscribe,
       subscribeHooks: this.hooks.subscribe,
       unsubscribeHooks: this.hooks.unsubscribe,
+      broadcastToChannel: (
+        channelName: string,
+        event: string,
+        payload: unknown,
+        excludeConnectionId?: string,
+        channelScope?: string,
+      ) =>
+        broadcastToChannel(
+          this.dispatchRuntime(),
+          channelName,
+          event,
+          payload,
+          excludeConnectionId,
+          channelScope,
+        ),
       buildConnectionContext: (connection: RuntimeConnection, scope?: ResolvedScope) =>
         this.buildConnectionContext(connection, scope),
       persistAttachment: (connection: RuntimeConnection) => this.persistAttachment(connection),
