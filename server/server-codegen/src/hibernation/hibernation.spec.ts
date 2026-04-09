@@ -12,4 +12,17 @@ describe('hibernation()', () => {
     const primitive = hibernation(false);
     expect(primitive.enabled).toBe(false);
   });
+
+  it('registers the hibernation setting during setup', () => {
+    const primitive = hibernation(false);
+    let enabled = true;
+
+    primitive.__setup?.({
+      setHibernationEnabled(value: boolean) {
+        enabled = value;
+      },
+    } as never);
+
+    expect(enabled).toBe(false);
+  });
 });

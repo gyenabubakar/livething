@@ -119,6 +119,7 @@ export class Engine {
   private platform: unknown = {};
   private waitUntilImpl: (promise: Promise<unknown>) => void = () => {};
   private hasWaitUntil = false;
+  private hibernationEnabled = false;
   /** Default logger used when the adapter does not provide a custom one. */
   private readonly logger = {
     info(message: string, data?: unknown) {
@@ -416,6 +417,9 @@ export class Engine {
       },
       requireStorage: () => this.requireStorage(),
       requireTimers: () => this.requireTimers(),
+      setHibernationEnabled: (enabled) => {
+        this.hibernationEnabled = enabled;
+      },
       refreshConnectionIdleTimeout: (connectionId, timeoutMs) => {
         const connection = this.connections.get(connectionId);
         if (!connection) return;
@@ -879,10 +883,22 @@ export class Engine {
   }
 
   /**
+   * Tell adapters whether this handler actually opted into connection
+   * hibernation on a platform that supports it.
+   */
+  usesHibernation(): boolean {
+    return this.options.hibernation && this.hibernationEnabled;
+  }
+
+  /**
    * Rebuild a connection handle for a websocket the adapter woke from
    * hibernation.
    */
   handleHibernationWake(wsKey: unknown): ConnectionHandle {
+    if (!this.usesHibernation()) {
+      throw new Error('[wskit] hibernation() is not enabled for this handler.');
+    }
+
     return wakeHibernatedConnection(this.connectionRuntime(), wsKey);
   }
 

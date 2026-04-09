@@ -1,6 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import type { ServerDefinition } from '~/define-server.ts';
-import type { HibernationPrimitive } from '~/hibernation/index.ts';
 import type { Primitive } from '~/primitive.ts';
 import {
   isChannelPrimitive,
@@ -125,10 +124,6 @@ function visitCompiledPrimitives(compiled: CompiledServer, primitives: readonly 
         compiled.replayEnabled = true;
         continue;
 
-      case 'hibernation':
-        compiled.hibernationEnabled = (primitive as HibernationPrimitive).enabled;
-        continue;
-
       case 'outgoing':
         compiled.outgoing.set((primitive as AnyOutgoing).event, primitive as AnyOutgoing);
         continue;
@@ -207,7 +202,6 @@ export function compileHandlerDefinition(handler: ServerDefinition): CompiledSer
     modules: [],
     errors: [],
     ack: false,
-    hibernationEnabled: false,
     replayEnabled: false,
     sequencePersistent: false,
     requires: {},

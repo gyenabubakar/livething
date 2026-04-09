@@ -1418,6 +1418,34 @@ describe('Engine', () => {
     expect((attachment as { id: string }).id).toBe('conn_saved');
   });
 
+  it('rejects hibernation wake when the handler did not enable hibernation', async () => {
+    const handler = server('engine-no-hibernation', {
+      _incoming: incoming,
+      _outgoing: outgoing,
+    }).define(
+      outgoing('message', t<{ text: string }>()),
+      incoming(
+        received('echo', (value: unknown) => value as { text: string }),
+        async (ctx, payload) => {
+          ctx.send('message', payload);
+        },
+      ),
+    );
+
+    const engine = new Engine(handler, {
+      adapterId: 'test',
+      hibernation: true,
+    });
+
+    attachTestAdapter(engine);
+    await engine.initialize();
+
+    expect(engine.usesHibernation()).toBe(false);
+    expect(() => engine.handleHibernationWake({})).toThrow(
+      '[wskit] hibernation() is not enabled for this handler.',
+    );
+  });
+
   it('buffers stream nudges and delivers _streamId on stream errors', async () => {
     let releaseFirstYield!: () => void;
     const firstYieldReady = new Promise<void>((resolve) => {

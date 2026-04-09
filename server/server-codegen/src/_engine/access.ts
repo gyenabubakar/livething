@@ -211,6 +211,14 @@ export interface EngineAccess {
   requireTimers(): TimerProvider;
 
   /**
+   * Tell the engine whether this handler wants connection hibernation enabled.
+   *
+   * Adapters can then ask the engine for that decision instead of inspecting
+   * primitive instances directly.
+   */
+  setHibernationEnabled(enabled: boolean): void;
+
+  /**
    * Refresh the idle timeout for one live connection.
    *
    * Built-in primitives such as `heartbeat()` use this instead of reaching

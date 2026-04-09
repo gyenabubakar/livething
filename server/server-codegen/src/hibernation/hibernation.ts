@@ -25,6 +25,9 @@ const _hibernation = definePrimitive<'hibernation', [enabled?: boolean], { enabl
       enabled,
     };
   },
+  setup(engine, data) {
+    engine.setHibernationEnabled(data.enabled);
+  },
 });
 
 /**
