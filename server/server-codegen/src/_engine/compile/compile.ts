@@ -113,7 +113,6 @@ function visitCompiledPrimitives(compiled: CompiledServer, primitives: readonly 
 
     switch (primitive.__wskit) {
       case 'ack':
-        compiled.ack = true;
         continue;
 
       case 'sequence':
@@ -195,7 +194,6 @@ export function compileHandlerDefinition(handler: ServerDefinition): CompiledSer
     scheduled: new Map(),
     modules: [],
     errors: [],
-    ack: false,
     requires: {},
   };
 

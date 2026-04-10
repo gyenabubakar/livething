@@ -285,6 +285,14 @@ export interface EngineAccess {
   ): void;
 
   /**
+   * Send the current in-flight ack for one live connection, if there is one.
+   *
+   * `ack()` uses this so the primitive can own `ctx.ack()` without reaching
+   * into engine-owned connection state directly.
+   */
+  sendAck(connectionId: string): void;
+
+  /**
    * Let a background task continue even after the current callback returns.
    *
    * Adapters can map this to a platform primitive such as Durable Objects

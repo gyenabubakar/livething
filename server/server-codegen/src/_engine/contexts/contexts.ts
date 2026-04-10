@@ -262,13 +262,6 @@ export function buildConnectionContext(
     };
   }
 
-  if (deps.compiled.ack && !scope?.namespace && !scope?.channel) {
-    base.ack = () => {
-      if (!connection.activeAckId) return;
-      deps.sendProtocolMessage(connection, '_ack', { _ackId: connection.activeAckId });
-    };
-  }
-
   for (const extend of deps.contextExtenders ?? []) {
     Object.assign(base, extend(base));
   }

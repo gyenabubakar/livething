@@ -444,6 +444,11 @@ export class Engine {
         if (!connection) return;
         this.sendReplay(connection, channelName, channelScope, event, payload, wire);
       },
+      sendAck: (connectionId) => {
+        const connection = this.connections.get(connectionId);
+        if (!connection?.activeAckId) return;
+        this.sendProtocolMessage(connection, '_ack', { _ackId: connection.activeAckId });
+      },
       rescheduleAlarm: () => this.rescheduleAlarm(),
       generateId: (prefix) => this.generateId(prefix),
       waitUntil: (promise) => {

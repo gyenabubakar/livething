@@ -72,7 +72,6 @@ export interface CompiledServer {
   scheduled: Map<string, AnyScheduled>;
   modules: AnyModule[];
   errors: ErrorsPrimitive<any>[];
-  ack: boolean;
   requires: RequiresManifest;
 }
 
