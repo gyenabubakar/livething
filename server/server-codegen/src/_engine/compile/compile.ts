@@ -20,7 +20,6 @@ import type {
   CompiledChannel,
   CompiledNamespace,
   CompiledServer,
-  ErrorsPrimitive,
   NamespacePrimitive,
 } from './types.ts';
 
@@ -148,10 +147,6 @@ function visitCompiledPrimitives(compiled: CompiledServer, primitives: readonly 
         continue;
       }
 
-      case 'errors':
-        compiled.errors.push(primitive as ErrorsPrimitive<any>);
-        continue;
-
       case 'module':
         compiled.modules.push(primitive as AnyModule);
         continue;
@@ -193,7 +188,6 @@ export function compileHandlerDefinition(handler: ServerDefinition): CompiledSer
     channelFamilies: new Map(),
     scheduled: new Map(),
     modules: [],
-    errors: [],
     requires: {},
   };
 

@@ -9,11 +9,15 @@ interface RuntimeErrorDeps {
     connection: RuntimeConnection,
     scope?: ResolvedScope,
   ): Record<PropertyKey, unknown>;
+  declaredErrorCodes: ReadonlySet<string>;
   errorHooks: readonly ((
     ctx: unknown,
     error: unknown,
     event?: string,
   ) => boolean | void | Promise<boolean | void>)[];
+  logger: {
+    warn(message: string, data?: unknown): void;
+  };
   sendProtocolMessage(
     connection: RuntimeConnection,
     event: string,
@@ -67,6 +71,13 @@ export async function sendRuntimeError(
     const shouldSend = await hook(ctx, error, event);
 
     if (shouldSend === false) return;
+  }
+
+  if (error instanceof WskitError && !deps.declaredErrorCodes.has(error.code)) {
+    deps.logger.warn('[wskit] Thrown WskitError was not declared with errors(...)', {
+      code: error.code,
+      event,
+    });
   }
 
   deps.sendProtocolMessage(connection, '_error', normalizeRuntimeErrorPayload(error, routing));

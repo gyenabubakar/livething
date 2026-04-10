@@ -33,11 +33,15 @@ describe('errors runtime', () => {
         buildConnectionContext() {
           return { id: 'c1' };
         },
+        declaredErrorCodes: new Set(),
         errorHooks: [
           async () => {
             return false;
           },
         ],
+        logger: {
+          warn() {},
+        },
         sendProtocolMessage(_connection, event, payload) {
           sent.push({ event, payload });
         },
@@ -73,5 +77,39 @@ describe('errors runtime', () => {
     );
 
     expect(events).toEqual(['_subscribe:room-1']);
+  });
+
+  it('warns when a thrown WskitError was never declared', async () => {
+    const warnings: string[] = [];
+    const sent: Array<{ event: string; payload: Record<string, unknown> }> = [];
+
+    await sendRuntimeError(
+      {
+        buildConnectionContext() {
+          return { id: 'c1' };
+        },
+        declaredErrorCodes: new Set(['forbidden']),
+        errorHooks: [],
+        logger: {
+          warn(message) {
+            warnings.push(message);
+          },
+        },
+        sendProtocolMessage(_connection, event, payload) {
+          sent.push({ event, payload });
+        },
+      },
+      { id: 'c1' } as never,
+      new WskitError('quota-exceeded', { limit: 1 }),
+      'charge-card',
+    );
+
+    expect(warnings).toEqual(['[wskit] Thrown WskitError was not declared with errors(...)']);
+    expect(sent).toEqual([
+      {
+        event: '_error',
+        payload: { code: 'quota-exceeded', detail: { limit: 1 } },
+      },
+    ]);
   });
 });

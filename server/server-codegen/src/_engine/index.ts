@@ -122,6 +122,7 @@ export class Engine {
   private hibernationEnabled = false;
   private replayEnabled = false;
   private sequencePersistent = false;
+  private readonly declaredErrorCodes = new Set<string>();
   /** Default logger used when the adapter does not provide a custom one. */
   private readonly logger = {
     info(message: string, data?: unknown) {
@@ -427,6 +428,11 @@ export class Engine {
       },
       setSequencePersistent: (enabled) => {
         this.sequencePersistent = enabled;
+      },
+      registerErrorDefinitions: (defs) => {
+        for (const def of defs) {
+          this.declaredErrorCodes.add(def.code);
+        }
       },
       refreshConnectionIdleTimeout: (connectionId, timeoutMs) => {
         const connection = this.connections.get(connectionId);
@@ -1262,7 +1268,9 @@ export class Engine {
       {
         buildConnectionContext: (targetConnection, scope) =>
           this.buildConnectionContext(targetConnection, scope),
+        declaredErrorCodes: this.declaredErrorCodes,
         errorHooks: this.hooks.error,
+        logger: this.logger,
         sendProtocolMessage: (targetConnection, outgoingEvent, payload) =>
           this.sendProtocolMessage(targetConnection, outgoingEvent, payload),
       },

@@ -1,7 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import type { ChannelPrimitive, ScopeDeclaration } from '~/channel/index.ts';
 import type { ModuleInstance } from '~/define-module.ts';
-import type { ErrorsPrimitive } from '~/errors/index.ts';
 import type { IncomingPrimitive } from '~/incoming/index.ts';
 import type { PostInterceptPrimitive, PreInterceptPrimitive } from '~/intercept/index.ts';
 import type { NamespacePrimitive } from '~/namespace/index.ts';
@@ -71,13 +70,11 @@ export interface CompiledServer {
   channelFamilies: Map<string, CompiledChannel>;
   scheduled: Map<string, AnyScheduled>;
   modules: AnyModule[];
-  errors: ErrorsPrimitive<any>[];
   requires: RequiresManifest;
 }
 
 export type {
   ChannelPrimitive,
-  ErrorsPrimitive,
   NamespacePrimitive,
   OutgoingPrimitive,
   RequestPrimitive,

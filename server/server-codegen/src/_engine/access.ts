@@ -1,6 +1,7 @@
 import type { AnyScheduled } from '~/_engine/compile/types.ts';
 import type { IncomingProtocolEvent, WireOutgoingMessage } from '~/_engine/runtime/types.ts';
 import type { StorageProvider, TimerProvider } from '~/context.ts';
+import type { ErrorDef } from '~/errors.ts';
 import type { ScheduledDeadLetter, ScheduledRun } from '~/scheduled/types.ts';
 import type { Validator } from '~/types.ts';
 
@@ -232,6 +233,14 @@ export interface EngineAccess {
    * sequence tracking.
    */
   setSequencePersistent(enabled: boolean): void;
+
+  /**
+   * Register the application's declared error definitions.
+   *
+   * The engine uses this registry only for runtime checks such as warning when
+   * a thrown `WskitError` was never declared with `errors(...)`.
+   */
+  registerErrorDefinitions(defs: readonly ErrorDef<string, unknown>[]): void;
 
   /**
    * Refresh the idle timeout for one live connection.

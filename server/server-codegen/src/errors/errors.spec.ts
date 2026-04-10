@@ -1,6 +1,7 @@
 import { error } from '~/errors.ts';
 import { errors } from '~/errors/errors.ts';
 import { describe, expect, it } from 'vitest';
+import type { EngineAccess } from '~/_engine/access.ts';
 
 const Forbidden = error('forbidden', (value: unknown) => value as { reason: string });
 const ChannelNotFound = error(
@@ -36,5 +37,18 @@ describe('errors', () => {
 
   it('factory has a symbol key for dependency references', () => {
     expect(typeof errors.__key).toBe('symbol');
+  });
+
+  it('registers declared error definitions during setup', () => {
+    const registered: string[] = [];
+    const engine = {
+      registerErrorDefinitions(defs) {
+        registered.push(...defs.map((def) => def.code));
+      },
+    } as Pick<EngineAccess, 'registerErrorDefinitions'> as EngineAccess;
+
+    errors(Forbidden, ChannelNotFound).__setup?.(engine);
+
+    expect(registered).toEqual(['forbidden', 'channel-not-found']);
   });
 });

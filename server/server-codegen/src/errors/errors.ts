@@ -30,6 +30,9 @@ const _errors = definePrimitive<
   create(firstDef: AnyErrorDef, ...restDefs: AnyErrorDef[]) {
     return { defs: [firstDef, ...restDefs] };
   },
+  setup(engine, data) {
+    engine.registerErrorDefinitions(data.defs);
+  },
 });
 
 /**
