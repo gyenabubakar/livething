@@ -102,7 +102,7 @@ export interface ConnectionContext<
 
   namespace?: ScopeSendApi;
   channel?: ReplayScopeSendApi;
-  channels?: ChannelManager<Meta>;
+  channels: ChannelManager<Meta>;
 
   schedule(taskId: string, options: { time: number; data?: unknown }): void;
   cancelScheduled(taskId: string, filter?: Record<string, unknown>): void;

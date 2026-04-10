@@ -272,6 +272,7 @@ const scopedCapabilities = scopedDefine(
   intercept('send-message', async (ctx, payload: { text: string }) => {
     ctx.ack();
     ctx.send('message', { text: payload.text });
+    ctx.channels.members('room-1');
 
     // @ts-expect-error generated intercept ctx should reject unknown top-level outgoing events
     ctx.send('typing', { userId: payload.text });
@@ -297,6 +298,7 @@ const scopedCapabilities = scopedDefine(
     intercept('dismiss', async (ctx, payload: { id: string }) => {
       const namespaceName: 'notifications' = ctx.namespace.name;
       void namespaceName;
+      ctx.channels.kick('room-1', 'muted', 'dismissed');
       ctx.namespace.send('alert', { id: payload.id });
       ctx.send('message', { text: payload.id });
 
@@ -381,7 +383,6 @@ const lifecycleCapabilities = lifecycleDefine(
   }),
   onError(async (ctx, error) => {
     ctx.send('message', { text: String(error) });
-    return false;
   }),
   scheduled('flush', async (ctx, data: { force: boolean }) => {
     ctx.broadcast('message', { text: data.force ? 'forced' : 'queued' });

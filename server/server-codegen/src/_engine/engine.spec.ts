@@ -27,7 +27,7 @@ import {
 import { replay } from '~/replay/index.ts';
 import { sequence } from '~/sequence/index.ts';
 import { chunks, generate, nudge, start, stream } from '~/stream/index.ts';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { Engine } from './index.ts';
 
 class FakeSqlResult {
@@ -339,10 +339,12 @@ function createTimers() {
       },
     },
     flushTimeouts() {
-      for (const callback of callbacks.values()) {
+      const pending = [...callbacks.values()];
+      callbacks.clear();
+
+      for (const callback of pending) {
         callback();
       }
-      callbacks.clear();
     },
   };
 }
@@ -356,14 +358,20 @@ function attachTestAdapter(engine: Engine, storage = createStorage()) {
 
 function createDescriptor(meta: Record<string, unknown> = {}) {
   const sent: { event: string; payload?: Record<string, unknown> }[] = [];
+  const rawSent: string[] = [];
   const closed: { code?: number; reason?: string }[] = [];
 
   return {
     sent,
+    rawSent,
     closed,
     descriptor: {
       send(data: string) {
-        sent.push(JSON.parse(data) as { event: string; payload?: Record<string, unknown> });
+        try {
+          sent.push(JSON.parse(data) as { event: string; payload?: Record<string, unknown> });
+        } catch {
+          rawSent.push(data);
+        }
       },
       sendBinary() {},
       close(code?: number, reason?: string) {
@@ -658,6 +666,57 @@ describe('Engine', () => {
     expect(ws.sent[0]?.payload?._messageId).toMatch(/^msg_/);
   });
 
+  it('rejects reserved engine fields added by module onOutgoing hooks', async () => {
+    const Analytics = defineModule({
+      id: 'acme:analytics',
+      key: Symbol('acme:analytics'),
+      setup(_args, hooks) {
+        hooks.onOutgoing((message) => ({
+          event: message.event,
+          payload: {
+            ...(message.payload as Record<string, unknown>),
+            _channel: 'forged',
+          },
+        }));
+
+        return () => ({});
+      },
+    });
+
+    const handler = server('engine-module-reserved-fields', {
+      _incoming: incoming,
+      _outgoing: outgoing,
+    }).define(
+      Analytics({}),
+      outgoing('message', t<{ text: string }>()),
+      incoming(
+        received('echo', (value: unknown) => value as { text: string }),
+        async (ctx: { send(event: 'message', payload: { text: string }): boolean }, payload) => {
+          ctx.send('message', payload);
+        },
+      ),
+    );
+
+    const engine = new Engine(handler, {
+      adapterId: 'test',
+      hibernation: false,
+    });
+
+    attachTestAdapter(engine);
+    await engine.initialize();
+
+    const ws = createDescriptor();
+    const conn = engine.accept(Symbol('ws-module-reserved'), ws.descriptor);
+    conn.handleMessage(JSON.stringify({ event: 'echo', payload: { text: 'hello' } }));
+    await flushAsyncWork();
+    await flushAsyncWork();
+
+    expect(ws.sent.at(-1)).toEqual({
+      event: '_error',
+      payload: { code: 'internal-error' },
+    });
+  });
+
   it('rejects non-object payloads on the normal outgoing pipeline', async () => {
     const handler = server('engine-payload-shape', {
       _incoming: incoming,
@@ -735,6 +794,92 @@ describe('Engine', () => {
     const conn = engine.accept(Symbol('ws-replay-shape'), ws.descriptor);
     conn.handleMessage(JSON.stringify({ event: 'echo', payload: { text: 'pong' } }));
     await flushAsyncWork();
+  });
+
+  it('tracks connection latency and quality from raw ping/pong frames', async () => {
+    const metrics: Array<{ latency: number | null; quality: string }> = [];
+    const scheduled: Array<() => void> = [];
+    const sentRaw: string[] = [];
+
+    const handler = server('engine-connection-metrics', {
+      _incoming: incoming,
+      _outgoing: outgoing,
+    }).define(
+      outgoing('message', t<{ text: string }>()),
+      incoming(
+        received('echo', (value: unknown) => value as { text: string }),
+        async (
+          ctx: {
+            latency: number | null;
+            quality: 'excellent' | 'good' | 'degraded' | 'poor';
+            send(event: 'message', payload: { text: string }): boolean;
+          },
+          payload,
+        ) => {
+          metrics.push({ latency: ctx.latency, quality: ctx.quality });
+          ctx.send('message', payload);
+        },
+      ),
+    );
+
+    const engine = new Engine(handler, {
+      adapterId: 'test',
+      hibernation: false,
+    });
+
+    engine.setStorage(createStorage());
+    engine.setTimerProvider({
+      setTimeout(callback) {
+        scheduled.push(callback);
+        return scheduled.length - 1;
+      },
+      clearTimeout() {},
+    });
+    engine.setWaitUntil(() => {});
+    await engine.initialize();
+
+    const ws = {
+      sent: [] as { event: string; payload?: Record<string, unknown> }[],
+      descriptor: {
+        send(data: string) {
+          if (data === 'ping' || data === 'pong') {
+            sentRaw.push(data);
+            return;
+          }
+
+          ws.sent.push(JSON.parse(data) as { event: string; payload?: Record<string, unknown> });
+        },
+        sendBinary() {},
+        close() {},
+        bufferedAmount() {
+          return 0;
+        },
+        meta: {},
+        tags: [] as const,
+      },
+    };
+
+    const now = vi.spyOn(Date, 'now');
+    now.mockReturnValue(1_000);
+
+    const conn = engine.accept(Symbol('ws-latency'), ws.descriptor);
+
+    scheduled[0]!();
+    expect(sentRaw).toEqual(['ping']);
+
+    now.mockReturnValue(1_080);
+    conn.handleMessage('pong');
+    conn.handleMessage(JSON.stringify({ event: 'echo', payload: { text: 'hi' } }));
+    await flushAsyncWork();
+
+    expect(metrics).toEqual([{ latency: 80, quality: 'excellent' }]);
+    expect(ws.sent).toEqual([{ event: 'message', payload: { text: 'hi' } }]);
+
+    conn.handleMessage('ping');
+    await flushAsyncWork();
+    expect(sentRaw).toEqual(['ping', 'pong']);
+
+    now.mockRestore();
   });
 
   it('dispatches top-level replay requests through the replay primitive', async () => {
@@ -1218,7 +1363,6 @@ describe('Engine', () => {
       }),
       onError(async (_ctx, error, event) => {
         events.push(`error:${event}:${error instanceof WskitError ? error.code : 'internal'}`);
-        return false;
       }),
       outgoing('message', t<{ text: string }>()),
       incoming(
@@ -1277,7 +1421,7 @@ describe('Engine', () => {
         'shutdown',
       ]),
     );
-    expect(socket.sent.some((entry) => entry.event === '_error')).toBe(false);
+    expect(socket.sent.some((entry) => entry.event === '_error')).toBe(true);
   });
 
   it('runs channel subscribe lifecycle and membership protocol', async () => {

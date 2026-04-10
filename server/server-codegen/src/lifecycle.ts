@@ -15,7 +15,7 @@ export type ErrorHandler<TCtx = any> = (
   ctx: TCtx,
   error: unknown,
   event?: string,
-) => boolean | void | Promise<boolean | void>;
+) => void | Promise<void>;
 export type UpgradeHandler = (request: Request) => UpgradeResult | Promise<UpgradeResult>;
 export type BinaryHandler<TCtx = any> = (ctx: TCtx, data: ArrayBuffer) => void | Promise<void>;
 export type ValidationErrorHandler<TCtx = any> = (

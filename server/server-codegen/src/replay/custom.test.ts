@@ -35,7 +35,7 @@ const channelReplay = handleReplay<'channel'>({
     void [_message, _seq, _messageId, _channel, _channelScope];
   },
   onReplay(ctx, since) {
-    const _channelName: string = ctx.channelName;
+    const _channelName: string = ctx.channel.name;
     const _since: number = since;
     void [_channelName, _since];
     ctx.sendReplay('message', { text: 'history' }, { seq: 1, messageId: 'm1' });

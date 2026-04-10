@@ -314,9 +314,11 @@ const withNamespace = defineServer(
     received('top-ping'),
     h(async (ctx) => {
       ctx.send('message', { text: 'top' });
+      ctx.channels.members('room-1');
+      ctx.channels.kick('room-1', 'muted', 'top-level moderation');
 
-      // @ts-expect-error — top-level ctx has no namespaceName
-      ctx.namespaceName;
+      // @ts-expect-error — top-level ctx has no namespace helper
+      ctx.namespace;
     }),
   ),
   namespace(
@@ -326,8 +328,9 @@ const withNamespace = defineServer(
     incoming(
       received('dismiss', (value: unknown) => value as { id: string }),
       h(async (ctx, payload) => {
-        const _name: string = ctx.namespaceName;
+        const _name: string = ctx.namespace.name;
         void _name;
+        ctx.channels.members('room-1');
 
         ctx.send('dismissed', { id: payload.id });
         ctx.broadcast('alert', { id: payload.id });
@@ -343,14 +346,14 @@ const withNamespace = defineServer(
       }),
     ),
     request('get-unread', async (ctx) => {
-      const _name: string = ctx.namespaceName;
+      const _name: string = ctx.namespace.name;
       void _name;
 
       ctx.send('alert', { id: 'a1' });
       return { ok: true };
     }),
     generate(namespaceStream, async function* (ctx, payload) {
-      const _name: string = ctx.namespaceName;
+      const _name: string = ctx.namespace.name;
       void _name;
 
       ctx.send('alert', { id: payload.prompt });
@@ -389,8 +392,8 @@ const withChannel = defineServer(
     h(async (ctx) => {
       ctx.send('message', { text: 'top' });
 
-      // @ts-expect-error — top-level ctx has no channelName
-      ctx.channelName;
+      // @ts-expect-error — top-level ctx has no channel helper
+      ctx.channel;
     }),
   ),
   channel(
@@ -400,8 +403,9 @@ const withChannel = defineServer(
     incoming(
       received('start-typing'),
       h(async (ctx) => {
-        const _name: string = ctx.channelName;
+        const _name: string = ctx.channel.name;
         void _name;
+        ctx.channels.kick('room-1', 'muted', 'slow mode');
 
         ctx.send('typing', { userId: 'u1' });
         ctx.broadcast('room-message', { text: 'hi' });
@@ -415,12 +419,12 @@ const withChannel = defineServer(
         // @ts-expect-error — replay is not available in channel scope
         ctx.sendReplay('room-message', { text: 'history' }, { seq: 1, messageId: 'm1' });
 
-        // @ts-expect-error — channel handlers do not get namespaceName
-        ctx.namespaceName;
+        // @ts-expect-error — channel handlers do not get namespace helper
+        ctx.namespace;
       }),
     ),
     request('room-status', async (ctx) => {
-      const _name: string = ctx.channelName;
+      const _name: string = ctx.channel.name;
       void _name;
 
       ctx.send('typing', { userId: 'u2' });
@@ -431,7 +435,7 @@ const withChannel = defineServer(
       return { ok: true };
     }),
     generate(channelStream, async function* (ctx, payload) {
-      const _name: string = ctx.channelName;
+      const _name: string = ctx.channel.name;
       void _name;
 
       ctx.send('room-message', { text: payload.prompt });
@@ -448,8 +452,8 @@ const withChannel = defineServer(
       // @ts-expect-error — channel scope does not see top-level outgoing
       ctx.send('message', { text: payload.prompt });
 
-      // @ts-expect-error — channel stream handlers do not get namespaceName
-      ctx.namespaceName;
+      // @ts-expect-error — channel stream handlers do not get namespace helper
+      ctx.namespace;
     }),
   ),
 );
@@ -477,7 +481,7 @@ const withoutAckChannel = defineServer(
     incoming(
       received('start-typing'),
       h(async (ctx) => {
-        const _name: string = ctx.channelName;
+        const _name: string = ctx.channel.name;
         void _name;
 
         ctx.send('typing', { userId: 'u1' });
@@ -488,7 +492,7 @@ const withoutAckChannel = defineServer(
       }),
     ),
     request('room-status', async (ctx) => {
-      const _name: string = ctx.channelName;
+      const _name: string = ctx.channel.name;
       void _name;
 
       ctx.send('typing', { userId: 'u2' });
@@ -499,7 +503,7 @@ const withoutAckChannel = defineServer(
       return { ok: true };
     }),
     generate(channelStream, async function* (ctx, payload) {
-      const _name: string = ctx.channelName;
+      const _name: string = ctx.channel.name;
       void _name;
 
       ctx.send('room-message', { text: payload.prompt });
@@ -528,7 +532,7 @@ const withChannelReplay = defineServer(
     incoming(
       received('room-replay', (value: unknown) => value as { text: string }),
       h(async (ctx, payload) => {
-        const _name: string = ctx.channelName;
+        const _name: string = ctx.channel.name;
         void _name;
 
         ctx.sendReplay('room-message', { text: payload.text }, { seq: 1, messageId: 'm1' });
@@ -563,12 +567,12 @@ const withNamespaceIntercept = defineServer(
           ctx: NamespaceHandlerContext<{ alert: { id: string } }>,
           message: InterceptMessage,
         ) => {
-          const _name: string = ctx.namespaceName;
+          const _name: string = ctx.namespace.name;
           const _event: string = message.event;
           void [_name, _event];
 
-          // @ts-expect-error — namespace intercept does not see top-level helpers
-          ctx.channelName;
+          // @ts-expect-error — namespace intercept does not see channel helpers
+          ctx.channel;
 
           return message;
         },
@@ -585,7 +589,7 @@ const withNamespaceIntercept = defineServer(
           ctx: NamespaceHandlerContext<{ alert: { id: string } }>,
           payload: { id: string },
         ) => {
-          const _name: string = ctx.namespaceName;
+          const _name: string = ctx.namespace.name;
           const _id: string = payload.id;
           void [_name, _id];
 
@@ -610,7 +614,7 @@ const withChannelIntercept = defineServer(
           ctx: ChannelHandlerContext<{ message: { text: string } }>,
           message: InterceptMessage,
         ) => {
-          const _name: string = ctx.channelName;
+          const _name: string = ctx.channel.name;
           const _event: string = message.event;
           void [_name, _event];
           return message;
@@ -628,7 +632,7 @@ const withChannelIntercept = defineServer(
           ctx: ChannelHandlerContext<{ message: { text: string } }>,
           payload: { text: string },
         ) => {
-          const _name: string = ctx.channelName;
+          const _name: string = ctx.channel.name;
           const _text: string = payload.text;
           void [_name, _text];
           return payload;

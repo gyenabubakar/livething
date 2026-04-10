@@ -20,7 +20,7 @@ import type {
   UnsubscribeHandler,
   UnsubscribePrimitive,
 } from './channel/index.ts';
-import type { InitContext, ShutdownContext, TaskContext } from './context.ts';
+import type { ChannelManager, InitContext, ShutdownContext, TaskContext } from './context.ts';
 import type * as DedupModule from './dedup/index.ts';
 import type * as ErrorsModule from './errors/index.ts';
 import type { Handled } from './h.ts';
@@ -257,6 +257,10 @@ type AckApi<TFactories extends ServerPrimitiveFactories> = '_ack' extends keyof 
   ? { ack(): void }
   : {};
 
+type ChannelsApi<TFactories extends ServerPrimitiveFactories> = '_channel' extends keyof TFactories
+  ? { channels: ChannelManager<Record<string, unknown>> }
+  : {};
+
 type ReplayMeta = { seq: number; messageId: string };
 
 type GenericReplayApi = {
@@ -283,9 +287,10 @@ type ReplayApi<
   : {};
 
 export type BoundServerContext<TName extends string, TFactories extends ServerPrimitiveFactories> =
-  HasRegisteredCtx<TName> extends true
+  (HasRegisteredCtx<TName> extends true
     ? RegisteredCtx<TName>
-    : SendApi<TName, TFactories> & AckApi<TFactories> & ReplayApi<TName, TFactories>;
+    : SendApi<TName, TFactories> & AckApi<TFactories> & ReplayApi<TName, TFactories>) &
+    ChannelsApi<TFactories>;
 
 type BoundInitContext = InitContext<Record<string, unknown>, unknown>;
 type BoundShutdownContext = ShutdownContext<
@@ -318,9 +323,10 @@ type BoundNamespaceContext<
   TFactories extends ServerPrimitiveFactories,
   TNamespace extends string,
 > =
-  HasRegisteredNamespaceCtx<TName, TNamespace> extends true
+  (HasRegisteredNamespaceCtx<TName, TNamespace> extends true
     ? RegisteredNamespaceCtx<TName, TNamespace>
-    : BoundNamespaceFallbackContext<TName, TFactories, TNamespace>;
+    : BoundNamespaceFallbackContext<TName, TFactories, TNamespace>) &
+    ChannelsApi<TFactories>;
 
 type BoundChannelFallbackContext<
   TName extends string,
@@ -335,36 +341,40 @@ type BoundChannelContext<
   TFactories extends ServerPrimitiveFactories,
   TChannel extends string,
 > =
-  HasRegisteredChannelCtx<TName, TChannel> extends true
+  (HasRegisteredChannelCtx<TName, TChannel> extends true
     ? RegisteredChannelCtx<TName, TChannel>
-    : BoundChannelFallbackContext<TName, TFactories, TChannel>;
+    : BoundChannelFallbackContext<TName, TFactories, TChannel>) &
+    ChannelsApi<TFactories>;
 
 type EventBoundIncomingContext<
   TName extends string,
   TFactories extends ServerPrimitiveFactories,
   TEvent extends string,
 > =
-  HasRegisteredIncomingCtx<TName, TEvent> extends true
+  (HasRegisteredIncomingCtx<TName, TEvent> extends true
     ? RegisteredIncomingCtx<TName, TEvent>
-    : BoundServerContext<TName, TFactories>;
+    : BoundServerContext<TName, TFactories>) &
+    ChannelsApi<TFactories>;
 
 type EventBoundRequestContext<
   TName extends string,
   TFactories extends ServerPrimitiveFactories,
   TEvent extends string,
 > =
-  HasRegisteredRequestCtx<TName, TEvent> extends true
+  (HasRegisteredRequestCtx<TName, TEvent> extends true
     ? RegisteredRequestCtx<TName, TEvent>
-    : BoundServerContext<TName, TFactories>;
+    : BoundServerContext<TName, TFactories>) &
+    ChannelsApi<TFactories>;
 
 type EventBoundPostInterceptContext<
   TName extends string,
   TFactories extends ServerPrimitiveFactories,
   TEvent extends string,
 > =
-  HasRegisteredPostInterceptCtx<TName, TEvent> extends true
+  (HasRegisteredPostInterceptCtx<TName, TEvent> extends true
     ? RegisteredPostInterceptCtx<TName, TEvent>
-    : BoundServerContext<TName, TFactories>;
+    : BoundServerContext<TName, TFactories>) &
+    ChannelsApi<TFactories>;
 
 type EventPayload<TReceived extends ReceivedEvent<string, unknown>> =
   TReceived extends ReceivedEvent<string, infer TPayload> ? TPayload : never;

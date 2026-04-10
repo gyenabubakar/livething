@@ -53,7 +53,9 @@ export interface TopLevelReplayContext extends BaseCustomReplayContext {
 }
 
 export interface ChannelReplayContext extends BaseCustomReplayContext {
-  readonly channelName: string;
+  readonly channel: {
+    readonly name: string;
+  };
   sendReplay(event: string, payload: Record<string, unknown>, wire: ReplayWire): void;
 }
 
@@ -184,7 +186,7 @@ function createChannelReplayContext(
 ): ChannelReplayContext {
   return {
     id: String(baseCtx.id),
-    channelName,
+    channel: { name: channelName },
     sql: baseCtx.sql as SQLProvider,
     kv: baseCtx.kv as KVProvider,
     env: (baseCtx.env as Record<string, unknown>) ?? {},

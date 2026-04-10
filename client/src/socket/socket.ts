@@ -521,6 +521,12 @@ export class Socket<TContract extends SocketContract> {
       return;
     }
 
+    if (raw === 'ping') {
+      this._log('ping received');
+      this.ws?.send('pong');
+      return;
+    }
+
     // Parse: text or binary
     let parsed: { event: string; payload: unknown } | null = null;
 

@@ -13,6 +13,7 @@ import {
   unsubscribeConnection,
 } from '~/channel/runtime.ts';
 import { DeferExhausted } from '~/errors.ts';
+import { recordConnectionLatency } from '~/heartbeat/runtime.ts';
 import { bufferStreamNudge, cancelStream, runStream } from '~/stream/runtime.ts';
 import type { CompiledChannel, CompiledServer } from '~/_engine/compile/types.ts';
 import type { BroadcastOptions, ConnectionInfo, TimerProvider } from '~/index.ts';
@@ -63,11 +64,7 @@ interface DispatchRuntime extends OutgoingRuntime, ConnectionMembersRuntime {
     event: string;
     payload: unknown;
   }) => { event: string; payload: unknown } | void)[];
-  errorHooks: readonly ((
-    ctx: any,
-    error: unknown,
-    event?: string,
-  ) => boolean | void | Promise<boolean | void>)[];
+  errorHooks: readonly ((ctx: any, error: unknown, event?: string) => void | Promise<void>)[];
   requireTimers(): TimerProvider;
   buildConnectionContext(
     connection: RuntimeConnection,
@@ -217,6 +214,29 @@ function assertPayloadRecord(payload: unknown): asserts payload is Record<string
   }
 }
 
+function assertNoReservedPayloadFields(payload: Record<string, unknown>): void {
+  for (const key of Object.keys(payload)) {
+    if (key.startsWith('_')) {
+      throw new Error(
+        '[wskit] Outgoing payload fields starting with "_" are reserved for the engine.',
+      );
+    }
+  }
+}
+
+function assertNoNewReservedPayloadFields(
+  payload: Record<string, unknown>,
+  allowedReservedFields: ReadonlySet<string>,
+): void {
+  for (const key of Object.keys(payload)) {
+    if (key.startsWith('_') && !allowedReservedFields.has(key)) {
+      throw new Error(
+        '[wskit] Outgoing payload fields starting with "_" are reserved for the engine.',
+      );
+    }
+  }
+}
+
 /**
  * Push one outgoing event through module hooks, declaration checks, and wire
  * metadata injection before sending it to a connection.
@@ -229,14 +249,7 @@ export function sendThroughPipeline(
   payload: unknown,
 ): boolean {
   assertPayloadRecord(payload);
-
-  for (const key of Object.keys(payload)) {
-    if (key.startsWith('_')) {
-      throw new Error(
-        '[wskit] Outgoing payload fields starting with "_" are reserved for the engine.',
-      );
-    }
-  }
+  assertNoReservedPayloadFields(payload);
 
   let message: { event: string; payload: unknown } = { event, payload };
 
@@ -245,6 +258,11 @@ export function sendThroughPipeline(
     if (next) message = next;
   }
 
+  assertPayloadRecord(message.payload);
+  const allowedReservedFields = new Set(
+    Object.keys(message.payload).filter((key) => key.startsWith('_')),
+  );
+
   for (const moduleRuntime of runtime.moduleRuntimes) {
     if (!moduleRuntime.onOutgoing) continue;
     const next = moduleRuntime.onOutgoing(message);
@@ -252,6 +270,7 @@ export function sendThroughPipeline(
   }
 
   assertPayloadRecord(message.payload);
+  assertNoNewReservedPayloadFields(message.payload, allowedReservedFields);
 
   const finalPayload: Record<string, unknown> = {
     ...message.payload,
@@ -668,6 +687,16 @@ export async function processTextMessage(
 ): Promise<void> {
   for (const hook of runtime.activityHooks) {
     await hook(connection.id);
+  }
+
+  if (data === 'ping') {
+    connection.descriptor.send('pong');
+    return;
+  }
+
+  if (data === 'pong') {
+    recordConnectionLatency(connection);
+    return;
   }
 
   let parsed: { event: string; payload?: unknown };

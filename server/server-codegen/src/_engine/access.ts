@@ -103,16 +103,9 @@ export interface EngineAccess {
 
   /**
    * Observe runtime errors.
-   *
-   * Returning `true` means "this error was handled, stop normal error
-   * propagation."
    */
   onError(
-    handler: (
-      ctx: unknown,
-      error: unknown,
-      event?: string,
-    ) => boolean | void | Promise<boolean | void>,
+    handler: (ctx: unknown, error: unknown, event?: string) => void | Promise<void>,
   ): void;
 
   /**

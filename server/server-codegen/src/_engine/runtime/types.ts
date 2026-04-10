@@ -76,7 +76,7 @@ export interface RegisteredEngineHooks {
   connect: ((ctx: any) => void | Promise<void>)[];
   disconnect: ((ctx: any) => void | Promise<void>)[];
   shutdown: ((ctx: any) => void | Promise<void>)[];
-  error: ((ctx: any, error: unknown, event?: string) => boolean | void | Promise<boolean | void>)[];
+  error: ((ctx: any, error: unknown, event?: string) => void | Promise<void>)[];
   upgrade: ((request: Request) =>
     | { meta?: Record<string, unknown>; tags?: readonly string[] }
     | Promise<{
@@ -109,6 +109,9 @@ export interface RuntimeConnection {
   quality: 'excellent' | 'good' | 'degraded' | 'poor';
   activeAckId?: string;
   heartbeatTimer?: unknown;
+  pingTimer?: unknown;
+  pendingPingSentAt?: number;
+  recentLatencies?: number[];
 }
 
 /**

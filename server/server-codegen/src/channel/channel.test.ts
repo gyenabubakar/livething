@@ -26,7 +26,7 @@ const general = channel(
   incoming(
     received('send-message', (value: unknown) => value as { text: string }),
     h(async (ctx, payload) => {
-      const _name: string = ctx.channelName;
+      const _name: string = ctx.channel.name;
       const _text: string = payload.text;
       void [_name, _text];
 
@@ -58,7 +58,7 @@ const roomChannel = channel(
   incoming(
     received('start-typing'),
     h(async (ctx: ChannelHandlerContext<{ typing: { userId: string } }, false>) => {
-      const _name: string = ctx.channelName;
+      const _name: string = ctx.channel.name;
       void _name;
 
       ctx.send('typing', { userId: 'u1' });
@@ -88,14 +88,14 @@ const aiRoom = channel(
   outgoing('done', t<{ ok: true }>()),
   incoming(received('ping'), async () => {}),
   request('status', async (ctx) => {
-    const _name: string = ctx.channelName;
+    const _name: string = ctx.channel.name;
     void _name;
 
     ctx.send('done', { ok: true });
     return { ok: true };
   }),
   generate(aiStream, async function* (ctx, payload) {
-    const _name: string = ctx.channelName;
+    const _name: string = ctx.channel.name;
     void _name;
 
     ctx.send('chunk', { text: payload.prompt });
@@ -120,7 +120,7 @@ const replayRoom = channel(
   incoming(
     received('replay-message', (value: unknown) => value as { text: string }),
     h(async (ctx, payload) => {
-      const _name: string = ctx.channelName;
+      const _name: string = ctx.channel.name;
       const _text: string = payload.text;
       void [_name, _text];
 

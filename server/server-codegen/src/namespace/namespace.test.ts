@@ -22,7 +22,7 @@ const notifications = namespace(
   incoming(
     received('dismiss', (value: unknown) => value as { id: string }),
     h(async (ctx, payload) => {
-      const _name: string = ctx.namespaceName;
+      const _name: string = ctx.namespace.name;
       const _id: string = payload.id;
       void [_name, _id];
 
@@ -59,7 +59,7 @@ const reports = namespace(
   outgoing('done', t<{ ok: true }>()),
   incoming(received('ping'), async () => {}),
   request('status', async (ctx) => {
-    const _name: string = ctx.namespaceName;
+    const _name: string = ctx.namespace.name;
     void _name;
 
     ctx.send('done', { ok: true });
@@ -67,7 +67,7 @@ const reports = namespace(
     return { ok: true };
   }),
   generate(aiStream, async function* (ctx, payload) {
-    const _name: string = ctx.namespaceName;
+    const _name: string = ctx.namespace.name;
     void _name;
 
     ctx.send('chunk', { text: payload.prompt });

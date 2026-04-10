@@ -142,9 +142,9 @@ export function buildConnectionContext(
   const base: ConnectionContext<Record<string, unknown>, Record<string, unknown>, unknown> &
     Record<PropertyKey, unknown> = {
     [ENGINE_SCOPE_META]: {
-      namespaceName: scope?.namespace?.name,
-      channelName: scope?.channelName,
-      channelScope: scope?.channelScope ?? scope?.channel?.key,
+    namespaceName: scope?.namespace?.name,
+    channelName: scope?.channelName,
+    channelScope: scope?.channelScope ?? scope?.channel?.key,
     } satisfies EngineScopeMeta,
     id: connection.id,
     meta: connection.meta,
@@ -201,6 +201,11 @@ export function buildConnectionContext(
     bufferedAmount: connection.descriptor.bufferedAmount(),
     latency: connection.latency,
     quality: connection.quality,
+    channels: {
+      members: (name) => deps.getChannelMembers(name),
+      kick: (channelNameToKick, tag, reason) =>
+        deps.kickChannelMembers(channelNameToKick, tag, reason),
+    },
     schedule: (taskId, options) => {
       deps.scheduleTask(taskId, options.time, options.data);
     },
@@ -254,11 +259,6 @@ export function buildConnectionContext(
         ),
       broadcast: (event, payload) =>
         deps.broadcastToChannel(channelName, event, payload, connection.id, channelScope),
-    };
-    base.channels = {
-      members: (name) => deps.getChannelMembers(name),
-      kick: (channelNameToKick, tag, reason) =>
-        deps.kickChannelMembers(channelNameToKick, tag, reason),
     };
   }
 

@@ -31,7 +31,7 @@ export type RequestHandler<TCtx = any, TPayload = unknown, TResponse = unknown> 
  * ```ts
  * request('get-history', async (ctx, payload) => {
  *   const rows = ctx.sql.exec('SELECT * FROM messages WHERE channel = ? LIMIT ?',
- *     ctx.channelName, payload.limit).toArray();
+ *     ctx.channel.name, payload.limit).toArray();
  *   return { messages: rows, hasMore: rows.length === payload.limit };
  * }, { validator: GetHistoryValidator })
  * ```

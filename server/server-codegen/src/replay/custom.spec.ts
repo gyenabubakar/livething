@@ -65,7 +65,7 @@ describe('custom replay', () => {
     const seen: Array<{ event: string; payload: Record<string, unknown> }> = [];
     const replayCalls: Array<{
       since: number;
-      channelName: string;
+      channel: string;
     }> = [];
     const sent: Array<Parameters<EngineAccess['sendReplay']>> = [];
     const engine = {
@@ -105,7 +105,7 @@ describe('custom replay', () => {
       onReplay(ctx, since) {
         replayCalls.push({
           since,
-          channelName: ctx.channelName,
+          channel: ctx.channel.name,
         });
         ctx.sendReplay('message', { text: 'history' }, { seq: 5, messageId: 'm5' });
       },
@@ -164,7 +164,7 @@ describe('custom replay', () => {
       { since: 4 },
     );
 
-    expect(replayCalls).toEqual([{ since: 4, channelName: 'room-1' }]);
+    expect(replayCalls).toEqual([{ since: 4, channel: 'room-1' }]);
     expect(sent).toEqual([
       ['c1', 'room-1', 'rooms', 'message', { text: 'history' }, { seq: 5, messageId: 'm5' }],
     ]);

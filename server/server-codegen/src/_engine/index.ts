@@ -1255,8 +1255,7 @@ export class Engine {
   }
 
   /**
-   * Normalize an error and send the engine `_error` protocol message unless the
-   * error hook explicitly suppresses it.
+   * Normalize an error and send the engine `_error` protocol message.
    */
   private async handleRuntimeError(
     connection: RuntimeConnection,

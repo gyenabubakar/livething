@@ -5,6 +5,7 @@ import type {
   UpgradeDecision,
 } from '~/_engine/adapter/types.ts';
 import type { CompiledChannel, CompiledServer } from '~/_engine/compile/types.ts';
+import { scheduleConnectionPing, stopConnectionPing } from '~/heartbeat/runtime.ts';
 import type { ResolvedScope, RuntimeConnection } from './types.ts';
 
 /**
@@ -166,6 +167,8 @@ export async function handleConnectionClose(
     connection.heartbeatTimer = undefined;
   }
 
+  stopConnectionPing(runtime.timers, connection);
+
   runtime.connections.delete(connection.id);
   runtime.wsToConnectionId.delete(connection.wsKey);
 }
@@ -217,6 +220,10 @@ export function acceptConnection(
   runtime.connections.set(connection.id, connection);
   runtime.wsToConnectionId.set(wsKey, connection.id);
   runtime.persistAttachment(connection);
+
+  if (runtime.timers) {
+    scheduleConnectionPing(runtime.timers, connection);
+  }
 
   const ctx = runtime.buildConnectionContext(connection);
   void runtime.runConnectionLifecycle('connect', ctx);
@@ -270,6 +277,10 @@ export function wakeHibernatedConnection(
   runtime.connections.set(connection.id, connection);
   runtime.wsToConnectionId.set(wsKey, connection.id);
   runtime.persistAttachment(connection);
+
+  if (runtime.timers) {
+    scheduleConnectionPing(runtime.timers, connection);
+  }
 
   return createHandle(runtime, connection);
 }

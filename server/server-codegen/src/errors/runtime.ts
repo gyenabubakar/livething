@@ -10,11 +10,7 @@ interface RuntimeErrorDeps {
     scope?: ResolvedScope,
   ): Record<PropertyKey, unknown>;
   declaredErrorCodes: ReadonlySet<string>;
-  errorHooks: readonly ((
-    ctx: unknown,
-    error: unknown,
-    event?: string,
-  ) => boolean | void | Promise<boolean | void>)[];
+  errorHooks: readonly ((ctx: unknown, error: unknown, event?: string) => void | Promise<void>)[];
   logger: {
     warn(message: string, data?: unknown): void;
   };
@@ -56,7 +52,7 @@ export function normalizeRuntimeErrorPayload(
 }
 
 /**
- * Run `onError(...)` hooks and, unless one suppresses it, send the normalized
+ * Run `onError(...)` hooks for internal errors, then send the normalized
  * `_error` protocol message to the client.
  */
 export async function sendRuntimeError(
@@ -66,18 +62,18 @@ export async function sendRuntimeError(
   event?: string,
   routing?: Record<string, unknown>,
 ): Promise<void> {
-  for (const hook of deps.errorHooks) {
-    const ctx = deps.buildConnectionContext(connection);
-    const shouldSend = await hook(ctx, error, event);
-
-    if (shouldSend === false) return;
-  }
-
   if (error instanceof WskitError && !deps.declaredErrorCodes.has(error.code)) {
     deps.logger.warn('[wskit] Thrown WskitError was not declared with errors(...)', {
       code: error.code,
       event,
     });
+  }
+
+  if (!(error instanceof WskitError)) {
+    for (const hook of deps.errorHooks) {
+      const ctx = deps.buildConnectionContext(connection);
+      await hook(ctx, error, event);
+    }
   }
 
   deps.sendProtocolMessage(connection, '_error', normalizeRuntimeErrorPayload(error, routing));

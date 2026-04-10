@@ -20,6 +20,7 @@ import type {
   StreamNudgesApi,
   StreamPrimitive,
 } from '~/stream/stream.ts';
+import type { ChannelManager } from '~/context.ts';
 
 type AnyErrorDef = ErrorDef<string, any>;
 type AnyOutgoing = OutgoingPrimitive<string, any>;
@@ -62,8 +63,7 @@ export type FoldablePrimitive =
 /**
  * The scope currently being typed.
  *
- * This decides which extra ctx fields exist, like `namespaceName` or
- * `channelName`.
+ * This decides which extra ctx fields exist.
  */
 export type ScopeKind = 'top' | 'namespace' | 'channel';
 
@@ -387,17 +387,19 @@ export interface ReplayMethods<TOutgoing extends Record<string, any>> {
 }
 
 export interface NamespaceScopeMethods {
-  /**
-   * The matched namespace name for the current handler call.
-   */
-  readonly namespaceName: string;
+  readonly namespace: {
+    readonly name: string;
+  };
 }
 
 export interface ChannelScopeMethods {
-  /**
-   * The current channel name for this handler call.
-   */
-  readonly channelName: string;
+  readonly channel: {
+    readonly name: string;
+  };
+}
+
+export interface ChannelsMethods {
+  readonly channels: ChannelManager<Record<string, unknown>>;
 }
 
 /**
@@ -432,7 +434,7 @@ type ReplayApi<TState extends ScopeStateShape> = TState['hasReplay'] extends tru
   : {};
 
 /**
- * Add scope-specific ctx fields like `namespaceName` or `channelName`.
+ * Add scope-specific ctx fields like `ctx.namespace.name` or `ctx.channel.name`.
  */
 type ScopeExtras<TKind extends ScopeKind> = TKind extends 'namespace'
   ? NamespaceScopeMethods
@@ -448,6 +450,7 @@ type ScopeExtras<TKind extends ScopeKind> = TKind extends 'namespace'
 export type HandlerCtxFromState<TState extends ScopeStateShape> = SendApi<TState['outgoing']> &
   AckApi<TState> &
   ReplayApi<TState> &
+  ChannelsMethods &
   ScopeExtras<TState['kind']>;
 
 /**
@@ -458,6 +461,7 @@ export type HandlerCtxFromState<TState extends ScopeStateShape> = SendApi<TState
  */
 export type StreamBaseCtxFromState<TState extends ScopeStateShape> = SendApi<TState['outgoing']> &
   ReplayApi<TState> &
+  ChannelsMethods &
   ScopeExtras<TState['kind']>;
 
 /**

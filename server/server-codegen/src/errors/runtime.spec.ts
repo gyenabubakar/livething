@@ -25,8 +25,9 @@ describe('errors runtime', () => {
     });
   });
 
-  it('suppresses _error when an error hook returns false', async () => {
+  it('still sends _error after running error hooks', async () => {
     const sent: Array<{ event: string; payload: Record<string, unknown> }> = [];
+    const observed: string[] = [];
 
     await sendRuntimeError(
       {
@@ -35,8 +36,8 @@ describe('errors runtime', () => {
         },
         declaredErrorCodes: new Set(),
         errorHooks: [
-          async () => {
-            return false;
+          async (_ctx, _error, event) => {
+            observed.push(String(event));
           },
         ],
         logger: {
@@ -51,7 +52,35 @@ describe('errors runtime', () => {
       'echo',
     );
 
-    expect(sent).toEqual([]);
+    expect(observed).toEqual(['echo']);
+    expect(sent).toEqual([{ event: '_error', payload: { code: 'internal-error' } }]);
+  });
+
+  it('does not run error hooks for declared WskitError values', async () => {
+    const observed: string[] = [];
+
+    await sendRuntimeError(
+      {
+        buildConnectionContext() {
+          return { id: 'c1' };
+        },
+        declaredErrorCodes: new Set(['forbidden']),
+        errorHooks: [
+          async () => {
+            observed.push('hook');
+          },
+        ],
+        logger: {
+          warn() {},
+        },
+        sendProtocolMessage() {},
+      },
+      { id: 'c1' } as never,
+      new WskitError('forbidden', {}),
+      'echo',
+    );
+
+    expect(observed).toEqual([]);
   });
 
   it('notifies validation hooks with the scoped context', async () => {
