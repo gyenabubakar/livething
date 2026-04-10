@@ -24,7 +24,6 @@ import {
   broadcastToChannel,
   broadcastToConnections,
   getChannelMembers,
-  handleRuntimeError,
   handleSubscribe,
   handleUnsubscribe,
   kickChannelMembers,
@@ -32,6 +31,7 @@ import {
   processTextMessage,
   sendThroughPipeline,
 } from '~/_engine/runtime/messages.ts';
+import { notifyValidationError, sendRuntimeError } from '~/errors/runtime.ts';
 import { refreshHeartbeatTimeout } from '~/heartbeat/runtime.ts';
 import {
   cancelScheduledRuns,
@@ -1258,7 +1258,7 @@ export class Engine {
     event?: string,
     routing?: Record<string, unknown>,
   ): Promise<void> {
-    return handleRuntimeError(
+    return sendRuntimeError(
       {
         buildConnectionContext: (targetConnection, scope) =>
           this.buildConnectionContext(targetConnection, scope),
@@ -1282,11 +1282,16 @@ export class Engine {
     validationError: unknown,
     scope?: ResolvedScope,
   ): Promise<void> {
-    if (this.hooks.validationError.length === 0) return;
-
-    const ctx = this.buildConnectionContext(connection, scope);
-    for (const hook of this.hooks.validationError) {
-      await hook(ctx, event, validationError);
-    }
+    return notifyValidationError(
+      {
+        buildConnectionContext: (targetConnection, targetScope) =>
+          this.buildConnectionContext(targetConnection, targetScope),
+        validationErrorHooks: this.hooks.validationError,
+      },
+      connection,
+      event,
+      validationError,
+      scope,
+    );
   }
 }

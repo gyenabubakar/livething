@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { Block, Skip, WskitError } from '@wskit/core';
+import { Block, Skip } from '@wskit/core';
 import {
   isIncomingProtocolEvent,
   isProtocolEvent,
@@ -481,30 +481,6 @@ export async function handleUnsubscribe(
   payload: Record<string, unknown> | undefined,
 ): Promise<void> {
   await unsubscribeConnection(runtime, connection, payload);
-}
-
-/**
- * Send a normalized `_error` protocol message, optionally after the error hook
- * has decided whether it should be forwarded.
- */
-export async function handleRuntimeError(
-  runtime: Pick<DispatchRuntime, 'buildConnectionContext' | 'errorHooks' | 'sendProtocolMessage'>,
-  connection: RuntimeConnection,
-  error: unknown,
-  event?: string,
-  routing?: Record<string, unknown>,
-): Promise<void> {
-  for (const hook of runtime.errorHooks) {
-    const ctx = runtime.buildConnectionContext(connection);
-    const shouldSend = await hook(ctx, error, event);
-    if (shouldSend === false) return;
-  }
-
-  const payload =
-    error instanceof WskitError
-      ? { code: error.code, detail: error.detail, ...routing }
-      : { code: 'internal-error', ...routing };
-  runtime.sendProtocolMessage(connection, '_error', payload);
 }
 
 /**
