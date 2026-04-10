@@ -1,8 +1,8 @@
 import type { AnyScheduled } from '~/_engine/compile/types.ts';
 import type { IncomingProtocolEvent, WireOutgoingMessage } from '~/_engine/runtime/types.ts';
 import type { StorageProvider, TimerProvider } from '~/context.ts';
-import type { ErrorDef } from '~/errors.ts';
-import type { ScheduledDeadLetter, ScheduledRun } from '~/scheduled/types.ts';
+import type * as ErrorsPrimitive from '~/errors.ts';
+import type * as ScheduledPrimitive from '~/scheduled/types.ts';
 import type { Validator } from '~/types.ts';
 
 /**
@@ -231,7 +231,7 @@ export interface EngineAccess {
    * The engine uses this registry only for runtime checks such as warning when
    * a thrown `WskitError` was never declared with `errors(...)`.
    */
-  registerErrorDefinitions(defs: readonly ErrorDef<string, unknown>[]): void;
+  registerErrorDefinitions(defs: readonly ErrorsPrimitive.ErrorDef<string, unknown>[]): void;
 
   /**
    * Refresh the idle timeout for one live connection.
@@ -244,12 +244,12 @@ export interface EngineAccess {
   /**
    * Access the engine's in-memory table of queued scheduled runs.
    */
-  getScheduledRuns(): Map<string, ScheduledRun>;
+  getScheduledRuns(): Map<string, ScheduledPrimitive.ScheduledRun>;
 
   /**
    * Access the engine's in-memory dead-letter queue for scheduled runs.
    */
-  getScheduledDlq(): Map<string, ScheduledDeadLetter>;
+  getScheduledDlq(): Map<string, ScheduledPrimitive.ScheduledDeadLetter>;
 
   /**
    * Look up one declared scheduled task by task id.

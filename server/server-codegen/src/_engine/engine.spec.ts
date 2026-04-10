@@ -1,10 +1,10 @@
 import { WskitError } from '@wskit/core';
-import { ack } from '~/ack/index.ts';
-import { channel, scope } from '~/channel/index.ts';
-import { dedup } from '~/dedup/index.ts';
-import { heartbeat } from '~/heartbeat/index.ts';
-import { hibernation } from '~/hibernation/index.ts';
-import { incoming } from '~/incoming/index.ts';
+import * as AckPrimitive from '~/ack/index.ts';
+import * as ChannelPrimitive from '~/channel/index.ts';
+import * as DedupPrimitive from '~/dedup/index.ts';
+import * as HeartbeatPrimitive from '~/heartbeat/index.ts';
+import * as HibernationPrimitive from '~/hibernation/index.ts';
+import * as IncomingPrimitive from '~/incoming/index.ts';
 import {
   defineModule,
   onBeforeSubscribe,
@@ -24,9 +24,9 @@ import {
   server,
   t,
 } from '~/index.ts';
-import { replay } from '~/replay/index.ts';
-import { sequence } from '~/sequence/index.ts';
-import { chunks, generate, nudge, start, stream } from '~/stream/index.ts';
+import * as ReplayPrimitive from '~/replay/index.ts';
+import * as SequencePrimitive from '~/sequence/index.ts';
+import * as StreamPrimitive from '~/stream/index.ts';
 import { describe, expect, it, vi } from 'vitest';
 import { Engine } from './index.ts';
 
@@ -395,14 +395,14 @@ describe('Engine', () => {
     const ping = received('echo', (value: unknown) => value as { text: string });
 
     const handler = server('engine-sequence', {
-      _ack: ack,
-      _incoming: incoming,
+      _ack: AckPrimitive.ack,
+      _incoming: IncomingPrimitive.incoming,
       _outgoing: outgoing,
-      _sequence: sequence,
+      _sequence: SequencePrimitive.sequence,
     }).define(
-      sequence(),
+      SequencePrimitive.sequence(),
       outgoing('message', t<{ text: string }>()),
-      incoming(
+      IncomingPrimitive.incoming(
         ping,
         async (
           ctx: { ack(): void; send(event: 'message', payload: { text: string }): void },
@@ -431,7 +431,7 @@ describe('Engine', () => {
         payload: { text: 'pong', _ackId: 'ack-1' },
       }),
     );
-    await Promise.resolve();
+    await flushAsyncWork();
 
     expect(ws.sent).toEqual([
       { event: '_ack', payload: { _ackId: 'ack-1' } },
@@ -444,14 +444,14 @@ describe('Engine', () => {
     const ping = received('echo', (value: unknown) => value as { text: string });
 
     const handler = server('engine-dedup', {
-      _ack: ack,
-      _dedup: dedup,
-      _incoming: incoming,
+      _ack: AckPrimitive.ack,
+      _dedup: DedupPrimitive.dedup,
+      _incoming: IncomingPrimitive.incoming,
       _outgoing: outgoing,
     }).define(
-      dedup(),
+      DedupPrimitive.dedup(),
       outgoing('message', t<{ text: string }>()),
-      incoming(
+      IncomingPrimitive.incoming(
         ping,
         async (
           ctx: { ack(): void; send(event: 'message', payload: { text: string }): void },
@@ -480,7 +480,7 @@ describe('Engine', () => {
         payload: { text: 'pong', _ackId: 'ack-1' },
       }),
     );
-    await Promise.resolve();
+    await flushAsyncWork();
 
     expect(ws.sent[0]).toEqual({
       event: '_ack',
@@ -501,11 +501,11 @@ describe('Engine', () => {
 
   it('lets heartbeat own idle timeout refresh through connect and activity hooks', async () => {
     const handler = server('engine-heartbeat', {
-      _heartbeat: heartbeat,
-      _incoming: incoming,
+      _heartbeat: HeartbeatPrimitive.heartbeat,
+      _incoming: IncomingPrimitive.incoming,
     }).define(
-      heartbeat({ timeout: 30_000 }),
-      incoming(
+      HeartbeatPrimitive.heartbeat({ timeout: 30_000 }),
+      IncomingPrimitive.incoming(
         received('echo', (value: unknown) => value as { text: string }),
         async () => {},
       ),
@@ -548,11 +548,11 @@ describe('Engine', () => {
     const queueMessage = received('queue-task', (value: unknown) => value as { force: boolean });
 
     const handler = server('engine-schedule', {
-      _incoming: incoming,
+      _incoming: IncomingPrimitive.incoming,
       _scheduled: scheduled,
     }).define(
       flushTask,
-      incoming(
+      IncomingPrimitive.incoming(
         queueMessage,
         async (
           ctx: { schedule(taskId: string, options: { time: number; data?: unknown }): void },
@@ -578,7 +578,7 @@ describe('Engine', () => {
     const { descriptor } = createDescriptor();
     const conn = engine.accept(Symbol('ws'), descriptor);
     conn.handleMessage(JSON.stringify({ event: 'queue-task', payload: { force: true } }));
-    await Promise.resolve();
+    await flushAsyncWork();
 
     // One recurring baseline run exists already, and ctx.schedule(...) adds a
     // separate one-shot run without changing that recurring schedule.
@@ -642,10 +642,10 @@ describe('Engine', () => {
     });
 
     const handler = server('engine-module-outgoing-metadata', {
-      _dedup: dedup,
+      _dedup: DedupPrimitive.dedup,
       _outgoing: outgoing,
-      _sequence: sequence,
-    }).define(sequence(), dedup(), Analytics({}));
+      _sequence: SequencePrimitive.sequence,
+    }).define(SequencePrimitive.sequence(), DedupPrimitive.dedup(), Analytics({}));
 
     const engine = new Engine(handler, {
       adapterId: 'test',
@@ -684,12 +684,12 @@ describe('Engine', () => {
     });
 
     const handler = server('engine-module-reserved-fields', {
-      _incoming: incoming,
+      _incoming: IncomingPrimitive.incoming,
       _outgoing: outgoing,
     }).define(
       Analytics({}),
       outgoing('message', t<{ text: string }>()),
-      incoming(
+      IncomingPrimitive.incoming(
         received('echo', (value: unknown) => value as { text: string }),
         async (ctx: { send(event: 'message', payload: { text: string }): boolean }, payload) => {
           ctx.send('message', payload);
@@ -719,11 +719,11 @@ describe('Engine', () => {
 
   it('rejects non-object payloads on the normal outgoing pipeline', async () => {
     const handler = server('engine-payload-shape', {
-      _incoming: incoming,
+      _incoming: IncomingPrimitive.incoming,
       _outgoing: outgoing,
     }).define(
       outgoing('message', t<{ text: string }>()),
-      incoming(
+      IncomingPrimitive.incoming(
         received('echo', (value: unknown) => value as { text: string }),
         async (ctx: { send(event: 'message', payload: unknown): boolean }) => {
           ctx.send('message', 'not-an-object');
@@ -753,17 +753,17 @@ describe('Engine', () => {
 
   it('rejects non-object payloads on sendReplay', async () => {
     const handler = server('engine-replay-payload-shape', {
-      _dedup: dedup,
-      _incoming: incoming,
+      _dedup: DedupPrimitive.dedup,
+      _incoming: IncomingPrimitive.incoming,
       _outgoing: outgoing,
-      _replay: replay,
-      _sequence: sequence,
+      _replay: ReplayPrimitive.replay,
+      _sequence: SequencePrimitive.sequence,
     }).define(
-      sequence({ persist: true }),
-      dedup(),
+      SequencePrimitive.sequence({ persist: true }),
+      DedupPrimitive.dedup(),
       outgoing('message', t<{ text: string }>()),
-      replay(),
-      incoming(
+      ReplayPrimitive.replay(),
+      IncomingPrimitive.incoming(
         received('echo', (value: unknown) => value as { text: string }),
         async (ctx: {
           sendReplay(
@@ -802,11 +802,11 @@ describe('Engine', () => {
     const sentRaw: string[] = [];
 
     const handler = server('engine-connection-metrics', {
-      _incoming: incoming,
+      _incoming: IncomingPrimitive.incoming,
       _outgoing: outgoing,
     }).define(
       outgoing('message', t<{ text: string }>()),
-      incoming(
+      IncomingPrimitive.incoming(
         received('echo', (value: unknown) => value as { text: string }),
         async (
           ctx: {
@@ -884,17 +884,17 @@ describe('Engine', () => {
 
   it('dispatches top-level replay requests through the replay primitive', async () => {
     const handler = server('engine-replay-top-level', {
-      _incoming: incoming,
+      _incoming: IncomingPrimitive.incoming,
       _outgoing: outgoing,
-      _replay: replay,
-      _sequence: sequence,
-      _dedup: dedup,
+      _replay: ReplayPrimitive.replay,
+      _sequence: SequencePrimitive.sequence,
+      _dedup: DedupPrimitive.dedup,
     }).define(
-      sequence({ persist: true }),
-      dedup(),
+      SequencePrimitive.sequence({ persist: true }),
+      DedupPrimitive.dedup(),
       outgoing('message', t<{ text: string }>()),
-      replay(),
-      incoming(
+      ReplayPrimitive.replay(),
+      IncomingPrimitive.incoming(
         received('echo', (value: unknown) => value as { text: string }),
         async (ctx: { send(event: 'message', payload: { text: string }): void }, payload) => {
           ctx.send('message', { text: payload.text });
@@ -936,17 +936,17 @@ describe('Engine', () => {
     let replayRowsBeforeSend = 0;
 
     const handler = server('engine-replay-strict', {
-      _incoming: incoming,
+      _incoming: IncomingPrimitive.incoming,
       _outgoing: outgoing,
-      _replay: replay,
-      _sequence: sequence,
-      _dedup: dedup,
+      _replay: ReplayPrimitive.replay,
+      _sequence: SequencePrimitive.sequence,
+      _dedup: DedupPrimitive.dedup,
     }).define(
-      sequence({ persist: true }),
-      dedup(),
-      replay({ durability: 'strict' }),
+      SequencePrimitive.sequence({ persist: true }),
+      DedupPrimitive.dedup(),
+      ReplayPrimitive.replay({ durability: 'strict' }),
       outgoing('message', t<{ text: string }>()),
-      incoming(
+      IncomingPrimitive.incoming(
         received('echo', (value: unknown) => value as { text: string }),
         async (
           ctx: {
@@ -1007,17 +1007,17 @@ describe('Engine', () => {
     let replayRowsBeforeSend = 0;
 
     const handler = server('engine-replay-best-effort', {
-      _incoming: incoming,
+      _incoming: IncomingPrimitive.incoming,
       _outgoing: outgoing,
-      _replay: replay,
-      _sequence: sequence,
-      _dedup: dedup,
+      _replay: ReplayPrimitive.replay,
+      _sequence: SequencePrimitive.sequence,
+      _dedup: DedupPrimitive.dedup,
     }).define(
-      sequence({ persist: true }),
-      dedup(),
-      replay({ durability: 'best-effort' }),
+      SequencePrimitive.sequence({ persist: true }),
+      DedupPrimitive.dedup(),
+      ReplayPrimitive.replay({ durability: 'best-effort' }),
       outgoing('message', t<{ text: string }>()),
-      incoming(
+      IncomingPrimitive.incoming(
         received('echo', (value: unknown) => value as { text: string }),
         async (
           ctx: {
@@ -1078,17 +1078,17 @@ describe('Engine', () => {
 
   it('fails boot when the adapter does not provide waitUntil', async () => {
     const handler = server('engine-replay-best-effort-needs-waituntil', {
-      _incoming: incoming,
+      _incoming: IncomingPrimitive.incoming,
       _outgoing: outgoing,
-      _replay: replay,
-      _sequence: sequence,
-      _dedup: dedup,
+      _replay: ReplayPrimitive.replay,
+      _sequence: SequencePrimitive.sequence,
+      _dedup: DedupPrimitive.dedup,
     }).define(
-      sequence({ persist: true }),
-      dedup(),
-      replay({ durability: 'best-effort' }),
+      SequencePrimitive.sequence({ persist: true }),
+      DedupPrimitive.dedup(),
+      ReplayPrimitive.replay({ durability: 'best-effort' }),
       outgoing('message', t<{ text: string }>()),
-      incoming(
+      IncomingPrimitive.incoming(
         received('echo', (value: unknown) => value as { text: string }),
         async () => {},
       ),
@@ -1107,17 +1107,17 @@ describe('Engine', () => {
 
   it('fails boot when replay is registered without persistent sequence', async () => {
     const handler = server('engine-replay-needs-persistent-sequence', {
-      _incoming: incoming,
+      _incoming: IncomingPrimitive.incoming,
       _outgoing: outgoing,
-      _replay: replay,
-      _sequence: sequence,
-      _dedup: dedup,
+      _replay: ReplayPrimitive.replay,
+      _sequence: SequencePrimitive.sequence,
+      _dedup: DedupPrimitive.dedup,
     }).define(
-      sequence(),
-      dedup(),
-      replay(),
+      SequencePrimitive.sequence(),
+      DedupPrimitive.dedup(),
+      ReplayPrimitive.replay(),
       outgoing('message', t<{ text: string }>()),
-      incoming(
+      IncomingPrimitive.incoming(
         received('echo', (value: unknown) => value as { text: string }),
         async () => {},
       ),
@@ -1137,13 +1137,13 @@ describe('Engine', () => {
 
   it('keeps sequence numbers increasing across engine restarts when persistence is enabled', async () => {
     const handler = server('engine-sequence-persistent', {
-      _incoming: incoming,
+      _incoming: IncomingPrimitive.incoming,
       _outgoing: outgoing,
-      _sequence: sequence,
+      _sequence: SequencePrimitive.sequence,
     }).define(
-      sequence({ persist: true }),
+      SequencePrimitive.sequence({ persist: true }),
       outgoing('message', t<{ text: string }>()),
-      incoming(
+      IncomingPrimitive.incoming(
         received('echo', (value: unknown) => value as { text: string }),
         async (ctx: { send(event: 'message', payload: { text: string }): void }, payload) => {
           ctx.send('message', { text: payload.text });
@@ -1193,17 +1193,17 @@ describe('Engine', () => {
     const now = Date.now();
 
     const handler = server('engine-replay-prune', {
-      _incoming: incoming,
+      _incoming: IncomingPrimitive.incoming,
       _outgoing: outgoing,
-      _replay: replay,
-      _sequence: sequence,
-      _dedup: dedup,
+      _replay: ReplayPrimitive.replay,
+      _sequence: SequencePrimitive.sequence,
+      _dedup: DedupPrimitive.dedup,
     }).define(
-      sequence({ persist: true }),
-      dedup(),
-      replay({ retention: { maxAgeMs: 1_000 } }),
+      SequencePrimitive.sequence({ persist: true }),
+      DedupPrimitive.dedup(),
+      ReplayPrimitive.replay({ retention: { maxAgeMs: 1_000 } }),
       outgoing('message', t<{ text: string }>()),
-      incoming(
+      IncomingPrimitive.incoming(
         received('echo', (value: unknown) => value as { text: string }),
         async (ctx: { send(event: 'message', payload: { text: string }): void }, payload) => {
           ctx.send('message', { text: payload.text });
@@ -1248,20 +1248,20 @@ describe('Engine', () => {
 
   it('dispatches channel replay requests through the matching channel replay primitive', async () => {
     const handler = server('engine-replay-channel', {
-      _incoming: incoming,
+      _incoming: IncomingPrimitive.incoming,
       _outgoing: outgoing,
-      _replay: replay,
-      _sequence: sequence,
-      _dedup: dedup,
-      _channel: channel,
+      _replay: ReplayPrimitive.replay,
+      _sequence: SequencePrimitive.sequence,
+      _dedup: DedupPrimitive.dedup,
+      _channel: ChannelPrimitive.channel,
     }).define(
-      sequence({ persist: true }),
-      dedup(),
-      channel(
-        scope('rooms', /^room-/),
-        replay(),
+      SequencePrimitive.sequence({ persist: true }),
+      DedupPrimitive.dedup(),
+      ChannelPrimitive.channel(
+        ChannelPrimitive.scope('rooms', /^room-/),
+        ReplayPrimitive.replay(),
         outgoing('message', t<{ text: string }>()),
-        incoming(
+        IncomingPrimitive.incoming(
           received('echo', (value: unknown) => value as { text: string }),
           async (
             ctx: {
@@ -1326,7 +1326,7 @@ describe('Engine', () => {
   it('registers built-in lifecycle hooks through primitive setup', async () => {
     const events: string[] = [];
     const s = server('engine-lifecycle', {
-      _incoming: incoming,
+      _incoming: IncomingPrimitive.incoming,
       _onBinary: onBinary,
       _onConnect: onConnect,
       _onDisconnect: onDisconnect,
@@ -1365,13 +1365,13 @@ describe('Engine', () => {
         events.push(`error:${event}:${error instanceof WskitError ? error.code : 'internal'}`);
       }),
       outgoing('message', t<{ text: string }>()),
-      incoming(
+      IncomingPrimitive.incoming(
         received('echo', (value: unknown) => value as { text: string }),
         async (ctx: { send(event: 'message', payload: { text: string }): boolean }, payload) => {
           ctx.send('message', payload);
         },
       ),
-      incoming(
+      IncomingPrimitive.incoming(
         received('bad', (_value: unknown): { text: string } => {
           throw new Error('bad payload');
         }),
@@ -1427,8 +1427,8 @@ describe('Engine', () => {
   it('runs channel subscribe lifecycle and membership protocol', async () => {
     const roomEvents: string[] = [];
     const s = server('engine-channels', {
-      _channel: channel,
-      _incoming: incoming,
+      _channel: ChannelPrimitive.channel,
+      _incoming: IncomingPrimitive.incoming,
       _onBeforeSubscribe: onBeforeSubscribe,
       _onSubscribe: onSubscribe,
       _onUnsubscribe: onUnsubscribe,
@@ -1436,8 +1436,8 @@ describe('Engine', () => {
     });
 
     const handler = s.define(
-      channel(
-        scope('rooms', /^room-/),
+      ChannelPrimitive.channel(
+        ChannelPrimitive.scope('rooms', /^room-/),
         outgoing('room-event', t<{ text: string }>()),
         onBeforeSubscribe(async () => {
           roomEvents.push('before');
@@ -1515,13 +1515,13 @@ describe('Engine', () => {
 
   it('restores connection identity from hibernation attachment', async () => {
     const handler = server('engine-hibernation', {
-      _ack: ack,
-      _hibernation: hibernation,
-      _incoming: incoming,
+      _ack: AckPrimitive.ack,
+      _hibernation: HibernationPrimitive.hibernation,
+      _incoming: IncomingPrimitive.incoming,
       _outgoing: outgoing,
     }).define(
       outgoing('message', t<{ text: string }>()),
-      incoming(
+      IncomingPrimitive.incoming(
         received('echo', (value: unknown) => value as { text: string }),
         async (ctx, payload) => {
           ctx.send('message', payload);
@@ -1564,11 +1564,11 @@ describe('Engine', () => {
 
   it('rejects hibernation wake when the handler did not enable hibernation', async () => {
     const handler = server('engine-no-hibernation', {
-      _incoming: incoming,
+      _incoming: IncomingPrimitive.incoming,
       _outgoing: outgoing,
     }).define(
       outgoing('message', t<{ text: string }>()),
-      incoming(
+      IncomingPrimitive.incoming(
         received('echo', (value: unknown) => value as { text: string }),
         async (ctx, payload) => {
           ctx.send('message', payload);
@@ -1595,17 +1595,17 @@ describe('Engine', () => {
     const firstYieldReady = new Promise<void>((resolve) => {
       releaseFirstYield = resolve;
     });
-    const askAi = stream(
-      start('ask-ai', (value: unknown) => value as { prompt: string }),
-      chunks(t<{ text: string }>()),
-      nudge('add-context', (value: unknown) => value as { text: string }),
+    const askAi = StreamPrimitive.stream(
+      StreamPrimitive.start('ask-ai', (value: unknown) => value as { prompt: string }),
+      StreamPrimitive.chunks(t<{ text: string }>()),
+      StreamPrimitive.nudge('add-context', (value: unknown) => value as { text: string }),
     );
 
     const handler = server('engine-streams', {
-      _stream: stream,
+      _stream: StreamPrimitive.stream,
       _outgoing: outgoing,
     }).define(
-      generate(askAi, async function* (ctx, payload) {
+      StreamPrimitive.generate(askAi, async function* (ctx, payload) {
         await firstYieldReady;
         const nudges = ctx.nudges(yield { text: payload.prompt });
         throw new WskitError('stream-failed', {
@@ -1662,17 +1662,17 @@ describe('Engine', () => {
     const pending = new Promise<void>((resolve) => {
       releasePending = resolve;
     });
-    const askAi = stream(
-      start('ask-ai', (value: unknown) => value as { prompt: string }),
-      chunks(t<{ text: string }>()),
-      nudge('cancel'),
+    const askAi = StreamPrimitive.stream(
+      StreamPrimitive.start('ask-ai', (value: unknown) => value as { prompt: string }),
+      StreamPrimitive.chunks(t<{ text: string }>()),
+      StreamPrimitive.nudge('cancel'),
     );
 
     const handler = server('engine-stream-cancel', {
-      _stream: stream,
+      _stream: StreamPrimitive.stream,
       _outgoing: outgoing,
     }).define(
-      generate(askAi, async function* (ctx, payload) {
+      StreamPrimitive.generate(askAi, async function* (ctx, payload) {
         try {
           ctx.nudges(yield { text: payload.prompt });
           await pending;

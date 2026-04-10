@@ -1,5 +1,5 @@
 import { CloseCodes } from '@wskit/core';
-import { scheduleConnectionPing, stopConnectionPing } from '~/heartbeat/runtime.ts';
+import * as HeartbeatPrimitive from '~/heartbeat/runtime.ts';
 import type {
   ConnectionDescriptor,
   ConnectionHandle,
@@ -167,7 +167,7 @@ export async function handleConnectionClose(
     connection.heartbeatTimer = undefined;
   }
 
-  stopConnectionPing(runtime.timers, connection);
+  HeartbeatPrimitive.stopConnectionPing(runtime.timers, connection);
 
   runtime.connections.delete(connection.id);
   runtime.wsToConnectionId.delete(connection.wsKey);
@@ -222,7 +222,7 @@ export function acceptConnection(
   runtime.persistAttachment(connection);
 
   if (runtime.timers) {
-    scheduleConnectionPing(runtime.timers, connection);
+    HeartbeatPrimitive.scheduleConnectionPing(runtime.timers, connection);
   }
 
   const ctx = runtime.buildConnectionContext(connection);
@@ -279,7 +279,7 @@ export function wakeHibernatedConnection(
   runtime.persistAttachment(connection);
 
   if (runtime.timers) {
-    scheduleConnectionPing(runtime.timers, connection);
+    HeartbeatPrimitive.scheduleConnectionPing(runtime.timers, connection);
   }
 
   return createHandle(runtime, connection);

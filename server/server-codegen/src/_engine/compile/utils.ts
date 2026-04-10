@@ -1,8 +1,8 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { ValidationFailed } from '@wskit/core';
 import type { IncomingProtocolEvent } from '~/_engine/runtime/types.ts';
-import type { ChannelPrimitive } from '~/channel/index.ts';
-import type { NamespacePrimitive } from '~/namespace/index.ts';
+import type * as ChannelPrimitive from '~/channel/index.ts';
+import type * as NamespacePrimitive from '~/namespace/index.ts';
 import type { PassivePrimitive } from '~/passive/index.ts';
 import type { Primitive, RequiresManifest } from '~/primitive.ts';
 
@@ -16,14 +16,18 @@ export function isPassivePrimitive(primitive: Primitive): primitive is PassivePr
 /**
  * Narrow a primitive to a namespace block.
  */
-export function isNamespacePrimitive(primitive: Primitive): primitive is NamespacePrimitive {
+export function isNamespacePrimitive(
+  primitive: Primitive,
+): primitive is NamespacePrimitive.NamespacePrimitive {
   return primitive.__wskit === 'namespace';
 }
 
 /**
  * Narrow a primitive to a channel block.
  */
-export function isChannelPrimitive(primitive: Primitive): primitive is ChannelPrimitive {
+export function isChannelPrimitive(
+  primitive: Primitive,
+): primitive is ChannelPrimitive.ChannelPrimitive {
   return primitive.__wskit === 'channel';
 }
 

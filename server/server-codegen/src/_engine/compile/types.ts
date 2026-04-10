@@ -1,27 +1,29 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import type { ChannelPrimitive, ScopeDeclaration } from '~/channel/index.ts';
+import type * as ChannelPrimitive from '~/channel/index.ts';
 import type { ModuleInstance } from '~/define-module.ts';
-import type { IncomingPrimitive } from '~/incoming/index.ts';
-import type { PostInterceptPrimitive, PreInterceptPrimitive } from '~/intercept/index.ts';
-import type { NamespacePrimitive } from '~/namespace/index.ts';
-import type { OutgoingPrimitive } from '~/outgoing/index.ts';
+import type * as IncomingPrimitive from '~/incoming/index.ts';
+import type * as InterceptPrimitive from '~/intercept/index.ts';
+import type * as NamespacePrimitive from '~/namespace/index.ts';
+import type * as OutgoingPrimitive from '~/outgoing/index.ts';
 import type { RequiresManifest } from '~/primitive.ts';
-import type { RequestPrimitive } from '~/request/index.ts';
-import type { ScheduledPrimitive } from '~/scheduled/index.ts';
-import type { GeneratePrimitive, NudgeDeclaration, StreamPrimitive } from '~/stream/index.ts';
+import type * as RequestPrimitive from '~/request/index.ts';
+import type * as ScheduledPrimitive from '~/scheduled/index.ts';
+import type * as StreamPrimitive from '~/stream/index.ts';
 
-export type AnyOutgoing = OutgoingPrimitive<string, any>;
-export type AnyIncoming = IncomingPrimitive<string, any, any>;
-export type AnyRequest = RequestPrimitive<string, any, any, any>;
-export type AnyGenerate = GeneratePrimitive<
-  StreamPrimitive<string, any, any, readonly NudgeDeclaration[]>,
+export type AnyOutgoing = OutgoingPrimitive.OutgoingPrimitive<string, any>;
+export type AnyIncoming = IncomingPrimitive.IncomingPrimitive<string, any, any>;
+export type AnyRequest = RequestPrimitive.RequestPrimitive<string, any, any, any>;
+export type AnyGenerate = StreamPrimitive.GeneratePrimitive<
+  StreamPrimitive.StreamPrimitive<string, any, any, readonly StreamPrimitive.NudgeDeclaration[]>,
   any,
   any
 >;
-export type AnyPreIntercept = PreInterceptPrimitive<any>;
-export type AnyPostIntercept = PostInterceptPrimitive<string, any, any>;
-export type AnyScheduled = ScheduledPrimitive<string, any, any>;
+export type AnyPreIntercept = InterceptPrimitive.PreInterceptPrimitive<any>;
+export type AnyPostIntercept = InterceptPrimitive.PostInterceptPrimitive<string, any, any>;
+export type AnyScheduled = ScheduledPrimitive.ScheduledPrimitive<string, any, any>;
 export type AnyModule = ModuleInstance<string, any, any, readonly AnyOutgoing[], readonly any[]>;
+export type NamespacePrimitiveType = NamespacePrimitive.NamespacePrimitive;
+export type ChannelPrimitiveType = ChannelPrimitive.ChannelPrimitive;
 
 /**
  * Precomputed namespace view used by the runtime for fast event lookup.
@@ -43,7 +45,7 @@ export interface CompiledNamespace {
 export interface CompiledChannel {
   kind: 'channel';
   key: string;
-  pattern: string | ScopeDeclaration<string>;
+  pattern: string | ChannelPrimitive.ScopeDeclaration<string>;
   outgoing: Map<string, AnyOutgoing>;
   incoming: Map<string, AnyIncoming>;
   requests: Map<string, AnyRequest>;
@@ -79,5 +81,4 @@ export type {
   OutgoingPrimitive,
   RequestPrimitive,
   RequiresManifest,
-  ScopeDeclaration,
 };

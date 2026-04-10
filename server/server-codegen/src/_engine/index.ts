@@ -31,13 +31,9 @@ import {
   processTextMessage,
   sendThroughPipeline,
 } from '~/_engine/runtime/messages.ts';
-import { notifyValidationError, sendRuntimeError } from '~/errors/runtime.ts';
-import { refreshHeartbeatTimeout } from '~/heartbeat/runtime.ts';
-import {
-  cancelScheduledRuns,
-  rescheduleScheduledAlarm,
-  scheduleTaskRun,
-} from '~/scheduled/runtime.ts';
+import * as ErrorsPrimitive from '~/errors/runtime.ts';
+import * as HeartbeatPrimitive from '~/heartbeat/runtime.ts';
+import * as ScheduledPrimitive from '~/scheduled/runtime.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type {
   ConnectionDescriptor,
@@ -63,7 +59,7 @@ import type { ModuleHooks } from '~/define-module.ts';
 import type { ServerDefinition } from '~/define-server.ts';
 import type { BroadcastOptions, StorageProvider, TimerProvider } from '~/index.ts';
 import type { Primitive } from '~/primitive.ts';
-import type { ScheduledDeadLetter, ScheduledRun } from '~/scheduled/types.ts';
+import type * as ScheduledPrimitiveTypes from '~/scheduled/types.ts';
 
 export type {
   AdapterConfig,
@@ -139,8 +135,8 @@ export class Engine {
   private readonly connections = new Map<string, RuntimeConnection>();
   private readonly wsToConnectionId = new Map<unknown, string>();
   private readonly activeStreams = new Map<string, ActiveStream>();
-  private readonly scheduledRuns = new Map<string, ScheduledRun>();
-  private readonly scheduledDlq = new Map<string, ScheduledDeadLetter>();
+  private readonly scheduledRuns = new Map<string, ScheduledPrimitiveTypes.ScheduledRun>();
+  private readonly scheduledDlq = new Map<string, ScheduledPrimitiveTypes.ScheduledDeadLetter>();
   private readonly installedFeatures = new Set<symbol>();
   private alarmHandle: unknown | null = null;
   private idCounter = 0;
@@ -438,7 +434,7 @@ export class Engine {
         const connection = this.connections.get(connectionId);
         if (!connection) return;
 
-        refreshHeartbeatTimeout(this.requireTimers(), connection, timeoutMs);
+        HeartbeatPrimitive.refreshHeartbeatTimeout(this.requireTimers(), connection, timeoutMs);
       },
       getScheduledRuns: () => this.scheduledRuns,
       getScheduledDlq: () => this.scheduledDlq,
@@ -992,7 +988,7 @@ export class Engine {
    * engine is only providing shared state and services here.
    */
   private scheduleTask(taskId: string, time: number, data: unknown): void {
-    scheduleTaskRun(
+    ScheduledPrimitive.scheduleTaskRun(
       {
         requireStorage: () => this.requireStorage(),
         requireTimers: () => this.requireTimers(),
@@ -1014,7 +1010,7 @@ export class Engine {
    * Remove every queued run for one scheduled task id.
    */
   private cancelScheduled(taskId: string, filter?: Record<string, unknown>): void {
-    cancelScheduledRuns(
+    ScheduledPrimitive.cancelScheduledRuns(
       {
         requireStorage: () => this.requireStorage(),
         requireTimers: () => this.requireTimers(),
@@ -1036,7 +1032,7 @@ export class Engine {
    * becomes due.
    */
   private rescheduleAlarm(): void {
-    rescheduleScheduledAlarm({
+    ScheduledPrimitive.rescheduleScheduledAlarm({
       requireTimers: () => this.requireTimers(),
       getScheduledRuns: () => this.scheduledRuns,
       getAlarmHandle: () => this.alarmHandle,
@@ -1263,7 +1259,7 @@ export class Engine {
     event?: string,
     routing?: Record<string, unknown>,
   ): Promise<void> {
-    return sendRuntimeError(
+    return ErrorsPrimitive.sendRuntimeError(
       {
         buildConnectionContext: (targetConnection, scope) =>
           this.buildConnectionContext(targetConnection, scope),
@@ -1289,7 +1285,7 @@ export class Engine {
     validationError: unknown,
     scope?: ResolvedScope,
   ): Promise<void> {
-    return notifyValidationError(
+    return ErrorsPrimitive.notifyValidationError(
       {
         buildConnectionContext: (targetConnection, targetScope) =>
           this.buildConnectionContext(targetConnection, targetScope),

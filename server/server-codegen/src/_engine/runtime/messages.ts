@@ -6,15 +6,12 @@ import {
   prefixedModuleEvent,
   validateValue,
 } from '~/_engine/compile/utils.ts';
-import {
-  kickChannelMembers as kickChannelMembersRuntime,
-  leaveChannel as leaveChannelRuntime,
-  subscribeConnection,
-  unsubscribeConnection,
-} from '~/channel/runtime.ts';
-import { DeferExhausted } from '~/errors.ts';
-import { recordConnectionLatency } from '~/heartbeat/runtime.ts';
-import { bufferStreamNudge, cancelStream, runStream } from '~/stream/runtime.ts';
+import * as ChannelPrimitive from '~/channel/runtime.ts';
+import * as ErrorsPrimitive from '~/errors.ts';
+import * as HeartbeatPrimitive from '~/heartbeat/runtime.ts';
+import * as InterceptPrimitive from '~/intercept/runtime.ts';
+import * as RequestPrimitive from '~/request/runtime.ts';
+import * as StreamPrimitive from '~/stream/runtime.ts';
 import type { CompiledChannel, CompiledServer } from '~/_engine/compile/types.ts';
 import type { BroadcastOptions, ConnectionInfo, TimerProvider } from '~/index.ts';
 import type {
@@ -405,7 +402,7 @@ export function getChannelMembers(
     .map((connection) => runtime.toConnectionInfo(connection));
 }
 
-export const leaveChannel = leaveChannelRuntime;
+export const leaveChannel = ChannelPrimitive.leaveChannel;
 
 /**
  * Remove tagged members from a channel, typically for moderation or access
@@ -434,7 +431,7 @@ export function kickChannelMembers(
   tag: string,
   reason: string,
 ): void {
-  kickChannelMembersRuntime(runtime, channelName, tag, reason);
+  ChannelPrimitive.kickChannelMembers(runtime, channelName, tag, reason);
 }
 
 /**
@@ -456,7 +453,7 @@ export async function handleSubscribe(
   connection: RuntimeConnection,
   payload: Record<string, unknown> | undefined,
 ): Promise<void> {
-  await subscribeConnection(
+    await ChannelPrimitive.subscribeConnection(
     {
       ...runtime,
       broadcastToChannel: (channelName, event, nextPayload, excludeConnectionId, channelScope) =>
@@ -499,7 +496,7 @@ export async function handleUnsubscribe(
   connection: RuntimeConnection,
   payload: Record<string, unknown> | undefined,
 ): Promise<void> {
-  await unsubscribeConnection(runtime, connection, payload);
+    await ChannelPrimitive.unsubscribeConnection(runtime, connection, payload);
 }
 
 /**
@@ -541,32 +538,32 @@ export async function dispatchIncoming(
       if (next) message = next;
     }
 
-    for (const intercept of runtime.compiled.preIntercepts) {
-      const ctx = runtime.buildConnectionContext(connection, scope);
-      runtime.setActiveConnectionId(connection.id);
-      const next = await intercept.handler(ctx, message);
-      runtime.setActiveConnectionId(undefined);
-      if (next) message = next;
-    }
+    message = await InterceptPrimitive.runPreIntercepts(
+      runtime,
+      connection,
+      scope,
+      runtime.compiled.preIntercepts,
+      message,
+    );
 
     if (scope.namespace) {
-      for (const intercept of scope.namespace.preIntercepts) {
-        const ctx = runtime.buildConnectionContext(connection, scope);
-        runtime.setActiveConnectionId(connection.id);
-        const next = await intercept.handler(ctx, message);
-        runtime.setActiveConnectionId(undefined);
-        if (next) message = next;
-      }
+      message = await InterceptPrimitive.runPreIntercepts(
+        runtime,
+        connection,
+        scope,
+        scope.namespace.preIntercepts,
+        message,
+      );
     }
 
     if (scope.channel) {
-      for (const intercept of scope.channel.preIntercepts) {
-        const ctx = runtime.buildConnectionContext(connection, scope);
-        runtime.setActiveConnectionId(connection.id);
-        const next = await intercept.handler(ctx, message);
-        runtime.setActiveConnectionId(undefined);
-        if (next) message = next;
-      }
+      message = await InterceptPrimitive.runPreIntercepts(
+        runtime,
+        connection,
+        scope,
+        scope.channel.preIntercepts,
+        message,
+      );
     }
 
     const primitive = incoming ?? request ?? stream;
@@ -587,15 +584,13 @@ export async function dispatchIncoming(
     const topPost = runtime.compiled.postIntercepts.get(event) ?? [];
     const scopedPost =
       scope.channel?.postIntercepts.get(event) ?? scope.namespace?.postIntercepts.get(event) ?? [];
-    let postPayload = payload;
-
-    for (const intercept of [...topPost, ...scopedPost]) {
-      const ctx = runtime.buildConnectionContext(connection, scope);
-      runtime.setActiveConnectionId(connection.id);
-      const next = await intercept.handler(ctx, postPayload);
-      runtime.setActiveConnectionId(undefined);
-      if (next !== undefined) postPayload = next;
-    }
+    const postPayload = await InterceptPrimitive.runPostIntercepts(
+      runtime,
+      connection,
+      scope,
+      [...topPost, ...scopedPost],
+      payload,
+    );
 
     connection.activeAckId =
       message.payload &&
@@ -605,41 +600,32 @@ export async function dispatchIncoming(
         : undefined;
 
     if (incoming) {
-      const ctx = runtime.buildConnectionContext(connection, scope);
-      runtime.setActiveConnectionId(connection.id);
-      await incoming.handler(ctx, postPayload);
-      runtime.setActiveConnectionId(undefined);
+      await InterceptPrimitive.runWithScopedContext(runtime, connection, scope, (ctx) =>
+        incoming.handler(ctx, postPayload),
+      );
       return;
     }
 
     if (request) {
-      const correlationId =
-        message.payload &&
-        typeof message.payload === 'object' &&
-        '_correlationId' in (message.payload as object)
-          ? String((message.payload as Record<string, unknown>)._correlationId)
-          : undefined;
-      const ctx = runtime.buildConnectionContext(connection, scope);
-      runtime.setActiveConnectionId(connection.id);
-      const response = await request.handler(ctx, postPayload);
-      runtime.setActiveConnectionId(undefined);
-      sendThroughPipeline(
-        runtime,
-        connection,
+      await RequestPrimitive.handleRequest(
         {
-          namespace: scope.namespace?.name,
-          channel: scope.channelName,
-          channelScope: scope.channelScope,
-          correlationId,
+          buildConnectionContext: runtime.buildConnectionContext,
+          setActiveConnectionId: runtime.setActiveConnectionId,
+          sendThroughPipeline: (nextConnection, routing, nextEvent, nextPayload) =>
+            sendThroughPipeline(runtime, nextConnection, routing, nextEvent, nextPayload),
         },
+        connection,
+        scope,
         event,
-        response,
+        request,
+        postPayload,
+        message.payload,
       );
       return;
     }
 
     if (stream) {
-      await runStream(runtime, connection, scope, event, stream, postPayload);
+      await StreamPrimitive.runStream(runtime, connection, scope, event, stream, postPayload);
     }
   } catch (error) {
     if (error === Block) return;
@@ -659,7 +645,7 @@ export async function dispatchIncoming(
       if (attempt >= 3) {
         await runtime.handleRuntimeError(
           connection,
-          DeferExhausted({ event, payload: rawPayload, retries: attempt + 1 }),
+          ErrorsPrimitive.DeferExhausted({ event, payload: rawPayload, retries: attempt + 1 }),
           event,
         );
         return;
@@ -695,7 +681,7 @@ export async function processTextMessage(
   }
 
   if (data === 'pong') {
-    recordConnectionLatency(connection);
+    HeartbeatPrimitive.recordConnectionLatency(connection);
     return;
   }
 
@@ -728,11 +714,15 @@ export async function processTextMessage(
     return;
   }
   if (parsed.event === '_streamCancel') {
-    await cancelStream(runtime, connection, parsed.payload as Record<string, unknown> | undefined);
+    await StreamPrimitive.cancelStream(
+      runtime,
+      connection,
+      parsed.payload as Record<string, unknown> | undefined,
+    );
     return;
   }
   if (
-    await bufferStreamNudge(
+    await StreamPrimitive.bufferStreamNudge(
       runtime,
       connection,
       parsed.event,

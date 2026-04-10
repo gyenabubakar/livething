@@ -16,11 +16,11 @@ import type {
   AnyPreIntercept,
   AnyRequest,
   AnyScheduled,
-  ChannelPrimitive,
+  ChannelPrimitiveType,
   CompiledChannel,
   CompiledNamespace,
   CompiledServer,
-  NamespacePrimitive,
+  NamespacePrimitiveType,
 } from './types.ts';
 
 /**
@@ -39,7 +39,7 @@ function addPostIntercept(
 /**
  * Compile a namespace block into fast lookup maps.
  */
-function compileNamespace(primitive: NamespacePrimitive): CompiledNamespace {
+function compileNamespace(primitive: NamespacePrimitiveType): CompiledNamespace {
   const scope: CompiledNamespace = {
     kind: 'namespace',
     name: primitive.pattern,
@@ -69,7 +69,7 @@ function compileNamespace(primitive: NamespacePrimitive): CompiledNamespace {
 /**
  * Compile a channel or channel-family block into fast lookup maps.
  */
-function compileChannel(primitive: ChannelPrimitive): CompiledChannel {
+function compileChannel(primitive: ChannelPrimitiveType): CompiledChannel {
   const key = typeof primitive.pattern === 'string' ? primitive.pattern : primitive.pattern.key;
   const scope: CompiledChannel = {
     kind: 'channel',
