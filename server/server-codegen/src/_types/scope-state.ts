@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import type { AckPrimitive } from '~/ack/ack.ts';
+import type { ChannelManager } from '~/context.ts';
 import type { DedupPrimitive } from '~/dedup/dedup.ts';
 import type { ErrorDef } from '~/errors.ts';
 import type { ErrorsPrimitive } from '~/errors/errors.ts';
@@ -20,7 +21,6 @@ import type {
   StreamNudgesApi,
   StreamPrimitive,
 } from '~/stream/stream.ts';
-import type { ChannelManager } from '~/context.ts';
 
 type AnyErrorDef = ErrorDef<string, any>;
 type AnyOutgoing = OutgoingPrimitive<string, any>;

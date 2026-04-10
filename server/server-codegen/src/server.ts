@@ -286,11 +286,13 @@ type ReplayApi<
     : ExactReplayApi<RegisteredOutgoing<TName>>
   : {};
 
-export type BoundServerContext<TName extends string, TFactories extends ServerPrimitiveFactories> =
-  (HasRegisteredCtx<TName> extends true
-    ? RegisteredCtx<TName>
-    : SendApi<TName, TFactories> & AckApi<TFactories> & ReplayApi<TName, TFactories>) &
-    ChannelsApi<TFactories>;
+export type BoundServerContext<
+  TName extends string,
+  TFactories extends ServerPrimitiveFactories,
+> = (HasRegisteredCtx<TName> extends true
+  ? RegisteredCtx<TName>
+  : SendApi<TName, TFactories> & AckApi<TFactories> & ReplayApi<TName, TFactories>) &
+  ChannelsApi<TFactories>;
 
 type BoundInitContext = InitContext<Record<string, unknown>, unknown>;
 type BoundShutdownContext = ShutdownContext<
@@ -322,11 +324,10 @@ type BoundNamespaceContext<
   TName extends string,
   TFactories extends ServerPrimitiveFactories,
   TNamespace extends string,
-> =
-  (HasRegisteredNamespaceCtx<TName, TNamespace> extends true
-    ? RegisteredNamespaceCtx<TName, TNamespace>
-    : BoundNamespaceFallbackContext<TName, TFactories, TNamespace>) &
-    ChannelsApi<TFactories>;
+> = (HasRegisteredNamespaceCtx<TName, TNamespace> extends true
+  ? RegisteredNamespaceCtx<TName, TNamespace>
+  : BoundNamespaceFallbackContext<TName, TFactories, TNamespace>) &
+  ChannelsApi<TFactories>;
 
 type BoundChannelFallbackContext<
   TName extends string,
@@ -340,41 +341,37 @@ type BoundChannelContext<
   TName extends string,
   TFactories extends ServerPrimitiveFactories,
   TChannel extends string,
-> =
-  (HasRegisteredChannelCtx<TName, TChannel> extends true
-    ? RegisteredChannelCtx<TName, TChannel>
-    : BoundChannelFallbackContext<TName, TFactories, TChannel>) &
-    ChannelsApi<TFactories>;
+> = (HasRegisteredChannelCtx<TName, TChannel> extends true
+  ? RegisteredChannelCtx<TName, TChannel>
+  : BoundChannelFallbackContext<TName, TFactories, TChannel>) &
+  ChannelsApi<TFactories>;
 
 type EventBoundIncomingContext<
   TName extends string,
   TFactories extends ServerPrimitiveFactories,
   TEvent extends string,
-> =
-  (HasRegisteredIncomingCtx<TName, TEvent> extends true
-    ? RegisteredIncomingCtx<TName, TEvent>
-    : BoundServerContext<TName, TFactories>) &
-    ChannelsApi<TFactories>;
+> = (HasRegisteredIncomingCtx<TName, TEvent> extends true
+  ? RegisteredIncomingCtx<TName, TEvent>
+  : BoundServerContext<TName, TFactories>) &
+  ChannelsApi<TFactories>;
 
 type EventBoundRequestContext<
   TName extends string,
   TFactories extends ServerPrimitiveFactories,
   TEvent extends string,
-> =
-  (HasRegisteredRequestCtx<TName, TEvent> extends true
-    ? RegisteredRequestCtx<TName, TEvent>
-    : BoundServerContext<TName, TFactories>) &
-    ChannelsApi<TFactories>;
+> = (HasRegisteredRequestCtx<TName, TEvent> extends true
+  ? RegisteredRequestCtx<TName, TEvent>
+  : BoundServerContext<TName, TFactories>) &
+  ChannelsApi<TFactories>;
 
 type EventBoundPostInterceptContext<
   TName extends string,
   TFactories extends ServerPrimitiveFactories,
   TEvent extends string,
-> =
-  (HasRegisteredPostInterceptCtx<TName, TEvent> extends true
-    ? RegisteredPostInterceptCtx<TName, TEvent>
-    : BoundServerContext<TName, TFactories>) &
-    ChannelsApi<TFactories>;
+> = (HasRegisteredPostInterceptCtx<TName, TEvent> extends true
+  ? RegisteredPostInterceptCtx<TName, TEvent>
+  : BoundServerContext<TName, TFactories>) &
+  ChannelsApi<TFactories>;
 
 type EventPayload<TReceived extends ReceivedEvent<string, unknown>> =
   TReceived extends ReceivedEvent<string, infer TPayload> ? TPayload : never;

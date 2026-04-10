@@ -104,9 +104,7 @@ export interface EngineAccess {
   /**
    * Observe runtime errors.
    */
-  onError(
-    handler: (ctx: unknown, error: unknown, event?: string) => void | Promise<void>,
-  ): void;
+  onError(handler: (ctx: unknown, error: unknown, event?: string) => void | Promise<void>): void;
 
   /**
    * Decide whether an upgrade request should be accepted.

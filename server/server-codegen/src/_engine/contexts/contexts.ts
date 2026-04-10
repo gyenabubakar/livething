@@ -142,9 +142,9 @@ export function buildConnectionContext(
   const base: ConnectionContext<Record<string, unknown>, Record<string, unknown>, unknown> &
     Record<PropertyKey, unknown> = {
     [ENGINE_SCOPE_META]: {
-    namespaceName: scope?.namespace?.name,
-    channelName: scope?.channelName,
-    channelScope: scope?.channelScope ?? scope?.channel?.key,
+      namespaceName: scope?.namespace?.name,
+      channelName: scope?.channelName,
+      channelScope: scope?.channelScope ?? scope?.channel?.key,
     } satisfies EngineScopeMeta,
     id: connection.id,
     meta: connection.meta,

@@ -1,11 +1,11 @@
 import { CloseCodes } from '@wskit/core';
+import { scheduleConnectionPing, stopConnectionPing } from '~/heartbeat/runtime.ts';
 import type {
   ConnectionDescriptor,
   ConnectionHandle,
   UpgradeDecision,
 } from '~/_engine/adapter/types.ts';
 import type { CompiledChannel, CompiledServer } from '~/_engine/compile/types.ts';
-import { scheduleConnectionPing, stopConnectionPing } from '~/heartbeat/runtime.ts';
 import type { ResolvedScope, RuntimeConnection } from './types.ts';
 
 /**
