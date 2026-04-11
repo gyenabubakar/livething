@@ -301,6 +301,16 @@ type TagApi = {
   tag(label: string): void;
 };
 
+type UntagApi = {
+  /**
+   * Remove a tag from the current connection.
+   *
+   * This is useful when the connection should no longer be part of a targeted
+   * group.
+   */
+  untag(label: string): void;
+};
+
 type ExactSendApi<TOutgoing extends Record<string, unknown>> = keyof TOutgoing extends never
   ? {}
   : {
@@ -368,6 +378,7 @@ export type BoundServerContext<
       QualityApi &
       ConnectionTagsApi &
       TagApi &
+      UntagApi &
       SendApi<TName, TFactories> &
       AckApi<TFactories> &
       ReplayApi<TName, TFactories>) &

@@ -28,6 +28,7 @@ declare global {
         quality: 'excellent' | 'good' | 'degraded' | 'poor';
         tags: readonly string[];
         tag(label: string): void;
+        untag(label: string): void;
         send(event: 'message', payload: { text: string }): void;
         broadcast(event: 'message', payload: { text: string }): void;
         ack(): void;
@@ -44,6 +45,7 @@ declare global {
           quality: 'excellent' | 'good' | 'degraded' | 'poor';
           tags: readonly string[];
           tag(label: string): void;
+          untag(label: string): void;
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -56,6 +58,7 @@ declare global {
           quality: 'excellent' | 'good' | 'degraded' | 'poor';
           tags: readonly string[];
           tag(label: string): void;
+          untag(label: string): void;
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -73,6 +76,7 @@ declare global {
           quality: 'excellent' | 'good' | 'degraded' | 'poor';
           tags: readonly string[];
           tag(label: string): void;
+          untag(label: string): void;
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -97,6 +101,7 @@ declare global {
           quality: 'excellent' | 'good' | 'degraded' | 'poor';
           tags: readonly string[];
           tag(label: string): void;
+          untag(label: string): void;
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -111,6 +116,7 @@ declare global {
           quality: 'excellent' | 'good' | 'degraded' | 'poor';
           tags: readonly string[];
           tag(label: string): void;
+          untag(label: string): void;
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -123,6 +129,7 @@ declare global {
           quality: 'excellent' | 'good' | 'degraded' | 'poor';
           tags: readonly string[];
           tag(label: string): void;
+          untag(label: string): void;
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -140,6 +147,7 @@ declare global {
           quality: 'excellent' | 'good' | 'degraded' | 'poor';
           tags: readonly string[];
           tag(label: string): void;
+          untag(label: string): void;
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -165,6 +173,7 @@ declare global {
             quality: 'excellent' | 'good' | 'degraded' | 'poor';
             tags: readonly string[];
             tag(label: string): void;
+            untag(label: string): void;
             send(event: 'message', payload: { text: string }): void;
             broadcast(event: 'message', payload: { text: string }): void;
             ack(): void;
@@ -186,6 +195,7 @@ declare global {
             quality: 'excellent' | 'good' | 'degraded' | 'poor';
             tags: readonly string[];
             tag(label: string): void;
+            untag(label: string): void;
             send(event: 'message', payload: { text: string }): void;
             broadcast(event: 'message', payload: { text: string }): void;
             ack(): void;
@@ -212,6 +222,7 @@ declare global {
         quality: 'excellent' | 'good' | 'degraded' | 'poor';
         tags: readonly string[];
         tag(label: string): void;
+        untag(label: string): void;
         schedule(
           taskId: 'expire-hold',
           options: { time: number; data?: { orderId: string } },
@@ -227,6 +238,7 @@ declare global {
           quality: 'excellent' | 'good' | 'degraded' | 'poor';
           tags: readonly string[];
           tag(label: string): void;
+          untag(label: string): void;
           schedule(
             taskId: 'expire-hold',
             options: { time: number; data?: { orderId: string } },
@@ -258,6 +270,7 @@ const directCapabilities = define(
       const _quality: 'excellent' | 'good' | 'degraded' | 'poor' = ctx.quality;
       const _tags: readonly string[] = ctx.tags;
       ctx.tag('customer:123');
+      ctx.untag('customer:123');
       void _id;
       void _meta;
       void _bufferedAmount;
@@ -306,6 +319,7 @@ const scheduledCapabilities = scheduledDefine(
       const _quality: 'excellent' | 'good' | 'degraded' | 'poor' = ctx.quality;
       const _tags: readonly string[] = ctx.tags;
       ctx.tag('customer:123');
+      ctx.untag('customer:123');
       void _id;
       void _meta;
       void _bufferedAmount;

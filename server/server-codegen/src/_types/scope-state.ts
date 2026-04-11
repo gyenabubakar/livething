@@ -427,6 +427,16 @@ export interface TagMethods {
   tag(label: string): ReturnType<ConnectionContext['tag']>;
 }
 
+export interface UntagMethods {
+  /**
+   * Remove a tag from the current connection.
+   *
+   * This is useful when the connection should no longer be part of a targeted
+   * group.
+   */
+  untag(label: string): ReturnType<ConnectionContext['untag']>;
+}
+
 export interface AckMethods {
   /**
    * Confirm receipt of the current incoming message.
@@ -522,6 +532,7 @@ export type HandlerCtxFromState<TState extends ScopeStateShape> = SendApi<TState
   QualityMethods &
   ConnectionTagsMethods &
   TagMethods &
+  UntagMethods &
   AckApi<TState> &
   ReplayApi<TState> &
   ChannelsMethods &
@@ -541,6 +552,7 @@ export type StreamBaseCtxFromState<TState extends ScopeStateShape> = SendApi<TSt
   QualityMethods &
   ConnectionTagsMethods &
   TagMethods &
+  UntagMethods &
   ReplayApi<TState> &
   ChannelsMethods &
   ScopeExtras<TState['kind']>;

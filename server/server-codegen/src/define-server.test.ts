@@ -47,6 +47,7 @@ const withAck = defineServer(
       const _quality: 'excellent' | 'good' | 'degraded' | 'poor' = ctx.quality;
       const _tags: readonly string[] = ctx.tags;
       ctx.tag('room:general');
+      ctx.untag('room:general');
       void _text;
       void _id;
       void _meta;
@@ -146,6 +147,7 @@ const withoutAck = defineServer(
       const _quality: 'excellent' | 'good' | 'degraded' | 'poor' = ctx.quality;
       const _tags: readonly string[] = ctx.tags;
       ctx.tag('room:general');
+      ctx.untag('room:general');
       void _id;
       void _meta;
       void _bufferedAmount;
@@ -184,6 +186,7 @@ const withErrors = defineServer(
       const _quality: 'excellent' | 'good' | 'degraded' | 'poor' = ctx.quality;
       const _tags: readonly string[] = ctx.tags;
       ctx.tag('room:general');
+      ctx.untag('room:general');
       void _id;
       void _meta;
       void _bufferedAmount;
@@ -260,6 +263,7 @@ const withIntercept = defineServer(
       const _quality: 'excellent' | 'good' | 'degraded' | 'poor' = ctx.quality;
       const _tags: readonly string[] = ctx.tags;
       ctx.tag('room:general');
+      ctx.untag('room:general');
       void _id;
       void _meta;
       void _bufferedAmount;

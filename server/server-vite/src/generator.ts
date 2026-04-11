@@ -530,6 +530,12 @@ ${indent} *
 ${indent} * This is useful when you want to target this connection later as part of a group.
 ${indent} */`,
     `${indent}tag(label: string): void;`,
+    `${indent}/**
+${indent} * Remove a tag from the current connection.
+${indent} *
+${indent} * This is useful when the connection should no longer be part of a targeted group.
+${indent} */`,
+    `${indent}untag(label: string): void;`,
   ];
 
   if (parsed.enabledFactories.includes('_outgoing')) {
