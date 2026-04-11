@@ -9,15 +9,15 @@ import type {
   SubscribePrimitive,
   UnsubscribeHandler,
   UnsubscribePrimitive,
-} from '../channel/index.ts';
-import type { defineServer } from '../define-server.ts';
-import type { IncomingHandler, IncomingPrimitive } from '../incoming/index.ts';
+} from '~/channel/index.ts';
+import type { defineServer } from '~/define-server.ts';
+import type { IncomingHandler, IncomingPrimitive } from '~/incoming/index.ts';
 import type {
   PostInterceptHandler,
   PostInterceptPrimitive,
   PreInterceptHandler,
   PreInterceptPrimitive,
-} from '../intercept/index.ts';
+} from '~/intercept/index.ts';
 import type {
   BinaryHandler,
   BinaryPrimitive,
@@ -35,15 +35,15 @@ import type {
   UpgradePrimitive,
   ValidationErrorHandler,
   ValidationErrorPrimitive,
-} from '../lifecycle.ts';
-import type { NamespacePrimitive } from '../namespace/index.ts';
-import type { OutgoingPrimitive } from '../outgoing/index.ts';
-import type { ReceivedEvent } from '../received.ts';
-import type { ReplayPrimitive } from '../replay/index.ts';
-import type { RequestHandler, RequestPrimitive } from '../request/index.ts';
-import type { ScheduledHandler, ScheduledOptions, ScheduledPrimitive } from '../scheduled/index.ts';
-import type { GeneratePrimitive, NudgeDeclaration, StreamPrimitive } from '../stream/index.ts';
-import type { TypeMarker } from '../t.ts';
+} from '~/lifecycle.ts';
+import type { NamespacePrimitive } from '~/namespace/index.ts';
+import type { OutgoingPrimitive } from '~/outgoing/index.ts';
+import type { ReceivedEvent } from '~/received.ts';
+import type { ReplayPrimitive } from '~/replay/index.ts';
+import type { RequestHandler, RequestPrimitive } from '~/request/index.ts';
+import type { ScheduledHandler, ScheduledOptions, ScheduledPrimitive } from '~/scheduled/index.ts';
+import type { GeneratePrimitive, NudgeDeclaration, StreamPrimitive } from '~/stream/index.ts';
+import type { TypeMarker } from '~/t.ts';
 import type {
   BoundChannelContext,
   BoundInitContext,

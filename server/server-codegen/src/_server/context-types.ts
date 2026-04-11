@@ -1,23 +1,23 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import type * as AckModule from '../ack/index.ts';
-import type * as ChannelModule from '../channel/index.ts';
-import type { ChannelManager, InitContext, ShutdownContext, TaskContext } from '../context.ts';
-import type * as DedupModule from '../dedup/index.ts';
-import type * as ErrorsModule from '../errors/index.ts';
-import type * as HeartbeatModule from '../heartbeat/index.ts';
-import type * as HibernationModule from '../hibernation/index.ts';
-import type * as IncomingModule from '../incoming/index.ts';
-import type * as InterceptModule from '../intercept/index.ts';
-import type * as LifecycleModule from '../lifecycle.ts';
-import type * as NamespaceModule from '../namespace/index.ts';
-import type * as OutgoingModule from '../outgoing/index.ts';
-import type * as PassiveModule from '../passive/index.ts';
-import type { ReceivedEvent } from '../received.ts';
-import type * as ReplayModule from '../replay/index.ts';
-import type * as RequestModule from '../request/index.ts';
-import type * as ScheduledModule from '../scheduled/index.ts';
-import type * as SequenceModule from '../sequence/index.ts';
-import type * as StreamModule from '../stream/index.ts';
+import type * as AckModule from '~/ack/index.ts';
+import type * as ChannelModule from '~/channel/index.ts';
+import type { ChannelManager, InitContext, ShutdownContext, TaskContext } from '~/context.ts';
+import type * as DedupModule from '~/dedup/index.ts';
+import type * as ErrorsModule from '~/errors/index.ts';
+import type * as HeartbeatModule from '~/heartbeat/index.ts';
+import type * as HibernationModule from '~/hibernation/index.ts';
+import type * as IncomingModule from '~/incoming/index.ts';
+import type * as InterceptModule from '~/intercept/index.ts';
+import type * as LifecycleModule from '~/lifecycle.ts';
+import type * as NamespaceModule from '~/namespace/index.ts';
+import type * as OutgoingModule from '~/outgoing/index.ts';
+import type * as PassiveModule from '~/passive/index.ts';
+import type { ReceivedEvent } from '~/received.ts';
+import type * as ReplayModule from '~/replay/index.ts';
+import type * as RequestModule from '~/request/index.ts';
+import type * as ScheduledModule from '~/scheduled/index.ts';
+import type * as SequenceModule from '~/sequence/index.ts';
+import type * as StreamModule from '~/stream/index.ts';
 import type {
   HasRegisteredChannelCtx,
   HasRegisteredCtx,

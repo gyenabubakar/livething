@@ -1,19 +1,19 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { ack as ackPrimitive } from '../ack/index.ts';
+import { ack as ackPrimitive } from '~/ack/index.ts';
 import {
   _onBeforeSubscribe as onBeforeSubscribePrimitive,
   _onSubscribe as onSubscribePrimitive,
   _onUnsubscribe as onUnsubscribePrimitive,
-} from '../channel/index.ts';
-import { dedup as dedupPrimitive } from '../dedup/index.ts';
-import { defineServer } from '../define-server.ts';
-import { heartbeat as heartbeatPrimitive } from '../heartbeat/index.ts';
-import { hibernation as hibernationPrimitive } from '../hibernation/index.ts';
-import { passive as passivePrimitive } from '../passive/index.ts';
-import { replay as replayPrimitive } from '../replay/index.ts';
-import { sequence as sequencePrimitive } from '../sequence/index.ts';
-import type { SubscribeHandler, UnsubscribeHandler } from '../channel/index.ts';
-import type { IncomingHandler } from '../incoming/index.ts';
+} from '~/channel/index.ts';
+import { dedup as dedupPrimitive } from '~/dedup/index.ts';
+import { defineServer } from '~/define-server.ts';
+import { heartbeat as heartbeatPrimitive } from '~/heartbeat/index.ts';
+import { hibernation as hibernationPrimitive } from '~/hibernation/index.ts';
+import { passive as passivePrimitive } from '~/passive/index.ts';
+import { replay as replayPrimitive } from '~/replay/index.ts';
+import { sequence as sequencePrimitive } from '~/sequence/index.ts';
+import type { SubscribeHandler, UnsubscribeHandler } from '~/channel/index.ts';
+import type { IncomingHandler } from '~/incoming/index.ts';
 import type {
   BinaryHandler,
   ConnectHandler,
@@ -23,9 +23,9 @@ import type {
   ShutdownHandler,
   UpgradeHandler,
   ValidationErrorHandler,
-} from '../lifecycle.ts';
-import type { PassiveChild } from '../passive/index.ts';
-import type { ReceivedEvent } from '../received.ts';
+} from '~/lifecycle.ts';
+import type { PassiveChild } from '~/passive/index.ts';
+import type { ReceivedEvent } from '~/received.ts';
 import type { BoundServer } from './bound-factory-types.ts';
 import type {
   BoundInitContext,
