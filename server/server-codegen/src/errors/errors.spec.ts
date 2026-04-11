@@ -1,54 +1,102 @@
-import { error } from '~/errors.ts';
-import { errors } from '~/errors/errors.ts';
+import { WskitError } from '@wskit/core';
 import { describe, expect, it } from 'vitest';
-import type { EngineAccess } from '~/_engine/access.ts';
+import { Defer, DeferExhausted, Disconnect, RejectUpgrade } from './errors.ts';
 
-const Forbidden = error('forbidden', (value: unknown) => value as { reason: string });
-const ChannelNotFound = error(
-  'channel-not-found',
-  (value: unknown) => value as { channel: string },
-);
+// ===========================================================================
+// Disconnect
+// ===========================================================================
 
-describe('errors', () => {
-  it('produces correct tag and kind', () => {
-    const p = errors(Forbidden);
-    expect(p.__wskit).toBe('errors');
-    expect(p.__kind).toBe('contract');
+describe('Disconnect', () => {
+  it('creates frozen object with __wskit, code, reason', () => {
+    const dc = Disconnect(4009, 'banned');
+    expect(dc.__wskit).toBe('disconnect');
+    expect(dc.code).toBe(4009);
+    expect(dc.reason).toBe('banned');
   });
 
-  it('uses singleton identity', () => {
-    const p = errors(Forbidden);
-    expect(p.__identity).toHaveLength(1);
-    expect(p.__identity[0]).toBe(errors.__key);
+  it('is frozen', () => {
+    expect(Object.isFrozen(Disconnect(1000, 'test'))).toBe(true);
   });
 
-  it('stores defs in order', () => {
-    const p = errors(Forbidden, ChannelNotFound);
-    expect(p.defs).toHaveLength(2);
-    expect(p.defs[0]).toBe(Forbidden);
-    expect(p.defs[1]).toBe(ChannelNotFound);
+  it('creates distinct instances', () => {
+    const a = Disconnect(4001, 'a');
+    const b = Disconnect(4002, 'b');
+    expect(a).not.toBe(b);
+    expect(a.code).toBe(4001);
+    expect(b.code).toBe(4002);
+  });
+});
+
+// ===========================================================================
+// RejectUpgrade
+// ===========================================================================
+
+describe('RejectUpgrade', () => {
+  it('creates frozen object with __wskit, code, reason', () => {
+    const ru = RejectUpgrade(4002, 'Invalid token');
+    expect(ru.__wskit).toBe('reject-upgrade');
+    expect(ru.code).toBe(4002);
+    expect(ru.reason).toBe('Invalid token');
   });
 
-  it('instances have empty dependencies and requires', () => {
-    const p = errors(Forbidden);
-    expect(p.__dependencies).toEqual([]);
-    expect(p.__requires).toEqual({});
+  it('is frozen', () => {
+    expect(Object.isFrozen(RejectUpgrade(403, 'test'))).toBe(true);
+  });
+});
+
+// ===========================================================================
+// Defer
+// ===========================================================================
+
+describe('Defer', () => {
+  it('creates frozen object with __wskit and delay', () => {
+    const df = Defer(1000);
+    expect(df.__wskit).toBe('defer');
+    expect(df.delay).toBe(1000);
   });
 
-  it('factory has a symbol key for dependency references', () => {
-    expect(typeof errors.__key).toBe('symbol');
+  it('is frozen', () => {
+    expect(Object.isFrozen(Defer(500))).toBe(true);
+  });
+});
+
+// ===========================================================================
+// DeferExhausted
+// ===========================================================================
+
+describe('DeferExhausted', () => {
+  it('has code defer-exhausted', () => {
+    expect(DeferExhausted.code).toBe('defer-exhausted');
   });
 
-  it('registers declared error definitions during setup', () => {
-    const registered: string[] = [];
-    const engine = {
-      registerErrorDefinitions(defs) {
-        registered.push(...defs.map((def) => def.code));
-      },
-    } as Pick<EngineAccess, 'registerErrorDefinitions'> as EngineAccess;
+  it('creates WskitError with event, payload, and retries', () => {
+    const err = DeferExhausted({
+      event: 'send-message',
+      payload: { text: 'hello' },
+      retries: 3,
+    });
+    expect(err).toBeInstanceOf(WskitError);
+    expect(err.code).toBe('defer-exhausted');
+    expect(err.detail.event).toBe('send-message');
+    expect(err.detail.payload).toEqual({ text: 'hello' });
+    expect(err.detail.retries).toBe(3);
+  });
 
-    errors(Forbidden, ChannelNotFound).__setup?.(engine);
+  it('.matches() returns true for valid DeferExhausted error', () => {
+    const err = new WskitError('defer-exhausted', {
+      event: 'test',
+      payload: null,
+      retries: 1,
+    });
+    expect(DeferExhausted.matches(err)).toBe(true);
+  });
 
-    expect(registered).toEqual(['forbidden', 'channel-not-found']);
+  it('.matches() returns false for wrong code', () => {
+    const err = new WskitError('forbidden', { event: 'x', payload: null, retries: 0 });
+    expect(DeferExhausted.matches(err)).toBe(false);
+  });
+
+  it('.matches() returns false for non-WskitError', () => {
+    expect(DeferExhausted.matches(new Error('defer-exhausted'))).toBe(false);
   });
 });

@@ -1,6 +1,11 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import { ack as ackPrimitive } from './ack/index.ts';
+import {
+  _onBeforeSubscribe as onBeforeSubscribePrimitive,
+  _onSubscribe as onSubscribePrimitive,
+  _onUnsubscribe as onUnsubscribePrimitive,
+} from './channel/index.ts';
 import { dedup as dedupPrimitive } from './dedup/index.ts';
 import { defineServer } from './define-server.ts';
 import { heartbeat as heartbeatPrimitive } from './heartbeat/index.ts';
@@ -81,15 +86,15 @@ type HeartbeatFactory = typeof HeartbeatModule.heartbeat;
 type HibernationFactory = typeof HibernationModule.hibernation;
 type IncomingFactory = typeof IncomingModule.incoming;
 type InterceptFactory = typeof InterceptModule.intercept;
-type OnBeforeSubscribeFactory = typeof ChannelModule.onBeforeSubscribe;
+type OnBeforeSubscribeFactory = typeof ChannelModule._onBeforeSubscribe;
 type OnBinaryFactory = typeof LifecycleModule.onBinary;
 type OnConnectFactory = typeof LifecycleModule.onConnect;
 type OnDisconnectFactory = typeof LifecycleModule.onDisconnect;
 type OnErrorFactory = typeof LifecycleModule.onError;
 type OnInitFactory = typeof LifecycleModule.onInit;
 type OnShutdownFactory = typeof LifecycleModule.onShutdown;
-type OnSubscribeFactory = typeof ChannelModule.onSubscribe;
-type OnUnsubscribeFactory = typeof ChannelModule.onUnsubscribe;
+type OnSubscribeFactory = typeof ChannelModule._onSubscribe;
+type OnUnsubscribeFactory = typeof ChannelModule._onUnsubscribe;
 type OnUpgradeFactory = typeof LifecycleModule.onUpgrade;
 type OnValidationErrorFactory = typeof LifecycleModule.onValidationError;
 type NamespaceFactory = typeof NamespaceModule.namespace;
@@ -307,10 +312,6 @@ type GenericScopeApi<TName extends string> = {
   broadcast(event: string, payload: unknown): void;
 };
 
-type GenericReplayScopeApi<TName extends string> = GenericScopeApi<TName> & {
-  sendReplay(event: string, payload: unknown, meta: ReplayMeta): void;
-};
-
 type BoundNamespaceFallbackContext<
   TName extends string,
   TFactories extends ServerPrimitiveFactories,
@@ -333,7 +334,7 @@ type BoundChannelFallbackContext<
   TFactories extends ServerPrimitiveFactories,
   TChannel extends string,
 > = BoundServerContext<TName, TFactories> & {
-  channel: GenericReplayScopeApi<TChannel>;
+  channel: GenericScopeApi<TChannel>;
 };
 
 type BoundChannelContext<
@@ -635,9 +636,9 @@ type BoundChannelChild<
 > =
   | ReplayPrimitive
   | AnyOutgoingPrimitive
-  | BeforeSubscribePrimitive<BoundChannelContext<TName, TFactories, TChannel>, any>
-  | SubscribePrimitive<BoundChannelContext<TName, TFactories, TChannel>>
-  | UnsubscribePrimitive<BoundChannelContext<TName, TFactories, TChannel>>
+  | BeforeSubscribePrimitive<BoundChannelContext<TName, TFactories, string>, any>
+  | SubscribePrimitive<BoundChannelContext<TName, TFactories, string>>
+  | UnsubscribePrimitive<BoundChannelContext<TName, TFactories, string>>
   | AnyPreInterceptPrimitive<BoundChannelContext<TName, TFactories, TChannel>>
   | AnyPostInterceptPrimitive<BoundChannelContext<TName, TFactories, TChannel>>
   | AnyIncomingPrimitive<BoundChannelContext<TName, TFactories, TChannel>>
@@ -768,6 +769,34 @@ type BoundChannelFactory<
           >,
         ]
       >;
+      <const TPattern extends ChannelPattern, TEvent extends string, TPayload, TData = unknown>(
+        pattern: TPattern,
+        p1: AnyOutgoingPrimitive,
+        beforeSubscribePrimitive: BeforeSubscribePrimitive<
+          BoundChannelContext<TName, TFactories, string>,
+          TData
+        >,
+        subscribePrimitive: SubscribePrimitive<BoundChannelContext<TName, TFactories, string>>,
+        unsubscribePrimitive: UnsubscribePrimitive<BoundChannelContext<TName, TFactories, string>>,
+        incomingPrimitive: IncomingPrimitive<
+          TEvent,
+          TPayload,
+          BoundChannelContext<TName, TFactories, ChannelKeyFor<TPattern>>
+        >,
+      ): ChannelPrimitive<
+        TPattern,
+        readonly [
+          AnyOutgoingPrimitive,
+          BeforeSubscribePrimitive<BoundChannelContext<TName, TFactories, string>, TData>,
+          SubscribePrimitive<BoundChannelContext<TName, TFactories, string>>,
+          UnsubscribePrimitive<BoundChannelContext<TName, TFactories, string>>,
+          IncomingPrimitive<
+            TEvent,
+            TPayload,
+            BoundChannelContext<TName, TFactories, ChannelKeyFor<TPattern>>
+          >,
+        ]
+      >;
       <
         const TPattern extends ChannelPattern,
         TEvent extends string,
@@ -868,7 +897,7 @@ type BoundPassthroughFactories<
     | '_onSubscribe'
     | '_onUnsubscribe'
     ? never
-    : StripUnderscore<TKey & string>]: TFactories[TKey];
+    : StripUnderscore<TKey & string>]-?: TFactories[TKey];
 } & {
   incoming: BoundIncomingFactory<TName, TFactories>;
   request: BoundRequestFactory<TName, TFactories>;
@@ -890,15 +919,9 @@ type BoundPassthroughFactories<
   onValidationError: '_onValidationError' extends keyof TFactories
     ? BoundOnValidationErrorFactory<TName, TFactories>
     : never;
-  onBeforeSubscribe: '_onBeforeSubscribe' extends keyof TFactories
-    ? BoundOnBeforeSubscribeFactory<TName, TFactories>
-    : never;
-  onSubscribe: '_onSubscribe' extends keyof TFactories
-    ? BoundOnSubscribeFactory<TName, TFactories>
-    : never;
-  onUnsubscribe: '_onUnsubscribe' extends keyof TFactories
-    ? BoundOnUnsubscribeFactory<TName, TFactories>
-    : never;
+  onBeforeSubscribe: BoundOnBeforeSubscribeFactory<TName, TFactories>;
+  onSubscribe: BoundOnSubscribeFactory<TName, TFactories>;
+  onUnsubscribe: BoundOnUnsubscribeFactory<TName, TFactories>;
 };
 
 export type BoundServer<
@@ -1138,6 +1161,27 @@ export function server<
     }
 
     bound[publicName] = value;
+  }
+
+  if (!('onBeforeSubscribe' in bound)) {
+    const value = factories._onBeforeSubscribe ?? onBeforeSubscribePrimitive;
+    bound.onBeforeSubscribe = ((...args: any[]) => {
+      return (value as (...inner: any[]) => unknown)(...args);
+    }) as BoundOnBeforeSubscribeFactory<TName, TFactories>;
+  }
+
+  if (!('onSubscribe' in bound)) {
+    const value = factories._onSubscribe ?? onSubscribePrimitive;
+    bound.onSubscribe = ((handler: SubscribeHandler<any>) => {
+      return (value as (inner: SubscribeHandler<any>) => unknown)(handler);
+    }) as BoundOnSubscribeFactory<TName, TFactories>;
+  }
+
+  if (!('onUnsubscribe' in bound)) {
+    const value = factories._onUnsubscribe ?? onUnsubscribePrimitive;
+    bound.onUnsubscribe = ((handler: UnsubscribeHandler<any>) => {
+      return (value as (inner: UnsubscribeHandler<any>) => unknown)(handler);
+    }) as BoundOnUnsubscribeFactory<TName, TFactories>;
   }
 
   return bound as BoundServer<TName, TFactories>;

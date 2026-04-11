@@ -2,7 +2,7 @@
 import { Block, Skip } from '@wskit/core';
 import * as EngineCompileUtils from '~/_engine/compile/utils.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
-import * as ErrorsPrimitive from '~/errors.ts';
+import * as ErrorsPrimitive from '~/errors/errors.ts';
 import * as HeartbeatPrimitive from '~/heartbeat/runtime.ts';
 import * as InterceptPrimitive from '~/intercept/runtime.ts';
 import * as RequestPrimitive from '~/request/runtime.ts';

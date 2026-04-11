@@ -3,7 +3,7 @@ import type { ContractFromItems, ErrorsFromItems, MergeRecords } from '~/_types/
 import type { ChannelChild, ChannelPrimitive, ScopeDeclaration } from '~/channel/channel.ts';
 import type { ModuleInstance } from '~/define-module.ts';
 import type { ServerDefinition } from '~/define-server.ts';
-import type { ErrorDef, ValidationFailed } from '~/errors.ts';
+import type { ErrorDef, ValidationFailed } from '~/errors/errors.ts';
 import type { NamespaceChild, NamespacePrimitive } from '~/namespace/namespace.ts';
 import type { OutgoingPrimitive } from '~/outgoing/index.ts';
 

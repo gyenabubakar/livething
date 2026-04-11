@@ -183,6 +183,93 @@ describe('wskit codegen parser', () => {
     );
   });
 
+  it('ignores generate() inside scopes without affecting scope collection', () => {
+    const code = `
+      import { received, server, t } from '@wskit/server-codegen';
+      import { channel as _channel, scope } from '@wskit/server-codegen/channel';
+      import { incoming as _incoming } from '@wskit/server-codegen/incoming';
+      import { namespace as _namespace } from '@wskit/server-codegen/namespace';
+      import { outgoing as _outgoing } from '@wskit/server-codegen/outgoing';
+      import { stream as _stream, chunks, generate, nudge, start } from '@wskit/server-codegen/stream';
+
+      const { define, incoming, outgoing, namespace, channel, stream } = server('chat', {
+        _incoming,
+        _outgoing,
+        _namespace,
+        _channel,
+        _stream,
+      });
+
+      const aiStream = stream(
+        start('ask-ai', (value: unknown) => value as { prompt: string }),
+        chunks(t<{ text: string; done: boolean }>()),
+        nudge('cancel'),
+      );
+
+      export default define(
+        outgoing('message', t<{ text: string }>()),
+        generate(aiStream, async function* (ctx, payload) {
+          yield { text: payload.prompt, done: true };
+        }),
+        namespace(
+          'notifications',
+          outgoing('notice', t<{ id: string; text: string }>()),
+          incoming(received('dismiss'), async (ctx) => {
+            ctx.namespace.send('notice', { id: 'a1', text: 'dismissed' });
+          }),
+          generate(
+            stream(
+              start('notice-stream', (value: unknown) => value as { id: string }),
+              chunks(t<{ id: string; text: string }>()),
+            ),
+            async function* (ctx, payload) {
+              yield { id: payload.id, text: 'opened' };
+            },
+          ),
+        ),
+        channel(
+          scope('rooms', /^room-/),
+          outgoing('typing', t<{ userId: string }>()),
+          incoming(received('start-typing'), async (ctx) => {
+            ctx.channel.send('typing', { userId: 'u1' });
+          }),
+          generate(
+            stream(
+              start('room-ai', (value: unknown) => value as { room: string }),
+              chunks(t<{ text: string }>()),
+            ),
+            async function* (ctx, payload) {
+              yield { text: payload.room };
+            },
+          ),
+        ),
+      );
+    `;
+
+    const parsed = parseWskitModule(code, '/repo/src/chat.wskit.ts');
+
+    expect(parsed.scope.outgoing).toEqual({ message: '{ text: string }' });
+    expect(parsed.scope.namespaces.notifications?.outgoing).toEqual({
+      notice: '{ id: string; text: string }',
+    });
+    expect(parsed.scope.namespaces.notifications?.incomingEvents).toEqual(['dismiss']);
+    expect(parsed.scope.channels.rooms?.outgoing).toEqual({
+      typing: '{ userId: string }',
+    });
+    expect(parsed.scope.channels.rooms?.incomingEvents).toEqual(['start-typing']);
+
+    const output = generateWskitDeclarationText(parsed);
+    expect(output).toContain('"notifications"');
+    expect(output).toContain('"rooms"');
+    expect(output).toContain('incomingContexts: {');
+    expect(output).toContain(
+      '"dismiss": WskitServerRegistry["chat"]["namespaces"]["notifications"]["ctx"];',
+    );
+    expect(output).toContain(
+      '"start-typing": WskitServerRegistry["chat"]["channels"]["rooms"]["ctx"];',
+    );
+  });
+
   it('generates incoming, request, and post-intercept ctx maps', () => {
     const code = `
       import {

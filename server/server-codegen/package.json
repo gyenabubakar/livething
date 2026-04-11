@@ -9,6 +9,12 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./_types/*": {
+      "types": "./dist/_types/*.d.ts"
+    },
+    "./define-server": {
+      "types": "./dist/define-server.d.ts"
+    },
     "./server": {
       "types": "./dist/server.d.ts",
       "import": "./dist/server.js"
@@ -34,7 +40,7 @@
       "import": "./dist/outgoing.js"
     },
     "./errors": {
-      "types": "./dist/errors.d.ts",
+      "types": "./dist/errors/index.d.ts",
       "import": "./dist/errors.js"
     },
     "./ack": {

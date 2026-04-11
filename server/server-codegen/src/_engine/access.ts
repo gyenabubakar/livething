@@ -1,7 +1,7 @@
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as ContextApi from '~/context.ts';
-import type * as ErrorsPrimitive from '~/errors.ts';
+import type * as ErrorsPrimitive from '~/errors/errors.ts';
 import type * as ScheduledPrimitive from '~/scheduled/types.ts';
 import type * as ValidationTypes from '~/types.ts';
 

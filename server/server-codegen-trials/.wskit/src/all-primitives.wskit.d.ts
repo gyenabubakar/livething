@@ -14,6 +14,10 @@ declare global {
         sendReplay(event: "message", payload: { text: string; room?: string }, meta: { seq: number; messageId: string }): void;
         sendReplay(event: "alert", payload: { level: 'info' | 'warn' | 'error' }, meta: { seq: number; messageId: string }): void;
         sendReplay(event: "usage", payload: { totalTokens: number }, meta: { seq: number; messageId: string }): void;
+        schedule(taskId: "cleanup-sessions", options: { time: number; data?: unknown }): void;
+        cancelScheduled(taskId: "cleanup-sessions", filter?: unknown extends Record<string, unknown> ? Partial<unknown> : Record<string, unknown>): void;
+        schedule(taskId: "expire-hold", options: { time: number; data?: { orderId: string } }): void;
+        cancelScheduled(taskId: "expire-hold", filter?: { orderId: string } extends Record<string, unknown> ? Partial<{ orderId: string }> : Record<string, unknown>): void;
       };
       outgoing:       {
         "message": { text: string; room?: string };
@@ -33,6 +37,10 @@ declare global {
             sendReplay(event: "message", payload: { text: string; room?: string }, meta: { seq: number; messageId: string }): void;
             sendReplay(event: "alert", payload: { level: 'info' | 'warn' | 'error' }, meta: { seq: number; messageId: string }): void;
             sendReplay(event: "usage", payload: { totalTokens: number }, meta: { seq: number; messageId: string }): void;
+            schedule(taskId: "cleanup-sessions", options: { time: number; data?: unknown }): void;
+            cancelScheduled(taskId: "cleanup-sessions", filter?: unknown extends Record<string, unknown> ? Partial<unknown> : Record<string, unknown>): void;
+            schedule(taskId: "expire-hold", options: { time: number; data?: { orderId: string } }): void;
+            cancelScheduled(taskId: "expire-hold", filter?: { orderId: string } extends Record<string, unknown> ? Partial<{ orderId: string }> : Record<string, unknown>): void;
             namespace: {
               name: "notifications";
               send(event: "notice", payload: { id: string; text: string }): void;
@@ -57,6 +65,10 @@ declare global {
             sendReplay(event: "message", payload: { text: string; room?: string }, meta: { seq: number; messageId: string }): void;
             sendReplay(event: "alert", payload: { level: 'info' | 'warn' | 'error' }, meta: { seq: number; messageId: string }): void;
             sendReplay(event: "usage", payload: { totalTokens: number }, meta: { seq: number; messageId: string }): void;
+            schedule(taskId: "cleanup-sessions", options: { time: number; data?: unknown }): void;
+            cancelScheduled(taskId: "cleanup-sessions", filter?: unknown extends Record<string, unknown> ? Partial<unknown> : Record<string, unknown>): void;
+            schedule(taskId: "expire-hold", options: { time: number; data?: { orderId: string } }): void;
+            cancelScheduled(taskId: "expire-hold", filter?: { orderId: string } extends Record<string, unknown> ? Partial<{ orderId: string }> : Record<string, unknown>): void;
             channel: {
               name: string;
               send(event: "announcement", payload: { text: string }): void;
@@ -79,6 +91,10 @@ declare global {
             sendReplay(event: "message", payload: { text: string; room?: string }, meta: { seq: number; messageId: string }): void;
             sendReplay(event: "alert", payload: { level: 'info' | 'warn' | 'error' }, meta: { seq: number; messageId: string }): void;
             sendReplay(event: "usage", payload: { totalTokens: number }, meta: { seq: number; messageId: string }): void;
+            schedule(taskId: "cleanup-sessions", options: { time: number; data?: unknown }): void;
+            cancelScheduled(taskId: "cleanup-sessions", filter?: unknown extends Record<string, unknown> ? Partial<unknown> : Record<string, unknown>): void;
+            schedule(taskId: "expire-hold", options: { time: number; data?: { orderId: string } }): void;
+            cancelScheduled(taskId: "expire-hold", filter?: { orderId: string } extends Record<string, unknown> ? Partial<{ orderId: string }> : Record<string, unknown>): void;
             channel: {
               name: string;
               send(event: "typing", payload: { userId: string }): void;

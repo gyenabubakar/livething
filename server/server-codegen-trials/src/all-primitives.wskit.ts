@@ -1,16 +1,34 @@
 import { error } from '@wskit/core';
 import { received, server, t } from '@wskit/server-codegen';
 import { ack as _ack } from '@wskit/server-codegen/ack';
-import { channel as _channel, scope } from '@wskit/server-codegen/channel';
+import {
+  channel as _channel,
+  _onBeforeSubscribe,
+  _onSubscribe,
+  _onUnsubscribe,
+  scope,
+} from '@wskit/server-codegen/channel';
 import { dedup as _dedup } from '@wskit/server-codegen/dedup';
 import { errors as _errors } from '@wskit/server-codegen/errors';
 import { heartbeat as _heartbeat } from '@wskit/server-codegen/heartbeat';
+import { hibernation as _hibernation } from '@wskit/server-codegen/hibernation';
 import { incoming as _incoming } from '@wskit/server-codegen/incoming';
 import { intercept as _intercept } from '@wskit/server-codegen/intercept';
+import {
+  onBinary as _onBinary,
+  onConnect as _onConnect,
+  onDisconnect as _onDisconnect,
+  onError as _onError,
+  onInit as _onInit,
+  onShutdown as _onShutdown,
+  onUpgrade as _onUpgrade,
+  onValidationError as _onValidationError,
+} from '@wskit/server-codegen/lifecycle';
 import { namespace as _namespace } from '@wskit/server-codegen/namespace';
 import { outgoing as _outgoing } from '@wskit/server-codegen/outgoing';
 import { replay as _replay } from '@wskit/server-codegen/replay';
 import { request as _request } from '@wskit/server-codegen/request';
+import { scheduled as _scheduled } from '@wskit/server-codegen/scheduled';
 import { sequence as _sequence } from '@wskit/server-codegen/sequence';
 import { stream as _stream, chunks, generate, nudge, start } from '@wskit/server-codegen/stream';
 import type { InferClient } from '@wskit/server-codegen';
@@ -25,9 +43,21 @@ const {
   incoming,
   intercept,
   namespace,
+  onBinary,
+  onConnect,
+  onDisconnect,
+  onError,
+  onInit,
+  onShutdown,
+  onBeforeSubscribe,
+  onSubscribe,
+  onUnsubscribe,
+  onUpgrade,
+  onValidationError,
   outgoing,
   replay,
   request,
+  scheduled,
   sequence,
   stream,
   dedup,
@@ -38,12 +68,25 @@ const {
   _dedup,
   _errors,
   _heartbeat,
+  _hibernation,
   _incoming,
   _intercept,
   _namespace,
+  _onBinary,
+  _onConnect,
+  _onDisconnect,
+  _onError,
+  _onInit,
+  _onShutdown,
+  _onBeforeSubscribe,
+  _onSubscribe,
+  _onUnsubscribe,
+  _onUpgrade,
+  _onValidationError,
   _outgoing,
   _replay,
   _request,
+  _scheduled,
   _sequence,
   _stream,
 });
@@ -67,6 +110,14 @@ const allPrimitivesServer = define(
   dedup(),
   errors(Forbidden, QuotaExceeded),
   replay(),
+  scheduled('cleanup-sessions', async () => {}),
+  scheduled(
+    'expire-hold',
+    async (_ctx, data) => {
+      void data.orderId;
+    },
+    { data: t<{ orderId: string }>() },
+  ),
   outgoing('message', t<{ text: string; room?: string }>()),
   outgoing('alert', t<{ level: 'info' | 'warn' | 'error' }>()),
   outgoing('usage', t<{ totalTokens: number }>()),
@@ -84,6 +135,11 @@ const allPrimitivesServer = define(
         { text: payload.text, room: payload.room },
         { seq: 1, messageId: 'message-1' },
       );
+      ctx.schedule('expire-hold', {
+        time: Date.now() + 60_000,
+        data: { orderId: 'order-1' },
+      });
+      ctx.cancelScheduled('expire-hold', { orderId: 'order-1' });
     },
   ),
   request(
@@ -105,6 +161,32 @@ const allPrimitivesServer = define(
     }
 
     yield { text: 'done', done: true };
+  }),
+  onInit(async (ctx) => {
+    void ctx.sql;
+    void ctx.log;
+  }),
+  onConnect(async (ctx) => {
+    ctx.send('alert', { level: 'info' });
+  }),
+  onDisconnect(async (ctx) => {
+    ctx.broadcast('alert', { level: 'warn' });
+  }),
+  onShutdown(async (ctx) => {
+    ctx.closeAll(1000, 'shutting down');
+  }),
+  onError(async (_ctx, error, event) => {
+    void [error, event];
+  }),
+  onUpgrade(async (request) => {
+    void request.url;
+    return { meta: { ip: '127.0.0.1' }, tags: ['admin'] };
+  }),
+  onBinary(async (_ctx, data) => {
+    void data.byteLength;
+  }),
+  onValidationError(async (_ctx, event, validationError) => {
+    void [event, validationError];
   }),
   namespace(
     'notifications',
@@ -146,6 +228,15 @@ const allPrimitivesServer = define(
   channel(
     'general',
     outgoing('announcement', t<{ text: string }>()),
+    onBeforeSubscribe(async (ctx, data) => {
+      void [ctx.channel.name, data];
+    }),
+    onSubscribe(async (ctx) => {
+      ctx.channel.broadcast('announcement', { text: 'user joined' });
+    }),
+    onUnsubscribe(async (ctx) => {
+      ctx.channel.broadcast('announcement', { text: 'user left' });
+    }),
     incoming(
       received('announce', (value: unknown) => value as { text: string }),
       async (ctx, payload) => {

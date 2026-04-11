@@ -1,7 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { definePrimitive } from '~/primitive.ts';
 import type { ConnectionInfo } from '~/context.ts';
-import type { ErrorDef } from '~/errors.ts';
+import type { ErrorDef } from '~/errors/errors.ts';
 import type { ErrorsPrimitive } from '~/errors/index.ts';
 import type { OutgoingPrimitive } from '~/outgoing/index.ts';
 import type { Primitive, PrimitiveRef, RequiresManifest } from '~/primitive.ts';

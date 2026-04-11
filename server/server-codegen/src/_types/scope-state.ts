@@ -2,8 +2,8 @@
 import type { AckPrimitive } from '~/ack/ack.ts';
 import type { ChannelManager } from '~/context.ts';
 import type { DedupPrimitive } from '~/dedup/dedup.ts';
-import type { ErrorDef } from '~/errors.ts';
-import type { ErrorsPrimitive } from '~/errors/errors.ts';
+import type { ErrorDef } from '~/errors/errors.ts';
+import type { ErrorsPrimitive } from '~/errors/primitive.ts';
 import type { HeartbeatPrimitive } from '~/heartbeat/heartbeat.ts';
 import type { HibernationPrimitive } from '~/hibernation/hibernation.ts';
 import type { IncomingPrimitive } from '~/incoming/incoming.ts';

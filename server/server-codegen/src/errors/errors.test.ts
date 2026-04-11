@@ -1,51 +1,91 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 
-import { error } from '~/errors.ts';
-import { errors } from '~/errors/errors.ts';
-import type { ErrorsPrimitive } from '~/errors/errors.ts';
-import type { PrimitiveKind, PrimitiveRef } from '~/primitive.ts';
-
-const Forbidden = error('forbidden', (value: unknown) => value as { reason: string });
-const ChannelNotFound = error(
-  'channel-not-found',
-  (value: unknown) => value as { channel: string },
-);
-const QuotaExceeded = error('quota-exceeded', (value: unknown) => value as { limit: number });
-
-// ===========================================================================
-// 1. errors() carries the exact tuple of error defs
-// ===========================================================================
-
-const declared = errors(Forbidden, ChannelNotFound, QuotaExceeded);
-
-const _primitiveType: ErrorsPrimitive<
-  readonly [typeof Forbidden, typeof ChannelNotFound, typeof QuotaExceeded]
-> = declared;
-void _primitiveType;
+import { WskitError } from '@wskit/core';
+import {
+  Block,
+  CloseCodes,
+  Defer,
+  DeferExhausted,
+  Disconnect,
+  error,
+  RejectUpgrade,
+  Skip,
+  ValidationFailed,
+} from './errors.ts';
+import type { ErrorDef, ErrorDefWithFactory } from './errors.ts';
 
 // ===========================================================================
-// 2. Primitive base fields present
+// 1. Re-exports from core are accessible
 // ===========================================================================
 
-const _tag: 'errors' = declared.__wskit;
-const _kind: PrimitiveKind = declared.__kind;
-void [_tag, _kind];
+const _err: ErrorDef<'test', void> = error('test');
+void _err;
+
+const _block: { readonly __wskit: 'block' } = Block;
+const _skip: { readonly __wskit: 'skip' } = Skip;
+void [_block, _skip];
+
+const _closeCodes: typeof CloseCodes = CloseCodes;
+void _closeCodes;
+
+const _vf: ErrorDefWithFactory<
+  'validation-failed',
+  { event: string; issues: Array<{ message: string; path?: Array<string | number> }> }
+> = ValidationFailed;
+void _vf;
 
 // ===========================================================================
-// 3. defs are stored in order
+// 2. Disconnect — frozen factory with code and reason
 // ===========================================================================
 
-const _defs: readonly [typeof Forbidden, typeof ChannelNotFound, typeof QuotaExceeded] =
-  declared.defs;
-const _firstCode: 'forbidden' = declared.defs[0]!.code;
-const _secondCode: 'channel-not-found' = declared.defs[1]!.code;
-const _thirdCode: 'quota-exceeded' = declared.defs[2]!.code;
-void [_defs, _firstCode, _secondCode, _thirdCode];
+const dc = Disconnect(4009, 'banned');
+const _dcWskit: 'disconnect' = dc.__wskit;
+const _dcCode: number = dc.code;
+const _dcReason: string = dc.reason;
+void [_dcWskit, _dcCode, _dcReason];
 
 // ===========================================================================
-// 4. errors is a PrimitiveRef
+// 3. RejectUpgrade — frozen factory with code and reason
 // ===========================================================================
 
-const _ref: PrimitiveRef = errors;
-const _key: symbol = errors.__key;
-void [_ref, _key];
+const ru = RejectUpgrade(4002, 'Invalid token');
+const _ruWskit: 'reject-upgrade' = ru.__wskit;
+const _ruCode: number = ru.code;
+const _ruReason: string = ru.reason;
+void [_ruWskit, _ruCode, _ruReason];
+
+// ===========================================================================
+// 4. Defer — frozen factory with delay
+// ===========================================================================
+
+const df = Defer(1000);
+const _dfWskit: 'defer' = df.__wskit;
+const _dfDelay: number = df.delay;
+void [_dfWskit, _dfDelay];
+
+// ===========================================================================
+// 5. DeferExhausted — built-in error def with factory
+// ===========================================================================
+
+const _deCode: 'defer-exhausted' = DeferExhausted.code;
+void _deCode;
+
+const deErr = DeferExhausted({ event: 'send-message', payload: { text: 'hi' }, retries: 3 });
+const _deErrCode: 'defer-exhausted' = deErr.code;
+const _deDetail: { event: string; payload: unknown; retries: number } = deErr.detail;
+void [_deErrCode, _deDetail];
+
+// .matches() narrows correctly
+declare const unknownErr: unknown;
+if (DeferExhausted.matches(unknownErr)) {
+  const _mc: 'defer-exhausted' = unknownErr.code;
+  const _md: { event: string; payload: unknown; retries: number } = unknownErr.detail;
+  void [_mc, _md];
+}
+
+// ===========================================================================
+// 6. DeferExhausted is a WskitError
+// ===========================================================================
+
+const _isWskitErr: boolean = deErr instanceof WskitError;
+void _isWskitErr;
