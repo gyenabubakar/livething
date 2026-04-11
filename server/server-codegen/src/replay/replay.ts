@@ -119,11 +119,11 @@ const _replay = definePrimitive<
         persist(wireMessage);
       });
     } else {
-      engine.onAfterSend((wireMessage) =>
-        Promise.resolve().then(() => {
+      engine.onAfterSend((wireMessage) => {
+        return Promise.resolve().then(() => {
           persist(wireMessage);
-        }),
-      );
+        });
+      });
     }
 
     engine.onProtocolMessage('_replay', async (ctx, payload) => {

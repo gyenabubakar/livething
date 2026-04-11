@@ -47,12 +47,14 @@ export function createShutdownContext(
       deps.cancelScheduled(taskId, filter);
     },
     connectionCount: deps.connections.size,
-    getConnections: () =>
-      [...deps.connections.values()].map((connection) => deps.toConnectionInfo(connection)),
-    getConnectionsByTag: (tag) =>
-      [...deps.connections.values()]
+    getConnections: () => {
+      return [...deps.connections.values()].map((connection) => deps.toConnectionInfo(connection));
+    },
+    getConnectionsByTag: (tag) => {
+      return [...deps.connections.values()]
         .filter((connection) => connection.tags.has(tag))
-        .map((connection) => deps.toConnectionInfo(connection)),
+        .map((connection) => deps.toConnectionInfo(connection));
+    },
     env: deps.env,
     log: deps.logger,
     waitUntil: deps.waitUntilImpl,
@@ -90,12 +92,14 @@ export function createTaskContext(
       deps.sendThroughPipeline(connection, undefined, event, payload);
       return true;
     },
-    getConnections: () =>
-      [...deps.connections.values()].map((connection) => deps.toConnectionInfo(connection)),
-    getConnectionsByTag: (tag) =>
-      [...deps.connections.values()]
+    getConnections: () => {
+      return [...deps.connections.values()].map((connection) => deps.toConnectionInfo(connection));
+    },
+    getConnectionsByTag: (tag) => {
+      return [...deps.connections.values()]
         .filter((connection) => connection.tags.has(tag))
-        .map((connection) => deps.toConnectionInfo(connection)),
+        .map((connection) => deps.toConnectionInfo(connection));
+    },
     connectionCount: deps.connections.size,
     schedule: (taskId, options) => {
       deps.scheduleTask(taskId, options.time, options.data);
@@ -187,20 +191,23 @@ export function buildConnectionContext(
       }
     },
     close: (code, reason) => connection.descriptor.close(code, reason),
-    getConnections: () =>
-      [...deps.connections.values()].map((target) => deps.toConnectionInfo(target)),
-    getConnectionsByTag: (tag) =>
-      [...deps.connections.values()]
+    getConnections: () => {
+      return [...deps.connections.values()].map((target) => deps.toConnectionInfo(target));
+    },
+    getConnectionsByTag: (tag) => {
+      return [...deps.connections.values()]
         .filter((target) => target.tags.has(tag))
-        .map((target) => deps.toConnectionInfo(target)),
+        .map((target) => deps.toConnectionInfo(target));
+    },
     connectionCount: deps.connections.size,
     bufferedAmount: connection.descriptor.bufferedAmount(),
     latency: connection.latency,
     quality: connection.quality,
     channels: {
       members: (name) => deps.getChannelMembers(name),
-      kick: (channelNameToKick, tag, reason) =>
-        deps.kickChannelMembers(channelNameToKick, tag, reason),
+      kick: (channelNameToKick, tag, reason) => {
+        deps.kickChannelMembers(channelNameToKick, tag, reason);
+      },
     },
     schedule: (taskId, options) => {
       deps.scheduleTask(taskId, options.time, options.data);
@@ -226,16 +233,18 @@ export function buildConnectionContext(
     const namespace = scope.namespace;
     base.namespace = {
       name: namespace.name,
-      send: (event, payload) =>
-        deps.sendThroughPipeline(connection, { namespace: namespace.name }, event, payload),
-      broadcast: (event, payload) =>
+      send: (event, payload) => {
+        return deps.sendThroughPipeline(connection, { namespace: namespace.name }, event, payload);
+      },
+      broadcast: (event, payload) => {
         deps.broadcastToConnections(
           [...deps.connections.values()],
           event,
           payload,
           { namespace: namespace.name },
           connection.id,
-        ),
+        );
+      },
     };
   }
 
@@ -246,15 +255,17 @@ export function buildConnectionContext(
     const channelScope = scope.channelScope ?? channel.key;
     base.channel = {
       name: channelName,
-      send: (event, payload) =>
-        deps.sendThroughPipeline(
+      send: (event, payload) => {
+        return deps.sendThroughPipeline(
           connection,
           { channel: channelName, channelScope },
           event,
           payload,
-        ),
-      broadcast: (event, payload) =>
-        deps.broadcastToChannel(channelName, event, payload, connection.id, channelScope),
+        );
+      },
+      broadcast: (event, payload) => {
+        deps.broadcastToChannel(channelName, event, payload, connection.id, channelScope);
+      },
     };
   }
 
@@ -280,14 +291,15 @@ export function createModuleScopedContext(
   return new Proxy(ctx, {
     get(target, key, receiver) {
       if (key === 'send') {
-        return (event: string, payload: unknown) =>
+        return (event: string, payload: unknown) => {
           (Reflect.get(target, 'send', receiver) as (event: string, payload: unknown) => void)(
             prefix(event),
             payload,
           );
+        };
       }
       if (key === 'broadcast') {
-        return (event: string, payload: unknown, options?: EngineContextTypes.BroadcastOptions) =>
+        return (event: string, payload: unknown, options?: EngineContextTypes.BroadcastOptions) => {
           (
             Reflect.get(target, 'broadcast', receiver) as (
               event: string,
@@ -295,9 +307,10 @@ export function createModuleScopedContext(
               options?: EngineContextTypes.BroadcastOptions,
             ) => void
           )(prefix(event), payload, options);
+        };
       }
       if (key === 'sendTo') {
-        return (tag: string, event: string, payload: unknown) =>
+        return (tag: string, event: string, payload: unknown) => {
           (
             Reflect.get(target, 'sendTo', receiver) as (
               tag: string,
@@ -305,9 +318,10 @@ export function createModuleScopedContext(
               payload: unknown,
             ) => void
           )(tag, prefix(event), payload);
+        };
       }
       if (key === 'sendToConnection') {
-        return (connectionId: string, event: string, payload: unknown) =>
+        return (connectionId: string, event: string, payload: unknown) => {
           (
             Reflect.get(target, 'sendToConnection', receiver) as (
               connectionId: string,
@@ -315,6 +329,7 @@ export function createModuleScopedContext(
               payload: unknown,
             ) => boolean
           )(connectionId, prefix(event), payload);
+        };
       }
       return Reflect.get(target, key, receiver);
     },

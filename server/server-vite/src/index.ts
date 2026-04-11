@@ -68,9 +68,9 @@ export function wskitCodegen(options: WskitVitePluginOptions = {}): Plugin {
   async function onUnlink(filePath: string, rootDir: string, includePatterns: string[]) {
     const absolute = resolve(filePath);
     if (
-      !includePatterns.some((pattern) =>
-        absolute.endsWith(pattern.replace('**/*', '').replace('*', '')),
-      )
+      !includePatterns.some((pattern) => {
+        return absolute.endsWith(pattern.replace('**/*', '').replace('*', ''));
+      })
     ) {
       return;
     }

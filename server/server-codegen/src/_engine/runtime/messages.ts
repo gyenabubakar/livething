@@ -369,9 +369,9 @@ export function broadcastToChannel(
   excludeConnectionId?: string,
   channelScope?: string,
 ): void {
-  const connections = [...runtime.connections.values()].filter((connection) =>
-    connection.channels.has(channelName),
-  );
+  const connections = [...runtime.connections.values()].filter((connection) => {
+    return connection.channels.has(channelName);
+  });
 
   for (const connection of connections) {
     if (excludeConnectionId && connection.id === excludeConnectionId) continue;
@@ -455,7 +455,7 @@ export async function handleSubscribe(
   await ChannelPrimitive.subscribeConnection(
     {
       ...runtime,
-      broadcastToChannel: (channelName, event, nextPayload, excludeConnectionId, channelScope) =>
+      broadcastToChannel: (channelName, event, nextPayload, excludeConnectionId, channelScope) => {
         broadcastToChannel(
           runtime,
           channelName,
@@ -463,7 +463,8 @@ export async function handleSubscribe(
           nextPayload,
           excludeConnectionId,
           channelScope,
-        ),
+        );
+      },
       toConnectionInfo: (nextConnection) => runtime.toConnectionInfo(nextConnection),
     },
     connection,
@@ -603,9 +604,9 @@ export async function dispatchIncoming(
         : undefined;
 
     if (incoming) {
-      await InterceptPrimitive.runWithScopedContext(runtime, connection, scope, (ctx) =>
-        incoming.handler(ctx, postPayload),
-      );
+      await InterceptPrimitive.runWithScopedContext(runtime, connection, scope, (ctx) => {
+        return incoming.handler(ctx, postPayload);
+      });
       return;
     }
 
@@ -614,8 +615,9 @@ export async function dispatchIncoming(
         {
           buildConnectionContext: runtime.buildConnectionContext,
           setActiveConnectionId: runtime.setActiveConnectionId,
-          sendThroughPipeline: (nextConnection, routing, nextEvent, nextPayload) =>
-            sendThroughPipeline(runtime, nextConnection, routing, nextEvent, nextPayload),
+          sendThroughPipeline: (nextConnection, routing, nextEvent, nextPayload) => {
+            return sendThroughPipeline(runtime, nextConnection, routing, nextEvent, nextPayload);
+          },
         },
         connection,
         scope,

@@ -32,9 +32,9 @@ export async function handleRequest(
   rawPayload: unknown,
 ): Promise<void> {
   const correlationId = readCorrelationId(rawPayload);
-  const response = await runWithScopedContext(runtime, connection, scope, (ctx) =>
-    request.handler(ctx, payload),
-  );
+  const response = await runWithScopedContext(runtime, connection, scope, (ctx) => {
+    return request.handler(ctx, payload);
+  });
 
   runtime.sendThroughPipeline(
     connection,

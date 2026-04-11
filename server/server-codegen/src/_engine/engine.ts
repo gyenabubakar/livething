@@ -537,19 +537,25 @@ export class Engine {
       requireTimers: () => this.requireTimers(),
       scheduleTask: (taskId, time, data) => this.scheduleTask(taskId, time, data),
       cancelScheduled: (taskId, filter) => this.cancelScheduled(taskId, filter),
-      broadcastToConnections: (connections, event, payload, options, excludeConnectionId) =>
-        this.broadcastToConnections(connections, event, payload, options, excludeConnectionId),
-      sendThroughPipeline: (connection, routing, event, payload) =>
-        this.sendThroughPipeline(connection, routing, event, payload),
-      broadcastToChannel: (channelName, event, payload, excludeConnectionId, channelScope) =>
-        this.broadcastToChannel(channelName, event, payload, excludeConnectionId, channelScope),
+      broadcastToConnections: (connections, event, payload, options, excludeConnectionId) => {
+        this.broadcastToConnections(connections, event, payload, options, excludeConnectionId);
+      },
+      sendThroughPipeline: (connection, routing, event, payload) => {
+        return this.sendThroughPipeline(connection, routing, event, payload);
+      },
+      broadcastToChannel: (channelName, event, payload, excludeConnectionId, channelScope) => {
+        this.broadcastToChannel(channelName, event, payload, excludeConnectionId, channelScope);
+      },
       getChannelMembers: (channelName) => this.getChannelMembers(channelName),
-      kickChannelMembers: (channelName, tag, reason) =>
-        this.kickChannelMembers(channelName, tag, reason),
-      sendReplay: (connection, channelName, channelScope, event, payload, wire) =>
-        this.sendReplay(connection, channelName, channelScope, event, payload, wire),
-      sendProtocolMessage: (connection, event, payload) =>
-        this.sendProtocolMessage(connection, event, payload),
+      kickChannelMembers: (channelName, tag, reason) => {
+        this.kickChannelMembers(channelName, tag, reason);
+      },
+      sendReplay: (connection, channelName, channelScope, event, payload, wire) => {
+        this.sendReplay(connection, channelName, channelScope, event, payload, wire);
+      },
+      sendProtocolMessage: (connection, event, payload) => {
+        this.sendProtocolMessage(connection, event, payload);
+      },
       persistAttachment: (connection) => this.persistAttachment(connection),
       toConnectionInfo: (connection) => this.toConnectionInfo(connection),
       attachModuleApis: (ctx, connection) => this.attachModuleApis(ctx, connection),
@@ -571,19 +577,25 @@ export class Engine {
       requireTimers: () => this.requireTimers(),
       scheduleTask: (taskId, time, data) => this.scheduleTask(taskId, time, data),
       cancelScheduled: (taskId, filter) => this.cancelScheduled(taskId, filter),
-      broadcastToConnections: (connections, event, payload, options, excludeConnectionId) =>
-        this.broadcastToConnections(connections, event, payload, options, excludeConnectionId),
-      sendThroughPipeline: (connection, routing, event, payload) =>
-        this.sendThroughPipeline(connection, routing, event, payload),
-      broadcastToChannel: (channelName, event, payload, excludeConnectionId, channelScope) =>
-        this.broadcastToChannel(channelName, event, payload, excludeConnectionId, channelScope),
+      broadcastToConnections: (connections, event, payload, options, excludeConnectionId) => {
+        this.broadcastToConnections(connections, event, payload, options, excludeConnectionId);
+      },
+      sendThroughPipeline: (connection, routing, event, payload) => {
+        return this.sendThroughPipeline(connection, routing, event, payload);
+      },
+      broadcastToChannel: (channelName, event, payload, excludeConnectionId, channelScope) => {
+        this.broadcastToChannel(channelName, event, payload, excludeConnectionId, channelScope);
+      },
       getChannelMembers: (channelName) => this.getChannelMembers(channelName),
-      kickChannelMembers: (channelName, tag, reason) =>
-        this.kickChannelMembers(channelName, tag, reason),
-      sendReplay: (connection, channelName, channelScope, event, payload, wire) =>
-        this.sendReplay(connection, channelName, channelScope, event, payload, wire),
-      sendProtocolMessage: (connection, event, payload) =>
-        this.sendProtocolMessage(connection, event, payload),
+      kickChannelMembers: (channelName, tag, reason) => {
+        this.kickChannelMembers(channelName, tag, reason);
+      },
+      sendReplay: (connection, channelName, channelScope, event, payload, wire) => {
+        this.sendReplay(connection, channelName, channelScope, event, payload, wire);
+      },
+      sendProtocolMessage: (connection, event, payload) => {
+        this.sendProtocolMessage(connection, event, payload);
+      },
       persistAttachment: (connection) => this.persistAttachment(connection),
       toConnectionInfo: (connection) => this.toConnectionInfo(connection),
       attachModuleApis: (ctx, connection) => this.attachModuleApis(ctx, connection),
@@ -613,19 +625,25 @@ export class Engine {
         requireTimers: () => this.requireTimers(),
         scheduleTask: (taskId, time, data) => this.scheduleTask(taskId, time, data),
         cancelScheduled: (taskId, filter) => this.cancelScheduled(taskId, filter),
-        broadcastToConnections: (connections, event, payload, options, excludeConnectionId) =>
-          this.broadcastToConnections(connections, event, payload, options, excludeConnectionId),
-        sendThroughPipeline: (connectionArg, routing, event, payload) =>
-          this.sendThroughPipeline(connectionArg, routing, event, payload),
-        broadcastToChannel: (channelName, event, payload, excludeConnectionId, channelScope) =>
-          this.broadcastToChannel(channelName, event, payload, excludeConnectionId, channelScope),
+        broadcastToConnections: (connections, event, payload, options, excludeConnectionId) => {
+          this.broadcastToConnections(connections, event, payload, options, excludeConnectionId);
+        },
+        sendThroughPipeline: (connectionArg, routing, event, payload) => {
+          return this.sendThroughPipeline(connectionArg, routing, event, payload);
+        },
+        broadcastToChannel: (channelName, event, payload, excludeConnectionId, channelScope) => {
+          this.broadcastToChannel(channelName, event, payload, excludeConnectionId, channelScope);
+        },
         getChannelMembers: (channelName) => this.getChannelMembers(channelName),
-        kickChannelMembers: (channelName, tag, reason) =>
-          this.kickChannelMembers(channelName, tag, reason),
-        sendReplay: (connectionArg, channelName, channelScope, event, payload, wire) =>
-          this.sendReplay(connectionArg, channelName, channelScope, event, payload, wire),
-        sendProtocolMessage: (connectionArg, event, payload) =>
-          this.sendProtocolMessage(connectionArg, event, payload),
+        kickChannelMembers: (channelName, tag, reason) => {
+          this.kickChannelMembers(channelName, tag, reason);
+        },
+        sendReplay: (connectionArg, channelName, channelScope, event, payload, wire) => {
+          this.sendReplay(connectionArg, channelName, channelScope, event, payload, wire);
+        },
+        sendProtocolMessage: (connectionArg, event, payload) => {
+          this.sendProtocolMessage(connectionArg, event, payload);
+        },
         persistAttachment: (connectionArg) => this.persistAttachment(connectionArg),
         toConnectionInfo: (connectionArg) => this.toConnectionInfo(connectionArg),
         attachModuleApis: (ctx, connectionArg) => this.attachModuleApis(ctx, connectionArg),
@@ -768,7 +786,7 @@ export class Engine {
         payload: unknown,
         excludeConnectionId?: string,
         channelScope?: string,
-      ) =>
+      ) => {
         EngineMessageRuntime.broadcastToChannel(
           this.dispatchRuntime(),
           channelName,
@@ -776,9 +794,11 @@ export class Engine {
           payload,
           excludeConnectionId,
           channelScope,
-        ),
-      buildConnectionContext: (connection: RuntimeConnection, scope?: ResolvedScope) =>
-        this.buildConnectionContext(connection, scope),
+        );
+      },
+      buildConnectionContext: (connection: RuntimeConnection, scope?: ResolvedScope) => {
+        return this.buildConnectionContext(connection, scope);
+      },
       persistAttachment: (connection: RuntimeConnection) => this.persistAttachment(connection),
       sendProtocolMessage: (
         connection: RuntimeConnection,
@@ -806,8 +826,9 @@ export class Engine {
       incomingHooks: this.hooks.incoming,
       errorHooks: this.hooks.error,
       requireTimers: () => this.requireTimers(),
-      buildConnectionContext: (connection: RuntimeConnection, scope?: ResolvedScope) =>
-        this.buildConnectionContext(connection, scope),
+      buildConnectionContext: (connection: RuntimeConnection, scope?: ResolvedScope) => {
+        return this.buildConnectionContext(connection, scope);
+      },
       sendProtocolMessage: (
         connection: RuntimeConnection,
         event: string,
@@ -859,18 +880,27 @@ export class Engine {
       wsToConnectionId: this.wsToConnectionId,
       generateId: (prefix?: string) => this.generateId(prefix),
       persistAttachment: (connection: RuntimeConnection) => this.persistAttachment(connection),
-      buildConnectionContext: (connection: RuntimeConnection, scope?: ResolvedScope) =>
-        this.buildConnectionContext(connection, scope),
-      runConnectionLifecycle: (kind: 'connect' | 'disconnect', ctx: Record<PropertyKey, unknown>) =>
-        this.runConnectionLifecycle(kind, ctx),
-      processTextMessage: (connection: RuntimeConnection, data: string) =>
-        this.processTextMessage(connection, data),
-      handleBinaryMessage: (connection: RuntimeConnection, data: ArrayBuffer) =>
-        this.handleBinaryMessage(connection, data),
-      handleConnectionClose: (connection: RuntimeConnection, code: number, reason: string) =>
-        this.handleConnectionClose(connection, code, reason),
-      handleRuntimeError: (connection: RuntimeConnection, error: unknown, event?: string) =>
-        this.handleRuntimeError(connection, error, event),
+      buildConnectionContext: (connection: RuntimeConnection, scope?: ResolvedScope) => {
+        return this.buildConnectionContext(connection, scope);
+      },
+      runConnectionLifecycle: (
+        kind: 'connect' | 'disconnect',
+        ctx: Record<PropertyKey, unknown>,
+      ) => {
+        return this.runConnectionLifecycle(kind, ctx);
+      },
+      processTextMessage: (connection: RuntimeConnection, data: string) => {
+        return this.processTextMessage(connection, data);
+      },
+      handleBinaryMessage: (connection: RuntimeConnection, data: ArrayBuffer) => {
+        return this.handleBinaryMessage(connection, data);
+      },
+      handleConnectionClose: (connection: RuntimeConnection, code: number, reason: string) => {
+        return this.handleConnectionClose(connection, code, reason);
+      },
+      handleRuntimeError: (connection: RuntimeConnection, error: unknown, event?: string) => {
+        return this.handleRuntimeError(connection, error, event);
+      },
     };
   }
 
@@ -926,8 +956,9 @@ export class Engine {
       shutdownHooks: this.hooks.shutdown,
       moduleRuntimes: this.moduleRuntimes,
       createShutdownContext: () => this.createShutdownContext(),
-      cancelActiveStreamsForConnection: (connectionId) =>
-        this.cancelActiveStreamsForConnection(connectionId),
+      cancelActiveStreamsForConnection: (connectionId) => {
+        return this.cancelActiveStreamsForConnection(connectionId);
+      },
       alarmState: {
         get current() {
           return engine.alarmHandle;
@@ -1035,8 +1066,9 @@ export class Engine {
         },
         connectHooks: this.hooks.connect,
         disconnectHooks: this.hooks.disconnect,
-        createModuleScopedContext: (moduleId, targetCtx) =>
-          this.createModuleScopedContext(moduleId, targetCtx),
+        createModuleScopedContext: (moduleId, targetCtx) => {
+          return this.createModuleScopedContext(moduleId, targetCtx);
+        },
       },
       kind,
       ctx,
@@ -1058,10 +1090,12 @@ export class Engine {
         connections: this.connections,
         wsToConnectionId: this.wsToConnectionId,
         timers: this.timers,
-        cancelActiveStreamsForConnection: (connectionId) =>
-          this.cancelActiveStreamsForConnection(connectionId),
-        buildConnectionContext: (targetConnection, scope) =>
-          this.buildConnectionContext(targetConnection, scope),
+        cancelActiveStreamsForConnection: (connectionId) => {
+          return this.cancelActiveStreamsForConnection(connectionId);
+        },
+        buildConnectionContext: (targetConnection, scope) => {
+          return this.buildConnectionContext(targetConnection, scope);
+        },
         runConnectionLifecycle: (kind, ctx) => this.runConnectionLifecycle(kind, ctx),
         leaveChannel: (targetConnection, scope) => this.leaveChannel(targetConnection, scope),
       },
@@ -1090,8 +1124,9 @@ export class Engine {
   ): Promise<void> {
     return EngineConnectionRuntime.handleBinaryMessage(
       {
-        buildConnectionContext: (targetConnection, scope) =>
-          this.buildConnectionContext(targetConnection, scope),
+        buildConnectionContext: (targetConnection, scope) => {
+          return this.buildConnectionContext(targetConnection, scope);
+        },
         activityHooks: this.hooks.activity,
         binaryHooks: this.hooks.binary,
       },
@@ -1179,8 +1214,9 @@ export class Engine {
     EngineMessageRuntime.kickChannelMembers(
       {
         ...this.channelRuntime(),
-        leaveChannel: (targetConnection, scope, kickedReason) =>
-          this.leaveChannel(targetConnection, scope, kickedReason),
+        leaveChannel: (targetConnection, scope, kickedReason) => {
+          return this.leaveChannel(targetConnection, scope, kickedReason);
+        },
       },
       channelName,
       tag,
@@ -1242,13 +1278,15 @@ export class Engine {
   ): Promise<void> {
     return ErrorsPrimitive.sendRuntimeError(
       {
-        buildConnectionContext: (targetConnection, scope) =>
-          this.buildConnectionContext(targetConnection, scope),
+        buildConnectionContext: (targetConnection, scope) => {
+          return this.buildConnectionContext(targetConnection, scope);
+        },
         declaredErrorCodes: this.declaredErrorCodes,
         errorHooks: this.hooks.error,
         logger: this.logger,
-        sendProtocolMessage: (targetConnection, outgoingEvent, payload) =>
-          this.sendProtocolMessage(targetConnection, outgoingEvent, payload),
+        sendProtocolMessage: (targetConnection, outgoingEvent, payload) => {
+          this.sendProtocolMessage(targetConnection, outgoingEvent, payload);
+        },
       },
       connection,
       error,
@@ -1268,8 +1306,9 @@ export class Engine {
   ): Promise<void> {
     return ErrorsPrimitive.notifyValidationError(
       {
-        buildConnectionContext: (targetConnection, targetScope) =>
-          this.buildConnectionContext(targetConnection, targetScope),
+        buildConnectionContext: (targetConnection, targetScope) => {
+          return this.buildConnectionContext(targetConnection, targetScope);
+        },
         validationErrorHooks: this.hooks.validationError,
       },
       connection,

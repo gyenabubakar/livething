@@ -40,9 +40,9 @@ export async function runPreIntercepts(
   let nextMessage = message;
 
   for (const intercept of intercepts) {
-    const next = await runWithScopedContext(runtime, connection, scope, (ctx) =>
-      intercept.handler(ctx, nextMessage),
-    );
+    const next = await runWithScopedContext(runtime, connection, scope, (ctx) => {
+      return intercept.handler(ctx, nextMessage);
+    });
 
     if (next) nextMessage = next;
   }
@@ -60,9 +60,9 @@ export async function runPostIntercepts(
   let nextPayload = payload;
 
   for (const intercept of intercepts) {
-    const next = await runWithScopedContext(runtime, connection, scope, (ctx) =>
-      intercept.handler(ctx, nextPayload),
-    );
+    const next = await runWithScopedContext(runtime, connection, scope, (ctx) => {
+      return intercept.handler(ctx, nextPayload);
+    });
 
     if (next !== undefined) nextPayload = next;
   }
