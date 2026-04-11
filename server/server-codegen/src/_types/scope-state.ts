@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import type { AckPrimitive } from '~/ack/ack.ts';
-import type { ChannelManager } from '~/context.ts';
+import type { ChannelManager, ConnectionContext } from '~/context.ts';
 import type { DedupPrimitive } from '~/dedup/dedup.ts';
 import type { ErrorDef } from '~/errors/errors.ts';
 import type { ErrorsPrimitive } from '~/errors/primitive.ts';
@@ -360,6 +360,16 @@ export interface SendMethods<TOutgoing extends Record<string, any>> {
   ): void;
 }
 
+export interface ConnectionIdentityMethods {
+  /**
+   * The unique ID for the current websocket connection.
+   *
+   * This is useful when you want to persist a connection reference and target
+   * this exact client again later.
+   */
+  readonly id: ConnectionContext['id'];
+}
+
 export interface AckMethods {
   /**
    * Confirm receipt of the current incoming message.
@@ -448,6 +458,7 @@ type ScopeExtras<TKind extends ScopeKind> = TKind extends 'namespace'
  * This is what `incoming()`, `request()`, and most intercept callbacks see.
  */
 export type HandlerCtxFromState<TState extends ScopeStateShape> = SendApi<TState['outgoing']> &
+  ConnectionIdentityMethods &
   AckApi<TState> &
   ReplayApi<TState> &
   ChannelsMethods &
@@ -460,6 +471,7 @@ export type HandlerCtxFromState<TState extends ScopeStateShape> = SendApi<TState
  * replay helpers, and scope extras.
  */
 export type StreamBaseCtxFromState<TState extends ScopeStateShape> = SendApi<TState['outgoing']> &
+  ConnectionIdentityMethods &
   ReplayApi<TState> &
   ChannelsMethods &
   ScopeExtras<TState['kind']>;

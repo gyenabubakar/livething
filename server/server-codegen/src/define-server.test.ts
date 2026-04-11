@@ -40,7 +40,9 @@ const withAck = defineServer(
     received('send-message', (value: unknown) => value as { text: string }),
     async (ctx, payload) => {
       const _text: string = payload.text;
+      const _id: string = ctx.id;
       void _text;
+      void _id;
 
       ctx.send('message', { text: payload.text });
       ctx.broadcast('alert', { level: 'info' });
@@ -126,6 +128,9 @@ const withoutAck = defineServer(
   incoming(
     received('ping', (value: unknown) => value as { text: string }),
     async (ctx, payload) => {
+      const _id: string = ctx.id;
+      void _id;
+
       ctx.send('message', { text: payload.text });
 
       // @ts-expect-error — ack() was not registered
@@ -150,6 +155,9 @@ const withErrors = defineServer(
   incoming(
     received('send-with-errors', (value: unknown) => value as { text: string }),
     async (ctx, payload) => {
+      const _id: string = ctx.id;
+      void _id;
+
       ctx.send('message', { text: payload.text });
       ctx.broadcast('alert', { level: 'warn' });
       ctx.ack();
@@ -212,6 +220,9 @@ const withIntercept = defineServer(
       ctx: ServerHandlerContext<{ message: { text: string } }, true>,
       message: InterceptMessage,
     ) => {
+      const _id: string = ctx.id;
+      void _id;
+
       ctx.send('message', { text: 'seen' });
       ctx.ack();
 

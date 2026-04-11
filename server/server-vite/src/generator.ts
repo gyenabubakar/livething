@@ -487,7 +487,14 @@ function renderObjectBlock(lines: readonly string[], indent: string): string {
 }
 
 function renderTopLevelCtxMembers(parsed: ParsedWskitModule, indent: string): string[] {
-  const lines: string[] = [];
+  const lines: string[] = [
+    `${indent}/**
+${indent} * The unique ID for the current websocket connection.
+${indent} *
+${indent} * You can store this when you need to target this exact client later.
+${indent} */`,
+    `${indent}readonly id: string;`,
+  ];
 
   if (parsed.enabledFactories.includes('_outgoing')) {
     lines.push(...renderSendMembers(parsed.scope.outgoing, indent));

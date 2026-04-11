@@ -235,6 +235,15 @@ type GenericSendApi = {
   broadcast(event: string, payload: unknown): void;
 };
 
+type ConnectionIdentityApi = {
+  /**
+   * The unique ID for the current websocket connection.
+   *
+   * You can store this when you need to target this exact client later.
+   */
+  readonly id: string;
+};
+
 type ExactSendApi<TOutgoing extends Record<string, unknown>> = keyof TOutgoing extends never
   ? {}
   : {
@@ -295,7 +304,10 @@ export type BoundServerContext<
   TFactories extends ServerPrimitiveFactories,
 > = (HasRegisteredCtx<TName> extends true
   ? RegisteredCtx<TName>
-  : SendApi<TName, TFactories> & AckApi<TFactories> & ReplayApi<TName, TFactories>) &
+  : ConnectionIdentityApi &
+      SendApi<TName, TFactories> &
+      AckApi<TFactories> &
+      ReplayApi<TName, TFactories>) &
   ChannelsApi<TFactories>;
 
 type BoundInitContext = InitContext<Record<string, unknown>, unknown>;

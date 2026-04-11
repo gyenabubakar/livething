@@ -21,6 +21,7 @@ declare global {
   interface WskitServerRegistry {
     chat: {
       ctx: {
+        id: string;
         send(event: 'message', payload: { text: string }): void;
         broadcast(event: 'message', payload: { text: string }): void;
         ack(): void;
@@ -30,11 +31,13 @@ declare global {
       };
       incomingContexts: {
         'send-message': {
+          id: string;
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
         };
         dismiss: {
+          id: string;
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -45,6 +48,7 @@ declare global {
           };
         };
         'start-typing': {
+          id: string;
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -62,6 +66,7 @@ declare global {
       };
       requestContexts: {
         'get-status': {
+          id: string;
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -69,11 +74,13 @@ declare global {
       };
       postInterceptContexts: {
         'send-message': {
+          id: string;
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
         };
         dismiss: {
+          id: string;
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -84,6 +91,7 @@ declare global {
           };
         };
         'start-typing': {
+          id: string;
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -102,6 +110,7 @@ declare global {
       namespaces: {
         notifications: {
           ctx: {
+            id: string;
             send(event: 'message', payload: { text: string }): void;
             broadcast(event: 'message', payload: { text: string }): void;
             ack(): void;
@@ -116,6 +125,7 @@ declare global {
       channels: {
         rooms: {
           ctx: {
+            id: string;
             send(event: 'message', payload: { text: string }): void;
             broadcast(event: 'message', payload: { text: string }): void;
             ack(): void;
@@ -135,6 +145,7 @@ declare global {
     };
     'chat-scheduled': {
       ctx: {
+        id: string;
         schedule(
           taskId: 'expire-hold',
           options: { time: number; data?: { orderId: string } },
@@ -143,6 +154,7 @@ declare global {
       };
       incomingContexts: {
         'place-order': {
+          id: string;
           schedule(
             taskId: 'expire-hold',
             options: { time: number; data?: { orderId: string } },
@@ -167,6 +179,9 @@ const directCapabilities = define(
   incoming(
     received('send-message', (value: unknown) => value as { text: string }),
     async (ctx, payload) => {
+      const _id: string = ctx.id;
+      void _id;
+
       ctx.ack();
       ctx.send('message', payload);
       ctx.broadcast('message', payload);
@@ -201,6 +216,9 @@ const scheduledCapabilities = scheduledDefine(
   scheduledIncoming(
     received('place-order', (value: unknown) => value as { orderId: string }),
     async (ctx, payload) => {
+      const _id: string = ctx.id;
+      void _id;
+
       ctx.schedule('expire-hold', {
         time: Date.now(),
         data: { orderId: payload.orderId },
