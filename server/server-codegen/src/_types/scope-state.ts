@@ -360,6 +360,26 @@ export interface SendMethods<TOutgoing extends Record<string, any>> {
   ): void;
 }
 
+export interface SendToMethods<TOutgoing extends Record<string, any>> {
+  /**
+   * Send an event to every connection that currently has the given tag.
+   *
+   * Only events declared with `outgoing()` in the same scope are allowed.
+   */
+  sendTo<TEvent extends keyof TOutgoing & string>(
+    tag: string,
+    event: TEvent,
+    payload: TOutgoing[TEvent],
+  ): void;
+}
+
+export interface GenericSendToMethods {
+  /**
+   * Send an event to every connection that currently has the given tag.
+   */
+  sendTo(tag: string, event: string, payload: unknown): void;
+}
+
 export interface ConnectionIdentityMethods {
   /**
    * The unique ID for the current websocket connection.
@@ -487,6 +507,10 @@ type SendApi<TOutgoing extends Record<string, any>> = keyof TOutgoing extends ne
   ? {}
   : SendMethods<TOutgoing>;
 
+type SendToApi<TOutgoing extends Record<string, any>> = keyof TOutgoing extends never
+  ? GenericSendToMethods
+  : SendToMethods<TOutgoing>;
+
 /**
  * Only expose `ack()` in top-level scopes that registered `ack()`.
  */
@@ -525,6 +549,7 @@ type ScopeExtras<TKind extends ScopeKind> = TKind extends 'namespace'
  * This is what `incoming()`, `request()`, and most intercept callbacks see.
  */
 export type HandlerCtxFromState<TState extends ScopeStateShape> = SendApi<TState['outgoing']> &
+  SendToApi<TState['outgoing']> &
   ConnectionIdentityMethods &
   ConnectionMetaMethods &
   BufferedAmountMethods &
@@ -545,6 +570,7 @@ export type HandlerCtxFromState<TState extends ScopeStateShape> = SendApi<TState
  * replay helpers, and scope extras.
  */
 export type StreamBaseCtxFromState<TState extends ScopeStateShape> = SendApi<TState['outgoing']> &
+  SendToApi<TState['outgoing']> &
   ConnectionIdentityMethods &
   ConnectionMetaMethods &
   BufferedAmountMethods &

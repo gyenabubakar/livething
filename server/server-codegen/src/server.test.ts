@@ -29,6 +29,7 @@ declare global {
         tags: readonly string[];
         tag(label: string): void;
         untag(label: string): void;
+        sendTo(tag: string, event: 'message', payload: { text: string }): void;
         send(event: 'message', payload: { text: string }): void;
         broadcast(event: 'message', payload: { text: string }): void;
         ack(): void;
@@ -46,6 +47,7 @@ declare global {
           tags: readonly string[];
           tag(label: string): void;
           untag(label: string): void;
+          sendTo(tag: string, event: 'message', payload: { text: string }): void;
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -59,6 +61,7 @@ declare global {
           tags: readonly string[];
           tag(label: string): void;
           untag(label: string): void;
+          sendTo(tag: string, event: 'message', payload: { text: string }): void;
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -77,6 +80,7 @@ declare global {
           tags: readonly string[];
           tag(label: string): void;
           untag(label: string): void;
+          sendTo(tag: string, event: 'message', payload: { text: string }): void;
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -102,6 +106,7 @@ declare global {
           tags: readonly string[];
           tag(label: string): void;
           untag(label: string): void;
+          sendTo(tag: string, event: 'message', payload: { text: string }): void;
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -117,6 +122,7 @@ declare global {
           tags: readonly string[];
           tag(label: string): void;
           untag(label: string): void;
+          sendTo(tag: string, event: 'message', payload: { text: string }): void;
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -130,6 +136,7 @@ declare global {
           tags: readonly string[];
           tag(label: string): void;
           untag(label: string): void;
+          sendTo(tag: string, event: 'message', payload: { text: string }): void;
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -148,6 +155,7 @@ declare global {
           tags: readonly string[];
           tag(label: string): void;
           untag(label: string): void;
+          sendTo(tag: string, event: 'message', payload: { text: string }): void;
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -174,6 +182,7 @@ declare global {
             tags: readonly string[];
             tag(label: string): void;
             untag(label: string): void;
+            sendTo(tag: string, event: 'message', payload: { text: string }): void;
             send(event: 'message', payload: { text: string }): void;
             broadcast(event: 'message', payload: { text: string }): void;
             ack(): void;
@@ -196,6 +205,7 @@ declare global {
             tags: readonly string[];
             tag(label: string): void;
             untag(label: string): void;
+            sendTo(tag: string, event: 'message', payload: { text: string }): void;
             send(event: 'message', payload: { text: string }): void;
             broadcast(event: 'message', payload: { text: string }): void;
             ack(): void;
@@ -223,6 +233,7 @@ declare global {
         tags: readonly string[];
         tag(label: string): void;
         untag(label: string): void;
+        sendTo(tag: string, event: string, payload: unknown): void;
         schedule(
           taskId: 'expire-hold',
           options: { time: number; data?: { orderId: string } },
@@ -239,6 +250,7 @@ declare global {
           tags: readonly string[];
           tag(label: string): void;
           untag(label: string): void;
+          sendTo(tag: string, event: string, payload: unknown): void;
           schedule(
             taskId: 'expire-hold',
             options: { time: number; data?: { orderId: string } },
@@ -271,6 +283,7 @@ const directCapabilities = define(
       const _tags: readonly string[] = ctx.tags;
       ctx.tag('customer:123');
       ctx.untag('customer:123');
+      ctx.sendTo('user:123', 'message', payload);
       void _id;
       void _meta;
       void _bufferedAmount;
@@ -320,6 +333,7 @@ const scheduledCapabilities = scheduledDefine(
       const _tags: readonly string[] = ctx.tags;
       ctx.tag('customer:123');
       ctx.untag('customer:123');
+      ctx.sendTo('user:123', 'expire-hold-event', payload);
       void _id;
       void _meta;
       void _bufferedAmount;

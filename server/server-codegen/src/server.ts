@@ -233,6 +233,10 @@ type HasRegisteredChannelCtx<
 type GenericSendApi = {
   send(event: string, payload: unknown): void;
   broadcast(event: string, payload: unknown): void;
+  /**
+   * Send an event to every connection that currently has the given tag.
+   */
+  sendTo(tag: string, event: string, payload: unknown): void;
 };
 
 type ConnectionIdentityApi = {
@@ -324,6 +328,28 @@ type ExactSendApi<TOutgoing extends Record<string, unknown>> = keyof TOutgoing e
       ): void;
     };
 
+type GenericSendToApi = {
+  /**
+   * Send an event to every connection that currently has the given tag.
+   */
+  sendTo(tag: string, event: string, payload: unknown): void;
+};
+
+type ExactSendToApi<TOutgoing extends Record<string, unknown>> = keyof TOutgoing extends never
+  ? GenericSendToApi
+  : {
+      /**
+       * Send an event to every connection that currently has the given tag.
+       *
+       * Only events declared with `outgoing()` in the same scope are allowed.
+       */
+      sendTo<TEvent extends keyof TOutgoing & string>(
+        tag: string,
+        event: TEvent,
+        payload: TOutgoing[TEvent],
+      ): void;
+    };
+
 type SendApi<
   TName extends string,
   TFactories extends ServerPrimitiveFactories,
@@ -332,6 +358,10 @@ type SendApi<
     ? GenericSendApi
     : ExactSendApi<RegisteredOutgoing<TName>>
   : {};
+
+type SendToApi<TName extends string> = keyof RegisteredOutgoing<TName> extends never
+  ? GenericSendToApi
+  : ExactSendToApi<RegisteredOutgoing<TName>>;
 
 type AckApi<TFactories extends ServerPrimitiveFactories> = '_ack' extends keyof TFactories
   ? { ack(): void }
@@ -379,6 +409,7 @@ export type BoundServerContext<
       ConnectionTagsApi &
       TagApi &
       UntagApi &
+      SendToApi<TName> &
       SendApi<TName, TFactories> &
       AckApi<TFactories> &
       ReplayApi<TName, TFactories>) &

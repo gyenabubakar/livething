@@ -452,6 +452,26 @@ function renderSendMembers(outgoing: Record<string, string>, indent: string): st
   ]);
 }
 
+function renderSendToMembers(outgoing: Record<string, string>, indent: string): string[] {
+  const entries = Object.entries(outgoing);
+
+  if (!entries.length) {
+    return [
+      `${indent}/**`,
+      `${indent} * Send an event to every connection that currently has the given tag.`,
+      `${indent} */`,
+      `${indent}sendTo(tag: string, event: string, payload: unknown): void;`,
+    ];
+  }
+
+  return entries.flatMap(([event, payloadType]) => [
+    `${indent}/**`,
+    `${indent} * Send an event to every connection that currently has the given tag.`,
+    `${indent} */`,
+    `${indent}sendTo(tag: string, event: ${JSON.stringify(event)}, payload: ${payloadType}): void;`,
+  ]);
+}
+
 function renderReplayMembers(outgoing: Record<string, string>, indent: string): string[] {
   const entries = Object.entries(outgoing);
   if (!entries.length) {
@@ -541,6 +561,8 @@ ${indent} */`,
   if (parsed.enabledFactories.includes('_outgoing')) {
     lines.push(...renderSendMembers(parsed.scope.outgoing, indent));
   }
+
+  lines.push(...renderSendToMembers(parsed.scope.outgoing, indent));
 
   if (parsed.enabledFactories.includes('_ack')) {
     lines.push(`${indent}ack(): void;`);
