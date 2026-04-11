@@ -417,6 +417,16 @@ export interface ConnectionTagsMethods {
   readonly tags: ConnectionContext['tags'];
 }
 
+export interface TagMethods {
+  /**
+   * Attach a tag to the current connection.
+   *
+   * Tags let you target groups of related connections later with APIs like
+   * `ctx.sendTo(...)`.
+   */
+  tag(label: string): ReturnType<ConnectionContext['tag']>;
+}
+
 export interface AckMethods {
   /**
    * Confirm receipt of the current incoming message.
@@ -511,6 +521,7 @@ export type HandlerCtxFromState<TState extends ScopeStateShape> = SendApi<TState
   LatencyMethods &
   QualityMethods &
   ConnectionTagsMethods &
+  TagMethods &
   AckApi<TState> &
   ReplayApi<TState> &
   ChannelsMethods &
@@ -529,6 +540,7 @@ export type StreamBaseCtxFromState<TState extends ScopeStateShape> = SendApi<TSt
   LatencyMethods &
   QualityMethods &
   ConnectionTagsMethods &
+  TagMethods &
   ReplayApi<TState> &
   ChannelsMethods &
   ScopeExtras<TState['kind']>;

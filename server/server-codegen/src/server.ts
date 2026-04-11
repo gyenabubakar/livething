@@ -291,6 +291,16 @@ type ConnectionTagsApi = {
   readonly tags: readonly string[];
 };
 
+type TagApi = {
+  /**
+   * Attach a tag to the current connection.
+   *
+   * This is useful when you want to target this connection later as part of a
+   * group.
+   */
+  tag(label: string): void;
+};
+
 type ExactSendApi<TOutgoing extends Record<string, unknown>> = keyof TOutgoing extends never
   ? {}
   : {
@@ -357,6 +367,7 @@ export type BoundServerContext<
       LatencyApi &
       QualityApi &
       ConnectionTagsApi &
+      TagApi &
       SendApi<TName, TFactories> &
       AckApi<TFactories> &
       ReplayApi<TName, TFactories>) &

@@ -524,6 +524,12 @@ ${indent} *
 ${indent} * Tags are useful when you want to target groups of clients later.
 ${indent} */`,
     `${indent}readonly tags: readonly string[];`,
+    `${indent}/**
+${indent} * Attach a tag to the current connection.
+${indent} *
+${indent} * This is useful when you want to target this connection later as part of a group.
+${indent} */`,
+    `${indent}tag(label: string): void;`,
   ];
 
   if (parsed.enabledFactories.includes('_outgoing')) {
