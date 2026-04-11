@@ -441,15 +441,27 @@ function renderSendMembers(outgoing: Record<string, string>, indent: string): st
   const entries = Object.entries(outgoing);
   if (!entries.length) {
     return [
+      `${indent}/** Send an event to the current connection. */`,
       `${indent}send(event: string, payload: unknown): void;`,
+      '',
+      `${indent}/** Broadcast an event to all other connections. */`,
       `${indent}broadcast(event: string, payload: unknown): void;`,
     ];
   }
 
-  return entries.flatMap(([event, payloadType]) => [
-    `${indent}send(event: ${JSON.stringify(event)}, payload: ${payloadType}): void;`,
-    `${indent}broadcast(event: ${JSON.stringify(event)}, payload: ${payloadType}): void;`,
-  ]);
+  const result: string[] = [];
+  for (let i = 0; i < entries.length; i++) {
+    const [event, payloadType] = entries[i]!;
+    if (i > 0) result.push('');
+    result.push(
+      `${indent}/** Send a \`${event}\` event to the current connection. */`,
+      `${indent}send(event: ${JSON.stringify(event)}, payload: ${payloadType}): void;`,
+      '',
+      `${indent}/** Broadcast a \`${event}\` event to all other connections. */`,
+      `${indent}broadcast(event: ${JSON.stringify(event)}, payload: ${payloadType}): void;`,
+    );
+  }
+  return result;
 }
 
 function renderSendToMembers(outgoing: Record<string, string>, indent: string): string[] {
@@ -457,158 +469,200 @@ function renderSendToMembers(outgoing: Record<string, string>, indent: string): 
 
   if (!entries.length) {
     return [
-      `${indent}/**`,
-      `${indent} * Send an event to every connection that currently has the given tag.`,
-      `${indent} */`,
+      `${indent}/** Send an event to every connection that currently has the given tag. */`,
       `${indent}sendTo(tag: string, event: string, payload: unknown): void;`,
     ];
   }
 
-  return entries.flatMap(([event, payloadType]) => [
-    `${indent}/**`,
-    `${indent} * Send an event to every connection that currently has the given tag.`,
-    `${indent} */`,
-    `${indent}sendTo(tag: string, event: ${JSON.stringify(event)}, payload: ${payloadType}): void;`,
-  ]);
+  const result: string[] = [];
+  for (let i = 0; i < entries.length; i++) {
+    const [event, payloadType] = entries[i]!;
+    if (i > 0) result.push('');
+    result.push(
+      `${indent}/** Send a \`${event}\` event to every connection that currently has the given tag. */`,
+      `${indent}sendTo(tag: string, event: ${JSON.stringify(event)}, payload: ${payloadType}): void;`,
+    );
+  }
+  return result;
 }
 
 function renderReplayMembers(outgoing: Record<string, string>, indent: string): string[] {
   const entries = Object.entries(outgoing);
   if (!entries.length) {
     return [
+      `${indent}/** Send a replay message directly with explicit wire metadata. */`,
       `${indent}sendReplay(event: string, payload: unknown, meta: { seq: number; messageId: string }): void;`,
     ];
   }
 
-  return entries.map(
-    ([event, payloadType]) =>
+  const result: string[] = [];
+  for (let i = 0; i < entries.length; i++) {
+    const [event, payloadType] = entries[i]!;
+    if (i > 0) result.push('');
+    result.push(
+      `${indent}/** Send a \`${event}\` replay message directly with explicit wire metadata. */`,
       `${indent}sendReplay(event: ${JSON.stringify(event)}, payload: ${payloadType}, meta: { seq: number; messageId: string }): void;`,
-  );
+    );
+  }
+  return result;
 }
 
 function renderScheduledMembers(tasks: Record<string, string>, indent: string): string[] {
   const entries = Object.entries(tasks);
   if (!entries.length) {
     return [
+      `${indent}/** Schedule a task to run at a specific time. */`,
       `${indent}schedule(taskId: string, options: { time: number; data?: unknown }): void;`,
+      '',
+      `${indent}/** Cancel a previously scheduled task. */`,
       `${indent}cancelScheduled(taskId: string, filter?: Record<string, unknown>): void;`,
     ];
   }
 
-  return entries.flatMap(([taskId, payloadType]) => [
-    `${indent}schedule(taskId: ${JSON.stringify(taskId)}, options: { time: number; data?: ${payloadType} }): void;`,
-    `${indent}cancelScheduled(taskId: ${JSON.stringify(taskId)}, filter?: ${payloadType} extends Record<string, unknown> ? Partial<${payloadType}> : Record<string, unknown>): void;`,
-  ]);
+  const result: string[] = [];
+  for (let i = 0; i < entries.length; i++) {
+    const [taskId, payloadType] = entries[i]!;
+    if (i > 0) result.push('');
+    result.push(
+      `${indent}/** Schedule the \`${taskId}\` task to run at a specific time. */`,
+      `${indent}schedule(taskId: ${JSON.stringify(taskId)}, options: { time: number; data?: ${payloadType} }): void;`,
+      '',
+      `${indent}/** Cancel a previously scheduled \`${taskId}\` task. */`,
+      `${indent}cancelScheduled(taskId: ${JSON.stringify(taskId)}, filter?: ${payloadType} extends Record<string, unknown> ? Partial<${payloadType}> : Record<string, unknown>): void;`,
+    );
+  }
+  return result;
 }
 
-function renderObjectBlock(lines: readonly string[], indent: string): string {
-  if (!lines.length) return `${indent}{}`;
-  return [`${indent}{`, ...lines, `${indent}}`].join('\n');
+function renderBaseCtxInterfaceName(parsed: ParsedWskitModule): string {
+  const camel = parsed.serverName.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
+  return `Wskit${camel[0]!.toUpperCase()}${camel.slice(1)}Ctx`;
 }
 
-function renderTopLevelCtxMembers(parsed: ParsedWskitModule, indent: string): string[] {
+function renderBaseCtxInterface(parsed: ParsedWskitModule): string {
+  const name = renderBaseCtxInterfaceName(parsed);
+  const indent = '    ';
   const lines: string[] = [
-    `${indent}/**
-${indent} * The unique ID for the current websocket connection.
-${indent} *
-${indent} * You can store this when you need to target this exact client later.
-${indent} */`,
+    `${indent}/** Unique ID for this connection. Store it when you need to target this client later. */`,
     `${indent}readonly id: string;`,
-    `${indent}/**
-${indent} * Metadata attached to this connection during the websocket upgrade step.
-${indent} *
-${indent} * This usually holds auth or session information for later handlers.
-${indent} */`,
+    '',
+    `${indent}/** Per-connection metadata set during the upgrade step (auth, session info, etc). */`,
     `${indent}readonly meta: Record<string, unknown>;`,
-    `${indent}/**
-${indent} * The number of bytes still queued to be sent to this connection.
-${indent} *
-${indent} * This helps you spot backpressure when the network cannot keep up.
-${indent} */`,
+    '',
+    `${indent}/** Bytes still queued to be sent. Useful for detecting backpressure. */`,
     `${indent}readonly bufferedAmount: number;`,
-    `${indent}/**
-${indent} * The latest measured round-trip latency for this connection in milliseconds.
-${indent} *
-${indent} * This stays null until wskit has enough ping/pong data to measure it.
-${indent} */`,
+    '',
+    `${indent}/** Latest round-trip latency in ms. \`null\` until enough ping/pong data is collected. */`,
     `${indent}readonly latency: number | null;`,
-    `${indent}/**
-${indent} * A simple health label derived from recent ping/pong measurements.
-${indent} *
-${indent} * This gives you an easier signal than raw latency numbers alone.
-${indent} */`,
+    '',
+    `${indent}/** Connection health derived from recent latency: < 50 ms excellent, 50–150 ms good, 150–500 ms degraded, > 500 ms poor. */`,
     `${indent}readonly quality: 'excellent' | 'good' | 'degraded' | 'poor';`,
-    `${indent}/**
-${indent} * The current tags attached to this connection.
-${indent} *
-${indent} * Tags are useful when you want to target groups of clients later.
-${indent} */`,
+    '',
+    `${indent}/** Current tags on this connection. Use \`tag()\` / \`untag()\` to modify. */`,
     `${indent}readonly tags: readonly string[];`,
-    `${indent}/**
-${indent} * Attach a tag to the current connection.
-${indent} *
-${indent} * This is useful when you want to target this connection later as part of a group.
-${indent} */`,
+    '',
+    `${indent}/** Attach a tag so this connection can be targeted later via \`sendTo()\`. */`,
     `${indent}tag(label: string): void;`,
-    `${indent}/**
-${indent} * Remove a tag from the current connection.
-${indent} *
-${indent} * This is useful when the connection should no longer be part of a targeted group.
-${indent} */`,
+    '',
+    `${indent}/** Remove a tag from this connection. */`,
     `${indent}untag(label: string): void;`,
   ];
 
   if (parsed.enabledFactories.includes('_outgoing')) {
-    lines.push(...renderSendMembers(parsed.scope.outgoing, indent));
+    lines.push('', ...renderSendMembers(parsed.scope.outgoing, indent));
   }
 
-  lines.push(...renderSendToMembers(parsed.scope.outgoing, indent));
+  lines.push('', ...renderSendToMembers(parsed.scope.outgoing, indent));
 
   if (parsed.enabledFactories.includes('_ack')) {
-    lines.push(`${indent}ack(): void;`);
+    lines.push(
+      '',
+      `${indent}/** Confirm receipt of the current incoming message. Only available when \`ack()\` is registered. */`,
+      `${indent}ack(): void;`,
+    );
   }
 
   if (parsed.enabledFactories.includes('_replay')) {
-    lines.push(...renderReplayMembers(parsed.scope.outgoing, indent));
+    lines.push('', ...renderReplayMembers(parsed.scope.outgoing, indent));
   }
 
   if (parsed.enabledFactories.includes('_scheduled')) {
-    lines.push(...renderScheduledMembers(parsed.scope.scheduled, indent));
+    lines.push('', ...renderScheduledMembers(parsed.scope.scheduled, indent));
   }
 
-  return lines;
+  return [`  interface ${name} {`, ...lines, '  }'].join('\n');
 }
 
-function renderTopLevelCtx(parsed: ParsedWskitModule, indent: string): string | undefined {
-  const lines = renderTopLevelCtxMembers(parsed, `${indent}  `);
-  if (!lines.length) return undefined;
-  return renderObjectBlock(lines, indent);
+function scopeInterfaceName(parsed: ParsedWskitModule, scopeName: string): string {
+  const baseName = renderBaseCtxInterfaceName(parsed);
+  const camel = scopeName.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
+  return `${baseName}${camel[0]!.toUpperCase()}${camel.slice(1)}`;
 }
 
-function renderScopeCtx(
+function renderScopeInterface(
   kind: 'namespace' | 'channel',
   name: string,
   scope: ParsedScope,
   parsed: ParsedWskitModule,
-  indent: string,
 ): string {
-  const lines = renderTopLevelCtxMembers(parsed, `${indent}  `);
-  const localLines = [
-    `${indent}    name: ${kind === 'namespace' ? JSON.stringify(name) : 'string'};`,
+  const ifaceName = scopeInterfaceName(parsed, name);
+  const baseName = renderBaseCtxInterfaceName(parsed);
+  const indent = '    ';
+
+  const lines: string[] = [
+    kind === 'namespace'
+      ? `${indent}/** Scoped API for the \`${name}\` namespace. */`
+      : `${indent}/** Scoped API for the \`${name}\` channel. Send and broadcast events within this channel. */`,
+    `${indent}readonly ${kind}: {`,
+    kind === 'namespace'
+      ? `${indent}  /** Always \`${JSON.stringify(name)}\` for this namespace. */`
+      : `${indent}  /** The concrete channel name matched at runtime. */`,
+    `${indent}  readonly name: ${kind === 'namespace' ? JSON.stringify(name) : 'string'};`,
   ];
 
   if (parsed.enabledFactories.includes('_outgoing')) {
-    localLines.push(...renderSendMembers(scope.outgoing, `${indent}    `));
+    for (const [event, payloadType] of Object.entries(scope.outgoing)) {
+      lines.push(
+        '',
+        `${indent}  /** Send a \`${event}\` event scoped to this ${kind}. */`,
+        `${indent}  send(event: ${JSON.stringify(event)}, payload: ${payloadType}): void;`,
+        '',
+        `${indent}  /** Broadcast a \`${event}\` event scoped to this ${kind}. */`,
+        `${indent}  broadcast(event: ${JSON.stringify(event)}, payload: ${payloadType}): void;`,
+      );
+    }
   }
 
   if (scope.hasReplay) {
-    localLines.push(...renderReplayMembers(scope.outgoing, `${indent}    `));
+    const replayEntries = Object.entries(scope.outgoing);
+    if (replayEntries.length) {
+      for (const [event, payloadType] of replayEntries) {
+        lines.push(
+          '',
+          `${indent}  /** Send a \`${event}\` replay message scoped to this ${kind}. */`,
+          `${indent}  sendReplay(event: ${JSON.stringify(event)}, payload: ${payloadType}, meta: { seq: number; messageId: string }): void;`,
+        );
+      }
+    } else {
+      lines.push(
+        '',
+        `${indent}  /** Send a replay message scoped to this ${kind}. */`,
+        `${indent}  sendReplay(event: string, payload: unknown, meta: { seq: number; messageId: string }): void;`,
+      );
+    }
   }
 
-  lines.push(
-    `${indent}  ${kind}: ${renderObjectBlock(localLines, `${indent}  `).replace(/^\s+/, '')};`,
-  );
-  return renderObjectBlock(lines, indent);
+  lines.push(`${indent}};`);
+
+  return [`  interface ${ifaceName} extends ${baseName} {`, ...lines, '  }'].join('\n');
+}
+
+function renderTopLevelCtx(parsed: ParsedWskitModule): string {
+  return renderBaseCtxInterfaceName(parsed);
+}
+
+function renderScopeCtxRef(name: string, parsed: ParsedWskitModule): string {
+  return scopeInterfaceName(parsed, name);
 }
 
 function renderOutgoingMap(outgoing: Record<string, string>, indent: string): string {
@@ -642,7 +696,7 @@ function renderScopedMap(
 }
 
 function renderScope(
-  kind: 'namespace' | 'channel',
+  _kind: 'namespace' | 'channel',
   name: string,
   scope: ParsedScope,
   parsed: ParsedWskitModule,
@@ -650,7 +704,7 @@ function renderScope(
 ): string {
   const lines = [
     `${indent}{`,
-    `${indent}  ctx: ${renderScopeCtx(kind, name, scope, parsed, `${indent}  `).replace(/^ {2,}/, '')};`,
+    `${indent}  ctx: ${renderScopeCtxRef(name, parsed)};`,
     `${indent}  outgoing: ${renderOutgoingMap(scope.outgoing, `${indent}  `)};`,
   ];
 
@@ -667,10 +721,8 @@ function renderScope(
 function renderServerEntry(parsed: ParsedWskitModule): string {
   const lines = ['    {'];
 
-  const topLevelCtx = renderTopLevelCtx(parsed, '      ');
-  if (topLevelCtx) {
-    lines.push(`      ctx: ${topLevelCtx.replace(/^ {6}/, '')};`);
-  }
+  const topLevelCtx = renderTopLevelCtx(parsed);
+  lines.push(`      ctx: ${topLevelCtx};`);
 
   lines.push(`      outgoing: ${renderOutgoingMap(parsed.scope.outgoing, '      ')};`);
 
@@ -698,13 +750,32 @@ function renderServerEntry(parsed: ParsedWskitModule): string {
   return lines.join('\n');
 }
 
+function collectScopeInterfaces(parsed: ParsedWskitModule, scope: ParsedScope): string[] {
+  const interfaces: string[] = [];
+
+  for (const [name, child] of Object.entries(scope.namespaces)) {
+    interfaces.push(renderScopeInterface('namespace', name, child, parsed));
+    interfaces.push(...collectScopeInterfaces(parsed, child));
+  }
+
+  for (const [name, child] of Object.entries(scope.channels)) {
+    interfaces.push(renderScopeInterface('channel', name, child, parsed));
+    interfaces.push(...collectScopeInterfaces(parsed, child));
+  }
+
+  return interfaces;
+}
+
 export function generateWskitDeclarationText(
   parsed: ParsedWskitModule,
   options: WskitCodegenOptions = {},
 ): string {
   void options;
 
-  return `export {};\n\ndeclare global {\n  interface WskitServerRegistry {\n    ${JSON.stringify(parsed.serverName)}: ${renderServerEntry(parsed)};\n  }\n}\n`;
+  const baseInterface = renderBaseCtxInterface(parsed);
+  const scopeInterfaces = collectScopeInterfaces(parsed, parsed.scope);
+  const allInterfaces = [baseInterface, ...scopeInterfaces].join('\n\n');
+  return `export {};\n\ndeclare global {\n  interface WskitServerRegistry {\n    ${JSON.stringify(parsed.serverName)}: ${renderServerEntry(parsed)};\n  }\n\n${allInterfaces}\n}\n`;
 }
 
 export function toGeneratedFilePath(
