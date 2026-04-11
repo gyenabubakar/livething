@@ -2,8 +2,15 @@
 import { definePrimitive } from '~/primitive.ts';
 import type { Primitive } from '~/primitive.ts';
 
+/**
+ * The value returned from an `onUpgrade` handler.
+ *
+ * Attach metadata and tags to the connection before it is fully accepted.
+ */
 export interface UpgradeResult {
+  /** Key-value metadata available later as `ctx.meta`. */
   readonly meta?: Record<string, unknown>;
+  /** Initial tags for the connection, available later as `ctx.tags`. */
   readonly tags?: readonly string[];
 }
 
@@ -104,27 +111,121 @@ const _onUpgrade = defineLifecyclePrimitive('onUpgrade', ON_UPGRADE_KEY);
 const _onBinary = defineLifecyclePrimitive('onBinary', ON_BINARY_KEY);
 const _onValidationError = defineLifecyclePrimitive('onValidationError', ON_VALIDATION_ERROR_KEY);
 
+/**
+ * Run once when the server starts, before any connections are accepted.
+ *
+ * Use this for one-time setup like running migrations or seeding data.
+ *
+ * ```ts
+ * onInit(async (ctx) => {
+ *   ctx.sql.exec('CREATE TABLE IF NOT EXISTS messages (...)');
+ * })
+ * ```
+ */
 export function onInit<TCtx>(handler: InitHandler<TCtx>): InitPrimitive<TCtx> {
   return _onInit(handler) as InitPrimitive<TCtx>;
 }
+
+/**
+ * Run when a new websocket connection is established.
+ *
+ * ```ts
+ * onConnect(async (ctx) => {
+ *   ctx.log.info('Connected', { id: ctx.id, user: ctx.meta.userId });
+ * })
+ * ```
+ */
 export function onConnect<TCtx>(handler: ConnectHandler<TCtx>): ConnectPrimitive<TCtx> {
   return _onConnect(handler) as ConnectPrimitive<TCtx>;
 }
+
+/**
+ * Run when a websocket connection closes.
+ *
+ * ```ts
+ * onDisconnect(async (ctx) => {
+ *   ctx.log.info('Disconnected', { id: ctx.id });
+ * })
+ * ```
+ */
 export function onDisconnect<TCtx>(handler: DisconnectHandler<TCtx>): DisconnectPrimitive<TCtx> {
   return _onDisconnect(handler) as DisconnectPrimitive<TCtx>;
 }
+
+/**
+ * Run when the server is shutting down. All connections are still live.
+ *
+ * ```ts
+ * onShutdown(async (ctx) => {
+ *   ctx.broadcast('server-shutdown', { reason: 'maintenance' });
+ *   ctx.closeAll(1001, 'Server shutting down');
+ * })
+ * ```
+ */
 export function onShutdown<TCtx>(handler: ShutdownHandler<TCtx>): ShutdownPrimitive<TCtx> {
   return _onShutdown(handler) as ShutdownPrimitive<TCtx>;
 }
+
+/**
+ * Run when a handler throws an unrecognized error (not a `WskitError`).
+ *
+ * The client still gets `{ code: 'internal-error' }`. Use this for logging
+ * or alerting.
+ *
+ * ```ts
+ * onError(async (ctx, error, event) => {
+ *   ctx.log.error('Unhandled error', { event, error });
+ * })
+ * ```
+ */
 export function onError<TCtx>(handler: ErrorHandler<TCtx>): ErrorPrimitive<TCtx> {
   return _onError(handler) as ErrorPrimitive<TCtx>;
 }
+
+/**
+ * Decide whether to accept a websocket upgrade request.
+ *
+ * Return `{ meta, tags }` to attach data to the connection. Throw
+ * `RejectUpgrade(code, reason)` to deny the upgrade.
+ *
+ * ```ts
+ * onUpgrade(async (req) => {
+ *   const user = await validateToken(req.headers.get('authorization'));
+ *   if (!user) throw RejectUpgrade(4001, 'Unauthorized');
+ *   return { meta: { userId: user.id }, tags: [user.role] };
+ * })
+ * ```
+ */
 export function onUpgrade(handler: UpgradeHandler): UpgradePrimitive {
   return _onUpgrade(handler) as UpgradePrimitive;
 }
+
+/**
+ * Handle raw binary websocket frames.
+ *
+ * ```ts
+ * onBinary(async (ctx, data) => {
+ *   const view = new Uint8Array(data);
+ *   ctx.log.info('Received binary', { bytes: view.byteLength });
+ * })
+ * ```
+ */
 export function onBinary<TCtx>(handler: BinaryHandler<TCtx>): BinaryPrimitive<TCtx> {
   return _onBinary(handler) as BinaryPrimitive<TCtx>;
 }
+
+/**
+ * Run when an incoming payload fails validation.
+ *
+ * The client already gets `_error` with `validation-failed`. Use this for
+ * logging or tracking bad payloads.
+ *
+ * ```ts
+ * onValidationError(async (ctx, event, error) => {
+ *   ctx.log.warn('Bad payload', { event, error });
+ * })
+ * ```
+ */
 export function onValidationError<TCtx>(
   handler: ValidationErrorHandler<TCtx>,
 ): ValidationErrorPrimitive<TCtx> {

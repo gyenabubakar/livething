@@ -63,9 +63,21 @@ type NamespacePostIntercept<
 
 export type NamespaceChild = NamespaceStatePrimitive;
 
+/**
+ * The handler context type inside a namespace scope.
+ *
+ * Handlers inside a `namespace(...)` block receive this as `ctx`. It
+ * includes the namespace-specific `ctx.namespace` scope API.
+ */
 export type NamespaceHandlerContext<TOutgoing extends Record<string, any> = NoOutgoing> =
   HandlerCtxFromState<ScopeState<'namespace', TOutgoing, false>>;
 
+/**
+ * The stream handler context type inside a namespace scope.
+ *
+ * The base `ctx` type for `generate(...)` handlers inside a `namespace(...)`
+ * block. Stream-local helpers are added on top by the stream declaration.
+ */
 export type NamespaceStreamHandlerContext<TOutgoing extends Record<string, any> = NoOutgoing> =
   StreamBaseCtxFromState<ScopeState<'namespace', TOutgoing, false>>;
 
@@ -100,6 +112,19 @@ const _namespace = definePrimitive<
 
 /**
  * Group events under a routing-only scope within a single connection.
+ *
+ * Unlike channels, namespaces have no membership or subscription. They are
+ * purely for organizing events under a prefix so handlers can be scoped
+ * without pub/sub overhead.
+ *
+ * ```ts
+ * namespace('notifications',
+ *   outgoing('alert', t<{ text: string }>()),
+ *   incoming(markRead, async (ctx, payload) => {
+ *     ctx.namespace.send('alert', { text: 'Marked as read' });
+ *   }),
+ * )
+ * ```
  *
  * Typing rule: namespace-local primitives that affect handler ctx must come
  * before the handlers they type.

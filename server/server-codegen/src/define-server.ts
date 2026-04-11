@@ -118,17 +118,37 @@ type TopLevelPostIntercept<
   TIncoming extends IncomingPrimitive<string, any, any>,
 > = PostInterceptForIncoming<'top', TPrefix, TIncoming>;
 
+/**
+ * The handler context type at the top level (outside any namespace or channel).
+ *
+ * This is the `ctx` type your `incoming`, `request`, and lifecycle handlers
+ * receive when they are registered directly in `defineServer(...)`.
+ */
 export type ServerHandlerContext<
   TOutgoing extends Record<string, any> = NoOutgoing,
   THasAck extends boolean = false,
   THasReplay extends boolean = false,
 > = HandlerCtxFromState<ScopeState<'top', TOutgoing, THasAck, THasReplay>>;
 
+/**
+ * The stream handler context type at the top level.
+ *
+ * This is the base `ctx` type for `generate(...)` handlers registered
+ * directly in `defineServer(...)`. Stream-local helpers like
+ * `ctx.nudges(...)` are added on top by the stream declaration.
+ */
 export type StreamServerHandlerContext<
   TOutgoing extends Record<string, any> = NoOutgoing,
   THasReplay extends boolean = false,
 > = StreamBaseCtxFromState<ScopeState<'top', TOutgoing, false, THasReplay>>;
 
+/**
+ * The frozen output of `defineServer(...)`.
+ *
+ * This holds the validated, immutable list of primitives that define one
+ * server. Pass it to an adapter's `serve()` to start the server, or to
+ * `InferClient<typeof myServer>` to extract the client contract type.
+ */
 export interface ServerDefinition<TPrimitives extends readonly Primitive[] = readonly Primitive[]> {
   readonly __wskit: 'server';
   readonly primitives: TPrimitives;
@@ -214,10 +234,26 @@ function validateDependencies(
 }
 
 /**
- * Define a WebSocket server using a flat list of primitives.
+ * Define a WebSocket server from a flat list of primitives.
  *
- * Typing rule: primitives that affect handler ctx must come before the
- * handlers they type in the same scope.
+ * This validates the primitive list at build time:
+ * - No duplicate registrations in the same scope
+ * - All declared dependencies are present
+ *
+ * Typing rule: primitives that affect handler ctx (like `outgoing`,
+ * `ack`) must come **before** the handlers that use them (like
+ * `incoming`, `request`).
+ *
+ * ```ts
+ * const myServer = defineServer(
+ *   outgoing('message', t<{ text: string }>()),
+ *   ack(),
+ *   incoming(sendMessage, async (ctx, payload) => {
+ *     ctx.broadcast('message', { text: payload.text });
+ *     ctx.ack();
+ *   }),
+ * );
+ * ```
  */
 export function defineServer<
   P1 extends TopLevelStatePrimitive,

@@ -1041,11 +1041,19 @@ type BoundPassthroughFactories<
   onUnsubscribe: BoundOnUnsubscribeFactory<TName, TFactories>;
 };
 
+/**
+ * A named server with pre-bound, context-aware primitive factories.
+ *
+ * Created by `server('my-server', { ... })`. The `define` method replaces
+ * `defineServer` with auto-injected defaults based on the factory set.
+ */
 export type BoundServer<
   TName extends string,
   TFactories extends ServerPrimitiveFactories,
 > = BoundPassthroughFactories<TName, TFactories> & {
+  /** Call this instead of `defineServer` — it auto-injects infrastructure primitives. */
   readonly define: typeof defineServer;
+  /** The server name used for registry lookups and code generation. */
   readonly name: TName;
 };
 

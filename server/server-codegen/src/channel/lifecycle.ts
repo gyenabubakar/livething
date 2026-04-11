@@ -73,6 +73,19 @@ const _onBeforeSubscribe = definePrimitive<
   },
 });
 
+/**
+ * Run before a channel subscription is accepted.
+ *
+ * Throw to reject. Optionally validate the subscription payload with a
+ * validator in the `options` object.
+ *
+ * ```ts
+ * onBeforeSubscribe(async (ctx, data) => {
+ *   const hasAccess = await checkPermission(ctx.meta.userId, ctx.channel.name);
+ *   if (!hasAccess) throw Forbidden({ reason: 'No access to this channel' });
+ * }, { validator: SubscribePayloadValidator })
+ * ```
+ */
 export function onBeforeSubscribe<TCtx, TData = unknown>(
   handler: BeforeSubscribeHandler<TCtx, TData>,
   options?: { validator?: Validator<TData> },
@@ -80,10 +93,28 @@ export function onBeforeSubscribe<TCtx, TData = unknown>(
   return _onBeforeSubscribe(handler, options) as BeforeSubscribePrimitive<TCtx, TData>;
 }
 
+/**
+ * Run after a connection successfully subscribes to a channel.
+ *
+ * ```ts
+ * onSubscribe(async (ctx) => {
+ *   ctx.log.info('Joined channel', { channel: ctx.channel.name });
+ * })
+ * ```
+ */
 export function onSubscribe<TCtx>(handler: SubscribeHandler<TCtx>): SubscribePrimitive<TCtx> {
   return _onSubscribe(handler) as SubscribePrimitive<TCtx>;
 }
 
+/**
+ * Run after a connection unsubscribes from a channel.
+ *
+ * ```ts
+ * onUnsubscribe(async (ctx) => {
+ *   ctx.log.info('Left channel', { channel: ctx.channel.name });
+ * })
+ * ```
+ */
 export function onUnsubscribe<TCtx>(handler: UnsubscribeHandler<TCtx>): UnsubscribePrimitive<TCtx> {
   return _onUnsubscribe(handler) as UnsubscribePrimitive<TCtx>;
 }
