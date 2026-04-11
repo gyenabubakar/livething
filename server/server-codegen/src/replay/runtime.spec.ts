@@ -33,7 +33,7 @@ function createReplaySql() {
   const rows = new Map<string, ReplayRow>();
   const calls: { query: string; params: unknown[] }[] = [];
 
-  const exec = (query: string, ...params: unknown[]) => {
+  function exec(query: string, ...params: unknown[]) {
     const normalized = query.replaceAll(/\s+/g, ' ').trim();
     calls.push({ query: normalized, params });
 
@@ -74,8 +74,18 @@ function createReplaySql() {
     }
 
     if (normalized.startsWith('INSERT OR REPLACE INTO _wskit_replay')) {
-      const [rowKey, messageId, seq, event, payload, namespace, channel, channelScope, snapshotKey, createdAt] =
-        params;
+      const [
+        rowKey,
+        messageId,
+        seq,
+        event,
+        payload,
+        namespace,
+        channel,
+        channelScope,
+        snapshotKey,
+        createdAt,
+      ] = params;
       rows.set(String(rowKey), {
         rowKey: String(rowKey),
         messageId: String(messageId),
@@ -120,7 +130,7 @@ function createReplaySql() {
     }
 
     return new FakeSqlResult([]);
-  };
+  }
 
   return {
     rows,
@@ -182,7 +192,12 @@ describe('replay/runtime', () => {
     });
 
     expect(
-      buildReplayRow({ type: 'snapshot', snapshotKey: (_event, next) => String(next.text) }, 'message', payload, 99),
+      buildReplayRow(
+        { type: 'snapshot', snapshotKey: (_event, next) => String(next.text) },
+        'message',
+        payload,
+        99,
+      ),
     ).toMatchObject({
       rowKey: 'snapshot||room-1|rooms|hello',
       messageId: 'msg_1',
@@ -209,7 +224,9 @@ describe('replay/runtime', () => {
     );
 
     expect(history?.rowKey).toBe('msg_1');
-    expect(rows.get('msg_1')?.payload).toBe(JSON.stringify({ text: 'one', _seq: 1, _messageId: 'msg_1' }));
+    expect(rows.get('msg_1')?.payload).toBe(
+      JSON.stringify({ text: 'one', _seq: 1, _messageId: 'msg_1' }),
+    );
 
     persistReplayMessage(
       sql,
@@ -237,7 +254,11 @@ describe('replay/runtime', () => {
       event: 'doc-snapshot',
       snapshotKey: 'doc-1',
     });
-    expect(JSON.parse(snapshot?.payload ?? '{}')).toEqual({ id: 'doc-1', title: '', content: 'hello' });
+    expect(JSON.parse(snapshot?.payload ?? '{}')).toEqual({
+      id: 'doc-1',
+      title: '',
+      content: 'hello',
+    });
 
     persistReplayMessage(
       sql,
@@ -323,10 +344,22 @@ describe('replay/runtime', () => {
     pruneExpiredReplayRows(sql, { maxAgeMs: 20 }, 100);
     expect(rows.has('old')).toBe(false);
 
-    pruneReplayScopeRows(sql, { maxMessages: 2 }, { namespace: null, channel: 'room-1', channelScope: 'rooms' });
+    pruneReplayScopeRows(
+      sql,
+      { maxMessages: 2 },
+      { namespace: null, channel: 'room-1', channelScope: 'rooms' },
+    );
     expect([...rows.keys()]).not.toContain('c1');
 
-    expect(loadReplayRows(sql, 1, {} as { channelName?: string; channelScope?: string }).map((row) => row.seq)).toEqual([2]);
-    expect(loadReplayRows(sql, 2, { channelName: 'room-1', channelScope: 'rooms' }).map((row) => row.seq)).toEqual([4, 5]);
+    expect(
+      loadReplayRows(sql, 1, {} as { channelName?: string; channelScope?: string }).map(
+        (row) => row.seq,
+      ),
+    ).toEqual([2]);
+    expect(
+      loadReplayRows(sql, 2, { channelName: 'room-1', channelScope: 'rooms' }).map(
+        (row) => row.seq,
+      ),
+    ).toEqual([4, 5]);
   });
 });

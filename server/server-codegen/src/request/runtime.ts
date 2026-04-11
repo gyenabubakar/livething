@@ -1,7 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { runWithScopedContext } from '~/intercept/runtime.ts';
-import type { RequestPrimitive } from './request.ts';
 import type { ResolvedScope, RoutingTarget, RuntimeConnection } from '~/_engine/runtime/types.ts';
+import type { RequestPrimitive } from './request.ts';
 
 interface RequestRuntime {
   buildConnectionContext(

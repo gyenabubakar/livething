@@ -9,7 +9,6 @@ import { incoming } from '~/incoming/incoming.ts';
 import { intercept } from '~/intercept/intercept.ts';
 import { namespace } from '~/namespace/namespace.ts';
 import { outgoing } from '~/outgoing/outgoing.ts';
-import { passive } from '~/passive/passive.ts';
 import { received } from '~/received.ts';
 import { replay } from '~/replay/replay.ts';
 import { request } from '~/request/request.ts';
@@ -117,17 +116,6 @@ describe('defineServer', () => {
     ).toThrow(/Duplicate registration: sequence/);
   });
 
-  it('throws when sequence() is registered both directly and through passive()', () => {
-    expect(() =>
-      defineServer(
-        sequence(),
-        passive(dedup(), sequence()),
-        outgoing('message', t<{ text: string }>()),
-        incoming(received('ping'), async () => {}),
-      ),
-    ).toThrow(/Duplicate registration: sequence/);
-  });
-
   it('stores heartbeat() before handler primitives without affecting order', () => {
     const server = defineServer(
       heartbeat({ timeout: 30_000 }),
@@ -139,45 +127,6 @@ describe('defineServer', () => {
     expect(server.primitives[0]!.__wskit).toBe('heartbeat');
     expect(server.primitives[1]!.__wskit).toBe('outgoing');
     expect(server.primitives[2]!.__wskit).toBe('incoming');
-  });
-
-  it('stores passive() as one top-level primitive and keeps child order', () => {
-    const server = defineServer(
-      passive(heartbeat({ timeout: 30_000 }), sequence(), dedup()),
-      outgoing('message', t<{ text: string }>()),
-      incoming(received('ping'), async () => {}),
-    );
-
-    expect(server.primitives).toHaveLength(3);
-    expect(server.primitives[0]!.__wskit).toBe('passive');
-    const group = server.primitives[0]! as ReturnType<typeof passive>;
-    expect(group.primitives.map((primitive) => primitive.__wskit)).toEqual([
-      'heartbeat',
-      'sequence',
-      'dedup',
-    ]);
-  });
-
-  it('lets replay() satisfy dependencies from inside passive()', () => {
-    expect(() =>
-      defineServer(
-        passive(sequence(), dedup()),
-        replay(),
-        outgoing('message', t<{ text: string }>()),
-        incoming(received('ping'), async () => {}),
-      ),
-    ).not.toThrow();
-  });
-
-  it('still throws when passive() only includes one replay dependency', () => {
-    expect(() =>
-      defineServer(
-        passive(sequence()),
-        replay(),
-        outgoing('message', t<{ text: string }>()),
-        incoming(received('ping'), async () => {}),
-      ),
-    ).toThrow(/requires a missing dependency/);
   });
 
   it('stores namespace() alongside top-level primitives in order', () => {

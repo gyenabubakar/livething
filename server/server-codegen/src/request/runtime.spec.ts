@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import { handleRequest, readCorrelationId } from './runtime.ts';
 import type { RequestPrimitive } from './request.ts';
-import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 
 function createConnection(): RuntimeConnection {
   return {

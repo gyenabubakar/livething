@@ -1,4 +1,3 @@
-import { h } from '~/h.ts';
 import { intercept } from '~/intercept/intercept.ts';
 import type { PostInterceptPrimitive, PreInterceptPrimitive } from '~/intercept/intercept.ts';
 import type { PrimitiveKind, PrimitiveRef } from '~/primitive.ts';
@@ -34,23 +33,21 @@ const _ref: PrimitiveRef = intercept;
 const _key: symbol = intercept.__key;
 void [_ref, _key];
 
-const wrappedPre = intercept(
-  h(async (ctx: { orgId: string }, message) => {
-    const _org: string = ctx.orgId;
-    const _event: string = message.event;
-    void [_org, _event];
-    return message;
-  }),
-);
+const wrappedPre = intercept(async (ctx: { orgId: string }, message) => {
+  const _org: string = ctx.orgId;
+  const _event: string = message.event;
+  void [_org, _event];
+  return message;
+});
 
 const wrappedPost = intercept(
   'wrapped-send-message',
-  h(async (ctx: { orgId: string }, payload: { text: string }) => {
+  async (ctx: { orgId: string }, payload: { text: string }) => {
     const _org: string = ctx.orgId;
     const _text: string = payload.text;
     void [_org, _text];
     return payload;
-  }),
+  },
 );
 
 const _wrappedPreType: PreInterceptPrimitive<{ orgId: string }> = wrappedPre;

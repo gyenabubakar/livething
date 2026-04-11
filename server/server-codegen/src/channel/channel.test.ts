@@ -1,9 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { channel, scope } from '~/channel/channel.ts';
-import { h } from '~/h.ts';
 import { incoming } from '~/incoming/incoming.ts';
 import { outgoing } from '~/outgoing/outgoing.ts';
-import { passive } from '~/passive/passive.ts';
 import { received } from '~/received.ts';
 import { replay } from '~/replay/replay.ts';
 import { request } from '~/request/request.ts';
@@ -25,7 +23,7 @@ const general = channel(
   outgoing('message', t<{ text: string }>()),
   incoming(
     received('send-message', (value: unknown) => value as { text: string }),
-    h(async (ctx, payload) => {
+    async (ctx, payload) => {
       const _name: string = ctx.channel.name;
       const _text: string = payload.text;
       void [_name, _text];
@@ -34,7 +32,7 @@ const general = channel(
 
       // @ts-expect-error — top-level event not visible in channel scope
       ctx.send('alert', { level: 'info' });
-    }),
+    },
   ),
 );
 
@@ -57,7 +55,7 @@ const roomChannel = channel(
   outgoing('typing', t<{ userId: string }>()),
   incoming(
     received('start-typing'),
-    h(async (ctx: ChannelHandlerContext<{ typing: { userId: string } }, false>) => {
+    async (ctx: ChannelHandlerContext<{ typing: { userId: string } }, false>) => {
       const _name: string = ctx.channel.name;
       void _name;
 
@@ -65,7 +63,7 @@ const roomChannel = channel(
 
       // @ts-expect-error — ack only exists when top-level ack() types the channel
       ctx.ack();
-    }),
+    },
   ),
 );
 
@@ -119,7 +117,7 @@ const replayRoom = channel(
   outgoing('message', t<{ text: string }>()),
   incoming(
     received('replay-message', (value: unknown) => value as { text: string }),
-    h(async (ctx, payload) => {
+    async (ctx, payload) => {
       const _name: string = ctx.channel.name;
       const _text: string = payload.text;
       void [_name, _text];
@@ -128,7 +126,7 @@ const replayRoom = channel(
 
       // @ts-expect-error — only channel-local outgoing events are allowed
       ctx.sendReplay('typing', { userId: 'u1' }, { seq: 1, messageId: 'm1' });
-    }),
+    },
   ),
   request('replay-status', async (ctx) => {
     ctx.sendReplay('message', { text: 'history' }, { seq: 2, messageId: 'm2' });
@@ -150,6 +148,3 @@ void _replayRoomType;
 const _channelRef: PrimitiveRef = channel;
 const _channelKey: symbol = channel.__key;
 void [_channelRef, _channelKey];
-
-// @ts-expect-error — passive() is top-level only
-channel('invalid', passive());

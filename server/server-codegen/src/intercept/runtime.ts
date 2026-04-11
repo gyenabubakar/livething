@@ -1,10 +1,10 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import type { ResolvedScope, RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type {
   InterceptMessage,
   PostInterceptPrimitive,
   PreInterceptPrimitive,
 } from './intercept.ts';
-import type { ResolvedScope, RuntimeConnection } from '~/_engine/runtime/types.ts';
 
 interface InterceptRuntime {
   buildConnectionContext(

@@ -4,12 +4,10 @@ import { heartbeat as _heartbeat } from '~/heartbeat/index.ts';
 import { incoming as _incoming } from '~/incoming/index.ts';
 import { received, server, t } from '~/index.ts';
 import { outgoing as _outgoing } from '~/outgoing/index.ts';
-import { passive as _passive } from '~/passive/index.ts';
 import { replay as _replay } from '~/replay/index.ts';
 import { sequence as _sequence, sequence } from '~/sequence/index.ts';
 import { describe, expect, it } from 'vitest';
 import type { heartbeat } from '~/heartbeat/index.ts';
-import type { passive } from '~/passive/index.ts';
 import type { replay } from '~/replay/index.ts';
 
 describe('server()', () => {
@@ -23,7 +21,6 @@ describe('server()', () => {
       _heartbeat,
       _incoming,
       _outgoing,
-      _passive,
     });
 
     const chat = define(
@@ -33,18 +30,14 @@ describe('server()', () => {
 
     expect(chat.primitives.map((primitive) => primitive.__wskit)).toEqual([
       'ack',
-      'passive',
+      'heartbeat',
       'outgoing',
       'incoming',
     ]);
-
-    const grouped = chat.primitives.find((primitive) => String(primitive.__wskit) === 'passive') as
-      | ReturnType<typeof passive>
-      | undefined;
-    expect(grouped).toBeDefined();
-    if (!grouped) throw new Error('expected passive defaults');
-    expect(grouped.primitives.map((primitive) => primitive.__wskit)).toEqual(['heartbeat']);
-    expect((grouped.primitives[0] as ReturnType<typeof heartbeat>).timeout).toBe(30_000);
+    const injectedHeartbeat = (
+      chat.primitives as readonly { __wskit: string; timeout?: number }[]
+    ).find((primitive) => primitive.__wskit === 'heartbeat');
+    expect(injectedHeartbeat?.timeout).toBe(30_000);
   });
 
   it('does not duplicate explicit infrastructure overrides', () => {
@@ -58,7 +51,6 @@ describe('server()', () => {
       _heartbeat,
       _incoming,
       _outgoing,
-      _passive,
     });
 
     const chat = define(
@@ -72,13 +64,10 @@ describe('server()', () => {
     ) as ReturnType<typeof heartbeat> | undefined;
     expect(explicitHeartbeat).toBeDefined();
     if (!explicitHeartbeat) throw new Error('expected explicit heartbeat');
-    expect(
-      chat.primitives.filter((primitive) => String(primitive.__wskit) === 'passive'),
-    ).toHaveLength(0);
     expect(explicitHeartbeat.timeout).toBe(45_000);
   });
 
-  it('injects replay defaults after passive dependencies when enabled', () => {
+  it('injects replay defaults after infrastructure dependencies when enabled', () => {
     const {
       define,
       incoming: boundIncoming,
@@ -86,7 +75,6 @@ describe('server()', () => {
     } = server('chat', {
       _incoming,
       _outgoing,
-      _passive,
       _heartbeat,
       _sequence,
       _dedup,
@@ -99,21 +87,12 @@ describe('server()', () => {
     );
 
     expect(chat.primitives.map((primitive) => primitive.__wskit)).toEqual([
-      'passive',
-      'replay',
-      'outgoing',
-      'incoming',
-    ]);
-
-    const grouped = chat.primitives.find((primitive) => String(primitive.__wskit) === 'passive') as
-      | ReturnType<typeof passive>
-      | undefined;
-    expect(grouped).toBeDefined();
-    if (!grouped) throw new Error('expected passive replay defaults');
-    expect(grouped.primitives.map((primitive) => primitive.__wskit)).toEqual([
       'heartbeat',
       'sequence',
       'dedup',
+      'replay',
+      'outgoing',
+      'incoming',
     ]);
   });
 

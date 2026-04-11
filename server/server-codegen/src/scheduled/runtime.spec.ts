@@ -46,58 +46,66 @@ function createScheduledRuntime(
     clearTimeout: vi.fn(),
   };
 
-  const exec = (query: string, ...params: unknown[]) => {
-      const normalized = query.replaceAll(/\s+/g, ' ').trim();
+  function exec(query: string, ...params: unknown[]) {
+    const normalized = query.replaceAll(/\s+/g, ' ').trim();
 
-      if (normalized.startsWith('SELECT id, taskId, time, data, everyMs, attempts, recurring, retry FROM _wskit_scheduled')) {
-        return new FakeSqlResult(storageRows.scheduled);
-      }
+    if (
+      normalized.startsWith(
+        'SELECT id, taskId, time, data, everyMs, attempts, recurring, retry FROM _wskit_scheduled',
+      )
+    ) {
+      return new FakeSqlResult(storageRows.scheduled);
+    }
 
-      if (normalized.startsWith('SELECT id, taskId, time, failedAt, data, attempts, error FROM _wskit_scheduled_dlq')) {
-        return new FakeSqlResult(storageRows.dlq);
-      }
+    if (
+      normalized.startsWith(
+        'SELECT id, taskId, time, failedAt, data, attempts, error FROM _wskit_scheduled_dlq',
+      )
+    ) {
+      return new FakeSqlResult(storageRows.dlq);
+    }
 
-      if (normalized.startsWith('DELETE FROM _wskit_scheduled_dlq')) {
-        storageRows.dlq = [];
-        return new FakeSqlResult([]);
-      }
-
-      if (normalized.startsWith('DELETE FROM _wskit_scheduled')) {
-        storageRows.scheduled = [];
-        return new FakeSqlResult([]);
-      }
-
-      if (normalized.startsWith('INSERT INTO _wskit_scheduled_dlq')) {
-        const [id, taskId, time, failedAt, data, attempts, error] = params;
-        storageRows.dlq.push({
-          id,
-          taskId,
-          time,
-          failedAt,
-          data,
-          attempts,
-          error,
-        });
-        return new FakeSqlResult([]);
-      }
-
-      if (normalized.startsWith('INSERT INTO _wskit_scheduled')) {
-        const [id, taskId, time, data, everyMs, attempts, recurring, retry] = params;
-        storageRows.scheduled.push({
-          id,
-          taskId,
-          time,
-          data,
-          everyMs,
-          attempts,
-          recurring,
-          retry,
-        });
-        return new FakeSqlResult([]);
-      }
-
+    if (normalized.startsWith('DELETE FROM _wskit_scheduled_dlq')) {
+      storageRows.dlq = [];
       return new FakeSqlResult([]);
-    };
+    }
+
+    if (normalized.startsWith('DELETE FROM _wskit_scheduled')) {
+      storageRows.scheduled = [];
+      return new FakeSqlResult([]);
+    }
+
+    if (normalized.startsWith('INSERT INTO _wskit_scheduled_dlq')) {
+      const [id, taskId, time, failedAt, data, attempts, error] = params;
+      storageRows.dlq.push({
+        id,
+        taskId,
+        time,
+        failedAt,
+        data,
+        attempts,
+        error,
+      });
+      return new FakeSqlResult([]);
+    }
+
+    if (normalized.startsWith('INSERT INTO _wskit_scheduled')) {
+      const [id, taskId, time, data, everyMs, attempts, recurring, retry] = params;
+      storageRows.scheduled.push({
+        id,
+        taskId,
+        time,
+        data,
+        everyMs,
+        attempts,
+        recurring,
+        retry,
+      });
+      return new FakeSqlResult([]);
+    }
+
+    return new FakeSqlResult([]);
+  }
   const sql = {
     exec,
     transaction<T>(fn: (tx: { exec: typeof exec }) => T): T {
@@ -113,7 +121,15 @@ function createScheduledRuntime(
   } = {
     storageRows,
     alarms: 0,
-    requireStorage: () => ({ sql, kv: { get: async () => undefined, set: async () => {}, delete: async () => {}, list: async () => [] } }),
+    requireStorage: () => ({
+      sql,
+      kv: {
+        get: async () => undefined,
+        set: async () => {},
+        delete: async () => {},
+        list: async () => [],
+      },
+    }),
     requireTimers: () => timers,
     generateId: () => `task_${++idCounter}`,
     getScheduledRuns: () => scheduledRuns,
@@ -212,7 +228,18 @@ describe('scheduled/runtime', () => {
     const withAlarm = {
       getScheduledRuns: () =>
         new Map<string, ScheduledRun>([
-          ['a', { id: 'a', taskId: 'flush', time: 500, data: undefined, attempts: 0, recurring: false, retry: true }],
+          [
+            'a',
+            {
+              id: 'a',
+              taskId: 'flush',
+              time: 500,
+              data: undefined,
+              attempts: 0,
+              recurring: false,
+              retry: true,
+            },
+          ],
         ]),
       timers: {
         setAlarm: vi.fn(async () => {}),
@@ -241,7 +268,18 @@ describe('scheduled/runtime', () => {
     const withoutAlarm = {
       getScheduledRuns: () =>
         new Map<string, ScheduledRun>([
-          ['a', { id: 'a', taskId: 'flush', time: 500, data: undefined, attempts: 0, recurring: false, retry: true }],
+          [
+            'a',
+            {
+              id: 'a',
+              taskId: 'flush',
+              time: 500,
+              data: undefined,
+              attempts: 0,
+              recurring: false,
+              retry: true,
+            },
+          ],
         ]),
       requireTimers: () => withoutAlarmTimers,
       getAlarmHandle: () => null,

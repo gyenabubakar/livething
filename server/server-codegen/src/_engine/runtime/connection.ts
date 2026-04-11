@@ -34,18 +34,10 @@ interface ConnectionRuntime {
 
 function createHandle(runtime: ConnectionRuntime, connection: RuntimeConnection): ConnectionHandle {
   return {
-    handleMessage: (data) => {
-      void runtime.processTextMessage(connection, data);
-    },
-    handleBinary: (data) => {
-      void runtime.handleBinaryMessage(connection, data);
-    },
-    handleClose: (code, reason) => {
-      void runtime.handleConnectionClose(connection, code, reason);
-    },
-    handleError: (error) => {
-      void runtime.handleRuntimeError(connection, error, undefined);
-    },
+    handleMessage: (data) => runtime.processTextMessage(connection, data),
+    handleBinary: (data) => runtime.handleBinaryMessage(connection, data),
+    handleClose: (code, reason) => runtime.handleConnectionClose(connection, code, reason),
+    handleError: (error) => runtime.handleRuntimeError(connection, error, undefined),
   };
 }
 

@@ -453,7 +453,7 @@ export async function handleSubscribe(
   connection: RuntimeConnection,
   payload: Record<string, unknown> | undefined,
 ): Promise<void> {
-    await ChannelPrimitive.subscribeConnection(
+  await ChannelPrimitive.subscribeConnection(
     {
       ...runtime,
       broadcastToChannel: (channelName, event, nextPayload, excludeConnectionId, channelScope) =>
@@ -496,7 +496,7 @@ export async function handleUnsubscribe(
   connection: RuntimeConnection,
   payload: Record<string, unknown> | undefined,
 ): Promise<void> {
-    await ChannelPrimitive.unsubscribeConnection(runtime, connection, payload);
+  await ChannelPrimitive.unsubscribeConnection(runtime, connection, payload);
 }
 
 /**

@@ -20,10 +20,10 @@ export interface ConnectionDescriptor {
  * Callbacks the adapter uses to push connection events into the engine.
  */
 export interface ConnectionHandle {
-  handleMessage(data: string): void;
-  handleBinary(data: ArrayBuffer): void;
-  handleClose(code: number, reason: string): void;
-  handleError(error: unknown): void;
+  handleMessage(data: string): Promise<void>;
+  handleBinary(data: ArrayBuffer): Promise<void>;
+  handleClose(code: number, reason: string): Promise<void>;
+  handleError(error: unknown): Promise<void>;
 }
 
 /**

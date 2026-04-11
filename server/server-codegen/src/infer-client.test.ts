@@ -5,11 +5,9 @@ import { defineModule } from '~/define-module.ts';
 import { defineServer } from '~/define-server.ts';
 import { error } from '~/errors.ts';
 import { errors } from '~/errors/errors.ts';
-import { heartbeat } from '~/heartbeat/heartbeat.ts';
 import { incoming } from '~/incoming/incoming.ts';
 import { namespace } from '~/namespace/namespace.ts';
 import { outgoing } from '~/outgoing/outgoing.ts';
-import { passive } from '~/passive/passive.ts';
 import { received } from '~/received.ts';
 import { replay } from '~/replay/replay.ts';
 import { request } from '~/request/request.ts';
@@ -232,7 +230,8 @@ void [
 channelClient.incoming.message;
 
 const passiveServer = defineServer(
-  passive(heartbeat({ timeout: 30_000 }), sequence(), dedup()),
+  sequence(),
+  dedup(),
   replay(),
   outgoing('message', t<{ text: string }>()),
   incoming(

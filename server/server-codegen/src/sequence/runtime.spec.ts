@@ -21,7 +21,7 @@ function createSql() {
   const calls: string[] = [];
   let nextSeq: number | null = null;
 
-  const exec = (query: string, ...params: unknown[]) => {
+  function exec(query: string, ...params: unknown[]) {
     calls.push(query.replaceAll(/\s+/g, ' ').trim());
 
     if (query.includes('SELECT nextSeq')) {
@@ -39,7 +39,7 @@ function createSql() {
     }
 
     return new FakeSqlResult(null);
-  };
+  }
 
   return {
     calls,

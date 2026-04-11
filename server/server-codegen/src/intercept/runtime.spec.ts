@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import { intercept } from './intercept.ts';
 import { runPostIntercepts, runPreIntercepts, runWithScopedContext } from './runtime.ts';
-import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 
 function createConnection(): RuntimeConnection {
   return {
@@ -40,13 +40,10 @@ describe('intercept/runtime', () => {
       payload: { ...(message.payload as Record<string, unknown>), b: 2 },
     }));
 
-    const next = await runPreIntercepts(
-      runtime,
-      connection,
-      {},
-      [first, second],
-      { event: 'hello', payload: {} },
-    );
+    const next = await runPreIntercepts(runtime, connection, {}, [first, second], {
+      event: 'hello',
+      payload: {},
+    });
 
     expect(next).toEqual({ event: 'hello', payload: { a: 1, b: 2 } });
     expect(runtime.setActiveConnectionId).toHaveBeenNthCalledWith(1, 'c1');

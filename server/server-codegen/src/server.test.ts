@@ -13,7 +13,6 @@ import { intercept as _intercept } from '~/intercept/index.ts';
 import { onConnect as _onConnect, onError as _onError } from '~/lifecycle.ts';
 import { namespace as _namespace } from '~/namespace/index.ts';
 import { outgoing as _outgoing } from '~/outgoing/index.ts';
-import { passive as _passive } from '~/passive/index.ts';
 import { replay as _replay } from '~/replay/index.ts';
 import { request as _request } from '~/request/index.ts';
 import { scheduled as _scheduled } from '~/scheduled/index.ts';
@@ -161,7 +160,6 @@ const { define, incoming, outgoing } = server('chat', {
   _heartbeat,
   _incoming,
   _outgoing,
-  _passive,
 });
 
 const directCapabilities = define(
