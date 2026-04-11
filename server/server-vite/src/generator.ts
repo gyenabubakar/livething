@@ -518,6 +518,12 @@ ${indent} *
 ${indent} * This gives you an easier signal than raw latency numbers alone.
 ${indent} */`,
     `${indent}readonly quality: 'excellent' | 'good' | 'degraded' | 'poor';`,
+    `${indent}/**
+${indent} * The current tags attached to this connection.
+${indent} *
+${indent} * Tags are useful when you want to target groups of clients later.
+${indent} */`,
+    `${indent}readonly tags: readonly string[];`,
   ];
 
   if (parsed.enabledFactories.includes('_outgoing')) {

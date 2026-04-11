@@ -282,6 +282,15 @@ type QualityApi = {
   readonly quality: 'excellent' | 'good' | 'degraded' | 'poor';
 };
 
+type ConnectionTagsApi = {
+  /**
+   * The current tags attached to this connection.
+   *
+   * Tags make it easier to target groups of clients later.
+   */
+  readonly tags: readonly string[];
+};
+
 type ExactSendApi<TOutgoing extends Record<string, unknown>> = keyof TOutgoing extends never
   ? {}
   : {
@@ -347,6 +356,7 @@ export type BoundServerContext<
       BufferedAmountApi &
       LatencyApi &
       QualityApi &
+      ConnectionTagsApi &
       SendApi<TName, TFactories> &
       AckApi<TFactories> &
       ReplayApi<TName, TFactories>) &

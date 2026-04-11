@@ -408,6 +408,15 @@ export interface QualityMethods {
   readonly quality: ConnectionContext['quality'];
 }
 
+export interface ConnectionTagsMethods {
+  /**
+   * The current tags attached to this connection.
+   *
+   * Tags are useful when you want to target groups of connections later.
+   */
+  readonly tags: ConnectionContext['tags'];
+}
+
 export interface AckMethods {
   /**
    * Confirm receipt of the current incoming message.
@@ -501,6 +510,7 @@ export type HandlerCtxFromState<TState extends ScopeStateShape> = SendApi<TState
   BufferedAmountMethods &
   LatencyMethods &
   QualityMethods &
+  ConnectionTagsMethods &
   AckApi<TState> &
   ReplayApi<TState> &
   ChannelsMethods &
@@ -518,6 +528,7 @@ export type StreamBaseCtxFromState<TState extends ScopeStateShape> = SendApi<TSt
   BufferedAmountMethods &
   LatencyMethods &
   QualityMethods &
+  ConnectionTagsMethods &
   ReplayApi<TState> &
   ChannelsMethods &
   ScopeExtras<TState['kind']>;

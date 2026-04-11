@@ -53,6 +53,7 @@ describe('wskit codegen parser', () => {
     expect(output).toContain('readonly bufferedAmount: number;');
     expect(output).toContain('readonly latency: number | null;');
     expect(output).toContain("readonly quality: 'excellent' | 'good' | 'degraded' | 'poor';");
+    expect(output).toContain('readonly tags: readonly string[];');
     expect(output).toContain('send(event: "message", payload: { text: string }): void;');
     expect(output).toContain('broadcast(event: "alert", payload: { level: string }): void;');
   });
@@ -98,6 +99,7 @@ describe('wskit codegen parser', () => {
     expect(output).toContain('readonly bufferedAmount: number;');
     expect(output).toContain('readonly latency: number | null;');
     expect(output).toContain("readonly quality: 'excellent' | 'good' | 'degraded' | 'poor';");
+    expect(output).toContain('readonly tags: readonly string[];');
     expect(output).toContain(
       'schedule(taskId: "cleanup-sessions", options: { time: number; data?: unknown }): void;',
     );
@@ -188,6 +190,7 @@ describe('wskit codegen parser', () => {
     expect(output).toContain('readonly bufferedAmount: number;');
     expect(output).toContain('readonly latency: number | null;');
     expect(output).toContain("readonly quality: 'excellent' | 'good' | 'degraded' | 'poor';");
+    expect(output).toContain('readonly tags: readonly string[];');
     expect(output).toContain('namespace: {');
     expect(output).toContain('name: "notifications";');
     expect(output).toContain('send(event: "alert", payload: { id: string }): void;');

@@ -26,6 +26,7 @@ declare global {
         bufferedAmount: number;
         latency: number | null;
         quality: 'excellent' | 'good' | 'degraded' | 'poor';
+        tags: readonly string[];
         send(event: 'message', payload: { text: string }): void;
         broadcast(event: 'message', payload: { text: string }): void;
         ack(): void;
@@ -40,6 +41,7 @@ declare global {
           bufferedAmount: number;
           latency: number | null;
           quality: 'excellent' | 'good' | 'degraded' | 'poor';
+          tags: readonly string[];
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -50,6 +52,7 @@ declare global {
           bufferedAmount: number;
           latency: number | null;
           quality: 'excellent' | 'good' | 'degraded' | 'poor';
+          tags: readonly string[];
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -65,6 +68,7 @@ declare global {
           bufferedAmount: number;
           latency: number | null;
           quality: 'excellent' | 'good' | 'degraded' | 'poor';
+          tags: readonly string[];
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -87,6 +91,7 @@ declare global {
           bufferedAmount: number;
           latency: number | null;
           quality: 'excellent' | 'good' | 'degraded' | 'poor';
+          tags: readonly string[];
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -99,6 +104,7 @@ declare global {
           bufferedAmount: number;
           latency: number | null;
           quality: 'excellent' | 'good' | 'degraded' | 'poor';
+          tags: readonly string[];
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -109,6 +115,7 @@ declare global {
           bufferedAmount: number;
           latency: number | null;
           quality: 'excellent' | 'good' | 'degraded' | 'poor';
+          tags: readonly string[];
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -124,6 +131,7 @@ declare global {
           bufferedAmount: number;
           latency: number | null;
           quality: 'excellent' | 'good' | 'degraded' | 'poor';
+          tags: readonly string[];
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -147,6 +155,7 @@ declare global {
             bufferedAmount: number;
             latency: number | null;
             quality: 'excellent' | 'good' | 'degraded' | 'poor';
+            tags: readonly string[];
             send(event: 'message', payload: { text: string }): void;
             broadcast(event: 'message', payload: { text: string }): void;
             ack(): void;
@@ -166,6 +175,7 @@ declare global {
             bufferedAmount: number;
             latency: number | null;
             quality: 'excellent' | 'good' | 'degraded' | 'poor';
+            tags: readonly string[];
             send(event: 'message', payload: { text: string }): void;
             broadcast(event: 'message', payload: { text: string }): void;
             ack(): void;
@@ -190,6 +200,7 @@ declare global {
         bufferedAmount: number;
         latency: number | null;
         quality: 'excellent' | 'good' | 'degraded' | 'poor';
+        tags: readonly string[];
         schedule(
           taskId: 'expire-hold',
           options: { time: number; data?: { orderId: string } },
@@ -203,6 +214,7 @@ declare global {
           bufferedAmount: number;
           latency: number | null;
           quality: 'excellent' | 'good' | 'degraded' | 'poor';
+          tags: readonly string[];
           schedule(
             taskId: 'expire-hold',
             options: { time: number; data?: { orderId: string } },
@@ -232,11 +244,13 @@ const directCapabilities = define(
       const _bufferedAmount: number = ctx.bufferedAmount;
       const _latency: number | null = ctx.latency;
       const _quality: 'excellent' | 'good' | 'degraded' | 'poor' = ctx.quality;
+      const _tags: readonly string[] = ctx.tags;
       void _id;
       void _meta;
       void _bufferedAmount;
       void _latency;
       void _quality;
+      void _tags;
 
       ctx.ack();
       ctx.send('message', payload);
@@ -277,11 +291,13 @@ const scheduledCapabilities = scheduledDefine(
       const _bufferedAmount: number = ctx.bufferedAmount;
       const _latency: number | null = ctx.latency;
       const _quality: 'excellent' | 'good' | 'degraded' | 'poor' = ctx.quality;
+      const _tags: readonly string[] = ctx.tags;
       void _id;
       void _meta;
       void _bufferedAmount;
       void _latency;
       void _quality;
+      void _tags;
 
       ctx.schedule('expire-hold', {
         time: Date.now(),
