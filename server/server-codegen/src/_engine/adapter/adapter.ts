@@ -1,4 +1,4 @@
-import { Engine } from '~/_engine/index.ts';
+import { Engine } from '~/_engine/engine.ts';
 import type { ServerDefinition } from '~/define-server.ts';
 import type { AdapterConfig } from './types.ts';
 

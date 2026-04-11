@@ -1,4 +1,4 @@
-import type { Engine } from '~/_engine/index.ts';
+import type { Engine } from '~/_engine/engine.ts';
 import type { ServerDefinition } from '~/define-server.ts';
 
 /**
