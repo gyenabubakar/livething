@@ -23,7 +23,6 @@ import type {
 import type { ChannelManager, InitContext, ShutdownContext, TaskContext } from './context.ts';
 import type * as DedupModule from './dedup/index.ts';
 import type * as ErrorsModule from './errors/index.ts';
-import type { Handled } from './h.ts';
 import type * as HeartbeatModule from './heartbeat/index.ts';
 import type * as HibernationModule from './hibernation/index.ts';
 import type * as IncomingModule from './incoming/index.ts';
@@ -505,26 +504,15 @@ type BoundInterceptFactory<
 > = '_intercept' extends keyof TFactories
   ? {
       (
-        handler:
-          | PreInterceptHandler<BoundServerContext<TName, TFactories>>
-          | Handled<PreInterceptHandler<BoundServerContext<TName, TFactories>>>,
+        handler: PreInterceptHandler<BoundServerContext<TName, TFactories>>,
       ): PreInterceptPrimitive<BoundServerContext<TName, TFactories>>;
-      <TCtx>(
-        handler: PreInterceptHandler<TCtx> | Handled<PreInterceptHandler<TCtx>>,
-      ): PreInterceptPrimitive<TCtx>;
+      <TCtx>(handler: PreInterceptHandler<TCtx>): PreInterceptPrimitive<TCtx>;
       <TEvent extends string, TPayload>(
         event: TEvent,
-        handler:
-          | PostInterceptHandler<
-              EventBoundPostInterceptContext<TName, TFactories, TEvent>,
-              TPayload
-            >
-          | Handled<
-              PostInterceptHandler<
-                EventBoundPostInterceptContext<TName, TFactories, TEvent>,
-                TPayload
-              >
-            >,
+        handler: PostInterceptHandler<
+          EventBoundPostInterceptContext<TName, TFactories, TEvent>,
+          TPayload
+        >,
       ): PostInterceptPrimitive<
         TEvent,
         TPayload,
@@ -532,9 +520,7 @@ type BoundInterceptFactory<
       >;
       <TCtx, TEvent extends string, TPayload>(
         event: TEvent,
-        handler:
-          | PostInterceptHandler<TCtx, TPayload>
-          | Handled<PostInterceptHandler<TCtx, TPayload>>,
+        handler: PostInterceptHandler<TCtx, TPayload>,
       ): PostInterceptPrimitive<TEvent, TPayload, TCtx>;
     }
   : never;

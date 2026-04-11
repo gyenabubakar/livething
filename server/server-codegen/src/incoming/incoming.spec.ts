@@ -1,4 +1,3 @@
-import { h } from '~/h.ts';
 import { incoming } from '~/incoming/incoming.ts';
 import { received } from '~/received.ts';
 import * as v from 'valibot';
@@ -49,12 +48,6 @@ describe('incoming', () => {
     expect(p.handler).toBe(handler);
   });
 
-  it('unwraps h() and stores the original handler function', () => {
-    const handler = vi.fn();
-    const p = incoming(received('send-message'), h(handler));
-    expect(p.handler).toBe(handler);
-  });
-
   // =========================================================================
   // Validator
   // =========================================================================
@@ -78,19 +71,6 @@ describe('incoming', () => {
     }
 
     const p = incoming(received('send-message', validate), async () => {});
-    expect(p.validator).toBe(validate);
-  });
-
-  it('keeps the validator from received(...) when the handler is wrapped with h()', () => {
-    function validate(p: unknown) {
-      return p as { text: string };
-    }
-
-    const p = incoming(
-      received('send-message', validate),
-      h(async () => {}),
-    );
-
     expect(p.validator).toBe(validate);
   });
 
