@@ -23,6 +23,7 @@ declare global {
       ctx: {
         id: string;
         meta: Record<string, unknown>;
+        bufferedAmount: number;
         send(event: 'message', payload: { text: string }): void;
         broadcast(event: 'message', payload: { text: string }): void;
         ack(): void;
@@ -34,6 +35,7 @@ declare global {
         'send-message': {
           id: string;
           meta: Record<string, unknown>;
+          bufferedAmount: number;
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -41,6 +43,7 @@ declare global {
         dismiss: {
           id: string;
           meta: Record<string, unknown>;
+          bufferedAmount: number;
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -53,6 +56,7 @@ declare global {
         'start-typing': {
           id: string;
           meta: Record<string, unknown>;
+          bufferedAmount: number;
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -72,6 +76,7 @@ declare global {
         'get-status': {
           id: string;
           meta: Record<string, unknown>;
+          bufferedAmount: number;
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -81,6 +86,7 @@ declare global {
         'send-message': {
           id: string;
           meta: Record<string, unknown>;
+          bufferedAmount: number;
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -88,6 +94,7 @@ declare global {
         dismiss: {
           id: string;
           meta: Record<string, unknown>;
+          bufferedAmount: number;
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -100,6 +107,7 @@ declare global {
         'start-typing': {
           id: string;
           meta: Record<string, unknown>;
+          bufferedAmount: number;
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -120,6 +128,7 @@ declare global {
           ctx: {
             id: string;
             meta: Record<string, unknown>;
+            bufferedAmount: number;
             send(event: 'message', payload: { text: string }): void;
             broadcast(event: 'message', payload: { text: string }): void;
             ack(): void;
@@ -136,6 +145,7 @@ declare global {
           ctx: {
             id: string;
             meta: Record<string, unknown>;
+            bufferedAmount: number;
             send(event: 'message', payload: { text: string }): void;
             broadcast(event: 'message', payload: { text: string }): void;
             ack(): void;
@@ -157,6 +167,7 @@ declare global {
       ctx: {
         id: string;
         meta: Record<string, unknown>;
+        bufferedAmount: number;
         schedule(
           taskId: 'expire-hold',
           options: { time: number; data?: { orderId: string } },
@@ -167,6 +178,7 @@ declare global {
         'place-order': {
           id: string;
           meta: Record<string, unknown>;
+          bufferedAmount: number;
           schedule(
             taskId: 'expire-hold',
             options: { time: number; data?: { orderId: string } },
@@ -193,8 +205,10 @@ const directCapabilities = define(
     async (ctx, payload) => {
       const _id: string = ctx.id;
       const _meta: Record<string, unknown> = ctx.meta;
+      const _bufferedAmount: number = ctx.bufferedAmount;
       void _id;
       void _meta;
+      void _bufferedAmount;
 
       ctx.ack();
       ctx.send('message', payload);
@@ -232,8 +246,10 @@ const scheduledCapabilities = scheduledDefine(
     async (ctx, payload) => {
       const _id: string = ctx.id;
       const _meta: Record<string, unknown> = ctx.meta;
+      const _bufferedAmount: number = ctx.bufferedAmount;
       void _id;
       void _meta;
+      void _bufferedAmount;
 
       ctx.schedule('expire-hold', {
         time: Date.now(),

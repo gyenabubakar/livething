@@ -42,9 +42,11 @@ const withAck = defineServer(
       const _text: string = payload.text;
       const _id: string = ctx.id;
       const _meta: Record<string, unknown> = ctx.meta;
+      const _bufferedAmount: number = ctx.bufferedAmount;
       void _text;
       void _id;
       void _meta;
+      void _bufferedAmount;
 
       ctx.send('message', { text: payload.text });
       ctx.broadcast('alert', { level: 'info' });
@@ -132,8 +134,10 @@ const withoutAck = defineServer(
     async (ctx, payload) => {
       const _id: string = ctx.id;
       const _meta: Record<string, unknown> = ctx.meta;
+      const _bufferedAmount: number = ctx.bufferedAmount;
       void _id;
       void _meta;
+      void _bufferedAmount;
 
       ctx.send('message', { text: payload.text });
 
@@ -161,8 +165,10 @@ const withErrors = defineServer(
     async (ctx, payload) => {
       const _id: string = ctx.id;
       const _meta: Record<string, unknown> = ctx.meta;
+      const _bufferedAmount: number = ctx.bufferedAmount;
       void _id;
       void _meta;
+      void _bufferedAmount;
 
       ctx.send('message', { text: payload.text });
       ctx.broadcast('alert', { level: 'warn' });
@@ -228,8 +234,10 @@ const withIntercept = defineServer(
     ) => {
       const _id: string = ctx.id;
       const _meta: Record<string, unknown> = ctx.meta;
+      const _bufferedAmount: number = ctx.bufferedAmount;
       void _id;
       void _meta;
+      void _bufferedAmount;
 
       ctx.send('message', { text: 'seen' });
       ctx.ack();

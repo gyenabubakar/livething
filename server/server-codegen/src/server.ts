@@ -253,6 +253,16 @@ type ConnectionMetaApi = {
   readonly meta: Record<string, unknown>;
 };
 
+type BufferedAmountApi = {
+  /**
+   * The number of bytes still queued to be sent to this connection.
+   *
+   * This is useful when you want to detect backpressure and avoid sending too
+   * much too quickly.
+   */
+  readonly bufferedAmount: number;
+};
+
 type ExactSendApi<TOutgoing extends Record<string, unknown>> = keyof TOutgoing extends never
   ? {}
   : {
@@ -315,6 +325,7 @@ export type BoundServerContext<
   ? RegisteredCtx<TName>
   : ConnectionIdentityApi &
       ConnectionMetaApi &
+      BufferedAmountApi &
       SendApi<TName, TFactories> &
       AckApi<TFactories> &
       ReplayApi<TName, TFactories>) &

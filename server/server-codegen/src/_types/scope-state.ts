@@ -380,6 +380,16 @@ export interface ConnectionMetaMethods {
   readonly meta: ConnectionContext['meta'];
 }
 
+export interface BufferedAmountMethods {
+  /**
+   * The number of bytes still waiting to be sent on this connection.
+   *
+   * This helps you tell when you are sending faster than the network can keep
+   * up.
+   */
+  readonly bufferedAmount: ConnectionContext['bufferedAmount'];
+}
+
 export interface AckMethods {
   /**
    * Confirm receipt of the current incoming message.
@@ -470,6 +480,7 @@ type ScopeExtras<TKind extends ScopeKind> = TKind extends 'namespace'
 export type HandlerCtxFromState<TState extends ScopeStateShape> = SendApi<TState['outgoing']> &
   ConnectionIdentityMethods &
   ConnectionMetaMethods &
+  BufferedAmountMethods &
   AckApi<TState> &
   ReplayApi<TState> &
   ChannelsMethods &
@@ -484,6 +495,7 @@ export type HandlerCtxFromState<TState extends ScopeStateShape> = SendApi<TState
 export type StreamBaseCtxFromState<TState extends ScopeStateShape> = SendApi<TState['outgoing']> &
   ConnectionIdentityMethods &
   ConnectionMetaMethods &
+  BufferedAmountMethods &
   ReplayApi<TState> &
   ChannelsMethods &
   ScopeExtras<TState['kind']>;

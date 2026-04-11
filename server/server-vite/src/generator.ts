@@ -500,6 +500,12 @@ ${indent} *
 ${indent} * This usually holds auth or session information for later handlers.
 ${indent} */`,
     `${indent}readonly meta: Record<string, unknown>;`,
+    `${indent}/**
+${indent} * The number of bytes still queued to be sent to this connection.
+${indent} *
+${indent} * This helps you spot backpressure when the network cannot keep up.
+${indent} */`,
+    `${indent}readonly bufferedAmount: number;`,
   ];
 
   if (parsed.enabledFactories.includes('_outgoing')) {
