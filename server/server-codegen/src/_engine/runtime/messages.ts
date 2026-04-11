@@ -703,33 +703,31 @@ export async function processTextMessage(
     return;
   }
 
-  if (parsed.event === 'ping') {
-    connection.descriptor.send(JSON.stringify({ event: 'pong' }));
-    return;
+  switch (parsed.event) {
+    case 'ping':
+      connection.descriptor.send(JSON.stringify({ event: 'pong' }));
+      return;
+    case '_subscribe':
+      await runtime.handleSubscribe(
+        connection,
+        parsed.payload as Record<string, unknown> | undefined,
+      );
+      return;
+    case '_unsubscribe':
+      await runtime.handleUnsubscribe(
+        connection,
+        parsed.payload as Record<string, unknown> | undefined,
+      );
+      return;
+    case '_streamCancel':
+      await StreamPrimitive.cancelStream(
+        runtime,
+        connection,
+        parsed.payload as Record<string, unknown> | undefined,
+      );
+      return;
   }
 
-  if (parsed.event === '_subscribe') {
-    await runtime.handleSubscribe(
-      connection,
-      parsed.payload as Record<string, unknown> | undefined,
-    );
-    return;
-  }
-  if (parsed.event === '_unsubscribe') {
-    await runtime.handleUnsubscribe(
-      connection,
-      parsed.payload as Record<string, unknown> | undefined,
-    );
-    return;
-  }
-  if (parsed.event === '_streamCancel') {
-    await StreamPrimitive.cancelStream(
-      runtime,
-      connection,
-      parsed.payload as Record<string, unknown> | undefined,
-    );
-    return;
-  }
   if (
     await StreamPrimitive.bufferStreamNudge(
       runtime,

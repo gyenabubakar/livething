@@ -35,20 +35,32 @@ function compileNamespace(
   };
 
   for (const child of primitive.primitives) {
-    if (child.__wskit === 'outgoing')
-      scope.outgoing.set(child.event, child as EngineCompileTypes.AnyOutgoing);
-    else if (child.__wskit === 'incoming')
-      scope.incoming.set(child.event, child as EngineCompileTypes.AnyIncoming);
-    else if (child.__wskit === 'request')
-      scope.requests.set(child.event, child as EngineCompileTypes.AnyRequest);
-    else if (child.__wskit === 'generate')
-      scope.streams.set(child.event, child as EngineCompileTypes.AnyGenerate);
-    else if (child.__wskit === 'intercept') {
-      const intercept = child as
-        | EngineCompileTypes.AnyPreIntercept
-        | EngineCompileTypes.AnyPostIntercept;
-      if (intercept.mode === 'pre') scope.preIntercepts.push(intercept);
-      else addPostIntercept(intercept.event, intercept, scope.postIntercepts);
+    switch (child.__wskit) {
+      case 'outgoing':
+        scope.outgoing.set(child.event, child as EngineCompileTypes.AnyOutgoing);
+        break;
+      case 'incoming':
+        scope.incoming.set(child.event, child as EngineCompileTypes.AnyIncoming);
+        break;
+      case 'request':
+        scope.requests.set(child.event, child as EngineCompileTypes.AnyRequest);
+        break;
+      case 'generate':
+        scope.streams.set(child.event, child as EngineCompileTypes.AnyGenerate);
+        break;
+      case 'intercept': {
+        const intercept = child as
+          | EngineCompileTypes.AnyPreIntercept
+          | EngineCompileTypes.AnyPostIntercept;
+
+        if (intercept.mode === 'pre') {
+          scope.preIntercepts.push(intercept);
+        } else {
+          addPostIntercept(intercept.event, intercept, scope.postIntercepts);
+        }
+
+        break;
+      }
     }
   }
 
@@ -75,20 +87,32 @@ function compileChannel(
   };
 
   for (const child of primitive.primitives) {
-    if (child.__wskit === 'outgoing')
-      scope.outgoing.set(child.event, child as EngineCompileTypes.AnyOutgoing);
-    else if (child.__wskit === 'incoming')
-      scope.incoming.set(child.event, child as EngineCompileTypes.AnyIncoming);
-    else if (child.__wskit === 'request')
-      scope.requests.set(child.event, child as EngineCompileTypes.AnyRequest);
-    else if (child.__wskit === 'generate')
-      scope.streams.set(child.event, child as EngineCompileTypes.AnyGenerate);
-    else if (child.__wskit === 'intercept') {
-      const intercept = child as
-        | EngineCompileTypes.AnyPreIntercept
-        | EngineCompileTypes.AnyPostIntercept;
-      if (intercept.mode === 'pre') scope.preIntercepts.push(intercept);
-      else addPostIntercept(intercept.event, intercept, scope.postIntercepts);
+    switch (child.__wskit) {
+      case 'outgoing':
+        scope.outgoing.set(child.event, child as EngineCompileTypes.AnyOutgoing);
+        break;
+      case 'incoming':
+        scope.incoming.set(child.event, child as EngineCompileTypes.AnyIncoming);
+        break;
+      case 'request':
+        scope.requests.set(child.event, child as EngineCompileTypes.AnyRequest);
+        break;
+      case 'generate':
+        scope.streams.set(child.event, child as EngineCompileTypes.AnyGenerate);
+        break;
+      case 'intercept': {
+        const intercept = child as
+          | EngineCompileTypes.AnyPreIntercept
+          | EngineCompileTypes.AnyPostIntercept;
+
+        if (intercept.mode === 'pre') {
+          scope.preIntercepts.push(intercept);
+        } else {
+          addPostIntercept(intercept.event, intercept, scope.postIntercepts);
+        }
+
+        break;
+      }
     }
   }
 

@@ -1150,142 +1150,133 @@ export function server<
   for (const [key, value] of Object.entries(factories)) {
     const publicName = key.startsWith('_') ? key.slice(1) : key;
 
-    if (publicName === 'incoming') {
-      bound.incoming = ((
-        event: ReceivedEvent<string, unknown>,
-        handler: IncomingHandler<any, any>,
-      ) => (value as (...args: any[]) => unknown)(event, handler)) as BoundIncomingFactory<
-        TName,
-        TFactories
-      >;
-      continue;
-    }
+    switch (publicName) {
+      case 'incoming':
+        bound.incoming = ((
+          event: ReceivedEvent<string, unknown>,
+          handler: IncomingHandler<any, any>,
+        ) => (value as (...args: any[]) => unknown)(event, handler)) as BoundIncomingFactory<
+          TName,
+          TFactories
+        >;
+        break;
 
-    if (publicName === 'request') {
-      bound.request = ((...args: any[]) => {
-        return (value as (...inner: any[]) => unknown)(...args);
-      }) as BoundRequestFactory<TName, TFactories>;
-      continue;
-    }
+      case 'request':
+        bound.request = ((...args: any[]) => {
+          return (value as (...inner: any[]) => unknown)(...args);
+        }) as BoundRequestFactory<TName, TFactories>;
+        break;
 
-    if (publicName === 'scheduled') {
-      bound.scheduled = ((...args: any[]) => {
-        return (value as (...inner: any[]) => unknown)(...args);
-      }) as BoundScheduledFactory;
-      continue;
-    }
+      case 'scheduled':
+        bound.scheduled = ((...args: any[]) => {
+          return (value as (...inner: any[]) => unknown)(...args);
+        }) as BoundScheduledFactory;
+        break;
 
-    if (publicName === 'intercept') {
-      bound.intercept = ((...args: any[]) => {
-        return (value as (...inner: any[]) => unknown)(...args);
-      }) as BoundInterceptFactory<TName, TFactories>;
-      continue;
-    }
+      case 'intercept':
+        bound.intercept = ((...args: any[]) => {
+          return (value as (...inner: any[]) => unknown)(...args);
+        }) as BoundInterceptFactory<TName, TFactories>;
+        break;
 
-    if (publicName === 'onInit') {
-      bound.onInit = ((handler: InitHandler<BoundInitContext>) => {
-        return (value as (inner: InitHandler<BoundInitContext>) => unknown)(handler);
-      }) as BoundOnInitFactory;
-      continue;
-    }
+      case 'onInit':
+        bound.onInit = ((handler: InitHandler<BoundInitContext>) => {
+          return (value as (inner: InitHandler<BoundInitContext>) => unknown)(handler);
+        }) as BoundOnInitFactory;
+        break;
 
-    if (publicName === 'onConnect') {
-      bound.onConnect = ((handler: ConnectHandler<BoundServerContext<TName, TFactories>>) => {
-        return (value as (inner: ConnectHandler<BoundServerContext<TName, TFactories>>) => unknown)(
-          handler,
-        );
-      }) as BoundOnConnectFactory<TName, TFactories>;
-      continue;
-    }
+      case 'onConnect':
+        bound.onConnect = ((handler: ConnectHandler<BoundServerContext<TName, TFactories>>) => {
+          return (
+            value as (inner: ConnectHandler<BoundServerContext<TName, TFactories>>) => unknown
+          )(handler);
+        }) as BoundOnConnectFactory<TName, TFactories>;
+        break;
 
-    if (publicName === 'onDisconnect') {
-      bound.onDisconnect = ((handler: DisconnectHandler<BoundServerContext<TName, TFactories>>) => {
-        return (
-          value as (inner: DisconnectHandler<BoundServerContext<TName, TFactories>>) => unknown
-        )(handler);
-      }) as BoundOnDisconnectFactory<TName, TFactories>;
-      continue;
-    }
+      case 'onDisconnect':
+        bound.onDisconnect = ((
+          handler: DisconnectHandler<BoundServerContext<TName, TFactories>>,
+        ) => {
+          return (
+            value as (inner: DisconnectHandler<BoundServerContext<TName, TFactories>>) => unknown
+          )(handler);
+        }) as BoundOnDisconnectFactory<TName, TFactories>;
+        break;
 
-    if (publicName === 'onShutdown') {
-      bound.onShutdown = ((handler: ShutdownHandler<BoundShutdownContext>) => {
-        return (value as (inner: ShutdownHandler<BoundShutdownContext>) => unknown)(handler);
-      }) as BoundOnShutdownFactory;
-      continue;
-    }
+      case 'onShutdown':
+        bound.onShutdown = ((handler: ShutdownHandler<BoundShutdownContext>) => {
+          return (value as (inner: ShutdownHandler<BoundShutdownContext>) => unknown)(handler);
+        }) as BoundOnShutdownFactory;
+        break;
 
-    if (publicName === 'onError') {
-      bound.onError = ((handler: ErrorHandler<BoundServerContext<TName, TFactories>>) => {
-        return (value as (inner: ErrorHandler<BoundServerContext<TName, TFactories>>) => unknown)(
-          handler,
-        );
-      }) as BoundOnErrorFactory<TName, TFactories>;
-      continue;
-    }
+      case 'onError':
+        bound.onError = ((handler: ErrorHandler<BoundServerContext<TName, TFactories>>) => {
+          return (value as (inner: ErrorHandler<BoundServerContext<TName, TFactories>>) => unknown)(
+            handler,
+          );
+        }) as BoundOnErrorFactory<TName, TFactories>;
+        break;
 
-    if (publicName === 'onUpgrade') {
-      bound.onUpgrade = ((handler: UpgradeHandler) => {
-        return (value as (inner: UpgradeHandler) => unknown)(handler);
-      }) as BoundOnUpgradeFactory;
-      continue;
-    }
+      case 'onUpgrade':
+        bound.onUpgrade = ((handler: UpgradeHandler) => {
+          return (value as (inner: UpgradeHandler) => unknown)(handler);
+        }) as BoundOnUpgradeFactory;
+        break;
 
-    if (publicName === 'onBinary') {
-      bound.onBinary = ((handler: BinaryHandler<BoundServerContext<TName, TFactories>>) => {
-        return (value as (inner: BinaryHandler<BoundServerContext<TName, TFactories>>) => unknown)(
-          handler,
-        );
-      }) as BoundOnBinaryFactory<TName, TFactories>;
-      continue;
-    }
+      case 'onBinary':
+        bound.onBinary = ((handler: BinaryHandler<BoundServerContext<TName, TFactories>>) => {
+          return (
+            value as (inner: BinaryHandler<BoundServerContext<TName, TFactories>>) => unknown
+          )(handler);
+        }) as BoundOnBinaryFactory<TName, TFactories>;
+        break;
 
-    if (publicName === 'onValidationError') {
-      bound.onValidationError = ((
-        handler: ValidationErrorHandler<BoundServerContext<TName, TFactories>>,
-      ) => {
-        return (
-          value as (inner: ValidationErrorHandler<BoundServerContext<TName, TFactories>>) => unknown
-        )(handler);
-      }) as BoundOnValidationErrorFactory<TName, TFactories>;
-      continue;
-    }
+      case 'onValidationError':
+        bound.onValidationError = ((
+          handler: ValidationErrorHandler<BoundServerContext<TName, TFactories>>,
+        ) => {
+          return (
+            value as (
+              inner: ValidationErrorHandler<BoundServerContext<TName, TFactories>>,
+            ) => unknown
+          )(handler);
+        }) as BoundOnValidationErrorFactory<TName, TFactories>;
+        break;
 
-    if (publicName === 'onBeforeSubscribe') {
-      bound.onBeforeSubscribe = ((...args: any[]) => {
-        return (value as (...inner: any[]) => unknown)(...args);
-      }) as BoundOnBeforeSubscribeFactory<TName, TFactories>;
-      continue;
-    }
+      case 'onBeforeSubscribe':
+        bound.onBeforeSubscribe = ((...args: any[]) => {
+          return (value as (...inner: any[]) => unknown)(...args);
+        }) as BoundOnBeforeSubscribeFactory<TName, TFactories>;
+        break;
 
-    if (publicName === 'onSubscribe') {
-      bound.onSubscribe = ((handler: SubscribeHandler<any>) => {
-        return (value as (inner: SubscribeHandler<any>) => unknown)(handler);
-      }) as BoundOnSubscribeFactory<TName, TFactories>;
-      continue;
-    }
+      case 'onSubscribe':
+        bound.onSubscribe = ((handler: SubscribeHandler<any>) => {
+          return (value as (inner: SubscribeHandler<any>) => unknown)(handler);
+        }) as BoundOnSubscribeFactory<TName, TFactories>;
+        break;
 
-    if (publicName === 'onUnsubscribe') {
-      bound.onUnsubscribe = ((handler: UnsubscribeHandler<any>) => {
-        return (value as (inner: UnsubscribeHandler<any>) => unknown)(handler);
-      }) as BoundOnUnsubscribeFactory<TName, TFactories>;
-      continue;
-    }
+      case 'onUnsubscribe':
+        bound.onUnsubscribe = ((handler: UnsubscribeHandler<any>) => {
+          return (value as (inner: UnsubscribeHandler<any>) => unknown)(handler);
+        }) as BoundOnUnsubscribeFactory<TName, TFactories>;
+        break;
 
-    if (publicName === 'namespace') {
-      bound.namespace = ((...args: any[]) => {
-        return (value as (...inner: any[]) => unknown)(...args);
-      }) as BoundNamespaceFactory<TName, TFactories>;
-      continue;
-    }
+      case 'namespace':
+        bound.namespace = ((...args: any[]) => {
+          return (value as (...inner: any[]) => unknown)(...args);
+        }) as BoundNamespaceFactory<TName, TFactories>;
+        break;
 
-    if (publicName === 'channel') {
-      bound.channel = ((...args: any[]) => {
-        return (value as (...inner: any[]) => unknown)(...args);
-      }) as BoundChannelFactory<TName, TFactories>;
-      continue;
-    }
+      case 'channel':
+        bound.channel = ((...args: any[]) => {
+          return (value as (...inner: any[]) => unknown)(...args);
+        }) as BoundChannelFactory<TName, TFactories>;
+        break;
 
-    bound[publicName] = value;
+      default:
+        bound[publicName] = value;
+        break;
+    }
   }
 
   if (!('onBeforeSubscribe' in bound)) {
