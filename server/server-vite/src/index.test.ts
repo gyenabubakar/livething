@@ -49,6 +49,7 @@ describe('wskit codegen parser', () => {
     expect(output).toContain('"alert": { level: string };');
     expect(output).toContain('ack(): void;');
     expect(output).toContain('readonly id: string;');
+    expect(output).toContain('readonly meta: Record<string, unknown>;');
     expect(output).toContain('send(event: "message", payload: { text: string }): void;');
     expect(output).toContain('broadcast(event: "alert", payload: { level: string }): void;');
   });
@@ -90,6 +91,7 @@ describe('wskit codegen parser', () => {
 
     const output = generateWskitDeclarationText(parsed);
     expect(output).toContain('readonly id: string;');
+    expect(output).toContain('readonly meta: Record<string, unknown>;');
     expect(output).toContain(
       'schedule(taskId: "cleanup-sessions", options: { time: number; data?: unknown }): void;',
     );
@@ -176,6 +178,7 @@ describe('wskit codegen parser', () => {
     expect(output).toContain('"general"');
     expect(output).toContain('"typing": { userId: string };');
     expect(output).toContain('readonly id: string;');
+    expect(output).toContain('readonly meta: Record<string, unknown>;');
     expect(output).toContain('namespace: {');
     expect(output).toContain('name: "notifications";');
     expect(output).toContain('send(event: "alert", payload: { id: string }): void;');

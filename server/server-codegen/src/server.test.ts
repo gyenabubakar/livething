@@ -22,6 +22,7 @@ declare global {
     chat: {
       ctx: {
         id: string;
+        meta: Record<string, unknown>;
         send(event: 'message', payload: { text: string }): void;
         broadcast(event: 'message', payload: { text: string }): void;
         ack(): void;
@@ -32,12 +33,14 @@ declare global {
       incomingContexts: {
         'send-message': {
           id: string;
+          meta: Record<string, unknown>;
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
         };
         dismiss: {
           id: string;
+          meta: Record<string, unknown>;
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -49,6 +52,7 @@ declare global {
         };
         'start-typing': {
           id: string;
+          meta: Record<string, unknown>;
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -67,6 +71,7 @@ declare global {
       requestContexts: {
         'get-status': {
           id: string;
+          meta: Record<string, unknown>;
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -75,12 +80,14 @@ declare global {
       postInterceptContexts: {
         'send-message': {
           id: string;
+          meta: Record<string, unknown>;
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
         };
         dismiss: {
           id: string;
+          meta: Record<string, unknown>;
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -92,6 +99,7 @@ declare global {
         };
         'start-typing': {
           id: string;
+          meta: Record<string, unknown>;
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -111,6 +119,7 @@ declare global {
         notifications: {
           ctx: {
             id: string;
+            meta: Record<string, unknown>;
             send(event: 'message', payload: { text: string }): void;
             broadcast(event: 'message', payload: { text: string }): void;
             ack(): void;
@@ -126,6 +135,7 @@ declare global {
         rooms: {
           ctx: {
             id: string;
+            meta: Record<string, unknown>;
             send(event: 'message', payload: { text: string }): void;
             broadcast(event: 'message', payload: { text: string }): void;
             ack(): void;
@@ -146,6 +156,7 @@ declare global {
     'chat-scheduled': {
       ctx: {
         id: string;
+        meta: Record<string, unknown>;
         schedule(
           taskId: 'expire-hold',
           options: { time: number; data?: { orderId: string } },
@@ -155,6 +166,7 @@ declare global {
       incomingContexts: {
         'place-order': {
           id: string;
+          meta: Record<string, unknown>;
           schedule(
             taskId: 'expire-hold',
             options: { time: number; data?: { orderId: string } },
@@ -180,7 +192,9 @@ const directCapabilities = define(
     received('send-message', (value: unknown) => value as { text: string }),
     async (ctx, payload) => {
       const _id: string = ctx.id;
+      const _meta: Record<string, unknown> = ctx.meta;
       void _id;
+      void _meta;
 
       ctx.ack();
       ctx.send('message', payload);
@@ -217,7 +231,9 @@ const scheduledCapabilities = scheduledDefine(
     received('place-order', (value: unknown) => value as { orderId: string }),
     async (ctx, payload) => {
       const _id: string = ctx.id;
+      const _meta: Record<string, unknown> = ctx.meta;
       void _id;
+      void _meta;
 
       ctx.schedule('expire-hold', {
         time: Date.now(),

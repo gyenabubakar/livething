@@ -494,6 +494,12 @@ ${indent} *
 ${indent} * You can store this when you need to target this exact client later.
 ${indent} */`,
     `${indent}readonly id: string;`,
+    `${indent}/**
+${indent} * Metadata attached to this connection during the websocket upgrade step.
+${indent} *
+${indent} * This usually holds auth or session information for later handlers.
+${indent} */`,
+    `${indent}readonly meta: Record<string, unknown>;`,
   ];
 
   if (parsed.enabledFactories.includes('_outgoing')) {

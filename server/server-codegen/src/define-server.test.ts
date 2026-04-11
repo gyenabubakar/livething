@@ -41,8 +41,10 @@ const withAck = defineServer(
     async (ctx, payload) => {
       const _text: string = payload.text;
       const _id: string = ctx.id;
+      const _meta: Record<string, unknown> = ctx.meta;
       void _text;
       void _id;
+      void _meta;
 
       ctx.send('message', { text: payload.text });
       ctx.broadcast('alert', { level: 'info' });
@@ -129,7 +131,9 @@ const withoutAck = defineServer(
     received('ping', (value: unknown) => value as { text: string }),
     async (ctx, payload) => {
       const _id: string = ctx.id;
+      const _meta: Record<string, unknown> = ctx.meta;
       void _id;
+      void _meta;
 
       ctx.send('message', { text: payload.text });
 
@@ -156,7 +160,9 @@ const withErrors = defineServer(
     received('send-with-errors', (value: unknown) => value as { text: string }),
     async (ctx, payload) => {
       const _id: string = ctx.id;
+      const _meta: Record<string, unknown> = ctx.meta;
       void _id;
+      void _meta;
 
       ctx.send('message', { text: payload.text });
       ctx.broadcast('alert', { level: 'warn' });
@@ -221,7 +227,9 @@ const withIntercept = defineServer(
       message: InterceptMessage,
     ) => {
       const _id: string = ctx.id;
+      const _meta: Record<string, unknown> = ctx.meta;
       void _id;
+      void _meta;
 
       ctx.send('message', { text: 'seen' });
       ctx.ack();

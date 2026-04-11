@@ -244,6 +244,15 @@ type ConnectionIdentityApi = {
   readonly id: string;
 };
 
+type ConnectionMetaApi = {
+  /**
+   * Metadata attached to this connection during the websocket upgrade step.
+   *
+   * This is commonly used for things like user IDs or session details.
+   */
+  readonly meta: Record<string, unknown>;
+};
+
 type ExactSendApi<TOutgoing extends Record<string, unknown>> = keyof TOutgoing extends never
   ? {}
   : {
@@ -305,6 +314,7 @@ export type BoundServerContext<
 > = (HasRegisteredCtx<TName> extends true
   ? RegisteredCtx<TName>
   : ConnectionIdentityApi &
+      ConnectionMetaApi &
       SendApi<TName, TFactories> &
       AckApi<TFactories> &
       ReplayApi<TName, TFactories>) &

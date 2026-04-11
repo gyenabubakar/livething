@@ -370,6 +370,16 @@ export interface ConnectionIdentityMethods {
   readonly id: ConnectionContext['id'];
 }
 
+export interface ConnectionMetaMethods {
+  /**
+   * Per-connection metadata attached during the websocket upgrade step.
+   *
+   * This is where auth or session information usually lives for later
+   * handlers to read.
+   */
+  readonly meta: ConnectionContext['meta'];
+}
+
 export interface AckMethods {
   /**
    * Confirm receipt of the current incoming message.
@@ -459,6 +469,7 @@ type ScopeExtras<TKind extends ScopeKind> = TKind extends 'namespace'
  */
 export type HandlerCtxFromState<TState extends ScopeStateShape> = SendApi<TState['outgoing']> &
   ConnectionIdentityMethods &
+  ConnectionMetaMethods &
   AckApi<TState> &
   ReplayApi<TState> &
   ChannelsMethods &
@@ -472,6 +483,7 @@ export type HandlerCtxFromState<TState extends ScopeStateShape> = SendApi<TState
  */
 export type StreamBaseCtxFromState<TState extends ScopeStateShape> = SendApi<TState['outgoing']> &
   ConnectionIdentityMethods &
+  ConnectionMetaMethods &
   ReplayApi<TState> &
   ChannelsMethods &
   ScopeExtras<TState['kind']>;
