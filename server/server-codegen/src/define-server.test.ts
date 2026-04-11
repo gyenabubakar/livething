@@ -43,10 +43,12 @@ const withAck = defineServer(
       const _id: string = ctx.id;
       const _meta: Record<string, unknown> = ctx.meta;
       const _bufferedAmount: number = ctx.bufferedAmount;
+      const _latency: number | null = ctx.latency;
       void _text;
       void _id;
       void _meta;
       void _bufferedAmount;
+      void _latency;
 
       ctx.send('message', { text: payload.text });
       ctx.broadcast('alert', { level: 'info' });
@@ -135,9 +137,11 @@ const withoutAck = defineServer(
       const _id: string = ctx.id;
       const _meta: Record<string, unknown> = ctx.meta;
       const _bufferedAmount: number = ctx.bufferedAmount;
+      const _latency: number | null = ctx.latency;
       void _id;
       void _meta;
       void _bufferedAmount;
+      void _latency;
 
       ctx.send('message', { text: payload.text });
 
@@ -166,9 +170,11 @@ const withErrors = defineServer(
       const _id: string = ctx.id;
       const _meta: Record<string, unknown> = ctx.meta;
       const _bufferedAmount: number = ctx.bufferedAmount;
+      const _latency: number | null = ctx.latency;
       void _id;
       void _meta;
       void _bufferedAmount;
+      void _latency;
 
       ctx.send('message', { text: payload.text });
       ctx.broadcast('alert', { level: 'warn' });
@@ -235,9 +241,11 @@ const withIntercept = defineServer(
       const _id: string = ctx.id;
       const _meta: Record<string, unknown> = ctx.meta;
       const _bufferedAmount: number = ctx.bufferedAmount;
+      const _latency: number | null = ctx.latency;
       void _id;
       void _meta;
       void _bufferedAmount;
+      void _latency;
 
       ctx.send('message', { text: 'seen' });
       ctx.ack();

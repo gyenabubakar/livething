@@ -24,6 +24,7 @@ declare global {
         id: string;
         meta: Record<string, unknown>;
         bufferedAmount: number;
+        latency: number | null;
         send(event: 'message', payload: { text: string }): void;
         broadcast(event: 'message', payload: { text: string }): void;
         ack(): void;
@@ -36,6 +37,7 @@ declare global {
           id: string;
           meta: Record<string, unknown>;
           bufferedAmount: number;
+          latency: number | null;
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -44,6 +46,7 @@ declare global {
           id: string;
           meta: Record<string, unknown>;
           bufferedAmount: number;
+          latency: number | null;
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -57,6 +60,7 @@ declare global {
           id: string;
           meta: Record<string, unknown>;
           bufferedAmount: number;
+          latency: number | null;
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -77,6 +81,7 @@ declare global {
           id: string;
           meta: Record<string, unknown>;
           bufferedAmount: number;
+          latency: number | null;
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -87,6 +92,7 @@ declare global {
           id: string;
           meta: Record<string, unknown>;
           bufferedAmount: number;
+          latency: number | null;
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -95,6 +101,7 @@ declare global {
           id: string;
           meta: Record<string, unknown>;
           bufferedAmount: number;
+          latency: number | null;
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -108,6 +115,7 @@ declare global {
           id: string;
           meta: Record<string, unknown>;
           bufferedAmount: number;
+          latency: number | null;
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -129,6 +137,7 @@ declare global {
             id: string;
             meta: Record<string, unknown>;
             bufferedAmount: number;
+            latency: number | null;
             send(event: 'message', payload: { text: string }): void;
             broadcast(event: 'message', payload: { text: string }): void;
             ack(): void;
@@ -146,6 +155,7 @@ declare global {
             id: string;
             meta: Record<string, unknown>;
             bufferedAmount: number;
+            latency: number | null;
             send(event: 'message', payload: { text: string }): void;
             broadcast(event: 'message', payload: { text: string }): void;
             ack(): void;
@@ -168,6 +178,7 @@ declare global {
         id: string;
         meta: Record<string, unknown>;
         bufferedAmount: number;
+        latency: number | null;
         schedule(
           taskId: 'expire-hold',
           options: { time: number; data?: { orderId: string } },
@@ -179,6 +190,7 @@ declare global {
           id: string;
           meta: Record<string, unknown>;
           bufferedAmount: number;
+          latency: number | null;
           schedule(
             taskId: 'expire-hold',
             options: { time: number; data?: { orderId: string } },
@@ -206,9 +218,11 @@ const directCapabilities = define(
       const _id: string = ctx.id;
       const _meta: Record<string, unknown> = ctx.meta;
       const _bufferedAmount: number = ctx.bufferedAmount;
+      const _latency: number | null = ctx.latency;
       void _id;
       void _meta;
       void _bufferedAmount;
+      void _latency;
 
       ctx.ack();
       ctx.send('message', payload);
@@ -247,9 +261,11 @@ const scheduledCapabilities = scheduledDefine(
       const _id: string = ctx.id;
       const _meta: Record<string, unknown> = ctx.meta;
       const _bufferedAmount: number = ctx.bufferedAmount;
+      const _latency: number | null = ctx.latency;
       void _id;
       void _meta;
       void _bufferedAmount;
+      void _latency;
 
       ctx.schedule('expire-hold', {
         time: Date.now(),

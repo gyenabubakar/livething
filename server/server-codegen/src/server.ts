@@ -263,6 +263,15 @@ type BufferedAmountApi = {
   readonly bufferedAmount: number;
 };
 
+type LatencyApi = {
+  /**
+   * The latest measured round-trip latency for this connection in milliseconds.
+   *
+   * This stays `null` until wskit has enough ping/pong data to measure it.
+   */
+  readonly latency: number | null;
+};
+
 type ExactSendApi<TOutgoing extends Record<string, unknown>> = keyof TOutgoing extends never
   ? {}
   : {
@@ -326,6 +335,7 @@ export type BoundServerContext<
   : ConnectionIdentityApi &
       ConnectionMetaApi &
       BufferedAmountApi &
+      LatencyApi &
       SendApi<TName, TFactories> &
       AckApi<TFactories> &
       ReplayApi<TName, TFactories>) &

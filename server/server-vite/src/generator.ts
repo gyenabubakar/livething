@@ -506,6 +506,12 @@ ${indent} *
 ${indent} * This helps you spot backpressure when the network cannot keep up.
 ${indent} */`,
     `${indent}readonly bufferedAmount: number;`,
+    `${indent}/**
+${indent} * The latest measured round-trip latency for this connection in milliseconds.
+${indent} *
+${indent} * This stays null until wskit has enough ping/pong data to measure it.
+${indent} */`,
+    `${indent}readonly latency: number | null;`,
   ];
 
   if (parsed.enabledFactories.includes('_outgoing')) {

@@ -390,6 +390,15 @@ export interface BufferedAmountMethods {
   readonly bufferedAmount: ConnectionContext['bufferedAmount'];
 }
 
+export interface LatencyMethods {
+  /**
+   * The latest measured round-trip latency for this connection in milliseconds.
+   *
+   * This is `null` until wskit has enough ping/pong data to measure it.
+   */
+  readonly latency: ConnectionContext['latency'];
+}
+
 export interface AckMethods {
   /**
    * Confirm receipt of the current incoming message.
@@ -481,6 +490,7 @@ export type HandlerCtxFromState<TState extends ScopeStateShape> = SendApi<TState
   ConnectionIdentityMethods &
   ConnectionMetaMethods &
   BufferedAmountMethods &
+  LatencyMethods &
   AckApi<TState> &
   ReplayApi<TState> &
   ChannelsMethods &
@@ -496,6 +506,7 @@ export type StreamBaseCtxFromState<TState extends ScopeStateShape> = SendApi<TSt
   ConnectionIdentityMethods &
   ConnectionMetaMethods &
   BufferedAmountMethods &
+  LatencyMethods &
   ReplayApi<TState> &
   ChannelsMethods &
   ScopeExtras<TState['kind']>;
