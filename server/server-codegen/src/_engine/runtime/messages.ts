@@ -1,42 +1,34 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { Block, Skip } from '@wskit/core';
-import {
-  isIncomingProtocolEvent,
-  isProtocolEvent,
-  prefixedModuleEvent,
-  validateValue,
-} from '~/_engine/compile/utils.ts';
+import * as EngineCompileUtils from '~/_engine/compile/utils.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import * as ErrorsPrimitive from '~/errors.ts';
 import * as HeartbeatPrimitive from '~/heartbeat/runtime.ts';
 import * as InterceptPrimitive from '~/intercept/runtime.ts';
 import * as RequestPrimitive from '~/request/runtime.ts';
 import * as StreamPrimitive from '~/stream/runtime.ts';
-import type { CompiledChannel, CompiledServer } from '~/_engine/compile/types.ts';
-import type { BroadcastOptions, ConnectionInfo, TimerProvider } from '~/index.ts';
-import type {
-  ActiveStream,
-  ConnectionMembersRuntime,
-  IncomingProtocolEvent,
-  ModuleRuntime,
-  ResolvedScope,
-  RoutingTarget,
-  RuntimeConnection,
-  WireOutgoingMessage,
-} from './types.ts';
+import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
+import type * as PublicApi from '~/index.ts';
+import type * as EngineRuntimeTypes from './types.ts';
+
+type CompiledServer = EngineCompileTypes.CompiledServer;
+type ConnectionMembersRuntime = EngineRuntimeTypes.ConnectionMembersRuntime;
+type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
 
 /**
  * Minimal dependency bag for outgoing message helpers.
  */
 interface OutgoingRuntime {
-  compiled: CompiledServer;
-  moduleRuntimes: readonly ModuleRuntime[];
+  compiled: EngineCompileTypes.CompiledServer;
+  moduleRuntimes: readonly EngineRuntimeTypes.ModuleRuntime[];
   outgoingHooks: readonly ((message: {
     event: string;
     payload: unknown;
   }) => { event: string; payload: unknown } | void)[];
-  beforeSendHooks: readonly ((message: WireOutgoingMessage) => void)[];
-  afterSendHooks: readonly ((message: WireOutgoingMessage) => void | Promise<void>)[];
+  beforeSendHooks: readonly ((message: EngineRuntimeTypes.WireOutgoingMessage) => void)[];
+  afterSendHooks: readonly ((
+    message: EngineRuntimeTypes.WireOutgoingMessage,
+  ) => void | Promise<void>)[];
   waitUntil(promise: Promise<unknown>): void;
   logger: {
     warn(message: string, data?: unknown): void;
@@ -48,10 +40,10 @@ interface OutgoingRuntime {
 /**
  * Larger dependency bag for inbound message dispatch.
  */
-interface DispatchRuntime extends OutgoingRuntime, ConnectionMembersRuntime {
-  activeStreams: Map<string, ActiveStream>;
+interface DispatchRuntime extends OutgoingRuntime, EngineRuntimeTypes.ConnectionMembersRuntime {
+  activeStreams: Map<string, EngineRuntimeTypes.ActiveStream>;
   protocolHandlers: ReadonlyMap<
-    IncomingProtocolEvent,
+    EngineRuntimeTypes.IncomingProtocolEvent,
     readonly ((
       ctx: any,
       payload: Record<string, unknown> | undefined,
@@ -62,44 +54,44 @@ interface DispatchRuntime extends OutgoingRuntime, ConnectionMembersRuntime {
     payload: unknown;
   }) => { event: string; payload: unknown } | void)[];
   errorHooks: readonly ((ctx: any, error: unknown, event?: string) => void | Promise<void>)[];
-  requireTimers(): TimerProvider;
+  requireTimers(): PublicApi.TimerProvider;
   buildConnectionContext(
-    connection: RuntimeConnection,
-    scope?: ResolvedScope,
+    connection: EngineRuntimeTypes.RuntimeConnection,
+    scope?: EngineRuntimeTypes.ResolvedScope,
   ): Record<PropertyKey, unknown>;
   sendProtocolMessage(
-    connection: RuntimeConnection,
+    connection: EngineRuntimeTypes.RuntimeConnection,
     event: string,
     payload: Record<string, unknown>,
   ): void;
   sendReplay(
-    connection: RuntimeConnection,
+    connection: EngineRuntimeTypes.RuntimeConnection,
     channelName: string | undefined,
     channelScope: string | undefined,
     event: string,
     payload: unknown,
     wire: { seq: number; messageId: string; channel?: string },
   ): void;
-  persistAttachment(connection: RuntimeConnection): void;
+  persistAttachment(connection: EngineRuntimeTypes.RuntimeConnection): void;
   setActiveConnectionId(id?: string): void;
   handleRuntimeError(
-    connection: RuntimeConnection,
+    connection: EngineRuntimeTypes.RuntimeConnection,
     error: unknown,
     event?: string,
     routing?: Record<string, unknown>,
   ): Promise<void>;
   handleValidationError(
-    connection: RuntimeConnection,
+    connection: EngineRuntimeTypes.RuntimeConnection,
     event: string,
     validationError: unknown,
-    scope?: ResolvedScope,
+    scope?: EngineRuntimeTypes.ResolvedScope,
   ): Promise<void>;
   handleSubscribe(
-    connection: RuntimeConnection,
+    connection: EngineRuntimeTypes.RuntimeConnection,
     payload: Record<string, unknown> | undefined,
   ): Promise<void>;
   handleUnsubscribe(
-    connection: RuntimeConnection,
+    connection: EngineRuntimeTypes.RuntimeConnection,
     payload: Record<string, unknown> | undefined,
   ): Promise<void>;
 }
@@ -107,7 +99,7 @@ interface DispatchRuntime extends OutgoingRuntime, ConnectionMembersRuntime {
 /**
  * Dependency bag for channel subscribe/unsubscribe helpers.
  */
-interface ChannelRuntime extends ConnectionMembersRuntime {
+interface ChannelRuntime extends EngineRuntimeTypes.ConnectionMembersRuntime {
   beforeSubscribeHooks: ReadonlyMap<
     string,
     readonly { handler: (ctx: any, data?: unknown) => void | Promise<void>; validator?: unknown }[]
@@ -115,12 +107,12 @@ interface ChannelRuntime extends ConnectionMembersRuntime {
   subscribeHooks: ReadonlyMap<string, readonly ((ctx: any) => void | Promise<void>)[]>;
   unsubscribeHooks: ReadonlyMap<string, readonly ((ctx: any) => void | Promise<void>)[]>;
   buildConnectionContext(
-    connection: RuntimeConnection,
-    scope?: ResolvedScope,
+    connection: EngineRuntimeTypes.RuntimeConnection,
+    scope?: EngineRuntimeTypes.ResolvedScope,
   ): Record<PropertyKey, unknown>;
-  persistAttachment(connection: RuntimeConnection): void;
+  persistAttachment(connection: EngineRuntimeTypes.RuntimeConnection): void;
   sendProtocolMessage(
-    connection: RuntimeConnection,
+    connection: EngineRuntimeTypes.RuntimeConnection,
     event: string,
     payload: Record<string, unknown>,
   ): void;
@@ -132,17 +124,20 @@ interface ChannelRuntime extends ConnectionMembersRuntime {
     channelScope?: string,
   ): void;
   handleValidationError(
-    connection: RuntimeConnection,
+    connection: EngineRuntimeTypes.RuntimeConnection,
     event: string,
     validationError: unknown,
-    scope?: ResolvedScope,
+    scope?: EngineRuntimeTypes.ResolvedScope,
   ): Promise<void>;
 }
 
 /**
  * Read routing markers from an incoming payload and resolve the active scope.
  */
-export function resolveScope(compiled: CompiledServer, payload: unknown): ResolvedScope {
+export function resolveScope(
+  compiled: EngineCompileTypes.CompiledServer,
+  payload: unknown,
+): EngineRuntimeTypes.ResolvedScope {
   if (!payload || typeof payload !== 'object') return {};
   const record = payload as Record<string, unknown>;
 
@@ -173,7 +168,7 @@ export function resolveScope(compiled: CompiledServer, payload: unknown): Resolv
 function isDeclaredModuleEvent(compiled: CompiledServer, event: string): boolean {
   for (const moduleInstance of compiled.modules) {
     for (const declaration of moduleInstance.outgoing) {
-      if (prefixedModuleEvent(moduleInstance.id, declaration.event) === event) {
+      if (EngineCompileUtils.prefixedModuleEvent(moduleInstance.id, declaration.event) === event) {
         return true;
       }
     }
@@ -183,12 +178,12 @@ function isDeclaredModuleEvent(compiled: CompiledServer, event: string): boolean
 }
 
 function isDeclaredOutgoingEvent(
-  compiled: CompiledServer,
+  compiled: EngineCompileTypes.CompiledServer,
   event: string,
-  routing?: RoutingTarget,
+  routing?: EngineRuntimeTypes.RoutingTarget,
 ): boolean {
   if (event.startsWith('__')) return isDeclaredModuleEvent(compiled, event);
-  if (isProtocolEvent(event)) return true;
+  if (EngineCompileUtils.isProtocolEvent(event)) return true;
 
   if (routing?.namespace) {
     const namespace = compiled.namespaces.get(routing.namespace);
@@ -240,8 +235,8 @@ function assertNoNewReservedPayloadFields(
  */
 export function sendThroughPipeline(
   runtime: OutgoingRuntime,
-  connection: RuntimeConnection,
-  routing: RoutingTarget | undefined,
+  connection: EngineRuntimeTypes.RuntimeConnection,
+  routing: EngineRuntimeTypes.RoutingTarget | undefined,
   event: string,
   payload: unknown,
 ): boolean {
@@ -285,7 +280,7 @@ export function sendThroughPipeline(
   if (routing?.correlationId) finalPayload._correlationId = routing.correlationId;
   if (routing?.streamId) finalPayload._streamId = routing.streamId;
 
-  const wireMessage: WireOutgoingMessage = {
+  const wireMessage: EngineRuntimeTypes.WireOutgoingMessage = {
     connectionId: connection.id,
     event: message.event,
     payload: finalPayload,
@@ -331,10 +326,10 @@ export function broadcastToConnections(
     | 'outgoingHooks'
     | 'waitUntil'
   >,
-  connections: readonly RuntimeConnection[],
+  connections: readonly EngineRuntimeTypes.RuntimeConnection[],
   event: string,
   payload: unknown,
-  options?: BroadcastOptions & { namespace?: string },
+  options?: PublicApi.BroadcastOptions & { namespace?: string },
   excludeConnectionId?: string,
 ): void {
   for (const connection of connections) {
@@ -394,9 +389,9 @@ export function broadcastToChannel(
  * Return the current public member snapshot for a channel.
  */
 export function getChannelMembers(
-  runtime: ConnectionMembersRuntime,
+  runtime: EngineRuntimeTypes.ConnectionMembersRuntime,
   channelName: string,
-): ConnectionInfo<Record<string, unknown>>[] {
+): PublicApi.ConnectionInfo<Record<string, unknown>>[] {
   return [...runtime.connections.values()]
     .filter((connection) => connection.channels.has(channelName))
     .map((connection) => runtime.toConnectionInfo(connection));
@@ -422,8 +417,12 @@ export function kickChannelMembers(
       | 'waitUntil'
     > & {
       leaveChannel(
-        connection: RuntimeConnection,
-        scope: { channel?: CompiledChannel; channelName: string; channelScope?: string },
+        connection: EngineRuntimeTypes.RuntimeConnection,
+        scope: {
+          channel?: EngineCompileTypes.CompiledChannel;
+          channelName: string;
+          channelScope?: string;
+        },
         kickedReason?: string,
       ): Promise<void>;
     },
@@ -450,7 +449,7 @@ export async function handleSubscribe(
       | 'outgoingHooks'
       | 'waitUntil'
     >,
-  connection: RuntimeConnection,
+  connection: EngineRuntimeTypes.RuntimeConnection,
   payload: Record<string, unknown> | undefined,
 ): Promise<void> {
   await ChannelPrimitive.subscribeConnection(
@@ -489,11 +488,15 @@ export async function handleUnsubscribe(
       | 'waitUntil'
     > & {
       leaveChannel(
-        connection: RuntimeConnection,
-        scope: { channel?: CompiledChannel; channelName: string; channelScope?: string },
+        connection: EngineRuntimeTypes.RuntimeConnection,
+        scope: {
+          channel?: EngineCompileTypes.CompiledChannel;
+          channelName: string;
+          channelScope?: string;
+        },
       ): Promise<void>;
     },
-  connection: RuntimeConnection,
+  connection: EngineRuntimeTypes.RuntimeConnection,
   payload: Record<string, unknown> | undefined,
 ): Promise<void> {
   await ChannelPrimitive.unsubscribeConnection(runtime, connection, payload);
@@ -507,7 +510,7 @@ export async function handleUnsubscribe(
  */
 export async function dispatchIncoming(
   runtime: DispatchRuntime,
-  connection: RuntimeConnection,
+  connection: EngineRuntimeTypes.RuntimeConnection,
   event: string,
   rawPayload: unknown,
   attempt = 0,
@@ -571,7 +574,7 @@ export async function dispatchIncoming(
 
     let payload: unknown;
     try {
-      payload = validateValue(
+      payload = EngineCompileUtils.validateValue(
         'stream' in primitive ? primitive.stream.validator : primitive.validator,
         message.payload,
         event,
@@ -645,7 +648,11 @@ export async function dispatchIncoming(
       if (attempt >= 3) {
         await runtime.handleRuntimeError(
           connection,
-          ErrorsPrimitive.DeferExhausted({ event, payload: rawPayload, retries: attempt + 1 }),
+          ErrorsPrimitive.DeferExhausted({
+            event,
+            payload: rawPayload,
+            retries: attempt + 1,
+          }),
           event,
         );
         return;
@@ -732,7 +739,7 @@ export async function processTextMessage(
     return;
   }
 
-  if (isIncomingProtocolEvent(parsed.event)) {
+  if (EngineCompileUtils.isIncomingProtocolEvent(parsed.event)) {
     const handlers = runtime.protocolHandlers.get(parsed.event) ?? [];
     const scope = resolveScope(runtime.compiled, parsed.payload);
     const ctx = runtime.buildConnectionContext(connection, scope);

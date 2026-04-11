@@ -1,5 +1,5 @@
-import type { Engine } from '~/_engine/engine.ts';
-import type { ServerDefinition } from '~/define-server.ts';
+import type * as EngineModule from '~/_engine/engine.ts';
+import type * as DefineServer from '~/define-server.ts';
 
 /**
  * Minimal websocket-like handle the engine can write to.
@@ -54,5 +54,9 @@ export interface EngineOptions {
 export interface AdapterConfig<TOptions, TService> {
   id: string;
   hibernation: boolean;
-  setup(handler: ServerDefinition, engine: Engine, options: TOptions): TService | Promise<TService>;
+  setup(
+    handler: DefineServer.ServerDefinition,
+    engine: EngineModule.Engine,
+    options: TOptions,
+  ): TService | Promise<TService>;
 }

@@ -1,13 +1,8 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import type { ConnectionDescriptor } from '~/_engine/adapter/types.ts';
-import type {
-  AnyModule,
-  CompiledChannel,
-  CompiledNamespace,
-  CompiledServer,
-} from '~/_engine/compile/types.ts';
-import type { ConnectionInfo } from '~/index.ts';
-import type { Validator } from '~/types.ts';
+import type * as EngineAdapterTypes from '~/_engine/adapter/types.ts';
+import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
+import type * as PublicApi from '~/index.ts';
+import type * as ValidationTypes from '~/types.ts';
 
 /**
  * One `onBeforeSubscribe` hook plus its optional validator.
@@ -17,7 +12,7 @@ import type { Validator } from '~/types.ts';
  */
 export interface ChannelBeforeSubscribeHook {
   handler: (ctx: any, data?: unknown) => void | Promise<void>;
-  validator?: Validator<any>;
+  validator?: ValidationTypes.Validator<any>;
 }
 
 /**
@@ -101,7 +96,7 @@ export interface RegisteredEngineHooks {
 export interface RuntimeConnection {
   id: string;
   wsKey: unknown;
-  descriptor: ConnectionDescriptor;
+  descriptor: EngineAdapterTypes.ConnectionDescriptor;
   meta: Record<string, unknown>;
   tags: Set<string>;
   channels: Set<string>;
@@ -136,7 +131,7 @@ export interface ActiveStream {
  * module's hooks and build its scoped helper API when needed.
  */
 export interface ModuleRuntime {
-  instance: AnyModule;
+  instance: EngineCompileTypes.AnyModule;
   onInit?: (ctx: any) => void | Promise<void>;
   onIncoming?: (message: {
     event: string;
@@ -173,8 +168,8 @@ export interface RoutingTarget {
  * `_channelScope` markers from the incoming payload.
  */
 export interface ResolvedScope {
-  namespace?: CompiledNamespace;
-  channel?: CompiledChannel;
+  namespace?: EngineCompileTypes.CompiledNamespace;
+  channel?: EngineCompileTypes.CompiledChannel;
   channelName?: string;
   channelScope?: string;
 }
@@ -185,8 +180,10 @@ export interface ResolvedScope {
  */
 export interface ConnectionMembersRuntime {
   connections: Map<string, RuntimeConnection>;
-  compiled: CompiledServer;
-  toConnectionInfo(connection: RuntimeConnection): ConnectionInfo<Record<string, unknown>>;
+  compiled: EngineCompileTypes.CompiledServer;
+  toConnectionInfo(
+    connection: RuntimeConnection,
+  ): PublicApi.ConnectionInfo<Record<string, unknown>>;
   sendThroughPipeline(
     connection: RuntimeConnection,
     routing: RoutingTarget | undefined,

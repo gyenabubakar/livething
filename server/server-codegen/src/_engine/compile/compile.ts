@@ -1,35 +1,16 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import type { ServerDefinition } from '~/define-server.ts';
-import type { Primitive } from '~/primitive.ts';
-import {
-  isChannelPrimitive,
-  isNamespacePrimitive,
-  isPassivePrimitive,
-  mergeRequires,
-} from './utils.ts';
-import type {
-  AnyGenerate,
-  AnyIncoming,
-  AnyModule,
-  AnyOutgoing,
-  AnyPostIntercept,
-  AnyPreIntercept,
-  AnyRequest,
-  AnyScheduled,
-  ChannelPrimitiveType,
-  CompiledChannel,
-  CompiledNamespace,
-  CompiledServer,
-  NamespacePrimitiveType,
-} from './types.ts';
+import type * as DefineServer from '~/define-server.ts';
+import type * as PrimitiveCore from '~/primitive.ts';
+import * as EngineCompileUtils from './utils.ts';
+import type * as EngineCompileTypes from './types.ts';
 
 /**
  * Append a post-intercept to the per-event intercept list.
  */
 function addPostIntercept(
   event: string,
-  primitive: AnyPostIntercept,
-  map: Map<string, AnyPostIntercept[]>,
+  primitive: EngineCompileTypes.AnyPostIntercept,
+  map: Map<string, EngineCompileTypes.AnyPostIntercept[]>,
 ): void {
   const existing = map.get(event) ?? [];
   existing.push(primitive);
@@ -39,8 +20,10 @@ function addPostIntercept(
 /**
  * Compile a namespace block into fast lookup maps.
  */
-function compileNamespace(primitive: NamespacePrimitiveType): CompiledNamespace {
-  const scope: CompiledNamespace = {
+function compileNamespace(
+  primitive: EngineCompileTypes.NamespacePrimitiveType,
+): EngineCompileTypes.CompiledNamespace {
+  const scope: EngineCompileTypes.CompiledNamespace = {
     kind: 'namespace',
     name: primitive.pattern,
     outgoing: new Map(),
@@ -52,12 +35,18 @@ function compileNamespace(primitive: NamespacePrimitiveType): CompiledNamespace 
   };
 
   for (const child of primitive.primitives) {
-    if (child.__wskit === 'outgoing') scope.outgoing.set(child.event, child as AnyOutgoing);
-    else if (child.__wskit === 'incoming') scope.incoming.set(child.event, child as AnyIncoming);
-    else if (child.__wskit === 'request') scope.requests.set(child.event, child as AnyRequest);
-    else if (child.__wskit === 'generate') scope.streams.set(child.event, child as AnyGenerate);
+    if (child.__wskit === 'outgoing')
+      scope.outgoing.set(child.event, child as EngineCompileTypes.AnyOutgoing);
+    else if (child.__wskit === 'incoming')
+      scope.incoming.set(child.event, child as EngineCompileTypes.AnyIncoming);
+    else if (child.__wskit === 'request')
+      scope.requests.set(child.event, child as EngineCompileTypes.AnyRequest);
+    else if (child.__wskit === 'generate')
+      scope.streams.set(child.event, child as EngineCompileTypes.AnyGenerate);
     else if (child.__wskit === 'intercept') {
-      const intercept = child as AnyPreIntercept | AnyPostIntercept;
+      const intercept = child as
+        | EngineCompileTypes.AnyPreIntercept
+        | EngineCompileTypes.AnyPostIntercept;
       if (intercept.mode === 'pre') scope.preIntercepts.push(intercept);
       else addPostIntercept(intercept.event, intercept, scope.postIntercepts);
     }
@@ -69,9 +58,11 @@ function compileNamespace(primitive: NamespacePrimitiveType): CompiledNamespace 
 /**
  * Compile a channel or channel-family block into fast lookup maps.
  */
-function compileChannel(primitive: ChannelPrimitiveType): CompiledChannel {
+function compileChannel(
+  primitive: EngineCompileTypes.ChannelPrimitiveType,
+): EngineCompileTypes.CompiledChannel {
   const key = typeof primitive.pattern === 'string' ? primitive.pattern : primitive.pattern.key;
-  const scope: CompiledChannel = {
+  const scope: EngineCompileTypes.CompiledChannel = {
     kind: 'channel',
     key,
     pattern: primitive.pattern,
@@ -84,12 +75,18 @@ function compileChannel(primitive: ChannelPrimitiveType): CompiledChannel {
   };
 
   for (const child of primitive.primitives) {
-    if (child.__wskit === 'outgoing') scope.outgoing.set(child.event, child as AnyOutgoing);
-    else if (child.__wskit === 'incoming') scope.incoming.set(child.event, child as AnyIncoming);
-    else if (child.__wskit === 'request') scope.requests.set(child.event, child as AnyRequest);
-    else if (child.__wskit === 'generate') scope.streams.set(child.event, child as AnyGenerate);
+    if (child.__wskit === 'outgoing')
+      scope.outgoing.set(child.event, child as EngineCompileTypes.AnyOutgoing);
+    else if (child.__wskit === 'incoming')
+      scope.incoming.set(child.event, child as EngineCompileTypes.AnyIncoming);
+    else if (child.__wskit === 'request')
+      scope.requests.set(child.event, child as EngineCompileTypes.AnyRequest);
+    else if (child.__wskit === 'generate')
+      scope.streams.set(child.event, child as EngineCompileTypes.AnyGenerate);
     else if (child.__wskit === 'intercept') {
-      const intercept = child as AnyPreIntercept | AnyPostIntercept;
+      const intercept = child as
+        | EngineCompileTypes.AnyPreIntercept
+        | EngineCompileTypes.AnyPostIntercept;
       if (intercept.mode === 'pre') scope.preIntercepts.push(intercept);
       else addPostIntercept(intercept.event, intercept, scope.postIntercepts);
     }
@@ -101,11 +98,14 @@ function compileChannel(primitive: ChannelPrimitiveType): CompiledChannel {
 /**
  * Walk the declarative primitive tree and fill the compiled runtime shape.
  */
-function visitCompiledPrimitives(compiled: CompiledServer, primitives: readonly Primitive[]): void {
+function visitCompiledPrimitives(
+  compiled: EngineCompileTypes.CompiledServer,
+  primitives: readonly PrimitiveCore.Primitive[],
+): void {
   for (const primitive of primitives) {
-    mergeRequires(compiled.requires, primitive.__requires);
+    EngineCompileUtils.mergeRequires(compiled.requires, primitive.__requires);
 
-    if (isPassivePrimitive(primitive)) {
+    if (EngineCompileUtils.isPassivePrimitive(primitive)) {
       visitCompiledPrimitives(compiled, primitive.primitives);
       continue;
     }
@@ -121,43 +121,60 @@ function visitCompiledPrimitives(compiled: CompiledServer, primitives: readonly 
         continue;
 
       case 'outgoing':
-        compiled.outgoing.set((primitive as AnyOutgoing).event, primitive as AnyOutgoing);
+        compiled.outgoing.set(
+          (primitive as EngineCompileTypes.AnyOutgoing).event,
+          primitive as EngineCompileTypes.AnyOutgoing,
+        );
         continue;
 
       case 'incoming':
-        compiled.incoming.set((primitive as AnyIncoming).event, primitive as AnyIncoming);
+        compiled.incoming.set(
+          (primitive as EngineCompileTypes.AnyIncoming).event,
+          primitive as EngineCompileTypes.AnyIncoming,
+        );
         continue;
 
       case 'request':
-        compiled.requests.set((primitive as AnyRequest).event, primitive as AnyRequest);
+        compiled.requests.set(
+          (primitive as EngineCompileTypes.AnyRequest).event,
+          primitive as EngineCompileTypes.AnyRequest,
+        );
         continue;
 
       case 'generate':
-        compiled.streams.set((primitive as AnyGenerate).event, primitive as AnyGenerate);
+        compiled.streams.set(
+          (primitive as EngineCompileTypes.AnyGenerate).event,
+          primitive as EngineCompileTypes.AnyGenerate,
+        );
         continue;
 
       case 'scheduled':
-        compiled.scheduled.set((primitive as AnyScheduled).taskId, primitive as AnyScheduled);
+        compiled.scheduled.set(
+          (primitive as EngineCompileTypes.AnyScheduled).taskId,
+          primitive as EngineCompileTypes.AnyScheduled,
+        );
         continue;
 
       case 'intercept': {
-        const intercept = primitive as AnyPreIntercept | AnyPostIntercept;
+        const intercept = primitive as
+          | EngineCompileTypes.AnyPreIntercept
+          | EngineCompileTypes.AnyPostIntercept;
         if (intercept.mode === 'pre') compiled.preIntercepts.push(intercept);
         else addPostIntercept(intercept.event, intercept, compiled.postIntercepts);
         continue;
       }
 
       case 'module':
-        compiled.modules.push(primitive as AnyModule);
+        compiled.modules.push(primitive as EngineCompileTypes.AnyModule);
         continue;
     }
 
-    if (isNamespacePrimitive(primitive)) {
+    if (EngineCompileUtils.isNamespacePrimitive(primitive)) {
       compiled.namespaces.set(primitive.pattern, compileNamespace(primitive));
       continue;
     }
 
-    if (isChannelPrimitive(primitive)) {
+    if (EngineCompileUtils.isChannelPrimitive(primitive)) {
       const compiledChannel = compileChannel(primitive);
 
       if (typeof primitive.pattern === 'string') {
@@ -175,8 +192,10 @@ function visitCompiledPrimitives(compiled: CompiledServer, primitives: readonly 
  * Convert the public server definition into the compact structure the engine
  * actually executes.
  */
-export function compileHandlerDefinition(handler: ServerDefinition): CompiledServer {
-  const compiled: CompiledServer = {
+export function compileHandlerDefinition(
+  handler: DefineServer.ServerDefinition,
+): EngineCompileTypes.CompiledServer {
+  const compiled: EngineCompileTypes.CompiledServer = {
     outgoing: new Map(),
     incoming: new Map(),
     requests: new Map(),

@@ -1,38 +1,48 @@
 import { CloseCodes } from '@wskit/core';
 import * as HeartbeatPrimitive from '~/heartbeat/runtime.ts';
-import type {
-  ConnectionDescriptor,
-  ConnectionHandle,
-  UpgradeDecision,
-} from '~/_engine/adapter/types.ts';
-import type { CompiledChannel, CompiledServer } from '~/_engine/compile/types.ts';
-import type { ResolvedScope, RuntimeConnection } from './types.ts';
+import type * as EngineAdapterTypes from '~/_engine/adapter/types.ts';
+import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
+import type * as EngineRuntimeTypes from './types.ts';
 
 /**
  * Internal dependency bag for connection-focused runtime helpers.
  */
 interface ConnectionRuntime {
-  compiled: CompiledServer;
+  compiled: EngineCompileTypes.CompiledServer;
   timers?: { clearTimeout(handle: unknown): void; setTimeout(fn: () => void, ms: number): unknown };
-  connections: Map<string, RuntimeConnection>;
+  connections: Map<string, EngineRuntimeTypes.RuntimeConnection>;
   wsToConnectionId: Map<unknown, string>;
   generateId(prefix?: string): string;
-  persistAttachment(connection: RuntimeConnection): void;
+  persistAttachment(connection: EngineRuntimeTypes.RuntimeConnection): void;
   buildConnectionContext(
-    connection: RuntimeConnection,
-    scope?: ResolvedScope,
+    connection: EngineRuntimeTypes.RuntimeConnection,
+    scope?: EngineRuntimeTypes.ResolvedScope,
   ): Record<PropertyKey, unknown>;
   runConnectionLifecycle(
     kind: 'connect' | 'disconnect',
     ctx: Record<PropertyKey, unknown>,
   ): Promise<void>;
-  processTextMessage(connection: RuntimeConnection, data: string): Promise<void>;
-  handleBinaryMessage(connection: RuntimeConnection, data: ArrayBuffer): Promise<void>;
-  handleConnectionClose(connection: RuntimeConnection, code: number, reason: string): Promise<void>;
-  handleRuntimeError(connection: RuntimeConnection, error: unknown, event?: string): Promise<void>;
+  processTextMessage(connection: EngineRuntimeTypes.RuntimeConnection, data: string): Promise<void>;
+  handleBinaryMessage(
+    connection: EngineRuntimeTypes.RuntimeConnection,
+    data: ArrayBuffer,
+  ): Promise<void>;
+  handleConnectionClose(
+    connection: EngineRuntimeTypes.RuntimeConnection,
+    code: number,
+    reason: string,
+  ): Promise<void>;
+  handleRuntimeError(
+    connection: EngineRuntimeTypes.RuntimeConnection,
+    error: unknown,
+    event?: string,
+  ): Promise<void>;
 }
 
-function createHandle(runtime: ConnectionRuntime, connection: RuntimeConnection): ConnectionHandle {
+function createHandle(
+  runtime: ConnectionRuntime,
+  connection: EngineRuntimeTypes.RuntimeConnection,
+): EngineAdapterTypes.ConnectionHandle {
   return {
     handleMessage: (data) => runtime.processTextMessage(connection, data),
     handleBinary: (data) => runtime.handleBinaryMessage(connection, data),
@@ -127,19 +137,19 @@ export async function handleConnectionClose(
   runtime: Pick<ConnectionRuntime, 'compiled' | 'connections' | 'wsToConnectionId' | 'timers'> & {
     cancelActiveStreamsForConnection(connectionId: string): Promise<void>;
     buildConnectionContext(
-      connection: RuntimeConnection,
-      scope?: ResolvedScope,
+      connection: EngineRuntimeTypes.RuntimeConnection,
+      scope?: EngineRuntimeTypes.ResolvedScope,
     ): Record<PropertyKey, unknown>;
     runConnectionLifecycle(
       kind: 'connect' | 'disconnect',
       ctx: Record<PropertyKey, unknown>,
     ): Promise<void>;
     leaveChannel(
-      connection: RuntimeConnection,
-      scope: { channel?: CompiledChannel; channelName: string },
+      connection: EngineRuntimeTypes.RuntimeConnection,
+      scope: { channel?: EngineCompileTypes.CompiledChannel; channelName: string },
     ): Promise<void>;
   },
-  connection: RuntimeConnection,
+  connection: EngineRuntimeTypes.RuntimeConnection,
 ): Promise<void> {
   await runtime.cancelActiveStreamsForConnection(connection.id);
 
@@ -176,7 +186,7 @@ export async function handleBinaryMessage(
       data: ArrayBuffer,
     ) => void | Promise<void>)[];
   },
-  connection: RuntimeConnection,
+  connection: EngineRuntimeTypes.RuntimeConnection,
   data: ArrayBuffer,
 ): Promise<void> {
   for (const hook of runtime.activityHooks) {
@@ -196,9 +206,9 @@ export async function handleBinaryMessage(
 export function acceptConnection(
   runtime: ConnectionRuntime,
   wsKey: unknown,
-  descriptor: ConnectionDescriptor,
-): ConnectionHandle {
-  const connection: RuntimeConnection = {
+  descriptor: EngineAdapterTypes.ConnectionDescriptor,
+): EngineAdapterTypes.ConnectionHandle {
+  const connection: EngineRuntimeTypes.RuntimeConnection = {
     id: runtime.generateId('conn'),
     wsKey,
     descriptor,
@@ -229,7 +239,7 @@ export function acceptConnection(
 export function wakeHibernatedConnection(
   runtime: ConnectionRuntime,
   wsKey: unknown,
-): ConnectionHandle {
+): EngineAdapterTypes.ConnectionHandle {
   const existingId = runtime.wsToConnectionId.get(wsKey);
   if (existingId) {
     const existing = runtime.connections.get(existingId)!;
@@ -247,7 +257,7 @@ export function wakeHibernatedConnection(
   const restored =
     attachment && typeof attachment === 'object' ? (attachment as Record<string, unknown>) : {};
 
-  const descriptor: ConnectionDescriptor = {
+  const descriptor: EngineAdapterTypes.ConnectionDescriptor = {
     send: (data) => wsLike.send?.(data),
     sendBinary: (data) => wsLike.send?.(data),
     close: (code, reason) => wsLike.close?.(code, reason),
@@ -255,7 +265,7 @@ export function wakeHibernatedConnection(
     meta: (restored.meta as Record<string, unknown>) ?? {},
     tags: (restored.tags as string[]) ?? [],
   };
-  const connection: RuntimeConnection = {
+  const connection: EngineRuntimeTypes.RuntimeConnection = {
     id: typeof restored.id === 'string' ? restored.id : runtime.generateId('conn'),
     wsKey,
     descriptor,
@@ -291,7 +301,7 @@ export async function handleUpgrade(
         }>)[];
   },
   request: Request,
-): Promise<UpgradeDecision> {
+): Promise<EngineAdapterTypes.UpgradeDecision> {
   if (runtime.upgradeHooks.length === 0) {
     return {};
   }

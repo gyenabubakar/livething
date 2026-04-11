@@ -1,9 +1,9 @@
-import type { AnyScheduled } from '~/_engine/compile/types.ts';
-import type { IncomingProtocolEvent, WireOutgoingMessage } from '~/_engine/runtime/types.ts';
-import type { StorageProvider, TimerProvider } from '~/context.ts';
+import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
+import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
+import type * as ContextApi from '~/context.ts';
 import type * as ErrorsPrimitive from '~/errors.ts';
 import type * as ScheduledPrimitive from '~/scheduled/types.ts';
-import type { Validator } from '~/types.ts';
+import type * as ValidationTypes from '~/types.ts';
 
 /**
  * The runtime registration surface built-in primitives receive during engine
@@ -62,14 +62,16 @@ export interface EngineAccess {
    * The payload here already includes engine metadata like `_seq`,
    * `_messageId`, and any scope routing markers. Throw to stop the send.
    */
-  onBeforeSend(handler: (message: WireOutgoingMessage) => void): void;
+  onBeforeSend(handler: (message: EngineRuntimeTypes.WireOutgoingMessage) => void): void;
 
   /**
    * Observe one fully prepared outgoing wire message after it is sent.
    *
    * Use this for best-effort side effects that should not block delivery.
    */
-  onAfterSend(handler: (message: WireOutgoingMessage) => void | Promise<void>): void;
+  onAfterSend(
+    handler: (message: EngineRuntimeTypes.WireOutgoingMessage) => void | Promise<void>,
+  ): void;
 
   /**
    * Observe activity from one live connection before normal routing continues.
@@ -140,7 +142,7 @@ export interface EngineAccess {
    * handlers stop running.
    */
   onProtocolMessage(
-    event: IncomingProtocolEvent,
+    event: EngineRuntimeTypes.IncomingProtocolEvent,
     handler: (
       ctx: unknown,
       payload: Record<string, unknown> | undefined,
@@ -162,7 +164,7 @@ export interface EngineAccess {
    */
   onBeforeSubscribe(
     handler: (ctx: unknown, data?: unknown) => void | Promise<void>,
-    validator?: Validator<unknown>,
+    validator?: ValidationTypes.Validator<unknown>,
   ): void;
 
   /**
@@ -193,14 +195,14 @@ export interface EngineAccess {
    *
    * This throws if the current adapter did not provide storage.
    */
-  requireStorage(): StorageProvider;
+  requireStorage(): ContextApi.StorageProvider;
 
   /**
    * Read the adapter timer dependency.
    *
    * This throws if the current adapter did not provide timers.
    */
-  requireTimers(): TimerProvider;
+  requireTimers(): ContextApi.TimerProvider;
 
   /**
    * Tell the engine whether this handler wants connection hibernation enabled.
@@ -254,12 +256,12 @@ export interface EngineAccess {
   /**
    * Look up one declared scheduled task by task id.
    */
-  getScheduledTask(taskId: string): AnyScheduled | undefined;
+  getScheduledTask(taskId: string): EngineCompileTypes.AnyScheduled | undefined;
 
   /**
    * Read every declared scheduled task.
    */
-  getScheduledTasks(): Iterable<AnyScheduled>;
+  getScheduledTasks(): Iterable<EngineCompileTypes.AnyScheduled>;
 
   /**
    * Build the runtime task context object used when scheduled work runs.

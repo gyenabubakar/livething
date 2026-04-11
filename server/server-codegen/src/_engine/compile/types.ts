@@ -1,11 +1,11 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import type * as ChannelPrimitive from '~/channel/index.ts';
-import type { ModuleInstance } from '~/define-module.ts';
+import type * as DefineModule from '~/define-module.ts';
 import type * as IncomingPrimitive from '~/incoming/index.ts';
 import type * as InterceptPrimitive from '~/intercept/index.ts';
 import type * as NamespacePrimitive from '~/namespace/index.ts';
 import type * as OutgoingPrimitive from '~/outgoing/index.ts';
-import type { RequiresManifest } from '~/primitive.ts';
+import type * as PrimitiveCore from '~/primitive.ts';
 import type * as RequestPrimitive from '~/request/index.ts';
 import type * as ScheduledPrimitive from '~/scheduled/index.ts';
 import type * as StreamPrimitive from '~/stream/index.ts';
@@ -21,9 +21,16 @@ export type AnyGenerate = StreamPrimitive.GeneratePrimitive<
 export type AnyPreIntercept = InterceptPrimitive.PreInterceptPrimitive<any>;
 export type AnyPostIntercept = InterceptPrimitive.PostInterceptPrimitive<string, any, any>;
 export type AnyScheduled = ScheduledPrimitive.ScheduledPrimitive<string, any, any>;
-export type AnyModule = ModuleInstance<string, any, any, readonly AnyOutgoing[], readonly any[]>;
+export type AnyModule = DefineModule.ModuleInstance<
+  string,
+  any,
+  any,
+  readonly AnyOutgoing[],
+  readonly any[]
+>;
 export type NamespacePrimitiveType = NamespacePrimitive.NamespacePrimitive;
 export type ChannelPrimitiveType = ChannelPrimitive.ChannelPrimitive;
+export type RequiresManifest = PrimitiveCore.RequiresManifest;
 
 /**
  * Precomputed namespace view used by the runtime for fast event lookup.
@@ -75,10 +82,4 @@ export interface CompiledServer {
   requires: RequiresManifest;
 }
 
-export type {
-  ChannelPrimitive,
-  NamespacePrimitive,
-  OutgoingPrimitive,
-  RequestPrimitive,
-  RequiresManifest,
-};
+export type { ChannelPrimitive, NamespacePrimitive, OutgoingPrimitive, RequestPrimitive };

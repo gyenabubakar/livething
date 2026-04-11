@@ -1,15 +1,17 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { ValidationFailed } from '@wskit/core';
-import type { IncomingProtocolEvent } from '~/_engine/runtime/types.ts';
+import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as ChannelPrimitive from '~/channel/index.ts';
 import type * as NamespacePrimitive from '~/namespace/index.ts';
-import type { PassivePrimitive } from '~/passive/index.ts';
-import type { Primitive, RequiresManifest } from '~/primitive.ts';
+import type * as PassivePrimitiveModule from '~/passive/index.ts';
+import type * as PrimitiveCore from '~/primitive.ts';
 
 /**
  * Runtime-only wrapper primitives are unwrapped during compilation.
  */
-export function isPassivePrimitive(primitive: Primitive): primitive is PassivePrimitive<any> {
+export function isPassivePrimitive(
+  primitive: PrimitiveCore.Primitive,
+): primitive is PassivePrimitiveModule.PassivePrimitive<any> {
   return primitive.__wskit === 'passive';
 }
 
@@ -17,7 +19,7 @@ export function isPassivePrimitive(primitive: Primitive): primitive is PassivePr
  * Narrow a primitive to a namespace block.
  */
 export function isNamespacePrimitive(
-  primitive: Primitive,
+  primitive: PrimitiveCore.Primitive,
 ): primitive is NamespacePrimitive.NamespacePrimitive {
   return primitive.__wskit === 'namespace';
 }
@@ -26,7 +28,7 @@ export function isNamespacePrimitive(
  * Narrow a primitive to a channel block.
  */
 export function isChannelPrimitive(
-  primitive: Primitive,
+  primitive: PrimitiveCore.Primitive,
 ): primitive is ChannelPrimitive.ChannelPrimitive {
   return primitive.__wskit === 'channel';
 }
@@ -34,7 +36,10 @@ export function isChannelPrimitive(
 /**
  * Merge primitive dependency requirements into one runtime manifest.
  */
-export function mergeRequires(target: RequiresManifest, source: RequiresManifest): void {
+export function mergeRequires(
+  target: PrimitiveCore.RequiresManifest,
+  source: PrimitiveCore.RequiresManifest,
+): void {
   if (source.storage) target.storage = true;
   if (source.timers) target.timers = true;
   if (source.hibernation) target.hibernation = true;
@@ -103,7 +108,9 @@ export function isProtocolEvent(event: string): boolean {
  * Narrow one event name to the set of protocol messages the client is allowed
  * to send into the engine.
  */
-export function isIncomingProtocolEvent(event: string): event is IncomingProtocolEvent {
+export function isIncomingProtocolEvent(
+  event: string,
+): event is EngineRuntimeTypes.IncomingProtocolEvent {
   return (
     event === 'ping' ||
     event === '_subscribe' ||

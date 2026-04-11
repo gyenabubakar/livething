@@ -1,65 +1,33 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
-import {
-  attachModuleApis,
-  buildConnectionContext,
-  createInitContext,
-  createModuleScopedContext,
-  createShutdownContext,
-  createTaskContext,
-  persistAttachment,
-  toConnectionInfo,
-} from '~/_engine/contexts/contexts.ts';
-import {
-  acceptConnection,
-  cancelActiveStreamsForConnection,
-  handleBinaryMessage,
-  handleConnectionClose,
-  handleShutdown,
-  handleUpgrade,
-  runConnectionLifecycle,
-  wakeHibernatedConnection,
-} from '~/_engine/runtime/connection.ts';
-import {
-  broadcastToChannel,
-  broadcastToConnections,
-  getChannelMembers,
-  handleSubscribe,
-  handleUnsubscribe,
-  kickChannelMembers,
-  leaveChannel,
-  processTextMessage,
-  sendThroughPipeline,
-} from '~/_engine/runtime/messages.ts';
+import * as EngineCompile from '~/_engine/compile/compile.ts';
+import * as EngineContexts from '~/_engine/contexts/contexts.ts';
+import * as EngineConnectionRuntime from '~/_engine/runtime/connection.ts';
+import * as EngineMessageRuntime from '~/_engine/runtime/messages.ts';
 import * as ErrorsPrimitive from '~/errors/runtime.ts';
 import * as HeartbeatPrimitive from '~/heartbeat/runtime.ts';
 import * as ScheduledPrimitive from '~/scheduled/runtime.ts';
-import type { EngineAccess } from '~/_engine/access.ts';
-import type {
-  ConnectionDescriptor,
-  ConnectionHandle,
-  EngineOptions,
-  UpgradeDecision,
-} from '~/_engine/adapter/types.ts';
-import type {
-  AnyScheduled,
-  CompiledChannel,
-  CompiledNamespace,
-  CompiledServer,
-} from '~/_engine/compile/types.ts';
-import type {
-  ActiveStream,
-  ModuleRuntime,
-  RegisteredEngineHooks,
-  ResolvedScope,
-  RoutingTarget,
-  RuntimeConnection,
-} from '~/_engine/runtime/types.ts';
-import type { ModuleHooks } from '~/define-module.ts';
-import type { ServerDefinition } from '~/define-server.ts';
-import type { BroadcastOptions, StorageProvider, TimerProvider } from '~/index.ts';
-import type { Primitive } from '~/primitive.ts';
+import type * as EngineAccessModule from '~/_engine/access.ts';
+import type * as EngineAdapterTypes from '~/_engine/adapter/types.ts';
+import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
+import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
+import type * as DefineModule from '~/define-module.ts';
+import type * as DefineServer from '~/define-server.ts';
+import type * as PublicApi from '~/index.ts';
+import type * as PrimitiveCore from '~/primitive.ts';
 import type * as ScheduledPrimitiveTypes from '~/scheduled/types.ts';
+
+type ConnectionDescriptor = EngineAdapterTypes.ConnectionDescriptor;
+type ConnectionHandle = EngineAdapterTypes.ConnectionHandle;
+type UpgradeDecision = EngineAdapterTypes.UpgradeDecision;
+type AnyScheduled = EngineCompileTypes.AnyScheduled;
+type CompiledChannel = EngineCompileTypes.CompiledChannel;
+type CompiledNamespace = EngineCompileTypes.CompiledNamespace;
+type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
+type ModuleRuntime = EngineRuntimeTypes.ModuleRuntime;
+type ResolvedScope = EngineRuntimeTypes.ResolvedScope;
+type RoutingTarget = EngineRuntimeTypes.RoutingTarget;
+type BroadcastOptions = PublicApi.BroadcastOptions;
+type Primitive = PrimitiveCore.Primitive;
 
 export type {
   AdapterConfig,
@@ -72,7 +40,7 @@ export type {
 /**
  * Create the empty hook registries the engine fills during primitive setup.
  */
-function createRegisteredHooks(): RegisteredEngineHooks {
+function createRegisteredHooks(): EngineRuntimeTypes.RegisteredEngineHooks {
   return {
     activity: [],
     incoming: [],
@@ -105,13 +73,13 @@ function createRegisteredHooks(): RegisteredEngineHooks {
  * modules, channel membership, and scheduled work.
  */
 export class Engine {
-  private readonly options: EngineOptions;
-  private readonly primitives: readonly Primitive[];
-  private readonly compiled: CompiledServer;
+  private readonly options: EngineAdapterTypes.EngineOptions;
+  private readonly primitives: readonly PrimitiveCore.Primitive[];
+  private readonly compiled: EngineCompileTypes.CompiledServer;
   private readonly hooks = createRegisteredHooks();
-  private storage?: StorageProvider;
+  private storage?: PublicApi.StorageProvider;
   private env: Record<string, unknown> = {};
-  private timers?: TimerProvider;
+  private timers?: PublicApi.TimerProvider;
   private platform: unknown = {};
   private waitUntilImpl: (promise: Promise<unknown>) => void = () => {};
   private hasWaitUntil = false;
@@ -134,29 +102,29 @@ export class Engine {
 
   private readonly connections = new Map<string, RuntimeConnection>();
   private readonly wsToConnectionId = new Map<unknown, string>();
-  private readonly activeStreams = new Map<string, ActiveStream>();
+  private readonly activeStreams = new Map<string, EngineRuntimeTypes.ActiveStream>();
   private readonly scheduledRuns = new Map<string, ScheduledPrimitiveTypes.ScheduledRun>();
   private readonly scheduledDlq = new Map<string, ScheduledPrimitiveTypes.ScheduledDeadLetter>();
   private readonly installedFeatures = new Set<symbol>();
   private alarmHandle: unknown | null = null;
   private idCounter = 0;
-  private readonly moduleRuntimes: ModuleRuntime[] = [];
+  private readonly moduleRuntimes: EngineRuntimeTypes.ModuleRuntime[] = [];
   private activeConnectionId?: string;
   private initialized = false;
 
   /**
    * Compile the declarative server definition once up front.
    */
-  constructor(handler: ServerDefinition, options: EngineOptions) {
+  constructor(handler: DefineServer.ServerDefinition, options: EngineAdapterTypes.EngineOptions) {
     this.options = options;
     this.primitives = handler.primitives;
-    this.compiled = compileHandlerDefinition(handler);
+    this.compiled = EngineCompile.compileHandlerDefinition(handler);
   }
 
   /**
    * Provide the storage driver the adapter wants the engine to use.
    */
-  setStorage(storage: StorageProvider): void {
+  setStorage(storage: PublicApi.StorageProvider): void {
     this.storage = storage;
   }
 
@@ -170,7 +138,7 @@ export class Engine {
   /**
    * Provide the timer/alarm implementation used for heartbeat and scheduling.
    */
-  setTimerProvider(timers: TimerProvider): void {
+  setTimerProvider(timers: PublicApi.TimerProvider): void {
     this.timers = timers;
   }
 
@@ -193,7 +161,7 @@ export class Engine {
   /**
    * Read storage or fail with an adapter-specific setup error.
    */
-  private requireStorage(): StorageProvider {
+  private requireStorage(): PublicApi.StorageProvider {
     if (!this.storage) {
       throw new Error(`[wskit] storage not provided by adapter "${this.options.adapterId}".`);
     }
@@ -203,7 +171,7 @@ export class Engine {
   /**
    * Read timers or fail with an adapter-specific setup error.
    */
-  private requireTimers(): TimerProvider {
+  private requireTimers(): PublicApi.TimerProvider {
     if (!this.timers) {
       throw new Error(`[wskit] timers not provided by adapter "${this.options.adapterId}".`);
     }
@@ -253,7 +221,9 @@ export class Engine {
    * Modules do not get direct engine access. They get this smaller surface,
    * which lets them register lifecycle and message hooks in a controlled way.
    */
-  private createModuleHooks(runtime: ModuleRuntime): ModuleHooks<any> {
+  private createModuleHooks(
+    runtime: EngineRuntimeTypes.ModuleRuntime,
+  ): DefineModule.ModuleHooks<any> {
     return {
       onIncoming: (handler) => {
         runtime.onIncoming = handler;
@@ -337,7 +307,7 @@ export class Engine {
    * behavior. Primitives can register hooks and use shared services, but they
    * do not receive the full `Engine` instance directly.
    */
-  private createEngineAccess(scope?: { channelKey?: string }): EngineAccess {
+  private createEngineAccess(scope?: { channelKey?: string }): EngineAccessModule.EngineAccess {
     return {
       installOnce: (key, install) => {
         if (this.installedFeatures.has(key)) return;
@@ -545,7 +515,7 @@ export class Engine {
    * Build the context object used by init hooks.
    */
   private createInitContext() {
-    return createInitContext({
+    return EngineContexts.createInitContext({
       env: this.env,
       logger: this.logger,
       platform: this.platform,
@@ -557,7 +527,7 @@ export class Engine {
    * Build the context object used while the engine is shutting down.
    */
   private createShutdownContext() {
-    return createShutdownContext({
+    return EngineContexts.createShutdownContext({
       connections: this.connections,
       env: this.env,
       logger: this.logger,
@@ -591,7 +561,7 @@ export class Engine {
    * Build the context object passed into scheduled task handlers.
    */
   private createTaskContext() {
-    return createTaskContext({
+    return EngineContexts.createTaskContext({
       connections: this.connections,
       env: this.env,
       logger: this.logger,
@@ -631,7 +601,7 @@ export class Engine {
     connection: RuntimeConnection,
     scope?: { namespace?: CompiledNamespace; channel?: CompiledChannel },
   ) {
-    return buildConnectionContext(
+    return EngineContexts.buildConnectionContext(
       {
         compiled: this.compiled,
         connections: this.connections,
@@ -671,7 +641,7 @@ export class Engine {
    * module's private event namespace.
    */
   private createModuleScopedContext(moduleId: string, ctx: Record<PropertyKey, unknown>) {
-    return createModuleScopedContext(moduleId, ctx);
+    return EngineContexts.createModuleScopedContext(moduleId, ctx);
   }
 
   /**
@@ -681,7 +651,7 @@ export class Engine {
     ctx: Record<PropertyKey, unknown>,
     connection?: RuntimeConnection,
   ): void {
-    attachModuleApis(this.moduleRuntimes, ctx, connection);
+    EngineContexts.attachModuleApis(this.moduleRuntimes, ctx, connection);
   }
 
   /**
@@ -728,14 +698,14 @@ export class Engine {
    * module helpers.
    */
   private toConnectionInfo(connection: RuntimeConnection) {
-    return toConnectionInfo(connection);
+    return EngineContexts.toConnectionInfo(connection);
   }
 
   /**
    * Ask the adapter to serialize connection attachment data when supported.
    */
   private persistAttachment(connection: RuntimeConnection): void {
-    persistAttachment(connection);
+    EngineContexts.persistAttachment(connection);
   }
 
   /**
@@ -799,7 +769,7 @@ export class Engine {
         excludeConnectionId?: string,
         channelScope?: string,
       ) =>
-        broadcastToChannel(
+        EngineMessageRuntime.broadcastToChannel(
           this.dispatchRuntime(),
           channelName,
           event,
@@ -909,7 +879,7 @@ export class Engine {
    * to drive it.
    */
   accept(wsKey: unknown, descriptor: ConnectionDescriptor): ConnectionHandle {
-    return acceptConnection(this.connectionRuntime(), wsKey, descriptor);
+    return EngineConnectionRuntime.acceptConnection(this.connectionRuntime(), wsKey, descriptor);
   }
 
   /**
@@ -929,7 +899,7 @@ export class Engine {
       throw new Error('[wskit] hibernation() is not enabled for this handler.');
     }
 
-    return wakeHibernatedConnection(this.connectionRuntime(), wsKey);
+    return EngineConnectionRuntime.wakeHibernatedConnection(this.connectionRuntime(), wsKey);
   }
 
   /**
@@ -937,7 +907,7 @@ export class Engine {
    * handshake.
    */
   async handleUpgrade(request: Request): Promise<UpgradeDecision> {
-    return handleUpgrade(
+    return EngineConnectionRuntime.handleUpgrade(
       {
         upgradeHooks: this.hooks.upgrade,
       },
@@ -950,7 +920,7 @@ export class Engine {
    */
   async handleShutdown(): Promise<void> {
     const engine = this;
-    return handleShutdown({
+    return EngineConnectionRuntime.handleShutdown({
       connections: this.connections,
       timers: this.timers,
       shutdownHooks: this.hooks.shutdown,
@@ -1052,7 +1022,7 @@ export class Engine {
     ctx: Record<PropertyKey, unknown>,
   ): Promise<void> {
     const engine = this;
-    return runConnectionLifecycle(
+    return EngineConnectionRuntime.runConnectionLifecycle(
       {
         moduleRuntimes: this.moduleRuntimes,
         activeConnectionState: {
@@ -1082,7 +1052,7 @@ export class Engine {
     _code: number,
     _reason: string,
   ): Promise<void> {
-    return handleConnectionClose(
+    return EngineConnectionRuntime.handleConnectionClose(
       {
         compiled: this.compiled,
         connections: this.connections,
@@ -1103,7 +1073,7 @@ export class Engine {
    * Stop every active stream owned by a connection.
    */
   private async cancelActiveStreamsForConnection(connectionId: string): Promise<void> {
-    return cancelActiveStreamsForConnection(
+    return EngineConnectionRuntime.cancelActiveStreamsForConnection(
       {
         activeStreams: this.activeStreams,
       },
@@ -1118,7 +1088,7 @@ export class Engine {
     connection: RuntimeConnection,
     data: ArrayBuffer,
   ): Promise<void> {
-    return handleBinaryMessage(
+    return EngineConnectionRuntime.handleBinaryMessage(
       {
         buildConnectionContext: (targetConnection, scope) =>
           this.buildConnectionContext(targetConnection, scope),
@@ -1134,7 +1104,7 @@ export class Engine {
    * Parse and route one websocket text frame.
    */
   private async processTextMessage(connection: RuntimeConnection, data: string): Promise<void> {
-    return processTextMessage(this.dispatchRuntime(), connection, data);
+    return EngineMessageRuntime.processTextMessage(this.dispatchRuntime(), connection, data);
   }
 
   /**
@@ -1146,7 +1116,13 @@ export class Engine {
     event: string,
     payload: unknown,
   ): boolean {
-    return sendThroughPipeline(this.outgoingRuntime(), connection, routing, event, payload);
+    return EngineMessageRuntime.sendThroughPipeline(
+      this.outgoingRuntime(),
+      connection,
+      routing,
+      event,
+      payload,
+    );
   }
 
   /**
@@ -1159,7 +1135,7 @@ export class Engine {
     options?: BroadcastOptions & { namespace?: string },
     excludeConnectionId?: string,
   ): void {
-    broadcastToConnections(
+    EngineMessageRuntime.broadcastToConnections(
       this.outgoingRuntime(),
       connections,
       event,
@@ -1179,7 +1155,7 @@ export class Engine {
     excludeConnectionId?: string,
     channelScope?: string,
   ): void {
-    broadcastToChannel(
+    EngineMessageRuntime.broadcastToChannel(
       this.memberRuntime(),
       channelName,
       event,
@@ -1193,14 +1169,14 @@ export class Engine {
    * Return a public snapshot of the current members in a channel.
    */
   private getChannelMembers(channelName: string) {
-    return getChannelMembers(this.memberRuntime(), channelName);
+    return EngineMessageRuntime.getChannelMembers(this.memberRuntime(), channelName);
   }
 
   /**
    * Remove tagged members from a channel, typically for moderation.
    */
   private kickChannelMembers(channelName: string, tag: string, reason: string): void {
-    kickChannelMembers(
+    EngineMessageRuntime.kickChannelMembers(
       {
         ...this.channelRuntime(),
         leaveChannel: (targetConnection, scope, kickedReason) =>
@@ -1220,7 +1196,12 @@ export class Engine {
     scope: { channel?: CompiledChannel; channelName: string; channelScope?: string },
     kickedReason?: string,
   ): Promise<void> {
-    return leaveChannel(this.channelRuntime(), connection, scope, kickedReason);
+    return EngineMessageRuntime.leaveChannel(
+      this.channelRuntime(),
+      connection,
+      scope,
+      kickedReason,
+    );
   }
 
   /**
@@ -1230,7 +1211,7 @@ export class Engine {
     connection: RuntimeConnection,
     payload: Record<string, unknown> | undefined,
   ): Promise<void> {
-    return handleSubscribe(this.channelRuntime(), connection, payload);
+    return EngineMessageRuntime.handleSubscribe(this.channelRuntime(), connection, payload);
   }
 
   /**
@@ -1240,7 +1221,7 @@ export class Engine {
     connection: RuntimeConnection,
     payload: Record<string, unknown> | undefined,
   ): Promise<void> {
-    return handleUnsubscribe(
+    return EngineMessageRuntime.handleUnsubscribe(
       {
         ...this.channelRuntime(),
         leaveChannel: (targetConnection, scope) => this.leaveChannel(targetConnection, scope),

@@ -1,29 +1,17 @@
-import { prefixedModuleEvent } from '~/_engine/compile/utils.ts';
-import { MODULE_API_MAP } from '~/define-module.ts';
-import type { Primitive } from '~/primitive.ts';
-import { ENGINE_SCOPE_META } from './types.ts';
-import type {
-  BroadcastOptions,
-  BuildConnectionContextDeps,
-  CompiledChannel,
-  CompiledNamespace,
-  ConnectionContext,
-  ConnectionInfo,
-  CreateTaskContextDeps,
-  EngineScopeMeta,
-  InitContext,
-  ModuleRuntime,
-  RuntimeConnection,
-  ShutdownContext,
-  TaskContext,
-} from './types.ts';
+import * as EngineCompileUtils from '~/_engine/compile/utils.ts';
+import * as DefineModule from '~/define-module.ts';
+import type * as PrimitiveCore from '~/primitive.ts';
+import * as EngineContextTypes from './types.ts';
 
 /**
  * Build the context passed to the `onInit` lifecycle hook.
  */
 export function createInitContext(
-  deps: Pick<CreateTaskContextDeps, 'env' | 'logger' | 'platform' | 'requireStorage'>,
-): InitContext<Record<string, unknown>, unknown> {
+  deps: Pick<
+    EngineContextTypes.CreateTaskContextDeps,
+    'env' | 'logger' | 'platform' | 'requireStorage'
+  >,
+): EngineContextTypes.InitContext<Record<string, unknown>, unknown> {
   const storage = deps.requireStorage();
   return {
     sql: storage.sql,
@@ -38,8 +26,8 @@ export function createInitContext(
  * Build the context passed to the shutdown hook.
  */
 export function createShutdownContext(
-  deps: CreateTaskContextDeps,
-): ShutdownContext<Record<string, unknown>, Record<string, unknown>, unknown> {
+  deps: EngineContextTypes.CreateTaskContextDeps,
+): EngineContextTypes.ShutdownContext<Record<string, unknown>, Record<string, unknown>, unknown> {
   const storage = deps.requireStorage();
   return {
     closeAll: (code, reason) => {
@@ -76,10 +64,14 @@ export function createShutdownContext(
  * Build the context passed to scheduled tasks and module-owned scheduled work.
  */
 export function createTaskContext(
-  deps: CreateTaskContextDeps,
-): TaskContext<Record<string, unknown>, Record<string, unknown>, unknown> {
+  deps: EngineContextTypes.CreateTaskContextDeps,
+): EngineContextTypes.TaskContext<Record<string, unknown>, Record<string, unknown>, unknown> {
   const storage = deps.requireStorage();
-  const ctx: TaskContext<Record<string, unknown>, Record<string, unknown>, unknown> = {
+  const ctx: EngineContextTypes.TaskContext<
+    Record<string, unknown>,
+    Record<string, unknown>,
+    unknown
+  > = {
     sql: storage.sql,
     kv: storage.kv,
     broadcast: (event, payload, options) => {
@@ -128,24 +120,28 @@ export function createTaskContext(
  * APIs are attached under `ctx.namespace` and `ctx.channel`.
  */
 export function buildConnectionContext(
-  deps: BuildConnectionContextDeps,
-  connection: RuntimeConnection,
+  deps: EngineContextTypes.BuildConnectionContextDeps,
+  connection: EngineContextTypes.RuntimeConnection,
   scope?: {
-    namespace?: CompiledNamespace;
-    channel?: CompiledChannel;
+    namespace?: EngineContextTypes.CompiledNamespace;
+    channel?: EngineContextTypes.CompiledChannel;
     channelName?: string;
     channelScope?: string;
   },
-): ConnectionContext<Record<string, unknown>, Record<string, unknown>, unknown> &
+): EngineContextTypes.ConnectionContext<Record<string, unknown>, Record<string, unknown>, unknown> &
   Record<PropertyKey, unknown> {
   const storage = deps.requireStorage();
-  const base: ConnectionContext<Record<string, unknown>, Record<string, unknown>, unknown> &
+  const base: EngineContextTypes.ConnectionContext<
+    Record<string, unknown>,
+    Record<string, unknown>,
+    unknown
+  > &
     Record<PropertyKey, unknown> = {
-    [ENGINE_SCOPE_META]: {
+    [EngineContextTypes.ENGINE_SCOPE_META]: {
       namespaceName: scope?.namespace?.name,
       channelName: scope?.channelName,
       channelScope: scope?.channelScope ?? scope?.channel?.key,
-    } satisfies EngineScopeMeta,
+    } satisfies EngineContextTypes.EngineScopeMeta,
     id: connection.id,
     meta: connection.meta,
     tags: [...connection.tags],
@@ -278,7 +274,7 @@ export function createModuleScopedContext(
   ctx: Record<PropertyKey, unknown>,
 ): Record<PropertyKey, unknown> {
   function prefix(event: string): string {
-    return prefixedModuleEvent(moduleId, event);
+    return EngineCompileUtils.prefixedModuleEvent(moduleId, event);
   }
 
   return new Proxy(ctx, {
@@ -291,12 +287,12 @@ export function createModuleScopedContext(
           );
       }
       if (key === 'broadcast') {
-        return (event: string, payload: unknown, options?: BroadcastOptions) =>
+        return (event: string, payload: unknown, options?: EngineContextTypes.BroadcastOptions) =>
           (
             Reflect.get(target, 'broadcast', receiver) as (
               event: string,
               payload: unknown,
-              options?: BroadcastOptions,
+              options?: EngineContextTypes.BroadcastOptions,
             ) => void
           )(prefix(event), payload, options);
       }
@@ -329,23 +325,23 @@ export function createModuleScopedContext(
  * Attach module API objects to the hidden module API map on a context.
  */
 export function attachModuleApis(
-  moduleRuntimes: readonly ModuleRuntime[],
+  moduleRuntimes: readonly EngineContextTypes.ModuleRuntime[],
   ctx: Record<PropertyKey, unknown>,
-  connection?: RuntimeConnection,
+  connection?: EngineContextTypes.RuntimeConnection,
 ): void {
   const apiMap: Record<PropertyKey, unknown> = {};
 
   for (const runtime of moduleRuntimes) {
     const moduleCtx = createModuleScopedContext(runtime.instance.id, ctx);
     const api = runtime.contextFactory(moduleCtx);
-    apiMap[(runtime.instance as Primitive).__identity[0]] = api;
+    apiMap[(runtime.instance as PrimitiveCore.Primitive).__identity[0]] = api;
 
     if (connection) {
       apiMap[runtime.instance.id] = api;
     }
   }
 
-  Object.defineProperty(ctx, MODULE_API_MAP, {
+  Object.defineProperty(ctx, DefineModule.MODULE_API_MAP, {
     configurable: true,
     enumerable: false,
     value: apiMap,
@@ -357,8 +353,8 @@ export function attachModuleApis(
  * Convert mutable runtime connection state into the stable public info shape.
  */
 export function toConnectionInfo(
-  connection: RuntimeConnection,
-): ConnectionInfo<Record<string, unknown>> {
+  connection: EngineContextTypes.RuntimeConnection,
+): EngineContextTypes.ConnectionInfo<Record<string, unknown>> {
   return {
     id: connection.id,
     meta: connection.meta,
@@ -374,7 +370,7 @@ export function toConnectionInfo(
  * Persist connection attachment data when the adapter supports socket
  * serialization for hibernation or resume.
  */
-export function persistAttachment(connection: RuntimeConnection): void {
+export function persistAttachment(connection: EngineContextTypes.RuntimeConnection): void {
   const wsLike = connection.wsKey as { serializeAttachment?: (value: unknown) => void };
   if (typeof wsLike.serializeAttachment === 'function') {
     wsLike.serializeAttachment({
