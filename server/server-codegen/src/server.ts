@@ -272,6 +272,16 @@ type LatencyApi = {
   readonly latency: number | null;
 };
 
+type QualityApi = {
+  /**
+   * A simple health label for the current connection.
+   *
+   * This is derived from recent ping/pong latency measurements so you do not
+   * have to interpret the raw numbers yourself.
+   */
+  readonly quality: 'excellent' | 'good' | 'degraded' | 'poor';
+};
+
 type ExactSendApi<TOutgoing extends Record<string, unknown>> = keyof TOutgoing extends never
   ? {}
   : {
@@ -336,6 +346,7 @@ export type BoundServerContext<
       ConnectionMetaApi &
       BufferedAmountApi &
       LatencyApi &
+      QualityApi &
       SendApi<TName, TFactories> &
       AckApi<TFactories> &
       ReplayApi<TName, TFactories>) &

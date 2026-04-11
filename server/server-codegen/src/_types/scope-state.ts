@@ -399,6 +399,15 @@ export interface LatencyMethods {
   readonly latency: ConnectionContext['latency'];
 }
 
+export interface QualityMethods {
+  /**
+   * A simple health label derived from recent ping/pong latency measurements.
+   *
+   * Use this when you want an easier signal than raw latency numbers.
+   */
+  readonly quality: ConnectionContext['quality'];
+}
+
 export interface AckMethods {
   /**
    * Confirm receipt of the current incoming message.
@@ -491,6 +500,7 @@ export type HandlerCtxFromState<TState extends ScopeStateShape> = SendApi<TState
   ConnectionMetaMethods &
   BufferedAmountMethods &
   LatencyMethods &
+  QualityMethods &
   AckApi<TState> &
   ReplayApi<TState> &
   ChannelsMethods &
@@ -507,6 +517,7 @@ export type StreamBaseCtxFromState<TState extends ScopeStateShape> = SendApi<TSt
   ConnectionMetaMethods &
   BufferedAmountMethods &
   LatencyMethods &
+  QualityMethods &
   ReplayApi<TState> &
   ChannelsMethods &
   ScopeExtras<TState['kind']>;

@@ -512,6 +512,12 @@ ${indent} *
 ${indent} * This stays null until wskit has enough ping/pong data to measure it.
 ${indent} */`,
     `${indent}readonly latency: number | null;`,
+    `${indent}/**
+${indent} * A simple health label derived from recent ping/pong measurements.
+${indent} *
+${indent} * This gives you an easier signal than raw latency numbers alone.
+${indent} */`,
+    `${indent}readonly quality: 'excellent' | 'good' | 'degraded' | 'poor';`,
   ];
 
   if (parsed.enabledFactories.includes('_outgoing')) {

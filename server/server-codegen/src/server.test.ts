@@ -25,6 +25,7 @@ declare global {
         meta: Record<string, unknown>;
         bufferedAmount: number;
         latency: number | null;
+        quality: 'excellent' | 'good' | 'degraded' | 'poor';
         send(event: 'message', payload: { text: string }): void;
         broadcast(event: 'message', payload: { text: string }): void;
         ack(): void;
@@ -38,6 +39,7 @@ declare global {
           meta: Record<string, unknown>;
           bufferedAmount: number;
           latency: number | null;
+          quality: 'excellent' | 'good' | 'degraded' | 'poor';
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -47,6 +49,7 @@ declare global {
           meta: Record<string, unknown>;
           bufferedAmount: number;
           latency: number | null;
+          quality: 'excellent' | 'good' | 'degraded' | 'poor';
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -61,6 +64,7 @@ declare global {
           meta: Record<string, unknown>;
           bufferedAmount: number;
           latency: number | null;
+          quality: 'excellent' | 'good' | 'degraded' | 'poor';
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -82,6 +86,7 @@ declare global {
           meta: Record<string, unknown>;
           bufferedAmount: number;
           latency: number | null;
+          quality: 'excellent' | 'good' | 'degraded' | 'poor';
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -93,6 +98,7 @@ declare global {
           meta: Record<string, unknown>;
           bufferedAmount: number;
           latency: number | null;
+          quality: 'excellent' | 'good' | 'degraded' | 'poor';
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -102,6 +108,7 @@ declare global {
           meta: Record<string, unknown>;
           bufferedAmount: number;
           latency: number | null;
+          quality: 'excellent' | 'good' | 'degraded' | 'poor';
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -116,6 +123,7 @@ declare global {
           meta: Record<string, unknown>;
           bufferedAmount: number;
           latency: number | null;
+          quality: 'excellent' | 'good' | 'degraded' | 'poor';
           send(event: 'message', payload: { text: string }): void;
           broadcast(event: 'message', payload: { text: string }): void;
           ack(): void;
@@ -138,6 +146,7 @@ declare global {
             meta: Record<string, unknown>;
             bufferedAmount: number;
             latency: number | null;
+            quality: 'excellent' | 'good' | 'degraded' | 'poor';
             send(event: 'message', payload: { text: string }): void;
             broadcast(event: 'message', payload: { text: string }): void;
             ack(): void;
@@ -156,6 +165,7 @@ declare global {
             meta: Record<string, unknown>;
             bufferedAmount: number;
             latency: number | null;
+            quality: 'excellent' | 'good' | 'degraded' | 'poor';
             send(event: 'message', payload: { text: string }): void;
             broadcast(event: 'message', payload: { text: string }): void;
             ack(): void;
@@ -179,6 +189,7 @@ declare global {
         meta: Record<string, unknown>;
         bufferedAmount: number;
         latency: number | null;
+        quality: 'excellent' | 'good' | 'degraded' | 'poor';
         schedule(
           taskId: 'expire-hold',
           options: { time: number; data?: { orderId: string } },
@@ -191,6 +202,7 @@ declare global {
           meta: Record<string, unknown>;
           bufferedAmount: number;
           latency: number | null;
+          quality: 'excellent' | 'good' | 'degraded' | 'poor';
           schedule(
             taskId: 'expire-hold',
             options: { time: number; data?: { orderId: string } },
@@ -219,10 +231,12 @@ const directCapabilities = define(
       const _meta: Record<string, unknown> = ctx.meta;
       const _bufferedAmount: number = ctx.bufferedAmount;
       const _latency: number | null = ctx.latency;
+      const _quality: 'excellent' | 'good' | 'degraded' | 'poor' = ctx.quality;
       void _id;
       void _meta;
       void _bufferedAmount;
       void _latency;
+      void _quality;
 
       ctx.ack();
       ctx.send('message', payload);
@@ -262,10 +276,12 @@ const scheduledCapabilities = scheduledDefine(
       const _meta: Record<string, unknown> = ctx.meta;
       const _bufferedAmount: number = ctx.bufferedAmount;
       const _latency: number | null = ctx.latency;
+      const _quality: 'excellent' | 'good' | 'degraded' | 'poor' = ctx.quality;
       void _id;
       void _meta;
       void _bufferedAmount;
       void _latency;
+      void _quality;
 
       ctx.schedule('expire-hold', {
         time: Date.now(),
