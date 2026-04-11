@@ -26,7 +26,7 @@ export type {
   ModuleHooks,
   ModuleInstance,
 } from './modules/define.ts';
-export { server, type BoundServer, type BoundServerContext } from './server.ts';
+export { server, type BoundServer, type BoundServerContext } from './_server/index.ts';
 export type {
   GeneratedIncomingContext,
   GeneratedPostInterceptContext,
