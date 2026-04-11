@@ -1,11 +1,11 @@
 import { ack } from '~/ack/ack.ts';
 import { channel, scope } from '~/channel/channel.ts';
 import { dedup } from '~/dedup/dedup.ts';
-import { defineModule } from '~/define-module.ts';
 import { defineServer } from '~/define-server.ts';
 import { error } from '~/errors/errors.ts';
 import { errors } from '~/errors/primitive.ts';
 import { incoming } from '~/incoming/incoming.ts';
+import { defineModule } from '~/modules/define.ts';
 import { namespace } from '~/namespace/namespace.ts';
 import { outgoing } from '~/outgoing/outgoing.ts';
 import { received } from '~/received.ts';

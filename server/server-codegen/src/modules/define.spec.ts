@@ -1,6 +1,6 @@
-import { defineModule } from '~/define-module.ts';
 import { error } from '~/errors/errors.ts';
 import { errors } from '~/errors/index.ts';
+import { defineModule } from '~/modules/define.ts';
 import { outgoing } from '~/outgoing/index.ts';
 import { t } from '~/t.ts';
 import { describe, expect, it } from 'vitest';
@@ -31,14 +31,14 @@ describe('defineModule()', () => {
   });
 
   it('rejects invalid module ids', () => {
-    expect(() =>
-      defineModule({
+    expect(() => {
+      return defineModule({
         id: 'BadName',
         key: Symbol('bad'),
         setup() {
           return () => ({});
         },
-      }),
-    ).toThrow(/author:name/);
+      });
+    }).toThrow(/author:name/);
   });
 });

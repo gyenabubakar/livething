@@ -1,6 +1,6 @@
-import { defineModule } from '~/define-module.ts';
 import { error } from '~/errors/errors.ts';
 import { errors } from '~/errors/index.ts';
+import { defineModule } from '~/modules/define.ts';
 import { outgoing } from '~/outgoing/index.ts';
 import { t } from '~/t.ts';
 

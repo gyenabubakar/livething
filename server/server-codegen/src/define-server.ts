@@ -16,7 +16,6 @@ import type {
 import type { AckPrimitive } from '~/ack/ack.ts';
 import type { ChannelPrimitive } from '~/channel/channel.ts';
 import type { DedupPrimitive } from '~/dedup/dedup.ts';
-import type { ModuleInstance } from '~/define-module.ts';
 import type { ErrorsPrimitive } from '~/errors/primitive.ts';
 import type { HeartbeatPrimitive } from '~/heartbeat/heartbeat.ts';
 import type { HibernationPrimitive } from '~/hibernation/hibernation.ts';
@@ -32,6 +31,7 @@ import type {
   UpgradePrimitive,
   ValidationErrorPrimitive,
 } from '~/lifecycle.ts';
+import type { ModuleInstance } from '~/modules/define.ts';
 import type { NamespacePrimitive } from '~/namespace/namespace.ts';
 import type { OutgoingPrimitive } from '~/outgoing/outgoing.ts';
 import type { PassivePrimitive } from '~/passive/passive.ts';

@@ -83,9 +83,6 @@ function isModuleId(value: string): boolean {
   return /^[a-z0-9-]+:[a-z0-9-]+$/.test(value);
 }
 
-/**
- * Define a reusable third-party module.
- */
 export function defineModule<
   TArgs,
   TApi,
@@ -129,7 +126,9 @@ export function defineModule<
   });
 
   return Object.assign(
-    ((args: TArgs) => factory(args)) as ModuleFactory<string, TArgs, TApi, TOutgoing, TErrors>,
+    ((args: TArgs) => {
+      return factory(args);
+    }) as ModuleFactory<string, TArgs, TApi, TOutgoing, TErrors>,
     {
       use(ctx: unknown) {
         const apiMap =

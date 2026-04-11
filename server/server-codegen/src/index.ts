@@ -18,14 +18,14 @@ export type {
   TaskContext,
   TimerProvider,
 } from './context.ts';
-export { defineModule } from './define-module.ts';
+export { defineModule } from './modules/define.ts';
 export type {
   ModuleConfig,
   ModuleContextFactory,
   ModuleFactory,
   ModuleHooks,
   ModuleInstance,
-} from './define-module.ts';
+} from './modules/define.ts';
 export { server, type BoundServer, type BoundServerContext } from './server.ts';
 export type {
   GeneratedIncomingContext,

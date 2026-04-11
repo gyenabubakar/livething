@@ -1,8 +1,8 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import type * as ChannelPrimitive from '~/channel/index.ts';
-import type * as DefineModule from '~/define-module.ts';
 import type * as IncomingPrimitive from '~/incoming/index.ts';
 import type * as InterceptPrimitive from '~/intercept/index.ts';
+import type * as DefineModule from '~/modules/define.ts';
 import type * as NamespacePrimitive from '~/namespace/index.ts';
 import type * as OutgoingPrimitive from '~/outgoing/index.ts';
 import type * as PrimitiveCore from '~/primitive.ts';

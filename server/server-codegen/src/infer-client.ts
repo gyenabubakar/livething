@@ -1,9 +1,9 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import type { ContractFromItems, ErrorsFromItems, MergeRecords } from '~/_types/scope-state.ts';
 import type { ChannelChild, ChannelPrimitive, ScopeDeclaration } from '~/channel/channel.ts';
-import type { ModuleInstance } from '~/define-module.ts';
 import type { ServerDefinition } from '~/define-server.ts';
 import type { ErrorDef, ValidationFailed } from '~/errors/errors.ts';
+import type { ModuleInstance } from '~/modules/define.ts';
 import type { NamespaceChild, NamespacePrimitive } from '~/namespace/namespace.ts';
 import type { OutgoingPrimitive } from '~/outgoing/index.ts';
 

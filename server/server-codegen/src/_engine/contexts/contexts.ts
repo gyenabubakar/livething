@@ -1,5 +1,5 @@
 import * as EngineCompileUtils from '~/_engine/compile/utils.ts';
-import * as DefineModule from '~/define-module.ts';
+import * as DefineModule from '~/modules/define.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
 import * as EngineContextTypes from './types.ts';
 

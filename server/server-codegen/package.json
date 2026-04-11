@@ -9,16 +9,6 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./_types/*": {
-      "types": "./dist/_types/*.d.ts"
-    },
-    "./define-server": {
-      "types": "./dist/define-server.d.ts"
-    },
-    "./server": {
-      "types": "./dist/server.d.ts",
-      "import": "./dist/server.js"
-    },
     "./registry": {
       "types": "./dist/registry.d.ts",
       "import": "./dist/registry.js"
@@ -95,9 +85,9 @@
       "types": "./dist/stream/index.d.ts",
       "import": "./dist/stream.js"
     },
-    "./define-module": {
-      "types": "./dist/define-module.d.ts",
-      "import": "./dist/define-module.js"
+    "./modules": {
+      "types": "./dist/modules/index.d.ts",
+      "import": "./dist/modules.js"
     }
   },
   "publishConfig": {
