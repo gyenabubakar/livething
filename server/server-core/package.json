@@ -13,29 +13,21 @@
       "types": "./dist/adapters.d.ts",
       "import": "./dist/adapters.js"
     },
-    "./incoming": {
-      "types": "./dist/incoming/index.d.ts",
-      "import": "./dist/incoming.js"
-    },
-    "./intercept": {
-      "types": "./dist/intercept/index.d.ts",
-      "import": "./dist/intercept.js"
-    },
-    "./outgoing": {
-      "types": "./dist/outgoing/index.d.ts",
-      "import": "./dist/outgoing.js"
-    },
-    "./errors": {
-      "types": "./dist/errors/index.d.ts",
-      "import": "./dist/errors.js"
+    "./modules": {
+      "types": "./dist/modules/index.d.ts",
+      "import": "./dist/modules.js"
     },
     "./ack": {
       "types": "./dist/ack/index.d.ts",
       "import": "./dist/ack.js"
     },
-    "./channel": {
-      "types": "./dist/channel/index.d.ts",
-      "import": "./dist/channel.js"
+    "./heartbeat": {
+      "types": "./dist/heartbeat/index.d.ts",
+      "import": "./dist/heartbeat.js"
+    },
+    "./sequence": {
+      "types": "./dist/sequence/index.d.ts",
+      "import": "./dist/sequence.js"
     },
     "./dedup": {
       "types": "./dist/dedup/index.d.ts",
@@ -45,17 +37,33 @@
       "types": "./dist/hibernation/index.d.ts",
       "import": "./dist/hibernation.js"
     },
-    "./heartbeat": {
-      "types": "./dist/heartbeat/index.d.ts",
-      "import": "./dist/heartbeat.js"
+    "./errors": {
+      "types": "./dist/errors/index.d.ts",
+      "import": "./dist/errors.js"
     },
-    "./lifecycle": {
-      "types": "./dist/lifecycle.d.ts",
-      "import": "./dist/lifecycle.js"
+    "./scheduled": {
+      "types": "./dist/scheduled/index.d.ts",
+      "import": "./dist/scheduled.js"
     },
-    "./namespace": {
+    "./requests": {
+      "types": "./dist/request/index.d.ts",
+      "import": "./dist/request.js"
+    },
+    "./intercept": {
+      "types": "./dist/intercept/index.d.ts",
+      "import": "./dist/intercept.js"
+    },
+    "./channels": {
+      "types": "./dist/channel/index.d.ts",
+      "import": "./dist/channel.js"
+    },
+    "./namespaces": {
       "types": "./dist/namespace/index.d.ts",
       "import": "./dist/namespace.js"
+    },
+    "./streams": {
+      "types": "./dist/stream/index.d.ts",
+      "import": "./dist/stream.js"
     },
     "./replay": {
       "types": "./dist/replay/index.d.ts",
@@ -65,25 +73,9 @@
       "types": "./dist/replay/custom.d.ts",
       "import": "./dist/replay/custom.js"
     },
-    "./request": {
-      "types": "./dist/request/index.d.ts",
-      "import": "./dist/request.js"
-    },
-    "./scheduled": {
-      "types": "./dist/scheduled/index.d.ts",
-      "import": "./dist/scheduled.js"
-    },
-    "./sequence": {
-      "types": "./dist/sequence/index.d.ts",
-      "import": "./dist/sequence.js"
-    },
-    "./stream": {
-      "types": "./dist/stream/index.d.ts",
-      "import": "./dist/stream.js"
-    },
-    "./modules": {
-      "types": "./dist/modules/index.d.ts",
-      "import": "./dist/modules.js"
+    "./lifecycle": {
+      "types": "./dist/lifecycle.d.ts",
+      "import": "./dist/lifecycle.js"
     }
   },
   "publishConfig": {
