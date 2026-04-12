@@ -4,10 +4,7 @@
     "outDir": "dist",
     "rootDir": "src",
     "paths": {
-      "~/*": ["./src/*"],
-      "@wskit/server": ["./src/index.ts"],
-      "@wskit/server/adapters": ["./src/adapters.ts"],
-      "@wskit/server/modules": ["./src/modules/index.ts"]
+      "~/*": ["./src/*"]
     }
   },
   "include": ["src"]

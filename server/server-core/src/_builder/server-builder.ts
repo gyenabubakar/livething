@@ -12,6 +12,22 @@ import type {
   ScopeState,
   ScopeStateShape,
 } from '~/_types/scope-state.ts';
+import type { ErrorDef } from '~/errors/errors.ts';
+
+type ContractFromState<TState extends ScopeStateShape> = {
+  readonly incoming: TState['contract']['incoming'];
+  readonly outgoing: TState['contract']['outgoing'];
+  readonly requests: TState['contract']['requests'];
+  readonly streams: TState['contract']['streams'];
+  readonly errors: ErrorMapFromDefs<TState['errors']>;
+  readonly channels: {};
+  readonly namespaces: {};
+};
+
+type ErrorMapFromDefs<TDefs extends readonly ErrorDef<string, any>[]> = {
+  [TDef in TDefs[number] as TDef extends ErrorDef<infer TCode, any> ? TCode : never]:
+    TDef extends ErrorDef<string, infer TDetail> ? TDetail : never;
+};
 import { incoming as createIncoming } from '~/incoming/incoming.ts';
 import { outgoing as createOutgoing } from '~/outgoing/outgoing.ts';
 import { validateBuild } from './validate.ts';
@@ -70,7 +86,7 @@ export class ServerBuilder<TState extends ScopeStateShape = InitialState> {
     return new GroupBuilder<TState>(this);
   }
 
-  done(): ServerDefinition<readonly Primitive[]> {
+  done(): ServerDefinition<readonly Primitive[], ContractFromState<TState>> {
     validateBuild(this._primitives);
     return Object.freeze({
       __wskit: 'server' as const,
