@@ -31,14 +31,14 @@
  */
 
 import { GroupBuilder, ServerBuilder } from '~/_builder/server-builder.ts';
-import { handleReplay as createHandleReplay } from '~/replay/custom.ts';
+import { handleReplay as createHandleReplay } from '~/replay/custom/custom.ts';
 import type { NextState, ScopeStateShape } from '~/_types/scope-state.ts';
 import type { Primitive } from '~/primitive.ts';
 import type {
   CustomReplayOptions,
   CustomReplayPrimitive,
   OutgoingWireMessage,
-} from '~/replay/custom.ts';
+} from '~/replay/custom/custom.ts';
 
 /**
  * A sub-builder returned by `.replayCustom()`. Collects the three lifecycle

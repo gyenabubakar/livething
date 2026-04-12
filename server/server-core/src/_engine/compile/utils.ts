@@ -1,8 +1,8 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { ValidationFailed } from '@wskit/core';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
-import type * as ChannelPrimitive from '~/channel/index.ts';
-import type * as NamespacePrimitive from '~/namespace/index.ts';
+import type * as ChannelPrimitive from '~/channel/channel.ts';
+import type * as NamespacePrimitive from '~/namespace/namespace.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
 
 /**

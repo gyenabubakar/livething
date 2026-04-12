@@ -1,13 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 /* oxlint-disable eslint-plugin-import(no-cycle) */
 
-/**
- * Importing this file also imports the `replayCustom` side-effect so that the
- * builder's `.replayCustom()` method is available whenever `custom.ts` is used
- * as a low-level API.
- */
-import '~/_builder/side-effects/replay-custom.ts';
-
 import { dedup } from '~/dedup/dedup.ts';
 import {
   matchesReplayScope,

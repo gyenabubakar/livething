@@ -1,14 +1,14 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import type * as ChannelPrimitive from '~/channel/index.ts';
+import type * as ChannelPrimitive from '~/channel/channel.ts';
 import type * as IncomingPrimitive from '~/incoming/index.ts';
-import type * as InterceptPrimitive from '~/intercept/index.ts';
+import type * as InterceptPrimitive from '~/intercept/intercept.ts';
 import type * as DefineModule from '~/modules/define.ts';
-import type * as NamespacePrimitive from '~/namespace/index.ts';
+import type * as NamespacePrimitive from '~/namespace/namespace.ts';
 import type * as OutgoingPrimitive from '~/outgoing/index.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
-import type * as RequestPrimitive from '~/request/index.ts';
-import type * as ScheduledPrimitive from '~/scheduled/index.ts';
-import type * as StreamPrimitive from '~/stream/index.ts';
+import type * as RequestPrimitive from '~/request/request.ts';
+import type * as ScheduledPrimitive from '~/scheduled/scheduled.ts';
+import type * as StreamPrimitive from '~/stream/stream.ts';
 
 // ---------------------------------------------------------------------------
 // Widened type aliases — used throughout the compile and runtime layers so

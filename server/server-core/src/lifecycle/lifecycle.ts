@@ -19,15 +19,7 @@
  * produces the correct `Primitive` shape. The factories are exported with a
  * `__key` symbol so other modules can reference them in dependency declarations.
  *
- * Importing this file also imports `_builder/side-effects/lifecycle.ts`, which
- * patches these factories onto `ServerBuilder` and `GroupBuilder`. This happens
- * automatically so you do not need to import the side-effect file separately
- * when using these low-level factory functions directly.
  */
-
-// Importing the side-effect file patches the builder prototypes so the
-// `.onConnect()`, `.onDisconnect()`, etc. methods are available on the builder.
-import '~/_builder/side-effects/lifecycle.ts';
 
 import type { EngineAccess } from '~/_engine/access.ts';
 import type { Primitive } from '~/primitive.ts';

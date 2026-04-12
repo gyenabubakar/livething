@@ -21,61 +21,121 @@
       "types": "./dist/ack/index.d.ts",
       "import": "./dist/ack.js"
     },
+    "./ack/symbols": {
+      "types": "./dist/ack/symbols.d.ts",
+      "import": "./dist/ack/symbols.js"
+    },
     "./heartbeat": {
       "types": "./dist/heartbeat/index.d.ts",
       "import": "./dist/heartbeat.js"
+    },
+    "./heartbeat/symbols": {
+      "types": "./dist/heartbeat/symbols.d.ts",
+      "import": "./dist/heartbeat/symbols.js"
     },
     "./sequence": {
       "types": "./dist/sequence/index.d.ts",
       "import": "./dist/sequence.js"
     },
+    "./sequence/symbols": {
+      "types": "./dist/sequence/symbols.d.ts",
+      "import": "./dist/sequence/symbols.js"
+    },
     "./dedup": {
       "types": "./dist/dedup/index.d.ts",
       "import": "./dist/dedup.js"
+    },
+    "./dedup/symbols": {
+      "types": "./dist/dedup/symbols.d.ts",
+      "import": "./dist/dedup/symbols.js"
     },
     "./hibernation": {
       "types": "./dist/hibernation/index.d.ts",
       "import": "./dist/hibernation.js"
     },
+    "./hibernation/symbols": {
+      "types": "./dist/hibernation/symbols.d.ts",
+      "import": "./dist/hibernation/symbols.js"
+    },
     "./errors": {
       "types": "./dist/errors/index.d.ts",
       "import": "./dist/errors.js"
+    },
+    "./errors/symbols": {
+      "types": "./dist/errors/symbols.d.ts",
+      "import": "./dist/errors/symbols.js"
     },
     "./scheduled": {
       "types": "./dist/scheduled/index.d.ts",
       "import": "./dist/scheduled.js"
     },
+    "./scheduled/symbols": {
+      "types": "./dist/scheduled/symbols.d.ts",
+      "import": "./dist/scheduled/symbols.js"
+    },
     "./requests": {
       "types": "./dist/request/index.d.ts",
       "import": "./dist/request.js"
+    },
+    "./requests/symbols": {
+      "types": "./dist/request/symbols.d.ts",
+      "import": "./dist/request/symbols.js"
     },
     "./intercept": {
       "types": "./dist/intercept/index.d.ts",
       "import": "./dist/intercept.js"
     },
+    "./intercept/symbols": {
+      "types": "./dist/intercept/symbols.d.ts",
+      "import": "./dist/intercept/symbols.js"
+    },
     "./channels": {
       "types": "./dist/channel/index.d.ts",
       "import": "./dist/channel.js"
+    },
+    "./channels/symbols": {
+      "types": "./dist/channel/symbols.d.ts",
+      "import": "./dist/channel/symbols.js"
     },
     "./namespaces": {
       "types": "./dist/namespace/index.d.ts",
       "import": "./dist/namespace.js"
     },
+    "./namespaces/symbols": {
+      "types": "./dist/namespace/symbols.d.ts",
+      "import": "./dist/namespace/symbols.js"
+    },
     "./streams": {
       "types": "./dist/stream/index.d.ts",
       "import": "./dist/stream.js"
+    },
+    "./streams/symbols": {
+      "types": "./dist/stream/symbols.d.ts",
+      "import": "./dist/stream/symbols.js"
     },
     "./replay": {
       "types": "./dist/replay/index.d.ts",
       "import": "./dist/replay.js"
     },
+    "./replay/symbols": {
+      "types": "./dist/replay/symbols.d.ts",
+      "import": "./dist/replay/symbols.js"
+    },
     "./replay/custom": {
-      "types": "./dist/replay/custom.d.ts",
+      "types": "./dist/replay/custom/index.d.ts",
       "import": "./dist/replay/custom.js"
     },
+    "./replay/custom/symbols": {
+      "types": "./dist/replay/custom/symbols.d.ts",
+      "import": "./dist/replay/custom/symbols.js"
+    },
     "./lifecycle": {
-      "types": "./dist/lifecycle.d.ts",
+      "types": "./dist/lifecycle/index.d.ts",
       "import": "./dist/lifecycle.js"
+    },
+    "./lifecycle/symbols": {
+      "types": "./dist/lifecycle/symbols.d.ts",
+      "import": "./dist/lifecycle/symbols.js"
     }
   },
   "publishConfig": {

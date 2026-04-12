@@ -2,10 +2,10 @@
 import { definePrimitive } from '~/primitive.ts';
 import type { ConnectionInfo } from '~/context.ts';
 import type { ErrorDef } from '~/errors/errors.ts';
-import type { ErrorsPrimitive } from '~/errors/index.ts';
-import type { OutgoingPrimitive } from '~/outgoing/index.ts';
+import type { ErrorsPrimitive } from '~/errors/primitive.ts';
+import type { OutgoingPrimitive } from '~/outgoing/outgoing.ts';
 import type { Primitive, PrimitiveRef, RequiresManifest } from '~/primitive.ts';
-import type { ScheduledHandle, ScheduledOptions } from '~/scheduled/index.ts';
+import type { ScheduledHandle, ScheduledOptions } from '~/scheduled/scheduled.ts';
 
 /**
  * The restricted hook surface modules receive during setup.

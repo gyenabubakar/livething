@@ -1,6 +1,6 @@
-import { handleReplay } from '~/replay/custom.ts';
+import { handleReplay } from '~/replay/custom/custom.ts';
 import type { PrimitiveKind, PrimitiveRef } from '~/primitive.ts';
-import type { CustomReplayPrimitive, OutgoingWireMessage } from '~/replay/custom.ts';
+import type { CustomReplayPrimitive, OutgoingWireMessage } from '~/replay/custom/custom.ts';
 
 const topLevelReplay = handleReplay({
   onBeforeSend(message) {

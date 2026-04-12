@@ -21,7 +21,8 @@ export interface ScheduledOptions<TData = unknown> {
   readonly every?: number;
 
   /**
-   * When `true`, failed task runs are retried. Defaults to `false`.
+   * When `true`, failed task runs are retried with exponential backoff
+   * (1s, 5s, 25s) then dead-letter queue. Defaults to `true`.
    */
   readonly retry?: boolean;
 }

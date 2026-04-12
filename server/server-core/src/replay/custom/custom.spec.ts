@@ -1,5 +1,5 @@
 import { ENGINE_SCOPE_META } from '~/_engine/contexts/types.ts';
-import { handleReplay } from '~/replay/custom.ts';
+import { handleReplay } from '~/replay/custom/custom.ts';
 import { describe, expect, it } from 'vitest';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type { IncomingProtocolEvent, WireOutgoingMessage } from '~/_engine/runtime/types.ts';

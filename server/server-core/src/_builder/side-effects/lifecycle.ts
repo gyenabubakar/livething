@@ -35,7 +35,7 @@ import {
   onShutdown as createOnShutdown,
   onUpgrade as createOnUpgrade,
   onValidationError as createOnValidationError,
-} from '~/lifecycle.ts';
+} from '~/lifecycle/lifecycle.ts';
 import type { HandlerCtxFromState, ScopeStateShape } from '~/_types/scope-state.ts';
 import type { InitContext, ShutdownContext } from '~/context.ts';
 import type { Primitive } from '~/primitive.ts';
