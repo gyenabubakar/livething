@@ -65,7 +65,11 @@ export class ServerBuilder<TState extends ScopeStateShape = InitialState> {
   }
 
   use<P extends Primitive>(primitive: P): ServerBuilder<NextState<TState, P & FoldablePrimitive>> {
-    this._primitives.push(primitive);
+    if (primitive.__wskit === 'group') {
+      this._primitives.push(...(primitive as unknown as GroupPrimitive).primitives);
+    } else {
+      this._primitives.push(primitive);
+    }
     return this as any;
   }
 
