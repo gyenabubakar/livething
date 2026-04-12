@@ -12,11 +12,9 @@ import type { HandlerCtxFromState, ScopeStateShape } from '~/_types/scope-state.
 import {
   stream as createStream,
   start as createStart,
-  chunks as createChunks,
   nudge as createNudge,
   generate as createGenerate,
 } from '~/stream/stream.ts';
-import { t } from '~/t.ts';
 import { ServerBuilder, GroupBuilder } from '~/_builder/server-builder.ts';
 
 export class StreamBuilder<
@@ -36,8 +34,6 @@ export class StreamBuilder<
   /** @internal */
   readonly _triggerSchema: Validator<TPayload>;
   /** @internal */
-  readonly _chunkSchema: Validator<TChunks>;
-  /** @internal */
   readonly _broadcast: boolean;
   /** @internal */
   readonly _nudges: NudgeDeclaration[] = [];
@@ -46,14 +42,13 @@ export class StreamBuilder<
     parentBuilder: TParentBuilder,
     parentPrimitives: Primitive[],
     eventContract: EventContract<TEvent, TPayload>,
-    chunkSchema: Validator<TChunks>,
+    _chunkSchema: Validator<TChunks>,
     options?: { broadcast?: boolean },
   ) {
     this._parentBuilder = parentBuilder;
     this._parentPrimitives = parentPrimitives;
     this._event = eventContract.event;
     this._triggerSchema = eventContract.schema;
-    this._chunkSchema = chunkSchema;
     this._broadcast = options?.broadcast ?? false;
   }
 
@@ -70,14 +65,13 @@ export class StreamBuilder<
       payload: TPayload,
     ) => AsyncGenerator<TChunks, void, TNudges extends readonly [] ? undefined : StreamNudgeMessages<TNudges>>,
   ): StreamBuilder<TParentBuilder, TParentState, TEvent, TPayload, TChunks, TNudges> {
-    const streamPrimitive = createStream(
-      createStart(this._event, this._triggerSchema as any, { broadcast: this._broadcast }),
-      createChunks(t<TChunks>()),
+    const streamPrimitive = createStream<TEvent, TPayload, TChunks, typeof this._nudges>(
+      createStart(this._event, this._triggerSchema as (value: unknown) => TPayload, { broadcast: this._broadcast }),
       ...this._nudges,
     );
-    const generatePrimitive = (createGenerate as any)(streamPrimitive, handler);
-    this._parentPrimitives.push(streamPrimitive as unknown as Primitive);
-    this._parentPrimitives.push(generatePrimitive as unknown as Primitive);
+    const generatePrimitive = createGenerate(streamPrimitive, handler as any);
+    this._parentPrimitives.push(streamPrimitive as Primitive);
+    this._parentPrimitives.push(generatePrimitive as Primitive);
     return this as any;
   }
 
@@ -86,12 +80,11 @@ export class StreamBuilder<
   }
 
   extract(): GeneratePrimitive {
-    const streamPrimitive = createStream(
-      createStart(this._event, this._triggerSchema as any, { broadcast: this._broadcast }),
-      createChunks(t<TChunks>()),
+    const streamPrimitive = createStream<TEvent, TPayload, TChunks, typeof this._nudges>(
+      createStart(this._event, this._triggerSchema as (value: unknown) => TPayload, { broadcast: this._broadcast }),
       ...this._nudges,
     );
-    return (createGenerate as any)(streamPrimitive, () => {
+    return createGenerate(streamPrimitive, () => {
       throw new Error('[wskit] Stream extracted without .generate() — attach a generator before using.');
     }) as GeneratePrimitive;
   }
