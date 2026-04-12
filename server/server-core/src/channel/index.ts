@@ -1,3 +1,4 @@
+import '~/_builder/side-effects/channels.ts';
 export * from './channel.ts';
 export * from './lifecycle.ts';
 export {
@@ -5,4 +6,3 @@ export {
   onSubscribe as _onSubscribe,
   onUnsubscribe as _onUnsubscribe,
 } from './lifecycle.ts';
-import '~/_builder/side-effects/channels.ts';

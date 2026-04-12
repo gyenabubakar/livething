@@ -13,6 +13,9 @@ import type {
   ScopeStateShape,
 } from '~/_types/scope-state.ts';
 import type { ErrorDef } from '~/errors/errors.ts';
+import { incoming as createIncoming } from '~/incoming/incoming.ts';
+import { outgoing as createOutgoing } from '~/outgoing/outgoing.ts';
+import { validateBuild } from './validate.ts';
 
 type ContractFromState<TState extends ScopeStateShape> = {
   readonly incoming: TState['contract']['incoming'];
@@ -28,9 +31,6 @@ type ErrorMapFromDefs<TDefs extends readonly ErrorDef<string, any>[]> = {
   [TDef in TDefs[number] as TDef extends ErrorDef<infer TCode, any> ? TCode : never]:
     TDef extends ErrorDef<string, infer TDetail> ? TDetail : never;
 };
-import { incoming as createIncoming } from '~/incoming/incoming.ts';
-import { outgoing as createOutgoing } from '~/outgoing/outgoing.ts';
-import { validateBuild } from './validate.ts';
 
 type InitialState = ScopeState<'top', NoOutgoing, false, false>;
 

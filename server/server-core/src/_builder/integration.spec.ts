@@ -39,8 +39,8 @@ const Forbidden = error('forbidden', (p: unknown) => p as { reason: string });
 const QuotaExceeded = error('quota-exceeded', (p: unknown) => p as { limit: number });
 
 // ─── Helpers ────────────────────────────────────────────────
-const pongSchema = (p: unknown) => p as { ts: number; serverTs: number };
-const chunkSchema = (p: unknown) => p as { token: string };
+function pongSchema(p: unknown) { return p as { ts: number; serverTs: number }; }
+function chunkSchema(p: unknown) { return p as { token: string }; }
 
 function findPrimitive(primitives: readonly any[], tag: string) {
   return primitives.find((p) => p.__wskit === tag);

@@ -1,4 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+/* oxlint-disable eslint-plugin-import(no-cycle) */
+import '~/_builder/side-effects/replay-custom.ts';
 import { dedup } from '~/dedup/dedup.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
 import {
@@ -182,5 +184,3 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
 }
 
 handleReplay.__key = CUSTOM_REPLAY_KEY;
-
-import '~/_builder/side-effects/replay-custom.ts';

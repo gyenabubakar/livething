@@ -6,7 +6,7 @@ import '~/_builder/side-effects/requests.ts';
 
 const message = event('message', (p: unknown) => p as { text: string });
 const ping = event('ping', (p: unknown) => p as { ts: number });
-const pongSchema = (p: unknown) => p as { ts: number; serverTs: number };
+function pongSchema(p: unknown) { return p as { ts: number; serverTs: number }; }
 
 describe('.reply() side-effect', () => {
   it('adds request primitive', () => {

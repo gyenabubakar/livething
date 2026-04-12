@@ -34,8 +34,8 @@ const dismiss = event('dismiss', (p: unknown) => p as { id: string });
 const aiComplete = event('ai-complete', (p: unknown) => p as { prompt: string });
 const cancel = event('cancel', (p: unknown) => p as {});
 
-const pongSchema = (p: unknown) => p as { ts: number; serverTs: number };
-const chunkSchema = (p: unknown) => p as { token: string };
+function pongSchema(p: unknown) { return p as { ts: number; serverTs: number }; }
+function chunkSchema(p: unknown) { return p as { token: string }; }
 
 // ─── ctx type inference ─────────────────────────────────────
 
@@ -195,7 +195,7 @@ type Equal<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
 // ─── InferClient ────────────────────────────────────────────
 
 const Forbidden = error('forbidden', (p: unknown) => p as { reason: string });
-const pongResponse = (p: unknown) => p as { ts: number; serverTs: number };
+function pongResponse(p: unknown) { return p as { ts: number; serverTs: number }; }
 
 const chatServer = server('chat')
   .ack()

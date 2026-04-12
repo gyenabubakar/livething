@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+/* oxlint-disable eslint-plugin-import(no-cycle) */
 import type { CustomReplayPrimitive, CustomReplayOptions, OutgoingWireMessage } from '~/replay/custom.ts';
 import type { NextState, ScopeStateShape } from '~/_types/scope-state.ts';
 import type { Primitive } from '~/primitive.ts';

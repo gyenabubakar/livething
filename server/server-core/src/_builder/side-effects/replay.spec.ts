@@ -72,7 +72,7 @@ describe('.replay() side-effect', () => {
       .done();
 
     const replayPrim = def.primitives.find((p) => p.__wskit === 'replay') as {
-      options: { type?: string; snapshotKey?: Function; reduce?: Function };
+      options: { type?: string; snapshotKey?: (...args: unknown[]) => unknown; reduce?: (...args: unknown[]) => unknown };
     };
     expect(replayPrim.options.type).toBe('snapshot');
     expect(typeof replayPrim.options.snapshotKey).toBe('function');

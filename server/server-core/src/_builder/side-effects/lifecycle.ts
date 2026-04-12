@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+/* oxlint-disable eslint-plugin-import(no-cycle) */
 import type { InitContext, ShutdownContext } from '~/context.ts';
 import type {
   UpgradeResult,

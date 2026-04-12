@@ -8,7 +8,7 @@ const message = event('message', (p: unknown) => p as { text: string });
 const aiComplete = event('ai-complete', (p: unknown) => p as { prompt: string });
 const cancel = event('cancel', (p: unknown) => p as {});
 const addContext = event('add-context', (p: unknown) => p as { context: string });
-const chunkSchema = (p: unknown) => p as { token: string };
+function chunkSchema(p: unknown) { return p as { token: string }; }
 
 describe('.stream() side-effect', () => {
   it('adds stream + generate primitives', () => {

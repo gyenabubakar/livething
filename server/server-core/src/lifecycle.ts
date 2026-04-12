@@ -1,4 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+/* oxlint-disable eslint-plugin-import(no-cycle) */
+import '~/_builder/side-effects/lifecycle.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type { Primitive } from '~/primitive.ts';
 
@@ -84,5 +86,3 @@ export const onValidationError = Object.assign(
   makeLifecycle('onValidationError', ON_VALIDATION_ERROR_KEY, (e, h) => e.onValidationError(h)) as <TCtx>(handler: ValidationErrorHandler<TCtx>) => ValidationErrorPrimitive<TCtx>,
   { __key: ON_VALIDATION_ERROR_KEY },
 );
-
-import '~/_builder/side-effects/lifecycle.ts';
