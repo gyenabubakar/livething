@@ -21,6 +21,10 @@ import type {
   StreamPrimitive,
 } from '~/stream/stream.ts';
 
+// ---------------------------------------------------------------------------
+// Shorthand aliases — used throughout this file to keep lines manageable
+// ---------------------------------------------------------------------------
+
 type AnyErrorDef = ErrorDef<string, any>;
 type AnyOutgoing = OutgoingPrimitive<string, any>;
 type AnyIncoming = IncomingPrimitive<string, any, any>;
@@ -34,11 +38,46 @@ type AnyErrors = ErrorsPrimitive<readonly AnyErrorDef[]>;
 type AnyReplay = ReplayPrimitive;
 type AnyCustomReplay = CustomReplayPrimitive;
 type AnyIntercept = InterceptPrimitive<string, any, any>;
+
+// ---------------------------------------------------------------------------
+// The fold engine — how typed ctx is built from a list of primitives
+// ---------------------------------------------------------------------------
+//
+// The builder's fluent API produces a tuple of primitives:
+//
+//   server('chat').ack().outgoing('typing', ...).incoming('message', ...)
+//
+// Internally this becomes something like:
+//
+//   readonly [AckPrimitive, OutgoingPrimitive<'typing', ...>, IncomingPrimitive<'message', ...>]
+//
+// To derive the correctly typed ctx for each handler, we "fold" that tuple
+// from left to right. Each primitive advances the state by one step:
+//
+//   ScopeState (empty)
+//     → NextState<state, AckPrimitive>          hasAck: true
+//     → NextState<state, OutgoingPrimitive>      outgoing: { typing: ... }
+//     → NextState<state, IncomingPrimitive>      contract.outgoing: { message: ... }
+//
+// The final state is then fed into `HandlerCtxFromState` to produce the ctx
+// type that the developer sees in their handler callbacks.
+//
+// This is entirely a compile-time operation — no runtime cost.
+
+// ---------------------------------------------------------------------------
+// FoldablePrimitive
+// ---------------------------------------------------------------------------
+
 /**
  * Every primitive shape that the fold engine knows how to process.
  *
- * `namespace()` and `channel()` are not included here because they create
- * their own nested folds.
+ * When the builder collects primitives, each one is tested against this union.
+ * Primitives that match are folded into the accumulated state; others are
+ * ignored by the fold but still collected for the runtime.
+ *
+ * `namespace()` and `channel()` are excluded here because they create their
+ * own nested folds — each scope runs its own independent fold over its own
+ * list of child primitives.
  */
 export type FoldablePrimitive =
   | AckPrimitive
@@ -56,17 +95,36 @@ export type FoldablePrimitive =
   | AnyRequest
   | AnyGenerate;
 
+// ---------------------------------------------------------------------------
+// ScopeKind
+// ---------------------------------------------------------------------------
+
 /**
- * The scope currently being typed.
+ * Which level of scope is currently being typed.
  *
- * This decides which extra ctx fields exist.
+ * The scope kind controls which extra fields appear on ctx:
+ * - `'top'`       — the root server scope (no namespace/channel extras)
+ * - `'namespace'` — inside a `.namespace()` block (`ctx.namespace.name`)
+ * - `'channel'`   — inside a `.channel()` block (`ctx.channel.name`)
  */
 export type ScopeKind = 'top' | 'namespace' | 'channel';
+
+// ---------------------------------------------------------------------------
+// ClientContractState
+// ---------------------------------------------------------------------------
 
 /**
  * The client-facing contract accumulated while folding primitives.
  *
- * This is the raw shape that later powers `InferClient`.
+ * Each handler primitive (`incoming`, `request`, `generate`) adds entries
+ * to this as the fold processes the primitive tuple. The final value of
+ * `contract` in the folded state becomes the data that `InferClient` reads
+ * to produce the client SDK types.
+ *
+ * - `incoming`  — events the server receives from clients (added by `incoming()`)
+ * - `outgoing`  — events the server sends to clients   (added by `outgoing()`)
+ * - `requests`  — request/response pairs               (added by `request()`)
+ * - `streams`   — streaming generators                 (added by `generate()`)
  */
 export interface ClientContractState {
   readonly incoming: Record<string, any>;
@@ -75,11 +133,16 @@ export interface ClientContractState {
   readonly streams: Record<string, any>;
 }
 
+// ---------------------------------------------------------------------------
+// ScopeStateShape
+// ---------------------------------------------------------------------------
+
 /**
- * The minimal shape every scope state must have while folding.
+ * The minimal shape every scope state must satisfy.
  *
- * Most helper types only care about these fields, not the exact generic
- * parameters of `ScopeState`.
+ * Most helper types in this file only need these fields — not the exact
+ * generic parameters of `ScopeState`. Accepting `ScopeStateShape` instead
+ * of `ScopeState<...>` keeps constraint types simpler and more readable.
  */
 export interface ScopeStateShape {
   readonly kind: ScopeKind;
@@ -90,24 +153,39 @@ export interface ScopeStateShape {
   readonly errors: readonly AnyErrorDef[];
 }
 
+// ---------------------------------------------------------------------------
+// NoOutgoing
+// ---------------------------------------------------------------------------
+
 /**
- * A helper for "no outgoing events registered yet".
+ * Placeholder for "no outgoing events registered yet" in a fresh scope.
  *
- * Using `Record<never, never>` keeps the object empty without widening it
- * to a generic `Record<string, unknown>`.
+ * Using `Record<never, never>` (an empty object with no possible keys) keeps
+ * the type precise. Using `Record<string, unknown>` would accidentally allow
+ * any string as a valid event name, breaking type-checking on `ctx.send(...)`.
  */
 export type NoOutgoing = Record<never, never>;
 
+// ---------------------------------------------------------------------------
+// ScopeState
+// ---------------------------------------------------------------------------
+
 /**
- * The full accumulated state for one scope.
+ * The full accumulated state for one scope as primitives are registered.
  *
- * As primitives are registered, this type records:
- * - which scope we are in
- * - which outgoing events are available to handlers
- * - whether `ack()` is enabled
- * - whether `replay()` is enabled
- * - the client contract gathered so far
- * - the defined server errors
+ * Start at the default (all-false, empty) state and advance it by passing
+ * it through `NextState` for each primitive in the tuple.
+ *
+ * Fields:
+ * - `kind`       — which scope we are in (`'top'`, `'namespace'`, `'channel'`)
+ * - `outgoing`   — the outgoing event map that handler `send()` / `broadcast()` are typed against
+ * - `hasAck`     — `true` once `ack()` has been seen; unlocks `ctx.ack()` for handlers
+ * - `hasReplay`  — `true` once `replay()` has been seen; unlocks `ctx.sendReplay(...)` for handlers
+ * - `contract`   — the client-facing contract built up so far
+ * - `errors`     — the list of server error definitions registered with `errors()`
+ *
+ * All parameters have default values so `ScopeState` (no arguments) gives a
+ * clean empty starting state for the top-level scope.
  */
 export type ScopeState<
   TKind extends ScopeKind = 'top',
@@ -130,10 +208,23 @@ export type ScopeState<
   readonly errors: TErrors;
 };
 
+// ---------------------------------------------------------------------------
+// MergeRecords
+// ---------------------------------------------------------------------------
+
 /**
- * Merge two object maps, with keys from `B` overriding keys from `A`.
+ * Merge two record types into one, with keys from `B` overriding keys from `A`.
  *
- * This is the core "append to contract" helper used by the fold.
+ * This is the core "append a new event to the existing map" helper. Every
+ * time the fold encounters a primitive that declares new events or handlers,
+ * it uses `MergeRecords` to add them to the accumulated state without losing
+ * whatever was already there.
+ *
+ * ```ts
+ * type Before = { chat: string };
+ * type New    = { typing: boolean };
+ * type After  = MergeRecords<Before, New>; // { chat: string; typing: boolean }
+ * ```
  */
 export type MergeRecords<A, B> = {
   [TKey in keyof A | keyof B]: TKey extends keyof B
@@ -143,8 +234,16 @@ export type MergeRecords<A, B> = {
       : never;
 };
 
+// ---------------------------------------------------------------------------
+// Entry helpers — convert one primitive into its contract contribution
+// ---------------------------------------------------------------------------
+
 /**
- * Turn an `outgoing()` primitive into `{ eventName: payloadType }`.
+ * Extract `{ eventName: payloadType }` from an `outgoing()` primitive.
+ *
+ * Used by `NextState` to add the new outgoing event to both `state.outgoing`
+ * (for typed `send` / `broadcast`) and `state.contract.incoming` (for the
+ * client contract — what the client *receives* is what the server *sends*).
  */
 type OutgoingEntry<TPrimitive extends AnyOutgoing> =
   TPrimitive extends OutgoingPrimitive<infer TEvent, infer TPayload>
@@ -152,8 +251,9 @@ type OutgoingEntry<TPrimitive extends AnyOutgoing> =
     : never;
 
 /**
- * Turn a `request()` primitive into
- * `{ eventName: { payload, response } }`.
+ * Extract `{ eventName: { payload, response } }` from a `request()` primitive.
+ *
+ * This becomes the `requests` field in the client contract.
  */
 type RequestEntry<TPrimitive extends AnyRequest> =
   TPrimitive extends RequestPrimitive<infer TEvent, infer TPayload, infer TResponse, any>
@@ -161,12 +261,19 @@ type RequestEntry<TPrimitive extends AnyRequest> =
     : never;
 
 /**
- * Convert a stream's nudges into a simple event -> payload map.
+ * Convert a stream's nudge declarations into a simple `{ eventName: payloadType }` map.
  *
- * Example:
- * `readonly [nudge('cancel'), nudge('add-context', ...)]`
- * becomes
- * `{ cancel: unknown; 'add-context': AddContextPayload }`
+ * Nudges are client-to-server messages that influence an active stream (for
+ * example, cancelling it or providing additional context mid-stream).
+ *
+ * Example — given:
+ * ```ts
+ * readonly [nudge('cancel'), nudge('add-context', v.object({ hint: v.string() }))]
+ * ```
+ * This produces:
+ * ```ts
+ * { cancel: unknown; 'add-context': { hint: string } }
+ * ```
  */
 type NudgeMap<TNudges extends readonly NudgeDeclaration[]> = {
   [TNudge in TNudges[number] as TNudge['event']]: TNudge extends NudgeDeclaration<
@@ -178,7 +285,11 @@ type NudgeMap<TNudges extends readonly NudgeDeclaration[]> = {
 };
 
 /**
- * Convert a stream contract into the client-facing stream entry.
+ * Convert a `StreamPrimitive` into its client-facing contract entry.
+ *
+ * Produces `{ eventName: { payload, chunks, nudges? } }`.
+ * The `nudges` field is only included when the stream declares at least
+ * one nudge — `keyof NudgeMap<TNudges> extends never` detects an empty map.
  */
 type StreamEntry<TStream extends StreamPrimitive> =
   TStream extends StreamPrimitive<string, infer TPayload, infer TChunks, infer TNudges>
@@ -191,20 +302,38 @@ type StreamEntry<TStream extends StreamPrimitive> =
       >
     : never;
 
+// ---------------------------------------------------------------------------
+// NextState
+// ---------------------------------------------------------------------------
+
 /**
- * Apply one primitive to the current scope state.
+ * Apply one primitive to the current scope state and return the next state.
  *
- * This is the heart of the fold. Each branch says what a primitive changes:
- * - `ack()` flips `hasAck`
- * - passive infrastructure like `heartbeat()` leaves handler ctx unchanged
- * - `replay()` flips `hasReplay`
- * - `outgoing()` adds sendable events
- * - `incoming()` and `request()` extend the client contract
- * - `generate()` adds a stream to the client contract
+ * This is the heart of the fold engine. Each branch says exactly what one
+ * primitive changes:
+ *
+ * | Primitive                           | What changes                                              |
+ * |-------------------------------------|-----------------------------------------------------------|
+ * | `ack()`                             | `hasAck` flips to `true` → unlocks `ctx.ack()`            |
+ * | `heartbeat()`, `hibernation()`, etc.| Nothing changes (passive infrastructure — no ctx impact)  |
+ * | `replay()`                          | `hasReplay` flips to `true` → unlocks `ctx.sendReplay()`  |
+ * | `errors(...)`                       | `errors` is replaced with the new error definition list   |
+ * | `outgoing(event, ...)`              | `outgoing` gains the event → `ctx.send()` becomes typed   |
+ *                                       | `contract.incoming` also gains the event (client receives it) |
+ * | `incoming(event, ...)`              | `contract.outgoing` gains `{ event: payload }` (client sends it) |
+ * | `request(event, ...)`               | `contract.requests` gains `{ event: { payload, response } }` |
+ * | `generate(stream, ...)`             | `contract.streams` gains the stream entry                 |
+ *
+ * Everything that is not changed is copied from `TState` unchanged.
+ * This ensures the fold never loses previously accumulated information.
+ *
+ * The deeply nested conditional form (`A extends X ? ... : B extends Y ? ...`)
+ * is the standard TypeScript pattern for a multi-branch type-level match.
  */
 export type NextState<
   TState extends ScopeStateShape,
   TPrimitive extends FoldablePrimitive,
+  // Branch 1: ack() — enable ctx.ack()
 > = TPrimitive extends AckPrimitive
   ? {
       readonly kind: TState['kind'];
@@ -214,7 +343,8 @@ export type NextState<
       readonly contract: TState['contract'];
       readonly errors: TState['errors'];
     }
-  : TPrimitive extends
+  : // Branch 2: passive infrastructure — no ctx change
+    TPrimitive extends
         | HeartbeatPrimitive
         | HibernationPrimitive
         | SequencePrimitive
@@ -229,7 +359,8 @@ export type NextState<
         readonly contract: TState['contract'];
         readonly errors: TState['errors'];
       }
-    : TPrimitive extends AnyReplay
+    : // Branch 3: replay() — enable ctx.sendReplay()
+      TPrimitive extends AnyReplay
       ? {
           readonly kind: TState['kind'];
           readonly outgoing: TState['outgoing'];
@@ -238,7 +369,8 @@ export type NextState<
           readonly contract: TState['contract'];
           readonly errors: TState['errors'];
         }
-      : TPrimitive extends AnyErrors
+      : // Branch 4: errors(...) — replace the error definition list
+        TPrimitive extends AnyErrors
         ? TPrimitive extends ErrorsPrimitive<infer TDefs extends readonly AnyErrorDef[]>
           ? {
               readonly kind: TState['kind'];
@@ -249,13 +381,16 @@ export type NextState<
               readonly errors: TDefs;
             }
           : TState
-        : TPrimitive extends AnyOutgoing
+        : // Branch 5: outgoing(event) — add event to server→client send map and client contract
+          TPrimitive extends AnyOutgoing
           ? {
               readonly kind: TState['kind'];
+              // Expand outgoing so ctx.send('event', payload) becomes type-safe
               readonly outgoing: MergeRecords<TState['outgoing'], OutgoingEntry<TPrimitive>>;
               readonly hasAck: TState['hasAck'];
               readonly hasReplay: TState['hasReplay'];
               readonly contract: {
+                // The client *receives* what the server *sends* — so this goes in contract.incoming
                 incoming: MergeRecords<TState['contract']['incoming'], OutgoingEntry<TPrimitive>>;
                 outgoing: TState['contract']['outgoing'];
                 requests: TState['contract']['requests'];
@@ -263,7 +398,8 @@ export type NextState<
               };
               readonly errors: TState['errors'];
             }
-          : TPrimitive extends AnyIncoming
+          : // Branch 6: incoming(event) — add to client→server contract (client sends it)
+            TPrimitive extends AnyIncoming
             ? TPrimitive extends IncomingPrimitive<infer TEvent, infer TPayload, any>
               ? {
                   readonly kind: TState['kind'];
@@ -272,6 +408,7 @@ export type NextState<
                   readonly hasReplay: TState['hasReplay'];
                   readonly contract: {
                     incoming: TState['contract']['incoming'];
+                    // The client *sends* this event — so it goes in contract.outgoing
                     outgoing: MergeRecords<
                       TState['contract']['outgoing'],
                       Record<TEvent, TPayload>
@@ -282,7 +419,8 @@ export type NextState<
                   readonly errors: TState['errors'];
                 }
               : TState
-            : TPrimitive extends AnyRequest
+            : // Branch 7: request(event) — add to contract.requests
+              TPrimitive extends AnyRequest
               ? {
                   readonly kind: TState['kind'];
                   readonly outgoing: TState['outgoing'];
@@ -299,7 +437,8 @@ export type NextState<
                   };
                   readonly errors: TState['errors'];
                 }
-              : TPrimitive extends AnyGenerate
+              : // Branch 8: generate(stream) — add to contract.streams
+                TPrimitive extends AnyGenerate
                 ? TPrimitive extends GeneratePrimitive<infer TStream, any, any>
                   ? {
                       readonly kind: TState['kind'];
@@ -310,17 +449,41 @@ export type NextState<
                         incoming: TState['contract']['incoming'];
                         outgoing: TState['contract']['outgoing'];
                         requests: TState['contract']['requests'];
-                        streams: MergeRecords<TState['contract']['streams'], StreamEntry<TStream>>;
+                        streams: MergeRecords<
+                          TState['contract']['streams'],
+                          StreamEntry<TStream>
+                        >;
                       };
                       readonly errors: TState['errors'];
                     }
                   : TState
-                : TState;
+                : // Fallback: unknown primitive — leave state unchanged
+                  TState;
+
+// ---------------------------------------------------------------------------
+// FoldState
+// ---------------------------------------------------------------------------
 
 /**
- * Fold a tuple of primitives from left to right into one final scope state.
+ * Fold an entire tuple of primitives from left to right into one final state.
  *
- * This is why primitive order matters for typed ctx.
+ * This is a recursive conditional type. It peels one primitive off the front
+ * of the tuple, passes it to `NextState`, and recurses on the rest:
+ *
+ * ```
+ * FoldState<[A, B, C]>
+ *   = FoldState<[B, C], NextState<ScopeState, A>>
+ *   = FoldState<[C],    NextState<...,         B>>
+ *   = FoldState<[],     NextState<...,         C>>
+ *   = final state
+ * ```
+ *
+ * The second parameter (`TState`) accumulates the running state. The default
+ * of `ScopeState` (no arguments) is the clean empty starting state.
+ *
+ * This is why the order of primitives in the builder chain matters for types —
+ * an `outgoing()` declared *after* an `incoming()` won't affect the ctx of
+ * that `incoming` handler.
  */
 export type FoldState<
   TItems extends readonly FoldablePrimitive[],
@@ -332,6 +495,18 @@ export type FoldState<
   ? FoldState<TTail, NextState<TState, THead>>
   : TState;
 
+// ---------------------------------------------------------------------------
+// Typed send / broadcast methods
+// ---------------------------------------------------------------------------
+
+/**
+ * Type-safe `send` and `broadcast` methods for a handler ctx.
+ *
+ * Only events declared with `outgoing()` in the same scope are accepted.
+ * Calling `ctx.send('unknown-event', ...)` is a type error.
+ *
+ * `TOutgoing` is the accumulated outgoing event map from `ScopeState.outgoing`.
+ */
 export interface SendMethods<TOutgoing extends Record<string, any>> {
   /**
    * Send an event to the current connection.
@@ -341,7 +516,7 @@ export interface SendMethods<TOutgoing extends Record<string, any>> {
   send<TEvent extends keyof TOutgoing & string>(event: TEvent, payload: TOutgoing[TEvent]): void;
 
   /**
-   * Broadcast an event to other connections in the current scope.
+   * Broadcast an event to all connections in the current scope.
    *
    * Only events declared with `outgoing()` in the same scope are allowed.
    */
@@ -351,6 +526,11 @@ export interface SendMethods<TOutgoing extends Record<string, any>> {
   ): void;
 }
 
+/**
+ * Type-safe `sendTo` method for a handler ctx.
+ *
+ * Only events declared with `outgoing()` in the same scope are accepted.
+ */
 export interface SendToMethods<TOutgoing extends Record<string, any>> {
   /**
    * Send an event to every connection that currently has the given tag.
@@ -364,6 +544,12 @@ export interface SendToMethods<TOutgoing extends Record<string, any>> {
   ): void;
 }
 
+/**
+ * Untyped fallback `sendTo` for scopes that have no `outgoing()` declared.
+ *
+ * When no outgoing events are known, `sendTo` still exists but accepts any
+ * string for the event name and `unknown` for the payload.
+ */
 export interface GenericSendToMethods {
   /**
    * Send an event to every connection that currently has the given tag.
@@ -371,101 +557,147 @@ export interface GenericSendToMethods {
   sendTo(tag: string, event: string, payload: unknown): void;
 }
 
+/**
+ * Provides `ctx.id` — the unique ID for the current WebSocket connection.
+ */
 export interface ConnectionIdentityMethods {
   /**
    * The unique ID for the current websocket connection.
    *
-   * This is useful when you want to persist a connection reference and target
-   * this exact client again later.
+   * Useful when you want to persist a connection reference and target
+   * this exact client again later (e.g. `ctx.sendToConnection(id, ...)`).
    */
   readonly id: ConnectionContext['id'];
 }
 
+/**
+ * Provides `ctx.meta` — per-connection metadata set during the upgrade step.
+ */
 export interface ConnectionMetaMethods {
   /**
-   * Per-connection metadata attached during the websocket upgrade step.
+   * Per-connection metadata attached during the WebSocket upgrade step.
    *
-   * This is where auth or session information usually lives for later
-   * handlers to read.
+   * This is where auth or session information usually lives. Handlers that
+   * run after the upgrade can read it here.
    */
   readonly meta: ConnectionContext['meta'];
 }
 
+/**
+ * Provides `ctx.bufferedAmount` — bytes waiting to be sent on this connection.
+ */
 export interface BufferedAmountMethods {
   /**
    * The number of bytes still waiting to be sent on this connection.
    *
-   * This helps you tell when you are sending faster than the network can keep
-   * up.
+   * Useful for detecting back-pressure: if this is large, the client is not
+   * keeping up and you should slow down or skip non-critical sends.
    */
   readonly bufferedAmount: ConnectionContext['bufferedAmount'];
 }
 
+/**
+ * Provides `ctx.latency` — measured round-trip time for this connection.
+ */
 export interface LatencyMethods {
   /**
    * The latest measured round-trip latency for this connection in milliseconds.
    *
-   * This is `null` until wskit has enough ping/pong data to measure it.
+   * This is `null` until wskit has completed at least one ping/pong exchange.
    */
   readonly latency: ConnectionContext['latency'];
 }
 
+/**
+ * Provides `ctx.quality` — a human-readable connection health label.
+ */
 export interface QualityMethods {
   /**
    * A simple health label derived from recent ping/pong latency measurements.
    *
-   * Use this when you want an easier signal than raw latency numbers.
+   * Use this for easy quality checks. If you need exact numbers, use `latency`.
    */
   readonly quality: ConnectionContext['quality'];
 }
 
+/**
+ * Provides `ctx.tags` — the current tag set for this connection.
+ */
 export interface ConnectionTagsMethods {
   /**
    * The current tags attached to this connection.
    *
-   * Tags are useful when you want to target groups of connections later.
+   * Tags let you group connections and send events to all of them at once
+   * with `ctx.sendTo(tag, event, payload)`.
    */
   readonly tags: ConnectionContext['tags'];
 }
 
+/**
+ * Provides `ctx.tag(label)` — attach a tag to this connection.
+ */
 export interface TagMethods {
   /**
    * Attach a tag to the current connection.
    *
-   * Tags let you target groups of related connections later with APIs like
-   * `ctx.sendTo(...)`.
+   * Tags let you target groups of related connections later with
+   * `ctx.sendTo(tag, event, payload)`.
    */
   tag(label: string): ReturnType<ConnectionContext['tag']>;
 }
 
+/**
+ * Provides `ctx.untag(label)` — remove a tag from this connection.
+ */
 export interface UntagMethods {
   /**
    * Remove a tag from the current connection.
    *
-   * This is useful when the connection should no longer be part of a targeted
-   * group.
+   * Call this when the connection should no longer be part of a group you
+   * are targeting with `sendTo`.
    */
   untag(label: string): ReturnType<ConnectionContext['untag']>;
 }
 
+/**
+ * Provides `ctx.ack()` — confirm receipt of the current message.
+ *
+ * Only present when `ack()` is registered in the top-level scope.
+ */
 export interface AckMethods {
   /**
    * Confirm receipt of the current incoming message.
    *
-   * This only exists when `ack()` is registered in the top-level scope.
+   * This is only available when `ack()` is registered at the top level.
+   * Calling it sends a lightweight acknowledgement frame back to the client.
    */
   ack(): void;
 }
 
+/**
+ * The wire metadata attached to every replay message.
+ *
+ * `seq`       — the sequence number for ordering on the client side
+ * `messageId` — a unique ID for deduplication
+ * `channel`   — optional channel scope the replay is pinned to
+ */
 export interface ReplayWire {
   readonly seq: number;
   readonly messageId: string;
   readonly channel?: string;
 }
 
+/**
+ * Provides `ctx.sendReplay(...)` — send a message with explicit replay wire metadata.
+ *
+ * Only present when `replay()` is registered in this scope.
+ */
 export interface ReplayMethods<TOutgoing extends Record<string, any>> {
   /**
-   * Send a replay message directly with explicit wire metadata.
+   * Send a message that the client can replay after reconnecting.
+   *
+   * Provide explicit wire metadata (`seq`, `messageId`, optional `channel`)
+   * so the client can deduplicate and reorder messages correctly.
    */
   sendReplay<TEvent extends keyof TOutgoing & string>(
     event: TEvent,
@@ -474,36 +706,61 @@ export interface ReplayMethods<TOutgoing extends Record<string, any>> {
   ): void;
 }
 
+/**
+ * Provides `ctx.namespace.name` inside namespace-scoped handlers.
+ */
 export interface NamespaceScopeMethods {
   readonly namespace: {
     readonly name: string;
   };
 }
 
+/**
+ * Provides `ctx.channel.name` inside channel-scoped handlers.
+ */
 export interface ChannelScopeMethods {
   readonly channel: {
     readonly name: string;
   };
 }
 
+/**
+ * Provides `ctx.channels` — manage channel membership from any handler.
+ */
 export interface ChannelsMethods {
+  /**
+   * Manage channel membership from any handler — list members, kick
+   * connections by tag. Available everywhere, not just inside channel-scoped
+   * handlers.
+   */
   readonly channels: ChannelManager<Record<string, unknown>>;
 }
 
+// ---------------------------------------------------------------------------
+// Conditional API helpers — only expose methods when they are meaningful
+// ---------------------------------------------------------------------------
+
 /**
- * Only expose `send` / `broadcast` when the scope actually has outgoing
- * events. Without this, empty scopes would still show useless methods.
+ * Include typed `send` / `broadcast` only when the scope has declared at
+ * least one outgoing event. An empty scope would only offer useless overloads.
  */
 type SendApi<TOutgoing extends Record<string, any>> = keyof TOutgoing extends never
   ? {}
   : SendMethods<TOutgoing>;
 
+/**
+ * Use typed `sendTo` when outgoing events are known; fall back to the
+ * untyped generic form so the method still exists in empty scopes.
+ */
 type SendToApi<TOutgoing extends Record<string, any>> = keyof TOutgoing extends never
   ? GenericSendToMethods
   : SendToMethods<TOutgoing>;
 
 /**
- * Only expose `ack()` in top-level scopes that registered `ack()`.
+ * Include `ctx.ack()` only in top-level scopes that registered `ack()`.
+ *
+ * `ack()` is not available inside namespace or channel scopes — those use
+ * their own message flow.
  */
 type AckApi<TState extends ScopeStateShape> = TState['kind'] extends 'top'
   ? TState['hasAck'] extends true
@@ -512,10 +769,11 @@ type AckApi<TState extends ScopeStateShape> = TState['kind'] extends 'top'
   : {};
 
 /**
- * Only expose `sendReplay(...)` when replay is enabled in this scope.
+ * Include `ctx.sendReplay(...)` only when replay is enabled in this scope.
  *
- * If there are no known outgoing events yet, the method falls back to a
- * broad `(event: string, payload: unknown)` signature.
+ * If replay is enabled but no outgoing events are declared yet, the method
+ * falls back to a broad `(event: string, payload: unknown)` signature so it
+ * is still callable.
  */
 type ReplayApi<TState extends ScopeStateShape> = TState['hasReplay'] extends true
   ? keyof TState['outgoing'] extends never
@@ -526,7 +784,8 @@ type ReplayApi<TState extends ScopeStateShape> = TState['hasReplay'] extends tru
   : {};
 
 /**
- * Add scope-specific ctx fields like `ctx.namespace.name` or `ctx.channel.name`.
+ * Add the scope-specific fields (`ctx.namespace` or `ctx.channel`) based on
+ * which kind of scope the handler lives in. Top-level handlers get neither.
  */
 type ScopeExtras<TKind extends ScopeKind> = TKind extends 'namespace'
   ? NamespaceScopeMethods
@@ -534,10 +793,35 @@ type ScopeExtras<TKind extends ScopeKind> = TKind extends 'namespace'
     ? ChannelScopeMethods
     : {};
 
+// ---------------------------------------------------------------------------
+// HandlerCtxFromState
+// ---------------------------------------------------------------------------
+
 /**
- * Build the normal handler ctx from folded state.
+ * Build the typed handler ctx from a fully folded scope state.
  *
- * This is what `incoming()`, `request()`, and most intercept callbacks see.
+ * This is the type you see as `ctx` inside `incoming()`, `request()`, and
+ * most intercept callbacks. It is an intersection of small interface slices,
+ * each of which is conditionally included based on what the scope state says.
+ *
+ * How to read this type:
+ *
+ * | Slice                   | When present                                               |
+ * |-------------------------|------------------------------------------------------------|
+ * | `SendApi`               | Only when the scope has at least one `outgoing()` event    |
+ * | `SendToApi`             | Always (typed when outgoing events exist, generic otherwise)|
+ * | `ConnectionIdentity...` | Always — `ctx.id`                                          |
+ * | `ConnectionMeta...`     | Always — `ctx.meta`                                        |
+ * | `BufferedAmount...`     | Always — `ctx.bufferedAmount`                              |
+ * | `Latency...`            | Always — `ctx.latency`                                     |
+ * | `Quality...`            | Always — `ctx.quality`                                     |
+ * | `ConnectionTags...`     | Always — `ctx.tags`                                        |
+ * | `TagMethods`            | Always — `ctx.tag(label)`                                  |
+ * | `UntagMethods`          | Always — `ctx.untag(label)`                                |
+ * | `AckApi`                | Only in top-level scope when `ack()` is registered         |
+ * | `ReplayApi`             | Only when `replay()` is registered                         |
+ * | `ChannelsMethods`       | Always — `ctx.channels`                                    |
+ * | `ScopeExtras`           | `ctx.namespace.name` or `ctx.channel.name` based on kind   |
  */
 export type HandlerCtxFromState<TState extends ScopeStateShape> = SendApi<TState['outgoing']> &
   SendToApi<TState['outgoing']> &
@@ -554,11 +838,16 @@ export type HandlerCtxFromState<TState extends ScopeStateShape> = SendApi<TState
   ChannelsMethods &
   ScopeExtras<TState['kind']>;
 
+// ---------------------------------------------------------------------------
+// StreamBaseCtxFromState / StreamCtxFromState
+// ---------------------------------------------------------------------------
+
 /**
- * Build the base ctx for stream generators.
+ * Build the base ctx for stream generator functions.
  *
- * Streams intentionally do not get `ack()`, but they do get send/broadcast,
- * replay helpers, and scope extras.
+ * This is identical to `HandlerCtxFromState` except that `ctx.ack()` is
+ * intentionally omitted. Stream generators run over a longer period of
+ * time and are not expected to acknowledge individual messages.
  */
 export type StreamBaseCtxFromState<TState extends ScopeStateShape> = SendApi<TState['outgoing']> &
   SendToApi<TState['outgoing']> &
@@ -575,29 +864,49 @@ export type StreamBaseCtxFromState<TState extends ScopeStateShape> = SendApi<TSt
   ScopeExtras<TState['kind']>;
 
 /**
- * Build the full stream ctx by adding `ctx.nudges(...)` on top of the
- * regular stream base ctx.
+ * Build the full ctx for a stream generator by adding `ctx.nudges(...)` on
+ * top of the stream base ctx.
+ *
+ * `ctx.nudges(...)` lets the generator subscribe to client nudge messages
+ * (e.g. `cancel`, `add-context`) that arrive while the stream is active.
+ *
+ * `TNudges` is the tuple of `nudge(...)` declarations from the stream definition.
  */
 export type StreamCtxFromState<
   TState extends ScopeStateShape,
   TNudges extends readonly NudgeDeclaration[],
 > = StreamBaseCtxFromState<TState> & StreamNudgesApi<TNudges>;
 
+// ---------------------------------------------------------------------------
+// Extraction helpers — read a single field out of a folded state
+// ---------------------------------------------------------------------------
+
 /**
- * Read the client contract out of a folded scope state.
+ * Read the client contract out of a fully folded scope state.
+ *
+ * Shorthand for `TState['contract']`. Used when other types only need the
+ * contract and don't care about the rest of the state.
  */
 export type ContractFromState<TState extends ScopeStateShape> = TState['contract'];
 
 /**
- * Read the declared error list out of a folded scope state.
+ * Read the declared error list out of a fully folded scope state.
+ *
+ * Shorthand for `TState['errors']`.
  */
 export type ErrorsFromState<TState extends ScopeStateShape> = TState['errors'];
 
+// ---------------------------------------------------------------------------
+// FoldableItemsOf / ContractFromItems / ErrorsFromItems
+// ---------------------------------------------------------------------------
+
 /**
- * Filter a mixed tuple down to just the primitives that participate in the
- * fold engine.
+ * Filter a mixed tuple down to just the primitives that the fold engine can
+ * process, discarding anything else (e.g. scope primitives like `namespace()`
+ * and `channel()` that run their own nested folds).
  *
- * This is how `InferClient` can accept tuples that also contain scopes.
+ * This is done recursively: peek at the head of the tuple, keep it if it is
+ * a `FoldablePrimitive`, skip it otherwise, then recurse on the tail.
  */
 export type FoldableItemsOf<TItems extends readonly unknown[]> = TItems extends readonly [
   infer THead,
@@ -609,9 +918,14 @@ export type FoldableItemsOf<TItems extends readonly unknown[]> = TItems extends 
   : readonly [];
 
 /**
- * Compute the client contract directly from a tuple of items.
+ * Compute the full client contract directly from a raw tuple of builder items.
  *
- * Items that are not foldable primitives are skipped automatically.
+ * Items that are not foldable (e.g. `namespace()`, `channel()`) are filtered
+ * out automatically before folding. The fold starts from the clean empty state
+ * for the given `TKind`.
+ *
+ * This is the entry point used by `InferClient` to derive the contract from
+ * the top-level primitive list.
  */
 export type ContractFromItems<
   TItems extends readonly unknown[],
@@ -619,7 +933,9 @@ export type ContractFromItems<
 > = ContractFromState<FoldState<FoldableItemsOf<TItems>, ScopeState<TKind>>>;
 
 /**
- * Compute the declared error list directly from a tuple of items.
+ * Compute the declared error list directly from a raw tuple of builder items.
+ *
+ * Like `ContractFromItems`, non-foldable items are skipped automatically.
  */
 export type ErrorsFromItems<
   TItems extends readonly unknown[],

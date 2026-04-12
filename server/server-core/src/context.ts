@@ -4,7 +4,12 @@
  * The result of running one SQL query through `ctx.sql.exec(...)`.
  *
  * Use `.toArray()` for multiple rows, `.one()` for a single row, or `.raw()`
- * when you want column arrays instead of objects.
+ * when you want column arrays instead of named-key objects.
+ *
+ * ```ts
+ * const rows = ctx.sql.exec('SELECT * FROM messages WHERE room = ?', roomId).toArray();
+ * const row  = ctx.sql.exec('SELECT * FROM users WHERE id = ?', userId).one();
+ * ```
  */
 export interface SqlResult {
   /** Return every matching row as an array of key-value objects. */
@@ -21,7 +26,19 @@ export interface SqlResult {
  * The SQL interface available as `ctx.sql`.
  *
  * This wraps the adapter's SQLite driver. Use `exec()` for individual queries
- * and `transaction()` when you need multiple queries to run atomically.
+ * and `transaction()` when you need multiple queries to run atomically — if
+ * anything inside the callback throws, the whole transaction is rolled back.
+ *
+ * ```ts
+ * // Single query:
+ * ctx.sql.exec('INSERT INTO events (type, data) VALUES (?, ?)', 'login', userId);
+ *
+ * // Atomic multi-step operation:
+ * ctx.sql.transaction((tx) => {
+ *   tx.exec('UPDATE wallets SET balance = balance - ? WHERE id = ?', amount, from);
+ *   tx.exec('UPDATE wallets SET balance = balance + ? WHERE id = ?', amount, to);
+ * });
+ * ```
  */
 export interface SQLProvider {
   /** Run one SQL statement. Bind values with positional `?` placeholders. */
@@ -30,7 +47,8 @@ export interface SQLProvider {
   /**
    * Run multiple queries inside a single atomic transaction.
    *
-   * If the callback throws, the transaction is rolled back.
+   * If the callback throws, the transaction is rolled back and the error
+   * propagates to the caller.
    */
   transaction<T>(fn: (tx: { exec(query: string, ...params: unknown[]): SqlResult }) => T): T;
 }
@@ -38,13 +56,19 @@ export interface SQLProvider {
 /**
  * A simple key-value store available as `ctx.kv`.
  *
- * Good for lightweight state that does not need relational queries.
+ * Good for lightweight state that does not require relational queries —
+ * session flags, rate-limit counters, ephemeral caches, etc.
+ *
+ * ```ts
+ * await ctx.kv.set('user:' + userId + ':typing', true, { ttl: 5000 });
+ * const isTyping = await ctx.kv.get('user:' + userId + ':typing');
+ * ```
  */
 export interface KVProvider {
   /** Read one value by key. Returns `undefined` when the key does not exist. */
   get(key: string): Promise<unknown>;
 
-  /** Write one value. Optionally set a TTL in milliseconds. */
+  /** Write one value. Optionally set a TTL in milliseconds after which the key expires. */
   set(key: string, value: unknown, options?: { ttl?: number }): Promise<void>;
 
   /** Remove one key. */
@@ -57,7 +81,8 @@ export interface KVProvider {
 /**
  * Combined storage surface available to handlers and lifecycle hooks.
  *
- * Adapters provide this — it bundles both SQL and key-value access.
+ * Adapters provide this — it bundles both SQL and key-value access in one
+ * object so you only need to pass around one thing.
  */
 export interface StorageProvider {
   sql: SQLProvider;
@@ -67,27 +92,39 @@ export interface StorageProvider {
 /**
  * Timer and alarm APIs provided by the adapter.
  *
- * `setTimeout`/`clearTimeout` work like their browser equivalents. The alarm
- * methods are only available on platforms that support durable alarms (like
- * Cloudflare Durable Objects).
+ * `setTimeout`/`clearTimeout` behave like their browser equivalents and are
+ * available on all platforms. The alarm methods (`setAlarm`, `deleteAlarm`,
+ * `getAlarm`) are only available on platforms that support durable alarms
+ * (such as Cloudflare Durable Objects). Durable alarms survive hibernation
+ * — in-memory timers do not.
+ *
+ * Prefer `ctx.schedule(...)` for most use cases — it is higher-level and
+ * survives restarts. Use these methods only when you need low-level control.
  */
 export interface TimerProvider {
-  /** Set a durable alarm that survives hibernation. Platform-specific. */
+  /** Set a durable alarm that fires at an absolute timestamp (ms since epoch). Platform-specific. */
   setAlarm?(timeMs: number): Promise<void>;
   /** Cancel the current durable alarm. */
   deleteAlarm?(): Promise<void>;
-  /** Read the current durable alarm time, or `null` if none is set. */
+  /** Read the time of the current durable alarm, or `null` if none is set. */
   getAlarm?(): Promise<number | null>;
-  /** Schedule a callback to run after a delay (in-memory, not durable). */
+  /** Schedule a callback after a delay in milliseconds. Not durable — lost on restart. */
   setTimeout(callback: () => void, delayMs: number): unknown;
-  /** Cancel a previously scheduled timeout. */
+  /** Cancel a scheduled timeout before it fires. */
   clearTimeout(handle: unknown): void;
 }
 
 /**
  * Structured logger available as `ctx.log`.
  *
- * The adapter decides where log output goes (console, remote service, etc.).
+ * The adapter decides where output goes (stdout, a remote log service, etc.).
+ * Always prefer structured log calls over `console.log` so log aggregators
+ * can index the fields.
+ *
+ * ```ts
+ * ctx.log.info('message received', { event: 'send-chat', userId: ctx.meta.userId });
+ * ctx.log.error('payment failed', { orderId, reason: err.message });
+ * ```
  */
 export interface Logger {
   info(message: string, data?: Record<string, unknown>): void;
@@ -96,18 +133,28 @@ export interface Logger {
 }
 
 /**
- * A read-only snapshot of one live connection.
+ * A read-only snapshot of one live connection at a point in time.
  *
  * Returned by `ctx.getConnections()`, `ctx.getConnectionsByTag()`, and
- * `ctx.channels.members()`.
+ * `ctx.channels.members()`. The snapshot does not update — fetch it again
+ * if you need fresh data.
+ *
+ * `Meta` matches the shape of the metadata you set during the upgrade step.
  */
 export interface ConnectionInfo<Meta = Record<string, unknown>> {
+  /** Unique connection identifier generated by the engine. */
   readonly id: string;
+  /** Key-value metadata set during the upgrade step (e.g. userId, role). */
   readonly meta: Meta;
+  /** Tags attached to this connection via `ctx.tag()`. */
   readonly tags: readonly string[];
+  /** Channel names this connection is currently subscribed to. */
   readonly channels: readonly string[];
+  /** Round-trip latency in milliseconds, measured by ping/pong. `null` if not yet measured. */
   readonly latency: number | null;
+  /** Connection quality tier derived from the rolling latency average. */
   readonly quality: 'excellent' | 'good' | 'degraded' | 'poor';
+  /** Bytes waiting to be sent over the wire. High values mean the network is slower than the send rate. */
   readonly bufferedAmount: number;
 }
 
@@ -115,16 +162,18 @@ export interface ConnectionInfo<Meta = Record<string, unknown>> {
  * Options for `ctx.broadcast(...)`.
  */
 export interface BroadcastOptions {
-  /** Only broadcast to connections in this channel. */
+  /** Only broadcast to connections subscribed to this channel. */
   readonly channel?: string;
-  /** Skip the connection that is calling broadcast. */
+  /** Skip sending to the connection that is calling broadcast. */
   readonly excludeSelf?: boolean;
 }
 
 /**
- * Send/broadcast helpers scoped to one namespace or channel.
+ * Send and broadcast helpers scoped to one namespace or channel.
  *
- * Available as `ctx.namespace` or `ctx.channel` inside scoped handlers.
+ * Available as `ctx.namespace` inside namespace handlers and `ctx.channel`
+ * inside channel handlers. Both `send` and `broadcast` automatically scope
+ * the outgoing event to the current namespace or channel name.
  */
 export interface ScopeSendApi {
   /** The resolved name of this namespace or channel instance. */
@@ -138,12 +187,12 @@ export interface ScopeSendApi {
 /**
  * Extended scope send API that includes replay support.
  *
- * `sendReplay` is only available when `replay()` is registered in the scope.
+ * `sendReplay` is only available when `replay()` is registered in the same
+ * scope. In the broad runtime type it is optional because not every channel
+ * context has replay enabled. The precise generated/app-facing types narrow
+ * it to required only when replay is actually registered for that scope.
  */
 export interface ReplayScopeSendApi extends ScopeSendApi {
-  // This stays optional in the broad runtime type because not every channel
-  // context has replay enabled. The precise generated/app-facing types narrow
-  // this to required only when replay() is actually registered for that scope.
   sendReplay?(
     event: string,
     payload: unknown,
@@ -155,12 +204,14 @@ export interface ReplayScopeSendApi extends ScopeSendApi {
  * Manage channel membership from any handler context.
  *
  * Available as `ctx.channels` when at least one `channel()` is registered.
+ *
+ * `Meta` matches the shape of the metadata you set during the upgrade step.
  */
 export interface ChannelManager<Meta = Record<string, unknown>> {
-  /** Get every connection currently subscribed to a channel. */
+  /** Get every connection currently subscribed to the given channel. */
   members(name: string): ConnectionInfo<Meta>[];
 
-  /** Remove all connections with the given tag from a channel. */
+  /** Remove all connections with the given tag from a channel, with a reason string. */
   kick(channelName: string, tag: string, reason: string): void;
 }
 
@@ -169,77 +220,85 @@ export interface ChannelManager<Meta = Record<string, unknown>> {
  *
  * This is what you receive as `ctx` inside `incoming`, `request`, `generate`,
  * `onConnect`, `onDisconnect`, `onError`, `onBinary`, and `onValidationError`
- * handlers. The exact shape depends on which primitives you registered —
- * `defineServer` narrows the type automatically.
+ * handlers.
+ *
+ * The exact shape depends on which primitives you registered — `defineServer`
+ * narrows it automatically. For example, `ctx.ack()` only exists if you
+ * registered `ack()`. Refer to `HandlerCtxFromState` in `scope-state.ts` for
+ * how each primitive contributes to the ctx shape.
+ *
+ * `Env`      — the environment variables shape provided by the adapter
+ * `Meta`     — the per-connection metadata set during the upgrade step
+ * `Platform` — the raw platform object from the adapter (e.g. Durable Object stub)
  */
 export interface ConnectionContext<
   Env = Record<string, unknown>,
   Meta = Record<string, unknown>,
   Platform = unknown,
 > {
-  /** The unique ID for the current websocket connection. */
+  /** The unique ID for the current WebSocket connection. */
   id: string;
-  /** Metadata attached during the upgrade step (e.g. user ID, session). */
+  /** Metadata attached during the upgrade step (e.g. user ID, session token). */
   meta: Meta;
   /** Tags currently attached to this connection. */
   tags: readonly string[];
-  /** Attach a tag to this connection for group targeting. */
+  /** Attach a tag to this connection so it can be targeted as a group later. */
   tag(label: string): void;
   /** Remove a tag from this connection. */
   untag(label: string): void;
 
-  /** Send an event to the current connection. */
+  /** Send an event to the current connection only. Returns `false` if the send buffer is full. */
   send(event: string, payload: unknown): boolean;
-  /** Send an event to all connections, optionally filtered by channel. */
+  /** Send an event to all live connections, optionally filtered by channel. */
   broadcast(event: string, payload: unknown, options?: BroadcastOptions): void;
-  /** Send an event to every connection with the given tag. */
+  /** Send an event to every connection that currently has the given tag. */
   sendTo(tag: string, event: string, payload: unknown): void;
-  /** Send an event to one specific connection by its ID. */
+  /** Send an event to one specific connection by its ID. Returns `false` if the connection is gone. */
   sendToConnection(connectionId: string, event: string, payload: unknown): boolean;
 
-  /** Send a binary frame to the current connection. */
+  /** Send a raw binary frame to the current connection. */
   sendBinary(data: ArrayBuffer | ArrayBufferView): boolean;
-  /** Send a binary frame to all connections. */
+  /** Broadcast a raw binary frame to all connections. */
   broadcastBinary(data: ArrayBuffer | ArrayBufferView, options?: { excludeSelf?: boolean }): void;
 
-  /** Close the current websocket connection. */
+  /** Close the current WebSocket connection. */
   close(code?: number, reason?: string): void;
-  /** Get a snapshot of every live connection. */
+  /** Get a snapshot of every live connection at this moment. */
   getConnections(): ConnectionInfo<Meta>[];
-  /** Get every connection that has a specific tag. */
+  /** Get every connection that currently has the given tag. */
   getConnectionsByTag(tag: string): ConnectionInfo<Meta>[];
-  /** The total number of live connections. */
+  /** The total number of live connections right now. */
   connectionCount: number;
-  /** Bytes still queued to send to this connection. */
+  /** Bytes still queued to be sent to this connection. Useful for back-pressure detection. */
   bufferedAmount: number;
-  /** Round-trip latency in milliseconds, or `null` until measured. */
+  /** Round-trip latency in milliseconds, or `null` until the first ping/pong completes. */
   latency: number | null;
-  /** A simple health label derived from latency measurements. */
+  /** A simple health label derived from recent ping/pong measurements. */
   quality: 'excellent' | 'good' | 'degraded' | 'poor';
 
   /** Scoped send/broadcast when inside a namespace handler. */
   namespace?: ScopeSendApi;
-  /** Scoped send/broadcast when inside a channel handler. */
+  /** Scoped send/broadcast when inside a channel handler, with optional replay support. */
   channel?: ReplayScopeSendApi;
-  /** Manage channel membership from any handler. */
+  /** Manage channel membership from any handler. Only present when channels are registered. */
   channels: ChannelManager<Meta>;
 
-  /** Queue a scheduled task to run at a specific time. */
+  /** Queue a scheduled task to run at a specific absolute timestamp (ms since epoch). */
   schedule(taskId: string, options: { time: number; data?: unknown }): void;
-  /** Cancel queued runs for a scheduled task. */
+  /** Cancel queued runs for a scheduled task. Pass a `filter` to cancel only matching runs. */
   cancelScheduled(taskId: string, filter?: Record<string, unknown>): void;
-  /** Set a low-level platform alarm (prefer `schedule()` for most cases). */
+  /** Set a low-level platform alarm. Prefer `ctx.schedule()` for most cases. */
   setAlarm(time: number): void;
 
   /** SQL storage access. */
   sql: SQLProvider;
   /** Key-value storage access. */
   kv: KVProvider;
-  /** Environment variables provided by the adapter. */
+  /** Environment variables provided by the adapter (e.g. secrets, feature flags). */
   env: Env;
   /** Structured logger. */
   log: Logger;
-  /** Let a background promise outlive the current callback. */
+  /** Let a background promise outlive the current handler callback. */
   waitUntil(promise: Promise<unknown>): void;
   /** Raw platform object from the adapter (Durable Object stub, etc.). */
   platform: Platform;
@@ -248,8 +307,12 @@ export interface ConnectionContext<
 /**
  * The context passed to `onInit` handlers.
  *
- * This runs once during server startup, before any connections are accepted.
- * It has storage and environment access but no connection-level APIs.
+ * `onInit` runs once during server startup, before any WebSocket connections
+ * are accepted. Use it for one-time setup: seeding the database, warming
+ * caches, or running migrations.
+ *
+ * This context has no connection-level APIs (`send`, `broadcast`, etc.)
+ * because no clients are connected yet.
  */
 export interface InitContext<Env = Record<string, unknown>, Platform = unknown> {
   sql: SQLProvider;
@@ -262,9 +325,12 @@ export interface InitContext<Env = Record<string, unknown>, Platform = unknown> 
 /**
  * The context passed to `onShutdown` handlers.
  *
- * This runs when the server is shutting down. All connections are still live
- * at this point — use `closeAll()` to close them or `broadcast()` to send
- * a final message.
+ * `onShutdown` runs when the server is shutting down. All connections are
+ * still live at this point — you can use `broadcast()` to send a final
+ * message or `closeAll()` to close them early.
+ *
+ * The engine will automatically close any remaining connections after all
+ * `onShutdown` handlers finish, so calling `closeAll()` is optional.
  */
 export interface ShutdownContext<
   Env = Record<string, unknown>,
@@ -273,7 +339,7 @@ export interface ShutdownContext<
 > {
   /** Close every live connection at once. */
   closeAll(code?: number, reason?: string): void;
-  /** Broadcast an event to all connections. */
+  /** Broadcast an event to all connections, optionally filtered by channel. */
   broadcast(event: string, payload: unknown, options?: { channel?: string }): void;
   sql: SQLProvider;
   kv: KVProvider;
@@ -289,10 +355,11 @@ export interface ShutdownContext<
 }
 
 /**
- * The context passed to scheduled task handlers.
+ * The context passed to scheduled task handlers (registered with `scheduled()`).
  *
- * This has broadcast and storage access but no single-connection send —
- * scheduled tasks are not tied to one client.
+ * Scheduled tasks are not tied to any one client, so this context has no
+ * single-connection `send()`. It can still broadcast to all connections,
+ * target groups by tag, and access storage.
  */
 export interface TaskContext<
   Env = Record<string, unknown>,

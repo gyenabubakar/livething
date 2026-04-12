@@ -16,14 +16,47 @@ import type { ReplayWire } from '~/_types/scope-state.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { ReplayOptions } from '~/replay/types.ts';
 
+/** The primitive type produced by `replay()`. */
 export interface ReplayPrimitive extends Primitive<'replay'> {
+  /** The full resolved replay configuration. */
   readonly options: ReplayOptions;
 }
 
+/**
+ * Convenience type for the function that re-sends one stored message to a
+ * specific connection. Used by the replay context extension.
+ */
 export type ReplaySend = (event: string, payload: unknown, wire: ReplayWire) => void;
 
+/** Unique symbol used to enforce one replay registration per handler scope. */
 const REPLAY_KEY = Symbol('replay');
 
+/**
+ * Creates the built-in replay primitive. When registered, this primitive:
+ *
+ * 1. **Stores** every outgoing message in a SQLite table (optionally async
+ *    when `durability: 'best-effort'` is set).
+ * 2. **Handles** the `_replay` protocol message: when a reconnecting client
+ *    sends `{ since: <seq> }`, the engine queries the store for all messages
+ *    after that sequence number and re-sends them to the client.
+ * 3. **Extends** every handler context with a `sendReplay()` helper that lets
+ *    handlers explicitly replay a message without waiting for the protocol.
+ *
+ * This primitive automatically depends on `sequence` and `dedup` — both will
+ * be auto-injected if not already registered.
+ *
+ * Requires the `storage` platform capability.
+ *
+ * @example
+ * ```ts
+ * import '@wskit/server/replay';
+ *
+ * server('chat')
+ *   .replay('history')
+ *     .retention({ maxAgeMs: 7 * 24 * 60 * 60 * 1000 })
+ *     .done();
+ * ```
+ */
 export function replay(options?: ReplayOptions): ReplayPrimitive {
   const opts = options ?? {};
 
@@ -55,6 +88,7 @@ export function replay(options?: ReplayOptions): ReplayPrimitive {
         const scope = readReplayContextScope(base);
 
         if (channelKey) {
+          // Inside a channel scope: attach `sendReplay` to `ctx.channel`.
           if (scope.channelScope !== channelKey || !base.id || !base.channel) return {};
 
           base.channel.sendReplay = (event: string, payload: unknown, wire: ReplayWire) => {
@@ -71,6 +105,7 @@ export function replay(options?: ReplayOptions): ReplayPrimitive {
           return {};
         }
 
+        // Top-level scope: attach `sendReplay` directly to the context.
         if (scope.namespaceName || scope.channelName || !base.id) return {};
 
         base.sendReplay = (event: string, payload: unknown, wire: ReplayWire) => {
@@ -80,6 +115,10 @@ export function replay(options?: ReplayOptions): ReplayPrimitive {
         return {};
       });
 
+      /**
+       * Persists one outgoing message to the replay store. Called by the
+       * `onBeforeSend` or `onAfterSend` hook depending on `opts.durability`.
+       */
       function persist(wireMessage: { event: string; payload: Record<string, unknown> }): void {
         if (!shouldStoreReplayMessage(channelKey, wireMessage.event, wireMessage.payload, exclude))
           return;
@@ -97,10 +136,12 @@ export function replay(options?: ReplayOptions): ReplayPrimitive {
       }
 
       if ((opts.durability ?? 'strict') === 'strict') {
+        // Store before sending so no message is ever sent without being stored.
         engine.onBeforeSend((wireMessage) => {
           persist(wireMessage);
         });
       } else {
+        // Store after sending (async) to reduce send latency.
         engine.onAfterSend((wireMessage) => {
           return Promise.resolve().then(() => {
             persist(wireMessage);
@@ -138,4 +179,7 @@ export function replay(options?: ReplayOptions): ReplayPrimitive {
   };
 }
 
+/**
+ * Symbol key used to reference this primitive in dependency declarations.
+ */
 replay.__key = REPLAY_KEY;

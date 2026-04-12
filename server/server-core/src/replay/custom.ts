@@ -1,5 +1,11 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 /* oxlint-disable eslint-plugin-import(no-cycle) */
+
+/**
+ * Importing this file also imports the `replayCustom` side-effect so that the
+ * builder's `.replayCustom()` method is available whenever `custom.ts` is used
+ * as a low-level API.
+ */
 import '~/_builder/side-effects/replay-custom.ts';
 
 import { dedup } from '~/dedup/dedup.ts';
@@ -14,65 +20,156 @@ import type { ReplayWire } from '~/_types/scope-state.ts';
 import type { KVProvider, Logger, SQLProvider } from '~/context.ts';
 import type { Primitive } from '~/primitive.ts';
 
+/**
+ * Discriminates the scope a `CustomReplayPrimitive` or its context operates in.
+ * - `'top'` — top-level connection scope.
+ * - `'channel'` — inside a channel scope.
+ */
 export type CustomReplayScope = 'top' | 'channel';
 
+/**
+ * Wire metadata present on every top-level outgoing message after sequence and
+ * dedup stamping. Consumers use these values as storage keys and replay cursors.
+ */
 export interface TopLevelOutgoingWire {
+  /** Monotonically increasing sequence number stamped by the `sequence` primitive. */
   readonly seq: number;
+  /** Unique message ID stamped by the `dedup` primitive. */
   readonly messageId: string;
 }
 
+/**
+ * Wire metadata for messages sent inside a channel scope. Extends the top-level
+ * wire with the channel name and scope key.
+ */
 export interface ChannelOutgoingWire extends TopLevelOutgoingWire {
+  /** The channel name the message was sent on. */
   readonly channel: string;
+  /** The channel scope key (used for dynamic / parameterised channels). */
   readonly channelScope: string;
 }
 
+/**
+ * Resolves to `ChannelOutgoingWire` for channel-scoped primitives and to
+ * `TopLevelOutgoingWire` for top-level primitives.
+ */
 export type OutgoingWire<TScope extends CustomReplayScope> = TScope extends 'channel'
   ? ChannelOutgoingWire
   : TopLevelOutgoingWire;
 
+/**
+ * The message object passed to `onBeforeSend` and `onAfterSend`. Contains the
+ * clean application payload (internal `_seq`, `_messageId`, and similar fields
+ * are stripped) and the `wire` metadata object.
+ */
 export interface OutgoingWireMessage<TScope extends CustomReplayScope = 'top'> {
+  /** The event name. */
   readonly event: string;
+  /** The application payload with internal fields removed. */
   readonly payload: Readonly<Record<string, unknown>>;
+  /** Wire metadata (sequence number, message ID, and for channels: channel info). */
   readonly wire: OutgoingWire<TScope>;
 }
 
+/** Shared context fields available in all `onReplay` handler contexts. */
 interface BaseCustomReplayContext {
+  /** The connection ID of the client that requested replay. */
   readonly id: string;
+  /** SQL access for querying your own replay store. */
   readonly sql: SQLProvider;
+  /** KV access for querying your own replay store. */
   readonly kv: KVProvider;
+  /** Environment variables / bindings available to the handler. */
   readonly env: Record<string, unknown>;
+  /** Structured logger. */
   readonly log: Logger;
+  /** Platform-specific context (e.g. the Cloudflare `DurableObjectState`). */
   readonly platform: unknown;
+  /** Schedule a promise to run after the handler returns. */
   waitUntil(promise: Promise<unknown>): void;
 }
 
+/**
+ * The context passed to `onReplay` at the top-level connection scope. Provides
+ * `sendReplay()` for re-sending stored messages to the reconnecting client.
+ */
 export interface TopLevelReplayContext extends BaseCustomReplayContext {
+  /**
+   * Send one previously stored message to the reconnecting client.
+   *
+   * @param event   The original event name.
+   * @param payload The original application payload.
+   * @param wire    The original wire metadata (seq, messageId, channel).
+   */
   sendReplay(event: string, payload: Record<string, unknown>, wire: ReplayWire): void;
 }
 
+/**
+ * The context passed to `onReplay` inside a channel scope. Extends the
+ * top-level context with `channel.name`.
+ */
 export interface ChannelReplayContext extends BaseCustomReplayContext {
+  /** The channel this replay is scoped to. */
   readonly channel: { readonly name: string };
+  /**
+   * Send one previously stored message to the reconnecting client.
+   */
   sendReplay(event: string, payload: Record<string, unknown>, wire: ReplayWire): void;
 }
 
+/**
+ * Resolves to `ChannelReplayContext` for channel-scoped primitives and
+ * `TopLevelReplayContext` for top-level primitives.
+ */
 export type ReplayContext<TScope extends CustomReplayScope> = TScope extends 'channel'
   ? ChannelReplayContext
   : TopLevelReplayContext;
 
+/**
+ * The options object passed to `handleReplay()`. All three hooks are optional
+ * except `onReplay`, which is required to re-send stored messages on reconnect.
+ */
 export interface CustomReplayOptions<TScope extends CustomReplayScope = 'top'> {
+  /**
+   * Called synchronously before each outgoing message is sent. Store the
+   * message here for "store-before-send" (strict) durability.
+   */
   readonly onBeforeSend?: (message: OutgoingWireMessage<TScope>) => void;
+
+  /**
+   * Called (optionally async) after each outgoing message is sent. Store the
+   * message here for "store-after-send" (best-effort) durability.
+   */
   readonly onAfterSend?: (message: OutgoingWireMessage<TScope>) => void | Promise<void>;
+
+  /**
+   * Called when a client sends the `_replay` protocol message. Query your own
+   * store for all messages since `since` and call `ctx.sendReplay()` for each.
+   *
+   * @param ctx   The replay context with `sendReplay()` and storage access.
+   * @param since The sequence number of the last message the client received.
+   */
   readonly onReplay: (ctx: ReplayContext<TScope>, since: number) => void | Promise<void>;
 }
 
+/** The primitive type produced by `handleReplay()`. */
 export interface CustomReplayPrimitive<
   TScope extends CustomReplayScope = CustomReplayScope,
 > extends Primitive<'customReplay'> {
+  /** The configured replay hooks. */
   readonly options: CustomReplayOptions<TScope>;
 }
 
 const CUSTOM_REPLAY_KEY = Symbol('custom-replay');
 
+/**
+ * Converts a raw internal outgoing message (which still has `_seq`,
+ * `_messageId`, etc. on the payload) into the clean `OutgoingWireMessage<'top'>`
+ * shape that the developer's `onBeforeSend` / `onAfterSend` hooks receive.
+ *
+ * Uses JSON round-trip to produce a completely plain object — no prototype chain,
+ * no undefined values, no references to internal data.
+ */
 function toTopLevelWireMessage(message: {
   event: string;
   payload: Record<string, unknown>;
@@ -88,6 +185,10 @@ function toTopLevelWireMessage(message: {
   ) as OutgoingWireMessage<'top'>;
 }
 
+/**
+ * Same as `toTopLevelWireMessage` but for channel-scoped messages. Adds
+ * `channel` and `channelScope` to the `wire` object from the internal payload.
+ */
 function toChannelWireMessage(message: {
   event: string;
   payload: Record<string, unknown>;
@@ -108,6 +209,10 @@ function toChannelWireMessage(message: {
   ) as OutgoingWireMessage<'channel'>;
 }
 
+/**
+ * Build the `TopLevelReplayContext` passed to the developer's `onReplay` hook
+ * at the top-level connection scope.
+ */
 function createTopLevelReplayContext(
   engine: EngineAccess,
   baseCtx: Record<PropertyKey, unknown>,
@@ -126,6 +231,10 @@ function createTopLevelReplayContext(
   };
 }
 
+/**
+ * Build the `ChannelReplayContext` passed to the developer's `onReplay` hook
+ * when the `_replay` request targets a specific channel.
+ */
 function createChannelReplayContext(
   engine: EngineAccess,
   baseCtx: Record<PropertyKey, unknown>,
@@ -147,6 +256,37 @@ function createChannelReplayContext(
   };
 }
 
+/**
+ * Creates a custom replay primitive. When registered, this primitive wires
+ * three optional hooks into the engine's message pipeline, letting developers
+ * store and replay messages using any storage backend of their choice.
+ *
+ * The primitive automatically depends on `sequence` and `dedup` — both will
+ * be auto-injected if not already registered, so that every outgoing message
+ * is stamped with `_seq` and `_messageId` before the hooks are called.
+ *
+ * In practice you rarely call `handleReplay()` directly. Use it through the
+ * builder: `server('name').replayCustom()…done()` — that method calls this
+ * factory internally.
+ *
+ * @param options The three lifecycle hooks for storing and replaying messages.
+ *
+ * @example
+ * ```ts
+ * import '@wskit/server/replay/custom';
+ *
+ * server('chat')
+ *   .replayCustom()
+ *   .onBeforeSend(async (msg) => {
+ *     await myStore.save(msg.wire.seq, msg.event, msg.payload);
+ *   })
+ *   .onReplay(async (ctx, since) => {
+ *     const rows = await myStore.getSince(since);
+ *     for (const row of rows) ctx.sendReplay(row.event, row.payload, row.wire);
+ *   })
+ *   .done();
+ * ```
+ */
 export function handleReplay<TScope extends CustomReplayScope = 'top'>(
   options: CustomReplayOptions<TScope>,
 ): CustomReplayPrimitive<TScope> {
@@ -164,6 +304,7 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
 
       if (opts.onBeforeSend) {
         engine.onBeforeSend((message) => {
+          // Only forward messages that should be replayable (skip protocol events, etc.)
           if (!shouldStoreReplayMessage(channelKey, message.event, message.payload, new Set()))
             return;
           opts.onBeforeSend!(
@@ -189,6 +330,9 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
       engine.onProtocolMessage('_replay', async (ctx, payload) => {
         const baseCtx = ctx as Record<PropertyKey, unknown>;
         const scope = readReplayContextScope(baseCtx);
+
+        // Only handle the replay request if it matches this primitive's scope
+        // (top-level vs. the correct channel).
         if (!matchesReplayScope(channelKey, scope)) return false;
 
         if (channelKey && scope.channelName && scope.channelScope) {
@@ -214,4 +358,7 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
   } as CustomReplayPrimitive<TScope>;
 }
 
+/**
+ * Symbol key used to reference this primitive in dependency declarations.
+ */
 handleReplay.__key = CUSTOM_REPLAY_KEY;

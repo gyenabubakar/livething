@@ -1,12 +1,62 @@
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type { Validator } from '~/types.ts';
 
+/**
+ * A named, typed description of one WebSocket message.
+ *
+ * Every event passed to `.outgoing()` or `.incoming()` on the server builder
+ * must be created with `event()`. The contract binds together:
+ * - `event` — the string name sent over the wire
+ * - `schema` — the runtime validator that parses and narrows the payload type
+ *
+ * The type parameters flow through the builder and ultimately into
+ * `InferClient`, so the client gets the right payload type for each event
+ * without any manual type casting.
+ *
+ * @template TEvent - The literal string used as the event name on the wire.
+ * @template TPayload - The TypeScript type of the validated payload.
+ */
 export interface EventContract<TEvent extends string = string, TPayload = unknown> {
   readonly __wskit: 'event';
   readonly event: TEvent;
   readonly schema: Validator<TPayload>;
 }
 
+/**
+ * Define a named WebSocket event with a validated payload.
+ *
+ * Pass the result directly to `.outgoing()` or `.incoming()` on the server
+ * builder. The schema you provide does two things:
+ * 1. Validates incoming payloads at runtime — bad data is rejected before your
+ *    handler runs.
+ * 2. Narrows the TypeScript type so your handler receives a fully-typed
+ *    `payload` argument.
+ *
+ * Any schema library that implements the
+ * {@link https://standardschema.dev Standard Schema} interface works here
+ * (Valibot, Zod, ArkType, etc.). You can also pass a plain function
+ * `(value: unknown) => TPayload` when you want full manual control.
+ *
+ * @example Using Valibot
+ * ```typescript
+ * import { event } from '@wskit/server'
+ * import * as v from 'valibot'
+ *
+ * export const sendMessage = event('send-message', v.object({
+ *   text: v.string(),
+ * }))
+ *
+ * // Payload type is inferred as { text: string }
+ * ```
+ *
+ * @example Using a plain validator function
+ * ```typescript
+ * export const ping = event('ping', (value) => {
+ *   if (typeof value !== 'object' || value === null) throw new Error('bad payload')
+ *   return value as { timestamp: number }
+ * })
+ * ```
+ */
 export function event<TEvent extends string, TPayload>(
   event: TEvent,
   schema: (value: unknown) => TPayload,

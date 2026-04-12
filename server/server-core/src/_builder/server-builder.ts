@@ -17,6 +17,14 @@ import type { Primitive } from '~/primitive.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
 import { validateBuild } from './validate.ts';
 
+/**
+ * Build the final `ServerContract` type from the accumulated builder state.
+ *
+ * Flattens the error definitions into a plain `{ code: detail }` map and
+ * attaches the contract fields gathered during the builder chain. Channels and
+ * namespaces are always empty here because they produce their own nested
+ * contracts at the scope level.
+ */
 type ContractFromState<TState extends ScopeStateShape> = {
   readonly incoming: TState['contract']['incoming'];
   readonly outgoing: TState['contract']['outgoing'];
@@ -27,36 +35,93 @@ type ContractFromState<TState extends ScopeStateShape> = {
   readonly namespaces: {};
 };
 
+/**
+ * Convert a tuple of `ErrorDef` values into a `{ code: detailType }` record.
+ *
+ * Uses a mapped type over the union of all tuple members. The `as` clause
+ * remaps each union member's code string as the key, and the conditional type
+ * extracts the matching detail type as the value.
+ */
 type ErrorMapFromDefs<TDefs extends readonly ErrorDef<string, any>[]> = {
   [TDef in TDefs[number] as TDef extends ErrorDef<infer TCode, any>
     ? TCode
     : never]: TDef extends ErrorDef<string, infer TDetail> ? TDetail : never;
 };
 
+/** The blank-slate state every new `ServerBuilder` starts from. */
 type InitialState = ScopeState<'top', NoOutgoing, false, false>;
 
+/** The builder state after one `.outgoing()` call. */
 type StateAfterOutgoing<
   TState extends ScopeStateShape,
   TEvent extends string,
   TPayload,
 > = NextState<TState, OutgoingPrimitive<TEvent, TPayload>>;
 
+/** The builder state after one `.incoming()` call. */
 type StateAfterIncoming<
   TState extends ScopeStateShape,
   TEvent extends string,
   TPayload,
 > = NextState<TState, IncomingPrimitive<TEvent, TPayload, any>>;
 
+/**
+ * The fluent builder used to define a wskit WebSocket server.
+ *
+ * Every method returns a new `ServerBuilder` (with an updated type state) so
+ * calls can be chained. The type parameter `TState` tracks what has been
+ * registered so far — it controls which events `ctx.send()` accepts and
+ * whether optional features like `ctx.ack()` are available.
+ *
+ * Built-in methods are always available. Extra methods (`.ack()`,
+ * `.onConnect()`, `.channel()`, etc.) are added by side-effect imports:
+ *
+ * ```typescript
+ * import '@wskit/server/ack'
+ * import '@wskit/server/lifecycle'
+ * ```
+ *
+ * **Typical usage**
+ * ```typescript
+ * const chat = server('chat')
+ *   .outgoing(message)
+ *   .incoming(sendMessage, async (ctx, payload) => {
+ *     ctx.broadcast('message', { text: payload.text, from: ctx.meta.userId })
+ *   })
+ *   .done()
+ * ```
+ *
+ * @template TState - Accumulated builder state. Do not pass this manually;
+ *   TypeScript infers it through the chain.
+ */
 export class ServerBuilder<TState extends ScopeStateShape = InitialState> {
-  /** @internal */
+  /** @internal Collected primitive instances, populated by each builder method. */
   readonly _primitives: Primitive[] = [];
-  /** @internal */
+  /** @internal The server name passed to `server(name)`. */
   readonly _name: string;
 
   constructor(name: string) {
     this._name = name;
   }
 
+  /**
+   * Declare an event that the server can send to clients.
+   *
+   * This registers the event in the client contract so `InferClient` exposes
+   * it on the typed client. Inside handlers, calling `ctx.send('event-name',
+   * payload)` is only allowed for events declared with `.outgoing()`.
+   *
+   * @example
+   * ```typescript
+   * const message = event('message', v.object({ text: v.string() }))
+   *
+   * server('chat')
+   *   .outgoing(message)
+   *   .incoming(sendMessage, async (ctx, payload) => {
+   *     ctx.send('message', { text: payload.text }) // typed and safe
+   *   })
+   * ```
+   */
   outgoing<TEvent extends string, TPayload>(
     eventContract: EventContract<TEvent, TPayload>,
   ): ServerBuilder<StateAfterOutgoing<TState, TEvent, TPayload>> {
@@ -64,6 +129,26 @@ export class ServerBuilder<TState extends ScopeStateShape = InitialState> {
     return this as any;
   }
 
+  /**
+   * Register a handler for an event sent by the client.
+   *
+   * The `handler` is called every time a connected client sends a message
+   * matching `eventContract.event`. The payload is validated against the
+   * event's schema before your handler receives it.
+   *
+   * The `ctx` argument gives access to `ctx.send()`, `ctx.broadcast()`,
+   * `ctx.meta`, and any extra methods enabled by registered primitives
+   * (e.g. `ctx.ack()` when `.ack()` is registered).
+   *
+   * @example
+   * ```typescript
+   * server('chat')
+   *   .incoming(sendMessage, async (ctx, payload) => {
+   *     // payload: { text: string } — validated and typed
+   *     ctx.broadcast('message', { text: payload.text, from: ctx.meta.userId })
+   *   })
+   * ```
+   */
   incoming<TEvent extends string, TPayload>(
     eventContract: EventContract<TEvent, TPayload>,
     handler: (ctx: HandlerCtxFromState<TState>, payload: TPayload) => void | Promise<void>,
@@ -74,7 +159,33 @@ export class ServerBuilder<TState extends ScopeStateShape = InitialState> {
     return this as any;
   }
 
+  /**
+   * Plug a primitive, module, or extracted group into this builder.
+   *
+   * Three things go through `.use()`:
+   * - **Modules** — `Analytics({ sampleRate: 0.5 })`
+   * - **Extracted scopes** — a channel or namespace created with `.extract()`
+   *   in another file
+   * - **Extracted groups** — a `GroupBuilder` chain ended with `.extract()`
+   *
+   * When a `GroupPrimitive` is passed, its inner primitives are spread flat
+   * into this builder's list so the server sees them as if they were
+   * registered directly.
+   *
+   * @example
+   * ```typescript
+   * import { orderHandlers } from './order-handlers'
+   * import { Analytics } from '@wskit/analytics'
+   *
+   * server('shop')
+   *   .use(Analytics({ sampleRate: 0.5 }))
+   *   .use(orderHandlers)
+   *   .done()
+   * ```
+   */
   use<P extends Primitive>(primitive: P): ServerBuilder<NextState<TState, P & FoldablePrimitive>> {
+    // Groups are transparent containers — unwrap their primitives so
+    // validateBuild and the engine see a flat list, not a nested wrapper.
     if (primitive.__wskit === 'group') {
       this._primitives.push(...(primitive as unknown as GroupPrimitive).primitives);
     } else {
@@ -83,10 +194,58 @@ export class ServerBuilder<TState extends ScopeStateShape = InitialState> {
     return this as any;
   }
 
+  /**
+   * Enter a sub-builder for grouping flat primitives across multiple files.
+   *
+   * Channels and namespaces already support `.extract()` on their own.
+   * `.group()` gives the same ability to flat primitives like `.incoming()`,
+   * `.outgoing()`, `.reply()`, and lifecycle hooks.
+   *
+   * Call `.extract()` on the `GroupBuilder` to detach the group as a
+   * standalone primitive that can be exported and `.use()`'d in another file.
+   * Call `.done()` to inline the group's primitives directly into this builder
+   * without creating a separate artifact.
+   *
+   * @example Multi-file grouping
+   * ```typescript
+   * // order-handlers.ts
+   * export const orderHandlers = base
+   *   .group()
+   *   .outgoing(holdExpired)
+   *   .incoming(placeOrder, async (ctx, payload) => { ... })
+   *   .extract()
+   *
+   * // handler.ts
+   * server('shop').use(orderHandlers).done()
+   * ```
+   */
   group(): GroupBuilder<TState> {
     return new GroupBuilder<TState>(this);
   }
 
+  /**
+   * Finalize the builder and produce a frozen `ServerDefinition`.
+   *
+   * This is the last call in every top-level server chain. It runs build-time
+   * validation (duplicate events, missing dependencies) and returns an
+   * immutable blueprint that adapters like `server-cloudflare` and `server-bun`
+   * accept.
+   *
+   * @throws {Error} If any event is registered more than once, or if a
+   *   primitive declares a dependency on another primitive that was not
+   *   registered.
+   *
+   * @example
+   * ```typescript
+   * const chat = server('chat')
+   *   .outgoing(message)
+   *   .incoming(sendMessage, handler)
+   *   .done() // → ServerDefinition
+   *
+   * export default chat
+   * export type ChatSocket = InferClient<typeof chat>
+   * ```
+   */
   done(): ServerDefinition<readonly Primitive[], ContractFromState<TState>> {
     validateBuild(this._primitives);
     return Object.freeze({
@@ -96,16 +255,34 @@ export class ServerBuilder<TState extends ScopeStateShape = InitialState> {
   }
 }
 
+/**
+ * A sub-builder for collecting a reusable set of flat primitives.
+ *
+ * Obtained by calling `.group()` on a `ServerBuilder`. Supports the same
+ * `.outgoing()`, `.incoming()`, and `.use()` methods as `ServerBuilder`, plus
+ * two finalizers:
+ *
+ * - **`.extract()`** — detach as a `GroupPrimitive` to export and `.use()` elsewhere
+ * - **`.done()`** — inline the collected primitives back into the parent builder
+ *
+ * @template TState - Inherited from the parent `ServerBuilder`. Controls which
+ *   events are sendable in handler ctx.
+ */
 export class GroupBuilder<TState extends ScopeStateShape> {
-  /** @internal */
+  /** @internal Primitives accumulated while chaining builder methods. */
   readonly _primitives: Primitive[] = [];
-  /** @internal */
+  /** @internal The `ServerBuilder` that created this group. */
   readonly _parent: ServerBuilder<TState>;
 
   constructor(parent: ServerBuilder<TState>) {
     this._parent = parent;
   }
 
+  /**
+   * Declare an outgoing event inside this group.
+   *
+   * Works exactly like `ServerBuilder.outgoing()`.
+   */
   outgoing<TEvent extends string, TPayload>(
     eventContract: EventContract<TEvent, TPayload>,
   ): GroupBuilder<StateAfterOutgoing<TState, TEvent, TPayload>> {
@@ -113,6 +290,11 @@ export class GroupBuilder<TState extends ScopeStateShape> {
     return this as any;
   }
 
+  /**
+   * Register an incoming event handler inside this group.
+   *
+   * Works exactly like `ServerBuilder.incoming()`.
+   */
   incoming<TEvent extends string, TPayload>(
     eventContract: EventContract<TEvent, TPayload>,
     handler: (ctx: HandlerCtxFromState<TState>, payload: TPayload) => void | Promise<void>,
@@ -123,15 +305,43 @@ export class GroupBuilder<TState extends ScopeStateShape> {
     return this as any;
   }
 
+  /**
+   * Plug a primitive or module into this group.
+   *
+   * Works exactly like `ServerBuilder.use()`, but without the group-unwrapping
+   * logic — groups nested inside groups are stored as-is.
+   */
   use<P extends Primitive>(primitive: P): GroupBuilder<NextState<TState, P & FoldablePrimitive>> {
     this._primitives.push(primitive);
     return this as any;
   }
 
+  /**
+   * Detach this group as a standalone `GroupPrimitive`.
+   *
+   * The returned value can be exported from its file and passed to
+   * `.use()` on any `ServerBuilder`. When `.use()` receives a group it
+   * unwraps the primitives flat, so the server sees them as if they were
+   * registered inline.
+   *
+   * @example
+   * ```typescript
+   * // order-handlers.ts
+   * export const orderHandlers = base
+   *   .group()
+   *   .incoming(placeOrder, handler)
+   *   .extract()
+   *
+   * // handler.ts
+   * server('shop').use(orderHandlers).done()
+   * ```
+   */
   extract(): GroupPrimitive<TState> {
     return {
       __wskit: 'group' as const,
       __kind: 'scope' as const,
+      // Each extracted group gets a fresh symbol so duplicate-registration
+      // checks can distinguish separate group instances.
       __identity: [Symbol('group')] as const,
       __dependencies: [],
       __requires: {},
@@ -139,18 +349,75 @@ export class GroupBuilder<TState extends ScopeStateShape> {
     } as GroupPrimitive<TState>;
   }
 
+  /**
+   * Inline all collected primitives into the parent `ServerBuilder` and return it.
+   *
+   * Use this when you don't need to export the group — you just want to
+   * organise a section of the chain.
+   *
+   * @example
+   * ```typescript
+   * server('chat')
+   *   .group()
+   *     .incoming(msgA, handlerA)
+   *     .incoming(msgB, handlerB)
+   *     .done() // back to ServerBuilder
+   *   .onConnect(handler)
+   *   .done()
+   * ```
+   */
   done(): ServerBuilder<TState> {
     this._parent._primitives.push(...this._primitives);
     return this._parent as any;
   }
 }
 
+/**
+ * A container primitive produced by `GroupBuilder.extract()`.
+ *
+ * Passed to `ServerBuilder.use()`, which unwraps the inner primitives and
+ * adds them flat to the server's list. The phantom `_TState` type parameter
+ * is never used at runtime — it exists only to carry type information
+ * through the `.use()` call.
+ *
+ * @template _TState - Phantom type carrying the accumulated builder state.
+ */
 export interface GroupPrimitive<
   _TState extends ScopeStateShape = ScopeStateShape,
 > extends Primitive<'group'> {
   readonly primitives: readonly Primitive[];
 }
 
+/**
+ * Create a new `ServerBuilder` to start defining a wskit WebSocket server.
+ *
+ * `name` identifies the server for logging, error messages, and debugging.
+ * It does not affect the wire protocol.
+ *
+ * Chain builder methods to register events, handlers, and features, then
+ * call `.done()` to get the final `ServerDefinition`:
+ *
+ * ```typescript
+ * import { server, event } from '@wskit/server'
+ * import '@wskit/server/lifecycle'
+ * import * as v from 'valibot'
+ *
+ * const message = event('message', v.object({ text: v.string() }))
+ * const sendMessage = event('send-message', v.object({ text: v.string() }))
+ *
+ * export const chat = server('chat')
+ *   .outgoing(message)
+ *   .incoming(sendMessage, async (ctx, payload) => {
+ *     ctx.broadcast('message', { text: payload.text, from: ctx.meta.userId })
+ *   })
+ *   .onConnect((ctx) => {
+ *     console.log('connected:', ctx.id)
+ *   })
+ *   .done()
+ *
+ * export type ChatSocket = InferClient<typeof chat>
+ * ```
+ */
 export function server(name: string): ServerBuilder {
   return new ServerBuilder(name);
 }

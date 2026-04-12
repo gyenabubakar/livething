@@ -6,14 +6,15 @@ import type { EngineAccess } from './_engine/access.ts';
 // ---------------------------------------------------------------------------
 
 /**
- * The kind of a primitive. Determines how `defineServer` processes it:
+ * The kind (category) of a primitive. The builder and `defineServer` use this
+ * to decide how each primitive is collected and wired into the engine.
  *
- * - `'handler'` — registers an event handler (`incoming`, `request`, `stream`)
- * - `'contract'` — declares types for `InferClient` (`outgoing`, `errors`)
+ * - `'handler'`        — registers an event handler (`incoming`, `request`, `stream`)
+ * - `'contract'`       — declares types for `InferClient` (`outgoing`, `errors`)
  * - `'infrastructure'` — configures the message pipeline (`ack`, `replay`, etc.)
- * - `'lifecycle'` — hooks into connection/server lifecycle events
- * - `'scope'` — groups primitives into namespaces or channels
- * - `'module'` — user-defined primitive (works within standard interfaces)
+ * - `'lifecycle'`      — hooks into connection/server lifecycle events
+ * - `'scope'`          — groups primitives into namespaces or channels
+ * - `'module'`         — user-defined primitive (works within standard interfaces)
  */
 export type PrimitiveKind =
   | 'handler'
@@ -28,12 +29,16 @@ export type PrimitiveKind =
 // ---------------------------------------------------------------------------
 
 /**
- * What platform capabilities a primitive needs. The engine merges these from
- * all registered primitives and validates at startup that the adapter provides
- * everything required.
+ * Declares which platform capabilities a primitive needs at runtime.
+ *
+ * The engine collects these from every registered primitive and validates
+ * at startup that the adapter provides everything required. If a capability
+ * is missing, the engine throws with a clear error before any connection
+ * is accepted.
  *
  * ```ts
- * { storage: true, timers: true }
+ * // A primitive that needs both SQL storage and timers:
+ * const requires: RequiresManifest = { storage: true, timers: true };
  * ```
  */
 export interface RequiresManifest {
@@ -47,13 +52,18 @@ export interface RequiresManifest {
 // ---------------------------------------------------------------------------
 
 /**
- * A reference to a primitive, used in dependency declarations. Each primitive
- * factory function carries a `__key` symbol that uniquely identifies it.
+ * A reference to a primitive factory, used to declare that another primitive
+ * must be registered alongside this one.
  *
- * Dependencies are assertions — "this primitive must be registered in
- * defineServer, or throw at build time." They don't configure anything.
+ * Each primitive factory carries a `__key` symbol. When you list another
+ * factory in `dependencies`, `defineServer` checks at build time that the
+ * referenced primitive was actually registered. If it was not, it throws
+ * immediately — no runtime surprises.
+ *
+ * Dependencies are assertions only — they do not configure anything.
  *
  * ```ts
+ * // "This module requires both ack and replay to be registered":
  * dependencies: [ack, replay]
  * ```
  */
@@ -66,14 +76,16 @@ export interface PrimitiveRef {
 // ---------------------------------------------------------------------------
 
 /**
- * How `defineServer` checks for duplicate registrations:
+ * Describes how `defineServer` detects duplicate registrations.
  *
- * - `[key]` — pure singleton. One instance per handler.
- * - `[key, registrationId]` — multiple allowed if registrationId differs.
+ * - `[key]` — pure singleton. Only one instance of this primitive is allowed
+ *   per server handler. Registering `ack()` twice, for example, throws:
+ *   `[wskit] Duplicate registration: ack is registered twice.`
  *
- * ```
- * [wskit] Duplicate registration: incoming('send-message') is registered twice.
- * ```
+ * - `[key, registrationId]` — allows multiple instances as long as each has a
+ *   unique `registrationId`. `incoming('send-message')` and
+ *   `incoming('join-room')` are both `incoming` but have different IDs, so
+ *   they are both allowed.
  */
 export type PrimitiveIdentity =
   | readonly [key: symbol]
@@ -84,12 +96,19 @@ export type PrimitiveIdentity =
 // ---------------------------------------------------------------------------
 
 /**
- * Base interface for all primitive instances. Every factory function
- * (`incoming()`, `ack()`, `channel()`, etc.) returns an object extending this.
+ * Base interface for every primitive instance.
  *
- * `defineServer` reads the base fields to collect, validate, sort, and freeze.
- * The engine later calls `__setup` with engine access to wire the primitive
- * into the runtime pipeline.
+ * Every factory function (`incoming()`, `ack()`, `channel()`, etc.) returns
+ * an object that extends `Primitive`. The builder's `.use()` method and
+ * `defineServer` both read these base fields to collect, validate, sort, and
+ * freeze the server definition.
+ *
+ * The engine later calls `__setup` during initialization to wire each
+ * primitive into the runtime pipeline.
+ *
+ * `Tag` is a literal string that acts as a discriminator, for example
+ * `'ack'`, `'incoming'`, or `'channel'`. It makes it safe to narrow a
+ * union of primitives with a simple `if (p.__wskit === 'ack')` check.
  */
 export interface Primitive<Tag extends string = string> {
   readonly __wskit: Tag;
@@ -99,9 +118,13 @@ export interface Primitive<Tag extends string = string> {
   readonly __requires: RequiresManifest;
 
   /**
-   * Called by the engine during initialization. Receives direct engine access —
-   * the primitive uses this to register hooks, extend ctx, and wire into
-   * the pipeline. Modules don't get this — they get `ModuleHooks` instead.
+   * Called once by the engine during initialization. Receives direct engine
+   * access so the primitive can register hooks, extend ctx, and wire into
+   * the pipeline.
+   *
+   * Modules do not receive `EngineAccess` — they get the narrower
+   * `ModuleHooks` interface instead. This is the key privilege that
+   * separates built-in primitives from user modules.
    */
   readonly __setup?: (engine: EngineAccess) => void;
 }
@@ -111,13 +134,15 @@ export interface Primitive<Tag extends string = string> {
 // ---------------------------------------------------------------------------
 
 /**
- * Configuration for `definePrimitive`. Describes how a primitive factory
- * behaves — what tag it produces, whether it's singleton or repeatable,
- * what it needs from the platform, and how it wires into the engine.
+ * Configuration object passed to `definePrimitive`.
  *
- * `TTag` — the discriminator tag (e.g. `'ack'`, `'incoming'`)
- * `TArgs` — the arguments the factory function accepts from the developer
- * `TData` — additional data the primitive instance carries (event name, handler, etc.)
+ * Describes the shape and behaviour of one type of built-in primitive —
+ * what tag it produces, whether it is a singleton, what capabilities it
+ * needs from the platform, and how it wires itself into the engine.
+ *
+ * `TTag`  — the discriminator string literal (e.g. `'ack'`, `'incoming'`)
+ * `TArgs` — the arguments the resulting factory function accepts from the developer
+ * `TData` — extra data the primitive instance carries (event name, handler fn, etc.)
  */
 export interface PrimitiveConfig<
   TTag extends string,
@@ -127,34 +152,55 @@ export interface PrimitiveConfig<
   readonly tag: TTag;
   readonly key: symbol;
   readonly kind: PrimitiveKind;
+
+  /**
+   * When provided, the factory is repeatable. It is called with the same
+   * arguments the developer passed and must return a stable string ID (for
+   * example, the event name). Two calls with the same ID throw a duplicate
+   * registration error.
+   *
+   * When omitted, the primitive is a pure singleton — only one instance per
+   * server handler is allowed.
+   */
   readonly registrationId?: (...args: TArgs) => string;
+
   readonly dependencies?: readonly PrimitiveRef[];
+
+  /**
+   * Either a static manifest or a function that computes the manifest from
+   * the factory's arguments. Use a function when the requirements depend on
+   * what the developer passes (e.g. a primitive that needs storage only if
+   * persistence is enabled).
+   */
   readonly requires?: RequiresManifest | ((...args: TArgs) => RequiresManifest);
 
-  /** Transform factory arguments into the data stored on the primitive instance. */
+  /** Transform the factory's arguments into the data stored on the primitive instance. */
   create(...args: TArgs): TData;
 
   /**
-   * Wire this primitive into the engine. Called once during engine initialization.
-   * `data` is the output of `create()` — the developer's arguments, transformed.
+   * Wire this primitive into the engine. Called once during engine
+   * initialization, after all primitives have been collected. `data` is
+   * the output of `create()`.
    *
-   * Built-in primitives get full `EngineAccess`. This is the key difference
-   * from modules, which only get `ModuleHooks` (a restricted subset).
+   * Built-in primitives receive full `EngineAccess`. User modules only
+   * receive `ModuleHooks` — a restricted subset that cannot reach engine
+   * internals.
    */
   setup?(engine: EngineAccess, data: TData): void;
 }
 
 /**
- * The return type of `definePrimitive` — a factory function that also
- * serves as a `PrimitiveRef` for dependency declarations.
+ * The type returned by `definePrimitive`.
+ *
+ * The result is both a **factory function** and a **`PrimitiveRef`**:
  *
  * ```ts
  * const ack = definePrimitive({ ... });
  *
- * // As a factory — creates a primitive instance:
+ * // As a factory — creates a primitive instance and registers it:
  * defineServer(ack())
  *
- * // As a dependency ref — declares "I need ack":
+ * // As a dependency ref — asserts "ack must be registered somewhere":
  * defineModule({ dependencies: [ack] })
  * ```
  */
@@ -167,12 +213,17 @@ export interface PrimitiveFactory<
 }
 
 /**
- * Define a built-in primitive. Returns a factory function that:
- * 1. When **called** — creates a primitive instance with base fields + custom data
- * 2. When **referenced** — acts as a `PrimitiveRef` for dependency declarations
+ * Create a built-in primitive factory.
  *
- * This is internal to wskit — product developers don't call this.
- * They use `defineModule` for custom primitives.
+ * This is an internal wskit API — product developers use `defineModule`
+ * for custom primitives. `definePrimitive` is for the primitives that
+ * ship with wskit itself (ack, incoming, channel, etc.).
+ *
+ * The returned factory function:
+ * 1. When **called** — produces a `Primitive` instance with base fields
+ *    merged together with the custom `TData` fields from `create()`.
+ * 2. When **used as a ref** — acts as a `PrimitiveRef` so other primitives
+ *    can declare it as a dependency.
  *
  * ```ts
  * const ACK_KEY = Symbol('ack');

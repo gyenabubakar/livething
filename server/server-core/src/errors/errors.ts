@@ -5,11 +5,68 @@ import { error } from '@wskit/core';
 // Re-exports from @wskit/core
 // ---------------------------------------------------------------------------
 //
-// Everything the developer needs for the error system, available from one
+// Everything the developer needs for the error system is available from one
 // import path: `import { error, Block, Forbidden } from '@wskit/server/errors'`
 
-export { error, WskitError, CloseCodes, Block, Skip, ValidationFailed } from '@wskit/core';
-export type { ErrorDef, ErrorDefWithFactory } from '@wskit/core';
+/**
+ * Create a named error definition. Pass to `.errors()` on the builder so the
+ * engine knows this error exists, and use the returned factory to throw the
+ * error from your handlers.
+ *
+ * ```ts
+ * const NotFound = error('not-found', (p: { id: string }) => p);
+ *
+ * // In a handler:
+ * throw NotFound({ id: payload.id });
+ * ```
+ */
+export { error } from '@wskit/core';
+
+/**
+ * Base class for all wskit errors sent to clients. Errors thrown with the
+ * factories created by `error()` are instances of `WskitError`. You can
+ * use `instanceof WskitError` in catch blocks to detect them.
+ */
+export { WskitError } from '@wskit/core';
+
+/**
+ * Standard WebSocket close codes used by wskit. Use these with `Disconnect()`
+ * instead of raw numbers so the intent is clear at the call site.
+ */
+export { CloseCodes } from '@wskit/core';
+
+/**
+ * Throw `Block` from a handler or interceptor to silently drop the message.
+ * No error is sent to the client and `onError` is not called. Useful for
+ * rate limiting or ignoring messages from misbehaving clients.
+ */
+export { Block } from '@wskit/core';
+
+/**
+ * Throw `Skip` from a pre-intercept to pass the current message through
+ * to the next interceptor without any modification, bypassing any
+ * transformation logic in the current interceptor.
+ */
+export { Skip } from '@wskit/core';
+
+/**
+ * Throw `ValidationFailed` from a handler or interceptor to trigger
+ * `onValidationError` as if the schema validation itself had failed.
+ * Useful when performing manual validation steps inside a handler.
+ */
+export { ValidationFailed } from '@wskit/core';
+
+/**
+ * TypeScript type for the object returned by `error()`. Use this when
+ * you need to annotate a variable or parameter that holds an error definition.
+ */
+export type { ErrorDef } from '@wskit/core';
+
+/**
+ * TypeScript type for an error definition that includes a custom payload
+ * factory function. Extends `ErrorDef` with the factory typing.
+ */
+export type { ErrorDefWithFactory } from '@wskit/core';
 
 // ---------------------------------------------------------------------------
 // Server-only control flow errors
