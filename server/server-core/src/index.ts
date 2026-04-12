@@ -20,22 +20,15 @@ export type {
 
 export type { InferClient } from './infer-client.ts';
 
-export type { ServerDefinition, ServerContract } from './server-definition.ts';
-
 export type {
   BroadcastOptions,
   ChannelManager,
   ConnectionContext,
   ConnectionInfo,
   InitContext,
-  KVProvider,
   Logger,
   ReplayScopeSendApi,
   ScopeSendApi,
-  SQLProvider,
-  SqlResult,
   ShutdownContext,
-  StorageProvider,
   TaskContext,
-  TimerProvider,
 } from './context.ts';

@@ -2,14 +2,7 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "outDir": "dist",
-    "paths": {
-      "@wskit/core": ["../../core/src/index.ts"],
-      "@wskit/core/*": ["../../core/src/*"],
-      "~/*": ["../server-codegen/src/*"],
-      "@wskit/server-codegen": ["../server-codegen/src/index.ts"],
-      "@wskit/server-codegen/adapters": ["../server-codegen/src/adapters.ts"],
-      "@wskit/server-codegen/*": ["../server-codegen/src/*"]
-    }
+    "types": ["@cloudflare/workers-types"]
   },
   "include": ["src"]
 }

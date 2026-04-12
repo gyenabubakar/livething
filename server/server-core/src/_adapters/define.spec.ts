@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { defineServerAdapter } from './define.ts';
 
 describe('defineServerAdapter', () => {
-  it('creates a serve function that passes handler, options, and an Engine to setup', async () => {
+  it('passes handler, engine factory, and options to setup', async () => {
     const setup = vi.fn(() => ({ ok: true }));
     const serve = defineServerAdapter({
       id: 'test',
@@ -12,14 +12,38 @@ describe('defineServerAdapter', () => {
 
     const handler = { __wskit: 'server', primitives: [] } as any;
     const result = await serve(handler, { port: 3000 });
-    const [receivedHandler, engine, options] = setup.mock.calls[0]! as unknown as [any, any, any];
+    const [receivedHandler, createEngine, options] = setup.mock.calls[0]! as unknown as [
+      any,
+      () => any,
+      any,
+    ];
 
     expect(result).toEqual({ ok: true });
     expect(setup).toHaveBeenCalledTimes(1);
     expect(receivedHandler).toBe(handler);
     expect(options).toEqual({ port: 3000 });
+    expect(typeof createEngine).toBe('function');
+
+    const engine = createEngine();
     expect(engine).toMatchObject({
       options: { adapterId: 'test', hibernation: true },
     });
+  });
+
+  it('factory creates independent engine instances', () => {
+    let capturedFactory: (() => any) | undefined;
+    const serve = defineServerAdapter({
+      id: 'multi',
+      hibernation: false,
+      setup(_handler, createEngine) {
+        capturedFactory = createEngine;
+        return {};
+      },
+    });
+
+    serve({ __wskit: 'server', primitives: [] } as any, undefined as any);
+    const a = capturedFactory!();
+    const b = capturedFactory!();
+    expect(a).not.toBe(b);
   });
 });

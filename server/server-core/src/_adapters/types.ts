@@ -1,12 +1,6 @@
 import type * as EngineModule from '~/_engine/engine.ts';
 import type * as DefineServer from '~/server-definition.ts';
 
-/**
- * Minimal websocket-like handle the engine can write to.
- *
- * Adapters wrap their platform socket or session object in this shape so the
- * engine can stay platform-agnostic.
- */
 export interface ConnectionDescriptor {
   send(data: string): void;
   sendBinary(data: ArrayBuffer | ArrayBufferView): void;
@@ -16,9 +10,6 @@ export interface ConnectionDescriptor {
   tags?: readonly string[];
 }
 
-/**
- * Callbacks the adapter uses to push connection events into the engine.
- */
 export interface ConnectionHandle {
   handleMessage(data: string): Promise<void>;
   handleBinary(data: ArrayBuffer): Promise<void>;
@@ -26,9 +17,6 @@ export interface ConnectionHandle {
   handleError(error: unknown): Promise<void>;
 }
 
-/**
- * Result of running the optional upgrade hook before a websocket is accepted.
- */
 export interface UpgradeDecision {
   reject?: boolean;
   code?: number;
@@ -37,26 +25,20 @@ export interface UpgradeDecision {
   tags?: readonly string[];
 }
 
-/**
- * Small adapter capability snapshot given to the engine at construction time.
- */
 export interface EngineOptions {
   adapterId: string;
   hibernation: boolean;
 }
 
-/**
- * Public contract for a platform adapter.
- *
- * `setup()` receives a ready engine and can return any platform-specific server
- * object or service wrapper it wants.
- */
+export type Engine = EngineModule.Engine;
+export type ServerDefinition = DefineServer.ServerDefinition;
+
 export interface AdapterConfig<TOptions, TService> {
   id: string;
   hibernation: boolean;
   setup(
-    handler: DefineServer.ServerDefinition,
-    engine: EngineModule.Engine,
+    handler: ServerDefinition,
+    createEngine: () => Engine,
     options: TOptions,
-  ): TService | Promise<TService>;
+  ): TService;
 }

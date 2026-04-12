@@ -5,24 +5,6 @@ import dts from 'vite-plugin-dts';
 
 export default defineConfig({
   plugins: [dts()],
-  resolve: {
-    alias: [
-      {
-        find: /^cloudflare:workers$/,
-        replacement: resolve(__dirname, 'src/cloudflare-workers.mock.ts'),
-      },
-      { find: '~', replacement: resolve(__dirname, '../server-codegen/src') },
-      { find: /^@wskit\/core$/, replacement: resolve(__dirname, '../../core/src/index.ts') },
-      {
-        find: /^@wskit\/server-codegen$/,
-        replacement: resolve(__dirname, '../server-codegen/src/index.ts'),
-      },
-      {
-        find: /^@wskit\/server-codegen\/adapters$/,
-        replacement: resolve(__dirname, '../server-codegen/src/adapters.ts'),
-      },
-    ],
-  },
   build: {
     lib: {
       entry: {
@@ -33,8 +15,7 @@ export default defineConfig({
     rollupOptions: {
       external: [
         /^cloudflare:workers$/,
-        /^@wskit\/core(?:\/.*)?$/,
-        /^@wskit\/server-codegen(?:\/.*)?$/,
+        /^@wskit\/server(?:\/.*)?$/,
       ],
     },
   },

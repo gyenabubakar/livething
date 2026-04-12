@@ -10,7 +10,7 @@ import type * as EngineAccessModule from '~/_engine/access.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
-import type * as PublicApi from '~/index.ts';
+import type * as PublicApi from '~/context.ts';
 import type * as DefineModule from '~/modules/define.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
 import type * as ScheduledPrimitiveTypes from '~/scheduled/types.ts';
