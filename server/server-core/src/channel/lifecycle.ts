@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import type { EngineAccess } from '~/_engine/access.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { Validator } from '~/types.ts';
 
@@ -38,8 +39,8 @@ export function onBeforeSubscribe<TCtx, TData = unknown>(
     __requires: {},
     handler,
     validator: options?.validator,
-    __setup(engine: any) {
-      engine.onBeforeSubscribe(handler, options?.validator);
+    __setup(engine: EngineAccess) {
+      engine.onBeforeSubscribe(handler as BeforeSubscribeHandler, options?.validator);
     },
   };
 }
@@ -52,8 +53,8 @@ export function onSubscribe<TCtx>(handler: SubscribeHandler<TCtx>): SubscribePri
     __dependencies: [],
     __requires: {},
     handler,
-    __setup(engine: any) {
-      engine.onSubscribe(handler);
+    __setup(engine: EngineAccess) {
+      engine.onSubscribe(handler as SubscribeHandler);
     },
   };
 }
@@ -66,8 +67,8 @@ export function onUnsubscribe<TCtx>(handler: UnsubscribeHandler<TCtx>): Unsubscr
     __dependencies: [],
     __requires: {},
     handler,
-    __setup(engine: any) {
-      engine.onUnsubscribe(handler);
+    __setup(engine: EngineAccess) {
+      engine.onUnsubscribe(handler as UnsubscribeHandler);
     },
   };
 }

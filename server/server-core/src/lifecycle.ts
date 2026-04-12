@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import type { EngineAccess } from '~/_engine/access.ts';
 import type { Primitive } from '~/primitive.ts';
 
 export interface UpgradeResult {
@@ -36,7 +37,7 @@ const ON_VALIDATION_ERROR_KEY = Symbol('onValidationError');
 function makeLifecycle<TTag extends string>(
   tag: TTag,
   key: symbol,
-  setupFn: (engine: any, handler: any) => void,
+  setupFn: (engine: EngineAccess, handler: any) => void,
 ) {
   return <THandler>(handler: THandler) => ({
     __wskit: tag,
@@ -45,7 +46,7 @@ function makeLifecycle<TTag extends string>(
     __dependencies: [] as const,
     __requires: {},
     handler,
-    __setup(engine: any) {
+    __setup(engine: EngineAccess) {
       setupFn(engine, handler);
     },
   });
