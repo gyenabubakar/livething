@@ -8,12 +8,6 @@ export default defineConfig({
   resolve: {
     alias: {
       '~': resolve(__dirname, 'src'),
-      '@wskit/core': resolve(__dirname, '../../core/src/index.ts'),
-      '@wskit/shared': resolve(__dirname, '../../shared/src/index.ts'),
-      '@wskit/server': resolve(__dirname, './src/index.ts'),
-      '@wskit/server/adapters': resolve(__dirname, './src/adapters.ts'),
-      '@wskit/server/modules': resolve(__dirname, './src/modules/index.ts'),
-      '@wskit/server/replay/custom': resolve(__dirname, './src/replay/custom.ts'),
     },
   },
   build: {

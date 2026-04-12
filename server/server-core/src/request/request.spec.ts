@@ -1,7 +1,6 @@
 import { request } from '~/request/request.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
-import { z } from 'zod';
 
 describe('request', () => {
   it('produces correct tag and kind', () => {
@@ -41,18 +40,6 @@ describe('request', () => {
 
   it('stores a valibot schema', () => {
     const schema = v.object({ limit: v.number() });
-    const p = request(
-      'get-history',
-      async (_ctx, payload) => {
-        return { messages: [], hasMore: payload.limit > 0 };
-      },
-      { validator: schema },
-    );
-    expect(p.validator).toBe(schema);
-  });
-
-  it('stores a zod schema', () => {
-    const schema = z.object({ limit: z.number() });
     const p = request(
       'get-history',
       async (_ctx, payload) => {
