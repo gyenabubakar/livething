@@ -2,8 +2,12 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "outDir": "dist",
+    "rootDir": "src",
     "paths": {
-      "~/*": ["./src/*"]
+      "~/*": ["./src/*"],
+      "@wskit/server": ["./src/index.ts"],
+      "@wskit/server/adapters": ["./src/adapters.ts"],
+      "@wskit/server/modules": ["./src/modules/index.ts"]
     }
   },
   "include": ["src"]

@@ -9,49 +9,81 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./adapters": {
+      "types": "./dist/adapters.d.ts",
+      "import": "./dist/adapters.js"
+    },
+    "./incoming": {
+      "types": "./dist/incoming/index.d.ts",
+      "import": "./dist/incoming.js"
+    },
+    "./intercept": {
+      "types": "./dist/intercept/index.d.ts",
+      "import": "./dist/intercept.js"
+    },
+    "./outgoing": {
+      "types": "./dist/outgoing/index.d.ts",
+      "import": "./dist/outgoing.js"
+    },
     "./errors": {
-      "types": "./dist/errors.d.ts",
+      "types": "./dist/errors/index.d.ts",
       "import": "./dist/errors.js"
     },
     "./ack": {
-      "types": "./dist/ack.d.ts",
+      "types": "./dist/ack/index.d.ts",
       "import": "./dist/ack.js"
     },
     "./channel": {
-      "types": "./dist/channel.d.ts",
+      "types": "./dist/channel/index.d.ts",
       "import": "./dist/channel.js"
     },
     "./dedup": {
-      "types": "./dist/dedup.d.ts",
+      "types": "./dist/dedup/index.d.ts",
       "import": "./dist/dedup.js"
     },
+    "./hibernation": {
+      "types": "./dist/hibernation/index.d.ts",
+      "import": "./dist/hibernation.js"
+    },
     "./heartbeat": {
-      "types": "./dist/heartbeat.d.ts",
+      "types": "./dist/heartbeat/index.d.ts",
       "import": "./dist/heartbeat.js"
     },
+    "./lifecycle": {
+      "types": "./dist/lifecycle.d.ts",
+      "import": "./dist/lifecycle.js"
+    },
     "./namespace": {
-      "types": "./dist/namespace.d.ts",
+      "types": "./dist/namespace/index.d.ts",
       "import": "./dist/namespace.js"
     },
-    "./passive": {
-      "types": "./dist/passive.d.ts",
-      "import": "./dist/passive.js"
-    },
     "./replay": {
-      "types": "./dist/replay.d.ts",
+      "types": "./dist/replay/index.d.ts",
       "import": "./dist/replay.js"
     },
+    "./replay/custom": {
+      "types": "./dist/replay/custom.d.ts",
+      "import": "./dist/replay/custom.js"
+    },
     "./request": {
-      "types": "./dist/request.d.ts",
+      "types": "./dist/request/index.d.ts",
       "import": "./dist/request.js"
     },
+    "./scheduled": {
+      "types": "./dist/scheduled/index.d.ts",
+      "import": "./dist/scheduled.js"
+    },
     "./sequence": {
-      "types": "./dist/sequence.d.ts",
+      "types": "./dist/sequence/index.d.ts",
       "import": "./dist/sequence.js"
     },
     "./stream": {
-      "types": "./dist/stream.d.ts",
+      "types": "./dist/stream/index.d.ts",
       "import": "./dist/stream.js"
+    },
+    "./modules": {
+      "types": "./dist/modules/index.d.ts",
+      "import": "./dist/modules.js"
     }
   },
   "publishConfig": {

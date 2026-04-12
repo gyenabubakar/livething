@@ -1,7 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { unwrapHandled } from '~/h.ts';
 import { definePrimitive } from '~/primitive.ts';
-import type { Handled } from '~/h.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { ReceivedEvent } from '~/received.ts';
 import type { Validator } from '~/types.ts';
@@ -13,9 +11,6 @@ import type { Validator } from '~/types.ts';
  * `incoming()` just carries the handler type through. `defineServer()`
  * gives `ctx` its final type later based on what is registered in the
  * same scope.
- *
- * When you want fully typed `ctx` in editor hover, wrap the callback in
- * `h(...)`. This is a TypeScript workaround.
  */
 export type IncomingHandler<TCtx = any, TPayload = unknown> = (
   ctx: TCtx,
@@ -34,9 +29,9 @@ export type IncomingHandler<TCtx = any, TPayload = unknown> = (
  *   text: string;
  * });
  *
- * incoming(sendMessage, h(async (ctx, payload) => {
+ * incoming(sendMessage, async (ctx, payload) => {
  *   ctx.broadcast('message', { text: payload.text, from: ctx.meta.userId });
- * }))
+ * })
  * ```
  */
 export interface IncomingPrimitive<
@@ -88,9 +83,9 @@ const _incoming = definePrimitive({
  * ```ts
  * const heartbeatCheck = received('heartbeat-check');
  *
- * incoming(heartbeatCheck, h(async (ctx) => {
+ * incoming(heartbeatCheck, async (ctx) => {
  *   ctx.send('heartbeat-ack', {});
- * }))
+ * })
  * ```
  *
  * **With parse function** — payload type inferred from return:
@@ -101,24 +96,20 @@ const _incoming = definePrimitive({
  *   return { text: obj.text };
  * });
  *
- * incoming(sendMessage, h(async (ctx, payload) => {
+ * incoming(sendMessage, async (ctx, payload) => {
  *   payload.text; // string — inferred from validator
- * }))
+ * })
  * ```
  *
  * **With StandardSchema** — payload type inferred from schema output:
  * ```ts
  * const sendMessage = received('send-message', v.object({ text: v.string() }));
  *
- * incoming(sendMessage, h(async (ctx, payload) => {
+ * incoming(sendMessage, async (ctx, payload) => {
  *   payload.text; // string — inferred from valibot schema
- * }))
+ * })
  * ```
  */
-export function incoming<TCtx, TReceived extends ReceivedEvent<string, unknown>>(
-  event: TReceived,
-  handler: Handled<IncomingHandler<TCtx, ReceivedPayload<TReceived>>, ReceivedPayload<TReceived>>,
-): IncomingPrimitive<ReceivedEventName<TReceived>, ReceivedPayload<TReceived>, TCtx>;
 export function incoming<TCtx, TReceived extends ReceivedEvent<string, unknown>>(
   event: TReceived,
   handler: IncomingHandler<TCtx, ReceivedPayload<TReceived>>,
@@ -129,14 +120,14 @@ export function incoming<TReceived extends ReceivedEvent<string, unknown>>(
 ): IncomingPrimitive<ReceivedEventName<TReceived>, ReceivedPayload<TReceived>, any>;
 export function incoming(
   event: ReceivedEvent<string, unknown>,
-  handler: IncomingHandler<any, any> | Handled<IncomingHandler<any, any>>,
+  handler: IncomingHandler<any, any>,
 ): IncomingPrimitive {
   const validator = event.validator;
   const eventName = event.event;
 
   return _incoming(
     eventName,
-    unwrapHandled(handler),
+    handler,
     validator ? { validator } : undefined,
   ) as unknown as IncomingPrimitive;
 }

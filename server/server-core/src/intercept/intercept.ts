@@ -1,7 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { unwrapHandled } from '~/h.ts';
 import { definePrimitive } from '~/primitive.ts';
-import type { Handled } from '~/h.ts';
 import type { Primitive } from '~/primitive.ts';
 
 export interface InterceptMessage {
@@ -79,13 +77,7 @@ const _intercept = definePrimitive<
  *
  * Use this to inspect or rewrite raw incoming messages before wskit checks
  * their schema. At this stage, the payload is still `unknown`.
- *
- * Wrap the callback in `h(...)` when you want the scope-specific `ctx`
- * type to show up in the editor.
  */
-export function intercept<TCtx>(
-  handler: Handled<PreInterceptHandler<TCtx>>,
-): PreInterceptPrimitive<TCtx>;
 export function intercept(handler: PreInterceptHandler<any>): PreInterceptPrimitive<any>;
 
 /**
@@ -93,28 +85,21 @@ export function intercept(handler: PreInterceptHandler<any>): PreInterceptPrimit
  *
  * Use this when you want to inspect or rewrite a typed payload after wskit
  * has already validated it.
- *
- * Wrap the callback in `h(...)` when you want the scope-specific `ctx`
- * type to show up in the editor.
  */
-export function intercept<TCtx, TEvent extends string, TPayload>(
-  event: TEvent,
-  handler: Handled<PostInterceptHandler<TCtx, TPayload>>,
-): PostInterceptPrimitive<TEvent, TPayload, TCtx>;
 export function intercept<TEvent extends string>(
   event: TEvent,
   handler: PostInterceptHandler<any, any>,
 ): PostInterceptPrimitive<TEvent, any, any>;
 
 export function intercept(
-  firstArg: string | PreInterceptHandler<any> | Handled<PreInterceptHandler<any>>,
-  secondArg?: PostInterceptHandler<any, any> | Handled<PostInterceptHandler<any, any>>,
+  firstArg: string | PreInterceptHandler<any>,
+  secondArg?: PostInterceptHandler<any, any>,
 ): InterceptPrimitive {
   if (typeof firstArg === 'string') {
-    return _intercept(firstArg, unwrapHandled(secondArg!)) as InterceptPrimitive;
+    return _intercept(firstArg, secondArg!) as InterceptPrimitive;
   }
 
-  return _intercept(unwrapHandled(firstArg)) as InterceptPrimitive;
+  return _intercept(firstArg) as InterceptPrimitive;
 }
 
 /** Dependency ref — use in `dependencies: [intercept]` to assert it's registered. */

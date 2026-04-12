@@ -29,6 +29,20 @@ const _heartbeat = definePrimitive<'heartbeat', [options: HeartbeatOptions], { t
       timeout: options.timeout,
     };
   },
+  setup(engine, data) {
+    engine.installOnce(HEARTBEAT_KEY, () => {
+      engine.onConnect((ctx) => {
+        const connectionId = String((ctx as Record<PropertyKey, unknown>).id ?? '');
+        if (!connectionId) return;
+
+        engine.refreshConnectionIdleTimeout(connectionId, data.timeout);
+      });
+
+      engine.onConnectionActivity((connectionId) => {
+        engine.refreshConnectionIdleTimeout(connectionId, data.timeout);
+      });
+    });
+  },
 });
 
 /**

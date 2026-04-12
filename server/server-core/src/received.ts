@@ -2,11 +2,7 @@ import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type { Validator } from '~/types.ts';
 
 /**
- * A reusable incoming event contract.
- *
- * This pairs an event name with its validator ahead of time so you can pass
- * the whole contract into `incoming(...)`. Keeping the contract and handler
- * close together gives TypeScript an easier shape to understand.
+ * @internal — will be replaced by event(name, schema) in the builder pattern rewrite.
  */
 export interface ReceivedEvent<TEvent extends string = string, TPayload = unknown> {
   readonly __wskit: 'received';
@@ -14,19 +10,6 @@ export interface ReceivedEvent<TEvent extends string = string, TPayload = unknow
   readonly validator?: Validator<TPayload>;
 }
 
-/**
- * Define a reusable incoming event contract.
- *
- * ```ts
- * const sendMessage = received('send-message', (value: unknown) => value as {
- *   text: string;
- * });
- *
- * incoming(sendMessage, async (ctx, payload) => {
- *   ctx.send('message', { text: payload.text });
- * });
- * ```
- */
 export function received<TEvent extends string>(event: TEvent): ReceivedEvent<TEvent, unknown>;
 export function received<TEvent extends string, TPayload>(
   event: TEvent,
@@ -44,9 +27,6 @@ export function received(event: string, validator?: Validator): ReceivedEvent<st
   };
 }
 
-/**
- * Check whether a value is a contract created by `received(...)`.
- */
 export function isReceivedEvent(value: unknown): value is ReceivedEvent<string, unknown> {
   return (
     typeof value === 'object' &&

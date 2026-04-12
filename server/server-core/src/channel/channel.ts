@@ -14,10 +14,16 @@ import type {
   ScopeState,
   StreamBaseCtxFromState,
 } from '~/_types/scope-state.ts';
+import type {
+  BeforeSubscribePrimitive,
+  SubscribePrimitive,
+  UnsubscribePrimitive,
+} from '~/channel/lifecycle.ts';
 import type { IncomingPrimitive } from '~/incoming/incoming.ts';
 import type { PostInterceptPrimitive, PreInterceptPrimitive } from '~/intercept/intercept.ts';
 import type { OutgoingPrimitive } from '~/outgoing/outgoing.ts';
 import type { Primitive } from '~/primitive.ts';
+import type { CustomReplayPrimitive } from '~/replay/custom.ts';
 import type { ReplayPrimitive } from '~/replay/replay.ts';
 import type { RequestPrimitive } from '~/request/request.ts';
 import type { GeneratePrimitive, NudgeDeclaration, StreamPrimitive } from '~/stream/stream.ts';
@@ -34,7 +40,8 @@ type AnyGenerate = GeneratePrimitive<
 >;
 type ChannelStatePrimitive =
   | AnyOutgoing
-  | ReplayPrimitive<any>
+  | ReplayPrimitive
+  | CustomReplayPrimitive
   | AnyPreIntercept
   | AnyPostIntercept
   | AnyIncoming
@@ -65,21 +72,54 @@ type ChannelPostIntercept<
   TIncoming extends IncomingPrimitive<string, any, any>,
 > = PostInterceptForIncoming<'channel', TPrefix, TIncoming>;
 
+/**
+ * A dynamic channel family declaration.
+ *
+ * Pairs a stable type key (used by the type system and client contract) with
+ * a runtime `RegExp` that matches concrete channel names.
+ *
+ * Created by `scope('room', /^room-\d+$/)`.
+ */
 export interface ScopeDeclaration<TKey extends string = string> {
   readonly key: TKey;
   readonly pattern: RegExp;
 }
 
+/**
+ * What `channel()` accepts as its first argument.
+ *
+ * - A plain string like `'lobby'` creates a static channel.
+ * - A `ScopeDeclaration` from `scope(...)` creates a dynamic channel family.
+ */
 export type ChannelPattern = string | ScopeDeclaration<string>;
 
-export type ChannelChild = ChannelStatePrimitive;
+export type ChannelLifecycleChild =
+  | BeforeSubscribePrimitive<any, any>
+  | SubscribePrimitive<any>
+  | UnsubscribePrimitive<any>;
 
+export type ChannelChild = ChannelStatePrimitive | ChannelLifecycleChild;
+
+/**
+ * The handler context type inside a channel scope.
+ *
+ * This is the `ctx` type your `incoming`, `request`, and lifecycle handlers
+ * receive when they live inside a `channel(...)` block. It includes the
+ * channel-specific `ctx.channel` scope API.
+ */
 export type ChannelHandlerContext<
   TOutgoing extends Record<string, any> = NoOutgoing,
   THasAck extends boolean = false,
   THasReplay extends boolean = false,
 > = HandlerCtxFromState<ScopeState<'channel', TOutgoing, THasAck, THasReplay>>;
 
+/**
+ * The stream handler context type inside a channel scope.
+ *
+ * This is the base `ctx` type for `generate(...)` handlers inside a
+ * `channel(...)` block. Stream-local helpers like `ctx.nudges(...)` are
+ * added on top of this by the stream declaration.
+ */
 export type ChannelStreamHandlerContext<
   TOutgoing extends Record<string, any> = NoOutgoing,
   THasReplay extends boolean = false,
@@ -115,14 +155,33 @@ const _channel = definePrimitive<
 });
 
 /**
- * Define a dynamic channel family with a stable type key and a runtime matcher.
+ * Define a dynamic channel family with a stable type key and a runtime
+ * pattern matcher.
+ *
+ * The `key` is the stable name used in the type system and client contract.
+ * The `pattern` is a RegExp that matches concrete channel names at runtime.
+ *
+ * ```ts
+ * channel(scope('room', /^room-\d+$/),
+ *   outgoing('room-message', t<{ text: string }>()),
+ *   incoming(sendRoomMessage, async (ctx, payload) => {
+ *     ctx.channel.broadcast('room-message', { text: payload.text });
+ *   }),
+ * )
+ * ```
  */
 export function scope<TKey extends string>(key: TKey, pattern: RegExp): ScopeDeclaration<TKey> {
   return { key, pattern };
 }
 
 /**
- * Group events under a channel scope.
+ * Group events under a channel scope with pub/sub membership.
+ *
+ * Clients subscribe to channels explicitly. Only subscribed connections
+ * receive broadcasts within that channel.
+ *
+ * - Static: `channel('lobby', outgoing(...), incoming(...))`
+ * - Dynamic: `channel(scope('room', /^room-\d+$/), outgoing(...), incoming(...))`
  *
  * Typing rule: channel-local primitives that affect handler ctx must come
  * before the handlers they type.

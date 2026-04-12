@@ -1,6 +1,4 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-
-import { h } from '~/h.ts';
 import { incoming } from '~/incoming/incoming.ts';
 import { received } from '~/received.ts';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
@@ -139,23 +137,3 @@ void _hasValidator;
 
 const _noVal: undefined = noValidator.validator as undefined;
 void _noVal;
-
-// ===========================================================================
-// 11. h() carries ctx into the callback
-// ===========================================================================
-
-type WrappedCtx = {
-  reply(text: string): void;
-};
-
-const withWrappedCtx = incoming(
-  received('wrapped-ping'),
-  h(async (ctx: WrappedCtx, payload) => {
-    ctx.reply('pong');
-    const _unknown: unknown = payload;
-    void _unknown;
-  }),
-);
-
-const _wrappedCtxType: IncomingPrimitive<'wrapped-ping', unknown, WrappedCtx> = withWrappedCtx;
-void _wrappedCtxType;
