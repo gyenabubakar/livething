@@ -10,8 +10,8 @@
       "import": "./dist/index.js"
     },
     "./adapters": {
-      "types": "./dist/adapters.d.ts",
-      "import": "./dist/adapters.js"
+      "types": "./dist/_adapters/index.d.ts",
+      "import": "./dist/_adapters/index.js"
     },
     "./modules": {
       "types": "./dist/modules/index.d.ts",

@@ -279,7 +279,7 @@ export class ServerBuilder<TState extends ScopeStateShape = InitialState> {
    *
    * Channels and namespaces already support `.extract()` on their own.
    * `.group()` gives the same ability to flat primitives like `.incoming()`,
-   * `.outgoing()`, `.reply()`, and lifecycle hooks.
+   * `.outgoing()`, `.request()`, and lifecycle hooks.
    *
    * Call `.extract()` on the `GroupBuilder` to detach the group as a
    * standalone primitive that can be exported and `.use()`'d in another file.

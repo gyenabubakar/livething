@@ -1,6 +1,6 @@
 import { CloseCodes } from '@wskit/core';
 import * as HeartbeatPrimitive from '~/heartbeat/runtime.ts';
-import type * as EngineAdapterTypes from '~/_engine/adapter/types.ts';
+import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as EngineRuntimeTypes from './types.ts';
 

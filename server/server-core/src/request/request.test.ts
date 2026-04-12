@@ -8,7 +8,7 @@ import type { RequestPrimitive } from '~/request/request.ts';
 // 1. Event name preserved as literal
 // ===========================================================================
 
-const getHistory = request('get-history', async () => ({ messages: [] }));
+const getHistory = request('get-history', async () => {});
 const _eventLiteral: 'get-history' = getHistory.event;
 void _eventLiteral;
 
@@ -17,12 +17,15 @@ const _wrongEvent: 'get-users' = getHistory.event;
 void _wrongEvent;
 
 // ===========================================================================
-// 2. Response type inferred from handler return
+// 2. Handler receives ctx.respond() typed to TResponse
 // ===========================================================================
 
-const withResponse = request('get-balance', async (_ctx) => {
-  return { balance: 100, currency: 'USD' };
-});
+const withResponse = request<'get-balance', unknown, { balance: number; currency: string }>(
+  'get-balance',
+  async (ctx) => {
+    ctx.respond({ balance: 100, currency: 'USD' });
+  },
+);
 
 const _responseType: RequestPrimitive<
   'get-balance',
@@ -32,20 +35,19 @@ const _responseType: RequestPrimitive<
 void _responseType;
 
 // ===========================================================================
-// 3. Without validator — payload is unknown, response inferred
+// 3. Without validator — payload is unknown
 // ===========================================================================
 
 const noValidator = request('get-presence', async (_ctx, _payload) => {
   const _unknown: unknown = _payload;
   void _unknown;
-  return { users: ['alice'] };
 });
 
-const _noValType: RequestPrimitive<'get-presence', unknown, { users: string[] }> = noValidator;
+const _noValType: RequestPrimitive<'get-presence', unknown, unknown> = noValidator;
 void _noValType;
 
 // ===========================================================================
-// 4. With parse function — payload and response both inferred
+// 4. With parse function — payload inferred from validator
 // ===========================================================================
 
 const withParse = request(
@@ -53,7 +55,6 @@ const withParse = request(
   async (_ctx, payload) => {
     const _limit: number = payload.limit;
     void _limit;
-    return { messages: [], hasMore: false };
   },
   {
     validator: (p: unknown) => {
@@ -64,15 +65,11 @@ const withParse = request(
   },
 );
 
-const _parseType: RequestPrimitive<
-  'get-history',
-  { limit: number },
-  { messages: never[]; hasMore: boolean }
-> = withParse;
+const _parseType: RequestPrimitive<'get-history', { limit: number }, unknown> = withParse;
 void _parseType;
 
 // ===========================================================================
-// 5. With StandardSchema — payload inferred from schema, response from return
+// 5. With StandardSchema — payload inferred from schema
 // ===========================================================================
 
 declare const limitSchema: StandardSchemaV1<unknown, { limit: number }>;
@@ -82,16 +79,11 @@ const withSchema = request(
   async (_ctx, payload) => {
     const _limit: number = payload.limit;
     void _limit;
-    return { messages: ['hi'], total: 1 };
   },
   { validator: limitSchema },
 );
 
-const _schemaType: RequestPrimitive<
-  'get-history',
-  { limit: number },
-  { messages: string[]; total: number }
-> = withSchema;
+const _schemaType: RequestPrimitive<'get-history', { limit: number }, unknown> = withSchema;
 void _schemaType;
 
 // ===========================================================================
@@ -102,12 +94,11 @@ type RequestCtx = {
   log(message: string): void;
 };
 
-const withCtx = request('ping', async (ctx: RequestCtx) => {
+const withCtx = request<'ping', unknown, unknown, RequestCtx>('ping', async (ctx) => {
   ctx.log('pong');
-  return { ok: true };
 });
 
-const _ctxType: RequestPrimitive<'ping', unknown, { ok: boolean }, RequestCtx> = withCtx;
+const _ctxType: RequestPrimitive<'ping', unknown, unknown, RequestCtx> = withCtx;
 void _ctxType;
 
 // ===========================================================================

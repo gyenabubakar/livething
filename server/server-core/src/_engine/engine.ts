@@ -7,7 +7,7 @@ import * as ErrorsPrimitive from '~/errors/runtime.ts';
 import * as HeartbeatPrimitive from '~/heartbeat/runtime.ts';
 import * as ScheduledPrimitive from '~/scheduled/runtime.ts';
 import type * as EngineAccessModule from '~/_engine/access.ts';
-import type * as EngineAdapterTypes from '~/_engine/adapter/types.ts';
+import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as PublicApi from '~/index.ts';
@@ -35,7 +35,7 @@ export type {
   ConnectionHandle,
   EngineOptions,
   UpgradeDecision,
-} from '~/_engine/adapter/types.ts';
+} from '~/_adapters/types.ts';
 
 /**
  * Create the empty hook registries the engine fills during primitive setup.

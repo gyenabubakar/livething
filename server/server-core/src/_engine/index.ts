@@ -5,4 +5,4 @@ export type {
   ConnectionHandle,
   EngineOptions,
   UpgradeDecision,
-} from './adapter/types.ts';
+} from '~/_adapters/types.ts';

@@ -1,6 +1,6 @@
 import * as EngineModule from '~/_engine/engine.ts';
-import type * as DefineServer from '~/server-definition.ts';
-import type * as EngineAdapterTypes from './types.ts';
+import type { ServerDefinition } from '~/server-definition.ts';
+import type { AdapterConfig } from './types.ts';
 
 /**
  * Define a platform adapter.
@@ -9,10 +9,10 @@ import type * as EngineAdapterTypes from './types.ts';
  * adapter setup function.
  */
 export function defineServerAdapter<TOptions, TService>(
-  config: EngineAdapterTypes.AdapterConfig<TOptions, TService>,
+  config: AdapterConfig<TOptions, TService>,
 ) {
   return function serve(
-    handler: DefineServer.ServerDefinition,
+    handler: ServerDefinition,
     options: TOptions,
   ): TService | Promise<TService> {
     const engine = new EngineModule.Engine(handler, {

@@ -3,25 +3,33 @@ import type { Primitive } from '~/primitive.ts';
 import type { Validator } from '~/types.ts';
 
 /**
+ * The `respond` callback injected into the handler context for `.request()`
+ * handlers. Sends the response back to the requesting client.
+ */
+export interface RespondMethod<TResponse = unknown> {
+  respond(response: TResponse): void;
+}
+
+/**
  * The function signature for a request–response handler.
  *
- * Unlike an `IncomingHandler` (which returns `void`), a `RequestHandler` must
- * return the response value. The engine sends this value back to the client as
- * the reply.
+ * Unlike an `IncomingHandler` (which is fire-and-forget), a `RequestHandler`
+ * receives `ctx.respond()` to explicitly send the response back to the client.
+ * This keeps the sending model consistent across the library — all data going
+ * to the client goes through an explicit send call.
  *
- * @param ctx      The handler context for the current connection.
+ * @param ctx      The handler context with `respond()` for sending the reply.
  * @param payload  The validated inbound payload.
- * @returns        The response sent back to the client (sync or async).
  */
 export type RequestHandler<TCtx = any, TPayload = unknown, TResponse = unknown> = (
-  ctx: TCtx,
+  ctx: TCtx & RespondMethod<TResponse>,
   payload: TPayload,
-) => TResponse | Promise<TResponse>;
+) => void | Promise<void>;
 
 /**
  * The primitive type produced by `request()`. Carries the event name, handler,
  * and optional validator so the engine can dispatch, validate, call the handler,
- * and send back the response.
+ * and send back the response via `ctx.respond()`.
  */
 export interface RequestPrimitive<
   TEvent extends string = string,
@@ -31,7 +39,7 @@ export interface RequestPrimitive<
 > extends Primitive<'request'> {
   /** The event name the client sends to initiate the request. */
   readonly event: TEvent;
-  /** The function that returns the response value. */
+  /** The function that handles the request and calls `ctx.respond()`. */
   readonly handler: RequestHandler<TCtx, TPayload, TResponse>;
   /**
    * Optional schema validator. When present, the engine validates the raw
@@ -46,15 +54,14 @@ const REQUEST_KEY = Symbol('request');
 
 /**
  * Creates a request–response handler primitive. The engine calls `handler`
- * when the client sends an event whose name matches `event`, waits for the
- * returned value, and sends it back to the client as the reply.
+ * when the client sends an event whose name matches `event`. The handler
+ * uses `ctx.respond(value)` to send the response back to the client.
  *
  * In practice you rarely call `request()` directly. Use it through the builder
- * via `.reply(eventContract, responseSchema, handler)` — that method calls this
- * factory internally.
+ * via `.request(eventContract, responseSchema, handler)`.
  *
  * @param event   The event name to respond to.
- * @param handler The function that computes and returns the response.
+ * @param handler The function that handles the request.
  * @param options.validator Optional schema validator for the inbound payload.
  *
  * @example
@@ -62,8 +69,9 @@ const REQUEST_KEY = Symbol('request');
  * const GetUser = event('get-user', z.object({ id: z.string() }));
  * const UserResponse = z.object({ name: z.string() });
  *
- * server('chat').reply(GetUser, UserResponse, async (ctx, payload) => {
- *   return await db.findUser(payload.id);
+ * server('chat').request(GetUser, UserResponse, async (ctx, payload) => {
+ *   const user = await db.findUser(payload.id);
+ *   ctx.respond(user);
  * });
  * ```
  */

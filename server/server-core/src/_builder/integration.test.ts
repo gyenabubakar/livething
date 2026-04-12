@@ -171,14 +171,14 @@ describe('handler payload typing', () => {
       });
   });
 
-  it('.reply() payload is typed from event schema', () => {
-    server('chat').reply(ping, pongSchema, async (_ctx, payload) => {
+  it('.request() handler has ctx.respond() and typed payload', () => {
+    server('chat').request(ping, pongSchema, async (ctx, payload) => {
       void (payload.ts satisfies number);
 
       // @ts-expect-error — field does not exist on { ts: number }
       payload.nonexistent;
 
-      return { ts: 0, serverTs: 0 };
+      ctx.respond({ ts: 0, serverTs: 0 });
     });
   });
 
@@ -450,8 +450,8 @@ const fullServer = server('chat')
   .outgoing(notification)
   .incoming(sendMessage, async () => {})
   .incoming(typing, async () => {})
-  .reply(ping, pongSchema, async (_ctx, payload) => {
-    return { ts: payload.ts, serverTs: Date.now() };
+  .request(ping, pongSchema, async (ctx, payload) => {
+    ctx.respond({ ts: payload.ts, serverTs: Date.now() });
   })
   .stream(aiComplete, chunkSchema)
   .nudge(cancel)
@@ -503,7 +503,7 @@ describe('InferClient: requests', () => {
 describe('InferClient: streams', () => {
   it('stream with nudges has payload, chunks, and nudges', () => {
     assertExact<Full['streams']['ai-complete']['payload'], { prompt: string }>();
-    assertExact<Full['streams']['ai-complete']['chunks'], { token: string }>();
+    assertExact<Full['streams']['ai-complete']['chunk'], { token: string }>();
     assertExact<Full['streams']['ai-complete']['nudges']['cancel'], {}>();
     assertExact<Full['streams']['ai-complete']['nudges']['add-context'], { hint: string }>();
   });
@@ -522,7 +522,7 @@ describe('InferClient: stream without nudges', () => {
 
   it('stream payload and chunks are present', () => {
     assertExact<NoNudge['streams']['ai-complete']['payload'], { prompt: string }>();
-    assertExact<NoNudge['streams']['ai-complete']['chunks'], { token: string }>();
+    assertExact<NoNudge['streams']['ai-complete']['chunk'], { token: string }>();
   });
 
   it('nudges field does NOT exist on no-nudge stream', () => {
@@ -683,7 +683,7 @@ describe('InferClient from .use() assembled server', () => {
     .group()
     .incoming(sendMessage, async () => {})
     .incoming(typing, async () => {})
-    .reply(ping, pongSchema, async (_ctx, p) => ({ ts: p.ts, serverTs: 0 }))
+    .request(ping, pongSchema, async (ctx, p) => { ctx.respond({ ts: p.ts, serverTs: 0 }); })
     .extract();
 
   // -- "rooms.ts" --
@@ -742,7 +742,7 @@ describe('InferClient from .use() assembled server', () => {
 
   it('stream from .use(group) → client streams', () => {
     assertExact<Assembled['streams']['ai-complete']['payload'], { prompt: string }>();
-    assertExact<Assembled['streams']['ai-complete']['chunks'], { token: string }>();
+    assertExact<Assembled['streams']['ai-complete']['chunk'], { token: string }>();
     assertExact<Assembled['streams']['ai-complete']['nudges']['cancel'], {}>();
   });
 

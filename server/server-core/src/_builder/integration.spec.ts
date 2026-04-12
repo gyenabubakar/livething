@@ -73,8 +73,8 @@ describe('Integration: full single-file server', () => {
     })
     .incoming(typing, async () => {})
     .intercept('send-message', async (_ctx, _payload) => {})
-    .reply(ping, pongSchema, async (_ctx, payload) => {
-      return { ts: payload.ts, serverTs: Date.now() };
+    .request(ping, pongSchema, async (ctx, payload) => {
+      ctx.respond({ ts: payload.ts, serverTs: Date.now() });
     })
     .scheduled('cleanup', async () => {}, { every: 60_000 })
     .scheduled('expire-hold', (p: unknown) => p as { orderId: string })
@@ -320,7 +320,7 @@ describe('Integration: multi-file composition', () => {
     const handlers = appBase
       .group()
       .incoming(sendMessage, async () => {})
-      .reply(ping, pongSchema, async (_ctx, p) => ({ ts: p.ts, serverTs: 0 }))
+      .request(ping, pongSchema, async (ctx, p) => { ctx.respond({ ts: p.ts, serverTs: 0 }); })
       .extract();
 
     const def = server('chat')
@@ -436,15 +436,15 @@ describe('Integration: type inference', () => {
       });
   });
 
-  it('.reply() handler payload typed from event schema', () => {
-    server('chat').reply(ping, pongSchema, async (_ctx, payload) => {
+  it('.request() handler payload typed from event schema', () => {
+    server('chat').request(ping, pongSchema, async (ctx, payload) => {
       const ts: number = payload.ts;
       void ts;
 
       // @ts-expect-error — nonexistent field
       payload.nonexistent;
 
-      return { ts: payload.ts, serverTs: 0 };
+      ctx.respond({ ts: payload.ts, serverTs: 0 });
     });
   });
 

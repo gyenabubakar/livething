@@ -65,7 +65,7 @@ type StreamContractEntry<
   TNudges extends readonly NudgeDeclaration[],
 > = Record<
   TEvent,
-  { payload: TPayload; chunks: TChunks } & (keyof NudgeMap<TNudges> extends never
+  { payload: TPayload; chunk: TChunks } & (keyof NudgeMap<TNudges> extends never
     ? {}
     : { nudges: NudgeMap<TNudges> })
 >;

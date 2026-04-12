@@ -309,7 +309,7 @@ type StreamEntry<TStream extends StreamPrimitive> =
         TStream['event'],
         {
           payload: TPayload;
-          chunks: TChunks;
+          chunk: TChunks;
         } & (keyof NudgeMap<TNudges> extends never ? {} : { nudges: NudgeMap<TNudges> })
       >
     : never;

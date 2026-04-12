@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import type * as EngineAdapterTypes from '~/_engine/adapter/types.ts';
+import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as PublicApi from '~/index.ts';
 import type * as ValidationTypes from '~/types.ts';
