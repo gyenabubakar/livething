@@ -17,7 +17,7 @@ describe('.reply() side-effect', () => {
       .reply(ping, pongSchema, async (_ctx, payload) => {
         return { ts: payload.ts, serverTs: Date.now() };
       })
-      .done();
+      .build();
 
     expect(def.primitives).toHaveLength(1);
     expect(def.primitives[0]!.__wskit).toBe('request');
@@ -51,7 +51,7 @@ describe('.reply() side-effect', () => {
       server('chat')
         .reply(ping, pongSchema, async (_ctx, payload) => ({ ts: payload.ts, serverTs: 0 }))
         .reply(ping, pongSchema, async (_ctx, payload) => ({ ts: payload.ts, serverTs: 0 }))
-        .done(),
+        .build(),
     ).toThrow(/Duplicate registration/);
   });
 
@@ -65,7 +65,7 @@ describe('.reply() side-effect', () => {
       })
       .extract();
 
-    const def = base.use(group).done();
+    const def = base.use(group).build();
     expect(def.primitives.some((p) => p.__wskit === 'request')).toBe(true);
   });
 });

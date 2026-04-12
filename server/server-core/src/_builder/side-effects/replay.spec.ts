@@ -18,7 +18,7 @@ describe('.replay() side-effect', () => {
       .replay()
       .done()
       .outgoing(message)
-      .done();
+      .build();
 
     expect(def.primitives.some((p) => p.__wskit === 'replay')).toBe(true);
   });
@@ -30,7 +30,7 @@ describe('.replay() side-effect', () => {
       .replay()
       .exclude('typing', 'cursor')
       .done()
-      .done();
+      .build();
 
     const replayPrim = def.primitives.find((p) => p.__wskit === 'replay') as unknown as {
       options: { exclude?: string[] };
@@ -45,7 +45,7 @@ describe('.replay() side-effect', () => {
       .replay()
       .retention({ maxAgeMs: 3_600_000, maxMessages: 1000 })
       .done()
-      .done();
+      .build();
 
     const replayPrim = def.primitives.find((p) => p.__wskit === 'replay') as unknown as {
       options: { retention?: object };
@@ -60,7 +60,7 @@ describe('.replay() side-effect', () => {
       .replay()
       .durability('best-effort')
       .done()
-      .done();
+      .build();
 
     const replayPrim = def.primitives.find((p) => p.__wskit === 'replay') as unknown as {
       options: { durability?: string };
@@ -76,7 +76,7 @@ describe('.replay() side-effect', () => {
       .snapshotKey((event, payload) => `${event}:${(payload as { id: string }).id}`)
       .reduce((_prev, next) => next)
       .done()
-      .done();
+      .build();
 
     const replayPrim = def.primitives.find((p) => p.__wskit === 'replay') as unknown as {
       options: {
@@ -100,7 +100,7 @@ describe('.replay() side-effect', () => {
       .done()
       .outgoing(message)
       .incoming(sendMessage, async () => {})
-      .done();
+      .build();
 
     expect(def.primitives).toHaveLength(5);
   });
@@ -114,7 +114,7 @@ describe('.replayCustom() side-effect', () => {
       .replayCustom()
       .onReplay(async (_ctx, _since) => {})
       .done()
-      .done();
+      .build();
 
     expect(def.primitives.some((p) => p.__wskit === 'customReplay')).toBe(true);
   });
@@ -128,7 +128,7 @@ describe('.replayCustom() side-effect', () => {
       .onAfterSend((_message) => {})
       .onReplay(async (_ctx, _since) => {})
       .done()
-      .done();
+      .build();
 
     expect(def.primitives.some((p) => p.__wskit === 'customReplay')).toBe(true);
   });
@@ -141,7 +141,7 @@ describe('.replayCustom() side-effect', () => {
       .onReplay(async () => {})
       .done()
       .outgoing(message)
-      .done();
+      .build();
 
     expect(def.primitives).toHaveLength(4);
   });

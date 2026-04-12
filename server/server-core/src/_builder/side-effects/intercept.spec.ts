@@ -13,7 +13,7 @@ describe('.intercept() side-effect', () => {
       .intercept(async (_ctx, message) => {
         void message.event;
       })
-      .done();
+      .build();
 
     expect(def.primitives).toHaveLength(1);
     expect(def.primitives[0]!.__wskit).toBe('intercept');
@@ -27,7 +27,7 @@ describe('.intercept() side-effect', () => {
       .intercept('send-message', async (_ctx, payload) => {
         void payload;
       })
-      .done();
+      .build();
 
     expect(def.primitives).toHaveLength(3);
     expect(def.primitives[2]!.__wskit).toBe('intercept');
@@ -52,7 +52,7 @@ describe('.intercept() side-effect', () => {
       .intercept(async () => {})
       .extract();
 
-    const def = base.use(group).done();
+    const def = base.use(group).build();
     expect(def.primitives.some((p) => p.__wskit === 'intercept')).toBe(true);
   });
 });

@@ -17,7 +17,7 @@ describe('.namespace() side-effect', () => {
       .outgoing(alert)
       .incoming(dismiss, async () => {})
       .done()
-      .done();
+      .build();
 
     expect(def.primitives.some((p) => p.__wskit === 'namespace')).toBe(true);
   });
@@ -57,7 +57,7 @@ describe('.namespace() side-effect', () => {
       .incoming(sendMessage, async (ctx) => {
         ctx.send('message', { text: 'after namespace' });
       })
-      .done();
+      .build();
 
     expect(def.primitives).toHaveLength(3);
   });
@@ -75,7 +75,7 @@ describe('.namespace() side-effect', () => {
 
     expect(notifications.__wskit).toBe('namespace');
 
-    const def = base.use(notifications).done();
+    const def = base.use(notifications).build();
     expect(def.primitives.some((p) => p.__wskit === 'namespace')).toBe(true);
   });
 
@@ -88,7 +88,7 @@ describe('.namespace() side-effect', () => {
         .namespace('notifications')
         .outgoing(alert)
         .done()
-        .done(),
+        .build(),
     ).toThrow(/Duplicate registration/);
   });
 });

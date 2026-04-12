@@ -113,7 +113,7 @@ function validateDependencies(
 /**
  * Run all build-time checks on a finalized list of primitives.
  *
- * Called automatically by `ServerBuilder.done()` before the `ServerDefinition`
+ * Called automatically by `ServerBuilder.build()` before the `ServerDefinition`
  * is frozen. You should never need to call this directly.
  *
  * Performs two checks in order:

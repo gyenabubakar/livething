@@ -13,7 +13,7 @@ describe('.ack() side-effect', () => {
       .ack()
       .outgoing(message)
       .incoming(sendMessage, async () => {})
-      .done();
+      .build();
 
     expect(def.primitives).toHaveLength(3);
     expect(def.primitives[0]!.__wskit).toBe('ack');
@@ -51,7 +51,7 @@ describe('.ack() side-effect', () => {
     const base = server('chat').outgoing(message);
     const group = base.group().ack().extract();
 
-    const def = base.use(group).done();
+    const def = base.use(group).build();
     expect(def.primitives.some((p) => p.__wskit === 'ack')).toBe(true);
   });
 });

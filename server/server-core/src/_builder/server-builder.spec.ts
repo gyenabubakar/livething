@@ -25,7 +25,7 @@ describe('ServerBuilder — runtime', () => {
     const def = server('chat')
       .outgoing(message)
       .incoming(sendMessage, async () => {})
-      .done();
+      .build();
 
     expect(def.__wskit).toBe('server');
     expect(Object.isFrozen(def)).toBe(true);
@@ -37,7 +37,7 @@ describe('ServerBuilder — runtime', () => {
       .outgoing(message)
       .outgoing(notification)
       .incoming(sendMessage, async () => {})
-      .done();
+      .build();
 
     expect(def.primitives).toHaveLength(3);
     expect(def.primitives[0]!.__wskit).toBe('outgoing');
@@ -50,7 +50,7 @@ describe('ServerBuilder — runtime', () => {
       server('chat')
         .incoming(sendMessage, async () => {})
         .incoming(sendMessage, async () => {})
-        .done(),
+        .build(),
     ).toThrow(/Duplicate registration/);
   });
 
@@ -59,7 +59,7 @@ describe('ServerBuilder — runtime', () => {
       server('chat')
         .incoming(sendMessage, async () => {})
         .incoming(typing, async () => {})
-        .done(),
+        .build(),
     ).not.toThrow();
   });
 });
@@ -148,7 +148,7 @@ describe('GroupBuilder', () => {
       .incoming(sendMessage, async () => {})
       .extract();
 
-    const def = base.use(group).done();
+    const def = base.use(group).build();
     expect(def.primitives).toHaveLength(2);
   });
 
@@ -160,7 +160,7 @@ describe('GroupBuilder', () => {
         ctx.send('message', { text: 'hi', from: ctx.id });
       })
       .done()
-      .done();
+      .build();
 
     expect(def.primitives).toHaveLength(2);
   });

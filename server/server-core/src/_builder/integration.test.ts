@@ -213,7 +213,7 @@ const chatServer = server('chat')
   .reply(ping, pongResponse, async (_ctx, payload) => {
     return { ts: payload.ts, serverTs: Date.now() };
   })
-  .done();
+  .build();
 
 type Chat = InferClient<typeof chatServer>;
 

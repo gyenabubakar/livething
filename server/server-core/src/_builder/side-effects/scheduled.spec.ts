@@ -10,7 +10,7 @@ describe('.scheduled() side-effect', () => {
   it('adds scheduled primitive with handler', () => {
     const def = server('chat')
       .scheduled('cleanup', async () => {})
-      .done();
+      .build();
 
     expect(def.primitives).toHaveLength(1);
     expect(def.primitives[0]!.__wskit).toBe('scheduled');
@@ -19,7 +19,7 @@ describe('.scheduled() side-effect', () => {
   it('accepts every option', () => {
     const def = server('chat')
       .scheduled('cleanup', async () => {}, { every: 60_000, retry: false })
-      .done();
+      .build();
 
     const prim = def.primitives[0] as unknown as {
       taskId: string;
@@ -33,7 +33,7 @@ describe('.scheduled() side-effect', () => {
   it('accepts schema-only declaration form', () => {
     const def = server('chat')
       .scheduled('expire-hold', (p: unknown) => p as { orderId: string })
-      .done();
+      .build();
 
     expect(def.primitives).toHaveLength(1);
     expect(def.primitives[0]!.__wskit).toBe('scheduled');
@@ -43,7 +43,7 @@ describe('.scheduled() side-effect', () => {
     const def = server('chat')
       .scheduled('cleanup', async () => {})
       .scheduled('expire-hold', async () => {})
-      .done();
+      .build();
 
     expect(def.primitives).toHaveLength(2);
   });
@@ -53,7 +53,7 @@ describe('.scheduled() side-effect', () => {
       server('chat')
         .scheduled('cleanup', async () => {})
         .scheduled('cleanup', async () => {})
-        .done(),
+        .build(),
     ).toThrow(/Duplicate registration/);
   });
 
@@ -61,7 +61,7 @@ describe('.scheduled() side-effect', () => {
     const def = server('chat')
       .outgoing(message)
       .scheduled('cleanup', async () => {}, { every: 60_000 })
-      .done();
+      .build();
 
     expect(def.primitives).toHaveLength(2);
     expect(def.primitives[0]!.__wskit).toBe('outgoing');
@@ -75,7 +75,7 @@ describe('.scheduled() side-effect', () => {
       .scheduled('cleanup', async () => {}, { every: 60_000 })
       .extract();
 
-    const def = base.use(group).done();
+    const def = base.use(group).build();
     expect(def.primitives.some((p) => p.__wskit === 'scheduled')).toBe(true);
   });
 });

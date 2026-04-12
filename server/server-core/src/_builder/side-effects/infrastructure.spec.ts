@@ -12,7 +12,7 @@ const sendMessage = event('send-message', (p: unknown) => p as { text: string })
 
 describe('.heartbeat() side-effect', () => {
   it('adds heartbeat primitive', () => {
-    const def = server('chat').heartbeat({ timeout: 60_000 }).done();
+    const def = server('chat').heartbeat({ timeout: 60_000 }).build();
 
     expect(def.primitives).toHaveLength(1);
     expect(def.primitives[0]!.__wskit).toBe('heartbeat');
@@ -33,21 +33,21 @@ describe('.heartbeat() side-effect', () => {
 
 describe('.sequence() side-effect', () => {
   it('adds sequence primitive', () => {
-    const def = server('chat').sequence().done();
+    const def = server('chat').sequence().build();
 
     expect(def.primitives).toHaveLength(1);
     expect(def.primitives[0]!.__wskit).toBe('sequence');
   });
 
   it('accepts persist option', () => {
-    const def = server('chat').sequence({ persist: true }).done();
+    const def = server('chat').sequence({ persist: true }).build();
     const prim = def.primitives[0] as unknown as { persist: boolean };
 
     expect(prim.persist).toBe(true);
   });
 
   it('defaults persist to false', () => {
-    const def = server('chat').sequence().done();
+    const def = server('chat').sequence().build();
     const prim = def.primitives[0] as unknown as { persist: boolean };
 
     expect(prim.persist).toBe(false);
@@ -56,7 +56,7 @@ describe('.sequence() side-effect', () => {
 
 describe('.dedup() side-effect', () => {
   it('adds dedup primitive', () => {
-    const def = server('chat').dedup().done();
+    const def = server('chat').dedup().build();
 
     expect(def.primitives).toHaveLength(1);
     expect(def.primitives[0]!.__wskit).toBe('dedup');
@@ -65,21 +65,21 @@ describe('.dedup() side-effect', () => {
 
 describe('.hibernation() side-effect', () => {
   it('adds hibernation primitive', () => {
-    const def = server('chat').hibernation().done();
+    const def = server('chat').hibernation().build();
 
     expect(def.primitives).toHaveLength(1);
     expect(def.primitives[0]!.__wskit).toBe('hibernation');
   });
 
   it('defaults to enabled', () => {
-    const def = server('chat').hibernation().done();
+    const def = server('chat').hibernation().build();
     const prim = def.primitives[0] as unknown as { enabled: boolean };
 
     expect(prim.enabled).toBe(true);
   });
 
   it('can be explicitly disabled', () => {
-    const def = server('chat').hibernation(false).done();
+    const def = server('chat').hibernation(false).build();
     const prim = def.primitives[0] as unknown as { enabled: boolean };
 
     expect(prim.enabled).toBe(false);
@@ -95,7 +95,7 @@ describe('infrastructure primitives combined', () => {
       .hibernation()
       .outgoing(message)
       .incoming(sendMessage, async () => {})
-      .done();
+      .build();
 
     expect(def.primitives).toHaveLength(6);
     expect(def.primitives[0]!.__wskit).toBe('heartbeat');
@@ -107,6 +107,6 @@ describe('infrastructure primitives combined', () => {
   });
 
   it('rejects duplicate infrastructure registrations', () => {
-    expect(() => server('chat').sequence().sequence().done()).toThrow(/Duplicate registration/);
+    expect(() => server('chat').sequence().sequence().build()).toThrow(/Duplicate registration/);
   });
 });

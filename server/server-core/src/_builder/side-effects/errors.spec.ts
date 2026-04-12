@@ -13,14 +13,14 @@ const QuotaExceeded = error('quota-exceeded', (p: unknown) => p as { limit: numb
 
 describe('.errors() side-effect', () => {
   it('adds errors primitive', () => {
-    const def = server('chat').errors(Forbidden, QuotaExceeded).done();
+    const def = server('chat').errors(Forbidden, QuotaExceeded).build();
 
     expect(def.primitives).toHaveLength(1);
     expect(def.primitives[0]!.__wskit).toBe('errors');
   });
 
   it('rejects duplicate errors registration', () => {
-    expect(() => server('chat').errors(Forbidden).errors(QuotaExceeded).done()).toThrow(
+    expect(() => server('chat').errors(Forbidden).errors(QuotaExceeded).build()).toThrow(
       /Duplicate registration/,
     );
   });
@@ -30,7 +30,7 @@ describe('.errors() side-effect', () => {
       .errors(Forbidden, QuotaExceeded)
       .outgoing(message)
       .incoming(sendMessage, async () => {})
-      .done();
+      .build();
 
     expect(def.primitives).toHaveLength(3);
     expect(def.primitives[0]!.__wskit).toBe('errors');
@@ -41,7 +41,7 @@ describe('.errors() side-effect', () => {
   it('works with GroupBuilder', () => {
     const base = server('chat').outgoing(message);
     const group = base.group().errors(Forbidden).extract();
-    const def = base.use(group).done();
+    const def = base.use(group).build();
 
     expect(def.primitives.some((p) => p.__wskit === 'errors')).toBe(true);
   });

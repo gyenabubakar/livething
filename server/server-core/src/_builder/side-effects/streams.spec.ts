@@ -21,7 +21,7 @@ describe('.stream() side-effect', () => {
         yield { token: payload.prompt };
       })
       .done()
-      .done();
+      .build();
 
     expect(def.primitives.some((p) => p.__wskit === 'stream')).toBe(true);
     expect(def.primitives.some((p) => p.__wskit === 'generate')).toBe(true);
@@ -66,7 +66,7 @@ describe('.stream() side-effect', () => {
         }
       })
       .done()
-      .done();
+      .build();
 
     const streamPrim = def.primitives.find((p) => p.__wskit === 'stream') as unknown as {
       nudges: readonly { event: string }[];
@@ -83,7 +83,7 @@ describe('.stream() side-effect', () => {
         yield { token: payload.prompt };
       })
       .done()
-      .done();
+      .build();
 
     const streamPrim = def.primitives.find((p) => p.__wskit === 'stream') as unknown as {
       broadcast: boolean;
@@ -105,7 +105,7 @@ describe('.stream() side-effect', () => {
           ctx.send('message', { text: 'after stream' });
         },
       )
-      .done();
+      .build();
 
     expect(def.primitives).toHaveLength(4);
   });
@@ -122,7 +122,7 @@ describe('.stream() side-effect', () => {
       .done()
       .extract();
 
-    const def = base.use(group).done();
+    const def = base.use(group).build();
     expect(def.primitives.some((p) => p.__wskit === 'stream')).toBe(true);
     expect(def.primitives.some((p) => p.__wskit === 'generate')).toBe(true);
   });

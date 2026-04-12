@@ -88,7 +88,7 @@ type StateAfterIncoming<
  *   .incoming(sendMessage, async (ctx, payload) => {
  *     ctx.broadcast('message', { text: payload.text, from: ctx.meta.userId })
  *   })
- *   .done()
+ *   .build()
  * ```
  *
  * @template TState - Accumulated builder state. Do not pass this manually;
@@ -180,7 +180,7 @@ export class ServerBuilder<TState extends ScopeStateShape = InitialState> {
    * server('shop')
    *   .use(Analytics({ sampleRate: 0.5 }))
    *   .use(orderHandlers)
-   *   .done()
+   *   .build()
    * ```
    */
   use<P extends Primitive>(primitive: P): ServerBuilder<NextState<TState, P & FoldablePrimitive>> {
@@ -216,7 +216,7 @@ export class ServerBuilder<TState extends ScopeStateShape = InitialState> {
    *   .extract()
    *
    * // handler.ts
-   * server('shop').use(orderHandlers).done()
+   * server('shop').use(orderHandlers).build()
    * ```
    */
   group(): GroupBuilder<TState> {
@@ -240,13 +240,13 @@ export class ServerBuilder<TState extends ScopeStateShape = InitialState> {
    * const chat = server('chat')
    *   .outgoing(message)
    *   .incoming(sendMessage, handler)
-   *   .done() // → ServerDefinition
+   *   .build() // → ServerDefinition
    *
    * export default chat
    * export type ChatSocket = InferClient<typeof chat>
    * ```
    */
-  done(): ServerDefinition<readonly Primitive[], ContractFromState<TState>> {
+  build(): ServerDefinition<readonly Primitive[], ContractFromState<TState>> {
     validateBuild(this._primitives);
     return Object.freeze({
       __wskit: 'server' as const,
@@ -333,7 +333,7 @@ export class GroupBuilder<TState extends ScopeStateShape> {
    *   .extract()
    *
    * // handler.ts
-   * server('shop').use(orderHandlers).done()
+   * server('shop').use(orderHandlers).build()
    * ```
    */
   extract(): GroupPrimitive<TState> {
@@ -363,7 +363,7 @@ export class GroupBuilder<TState extends ScopeStateShape> {
    *     .incoming(msgB, handlerB)
    *     .done() // back to ServerBuilder
    *   .onConnect(handler)
-   *   .done()
+   *   .build()
    * ```
    */
   done(): ServerBuilder<TState> {
@@ -395,7 +395,7 @@ export interface GroupPrimitive<
  * It does not affect the wire protocol.
  *
  * Chain builder methods to register events, handlers, and features, then
- * call `.done()` to get the final `ServerDefinition`:
+ * call `.build()` to get the final `ServerDefinition`:
  *
  * ```typescript
  * import { server, event } from '@wskit/server'
@@ -413,7 +413,7 @@ export interface GroupPrimitive<
  *   .onConnect((ctx) => {
  *     console.log('connected:', ctx.id)
  *   })
- *   .done()
+ *   .build()
  *
  * export type ChatSocket = InferClient<typeof chat>
  * ```

@@ -115,7 +115,7 @@ describe('Integration: full single-file server', () => {
     .onBinary(async () => {})
     .onValidationError(async () => {})
     .onInit(async () => {})
-    .done();
+    .build();
 
   it('produces a frozen ServerDefinition', () => {
     expect(def.__wskit).toBe('server');
@@ -247,7 +247,7 @@ describe('Integration: multi-file composition', () => {
     expect(messageHandlers.__wskit).toBe('group');
     expect(messageHandlers.primitives).toHaveLength(2);
 
-    const def = server('chat').ack().outgoing(message).use(messageHandlers).done();
+    const def = server('chat').ack().outgoing(message).use(messageHandlers).build();
 
     const incomings = findAllPrimitives(def.primitives, 'incoming');
     expect(incomings).toHaveLength(2);
@@ -265,7 +265,7 @@ describe('Integration: multi-file composition', () => {
 
     expect(rooms.__wskit).toBe('channel');
 
-    const def = base.use(rooms).done();
+    const def = base.use(rooms).build();
     expect(findPrimitive(def.primitives, 'channel')).toBeDefined();
   });
 
@@ -281,7 +281,7 @@ describe('Integration: multi-file composition', () => {
 
     expect(notifications.__wskit).toBe('namespace');
 
-    const def = base.use(notifications).done();
+    const def = base.use(notifications).build();
     expect(findPrimitive(def.primitives, 'namespace')).toBeDefined();
   });
 
@@ -296,7 +296,7 @@ describe('Integration: multi-file composition', () => {
       .done()
       .extract();
 
-    const def = base.use(aiGroup).done();
+    const def = base.use(aiGroup).build();
     expect(findPrimitive(def.primitives, 'stream')).toBeDefined();
     expect(findPrimitive(def.primitives, 'generate')).toBeDefined();
   });
@@ -330,7 +330,7 @@ describe('Integration: multi-file composition', () => {
       .use(rooms)
       .use(notifications)
       .use(handlers)
-      .done();
+      .build();
 
     expect(findPrimitive(def.primitives, 'channel')).toBeDefined();
     expect(findPrimitive(def.primitives, 'namespace')).toBeDefined();
@@ -465,7 +465,7 @@ describe('Integration: type inference', () => {
 
 describe('Integration: duplicate detection', () => {
   it('rejects duplicate ack', () => {
-    expect(() => server('chat').ack().ack().done()).toThrow(/Duplicate/);
+    expect(() => server('chat').ack().ack().build()).toThrow(/Duplicate/);
   });
 
   it('rejects duplicate incoming for same event', () => {
@@ -473,7 +473,7 @@ describe('Integration: duplicate detection', () => {
       server('chat')
         .incoming(sendMessage, async () => {})
         .incoming(sendMessage, async () => {})
-        .done(),
+        .build(),
     ).toThrow(/Duplicate/);
   });
 
@@ -482,19 +482,19 @@ describe('Integration: duplicate detection', () => {
       server('chat')
         .incoming(sendMessage, async () => {})
         .incoming(typing, async () => {})
-        .done(),
+        .build(),
     ).not.toThrow();
   });
 
   it('rejects duplicate channel scope', () => {
-    expect(() => server('chat').channel('lobby').done().channel('lobby').done().done()).toThrow(
+    expect(() => server('chat').channel('lobby').done().channel('lobby').done().build()).toThrow(
       /Duplicate/,
     );
   });
 
   it('rejects duplicate namespace', () => {
     expect(() =>
-      server('chat').namespace('notifications').done().namespace('notifications').done().done(),
+      server('chat').namespace('notifications').done().namespace('notifications').done().build(),
     ).toThrow(/Duplicate/);
   });
 
@@ -503,7 +503,7 @@ describe('Integration: duplicate detection', () => {
       server('chat')
         .scheduled('cleanup', async () => {})
         .scheduled('cleanup', async () => {})
-        .done(),
+        .build(),
     ).toThrow(/Duplicate/);
   });
 
@@ -512,7 +512,7 @@ describe('Integration: duplicate detection', () => {
       server('chat')
         .onConnect(async () => {})
         .onConnect(async () => {})
-        .done(),
+        .build(),
     ).toThrow(/Duplicate/);
   });
 });
@@ -527,7 +527,7 @@ describe('Integration: replay modes', () => {
       .retention({ maxAgeMs: 3_600_000, maxMessages: 500 })
       .durability('best-effort')
       .done()
-      .done();
+      .build();
 
     const rp = findPrimitive(def.primitives, 'replay') as { options: any };
     expect(rp.options.exclude).toEqual(['typing', 'cursor']);
@@ -543,7 +543,7 @@ describe('Integration: replay modes', () => {
       .snapshotKey((ev, _p) => ev)
       .reduce((_prev, next) => next)
       .done()
-      .done();
+      .build();
 
     const rp = findPrimitive(def.primitives, 'replay') as { options: any };
     expect(rp.options.type).toBe('snapshot');
@@ -560,7 +560,7 @@ describe('Integration: replay modes', () => {
       .onAfterSend(() => {})
       .onReplay(async () => {})
       .done()
-      .done();
+      .build();
 
     expect(findPrimitive(def.primitives, 'customReplay')).toBeDefined();
   });

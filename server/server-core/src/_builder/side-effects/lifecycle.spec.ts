@@ -12,7 +12,7 @@ describe('lifecycle side-effects', () => {
   it('.onInit() adds primitive', () => {
     const def = server('chat')
       .onInit(async () => {})
-      .done();
+      .build();
 
     expect(def.primitives).toHaveLength(1);
     expect(def.primitives[0]!.__wskit).toBe('onInit');
@@ -42,7 +42,7 @@ describe('lifecycle side-effects', () => {
   it('.onShutdown() adds primitive', () => {
     const def = server('chat')
       .onShutdown(async () => {})
-      .done();
+      .build();
 
     expect(def.primitives).toHaveLength(1);
     expect(def.primitives[0]!.__wskit).toBe('onShutdown');
@@ -63,7 +63,7 @@ describe('lifecycle side-effects', () => {
       .onUpgrade(async (_req) => {
         return { meta: { userId: 'abc' } };
       })
-      .done();
+      .build();
 
     expect(def.primitives).toHaveLength(1);
     expect(def.primitives[0]!.__wskit).toBe('onUpgrade');
@@ -100,7 +100,7 @@ describe('lifecycle side-effects', () => {
       .onBinary(async () => {})
       .onValidationError(async () => {})
       .incoming(sendMessage, async () => {})
-      .done();
+      .build();
 
     expect(def.primitives).toHaveLength(10);
   });
@@ -110,7 +110,7 @@ describe('lifecycle side-effects', () => {
       server('chat')
         .onConnect(async () => {})
         .onConnect(async () => {})
-        .done(),
+        .build(),
     ).toThrow(/Duplicate registration/);
   });
 
@@ -124,7 +124,7 @@ describe('lifecycle side-effects', () => {
       })
       .extract();
 
-    const def = base.use(group).done();
+    const def = base.use(group).build();
     expect(def.primitives.some((p) => p.__wskit === 'onConnect')).toBe(true);
   });
 });

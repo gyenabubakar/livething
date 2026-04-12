@@ -19,7 +19,7 @@ describe('.channel() side-effect', () => {
       .outgoing(roomMessage)
       .incoming(roomSend, async () => {})
       .done()
-      .done();
+      .build();
 
     expect(def.primitives.some((p) => p.__wskit === 'channel')).toBe(true);
   });
@@ -29,7 +29,7 @@ describe('.channel() side-effect', () => {
       .channel(scope('rooms', /^room-.+$/))
       .outgoing(roomMessage)
       .done()
-      .done();
+      .build();
 
     const channelPrim = def.primitives.find((p) => p.__wskit === 'channel') as unknown as {
       pattern: { key: string; pattern: RegExp };
@@ -71,7 +71,7 @@ describe('.channel() side-effect', () => {
       .onSubscribe(async (_ctx) => {})
       .onUnsubscribe(async (_ctx) => {})
       .done()
-      .done();
+      .build();
 
     const channelPrim = def.primitives.find((p) => p.__wskit === 'channel') as unknown as {
       primitives: readonly { __wskit: string }[];
@@ -90,7 +90,7 @@ describe('.channel() side-effect', () => {
       .incoming(sendMessage, async (ctx) => {
         ctx.send('message', { text: 'after channel' });
       })
-      .done();
+      .build();
 
     expect(def.primitives).toHaveLength(3);
   });
@@ -109,7 +109,7 @@ describe('.channel() side-effect', () => {
 
     expect(rooms.__wskit).toBe('channel');
 
-    const def = base.use(rooms).done();
+    const def = base.use(rooms).build();
     expect(def.primitives.some((p) => p.__wskit === 'channel')).toBe(true);
   });
 
@@ -122,7 +122,7 @@ describe('.channel() side-effect', () => {
         .channel('lobby')
         .outgoing(roomMessage)
         .done()
-        .done(),
+        .build(),
     ).toThrow(/Duplicate registration/);
   });
 });
