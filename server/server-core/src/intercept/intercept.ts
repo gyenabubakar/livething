@@ -1,5 +1,4 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { definePrimitive } from '~/primitive.ts';
 import type { Primitive } from '~/primitive.ts';
 
 export interface InterceptMessage {
@@ -41,66 +40,37 @@ export type InterceptPrimitive<TEvent extends string = string, TPayload = unknow
 
 const INTERCEPT_KEY = Symbol('intercept');
 
-const _intercept = definePrimitive<
-  'intercept',
-  [firstArg: string | PreInterceptHandler, secondArg?: PostInterceptHandler],
-  {
-    mode: 'pre' | 'post';
-    event?: string;
-    handler: PreInterceptHandler | PostInterceptHandler;
-  }
->({
-  tag: 'intercept' as const,
-  key: INTERCEPT_KEY,
-  kind: 'infrastructure' as const,
-  registrationId(firstArg: string | PreInterceptHandler) {
-    return typeof firstArg === 'string' ? `post:${firstArg}` : 'pre';
-  },
-  create(firstArg: string | PreInterceptHandler, secondArg?: PostInterceptHandler) {
-    if (typeof firstArg === 'string') {
-      return {
-        mode: 'post' as const,
-        event: firstArg,
-        handler: secondArg!,
-      };
-    }
-
-    return {
-      mode: 'pre' as const,
-      handler: firstArg,
-    };
-  },
-});
-
-/**
- * Intercept messages before validation.
- *
- * Use this to inspect or rewrite raw incoming messages before wskit checks
- * their schema. At this stage, the payload is still `unknown`.
- */
 export function intercept(handler: PreInterceptHandler<any>): PreInterceptPrimitive<any>;
-
-/**
- * Intercept one event after validation.
- *
- * Use this when you want to inspect or rewrite a typed payload after wskit
- * has already validated it.
- */
 export function intercept<TEvent extends string>(
   event: TEvent,
   handler: PostInterceptHandler<any, any>,
 ): PostInterceptPrimitive<TEvent, any, any>;
-
 export function intercept(
   firstArg: string | PreInterceptHandler<any>,
   secondArg?: PostInterceptHandler<any, any>,
 ): InterceptPrimitive {
   if (typeof firstArg === 'string') {
-    return _intercept(firstArg, secondArg!) as InterceptPrimitive;
+    return {
+      __wskit: 'intercept',
+      __kind: 'infrastructure',
+      __identity: [INTERCEPT_KEY, `post:${firstArg}`],
+      __dependencies: [],
+      __requires: {},
+      mode: 'post',
+      event: firstArg,
+      handler: secondArg!,
+    };
   }
 
-  return _intercept(firstArg) as InterceptPrimitive;
+  return {
+    __wskit: 'intercept',
+    __kind: 'infrastructure',
+    __identity: [INTERCEPT_KEY, 'pre'],
+    __dependencies: [],
+    __requires: {},
+    mode: 'pre',
+    handler: firstArg,
+  };
 }
 
-/** Dependency ref — use in `dependencies: [intercept]` to assert it's registered. */
 intercept.__key = INTERCEPT_KEY;

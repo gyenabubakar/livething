@@ -14,8 +14,6 @@ import type {
 } from '~/_types/scope-state.ts';
 import { incoming as createIncoming } from '~/incoming/incoming.ts';
 import { outgoing as createOutgoing } from '~/outgoing/outgoing.ts';
-import { received } from '~/received.ts';
-import { t } from '~/t.ts';
 import { validateBuild } from './validate.ts';
 
 type InitialState = ScopeState<'top', NoOutgoing, false, false>;
@@ -45,9 +43,7 @@ export class ServerBuilder<TState extends ScopeStateShape = InitialState> {
   outgoing<TEvent extends string, TPayload>(
     eventContract: EventContract<TEvent, TPayload>,
   ): ServerBuilder<StateAfterOutgoing<TState, TEvent, TPayload>> {
-    this._primitives.push(
-      createOutgoing(eventContract.event, t<TPayload>()) as unknown as Primitive,
-    );
+    this._primitives.push(createOutgoing<TEvent, TPayload>(eventContract.event));
     return this as any;
   }
 
@@ -56,10 +52,7 @@ export class ServerBuilder<TState extends ScopeStateShape = InitialState> {
     handler: (ctx: HandlerCtxFromState<TState>, payload: TPayload) => void | Promise<void>,
   ): ServerBuilder<StateAfterIncoming<TState, TEvent, TPayload>> {
     this._primitives.push(
-      createIncoming(
-        received(eventContract.event, eventContract.schema as any),
-        handler as any,
-      ) as unknown as Primitive,
+      createIncoming(eventContract.event, handler as any, { validator: eventContract.schema }),
     );
     return this as any;
   }
@@ -99,9 +92,7 @@ export class GroupBuilder<TState extends ScopeStateShape> {
   outgoing<TEvent extends string, TPayload>(
     eventContract: EventContract<TEvent, TPayload>,
   ): GroupBuilder<StateAfterOutgoing<TState, TEvent, TPayload>> {
-    this._primitives.push(
-      createOutgoing(eventContract.event, t<TPayload>()) as unknown as Primitive,
-    );
+    this._primitives.push(createOutgoing<TEvent, TPayload>(eventContract.event));
     return this as any;
   }
 
@@ -110,10 +101,7 @@ export class GroupBuilder<TState extends ScopeStateShape> {
     handler: (ctx: HandlerCtxFromState<TState>, payload: TPayload) => void | Promise<void>,
   ): GroupBuilder<StateAfterIncoming<TState, TEvent, TPayload>> {
     this._primitives.push(
-      createIncoming(
-        received(eventContract.event, eventContract.schema as any),
-        handler as any,
-      ) as unknown as Primitive,
+      createIncoming(eventContract.event, handler as any, { validator: eventContract.schema }),
     );
     return this as any;
   }

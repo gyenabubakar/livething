@@ -13,8 +13,6 @@ import type {
 import { namespace as createNamespace } from '~/namespace/namespace.ts';
 import { incoming as createIncoming } from '~/incoming/incoming.ts';
 import { outgoing as createOutgoing } from '~/outgoing/outgoing.ts';
-import { received } from '~/received.ts';
-import { t } from '~/t.ts';
 import { ServerBuilder, GroupBuilder } from '~/_builder/server-builder.ts';
 
 type NamespaceState<TParentState extends ScopeStateShape> = ScopeState<
@@ -59,9 +57,7 @@ export class NamespaceBuilder<TParentState extends ScopeStateShape, TState exten
   outgoing<TEvent extends string, TPayload>(
     eventContract: EventContract<TEvent, TPayload>,
   ): NamespaceBuilder<TParentState, StateAfterOutgoing<TState, TEvent, TPayload>> {
-    this._primitives.push(
-      createOutgoing(eventContract.event, t<TPayload>()) as unknown as Primitive,
-    );
+    this._primitives.push(createOutgoing<TEvent, TPayload>(eventContract.event));
     return this as any;
   }
 
@@ -70,10 +66,7 @@ export class NamespaceBuilder<TParentState extends ScopeStateShape, TState exten
     handler: (ctx: HandlerCtxFromState<TState>, payload: TPayload) => void | Promise<void>,
   ): NamespaceBuilder<TParentState, StateAfterIncoming<TState, TEvent, TPayload>> {
     this._primitives.push(
-      createIncoming(
-        received(eventContract.event, eventContract.schema as any),
-        handler as any,
-      ) as unknown as Primitive,
+      createIncoming(eventContract.event, handler as any, { validator: eventContract.schema }),
     );
     return this as any;
   }
