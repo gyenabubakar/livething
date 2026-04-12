@@ -85,7 +85,7 @@ export type ChannelHandlerContext<
   TOutgoing extends Record<string, any> = NoOutgoing,
   THasAck extends boolean = false,
   THasReplay extends boolean = false,
-> = HandlerCtxFromState<ScopeState<'channel', TOutgoing, THasAck, THasReplay>>;
+> = HandlerCtxFromState<ScopeState<'channel', TOutgoing, THasAck, THasReplay, { incoming: {}; outgoing: {}; requests: {}; streams: {}; channels: {}; namespaces: {} }, readonly [], Record<string, unknown>, never>>;
 
 /**
  * The `ctx` type available inside a channel stream generator. Same as
@@ -94,7 +94,7 @@ export type ChannelHandlerContext<
 export type ChannelStreamHandlerContext<
   TOutgoing extends Record<string, any> = NoOutgoing,
   THasReplay extends boolean = false,
-> = StreamBaseCtxFromState<ScopeState<'channel', TOutgoing, false, THasReplay>>;
+> = StreamBaseCtxFromState<ScopeState<'channel', TOutgoing, false, THasReplay, { incoming: {}; outgoing: {}; requests: {}; streams: {}; channels: {}; namespaces: {} }, readonly [], Record<string, unknown>, never>>;
 
 /**
  * The primitive type produced by `channel()`. Carries the channel pattern and
@@ -104,6 +104,8 @@ export type ChannelStreamHandlerContext<
 export interface ChannelPrimitive<
   TPattern extends ChannelPattern = ChannelPattern,
   TPrimitives extends readonly ChannelChild[] = readonly ChannelChild[],
+  _TChannelName extends string = string,
+  _TContract = unknown,
 > extends Primitive<'channel'> {
   /** The pattern this channel matches against subscription paths. */
   readonly pattern: TPattern;

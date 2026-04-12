@@ -39,11 +39,12 @@ import { incoming as createIncoming } from '~/incoming/incoming.ts';
 import { outgoing as createOutgoing } from '~/outgoing/outgoing.ts';
 import type {
   HandlerCtxFromState,
+  MergeRecords,
   NextState,
   ScopeState,
   ScopeStateShape,
 } from '~/_types/scope-state.ts';
-import type { ChannelPattern, ChannelPrimitive } from '~/channel/channel.ts';
+import type { ChannelPattern, ChannelPrimitive, ScopeDeclaration } from '~/channel/channel.ts';
 import type { EventContract } from '~/event.ts';
 import type { IncomingPrimitive } from '~/incoming/incoming.ts';
 import type { OutgoingPrimitive } from '~/outgoing/outgoing.ts';
@@ -51,14 +52,19 @@ import type { Primitive } from '~/primitive.ts';
 
 /**
  * The initial type-level state for a channel scope. A channel inherits the
- * parent's outgoing events, ack flag, and replay flag, but lives in its own
- * `'channel'` scope kind so context types are scoped correctly.
+ * parent's outgoing events, ack flag, replay flag, meta type, and channel
+ * names, but lives in its own `'channel'` scope kind so context types are
+ * scoped correctly.
  */
 type ChannelState<TParentState extends ScopeStateShape> = ScopeState<
   'channel',
   TParentState['outgoing'],
   TParentState['hasAck'],
-  TParentState['hasReplay']
+  TParentState['hasReplay'],
+  { incoming: {}; outgoing: {}; requests: {}; streams: {}; channels: {}; namespaces: {} },
+  readonly [],
+  TParentState['meta'],
+  TParentState['channelNames']
 >;
 
 /** Helper: the state produced after registering an outgoing event on the channel. */
@@ -67,6 +73,57 @@ type StateAfterOutgoing<
   TEvent extends string,
   TPayload,
 > = NextState<TState, OutgoingPrimitive<TEvent, TPayload>>;
+
+/**
+ * Resolve the channel name type from a pattern:
+ * - Static string → exact literal (e.g. `'lobby'`)
+ * - Dynamic scope → `string & {}` (any string, but autocomplete suggests known names)
+ */
+type ChannelNameFromPattern<TPattern> = TPattern extends ScopeDeclaration
+  ? string & {}
+  : TPattern extends string
+    ? TPattern
+    : never;
+
+/**
+ * Extract the channel's inner contract (incoming/outgoing/requests/streams)
+ * from the channel scope's accumulated state.
+ */
+type ChannelContract<TChannelState extends ScopeStateShape> = {
+  incoming: TChannelState['contract']['incoming'];
+  outgoing: TChannelState['contract']['outgoing'];
+  requests: TChannelState['contract']['requests'];
+  streams: TChannelState['contract']['streams'];
+};
+
+/**
+ * Add a channel to the parent state: updates both `channelNames` (for typed
+ * `ctx.channels`) and `contract.channels` (for `InferClient`).
+ */
+type StateWithChannel<
+  TState extends ScopeStateShape,
+  TChannelName extends string,
+  TChannelState extends ScopeStateShape,
+> = {
+  readonly kind: TState['kind'];
+  readonly outgoing: TState['outgoing'];
+  readonly hasAck: TState['hasAck'];
+  readonly hasReplay: TState['hasReplay'];
+  readonly contract: {
+    incoming: TState['contract']['incoming'];
+    outgoing: TState['contract']['outgoing'];
+    requests: TState['contract']['requests'];
+    streams: TState['contract']['streams'];
+    channels: MergeRecords<
+      TState['contract']['channels'],
+      Record<TChannelName, ChannelContract<TChannelState>>
+    >;
+    namespaces: TState['contract']['namespaces'];
+  };
+  readonly errors: TState['errors'];
+  readonly meta: TState['meta'];
+  readonly channelNames: TState['channelNames'] | TChannelName;
+};
 
 /** Helper: the state produced after registering an incoming handler on the channel. */
 type StateAfterIncoming<
@@ -87,6 +144,7 @@ type StateAfterIncoming<
 export class ChannelBuilder<
   TParentState extends ScopeStateShape,
   TState extends ScopeStateShape = ChannelState<TParentState>,
+  TPattern extends ChannelPattern = ChannelPattern,
 > {
   /** @internal Reference to the parent builder, so `.done()` can return to it. */
   readonly _parentBuilder: ServerBuilder<TParentState> | GroupBuilder<TParentState>;
@@ -95,12 +153,12 @@ export class ChannelBuilder<
   /** @internal Primitives collected inside this channel scope. */
   readonly _primitives: Primitive[] = [];
   /** @internal The channel pattern (string or ScopeDeclaration). */
-  readonly _pattern: ChannelPattern;
+  readonly _pattern: TPattern;
 
   constructor(
     parentBuilder: ServerBuilder<TParentState> | GroupBuilder<TParentState>,
     parentPrimitives: Primitive[],
-    pattern: ChannelPattern,
+    pattern: TPattern,
   ) {
     this._parentBuilder = parentBuilder;
     this._parentPrimitives = parentPrimitives;
@@ -114,7 +172,7 @@ export class ChannelBuilder<
    */
   outgoing<TEvent extends string, TPayload>(
     eventContract: EventContract<TEvent, TPayload>,
-  ): ChannelBuilder<TParentState, StateAfterOutgoing<TState, TEvent, TPayload>> {
+  ): ChannelBuilder<TParentState, StateAfterOutgoing<TState, TEvent, TPayload>, TPattern> {
     this._primitives.push(createOutgoing<TEvent, TPayload>(eventContract.event));
     return this as any;
   }
@@ -127,7 +185,7 @@ export class ChannelBuilder<
   incoming<TEvent extends string, TPayload>(
     eventContract: EventContract<TEvent, TPayload>,
     handler: (ctx: HandlerCtxFromState<TState>, payload: TPayload) => void | Promise<void>,
-  ): ChannelBuilder<TParentState, StateAfterIncoming<TState, TEvent, TPayload>> {
+  ): ChannelBuilder<TParentState, StateAfterIncoming<TState, TEvent, TPayload>, TPattern> {
     this._primitives.push(
       createIncoming(eventContract.event, handler as any, { validator: eventContract.schema }),
     );
@@ -169,7 +227,7 @@ export class ChannelBuilder<
    * `ChannelPrimitive` and pushes it onto the parent builder, then returns the
    * parent builder so the fluent chain can continue.
    */
-  done(): ServerBuilder<TParentState> {
+  done(): ServerBuilder<StateWithChannel<TParentState, ChannelNameFromPattern<TPattern>, TState>> {
     const channelPrimitive = (createChannel as any)(
       this._pattern,
       ...this._primitives,
@@ -183,8 +241,8 @@ export class ChannelBuilder<
    * without pushing it onto the parent builder. Use this to define a channel
    * in one file and register it elsewhere with `.use()`.
    */
-  extract(): ChannelPrimitive {
-    return (createChannel as any)(this._pattern, ...this._primitives) as ChannelPrimitive;
+  extract(): ChannelPrimitive<TPattern, any, ChannelNameFromPattern<TPattern>, ChannelContract<TState>> {
+    return (createChannel as any)(this._pattern, ...this._primitives) as any;
   }
 }
 
@@ -201,7 +259,7 @@ declare module '~/_builder/server-builder.ts' {
      * @param pattern A string for exact channel names, or a `ScopeDeclaration`
      *   (`scope(key, regex)`) for dynamic names that capture a parameter.
      */
-    channel(pattern: ChannelPattern): ChannelBuilder<TState>;
+    channel<TPattern extends ChannelPattern>(pattern: TPattern): ChannelBuilder<TState, ChannelState<TState>, TPattern>;
   }
 
   interface GroupBuilder<TState extends ScopeStateShape> {
@@ -209,16 +267,16 @@ declare module '~/_builder/server-builder.ts' {
      * Open a channel sub-builder for `pattern`. Call `.done()` to seal it and
      * return to this builder, or `.extract()` to detach it as a primitive.
      */
-    channel(pattern: ChannelPattern): ChannelBuilder<TState>;
+    channel<TPattern extends ChannelPattern>(pattern: TPattern): ChannelBuilder<TState, ChannelState<TState>, TPattern>;
   }
 }
 
 /** Runtime implementation of `.channel()` for `ServerBuilder`. */
-ServerBuilder.prototype.channel = function (this: ServerBuilder<any>, pattern: ChannelPattern) {
+(ServerBuilder.prototype as any).channel = function (this: ServerBuilder<any>, pattern: ChannelPattern) {
   return new ChannelBuilder(this, this._primitives, pattern);
 };
 
 /** Runtime implementation of `.channel()` for `GroupBuilder`. */
-GroupBuilder.prototype.channel = function (this: GroupBuilder<any>, pattern: ChannelPattern) {
+(GroupBuilder.prototype as any).channel = function (this: GroupBuilder<any>, pattern: ChannelPattern) {
   return new ChannelBuilder(this as any, this._primitives, pattern);
 };

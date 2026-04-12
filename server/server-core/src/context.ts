@@ -205,14 +205,17 @@ export interface ReplayScopeSendApi extends ScopeSendApi {
  *
  * Available as `ctx.channels` when at least one `channel()` is registered.
  *
- * `Meta` matches the shape of the metadata you set during the upgrade step.
+ * `TChannelNames` is the union of registered channel name strings — when only
+ * static channels are registered, typos in `name` / `channelName` are caught
+ * at compile time. When dynamic channels exist the union includes `string & {}`
+ * so any string is accepted but autocomplete still suggests known names.
  */
-export interface ChannelManager<Meta = Record<string, unknown>> {
+export interface ChannelManager<TChannelNames extends string = string, Meta = Record<string, unknown>> {
   /** Get every connection currently subscribed to the given channel. */
-  members(name: string): ConnectionInfo<Meta>[];
+  members(name: TChannelNames): ConnectionInfo<Meta>[];
 
   /** Remove all connections with the given tag from a channel, with a reason string. */
-  kick(channelName: string, tag: string, reason: string): void;
+  kick(channelName: TChannelNames, tag: string, reason: string): void;
 }
 
 /**
@@ -281,7 +284,7 @@ export interface ConnectionContext<
   /** Scoped send/broadcast when inside a channel handler, with optional replay support. */
   channel?: ReplayScopeSendApi;
   /** Manage channel membership from any handler. Only present when channels are registered. */
-  channels: ChannelManager<Meta>;
+  channels: ChannelManager<string, Meta>;
 
   /** Queue a scheduled task to run at a specific absolute timestamp (ms since epoch). */
   schedule(taskId: string, options: { time: number; data?: unknown }): void;

@@ -31,7 +31,7 @@ import {
   start as createStart,
   stream as createStream,
 } from '~/stream/stream.ts';
-import type { HandlerCtxFromState, ScopeStateShape } from '~/_types/scope-state.ts';
+import type { HandlerCtxFromState, MergeRecords, ScopeStateShape } from '~/_types/scope-state.ts';
 import type { EventContract } from '~/event.ts';
 import type { Primitive } from '~/primitive.ts';
 import type {
@@ -41,6 +41,65 @@ import type {
   StreamNudgeMessages,
 } from '~/stream/stream.ts';
 import type { Validator } from '~/types.ts';
+
+/**
+ * Convert nudge declarations to a `{ event: payload }` map for the client contract.
+ */
+type NudgeMap<TNudges extends readonly NudgeDeclaration[]> = {
+  [TNudge in TNudges[number] as TNudge['event']]: TNudge extends NudgeDeclaration<
+    string,
+    infer TPayload
+  >
+    ? TPayload
+    : never;
+};
+
+/**
+ * Build the stream contract entry for one stream: `{ payload, chunks, nudges? }`.
+ * The `nudges` field is only included when at least one nudge is declared.
+ */
+type StreamContractEntry<
+  TEvent extends string,
+  TPayload,
+  TChunks,
+  TNudges extends readonly NudgeDeclaration[],
+> = Record<
+  TEvent,
+  { payload: TPayload; chunks: TChunks } & (keyof NudgeMap<TNudges> extends never
+    ? {}
+    : { nudges: NudgeMap<TNudges> })
+>;
+
+/**
+ * The parent state after a stream has been registered. Merges the stream's
+ * contract entry into `contract.streams`.
+ */
+type StateWithStream<
+  TState extends ScopeStateShape,
+  TEvent extends string,
+  TPayload,
+  TChunks,
+  TNudges extends readonly NudgeDeclaration[],
+> = {
+  readonly kind: TState['kind'];
+  readonly outgoing: TState['outgoing'];
+  readonly hasAck: TState['hasAck'];
+  readonly hasReplay: TState['hasReplay'];
+  readonly contract: {
+    incoming: TState['contract']['incoming'];
+    outgoing: TState['contract']['outgoing'];
+    requests: TState['contract']['requests'];
+    streams: MergeRecords<
+      TState['contract']['streams'],
+      StreamContractEntry<TEvent, TPayload, TChunks, TNudges>
+    >;
+    channels: TState['contract']['channels'];
+    namespaces: TState['contract']['namespaces'];
+  };
+  readonly errors: TState['errors'];
+  readonly meta: TState['meta'];
+  readonly channelNames: TState['channelNames'];
+};
 
 /**
  * A sub-builder returned by `.stream()`. Collects nudge declarations and the
@@ -146,9 +205,14 @@ export class StreamBuilder<
   /**
    * Return to the parent builder after calling `.generate()`. This ends the
    * stream sub-builder chain and resumes the parent fluent chain.
+   *
+   * The returned builder's state includes the stream in `contract.streams`
+   * so `InferClient` can extract the stream contract.
    */
-  done(): TParentBuilder {
-    return this._parentBuilder;
+  done(): TParentBuilder extends GroupBuilder<any>
+    ? GroupBuilder<StateWithStream<TParentState, TEvent, TPayload, TChunks, TNudges>>
+    : ServerBuilder<StateWithStream<TParentState, TEvent, TPayload, TChunks, TNudges>> {
+    return this._parentBuilder as any;
   }
 
   /**

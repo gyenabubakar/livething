@@ -2,16 +2,20 @@
 import { incoming as createIncoming } from '~/incoming/incoming.ts';
 import { outgoing as createOutgoing } from '~/outgoing/outgoing.ts';
 import type {
+  ClientContractState,
   FoldablePrimitive,
   HandlerCtxFromState,
+  MergeRecords,
   NextState,
   NoOutgoing,
   ScopeState,
   ScopeStateShape,
 } from '~/_types/scope-state.ts';
+import type { ChannelPrimitive } from '~/channel/channel.ts';
 import type { ErrorDef } from '~/errors/errors.ts';
 import type { EventContract } from '~/event.ts';
 import type { IncomingPrimitive } from '~/incoming/incoming.ts';
+import type { NamespacePrimitive } from '~/namespace/namespace.ts';
 import type { OutgoingPrimitive } from '~/outgoing/outgoing.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
@@ -21,9 +25,9 @@ import { validateBuild } from './validate.ts';
  * Build the final `ServerContract` type from the accumulated builder state.
  *
  * Flattens the error definitions into a plain `{ code: detail }` map and
- * attaches the contract fields gathered during the builder chain. Channels and
- * namespaces are always empty here because they produce their own nested
- * contracts at the scope level.
+ * attaches the contract fields gathered during the builder chain. Channels
+ * and namespaces are accumulated by their respective `.done()` calls and
+ * read from `contract.channels` / `contract.namespaces`.
  */
 type ContractFromState<TState extends ScopeStateShape> = {
   readonly incoming: TState['contract']['incoming'];
@@ -31,8 +35,8 @@ type ContractFromState<TState extends ScopeStateShape> = {
   readonly requests: TState['contract']['requests'];
   readonly streams: TState['contract']['streams'];
   readonly errors: ErrorMapFromDefs<TState['errors']>;
-  readonly channels: {};
-  readonly namespaces: {};
+  readonly channels: TState['contract']['channels'];
+  readonly namespaces: TState['contract']['namespaces'];
 };
 
 /**
@@ -57,6 +61,82 @@ type StateAfterOutgoing<
   TEvent extends string,
   TPayload,
 > = NextState<TState, OutgoingPrimitive<TEvent, TPayload>>;
+
+/**
+ * Merge a scope contract (from an extracted channel or namespace) into the
+ * parent state's contract under a specific key (`channels` or `namespaces`).
+ */
+type MergeScopeContract<
+  TState extends ScopeStateShape,
+  TField extends 'channels' | 'namespaces',
+  TName extends string,
+  TContract,
+> = {
+  readonly kind: TState['kind'];
+  readonly outgoing: TState['outgoing'];
+  readonly hasAck: TState['hasAck'];
+  readonly hasReplay: TState['hasReplay'];
+  readonly contract: {
+    incoming: TState['contract']['incoming'];
+    outgoing: TState['contract']['outgoing'];
+    requests: TState['contract']['requests'];
+    streams: TState['contract']['streams'];
+    channels: TField extends 'channels'
+      ? MergeRecords<TState['contract']['channels'], Record<TName, TContract>>
+      : TState['contract']['channels'];
+    namespaces: TField extends 'namespaces'
+      ? MergeRecords<TState['contract']['namespaces'], Record<TName, TContract>>
+      : TState['contract']['namespaces'];
+  };
+  readonly errors: TState['errors'];
+  readonly meta: TState['meta'];
+  readonly channelNames: TField extends 'channels'
+    ? TState['channelNames'] | TName
+    : TState['channelNames'];
+};
+
+/**
+ * Merge a group's accumulated contract into the parent state. The group
+ * inherits the parent's state, so only the *new* entries in each contract
+ * field are additive — `MergeRecords` handles the merge correctly.
+ */
+type MergeGroupContract<
+  TState extends ScopeStateShape,
+  TGroupContract extends ClientContractState,
+> = {
+  readonly kind: TState['kind'];
+  readonly outgoing: TState['outgoing'];
+  readonly hasAck: TState['hasAck'];
+  readonly hasReplay: TState['hasReplay'];
+  readonly contract: {
+    incoming: MergeRecords<TState['contract']['incoming'], TGroupContract['incoming']>;
+    outgoing: MergeRecords<TState['contract']['outgoing'], TGroupContract['outgoing']>;
+    requests: MergeRecords<TState['contract']['requests'], TGroupContract['requests']>;
+    streams: MergeRecords<TState['contract']['streams'], TGroupContract['streams']>;
+    channels: MergeRecords<TState['contract']['channels'], TGroupContract['channels']>;
+    namespaces: MergeRecords<TState['contract']['namespaces'], TGroupContract['namespaces']>;
+  };
+  readonly errors: TState['errors'];
+  readonly meta: TState['meta'];
+  readonly channelNames: TState['channelNames'];
+};
+
+/**
+ * Compute the builder state after `.use(primitive)`.
+ *
+ * - `GroupPrimitive` → merge the group's contract into the parent state
+ * - `ChannelPrimitive` → add channel contract to `contract.channels`
+ * - `NamespacePrimitive` → add namespace contract to `contract.namespaces`
+ * - Anything else → fold via `NextState` (outgoing, incoming, etc.)
+ */
+type UseResult<TState extends ScopeStateShape, P extends Primitive> =
+  P extends GroupPrimitive<infer TGroupState extends ScopeStateShape>
+    ? MergeGroupContract<TState, TGroupState['contract']>
+    : P extends ChannelPrimitive<any, any, infer TName extends string, infer TContract>
+      ? MergeScopeContract<TState, 'channels', TName, TContract>
+      : P extends NamespacePrimitive<any, any, infer TName extends string, infer TContract>
+        ? MergeScopeContract<TState, 'namespaces', TName, TContract>
+        : NextState<TState, P & FoldablePrimitive>;
 
 /** The builder state after one `.incoming()` call. */
 type StateAfterIncoming<
@@ -183,7 +263,7 @@ export class ServerBuilder<TState extends ScopeStateShape = InitialState> {
    *   .build()
    * ```
    */
-  use<P extends Primitive>(primitive: P): ServerBuilder<NextState<TState, P & FoldablePrimitive>> {
+  use<P extends Primitive>(primitive: P): ServerBuilder<UseResult<TState, P>> {
     // Groups are transparent containers — unwrap their primitives so
     // validateBuild and the engine see a flat list, not a nested wrapper.
     if (primitive.__wskit === 'group') {
@@ -311,7 +391,7 @@ export class GroupBuilder<TState extends ScopeStateShape> {
    * Works exactly like `ServerBuilder.use()`, but without the group-unwrapping
    * logic — groups nested inside groups are stored as-is.
    */
-  use<P extends Primitive>(primitive: P): GroupBuilder<NextState<TState, P & FoldablePrimitive>> {
+  use<P extends Primitive>(primitive: P): GroupBuilder<UseResult<TState, P>> {
     this._primitives.push(primitive);
     return this as any;
   }

@@ -131,6 +131,8 @@ export interface ClientContractState {
   readonly outgoing: Record<string, any>;
   readonly requests: Record<string, any>;
   readonly streams: Record<string, any>;
+  readonly channels: Record<string, any>;
+  readonly namespaces: Record<string, any>;
 }
 
 // ---------------------------------------------------------------------------
@@ -151,6 +153,8 @@ export interface ScopeStateShape {
   readonly hasReplay: boolean;
   readonly contract: ClientContractState;
   readonly errors: readonly AnyErrorDef[];
+  readonly meta: Record<string, unknown>;
+  readonly channelNames: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -177,12 +181,14 @@ export type NoOutgoing = Record<never, never>;
  * it through `NextState` for each primitive in the tuple.
  *
  * Fields:
- * - `kind`       — which scope we are in (`'top'`, `'namespace'`, `'channel'`)
- * - `outgoing`   — the outgoing event map that handler `send()` / `broadcast()` are typed against
- * - `hasAck`     — `true` once `ack()` has been seen; unlocks `ctx.ack()` for handlers
- * - `hasReplay`  — `true` once `replay()` has been seen; unlocks `ctx.sendReplay(...)` for handlers
- * - `contract`   — the client-facing contract built up so far
- * - `errors`     — the list of server error definitions registered with `errors()`
+ * - `kind`         — which scope we are in (`'top'`, `'namespace'`, `'channel'`)
+ * - `outgoing`     — the outgoing event map that handler `send()` / `broadcast()` are typed against
+ * - `hasAck`       — `true` once `ack()` has been seen; unlocks `ctx.ack()` for handlers
+ * - `hasReplay`    — `true` once `replay()` has been seen; unlocks `ctx.sendReplay(...)` for handlers
+ * - `contract`     — the client-facing contract built up so far
+ * - `errors`       — the list of server error definitions registered with `errors()`
+ * - `meta`         — the per-connection metadata shape inferred from `.onUpgrade()` return
+ * - `channelNames` — union of registered channel names for typed `ctx.channels` methods
  *
  * All parameters have default values so `ScopeState` (no arguments) gives a
  * clean empty starting state for the top-level scope.
@@ -197,8 +203,12 @@ export type ScopeState<
     outgoing: {};
     requests: {};
     streams: {};
+    channels: {};
+    namespaces: {};
   },
   TErrors extends readonly AnyErrorDef[] = readonly [],
+  TMeta extends Record<string, unknown> = Record<string, unknown>,
+  TChannelNames extends string = never,
 > = {
   readonly kind: TKind;
   readonly outgoing: TOutgoing;
@@ -206,6 +216,8 @@ export type ScopeState<
   readonly hasReplay: THasReplay;
   readonly contract: TContract;
   readonly errors: TErrors;
+  readonly meta: TMeta;
+  readonly channelNames: TChannelNames;
 };
 
 // ---------------------------------------------------------------------------
@@ -342,6 +354,8 @@ export type NextState<
       readonly hasReplay: TState['hasReplay'];
       readonly contract: TState['contract'];
       readonly errors: TState['errors'];
+      readonly meta: TState['meta'];
+      readonly channelNames: TState['channelNames'];
     }
   : // Branch 2: passive infrastructure — no ctx change
     TPrimitive extends
@@ -358,6 +372,8 @@ export type NextState<
         readonly hasReplay: TState['hasReplay'];
         readonly contract: TState['contract'];
         readonly errors: TState['errors'];
+        readonly meta: TState['meta'];
+        readonly channelNames: TState['channelNames'];
       }
     : // Branch 3: replay() — enable ctx.sendReplay()
       TPrimitive extends AnyReplay
@@ -368,6 +384,8 @@ export type NextState<
           readonly hasReplay: true;
           readonly contract: TState['contract'];
           readonly errors: TState['errors'];
+          readonly meta: TState['meta'];
+          readonly channelNames: TState['channelNames'];
         }
       : // Branch 4: errors(...) — replace the error definition list
         TPrimitive extends AnyErrors
@@ -379,24 +397,28 @@ export type NextState<
               readonly hasReplay: TState['hasReplay'];
               readonly contract: TState['contract'];
               readonly errors: TDefs;
+              readonly meta: TState['meta'];
+              readonly channelNames: TState['channelNames'];
             }
           : TState
         : // Branch 5: outgoing(event) — add event to server→client send map and client contract
           TPrimitive extends AnyOutgoing
           ? {
               readonly kind: TState['kind'];
-              // Expand outgoing so ctx.send('event', payload) becomes type-safe
               readonly outgoing: MergeRecords<TState['outgoing'], OutgoingEntry<TPrimitive>>;
               readonly hasAck: TState['hasAck'];
               readonly hasReplay: TState['hasReplay'];
               readonly contract: {
-                // The client *receives* what the server *sends* — so this goes in contract.incoming
                 incoming: MergeRecords<TState['contract']['incoming'], OutgoingEntry<TPrimitive>>;
                 outgoing: TState['contract']['outgoing'];
                 requests: TState['contract']['requests'];
                 streams: TState['contract']['streams'];
+                channels: TState['contract']['channels'];
+                namespaces: TState['contract']['namespaces'];
               };
               readonly errors: TState['errors'];
+              readonly meta: TState['meta'];
+              readonly channelNames: TState['channelNames'];
             }
           : // Branch 6: incoming(event) — add to client→server contract (client sends it)
             TPrimitive extends AnyIncoming
@@ -408,15 +430,18 @@ export type NextState<
                   readonly hasReplay: TState['hasReplay'];
                   readonly contract: {
                     incoming: TState['contract']['incoming'];
-                    // The client *sends* this event — so it goes in contract.outgoing
                     outgoing: MergeRecords<
                       TState['contract']['outgoing'],
                       Record<TEvent, TPayload>
                     >;
                     requests: TState['contract']['requests'];
                     streams: TState['contract']['streams'];
+                    channels: TState['contract']['channels'];
+                    namespaces: TState['contract']['namespaces'];
                   };
                   readonly errors: TState['errors'];
+                  readonly meta: TState['meta'];
+                  readonly channelNames: TState['channelNames'];
                 }
               : TState
             : // Branch 7: request(event) — add to contract.requests
@@ -434,8 +459,12 @@ export type NextState<
                       RequestEntry<TPrimitive>
                     >;
                     streams: TState['contract']['streams'];
+                    channels: TState['contract']['channels'];
+                    namespaces: TState['contract']['namespaces'];
                   };
                   readonly errors: TState['errors'];
+                  readonly meta: TState['meta'];
+                  readonly channelNames: TState['channelNames'];
                 }
               : // Branch 8: generate(stream) — add to contract.streams
                 TPrimitive extends AnyGenerate
@@ -453,8 +482,12 @@ export type NextState<
                           TState['contract']['streams'],
                           StreamEntry<TStream>
                         >;
+                        channels: TState['contract']['channels'];
+                        namespaces: TState['contract']['namespaces'];
                       };
                       readonly errors: TState['errors'];
+                      readonly meta: TState['meta'];
+                      readonly channelNames: TState['channelNames'];
                     }
                   : TState
                 : // Fallback: unknown primitive — leave state unchanged
@@ -572,15 +605,19 @@ export interface ConnectionIdentityMethods {
 
 /**
  * Provides `ctx.meta` — per-connection metadata set during the upgrade step.
+ *
+ * When `.onUpgrade()` returns `{ meta: { userId: string } }`, TypeScript
+ * infers `TMeta` as `{ userId: string }` and all handler contexts get
+ * `ctx.meta.userId: string` instead of `Record<string, unknown>`.
  */
-export interface ConnectionMetaMethods {
+export interface ConnectionMetaMethods<TMeta extends Record<string, unknown> = Record<string, unknown>> {
   /**
    * Per-connection metadata attached during the WebSocket upgrade step.
    *
    * This is where auth or session information usually lives. Handlers that
    * run after the upgrade can read it here.
    */
-  readonly meta: ConnectionContext['meta'];
+  readonly meta: TMeta;
 }
 
 /**
@@ -726,14 +763,20 @@ export interface ChannelScopeMethods {
 
 /**
  * Provides `ctx.channels` — manage channel membership from any handler.
+ *
+ * When channel names are known (from `.channel()` calls), the `name` parameter
+ * on `members()` and `kick()` is typed as the union of registered channel
+ * names. Static channels produce exact string literals; dynamic channels
+ * (via `scope()`) widen to `string & {}` so any string is accepted but
+ * autocomplete still suggests known names.
  */
-export interface ChannelsMethods {
+export interface ChannelsMethods<TChannelNames extends string = string> {
   /**
    * Manage channel membership from any handler — list members, kick
    * connections by tag. Available everywhere, not just inside channel-scoped
    * handlers.
    */
-  readonly channels: ChannelManager<Record<string, unknown>>;
+  readonly channels: ChannelManager<TChannelNames>;
 }
 
 // ---------------------------------------------------------------------------
@@ -826,7 +869,7 @@ type ScopeExtras<TKind extends ScopeKind> = TKind extends 'namespace'
 export type HandlerCtxFromState<TState extends ScopeStateShape> = SendApi<TState['outgoing']> &
   SendToApi<TState['outgoing']> &
   ConnectionIdentityMethods &
-  ConnectionMetaMethods &
+  ConnectionMetaMethods<TState['meta']> &
   BufferedAmountMethods &
   LatencyMethods &
   QualityMethods &
@@ -835,7 +878,7 @@ export type HandlerCtxFromState<TState extends ScopeStateShape> = SendApi<TState
   UntagMethods &
   AckApi<TState> &
   ReplayApi<TState> &
-  ChannelsMethods &
+  ChannelsMethods<TState['channelNames'] extends never ? string : TState['channelNames']> &
   ScopeExtras<TState['kind']>;
 
 // ---------------------------------------------------------------------------
@@ -852,7 +895,7 @@ export type HandlerCtxFromState<TState extends ScopeStateShape> = SendApi<TState
 export type StreamBaseCtxFromState<TState extends ScopeStateShape> = SendApi<TState['outgoing']> &
   SendToApi<TState['outgoing']> &
   ConnectionIdentityMethods &
-  ConnectionMetaMethods &
+  ConnectionMetaMethods<TState['meta']> &
   BufferedAmountMethods &
   LatencyMethods &
   QualityMethods &
@@ -860,7 +903,7 @@ export type StreamBaseCtxFromState<TState extends ScopeStateShape> = SendApi<TSt
   TagMethods &
   UntagMethods &
   ReplayApi<TState> &
-  ChannelsMethods &
+  ChannelsMethods<TState['channelNames'] extends never ? string : TState['channelNames']> &
   ScopeExtras<TState['kind']>;
 
 /**

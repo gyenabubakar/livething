@@ -38,7 +38,6 @@ import {
 } from '~/lifecycle.ts';
 import type { HandlerCtxFromState, ScopeStateShape } from '~/_types/scope-state.ts';
 import type { InitContext, ShutdownContext } from '~/context.ts';
-import type { UpgradeResult } from '~/lifecycle.ts';
 import type { Primitive } from '~/primitive.ts';
 
 /**
@@ -100,10 +99,22 @@ declare module '~/_builder/server-builder.ts' {
      *
      * Return `{ meta, tags }` to attach metadata and routing tags to the
      * connection. Throw `RejectUpgrade(code, reason)` to reject it.
+     *
+     * The return type's `meta` field is inferred and threaded into `ctx.meta`
+     * for all subsequent handlers, giving you type-safe access to session data.
      */
-    onUpgrade(
-      handler: (request: Request) => UpgradeResult | Promise<UpgradeResult>,
-    ): ServerBuilder<TState>;
+    onUpgrade<TMeta extends Record<string, unknown> = Record<string, unknown>>(
+      handler: (request: Request) => { meta?: TMeta; tags?: readonly string[] } | Promise<{ meta?: TMeta; tags?: readonly string[] }>,
+    ): ServerBuilder<{
+      readonly kind: TState['kind'];
+      readonly outgoing: TState['outgoing'];
+      readonly hasAck: TState['hasAck'];
+      readonly hasReplay: TState['hasReplay'];
+      readonly contract: TState['contract'];
+      readonly errors: TState['errors'];
+      readonly meta: TMeta;
+      readonly channelNames: TState['channelNames'];
+    }>;
 
     /**
      * Run `handler` when the client sends a raw binary WebSocket frame. The
@@ -154,9 +165,18 @@ declare module '~/_builder/server-builder.ts' {
     ): GroupBuilder<TState>;
 
     /** Run `handler` on the HTTP upgrade request before the WebSocket is opened. */
-    onUpgrade(
-      handler: (request: Request) => UpgradeResult | Promise<UpgradeResult>,
-    ): GroupBuilder<TState>;
+    onUpgrade<TMeta extends Record<string, unknown> = Record<string, unknown>>(
+      handler: (request: Request) => { meta?: TMeta; tags?: readonly string[] } | Promise<{ meta?: TMeta; tags?: readonly string[] }>,
+    ): GroupBuilder<{
+      readonly kind: TState['kind'];
+      readonly outgoing: TState['outgoing'];
+      readonly hasAck: TState['hasAck'];
+      readonly hasReplay: TState['hasReplay'];
+      readonly contract: TState['contract'];
+      readonly errors: TState['errors'];
+      readonly meta: TMeta;
+      readonly channelNames: TState['channelNames'];
+    }>;
 
     /** Run `handler` when a raw binary frame arrives. */
     onBinary(

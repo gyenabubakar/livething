@@ -32,6 +32,7 @@ import { namespace as createNamespace } from '~/namespace/namespace.ts';
 import { outgoing as createOutgoing } from '~/outgoing/outgoing.ts';
 import type {
   HandlerCtxFromState,
+  MergeRecords,
   NextState,
   ScopeState,
   ScopeStateShape,
@@ -51,8 +52,50 @@ type NamespaceState<TParentState extends ScopeStateShape> = ScopeState<
   'namespace',
   TParentState['outgoing'],
   TParentState['hasAck'],
-  TParentState['hasReplay']
+  TParentState['hasReplay'],
+  { incoming: {}; outgoing: {}; requests: {}; streams: {}; channels: {}; namespaces: {} },
+  readonly [],
+  TParentState['meta'],
+  TParentState['channelNames']
 >;
+
+/**
+ * Extract the namespace's inner contract from the namespace scope's state.
+ */
+type NamespaceContract<TNamespaceState extends ScopeStateShape> = {
+  incoming: TNamespaceState['contract']['incoming'];
+  outgoing: TNamespaceState['contract']['outgoing'];
+  requests: TNamespaceState['contract']['requests'];
+  streams: TNamespaceState['contract']['streams'];
+};
+
+/**
+ * Add a namespace to the parent state's `contract.namespaces` for `InferClient`.
+ */
+type StateWithNamespace<
+  TState extends ScopeStateShape,
+  TName extends string,
+  TNamespaceState extends ScopeStateShape,
+> = {
+  readonly kind: TState['kind'];
+  readonly outgoing: TState['outgoing'];
+  readonly hasAck: TState['hasAck'];
+  readonly hasReplay: TState['hasReplay'];
+  readonly contract: {
+    incoming: TState['contract']['incoming'];
+    outgoing: TState['contract']['outgoing'];
+    requests: TState['contract']['requests'];
+    streams: TState['contract']['streams'];
+    channels: TState['contract']['channels'];
+    namespaces: MergeRecords<
+      TState['contract']['namespaces'],
+      Record<TName, NamespaceContract<TNamespaceState>>
+    >;
+  };
+  readonly errors: TState['errors'];
+  readonly meta: TState['meta'];
+  readonly channelNames: TState['channelNames'];
+};
 
 /** Helper: the state produced after registering an outgoing event on the namespace. */
 type StateAfterOutgoing<
@@ -80,6 +123,7 @@ type StateAfterIncoming<
 export class NamespaceBuilder<
   TParentState extends ScopeStateShape,
   TState extends ScopeStateShape = NamespaceState<TParentState>,
+  TName extends string = string,
 > {
   /** @internal Reference to the parent builder, so `.done()` can return to it. */
   readonly _parentBuilder: ServerBuilder<TParentState> | GroupBuilder<TParentState>;
@@ -88,12 +132,12 @@ export class NamespaceBuilder<
   /** @internal Primitives collected inside this namespace scope. */
   readonly _primitives: Primitive[] = [];
   /** @internal The namespace name (used as the event prefix). */
-  readonly _name: string;
+  readonly _name: TName;
 
   constructor(
     parentBuilder: ServerBuilder<TParentState> | GroupBuilder<TParentState>,
     parentPrimitives: Primitive[],
-    name: string,
+    name: TName,
   ) {
     this._parentBuilder = parentBuilder;
     this._parentPrimitives = parentPrimitives;
@@ -106,7 +150,7 @@ export class NamespaceBuilder<
    */
   outgoing<TEvent extends string, TPayload>(
     eventContract: EventContract<TEvent, TPayload>,
-  ): NamespaceBuilder<TParentState, StateAfterOutgoing<TState, TEvent, TPayload>> {
+  ): NamespaceBuilder<TParentState, StateAfterOutgoing<TState, TEvent, TPayload>, TName> {
     this._primitives.push(createOutgoing<TEvent, TPayload>(eventContract.event));
     return this as any;
   }
@@ -118,7 +162,7 @@ export class NamespaceBuilder<
   incoming<TEvent extends string, TPayload>(
     eventContract: EventContract<TEvent, TPayload>,
     handler: (ctx: HandlerCtxFromState<TState>, payload: TPayload) => void | Promise<void>,
-  ): NamespaceBuilder<TParentState, StateAfterIncoming<TState, TEvent, TPayload>> {
+  ): NamespaceBuilder<TParentState, StateAfterIncoming<TState, TEvent, TPayload>, TName> {
     this._primitives.push(
       createIncoming(eventContract.event, handler as any, { validator: eventContract.schema }),
     );
@@ -130,7 +174,7 @@ export class NamespaceBuilder<
    * `NamespacePrimitive` and pushes it onto the parent builder, then returns
    * the parent builder so the fluent chain can continue.
    */
-  done(): ServerBuilder<TParentState> {
+  done(): ServerBuilder<StateWithNamespace<TParentState, TName, TState>> {
     const nsPrimitive = (createNamespace as any)(this._name, ...this._primitives) as Primitive;
     this._parentPrimitives.push(nsPrimitive);
     return this._parentBuilder as any;
@@ -141,8 +185,8 @@ export class NamespaceBuilder<
    * without pushing it onto the parent builder. Use this to define a namespace
    * in one file and register it elsewhere with `.use()`.
    */
-  extract(): NamespacePrimitive {
-    return (createNamespace as any)(this._name, ...this._primitives) as NamespacePrimitive;
+  extract(): NamespacePrimitive<TName, any, TName, NamespaceContract<TState>> {
+    return (createNamespace as any)(this._name, ...this._primitives) as any;
   }
 }
 
@@ -157,7 +201,7 @@ declare module '~/_builder/server-builder.ts' {
      * be prefixed with `name` at the wire level. Call `.done()` to seal it and
      * return to this builder, or `.extract()` to detach it as a primitive.
      */
-    namespace(name: string): NamespaceBuilder<TState>;
+    namespace<TName extends string>(name: TName): NamespaceBuilder<TState, NamespaceState<TState>, TName>;
   }
 
   interface GroupBuilder<TState extends ScopeStateShape> {
@@ -165,16 +209,16 @@ declare module '~/_builder/server-builder.ts' {
      * Open a namespace sub-builder for `name`. Call `.done()` to seal it and
      * return to this builder, or `.extract()` to detach it as a primitive.
      */
-    namespace(name: string): NamespaceBuilder<TState>;
+    namespace<TName extends string>(name: TName): NamespaceBuilder<TState, NamespaceState<TState>, TName>;
   }
 }
 
 /** Runtime implementation of `.namespace()` for `ServerBuilder`. */
-ServerBuilder.prototype.namespace = function (this: ServerBuilder<any>, name: string) {
+(ServerBuilder.prototype as any).namespace = function (this: ServerBuilder<any>, name: string) {
   return new NamespaceBuilder(this, this._primitives, name);
 };
 
 /** Runtime implementation of `.namespace()` for `GroupBuilder`. */
-GroupBuilder.prototype.namespace = function (this: GroupBuilder<any>, name: string) {
+(GroupBuilder.prototype as any).namespace = function (this: GroupBuilder<any>, name: string) {
   return new NamespaceBuilder(this as any, this._primitives, name);
 };

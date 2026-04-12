@@ -3,10 +3,10 @@
 /**
  * Type-level integration tests.
  *
- * These tests verify compile-time type inference. They have no runtime
- * assertions — the test passes if the file compiles. @ts-expect-error
- * directives verify that invalid code is correctly rejected.
- *
+ * These tests verify compile-time type inference — the test passes if the
+ * file compiles. @ts-expect-error directives verify that invalid code is
+ * correctly rejected. Every test mimics how a real developer would use the
+ * API so we catch regressions at the type boundary.
  */
 
 import { server } from '~/_builder/server-builder.ts';
@@ -22,11 +22,23 @@ import '~/_builder/side-effects/channels.ts';
 import '~/_builder/side-effects/namespaces.ts';
 import '~/_builder/side-effects/streams.ts';
 import '~/_builder/side-effects/lifecycle.ts';
+import '~/_builder/side-effects/heartbeat.ts';
+import '~/_builder/side-effects/sequence.ts';
+import '~/_builder/side-effects/dedup.ts';
+import '~/_builder/side-effects/hibernation.ts';
+import '~/_builder/side-effects/scheduled.ts';
+import '~/_builder/side-effects/intercept.ts';
+import '~/_builder/side-effects/replay.ts';
+import '~/_builder/side-effects/replay-custom.ts';
 
-// ─── Contracts ──────────────────────────────────────────────
+import { scope } from '~/channel/channel.ts';
+
+// ─── Contracts (mimics a real app's shared event definitions) ─
+
 const message = event('message', (p: unknown) => p as { text: string; from: string });
 const notification = event('notification', (p: unknown) => p as { title: string });
 const sendMessage = event('send-message', (p: unknown) => p as { text: string });
+const typing = event('typing', (p: unknown) => p as { userId: string });
 const ping = event('ping', (p: unknown) => p as { ts: number });
 const roomMessage = event('room-message', (p: unknown) => p as { text: string; from: string });
 const roomSend = event('room-send', (p: unknown) => p as { text: string });
@@ -34,6 +46,7 @@ const alertEvent = event('alert', (p: unknown) => p as { id: string; severity: s
 const dismiss = event('dismiss', (p: unknown) => p as { id: string });
 const aiComplete = event('ai-complete', (p: unknown) => p as { prompt: string });
 const cancel = event('cancel', (p: unknown) => p as {});
+const addContext = event('add-context', (p: unknown) => p as { hint: string });
 
 function pongSchema(p: unknown) {
   return p as { ts: number; serverTs: number };
@@ -42,47 +55,78 @@ function chunkSchema(p: unknown) {
   return p as { token: string };
 }
 
-// ─── ctx type inference ─────────────────────────────────────
+// ─── Type helpers ────────────────────────────────────────────
 
-describe('ctx type inference at each scope', () => {
-  it('top-level ctx has send + ack when registered', () => {
+function assertType<_T>() {}
+function assertExact<A, _B extends A>() {}
+
+// ═══════════════════════════════════════════════════════════════
+// 1. ctx.send() — outgoing event typing
+// ═══════════════════════════════════════════════════════════════
+
+describe('ctx.send() typing', () => {
+  it('allows declared outgoing events with correct payload', () => {
     server('chat')
-      .ack()
       .outgoing(message)
+      .outgoing(notification)
       .incoming(sendMessage, async (ctx) => {
-        ctx.send('message', { text: 'hi', from: 'x' });
-        ctx.ack();
+        ctx.send('message', { text: 'hi', from: 'system' });
+        ctx.send('notification', { title: 'Hello' });
       });
   });
 
-  it('top-level ctx rejects ack when not registered', () => {
+  it('rejects undeclared event names', () => {
     server('chat')
       .outgoing(message)
       .incoming(sendMessage, async (ctx) => {
-        // @ts-expect-error — ack not registered
-        ctx.ack();
-      });
-  });
-
-  it('top-level ctx rejects undeclared events', () => {
-    server('chat')
-      .outgoing(message)
-      .incoming(sendMessage, async (ctx) => {
-        // @ts-expect-error — 'nope' not declared
+        // @ts-expect-error — 'nope' was never declared with .outgoing()
         ctx.send('nope', {});
       });
   });
 
-  it('top-level ctx rejects wrong payload shape', () => {
+  it('rejects wrong payload shape', () => {
     server('chat')
       .outgoing(message)
       .incoming(sendMessage, async (ctx) => {
-        // @ts-expect-error — missing 'from' field
+        // @ts-expect-error — missing required 'from' field
         ctx.send('message', { text: 'hi' });
       });
   });
 
-  it('channel ctx inherits parent outgoing but not ack (top-level only)', () => {
+  it('order matters — outgoing declared after incoming is not visible to earlier handler', () => {
+    server('chat')
+      .incoming(sendMessage, async (ctx) => {
+        // @ts-expect-error — message declared after this handler
+        ctx.send('message', { text: 'hi', from: 'x' });
+      })
+      .outgoing(message);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// 2. ctx.ack() — top-level only, opt-in
+// ═══════════════════════════════════════════════════════════════
+
+describe('ctx.ack() availability', () => {
+  it('available after .ack() in top-level handler', () => {
+    server('chat')
+      .ack()
+      .outgoing(message)
+      .incoming(sendMessage, async (ctx) => {
+        ctx.ack();
+      });
+  });
+
+  it('rejected when .ack() not registered', () => {
+    server('chat')
+      .outgoing(message)
+      .incoming(sendMessage, async (ctx) => {
+        // @ts-expect-error — ack() not called on builder
+        ctx.ack();
+      });
+  });
+
+  it('NOT available inside channel scope even when registered at top level', () => {
     server('chat')
       .ack()
       .outgoing(message)
@@ -98,18 +142,92 @@ describe('ctx type inference at each scope', () => {
       .done();
   });
 
-  it('channel ctx rejects events not in parent or local scope', () => {
+  it('NOT available inside namespace scope', () => {
+    server('chat')
+      .ack()
+      .namespace('alerts')
+      .outgoing(alertEvent)
+      .incoming(dismiss, async (ctx) => {
+        // @ts-expect-error — ack is top-level only
+        ctx.ack();
+      })
+      .done();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// 3. Handler payload typing
+// ═══════════════════════════════════════════════════════════════
+
+describe('handler payload typing', () => {
+  it('.incoming() payload is typed from event schema', () => {
+    server('chat')
+      .outgoing(message)
+      .incoming(sendMessage, async (_ctx, payload) => {
+        void (payload.text satisfies string);
+
+        // @ts-expect-error — field does not exist on { text: string }
+        payload.nonexistent;
+      });
+  });
+
+  it('.reply() payload is typed from event schema', () => {
+    server('chat').reply(ping, pongSchema, async (_ctx, payload) => {
+      void (payload.ts satisfies number);
+
+      // @ts-expect-error — field does not exist on { ts: number }
+      payload.nonexistent;
+
+      return { ts: 0, serverTs: 0 };
+    });
+  });
+
+  it('.stream().generate() payload is typed from event schema', () => {
+    server('chat')
+      .stream(aiComplete, chunkSchema)
+      .generate(async function* (_ctx, payload) {
+        void (payload.prompt satisfies string);
+
+        // @ts-expect-error — field does not exist on { prompt: string }
+        payload.nonexistent;
+
+        yield { token: 'hi' };
+      })
+      .done();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// 4. Scoped ctx — channels and namespaces
+// ═══════════════════════════════════════════════════════════════
+
+describe('scoped ctx typing', () => {
+  it('channel handler gets parent outgoing + local outgoing', () => {
+    server('chat')
+      .outgoing(message)
+      .channel('lobby')
+      .outgoing(roomMessage)
+      .incoming(roomSend, async (ctx) => {
+        ctx.send('message', { text: 'hi', from: 'x' });
+        ctx.send('room-message', { text: 'hi', from: 'x' });
+      })
+      .done();
+  });
+
+  it('channel handler without parent outgoing only gets local', () => {
     server('chat')
       .channel('lobby')
       .outgoing(roomMessage)
       .incoming(roomSend, async (ctx) => {
-        // @ts-expect-error — 'message' not declared anywhere
+        ctx.send('room-message', { text: 'hi', from: 'x' });
+
+        // @ts-expect-error — message not declared in parent or local
         ctx.send('message', { text: 'hi', from: 'x' });
       })
       .done();
   });
 
-  it('namespace ctx inherits parent outgoing', () => {
+  it('namespace handler gets parent outgoing + local outgoing', () => {
     server('chat')
       .outgoing(message)
       .namespace('alerts')
@@ -121,40 +239,169 @@ describe('ctx type inference at each scope', () => {
       .done();
   });
 
-  it('namespace ctx rejects undeclared events', () => {
+  it('namespace handler rejects undeclared events', () => {
     server('chat')
       .namespace('alerts')
       .outgoing(alertEvent)
       .incoming(dismiss, async (ctx) => {
-        // @ts-expect-error — 'nope' not declared
+        // @ts-expect-error — 'nope' not declared in parent or local
         ctx.send('nope', {});
       })
       .done();
   });
+});
 
-  it('handler payload is typed from event schema', () => {
+// ═══════════════════════════════════════════════════════════════
+// 5. ctx.meta — typed from .onUpgrade() return
+// ═══════════════════════════════════════════════════════════════
+
+describe('ctx.meta typing', () => {
+  it('typed when .onUpgrade() returns typed meta object', () => {
     server('chat')
       .outgoing(message)
-      .incoming(sendMessage, async (_ctx, payload) => {
-        void (payload.text satisfies string);
+      .onUpgrade(async (_req) => ({
+        meta: { userId: 'abc', role: 'admin' as const },
+      }))
+      .incoming(sendMessage, async (ctx) => {
+        void (ctx.meta.userId satisfies string);
+        void (ctx.meta.role satisfies 'admin');
 
-        // @ts-expect-error — nonexistent
-        payload.nope;
+        // @ts-expect-error — 'email' not in meta
+        ctx.meta.email;
       });
   });
 
-  it('.reply() payload is typed from event schema', () => {
-    server('chat').reply(ping, pongSchema, async (_ctx, payload) => {
-      void (payload.ts satisfies number);
-
-      // @ts-expect-error — nonexistent
-      payload.nope;
-
-      return { ts: 0, serverTs: 0 };
-    });
+  it('defaults to Record<string, unknown> without .onUpgrade()', () => {
+    server('chat')
+      .outgoing(message)
+      .incoming(sendMessage, async (ctx) => {
+        assertExact<typeof ctx.meta, Record<string, unknown>>();
+      });
   });
 
-  it('group inherits parent state for typing', () => {
+  it('flows into channel scope handlers', () => {
+    server('chat')
+      .onUpgrade(async () => ({ meta: { userId: 'test' } }))
+      .channel('lobby')
+      .outgoing(roomMessage)
+      .incoming(roomSend, async (ctx) => {
+        void (ctx.meta.userId satisfies string);
+
+        // @ts-expect-error — 'email' not in meta
+        ctx.meta.email;
+      })
+      .done();
+  });
+
+  it('flows into namespace scope handlers', () => {
+    server('chat')
+      .onUpgrade(async () => ({ meta: { userId: 'test' } }))
+      .namespace('alerts')
+      .outgoing(alertEvent)
+      .incoming(dismiss, async (ctx) => {
+        void (ctx.meta.userId satisfies string);
+      })
+      .done();
+  });
+
+  it('flows into .onConnect() handler', () => {
+    server('chat')
+      .outgoing(message)
+      .onUpgrade(async () => ({ meta: { userId: 'test' } }))
+      .onConnect(async (ctx) => {
+        void (ctx.meta.userId satisfies string);
+      });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// 6. ctx.channels — typed channel name parameters
+// ═══════════════════════════════════════════════════════════════
+
+describe('ctx.channels typing', () => {
+  it('static channels restrict name to registered literals', () => {
+    server('chat')
+      .channel('lobby')
+      .outgoing(roomMessage)
+      .incoming(roomSend, async () => {})
+      .done()
+      .channel('vip')
+      .incoming(roomSend, async () => {})
+      .done()
+      .incoming(sendMessage, async (ctx) => {
+        ctx.channels.members('lobby');
+        ctx.channels.members('vip');
+        ctx.channels.kick('lobby', 'banned', 'reason');
+
+        // @ts-expect-error — 'nonexistent' is not a registered channel
+        ctx.channels.members('nonexistent');
+      });
+  });
+
+  it('dynamic channel (scope) allows any string', () => {
+    server('chat')
+      .channel(scope('rooms', /^room-.+$/))
+      .outgoing(roomMessage)
+      .incoming(roomSend, async () => {})
+      .done()
+      .incoming(sendMessage, async (ctx) => {
+        ctx.channels.members('room-123');
+        ctx.channels.members('any-string-ok');
+      });
+  });
+
+  it('mixed static + dynamic accepts any string (dynamic widens)', () => {
+    server('chat')
+      .channel('lobby')
+      .incoming(roomSend, async () => {})
+      .done()
+      .channel(scope('rooms', /^room-.+$/))
+      .incoming(roomSend, async () => {})
+      .done()
+      .incoming(sendMessage, async (ctx) => {
+        ctx.channels.members('lobby');
+        ctx.channels.members('room-abc');
+        ctx.channels.members('anything-goes');
+      });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// 7. Stream ctx.nudges() — conditional on declarations
+// ═══════════════════════════════════════════════════════════════
+
+describe('stream ctx.nudges()', () => {
+  it('ctx.nudges() exists when nudges are declared', () => {
+    server('chat')
+      .stream(aiComplete, chunkSchema)
+      .nudge(cancel)
+      .generate(async function* (ctx, _payload) {
+        const raw = yield { token: 'hi' };
+        const msgs = ctx.nudges(raw);
+        void msgs;
+      })
+      .done();
+  });
+
+  it('ctx.nudges does NOT exist when no nudges declared', () => {
+    server('chat')
+      .stream(aiComplete, chunkSchema)
+      .generate(async function* (ctx, _payload) {
+        // @ts-expect-error — no nudges declared, method should not exist
+        ctx.nudges;
+
+        yield { token: 'hi' };
+      })
+      .done();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// 8. Group builder inherits parent state
+// ═══════════════════════════════════════════════════════════════
+
+describe('group builder state inheritance', () => {
+  it('group handler gets parent outgoing + ack', () => {
     const base = server('chat').ack().outgoing(message);
 
     base.group().incoming(sendMessage, async (ctx) => {
@@ -163,80 +410,360 @@ describe('ctx type inference at each scope', () => {
     });
   });
 
-  it('multiple outgoing accumulate', () => {
-    server('chat')
-      .outgoing(message)
-      .outgoing(notification)
+  it('group can add its own outgoing events', () => {
+    const base = server('chat').outgoing(message);
+
+    base
+      .group()
+      .outgoing(alertEvent)
       .incoming(sendMessage, async (ctx) => {
         ctx.send('message', { text: 'hi', from: 'x' });
-        ctx.send('notification', { title: 'Hello' });
-
-        // @ts-expect-error — still rejects undeclared
-        ctx.send('nope', {});
+        ctx.send('alert', { id: '1', severity: 'low' });
       });
   });
 
-  it('stream generator payload typed from event schema', () => {
-    server('chat')
-      .stream(aiComplete, chunkSchema)
-      .nudge(cancel)
-      .generate(async function* (_ctx, payload) {
-        void (payload.prompt satisfies string);
+  it('typed meta flows through group', () => {
+    const base = server('chat')
+      .outgoing(message)
+      .onUpgrade(async () => ({ meta: { userId: 'abc' } }));
 
-        // @ts-expect-error — nonexistent
-        payload.nope;
-
-        yield { token: 'hi' };
+    base
+      .group()
+      .incoming(sendMessage, async (ctx) => {
+        void (ctx.meta.userId satisfies string);
       })
-      .done();
+      .extract();
   });
 });
 
-// ─── Type helpers ───────────────────────────────────────────
-
-function assertType<_T>() {}
-function assertExact<A, _B extends A>() {}
-
-// ─── InferClient ────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+// 9. InferClient — full server with every primitive type
+// ═══════════════════════════════════════════════════════════════
 
 const Forbidden = error('forbidden', (p: unknown) => p as { reason: string });
-function pongResponse(p: unknown) {
-  return p as { ts: number; serverTs: number };
-}
+const RateLimit = error('rate-limit', (p: unknown) => p as { retryAfterMs: number });
 
-const chatServer = server('chat')
+const fullServer = server('chat')
   .ack()
-  .errors(Forbidden)
+  .errors(Forbidden, RateLimit)
   .outgoing(message)
   .outgoing(notification)
   .incoming(sendMessage, async () => {})
-  .reply(ping, pongResponse, async (_ctx, payload) => {
+  .incoming(typing, async () => {})
+  .reply(ping, pongSchema, async (_ctx, payload) => {
     return { ts: payload.ts, serverTs: Date.now() };
   })
+  .stream(aiComplete, chunkSchema)
+  .nudge(cancel)
+  .nudge(addContext)
+  .generate(async function* (_ctx, payload) {
+    yield { token: payload.prompt };
+  })
+  .done()
+  .channel('lobby')
+  .outgoing(roomMessage)
+  .incoming(roomSend, async () => {})
+  .done()
+  .channel(scope('rooms', /^room-.+$/))
+  .outgoing(roomMessage)
+  .incoming(roomSend, async () => {})
+  .done()
+  .namespace('alerts')
+  .outgoing(alertEvent)
+  .incoming(dismiss, async () => {})
+  .done()
   .build();
 
-type Chat = InferClient<typeof chatServer>;
+type Full = InferClient<typeof fullServer>;
 
-describe('InferClient from builder', () => {
-  it('top-level outgoing → client incoming', () => {
-    assertExact<Chat['incoming']['message'], { text: string; from: string }>();
-    assertExact<Chat['incoming']['notification'], { title: string }>();
+describe('InferClient: top-level events', () => {
+  it('outgoing events → client incoming', () => {
+    assertExact<Full['incoming']['message'], { text: string; from: string }>();
+    assertExact<Full['incoming']['notification'], { title: string }>();
   });
 
-  it('top-level incoming → client outgoing', () => {
-    assertExact<Chat['outgoing']['send-message'], { text: string }>();
+  it('incoming events → client outgoing', () => {
+    assertExact<Full['outgoing']['send-message'], { text: string }>();
+    assertExact<Full['outgoing']['typing'], { userId: string }>();
   });
 
-  it('request → client requests', () => {
-    assertExact<Chat['requests']['ping']['payload'], { ts: number }>();
-    assertExact<Chat['requests']['ping']['response'], { ts: number; serverTs: number }>();
+  it('undeclared events are not in the contract', () => {
+    // @ts-expect-error — 'nope' never declared
+    assertType<Full['incoming']['nope']>();
+  });
+});
+
+describe('InferClient: requests', () => {
+  it('request payload and response types are correct', () => {
+    assertExact<Full['requests']['ping']['payload'], { ts: number }>();
+    assertExact<Full['requests']['ping']['response'], { ts: number; serverTs: number }>();
+  });
+});
+
+describe('InferClient: streams', () => {
+  it('stream with nudges has payload, chunks, and nudges', () => {
+    assertExact<Full['streams']['ai-complete']['payload'], { prompt: string }>();
+    assertExact<Full['streams']['ai-complete']['chunks'], { token: string }>();
+    assertExact<Full['streams']['ai-complete']['nudges']['cancel'], {}>();
+    assertExact<Full['streams']['ai-complete']['nudges']['add-context'], { hint: string }>();
+  });
+});
+
+describe('InferClient: stream without nudges', () => {
+  const noNudgeServer = server('chat')
+    .stream(aiComplete, chunkSchema)
+    .generate(async function* (_ctx, payload) {
+      yield { token: payload.prompt };
+    })
+    .done()
+    .build();
+
+  type NoNudge = InferClient<typeof noNudgeServer>;
+
+  it('stream payload and chunks are present', () => {
+    assertExact<NoNudge['streams']['ai-complete']['payload'], { prompt: string }>();
+    assertExact<NoNudge['streams']['ai-complete']['chunks'], { token: string }>();
   });
 
-  it('errors → client __errors__', () => {
-    assertExact<Chat['__errors__']['forbidden'], { reason: string }>();
+  it('nudges field does NOT exist on no-nudge stream', () => {
+    // @ts-expect-error — no nudges declared, field should not exist
+    assertType<NoNudge['streams']['ai-complete']['nudges']>();
+  });
+});
+
+describe('InferClient: errors', () => {
+  it('declared errors are in __errors__', () => {
+    assertExact<Full['__errors__']['forbidden'], { reason: string }>();
+    assertExact<Full['__errors__']['rate-limit'], { retryAfterMs: number }>();
   });
 
   it('validation-failed is always in __errors__', () => {
-    assertType<Chat['__errors__']['validation-failed']>();
+    assertType<Full['__errors__']['validation-failed']>();
+  });
+});
+
+describe('InferClient: channels', () => {
+  it('static channel contract has incoming and outgoing', () => {
+    assertExact<
+      Full['channels']['lobby']['incoming'],
+      { 'room-message': { text: string; from: string } }
+    >();
+    assertExact<Full['channels']['lobby']['outgoing'], { 'room-send': { text: string } }>();
+  });
+
+  it('dynamic channel contract is keyed by string & {}', () => {
+    type RoomsContract = Full['channels'][string & {}];
+    assertExact<RoomsContract['incoming'], { 'room-message': { text: string; from: string } }>();
+    assertExact<RoomsContract['outgoing'], { 'room-send': { text: string } }>();
+  });
+});
+
+describe('InferClient: namespaces', () => {
+  it('namespace contract has incoming and outgoing', () => {
+    assertExact<
+      Full['namespaces']['alerts']['incoming'],
+      { alert: { id: string; severity: string } }
+    >();
+    assertExact<Full['namespaces']['alerts']['outgoing'], { dismiss: { id: string } }>();
+  });
+});
+
+describe('InferClient: server with no optional features', () => {
+  const minimalServer = server('bare')
+    .outgoing(message)
+    .incoming(sendMessage, async () => {})
+    .build();
+
+  type Minimal = InferClient<typeof minimalServer>;
+
+  it('has incoming and outgoing', () => {
+    assertExact<Minimal['incoming']['message'], { text: string; from: string }>();
+    assertExact<Minimal['outgoing']['send-message'], { text: string }>();
+  });
+
+  it('requests is empty', () => {
+    assertExact<Minimal['requests'], {}>();
+  });
+
+  it('streams is empty', () => {
+    assertExact<Minimal['streams'], {}>();
+  });
+
+  it('channels is empty', () => {
+    assertExact<Minimal['channels'], {}>();
+  });
+
+  it('namespaces is empty', () => {
+    assertExact<Minimal['namespaces'], {}>();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// 10. Multi-file composition — extract/use patterns
+// ═══════════════════════════════════════════════════════════════
+
+describe('multi-file composition', () => {
+  it('extracted group handler ctx preserves parent outgoing + ack', () => {
+    const base = server('chat').ack().outgoing(message).outgoing(notification);
+
+    base
+      .group()
+      .incoming(sendMessage, async (ctx) => {
+        ctx.ack();
+        ctx.send('message', { text: 'hi', from: 'x' });
+        ctx.send('notification', { title: 'Hello' });
+
+        // @ts-expect-error — undeclared event
+        ctx.send('nope', {});
+      })
+      .extract();
+  });
+
+  it('extracted channel handler ctx preserves parent outgoing', () => {
+    const base = server('chat').outgoing(message);
+
+    base
+      .channel('lobby')
+      .outgoing(roomMessage)
+      .incoming(roomSend, async (ctx) => {
+        ctx.send('message', { text: 'hi', from: 'x' });
+        ctx.send('room-message', { text: 'hi', from: 'x' });
+
+        // @ts-expect-error — undeclared
+        ctx.send('nope', {});
+      })
+      .extract();
+  });
+
+  it('extracted namespace handler ctx preserves parent outgoing', () => {
+    const base = server('chat').outgoing(message);
+
+    base
+      .namespace('alerts')
+      .outgoing(alertEvent)
+      .incoming(dismiss, async (ctx) => {
+        ctx.send('message', { text: 'hi', from: 'x' });
+        ctx.send('alert', { id: '1', severity: 'high' });
+
+        // @ts-expect-error — undeclared
+        ctx.send('nope', {});
+      })
+      .extract();
+  });
+
+  it('typed meta flows through extracted group', () => {
+    const base = server('chat')
+      .outgoing(message)
+      .onUpgrade(async () => ({ meta: { userId: 'abc' } }));
+
+    base
+      .group()
+      .incoming(sendMessage, async (ctx) => {
+        void (ctx.meta.userId satisfies string);
+
+        // @ts-expect-error — not in meta
+        ctx.meta.email;
+      })
+      .extract();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// 11. InferClient with multi-file .use() assembly
+// ═══════════════════════════════════════════════════════════════
+
+// Simulates the real-world pattern: define handlers/scopes in separate
+// files, export via .extract(), assemble into one server with .use().
+
+describe('InferClient from .use() assembled server', () => {
+  // -- "chat-handlers.ts" --
+  const chatBase = server('chat').ack().outgoing(message).outgoing(notification);
+
+  const chatHandlers = chatBase
+    .group()
+    .incoming(sendMessage, async () => {})
+    .incoming(typing, async () => {})
+    .reply(ping, pongSchema, async (_ctx, p) => ({ ts: p.ts, serverTs: 0 }))
+    .extract();
+
+  // -- "rooms.ts" --
+  const rooms = chatBase
+    .channel('lobby')
+    .outgoing(roomMessage)
+    .incoming(roomSend, async () => {})
+    .extract();
+
+  // -- "alerts.ts" --
+  const alerts = chatBase
+    .namespace('alerts')
+    .outgoing(alertEvent)
+    .incoming(dismiss, async () => {})
+    .extract();
+
+  // -- "ai.ts" --
+  const aiStream = chatBase
+    .group()
+    .stream(aiComplete, chunkSchema)
+    .nudge(cancel)
+    .generate(async function* (_ctx, p) {
+      yield { token: p.prompt };
+    })
+    .done()
+    .extract();
+
+  // -- "server.ts" (assembly) --
+  const assembled = server('chat')
+    .ack()
+    .errors(Forbidden)
+    .outgoing(message)
+    .outgoing(notification)
+    .use(chatHandlers)
+    .use(rooms)
+    .use(alerts)
+    .use(aiStream)
+    .build();
+
+  type Assembled = InferClient<typeof assembled>;
+
+  it('top-level outgoing from inline declarations → client incoming', () => {
+    assertExact<Assembled['incoming']['message'], { text: string; from: string }>();
+    assertExact<Assembled['incoming']['notification'], { title: string }>();
+  });
+
+  it('incoming from .use(group) → client outgoing', () => {
+    assertExact<Assembled['outgoing']['send-message'], { text: string }>();
+    assertExact<Assembled['outgoing']['typing'], { userId: string }>();
+  });
+
+  it('reply from .use(group) → client requests', () => {
+    assertExact<Assembled['requests']['ping']['payload'], { ts: number }>();
+    assertExact<Assembled['requests']['ping']['response'], { ts: number; serverTs: number }>();
+  });
+
+  it('stream from .use(group) → client streams', () => {
+    assertExact<Assembled['streams']['ai-complete']['payload'], { prompt: string }>();
+    assertExact<Assembled['streams']['ai-complete']['chunks'], { token: string }>();
+    assertExact<Assembled['streams']['ai-complete']['nudges']['cancel'], {}>();
+  });
+
+  it('.use(channel) → client channels', () => {
+    assertExact<
+      Assembled['channels']['lobby']['incoming'],
+      { 'room-message': { text: string; from: string } }
+    >();
+    assertExact<Assembled['channels']['lobby']['outgoing'], { 'room-send': { text: string } }>();
+  });
+
+  it('.use(namespace) → client namespaces', () => {
+    assertExact<
+      Assembled['namespaces']['alerts']['incoming'],
+      { alert: { id: string; severity: string } }
+    >();
+    assertExact<Assembled['namespaces']['alerts']['outgoing'], { dismiss: { id: string } }>();
+  });
+
+  it('errors from inline .errors() → client __errors__', () => {
+    assertExact<Assembled['__errors__']['forbidden'], { reason: string }>();
+    assertType<Assembled['__errors__']['validation-failed']>();
   });
 });

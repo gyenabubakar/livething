@@ -73,10 +73,10 @@ export interface StreamNudgesApi<TNudges extends readonly NudgeDeclaration[]> {
 
 /**
  * The `ctx` type inside a stream generator: the base handler context extended
- * with the `nudges()` helper.
+ * with the `nudges()` helper only when at least one nudge is declared.
  */
 export type StreamHandlerContext<TBaseCtx, TNudges extends readonly NudgeDeclaration[]> = TBaseCtx &
-  StreamNudgesApi<TNudges>;
+  (TNudges extends readonly [] ? {} : StreamNudgesApi<TNudges>);
 
 /**
  * The function signature for an `AsyncGenerator` used as a stream handler.

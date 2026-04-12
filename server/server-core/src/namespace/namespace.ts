@@ -42,13 +42,13 @@ export type NamespaceChild =
  * `ctx.send` (the namespace's declared outgoing events).
  */
 export type NamespaceHandlerContext<TOutgoing extends Record<string, any> = NoOutgoing> =
-  HandlerCtxFromState<ScopeState<'namespace', TOutgoing, false>>;
+  HandlerCtxFromState<ScopeState<'namespace', TOutgoing, false, false, { incoming: {}; outgoing: {}; requests: {}; streams: {}; channels: {}; namespaces: {} }, readonly [], Record<string, unknown>, never>>;
 
 /**
  * The `ctx` type available inside a namespace stream generator.
  */
 export type NamespaceStreamHandlerContext<TOutgoing extends Record<string, any> = NoOutgoing> =
-  StreamBaseCtxFromState<ScopeState<'namespace', TOutgoing, false>>;
+  StreamBaseCtxFromState<ScopeState<'namespace', TOutgoing, false, false, { incoming: {}; outgoing: {}; requests: {}; streams: {}; channels: {}; namespaces: {} }, readonly [], Record<string, unknown>, never>>;
 
 /**
  * The primitive type produced by `namespace()`. Carries the namespace name and
@@ -58,6 +58,8 @@ export type NamespaceStreamHandlerContext<TOutgoing extends Record<string, any> 
 export interface NamespacePrimitive<
   TPattern extends string = string,
   TPrimitives extends readonly NamespaceChild[] = readonly NamespaceChild[],
+  _TName extends string = string,
+  _TContract = unknown,
 > extends Primitive<'namespace'> {
   /** The namespace name used as the event prefix at the wire level. */
   readonly pattern: TPattern;
