@@ -231,6 +231,8 @@ export function onValidationError<TCtx>(
 ): ValidationErrorPrimitive<TCtx> {
   return _onValidationError(handler) as ValidationErrorPrimitive<TCtx>;
 }
+import '~/_builder/side-effects/lifecycle.ts';
+
 onInit.__key = ON_INIT_KEY;
 onConnect.__key = ON_CONNECT_KEY;
 onDisconnect.__key = ON_DISCONNECT_KEY;
