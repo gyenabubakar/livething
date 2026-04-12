@@ -5,3 +5,4 @@ export type {
   ScheduledOptions,
   ScheduledPrimitive,
 } from './scheduled.ts';
+import '~/_builder/side-effects/scheduled.ts';
