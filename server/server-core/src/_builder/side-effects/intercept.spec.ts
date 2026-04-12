@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest';
 import { server } from '~/_builder/server-builder.ts';
 import { event } from '~/event.ts';
+import { describe, expect, it } from 'vitest';
+
 import '~/_builder/side-effects/intercept.ts';
 
 const message = event('message', (p: unknown) => p as { text: string });
@@ -15,8 +16,8 @@ describe('.intercept() side-effect', () => {
       .done();
 
     expect(def.primitives).toHaveLength(1);
-    expect(def.primitives[0].__wskit).toBe('intercept');
-    expect((def.primitives[0] as { mode: string }).mode).toBe('pre');
+    expect(def.primitives[0]!.__wskit).toBe('intercept');
+    expect((def.primitives[0] as unknown as { mode: string }).mode).toBe('pre');
   });
 
   it('adds post-validation intercept', () => {
@@ -29,8 +30,8 @@ describe('.intercept() side-effect', () => {
       .done();
 
     expect(def.primitives).toHaveLength(3);
-    expect(def.primitives[2].__wskit).toBe('intercept');
-    expect((def.primitives[2] as { mode: string }).mode).toBe('post');
+    expect(def.primitives[2]!.__wskit).toBe('intercept');
+    expect((def.primitives[2] as unknown as { mode: string }).mode).toBe('post');
   });
 
   it('pre-intercept does not change TState', () => {

@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest';
 import { server } from '~/_builder/server-builder.ts';
 import { event } from '~/event.ts';
+import { describe, expect, it } from 'vitest';
+
 import '~/_builder/side-effects/ack.ts';
 
 const message = event('message', (p: unknown) => p as { text: string });
@@ -15,7 +16,7 @@ describe('.ack() side-effect', () => {
       .done();
 
     expect(def.primitives).toHaveLength(3);
-    expect(def.primitives[0].__wskit).toBe('ack');
+    expect(def.primitives[0]!.__wskit).toBe('ack');
   });
 
   it('makes ctx.ack() available in handlers after .ack()', () => {
@@ -40,12 +41,10 @@ describe('.ack() side-effect', () => {
   it('works with GroupBuilder', () => {
     const base = server('chat').ack().outgoing(message);
 
-    base
-      .group()
-      .incoming(sendMessage, async (ctx) => {
-        ctx.ack();
-        ctx.send('message', { text: 'hi' });
-      });
+    base.group().incoming(sendMessage, async (ctx) => {
+      ctx.ack();
+      ctx.send('message', { text: 'hi' });
+    });
   });
 
   it('ack registered in group is detected by .done()', () => {

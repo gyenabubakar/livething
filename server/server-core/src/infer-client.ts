@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import type { ServerContract, ServerDefinition } from '~/server-definition.ts';
 import type { ErrorDef, ValidationFailed } from '~/errors/errors.ts';
+import type { ServerContract, ServerDefinition } from '~/server-definition.ts';
 
 type SimplifyDeep<T> = T extends (...args: any[]) => any
   ? T

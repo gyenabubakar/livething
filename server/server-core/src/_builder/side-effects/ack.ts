@@ -1,8 +1,8 @@
-import type { AckPrimitive } from '~/ack/ack.ts';
-import type { NextState, ScopeStateShape } from '~/_types/scope-state.ts';
+import { GroupBuilder, ServerBuilder } from '~/_builder/server-builder.ts';
 import { ack as createAck } from '~/ack/ack.ts';
+import type { NextState, ScopeStateShape } from '~/_types/scope-state.ts';
+import type { AckPrimitive } from '~/ack/ack.ts';
 import type { Primitive } from '~/primitive.ts';
-import { ServerBuilder, GroupBuilder } from '~/_builder/server-builder.ts';
 
 declare module '~/_builder/server-builder.ts' {
   interface ServerBuilder<TState extends ScopeStateShape> {

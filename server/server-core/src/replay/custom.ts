@@ -1,14 +1,15 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 /* oxlint-disable eslint-plugin-import(no-cycle) */
 import '~/_builder/side-effects/replay-custom.ts';
+
 import { dedup } from '~/dedup/dedup.ts';
-import type { EngineAccess } from '~/_engine/access.ts';
 import {
   matchesReplayScope,
   readReplayContextScope,
   shouldStoreReplayMessage,
 } from '~/replay/runtime.ts';
 import { sequence } from '~/sequence/sequence.ts';
+import type { EngineAccess } from '~/_engine/access.ts';
 import type { ReplayWire } from '~/_types/scope-state.ts';
 import type { KVProvider, Logger, SQLProvider } from '~/context.ts';
 import type { Primitive } from '~/primitive.ts';
@@ -72,20 +73,39 @@ export interface CustomReplayPrimitive<
 
 const CUSTOM_REPLAY_KEY = Symbol('custom-replay');
 
-function toTopLevelWireMessage(message: { event: string; payload: Record<string, unknown> }): OutgoingWireMessage<'top'> {
-  return JSON.parse(JSON.stringify({
-    event: message.event,
-    payload: Object.fromEntries(Object.entries(message.payload).filter(([key]) => !key.startsWith('_'))),
-    wire: { seq: message.payload._seq, messageId: message.payload._messageId },
-  })) as OutgoingWireMessage<'top'>;
+function toTopLevelWireMessage(message: {
+  event: string;
+  payload: Record<string, unknown>;
+}): OutgoingWireMessage<'top'> {
+  return JSON.parse(
+    JSON.stringify({
+      event: message.event,
+      payload: Object.fromEntries(
+        Object.entries(message.payload).filter(([key]) => !key.startsWith('_')),
+      ),
+      wire: { seq: message.payload._seq, messageId: message.payload._messageId },
+    }),
+  ) as OutgoingWireMessage<'top'>;
 }
 
-function toChannelWireMessage(message: { event: string; payload: Record<string, unknown> }): OutgoingWireMessage<'channel'> {
-  return JSON.parse(JSON.stringify({
-    event: message.event,
-    payload: Object.fromEntries(Object.entries(message.payload).filter(([key]) => !key.startsWith('_'))),
-    wire: { seq: message.payload._seq, messageId: message.payload._messageId, channel: message.payload._channel, channelScope: message.payload._channelScope },
-  })) as OutgoingWireMessage<'channel'>;
+function toChannelWireMessage(message: {
+  event: string;
+  payload: Record<string, unknown>;
+}): OutgoingWireMessage<'channel'> {
+  return JSON.parse(
+    JSON.stringify({
+      event: message.event,
+      payload: Object.fromEntries(
+        Object.entries(message.payload).filter(([key]) => !key.startsWith('_')),
+      ),
+      wire: {
+        seq: message.payload._seq,
+        messageId: message.payload._messageId,
+        channel: message.payload._channel,
+        channelScope: message.payload._channelScope,
+      },
+    }),
+  ) as OutgoingWireMessage<'channel'>;
 }
 
 function createTopLevelReplayContext(
@@ -144,19 +164,25 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
 
       if (opts.onBeforeSend) {
         engine.onBeforeSend((message) => {
-          if (!shouldStoreReplayMessage(channelKey, message.event, message.payload, new Set())) return;
-          opts.onBeforeSend!(channelKey
-            ? toChannelWireMessage(message) as OutgoingWireMessage<CustomReplayScope>
-            : toTopLevelWireMessage(message) as OutgoingWireMessage<CustomReplayScope>);
+          if (!shouldStoreReplayMessage(channelKey, message.event, message.payload, new Set()))
+            return;
+          opts.onBeforeSend!(
+            channelKey
+              ? (toChannelWireMessage(message) as OutgoingWireMessage<CustomReplayScope>)
+              : (toTopLevelWireMessage(message) as OutgoingWireMessage<CustomReplayScope>),
+          );
         });
       }
 
       if (opts.onAfterSend) {
         engine.onAfterSend((message) => {
-          if (!shouldStoreReplayMessage(channelKey, message.event, message.payload, new Set())) return;
-          return opts.onAfterSend!(channelKey
-            ? toChannelWireMessage(message) as OutgoingWireMessage<CustomReplayScope>
-            : toTopLevelWireMessage(message) as OutgoingWireMessage<CustomReplayScope>);
+          if (!shouldStoreReplayMessage(channelKey, message.event, message.payload, new Set()))
+            return;
+          return opts.onAfterSend!(
+            channelKey
+              ? (toChannelWireMessage(message) as OutgoingWireMessage<CustomReplayScope>)
+              : (toTopLevelWireMessage(message) as OutgoingWireMessage<CustomReplayScope>),
+          );
         });
       }
 
@@ -167,7 +193,12 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
 
         if (channelKey && scope.channelName && scope.channelScope) {
           await opts.onReplay(
-            createChannelReplayContext(engine, baseCtx, scope.channelName, scope.channelScope) as ReplayContext<CustomReplayScope>,
+            createChannelReplayContext(
+              engine,
+              baseCtx,
+              scope.channelName,
+              scope.channelScope,
+            ) as ReplayContext<CustomReplayScope>,
             Number(payload?.since ?? 0),
           );
           return true;

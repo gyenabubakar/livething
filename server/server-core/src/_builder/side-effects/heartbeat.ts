@@ -1,8 +1,8 @@
-import type { HeartbeatPrimitive, HeartbeatOptions } from '~/heartbeat/heartbeat.ts';
-import type { NextState, ScopeStateShape } from '~/_types/scope-state.ts';
+import { GroupBuilder, ServerBuilder } from '~/_builder/server-builder.ts';
 import { heartbeat as createHeartbeat } from '~/heartbeat/heartbeat.ts';
+import type { NextState, ScopeStateShape } from '~/_types/scope-state.ts';
+import type { HeartbeatOptions, HeartbeatPrimitive } from '~/heartbeat/heartbeat.ts';
 import type { Primitive } from '~/primitive.ts';
-import { ServerBuilder, GroupBuilder } from '~/_builder/server-builder.ts';
 
 declare module '~/_builder/server-builder.ts' {
   interface ServerBuilder<TState extends ScopeStateShape> {

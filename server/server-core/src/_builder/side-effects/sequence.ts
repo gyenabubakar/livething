@@ -1,8 +1,8 @@
-import type { SequencePrimitive, SequenceOptions } from '~/sequence/sequence.ts';
-import type { NextState, ScopeStateShape } from '~/_types/scope-state.ts';
+import { GroupBuilder, ServerBuilder } from '~/_builder/server-builder.ts';
 import { sequence as createSequence } from '~/sequence/sequence.ts';
+import type { NextState, ScopeStateShape } from '~/_types/scope-state.ts';
 import type { Primitive } from '~/primitive.ts';
-import { ServerBuilder, GroupBuilder } from '~/_builder/server-builder.ts';
+import type { SequenceOptions, SequencePrimitive } from '~/sequence/sequence.ts';
 
 declare module '~/_builder/server-builder.ts' {
   interface ServerBuilder<TState extends ScopeStateShape> {

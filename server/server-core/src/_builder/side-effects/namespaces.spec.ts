@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest';
 import { server } from '~/_builder/server-builder.ts';
 import { event } from '~/event.ts';
+import { describe, expect, it } from 'vitest';
+
 import '~/_builder/side-effects/ack.ts';
 import '~/_builder/side-effects/namespaces.ts';
 
@@ -13,9 +14,9 @@ describe('.namespace() side-effect', () => {
   it('adds namespace primitive', () => {
     const def = server('chat')
       .namespace('notifications')
-        .outgoing(alert)
-        .incoming(dismiss, async () => {})
-        .done()
+      .outgoing(alert)
+      .incoming(dismiss, async () => {})
+      .done()
       .done();
 
     expect(def.primitives.some((p) => p.__wskit === 'namespace')).toBe(true);
@@ -26,34 +27,33 @@ describe('.namespace() side-effect', () => {
       .ack()
       .outgoing(message)
       .namespace('notifications')
-        .outgoing(alert)
-        .incoming(dismiss, async (ctx) => {
-          ctx.send('message', { text: 'dismissed' });
-          ctx.send('alert', { id: '1', msg: 'hi' });
-          ctx.ack();
-        })
-        .done();
+      .outgoing(alert)
+      .incoming(dismiss, async (ctx) => {
+        ctx.send('message', { text: 'dismissed' });
+        ctx.send('alert', { id: '1', msg: 'hi' });
+      })
+      .done();
   });
 
   it('namespace-local outgoing scoped correctly', () => {
     server('chat')
       .namespace('notifications')
-        .outgoing(alert)
-        .incoming(dismiss, async (ctx) => {
-          ctx.send('alert', { id: '1', msg: 'hi' });
+      .outgoing(alert)
+      .incoming(dismiss, async (ctx) => {
+        ctx.send('alert', { id: '1', msg: 'hi' });
 
-          // @ts-expect-error — 'message' not in this namespace scope
-          ctx.send('message', { text: 'hi' });
-        })
-        .done();
+        // @ts-expect-error — 'message' not in this namespace scope
+        ctx.send('message', { text: 'hi' });
+      })
+      .done();
   });
 
   it('.done() returns to parent builder', () => {
     const def = server('chat')
       .outgoing(message)
       .namespace('notifications')
-        .outgoing(alert)
-        .done()
+      .outgoing(alert)
+      .done()
       .incoming(sendMessage, async (ctx) => {
         ctx.send('message', { text: 'after namespace' });
       })
@@ -69,7 +69,6 @@ describe('.namespace() side-effect', () => {
       .namespace('notifications')
       .outgoing(alert)
       .incoming(dismiss, async (ctx) => {
-        ctx.ack();
         ctx.send('alert', { id: '1', msg: 'done' });
       })
       .extract();
@@ -84,11 +83,11 @@ describe('.namespace() side-effect', () => {
     expect(() =>
       server('chat')
         .namespace('notifications')
-          .outgoing(alert)
-          .done()
+        .outgoing(alert)
+        .done()
         .namespace('notifications')
-          .outgoing(alert)
-          .done()
+        .outgoing(alert)
+        .done()
         .done(),
     ).toThrow(/Duplicate registration/);
   });

@@ -1,10 +1,15 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import type { ReplayPrimitive } from '~/replay/replay.ts';
-import type { ReplayOptions, ReplayRetention, ReplaySnapshotValue, ReplayType } from '~/replay/types.ts';
+import { GroupBuilder, ServerBuilder } from '~/_builder/server-builder.ts';
+import { replay as createReplay } from '~/replay/replay.ts';
 import type { NextState, ScopeStateShape } from '~/_types/scope-state.ts';
 import type { Primitive } from '~/primitive.ts';
-import { replay as createReplay } from '~/replay/replay.ts';
-import { ServerBuilder, GroupBuilder } from '~/_builder/server-builder.ts';
+import type { ReplayPrimitive } from '~/replay/replay.ts';
+import type {
+  ReplayOptions,
+  ReplayRetention,
+  ReplaySnapshotValue,
+  ReplayType,
+} from '~/replay/types.ts';
 
 export class ReplayBuilder<TParent, _TState extends ScopeStateShape> {
   /** @internal */
@@ -40,7 +45,12 @@ export class ReplayBuilder<TParent, _TState extends ScopeStateShape> {
     return this;
   }
 
-  reduce(fn: (previous: ReplaySnapshotValue | null, next: ReplaySnapshotValue) => ReplaySnapshotValue | null): this {
+  reduce(
+    fn: (
+      previous: ReplaySnapshotValue | null,
+      next: ReplaySnapshotValue,
+    ) => ReplaySnapshotValue | null,
+  ): this {
     this._options = { ...this._options, reduce: fn };
     return this;
   }
@@ -57,11 +67,15 @@ export class ReplayBuilder<TParent, _TState extends ScopeStateShape> {
 
 declare module '~/_builder/server-builder.ts' {
   interface ServerBuilder<TState extends ScopeStateShape> {
-    replay(type?: ReplayType): ReplayBuilder<ServerBuilder<NextState<TState, ReplayPrimitive>>, TState>;
+    replay(
+      type?: ReplayType,
+    ): ReplayBuilder<ServerBuilder<NextState<TState, ReplayPrimitive>>, TState>;
   }
 
   interface GroupBuilder<TState extends ScopeStateShape> {
-    replay(type?: ReplayType): ReplayBuilder<GroupBuilder<NextState<TState, ReplayPrimitive>>, TState>;
+    replay(
+      type?: ReplayType,
+    ): ReplayBuilder<GroupBuilder<NextState<TState, ReplayPrimitive>>, TState>;
   }
 }
 

@@ -10,7 +10,10 @@ export type BeforeSubscribeHandler<TCtx = any, TData = unknown> = (
   data?: TData,
 ) => void | Promise<void>;
 
-export interface BeforeSubscribePrimitive<TCtx = any, TData = unknown> extends Primitive<'onBeforeSubscribe'> {
+export interface BeforeSubscribePrimitive<
+  TCtx = any,
+  TData = unknown,
+> extends Primitive<'onBeforeSubscribe'> {
   readonly handler: BeforeSubscribeHandler<TCtx, TData>;
   readonly validator?: Validator<TData>;
 }

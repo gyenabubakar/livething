@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest';
 import { server } from '~/_builder/server-builder.ts';
 import { event } from '~/event.ts';
+import { describe, expect, it } from 'vitest';
+
 import '~/_builder/side-effects/sequence.ts';
 import '~/_builder/side-effects/dedup.ts';
 import '~/_builder/side-effects/replay.ts';
@@ -31,7 +32,9 @@ describe('.replay() side-effect', () => {
       .done()
       .done();
 
-    const replayPrim = def.primitives.find((p) => p.__wskit === 'replay') as { options: { exclude?: string[] } };
+    const replayPrim = def.primitives.find((p) => p.__wskit === 'replay') as unknown as {
+      options: { exclude?: string[] };
+    };
     expect(replayPrim.options.exclude).toEqual(['typing', 'cursor']);
   });
 
@@ -44,7 +47,9 @@ describe('.replay() side-effect', () => {
       .done()
       .done();
 
-    const replayPrim = def.primitives.find((p) => p.__wskit === 'replay') as { options: { retention?: object } };
+    const replayPrim = def.primitives.find((p) => p.__wskit === 'replay') as unknown as {
+      options: { retention?: object };
+    };
     expect(replayPrim.options.retention).toEqual({ maxAgeMs: 3_600_000, maxMessages: 1000 });
   });
 
@@ -57,7 +62,9 @@ describe('.replay() side-effect', () => {
       .done()
       .done();
 
-    const replayPrim = def.primitives.find((p) => p.__wskit === 'replay') as { options: { durability?: string } };
+    const replayPrim = def.primitives.find((p) => p.__wskit === 'replay') as unknown as {
+      options: { durability?: string };
+    };
     expect(replayPrim.options.durability).toBe('best-effort');
   });
 
@@ -67,12 +74,16 @@ describe('.replay() side-effect', () => {
       .dedup()
       .replay('snapshot')
       .snapshotKey((event, payload) => `${event}:${(payload as { id: string }).id}`)
-      .reduce((prev, next) => next)
+      .reduce((_prev, next) => next)
       .done()
       .done();
 
-    const replayPrim = def.primitives.find((p) => p.__wskit === 'replay') as {
-      options: { type?: string; snapshotKey?: (...args: unknown[]) => unknown; reduce?: (...args: unknown[]) => unknown };
+    const replayPrim = def.primitives.find((p) => p.__wskit === 'replay') as unknown as {
+      options: {
+        type?: string;
+        snapshotKey?: (...args: unknown[]) => unknown;
+        reduce?: (...args: unknown[]) => unknown;
+      };
     };
     expect(replayPrim.options.type).toBe('snapshot');
     expect(typeof replayPrim.options.snapshotKey).toBe('function');

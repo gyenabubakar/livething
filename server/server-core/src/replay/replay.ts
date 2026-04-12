@@ -58,7 +58,14 @@ export function replay(options?: ReplayOptions): ReplayPrimitive {
           if (scope.channelScope !== channelKey || !base.id || !base.channel) return {};
 
           base.channel.sendReplay = (event: string, payload: unknown, wire: ReplayWire) => {
-            engine.sendReplay(base.id as string, scope.channelName, scope.channelScope, event, payload, wire);
+            engine.sendReplay(
+              base.id as string,
+              scope.channelName,
+              scope.channelScope,
+              event,
+              payload,
+              wire,
+            );
           };
 
           return {};
@@ -74,18 +81,31 @@ export function replay(options?: ReplayOptions): ReplayPrimitive {
       });
 
       function persist(wireMessage: { event: string; payload: Record<string, unknown> }): void {
-        if (!shouldStoreReplayMessage(channelKey, wireMessage.event, wireMessage.payload, exclude)) return;
+        if (!shouldStoreReplayMessage(channelKey, wireMessage.event, wireMessage.payload, exclude))
+          return;
 
         const { sql } = engine.requireStorage();
-        const row = persistReplayMessage(sql, opts, wireMessage.event, wireMessage.payload, Date.now());
+        const row = persistReplayMessage(
+          sql,
+          opts,
+          wireMessage.event,
+          wireMessage.payload,
+          Date.now(),
+        );
         pruneExpiredReplayRows(sql, opts.retention, row?.createdAt ?? Date.now());
         pruneReplayScopeRows(sql, opts.retention, readReplayPayloadScope(wireMessage.payload));
       }
 
       if ((opts.durability ?? 'strict') === 'strict') {
-        engine.onBeforeSend((wireMessage) => { persist(wireMessage); });
+        engine.onBeforeSend((wireMessage) => {
+          persist(wireMessage);
+        });
       } else {
-        engine.onAfterSend((wireMessage) => { return Promise.resolve().then(() => { persist(wireMessage); }); });
+        engine.onAfterSend((wireMessage) => {
+          return Promise.resolve().then(() => {
+            persist(wireMessage);
+          });
+        });
       }
 
       engine.onProtocolMessage('_replay', async (ctx, payload) => {
@@ -94,12 +114,22 @@ export function replay(options?: ReplayOptions): ReplayPrimitive {
 
         const since = Number(payload?.since ?? 0);
         const { sql } = engine.requireStorage();
-        const rows = loadReplayRows(sql, since, { channelName: scope.channelName, channelScope: scope.channelScope });
+        const rows = loadReplayRows(sql, since, {
+          channelName: scope.channelName,
+          channelScope: scope.channelScope,
+        });
         const connectionId = String((ctx as Record<PropertyKey, unknown>).id ?? '');
         if (!connectionId) return true;
 
         for (const row of rows) {
-          engine.sendReplay(connectionId, row.channel ?? undefined, row.channelScope ?? undefined, row.event, JSON.parse(row.payload) as Record<string, unknown>, { seq: row.seq, messageId: row.messageId, channel: row.channel ?? undefined });
+          engine.sendReplay(
+            connectionId,
+            row.channel ?? undefined,
+            row.channelScope ?? undefined,
+            row.event,
+            JSON.parse(row.payload) as Record<string, unknown>,
+            { seq: row.seq, messageId: row.messageId, channel: row.channel ?? undefined },
+          );
         }
 
         return true;

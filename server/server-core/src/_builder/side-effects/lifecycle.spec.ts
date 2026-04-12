@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest';
 import { server } from '~/_builder/server-builder.ts';
 import { event } from '~/event.ts';
+import { describe, expect, it } from 'vitest';
+
 import '~/_builder/side-effects/ack.ts';
 import '~/_builder/side-effects/lifecycle.ts';
 
@@ -14,7 +15,7 @@ describe('lifecycle side-effects', () => {
       .done();
 
     expect(def.primitives).toHaveLength(1);
-    expect(def.primitives[0].__wskit).toBe('onInit');
+    expect(def.primitives[0]!.__wskit).toBe('onInit');
   });
 
   it('.onConnect() types ctx from builder state', () => {
@@ -44,7 +45,7 @@ describe('lifecycle side-effects', () => {
       .done();
 
     expect(def.primitives).toHaveLength(1);
-    expect(def.primitives[0].__wskit).toBe('onShutdown');
+    expect(def.primitives[0]!.__wskit).toBe('onShutdown');
   });
 
   it('.onError() types ctx from builder state', () => {
@@ -65,7 +66,7 @@ describe('lifecycle side-effects', () => {
       .done();
 
     expect(def.primitives).toHaveLength(1);
-    expect(def.primitives[0].__wskit).toBe('onUpgrade');
+    expect(def.primitives[0]!.__wskit).toBe('onUpgrade');
   });
 
   it('.onBinary() types ctx from builder state', () => {

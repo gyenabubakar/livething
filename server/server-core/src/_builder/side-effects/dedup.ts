@@ -1,8 +1,8 @@
-import type { DedupPrimitive } from '~/dedup/dedup.ts';
-import type { NextState, ScopeStateShape } from '~/_types/scope-state.ts';
+import { GroupBuilder, ServerBuilder } from '~/_builder/server-builder.ts';
 import { dedup as createDedup } from '~/dedup/dedup.ts';
+import type { NextState, ScopeStateShape } from '~/_types/scope-state.ts';
+import type { DedupPrimitive } from '~/dedup/dedup.ts';
 import type { Primitive } from '~/primitive.ts';
-import { ServerBuilder, GroupBuilder } from '~/_builder/server-builder.ts';
 
 declare module '~/_builder/server-builder.ts' {
   interface ServerBuilder<TState extends ScopeStateShape> {

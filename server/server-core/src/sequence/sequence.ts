@@ -1,6 +1,6 @@
 import { isProtocolEvent } from '~/_engine/compile/utils.ts';
-import type { Primitive } from '~/primitive.ts';
 import { allocatePersistentSequence, ensureSequenceSchema } from '~/sequence/runtime.ts';
+import type { Primitive } from '~/primitive.ts';
 
 export interface SequencePrimitive extends Primitive<'sequence'> {
   readonly persist: boolean;

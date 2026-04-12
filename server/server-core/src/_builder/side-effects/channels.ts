@@ -1,18 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import type { EventContract } from '~/event.ts';
-import type {
-  ChannelPattern,
-  ChannelPrimitive,
-} from '~/channel/channel.ts';
-import type { IncomingPrimitive } from '~/incoming/incoming.ts';
-import type { OutgoingPrimitive } from '~/outgoing/outgoing.ts';
-import type { Primitive } from '~/primitive.ts';
-import type {
-  HandlerCtxFromState,
-  NextState,
-  ScopeState,
-  ScopeStateShape,
-} from '~/_types/scope-state.ts';
+import { GroupBuilder, ServerBuilder } from '~/_builder/server-builder.ts';
 import { channel as createChannel } from '~/channel/channel.ts';
 import {
   onBeforeSubscribe as createOnBeforeSubscribe,
@@ -21,7 +8,17 @@ import {
 } from '~/channel/lifecycle.ts';
 import { incoming as createIncoming } from '~/incoming/incoming.ts';
 import { outgoing as createOutgoing } from '~/outgoing/outgoing.ts';
-import { ServerBuilder, GroupBuilder } from '~/_builder/server-builder.ts';
+import type {
+  HandlerCtxFromState,
+  NextState,
+  ScopeState,
+  ScopeStateShape,
+} from '~/_types/scope-state.ts';
+import type { ChannelPattern, ChannelPrimitive } from '~/channel/channel.ts';
+import type { EventContract } from '~/event.ts';
+import type { IncomingPrimitive } from '~/incoming/incoming.ts';
+import type { OutgoingPrimitive } from '~/outgoing/outgoing.ts';
+import type { Primitive } from '~/primitive.ts';
 
 type ChannelState<TParentState extends ScopeStateShape> = ScopeState<
   'channel',
@@ -42,7 +39,10 @@ type StateAfterIncoming<
   TPayload,
 > = NextState<TState, IncomingPrimitive<TEvent, TPayload, any>>;
 
-export class ChannelBuilder<TParentState extends ScopeStateShape, TState extends ScopeStateShape = ChannelState<TParentState>> {
+export class ChannelBuilder<
+  TParentState extends ScopeStateShape,
+  TState extends ScopeStateShape = ChannelState<TParentState>,
+> {
   /** @internal */
   readonly _parentBuilder: ServerBuilder<TParentState> | GroupBuilder<TParentState>;
   /** @internal */
@@ -86,16 +86,12 @@ export class ChannelBuilder<TParentState extends ScopeStateShape, TState extends
     return this;
   }
 
-  onSubscribe(
-    handler: (ctx: HandlerCtxFromState<TState>) => void | Promise<void>,
-  ): this {
+  onSubscribe(handler: (ctx: HandlerCtxFromState<TState>) => void | Promise<void>): this {
     this._primitives.push(createOnSubscribe(handler as any) as unknown as Primitive);
     return this;
   }
 
-  onUnsubscribe(
-    handler: (ctx: HandlerCtxFromState<TState>) => void | Promise<void>,
-  ): this {
+  onUnsubscribe(handler: (ctx: HandlerCtxFromState<TState>) => void | Promise<void>): this {
     this._primitives.push(createOnUnsubscribe(handler as any) as unknown as Primitive);
     return this;
   }
@@ -110,10 +106,7 @@ export class ChannelBuilder<TParentState extends ScopeStateShape, TState extends
   }
 
   extract(): ChannelPrimitive {
-    return (createChannel as any)(
-      this._pattern,
-      ...this._primitives,
-    ) as ChannelPrimitive;
+    return (createChannel as any)(this._pattern, ...this._primitives) as ChannelPrimitive;
   }
 }
 

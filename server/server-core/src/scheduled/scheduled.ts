@@ -50,8 +50,8 @@ export function scheduled(
   handlerOrSchema: ScheduledHandler | Validator,
   options?: ScheduledOptions,
 ): ScheduledPrimitive {
-  const isHandler = typeof handlerOrSchema === 'function'
-    && !('~standard' in (handlerOrSchema as object));
+  const isHandler =
+    typeof handlerOrSchema === 'function' && !('~standard' in (handlerOrSchema as object));
 
   return {
     __wskit: 'scheduled',
@@ -60,8 +60,8 @@ export function scheduled(
     __dependencies: [],
     __requires: { storage: true, timers: true },
     taskId,
-    handler: isHandler ? handlerOrSchema as ScheduledHandler : undefined,
-    dataSchema: isHandler ? options?.data : handlerOrSchema as Validator,
+    handler: isHandler ? (handlerOrSchema as ScheduledHandler) : undefined,
+    dataSchema: isHandler ? options?.data : (handlerOrSchema as Validator),
     options,
     __setup(engine: EngineAccess) {
       engine.installOnce(SCHEDULED_RUNTIME_KEY, () => {

@@ -1,7 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { describe, it, expect } from 'vitest';
-import { server } from './server-builder.ts';
 import { event } from '~/event.ts';
+import { describe, expect, it } from 'vitest';
+import { server } from './server-builder.ts';
 
 const message = event('message', (p: unknown) => p as { text: string; from: string });
 const notification = event('notification', (p: unknown) => p as { title: string });
@@ -40,9 +40,9 @@ describe('ServerBuilder — runtime', () => {
       .done();
 
     expect(def.primitives).toHaveLength(3);
-    expect(def.primitives[0].__wskit).toBe('outgoing');
-    expect(def.primitives[1].__wskit).toBe('outgoing');
-    expect(def.primitives[2].__wskit).toBe('incoming');
+    expect(def.primitives[0]!.__wskit).toBe('outgoing');
+    expect(def.primitives[1]!.__wskit).toBe('outgoing');
+    expect(def.primitives[2]!.__wskit).toBe('incoming');
   });
 
   it('catches duplicate incoming registrations', () => {
@@ -103,7 +103,7 @@ describe('ServerBuilder — type inference', () => {
   it('types incoming handler payload from event schema', () => {
     server('chat')
       .outgoing(message)
-      .incoming(sendMessage, async (ctx, payload) => {
+      .incoming(sendMessage, async (_ctx, payload) => {
         const text: string = payload.text;
         void text;
 
@@ -137,7 +137,7 @@ describe('GroupBuilder', () => {
 
     expect(group.__wskit).toBe('group');
     expect(group.primitives).toHaveLength(1);
-    expect(group.primitives[0].__wskit).toBe('incoming');
+    expect(group.primitives[0]!.__wskit).toBe('incoming');
   });
 
   it('.use() merges extracted group into parent', () => {
@@ -156,10 +156,10 @@ describe('GroupBuilder', () => {
     const def = server('chat')
       .outgoing(message)
       .group()
-        .incoming(sendMessage, async (ctx) => {
-          ctx.send('message', { text: 'hi', from: ctx.id });
-        })
-        .done()
+      .incoming(sendMessage, async (ctx) => {
+        ctx.send('message', { text: 'hi', from: ctx.id });
+      })
+      .done()
       .done();
 
     expect(def.primitives).toHaveLength(2);
@@ -168,15 +168,13 @@ describe('GroupBuilder', () => {
   it('inherits parent outgoing events for ctx.send typing', () => {
     const base = server('chat').outgoing(message).outgoing(notification);
 
-    base
-      .group()
-      .incoming(sendMessage, async (ctx) => {
-        ctx.send('message', { text: 'hi', from: 'system' });
-        ctx.send('notification', { title: 'Hello' });
+    base.group().incoming(sendMessage, async (ctx) => {
+      ctx.send('message', { text: 'hi', from: 'system' });
+      ctx.send('notification', { title: 'Hello' });
 
-        // @ts-expect-error — undeclared event
-        ctx.send('nope', {});
-      });
+      // @ts-expect-error — undeclared event
+      ctx.send('nope', {});
+    });
   });
 
   it('group can declare its own outgoing events', () => {

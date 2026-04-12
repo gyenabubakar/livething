@@ -1,10 +1,14 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 /* oxlint-disable eslint-plugin-import(no-cycle) */
-import type { CustomReplayPrimitive, CustomReplayOptions, OutgoingWireMessage } from '~/replay/custom.ts';
+import { GroupBuilder, ServerBuilder } from '~/_builder/server-builder.ts';
+import { handleReplay as createHandleReplay } from '~/replay/custom.ts';
 import type { NextState, ScopeStateShape } from '~/_types/scope-state.ts';
 import type { Primitive } from '~/primitive.ts';
-import { handleReplay as createHandleReplay } from '~/replay/custom.ts';
-import { ServerBuilder, GroupBuilder } from '~/_builder/server-builder.ts';
+import type {
+  CustomReplayOptions,
+  CustomReplayPrimitive,
+  OutgoingWireMessage,
+} from '~/replay/custom.ts';
 
 export class ReplayCustomBuilder<TParent, _TState extends ScopeStateShape> {
   /** @internal */
@@ -42,17 +46,25 @@ export class ReplayCustomBuilder<TParent, _TState extends ScopeStateShape> {
   }
 
   extract(): CustomReplayPrimitive<'top'> {
-    return createHandleReplay(this._options as CustomReplayOptions<'top'>) as CustomReplayPrimitive<'top'>;
+    return createHandleReplay(
+      this._options as CustomReplayOptions<'top'>,
+    ) as CustomReplayPrimitive<'top'>;
   }
 }
 
 declare module '~/_builder/server-builder.ts' {
   interface ServerBuilder<TState extends ScopeStateShape> {
-    replayCustom(): ReplayCustomBuilder<ServerBuilder<NextState<TState, CustomReplayPrimitive<'top'>>>, TState>;
+    replayCustom(): ReplayCustomBuilder<
+      ServerBuilder<NextState<TState, CustomReplayPrimitive<'top'>>>,
+      TState
+    >;
   }
 
   interface GroupBuilder<TState extends ScopeStateShape> {
-    replayCustom(): ReplayCustomBuilder<GroupBuilder<NextState<TState, CustomReplayPrimitive<'top'>>>, TState>;
+    replayCustom(): ReplayCustomBuilder<
+      GroupBuilder<NextState<TState, CustomReplayPrimitive<'top'>>>,
+      TState
+    >;
   }
 }
 

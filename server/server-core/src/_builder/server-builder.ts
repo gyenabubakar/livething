@@ -1,9 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import type { EventContract } from '~/event.ts';
-import type { IncomingPrimitive } from '~/incoming/incoming.ts';
-import type { OutgoingPrimitive } from '~/outgoing/outgoing.ts';
-import type { Primitive } from '~/primitive.ts';
-import type { ServerDefinition } from '~/server-definition.ts';
+import { incoming as createIncoming } from '~/incoming/incoming.ts';
+import { outgoing as createOutgoing } from '~/outgoing/outgoing.ts';
 import type {
   FoldablePrimitive,
   HandlerCtxFromState,
@@ -13,8 +10,11 @@ import type {
   ScopeStateShape,
 } from '~/_types/scope-state.ts';
 import type { ErrorDef } from '~/errors/errors.ts';
-import { incoming as createIncoming } from '~/incoming/incoming.ts';
-import { outgoing as createOutgoing } from '~/outgoing/outgoing.ts';
+import type { EventContract } from '~/event.ts';
+import type { IncomingPrimitive } from '~/incoming/incoming.ts';
+import type { OutgoingPrimitive } from '~/outgoing/outgoing.ts';
+import type { Primitive } from '~/primitive.ts';
+import type { ServerDefinition } from '~/server-definition.ts';
 import { validateBuild } from './validate.ts';
 
 type ContractFromState<TState extends ScopeStateShape> = {
@@ -28,8 +28,9 @@ type ContractFromState<TState extends ScopeStateShape> = {
 };
 
 type ErrorMapFromDefs<TDefs extends readonly ErrorDef<string, any>[]> = {
-  [TDef in TDefs[number] as TDef extends ErrorDef<infer TCode, any> ? TCode : never]:
-    TDef extends ErrorDef<string, infer TDetail> ? TDetail : never;
+  [TDef in TDefs[number] as TDef extends ErrorDef<infer TCode, any>
+    ? TCode
+    : never]: TDef extends ErrorDef<string, infer TDetail> ? TDetail : never;
 };
 
 type InitialState = ScopeState<'top', NoOutgoing, false, false>;
@@ -144,8 +145,9 @@ export class GroupBuilder<TState extends ScopeStateShape> {
   }
 }
 
-export interface GroupPrimitive<_TState extends ScopeStateShape = ScopeStateShape>
-  extends Primitive<'group'> {
+export interface GroupPrimitive<
+  _TState extends ScopeStateShape = ScopeStateShape,
+> extends Primitive<'group'> {
   readonly primitives: readonly Primitive[];
 }
 

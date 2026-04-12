@@ -1,19 +1,19 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import type { EventContract } from '~/event.ts';
-import type { NamespacePrimitive } from '~/namespace/namespace.ts';
-import type { IncomingPrimitive } from '~/incoming/incoming.ts';
-import type { OutgoingPrimitive } from '~/outgoing/outgoing.ts';
-import type { Primitive } from '~/primitive.ts';
+import { GroupBuilder, ServerBuilder } from '~/_builder/server-builder.ts';
+import { incoming as createIncoming } from '~/incoming/incoming.ts';
+import { namespace as createNamespace } from '~/namespace/namespace.ts';
+import { outgoing as createOutgoing } from '~/outgoing/outgoing.ts';
 import type {
   HandlerCtxFromState,
   NextState,
   ScopeState,
   ScopeStateShape,
 } from '~/_types/scope-state.ts';
-import { namespace as createNamespace } from '~/namespace/namespace.ts';
-import { incoming as createIncoming } from '~/incoming/incoming.ts';
-import { outgoing as createOutgoing } from '~/outgoing/outgoing.ts';
-import { ServerBuilder, GroupBuilder } from '~/_builder/server-builder.ts';
+import type { EventContract } from '~/event.ts';
+import type { IncomingPrimitive } from '~/incoming/incoming.ts';
+import type { NamespacePrimitive } from '~/namespace/namespace.ts';
+import type { OutgoingPrimitive } from '~/outgoing/outgoing.ts';
+import type { Primitive } from '~/primitive.ts';
 
 type NamespaceState<TParentState extends ScopeStateShape> = ScopeState<
   'namespace',
@@ -34,7 +34,10 @@ type StateAfterIncoming<
   TPayload,
 > = NextState<TState, IncomingPrimitive<TEvent, TPayload, any>>;
 
-export class NamespaceBuilder<TParentState extends ScopeStateShape, TState extends ScopeStateShape = NamespaceState<TParentState>> {
+export class NamespaceBuilder<
+  TParentState extends ScopeStateShape,
+  TState extends ScopeStateShape = NamespaceState<TParentState>,
+> {
   /** @internal */
   readonly _parentBuilder: ServerBuilder<TParentState> | GroupBuilder<TParentState>;
   /** @internal */
@@ -72,19 +75,13 @@ export class NamespaceBuilder<TParentState extends ScopeStateShape, TState exten
   }
 
   done(): ServerBuilder<TParentState> {
-    const nsPrimitive = (createNamespace as any)(
-      this._name,
-      ...this._primitives,
-    ) as Primitive;
+    const nsPrimitive = (createNamespace as any)(this._name, ...this._primitives) as Primitive;
     this._parentPrimitives.push(nsPrimitive);
     return this._parentBuilder as any;
   }
 
   extract(): NamespacePrimitive {
-    return (createNamespace as any)(
-      this._name,
-      ...this._primitives,
-    ) as NamespacePrimitive;
+    return (createNamespace as any)(this._name, ...this._primitives) as NamespacePrimitive;
   }
 }
 

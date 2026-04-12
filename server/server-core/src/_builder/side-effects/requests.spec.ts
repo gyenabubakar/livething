@@ -1,12 +1,15 @@
-import { describe, it, expect } from 'vitest';
 import { server } from '~/_builder/server-builder.ts';
 import { event } from '~/event.ts';
+import { describe, expect, it } from 'vitest';
+
 import '~/_builder/side-effects/ack.ts';
 import '~/_builder/side-effects/requests.ts';
 
 const message = event('message', (p: unknown) => p as { text: string });
 const ping = event('ping', (p: unknown) => p as { ts: number });
-function pongSchema(p: unknown) { return p as { ts: number; serverTs: number }; }
+function pongSchema(p: unknown) {
+  return p as { ts: number; serverTs: number };
+}
 
 describe('.reply() side-effect', () => {
   it('adds request primitive', () => {
@@ -17,7 +20,7 @@ describe('.reply() side-effect', () => {
       .done();
 
     expect(def.primitives).toHaveLength(1);
-    expect(def.primitives[0].__wskit).toBe('request');
+    expect(def.primitives[0]!.__wskit).toBe('request');
   });
 
   it('types handler ctx from builder state', () => {
@@ -32,16 +35,15 @@ describe('.reply() side-effect', () => {
   });
 
   it('types handler payload from event schema', () => {
-    server('chat')
-      .reply(ping, pongSchema, async (_ctx, payload) => {
-        const ts: number = payload.ts;
-        void ts;
+    server('chat').reply(ping, pongSchema, async (_ctx, payload) => {
+      const ts: number = payload.ts;
+      void ts;
 
-        // @ts-expect-error — 'nonexistent' not on payload
-        payload.nonexistent;
+      // @ts-expect-error — 'nonexistent' not on payload
+      payload.nonexistent;
 
-        return { ts: payload.ts, serverTs: Date.now() };
-      });
+      return { ts: payload.ts, serverTs: Date.now() };
+    });
   });
 
   it('rejects duplicate request event names', () => {

@@ -1,10 +1,10 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { GroupBuilder, ServerBuilder } from '~/_builder/server-builder.ts';
+import { errors as createErrors } from '~/errors/primitive.ts';
+import type { NextState, ScopeStateShape } from '~/_types/scope-state.ts';
 import type { ErrorDef } from '~/errors/errors.ts';
 import type { ErrorsPrimitive } from '~/errors/primitive.ts';
-import type { NextState, ScopeStateShape } from '~/_types/scope-state.ts';
-import { errors as createErrors } from '~/errors/primitive.ts';
 import type { Primitive } from '~/primitive.ts';
-import { ServerBuilder, GroupBuilder } from '~/_builder/server-builder.ts';
 
 type AnyErrorDef = ErrorDef<string, any>;
 
@@ -23,11 +23,15 @@ declare module '~/_builder/server-builder.ts' {
 }
 
 ServerBuilder.prototype.errors = function (this: ServerBuilder<any>, ...defs: any[]) {
-  this._primitives.push(createErrors(...(defs as [AnyErrorDef, ...AnyErrorDef[]])) as unknown as Primitive);
+  this._primitives.push(
+    createErrors(...(defs as [AnyErrorDef, ...AnyErrorDef[]])) as unknown as Primitive,
+  );
   return this;
 };
 
 GroupBuilder.prototype.errors = function (this: GroupBuilder<any>, ...defs: any[]) {
-  this._primitives.push(createErrors(...(defs as [AnyErrorDef, ...AnyErrorDef[]])) as unknown as Primitive);
+  this._primitives.push(
+    createErrors(...(defs as [AnyErrorDef, ...AnyErrorDef[]])) as unknown as Primitive,
+  );
   return this;
 };
