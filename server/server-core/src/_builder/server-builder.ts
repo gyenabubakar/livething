@@ -299,8 +299,24 @@ export class ServerBuilder<TState extends ScopeStateShape = InitialState> {
    * server('shop').use(orderHandlers).build()
    * ```
    */
-  group(): GroupBuilder<TState> {
-    return new GroupBuilder<TState>(this);
+  group(): GroupBuilder<TState>;
+  /**
+   * Define a group inline using a callback. The callback receives a
+   * `GroupBuilder` and should return it after chaining methods. The group's
+   * primitives are inlined into this builder when the callback returns.
+   *
+   * This form produces natural indentation in formatters like Prettier.
+   */
+  group<TGroupState extends ScopeStateShape>(
+    callback: (builder: GroupBuilder<TState>) => GroupBuilder<TGroupState>,
+  ): ServerBuilder<TGroupState>;
+  group(callback?: (builder: GroupBuilder<TState>) => GroupBuilder<any>): GroupBuilder<TState> | ServerBuilder<any> {
+    const builder = new GroupBuilder<TState>(this);
+    if (callback) {
+      callback(builder);
+      return builder.done();
+    }
+    return builder;
   }
 
   /**

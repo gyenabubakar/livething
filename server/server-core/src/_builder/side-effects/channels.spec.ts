@@ -113,6 +113,45 @@ describe('.channel() side-effect', () => {
     expect(def.primitives.some((p) => p.__wskit === 'channel')).toBe(true);
   });
 
+  it('callback overload seals channel and returns parent builder', () => {
+    const def = server('chat')
+      .outgoing(message)
+      .channel('lobby', (c) =>
+        c
+          .outgoing(roomMessage)
+          .incoming(roomSend, async () => {}),
+      )
+      .build();
+
+    expect(def.primitives.some((p) => p.__wskit === 'channel')).toBe(true);
+  });
+
+  it('callback overload types ctx correctly', () => {
+    server('chat')
+      .ack()
+      .outgoing(message)
+      .channel(scope('rooms', /^room-.+$/), (c) =>
+        c
+          .outgoing(roomMessage)
+          .incoming(roomSend, async (ctx, payload) => {
+            ctx.send('message', { text: 'hi' });
+            ctx.send('room-message', { text: payload.text, from: 'system' });
+          }),
+      );
+  });
+
+  it('callback overload allows chaining after channel', () => {
+    const def = server('chat')
+      .outgoing(message)
+      .channel('lobby', (c) => c.outgoing(roomMessage))
+      .incoming(sendMessage, async (ctx) => {
+        ctx.send('message', { text: 'after channel' });
+      })
+      .build();
+
+    expect(def.primitives).toHaveLength(3);
+  });
+
   it('rejects duplicate channel scopes', () => {
     expect(() =>
       server('chat')

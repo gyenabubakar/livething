@@ -165,6 +165,34 @@ describe('GroupBuilder', () => {
     expect(def.primitives).toHaveLength(2);
   });
 
+  it('callback overload inlines group into parent', () => {
+    const def = server('chat')
+      .outgoing(message)
+      .group((g) =>
+        g.incoming(sendMessage, async (ctx) => {
+          ctx.send('message', { text: 'hi', from: ctx.id });
+        }),
+      )
+      .build();
+
+    expect(def.primitives).toHaveLength(2);
+  });
+
+  it('callback overload types ctx correctly', () => {
+    server('chat')
+      .outgoing(message)
+      .outgoing(notification)
+      .group((g) =>
+        g.incoming(sendMessage, async (ctx) => {
+          ctx.send('message', { text: 'hi', from: 'system' });
+          ctx.send('notification', { title: 'Hello' });
+
+          // @ts-expect-error — undeclared event
+          ctx.send('nope', {});
+        }),
+      );
+  });
+
   it('rejects nested groups', () => {
     const base = server('chat').outgoing(message);
     const nested = base

@@ -260,6 +260,18 @@ declare module '~/_builder/server-builder.ts' {
      *   (`scope(key, regex)`) for dynamic names that capture a parameter.
      */
     channel<TPattern extends ChannelPattern>(pattern: TPattern): ChannelBuilder<TState, ChannelState<TState>, TPattern>;
+
+    /**
+     * Define a channel inline using a callback. The callback receives a
+     * `ChannelBuilder` and should return it after chaining methods. The channel
+     * is automatically sealed when the callback returns — no `.done()` needed.
+     *
+     * This form produces natural indentation in formatters like Prettier.
+     */
+    channel<TPattern extends ChannelPattern, TChannelState extends ScopeStateShape>(
+      pattern: TPattern,
+      callback: (builder: ChannelBuilder<TState, ChannelState<TState>, TPattern>) => ChannelBuilder<TState, TChannelState, TPattern>,
+    ): ServerBuilder<StateWithChannel<TState, ChannelNameFromPattern<TPattern>, TChannelState>>;
   }
 
   interface GroupBuilder<TState extends ScopeStateShape> {
@@ -268,15 +280,41 @@ declare module '~/_builder/server-builder.ts' {
      * return to this builder, or `.extract()` to detach it as a primitive.
      */
     channel<TPattern extends ChannelPattern>(pattern: TPattern): ChannelBuilder<TState, ChannelState<TState>, TPattern>;
+
+    /**
+     * Define a channel inline using a callback.
+     */
+    channel<TPattern extends ChannelPattern, TChannelState extends ScopeStateShape>(
+      pattern: TPattern,
+      callback: (builder: ChannelBuilder<TState, ChannelState<TState>, TPattern>) => ChannelBuilder<TState, TChannelState, TPattern>,
+    ): GroupBuilder<StateWithChannel<TState, ChannelNameFromPattern<TPattern>, TChannelState>>;
   }
 }
 
 /** Runtime implementation of `.channel()` for `ServerBuilder`. */
-(ServerBuilder.prototype as any).channel = function (this: ServerBuilder<any>, pattern: ChannelPattern) {
-  return new ChannelBuilder(this, this._primitives, pattern);
+(ServerBuilder.prototype as any).channel = function (
+  this: ServerBuilder<any>,
+  pattern: ChannelPattern,
+  callback?: (builder: ChannelBuilder<any>) => ChannelBuilder<any>,
+) {
+  const builder = new ChannelBuilder(this, this._primitives, pattern);
+  if (callback) {
+    callback(builder);
+    return builder.done();
+  }
+  return builder;
 };
 
 /** Runtime implementation of `.channel()` for `GroupBuilder`. */
-(GroupBuilder.prototype as any).channel = function (this: GroupBuilder<any>, pattern: ChannelPattern) {
-  return new ChannelBuilder(this as any, this._primitives, pattern);
+(GroupBuilder.prototype as any).channel = function (
+  this: GroupBuilder<any>,
+  pattern: ChannelPattern,
+  callback?: (builder: ChannelBuilder<any>) => ChannelBuilder<any>,
+) {
+  const builder = new ChannelBuilder(this as any, this._primitives, pattern);
+  if (callback) {
+    callback(builder);
+    return builder.done();
+  }
+  return builder;
 };

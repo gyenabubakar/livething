@@ -202,6 +202,16 @@ declare module '~/_builder/server-builder.ts' {
      * return to this builder, or `.extract()` to detach it as a primitive.
      */
     namespace<TName extends string>(name: TName): NamespaceBuilder<TState, NamespaceState<TState>, TName>;
+
+    /**
+     * Define a namespace inline using a callback. The callback receives a
+     * `NamespaceBuilder` and should return it after chaining methods. The
+     * namespace is automatically sealed when the callback returns.
+     */
+    namespace<TName extends string, TNamespaceState extends ScopeStateShape>(
+      name: TName,
+      callback: (builder: NamespaceBuilder<TState, NamespaceState<TState>, TName>) => NamespaceBuilder<TState, TNamespaceState, TName>,
+    ): ServerBuilder<StateWithNamespace<TState, TName, TNamespaceState>>;
   }
 
   interface GroupBuilder<TState extends ScopeStateShape> {
@@ -210,15 +220,41 @@ declare module '~/_builder/server-builder.ts' {
      * return to this builder, or `.extract()` to detach it as a primitive.
      */
     namespace<TName extends string>(name: TName): NamespaceBuilder<TState, NamespaceState<TState>, TName>;
+
+    /**
+     * Define a namespace inline using a callback.
+     */
+    namespace<TName extends string, TNamespaceState extends ScopeStateShape>(
+      name: TName,
+      callback: (builder: NamespaceBuilder<TState, NamespaceState<TState>, TName>) => NamespaceBuilder<TState, TNamespaceState, TName>,
+    ): GroupBuilder<StateWithNamespace<TState, TName, TNamespaceState>>;
   }
 }
 
 /** Runtime implementation of `.namespace()` for `ServerBuilder`. */
-(ServerBuilder.prototype as any).namespace = function (this: ServerBuilder<any>, name: string) {
-  return new NamespaceBuilder(this, this._primitives, name);
+(ServerBuilder.prototype as any).namespace = function (
+  this: ServerBuilder<any>,
+  name: string,
+  callback?: (builder: NamespaceBuilder<any>) => NamespaceBuilder<any>,
+) {
+  const builder = new NamespaceBuilder(this, this._primitives, name);
+  if (callback) {
+    callback(builder);
+    return builder.done();
+  }
+  return builder;
 };
 
 /** Runtime implementation of `.namespace()` for `GroupBuilder`. */
-(GroupBuilder.prototype as any).namespace = function (this: GroupBuilder<any>, name: string) {
-  return new NamespaceBuilder(this as any, this._primitives, name);
+(GroupBuilder.prototype as any).namespace = function (
+  this: GroupBuilder<any>,
+  name: string,
+  callback?: (builder: NamespaceBuilder<any>) => NamespaceBuilder<any>,
+) {
+  const builder = new NamespaceBuilder(this as any, this._primitives, name);
+  if (callback) {
+    callback(builder);
+    return builder.done();
+  }
+  return builder;
 };

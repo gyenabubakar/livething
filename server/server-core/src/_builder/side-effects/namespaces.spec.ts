@@ -79,6 +79,44 @@ describe('.namespace() side-effect', () => {
     expect(def.primitives.some((p) => p.__wskit === 'namespace')).toBe(true);
   });
 
+  it('callback overload seals namespace and returns parent builder', () => {
+    const def = server('chat')
+      .namespace('notifications', (n) =>
+        n
+          .outgoing(alert)
+          .incoming(dismiss, async () => {}),
+      )
+      .build();
+
+    expect(def.primitives.some((p) => p.__wskit === 'namespace')).toBe(true);
+  });
+
+  it('callback overload types ctx correctly', () => {
+    server('chat')
+      .ack()
+      .outgoing(message)
+      .namespace('notifications', (n) =>
+        n
+          .outgoing(alert)
+          .incoming(dismiss, async (ctx) => {
+            ctx.send('message', { text: 'dismissed' });
+            ctx.send('alert', { id: '1', msg: 'hi' });
+          }),
+      );
+  });
+
+  it('callback overload allows chaining after namespace', () => {
+    const def = server('chat')
+      .outgoing(message)
+      .namespace('notifications', (n) => n.outgoing(alert))
+      .incoming(sendMessage, async (ctx) => {
+        ctx.send('message', { text: 'after namespace' });
+      })
+      .build();
+
+    expect(def.primitives).toHaveLength(3);
+  });
+
   it('rejects duplicate namespace names', () => {
     expect(() =>
       server('chat')
