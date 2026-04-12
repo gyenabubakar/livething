@@ -298,3 +298,5 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
 }
 
 handleReplay.__key = CUSTOM_REPLAY_KEY;
+
+import '~/_builder/side-effects/replay-custom.ts';
