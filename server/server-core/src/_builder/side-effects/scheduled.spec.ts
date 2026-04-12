@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { server } from '~/_builder/server-builder.ts';
 import { event } from '~/event.ts';
-import { t } from '~/t.ts';
 import '~/_builder/side-effects/scheduled.ts';
 
 const message = event('message', (p: unknown) => p as { text: string });
@@ -27,9 +26,9 @@ describe('.scheduled() side-effect', () => {
     expect(prim.options?.retry).toBe(false);
   });
 
-  it('accepts type-only declaration form', () => {
+  it('accepts schema-only declaration form', () => {
     const def = server('chat')
-      .scheduled('expire-hold', t<{ orderId: string }>())
+      .scheduled('expire-hold', (p: unknown) => p as { orderId: string })
       .done();
 
     expect(def.primitives).toHaveLength(1);

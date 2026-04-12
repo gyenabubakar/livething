@@ -1,12 +1,12 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import type { EngineAccess } from '~/_engine/access.ts';
 import type { Primitive } from '~/primitive.ts';
-import type { TypeMarker } from '~/t.ts';
+import type { Validator } from '~/types.ts';
 import { bootstrapScheduledRuntime, handleScheduledAlarm } from './runtime.ts';
 import type { ScheduledRuntimeAccess } from './types.ts';
 
 export interface ScheduledOptions<TData = unknown> {
-  readonly data?: TypeMarker<TData>;
+  readonly data?: Validator<TData>;
   readonly every?: number;
   readonly retry?: boolean;
 }
@@ -28,7 +28,7 @@ export interface ScheduledPrimitive<
 > extends Primitive<'scheduled'> {
   readonly taskId: TTaskId;
   readonly handler?: ScheduledHandler<TCtx, TData>;
-  readonly data?: TypeMarker<TData>;
+  readonly dataSchema?: Validator<TData>;
   readonly options?: ScheduledOptions<TData>;
 }
 
@@ -42,15 +42,16 @@ export function scheduled<TTaskId extends string, TData, TCtx>(
 ): ScheduledPrimitive<TTaskId, TData, TCtx>;
 export function scheduled<TTaskId extends string, TData>(
   taskId: TTaskId,
-  data: TypeMarker<TData>,
+  dataSchema: Validator<TData>,
   options?: ScheduledOptions<TData>,
 ): ScheduledPrimitive<TTaskId, TData>;
 export function scheduled(
   taskId: string,
-  handlerOrData: ScheduledHandler | TypeMarker<any>,
+  handlerOrSchema: ScheduledHandler | Validator,
   options?: ScheduledOptions,
 ): ScheduledPrimitive {
-  const isHandler = typeof handlerOrData === 'function';
+  const isHandler = typeof handlerOrSchema === 'function'
+    && !('~standard' in (handlerOrSchema as object));
 
   return {
     __wskit: 'scheduled',
@@ -59,8 +60,8 @@ export function scheduled(
     __dependencies: [],
     __requires: { storage: true, timers: true },
     taskId,
-    handler: isHandler ? handlerOrData as ScheduledHandler : undefined,
-    data: isHandler ? options?.data : handlerOrData as TypeMarker<any>,
+    handler: isHandler ? handlerOrSchema as ScheduledHandler : undefined,
+    dataSchema: isHandler ? options?.data : handlerOrSchema as Validator,
     options,
     __setup(engine: EngineAccess) {
       engine.installOnce(SCHEDULED_RUNTIME_KEY, () => {
