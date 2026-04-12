@@ -1,5 +1,6 @@
+/* oxlint-disable @typescript-eslint/no-explicit-any */
 import { dedup } from '~/dedup/dedup.ts';
-import { definePrimitive } from '~/primitive.ts';
+import type { EngineAccess } from '~/_engine/access.ts';
 import {
   matchesReplayScope,
   readReplayContextScope,
@@ -26,12 +27,6 @@ export type OutgoingWire<TScope extends CustomReplayScope> = TScope extends 'cha
   ? ChannelOutgoingWire
   : TopLevelOutgoingWire;
 
-/**
- * One finalized outgoing message snapshot passed to manual replay hooks.
- *
- * The app payload stays separate from wskit's protocol metadata so product
- * code can store both cleanly without mixing them together.
- */
 export interface OutgoingWireMessage<TScope extends CustomReplayScope = 'top'> {
   readonly event: string;
   readonly payload: Readonly<Record<string, unknown>>;
@@ -53,9 +48,7 @@ export interface TopLevelReplayContext extends BaseCustomReplayContext {
 }
 
 export interface ChannelReplayContext extends BaseCustomReplayContext {
-  readonly channel: {
-    readonly name: string;
-  };
+  readonly channel: { readonly name: string };
   sendReplay(event: string, payload: Record<string, unknown>, wire: ReplayWire): void;
 }
 
@@ -63,36 +56,9 @@ export type ReplayContext<TScope extends CustomReplayScope> = TScope extends 'ch
   ? ChannelReplayContext
   : TopLevelReplayContext;
 
-/**
- * Manual replay hooks.
- *
- * Use `handleReplay(...)` when you want to manage replay storage and replay
- * responses yourself instead of using the built-in automatic `replay(...)`
- * primitive.
- */
 export interface CustomReplayOptions<TScope extends CustomReplayScope = 'top'> {
-  /**
-   * Observe one finalized outgoing message before wskit sends it.
-   *
-   * The message is cloned through JSON first, so your code can inspect it
-   * freely without mutating the engine's live send payload.
-   */
   readonly onBeforeSend?: (message: OutgoingWireMessage<TScope>) => void;
-
-  /**
-   * Observe one finalized outgoing message after wskit sends it.
-   *
-   * Use this for best-effort storage or analytics that should not block the
-   * websocket send.
-   */
   readonly onAfterSend?: (message: OutgoingWireMessage<TScope>) => void | Promise<void>;
-
-  /**
-   * Handle one client `_replay` request yourself.
-   *
-   * wskit gives you a replay-enabled context plus the client's last seen
-   * sequence number. Your code decides what to load and what to resend.
-   */
   readonly onReplay: (ctx: ReplayContext<TScope>, since: number) => void | Promise<void>;
 }
 
@@ -104,55 +70,24 @@ export interface CustomReplayPrimitive<
 
 const CUSTOM_REPLAY_KEY = Symbol('custom-replay');
 
-function toTopLevelWireMessage(message: {
-  event: string;
-  payload: Record<string, unknown>;
-}): OutgoingWireMessage<'top'> {
-  return JSON.parse(
-    JSON.stringify({
-      event: message.event,
-      payload: Object.fromEntries(
-        Object.entries(message.payload).filter(([key]) => !key.startsWith('_')),
-      ),
-      wire: {
-        seq: message.payload._seq,
-        messageId: message.payload._messageId,
-      },
-    }),
-  ) as OutgoingWireMessage<'top'>;
+function toTopLevelWireMessage(message: { event: string; payload: Record<string, unknown> }): OutgoingWireMessage<'top'> {
+  return JSON.parse(JSON.stringify({
+    event: message.event,
+    payload: Object.fromEntries(Object.entries(message.payload).filter(([key]) => !key.startsWith('_'))),
+    wire: { seq: message.payload._seq, messageId: message.payload._messageId },
+  })) as OutgoingWireMessage<'top'>;
 }
 
-function toChannelWireMessage(message: {
-  event: string;
-  payload: Record<string, unknown>;
-}): OutgoingWireMessage<'channel'> {
-  return JSON.parse(
-    JSON.stringify({
-      event: message.event,
-      payload: Object.fromEntries(
-        Object.entries(message.payload).filter(([key]) => !key.startsWith('_')),
-      ),
-      wire: {
-        seq: message.payload._seq,
-        messageId: message.payload._messageId,
-        channel: message.payload._channel,
-        channelScope: message.payload._channelScope,
-      },
-    }),
-  ) as OutgoingWireMessage<'channel'>;
+function toChannelWireMessage(message: { event: string; payload: Record<string, unknown> }): OutgoingWireMessage<'channel'> {
+  return JSON.parse(JSON.stringify({
+    event: message.event,
+    payload: Object.fromEntries(Object.entries(message.payload).filter(([key]) => !key.startsWith('_'))),
+    wire: { seq: message.payload._seq, messageId: message.payload._messageId, channel: message.payload._channel, channelScope: message.payload._channelScope },
+  })) as OutgoingWireMessage<'channel'>;
 }
 
 function createTopLevelReplayContext(
-  engine: {
-    sendReplay(
-      connectionId: string,
-      channelName: string | undefined,
-      channelScope: string | undefined,
-      event: string,
-      payload: unknown,
-      wire: ReplayWire,
-    ): void;
-  },
+  engine: EngineAccess,
   baseCtx: Record<PropertyKey, unknown>,
 ): TopLevelReplayContext {
   return {
@@ -170,16 +105,7 @@ function createTopLevelReplayContext(
 }
 
 function createChannelReplayContext(
-  engine: {
-    sendReplay(
-      connectionId: string,
-      channelName: string | undefined,
-      channelScope: string | undefined,
-      event: string,
-      payload: unknown,
-      wire: ReplayWire,
-    ): void;
-  },
+  engine: EngineAccess,
   baseCtx: Record<PropertyKey, unknown>,
   channelName: string,
   channelScope: string,
@@ -199,102 +125,60 @@ function createChannelReplayContext(
   };
 }
 
-const _customReplay = definePrimitive<
-  'customReplay',
-  [options: CustomReplayOptions<CustomReplayScope>],
-  { options: CustomReplayOptions<CustomReplayScope> }
->({
-  tag: 'customReplay' as const,
-  key: CUSTOM_REPLAY_KEY,
-  kind: 'infrastructure' as const,
-  dependencies: [sequence, dedup],
-  create(options: CustomReplayOptions<CustomReplayScope>) {
-    return { options };
-  },
-  setup(engine, data) {
-    const { channelKey } = engine.getScopeInfo();
-
-    if (data.options.onBeforeSend) {
-      engine.onBeforeSend((message) => {
-        if (!shouldStoreReplayMessage(channelKey, message.event, message.payload, new Set())) {
-          return;
-        }
-
-        if (channelKey) {
-          data.options.onBeforeSend!(
-            toChannelWireMessage(message) as OutgoingWireMessage<CustomReplayScope>,
-          );
-          return;
-        }
-
-        data.options.onBeforeSend!(
-          toTopLevelWireMessage(message) as OutgoingWireMessage<CustomReplayScope>,
-        );
-      });
-    }
-
-    if (data.options.onAfterSend) {
-      engine.onAfterSend((message) => {
-        if (!shouldStoreReplayMessage(channelKey, message.event, message.payload, new Set())) {
-          return;
-        }
-
-        if (channelKey) {
-          return data.options.onAfterSend!(
-            toChannelWireMessage(message) as OutgoingWireMessage<CustomReplayScope>,
-          );
-        }
-
-        return data.options.onAfterSend!(
-          toTopLevelWireMessage(message) as OutgoingWireMessage<CustomReplayScope>,
-        );
-      });
-    }
-
-    engine.onProtocolMessage('_replay', async (ctx, payload) => {
-      const baseCtx = ctx as Record<PropertyKey, unknown>;
-      const scope = readReplayContextScope(baseCtx);
-
-      if (!matchesReplayScope(channelKey, scope)) return false;
-
-      if (channelKey && scope.channelName && scope.channelScope) {
-        await data.options.onReplay(
-          createChannelReplayContext(
-            engine,
-            baseCtx,
-            scope.channelName,
-            scope.channelScope,
-          ) as ReplayContext<CustomReplayScope>,
-          Number(payload?.since ?? 0),
-        );
-        return true;
-      }
-
-      await data.options.onReplay(
-        createTopLevelReplayContext(engine, baseCtx) as ReplayContext<CustomReplayScope>,
-        Number(payload?.since ?? 0),
-      );
-      return true;
-    });
-  },
-});
-
-/**
- * Handle replay requests yourself.
- *
- * The same primitive works at the top level and inside `channel(...)`.
- * Use the generic parameter when you want editor hovers to reflect the scope:
- *
- * ```ts
- * handleReplay<'channel'>({ ... })
- * ```
- */
 export function handleReplay<TScope extends CustomReplayScope = 'top'>(
   options: CustomReplayOptions<TScope>,
 ): CustomReplayPrimitive<TScope> {
-  return _customReplay(
-    options as CustomReplayOptions<CustomReplayScope>,
-  ) as CustomReplayPrimitive<TScope>;
+  const opts = options as CustomReplayOptions<CustomReplayScope>;
+
+  return {
+    __wskit: 'customReplay',
+    __kind: 'infrastructure',
+    __identity: [CUSTOM_REPLAY_KEY],
+    __dependencies: [sequence, dedup],
+    __requires: {},
+    options,
+    __setup(engine: EngineAccess) {
+      const { channelKey } = engine.getScopeInfo();
+
+      if (opts.onBeforeSend) {
+        engine.onBeforeSend((message) => {
+          if (!shouldStoreReplayMessage(channelKey, message.event, message.payload, new Set())) return;
+          opts.onBeforeSend!(channelKey
+            ? toChannelWireMessage(message) as OutgoingWireMessage<CustomReplayScope>
+            : toTopLevelWireMessage(message) as OutgoingWireMessage<CustomReplayScope>);
+        });
+      }
+
+      if (opts.onAfterSend) {
+        engine.onAfterSend((message) => {
+          if (!shouldStoreReplayMessage(channelKey, message.event, message.payload, new Set())) return;
+          return opts.onAfterSend!(channelKey
+            ? toChannelWireMessage(message) as OutgoingWireMessage<CustomReplayScope>
+            : toTopLevelWireMessage(message) as OutgoingWireMessage<CustomReplayScope>);
+        });
+      }
+
+      engine.onProtocolMessage('_replay', async (ctx, payload) => {
+        const baseCtx = ctx as Record<PropertyKey, unknown>;
+        const scope = readReplayContextScope(baseCtx);
+        if (!matchesReplayScope(channelKey, scope)) return false;
+
+        if (channelKey && scope.channelName && scope.channelScope) {
+          await opts.onReplay(
+            createChannelReplayContext(engine, baseCtx, scope.channelName, scope.channelScope) as ReplayContext<CustomReplayScope>,
+            Number(payload?.since ?? 0),
+          );
+          return true;
+        }
+
+        await opts.onReplay(
+          createTopLevelReplayContext(engine, baseCtx) as ReplayContext<CustomReplayScope>,
+          Number(payload?.since ?? 0),
+        );
+        return true;
+      });
+    },
+  } as CustomReplayPrimitive<TScope>;
 }
 
 handleReplay.__key = CUSTOM_REPLAY_KEY;
