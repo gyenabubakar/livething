@@ -1,5 +1,10 @@
 import { scope } from '~/channel/channel.ts';
-import { leaveChannel, subscribeConnection, unsubscribeConnection } from '~/channel/runtime.ts';
+import {
+  addChannelMembership,
+  leaveChannel,
+  subscribeConnection,
+  unsubscribeConnection,
+} from '~/channel/runtime.ts';
 import { describe, expect, it } from 'vitest';
 
 function createConnection(id = 'conn_1', meta: Record<string, unknown> = {}) {
@@ -17,6 +22,7 @@ function createConnection(id = 'conn_1', meta: Record<string, unknown> = {}) {
     meta,
     tags: new Set<string>(),
     channels: new Set<string>(),
+    channelMemberships: new Map(),
     latency: null,
     quality: 'good' as const,
   };
@@ -102,7 +108,7 @@ function createRuntime() {
 describe('channel runtime', () => {
   it('subscribes a connection and sends member sync events', async () => {
     const first = createConnection('conn_1', { userId: 'a' });
-    first.channels.add('room:general');
+    addChannelMembership(first, 'room:general', 'rooms');
 
     const second = createConnection('conn_2', { userId: 'b' });
     const { runtime, connections, protocol, broadcasts } = createRuntime();
@@ -149,8 +155,7 @@ describe('channel runtime', () => {
 
   it('unsubscribes a connection and broadcasts member leave', async () => {
     const connection = createConnection('conn_1', { userId: 'a' });
-    connection.channels.add('room:general');
-    connection.tags.add('channel:room:general');
+    addChannelMembership(connection, 'room:general', 'rooms');
 
     const { runtime, connections, broadcasts } = createRuntime();
     connections.set(connection.id, connection);
@@ -170,6 +175,47 @@ describe('channel runtime', () => {
 
     expect(connection.channels.has('room:general')).toBe(false);
     expect(connection.tags.has('channel:room:general')).toBe(false);
+    expect(broadcasts).toEqual([
+      {
+        channelName: 'room:general',
+        event: '_memberLeave',
+        payload: { connectionId: 'conn_1' },
+        excludeConnectionId: 'conn_1',
+        channelScope: 'rooms',
+      },
+    ]);
+  });
+
+  it('keeps same-name memberships isolated across channel families', async () => {
+    const connection = createConnection('conn_1');
+
+    addChannelMembership(connection, 'room:general', 'rooms');
+    addChannelMembership(connection, 'room:general', 'lobbies');
+
+    const { runtime, connections, broadcasts } = createRuntime();
+    runtime.compiled.channelFamilies.set('lobbies', {
+      ...runtime.compiled.channelFamilies.get('rooms')!,
+      key: 'lobbies',
+      pattern: scope('lobbies', /^room:/),
+    } as any);
+    connections.set(connection.id, connection);
+
+    await unsubscribeConnection(
+      {
+        ...runtime,
+        leaveChannel: async (nextConnection, scopeArg, kickedReason) =>
+          leaveChannel(runtime, nextConnection, scopeArg, kickedReason),
+      },
+      connection,
+      {
+        _channel: 'room:general',
+        _channelScope: 'rooms',
+      },
+    );
+
+    expect(connection.channels.has('room:general')).toBe(true);
+    expect(connection.channelMemberships.size).toBe(1);
+    expect(connection.channelMemberships.has('lobbies::room:general')).toBe(true);
     expect(broadcasts).toEqual([
       {
         channelName: 'room:general',

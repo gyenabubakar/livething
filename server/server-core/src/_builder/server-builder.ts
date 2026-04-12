@@ -392,6 +392,10 @@ export class GroupBuilder<TState extends ScopeStateShape> {
    * logic — groups nested inside groups are stored as-is.
    */
   use<P extends Primitive>(primitive: P): GroupBuilder<UseResult<TState, P>> {
+    if (primitive.__wskit === 'group') {
+      throw new Error('[wskit] Nested groups are not supported. Use base + subgroups only.');
+    }
+
     this._primitives.push(primitive);
     return this as any;
   }

@@ -18,6 +18,7 @@ function createConnection(): RuntimeConnection {
     meta: {},
     tags: new Set(),
     channels: new Set(),
+    channelMemberships: new Map(),
     latency: null,
     quality: 'good',
   };

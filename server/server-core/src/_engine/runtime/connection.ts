@@ -1,4 +1,5 @@
 import { CloseCodes } from '@wskit/core';
+import * as ChannelPrimitive from '~/channel/runtime.ts';
 import * as HeartbeatPrimitive from '~/heartbeat/runtime.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
@@ -44,11 +45,27 @@ function createHandle(
   runtime: ConnectionRuntime,
   connection: EngineRuntimeTypes.RuntimeConnection,
 ): EngineAdapterTypes.ConnectionHandle {
+  async function waitForLifecycle(): Promise<void> {
+    await connection.lifecycleReady;
+  }
+
   return {
-    handleMessage: (data) => runtime.processTextMessage(connection, data),
-    handleBinary: (data) => runtime.handleBinaryMessage(connection, data),
-    handleClose: (code, reason) => runtime.handleConnectionClose(connection, code, reason),
-    handleError: (error) => runtime.handleRuntimeError(connection, error, undefined),
+    handleMessage: async (data) => {
+      await waitForLifecycle();
+      return runtime.processTextMessage(connection, data);
+    },
+    handleBinary: async (data) => {
+      await waitForLifecycle();
+      return runtime.handleBinaryMessage(connection, data);
+    },
+    handleClose: async (code, reason) => {
+      await waitForLifecycle();
+      return runtime.handleConnectionClose(connection, code, reason);
+    },
+    handleError: async (error) => {
+      await waitForLifecycle();
+      return runtime.handleRuntimeError(connection, error, undefined);
+    },
   };
 }
 
@@ -147,7 +164,11 @@ export async function handleConnectionClose(
     ): Promise<void>;
     leaveChannel(
       connection: EngineRuntimeTypes.RuntimeConnection,
-      scope: { channel?: EngineCompileTypes.CompiledChannel; channelName: string },
+      scope: {
+        channel?: EngineCompileTypes.CompiledChannel;
+        channelName: string;
+        channelScope?: string;
+      },
     ): Promise<void>;
   },
   connection: EngineRuntimeTypes.RuntimeConnection,
@@ -157,11 +178,16 @@ export async function handleConnectionClose(
   const ctx = runtime.buildConnectionContext(connection);
   await runtime.runConnectionLifecycle('disconnect', ctx);
 
-  for (const channelName of [...connection.channels]) {
-    const resolved = runtime.compiled.channels.get(channelName);
+  for (const membership of ChannelPrimitive.listChannelMemberships(connection)) {
+    const resolved = ChannelPrimitive.resolveCompiledChannel(
+      runtime.compiled,
+      membership.channelName,
+      membership.channelScope,
+    );
     await runtime.leaveChannel(connection, {
       channel: resolved,
-      channelName,
+      channelName: membership.channelName,
+      channelScope: membership.channelScope,
     });
   }
 
@@ -216,6 +242,7 @@ export function acceptConnection(
     meta: descriptor.meta ?? {},
     tags: new Set(descriptor.tags ?? []),
     channels: new Set(),
+    channelMemberships: new Map(),
     latency: null,
     quality: 'good',
   };
@@ -229,7 +256,9 @@ export function acceptConnection(
   }
 
   const ctx = runtime.buildConnectionContext(connection);
-  void runtime.runConnectionLifecycle('connect', ctx);
+  connection.lifecycleReady = runtime
+    .runConnectionLifecycle('connect', ctx)
+    .catch((error) => runtime.handleRuntimeError(connection, error, undefined));
 
   return createHandle(runtime, connection);
 }
@@ -257,6 +286,38 @@ export function wakeHibernatedConnection(
     typeof wsLike.deserializeAttachment === 'function' ? wsLike.deserializeAttachment() : {};
   const restored =
     attachment && typeof attachment === 'object' ? (attachment as Record<string, unknown>) : {};
+  const channelMemberships = new Map<string, { channelName: string; channelScope?: string }>();
+
+  if (Array.isArray(restored.channelMemberships)) {
+    for (const membership of restored.channelMemberships) {
+      if (!membership || typeof membership !== 'object') continue;
+
+      const channelName =
+        typeof (membership as { channelName?: unknown }).channelName === 'string'
+          ? (membership as { channelName: string }).channelName
+          : undefined;
+
+      if (!channelName) continue;
+
+      const channelScope =
+        typeof (membership as { channelScope?: unknown }).channelScope === 'string'
+          ? (membership as { channelScope: string }).channelScope
+          : undefined;
+
+      channelMemberships.set(ChannelPrimitive.createChannelMembershipKey(channelName, channelScope), {
+        channelName,
+        channelScope,
+      });
+    }
+  }
+
+  if (channelMemberships.size === 0) {
+    for (const channelName of (restored.channels as string[]) ?? []) {
+      channelMemberships.set(ChannelPrimitive.createChannelMembershipKey(channelName), {
+        channelName,
+      });
+    }
+  }
 
   const descriptor: EngineAdapterTypes.ConnectionDescriptor = {
     send: (data) => wsLike.send?.(data),
@@ -272,7 +333,8 @@ export function wakeHibernatedConnection(
     descriptor,
     meta: (restored.meta as Record<string, unknown>) ?? {},
     tags: new Set((restored.tags as string[]) ?? []),
-    channels: new Set((restored.channels as string[]) ?? []),
+    channels: new Set([...channelMemberships.values()].map((membership) => membership.channelName)),
+    channelMemberships,
     latency: null,
     quality: 'good',
   };
@@ -284,6 +346,8 @@ export function wakeHibernatedConnection(
   if (runtime.timers) {
     HeartbeatPrimitive.scheduleConnectionPing(runtime.timers, connection);
   }
+
+  connection.lifecycleReady = Promise.resolve();
 
   return createHandle(runtime, connection);
 }

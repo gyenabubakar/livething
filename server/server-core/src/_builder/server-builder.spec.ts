@@ -165,6 +165,21 @@ describe('GroupBuilder', () => {
     expect(def.primitives).toHaveLength(2);
   });
 
+  it('rejects nested groups', () => {
+    const base = server('chat').outgoing(message);
+    const nested = base
+      .group()
+      .incoming(sendMessage, async () => {})
+      .extract();
+
+    expect(() =>
+      base
+        .group()
+        .use(nested)
+        .extract(),
+    ).toThrow(/Nested groups are not supported/);
+  });
+
   it('inherits parent outgoing events for ctx.send typing', () => {
     const base = server('chat').outgoing(message).outgoing(notification);
 

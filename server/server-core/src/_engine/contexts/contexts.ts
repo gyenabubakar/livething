@@ -400,6 +400,7 @@ export function persistAttachment(connection: EngineContextTypes.RuntimeConnecti
       meta: connection.meta,
       tags: [...connection.tags],
       channels: [...connection.channels],
+      channelMemberships: [...connection.channelMemberships.values()],
     });
   }
 }

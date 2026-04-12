@@ -14,7 +14,7 @@ export default defineConfig({
     lib: {
       entry: {
         index: resolve(__dirname, 'src/index.ts'),
-        adapters: resolve(__dirname, 'src/adapters.ts'),
+        '_adapters/index': resolve(__dirname, 'src/_adapters/index.ts'),
         modules: resolve(__dirname, 'src/modules/index.ts'),
         ack: resolve(__dirname, 'src/ack/index.ts'),
         heartbeat: resolve(__dirname, 'src/heartbeat/index.ts'),

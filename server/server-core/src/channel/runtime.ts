@@ -4,6 +4,75 @@ import type { CompiledChannel } from '~/_engine/compile/types.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { ConnectionInfo } from '~/index.ts';
 
+export interface ChannelMembership {
+  channelName: string;
+  channelScope?: string;
+}
+
+export function createChannelMembershipKey(channelName: string, channelScope?: string): string {
+  return `${channelScope ?? ''}::${channelName}`;
+}
+
+export function addChannelMembership(
+  connection: Pick<RuntimeConnection, 'channels' | 'channelMemberships' | 'tags'>,
+  channelName: string,
+  channelScope?: string,
+): void {
+  connection.channels.add(channelName);
+  connection.channelMemberships.set(createChannelMembershipKey(channelName, channelScope), {
+    channelName,
+    channelScope,
+  });
+  connection.tags.add(`channel:${channelName}`);
+}
+
+export function hasChannelMembership(
+  connection: Pick<RuntimeConnection, 'channels' | 'channelMemberships'>,
+  channelName: string,
+  channelScope?: string,
+): boolean {
+  if (connection.channelMemberships.size > 0) {
+    return connection.channelMemberships.has(
+      createChannelMembershipKey(channelName, channelScope),
+    );
+  }
+
+  return connection.channels.has(channelName);
+}
+
+export function removeChannelMembership(
+  connection: Pick<RuntimeConnection, 'channels' | 'channelMemberships' | 'tags'>,
+  channelName: string,
+  channelScope?: string,
+): void {
+  connection.channelMemberships.delete(createChannelMembershipKey(channelName, channelScope));
+
+  const hasRemainingMembership = [...connection.channelMemberships.values()].some(
+    (membership) => membership.channelName === channelName,
+  );
+
+  if (!hasRemainingMembership) {
+    connection.channels.delete(channelName);
+    connection.tags.delete(`channel:${channelName}`);
+  }
+}
+
+export function listChannelMemberships(
+  connection: Pick<RuntimeConnection, 'channelMemberships'>,
+): ChannelMembership[] {
+  return [...connection.channelMemberships.values()];
+}
+
+export function resolveCompiledChannel(
+  compiled: Pick<ChannelRuntime['compiled'], 'channels' | 'channelFamilies'>,
+  channelName: string,
+  channelScope?: string,
+): CompiledChannel | undefined {
+  return channelScope
+    ? compiled.channelFamilies.get(channelScope)
+    : compiled.channels.get(channelName);
+}
+
 /**
  * The shared engine surface channel protocol helpers need.
  *
@@ -99,7 +168,7 @@ export async function leaveChannel(
   scope: ChannelScope,
   kickedReason?: string,
 ): Promise<void> {
-  if (!connection.channels.has(scope.channelName)) return;
+  if (!hasChannelMembership(connection, scope.channelName, scope.channelScope)) return;
 
   const ctx = runtime.buildConnectionContext(connection, scope);
 
@@ -107,8 +176,7 @@ export async function leaveChannel(
     await hook(ctx);
   }
 
-  connection.channels.delete(scope.channelName);
-  connection.tags.delete(`channel:${scope.channelName}`);
+  removeChannelMembership(connection, scope.channelName, scope.channelScope);
   runtime.persistAttachment(connection);
 
   if (kickedReason) {
@@ -163,8 +231,7 @@ export async function subscribeConnection(
     await hook.handler(ctx, validatedData);
   }
 
-  connection.channels.add(scope.channelName);
-  connection.tags.add(`channel:${scope.channelName}`);
+  addChannelMembership(connection, scope.channelName, scope.channelScope);
   runtime.persistAttachment(connection);
 
   for (const hook of runtime.subscribeHooks.get(scope.channel.key) ?? []) {
@@ -239,7 +306,24 @@ export function kickChannelMembers(
   for (const connection of runtime.connections.values()) {
     if (!connection.channels.has(channelName) || !connection.tags.has(tag)) continue;
 
-    const channel = runtime.compiled.channels.get(channelName);
-    void runtime.leaveChannel(connection, { channel, channelName }, reason);
+    for (const membership of listChannelMemberships(connection)) {
+      if (membership.channelName !== channelName) continue;
+
+      const channel = resolveCompiledChannel(
+        runtime.compiled,
+        membership.channelName,
+        membership.channelScope,
+      );
+
+      void runtime.leaveChannel(
+        connection,
+        {
+          channel,
+          channelName: membership.channelName,
+          channelScope: membership.channelScope,
+        },
+        reason,
+      );
+    }
   }
 }

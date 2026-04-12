@@ -149,8 +149,10 @@ export interface RuntimeConnection {
   meta: Record<string, unknown>;
   tags: Set<string>;
   channels: Set<string>;
+  channelMemberships: Map<string, { channelName: string; channelScope?: string }>;
   latency: number | null;
   quality: 'excellent' | 'good' | 'degraded' | 'poor';
+  lifecycleReady?: Promise<void>;
   activeAckId?: string;
   heartbeatTimer?: unknown;
   pingTimer?: unknown;

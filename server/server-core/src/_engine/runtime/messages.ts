@@ -385,7 +385,7 @@ export function broadcastToChannel(
   channelScope?: string,
 ): void {
   const connections = [...runtime.connections.values()].filter((connection) => {
-    return connection.channels.has(channelName);
+    return ChannelPrimitive.hasChannelMembership(connection, channelName, channelScope);
   });
 
   for (const connection of connections) {
@@ -532,7 +532,10 @@ export async function dispatchIncoming(
   attempt = 0,
 ): Promise<void> {
   const scope = resolveScope(runtime.compiled, rawPayload);
-  if (scope.channelName && !connection.channels.has(scope.channelName)) {
+  if (
+    scope.channelName &&
+    !ChannelPrimitive.hasChannelMembership(connection, scope.channelName, scope.channelScope)
+  ) {
     return;
   }
 
