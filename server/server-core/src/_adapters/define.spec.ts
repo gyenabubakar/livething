@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { defineServerAdapter } from './define.ts';
 
 describe('defineServerAdapter', () => {
-  it('passes handler, engine factory, and options to setup', async () => {
+  it('passes engine factory and options to setup', async () => {
     const setup = vi.fn(() => ({ ok: true }));
     const serve = defineServerAdapter({
       id: 'test',
@@ -12,15 +12,10 @@ describe('defineServerAdapter', () => {
 
     const handler = { __wskit: 'server', primitives: [] } as any;
     const result = await serve(handler, { port: 3000 });
-    const [receivedHandler, createEngine, options] = setup.mock.calls[0]! as unknown as [
-      any,
-      () => any,
-      any,
-    ];
+    const [createEngine, options] = setup.mock.calls[0]! as unknown as [() => any, any];
 
     expect(result).toEqual({ ok: true });
     expect(setup).toHaveBeenCalledTimes(1);
-    expect(receivedHandler).toBe(handler);
     expect(options).toEqual({ port: 3000 });
     expect(typeof createEngine).toBe('function');
 
@@ -35,7 +30,7 @@ describe('defineServerAdapter', () => {
     const serve = defineServerAdapter({
       id: 'multi',
       hibernation: false,
-      setup(_handler, createEngine) {
+      setup(createEngine) {
         capturedFactory = createEngine;
         return {};
       },

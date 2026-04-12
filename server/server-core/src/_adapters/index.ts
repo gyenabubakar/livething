@@ -5,10 +5,9 @@ export type {
   ConnectionHandle,
   Engine,
   EngineOptions,
-  ServerDefinition,
   UpgradeDecision,
 } from './types.ts';
-export type { ServerContract } from '~/server-definition.ts';
+export type { ServerContract, ServerDefinition } from '~/server-definition.ts';
 export type {
   KVProvider,
   SQLProvider,

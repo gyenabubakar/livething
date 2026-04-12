@@ -14,7 +14,7 @@ const buildServe = defineServerAdapter<void, CloudflareDurableObjectClass>({
   id: 'cloudflare',
   hibernation: true,
  
-  setup(_handler, createEngine) {
+  setup(createEngine) {
     return class WskitDurableObject<Env = unknown> extends DurableObject<Env> {
       private readonly engine: Engine;
       private readonly liveConnections = new Map<WebSocket, ConnectionHandle>();

@@ -24,6 +24,6 @@ export function defineServerAdapter<TOptions, TService>(
         hibernation: config.hibernation,
       });
 
-    return config.setup(handler, createEngine, options);
+    return config.setup(createEngine, options);
   };
 }
