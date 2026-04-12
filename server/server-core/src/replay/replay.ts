@@ -88,7 +88,6 @@ export function replay(options?: ReplayOptions): ReplayPrimitive {
         const scope = readReplayContextScope(base);
 
         if (channelKey) {
-          // Inside a channel scope: attach `sendReplay` to `ctx.channel`.
           if (scope.channelScope !== channelKey || !base.id || !base.channel) return {};
 
           base.channel.sendReplay = (event: string, payload: unknown, wire: ReplayWire) => {
@@ -105,7 +104,6 @@ export function replay(options?: ReplayOptions): ReplayPrimitive {
           return {};
         }
 
-        // Top-level scope: attach `sendReplay` directly to the context.
         if (scope.namespaceName || scope.channelName || !base.id) return {};
 
         base.sendReplay = (event: string, payload: unknown, wire: ReplayWire) => {
@@ -136,12 +134,10 @@ export function replay(options?: ReplayOptions): ReplayPrimitive {
       }
 
       if ((opts.durability ?? 'strict') === 'strict') {
-        // Store before sending so no message is ever sent without being stored.
         engine.onBeforeSend((wireMessage) => {
           persist(wireMessage);
         });
       } else {
-        // Store after sending (async) to reduce send latency.
         engine.onAfterSend((wireMessage) => {
           return Promise.resolve().then(() => {
             persist(wireMessage);

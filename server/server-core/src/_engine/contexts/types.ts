@@ -96,6 +96,11 @@ export interface CreateTaskContextDeps extends ContextCommonDeps {
   connections: Map<string, EngineRuntimeTypes.RuntimeConnection>;
 }
 
+// ---------------------------------------------------------------------------
+// Re-exports for internal context builders — keeps import paths short within
+// the engine without exposing engine-specific modules from the public API.
+// ---------------------------------------------------------------------------
+
 export type BroadcastOptions = PublicApi.BroadcastOptions;
 export type ConnectionContext<
   TMeta extends Record<string, unknown>,

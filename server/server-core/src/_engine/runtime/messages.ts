@@ -165,6 +165,7 @@ export function resolveScope(
   return {};
 }
 
+/** Check whether an event name belongs to any installed module's outgoing declarations. */
 function isDeclaredModuleEvent(compiled: CompiledServer, event: string): boolean {
   for (const moduleInstance of compiled.modules) {
     for (const declaration of moduleInstance.outgoing) {
@@ -177,6 +178,13 @@ function isDeclaredModuleEvent(compiled: CompiledServer, event: string): boolean
   return false;
 }
 
+/**
+ * Check whether an outgoing event was declared in the correct scope.
+ *
+ * Module events (`__`-prefixed) are checked against module declarations.
+ * Protocol events (`_`-prefixed, single underscore) are always allowed.
+ * Everything else must appear in the scope's outgoing or stream maps.
+ */
 function isDeclaredOutgoingEvent(
   compiled: EngineCompileTypes.CompiledServer,
   event: string,
@@ -200,12 +208,14 @@ function isDeclaredOutgoingEvent(
   return compiled.outgoing.has(event) || compiled.streams.has(event);
 }
 
+/** Throw if the payload is not a plain object — arrays and primitives are rejected. */
 function assertPayloadRecord(payload: unknown): asserts payload is Record<string, unknown> {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
     throw new Error('[wskit] Outgoing payload must be a plain object.');
   }
 }
 
+/** Throw if any payload key starts with `_` — those are reserved for the engine. */
 function assertNoReservedPayloadFields(payload: Record<string, unknown>): void {
   for (const key of Object.keys(payload)) {
     if (key.startsWith('_')) {
@@ -216,6 +226,11 @@ function assertNoReservedPayloadFields(payload: Record<string, unknown>): void {
   }
 }
 
+/**
+ * Throw if the payload has new `_`-prefixed keys that were not present before
+ * hooks ran. Hooks are allowed to add `_`-prefixed fields (e.g. `_seq`), but
+ * user code and modules must not introduce new ones.
+ */
 function assertNoNewReservedPayloadFields(
   payload: Record<string, unknown>,
   allowedReservedFields: ReadonlySet<string>,
@@ -596,6 +611,8 @@ export async function dispatchIncoming(
       payload,
     );
 
+    // Stash the ack correlation ID (if any) so `ctx.ack()` inside the
+    // handler knows which client-side Promise to resolve.
     connection.activeAckId =
       message.payload &&
       typeof message.payload === 'object' &&
@@ -635,6 +652,7 @@ export async function dispatchIncoming(
   } catch (error) {
     if (error === Block) return;
     if (error === Skip) return;
+
     if (
       error &&
       typeof error === 'object' &&
@@ -646,6 +664,9 @@ export async function dispatchIncoming(
       );
       return;
     }
+
+    // Defer — re-enqueue the message after a delay. After 3 failed attempts
+    // the engine gives up and fires a DeferExhausted error instead.
     if (error && typeof error === 'object' && (error as { __wskit?: string }).__wskit === 'defer') {
       if (attempt >= 3) {
         await runtime.handleRuntimeError(
@@ -666,6 +687,7 @@ export async function dispatchIncoming(
       }, delay);
       return;
     }
+
     await runtime.handleRuntimeError(connection, error, event);
   }
 }

@@ -98,6 +98,12 @@ function getRetryDelay(attempts: number): number | undefined {
   return RETRY_BACKOFF_MS[attempts];
 }
 
+/**
+ * Serialize the in-memory run queue and dead-letter queue back to SQLite.
+ *
+ * This replaces the entire table contents in a single transaction so the
+ * persisted state always matches what the engine holds in memory.
+ */
 function persistSchedulerState(runtime: ScheduledRuntimeAccess): void {
   const storage = runtime.requireStorage();
   const runs = [...runtime.getScheduledRuns().values()];
@@ -135,6 +141,13 @@ function persistSchedulerState(runtime: ScheduledRuntimeAccess): void {
   });
 }
 
+/**
+ * Seed a recurring run for each `.scheduled()` task that declares an `every`
+ * interval but does not already have one queued.
+ *
+ * Called at boot so that recurring tasks resume even after a restart or
+ * hibernation wake.
+ */
 function ensureRecurringRuns(runtime: ScheduledRuntimeAccess): void {
   const scheduledRuns = runtime.getScheduledRuns();
   const now = Date.now();

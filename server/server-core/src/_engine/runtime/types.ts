@@ -48,17 +48,30 @@ export type IncomingProtocolEvent =
  * processing messages, connections, shutdown, and alarms.
  */
 export interface RegisteredEngineHooks {
+  // -- Message pipeline hooks -------------------------------------------------
+
+  /** Fires on every text/binary frame — used by heartbeat to reset idle timers. */
   activity: ((connectionId: string) => void | Promise<void>)[];
+
+  /** Runs before routing — can rewrite or observe raw incoming messages. */
   incoming: ((message: {
     event: string;
     payload: unknown;
   }) => { event: string; payload: unknown } | void)[];
+
+  /** Runs before wire serialization — can rewrite or observe outgoing messages. */
   outgoing: ((message: {
     event: string;
     payload: unknown;
   }) => { event: string; payload: unknown } | void)[];
+
+  /** Runs after wire metadata is attached but before the frame is sent. */
   beforeSend: ((message: WireOutgoingMessage) => void)[];
+
+  /** Runs after a frame is sent — for best-effort side effects like replay storage. */
   afterSend: ((message: WireOutgoingMessage) => void | Promise<void>)[];
+
+  /** Handlers for reserved client protocol events (subscribe, replay, etc.). */
   protocol: Map<
     IncomingProtocolEvent,
     ((
@@ -66,24 +79,60 @@ export interface RegisteredEngineHooks {
       payload: Record<string, unknown> | undefined,
     ) => boolean | void | Promise<boolean | void>)[]
   >;
+
+  // -- Context extension ------------------------------------------------------
+
+  /** Factories that add extra fields/methods to every connection context. */
   contextExtenders: ((ctx: any) => Record<string, unknown>)[];
+
+  // -- Lifecycle hooks --------------------------------------------------------
+
+  /** Runs during primitive setup, before `init` hooks — for internal bootstrap. */
+  boot: (() => void | Promise<void>)[];
+
+  /** Runs once during `engine.initialize()` — for framework-level startup. */
   init: ((ctx: any) => void | Promise<void>)[];
+
+  /** Runs after each new connection is accepted. */
   connect: ((ctx: any) => void | Promise<void>)[];
+
+  /** Runs after a connection closes. */
   disconnect: ((ctx: any) => void | Promise<void>)[];
+
+  /** Runs during graceful engine shutdown. */
   shutdown: ((ctx: any) => void | Promise<void>)[];
+
+  /** Observes unrecognized runtime errors before the client gets `_error`. */
   error: ((ctx: any, error: unknown, event?: string) => void | Promise<void>)[];
+
+  /** Runs before the WebSocket handshake — for auth and connection limiting. */
   upgrade: ((request: Request) =>
     | { meta?: Record<string, unknown>; tags?: readonly string[] }
     | Promise<{
         meta?: Record<string, unknown>;
         tags?: readonly string[];
       }>)[];
+
+  /** Handles raw binary frames that bypass the JSON pipeline. */
   binary: ((ctx: any, data: ArrayBuffer) => void | Promise<void>)[];
+
+  /** Observes incoming payloads that fail schema validation. */
   validationError: ((ctx: any, event: string, validationError: unknown) => void | Promise<void>)[];
-  boot: (() => void | Promise<void>)[];
+
+  // -- Scheduled work ---------------------------------------------------------
+
+  /** Runs when the adapter fires a scheduled alarm. */
   alarm: (() => void | Promise<void>)[];
+
+  // -- Channel membership -----------------------------------------------------
+
+  /** Auth gates per channel key — runs before a subscription is confirmed. */
   beforeSubscribe: Map<string, ChannelBeforeSubscribeHook[]>;
+
+  /** Runs after a channel subscription succeeds, keyed by channel key. */
   subscribe: Map<string, ((ctx: any) => void | Promise<void>)[]>;
+
+  /** Runs after a channel unsubscription completes, keyed by channel key. */
   unsubscribe: Map<string, ((ctx: any) => void | Promise<void>)[]>;
 }
 

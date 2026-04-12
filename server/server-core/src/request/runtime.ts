@@ -17,11 +17,26 @@ interface RequestRuntime {
   ): boolean;
 }
 
+/**
+ * Extract the `_correlationId` field from an incoming payload.
+ *
+ * The client attaches this ID when sending a request so the engine can tag
+ * the response with the same ID. The client then matches the response back
+ * to the original `request()` Promise.
+ */
 export function readCorrelationId(payload: unknown): string | undefined {
   if (!payload || typeof payload !== 'object' || !('_correlationId' in payload)) return undefined;
   return String((payload as Record<string, unknown>)._correlationId);
 }
 
+/**
+ * Execute a matched `.reply()` handler and send the response back to the
+ * client through the outgoing pipeline.
+ *
+ * The handler runs inside a scoped connection context. Its return value is
+ * sent as an outgoing event with the same name, tagged with the original
+ * `_correlationId` so the client can resolve the correct Promise.
+ */
 export async function handleRequest(
   runtime: RequestRuntime,
   connection: RuntimeConnection,

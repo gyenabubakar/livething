@@ -4,6 +4,7 @@ import type { TimerProvider } from '~/context.ts';
 const DEFAULT_CONNECTION_PING_INTERVAL_MS = 30_000;
 const MAX_RECENT_LATENCIES = 5;
 
+/** Map a latency measurement (ms) to a human-readable connection quality label. */
 function qualityFromLatency(latency: number): 'excellent' | 'good' | 'degraded' | 'poor' {
   if (latency < 100) return 'excellent';
   if (latency < 300) return 'good';
@@ -34,6 +35,14 @@ export function refreshHeartbeatTimeout(
   }, timeoutMs);
 }
 
+/**
+ * Start a recurring ping timer for one connection.
+ *
+ * Every `intervalMs` the engine sends a `"ping"` text frame and records when
+ * it was sent. When the matching `"pong"` arrives, `recordConnectionLatency`
+ * calculates the round-trip time. If a pong never arrives before the next
+ * ping fires, the connection quality is downgraded to `'poor'`.
+ */
 export function scheduleConnectionPing(
   timers: TimerProvider,
   connection: {
@@ -59,6 +68,11 @@ export function scheduleConnectionPing(
   }, intervalMs);
 }
 
+/**
+ * Cancel the recurring ping timer for one connection.
+ *
+ * Called when a connection closes or during shutdown cleanup.
+ */
 export function stopConnectionPing(
   timers: TimerProvider | undefined,
   connection: {
@@ -74,6 +88,13 @@ export function stopConnectionPing(
   connection.pendingPingSentAt = undefined;
 }
 
+/**
+ * Process an incoming `"pong"` and update the connection's latency stats.
+ *
+ * Computes the round-trip time from the last sent ping, adds it to a rolling
+ * window of recent samples, averages them, and derives the quality label.
+ * If no ping was pending (e.g. an unsolicited pong), this is a no-op.
+ */
 export function recordConnectionLatency(
   connection: {
     latency: number | null;

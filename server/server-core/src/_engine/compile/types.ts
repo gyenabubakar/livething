@@ -10,17 +10,32 @@ import type * as RequestPrimitive from '~/request/index.ts';
 import type * as ScheduledPrimitive from '~/scheduled/index.ts';
 import type * as StreamPrimitive from '~/stream/index.ts';
 
+// ---------------------------------------------------------------------------
+// Widened type aliases — used throughout the compile and runtime layers so
+// generic parameters don't leak into every function signature. Each alias
+// erases the specific event name, payload, and handler types to `any` while
+// keeping the structural shape intact.
+// ---------------------------------------------------------------------------
+
+/** Any `.outgoing()` declaration, regardless of event name or payload type. */
 export type AnyOutgoing = OutgoingPrimitive.OutgoingPrimitive<string, any>;
+/** Any `.incoming()` handler, regardless of event name or payload type. */
 export type AnyIncoming = IncomingPrimitive.IncomingPrimitive<string, any, any>;
+/** Any `.reply()` handler, regardless of event, payload, or response type. */
 export type AnyRequest = RequestPrimitive.RequestPrimitive<string, any, any, any>;
+/** Any `.generate()` handler attached to a stream declaration. */
 export type AnyGenerate = StreamPrimitive.GeneratePrimitive<
   StreamPrimitive.StreamPrimitive<string, any, any, readonly StreamPrimitive.NudgeDeclaration[]>,
   any,
   any
 >;
+/** Any pre-validation `.intercept()` primitive. */
 export type AnyPreIntercept = InterceptPrimitive.PreInterceptPrimitive<any>;
+/** Any post-validation `.intercept(event, handler)` primitive. */
 export type AnyPostIntercept = InterceptPrimitive.PostInterceptPrimitive<string, any, any>;
+/** Any `.scheduled()` task declaration. */
 export type AnyScheduled = ScheduledPrimitive.ScheduledPrimitive<string, any, any>;
+/** Any installed module instance from `defineModule(...)`. */
 export type AnyModule = DefineModule.ModuleInstance<
   string,
   any,
@@ -28,8 +43,11 @@ export type AnyModule = DefineModule.ModuleInstance<
   readonly AnyOutgoing[],
   readonly any[]
 >;
+/** Widened `.namespace()` primitive type for the compile layer. */
 export type NamespacePrimitiveType = NamespacePrimitive.NamespacePrimitive;
+/** Widened `.channel()` primitive type for the compile layer. */
 export type ChannelPrimitiveType = ChannelPrimitive.ChannelPrimitive;
+/** Adapter dependency manifest — which platform features a primitive needs. */
 export type RequiresManifest = PrimitiveCore.RequiresManifest;
 
 /**

@@ -48,6 +48,9 @@ export function validateValue(validator: unknown, value: unknown, event = 'unkno
     return validator(value);
   }
 
+  // Standard Schema (Zod, Valibot, ArkType, etc.) — exposes a `~standard`
+  // property with a `validate(value)` method that returns either `{ value }`
+  // on success or `{ issues }` on failure.
   if (
     validator &&
     typeof validator === 'object' &&

@@ -279,6 +279,11 @@ export function buildConnectionContext(
 
 /**
  * Wrap a context so module event helpers automatically prefix their event names.
+ *
+ * Modules declare outgoing events with short names (e.g. `'flushed'`), but on
+ * the wire they become `'__acme:analytics:flushed'`. This Proxy intercepts
+ * `send`, `broadcast`, `sendTo`, and `sendToConnection` and prepends the
+ * module's ID before delegating to the real context method.
  */
 export function createModuleScopedContext(
   moduleId: string,
@@ -288,6 +293,8 @@ export function createModuleScopedContext(
     return EngineCompileUtils.prefixedModuleEvent(moduleId, event);
   }
 
+  // Proxy traps only the four send-like methods. Everything else (meta, sql,
+  // log, etc.) passes through to the underlying connection context unchanged.
   return new Proxy(ctx, {
     get(target, key, receiver) {
       if (key === 'send') {

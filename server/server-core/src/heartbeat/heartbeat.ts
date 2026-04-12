@@ -49,12 +49,10 @@ export function heartbeat(options: HeartbeatOptions): HeartbeatPrimitive {
         engine.onConnect((ctx) => {
           const connectionId = String((ctx as Record<PropertyKey, unknown>).id ?? '');
           if (!connectionId) return;
-          // Start the idle clock as soon as the connection is established.
           engine.refreshConnectionIdleTimeout(connectionId, options.timeout);
         });
 
         engine.onConnectionActivity((connectionId) => {
-          // Any activity resets the clock so active connections are not closed.
           engine.refreshConnectionIdleTimeout(connectionId, options.timeout);
         });
       });

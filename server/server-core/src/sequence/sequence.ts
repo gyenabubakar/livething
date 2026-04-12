@@ -56,13 +56,10 @@ export function sequence(options?: SequenceOptions): SequencePrimitive {
       engine.setSequencePersistent(persist);
 
       engine.installOnce(SEQUENCE_KEY, () => {
-        // In-memory counter used when `persist` is false.
         let current = 0;
 
         if (persist) {
           engine.onBoot(() => {
-            // Create the SQLite table that stores the global sequence counter if
-            // it does not already exist.
             ensureSequenceSchema(engine.requireStorage().sql);
           });
         }

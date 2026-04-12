@@ -39,6 +39,7 @@ interface ConnectionRuntime {
   ): Promise<void>;
 }
 
+/** Wrap a `RuntimeConnection` into the `ConnectionHandle` callbacks the adapter uses. */
 function createHandle(
   runtime: ConnectionRuntime,
   connection: EngineRuntimeTypes.RuntimeConnection,
