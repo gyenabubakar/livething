@@ -121,9 +121,7 @@ describe('message runtime', () => {
               kind: 'channel' as const,
               pattern: { key: 'rooms', pattern: /^room:/ },
               outgoing: new Map(),
-              incoming: new Map([
-                ['message', { event: 'message', handler, validator: undefined }],
-              ]),
+              incoming: new Map([['message', { event: 'message', handler, validator: undefined }]]),
               requests: new Map(),
               streams: new Map(),
               preIntercepts: [],

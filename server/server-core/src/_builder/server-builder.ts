@@ -310,7 +310,9 @@ export class ServerBuilder<TState extends ScopeStateShape = InitialState> {
   group<TGroupState extends ScopeStateShape>(
     callback: (builder: GroupBuilder<TState>) => GroupBuilder<TGroupState>,
   ): ServerBuilder<TGroupState>;
-  group(callback?: (builder: GroupBuilder<TState>) => GroupBuilder<any>): GroupBuilder<TState> | ServerBuilder<any> {
+  group(
+    callback?: (builder: GroupBuilder<TState>) => GroupBuilder<any>,
+  ): GroupBuilder<TState> | ServerBuilder<any> {
     const builder = new GroupBuilder<TState>(this);
     if (callback) {
       callback(builder);

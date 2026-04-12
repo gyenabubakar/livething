@@ -241,7 +241,12 @@ export class ChannelBuilder<
    * without pushing it onto the parent builder. Use this to define a channel
    * in one file and register it elsewhere with `.use()`.
    */
-  extract(): ChannelPrimitive<TPattern, any, ChannelNameFromPattern<TPattern>, ChannelContract<TState>> {
+  extract(): ChannelPrimitive<
+    TPattern,
+    any,
+    ChannelNameFromPattern<TPattern>,
+    ChannelContract<TState>
+  > {
     return (createChannel as any)(this._pattern, ...this._primitives) as any;
   }
 }
@@ -259,7 +264,9 @@ declare module '~/_builder/server-builder.ts' {
      * @param pattern A string for exact channel names, or a `ScopeDeclaration`
      *   (`scope(key, regex)`) for dynamic names that capture a parameter.
      */
-    channel<TPattern extends ChannelPattern>(pattern: TPattern): ChannelBuilder<TState, ChannelState<TState>, TPattern>;
+    channel<TPattern extends ChannelPattern>(
+      pattern: TPattern,
+    ): ChannelBuilder<TState, ChannelState<TState>, TPattern>;
 
     /**
      * Define a channel inline using a callback. The callback receives a
@@ -270,7 +277,9 @@ declare module '~/_builder/server-builder.ts' {
      */
     channel<TPattern extends ChannelPattern, TChannelState extends ScopeStateShape>(
       pattern: TPattern,
-      callback: (builder: ChannelBuilder<TState, ChannelState<TState>, TPattern>) => ChannelBuilder<TState, TChannelState, TPattern>,
+      callback: (
+        builder: ChannelBuilder<TState, ChannelState<TState>, TPattern>,
+      ) => ChannelBuilder<TState, TChannelState, TPattern>,
     ): ServerBuilder<StateWithChannel<TState, ChannelNameFromPattern<TPattern>, TChannelState>>;
   }
 
@@ -279,14 +288,18 @@ declare module '~/_builder/server-builder.ts' {
      * Open a channel sub-builder for `pattern`. Call `.done()` to seal it and
      * return to this builder, or `.extract()` to detach it as a primitive.
      */
-    channel<TPattern extends ChannelPattern>(pattern: TPattern): ChannelBuilder<TState, ChannelState<TState>, TPattern>;
+    channel<TPattern extends ChannelPattern>(
+      pattern: TPattern,
+    ): ChannelBuilder<TState, ChannelState<TState>, TPattern>;
 
     /**
      * Define a channel inline using a callback.
      */
     channel<TPattern extends ChannelPattern, TChannelState extends ScopeStateShape>(
       pattern: TPattern,
-      callback: (builder: ChannelBuilder<TState, ChannelState<TState>, TPattern>) => ChannelBuilder<TState, TChannelState, TPattern>,
+      callback: (
+        builder: ChannelBuilder<TState, ChannelState<TState>, TPattern>,
+      ) => ChannelBuilder<TState, TChannelState, TPattern>,
     ): GroupBuilder<StateWithChannel<TState, ChannelNameFromPattern<TPattern>, TChannelState>>;
   }
 }

@@ -104,7 +104,11 @@ declare module '~/_builder/server-builder.ts' {
      * for all subsequent handlers, giving you type-safe access to session data.
      */
     onUpgrade<TMeta extends Record<string, unknown> = Record<string, unknown>>(
-      handler: (request: Request) => { meta?: TMeta; tags?: readonly string[] } | Promise<{ meta?: TMeta; tags?: readonly string[] }>,
+      handler: (
+        request: Request,
+      ) =>
+        | { meta?: TMeta; tags?: readonly string[] }
+        | Promise<{ meta?: TMeta; tags?: readonly string[] }>,
     ): ServerBuilder<{
       readonly kind: TState['kind'];
       readonly outgoing: TState['outgoing'];
@@ -166,7 +170,11 @@ declare module '~/_builder/server-builder.ts' {
 
     /** Run `handler` on the HTTP upgrade request before the WebSocket is opened. */
     onUpgrade<TMeta extends Record<string, unknown> = Record<string, unknown>>(
-      handler: (request: Request) => { meta?: TMeta; tags?: readonly string[] } | Promise<{ meta?: TMeta; tags?: readonly string[] }>,
+      handler: (
+        request: Request,
+      ) =>
+        | { meta?: TMeta; tags?: readonly string[] }
+        | Promise<{ meta?: TMeta; tags?: readonly string[] }>,
     ): GroupBuilder<{
       readonly kind: TState['kind'];
       readonly outgoing: TState['outgoing'];

@@ -210,7 +210,10 @@ export interface ReplayScopeSendApi extends ScopeSendApi {
  * at compile time. When dynamic channels exist the union includes `string & {}`
  * so any string is accepted but autocomplete still suggests known names.
  */
-export interface ChannelManager<TChannelNames extends string = string, Meta = Record<string, unknown>> {
+export interface ChannelManager<
+  TChannelNames extends string = string,
+  Meta = Record<string, unknown>,
+> {
   /** Get every connection currently subscribed to the given channel. */
   members(name: TChannelNames): ConnectionInfo<Meta>[];
 

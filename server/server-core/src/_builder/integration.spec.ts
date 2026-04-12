@@ -320,7 +320,9 @@ describe('Integration: multi-file composition', () => {
     const handlers = appBase
       .group()
       .incoming(sendMessage, async () => {})
-      .request(ping, pongSchema, async (ctx, p) => { ctx.respond({ ts: p.ts, serverTs: 0 }); })
+      .request(ping, pongSchema, async (ctx, p) => {
+        ctx.respond({ ts: p.ts, serverTs: 0 });
+      })
       .extract();
 
     const def = server('chat')

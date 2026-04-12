@@ -200,12 +200,7 @@ describe('GroupBuilder', () => {
       .incoming(sendMessage, async () => {})
       .extract();
 
-    expect(() =>
-      base
-        .group()
-        .use(nested)
-        .extract(),
-    ).toThrow(/Nested groups are not supported/);
+    expect(() => base.group().use(nested).extract()).toThrow(/Nested groups are not supported/);
   });
 
   it('inherits parent outgoing events for ctx.send typing', () => {

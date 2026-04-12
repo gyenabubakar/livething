@@ -8,7 +8,10 @@ import { namespace } from './namespace.ts';
 
 describe('namespace', () => {
   it('creates a frozen namespace primitive for mixed child primitives', () => {
-    const streamDecl = stream(start('ai', (value: unknown) => value as { prompt: string }), nudge('stop'));
+    const streamDecl = stream(
+      start('ai', (value: unknown) => value as { prompt: string }),
+      nudge('stop'),
+    );
     const primitive = namespace(
       'notifications',
       outgoing('message'),

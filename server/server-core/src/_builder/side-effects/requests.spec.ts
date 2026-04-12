@@ -49,8 +49,12 @@ describe('.request() side-effect', () => {
   it('rejects duplicate request event names', () => {
     expect(() =>
       server('chat')
-        .request(ping, pongSchema, async (ctx, p) => { ctx.respond({ ts: p.ts, serverTs: 0 }); })
-        .request(ping, pongSchema, async (ctx, p) => { ctx.respond({ ts: p.ts, serverTs: 0 }); })
+        .request(ping, pongSchema, async (ctx, p) => {
+          ctx.respond({ ts: p.ts, serverTs: 0 });
+        })
+        .request(ping, pongSchema, async (ctx, p) => {
+          ctx.respond({ ts: p.ts, serverTs: 0 });
+        })
         .build(),
     ).toThrow(/Duplicate registration/);
   });

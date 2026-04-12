@@ -5,16 +5,22 @@ import { createPlatform } from './platform.ts';
 import { createStorage, createTimers } from './providers.ts';
 import { normalizeBinary } from './utils.ts';
 
+export interface CloudflareOptions {
+  hibernation?: boolean;
+}
+
 export type CloudflareDurableObjectClass<Env = unknown> = new (
   ctx: DurableObjectState,
   env: Env,
 ) => DurableObject<Env>;
 
-const buildServe = defineServerAdapter<void, CloudflareDurableObjectClass>({
+const buildServe = defineServerAdapter<CloudflareOptions, CloudflareDurableObjectClass>({
   id: 'cloudflare',
-  hibernation: true,
- 
-  setup(createEngine) {
+  hibernation: (options) => options?.hibernation ?? true,
+
+  setup(createEngine, options) {
+    const hibernation = options?.hibernation ?? true;
+
     return class WskitDurableObject<Env = unknown> extends DurableObject<Env> {
       private readonly engine: Engine;
       private readonly liveConnections = new Map<WebSocket, ConnectionHandle>();
@@ -56,17 +62,40 @@ const buildServe = defineServerAdapter<void, CloudflareDurableObjectClass>({
         const client = pair[0];
         const server = pair[1];
 
-        this.ctx.acceptWebSocket(server, [...(result.tags ?? [])]);
-
-        const connection = this.engine.accept(server, {
+        const descriptor = {
           send: (data: string) => server.send(data),
           sendBinary: (data: ArrayBuffer | ArrayBufferView) => server.send(data),
           close: (code?: number, reason?: string) => server.close(code, reason),
           bufferedAmount: () => 0,
           meta: result.meta ?? {},
           tags: result.tags ?? [],
-        });
+        };
+
+        if (hibernation) {
+          this.ctx.acceptWebSocket(server, [...(result.tags ?? [])]);
+        } else {
+          server.accept();
+        }
+
+        const connection = this.engine.accept(server, descriptor);
         this.liveConnections.set(server, connection);
+
+        if (!hibernation) {
+          server.addEventListener('message', (event) => {
+            if (typeof event.data === 'string') {
+              connection.handleMessage(event.data);
+            } else {
+              connection.handleBinary(normalizeBinary(event.data));
+            }
+          });
+          server.addEventListener('close', (event) => {
+            this.liveConnections.delete(server);
+            connection.handleClose(event.code, event.reason);
+          });
+          server.addEventListener('error', (event) => {
+            connection.handleError(event);
+          });
+        }
 
         return new Response(null, {
           status: 101,
@@ -130,6 +159,9 @@ const buildServe = defineServerAdapter<void, CloudflareDurableObjectClass>({
   },
 });
 
-export function serve(handler: ServerDefinition): CloudflareDurableObjectClass {
-  return buildServe(handler, undefined as void);
+export function serve(
+  handler: ServerDefinition,
+  options?: CloudflareOptions,
+): CloudflareDurableObjectClass {
+  return buildServe(handler, options ?? {});
 }

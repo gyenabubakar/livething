@@ -81,11 +81,7 @@ describe('.namespace() side-effect', () => {
 
   it('callback overload seals namespace and returns parent builder', () => {
     const def = server('chat')
-      .namespace('notifications', (n) =>
-        n
-          .outgoing(alert)
-          .incoming(dismiss, async () => {}),
-      )
+      .namespace('notifications', (n) => n.outgoing(alert).incoming(dismiss, async () => {}))
       .build();
 
     expect(def.primitives.some((p) => p.__wskit === 'namespace')).toBe(true);
@@ -96,12 +92,10 @@ describe('.namespace() side-effect', () => {
       .ack()
       .outgoing(message)
       .namespace('notifications', (n) =>
-        n
-          .outgoing(alert)
-          .incoming(dismiss, async (ctx) => {
-            ctx.send('message', { text: 'dismissed' });
-            ctx.send('alert', { id: '1', msg: 'hi' });
-          }),
+        n.outgoing(alert).incoming(dismiss, async (ctx) => {
+          ctx.send('message', { text: 'dismissed' });
+          ctx.send('alert', { id: '1', msg: 'hi' });
+        }),
       );
   });
 

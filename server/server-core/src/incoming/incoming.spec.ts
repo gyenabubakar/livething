@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
 import * as v from 'valibot';
+import { describe, expect, it, vi } from 'vitest';
 import { incoming } from './incoming.ts';
 
 describe('incoming', () => {
@@ -16,7 +16,9 @@ describe('incoming', () => {
   });
 
   it('stores optional validators from parse functions and standard schema objects', () => {
-    const parse = (value: unknown) => value as { text: string };
+    function parse(value: unknown) {
+      return value as { text: string };
+    }
     const parsePrimitive = incoming('send-message', vi.fn(), { validator: parse });
     const schemaPrimitive = incoming('send-message', vi.fn(), {
       validator: v.object({ text: v.string() }),

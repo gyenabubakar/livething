@@ -116,11 +116,7 @@ describe('.channel() side-effect', () => {
   it('callback overload seals channel and returns parent builder', () => {
     const def = server('chat')
       .outgoing(message)
-      .channel('lobby', (c) =>
-        c
-          .outgoing(roomMessage)
-          .incoming(roomSend, async () => {}),
-      )
+      .channel('lobby', (c) => c.outgoing(roomMessage).incoming(roomSend, async () => {}))
       .build();
 
     expect(def.primitives.some((p) => p.__wskit === 'channel')).toBe(true);
@@ -131,12 +127,10 @@ describe('.channel() side-effect', () => {
       .ack()
       .outgoing(message)
       .channel(scope('rooms', /^room-.+$/), (c) =>
-        c
-          .outgoing(roomMessage)
-          .incoming(roomSend, async (ctx, payload) => {
-            ctx.send('message', { text: 'hi' });
-            ctx.send('room-message', { text: payload.text, from: 'system' });
-          }),
+        c.outgoing(roomMessage).incoming(roomSend, async (ctx, payload) => {
+          ctx.send('message', { text: 'hi' });
+          ctx.send('room-message', { text: payload.text, from: 'system' });
+        }),
       );
   });
 

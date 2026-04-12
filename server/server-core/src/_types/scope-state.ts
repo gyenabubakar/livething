@@ -478,10 +478,7 @@ export type NextState<
                         incoming: TState['contract']['incoming'];
                         outgoing: TState['contract']['outgoing'];
                         requests: TState['contract']['requests'];
-                        streams: MergeRecords<
-                          TState['contract']['streams'],
-                          StreamEntry<TStream>
-                        >;
+                        streams: MergeRecords<TState['contract']['streams'], StreamEntry<TStream>>;
                         channels: TState['contract']['channels'];
                         namespaces: TState['contract']['namespaces'];
                       };
@@ -610,7 +607,9 @@ export interface ConnectionIdentityMethods {
  * infers `TMeta` as `{ userId: string }` and all handler contexts get
  * `ctx.meta.userId: string` instead of `Record<string, unknown>`.
  */
-export interface ConnectionMetaMethods<TMeta extends Record<string, unknown> = Record<string, unknown>> {
+export interface ConnectionMetaMethods<
+  TMeta extends Record<string, unknown> = Record<string, unknown>,
+> {
   /**
    * Per-connection metadata attached during the WebSocket upgrade step.
    *

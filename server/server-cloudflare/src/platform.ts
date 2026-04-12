@@ -10,10 +10,7 @@ export interface Platform<Env = unknown> {
   env: Env;
 }
 
-export function createPlatform<Env>(
-  state: DurableObjectState,
-  env: Env,
-): Platform<Env> {
+export function createPlatform<Env>(state: DurableObjectState, env: Env): Platform<Env> {
   return {
     ctx: {
       blockConcurrencyWhile: state.blockConcurrencyWhile.bind(state),

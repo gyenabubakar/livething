@@ -201,7 +201,9 @@ declare module '~/_builder/server-builder.ts' {
      * be prefixed with `name` at the wire level. Call `.done()` to seal it and
      * return to this builder, or `.extract()` to detach it as a primitive.
      */
-    namespace<TName extends string>(name: TName): NamespaceBuilder<TState, NamespaceState<TState>, TName>;
+    namespace<TName extends string>(
+      name: TName,
+    ): NamespaceBuilder<TState, NamespaceState<TState>, TName>;
 
     /**
      * Define a namespace inline using a callback. The callback receives a
@@ -210,7 +212,9 @@ declare module '~/_builder/server-builder.ts' {
      */
     namespace<TName extends string, TNamespaceState extends ScopeStateShape>(
       name: TName,
-      callback: (builder: NamespaceBuilder<TState, NamespaceState<TState>, TName>) => NamespaceBuilder<TState, TNamespaceState, TName>,
+      callback: (
+        builder: NamespaceBuilder<TState, NamespaceState<TState>, TName>,
+      ) => NamespaceBuilder<TState, TNamespaceState, TName>,
     ): ServerBuilder<StateWithNamespace<TState, TName, TNamespaceState>>;
   }
 
@@ -219,14 +223,18 @@ declare module '~/_builder/server-builder.ts' {
      * Open a namespace sub-builder for `name`. Call `.done()` to seal it and
      * return to this builder, or `.extract()` to detach it as a primitive.
      */
-    namespace<TName extends string>(name: TName): NamespaceBuilder<TState, NamespaceState<TState>, TName>;
+    namespace<TName extends string>(
+      name: TName,
+    ): NamespaceBuilder<TState, NamespaceState<TState>, TName>;
 
     /**
      * Define a namespace inline using a callback.
      */
     namespace<TName extends string, TNamespaceState extends ScopeStateShape>(
       name: TName,
-      callback: (builder: NamespaceBuilder<TState, NamespaceState<TState>, TName>) => NamespaceBuilder<TState, TNamespaceState, TName>,
+      callback: (
+        builder: NamespaceBuilder<TState, NamespaceState<TState>, TName>,
+      ) => NamespaceBuilder<TState, TNamespaceState, TName>,
     ): GroupBuilder<StateWithNamespace<TState, TName, TNamespaceState>>;
   }
 }

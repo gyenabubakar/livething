@@ -683,7 +683,9 @@ describe('InferClient from .use() assembled server', () => {
     .group()
     .incoming(sendMessage, async () => {})
     .incoming(typing, async () => {})
-    .request(ping, pongSchema, async (ctx, p) => { ctx.respond({ ts: p.ts, serverTs: 0 }); })
+    .request(ping, pongSchema, async (ctx, p) => {
+      ctx.respond({ ts: p.ts, serverTs: 0 });
+    })
     .extract();
 
   // -- "rooms.ts" --

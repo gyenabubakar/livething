@@ -1,6 +1,4 @@
-export function normalizeBinary(
-  message: string | ArrayBuffer | ArrayBufferView,
-): ArrayBuffer {
+export function normalizeBinary(message: string | ArrayBuffer | ArrayBufferView): ArrayBuffer {
   if (message instanceof ArrayBuffer) return message;
   if (ArrayBuffer.isView(message)) {
     return message.buffer.slice(

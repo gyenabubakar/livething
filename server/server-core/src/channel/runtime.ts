@@ -32,9 +32,7 @@ export function hasChannelMembership(
   channelScope?: string,
 ): boolean {
   if (connection.channelMemberships.size > 0) {
-    return connection.channelMemberships.has(
-      createChannelMembershipKey(channelName, channelScope),
-    );
+    return connection.channelMemberships.has(createChannelMembershipKey(channelName, channelScope));
   }
 
   return connection.channels.has(channelName);

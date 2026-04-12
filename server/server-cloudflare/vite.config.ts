@@ -13,10 +13,7 @@ export default defineConfig({
       formats: ['es'],
     },
     rollupOptions: {
-      external: [
-        /^cloudflare:workers$/,
-        /^@wskit\/server(?:\/.*)?$/,
-      ],
+      external: [/^cloudflare:workers$/, /^@wskit\/server(?:\/.*)?$/],
     },
   },
   test: {

@@ -304,10 +304,13 @@ export function wakeHibernatedConnection(
           ? (membership as { channelScope: string }).channelScope
           : undefined;
 
-      channelMemberships.set(ChannelPrimitive.createChannelMembershipKey(channelName, channelScope), {
-        channelName,
-        channelScope,
-      });
+      channelMemberships.set(
+        ChannelPrimitive.createChannelMembershipKey(channelName, channelScope),
+        {
+          channelName,
+          channelScope,
+        },
+      );
     }
   }
 

@@ -85,7 +85,18 @@ export type ChannelHandlerContext<
   TOutgoing extends Record<string, any> = NoOutgoing,
   THasAck extends boolean = false,
   THasReplay extends boolean = false,
-> = HandlerCtxFromState<ScopeState<'channel', TOutgoing, THasAck, THasReplay, { incoming: {}; outgoing: {}; requests: {}; streams: {}; channels: {}; namespaces: {} }, readonly [], Record<string, unknown>, never>>;
+> = HandlerCtxFromState<
+  ScopeState<
+    'channel',
+    TOutgoing,
+    THasAck,
+    THasReplay,
+    { incoming: {}; outgoing: {}; requests: {}; streams: {}; channels: {}; namespaces: {} },
+    readonly [],
+    Record<string, unknown>,
+    never
+  >
+>;
 
 /**
  * The `ctx` type available inside a channel stream generator. Same as
@@ -94,7 +105,18 @@ export type ChannelHandlerContext<
 export type ChannelStreamHandlerContext<
   TOutgoing extends Record<string, any> = NoOutgoing,
   THasReplay extends boolean = false,
-> = StreamBaseCtxFromState<ScopeState<'channel', TOutgoing, false, THasReplay, { incoming: {}; outgoing: {}; requests: {}; streams: {}; channels: {}; namespaces: {} }, readonly [], Record<string, unknown>, never>>;
+> = StreamBaseCtxFromState<
+  ScopeState<
+    'channel',
+    TOutgoing,
+    false,
+    THasReplay,
+    { incoming: {}; outgoing: {}; requests: {}; streams: {}; channels: {}; namespaces: {} },
+    readonly [],
+    Record<string, unknown>,
+    never
+  >
+>;
 
 /**
  * The primitive type produced by `channel()`. Carries the channel pattern and

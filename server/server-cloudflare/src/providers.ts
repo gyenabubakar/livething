@@ -1,4 +1,10 @@
-import type { KVProvider, SqlResult, SQLProvider, StorageProvider, TimerProvider } from '@wskit/server/adapters';
+import type {
+  KVProvider,
+  SQLProvider,
+  SqlResult,
+  StorageProvider,
+  TimerProvider,
+} from '@wskit/server/adapters';
 
 type SqlStorageWithTransaction = SqlStorage & {
   transactionSync?<T>(closure: () => T): T;
@@ -18,9 +24,7 @@ export function createSql(state: DurableObjectState): SQLProvider {
     exec(query, ...params) {
       return wrapCursor(sql.exec(query, ...params));
     },
-    transaction<T>(
-      fn: (tx: { exec(query: string, ...params: unknown[]): SqlResult }) => T,
-    ): T {
+    transaction<T>(fn: (tx: { exec(query: string, ...params: unknown[]): SqlResult }) => T): T {
       if (typeof sql.transactionSync === 'function') {
         return sql.transactionSync(() =>
           fn({ exec: (query, ...params) => wrapCursor(sql.exec(query, ...params)) }),

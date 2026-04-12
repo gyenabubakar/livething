@@ -1,4 +1,5 @@
 import type * as EngineModule from '~/_engine/engine.ts';
+
 export interface ConnectionDescriptor {
   send(data: string): void;
   sendBinary(data: ArrayBuffer | ArrayBufferView): void;
@@ -32,9 +33,6 @@ export type Engine = EngineModule.Engine;
 
 export interface AdapterConfig<TOptions, TService> {
   id: string;
-  hibernation: boolean;
-  setup(
-    createEngine: () => Engine,
-    options: TOptions,
-  ): TService;
+  hibernation: boolean | ((options: TOptions) => boolean);
+  setup(createEngine: () => Engine, options: TOptions): TService;
 }
