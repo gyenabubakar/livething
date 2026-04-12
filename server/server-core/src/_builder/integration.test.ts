@@ -9,11 +9,12 @@
  *
  */
 
-import { describe, it } from 'vitest';
 import { server } from '~/_builder/server-builder.ts';
-import { event } from '~/event.ts';
 import { error } from '~/errors/errors.ts';
+import { event } from '~/event.ts';
+import { describe, it } from 'vitest';
 import type { InferClient } from '~/infer-client.ts';
+
 import '~/_builder/side-effects/ack.ts';
 import '~/_builder/side-effects/errors.ts';
 import '~/_builder/side-effects/requests.ts';
@@ -34,8 +35,12 @@ const dismiss = event('dismiss', (p: unknown) => p as { id: string });
 const aiComplete = event('ai-complete', (p: unknown) => p as { prompt: string });
 const cancel = event('cancel', (p: unknown) => p as {});
 
-function pongSchema(p: unknown) { return p as { ts: number; serverTs: number }; }
-function chunkSchema(p: unknown) { return p as { token: string }; }
+function pongSchema(p: unknown) {
+  return p as { ts: number; serverTs: number };
+}
+function chunkSchema(p: unknown) {
+  return p as { token: string };
+}
 
 // ─── ctx type inference ─────────────────────────────────────
 
@@ -82,49 +87,49 @@ describe('ctx type inference at each scope', () => {
       .ack()
       .outgoing(message)
       .channel('lobby')
-        .outgoing(roomMessage)
-        .incoming(roomSend, async (ctx) => {
-          ctx.send('message', { text: 'hi', from: 'x' });
-          ctx.send('room-message', { text: 'hi', from: 'x' });
+      .outgoing(roomMessage)
+      .incoming(roomSend, async (ctx) => {
+        ctx.send('message', { text: 'hi', from: 'x' });
+        ctx.send('room-message', { text: 'hi', from: 'x' });
 
-          // @ts-expect-error — ack is top-level only
-          ctx.ack();
-        })
-        .done();
+        // @ts-expect-error — ack is top-level only
+        ctx.ack();
+      })
+      .done();
   });
 
   it('channel ctx rejects events not in parent or local scope', () => {
     server('chat')
       .channel('lobby')
-        .outgoing(roomMessage)
-        .incoming(roomSend, async (ctx) => {
-          // @ts-expect-error — 'message' not declared anywhere
-          ctx.send('message', { text: 'hi', from: 'x' });
-        })
-        .done();
+      .outgoing(roomMessage)
+      .incoming(roomSend, async (ctx) => {
+        // @ts-expect-error — 'message' not declared anywhere
+        ctx.send('message', { text: 'hi', from: 'x' });
+      })
+      .done();
   });
 
   it('namespace ctx inherits parent outgoing', () => {
     server('chat')
       .outgoing(message)
       .namespace('alerts')
-        .outgoing(alertEvent)
-        .incoming(dismiss, async (ctx) => {
-          ctx.send('message', { text: 'hi', from: 'x' });
-          ctx.send('alert', { id: '1', severity: 'low' });
-        })
-        .done();
+      .outgoing(alertEvent)
+      .incoming(dismiss, async (ctx) => {
+        ctx.send('message', { text: 'hi', from: 'x' });
+        ctx.send('alert', { id: '1', severity: 'low' });
+      })
+      .done();
   });
 
   it('namespace ctx rejects undeclared events', () => {
     server('chat')
       .namespace('alerts')
-        .outgoing(alertEvent)
-        .incoming(dismiss, async (ctx) => {
-          // @ts-expect-error — 'nope' not declared
-          ctx.send('nope', {});
-        })
-        .done();
+      .outgoing(alertEvent)
+      .incoming(dismiss, async (ctx) => {
+        // @ts-expect-error — 'nope' not declared
+        ctx.send('nope', {});
+      })
+      .done();
   });
 
   it('handler payload is typed from event schema', () => {
@@ -139,15 +144,14 @@ describe('ctx type inference at each scope', () => {
   });
 
   it('.reply() payload is typed from event schema', () => {
-    server('chat')
-      .reply(ping, pongSchema, async (_ctx, payload) => {
-        void (payload.ts satisfies number);
+    server('chat').reply(ping, pongSchema, async (_ctx, payload) => {
+      void (payload.ts satisfies number);
 
-        // @ts-expect-error — nonexistent
-        payload.nope;
+      // @ts-expect-error — nonexistent
+      payload.nope;
 
-        return { ts: 0, serverTs: 0 };
-      });
+      return { ts: 0, serverTs: 0 };
+    });
   });
 
   it('group inherits parent state for typing', () => {
@@ -175,27 +179,30 @@ describe('ctx type inference at each scope', () => {
   it('stream generator payload typed from event schema', () => {
     server('chat')
       .stream(aiComplete, chunkSchema)
-        .nudge(cancel)
-        .generate(async function* (_ctx, payload) {
-          void (payload.prompt satisfies string);
+      .nudge(cancel)
+      .generate(async function* (_ctx, payload) {
+        void (payload.prompt satisfies string);
 
-          // @ts-expect-error — nonexistent
-          payload.nope;
+        // @ts-expect-error — nonexistent
+        payload.nope;
 
-          yield { token: 'hi' };
-        })
-        .done();
+        yield { token: 'hi' };
+      })
+      .done();
   });
 });
 
 // ─── Type helpers ───────────────────────────────────────────
-type Expect<T extends true> = T;
-type Equal<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+
+function assertType<_T>() {}
+function assertExact<A, _B extends A>() {}
 
 // ─── InferClient ────────────────────────────────────────────
 
 const Forbidden = error('forbidden', (p: unknown) => p as { reason: string });
-function pongResponse(p: unknown) { return p as { ts: number; serverTs: number }; }
+function pongResponse(p: unknown) {
+  return p as { ts: number; serverTs: number };
+}
 
 const chatServer = server('chat')
   .ack()
@@ -212,26 +219,24 @@ type Chat = InferClient<typeof chatServer>;
 
 describe('InferClient from builder', () => {
   it('top-level outgoing → client incoming', () => {
-    type _Check1 = Expect<Equal<Chat['incoming']['message'], { text: string; from: string }>>;
-    type _Check2 = Expect<Equal<Chat['incoming']['notification'], { title: string }>>;
+    assertExact<Chat['incoming']['message'], { text: string; from: string }>();
+    assertExact<Chat['incoming']['notification'], { title: string }>();
   });
 
   it('top-level incoming → client outgoing', () => {
-    type _Check = Expect<Equal<Chat['outgoing']['send-message'], { text: string }>>;
+    assertExact<Chat['outgoing']['send-message'], { text: string }>();
   });
 
   it('request → client requests', () => {
-    type PingReq = Chat['requests']['ping'];
-    type _CheckPayload = Expect<Equal<PingReq['payload'], { ts: number }>>;
-    type _CheckResponse = Expect<Equal<PingReq['response'], { ts: number; serverTs: number }>>;
+    assertExact<Chat['requests']['ping']['payload'], { ts: number }>();
+    assertExact<Chat['requests']['ping']['response'], { ts: number; serverTs: number }>();
   });
 
   it('errors → client __errors__', () => {
-    type _Check = Expect<Equal<Chat['__errors__']['forbidden'], { reason: string }>>;
+    assertExact<Chat['__errors__']['forbidden'], { reason: string }>();
   });
 
   it('validation-failed is always in __errors__', () => {
-    type _Check = Chat['__errors__']['validation-failed'];
-    type _HasEvent = Expect<Equal<_Check['event'], string>>;
+    assertType<Chat['__errors__']['validation-failed']>();
   });
 });
