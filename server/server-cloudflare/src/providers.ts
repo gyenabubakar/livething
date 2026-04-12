@@ -18,6 +18,21 @@ function wrapCursor(cursor: SqlStorageCursor<Record<string, SqlStorageValue>>): 
   };
 }
 
+type KvEntry = { value: unknown; expiresAt?: number };
+
+async function readFreshKvEntry(
+  state: DurableObjectState,
+  key: string,
+  entry?: KvEntry,
+): Promise<KvEntry | undefined> {
+  if (!entry) return undefined;
+  if (entry.expiresAt && entry.expiresAt <= Date.now()) {
+    await state.storage.delete(key);
+    return undefined;
+  }
+  return entry;
+}
+
 export function createSql(state: DurableObjectState): SQLProvider {
   const sql = state.storage.sql as SqlStorageWithTransaction;
   return {
@@ -40,15 +55,8 @@ export function createSql(state: DurableObjectState): SQLProvider {
 export function createKv(state: DurableObjectState): KVProvider {
   return {
     async get(key) {
-      const entry = (await state.storage.get(key)) as
-        | { value: unknown; expiresAt?: number }
-        | undefined;
-      if (!entry) return undefined;
-      if (entry.expiresAt && entry.expiresAt <= Date.now()) {
-        await state.storage.delete(key);
-        return undefined;
-      }
-      return entry.value;
+      const entry = (await state.storage.get(key)) as KvEntry | undefined;
+      return (await readFreshKvEntry(state, key, entry))?.value;
     },
     async set(key, value, options) {
       await state.storage.put(key, {
@@ -61,7 +69,14 @@ export function createKv(state: DurableObjectState): KVProvider {
     },
     async list(prefix) {
       const result = await state.storage.list({ prefix });
-      return [...result.keys()];
+      const keys = [...result.keys()];
+      const freshKeys = await Promise.all(
+        keys.map(async (key) => {
+          const entry = result.get(key) as KvEntry | undefined;
+          return (await readFreshKvEntry(state, key, entry)) ? key : null;
+        }),
+      );
+      return freshKeys.filter((key): key is string => key !== null);
     },
   };
 }
