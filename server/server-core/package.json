@@ -81,6 +81,23 @@
   "publishConfig": {
     "access": "public"
   },
+  "sideEffects": [
+    "./dist/ack.js",
+    "./dist/heartbeat.js",
+    "./dist/sequence.js",
+    "./dist/dedup.js",
+    "./dist/hibernation.js",
+    "./dist/errors.js",
+    "./dist/scheduled.js",
+    "./dist/request.js",
+    "./dist/intercept.js",
+    "./dist/channel.js",
+    "./dist/namespace.js",
+    "./dist/stream.js",
+    "./dist/replay.js",
+    "./dist/replay/custom.js",
+    "./dist/lifecycle.js"
+  ],
   "files": [
     "dist"
   ],
