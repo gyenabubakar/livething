@@ -56,7 +56,8 @@ type NamespaceState<TParentState extends ScopeStateShape> = ScopeState<
   readonly [],
   TParentState['meta'],
   TParentState['channelNames'],
-  TParentState['scheduledTaskIds']
+  TParentState['scheduledTaskIds'],
+  TParentState['env']
 >;
 
 /**
@@ -96,6 +97,7 @@ type StateWithNamespace<
   readonly meta: TState['meta'];
   readonly channelNames: TState['channelNames'];
   readonly scheduledTaskIds: TState['scheduledTaskIds'];
+  readonly env: TState['env'];
 };
 
 /** Helper: the state produced after registering an outgoing event on the namespace. */

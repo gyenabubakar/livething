@@ -175,6 +175,9 @@ export async function handleConnectionClose(
 ): Promise<void> {
   await runtime.cancelActiveStreamsForConnection(connection.id);
 
+  runtime.connections.delete(connection.id);
+  runtime.wsToConnectionId.delete(connection.wsKey);
+
   const ctx = runtime.buildConnectionContext(connection);
   await runtime.runConnectionLifecycle('disconnect', ctx);
 
@@ -197,9 +200,6 @@ export async function handleConnectionClose(
   }
 
   HeartbeatPrimitive.stopConnectionPing(runtime.timers, connection);
-
-  runtime.connections.delete(connection.id);
-  runtime.wsToConnectionId.delete(connection.wsKey);
 }
 
 /**

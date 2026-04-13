@@ -6,8 +6,8 @@ import * as EngineMessageRuntime from '~/_engine/runtime/messages.ts';
 import * as ErrorsPrimitive from '~/errors/runtime.ts';
 import * as HeartbeatPrimitive from '~/heartbeat/runtime.ts';
 import * as ScheduledPrimitive from '~/scheduled/runtime.ts';
-import type * as EngineAccessModule from '~/_engine/access.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
+import type * as EngineAccessModule from '~/_engine/access.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as PublicApi from '~/context.ts';
@@ -86,7 +86,7 @@ export class Engine {
   private hibernationEnabled = false;
   private replayEnabled = false;
   private sequencePersistent = false;
-  private readonly declaredErrorCodes = new Set<string>();
+  private readonly declaredErrorCodes = new Set<string>(['validation-failed']);
   /** Default logger used when the adapter does not provide a custom one. */
   private readonly logger = {
     info(message: string, data?: unknown) {

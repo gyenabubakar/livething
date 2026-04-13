@@ -156,6 +156,7 @@ export interface ScopeStateShape {
   readonly meta: Record<string, unknown>;
   readonly channelNames: string;
   readonly scheduledTaskIds: string;
+  readonly env: object;
 }
 
 // ---------------------------------------------------------------------------
@@ -212,6 +213,7 @@ export type ScopeState<
   TMeta extends Record<string, unknown> = Record<string, unknown>,
   TChannelNames extends string = never,
   TScheduledTaskIds extends string = never,
+  TEnv extends object = Record<string, unknown>,
 > = {
   readonly kind: TKind;
   readonly outgoing: TOutgoing;
@@ -222,6 +224,7 @@ export type ScopeState<
   readonly meta: TMeta;
   readonly channelNames: TChannelNames;
   readonly scheduledTaskIds: TScheduledTaskIds;
+  readonly env: TEnv;
 };
 
 // ---------------------------------------------------------------------------
@@ -361,6 +364,7 @@ export type NextState<
       readonly meta: TState['meta'];
       readonly channelNames: TState['channelNames'];
       readonly scheduledTaskIds: TState['scheduledTaskIds'];
+      readonly env: TState['env'];
     }
   : // Branch 2: passive infrastructure — no ctx change
     TPrimitive extends
@@ -379,6 +383,7 @@ export type NextState<
         readonly meta: TState['meta'];
         readonly channelNames: TState['channelNames'];
         readonly scheduledTaskIds: TState['scheduledTaskIds'];
+        readonly env: TState['env'];
       }
     : // Branch 3: scheduled(taskId) — accumulate task ID for typed ctx.schedule()
       TPrimitive extends ScheduledPrimitive<infer TTaskId, any, any>
@@ -392,6 +397,7 @@ export type NextState<
           readonly meta: TState['meta'];
           readonly channelNames: TState['channelNames'];
           readonly scheduledTaskIds: TState['scheduledTaskIds'] | TTaskId;
+          readonly env: TState['env'];
         }
       : // Branch 4: replay() — enable ctx.sendReplay()
         TPrimitive extends AnyReplay
@@ -405,6 +411,7 @@ export type NextState<
             readonly meta: TState['meta'];
             readonly channelNames: TState['channelNames'];
             readonly scheduledTaskIds: TState['scheduledTaskIds'];
+            readonly env: TState['env'];
           }
         : // Branch 5: errors(...) — replace the error definition list
           TPrimitive extends AnyErrors
@@ -419,6 +426,7 @@ export type NextState<
                 readonly meta: TState['meta'];
                 readonly channelNames: TState['channelNames'];
                 readonly scheduledTaskIds: TState['scheduledTaskIds'];
+                readonly env: TState['env'];
               }
             : TState
           : // Branch 6: outgoing(event) — add event to server→client send map and client contract
@@ -440,6 +448,7 @@ export type NextState<
                 readonly meta: TState['meta'];
                 readonly channelNames: TState['channelNames'];
                 readonly scheduledTaskIds: TState['scheduledTaskIds'];
+                readonly env: TState['env'];
               }
             : // Branch 7: incoming(event) — add to client→server contract (client sends it)
               TPrimitive extends AnyIncoming
@@ -464,6 +473,7 @@ export type NextState<
                     readonly meta: TState['meta'];
                     readonly channelNames: TState['channelNames'];
                     readonly scheduledTaskIds: TState['scheduledTaskIds'];
+                    readonly env: TState['env'];
                   }
                 : TState
               : // Branch 8: request(event) — add to contract.requests
@@ -488,6 +498,7 @@ export type NextState<
                     readonly meta: TState['meta'];
                     readonly channelNames: TState['channelNames'];
                     readonly scheduledTaskIds: TState['scheduledTaskIds'];
+                    readonly env: TState['env'];
                   }
                 : // Branch 9: generate(stream) — add to contract.streams
                   TPrimitive extends AnyGenerate
@@ -512,6 +523,7 @@ export type NextState<
                         readonly meta: TState['meta'];
                         readonly channelNames: TState['channelNames'];
                         readonly scheduledTaskIds: TState['scheduledTaskIds'];
+                        readonly env: TState['env'];
                       }
                     : TState
                   : // Fallback: unknown primitive — leave state unchanged
@@ -782,6 +794,38 @@ export interface ScheduleMethods<TScheduledTaskIds extends string = string> {
 }
 
 /**
+ * Runtime-provided context properties that don't depend on builder state.
+ *
+ * These are always available on every connection handler context. They come
+ * from the adapter at runtime, not from builder method chaining, so they
+ * don't need type-level tracking in `ScopeState`.
+ */
+export interface RuntimeContextMethods {
+  readonly sql: ConnectionContext['sql'];
+  readonly kv: ConnectionContext['kv'];
+  readonly log: ConnectionContext['log'];
+  readonly platform: ConnectionContext['platform'];
+  waitUntil: ConnectionContext['waitUntil'];
+  close: ConnectionContext['close'];
+  getConnections: ConnectionContext['getConnections'];
+  getConnectionsByTag: ConnectionContext['getConnectionsByTag'];
+  readonly connectionCount: ConnectionContext['connectionCount'];
+  sendBinary: ConnectionContext['sendBinary'];
+  broadcastBinary: ConnectionContext['broadcastBinary'];
+  sendToConnection: ConnectionContext['sendToConnection'];
+}
+
+/**
+ * Provides typed `ctx.env` — the environment bindings from the platform adapter.
+ *
+ * When `server<TEnv>()` specifies a concrete env type, handler contexts expose
+ * that type instead of `Record<string, unknown>`.
+ */
+export interface EnvMethods<TEnv extends object = Record<string, unknown>> {
+  readonly env: TEnv;
+}
+
+/**
  * Provides `ctx.namespace` inside namespace-scoped handlers.
  *
  * When outgoing events are known, `send` and `broadcast` are typed to only
@@ -917,22 +961,22 @@ type ScopeExtras<
  *
  * How to read this type:
  *
- * | Slice                   | When present                                               |
+ * | Slice | When present |
  * |-------------------------|------------------------------------------------------------|
- * | `SendApi`               | Only when the scope has at least one `outgoing()` event    |
- * | `SendToApi`             | Always (typed when outgoing events exist, generic otherwise)|
- * | `ConnectionIdentity...` | Always — `ctx.id`                                          |
- * | `ConnectionMeta...`     | Always — `ctx.meta`                                        |
- * | `BufferedAmount...`     | Always — `ctx.bufferedAmount`                              |
- * | `Latency...`            | Always — `ctx.latency`                                     |
- * | `Quality...`            | Always — `ctx.quality`                                     |
- * | `ConnectionTags...`     | Always — `ctx.tags`                                        |
- * | `TagMethods`            | Always — `ctx.tag(label)`                                  |
- * | `UntagMethods`          | Always — `ctx.untag(label)`                                |
- * | `AckApi`                | Only in top-level scope when `ack()` is registered         |
- * | `ReplayApi`             | Only when `replay()` is registered                         |
- * | `ChannelsMethods`       | Always — `ctx.channels`                                    |
- * | `ScopeExtras`           | `ctx.namespace.name` or `ctx.channel.name` based on kind   |
+ * | `SendApi` | Only when the scope has at least one `outgoing()` event |
+ * | `SendToApi` | Always (typed when outgoing events exist, generic otherwise)|
+ * | `ConnectionIdentity...` | Always — `ctx.id` |
+ * | `ConnectionMeta...`     | Always — `ctx.meta` |
+ * | `BufferedAmount...`     | Always — `ctx.bufferedAmount` |
+ * | `Latency...`            | Always — `ctx.latency` |
+ * | `Quality...`            | Always — `ctx.quality` |
+ * | `ConnectionTags...`     | Always — `ctx.tags` |
+ * | `TagMethods` | Always — `ctx.tag(label)` |
+ * | `UntagMethods` | Always — `ctx.untag(label)` |
+ * | `AckApi` | Only in top-level scope when `ack()` is registered |
+ * | `ReplayApi` | Only when `replay()` is registered |
+ * | `ChannelsMethods` | Always — `ctx.channels` |
+ * | `ScopeExtras` | `ctx.namespace.name` or `ctx.channel.name` based on kind |
  */
 export type HandlerCtxFromState<TState extends ScopeStateShape> = SendApi<TState['outgoing']> &
   SendToApi<TState['outgoing']> &
@@ -948,6 +992,8 @@ export type HandlerCtxFromState<TState extends ScopeStateShape> = SendApi<TState
   ReplayApi<TState> &
   ScheduleMethods<TState['scheduledTaskIds'] extends never ? string : TState['scheduledTaskIds']> &
   ChannelsMethods<TState['channelNames'] extends never ? string : TState['channelNames']> &
+  RuntimeContextMethods &
+  EnvMethods<TState['env']> &
   ScopeExtras<TState['kind'], TState['outgoing']>;
 
 // ---------------------------------------------------------------------------
@@ -973,6 +1019,8 @@ export type StreamBaseCtxFromState<TState extends ScopeStateShape> = SendApi<TSt
   UntagMethods &
   ReplayApi<TState> &
   ChannelsMethods<TState['channelNames'] extends never ? string : TState['channelNames']> &
+  RuntimeContextMethods &
+  EnvMethods<TState['env']> &
   ScopeExtras<TState['kind'], TState['outgoing']>;
 
 /**

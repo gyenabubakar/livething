@@ -15,9 +15,29 @@
 	let aiStreamTokens = $state('');
 	let aiStreamDone = $state(false);
 	let aiModelResult = $state('');
+	let aiNudgeStreamTokens = $state('');
+	let aiNudgeStreamDone = $state(false);
+	let aiStreamErrorResult = $state('');
 	let scheduledResult = $state('');
+	let cancelResult = $state('');
 	let lastSeq = $state(0);
 	let messageLog = $state<string[]>([]);
+
+	let notesList = $state('');
+	let kvResult = $state('');
+	let connectionInfo = $state('');
+	let tagResult = $state('');
+	let taggedMessage = $state('');
+	let binaryResult = $state('');
+	let validationErrorResult = $state('');
+	let deferResult = $state('');
+	let blockReply = $state('');
+	let channelMembersResult = $state('');
+	let subscribeError = $state('');
+	let streamCancelResult = $state('');
+
+	let roomMessages = $state<string[]>([]);
+	let roomSubscribed = $state(false);
 
 	const pendingRequests = new Map<string, (payload: Record<string, unknown>) => void>();
 
@@ -31,10 +51,11 @@
 			status = 'connected';
 		};
 
-		ws.onclose = () => {
+		ws.onclose = (e) => {
 			status = 'disconnected';
 			ws = null;
 			chatSubscribed = false;
+			roomSubscribed = false;
 		};
 
 		ws.onerror = () => {
@@ -42,8 +63,15 @@
 			ws = null;
 		};
 
+		ws.binaryType = 'arraybuffer';
+
 		ws.onmessage = (event) => {
 			if (event.data === 'pong') return;
+
+			if (event.data instanceof ArrayBuffer) {
+				binaryResult = `binary:${event.data.byteLength}`;
+				return;
+			}
 
 			const msg = JSON.parse(event.data as string) as {
 				event: string;
@@ -68,17 +96,23 @@
 					ackReceived = true;
 					break;
 				case '_error':
-					errorResult = `${payload.code}: ${JSON.stringify(payload.detail ?? {})}`;
+					if (payload._streamId) {
+						aiStreamErrorResult = `stream-error:${payload.code}`;
+					} else if (payload._channel) {
+						subscribeError = `${payload._channel}:${payload.code}`;
+					} else {
+						errorResult = `${payload.code}: ${JSON.stringify(payload.detail ?? {})}`;
+					}
 					break;
 				case '_subscribeOk':
 					if (payload._channel === 'chat') chatSubscribed = true;
+					if ((payload._channel as string)?.startsWith('room:')) roomSubscribed = true;
 					break;
 				case '_streamOk':
-					aiStreamTokens = '';
-					aiStreamDone = false;
 					break;
 				case '_streamEnd':
-					aiStreamDone = true;
+					if (aiNudgeStreamTokens && !aiNudgeStreamDone) aiNudgeStreamDone = true;
+					else aiStreamDone = true;
 					break;
 				case 'echoed':
 					echoResult = `${payload.from}: ${payload.text}`;
@@ -92,8 +126,47 @@
 				case 'chat-message':
 					chatMessages = [...chatMessages, `${payload.from}: ${payload.text}`].slice(-20);
 					break;
+				case 'room-message':
+					roomMessages = [...roomMessages, `${payload.from}: ${payload.text}`].slice(-20);
+					break;
 				case 'cleanup-done':
 					scheduledResult = `Cleaned ${payload.itemsCleaned} items`;
+					break;
+				case 'cleanup-cancelled':
+					cancelResult = 'cancelled';
+					break;
+				case 'notes-list':
+					notesList = JSON.stringify(payload.notes);
+					break;
+				case 'kv-result':
+					kvResult = `${payload.key}=${JSON.stringify(payload.value)}`;
+					break;
+				case 'connection-info':
+					connectionInfo = `count:${payload.count}`;
+					break;
+				case 'tag-result':
+					tagResult = (payload.tags as string[]).join(',');
+					break;
+				case 'tagged-message':
+					taggedMessage = `${payload.from}: ${payload.text}`;
+					break;
+				case 'binary-echoed':
+					binaryResult = `echoed:${payload.size}`;
+					break;
+				case 'validation-error-fired':
+					validationErrorResult = `validation-error:${payload.event}`;
+					break;
+				case 'defer-result':
+					deferResult = 'deferred-received';
+					break;
+				case 'block-reply':
+					blockReply = 'leaked';
+					break;
+				case 'stream-cancel-ack':
+					streamCancelResult = 'cancelled';
+					break;
+				case 'channel-members':
+					channelMembersResult = `${payload.channel}:${payload.count}`;
 					break;
 				default:
 					if (payload?._namespace === 'ai') {
@@ -103,6 +176,8 @@
 							aiModelResult = `${payload.name} (max: ${payload.maxTokens})`;
 						} else if (evt === 'stream-prompt') {
 							aiStreamTokens += payload.token;
+						} else if (evt === 'stream-with-nudges') {
+							aiNudgeStreamTokens += payload.token;
 						}
 					}
 					break;
@@ -123,6 +198,11 @@
 		send('echo', { text: 'hello world', _ackId: `ack_${++correlationCounter}` });
 	}
 
+	function sendEchoRewrite() {
+		ackReceived = false;
+		send('echo', { text: 'intercept-rewrite', _ackId: `ack_${++correlationCounter}` });
+	}
+
 	function triggerError(code: 'not-found' | 'forbidden') {
 		errorResult = '';
 		send('trigger-error', { code });
@@ -139,21 +219,24 @@
 	function joinChat() {
 		send('_subscribe', { _channel: 'chat' });
 	}
-
 	function leaveChat() {
 		chatSubscribed = false;
 		send('_unsubscribe', { _channel: 'chat' });
 	}
-
 	function sendChat(text: string) {
 		send('send-chat', { text, _channel: 'chat' });
+	}
+	function joinRoom(name: string, scope: string) {
+		send('_subscribe', { _channel: name, _channelScope: scope });
+	}
+	function sendRoom(text: string, channel: string, scope: string) {
+		send('room-send', { text, _channel: channel, _channelScope: scope });
 	}
 
 	function sendAiMessage(text: string) {
 		aiResponse = '';
 		send('send', { text, _namespace: 'ai' });
 	}
-
 	function requestAiModel() {
 		const id = `corr_${++correlationCounter}`;
 		send('get-model', { _correlationId: id, _namespace: 'ai' });
@@ -161,23 +244,97 @@
 			aiModelResult = `${payload.name} (max: ${payload.maxTokens})`;
 		});
 	}
-
 	function startAiStream(prompt: string) {
 		aiStreamTokens = '';
 		aiStreamDone = false;
 		send('stream-prompt', { prompt, _namespace: 'ai' });
+	}
+	function startNudgeStream(prompt: string) {
+		aiNudgeStreamTokens = '';
+		aiNudgeStreamDone = false;
+		send('stream-with-nudges', { prompt, _namespace: 'ai' });
+	}
+	function sendNudgePause() {
+		send('pause', { _namespace: 'ai' });
+	}
+	function startErrorStream() {
+		aiStreamErrorResult = '';
+		send('stream-error', { _namespace: 'ai' });
 	}
 
 	function scheduleCleanup() {
 		scheduledResult = '';
 		send('schedule-cleanup', { delaySec: 1 });
 	}
+	function cancelCleanup() {
+		cancelResult = '';
+		send('cancel-cleanup', {});
+	}
+
+	function saveNote() {
+		send('save-note', { title: 'Test Note', body: 'Hello from e2e' });
+	}
+	function getNotes() {
+		send('get-notes', {});
+	}
+	function setKv() {
+		send('kv-set', { key: 'test-key', value: 'test-value' });
+	}
+	function getKv() {
+		send('kv-get', { key: 'test-key' });
+	}
+
+	function getConnectionInfo() {
+		send('get-connection-info', {});
+	}
+	function tagSelf(tag: string) {
+		send('tag-self', { tag });
+	}
+	function untagSelf(tag: string) {
+		send('untag-self', { tag });
+	}
+	function sendToTag(tag: string, text: string) {
+		send('send-to-tag', { tag, text });
+	}
+	function serverClose() {
+		send('server-close', { code: 4009, reason: 'test-close' });
+	}
+	function forceDisconnect() {
+		send('force-disconnect', {});
+	}
+
+	function sendBinary() {
+		const data = new Uint8Array([1, 2, 3, 4, 5]);
+		ws?.send(data.buffer);
+	}
+
+	function sendInvalidMessage() {
+		ws?.send(JSON.stringify({ event: 'echo', payload: { text: 123 } }));
+	}
+
+	function sendDefer() {
+		deferResult = '';
+		send('defer-test', {});
+	}
+
+	function sendBlock() {
+		blockReply = '';
+		send('block-test', {});
+	}
+
+	function cancelStream() {
+		send('_streamCancel', { _namespace: 'ai' });
+	}
+
+	function getChannelMembers(channel: string) {
+		send('get-channel-members', { channel });
+	}
 </script>
 
 <main>
 	<h1>wskit e2e test</h1>
 
-	<section data-testid="connection">
+	<section>
 		<h2>Connection</h2>
 		<input data-testid="username-input" bind:value={username} placeholder="username" />
 		<button data-testid="connect-btn" onclick={connect} disabled={status !== 'disconnected'}>Connect</button>
@@ -185,32 +342,33 @@
 		<span data-testid="status">{status}</span>
 	</section>
 
-	<section data-testid="echo">
+	<section>
 		<h2>Echo + Ack</h2>
 		<button data-testid="echo-btn" onclick={sendEcho} disabled={status !== 'connected'}>Send Echo</button>
+		<button data-testid="echo-rewrite-btn" onclick={sendEchoRewrite} disabled={status !== 'connected'}>Echo (intercept rewrite)</button>
 		<div data-testid="echo-result">{echoResult}</div>
 		<div data-testid="ack-result">{ackReceived ? 'acked' : ''}</div>
 	</section>
 
-	<section data-testid="errors">
+	<section>
 		<h2>Errors</h2>
 		<button data-testid="error-notfound-btn" onclick={() => triggerError('not-found')} disabled={status !== 'connected'}>Trigger not-found</button>
 		<button data-testid="error-forbidden-btn" onclick={() => triggerError('forbidden')} disabled={status !== 'connected'}>Trigger forbidden</button>
 		<div data-testid="error-result">{errorResult}</div>
 	</section>
 
-	<section data-testid="request">
+	<section>
 		<h2>Request (get-time)</h2>
 		<button data-testid="request-time-btn" onclick={requestTime} disabled={status !== 'connected'}>Get Time</button>
 		<div data-testid="time-result">{timeResult}</div>
 	</section>
 
-	<section data-testid="lifecycle">
+	<section>
 		<h2>User Events</h2>
 		<div data-testid="user-events">{userEvents.join(' | ')}</div>
 	</section>
 
-	<section data-testid="chat">
+	<section>
 		<h2>Chat Channel</h2>
 		<button data-testid="chat-join-btn" onclick={joinChat} disabled={status !== 'connected' || chatSubscribed}>Join</button>
 		<button data-testid="chat-leave-btn" onclick={leaveChat} disabled={!chatSubscribed}>Leave</button>
@@ -219,29 +377,97 @@
 		<div data-testid="chat-messages">{chatMessages.join(' | ')}</div>
 	</section>
 
-	<section data-testid="ai">
+	<section>
+		<h2>Dynamic Room Channel</h2>
+		<button data-testid="room-join-btn" onclick={() => joinRoom('room:general', 'rooms')} disabled={status !== 'connected'}>Join room:general</button>
+		<button data-testid="room-send-btn" onclick={() => sendRoom('hi from room', 'room:general', 'rooms')} disabled={!roomSubscribed}>Send in room</button>
+		<div data-testid="room-subscribed">{roomSubscribed ? 'subscribed' : ''}</div>
+		<div data-testid="room-messages">{roomMessages.join(' | ')}</div>
+	</section>
+
+	<section>
 		<h2>AI Namespace</h2>
 		<button data-testid="ai-send-btn" onclick={() => sendAiMessage('hello AI')} disabled={status !== 'connected'}>Send to AI</button>
 		<button data-testid="ai-model-btn" onclick={requestAiModel} disabled={status !== 'connected'}>Get Model</button>
 		<button data-testid="ai-stream-btn" onclick={() => startAiStream('tell me a story')} disabled={status !== 'connected'}>Start Stream</button>
+		<button data-testid="ai-nudge-stream-btn" onclick={() => startNudgeStream('with nudges')} disabled={status !== 'connected'}>Stream with Nudges</button>
+		<button data-testid="ai-nudge-pause-btn" onclick={sendNudgePause} disabled={status !== 'connected'}>Send Pause Nudge</button>
+		<button data-testid="ai-stream-error-btn" onclick={startErrorStream} disabled={status !== 'connected'}>Stream Error</button>
+		<button data-testid="ai-stream-cancel-btn" onclick={cancelStream} disabled={status !== 'connected'}>Cancel Stream</button>
 		<div data-testid="ai-response">{aiResponse}</div>
 		<div data-testid="ai-model-result">{aiModelResult}</div>
 		<div data-testid="ai-stream-tokens">{aiStreamTokens}</div>
 		<div data-testid="ai-stream-done">{aiStreamDone ? 'stream-done' : ''}</div>
+		<div data-testid="ai-nudge-stream-tokens">{aiNudgeStreamTokens}</div>
+		<div data-testid="ai-nudge-stream-done">{aiNudgeStreamDone ? 'nudge-stream-done' : ''}</div>
+		<div data-testid="ai-stream-error-result">{aiStreamErrorResult}</div>
 	</section>
 
-	<section data-testid="scheduled">
+	<section>
 		<h2>Scheduled Task</h2>
 		<button data-testid="schedule-btn" onclick={scheduleCleanup} disabled={status !== 'connected'}>Schedule Cleanup (1s)</button>
+		<button data-testid="cancel-cleanup-btn" onclick={cancelCleanup} disabled={status !== 'connected'}>Cancel Cleanup</button>
 		<div data-testid="scheduled-result">{scheduledResult}</div>
+		<div data-testid="cancel-result">{cancelResult}</div>
 	</section>
 
-	<section data-testid="sequence">
+	<section>
+		<h2>Storage (SQL + KV)</h2>
+		<button data-testid="save-note-btn" onclick={saveNote} disabled={status !== 'connected'}>Save Note</button>
+		<button data-testid="get-notes-btn" onclick={getNotes} disabled={status !== 'connected'}>Get Notes</button>
+		<button data-testid="kv-set-btn" onclick={setKv} disabled={status !== 'connected'}>KV Set</button>
+		<button data-testid="kv-get-btn" onclick={getKv} disabled={status !== 'connected'}>KV Get</button>
+		<div data-testid="notes-list">{notesList}</div>
+		<div data-testid="kv-result">{kvResult}</div>
+	</section>
+
+	<section>
+		<h2>Connections</h2>
+		<button data-testid="conn-info-btn" onclick={getConnectionInfo} disabled={status !== 'connected'}>Get Info</button>
+		<button data-testid="tag-self-btn" onclick={() => tagSelf('vip')} disabled={status !== 'connected'}>Tag "vip"</button>
+		<button data-testid="untag-self-btn" onclick={() => untagSelf('vip')} disabled={status !== 'connected'}>Untag "vip"</button>
+		<button data-testid="send-to-tag-btn" onclick={() => sendToTag('testuser', 'tagged hello')} disabled={status !== 'connected'}>SendTo "testuser"</button>
+		<button data-testid="server-close-btn" onclick={serverClose} disabled={status !== 'connected'}>Server Close</button>
+		<button data-testid="force-disconnect-btn" onclick={forceDisconnect} disabled={status !== 'connected'}>Force Disconnect</button>
+		<div data-testid="connection-info">{connectionInfo}</div>
+		<div data-testid="tag-result">{tagResult}</div>
+		<div data-testid="tagged-message">{taggedMessage}</div>
+	</section>
+
+	<section>
+		<h2>Binary</h2>
+		<button data-testid="binary-send-btn" onclick={sendBinary} disabled={status !== 'connected'}>Send Binary</button>
+		<div data-testid="binary-result">{binaryResult}</div>
+	</section>
+
+	<section>
+		<h2>Validation / Defer / Block</h2>
+		<button data-testid="validation-error-btn" onclick={sendInvalidMessage} disabled={status !== 'connected'}>Send Invalid</button>
+		<button data-testid="defer-btn" onclick={sendDefer} disabled={status !== 'connected'}>Send Defer</button>
+		<button data-testid="block-btn" onclick={sendBlock} disabled={status !== 'connected'}>Send Block</button>
+		<div data-testid="validation-error-result">{validationErrorResult}</div>
+		<div data-testid="defer-result">{deferResult}</div>
+		<div data-testid="block-reply">{blockReply}</div>
+	</section>
+
+	<section>
+		<h2>Channel Members / Subscribe Error</h2>
+		<button data-testid="get-members-btn" onclick={() => getChannelMembers('chat')} disabled={status !== 'connected'}>Get Chat Members</button>
+		<div data-testid="channel-members-result">{channelMembersResult}</div>
+		<div data-testid="subscribe-error">{subscribeError}</div>
+	</section>
+
+	<section>
+		<h2>Stream Cancel</h2>
+		<div data-testid="stream-cancel-result">{streamCancelResult}</div>
+	</section>
+
+	<section>
 		<h2>Sequence</h2>
 		<div data-testid="last-seq">{lastSeq}</div>
 	</section>
 
-	<section data-testid="log">
+	<section>
 		<h2>Message Log</h2>
 		<div data-testid="message-log">{messageLog.join('\n')}</div>
 	</section>

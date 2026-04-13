@@ -100,6 +100,7 @@ type StateWithStream<
   readonly meta: TState['meta'];
   readonly channelNames: TState['channelNames'];
   readonly scheduledTaskIds: TState['scheduledTaskIds'];
+  readonly env: TState['env'];
 };
 
 /**

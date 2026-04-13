@@ -738,3 +738,99 @@ describe('InferClient from .use() assembled server', () => {
     assertType<Assembled['__errors__']['validation-failed']>();
   });
 });
+
+// ═══════════════════════════════════════════════════════════════
+// 12. Typed Env — server<TEnv>() threads env to ctx.env
+// ═══════════════════════════════════════════════════════════════
+
+describe('typed env via server<TEnv>()', () => {
+  interface MyEnv {
+    DATABASE_URL: string;
+    API_KEY: string;
+    WEBSOCKET_SERVER: unknown;
+  }
+
+  it('ctx.env is typed in incoming handlers', () => {
+    server<MyEnv>('app')
+      .outgoing(message)
+      .incoming(sendMessage, async (ctx) => {
+        void (ctx.env.DATABASE_URL satisfies string);
+        void (ctx.env.API_KEY satisfies string);
+
+        // @ts-expect-error — not in env
+        ctx.env.MISSING_VAR;
+      })
+      .build();
+  });
+
+  it('ctx.env is typed in onConnect lifecycle hook', () => {
+    server<MyEnv>('app').onConnect(async (ctx) => {
+      void (ctx.env.DATABASE_URL satisfies string);
+
+      // @ts-expect-error — not in env
+      ctx.env.NOPE;
+    });
+  });
+
+  it('ctx.env is typed in extracted group handlers', () => {
+    const base = server<MyEnv>('app').outgoing(message);
+
+    base
+      .group()
+      .incoming(sendMessage, async (ctx) => {
+        void (ctx.env.API_KEY satisfies string);
+
+        // @ts-expect-error — not in env
+        ctx.env.MISSING;
+      })
+      .extract();
+  });
+
+  it('ctx.env is typed in channel handlers', () => {
+    const base = server<MyEnv>('app').outgoing(message);
+
+    base
+      .channel('lobby')
+      .outgoing(roomMessage)
+      .incoming(roomSend, async (ctx) => {
+        void (ctx.env.DATABASE_URL satisfies string);
+
+        // @ts-expect-error — not in env
+        ctx.env.NO;
+      })
+      .extract();
+  });
+
+  it('ctx.env is typed in namespace handlers', () => {
+    const base = server<MyEnv>('app').outgoing(message);
+
+    base
+      .namespace('alerts')
+      .outgoing(alertEvent)
+      .incoming(dismiss, async (ctx) => {
+        void (ctx.env.API_KEY satisfies string);
+
+        // @ts-expect-error — not in env
+        ctx.env.WRONG;
+      })
+      .extract();
+  });
+
+  it('ctx.env is typed after onUpgrade', () => {
+    server<MyEnv>('app')
+      .onUpgrade(async () => ({ meta: { userId: 'abc' } }))
+      .incoming(sendMessage, async (ctx) => {
+        void (ctx.env.DATABASE_URL satisfies string);
+        void (ctx.meta.userId satisfies string);
+      })
+      .build();
+  });
+
+  it('ctx.env defaults to Record<string, unknown> without type param', () => {
+    server('app')
+      .incoming(sendMessage, async (ctx) => {
+        void (ctx.env satisfies Record<string, unknown>);
+      })
+      .build();
+  });
+});

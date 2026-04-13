@@ -3,7 +3,6 @@ import { definePrimitive } from '~/primitive.ts';
 import type { ConnectionInfo } from '~/context.ts';
 import type { ErrorDef } from '~/errors/errors.ts';
 import type { ErrorsPrimitive } from '~/errors/primitive.ts';
-import type { OutgoingPrimitive } from '~/outgoing/outgoing.ts';
 import type { Primitive, PrimitiveRef, RequiresManifest } from '~/primitive.ts';
 import type { ScheduledHandle, ScheduledOptions } from '~/scheduled/scheduled.ts';
 
@@ -69,7 +68,7 @@ export interface ModuleConfig<
   TArgs,
   TApi,
   TCtx = any,
-  TOutgoing extends readonly OutgoingPrimitive[] = readonly [],
+  TOutgoing extends Record<string, unknown> = {},
   TErrors extends readonly ErrorDef<string, any>[] = readonly [],
 > {
   /**
@@ -106,7 +105,7 @@ export interface ModuleInstance<
   TId extends string = string,
   TArgs = unknown,
   TApi = unknown,
-  TOutgoing extends readonly OutgoingPrimitive[] = readonly [],
+  TOutgoing extends Record<string, unknown> = {},
   TErrors extends readonly ErrorDef<string, any>[] = readonly [],
 > extends Primitive<'module'> {
   readonly id: TId;
@@ -128,7 +127,7 @@ export interface ModuleFactory<
   TId extends string = string,
   TArgs = unknown,
   TApi = unknown,
-  TOutgoing extends readonly OutgoingPrimitive[] = readonly [],
+  TOutgoing extends Record<string, unknown> = {},
   TErrors extends readonly ErrorDef<string, any>[] = readonly [],
 > extends PrimitiveRef {
   (args: TArgs): ModuleInstance<TId, TArgs, TApi, TOutgoing, TErrors>;
@@ -192,7 +191,7 @@ export function defineModule<
   TArgs,
   TApi,
   TCtx = any,
-  const TOutgoing extends readonly OutgoingPrimitive[] = readonly [],
+  const TOutgoing extends Record<string, unknown> = {},
   const TErrors extends readonly ErrorDef<string, any>[] = readonly [],
 >(
   config: ModuleConfig<TArgs, TApi, TCtx, TOutgoing, TErrors>,
@@ -223,7 +222,7 @@ export function defineModule<
       return {
         id: config.id,
         args,
-        outgoing: (config.outgoing ?? []) as TOutgoing,
+        outgoing: (config.outgoing ?? {}) as TOutgoing,
         errors: config.errors,
         setupModule: config.setup,
       };

@@ -168,8 +168,8 @@ export function resolveScope(
 /** Check whether an event name belongs to any installed module's outgoing declarations. */
 function isDeclaredModuleEvent(compiled: CompiledServer, event: string): boolean {
   for (const moduleInstance of compiled.modules) {
-    for (const declaration of moduleInstance.outgoing) {
-      if (EngineCompileUtils.prefixedModuleEvent(moduleInstance.id, declaration.event) === event) {
+    for (const eventName of Object.keys(moduleInstance.outgoing)) {
+      if (EngineCompileUtils.prefixedModuleEvent(moduleInstance.id, eventName) === event) {
         return true;
       }
     }

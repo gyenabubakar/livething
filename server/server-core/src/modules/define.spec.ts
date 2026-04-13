@@ -1,10 +1,8 @@
 import { error } from '~/errors/errors.ts';
-import { outgoing } from '~/outgoing/outgoing.ts';
-import { describe, expect, it, vi } from 'vitest';
 import * as v from 'valibot';
+import { describe, expect, it, vi } from 'vitest';
 import { defineModule, MODULE_API_MAP } from './define.ts';
 
-const flushed = outgoing<'flushed', { ok: true }>('flushed');
 const Forbidden = error('forbidden', v.object({ reason: v.string() }));
 
 describe('defineModule', () => {
@@ -19,7 +17,7 @@ describe('defineModule', () => {
       key,
       dependencies: [dependency],
       requires: { storage: true, timers: true },
-      outgoing: [flushed],
+      outgoing: { flushed: v.object({ ok: v.boolean() }) },
       errors: errorsPrimitive,
       setup,
     });
@@ -31,7 +29,7 @@ describe('defineModule', () => {
     expect(instance.__wskit).toBe('module');
     expect(instance.id).toBe('acme:analytics');
     expect(instance.args).toEqual({ sampleRate: 1 });
-    expect(instance.outgoing).toEqual([flushed]);
+    expect(instance.outgoing).toEqual({ flushed: expect.anything() });
     expect(instance.errors).toBe(errorsPrimitive);
     expect(instance.__dependencies).toEqual([dependency]);
     expect(instance.__requires).toEqual({ storage: true, timers: true });

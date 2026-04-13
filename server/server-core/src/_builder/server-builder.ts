@@ -53,7 +53,18 @@ type ErrorMapFromDefs<TDefs extends readonly ErrorDef<string, any>[]> = {
 };
 
 /** The blank-slate state every new `ServerBuilder` starts from. */
-type InitialState = ScopeState<'top', NoOutgoing, false, false>;
+type InitialState<TEnv extends object = Record<string, unknown>> = ScopeState<
+  'top',
+  NoOutgoing,
+  false,
+  false,
+  { incoming: {}; outgoing: {}; requests: {}; streams: {}; channels: {}; namespaces: {} },
+  readonly [],
+  Record<string, unknown>,
+  never,
+  never,
+  TEnv
+>;
 
 /** The builder state after one `.outgoing()` call. */
 type StateAfterOutgoing<
@@ -94,6 +105,7 @@ type MergeScopeContract<
     ? TState['channelNames'] | TName
     : TState['channelNames'];
   readonly scheduledTaskIds: TState['scheduledTaskIds'];
+  readonly env: TState['env'];
 };
 
 /**
@@ -121,6 +133,7 @@ type MergeGroupContract<
   readonly meta: TState['meta'];
   readonly channelNames: TState['channelNames'];
   readonly scheduledTaskIds: TState['scheduledTaskIds'];
+  readonly env: TState['env'];
 };
 
 /**
@@ -138,7 +151,9 @@ type UseResult<TState extends ScopeStateShape, P extends Primitive> =
       ? MergeScopeContract<TState, 'channels', TName, TContract>
       : P extends NamespacePrimitive<any, any, infer TName extends string, infer TContract>
         ? MergeScopeContract<TState, 'namespaces', TName, TContract>
-        : NextState<TState, P & FoldablePrimitive>;
+        : P extends FoldablePrimitive
+          ? NextState<TState, P>
+          : TState;
 
 /** The builder state after one `.incoming()` call. */
 type StateAfterIncoming<
@@ -507,6 +522,8 @@ export interface GroupPrimitive<
  * export type ChatSocket = InferClient<typeof chat>
  * ```
  */
-export function server(name: string): ServerBuilder {
-  return new ServerBuilder(name);
+export function server<TEnv extends object = Record<string, unknown>>(
+  name: string,
+): ServerBuilder<InitialState<TEnv>> {
+  return new ServerBuilder(name) as ServerBuilder<InitialState<TEnv>>;
 }

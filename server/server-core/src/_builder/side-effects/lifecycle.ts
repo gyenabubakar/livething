@@ -1,7 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 /* oxlint-disable eslint-plugin-import(no-cycle) */
 /**
- * Side-effect import that adds all connection and server lifecycle methods to
+ * Side effect import that adds all connection and server lifecycle methods to
  * the server and group builders.
  *
  * Import path: `import '@wskit/server/lifecycle'`
@@ -17,7 +17,7 @@
  *
  * All eight methods follow the same pattern: they take a handler function and
  * push the corresponding lifecycle primitive onto the builder's primitive list.
- * Instead of writing eight nearly-identical prototype assignments, the shared
+ * Instead of writing eight nearly identical prototype assignments, the shared
  * `patchLifecycle` helper reduces the repetition.
  *
  * This file uses module augmentation (`declare module`) to teach TypeScript
@@ -58,7 +58,7 @@ declare module '~/_builder/server-builder.ts' {
 
     /**
      * Run `handler` each time a client establishes a WebSocket connection.
-     * The `ctx` has the full handler context including any metadata set by
+     * The `ctx` has the full handler context, including any metadata set by
      * `onUpgrade`.
      */
     onConnect(
@@ -74,7 +74,7 @@ declare module '~/_builder/server-builder.ts' {
     ): ServerBuilder<TState>;
 
     /**
-     * Run `handler` when the server begins shutting down. Use this for cleanup
+     * Run `handler` when the server begins shutting down. Use this for clean-up
      * (e.g. flushing queues, closing connections gracefully).
      */
     onShutdown(handler: (ctx: ShutdownContext) => void | Promise<void>): ServerBuilder<TState>;
@@ -101,7 +101,7 @@ declare module '~/_builder/server-builder.ts' {
      * connection. Throw `RejectUpgrade(code, reason)` to reject it.
      *
      * The return type's `meta` field is inferred and threaded into `ctx.meta`
-     * for all subsequent handlers, giving you type-safe access to session data.
+     * for all later handlers, giving you type-safe access to session data.
      */
     onUpgrade<TMeta extends Record<string, unknown> = Record<string, unknown>>(
       handler: (
@@ -119,6 +119,7 @@ declare module '~/_builder/server-builder.ts' {
       readonly meta: TMeta;
       readonly channelNames: TState['channelNames'];
       readonly scheduledTaskIds: TState['scheduledTaskIds'];
+      readonly env: TState['env'];
     }>;
 
     /**
@@ -186,6 +187,7 @@ declare module '~/_builder/server-builder.ts' {
       readonly meta: TMeta;
       readonly channelNames: TState['channelNames'];
       readonly scheduledTaskIds: TState['scheduledTaskIds'];
+      readonly env: TState['env'];
     }>;
 
     /** Run `handler` when a raw binary frame arrives. */

@@ -1,0 +1,7 @@
+[     195ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:8799/favicon.ico:0
+[   39727ms] SyntaxError: Unexpected token 'p', "ping" is not valid JSON
+    at JSON.parse (<anonymous>)
+    at D.s.onmessage (http://localhost:8799/_app/immutable/nodes/7.CYJphXyq.js:1:1609)
+[   69718ms] SyntaxError: Unexpected token 'p', "ping" is not valid JSON
+    at JSON.parse (<anonymous>)
+    at D.s.onmessage (http://localhost:8799/_app/immutable/nodes/7.CYJphXyq.js:1:1609)

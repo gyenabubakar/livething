@@ -11,6 +11,11 @@ export const chatChannel = base
     ctx.channel.send('chat-message', msg);
     ctx.channel.broadcast('chat-message', msg);
   })
+  .onBeforeSubscribe((ctx) => {
+    if (ctx.meta.username === 'blocked-user') {
+      throw new Error('You are not allowed in chat');
+    }
+  })
   .onSubscribe((ctx) => {
     const msg = { text: `${ctx.meta.username} joined the chat`, from: 'system', ts: Date.now() };
     ctx.channel.send('chat-message', msg);

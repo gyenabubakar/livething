@@ -13,7 +13,13 @@ type SqlStorageWithTransaction = SqlStorage & {
 function wrapCursor(cursor: SqlStorageCursor<Record<string, SqlStorageValue>>): SqlResult {
   return {
     toArray: () => cursor.toArray() as Record<string, unknown>[],
-    one: () => (cursor.one() as Record<string, unknown>) ?? null,
+    one: () => {
+      try {
+        return (cursor.one() as Record<string, unknown>) ?? null;
+      } catch {
+        return null;
+      }
+    },
     raw: () => [...cursor.raw()] as unknown[][],
   };
 }

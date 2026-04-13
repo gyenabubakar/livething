@@ -40,7 +40,7 @@ export type AnyModule = DefineModule.ModuleInstance<
   string,
   any,
   any,
-  readonly AnyOutgoing[],
+  Record<string, unknown>,
   readonly any[]
 >;
 /** Widened `.namespace()` primitive type for the compile layer. */

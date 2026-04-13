@@ -14,12 +14,32 @@
         "name": "WEBSOCKET_SERVER",
         "class_name": "WebSocketServer",
       },
+      {
+        "name": "REPLAY_SERVER",
+        "class_name": "ReplayServer",
+      },
+      {
+        "name": "REPLAY_CUSTOM_SERVER",
+        "class_name": "ReplayCustomServer",
+      },
+      {
+        "name": "MODULES_SERVER",
+        "class_name": "ModulesServer",
+      },
     ],
   },
   "migrations": [
     {
       "tag": "v1",
       "new_sqlite_classes": ["WebSocketServer"],
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["ReplayServer", "ModulesServer"],
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": ["ReplayCustomServer"],
     },
   ],
 }

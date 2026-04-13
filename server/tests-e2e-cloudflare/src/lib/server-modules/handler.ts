@@ -1,0 +1,60 @@
+import { server } from '@wskit/server';
+import type { InferClient } from '@wskit/server';
+
+import '@wskit/server/lifecycle';
+
+import { RejectUpgrade } from '@wskit/server/errors/symbols';
+import { Drizzle } from './drizzle-module.ts';
+import {
+  DeleteRecord,
+  GetAllRecords,
+  GetRecord,
+  GetRecordCount,
+  InsertRecord,
+  RecordCount,
+  RecordDeleted,
+  RecordInserted,
+  RecordList,
+  SingleRecord,
+} from './events.ts';
+
+export const modulesHandler = server<Env>('modules-test')
+  .outgoing(RecordInserted)
+  .outgoing(RecordList)
+  .outgoing(SingleRecord)
+  .outgoing(RecordDeleted)
+  .outgoing(RecordCount)
+  .use(Drizzle({ migrate: true }))
+  .onUpgrade((request) => {
+    const url = new URL(request.url);
+    const username = url.searchParams.get('username');
+    if (!username) throw RejectUpgrade(4001, 'Missing username');
+    return { meta: { username } };
+  })
+  .onConnect((ctx) => {
+    ctx.log.info('Module handler: client connected', { id: ctx.id });
+  })
+  .incoming(InsertRecord, (ctx, payload) => {
+    const db = Drizzle.use(ctx);
+    const row = db.insert({ name: payload.name, value: payload.value });
+    ctx.send('record-inserted', { id: row.id });
+  })
+  .incoming(GetAllRecords, (ctx) => {
+    const db = Drizzle.use(ctx);
+    ctx.send('record-list', { records: db.findAll() });
+  })
+  .incoming(GetRecord, (ctx, payload) => {
+    const db = Drizzle.use(ctx);
+    ctx.send('single-record', { record: db.findById(payload.id) ?? null });
+  })
+  .incoming(DeleteRecord, (ctx, payload) => {
+    const db = Drizzle.use(ctx);
+    ctx.send('record-deleted', { success: db.deleteById(payload.id) });
+  })
+  .incoming(GetRecordCount, (ctx) => {
+    const db = Drizzle.use(ctx);
+    ctx.send('record-count', { count: db.count() });
+  })
+  .build();
+
+export type ModulesClient = InferClient<typeof modulesHandler>;

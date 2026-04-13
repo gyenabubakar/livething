@@ -64,7 +64,8 @@ type ChannelState<TParentState extends ScopeStateShape> = ScopeState<
   readonly [],
   TParentState['meta'],
   TParentState['channelNames'],
-  TParentState['scheduledTaskIds']
+  TParentState['scheduledTaskIds'],
+  TParentState['env']
 >;
 
 /** Helper: the state produced after registering an outgoing event on the channel. */
@@ -124,6 +125,7 @@ type StateWithChannel<
   readonly meta: TState['meta'];
   readonly channelNames: TState['channelNames'] | TChannelName;
   readonly scheduledTaskIds: TState['scheduledTaskIds'];
+  readonly env: TState['env'];
 };
 
 /** Helper: the state produced after registering an incoming handler on the channel. */
