@@ -14,7 +14,6 @@
  *     *while the stream is running* to influence it (e.g. pause, filter)
  *   - `.generate(handler)` — attach the `AsyncGenerator` that produces chunks.
  *     This registers the stream and returns the `StreamBuilder` (not the parent).
- *   - `.done()` — return to the parent builder after `.generate()`.
  *   - `.extract()` — detach as a reusable `GeneratePrimitive`.
  *
  * Setting `options.broadcast = true` fans the stream out to all connections
@@ -41,6 +40,7 @@ import type {
   StreamNudgeMessages,
 } from '~/stream/stream.ts';
 import type { Validator } from '~/types.ts';
+import { NamespaceBuilder } from './namespaces.ts';
 
 /**
  * Convert nudge declarations to a `{ event: payload }` map for the client contract.
@@ -99,6 +99,7 @@ type StateWithStream<
   readonly errors: TState['errors'];
   readonly meta: TState['meta'];
   readonly channelNames: TState['channelNames'];
+  readonly scheduledTaskIds: TState['scheduledTaskIds'];
 };
 
 /**
@@ -107,7 +108,7 @@ type StateWithStream<
  *
  * Type parameters:
  * - `TParentBuilder` — the builder type (ServerBuilder or GroupBuilder) to
- *   return when `.done()` is called.
+ *   return when sealed via the callback form.
  * - `TParentState` — the parent's type-level state, used to construct the
  *   correct `ctx` type for the generator.
  * - `TEvent` — the string literal type of the trigger event name.
@@ -123,7 +124,7 @@ export class StreamBuilder<
   TChunks,
   TNudges extends readonly NudgeDeclaration[] = readonly [],
 > {
-  /** @internal Reference to the parent builder for `.done()`. */
+  /** @internal Reference to the parent builder for `_seal()`. */
   readonly _parentBuilder: TParentBuilder;
   /** @internal The parent builder's primitive array for `.generate()` to push into. */
   readonly _parentPrimitives: Primitive[];
@@ -203,19 +204,6 @@ export class StreamBuilder<
   }
 
   /**
-   * Return to the parent builder after calling `.generate()`. This ends the
-   * stream sub-builder chain and resumes the parent fluent chain.
-   *
-   * The returned builder's state includes the stream in `contract.streams`
-   * so `InferClient` can extract the stream contract.
-   */
-  done(): TParentBuilder extends GroupBuilder<any>
-    ? GroupBuilder<StateWithStream<TParentState, TEvent, TPayload, TChunks, TNudges>>
-    : ServerBuilder<StateWithStream<TParentState, TEvent, TPayload, TChunks, TNudges>> {
-    return this._parentBuilder as any;
-  }
-
-  /**
    * Package the stream into a standalone `GeneratePrimitive` without pushing it
    * onto the parent builder. The extracted primitive has a placeholder generator
    * that throws — call `.use(primitive)` on a builder to attach the real handler.
@@ -245,34 +233,80 @@ export class StreamBuilder<
 declare module '~/_builder/server-builder.ts' {
   interface ServerBuilder<TState extends ScopeStateShape> {
     /**
-     * Open a stream sub-builder. Declare nudges with `.nudge()`, then attach
-     * the generator with `.generate()`, and finish with `.done()`.
-     *
-     * @param eventContract  Describes the trigger event name and payload schema.
-     * @param chunkSchema    Validator for each value the generator yields.
-     * @param options.broadcast  When `true`, stream chunks go to all connections.
+     * Open a stream sub-builder. Call `.extract()` to detach it as a
+     * standalone primitive for multi-file use.
      */
     stream<TEvent extends string, TPayload, TChunks>(
       eventContract: EventContract<TEvent, TPayload>,
       chunkSchema: Validator<TChunks>,
       options?: { broadcast?: boolean },
     ): StreamBuilder<ServerBuilder<TState>, TState, TEvent, TPayload, TChunks>;
+
+    /**
+     * Define a stream inline using a callback. The callback receives a
+     * `StreamBuilder` and should return it after calling `.generate()`.
+     */
+    stream<
+      TEvent extends string,
+      TPayload,
+      TChunks,
+      TNudges extends readonly NudgeDeclaration[] = readonly [],
+    >(
+      eventContract: EventContract<TEvent, TPayload>,
+      chunkSchema: Validator<TChunks>,
+      callback: (
+        builder: StreamBuilder<ServerBuilder<TState>, TState, TEvent, TPayload, TChunks>,
+      ) => StreamBuilder<ServerBuilder<TState>, TState, TEvent, TPayload, TChunks, TNudges>,
+    ): ServerBuilder<StateWithStream<TState, TEvent, TPayload, TChunks, TNudges>>;
+
+    stream<
+      TEvent extends string,
+      TPayload,
+      TChunks,
+      TNudges extends readonly NudgeDeclaration[] = readonly [],
+    >(
+      eventContract: EventContract<TEvent, TPayload>,
+      chunkSchema: Validator<TChunks>,
+      options: { broadcast?: boolean },
+      callback: (
+        builder: StreamBuilder<ServerBuilder<TState>, TState, TEvent, TPayload, TChunks>,
+      ) => StreamBuilder<ServerBuilder<TState>, TState, TEvent, TPayload, TChunks, TNudges>,
+    ): ServerBuilder<StateWithStream<TState, TEvent, TPayload, TChunks, TNudges>>;
   }
 
   interface GroupBuilder<TState extends ScopeStateShape> {
-    /**
-     * Open a stream sub-builder. Declare nudges with `.nudge()`, then attach
-     * the generator with `.generate()`, and finish with `.done()`.
-     *
-     * @param eventContract  Describes the trigger event name and payload schema.
-     * @param chunkSchema    Validator for each value the generator yields.
-     * @param options.broadcast  When `true`, stream chunks go to all connections.
-     */
     stream<TEvent extends string, TPayload, TChunks>(
       eventContract: EventContract<TEvent, TPayload>,
       chunkSchema: Validator<TChunks>,
       options?: { broadcast?: boolean },
     ): StreamBuilder<GroupBuilder<TState>, TState, TEvent, TPayload, TChunks>;
+
+    stream<
+      TEvent extends string,
+      TPayload,
+      TChunks,
+      TNudges extends readonly NudgeDeclaration[] = readonly [],
+    >(
+      eventContract: EventContract<TEvent, TPayload>,
+      chunkSchema: Validator<TChunks>,
+      callback: (
+        builder: StreamBuilder<GroupBuilder<TState>, TState, TEvent, TPayload, TChunks>,
+      ) => StreamBuilder<GroupBuilder<TState>, TState, TEvent, TPayload, TChunks, TNudges>,
+    ): GroupBuilder<StateWithStream<TState, TEvent, TPayload, TChunks, TNudges>>;
+
+    stream<
+      TEvent extends string,
+      TPayload,
+      TChunks,
+      TNudges extends readonly NudgeDeclaration[] = readonly [],
+    >(
+      eventContract: EventContract<TEvent, TPayload>,
+      chunkSchema: Validator<TChunks>,
+      options: { broadcast?: boolean },
+      callback: (
+        builder: StreamBuilder<GroupBuilder<TState>, TState, TEvent, TPayload, TChunks>,
+      ) => StreamBuilder<GroupBuilder<TState>, TState, TEvent, TPayload, TChunks, TNudges>,
+    ): GroupBuilder<StateWithStream<TState, TEvent, TPayload, TChunks, TNudges>>;
   }
 }
 
@@ -281,13 +315,42 @@ declare module '~/_builder/server-builder.ts' {
  * Uses `(prototype as any)` because TypeScript cannot express a generic
  * method on a prototype assignment without `any`.
  */
+function streamImpl(
+  parent: { _primitives: Primitive[] },
+  eventContract: EventContract,
+  chunkSchema: Validator,
+  callbackOrOptions?: { broadcast?: boolean } | ((builder: any) => any),
+  maybeCallback?: (builder: any) => any,
+): any {
+  const isCallback3 = typeof callbackOrOptions === 'function';
+  const options = isCallback3
+    ? undefined
+    : typeof callbackOrOptions === 'object'
+      ? callbackOrOptions
+      : undefined;
+  const callback = isCallback3 ? callbackOrOptions : maybeCallback;
+  const builder = new StreamBuilder(
+    parent,
+    parent._primitives,
+    eventContract,
+    chunkSchema,
+    options,
+  );
+  if (callback) {
+    callback(builder);
+    return parent;
+  }
+  return builder;
+}
+
 (ServerBuilder.prototype as any).stream = function (
   this: ServerBuilder<any>,
   eventContract: EventContract,
   chunkSchema: Validator,
-  options?: { broadcast?: boolean },
+  callbackOrOptions?: any,
+  maybeCallback?: any,
 ) {
-  return new StreamBuilder(this, this._primitives, eventContract, chunkSchema, options);
+  return streamImpl(this, eventContract, chunkSchema, callbackOrOptions, maybeCallback);
 };
 
 /** Runtime implementation of `.stream()` for `GroupBuilder`. */
@@ -295,7 +358,72 @@ declare module '~/_builder/server-builder.ts' {
   this: GroupBuilder<any>,
   eventContract: EventContract,
   chunkSchema: Validator,
-  options?: { broadcast?: boolean },
+  callbackOrOptions?: any,
+  maybeCallback?: any,
 ) {
-  return new StreamBuilder(this, this._primitives, eventContract, chunkSchema, options);
+  return streamImpl(this, eventContract, chunkSchema, callbackOrOptions, maybeCallback);
 };
+
+/**
+ * Module augmentation: adds `.stream()` to `NamespaceBuilder` so namespaces
+ * can register streaming handlers.
+ */
+declare module './namespaces.ts' {
+  interface NamespaceBuilder<TParentState, TState extends ScopeStateShape, TName> {
+    stream<TEvent extends string, TPayload, TChunks>(
+      eventContract: EventContract<TEvent, TPayload>,
+      chunkSchema: Validator<TChunks>,
+      options?: { broadcast?: boolean },
+    ): StreamBuilder<
+      NamespaceBuilder<TParentState, TState, TName>,
+      TState,
+      TEvent,
+      TPayload,
+      TChunks
+    >;
+
+    stream<
+      TEvent extends string,
+      TPayload,
+      TChunks,
+      TNudges extends readonly NudgeDeclaration[] = readonly [],
+    >(
+      eventContract: EventContract<TEvent, TPayload>,
+      chunkSchema: Validator<TChunks>,
+      callback: (
+        builder: StreamBuilder<
+          NamespaceBuilder<TParentState, TState, TName>,
+          TState,
+          TEvent,
+          TPayload,
+          TChunks
+        >,
+      ) => StreamBuilder<
+        NamespaceBuilder<TParentState, TState, TName>,
+        TState,
+        TEvent,
+        TPayload,
+        TChunks,
+        TNudges
+      >,
+    ): NamespaceBuilder<
+      TParentState,
+      StateWithStream<TState, TEvent, TPayload, TChunks, TNudges>,
+      TName
+    >;
+  }
+}
+
+/** Runtime implementation of `.stream()` for `NamespaceBuilder`. */
+(NamespaceBuilder.prototype as any).stream = function (
+  this: NamespaceBuilder<any, any, any>,
+  eventContract: EventContract,
+  chunkSchema: Validator,
+  callbackOrOptions?: any,
+  maybeCallback?: any,
+) {
+  return streamImpl(this, eventContract, chunkSchema, callbackOrOptions, maybeCallback);
+};
+
+/** @internal Side-effect registration marker. */
+export const __sideEffect_streams = true;

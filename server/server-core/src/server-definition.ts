@@ -32,7 +32,7 @@ export interface ServerContract {
 /**
  * The finalized blueprint for a wskit server.
  *
- * You get a `ServerDefinition` by calling `.done()` at the end of a
+ * You get a `ServerDefinition` by calling `.build()` at the end of a
  * `server(name)` builder chain. It is an immutable, frozen object that holds
  * all registered primitives and a phantom `__contract` type used by
  * `InferClient` to generate the client-side type.

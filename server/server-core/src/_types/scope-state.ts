@@ -155,6 +155,7 @@ export interface ScopeStateShape {
   readonly errors: readonly AnyErrorDef[];
   readonly meta: Record<string, unknown>;
   readonly channelNames: string;
+  readonly scheduledTaskIds: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -188,7 +189,8 @@ export type NoOutgoing = Record<never, never>;
  * - `contract`     — the client-facing contract built up so far
  * - `errors`       — the list of server error definitions registered with `errors()`
  * - `meta`         — the per-connection metadata shape inferred from `.onUpgrade()` return
- * - `channelNames` — union of registered channel names for typed `ctx.channels` methods
+ * - `channelNames`      — union of registered channel names for typed `ctx.channels` methods
+ * - `scheduledTaskIds`  — union of registered scheduled task IDs for typed `ctx.schedule()`
  *
  * All parameters have default values so `ScopeState` (no arguments) gives a
  * clean empty starting state for the top-level scope.
@@ -209,6 +211,7 @@ export type ScopeState<
   TErrors extends readonly AnyErrorDef[] = readonly [],
   TMeta extends Record<string, unknown> = Record<string, unknown>,
   TChannelNames extends string = never,
+  TScheduledTaskIds extends string = never,
 > = {
   readonly kind: TKind;
   readonly outgoing: TOutgoing;
@@ -218,6 +221,7 @@ export type ScopeState<
   readonly errors: TErrors;
   readonly meta: TMeta;
   readonly channelNames: TChannelNames;
+  readonly scheduledTaskIds: TScheduledTaskIds;
 };
 
 // ---------------------------------------------------------------------------
@@ -356,6 +360,7 @@ export type NextState<
       readonly errors: TState['errors'];
       readonly meta: TState['meta'];
       readonly channelNames: TState['channelNames'];
+      readonly scheduledTaskIds: TState['scheduledTaskIds'];
     }
   : // Branch 2: passive infrastructure — no ctx change
     TPrimitive extends
@@ -364,7 +369,6 @@ export type NextState<
         | SequencePrimitive
         | DedupPrimitive
         | AnyCustomReplay
-        | ScheduledPrimitive<string, any, any>
     ? {
         readonly kind: TState['kind'];
         readonly outgoing: TState['outgoing'];
@@ -374,121 +378,144 @@ export type NextState<
         readonly errors: TState['errors'];
         readonly meta: TState['meta'];
         readonly channelNames: TState['channelNames'];
+        readonly scheduledTaskIds: TState['scheduledTaskIds'];
       }
-    : // Branch 3: replay() — enable ctx.sendReplay()
-      TPrimitive extends AnyReplay
+    : // Branch 3: scheduled(taskId) — accumulate task ID for typed ctx.schedule()
+      TPrimitive extends ScheduledPrimitive<infer TTaskId, any, any>
       ? {
           readonly kind: TState['kind'];
           readonly outgoing: TState['outgoing'];
           readonly hasAck: TState['hasAck'];
-          readonly hasReplay: true;
+          readonly hasReplay: TState['hasReplay'];
           readonly contract: TState['contract'];
           readonly errors: TState['errors'];
           readonly meta: TState['meta'];
           readonly channelNames: TState['channelNames'];
+          readonly scheduledTaskIds: TState['scheduledTaskIds'] | TTaskId;
         }
-      : // Branch 4: errors(...) — replace the error definition list
-        TPrimitive extends AnyErrors
-        ? TPrimitive extends ErrorsPrimitive<infer TDefs extends readonly AnyErrorDef[]>
-          ? {
-              readonly kind: TState['kind'];
-              readonly outgoing: TState['outgoing'];
-              readonly hasAck: TState['hasAck'];
-              readonly hasReplay: TState['hasReplay'];
-              readonly contract: TState['contract'];
-              readonly errors: TDefs;
-              readonly meta: TState['meta'];
-              readonly channelNames: TState['channelNames'];
-            }
-          : TState
-        : // Branch 5: outgoing(event) — add event to server→client send map and client contract
-          TPrimitive extends AnyOutgoing
-          ? {
-              readonly kind: TState['kind'];
-              readonly outgoing: MergeRecords<TState['outgoing'], OutgoingEntry<TPrimitive>>;
-              readonly hasAck: TState['hasAck'];
-              readonly hasReplay: TState['hasReplay'];
-              readonly contract: {
-                incoming: MergeRecords<TState['contract']['incoming'], OutgoingEntry<TPrimitive>>;
-                outgoing: TState['contract']['outgoing'];
-                requests: TState['contract']['requests'];
-                streams: TState['contract']['streams'];
-                channels: TState['contract']['channels'];
-                namespaces: TState['contract']['namespaces'];
-              };
-              readonly errors: TState['errors'];
-              readonly meta: TState['meta'];
-              readonly channelNames: TState['channelNames'];
-            }
-          : // Branch 6: incoming(event) — add to client→server contract (client sends it)
-            TPrimitive extends AnyIncoming
-            ? TPrimitive extends IncomingPrimitive<infer TEvent, infer TPayload, any>
-              ? {
-                  readonly kind: TState['kind'];
-                  readonly outgoing: TState['outgoing'];
-                  readonly hasAck: TState['hasAck'];
-                  readonly hasReplay: TState['hasReplay'];
-                  readonly contract: {
-                    incoming: TState['contract']['incoming'];
-                    outgoing: MergeRecords<
-                      TState['contract']['outgoing'],
-                      Record<TEvent, TPayload>
-                    >;
-                    requests: TState['contract']['requests'];
-                    streams: TState['contract']['streams'];
-                    channels: TState['contract']['channels'];
-                    namespaces: TState['contract']['namespaces'];
-                  };
-                  readonly errors: TState['errors'];
-                  readonly meta: TState['meta'];
-                  readonly channelNames: TState['channelNames'];
-                }
-              : TState
-            : // Branch 7: request(event) — add to contract.requests
-              TPrimitive extends AnyRequest
-              ? {
-                  readonly kind: TState['kind'];
-                  readonly outgoing: TState['outgoing'];
-                  readonly hasAck: TState['hasAck'];
-                  readonly hasReplay: TState['hasReplay'];
-                  readonly contract: {
-                    incoming: TState['contract']['incoming'];
-                    outgoing: TState['contract']['outgoing'];
-                    requests: MergeRecords<
-                      TState['contract']['requests'],
-                      RequestEntry<TPrimitive>
-                    >;
-                    streams: TState['contract']['streams'];
-                    channels: TState['contract']['channels'];
-                    namespaces: TState['contract']['namespaces'];
-                  };
-                  readonly errors: TState['errors'];
-                  readonly meta: TState['meta'];
-                  readonly channelNames: TState['channelNames'];
-                }
-              : // Branch 8: generate(stream) — add to contract.streams
-                TPrimitive extends AnyGenerate
-                ? TPrimitive extends GeneratePrimitive<infer TStream, any, any>
-                  ? {
-                      readonly kind: TState['kind'];
-                      readonly outgoing: TState['outgoing'];
-                      readonly hasAck: TState['hasAck'];
-                      readonly hasReplay: TState['hasReplay'];
-                      readonly contract: {
-                        incoming: TState['contract']['incoming'];
-                        outgoing: TState['contract']['outgoing'];
-                        requests: TState['contract']['requests'];
-                        streams: MergeRecords<TState['contract']['streams'], StreamEntry<TStream>>;
-                        channels: TState['contract']['channels'];
-                        namespaces: TState['contract']['namespaces'];
-                      };
-                      readonly errors: TState['errors'];
-                      readonly meta: TState['meta'];
-                      readonly channelNames: TState['channelNames'];
-                    }
-                  : TState
-                : // Fallback: unknown primitive — leave state unchanged
-                  TState;
+      : // Branch 4: replay() — enable ctx.sendReplay()
+        TPrimitive extends AnyReplay
+        ? {
+            readonly kind: TState['kind'];
+            readonly outgoing: TState['outgoing'];
+            readonly hasAck: TState['hasAck'];
+            readonly hasReplay: true;
+            readonly contract: TState['contract'];
+            readonly errors: TState['errors'];
+            readonly meta: TState['meta'];
+            readonly channelNames: TState['channelNames'];
+            readonly scheduledTaskIds: TState['scheduledTaskIds'];
+          }
+        : // Branch 5: errors(...) — replace the error definition list
+          TPrimitive extends AnyErrors
+          ? TPrimitive extends ErrorsPrimitive<infer TDefs extends readonly AnyErrorDef[]>
+            ? {
+                readonly kind: TState['kind'];
+                readonly outgoing: TState['outgoing'];
+                readonly hasAck: TState['hasAck'];
+                readonly hasReplay: TState['hasReplay'];
+                readonly contract: TState['contract'];
+                readonly errors: TDefs;
+                readonly meta: TState['meta'];
+                readonly channelNames: TState['channelNames'];
+                readonly scheduledTaskIds: TState['scheduledTaskIds'];
+              }
+            : TState
+          : // Branch 6: outgoing(event) — add event to server→client send map and client contract
+            TPrimitive extends AnyOutgoing
+            ? {
+                readonly kind: TState['kind'];
+                readonly outgoing: MergeRecords<TState['outgoing'], OutgoingEntry<TPrimitive>>;
+                readonly hasAck: TState['hasAck'];
+                readonly hasReplay: TState['hasReplay'];
+                readonly contract: {
+                  incoming: MergeRecords<TState['contract']['incoming'], OutgoingEntry<TPrimitive>>;
+                  outgoing: TState['contract']['outgoing'];
+                  requests: TState['contract']['requests'];
+                  streams: TState['contract']['streams'];
+                  channels: TState['contract']['channels'];
+                  namespaces: TState['contract']['namespaces'];
+                };
+                readonly errors: TState['errors'];
+                readonly meta: TState['meta'];
+                readonly channelNames: TState['channelNames'];
+                readonly scheduledTaskIds: TState['scheduledTaskIds'];
+              }
+            : // Branch 7: incoming(event) — add to client→server contract (client sends it)
+              TPrimitive extends AnyIncoming
+              ? TPrimitive extends IncomingPrimitive<infer TEvent, infer TPayload, any>
+                ? {
+                    readonly kind: TState['kind'];
+                    readonly outgoing: TState['outgoing'];
+                    readonly hasAck: TState['hasAck'];
+                    readonly hasReplay: TState['hasReplay'];
+                    readonly contract: {
+                      incoming: TState['contract']['incoming'];
+                      outgoing: MergeRecords<
+                        TState['contract']['outgoing'],
+                        Record<TEvent, TPayload>
+                      >;
+                      requests: TState['contract']['requests'];
+                      streams: TState['contract']['streams'];
+                      channels: TState['contract']['channels'];
+                      namespaces: TState['contract']['namespaces'];
+                    };
+                    readonly errors: TState['errors'];
+                    readonly meta: TState['meta'];
+                    readonly channelNames: TState['channelNames'];
+                    readonly scheduledTaskIds: TState['scheduledTaskIds'];
+                  }
+                : TState
+              : // Branch 8: request(event) — add to contract.requests
+                TPrimitive extends AnyRequest
+                ? {
+                    readonly kind: TState['kind'];
+                    readonly outgoing: TState['outgoing'];
+                    readonly hasAck: TState['hasAck'];
+                    readonly hasReplay: TState['hasReplay'];
+                    readonly contract: {
+                      incoming: TState['contract']['incoming'];
+                      outgoing: TState['contract']['outgoing'];
+                      requests: MergeRecords<
+                        TState['contract']['requests'],
+                        RequestEntry<TPrimitive>
+                      >;
+                      streams: TState['contract']['streams'];
+                      channels: TState['contract']['channels'];
+                      namespaces: TState['contract']['namespaces'];
+                    };
+                    readonly errors: TState['errors'];
+                    readonly meta: TState['meta'];
+                    readonly channelNames: TState['channelNames'];
+                    readonly scheduledTaskIds: TState['scheduledTaskIds'];
+                  }
+                : // Branch 9: generate(stream) — add to contract.streams
+                  TPrimitive extends AnyGenerate
+                  ? TPrimitive extends GeneratePrimitive<infer TStream, any, any>
+                    ? {
+                        readonly kind: TState['kind'];
+                        readonly outgoing: TState['outgoing'];
+                        readonly hasAck: TState['hasAck'];
+                        readonly hasReplay: TState['hasReplay'];
+                        readonly contract: {
+                          incoming: TState['contract']['incoming'];
+                          outgoing: TState['contract']['outgoing'];
+                          requests: TState['contract']['requests'];
+                          streams: MergeRecords<
+                            TState['contract']['streams'],
+                            StreamEntry<TStream>
+                          >;
+                          channels: TState['contract']['channels'];
+                          namespaces: TState['contract']['namespaces'];
+                        };
+                        readonly errors: TState['errors'];
+                        readonly meta: TState['meta'];
+                        readonly channelNames: TState['channelNames'];
+                        readonly scheduledTaskIds: TState['scheduledTaskIds'];
+                      }
+                    : TState
+                  : // Fallback: unknown primitive — leave state unchanged
+                    TState;
 
 // ---------------------------------------------------------------------------
 // FoldState
@@ -743,20 +770,56 @@ export interface ReplayMethods<TOutgoing extends Record<string, any>> {
 }
 
 /**
- * Provides `ctx.namespace.name` inside namespace-scoped handlers.
+ * Provides `ctx.schedule()`, `ctx.cancelScheduled()`, and `ctx.setAlarm()`.
+ *
+ * These are always available on connection handler contexts — they delegate
+ * to the engine's scheduled-task infrastructure and the platform's alarm API.
  */
-export interface NamespaceScopeMethods {
+export interface ScheduleMethods<TScheduledTaskIds extends string = string> {
+  schedule(taskId: TScheduledTaskIds, options: { time: number; data?: unknown }): void;
+  cancelScheduled(taskId: TScheduledTaskIds, filter?: Record<string, unknown>): void;
+  setAlarm(time: number): void;
+}
+
+/**
+ * Provides `ctx.namespace` inside namespace-scoped handlers.
+ *
+ * When outgoing events are known, `send` and `broadcast` are typed to only
+ * accept events declared inside the namespace.
+ */
+export interface NamespaceScopeMethods<
+  TOutgoing extends Record<string, any> = Record<string, any>,
+> {
   readonly namespace: {
     readonly name: string;
+    send<TEvent extends keyof TOutgoing & string>(
+      event: TEvent,
+      payload: TOutgoing[TEvent],
+    ): boolean;
+    broadcast<TEvent extends keyof TOutgoing & string>(
+      event: TEvent,
+      payload: TOutgoing[TEvent],
+    ): void;
   };
 }
 
 /**
- * Provides `ctx.channel.name` inside channel-scoped handlers.
+ * Provides `ctx.channel` inside channel-scoped handlers.
+ *
+ * When outgoing events are known, `send` and `broadcast` are typed to only
+ * accept events declared inside the channel.
  */
-export interface ChannelScopeMethods {
+export interface ChannelScopeMethods<TOutgoing extends Record<string, any> = Record<string, any>> {
   readonly channel: {
     readonly name: string;
+    send<TEvent extends keyof TOutgoing & string>(
+      event: TEvent,
+      payload: TOutgoing[TEvent],
+    ): boolean;
+    broadcast<TEvent extends keyof TOutgoing & string>(
+      event: TEvent,
+      payload: TOutgoing[TEvent],
+    ): void;
   };
 }
 
@@ -828,11 +891,17 @@ type ReplayApi<TState extends ScopeStateShape> = TState['hasReplay'] extends tru
 /**
  * Add the scope-specific fields (`ctx.namespace` or `ctx.channel`) based on
  * which kind of scope the handler lives in. Top-level handlers get neither.
+ *
+ * `TOutgoing` is threaded through so that `ctx.namespace.send()` and
+ * `ctx.channel.broadcast()` are typed to the scope's declared events.
  */
-type ScopeExtras<TKind extends ScopeKind> = TKind extends 'namespace'
-  ? NamespaceScopeMethods
+type ScopeExtras<
+  TKind extends ScopeKind,
+  TOutgoing extends Record<string, any> = Record<string, any>,
+> = TKind extends 'namespace'
+  ? NamespaceScopeMethods<TOutgoing>
   : TKind extends 'channel'
-    ? ChannelScopeMethods
+    ? ChannelScopeMethods<TOutgoing>
     : {};
 
 // ---------------------------------------------------------------------------
@@ -877,8 +946,9 @@ export type HandlerCtxFromState<TState extends ScopeStateShape> = SendApi<TState
   UntagMethods &
   AckApi<TState> &
   ReplayApi<TState> &
+  ScheduleMethods<TState['scheduledTaskIds'] extends never ? string : TState['scheduledTaskIds']> &
   ChannelsMethods<TState['channelNames'] extends never ? string : TState['channelNames']> &
-  ScopeExtras<TState['kind']>;
+  ScopeExtras<TState['kind'], TState['outgoing']>;
 
 // ---------------------------------------------------------------------------
 // StreamBaseCtxFromState / StreamCtxFromState
@@ -903,7 +973,7 @@ export type StreamBaseCtxFromState<TState extends ScopeStateShape> = SendApi<TSt
   UntagMethods &
   ReplayApi<TState> &
   ChannelsMethods<TState['channelNames'] extends never ? string : TState['channelNames']> &
-  ScopeExtras<TState['kind']>;
+  ScopeExtras<TState['kind'], TState['outgoing']>;
 
 /**
  * Build the full ctx for a stream generator by adding `ctx.nudges(...)` on

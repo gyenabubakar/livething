@@ -152,14 +152,14 @@ describe('GroupBuilder', () => {
     expect(def.primitives).toHaveLength(2);
   });
 
-  it('.done() merges inline group into parent', () => {
+  it('callback form merges inline group into parent', () => {
     const def = server('chat')
       .outgoing(message)
-      .group()
-      .incoming(sendMessage, async (ctx) => {
-        ctx.send('message', { text: 'hi', from: ctx.id });
-      })
-      .done()
+      .group((g) =>
+        g.incoming(sendMessage, async (ctx) => {
+          ctx.send('message', { text: 'hi', from: ctx.id });
+        }),
+      )
       .build();
 
     expect(def.primitives).toHaveLength(2);

@@ -94,3 +94,6 @@ GroupBuilder.prototype.errors = function (this: GroupBuilder<any>, ...defs: any[
   );
   return this;
 };
+
+/** @internal Side-effect registration marker. */
+export const __sideEffect_errors = true;

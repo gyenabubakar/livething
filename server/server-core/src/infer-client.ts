@@ -43,7 +43,7 @@ type BuiltInErrorUnion = typeof ValidationFailed;
 /**
  * Read a wskit `ServerDefinition` and turn it into the full client contract type.
  *
- * Pass the type of your server definition (the value returned by `.done()`)
+ * Pass the type of your server definition (the value returned by `.build()`)
  * and get back a type that describes every event, request, stream, namespace,
  * channel, and error the server exposes to clients.
  *
@@ -54,7 +54,7 @@ type BuiltInErrorUnion = typeof ValidationFailed;
  * // server.ts
  * const myServer = server('chat')
  *   .incoming('send-message', { ... })
- *   .done();
+ *   .build();
  *
  * export type MyClient = InferClient<typeof myServer>;
  *

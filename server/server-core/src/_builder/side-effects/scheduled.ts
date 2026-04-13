@@ -22,6 +22,7 @@
 import { GroupBuilder, ServerBuilder } from '~/_builder/server-builder.ts';
 import { scheduled as createScheduled } from '~/scheduled/scheduled.ts';
 import type { NextState, ScopeStateShape } from '~/_types/scope-state.ts';
+import type { TaskContext } from '~/context.ts';
 import type {
   ScheduledHandler,
   ScheduledOptions,
@@ -42,11 +43,11 @@ declare module '~/_builder/server-builder.ts' {
      * @param handler  Function to call when the task fires.
      * @param options  Optional recurrence interval, data validator, and retry flag.
      */
-    scheduled<TTaskId extends string, TData, TCtx>(
+    scheduled<TTaskId extends string, TData = unknown>(
       taskId: TTaskId,
-      handler: ScheduledHandler<TCtx, TData>,
+      handler: ScheduledHandler<TaskContext, TData>,
       options?: ScheduledOptions<TData>,
-    ): ServerBuilder<NextState<TState, ScheduledPrimitive<TTaskId, TData, TCtx>>>;
+    ): ServerBuilder<NextState<TState, ScheduledPrimitive<TTaskId, TData, TaskContext>>>;
 
     /**
      * Declare a scheduled task without attaching a handler here.
@@ -71,11 +72,11 @@ declare module '~/_builder/server-builder.ts' {
      * @param handler  Function to call when the task fires.
      * @param options  Optional recurrence interval, data validator, and retry flag.
      */
-    scheduled<TTaskId extends string, TData, TCtx>(
+    scheduled<TTaskId extends string, TData = unknown>(
       taskId: TTaskId,
-      handler: ScheduledHandler<TCtx, TData>,
+      handler: ScheduledHandler<TaskContext, TData>,
       options?: ScheduledOptions<TData>,
-    ): GroupBuilder<NextState<TState, ScheduledPrimitive<TTaskId, TData, TCtx>>>;
+    ): GroupBuilder<NextState<TState, ScheduledPrimitive<TTaskId, TData, TaskContext>>>;
 
     /**
      * Declare a scheduled task without attaching a handler here.
@@ -119,3 +120,6 @@ GroupBuilder.prototype.scheduled = function (
   this._primitives.push(createScheduled(taskId, handlerOrSchema, options));
   return this;
 };
+
+/** @internal Side-effect registration marker. */
+export const __sideEffect_scheduled = true;

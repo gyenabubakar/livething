@@ -47,7 +47,11 @@ export async function handleRequest(
   rawPayload: unknown,
 ): Promise<void> {
   const correlationId = readCorrelationId(rawPayload);
-  const response = await runWithScopedContext(runtime, connection, scope, (ctx) => {
+  let response: unknown;
+  await runWithScopedContext(runtime, connection, scope, (ctx) => {
+    (ctx as Record<PropertyKey, unknown>).respond = (value: unknown) => {
+      response = value;
+    };
     return request.handler(ctx, payload);
   });
 

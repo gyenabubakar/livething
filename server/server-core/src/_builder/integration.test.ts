@@ -130,28 +130,26 @@ describe('ctx.ack() availability', () => {
     server('chat')
       .ack()
       .outgoing(message)
-      .channel('lobby')
-      .outgoing(roomMessage)
-      .incoming(roomSend, async (ctx) => {
-        ctx.send('message', { text: 'hi', from: 'x' });
-        ctx.send('room-message', { text: 'hi', from: 'x' });
+      .channel('lobby', (ch) =>
+        ch.outgoing(roomMessage).incoming(roomSend, async (ctx) => {
+          ctx.send('message', { text: 'hi', from: 'x' });
+          ctx.send('room-message', { text: 'hi', from: 'x' });
 
-        // @ts-expect-error — ack is top-level only
-        ctx.ack();
-      })
-      .done();
+          // @ts-expect-error — ack is top-level only
+          ctx.ack();
+        }),
+      );
   });
 
   it('NOT available inside namespace scope', () => {
     server('chat')
       .ack()
-      .namespace('alerts')
-      .outgoing(alertEvent)
-      .incoming(dismiss, async (ctx) => {
-        // @ts-expect-error — ack is top-level only
-        ctx.ack();
-      })
-      .done();
+      .namespace('alerts', (ns) =>
+        ns.outgoing(alertEvent).incoming(dismiss, async (ctx) => {
+          // @ts-expect-error — ack is top-level only
+          ctx.ack();
+        }),
+      );
   });
 });
 
@@ -183,17 +181,16 @@ describe('handler payload typing', () => {
   });
 
   it('.stream().generate() payload is typed from event schema', () => {
-    server('chat')
-      .stream(aiComplete, chunkSchema)
-      .generate(async function* (_ctx, payload) {
+    server('chat').stream(aiComplete, chunkSchema, (s) =>
+      s.generate(async function* (_ctx, payload) {
         void (payload.prompt satisfies string);
 
         // @ts-expect-error — field does not exist on { prompt: string }
         payload.nonexistent;
 
         yield { token: 'hi' };
-      })
-      .done();
+      }),
+    );
   });
 });
 
@@ -205,49 +202,43 @@ describe('scoped ctx typing', () => {
   it('channel handler gets parent outgoing + local outgoing', () => {
     server('chat')
       .outgoing(message)
-      .channel('lobby')
-      .outgoing(roomMessage)
-      .incoming(roomSend, async (ctx) => {
-        ctx.send('message', { text: 'hi', from: 'x' });
-        ctx.send('room-message', { text: 'hi', from: 'x' });
-      })
-      .done();
+      .channel('lobby', (ch) =>
+        ch.outgoing(roomMessage).incoming(roomSend, async (ctx) => {
+          ctx.send('message', { text: 'hi', from: 'x' });
+          ctx.send('room-message', { text: 'hi', from: 'x' });
+        }),
+      );
   });
 
   it('channel handler without parent outgoing only gets local', () => {
-    server('chat')
-      .channel('lobby')
-      .outgoing(roomMessage)
-      .incoming(roomSend, async (ctx) => {
+    server('chat').channel('lobby', (ch) =>
+      ch.outgoing(roomMessage).incoming(roomSend, async (ctx) => {
         ctx.send('room-message', { text: 'hi', from: 'x' });
 
         // @ts-expect-error — message not declared in parent or local
         ctx.send('message', { text: 'hi', from: 'x' });
-      })
-      .done();
+      }),
+    );
   });
 
   it('namespace handler gets parent outgoing + local outgoing', () => {
     server('chat')
       .outgoing(message)
-      .namespace('alerts')
-      .outgoing(alertEvent)
-      .incoming(dismiss, async (ctx) => {
-        ctx.send('message', { text: 'hi', from: 'x' });
-        ctx.send('alert', { id: '1', severity: 'low' });
-      })
-      .done();
+      .namespace('alerts', (ns) =>
+        ns.outgoing(alertEvent).incoming(dismiss, async (ctx) => {
+          ctx.send('message', { text: 'hi', from: 'x' });
+          ctx.send('alert', { id: '1', severity: 'low' });
+        }),
+      );
   });
 
   it('namespace handler rejects undeclared events', () => {
-    server('chat')
-      .namespace('alerts')
-      .outgoing(alertEvent)
-      .incoming(dismiss, async (ctx) => {
+    server('chat').namespace('alerts', (ns) =>
+      ns.outgoing(alertEvent).incoming(dismiss, async (ctx) => {
         // @ts-expect-error — 'nope' not declared in parent or local
         ctx.send('nope', {});
-      })
-      .done();
+      }),
+    );
   });
 });
 
@@ -282,26 +273,24 @@ describe('ctx.meta typing', () => {
   it('flows into channel scope handlers', () => {
     server('chat')
       .onUpgrade(async () => ({ meta: { userId: 'test' } }))
-      .channel('lobby')
-      .outgoing(roomMessage)
-      .incoming(roomSend, async (ctx) => {
-        void (ctx.meta.userId satisfies string);
+      .channel('lobby', (ch) =>
+        ch.outgoing(roomMessage).incoming(roomSend, async (ctx) => {
+          void (ctx.meta.userId satisfies string);
 
-        // @ts-expect-error — 'email' not in meta
-        ctx.meta.email;
-      })
-      .done();
+          // @ts-expect-error — 'email' not in meta
+          ctx.meta.email;
+        }),
+      );
   });
 
   it('flows into namespace scope handlers', () => {
     server('chat')
       .onUpgrade(async () => ({ meta: { userId: 'test' } }))
-      .namespace('alerts')
-      .outgoing(alertEvent)
-      .incoming(dismiss, async (ctx) => {
-        void (ctx.meta.userId satisfies string);
-      })
-      .done();
+      .namespace('alerts', (ns) =>
+        ns.outgoing(alertEvent).incoming(dismiss, async (ctx) => {
+          void (ctx.meta.userId satisfies string);
+        }),
+      );
   });
 
   it('flows into .onConnect() handler', () => {
@@ -321,13 +310,8 @@ describe('ctx.meta typing', () => {
 describe('ctx.channels typing', () => {
   it('static channels restrict name to registered literals', () => {
     server('chat')
-      .channel('lobby')
-      .outgoing(roomMessage)
-      .incoming(roomSend, async () => {})
-      .done()
-      .channel('vip')
-      .incoming(roomSend, async () => {})
-      .done()
+      .channel('lobby', (ch) => ch.outgoing(roomMessage).incoming(roomSend, async () => {}))
+      .channel('vip', (ch) => ch.incoming(roomSend, async () => {}))
       .incoming(sendMessage, async (ctx) => {
         ctx.channels.members('lobby');
         ctx.channels.members('vip');
@@ -340,10 +324,9 @@ describe('ctx.channels typing', () => {
 
   it('dynamic channel (scope) allows any string', () => {
     server('chat')
-      .channel(scope('rooms', /^room-.+$/))
-      .outgoing(roomMessage)
-      .incoming(roomSend, async () => {})
-      .done()
+      .channel(scope('rooms', /^room-.+$/), (ch) =>
+        ch.outgoing(roomMessage).incoming(roomSend, async () => {}),
+      )
       .incoming(sendMessage, async (ctx) => {
         ctx.channels.members('room-123');
         ctx.channels.members('any-string-ok');
@@ -352,12 +335,8 @@ describe('ctx.channels typing', () => {
 
   it('mixed static + dynamic accepts any string (dynamic widens)', () => {
     server('chat')
-      .channel('lobby')
-      .incoming(roomSend, async () => {})
-      .done()
-      .channel(scope('rooms', /^room-.+$/))
-      .incoming(roomSend, async () => {})
-      .done()
+      .channel('lobby', (ch) => ch.incoming(roomSend, async () => {}))
+      .channel(scope('rooms', /^room-.+$/), (ch) => ch.incoming(roomSend, async () => {}))
       .incoming(sendMessage, async (ctx) => {
         ctx.channels.members('lobby');
         ctx.channels.members('room-abc');
@@ -372,27 +351,24 @@ describe('ctx.channels typing', () => {
 
 describe('stream ctx.nudges()', () => {
   it('ctx.nudges() exists when nudges are declared', () => {
-    server('chat')
-      .stream(aiComplete, chunkSchema)
-      .nudge(cancel)
-      .generate(async function* (ctx, _payload) {
+    server('chat').stream(aiComplete, chunkSchema, (s) =>
+      s.nudge(cancel).generate(async function* (ctx, _payload) {
         const raw = yield { token: 'hi' };
         const msgs = ctx.nudges(raw);
         void msgs;
-      })
-      .done();
+      }),
+    );
   });
 
   it('ctx.nudges does NOT exist when no nudges declared', () => {
-    server('chat')
-      .stream(aiComplete, chunkSchema)
-      .generate(async function* (ctx, _payload) {
+    server('chat').stream(aiComplete, chunkSchema, (s) =>
+      s.generate(async function* (ctx, _payload) {
         // @ts-expect-error — no nudges declared, method should not exist
         ctx.nudges;
 
         yield { token: 'hi' };
-      })
-      .done();
+      }),
+    );
   });
 });
 
@@ -453,25 +429,19 @@ const fullServer = server('chat')
   .request(ping, pongSchema, async (ctx, payload) => {
     ctx.respond({ ts: payload.ts, serverTs: Date.now() });
   })
-  .stream(aiComplete, chunkSchema)
-  .nudge(cancel)
-  .nudge(addContext)
-  .generate(async function* (_ctx, payload) {
-    yield { token: payload.prompt };
-  })
-  .done()
-  .channel('lobby')
-  .outgoing(roomMessage)
-  .incoming(roomSend, async () => {})
-  .done()
-  .channel(scope('rooms', /^room-.+$/))
-  .outgoing(roomMessage)
-  .incoming(roomSend, async () => {})
-  .done()
-  .namespace('alerts')
-  .outgoing(alertEvent)
-  .incoming(dismiss, async () => {})
-  .done()
+  .stream(aiComplete, chunkSchema, (s) =>
+    s
+      .nudge(cancel)
+      .nudge(addContext)
+      .generate(async function* (_ctx, payload) {
+        yield { token: payload.prompt };
+      }),
+  )
+  .channel('lobby', (ch) => ch.outgoing(roomMessage).incoming(roomSend, async () => {}))
+  .channel(scope('rooms', /^room-.+$/), (ch) =>
+    ch.outgoing(roomMessage).incoming(roomSend, async () => {}),
+  )
+  .namespace('alerts', (ns) => ns.outgoing(alertEvent).incoming(dismiss, async () => {}))
   .build();
 
 type Full = InferClient<typeof fullServer>;
@@ -511,11 +481,11 @@ describe('InferClient: streams', () => {
 
 describe('InferClient: stream without nudges', () => {
   const noNudgeServer = server('chat')
-    .stream(aiComplete, chunkSchema)
-    .generate(async function* (_ctx, payload) {
-      yield { token: payload.prompt };
-    })
-    .done()
+    .stream(aiComplete, chunkSchema, (s) =>
+      s.generate(async function* (_ctx, payload) {
+        yield { token: payload.prompt };
+      }),
+    )
     .build();
 
   type NoNudge = InferClient<typeof noNudgeServer>;
@@ -705,12 +675,11 @@ describe('InferClient from .use() assembled server', () => {
   // -- "ai.ts" --
   const aiStream = chatBase
     .group()
-    .stream(aiComplete, chunkSchema)
-    .nudge(cancel)
-    .generate(async function* (_ctx, p) {
-      yield { token: p.prompt };
-    })
-    .done()
+    .stream(aiComplete, chunkSchema, (s) =>
+      s.nudge(cancel).generate(async function* (_ctx, p) {
+        yield { token: p.prompt };
+      }),
+    )
     .extract();
 
   // -- "server.ts" (assembly) --

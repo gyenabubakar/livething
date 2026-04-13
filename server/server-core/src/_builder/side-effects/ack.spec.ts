@@ -47,7 +47,7 @@ describe('.ack() side-effect', () => {
     });
   });
 
-  it('ack registered in group is detected by .done()', () => {
+  it('ack registered in group is detected by callback form', () => {
     const base = server('chat').outgoing(message);
     const group = base.group().ack().extract();
 

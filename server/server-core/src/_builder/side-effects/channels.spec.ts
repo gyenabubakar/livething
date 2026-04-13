@@ -15,10 +15,7 @@ describe('.channel() side-effect', () => {
   it('adds channel primitive with static name', () => {
     const def = server('chat')
       .outgoing(message)
-      .channel('lobby')
-      .outgoing(roomMessage)
-      .incoming(roomSend, async () => {})
-      .done()
+      .channel('lobby', (c) => c.outgoing(roomMessage).incoming(roomSend, async () => {}))
       .build();
 
     expect(def.primitives.some((p) => p.__wskit === 'channel')).toBe(true);
@@ -26,9 +23,7 @@ describe('.channel() side-effect', () => {
 
   it('adds channel primitive with dynamic scope', () => {
     const def = server('chat')
-      .channel(scope('rooms', /^room-.+$/))
-      .outgoing(roomMessage)
-      .done()
+      .channel(scope('rooms', /^room-.+$/), (c) => c.outgoing(roomMessage))
       .build();
 
     const channelPrim = def.primitives.find((p) => p.__wskit === 'channel') as unknown as {
@@ -41,36 +36,34 @@ describe('.channel() side-effect', () => {
     server('chat')
       .ack()
       .outgoing(message)
-      .channel(scope('rooms', /^room-.+$/))
-      .outgoing(roomMessage)
-      .incoming(roomSend, async (ctx, payload) => {
-        ctx.send('message', { text: 'hi' });
-        ctx.send('room-message', { text: payload.text, from: 'system' });
-      })
-      .done();
+      .channel(scope('rooms', /^room-.+$/), (c) =>
+        c.outgoing(roomMessage).incoming(roomSend, async (ctx, payload) => {
+          ctx.send('message', { text: 'hi' });
+          ctx.send('room-message', { text: payload.text, from: 'system' });
+        }),
+      );
   });
 
   it('types channel handler ctx with channel-scoped outgoing', () => {
-    server('chat')
-      .channel('lobby')
-      .outgoing(roomMessage)
-      .incoming(roomSend, async (ctx) => {
+    server('chat').channel('lobby', (c) =>
+      c.outgoing(roomMessage).incoming(roomSend, async (ctx) => {
         ctx.send('room-message', { text: 'hi', from: 'system' });
 
         // @ts-expect-error — 'message' not declared in this channel scope
         ctx.send('message', { text: 'hi' });
-      })
-      .done();
+      }),
+    );
   });
 
   it('supports channel lifecycle hooks', () => {
     const def = server('chat')
-      .channel(scope('rooms', /^room-.+$/))
-      .outgoing(roomMessage)
-      .onBeforeSubscribe(async (_ctx, _data) => {})
-      .onSubscribe(async (_ctx) => {})
-      .onUnsubscribe(async (_ctx) => {})
-      .done()
+      .channel(scope('rooms', /^room-.+$/), (c) =>
+        c
+          .outgoing(roomMessage)
+          .onBeforeSubscribe(async (_ctx, _data) => {})
+          .onSubscribe(async (_ctx) => {})
+          .onUnsubscribe(async (_ctx) => {}),
+      )
       .build();
 
     const channelPrim = def.primitives.find((p) => p.__wskit === 'channel') as unknown as {
@@ -81,12 +74,10 @@ describe('.channel() side-effect', () => {
     expect(channelPrim.primitives.some((p) => p.__wskit === 'onUnsubscribe')).toBe(true);
   });
 
-  it('.done() returns to parent ServerBuilder', () => {
+  it('callback form returns to parent for continued chaining', () => {
     const def = server('chat')
       .outgoing(message)
-      .channel('lobby')
-      .outgoing(roomMessage)
-      .done()
+      .channel('lobby', (c) => c.outgoing(roomMessage))
       .incoming(sendMessage, async (ctx) => {
         ctx.send('message', { text: 'after channel' });
       })
@@ -149,12 +140,8 @@ describe('.channel() side-effect', () => {
   it('rejects duplicate channel scopes', () => {
     expect(() =>
       server('chat')
-        .channel('lobby')
-        .outgoing(roomMessage)
-        .done()
-        .channel('lobby')
-        .outgoing(roomMessage)
-        .done()
+        .channel('lobby', (c) => c.outgoing(roomMessage))
+        .channel('lobby', (c) => c.outgoing(roomMessage))
         .build(),
     ).toThrow(/Duplicate registration/);
   });

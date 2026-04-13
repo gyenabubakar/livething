@@ -26,7 +26,7 @@ import { validateBuild } from './validate.ts';
  *
  * Flattens the error definitions into a plain `{ code: detail }` map and
  * attaches the contract fields gathered during the builder chain. Channels
- * and namespaces are accumulated by their respective `.done()` calls and
+ * and namespaces are accumulated by their respective callback-form calls and
  * read from `contract.channels` / `contract.namespaces`.
  */
 type ContractFromState<TState extends ScopeStateShape> = {
@@ -93,6 +93,7 @@ type MergeScopeContract<
   readonly channelNames: TField extends 'channels'
     ? TState['channelNames'] | TName
     : TState['channelNames'];
+  readonly scheduledTaskIds: TState['scheduledTaskIds'];
 };
 
 /**
@@ -119,6 +120,7 @@ type MergeGroupContract<
   readonly errors: TState['errors'];
   readonly meta: TState['meta'];
   readonly channelNames: TState['channelNames'];
+  readonly scheduledTaskIds: TState['scheduledTaskIds'];
 };
 
 /**
@@ -283,8 +285,6 @@ export class ServerBuilder<TState extends ScopeStateShape = InitialState> {
    *
    * Call `.extract()` on the `GroupBuilder` to detach the group as a
    * standalone primitive that can be exported and `.use()`'d in another file.
-   * Call `.done()` to inline the group's primitives directly into this builder
-   * without creating a separate artifact.
    *
    * @example Multi-file grouping
    * ```typescript
@@ -298,14 +298,22 @@ export class ServerBuilder<TState extends ScopeStateShape = InitialState> {
    * // handler.ts
    * server('shop').use(orderHandlers).build()
    * ```
+   *
+   * @example Inline grouping with callback
+   * ```typescript
+   * server('shop')
+   *   .group((g) => g
+   *     .incoming(placeOrder, handler)
+   *     .incoming(cancelOrder, handler)
+   *   )
+   *   .build()
+   * ```
    */
   group(): GroupBuilder<TState>;
   /**
    * Define a group inline using a callback. The callback receives a
    * `GroupBuilder` and should return it after chaining methods. The group's
    * primitives are inlined into this builder when the callback returns.
-   *
-   * This form produces natural indentation in formatters like Prettier.
    */
   group<TGroupState extends ScopeStateShape>(
     callback: (builder: GroupBuilder<TState>) => GroupBuilder<TGroupState>,
@@ -316,7 +324,8 @@ export class ServerBuilder<TState extends ScopeStateShape = InitialState> {
     const builder = new GroupBuilder<TState>(this);
     if (callback) {
       callback(builder);
-      return builder.done();
+      this._primitives.push(...builder._primitives);
+      return this;
     }
     return builder;
   }
@@ -361,7 +370,7 @@ export class ServerBuilder<TState extends ScopeStateShape = InitialState> {
  * two finalizers:
  *
  * - **`.extract()`** — detach as a `GroupPrimitive` to export and `.use()` elsewhere
- * - **`.done()`** — inline the collected primitives back into the parent builder
+ * - **callback form** — inline the collected primitives back into the parent builder
  *
  * @template TState - Inherited from the parent `ServerBuilder`. Controls which
  *   events are sendable in handler ctx.
@@ -449,28 +458,6 @@ export class GroupBuilder<TState extends ScopeStateShape> {
       __requires: {},
       primitives: [...this._primitives],
     } as GroupPrimitive<TState>;
-  }
-
-  /**
-   * Inline all collected primitives into the parent `ServerBuilder` and return it.
-   *
-   * Use this when you don't need to export the group — you just want to
-   * organise a section of the chain.
-   *
-   * @example
-   * ```typescript
-   * server('chat')
-   *   .group()
-   *     .incoming(msgA, handlerA)
-   *     .incoming(msgB, handlerB)
-   *     .done() // back to ServerBuilder
-   *   .onConnect(handler)
-   *   .build()
-   * ```
-   */
-  done(): ServerBuilder<TState> {
-    this._parent._primitives.push(...this._primitives);
-    return this._parent as any;
   }
 }
 

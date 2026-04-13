@@ -78,33 +78,28 @@ describe('Integration: full single-file server', () => {
     })
     .scheduled('cleanup', async () => {}, { every: 60_000 })
     .scheduled('expire-hold', (p: unknown) => p as { orderId: string })
-    .replay()
-    .exclude('typing')
-    .retention({ maxAgeMs: 3_600_000 })
-    .durability('strict')
-    .done()
-    .channel(scope('rooms', /^room-.+$/))
-    .outgoing(roomMessage)
-    .incoming(roomSend, async (ctx, payload) => {
-      ctx.send('room-message', { text: payload.text, from: 'system' });
-      ctx.send('message', { text: payload.text, from: 'system' });
-    })
-    .onBeforeSubscribe(async () => {})
-    .onSubscribe(async () => {})
-    .onUnsubscribe(async () => {})
-    .done()
-    .namespace('notifications')
-    .outgoing(alert)
-    .incoming(dismiss, async (ctx, payload) => {
-      ctx.send('alert', { id: payload.id, severity: 'low' });
-    })
-    .done()
-    .stream(aiComplete, chunkSchema)
-    .nudge(cancel)
-    .generate(async function* (_ctx, payload) {
-      yield { token: payload.prompt };
-    })
-    .done()
+    .replay((r) => r.exclude('typing').retention({ maxAgeMs: 3_600_000 }).durability('strict'))
+    .channel(scope('rooms', /^room-.+$/), (ch) =>
+      ch
+        .outgoing(roomMessage)
+        .incoming(roomSend, async (ctx, payload) => {
+          ctx.send('room-message', { text: payload.text, from: 'system' });
+          ctx.send('message', { text: payload.text, from: 'system' });
+        })
+        .onBeforeSubscribe(async () => {})
+        .onSubscribe(async () => {})
+        .onUnsubscribe(async () => {}),
+    )
+    .namespace('notifications', (ns) =>
+      ns.outgoing(alert).incoming(dismiss, async (ctx, payload) => {
+        ctx.send('alert', { id: payload.id, severity: 'low' });
+      }),
+    )
+    .stream(aiComplete, chunkSchema, (s) =>
+      s.nudge(cancel).generate(async function* (_ctx, payload) {
+        yield { token: payload.prompt };
+      }),
+    )
     .onUpgrade(async () => ({ meta: { userId: 'test' } }))
     .onConnect(async (ctx) => {
       ctx.send('notification', { title: 'Welcome' });
@@ -288,12 +283,11 @@ describe('Integration: multi-file composition', () => {
   it('stream in group extracts and merges correctly', () => {
     const aiGroup = base
       .group()
-      .stream(aiComplete, chunkSchema)
-      .nudge(cancel)
-      .generate(async function* (_ctx, payload) {
-        yield { token: payload.prompt };
-      })
-      .done()
+      .stream(aiComplete, chunkSchema, (s) =>
+        s.nudge(cancel).generate(async function* (_ctx, payload) {
+          yield { token: payload.prompt };
+        }),
+      )
       .extract();
 
     const def = base.use(aiGroup).build();
@@ -378,52 +372,47 @@ describe('Integration: type inference', () => {
     server('chat')
       .ack()
       .outgoing(message)
-      .channel('lobby')
-      .outgoing(roomMessage)
-      .incoming(roomSend, async (ctx) => {
-        // @ts-expect-error — ack is top-level only, not channel scope
-        ctx.ack();
-        ctx.send('message', { text: 'hi', from: 'system' });
-        ctx.send('room-message', { text: 'hi', from: 'system' });
-      })
-      .done();
+      .channel('lobby', (ch) =>
+        ch.outgoing(roomMessage).incoming(roomSend, async (ctx) => {
+          // @ts-expect-error — ack is top-level only, not channel scope
+          ctx.ack();
+          ctx.send('message', { text: 'hi', from: 'system' });
+          ctx.send('room-message', { text: 'hi', from: 'system' });
+        }),
+      );
   });
 
   it('channel scope has parent + local outgoing', () => {
     server('chat')
       .outgoing(message)
-      .channel('lobby')
-      .outgoing(roomMessage)
-      .incoming(roomSend, async (ctx) => {
-        ctx.send('message', { text: 'hi', from: 'x' });
-        ctx.send('room-message', { text: 'hi', from: 'x' });
-      })
-      .done();
+      .channel('lobby', (ch) =>
+        ch.outgoing(roomMessage).incoming(roomSend, async (ctx) => {
+          ctx.send('message', { text: 'hi', from: 'x' });
+          ctx.send('room-message', { text: 'hi', from: 'x' });
+        }),
+      );
   });
 
   it('channel scope without parent outgoing only gets local', () => {
-    server('chat')
-      .channel('lobby')
-      .outgoing(roomMessage)
-      .incoming(roomSend, async (ctx) => {
+    server('chat').channel('lobby', (ch) =>
+      ch.outgoing(roomMessage).incoming(roomSend, async (ctx) => {
         ctx.send('room-message', { text: 'hi', from: 'x' });
 
         // @ts-expect-error — message not declared in parent or local
         ctx.send('message', { text: 'hi', from: 'x' });
-      })
-      .done();
+      }),
+    );
   });
 
   it('namespace scope has parent + local outgoing', () => {
     server('chat')
       .outgoing(message)
-      .namespace('notifications')
-      .outgoing(alert)
-      .incoming(dismiss, async (ctx) => {
-        ctx.send('message', { text: 'hi', from: 'x' });
-        ctx.send('alert', { id: '1', severity: 'high' });
-      })
-      .done();
+      .namespace('notifications', (ns) =>
+        ns.outgoing(alert).incoming(dismiss, async (ctx) => {
+          ctx.send('message', { text: 'hi', from: 'x' });
+          ctx.send('alert', { id: '1', severity: 'high' });
+        }),
+      );
   });
 
   it('handler payload typed from event schema', () => {
@@ -489,14 +478,20 @@ describe('Integration: duplicate detection', () => {
   });
 
   it('rejects duplicate channel scope', () => {
-    expect(() => server('chat').channel('lobby').done().channel('lobby').done().build()).toThrow(
-      /Duplicate/,
-    );
+    expect(() =>
+      server('chat')
+        .channel('lobby', (ch) => ch)
+        .channel('lobby', (ch) => ch)
+        .build(),
+    ).toThrow(/Duplicate/);
   });
 
   it('rejects duplicate namespace', () => {
     expect(() =>
-      server('chat').namespace('notifications').done().namespace('notifications').done().build(),
+      server('chat')
+        .namespace('notifications', (ns) => ns)
+        .namespace('notifications', (ns) => ns)
+        .build(),
     ).toThrow(/Duplicate/);
   });
 
@@ -524,11 +519,12 @@ describe('Integration: replay modes', () => {
     const def = server('chat')
       .sequence({ persist: true })
       .dedup()
-      .replay()
-      .exclude('typing', 'cursor')
-      .retention({ maxAgeMs: 3_600_000, maxMessages: 500 })
-      .durability('best-effort')
-      .done()
+      .replay((r) =>
+        r
+          .exclude('typing', 'cursor')
+          .retention({ maxAgeMs: 3_600_000, maxMessages: 500 })
+          .durability('best-effort'),
+      )
       .build();
 
     const rp = findPrimitive(def.primitives, 'replay') as { options: any };
@@ -541,10 +537,7 @@ describe('Integration: replay modes', () => {
     const def = server('chat')
       .sequence({ persist: true })
       .dedup()
-      .replay('snapshot')
-      .snapshotKey((ev, _p) => ev)
-      .reduce((_prev, next) => next)
-      .done()
+      .replay('snapshot', (r) => r.snapshotKey((ev, _p) => ev).reduce((_prev, next) => next))
       .build();
 
     const rp = findPrimitive(def.primitives, 'replay') as { options: any };
@@ -557,11 +550,12 @@ describe('Integration: replay modes', () => {
     const def = server('chat')
       .sequence({ persist: true })
       .dedup()
-      .replayCustom()
-      .onBeforeSend(() => {})
-      .onAfterSend(() => {})
-      .onReplay(async () => {})
-      .done()
+      .replayCustom((r) =>
+        r
+          .onBeforeSend(() => {})
+          .onAfterSend(() => {})
+          .onReplay(async () => {}),
+      )
       .build();
 
     expect(findPrimitive(def.primitives, 'customReplay')).toBeDefined();

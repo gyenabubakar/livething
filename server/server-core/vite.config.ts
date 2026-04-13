@@ -51,6 +51,9 @@ export default defineConfig({
     },
     rollupOptions: {
       external: ['@wskit/core', '@wskit/shared'],
+      treeshake: {
+        moduleSideEffects: true,
+      },
     },
   },
   test: {

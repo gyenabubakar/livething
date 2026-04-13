@@ -252,7 +252,7 @@ export function buildConnectionContext(
     const channel = scope.channel;
     const channelName =
       scope.channelName ?? (typeof channel.pattern === 'string' ? channel.pattern : '');
-    const channelScope = scope.channelScope ?? channel.key;
+    const channelScope = scope.channelScope;
     base.channel = {
       name: channelName,
       send: (event, payload) => {

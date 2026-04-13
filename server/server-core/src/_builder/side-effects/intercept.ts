@@ -110,3 +110,6 @@ GroupBuilder.prototype.intercept = function (
   }
   return this;
 };
+
+/** @internal Side-effect registration marker. */
+export const __sideEffect_intercept = true;

@@ -18,7 +18,6 @@
  *   - `.durability(mode)` — `'strict'` (store before send) or `'best-effort'`
  *   - `.snapshotKey(fn)` — for snapshot mode: computes the deduplication key
  *   - `.reduce(fn)` — for snapshot mode: merges consecutive snapshots
- *   - `.done()` — finish configuration and return to the parent builder
  *   - `.extract()` — detach as a reusable `ReplayPrimitive`
  *
  * Replay depends on the `sequence` and `dedup` primitives (auto-injected) and
@@ -42,15 +41,15 @@ import type {
 
 /**
  * A sub-builder returned by `.replay()`. Collects replay options and pushes a
- * `ReplayPrimitive` onto the parent builder when `.done()` is called.
+ * `ReplayPrimitive` onto the parent builder when sealed via the callback form.
  *
- * `TParent` is the parent builder type returned by `.done()`.
+ * `TParent` is the parent builder type used internally by the callback form.
  * `_TState` is the parent's type-level state, kept for future extensions.
  */
 export class ReplayBuilder<TParent, _TState extends ScopeStateShape> {
-  /** @internal Reference to the parent builder for `.done()`. */
+  /** @internal Reference to the parent builder for `_seal()`. */
   readonly _parent: TParent;
-  /** @internal The parent builder's primitive array for `.done()` to push into. */
+  /** @internal The parent builder's primitive array for `_seal()` to push into. */
   readonly _parentPrimitives: Primitive[];
   /** @internal Accumulated replay options. Spread-updated to stay immutable between calls. */
   _options: ReplayOptions = {};
@@ -122,13 +121,9 @@ export class ReplayBuilder<TParent, _TState extends ScopeStateShape> {
     return this;
   }
 
-  /**
-   * Finish replay configuration. Pushes the configured `ReplayPrimitive` onto
-   * the parent builder and returns the parent so the fluent chain can continue.
-   */
-  done(): TParent {
+  /** @internal Seal the replay config and push it onto the parent's primitive list. */
+  _seal(): void {
     this._parentPrimitives.push(createReplay(this._options) as unknown as Primitive);
-    return this._parent;
   }
 
   /**
@@ -146,38 +141,77 @@ export class ReplayBuilder<TParent, _TState extends ScopeStateShape> {
  */
 declare module '~/_builder/server-builder.ts' {
   interface ServerBuilder<TState extends ScopeStateShape> {
-    /**
-     * Open a replay sub-builder. Configure options with `.exclude()`,
-     * `.retention()`, `.durability()`, etc., then call `.done()`.
-     *
-     * @param type  `'history'` (default) keeps all messages; `'snapshot'` keeps
-     *   only the latest value per logical key.
-     */
     replay(
       type?: ReplayType,
     ): ReplayBuilder<ServerBuilder<NextState<TState, ReplayPrimitive>>, TState>;
+
+    replay(
+      callback: (
+        builder: ReplayBuilder<ServerBuilder<NextState<TState, ReplayPrimitive>>, TState>,
+      ) => ReplayBuilder<any, any>,
+    ): ServerBuilder<NextState<TState, ReplayPrimitive>>;
+
+    replay(
+      type: ReplayType,
+      callback: (
+        builder: ReplayBuilder<ServerBuilder<NextState<TState, ReplayPrimitive>>, TState>,
+      ) => ReplayBuilder<any, any>,
+    ): ServerBuilder<NextState<TState, ReplayPrimitive>>;
   }
 
   interface GroupBuilder<TState extends ScopeStateShape> {
-    /**
-     * Open a replay sub-builder. Configure options with `.exclude()`,
-     * `.retention()`, `.durability()`, etc., then call `.done()`.
-     *
-     * @param type  `'history'` (default) keeps all messages; `'snapshot'` keeps
-     *   only the latest value per logical key.
-     */
     replay(
       type?: ReplayType,
     ): ReplayBuilder<GroupBuilder<NextState<TState, ReplayPrimitive>>, TState>;
+
+    replay(
+      callback: (
+        builder: ReplayBuilder<GroupBuilder<NextState<TState, ReplayPrimitive>>, TState>,
+      ) => ReplayBuilder<any, any>,
+    ): GroupBuilder<NextState<TState, ReplayPrimitive>>;
+
+    replay(
+      type: ReplayType,
+      callback: (
+        builder: ReplayBuilder<GroupBuilder<NextState<TState, ReplayPrimitive>>, TState>,
+      ) => ReplayBuilder<any, any>,
+    ): GroupBuilder<NextState<TState, ReplayPrimitive>>;
   }
 }
 
+function replayImpl(
+  parent: { _primitives: Primitive[] },
+  typeOrCallback?: ReplayType | ((builder: any) => any),
+  callback?: (builder: any) => any,
+): any {
+  const type = typeof typeOrCallback === 'function' ? undefined : typeOrCallback;
+  const cb = typeof typeOrCallback === 'function' ? typeOrCallback : callback;
+  const builder = new ReplayBuilder(parent, parent._primitives, type);
+  if (cb) {
+    cb(builder);
+    builder._seal();
+    return parent;
+  }
+  return builder;
+}
+
 /** Runtime implementation of `.replay()` for `ServerBuilder`. */
-ServerBuilder.prototype.replay = function (this: ServerBuilder<any>, type?: ReplayType) {
-  return new ReplayBuilder(this, this._primitives, type);
+ServerBuilder.prototype.replay = function (
+  this: ServerBuilder<any>,
+  typeOrCallback?: any,
+  callback?: any,
+) {
+  return replayImpl(this, typeOrCallback, callback);
 };
 
 /** Runtime implementation of `.replay()` for `GroupBuilder`. */
-GroupBuilder.prototype.replay = function (this: GroupBuilder<any>, type?: ReplayType) {
-  return new ReplayBuilder(this, this._primitives, type);
+GroupBuilder.prototype.replay = function (
+  this: GroupBuilder<any>,
+  typeOrCallback?: any,
+  callback?: any,
+) {
+  return replayImpl(this, typeOrCallback, callback);
 };
+
+/** @internal Side-effect registration marker. */
+export const __sideEffect_replay = true;

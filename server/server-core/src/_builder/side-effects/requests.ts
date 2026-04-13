@@ -25,6 +25,7 @@ import type { EventContract } from '~/event.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { RequestPrimitive, RespondMethod } from '~/request/request.ts';
 import type { Validator } from '~/types.ts';
+import { NamespaceBuilder } from './namespaces.ts';
 
 /**
  * Module augmentation: adds `.request()` to the builder interfaces so
@@ -102,3 +103,42 @@ GroupBuilder.prototype.request = function (
   );
   return this;
 };
+
+/**
+ * Module augmentation: adds `.request()` to `NamespaceBuilder` so namespaces
+ * can register request–response handlers.
+ */
+declare module './namespaces.ts' {
+  interface NamespaceBuilder<TParentState, TState extends ScopeStateShape, TName> {
+    request<TEvent extends string, TPayload, TResponse>(
+      eventContract: EventContract<TEvent, TPayload>,
+      responseSchema: Validator<TResponse>,
+      handler: (
+        ctx: HandlerCtxFromState<TState> & RespondMethod<TResponse>,
+        payload: TPayload,
+      ) => void | Promise<void>,
+    ): NamespaceBuilder<
+      TParentState,
+      NextState<TState, RequestPrimitive<TEvent, TPayload, TResponse>>,
+      TName
+    >;
+  }
+}
+
+/** Runtime implementation of `.request()` for `NamespaceBuilder`. */
+NamespaceBuilder.prototype.request = function (
+  this: NamespaceBuilder<any, any, any>,
+  eventContract: EventContract,
+  _responseSchema: Validator,
+  handler: any,
+) {
+  this._primitives.push(
+    (createRequest as any)(eventContract.event, handler, {
+      validator: eventContract.schema,
+    }) as Primitive,
+  );
+  return this;
+};
+
+/** @internal Side-effect registration marker. */
+export const __sideEffect_requests = true;

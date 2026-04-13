@@ -57,3 +57,6 @@ GroupBuilder.prototype.heartbeat = function (options: HeartbeatOptions) {
   this._primitives.push(createHeartbeat(options) as unknown as Primitive);
   return this;
 };
+
+/** @internal Side-effect registration marker. */
+export const __sideEffect_heartbeat = true;

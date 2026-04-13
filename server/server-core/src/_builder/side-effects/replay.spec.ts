@@ -11,12 +11,11 @@ const message = event('message', (p: unknown) => p as { text: string });
 const sendMessage = event('send-message', (p: unknown) => p as { text: string });
 
 describe('.replay() side-effect', () => {
-  it('adds replay primitive via sub-builder', () => {
+  it('adds replay primitive via callback', () => {
     const def = server('chat')
       .sequence({ persist: true })
       .dedup()
-      .replay()
-      .done()
+      .replay((r) => r)
       .outgoing(message)
       .build();
 
@@ -27,9 +26,7 @@ describe('.replay() side-effect', () => {
     const def = server('chat')
       .sequence({ persist: true })
       .dedup()
-      .replay()
-      .exclude('typing', 'cursor')
-      .done()
+      .replay((r) => r.exclude('typing', 'cursor'))
       .build();
 
     const replayPrim = def.primitives.find((p) => p.__wskit === 'replay') as unknown as {
@@ -42,9 +39,7 @@ describe('.replay() side-effect', () => {
     const def = server('chat')
       .sequence({ persist: true })
       .dedup()
-      .replay()
-      .retention({ maxAgeMs: 3_600_000, maxMessages: 1000 })
-      .done()
+      .replay((r) => r.retention({ maxAgeMs: 3_600_000, maxMessages: 1000 }))
       .build();
 
     const replayPrim = def.primitives.find((p) => p.__wskit === 'replay') as unknown as {
@@ -57,9 +52,7 @@ describe('.replay() side-effect', () => {
     const def = server('chat')
       .sequence({ persist: true })
       .dedup()
-      .replay()
-      .durability('best-effort')
-      .done()
+      .replay((r) => r.durability('best-effort'))
       .build();
 
     const replayPrim = def.primitives.find((p) => p.__wskit === 'replay') as unknown as {
@@ -72,10 +65,11 @@ describe('.replay() side-effect', () => {
     const def = server('chat')
       .sequence({ persist: true })
       .dedup()
-      .replay('snapshot')
-      .snapshotKey((event, payload) => `${event}:${(payload as { id: string }).id}`)
-      .reduce((_prev, next) => next)
-      .done()
+      .replay('snapshot', (r) =>
+        r
+          .snapshotKey((event, payload) => `${event}:${(payload as { id: string }).id}`)
+          .reduce((_prev, next) => next),
+      )
       .build();
 
     const replayPrim = def.primitives.find((p) => p.__wskit === 'replay') as unknown as {
@@ -90,14 +84,11 @@ describe('.replay() side-effect', () => {
     expect(typeof replayPrim.options.reduce).toBe('function');
   });
 
-  it('chains fluently — .done() returns to parent', () => {
+  it('callback form returns to parent for continued chaining', () => {
     const def = server('chat')
       .sequence({ persist: true })
       .dedup()
-      .replay()
-      .exclude('typing')
-      .durability('strict')
-      .done()
+      .replay((r) => r.exclude('typing').durability('strict'))
       .outgoing(message)
       .incoming(sendMessage, async () => {})
       .build();
@@ -107,13 +98,11 @@ describe('.replay() side-effect', () => {
 });
 
 describe('.replayCustom() side-effect', () => {
-  it('adds customReplay primitive via sub-builder', () => {
+  it('adds customReplay primitive via callback', () => {
     const def = server('chat')
       .sequence({ persist: true })
       .dedup()
-      .replayCustom()
-      .onReplay(async (_ctx, _since) => {})
-      .done()
+      .replayCustom((r) => r.onReplay(async (_ctx, _since) => {}))
       .build();
 
     expect(def.primitives.some((p) => p.__wskit === 'customReplay')).toBe(true);
@@ -123,23 +112,22 @@ describe('.replayCustom() side-effect', () => {
     const def = server('chat')
       .sequence({ persist: true })
       .dedup()
-      .replayCustom()
-      .onBeforeSend((_message) => {})
-      .onAfterSend((_message) => {})
-      .onReplay(async (_ctx, _since) => {})
-      .done()
+      .replayCustom((r) =>
+        r
+          .onBeforeSend((_message) => {})
+          .onAfterSend((_message) => {})
+          .onReplay(async (_ctx, _since) => {}),
+      )
       .build();
 
     expect(def.primitives.some((p) => p.__wskit === 'customReplay')).toBe(true);
   });
 
-  it('chains fluently — .done() returns to parent', () => {
+  it('callback form returns to parent for continued chaining', () => {
     const def = server('chat')
       .sequence({ persist: true })
       .dedup()
-      .replayCustom()
-      .onReplay(async () => {})
-      .done()
+      .replayCustom((r) => r.onReplay(async () => {}))
       .outgoing(message)
       .build();
 

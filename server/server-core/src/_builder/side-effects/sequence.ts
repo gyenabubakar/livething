@@ -61,3 +61,6 @@ GroupBuilder.prototype.sequence = function (options?: SequenceOptions) {
   this._primitives.push(createSequence(options) as unknown as Primitive);
   return this;
 };
+
+/** @internal Side-effect registration marker. */
+export const __sideEffect_sequence = true;

@@ -18,7 +18,6 @@
  * Calling `.namespace(name)` returns a `NamespaceBuilder` with:
  *   - `.outgoing(contract)` — declare a server→client event in this namespace
  *   - `.incoming(contract, handler)` — handle a client→server event
- *   - `.done()` — finish the namespace and return to the parent builder
  *   - `.extract()` — detach as a reusable `NamespacePrimitive`
  *
  * This file also exports `NamespaceBuilder` for use in `.extract()` workflows
@@ -56,7 +55,8 @@ type NamespaceState<TParentState extends ScopeStateShape> = ScopeState<
   { incoming: {}; outgoing: {}; requests: {}; streams: {}; channels: {}; namespaces: {} },
   readonly [],
   TParentState['meta'],
-  TParentState['channelNames']
+  TParentState['channelNames'],
+  TParentState['scheduledTaskIds']
 >;
 
 /**
@@ -95,6 +95,7 @@ type StateWithNamespace<
   readonly errors: TState['errors'];
   readonly meta: TState['meta'];
   readonly channelNames: TState['channelNames'];
+  readonly scheduledTaskIds: TState['scheduledTaskIds'];
 };
 
 /** Helper: the state produced after registering an outgoing event on the namespace. */
@@ -113,21 +114,21 @@ type StateAfterIncoming<
 
 /**
  * A sub-builder returned by `.namespace()`. Holds the namespace's primitives
- * until `.done()` is called, at which point they are packaged into a
+ * until sealed (via the callback form), at which point they are packaged into a
  * `NamespacePrimitive` and pushed onto the parent builder's primitive list.
  *
- * `TParentState` tracks the parent builder's state so `.done()` returns to the
- * correctly typed parent. `TState` tracks state changes within the namespace
- * scope.
+ * `TParentState` tracks the parent builder's state so the callback form returns
+ * to the correctly typed parent. `TState` tracks state changes within the
+ * namespace scope.
  */
 export class NamespaceBuilder<
   TParentState extends ScopeStateShape,
   TState extends ScopeStateShape = NamespaceState<TParentState>,
   TName extends string = string,
 > {
-  /** @internal Reference to the parent builder, so `.done()` can return to it. */
+  /** @internal Reference to the parent builder, so `_seal()` can return to it. */
   readonly _parentBuilder: ServerBuilder<TParentState> | GroupBuilder<TParentState>;
-  /** @internal The parent builder's primitive array, so `.done()` can push into it. */
+  /** @internal The parent builder's primitive array, so `_seal()` can push into it. */
   readonly _parentPrimitives: Primitive[];
   /** @internal Primitives collected inside this namespace scope. */
   readonly _primitives: Primitive[] = [];
@@ -169,15 +170,10 @@ export class NamespaceBuilder<
     return this as any;
   }
 
-  /**
-   * Finish building the namespace. Packages all collected primitives into a
-   * `NamespacePrimitive` and pushes it onto the parent builder, then returns
-   * the parent builder so the fluent chain can continue.
-   */
-  done(): ServerBuilder<StateWithNamespace<TParentState, TName, TState>> {
+  /** @internal Seal the namespace and push it onto the parent's primitive list. */
+  _seal(): void {
     const nsPrimitive = (createNamespace as any)(this._name, ...this._primitives) as Primitive;
     this._parentPrimitives.push(nsPrimitive);
-    return this._parentBuilder as any;
   }
 
   /**
@@ -198,8 +194,8 @@ declare module '~/_builder/server-builder.ts' {
   interface ServerBuilder<TState extends ScopeStateShape> {
     /**
      * Open a namespace sub-builder for `name`. All events declared inside will
-     * be prefixed with `name` at the wire level. Call `.done()` to seal it and
-     * return to this builder, or `.extract()` to detach it as a primitive.
+     * be prefixed with `name` at the wire level. Call `.extract()` to detach
+     * it as a standalone primitive for multi-file use.
      */
     namespace<TName extends string>(
       name: TName,
@@ -220,8 +216,8 @@ declare module '~/_builder/server-builder.ts' {
 
   interface GroupBuilder<TState extends ScopeStateShape> {
     /**
-     * Open a namespace sub-builder for `name`. Call `.done()` to seal it and
-     * return to this builder, or `.extract()` to detach it as a primitive.
+     * Open a namespace sub-builder for `name`. Use the callback form for
+     * inline use, or `.extract()` to detach it as a primitive.
      */
     namespace<TName extends string>(
       name: TName,
@@ -248,7 +244,8 @@ declare module '~/_builder/server-builder.ts' {
   const builder = new NamespaceBuilder(this, this._primitives, name);
   if (callback) {
     callback(builder);
-    return builder.done();
+    builder._seal();
+    return this;
   }
   return builder;
 };
@@ -262,7 +259,11 @@ declare module '~/_builder/server-builder.ts' {
   const builder = new NamespaceBuilder(this as any, this._primitives, name);
   if (callback) {
     callback(builder);
-    return builder.done();
+    builder._seal();
+    return this;
   }
   return builder;
 };
+
+/** @internal Side-effect registration marker. */
+export const __sideEffect_namespaces = true;

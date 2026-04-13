@@ -13,10 +13,7 @@ const dismiss = event('dismiss', (p: unknown) => p as { id: string });
 describe('.namespace() side-effect', () => {
   it('adds namespace primitive', () => {
     const def = server('chat')
-      .namespace('notifications')
-      .outgoing(alert)
-      .incoming(dismiss, async () => {})
-      .done()
+      .namespace('notifications', (n) => n.outgoing(alert).incoming(dismiss, async () => {}))
       .build();
 
     expect(def.primitives.some((p) => p.__wskit === 'namespace')).toBe(true);
@@ -26,34 +23,29 @@ describe('.namespace() side-effect', () => {
     server('chat')
       .ack()
       .outgoing(message)
-      .namespace('notifications')
-      .outgoing(alert)
-      .incoming(dismiss, async (ctx) => {
-        ctx.send('message', { text: 'dismissed' });
-        ctx.send('alert', { id: '1', msg: 'hi' });
-      })
-      .done();
+      .namespace('notifications', (n) =>
+        n.outgoing(alert).incoming(dismiss, async (ctx) => {
+          ctx.send('message', { text: 'dismissed' });
+          ctx.send('alert', { id: '1', msg: 'hi' });
+        }),
+      );
   });
 
   it('namespace-local outgoing scoped correctly', () => {
-    server('chat')
-      .namespace('notifications')
-      .outgoing(alert)
-      .incoming(dismiss, async (ctx) => {
+    server('chat').namespace('notifications', (n) =>
+      n.outgoing(alert).incoming(dismiss, async (ctx) => {
         ctx.send('alert', { id: '1', msg: 'hi' });
 
         // @ts-expect-error — 'message' not in this namespace scope
         ctx.send('message', { text: 'hi' });
-      })
-      .done();
+      }),
+    );
   });
 
-  it('.done() returns to parent builder', () => {
+  it('callback form returns to parent for continued chaining', () => {
     const def = server('chat')
       .outgoing(message)
-      .namespace('notifications')
-      .outgoing(alert)
-      .done()
+      .namespace('notifications', (n) => n.outgoing(alert))
       .incoming(sendMessage, async (ctx) => {
         ctx.send('message', { text: 'after namespace' });
       })
@@ -114,12 +106,8 @@ describe('.namespace() side-effect', () => {
   it('rejects duplicate namespace names', () => {
     expect(() =>
       server('chat')
-        .namespace('notifications')
-        .outgoing(alert)
-        .done()
-        .namespace('notifications')
-        .outgoing(alert)
-        .done()
+        .namespace('notifications', (n) => n.outgoing(alert))
+        .namespace('notifications', (n) => n.outgoing(alert))
         .build(),
     ).toThrow(/Duplicate registration/);
   });

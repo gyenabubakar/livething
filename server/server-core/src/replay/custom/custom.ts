@@ -277,7 +277,7 @@ function createChannelReplayContext(
  *     const rows = await myStore.getSince(since);
  *     for (const row of rows) ctx.sendReplay(row.event, row.payload, row.wire);
  *   })
- *   .done();
+ *   .build();
  * ```
  */
 export function handleReplay<TScope extends CustomReplayScope = 'top'>(

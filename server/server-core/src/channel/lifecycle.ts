@@ -67,7 +67,7 @@ const ON_UNSUBSCRIBE_KEY = Symbol('onUnsubscribe');
  *   .onBeforeSubscribe(async (ctx, data) => {
  *     if (!ctx.meta.roles.includes('member')) throw Forbidden();
  *   })
- *   .done();
+ *   .build();
  * ```
  */
 export function onBeforeSubscribe<TCtx, TData = unknown>(
@@ -101,7 +101,7 @@ export function onBeforeSubscribe<TCtx, TData = unknown>(
  *     const items = await db.getUnread(ctx.meta.userId);
  *     ctx.send.notifications(items);
  *   })
- *   .done();
+ *   .build();
  * ```
  */
 export function onSubscribe<TCtx>(handler: SubscribeHandler<TCtx>): SubscribePrimitive<TCtx> {

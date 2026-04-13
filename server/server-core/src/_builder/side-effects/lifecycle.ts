@@ -118,6 +118,7 @@ declare module '~/_builder/server-builder.ts' {
       readonly errors: TState['errors'];
       readonly meta: TMeta;
       readonly channelNames: TState['channelNames'];
+      readonly scheduledTaskIds: TState['scheduledTaskIds'];
     }>;
 
     /**
@@ -184,6 +185,7 @@ declare module '~/_builder/server-builder.ts' {
       readonly errors: TState['errors'];
       readonly meta: TMeta;
       readonly channelNames: TState['channelNames'];
+      readonly scheduledTaskIds: TState['scheduledTaskIds'];
     }>;
 
     /** Run `handler` when a raw binary frame arrives. */
@@ -238,3 +240,6 @@ patchLifecycle(GroupBuilder.prototype, 'onError', createOnError);
 patchLifecycle(GroupBuilder.prototype, 'onUpgrade', createOnUpgrade);
 patchLifecycle(GroupBuilder.prototype, 'onBinary', createOnBinary);
 patchLifecycle(GroupBuilder.prototype, 'onValidationError', createOnValidationError);
+
+/** @internal Side-effect registration marker. */
+export const __sideEffect_lifecycle = true;

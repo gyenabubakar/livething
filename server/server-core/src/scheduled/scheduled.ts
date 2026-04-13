@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import type { EngineAccess } from '~/_engine/access.ts';
+import type { TaskContext } from '~/context.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { Validator } from '~/types.ts';
 import { bootstrapScheduledRuntime, handleScheduledAlarm } from './runtime.ts';
@@ -48,7 +49,7 @@ export interface ScheduledHandle<TData = unknown> {
  * @param ctx  The task execution context (subset of the connection context).
  * @param data The validated task data payload.
  */
-export type ScheduledHandler<TCtx = any, TData = unknown> = (
+export type ScheduledHandler<TCtx = TaskContext, TData = unknown> = (
   ctx: TCtx,
   data: TData,
 ) => void | Promise<void>;

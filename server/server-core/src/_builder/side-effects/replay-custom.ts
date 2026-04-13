@@ -19,7 +19,6 @@
  *   - `.onReplay(fn)` — called when the client sends `_replay`. Receives the
  *     replay context (with `ctx.sendReplay`) and the `since` sequence number.
  *     Your implementation should re-send all stored messages since `since`.
- *   - `.done()` — finish and return to the parent builder.
  *   - `.extract()` — detach as a reusable `CustomReplayPrimitive`.
  *
  * The `'top'` generic on all types refers to the top-level connection scope
@@ -43,20 +42,20 @@ import type {
 /**
  * A sub-builder returned by `.replayCustom()`. Collects the three lifecycle
  * hooks and pushes a `CustomReplayPrimitive` onto the parent builder when
- * `.done()` is called.
+ * sealed via the callback form.
  *
- * `TParent` is the parent builder type returned by `.done()`.
+ * `TParent` is the parent builder type used internally by the callback form.
  * `_TState` is the parent's type-level state, kept for future extensions.
  */
 export class ReplayCustomBuilder<TParent, _TState extends ScopeStateShape> {
-  /** @internal Reference to the parent builder for `.done()`. */
+  /** @internal Reference to the parent builder for `_seal()`. */
   readonly _parent: TParent;
-  /** @internal The parent builder's primitive array for `.done()` to push into. */
+  /** @internal The parent builder's primitive array for `_seal()` to push into. */
   readonly _parentPrimitives: Primitive[];
   /**
    * @internal Accumulated hook functions. Typed as `any` here because the
    * generic scope parameter (`'top'` vs `'channel'`) is resolved only when
-   * `.done()` or `.extract()` casts to `CustomReplayOptions<'top'>`.
+   * `_seal()` or `.extract()` casts to `CustomReplayOptions<'top'>`.
    */
   _options: { onBeforeSend?: any; onAfterSend?: any; onReplay?: any } = {};
 
@@ -103,15 +102,11 @@ export class ReplayCustomBuilder<TParent, _TState extends ScopeStateShape> {
     return this;
   }
 
-  /**
-   * Finish building the custom replay handler. Pushes the configured
-   * `CustomReplayPrimitive` onto the parent builder and returns the parent.
-   */
-  done(): TParent {
+  /** @internal Seal the custom replay and push it onto the parent's primitive list. */
+  _seal(): void {
     this._parentPrimitives.push(
       createHandleReplay(this._options as CustomReplayOptions<'top'>) as unknown as Primitive,
     );
-    return this._parent;
   }
 
   /**
@@ -132,36 +127,60 @@ export class ReplayCustomBuilder<TParent, _TState extends ScopeStateShape> {
  */
 declare module '~/_builder/server-builder.ts' {
   interface ServerBuilder<TState extends ScopeStateShape> {
-    /**
-     * Open a custom replay sub-builder. Attach `.onBeforeSend()` and/or
-     * `.onAfterSend()` to store messages, and `.onReplay()` to re-send them
-     * on reconnect. Finish with `.done()`.
-     */
     replayCustom(): ReplayCustomBuilder<
       ServerBuilder<NextState<TState, CustomReplayPrimitive<'top'>>>,
       TState
     >;
+
+    replayCustom(
+      callback: (
+        builder: ReplayCustomBuilder<
+          ServerBuilder<NextState<TState, CustomReplayPrimitive<'top'>>>,
+          TState
+        >,
+      ) => ReplayCustomBuilder<any, any>,
+    ): ServerBuilder<NextState<TState, CustomReplayPrimitive<'top'>>>;
   }
 
   interface GroupBuilder<TState extends ScopeStateShape> {
-    /**
-     * Open a custom replay sub-builder. Attach `.onBeforeSend()` and/or
-     * `.onAfterSend()` to store messages, and `.onReplay()` to re-send them
-     * on reconnect. Finish with `.done()`.
-     */
     replayCustom(): ReplayCustomBuilder<
       GroupBuilder<NextState<TState, CustomReplayPrimitive<'top'>>>,
       TState
     >;
+
+    replayCustom(
+      callback: (
+        builder: ReplayCustomBuilder<
+          GroupBuilder<NextState<TState, CustomReplayPrimitive<'top'>>>,
+          TState
+        >,
+      ) => ReplayCustomBuilder<any, any>,
+    ): GroupBuilder<NextState<TState, CustomReplayPrimitive<'top'>>>;
   }
 }
 
+function replayCustomImpl(
+  parent: { _primitives: Primitive[] },
+  callback?: (builder: any) => any,
+): any {
+  const builder = new ReplayCustomBuilder(parent, parent._primitives);
+  if (callback) {
+    callback(builder);
+    builder._seal();
+    return parent;
+  }
+  return builder;
+}
+
 /** Runtime implementation of `.replayCustom()` for `ServerBuilder`. */
-ServerBuilder.prototype.replayCustom = function (this: ServerBuilder<any>) {
-  return new ReplayCustomBuilder(this, this._primitives);
+ServerBuilder.prototype.replayCustom = function (this: ServerBuilder<any>, callback?: any) {
+  return replayCustomImpl(this, callback);
 };
 
 /** Runtime implementation of `.replayCustom()` for `GroupBuilder`. */
-GroupBuilder.prototype.replayCustom = function (this: GroupBuilder<any>) {
-  return new ReplayCustomBuilder(this, this._primitives);
+GroupBuilder.prototype.replayCustom = function (this: GroupBuilder<any>, callback?: any) {
+  return replayCustomImpl(this, callback);
 };
+
+/** @internal Side-effect registration marker. */
+export const __sideEffect_replay_custom = true;

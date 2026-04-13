@@ -283,7 +283,8 @@ export function sendThroughPipeline(
     ...message.payload,
   };
 
-  if (!isDeclaredOutgoingEvent(runtime.compiled, message.event, routing)) {
+  const isRequestResponse = !!routing?.correlationId;
+  if (!isRequestResponse && !isDeclaredOutgoingEvent(runtime.compiled, message.event, routing)) {
     throw new Error(
       `[wskit] Outgoing event "${message.event}" was not declared in the active scope.`,
     );

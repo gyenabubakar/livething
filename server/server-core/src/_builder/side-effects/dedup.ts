@@ -53,3 +53,6 @@ GroupBuilder.prototype.dedup = function () {
   this._primitives.push(createDedup() as unknown as Primitive);
   return this;
 };
+
+/** @internal Side-effect registration marker. */
+export const __sideEffect_dedup = true;

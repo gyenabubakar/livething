@@ -61,3 +61,6 @@ GroupBuilder.prototype.hibernation = function (enabled?: boolean) {
   this._primitives.push(createHibernation(enabled) as unknown as Primitive);
   return this;
 };
+
+/** @internal Side-effect registration marker. */
+export const __sideEffect_hibernation = true;

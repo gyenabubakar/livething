@@ -54,7 +54,7 @@ const REPLAY_KEY = Symbol('replay');
  * server('chat')
  *   .replay('history')
  *     .retention({ maxAgeMs: 7 * 24 * 60 * 60 * 1000 })
- *     .done();
+ *     .build();
  * ```
  */
 export function replay(options?: ReplayOptions): ReplayPrimitive {

@@ -16,7 +16,6 @@
  *   - `.onBeforeSubscribe(handler)` — called before a client subscribes
  *   - `.onSubscribe(handler)` — called when a client subscribes
  *   - `.onUnsubscribe(handler)` — called when a client unsubscribes
- *   - `.done()` — finish the channel and return to the parent builder
  *   - `.extract()` — detach as a reusable `ChannelPrimitive`
  *
  * The `pattern` can be a plain string (exact match) or a `ScopeDeclaration`
@@ -64,7 +63,8 @@ type ChannelState<TParentState extends ScopeStateShape> = ScopeState<
   { incoming: {}; outgoing: {}; requests: {}; streams: {}; channels: {}; namespaces: {} },
   readonly [],
   TParentState['meta'],
-  TParentState['channelNames']
+  TParentState['channelNames'],
+  TParentState['scheduledTaskIds']
 >;
 
 /** Helper: the state produced after registering an outgoing event on the channel. */
@@ -123,6 +123,7 @@ type StateWithChannel<
   readonly errors: TState['errors'];
   readonly meta: TState['meta'];
   readonly channelNames: TState['channelNames'] | TChannelName;
+  readonly scheduledTaskIds: TState['scheduledTaskIds'];
 };
 
 /** Helper: the state produced after registering an incoming handler on the channel. */
@@ -134,10 +135,10 @@ type StateAfterIncoming<
 
 /**
  * A sub-builder returned by `.channel()`. Holds the channel's primitives until
- * `.done()` is called, at which point they are packaged into a `ChannelPrimitive`
- * and pushed onto the parent builder's primitive list.
+ * sealed (via the callback form), at which point they are packaged into a
+ * `ChannelPrimitive` and pushed onto the parent builder's primitive list.
  *
- * `TParentState` tracks the parent builder's state so that `.done()` can return
+ * `TParentState` tracks the parent builder's state so the callback form returns
  * to the correctly typed parent. `TState` tracks state changes made inside the
  * channel scope (e.g. which outgoing events have been declared).
  */
@@ -146,9 +147,9 @@ export class ChannelBuilder<
   TState extends ScopeStateShape = ChannelState<TParentState>,
   TPattern extends ChannelPattern = ChannelPattern,
 > {
-  /** @internal Reference to the parent builder, so `.done()` can return to it. */
+  /** @internal Reference to the parent builder, so `_seal()` can return to it. */
   readonly _parentBuilder: ServerBuilder<TParentState> | GroupBuilder<TParentState>;
-  /** @internal The parent builder's primitive array, so `.done()` can push into it. */
+  /** @internal The parent builder's primitive array, so `_seal()` can push into it. */
   readonly _parentPrimitives: Primitive[];
   /** @internal Primitives collected inside this channel scope. */
   readonly _primitives: Primitive[] = [];
@@ -222,18 +223,13 @@ export class ChannelBuilder<
     return this;
   }
 
-  /**
-   * Finish building the channel. Packages all collected primitives into a
-   * `ChannelPrimitive` and pushes it onto the parent builder, then returns the
-   * parent builder so the fluent chain can continue.
-   */
-  done(): ServerBuilder<StateWithChannel<TParentState, ChannelNameFromPattern<TPattern>, TState>> {
+  /** @internal Seal the channel and push it onto the parent's primitive list. */
+  _seal(): void {
     const channelPrimitive = (createChannel as any)(
       this._pattern,
       ...this._primitives,
     ) as Primitive;
     this._parentPrimitives.push(channelPrimitive);
-    return this._parentBuilder as any;
   }
 
   /**
@@ -258,8 +254,8 @@ export class ChannelBuilder<
 declare module '~/_builder/server-builder.ts' {
   interface ServerBuilder<TState extends ScopeStateShape> {
     /**
-     * Open a channel sub-builder for `pattern`. Call `.done()` to seal it and
-     * return to this builder, or `.extract()` to detach it as a primitive.
+     * Open a channel sub-builder for `pattern`. Call `.extract()` to detach
+     * it as a standalone primitive for multi-file use.
      *
      * @param pattern A string for exact channel names, or a `ScopeDeclaration`
      *   (`scope(key, regex)`) for dynamic names that capture a parameter.
@@ -271,7 +267,7 @@ declare module '~/_builder/server-builder.ts' {
     /**
      * Define a channel inline using a callback. The callback receives a
      * `ChannelBuilder` and should return it after chaining methods. The channel
-     * is automatically sealed when the callback returns — no `.done()` needed.
+     * is automatically sealed when the callback returns.
      *
      * This form produces natural indentation in formatters like Prettier.
      */
@@ -285,8 +281,8 @@ declare module '~/_builder/server-builder.ts' {
 
   interface GroupBuilder<TState extends ScopeStateShape> {
     /**
-     * Open a channel sub-builder for `pattern`. Call `.done()` to seal it and
-     * return to this builder, or `.extract()` to detach it as a primitive.
+     * Open a channel sub-builder for `pattern`. Use the callback form for
+     * inline use, or `.extract()` to detach it as a primitive.
      */
     channel<TPattern extends ChannelPattern>(
       pattern: TPattern,
@@ -313,7 +309,8 @@ declare module '~/_builder/server-builder.ts' {
   const builder = new ChannelBuilder(this, this._primitives, pattern);
   if (callback) {
     callback(builder);
-    return builder.done();
+    builder._seal();
+    return this;
   }
   return builder;
 };
@@ -327,7 +324,11 @@ declare module '~/_builder/server-builder.ts' {
   const builder = new ChannelBuilder(this as any, this._primitives, pattern);
   if (callback) {
     callback(builder);
-    return builder.done();
+    builder._seal();
+    return this;
   }
   return builder;
 };
+
+/** @internal Side-effect registration marker. */
+export const __sideEffect_channels = true;

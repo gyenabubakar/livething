@@ -64,3 +64,6 @@ GroupBuilder.prototype.ack = function () {
   this._primitives.push(createAck() as unknown as Primitive);
   return this;
 };
+
+/** @internal Side-effect registration marker. */
+export const __sideEffect_ack = true;
