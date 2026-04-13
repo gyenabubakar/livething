@@ -46,13 +46,13 @@ export const aiNamespace = base.namespace('ai', (ns) =>
       s
         .nudge(NudgePause)
         .nudge(NudgeSpeedUp)
-        .generate(async function* (ctx, payload): AsyncGenerator<any> {
+        .generate(async function* (ctx, payload) {
           const words = `[Re: "${payload.prompt}"] ${FAKE_STREAM}`.split(' ');
           let delay = 80;
           for (const word of words) {
             const nudges = ctx.nudges(yield { token: word + ' ' });
-            if (nudges.some((n: any) => n.event === 'pause')) break;
-            const speedUp = nudges.find((n: any) => n.event === 'speed-up');
+            if (nudges.some((n) => n.event === 'pause')) break;
+            const speedUp = nudges.find((n) => n.event === 'speed-up');
             if (speedUp && 'factor' in speedUp.payload)
               delay = Math.max(10, delay / speedUp.payload.factor);
             await new Promise((r) => setTimeout(r, delay));
