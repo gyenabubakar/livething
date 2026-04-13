@@ -125,60 +125,22 @@ describe('ServerBuilder — type inference', () => {
 // ─── GroupBuilder ───────────────────────────────────────────
 
 describe('GroupBuilder', () => {
-  it('extracts primitives as a GroupPrimitive', () => {
-    const base = server('chat').outgoing(message);
-
-    const group = base
-      .group()
-      .incoming(sendMessage, async (ctx) => {
-        ctx.send('message', { text: 'hi', from: ctx.id });
-      })
-      .extract();
-
-    expect(group.__wskit).toBe('group');
-    expect(group.primitives).toHaveLength(1);
-    expect(group.primitives[0]!.__wskit).toBe('incoming');
-  });
-
-  it('.use() merges extracted group into parent', () => {
-    const base = server('chat').outgoing(message);
-
-    const group = base
-      .group()
-      .incoming(sendMessage, async () => {})
-      .extract();
-
-    const def = base.use(group).build();
-    expect(def.primitives).toHaveLength(2);
-  });
-
   it('callback form merges inline group into parent', () => {
-    const def = server('chat')
-      .outgoing(message)
-      .group((g) =>
-        g.incoming(sendMessage, async (ctx) => {
-          ctx.send('message', { text: 'hi', from: ctx.id });
-        }),
+    const base = server('chat').outgoing(message);
+    const def = base
+      .use(
+        base.group((g) =>
+          g.incoming(sendMessage, async (ctx) => {
+            ctx.send('message', { text: 'hi', from: ctx.id });
+          }),
+        ),
       )
       .build();
 
     expect(def.primitives).toHaveLength(2);
   });
 
-  it('callback overload inlines group into parent', () => {
-    const def = server('chat')
-      .outgoing(message)
-      .group((g) =>
-        g.incoming(sendMessage, async (ctx) => {
-          ctx.send('message', { text: 'hi', from: ctx.id });
-        }),
-      )
-      .build();
-
-    expect(def.primitives).toHaveLength(2);
-  });
-
-  it('callback overload types ctx correctly', () => {
+  it('callback types ctx correctly', () => {
     server('chat')
       .outgoing(message)
       .outgoing(notification)
@@ -193,37 +155,29 @@ describe('GroupBuilder', () => {
       );
   });
 
-  it('rejects nested groups', () => {
-    const base = server('chat').outgoing(message);
-    const nested = base
-      .group()
-      .incoming(sendMessage, async () => {})
-      .extract();
-
-    expect(() => base.group().use(nested).extract()).toThrow(/Nested groups are not supported/);
-  });
-
   it('inherits parent outgoing events for ctx.send typing', () => {
-    const base = server('chat').outgoing(message).outgoing(notification);
+    server('chat')
+      .outgoing(message)
+      .outgoing(notification)
+      .group((g) =>
+        g.incoming(sendMessage, async (ctx) => {
+          ctx.send('message', { text: 'hi', from: 'system' });
+          ctx.send('notification', { title: 'Hello' });
 
-    base.group().incoming(sendMessage, async (ctx) => {
-      ctx.send('message', { text: 'hi', from: 'system' });
-      ctx.send('notification', { title: 'Hello' });
-
-      // @ts-expect-error — undeclared event
-      ctx.send('nope', {});
-    });
+          // @ts-expect-error — undeclared event
+          ctx.send('nope', {});
+        }),
+      );
   });
 
   it('group can declare its own outgoing events', () => {
-    const base = server('chat').outgoing(message);
-
-    base
-      .group()
-      .outgoing(notification)
-      .incoming(sendMessage, async (ctx) => {
-        ctx.send('message', { text: 'hi', from: 'system' });
-        ctx.send('notification', { title: 'Hello' });
-      });
+    server('chat')
+      .outgoing(message)
+      .group((g) =>
+        g.outgoing(notification).incoming(sendMessage, async (ctx) => {
+          ctx.send('message', { text: 'hi', from: 'system' });
+          ctx.send('notification', { title: 'Hello' });
+        }),
+      );
   });
 });

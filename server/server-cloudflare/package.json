@@ -28,7 +28,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250410.0",
     "@wskit/server": "workspace:*",
-    "vite": "^8.0.1",
+    "vite": "8.0.5",
     "vite-plugin-dts": "^4.5.4"
   }
 }

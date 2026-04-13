@@ -109,9 +109,7 @@ type MergeScopeContract<
 };
 
 /**
- * Merge a group's accumulated contract into the parent state. The group
- * inherits the parent's state, so only the *new* entries in each contract
- * field are additive — `MergeRecords` handles the merge correctly.
+ * Merge a group's accumulated contract into the parent state.
  */
 type MergeGroupContract<
   TState extends ScopeStateShape,
@@ -138,11 +136,6 @@ type MergeGroupContract<
 
 /**
  * Compute the builder state after `.use(primitive)`.
- *
- * - `GroupPrimitive` → merge the group's contract into the parent state
- * - `ChannelPrimitive` → add channel contract to `contract.channels`
- * - `NamespacePrimitive` → add namespace contract to `contract.namespaces`
- * - Anything else → fold via `NextState` (outgoing, incoming, etc.)
  */
 type UseResult<TState extends ScopeStateShape, P extends Primitive> =
   P extends GroupPrimitive<infer TGroupState extends ScopeStateShape>
@@ -257,32 +250,23 @@ export class ServerBuilder<TState extends ScopeStateShape = InitialState> {
   }
 
   /**
-   * Plug a primitive, module, or extracted group into this builder.
+   * Plug a primitive, module, or extracted scope into this builder.
    *
-   * Three things go through `.use()`:
-   * - **Modules** — `Analytics({ sampleRate: 0.5 })`
-   * - **Extracted scopes** — a channel or namespace created with `.extract()`
-   *   in another file
-   * - **Extracted groups** — a `GroupBuilder` chain ended with `.extract()`
-   *
-   * When a `GroupPrimitive` is passed, its inner primitives are spread flat
-   * into this builder's list so the server sees them as if they were
-   * registered directly.
+   * Groups, channels, and namespaces created with the callback form on `base`
+   * return primitives that go through `.use()`:
    *
    * @example
    * ```typescript
-   * import { orderHandlers } from './order-handlers'
+   * import { chatChannel } from './chat/channel'
    * import { Analytics } from '@wskit/analytics'
    *
    * server('shop')
    *   .use(Analytics({ sampleRate: 0.5 }))
-   *   .use(orderHandlers)
+   *   .use(chatChannel)
    *   .build()
    * ```
    */
   use<P extends Primitive>(primitive: P): ServerBuilder<UseResult<TState, P>> {
-    // Groups are transparent containers — unwrap their primitives so
-    // validateBuild and the engine see a flat list, not a nested wrapper.
     if (primitive.__wskit === 'group') {
       this._primitives.push(...(primitive as unknown as GroupPrimitive).primitives);
     } else {
@@ -292,57 +276,43 @@ export class ServerBuilder<TState extends ScopeStateShape = InitialState> {
   }
 
   /**
-   * Enter a sub-builder for grouping flat primitives across multiple files.
+   * Create a group of flat primitives using a callback.
    *
-   * Channels and namespaces already support `.extract()` on their own.
-   * `.group()` gives the same ability to flat primitives like `.incoming()`,
-   * `.outgoing()`, `.request()`, and lifecycle hooks.
+   * Returns a `GroupPrimitive` that can be passed to `.use()` or assigned
+   * to a variable for multi-file composition. Types flow from the parent
+   * builder through the callback.
    *
-   * Call `.extract()` on the `GroupBuilder` to detach the group as a
-   * standalone primitive that can be exported and `.use()`'d in another file.
-   *
-   * @example Multi-file grouping
-   * ```typescript
-   * // order-handlers.ts
-   * export const orderHandlers = base
-   *   .group()
-   *   .outgoing(holdExpired)
-   *   .incoming(placeOrder, async (ctx, payload) => { ... })
-   *   .extract()
-   *
-   * // handler.ts
-   * server('shop').use(orderHandlers).build()
-   * ```
-   *
-   * @example Inline grouping with callback
+   * @example Inline
    * ```typescript
    * server('shop')
-   *   .group((g) => g
-   *     .incoming(placeOrder, handler)
-   *     .incoming(cancelOrder, handler)
-   *   )
+   *   .use(base.group((g) => g.incoming(placeOrder, handler)))
    *   .build()
    * ```
-   */
-  group(): GroupBuilder<TState>;
-  /**
-   * Define a group inline using a callback. The callback receives a
-   * `GroupBuilder` and should return it after chaining methods. The group's
-   * primitives are inlined into this builder when the callback returns.
+   *
+   * @example Multi-file
+   * ```typescript
+   * // order-handlers.ts
+   * export const orderHandlers = base.group((g) => g
+   *   .incoming(placeOrder, handler)
+   * )
+   *
+   * // handler.ts
+   * base.use(orderHandlers).build()
+   * ```
    */
   group<TGroupState extends ScopeStateShape>(
     callback: (builder: GroupBuilder<TState>) => GroupBuilder<TGroupState>,
-  ): ServerBuilder<TGroupState>;
-  group(
-    callback?: (builder: GroupBuilder<TState>) => GroupBuilder<any>,
-  ): GroupBuilder<TState> | ServerBuilder<any> {
+  ): GroupPrimitive<TGroupState> {
     const builder = new GroupBuilder<TState>(this);
-    if (callback) {
-      callback(builder);
-      this._primitives.push(...builder._primitives);
-      return this;
-    }
-    return builder;
+    callback(builder);
+    return {
+      __wskit: 'group' as const,
+      __kind: 'scope' as const,
+      __identity: [Symbol('group')] as const,
+      __dependencies: [],
+      __requires: {},
+      primitives: [...builder._primitives],
+    } as GroupPrimitive<TGroupState>;
   }
 
   /**
@@ -380,12 +350,8 @@ export class ServerBuilder<TState extends ScopeStateShape = InitialState> {
 /**
  * A sub-builder for collecting a reusable set of flat primitives.
  *
- * Obtained by calling `.group()` on a `ServerBuilder`. Supports the same
- * `.outgoing()`, `.incoming()`, and `.use()` methods as `ServerBuilder`, plus
- * two finalizers:
- *
- * - **`.extract()`** — detach as a `GroupPrimitive` to export and `.use()` elsewhere
- * - **callback form** — inline the collected primitives back into the parent builder
+ * Obtained via the callback in `.group((g) => g.incoming(...))`. Supports the
+ * same `.outgoing()`, `.incoming()`, and `.use()` methods as `ServerBuilder`.
  *
  * @template TState - Inherited from the parent `ServerBuilder`. Controls which
  *   events are sendable in handler ctx.
@@ -428,61 +394,20 @@ export class GroupBuilder<TState extends ScopeStateShape> {
   }
 
   /**
-   * Plug a primitive or module into this group.
-   *
-   * Works exactly like `ServerBuilder.use()`, but without the group-unwrapping
-   * logic — groups nested inside groups are stored as-is.
+   * Plug a primitive or module into this group. Groups cannot be nested.
    */
-  use<P extends Primitive>(primitive: P): GroupBuilder<UseResult<TState, P>> {
-    if (primitive.__wskit === 'group') {
-      throw new Error('[wskit] Nested groups are not supported. Use base + subgroups only.');
-    }
-
+  use<P extends Primitive>(
+    primitive: P extends { __wskit: 'group' } ? never : P,
+  ): GroupBuilder<UseResult<TState, P>> {
     this._primitives.push(primitive);
     return this as any;
-  }
-
-  /**
-   * Detach this group as a standalone `GroupPrimitive`.
-   *
-   * The returned value can be exported from its file and passed to
-   * `.use()` on any `ServerBuilder`. When `.use()` receives a group it
-   * unwraps the primitives flat, so the server sees them as if they were
-   * registered inline.
-   *
-   * @example
-   * ```typescript
-   * // order-handlers.ts
-   * export const orderHandlers = base
-   *   .group()
-   *   .incoming(placeOrder, handler)
-   *   .extract()
-   *
-   * // handler.ts
-   * server('shop').use(orderHandlers).build()
-   * ```
-   */
-  extract(): GroupPrimitive<TState> {
-    return {
-      __wskit: 'group' as const,
-      __kind: 'scope' as const,
-      // Each extracted group gets a fresh symbol so duplicate-registration
-      // checks can distinguish separate group instances.
-      __identity: [Symbol('group')] as const,
-      __dependencies: [],
-      __requires: {},
-      primitives: [...this._primitives],
-    } as GroupPrimitive<TState>;
   }
 }
 
 /**
- * A container primitive produced by `GroupBuilder.extract()`.
+ * A container primitive produced by `.group(callback)`.
  *
- * Passed to `ServerBuilder.use()`, which unwraps the inner primitives and
- * adds them flat to the server's list. The phantom `_TState` type parameter
- * is never used at runtime — it exists only to carry type information
- * through the `.use()` call.
+ * Passed to `ServerBuilder.use()`, which unwraps the inner primitives flat.
  *
  * @template _TState - Phantom type carrying the accumulated builder state.
  */

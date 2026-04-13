@@ -309,9 +309,9 @@ describe('ctx.meta typing', () => {
 
 describe('ctx.channels typing', () => {
   it('static channels restrict name to registered literals', () => {
-    server('chat')
-      .channel('lobby', (ch) => ch.outgoing(roomMessage).incoming(roomSend, async () => {}))
-      .channel('vip', (ch) => ch.incoming(roomSend, async () => {}))
+    const s = server('chat');
+    s.use(s.channel('lobby', (ch) => ch.outgoing(roomMessage).incoming(roomSend, async () => {})))
+      .use(s.channel('vip', (ch) => ch.incoming(roomSend, async () => {})))
       .incoming(sendMessage, async (ctx) => {
         ctx.channels.members('lobby');
         ctx.channels.members('vip');
@@ -323,20 +323,21 @@ describe('ctx.channels typing', () => {
   });
 
   it('dynamic channel (scope) allows any string', () => {
-    server('chat')
-      .channel(scope('rooms', /^room-.+$/), (ch) =>
+    const s = server('chat');
+    s.use(
+      s.channel(scope('rooms', /^room-.+$/), (ch) =>
         ch.outgoing(roomMessage).incoming(roomSend, async () => {}),
-      )
-      .incoming(sendMessage, async (ctx) => {
-        ctx.channels.members('room-123');
-        ctx.channels.members('any-string-ok');
-      });
+      ),
+    ).incoming(sendMessage, async (ctx) => {
+      ctx.channels.members('room-123');
+      ctx.channels.members('any-string-ok');
+    });
   });
 
   it('mixed static + dynamic accepts any string (dynamic widens)', () => {
-    server('chat')
-      .channel('lobby', (ch) => ch.incoming(roomSend, async () => {}))
-      .channel(scope('rooms', /^room-.+$/), (ch) => ch.incoming(roomSend, async () => {}))
+    const s = server('chat');
+    s.use(s.channel('lobby', (ch) => ch.incoming(roomSend, async () => {})))
+      .use(s.channel(scope('rooms', /^room-.+$/), (ch) => ch.incoming(roomSend, async () => {})))
       .incoming(sendMessage, async (ctx) => {
         ctx.channels.members('lobby');
         ctx.channels.members('room-abc');
@@ -380,22 +381,23 @@ describe('group builder state inheritance', () => {
   it('group handler gets parent outgoing + ack', () => {
     const base = server('chat').ack().outgoing(message);
 
-    base.group().incoming(sendMessage, async (ctx) => {
-      ctx.ack();
-      ctx.send('message', { text: 'hi', from: 'x' });
-    });
+    base.group((g) =>
+      g.incoming(sendMessage, async (ctx) => {
+        ctx.ack();
+        ctx.send('message', { text: 'hi', from: 'x' });
+      }),
+    );
   });
 
   it('group can add its own outgoing events', () => {
     const base = server('chat').outgoing(message);
 
-    base
-      .group()
-      .outgoing(alertEvent)
-      .incoming(sendMessage, async (ctx) => {
+    base.group((g) =>
+      g.outgoing(alertEvent).incoming(sendMessage, async (ctx) => {
         ctx.send('message', { text: 'hi', from: 'x' });
         ctx.send('alert', { id: '1', severity: 'low' });
-      });
+      }),
+    );
   });
 
   it('typed meta flows through group', () => {
@@ -403,12 +405,11 @@ describe('group builder state inheritance', () => {
       .outgoing(message)
       .onUpgrade(async () => ({ meta: { userId: 'abc' } }));
 
-    base
-      .group()
-      .incoming(sendMessage, async (ctx) => {
+    base.group((g) =>
+      g.incoming(sendMessage, async (ctx) => {
         void (ctx.meta.userId satisfies string);
-      })
-      .extract();
+      }),
+    );
   });
 });
 
@@ -419,7 +420,7 @@ describe('group builder state inheritance', () => {
 const Forbidden = error('forbidden', (p: unknown) => p as { reason: string });
 const RateLimit = error('rate-limit', (p: unknown) => p as { retryAfterMs: number });
 
-const fullServer = server('chat')
+const _fullBase = server('chat')
   .ack()
   .errors(Forbidden, RateLimit)
   .outgoing(message)
@@ -436,12 +437,22 @@ const fullServer = server('chat')
       .generate(async function* (_ctx, payload) {
         yield { token: payload.prompt };
       }),
+  );
+
+const fullServer = _fullBase
+  .use(
+    _fullBase.channel('lobby', (ch) => ch.outgoing(roomMessage).incoming(roomSend, async () => {})),
   )
-  .channel('lobby', (ch) => ch.outgoing(roomMessage).incoming(roomSend, async () => {}))
-  .channel(scope('rooms', /^room-.+$/), (ch) =>
-    ch.outgoing(roomMessage).incoming(roomSend, async () => {}),
+  .use(
+    _fullBase.channel(scope('rooms', /^room-.+$/), (ch) =>
+      ch.outgoing(roomMessage).incoming(roomSend, async () => {}),
+    ),
   )
-  .namespace('alerts', (ns) => ns.outgoing(alertEvent).incoming(dismiss, async () => {}))
+  .use(
+    _fullBase.namespace('alerts', (ns) =>
+      ns.outgoing(alertEvent).incoming(dismiss, async () => {}),
+    ),
+  )
   .build();
 
 type Full = InferClient<typeof fullServer>;
@@ -569,129 +580,106 @@ describe('InferClient: server with no optional features', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════
-// 10. Multi-file composition — extract/use patterns
+// 10. Composition — callback patterns
 // ═══════════════════════════════════════════════════════════════
 
 describe('multi-file composition', () => {
-  it('extracted group handler ctx preserves parent outgoing + ack', () => {
+  it('group handler ctx preserves parent outgoing + ack', () => {
     const base = server('chat').ack().outgoing(message).outgoing(notification);
 
-    base
-      .group()
-      .incoming(sendMessage, async (ctx) => {
+    base.group((g) =>
+      g.incoming(sendMessage, async (ctx) => {
         ctx.ack();
         ctx.send('message', { text: 'hi', from: 'x' });
         ctx.send('notification', { title: 'Hello' });
 
         // @ts-expect-error — undeclared event
         ctx.send('nope', {});
-      })
-      .extract();
+      }),
+    );
   });
 
-  it('extracted channel handler ctx preserves parent outgoing', () => {
+  it('channel handler ctx preserves parent outgoing', () => {
     const base = server('chat').outgoing(message);
 
-    base
-      .channel('lobby')
-      .outgoing(roomMessage)
-      .incoming(roomSend, async (ctx) => {
+    base.channel('lobby', (ch) =>
+      ch.outgoing(roomMessage).incoming(roomSend, async (ctx) => {
         ctx.send('message', { text: 'hi', from: 'x' });
         ctx.send('room-message', { text: 'hi', from: 'x' });
 
         // @ts-expect-error — undeclared
         ctx.send('nope', {});
-      })
-      .extract();
+      }),
+    );
   });
 
-  it('extracted namespace handler ctx preserves parent outgoing', () => {
+  it('namespace handler ctx preserves parent outgoing', () => {
     const base = server('chat').outgoing(message);
 
-    base
-      .namespace('alerts')
-      .outgoing(alertEvent)
-      .incoming(dismiss, async (ctx) => {
+    base.namespace('alerts', (ns) =>
+      ns.outgoing(alertEvent).incoming(dismiss, async (ctx) => {
         ctx.send('message', { text: 'hi', from: 'x' });
         ctx.send('alert', { id: '1', severity: 'high' });
 
         // @ts-expect-error — undeclared
         ctx.send('nope', {});
-      })
-      .extract();
+      }),
+    );
   });
 
-  it('typed meta flows through extracted group', () => {
+  it('typed meta flows through group', () => {
     const base = server('chat')
       .outgoing(message)
       .onUpgrade(async () => ({ meta: { userId: 'abc' } }));
 
-    base
-      .group()
-      .incoming(sendMessage, async (ctx) => {
+    base.group((g) =>
+      g.incoming(sendMessage, async (ctx) => {
         void (ctx.meta.userId satisfies string);
 
         // @ts-expect-error — not in meta
         ctx.meta.email;
-      })
-      .extract();
+      }),
+    );
   });
 });
 
 // ═══════════════════════════════════════════════════════════════
-// 11. InferClient with multi-file .use() assembly
+// 11. InferClient with inline assembly
 // ═══════════════════════════════════════════════════════════════
 
-// Simulates the real-world pattern: define handlers/scopes in separate
-// files, export via .extract(), assemble into one server with .use().
+describe('InferClient from inline assembled server', () => {
+  const _asmBase = server('chat').ack().errors(Forbidden).outgoing(message).outgoing(notification);
 
-describe('InferClient from .use() assembled server', () => {
-  // -- "chat-handlers.ts" --
-  const chatBase = server('chat').ack().outgoing(message).outgoing(notification);
-
-  const chatHandlers = chatBase
-    .group()
-    .incoming(sendMessage, async () => {})
-    .incoming(typing, async () => {})
-    .request(ping, pongSchema, async (ctx, p) => {
-      ctx.respond({ ts: p.ts, serverTs: 0 });
-    })
-    .extract();
-
-  // -- "rooms.ts" --
-  const rooms = chatBase
-    .channel('lobby')
-    .outgoing(roomMessage)
-    .incoming(roomSend, async () => {})
-    .extract();
-
-  // -- "alerts.ts" --
-  const alerts = chatBase
-    .namespace('alerts')
-    .outgoing(alertEvent)
-    .incoming(dismiss, async () => {})
-    .extract();
-
-  // -- "ai.ts" --
-  const aiStream = chatBase
-    .group()
-    .stream(aiComplete, chunkSchema, (s) =>
-      s.nudge(cancel).generate(async function* (_ctx, p) {
-        yield { token: p.prompt };
-      }),
+  const assembled = _asmBase
+    .use(
+      _asmBase.group((g) =>
+        g
+          .incoming(sendMessage, async () => {})
+          .incoming(typing, async () => {})
+          .request(ping, pongSchema, async (ctx, p) => {
+            ctx.respond({ ts: p.ts, serverTs: 0 });
+          }),
+      ),
     )
-    .extract();
-
-  // -- "server.ts" (assembly) --
-  const assembled = server('chat')
-    .ack()
-    .errors(Forbidden)
-    .outgoing(message)
-    .outgoing(notification)
-    .use(chatHandlers)
-    .use(rooms)
-    .use(alerts)
-    .use(aiStream)
+    .use(
+      _asmBase.channel('lobby', (ch) =>
+        ch.outgoing(roomMessage).incoming(roomSend, async () => {}),
+      ),
+    )
+    .use(
+      _asmBase.namespace('alerts', (ns) =>
+        ns.outgoing(alertEvent).incoming(dismiss, async () => {}),
+      ),
+    )
+    .use(
+      _asmBase.group((g) =>
+        g.stream(aiComplete, chunkSchema, (s) =>
+          s.nudge(cancel).generate(async function* (_ctx, p) {
+            yield { token: p.prompt };
+          }),
+        ),
+      ),
+    )
     .build();
 
   type Assembled = InferClient<typeof assembled>;
@@ -701,23 +689,23 @@ describe('InferClient from .use() assembled server', () => {
     assertExact<Assembled['incoming']['notification'], { title: string }>();
   });
 
-  it('incoming from .use(group) → client outgoing', () => {
+  it('incoming from group → client outgoing', () => {
     assertExact<Assembled['outgoing']['send-message'], { text: string }>();
     assertExact<Assembled['outgoing']['typing'], { userId: string }>();
   });
 
-  it('reply from .use(group) → client requests', () => {
+  it('request from group → client requests', () => {
     assertExact<Assembled['requests']['ping']['payload'], { ts: number }>();
     assertExact<Assembled['requests']['ping']['response'], { ts: number; serverTs: number }>();
   });
 
-  it('stream from .use(group) → client streams', () => {
+  it('stream from group → client streams', () => {
     assertExact<Assembled['streams']['ai-complete']['payload'], { prompt: string }>();
     assertExact<Assembled['streams']['ai-complete']['chunk'], { token: string }>();
     assertExact<Assembled['streams']['ai-complete']['nudges']['cancel'], {}>();
   });
 
-  it('.use(channel) → client channels', () => {
+  it('channel → client channels', () => {
     assertExact<
       Assembled['channels']['lobby']['incoming'],
       { 'room-message': { text: string; from: string } }
@@ -725,7 +713,7 @@ describe('InferClient from .use() assembled server', () => {
     assertExact<Assembled['channels']['lobby']['outgoing'], { 'room-send': { text: string } }>();
   });
 
-  it('.use(namespace) → client namespaces', () => {
+  it('namespace → client namespaces', () => {
     assertExact<
       Assembled['namespaces']['alerts']['incoming'],
       { alert: { id: string; severity: string } }
@@ -772,48 +760,43 @@ describe('typed env via server<TEnv>()', () => {
     });
   });
 
-  it('ctx.env is typed in extracted group handlers', () => {
+  it('ctx.env is typed in group handlers', () => {
     const base = server<MyEnv>('app').outgoing(message);
 
-    base
-      .group()
-      .incoming(sendMessage, async (ctx) => {
+    base.group((g) =>
+      g.incoming(sendMessage, async (ctx) => {
         void (ctx.env.API_KEY satisfies string);
 
         // @ts-expect-error — not in env
         ctx.env.MISSING;
-      })
-      .extract();
+      }),
+    );
   });
 
   it('ctx.env is typed in channel handlers', () => {
     const base = server<MyEnv>('app').outgoing(message);
 
-    base
-      .channel('lobby')
-      .outgoing(roomMessage)
-      .incoming(roomSend, async (ctx) => {
+    base.channel('lobby', (ch) =>
+      ch.outgoing(roomMessage).incoming(roomSend, async (ctx) => {
         void (ctx.env.DATABASE_URL satisfies string);
 
         // @ts-expect-error — not in env
         ctx.env.NO;
-      })
-      .extract();
+      }),
+    );
   });
 
   it('ctx.env is typed in namespace handlers', () => {
     const base = server<MyEnv>('app').outgoing(message);
 
-    base
-      .namespace('alerts')
-      .outgoing(alertEvent)
-      .incoming(dismiss, async (ctx) => {
+    base.namespace('alerts', (ns) =>
+      ns.outgoing(alertEvent).incoming(dismiss, async (ctx) => {
         void (ctx.env.API_KEY satisfies string);
 
         // @ts-expect-error — not in env
         ctx.env.WRONG;
-      })
-      .extract();
+      }),
+    );
   });
 
   it('ctx.env is typed after onUpgrade', () => {

@@ -116,15 +116,17 @@ describe('lifecycle side-effects', () => {
 
   it('works with GroupBuilder', () => {
     const base = server('chat').ack().outgoing(message);
-    const group = base
-      .group()
-      .onConnect(async (ctx) => {
-        ctx.ack();
-        ctx.send('message', { text: 'hi' });
-      })
-      .extract();
+    const def = base
+      .use(
+        base.group((g) =>
+          g.onConnect(async (ctx) => {
+            ctx.ack();
+            ctx.send('message', { text: 'hi' });
+          }),
+        ),
+      )
+      .build();
 
-    const def = base.use(group).build();
     expect(def.primitives.some((p) => p.__wskit === 'onConnect')).toBe(true);
   });
 });

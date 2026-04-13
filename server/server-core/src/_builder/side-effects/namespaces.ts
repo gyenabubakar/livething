@@ -31,14 +31,13 @@ import { namespace as createNamespace } from '~/namespace/namespace.ts';
 import { outgoing as createOutgoing } from '~/outgoing/outgoing.ts';
 import type {
   HandlerCtxFromState,
-  MergeRecords,
   NextState,
   ScopeState,
   ScopeStateShape,
 } from '~/_types/scope-state.ts';
 import type { EventContract } from '~/event.ts';
 import type { IncomingPrimitive } from '~/incoming/incoming.ts';
-import type { NamespacePrimitive } from '~/namespace/namespace.ts';
+import type { NamespaceChild, NamespacePrimitive } from '~/namespace/namespace.ts';
 import type { OutgoingPrimitive } from '~/outgoing/outgoing.ts';
 import type { Primitive } from '~/primitive.ts';
 
@@ -68,36 +67,6 @@ type NamespaceContract<TNamespaceState extends ScopeStateShape> = {
   outgoing: TNamespaceState['contract']['outgoing'];
   requests: TNamespaceState['contract']['requests'];
   streams: TNamespaceState['contract']['streams'];
-};
-
-/**
- * Add a namespace to the parent state's `contract.namespaces` for `InferClient`.
- */
-type StateWithNamespace<
-  TState extends ScopeStateShape,
-  TName extends string,
-  TNamespaceState extends ScopeStateShape,
-> = {
-  readonly kind: TState['kind'];
-  readonly outgoing: TState['outgoing'];
-  readonly hasAck: TState['hasAck'];
-  readonly hasReplay: TState['hasReplay'];
-  readonly contract: {
-    incoming: TState['contract']['incoming'];
-    outgoing: TState['contract']['outgoing'];
-    requests: TState['contract']['requests'];
-    streams: TState['contract']['streams'];
-    channels: TState['contract']['channels'];
-    namespaces: MergeRecords<
-      TState['contract']['namespaces'],
-      Record<TName, NamespaceContract<TNamespaceState>>
-    >;
-  };
-  readonly errors: TState['errors'];
-  readonly meta: TState['meta'];
-  readonly channelNames: TState['channelNames'];
-  readonly scheduledTaskIds: TState['scheduledTaskIds'];
-  readonly env: TState['env'];
 };
 
 /** Helper: the state produced after registering an outgoing event on the namespace. */
@@ -177,15 +146,6 @@ export class NamespaceBuilder<
     const nsPrimitive = (createNamespace as any)(this._name, ...this._primitives) as Primitive;
     this._parentPrimitives.push(nsPrimitive);
   }
-
-  /**
-   * Package all collected primitives into a standalone `NamespacePrimitive`
-   * without pushing it onto the parent builder. Use this to define a namespace
-   * in one file and register it elsewhere with `.use()`.
-   */
-  extract(): NamespacePrimitive<TName, any, TName, NamespaceContract<TState>> {
-    return (createNamespace as any)(this._name, ...this._primitives) as any;
-  }
 }
 
 /**
@@ -195,45 +155,37 @@ export class NamespaceBuilder<
 declare module '~/_builder/server-builder.ts' {
   interface ServerBuilder<TState extends ScopeStateShape> {
     /**
-     * Open a namespace sub-builder for `name`. All events declared inside will
-     * be prefixed with `name` at the wire level. Call `.extract()` to detach
-     * it as a standalone primitive for multi-file use.
-     */
-    namespace<TName extends string>(
-      name: TName,
-    ): NamespaceBuilder<TState, NamespaceState<TState>, TName>;
-
-    /**
-     * Define a namespace inline using a callback. The callback receives a
-     * `NamespaceBuilder` and should return it after chaining methods. The
-     * namespace is automatically sealed when the callback returns.
+     * Define a namespace using a callback. Returns a `NamespacePrimitive` that
+     * can be passed to `.use()` or exported for multi-file composition.
      */
     namespace<TName extends string, TNamespaceState extends ScopeStateShape>(
       name: TName,
       callback: (
         builder: NamespaceBuilder<TState, NamespaceState<TState>, TName>,
       ) => NamespaceBuilder<TState, TNamespaceState, TName>,
-    ): ServerBuilder<StateWithNamespace<TState, TName, TNamespaceState>>;
+    ): NamespacePrimitive<
+      TName,
+      readonly NamespaceChild[],
+      TName,
+      NamespaceContract<TNamespaceState>
+    >;
   }
 
   interface GroupBuilder<TState extends ScopeStateShape> {
     /**
-     * Open a namespace sub-builder for `name`. Use the callback form for
-     * inline use, or `.extract()` to detach it as a primitive.
-     */
-    namespace<TName extends string>(
-      name: TName,
-    ): NamespaceBuilder<TState, NamespaceState<TState>, TName>;
-
-    /**
-     * Define a namespace inline using a callback.
+     * Define a namespace using a callback.
      */
     namespace<TName extends string, TNamespaceState extends ScopeStateShape>(
       name: TName,
       callback: (
         builder: NamespaceBuilder<TState, NamespaceState<TState>, TName>,
       ) => NamespaceBuilder<TState, TNamespaceState, TName>,
-    ): GroupBuilder<StateWithNamespace<TState, TName, TNamespaceState>>;
+    ): NamespacePrimitive<
+      TName,
+      readonly NamespaceChild[],
+      TName,
+      NamespaceContract<TNamespaceState>
+    >;
   }
 }
 
@@ -241,30 +193,22 @@ declare module '~/_builder/server-builder.ts' {
 (ServerBuilder.prototype as any).namespace = function (
   this: ServerBuilder<any>,
   name: string,
-  callback?: (builder: NamespaceBuilder<any>) => NamespaceBuilder<any>,
+  callback: (builder: NamespaceBuilder<any>) => NamespaceBuilder<any>,
 ) {
-  const builder = new NamespaceBuilder(this, this._primitives, name);
-  if (callback) {
-    callback(builder);
-    builder._seal();
-    return this;
-  }
-  return builder;
+  const builder = new NamespaceBuilder(this, [], name);
+  callback(builder);
+  return (createNamespace as any)(name, ...builder._primitives);
 };
 
 /** Runtime implementation of `.namespace()` for `GroupBuilder`. */
 (GroupBuilder.prototype as any).namespace = function (
   this: GroupBuilder<any>,
   name: string,
-  callback?: (builder: NamespaceBuilder<any>) => NamespaceBuilder<any>,
+  callback: (builder: NamespaceBuilder<any>) => NamespaceBuilder<any>,
 ) {
-  const builder = new NamespaceBuilder(this as any, this._primitives, name);
-  if (callback) {
-    callback(builder);
-    builder._seal();
-    return this;
-  }
-  return builder;
+  const builder = new NamespaceBuilder(this as any, [], name);
+  callback(builder);
+  return (createNamespace as any)(name, ...builder._primitives);
 };
 
 /** @internal Side-effect registration marker. */

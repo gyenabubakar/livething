@@ -12,8 +12,9 @@ const dismiss = event('dismiss', (p: unknown) => p as { id: string });
 
 describe('.namespace() side-effect', () => {
   it('adds namespace primitive', () => {
-    const def = server('chat')
-      .namespace('notifications', (n) => n.outgoing(alert).incoming(dismiss, async () => {}))
+    const s = server('chat');
+    const def = s
+      .use(s.namespace('notifications', (n) => n.outgoing(alert).incoming(dismiss, async () => {})))
       .build();
 
     expect(def.primitives.some((p) => p.__wskit === 'namespace')).toBe(true);
@@ -42,10 +43,10 @@ describe('.namespace() side-effect', () => {
     );
   });
 
-  it('callback form returns to parent for continued chaining', () => {
-    const def = server('chat')
-      .outgoing(message)
-      .namespace('notifications', (n) => n.outgoing(alert))
+  it('callback form returns namespace primitive for .use()', () => {
+    const base = server('chat').outgoing(message);
+    const def = base
+      .use(base.namespace('notifications', (n) => n.outgoing(alert)))
       .incoming(sendMessage, async (ctx) => {
         ctx.send('message', { text: 'after namespace' });
       })
@@ -54,60 +55,27 @@ describe('.namespace() side-effect', () => {
     expect(def.primitives).toHaveLength(3);
   });
 
-  it('.extract() returns NamespacePrimitive for multi-file', () => {
-    const base = server('chat').ack().outgoing(message);
-
-    const notifications = base
-      .namespace('notifications')
-      .outgoing(alert)
-      .incoming(dismiss, async (ctx) => {
-        ctx.send('alert', { id: '1', msg: 'done' });
-      })
-      .extract();
-
-    expect(notifications.__wskit).toBe('namespace');
-
-    const def = base.use(notifications).build();
-    expect(def.primitives.some((p) => p.__wskit === 'namespace')).toBe(true);
-  });
-
-  it('callback overload seals namespace and returns parent builder', () => {
-    const def = server('chat')
-      .namespace('notifications', (n) => n.outgoing(alert).incoming(dismiss, async () => {}))
+  it('callback form returns namespace primitive for multi-file', () => {
+    const s = server('chat').ack().outgoing(message);
+    const def = s
+      .use(
+        s.namespace('notifications', (n) =>
+          n.outgoing(alert).incoming(dismiss, async (ctx) => {
+            ctx.send('alert', { id: '1', msg: 'done' });
+          }),
+        ),
+      )
       .build();
 
     expect(def.primitives.some((p) => p.__wskit === 'namespace')).toBe(true);
-  });
-
-  it('callback overload types ctx correctly', () => {
-    server('chat')
-      .ack()
-      .outgoing(message)
-      .namespace('notifications', (n) =>
-        n.outgoing(alert).incoming(dismiss, async (ctx) => {
-          ctx.send('message', { text: 'dismissed' });
-          ctx.send('alert', { id: '1', msg: 'hi' });
-        }),
-      );
-  });
-
-  it('callback overload allows chaining after namespace', () => {
-    const def = server('chat')
-      .outgoing(message)
-      .namespace('notifications', (n) => n.outgoing(alert))
-      .incoming(sendMessage, async (ctx) => {
-        ctx.send('message', { text: 'after namespace' });
-      })
-      .build();
-
-    expect(def.primitives).toHaveLength(3);
   });
 
   it('rejects duplicate namespace names', () => {
+    const s = server('chat');
     expect(() =>
-      server('chat')
-        .namespace('notifications', (n) => n.outgoing(alert))
-        .namespace('notifications', (n) => n.outgoing(alert))
+      s
+        .use(s.namespace('notifications', (n) => n.outgoing(alert)))
+        .use(s.namespace('notifications', (n) => n.outgoing(alert)))
         .build(),
     ).toThrow(/Duplicate registration/);
   });

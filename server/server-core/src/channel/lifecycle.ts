@@ -63,10 +63,11 @@ const ON_UNSUBSCRIBE_KEY = Symbol('onUnsubscribe');
  * @example
  * ```ts
  * server('chat')
- *   .channel('private-room')
- *   .onBeforeSubscribe(async (ctx, data) => {
- *     if (!ctx.meta.roles.includes('member')) throw Forbidden();
- *   })
+ *   .channel('private-room', (ch) =>
+ *     ch.onBeforeSubscribe(async (ctx, data) => {
+ *       if (!ctx.meta.roles.includes('member')) throw Forbidden();
+ *     }),
+ *   )
  *   .build();
  * ```
  */
@@ -96,11 +97,12 @@ export function onBeforeSubscribe<TCtx, TData = unknown>(
  * @example
  * ```ts
  * server('chat')
- *   .channel('notifications')
- *   .onSubscribe(async (ctx) => {
- *     const items = await db.getUnread(ctx.meta.userId);
- *     ctx.send.notifications(items);
- *   })
+ *   .channel('notifications', (ch) =>
+ *     ch.onSubscribe(async (ctx) => {
+ *       const items = await db.getUnread(ctx.meta.userId);
+ *       ctx.send.notifications(items);
+ *     }),
+ *   )
  *   .build();
  * ```
  */

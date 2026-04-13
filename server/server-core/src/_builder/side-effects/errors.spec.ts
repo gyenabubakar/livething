@@ -40,8 +40,7 @@ describe('.errors() side-effect', () => {
 
   it('works with GroupBuilder', () => {
     const base = server('chat').outgoing(message);
-    const group = base.group().errors(Forbidden).extract();
-    const def = base.use(group).build();
+    const def = base.use(base.group((g) => g.errors(Forbidden))).build();
 
     expect(def.primitives.some((p) => p.__wskit === 'errors')).toBe(true);
   });

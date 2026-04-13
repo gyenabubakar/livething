@@ -112,17 +112,19 @@ describe('.stream() side-effect', () => {
 
   it('works with GroupBuilder', () => {
     const base = server('chat').ack().outgoing(message);
-    const group = base
-      .group()
-      .stream(aiComplete, chunkSchema, (s) =>
-        s.generate(async function* (ctx, payload) {
-          ctx.send('message', { text: 'streaming' });
-          yield { token: payload.prompt };
-        }),
+    const def = base
+      .use(
+        base.group((g) =>
+          g.stream(aiComplete, chunkSchema, (s) =>
+            s.generate(async function* (ctx, payload) {
+              ctx.send('message', { text: 'streaming' });
+              yield { token: payload.prompt };
+            }),
+          ),
+        ),
       )
-      .extract();
+      .build();
 
-    const def = base.use(group).build();
     expect(def.primitives.some((p) => p.__wskit === 'stream')).toBe(true);
     expect(def.primitives.some((p) => p.__wskit === 'generate')).toBe(true);
   });

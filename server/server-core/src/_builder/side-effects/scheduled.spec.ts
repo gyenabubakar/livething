@@ -70,12 +70,10 @@ describe('.scheduled() side-effect', () => {
 
   it('works with GroupBuilder', () => {
     const base = server('chat').outgoing(message);
-    const group = base
-      .group()
-      .scheduled('cleanup', async () => {}, { every: 60_000 })
-      .extract();
+    const def = base
+      .use(base.group((g) => g.scheduled('cleanup', async () => {}, { every: 60_000 })))
+      .build();
 
-    const def = base.use(group).build();
     expect(def.primitives.some((p) => p.__wskit === 'scheduled')).toBe(true);
   });
 });

@@ -8,11 +8,8 @@
     "build": "vite build",
     "preview": "vite build && wrangler dev",
     "prepare": "svelte-kit sync || echo ''",
-    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-    "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
-    "test": "echo 'no unit tests'",
-    "test:e2e": "playwright test",
-    "typecheck": "echo 'skipped'",
+    "typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "test": "playwright test",
     "cf-typegen": "wrangler types"
   },
   "dependencies": {

@@ -41,17 +41,18 @@ describe('.ack() side-effect', () => {
   it('works with GroupBuilder', () => {
     const base = server('chat').ack().outgoing(message);
 
-    base.group().incoming(sendMessage, async (ctx) => {
-      ctx.ack();
-      ctx.send('message', { text: 'hi' });
-    });
+    base.group((g) =>
+      g.incoming(sendMessage, async (ctx) => {
+        ctx.ack();
+        ctx.send('message', { text: 'hi' });
+      }),
+    );
   });
 
   it('ack registered in group is detected by callback form', () => {
     const base = server('chat').outgoing(message);
-    const group = base.group().ack().extract();
+    const def = base.use(base.group((g) => g.ack())).build();
 
-    const def = base.use(group).build();
     expect(def.primitives.some((p) => p.__wskit === 'ack')).toBe(true);
   });
 });

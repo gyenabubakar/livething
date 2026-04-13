@@ -61,15 +61,17 @@ describe('.request() side-effect', () => {
 
   it('works with GroupBuilder', () => {
     const base = server('chat').ack().outgoing(message);
-    const group = base
-      .group()
-      .request(ping, pongSchema, async (ctx, payload) => {
-        ctx.ack();
-        ctx.respond({ ts: payload.ts, serverTs: Date.now() });
-      })
-      .extract();
+    const def = base
+      .use(
+        base.group((g) =>
+          g.request(ping, pongSchema, async (ctx, payload) => {
+            ctx.ack();
+            ctx.respond({ ts: payload.ts, serverTs: Date.now() });
+          }),
+        ),
+      )
+      .build();
 
-    const def = base.use(group).build();
     expect(def.primitives.some((p) => p.__wskit === 'request')).toBe(true);
   });
 });

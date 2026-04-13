@@ -38,12 +38,16 @@ import { incoming as createIncoming } from '~/incoming/incoming.ts';
 import { outgoing as createOutgoing } from '~/outgoing/outgoing.ts';
 import type {
   HandlerCtxFromState,
-  MergeRecords,
   NextState,
   ScopeState,
   ScopeStateShape,
 } from '~/_types/scope-state.ts';
-import type { ChannelPattern, ChannelPrimitive, ScopeDeclaration } from '~/channel/channel.ts';
+import type {
+  ChannelChild,
+  ChannelPattern,
+  ChannelPrimitive,
+  ScopeDeclaration,
+} from '~/channel/channel.ts';
 import type { EventContract } from '~/event.ts';
 import type { IncomingPrimitive } from '~/incoming/incoming.ts';
 import type { OutgoingPrimitive } from '~/outgoing/outgoing.ts';
@@ -95,37 +99,6 @@ type ChannelContract<TChannelState extends ScopeStateShape> = {
   outgoing: TChannelState['contract']['outgoing'];
   requests: TChannelState['contract']['requests'];
   streams: TChannelState['contract']['streams'];
-};
-
-/**
- * Add a channel to the parent state: updates both `channelNames` (for typed
- * `ctx.channels`) and `contract.channels` (for `InferClient`).
- */
-type StateWithChannel<
-  TState extends ScopeStateShape,
-  TChannelName extends string,
-  TChannelState extends ScopeStateShape,
-> = {
-  readonly kind: TState['kind'];
-  readonly outgoing: TState['outgoing'];
-  readonly hasAck: TState['hasAck'];
-  readonly hasReplay: TState['hasReplay'];
-  readonly contract: {
-    incoming: TState['contract']['incoming'];
-    outgoing: TState['contract']['outgoing'];
-    requests: TState['contract']['requests'];
-    streams: TState['contract']['streams'];
-    channels: MergeRecords<
-      TState['contract']['channels'],
-      Record<TChannelName, ChannelContract<TChannelState>>
-    >;
-    namespaces: TState['contract']['namespaces'];
-  };
-  readonly errors: TState['errors'];
-  readonly meta: TState['meta'];
-  readonly channelNames: TState['channelNames'] | TChannelName;
-  readonly scheduledTaskIds: TState['scheduledTaskIds'];
-  readonly env: TState['env'];
 };
 
 /** Helper: the state produced after registering an incoming handler on the channel. */
@@ -233,20 +206,6 @@ export class ChannelBuilder<
     ) as Primitive;
     this._parentPrimitives.push(channelPrimitive);
   }
-
-  /**
-   * Package all collected primitives into a standalone `ChannelPrimitive`
-   * without pushing it onto the parent builder. Use this to define a channel
-   * in one file and register it elsewhere with `.use()`.
-   */
-  extract(): ChannelPrimitive<
-    TPattern,
-    any,
-    ChannelNameFromPattern<TPattern>,
-    ChannelContract<TState>
-  > {
-    return (createChannel as any)(this._pattern, ...this._primitives) as any;
-  }
 }
 
 /**
@@ -256,49 +215,38 @@ export class ChannelBuilder<
 declare module '~/_builder/server-builder.ts' {
   interface ServerBuilder<TState extends ScopeStateShape> {
     /**
-     * Open a channel sub-builder for `pattern`. Call `.extract()` to detach
-     * it as a standalone primitive for multi-file use.
-     *
-     * @param pattern A string for exact channel names, or a `ScopeDeclaration`
-     *   (`scope(key, regex)`) for dynamic names that capture a parameter.
-     */
-    channel<TPattern extends ChannelPattern>(
-      pattern: TPattern,
-    ): ChannelBuilder<TState, ChannelState<TState>, TPattern>;
-
-    /**
-     * Define a channel inline using a callback. The callback receives a
-     * `ChannelBuilder` and should return it after chaining methods. The channel
-     * is automatically sealed when the callback returns.
-     *
-     * This form produces natural indentation in formatters like Prettier.
+     * Define a channel using a callback. Returns a `ChannelPrimitive` that
+     * can be passed to `.use()` or exported for multi-file composition.
+     * Types flow from the parent builder through the callback.
      */
     channel<TPattern extends ChannelPattern, TChannelState extends ScopeStateShape>(
       pattern: TPattern,
       callback: (
         builder: ChannelBuilder<TState, ChannelState<TState>, TPattern>,
       ) => ChannelBuilder<TState, TChannelState, TPattern>,
-    ): ServerBuilder<StateWithChannel<TState, ChannelNameFromPattern<TPattern>, TChannelState>>;
+    ): ChannelPrimitive<
+      TPattern,
+      readonly ChannelChild[],
+      ChannelNameFromPattern<TPattern>,
+      ChannelContract<TChannelState>
+    >;
   }
 
   interface GroupBuilder<TState extends ScopeStateShape> {
     /**
-     * Open a channel sub-builder for `pattern`. Use the callback form for
-     * inline use, or `.extract()` to detach it as a primitive.
-     */
-    channel<TPattern extends ChannelPattern>(
-      pattern: TPattern,
-    ): ChannelBuilder<TState, ChannelState<TState>, TPattern>;
-
-    /**
-     * Define a channel inline using a callback.
+     * Define a channel using a callback.
      */
     channel<TPattern extends ChannelPattern, TChannelState extends ScopeStateShape>(
       pattern: TPattern,
       callback: (
         builder: ChannelBuilder<TState, ChannelState<TState>, TPattern>,
       ) => ChannelBuilder<TState, TChannelState, TPattern>,
-    ): GroupBuilder<StateWithChannel<TState, ChannelNameFromPattern<TPattern>, TChannelState>>;
+    ): ChannelPrimitive<
+      TPattern,
+      readonly ChannelChild[],
+      ChannelNameFromPattern<TPattern>,
+      ChannelContract<TChannelState>
+    >;
   }
 }
 
@@ -306,30 +254,22 @@ declare module '~/_builder/server-builder.ts' {
 (ServerBuilder.prototype as any).channel = function (
   this: ServerBuilder<any>,
   pattern: ChannelPattern,
-  callback?: (builder: ChannelBuilder<any>) => ChannelBuilder<any>,
+  callback: (builder: ChannelBuilder<any>) => ChannelBuilder<any>,
 ) {
-  const builder = new ChannelBuilder(this, this._primitives, pattern);
-  if (callback) {
-    callback(builder);
-    builder._seal();
-    return this;
-  }
-  return builder;
+  const builder = new ChannelBuilder(this, [], pattern);
+  callback(builder);
+  return (createChannel as any)(pattern, ...builder._primitives);
 };
 
 /** Runtime implementation of `.channel()` for `GroupBuilder`. */
 (GroupBuilder.prototype as any).channel = function (
   this: GroupBuilder<any>,
   pattern: ChannelPattern,
-  callback?: (builder: ChannelBuilder<any>) => ChannelBuilder<any>,
+  callback: (builder: ChannelBuilder<any>) => ChannelBuilder<any>,
 ) {
-  const builder = new ChannelBuilder(this as any, this._primitives, pattern);
-  if (callback) {
-    callback(builder);
-    builder._seal();
-    return this;
-  }
-  return builder;
+  const builder = new ChannelBuilder(this as any, [], pattern);
+  callback(builder);
+  return (createChannel as any)(pattern, ...builder._primitives);
 };
 
 /** @internal Side-effect registration marker. */

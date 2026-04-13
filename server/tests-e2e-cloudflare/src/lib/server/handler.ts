@@ -1,5 +1,4 @@
 import '@wskit/server/intercept';
-import '@wskit/server/requests';
 
 import { event } from '@wskit/server';
 import { Block, Defer } from '@wskit/server/errors/symbols';
@@ -83,7 +82,6 @@ export const handler = base
     if ((message as { event: string }).event === 'block-test') throw Block;
     return message;
   })
-
   .intercept('echo', (_ctx, payload) => {
     if (payload.text === 'intercept-rewrite') {
       return { ...payload, text: 'rewritten-by-intercept' };

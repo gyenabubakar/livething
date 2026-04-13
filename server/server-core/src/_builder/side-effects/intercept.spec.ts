@@ -47,12 +47,8 @@ describe('.intercept() side-effect', () => {
 
   it('works with GroupBuilder', () => {
     const base = server('chat').outgoing(message);
-    const group = base
-      .group()
-      .intercept(async () => {})
-      .extract();
+    const def = base.use(base.group((g) => g.intercept(async () => {}))).build();
 
-    const def = base.use(group).build();
     expect(def.primitives.some((p) => p.__wskit === 'intercept')).toBe(true);
   });
 });

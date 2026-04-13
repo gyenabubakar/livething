@@ -57,7 +57,7 @@ function findAllPrimitives(primitives: readonly any[], tag: string) {
 // ─── Tests ──────────────────────────────────────────────────
 
 describe('Integration: full single-file server', () => {
-  const def = server('chat')
+  const base = server('chat')
     .ack()
     .heartbeat({ timeout: 60_000 })
     .sequence({ persist: true })
@@ -78,22 +78,28 @@ describe('Integration: full single-file server', () => {
     })
     .scheduled('cleanup', async () => {}, { every: 60_000 })
     .scheduled('expire-hold', (p: unknown) => p as { orderId: string })
-    .replay((r) => r.exclude('typing').retention({ maxAgeMs: 3_600_000 }).durability('strict'))
-    .channel(scope('rooms', /^room-.+$/), (ch) =>
-      ch
-        .outgoing(roomMessage)
-        .incoming(roomSend, async (ctx, payload) => {
-          ctx.send('room-message', { text: payload.text, from: 'system' });
-          ctx.send('message', { text: payload.text, from: 'system' });
-        })
-        .onBeforeSubscribe(async () => {})
-        .onSubscribe(async () => {})
-        .onUnsubscribe(async () => {}),
+    .replay((r) => r.exclude('typing').retention({ maxAgeMs: 3_600_000 }).durability('strict'));
+
+  const def = base
+    .use(
+      base.channel(scope('rooms', /^room-.+$/), (ch) =>
+        ch
+          .outgoing(roomMessage)
+          .incoming(roomSend, async (ctx, payload) => {
+            ctx.send('room-message', { text: payload.text, from: 'system' });
+            ctx.send('message', { text: payload.text, from: 'system' });
+          })
+          .onBeforeSubscribe(async () => {})
+          .onSubscribe(async () => {})
+          .onUnsubscribe(async () => {}),
+      ),
     )
-    .namespace('notifications', (ns) =>
-      ns.outgoing(alert).incoming(dismiss, async (ctx, payload) => {
-        ctx.send('alert', { id: payload.id, severity: 'low' });
-      }),
+    .use(
+      base.namespace('notifications', (ns) =>
+        ns.outgoing(alert).incoming(dismiss, async (ctx, payload) => {
+          ctx.send('alert', { id: payload.id, severity: 'low' });
+        }),
+      ),
     )
     .stream(aiComplete, chunkSchema, (s) =>
       s.nudge(cancel).generate(async function* (_ctx, payload) {
@@ -229,103 +235,94 @@ describe('Integration: multi-file composition', () => {
     .outgoing(message)
     .outgoing(notification);
 
-  it('group extracts and merges correctly', () => {
-    const messageHandlers = base
-      .group()
-      .incoming(sendMessage, async (ctx, payload) => {
-        ctx.broadcast('message', { text: payload.text, from: ctx.id });
-        ctx.ack();
-      })
-      .incoming(typing, async () => {})
-      .extract();
-
-    expect(messageHandlers.__wskit).toBe('group');
-    expect(messageHandlers.primitives).toHaveLength(2);
-
-    const def = server('chat').ack().outgoing(message).use(messageHandlers).build();
+  it('group inlines correctly', () => {
+    const def = base
+      .use(
+        base.group((g) =>
+          g
+            .incoming(sendMessage, async (ctx, payload) => {
+              ctx.broadcast('message', { text: payload.text, from: ctx.id });
+              ctx.ack();
+            })
+            .incoming(typing, async () => {}),
+        ),
+      )
+      .build();
 
     const incomings = findAllPrimitives(def.primitives, 'incoming');
     expect(incomings).toHaveLength(2);
   });
 
-  it('channel extracts and merges correctly', () => {
-    const rooms = base
-      .channel(scope('rooms', /^room-.+$/))
-      .outgoing(roomMessage)
-      .incoming(roomSend, async (ctx) => {
-        ctx.send('room-message', { text: 'hi', from: 'system' });
-        ctx.send('message', { text: 'hi', from: 'system' });
-      })
-      .extract();
+  it('channel inlines correctly', () => {
+    const def = base
+      .use(
+        base.channel(scope('rooms', /^room-.+$/), (ch) =>
+          ch.outgoing(roomMessage).incoming(roomSend, async (ctx) => {
+            ctx.send('room-message', { text: 'hi', from: 'system' });
+            ctx.send('message', { text: 'hi', from: 'system' });
+          }),
+        ),
+      )
+      .build();
 
-    expect(rooms.__wskit).toBe('channel');
-
-    const def = base.use(rooms).build();
     expect(findPrimitive(def.primitives, 'channel')).toBeDefined();
   });
 
-  it('namespace extracts and merges correctly', () => {
-    const notifications = base
-      .namespace('notifications')
-      .outgoing(alert)
-      .incoming(dismiss, async (ctx) => {
-        ctx.send('alert', { id: '1', severity: 'info' });
-        ctx.send('message', { text: 'dismissed', from: 'system' });
-      })
-      .extract();
+  it('namespace inlines correctly', () => {
+    const def = base
+      .use(
+        base.namespace('notifications', (ns) =>
+          ns.outgoing(alert).incoming(dismiss, async (ctx) => {
+            ctx.send('alert', { id: '1', severity: 'info' });
+            ctx.send('message', { text: 'dismissed', from: 'system' });
+          }),
+        ),
+      )
+      .build();
 
-    expect(notifications.__wskit).toBe('namespace');
-
-    const def = base.use(notifications).build();
     expect(findPrimitive(def.primitives, 'namespace')).toBeDefined();
   });
 
-  it('stream in group extracts and merges correctly', () => {
-    const aiGroup = base
-      .group()
-      .stream(aiComplete, chunkSchema, (s) =>
-        s.nudge(cancel).generate(async function* (_ctx, payload) {
-          yield { token: payload.prompt };
-        }),
+  it('stream in group inlines correctly', () => {
+    const def = base
+      .use(
+        base.group((g) =>
+          g.stream(aiComplete, chunkSchema, (s) =>
+            s.nudge(cancel).generate(async function* (_ctx, payload) {
+              yield { token: payload.prompt };
+            }),
+          ),
+        ),
       )
-      .extract();
+      .build();
 
-    const def = base.use(aiGroup).build();
     expect(findPrimitive(def.primitives, 'stream')).toBeDefined();
     expect(findPrimitive(def.primitives, 'generate')).toBeDefined();
   });
 
   it('full multi-file assembly', () => {
-    const appBase = server('chat').ack().outgoing(message).outgoing(notification);
-
-    const rooms = appBase
-      .channel(scope('rooms', /^room-.+$/))
-      .outgoing(roomMessage)
-      .incoming(roomSend, async () => {})
-      .onSubscribe(async () => {})
-      .extract();
-
-    const notifications = appBase
-      .namespace('notifications')
-      .outgoing(alert)
-      .incoming(dismiss, async () => {})
-      .extract();
-
-    const handlers = appBase
-      .group()
-      .incoming(sendMessage, async () => {})
-      .request(ping, pongSchema, async (ctx, p) => {
-        ctx.respond({ ts: p.ts, serverTs: 0 });
-      })
-      .extract();
-
-    const def = server('chat')
-      .ack()
-      .outgoing(message)
-      .outgoing(notification)
-      .use(rooms)
-      .use(notifications)
-      .use(handlers)
+    const s = server('chat').ack().outgoing(message).outgoing(notification);
+    const def = s
+      .use(
+        s.channel(scope('rooms', /^room-.+$/), (ch) =>
+          ch
+            .outgoing(roomMessage)
+            .incoming(roomSend, async () => {})
+            .onSubscribe(async () => {}),
+        ),
+      )
+      .use(
+        s.namespace('notifications', (ns) => ns.outgoing(alert).incoming(dismiss, async () => {})),
+      )
+      .use(
+        s.group((g) =>
+          g
+            .incoming(sendMessage, async () => {})
+            .request(ping, pongSchema, async (ctx, p) => {
+              ctx.respond({ ts: p.ts, serverTs: 0 });
+            }),
+        ),
+      )
       .build();
 
     expect(findPrimitive(def.primitives, 'channel')).toBeDefined();
@@ -442,15 +439,14 @@ describe('Integration: type inference', () => {
   it('group inherits parent state', () => {
     const base = server('chat').ack().outgoing(message).outgoing(notification);
 
-    base
-      .group()
-      .outgoing(alert)
-      .incoming(sendMessage, async (ctx) => {
+    base.group((g) =>
+      g.outgoing(alert).incoming(sendMessage, async (ctx) => {
         ctx.ack();
         ctx.send('message', { text: 'hi', from: 'x' });
         ctx.send('notification', { title: 'Hello' });
         ctx.send('alert', { id: '1', severity: 'low' });
-      });
+      }),
+    );
   });
 });
 
@@ -478,19 +474,21 @@ describe('Integration: duplicate detection', () => {
   });
 
   it('rejects duplicate channel scope', () => {
+    const s = server('chat');
     expect(() =>
-      server('chat')
-        .channel('lobby', (ch) => ch)
-        .channel('lobby', (ch) => ch)
+      s
+        .use(s.channel('lobby', (ch) => ch))
+        .use(s.channel('lobby', (ch) => ch))
         .build(),
     ).toThrow(/Duplicate/);
   });
 
   it('rejects duplicate namespace', () => {
+    const s = server('chat');
     expect(() =>
-      server('chat')
-        .namespace('notifications', (ns) => ns)
-        .namespace('notifications', (ns) => ns)
+      s
+        .use(s.namespace('notifications', (ns) => ns))
+        .use(s.namespace('notifications', (ns) => ns))
         .build(),
     ).toThrow(/Duplicate/);
   });
