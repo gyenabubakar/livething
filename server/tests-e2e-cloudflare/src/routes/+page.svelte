@@ -39,6 +39,16 @@
 	let roomMessages = $state<string[]>([]);
 	let roomSubscribed = $state(false);
 
+	let memberJoins = $state<string[]>([]);
+	let memberLeaves = $state<string[]>([]);
+	let kickedResult = $state('');
+	let connectionId = $state('');
+
+	let sendToConnResult = $state('');
+	let connectionsByTagResult = $state('');
+	let qualityResult = $state('');
+	let streamOkReceived = $state(false);
+
 	const pendingRequests = new Map<string, (payload: Record<string, unknown>) => void>();
 
 	function connect() {
@@ -49,6 +59,7 @@
 
 		ws.onopen = () => {
 			status = 'connected';
+			(window as unknown as Record<string, unknown>).__ws = ws;
 		};
 
 		ws.onclose = (e) => {
@@ -108,7 +119,17 @@
 					if (payload._channel === 'chat') chatSubscribed = true;
 					if ((payload._channel as string)?.startsWith('room:')) roomSubscribed = true;
 					break;
+				case '_memberJoin':
+					memberJoins = [...memberJoins, `${payload._channel}:${payload.connectionId}`];
+					break;
+				case '_memberLeave':
+					memberLeaves = [...memberLeaves, `${payload._channel}:${payload.connectionId}`];
+					break;
+				case '_kicked':
+					kickedResult = `kicked:${payload._channel}:${payload.reason}`;
+					break;
 				case '_streamOk':
+					streamOkReceived = true;
 					break;
 				case '_streamEnd':
 					if (aiNudgeStreamTokens && !aiNudgeStreamDone) aiNudgeStreamDone = true;
@@ -141,8 +162,21 @@
 				case 'kv-result':
 					kvResult = `${payload.key}=${JSON.stringify(payload.value)}`;
 					break;
-				case 'connection-info':
+				case 'connection-info': {
 					connectionInfo = `count:${payload.count}`;
+					const conns = payload.connections as { id: string; tags: string[] }[];
+					const self = conns.find((c) => c.tags.includes(username));
+					if (self) connectionId = self.id;
+					break;
+				}
+				case 'send-to-connection-result':
+					sendToConnResult = `${payload.from}: ${payload.text}`;
+					break;
+				case 'connections-by-tag-result':
+					connectionsByTagResult = `${payload.tag}:${(payload.ids as string[]).length}`;
+					break;
+				case 'quality-result':
+					qualityResult = `latency:${payload.latency},quality:${payload.quality},buffered:${payload.bufferedAmount}`;
 					break;
 				case 'tag-result':
 					tagResult = (payload.tags as string[]).join(',');
@@ -329,6 +363,26 @@
 	function getChannelMembers(channel: string) {
 		send('get-channel-members', { channel });
 	}
+
+	function kickFromChannel(channel: string, tag: string) {
+		send('kick-from-channel', { channel, tag });
+	}
+
+	function sendToConnection(connectionId: string, text: string) {
+		send('send-to-connection', { connectionId, text });
+	}
+
+	function getConnectionsByTag(tag: string) {
+		send('get-connections-by-tag', { tag });
+	}
+
+	function getQuality() {
+		send('get-quality', {});
+	}
+
+	function sendSpeedUp(factor: number) {
+		send('speed-up', { factor, _namespace: 'ai' });
+	}
 </script>
 
 <main>
@@ -373,8 +427,12 @@
 		<button data-testid="chat-join-btn" onclick={joinChat} disabled={status !== 'connected' || chatSubscribed}>Join</button>
 		<button data-testid="chat-leave-btn" onclick={leaveChat} disabled={!chatSubscribed}>Leave</button>
 		<button data-testid="chat-send-btn" onclick={() => sendChat('hi from e2e')} disabled={!chatSubscribed}>Send "hi from e2e"</button>
+		<button data-testid="kick-from-channel-btn" onclick={() => kickFromChannel('chat', '')} disabled={status !== 'connected'}>Kick from Chat</button>
 		<div data-testid="chat-subscribed">{chatSubscribed ? 'subscribed' : ''}</div>
 		<div data-testid="chat-messages">{chatMessages.join(' | ')}</div>
+		<div data-testid="member-joins">{memberJoins.join(' | ')}</div>
+		<div data-testid="member-leaves">{memberLeaves.join(' | ')}</div>
+		<div data-testid="kicked-result">{kickedResult}</div>
 	</section>
 
 	<section>
@@ -394,6 +452,7 @@
 		<button data-testid="ai-nudge-pause-btn" onclick={sendNudgePause} disabled={status !== 'connected'}>Send Pause Nudge</button>
 		<button data-testid="ai-stream-error-btn" onclick={startErrorStream} disabled={status !== 'connected'}>Stream Error</button>
 		<button data-testid="ai-stream-cancel-btn" onclick={cancelStream} disabled={status !== 'connected'}>Cancel Stream</button>
+		<button data-testid="ai-speed-up-btn" onclick={() => sendSpeedUp(4)} disabled={status !== 'connected'}>Speed Up</button>
 		<div data-testid="ai-response">{aiResponse}</div>
 		<div data-testid="ai-model-result">{aiModelResult}</div>
 		<div data-testid="ai-stream-tokens">{aiStreamTokens}</div>
@@ -401,6 +460,7 @@
 		<div data-testid="ai-nudge-stream-tokens">{aiNudgeStreamTokens}</div>
 		<div data-testid="ai-nudge-stream-done">{aiNudgeStreamDone ? 'nudge-stream-done' : ''}</div>
 		<div data-testid="ai-stream-error-result">{aiStreamErrorResult}</div>
+		<div data-testid="stream-ok-received">{streamOkReceived ? 'stream-ok' : ''}</div>
 	</section>
 
 	<section>
@@ -429,9 +489,15 @@
 		<button data-testid="send-to-tag-btn" onclick={() => sendToTag('testuser', 'tagged hello')} disabled={status !== 'connected'}>SendTo "testuser"</button>
 		<button data-testid="server-close-btn" onclick={serverClose} disabled={status !== 'connected'}>Server Close</button>
 		<button data-testid="force-disconnect-btn" onclick={forceDisconnect} disabled={status !== 'connected'}>Force Disconnect</button>
+		<button data-testid="get-quality-btn" onclick={getQuality} disabled={status !== 'connected'}>Get Quality</button>
+		<button data-testid="get-connections-by-tag-btn" onclick={() => getConnectionsByTag('testuser')} disabled={status !== 'connected'}>Get By Tag</button>
 		<div data-testid="connection-info">{connectionInfo}</div>
+		<div data-testid="connection-id">{connectionId}</div>
 		<div data-testid="tag-result">{tagResult}</div>
 		<div data-testid="tagged-message">{taggedMessage}</div>
+		<div data-testid="send-to-conn-result">{sendToConnResult}</div>
+		<div data-testid="connections-by-tag-result">{connectionsByTagResult}</div>
+		<div data-testid="quality-result">{qualityResult}</div>
 	</section>
 
 	<section>

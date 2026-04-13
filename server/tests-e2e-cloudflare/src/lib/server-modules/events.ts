@@ -15,3 +15,6 @@ export const RecordList = event('record-list', v.object({ records: v.array(v.unk
 export const SingleRecord = event('single-record', v.object({ record: v.unknown() }));
 export const RecordDeleted = event('record-deleted', v.object({ success: v.boolean() }));
 export const RecordCount = event('record-count', v.object({ count: v.number() }));
+
+export const GetMessageCount = event('get-message-count', v.object({}));
+export const MessageCount = event('message-count', v.object({ count: v.number() }));

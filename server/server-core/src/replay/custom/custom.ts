@@ -64,6 +64,24 @@ export interface OutgoingWireMessage<TScope extends CustomReplayScope = 'top'> {
   readonly wire: OutgoingWire<TScope>;
 }
 
+/**
+ * The context passed to `onBeforeSend` and `onAfterSend` hooks. Provides
+ * storage and platform access so hooks can persist messages without resorting
+ * to module-scoped variable hacks.
+ */
+export interface CustomReplaySendContext {
+  /** SQL access for persisting messages to your own replay store. */
+  readonly sql: SQLProvider;
+  /** KV access for persisting messages to your own replay store. */
+  readonly kv: KVProvider;
+  /** Environment variables / bindings available to the handler. */
+  readonly env: Record<string, unknown>;
+  /** Structured logger. */
+  readonly log: Logger;
+  /** Platform-specific context (e.g. the Cloudflare `DurableObjectState`). */
+  readonly platform: unknown;
+}
+
 /** Shared context fields available in all `onReplay` handler contexts. */
 interface BaseCustomReplayContext {
   /** The connection ID of the client that requested replay. */
@@ -126,14 +144,26 @@ export interface CustomReplayOptions<TScope extends CustomReplayScope = 'top'> {
   /**
    * Called synchronously before each outgoing message is sent. Store the
    * message here for "store-before-send" (strict) durability.
+   *
+   * @param ctx     Storage and platform access (sql, kv, env, log, platform).
+   * @param message The outgoing message with clean payload and wire metadata.
    */
-  readonly onBeforeSend?: (message: OutgoingWireMessage<TScope>) => void;
+  readonly onBeforeSend?: (
+    ctx: CustomReplaySendContext,
+    message: OutgoingWireMessage<TScope>,
+  ) => void;
 
   /**
    * Called (optionally async) after each outgoing message is sent. Store the
    * message here for "store-after-send" (best-effort) durability.
+   *
+   * @param ctx     Storage and platform access (sql, kv, env, log, platform).
+   * @param message The outgoing message with clean payload and wire metadata.
    */
-  readonly onAfterSend?: (message: OutgoingWireMessage<TScope>) => void | Promise<void>;
+  readonly onAfterSend?: (
+    ctx: CustomReplaySendContext,
+    message: OutgoingWireMessage<TScope>,
+  ) => void | Promise<void>;
 
   /**
    * Called when a client sends the `_replay` protocol message. Query your own
@@ -270,11 +300,11 @@ function createChannelReplayContext(
  *
  * server('chat')
  *   .replayCustom()
- *   .onBeforeSend(async (msg) => {
- *     await myStore.save(msg.wire.seq, msg.event, msg.payload);
+ *   .onBeforeSend((ctx, msg) => {
+ *     ctx.sql.exec('INSERT INTO replay ...', msg.event, msg.wire.seq);
  *   })
  *   .onReplay(async (ctx, since) => {
- *     const rows = await myStore.getSince(since);
+ *     const rows = ctx.sql.exec('SELECT ... WHERE seq > ?', since).toArray();
  *     for (const row of rows) ctx.sendReplay(row.event, row.payload, row.wire);
  *   })
  *   .build();
@@ -295,12 +325,28 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
     __setup(engine: EngineAccess) {
       const { channelKey } = engine.getScopeInfo();
 
+      let sendCtx: CustomReplaySendContext | null = null;
+
+      if (opts.onBeforeSend || opts.onAfterSend) {
+        engine.onInit((ctx) => {
+          const base = ctx as Record<PropertyKey, unknown>;
+          sendCtx = {
+            sql: base.sql as SQLProvider,
+            kv: base.kv as KVProvider,
+            env: (base.env as Record<string, unknown>) ?? {},
+            log: base.log as Logger,
+            platform: base.platform,
+          };
+        });
+      }
+
       if (opts.onBeforeSend) {
         engine.onBeforeSend((message) => {
           // Only forward messages that should be replayable (skip protocol events, etc.)
           if (!shouldStoreReplayMessage(channelKey, message.event, message.payload, new Set()))
             return;
           opts.onBeforeSend!(
+            sendCtx!,
             channelKey
               ? (toChannelWireMessage(message) as OutgoingWireMessage<CustomReplayScope>)
               : (toTopLevelWireMessage(message) as OutgoingWireMessage<CustomReplayScope>),
@@ -313,6 +359,7 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
           if (!shouldStoreReplayMessage(channelKey, message.event, message.payload, new Set()))
             return;
           return opts.onAfterSend!(
+            sendCtx!,
             channelKey
               ? (toChannelWireMessage(message) as OutgoingWireMessage<CustomReplayScope>)
               : (toTopLevelWireMessage(message) as OutgoingWireMessage<CustomReplayScope>),

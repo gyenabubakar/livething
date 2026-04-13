@@ -8,6 +8,8 @@
 	let replayCount = $state(0);
 	let replayRequested = $state(false);
 	let rawLog = $state<string[]>([]);
+	let sinceValue = $state(0);
+	let cursorEvents = $state<string[]>([]);
 
 	function connect() {
 		if (ws) return;
@@ -45,6 +47,9 @@
 				const text = `${payload.from}: ${payload.text}`;
 				messages = [...messages, text].slice(-50);
 				if (replayRequested) replayCount++;
+			} else if (evt === 'cursor') {
+				cursorEvents = [...cursorEvents, `${payload.x},${payload.y}`].slice(-50);
+				if (replayRequested) replayCount++;
 			}
 		};
 	}
@@ -57,10 +62,14 @@
 		ws?.send(JSON.stringify({ event: 'send-msg', payload: { text } }));
 	}
 
+	function sendCursor(x: number, y: number) {
+		ws?.send(JSON.stringify({ event: 'send-cursor', payload: { x, y } }));
+	}
+
 	function requestReplay() {
 		replayCount = 0;
 		replayRequested = true;
-		ws?.send(JSON.stringify({ event: '_replay', payload: { since: 0 } }));
+		ws?.send(JSON.stringify({ event: '_replay', payload: { since: sinceValue } }));
 	}
 </script>
 
@@ -78,12 +87,15 @@
 	<section>
 		<h2>Chat</h2>
 		<button data-testid="send-msg-btn" onclick={() => sendMsg('hello from replay')} disabled={status !== 'connected'}>Send Message</button>
+		<button data-testid="send-cursor-btn" onclick={() => sendCursor(100, 200)} disabled={status !== 'connected'}>Send Cursor</button>
 		<div data-testid="messages">{messages.join(' | ')}</div>
+		<div data-testid="cursor-events">{cursorEvents.join(' | ')}</div>
 		<div data-testid="last-seq">{lastSeq}</div>
 	</section>
 
 	<section>
 		<h2>Replay</h2>
+		<input data-testid="since-input" type="number" bind:value={sinceValue} />
 		<button data-testid="replay-btn" onclick={requestReplay} disabled={status !== 'connected'}>Request Replay</button>
 		<div data-testid="replay-count">{replayCount}</div>
 	</section>

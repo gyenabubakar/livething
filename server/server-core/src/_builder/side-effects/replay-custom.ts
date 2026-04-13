@@ -36,6 +36,7 @@ import type { Primitive } from '~/primitive.ts';
 import type {
   CustomReplayOptions,
   CustomReplayPrimitive,
+  CustomReplaySendContext,
   OutgoingWireMessage,
 } from '~/replay/custom/custom.ts';
 
@@ -74,7 +75,9 @@ export class ReplayCustomBuilder<TParent, _TState extends ScopeStateShape> {
    * `_seq` / `_messageId` fields are stripped), and a `wire` object with those
    * same sequence and message-ID values for your storage layer.
    */
-  onBeforeSend(fn: (message: OutgoingWireMessage<'top'>) => void): this {
+  onBeforeSend(
+    fn: (ctx: CustomReplaySendContext, message: OutgoingWireMessage<'top'>) => void,
+  ): this {
     this._options.onBeforeSend = fn;
     return this;
   }
@@ -84,7 +87,9 @@ export class ReplayCustomBuilder<TParent, _TState extends ScopeStateShape> {
    * Use this to persist after sending for lower latency ("store-after-send",
    * equivalent to `durability: 'best-effort'` in built-in replay).
    */
-  onAfterSend(fn: (message: OutgoingWireMessage<'top'>) => void | Promise<void>): this {
+  onAfterSend(
+    fn: (ctx: CustomReplaySendContext, message: OutgoingWireMessage<'top'>) => void | Promise<void>,
+  ): this {
     this._options.onAfterSend = fn;
     return this;
   }

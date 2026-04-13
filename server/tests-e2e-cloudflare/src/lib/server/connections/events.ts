@@ -28,3 +28,31 @@ export const ServerClose = event(
 );
 
 export const ForceDisconnect = event('force-disconnect', v.object({}));
+
+export const SendToConnection = event(
+  'send-to-connection',
+  v.object({ connectionId: v.string(), text: v.string() }),
+);
+export const SendToConnectionResult = event(
+  'send-to-connection-result',
+  v.object({ text: v.string(), from: v.string() }),
+);
+
+export const GetConnectionsByTagEvent = event(
+  'get-connections-by-tag',
+  v.object({ tag: v.string() }),
+);
+export const ConnectionsByTagResult = event(
+  'connections-by-tag-result',
+  v.object({ tag: v.string(), ids: v.array(v.string()) }),
+);
+
+export const GetQuality = event('get-quality', v.object({}));
+export const QualityResult = event(
+  'quality-result',
+  v.object({
+    latency: v.nullable(v.number()),
+    quality: v.nullable(v.string()),
+    bufferedAmount: v.number(),
+  }),
+);

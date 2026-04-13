@@ -19,6 +19,7 @@ export interface DrizzleApi {
   findById(id: number): schema.Record | undefined;
   deleteById(id: number): boolean;
   count(): number;
+  getMessageCount(): number;
 }
 
 export const Drizzle = defineModule<{ migrate: boolean }, DrizzleApi>({
@@ -94,6 +95,9 @@ export const Drizzle = defineModule<{ migrate: boolean }, DrizzleApi>({
       count() {
         const [row] = db.select({ value: count() }).from(records).all();
         return row?.value ?? 0;
+      },
+      getMessageCount() {
+        return messageCount;
       },
     });
   },

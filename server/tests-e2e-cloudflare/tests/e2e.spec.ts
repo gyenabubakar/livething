@@ -223,6 +223,59 @@ test.describe('main handler', () => {
     await waitForText(page, 'channel-members-result', /chat:\d+/);
   });
 
+  // --- Connection API coverage ---
+
+  test('getConnectionsByTag returns self', async ({ page }) => {
+    await page.getByTestId('get-connections-by-tag-btn').click();
+    await waitForText(page, 'connections-by-tag-result', /testuser:\d+/);
+  });
+
+  test('quality info returns values', async ({ page }) => {
+    await page.getByTestId('get-quality-btn').click();
+    await waitForText(page, 'quality-result', /buffered:\d+/);
+  });
+
+  // --- Storage: get-notes retrieval ---
+
+  test('sql: save then get notes separately', async ({ page }) => {
+    await page.getByTestId('save-note-btn').click();
+    await waitForText(page, 'notes-list', /Test Note/);
+    await page.getByTestId('get-notes-btn').click();
+    await waitForText(page, 'notes-list', /Test Note/);
+  });
+
+  // --- Stream speed-up nudge ---
+
+  test('ai namespace: stream speed-up nudge', async ({ page }) => {
+    await page.getByTestId('ai-nudge-stream-btn').click();
+    await page.waitForTimeout(200);
+    await page.getByTestId('ai-speed-up-btn').click();
+    await waitForText(page, 'ai-nudge-stream-done', 'nudge-stream-done', 15_000);
+    const tokens = await page.getByTestId('ai-nudge-stream-tokens').textContent();
+    expect(tokens!.length).toBeGreaterThan(0);
+  });
+
+  test('ai namespace: _streamOk received before chunks', async ({ page }) => {
+    await page.getByTestId('ai-stream-btn').click();
+    await waitForText(page, 'stream-ok-received', 'stream-ok');
+    await waitForText(page, 'ai-stream-done', 'stream-done', 15_000);
+  });
+
+  // --- Scheduled: schedule then immediately cancel ---
+
+  test('schedule then immediately cancel (cancel before fire)', async ({ page }) => {
+    await page.evaluate(() => {
+      const ws = (window as unknown as { __ws: WebSocket }).__ws;
+      ws?.send(JSON.stringify({ event: 'schedule-cleanup', payload: { delaySec: 10 } }));
+    });
+    await page.waitForTimeout(200);
+    await page.getByTestId('cancel-cleanup-btn').click();
+    await waitForText(page, 'cancel-result', 'cancelled');
+    await page.waitForTimeout(2000);
+    const result = await page.getByTestId('scheduled-result').textContent();
+    expect(result).toBe('');
+  });
+
   // --- Stream cancel ---
 
   test('stream cancel: client cancels mid-stream', async ({ page }) => {
@@ -233,6 +286,259 @@ test.describe('main handler', () => {
     const tokens = await page.getByTestId('ai-stream-tokens').textContent();
     expect(tokens!.length).toBeGreaterThan(0);
     expect(tokens!.length).toBeLessThan(300);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// Subscribe Rejection + Upgrade Rejection
+// ═══════════════════════════════════════════════════════════════
+
+test.describe('subscribe rejection', () => {
+  test('chat rejects blocked-user (no _subscribeOk)', async ({ page }) => {
+    await page.goto('/');
+    await page.getByTestId('username-input').fill('blocked-user');
+    await page.getByTestId('connect-btn').click();
+    await waitForText(page, 'status', 'connected');
+    await page.getByTestId('chat-join-btn').click();
+    await page.waitForTimeout(1500);
+    const subscribed = await page.getByTestId('chat-subscribed').textContent();
+    expect(subscribed).toBe('');
+  });
+
+  test('dynamic room rejects banned-user (no _subscribeOk)', async ({ page }) => {
+    await page.goto('/');
+    await page.getByTestId('username-input').fill('banned-user');
+    await page.getByTestId('connect-btn').click();
+    await waitForText(page, 'status', 'connected');
+    await page.getByTestId('room-join-btn').click();
+    await page.waitForTimeout(1500);
+    const subscribed = await page.getByTestId('room-subscribed').textContent();
+    expect(subscribed).toBe('');
+  });
+
+  test('upgrade rejection: no username closes connection', async ({ page }) => {
+    await page.goto('/');
+    const result = await page.evaluate(async () => {
+      return new Promise<string>((resolve) => {
+        const ws = new WebSocket(`ws://${location.host}/ws`);
+        ws.onclose = (e) => resolve(`closed:${e.code}`);
+        ws.onerror = () => {
+          // onerror fires before onclose in some browsers, wait for onclose
+        };
+        setTimeout(() => resolve('timeout'), 5000);
+      });
+    });
+    expect(result).toMatch(/closed:\d+/);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// Multi-Client Tests
+// ═══════════════════════════════════════════════════════════════
+
+test.describe('multi-client', () => {
+  test('chat: second user sees _memberJoin', async ({ browser }) => {
+    const page1 = await browser.newPage();
+    const page2 = await browser.newPage();
+    await page1.goto('/');
+    await page2.goto('/');
+
+    await page1.getByTestId('username-input').fill('user1');
+    await page1.getByTestId('connect-btn').click();
+    await waitForText(page1, 'status', 'connected');
+    await page1.getByTestId('chat-join-btn').click();
+    await waitForText(page1, 'chat-subscribed', 'subscribed');
+
+    await page2.getByTestId('username-input').fill('user2');
+    await page2.getByTestId('connect-btn').click();
+    await waitForText(page2, 'status', 'connected');
+    await page2.getByTestId('chat-join-btn').click();
+    await waitForText(page2, 'chat-subscribed', 'subscribed');
+
+    await waitForText(page2, 'member-joins', /chat:/);
+
+    await page1.close();
+    await page2.close();
+  });
+
+  test('chat: cross-client broadcast', async ({ browser }) => {
+    const page1 = await browser.newPage();
+    const page2 = await browser.newPage();
+    await page1.goto('/');
+    await page2.goto('/');
+
+    await page1.getByTestId('username-input').fill('user1');
+    await page1.getByTestId('connect-btn').click();
+    await waitForText(page1, 'status', 'connected');
+    await page1.getByTestId('chat-join-btn').click();
+    await waitForText(page1, 'chat-subscribed', 'subscribed');
+
+    await page2.getByTestId('username-input').fill('user2');
+    await page2.getByTestId('connect-btn').click();
+    await waitForText(page2, 'status', 'connected');
+    await page2.getByTestId('chat-join-btn').click();
+    await waitForText(page2, 'chat-subscribed', 'subscribed');
+
+    await page1.getByTestId('chat-send-btn').click();
+    await waitForText(page2, 'chat-messages', /user1: hi from e2e/);
+
+    await page1.close();
+    await page2.close();
+  });
+
+  test('chat: _memberLeave on disconnect', async ({ browser }) => {
+    const page1 = await browser.newPage();
+    const page2 = await browser.newPage();
+    await page1.goto('/');
+    await page2.goto('/');
+
+    await page1.getByTestId('username-input').fill('user1');
+    await page1.getByTestId('connect-btn').click();
+    await waitForText(page1, 'status', 'connected');
+    await page1.getByTestId('chat-join-btn').click();
+    await waitForText(page1, 'chat-subscribed', 'subscribed');
+
+    await page2.getByTestId('username-input').fill('user2');
+    await page2.getByTestId('connect-btn').click();
+    await waitForText(page2, 'status', 'connected');
+    await page2.getByTestId('chat-join-btn').click();
+    await waitForText(page2, 'chat-subscribed', 'subscribed');
+
+    await page2.getByTestId('disconnect-btn').click();
+    await waitForText(page1, 'member-leaves', /chat:/, 15_000);
+
+    await page1.close();
+    await page2.close();
+  });
+
+  test('chat: _memberLeave on leave button', async ({ browser }) => {
+    const page1 = await browser.newPage();
+    const page2 = await browser.newPage();
+    await page1.goto('/');
+    await page2.goto('/');
+
+    await page1.getByTestId('username-input').fill('user1');
+    await page1.getByTestId('connect-btn').click();
+    await waitForText(page1, 'status', 'connected');
+    await page1.getByTestId('chat-join-btn').click();
+    await waitForText(page1, 'chat-subscribed', 'subscribed');
+
+    await page2.getByTestId('username-input').fill('user2');
+    await page2.getByTestId('connect-btn').click();
+    await waitForText(page2, 'status', 'connected');
+    await page2.getByTestId('chat-join-btn').click();
+    await waitForText(page2, 'chat-subscribed', 'subscribed');
+
+    await page2.getByTestId('chat-leave-btn').click();
+    await waitForText(page1, 'member-leaves', /chat:/, 15_000);
+
+    await page1.close();
+    await page2.close();
+  });
+
+  test('chat: kick sends _kicked to target', async ({ browser }) => {
+    const page1 = await browser.newPage();
+    const page2 = await browser.newPage();
+    await page1.goto('/');
+    await page2.goto('/');
+
+    await page1.getByTestId('username-input').fill('user1');
+    await page1.getByTestId('connect-btn').click();
+    await waitForText(page1, 'status', 'connected');
+    await page1.getByTestId('chat-join-btn').click();
+    await waitForText(page1, 'chat-subscribed', 'subscribed');
+
+    await page2.getByTestId('username-input').fill('user2');
+    await page2.getByTestId('connect-btn').click();
+    await waitForText(page2, 'status', 'connected');
+    await page2.getByTestId('chat-join-btn').click();
+    await waitForText(page2, 'chat-subscribed', 'subscribed');
+
+    await page1.evaluate(() => {
+      const ws = (window as unknown as { __ws: WebSocket }).__ws;
+      ws?.send(
+        JSON.stringify({ event: 'kick-from-channel', payload: { channel: 'chat', tag: 'user2' } }),
+      );
+    });
+
+    await waitForText(page2, 'kicked-result', /kicked:chat/, 10_000);
+
+    await page1.close();
+    await page2.close();
+  });
+
+  test('dynamic channel isolation: room:general vs room:vip', async ({ browser }) => {
+    const page1 = await browser.newPage();
+    const page2 = await browser.newPage();
+    await page1.goto('/');
+    await page2.goto('/');
+
+    await page1.getByTestId('username-input').fill('user1');
+    await page1.getByTestId('connect-btn').click();
+    await waitForText(page1, 'status', 'connected');
+
+    await page2.getByTestId('username-input').fill('user2');
+    await page2.getByTestId('connect-btn').click();
+    await waitForText(page2, 'status', 'connected');
+
+    await page1.getByTestId('room-join-btn').click();
+    await waitForText(page1, 'room-subscribed', 'subscribed');
+
+    await page2.evaluate(() => {
+      const ws = (window as unknown as { __ws: WebSocket }).__ws;
+      ws?.send(
+        JSON.stringify({
+          event: '_subscribe',
+          payload: { _channel: 'room:vip', _channelScope: 'rooms' },
+        }),
+      );
+    });
+    await page2.waitForTimeout(500);
+
+    await page1.getByTestId('room-send-btn').click();
+    await waitForText(page1, 'room-messages', /user1: hi from room/);
+
+    await page2.waitForTimeout(1000);
+    const page2Messages = await page2.getByTestId('room-messages').textContent();
+    expect(page2Messages).not.toContain('user1: hi from room');
+
+    await page1.close();
+    await page2.close();
+  });
+
+  test('sendToConnection delivers to target', async ({ browser }) => {
+    const page1 = await browser.newPage();
+    const page2 = await browser.newPage();
+    await page1.goto('/');
+    await page2.goto('/');
+
+    await page1.getByTestId('username-input').fill('user1');
+    await page1.getByTestId('connect-btn').click();
+    await waitForText(page1, 'status', 'connected');
+
+    await page2.getByTestId('username-input').fill('user2');
+    await page2.getByTestId('connect-btn').click();
+    await waitForText(page2, 'status', 'connected');
+
+    await page1.getByTestId('conn-info-btn').click();
+    await waitForText(page1, 'connection-info', /count:/);
+    const page1ConnId = await page1.getByTestId('connection-id').textContent();
+    expect(page1ConnId).toBeTruthy();
+
+    await page2.evaluate((targetId) => {
+      const ws = (window as unknown as { __ws: WebSocket }).__ws;
+      ws?.send(
+        JSON.stringify({
+          event: 'send-to-connection',
+          payload: { connectionId: targetId, text: 'hello direct' },
+        }),
+      );
+    }, page1ConnId);
+
+    await waitForText(page1, 'send-to-conn-result', /user2: hello direct/);
+
+    await page1.close();
+    await page2.close();
   });
 });
 
@@ -270,6 +576,49 @@ test.describe('replay handler', () => {
     const afterCount = (await page.getByTestId('messages').textContent())!.split(' | ').length;
     expect(afterCount).toBeGreaterThan(beforeCount);
   });
+
+  test('excluded events not replayed (cursor excluded)', async ({ page }) => {
+    await page.getByTestId('send-cursor-btn').click();
+    await waitForText(page, 'cursor-events', /100,200/);
+
+    await page.getByTestId('send-msg-btn').click();
+    await waitForText(page, 'messages', /hello from replay/);
+
+    const cursorCountBefore = (await page.getByTestId('cursor-events').textContent())!.split(
+      ' | ',
+    ).length;
+    await page.getByTestId('replay-btn').click();
+    await page.waitForTimeout(1000);
+
+    const messagesAfter = await page.getByTestId('messages').textContent();
+    expect(messagesAfter).toContain('hello from replay');
+
+    const cursorCountAfter = (await page.getByTestId('cursor-events').textContent())!.split(
+      ' | ',
+    ).length;
+    expect(cursorCountAfter).toBe(cursorCountBefore);
+  });
+
+  test('replay from nonzero since', async ({ page }) => {
+    await page.getByTestId('send-msg-btn').click();
+    await waitForText(page, 'messages', /hello from replay/);
+    const seq1 = Number(await page.getByTestId('last-seq').textContent());
+
+    await page.getByTestId('send-msg-btn').click();
+    await page.waitForTimeout(300);
+    await page.getByTestId('send-msg-btn').click();
+    await page.waitForTimeout(300);
+    const seqAfter = Number(await page.getByTestId('last-seq').textContent());
+    expect(seqAfter).toBeGreaterThan(seq1);
+
+    await page.getByTestId('since-input').fill(String(seq1));
+    await page.getByTestId('replay-btn').click();
+    await page.waitForTimeout(1000);
+
+    const replayCount = Number(await page.getByTestId('replay-count').textContent());
+    expect(replayCount).toBeGreaterThan(0);
+    expect(replayCount).toBeLessThanOrEqual(seqAfter - seq1);
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -298,6 +647,20 @@ test.describe('custom replay handler', () => {
     await page.waitForTimeout(1000);
     const afterCount = (await page.getByTestId('notes').textContent())!.split(' | ').length;
     expect(afterCount).toBeGreaterThan(beforeCount);
+  });
+
+  test('onAfterSend marks messages as confirmed', async ({ page }) => {
+    await page.getByTestId('add-note-btn').click();
+    await waitForText(page, 'notes', /custom replay note/);
+    await page.waitForTimeout(500);
+
+    await page.getByTestId('confirmed-btn').click();
+    await waitForText(page, 'confirmed-result', /total:\d+,confirmed:\d+/);
+
+    const result = await page.getByTestId('confirmed-result').textContent();
+    const match = result!.match(/total:(\d+),confirmed:(\d+)/);
+    expect(Number(match![1])).toBeGreaterThan(0);
+    expect(Number(match![2])).toBeGreaterThan(0);
   });
 });
 
@@ -346,5 +709,15 @@ test.describe('modules handler', () => {
   test('get record count via module API', async ({ page }) => {
     await page.getByTestId('count-btn').click();
     await waitForText(page, 'record-count', /count: \d+/);
+  });
+
+  test('module onIncoming counts messages', async ({ page }) => {
+    await page.getByTestId('insert-btn').click();
+    await waitForText(page, 'insert-result', /id:/);
+    await page.getByTestId('insert-btn').click();
+    await waitForText(page, 'insert-result', /id:/);
+
+    await page.getByTestId('msg-count-btn').click();
+    await waitForText(page, 'message-count', /messages: [3-9]|messages: \d{2,}/);
   });
 });

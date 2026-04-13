@@ -9,7 +9,14 @@ import '@wskit/server/lifecycle';
 import '@wskit/server/sequence';
 
 import { RejectUpgrade } from '@wskit/server/errors/symbols';
-import { ConnectionInfoResult, TaggedMessage, TagResult } from './connections/events.ts';
+import {
+  ConnectionInfoResult,
+  ConnectionsByTagResult,
+  QualityResult,
+  SendToConnectionResult,
+  TaggedMessage,
+  TagResult,
+} from './connections/events.ts';
 import { RoomMessage } from './dynamic-channel/events.ts';
 import { Echoed, UserJoined, UserLeft } from './echo/events.ts';
 import { Forbidden, NotFound } from './errors.ts';
@@ -34,6 +41,9 @@ export const base = server<Env>('e2e-test')
   .outgoing(TagResult)
   .outgoing(TaggedMessage)
   .outgoing(RoomMessage)
+  .outgoing(SendToConnectionResult)
+  .outgoing(ConnectionsByTagResult)
+  .outgoing(QualityResult)
   .onUpgrade((request) => {
     const url = new URL(request.url);
     const username = url.searchParams.get('username');

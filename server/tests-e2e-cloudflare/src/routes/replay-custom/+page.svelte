@@ -7,6 +7,7 @@
 	let lastSeq = $state(0);
 	let replayCount = $state(0);
 	let replayRequested = $state(false);
+	let confirmedResult = $state('');
 
 	function connect() {
 		if (ws) return;
@@ -42,6 +43,8 @@
 			if (evt === 'note') {
 				notes = [...notes, `${payload.author}: ${payload.text}`].slice(-50);
 				if (replayRequested) replayCount++;
+			} else if (evt === 'confirmed-count') {
+				confirmedResult = `total:${payload.total},confirmed:${payload.confirmed}`;
 			}
 		};
 	}
@@ -58,6 +61,10 @@
 		replayCount = 0;
 		replayRequested = true;
 		ws?.send(JSON.stringify({ event: '_replay', payload: { since: 0 } }));
+	}
+
+	function getConfirmedCount() {
+		ws?.send(JSON.stringify({ event: 'get-confirmed-count', payload: {} }));
 	}
 </script>
 
@@ -82,7 +89,9 @@
 	<section>
 		<h2>Replay</h2>
 		<button data-testid="replay-btn" onclick={requestReplay} disabled={status !== 'connected'}>Request Replay</button>
+		<button data-testid="confirmed-btn" onclick={getConfirmedCount} disabled={status !== 'connected'}>Get Confirmed</button>
 		<div data-testid="replay-count">{replayCount}</div>
+		<div data-testid="confirmed-result">{confirmedResult}</div>
 	</section>
 </main>
 

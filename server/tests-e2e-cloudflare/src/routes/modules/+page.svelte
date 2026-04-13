@@ -11,6 +11,7 @@
 	let deleteResult = $state('');
 	let dbConnected = $state(false);
 	let messageLog = $state<string[]>([]);
+	let messageCountResult = $state('');
 
 	function connect() {
 		if (ws) return;
@@ -61,6 +62,9 @@
 					break;
 				case 'record-deleted':
 					deleteResult = payload.success ? 'deleted' : 'failed';
+					break;
+				case 'message-count':
+					messageCountResult = `messages: ${payload.count}`;
 					break;
 			}
 		};
@@ -118,11 +122,17 @@
 			onclick={() => send('get-record-count', {})}
 			disabled={status !== 'connected'}>Get Count</button
 		>
+		<button
+			data-testid="msg-count-btn"
+			onclick={() => send('get-message-count', {})}
+			disabled={status !== 'connected'}>Get Message Count</button
+		>
 		<div data-testid="insert-result">{insertResult}</div>
 		<div data-testid="record-list">{recordList}</div>
 		<div data-testid="single-record">{singleRecord}</div>
 		<div data-testid="record-count">{recordCount}</div>
 		<div data-testid="delete-result">{deleteResult}</div>
+		<div data-testid="message-count">{messageCountResult}</div>
 	</section>
 
 	<section>

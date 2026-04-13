@@ -8,18 +8,25 @@ describe('custom replay', () => {
   it('clones top-level before-send messages and strips channel-only fields from the type surface', () => {
     const beforeSendHandlers: Array<NonNullable<Parameters<EngineAccess['onBeforeSend']>[0]>> = [];
     const seen: Array<{ event: string; payload: Record<string, unknown> }> = [];
+    const initHandlers: Array<(ctx: unknown) => void> = [];
     const engine = {
       getScopeInfo() {
         return {};
+      },
+      onInit(handler) {
+        initHandlers.push(handler as (ctx: unknown) => void);
       },
       onBeforeSend(handler) {
         beforeSendHandlers.push(handler);
       },
       onProtocolMessage() {},
-    } as Pick<EngineAccess, 'getScopeInfo' | 'onBeforeSend' | 'onProtocolMessage'> as EngineAccess;
+    } as Pick<
+      EngineAccess,
+      'getScopeInfo' | 'onInit' | 'onBeforeSend' | 'onProtocolMessage'
+    > as EngineAccess;
 
     handleReplay({
-      onBeforeSend(message) {
+      onBeforeSend(ctx, message) {
         seen.push({
           event: message.event,
           payload: {
@@ -29,9 +36,16 @@ describe('custom replay', () => {
           },
         });
         (message.payload as Record<string, unknown>).text = 'changed';
+        // Verify ctx provides storage access
+        expect(ctx.sql).toBeDefined();
       },
       onReplay() {},
     }).__setup?.(engine);
+
+    // Simulate onInit to capture send context
+    for (const handler of initHandlers) {
+      handler({ sql: {}, kv: {}, env: {}, log: {}, platform: {} });
+    }
 
     const wireMessage: WireOutgoingMessage = {
       connectionId: 'c1',
@@ -68,9 +82,13 @@ describe('custom replay', () => {
       channel: string;
     }> = [];
     const sent: Array<Parameters<EngineAccess['sendReplay']>> = [];
+    const initHandlers2: Array<(ctx: unknown) => void> = [];
     const engine = {
       getScopeInfo() {
         return { channelKey: 'rooms' };
+      },
+      onInit(handler) {
+        initHandlers2.push(handler as (ctx: unknown) => void);
       },
       onBeforeSend(handler) {
         beforeSendHandlers.push(handler);
@@ -86,11 +104,11 @@ describe('custom replay', () => {
       },
     } as Pick<
       EngineAccess,
-      'getScopeInfo' | 'onBeforeSend' | 'onProtocolMessage' | 'sendReplay'
+      'getScopeInfo' | 'onInit' | 'onBeforeSend' | 'onProtocolMessage' | 'sendReplay'
     > as EngineAccess;
 
     handleReplay<'channel'>({
-      onBeforeSend(message) {
+      onBeforeSend(_ctx, message) {
         seen.push({
           event: message.event,
           payload: {
@@ -110,6 +128,11 @@ describe('custom replay', () => {
         ctx.sendReplay('message', { text: 'history' }, { seq: 5, messageId: 'm5' });
       },
     }).__setup?.(engine);
+
+    // Simulate onInit to capture send context
+    for (const handler of initHandlers2) {
+      handler({ sql: {}, kv: {}, env: {}, log: {}, platform: {} });
+    }
 
     beforeSendHandlers[0]!({
       connectionId: 'c1',

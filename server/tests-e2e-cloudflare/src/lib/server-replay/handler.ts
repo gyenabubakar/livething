@@ -7,7 +7,7 @@ import '@wskit/server/replay';
 import '@wskit/server/sequence';
 
 import { RejectUpgrade } from '@wskit/server/errors/symbols';
-import { ChatMsg, Cursor, SendMsg } from './events.ts';
+import { ChatMsg, Cursor, SendCursor, SendMsg } from './events.ts';
 
 export const replayHandler = server<Env>('replay-test')
   .sequence({ persist: true })
@@ -30,6 +30,10 @@ export const replayHandler = server<Env>('replay-test')
     const msg = { text: payload.text, from: ctx.meta.username };
     ctx.send('chat-msg', msg);
     ctx.broadcast('chat-msg', msg);
+  })
+  .incoming(SendCursor, (ctx, payload) => {
+    ctx.send('cursor', { x: payload.x, y: payload.y });
+    ctx.broadcast('cursor', { x: payload.x, y: payload.y });
   })
   .build();
 

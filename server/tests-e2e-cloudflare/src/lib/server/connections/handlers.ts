@@ -3,6 +3,9 @@ import { base } from '../setup.ts';
 import {
   ForceDisconnect,
   GetConnectionInfo,
+  GetConnectionsByTagEvent,
+  GetQuality,
+  SendToConnection,
   SendToTag,
   ServerClose,
   TagSelf,
@@ -34,6 +37,26 @@ export const connectionHandlers = base
   })
   .incoming(ServerClose, (ctx, payload) => {
     ctx.close(payload.code, payload.reason);
+  })
+  .incoming(SendToConnection, (ctx, payload) => {
+    ctx.sendToConnection(payload.connectionId, 'send-to-connection-result', {
+      text: payload.text,
+      from: ctx.meta.username,
+    });
+  })
+  .incoming(GetConnectionsByTagEvent, (ctx, payload) => {
+    const conns = ctx.getConnectionsByTag(payload.tag);
+    ctx.send('connections-by-tag-result', {
+      tag: payload.tag,
+      ids: conns.map((c) => c.id),
+    });
+  })
+  .incoming(GetQuality, (ctx) => {
+    ctx.send('quality-result', {
+      latency: ctx.latency ?? null,
+      quality: ctx.quality ?? null,
+      bufferedAmount: ctx.bufferedAmount,
+    });
   })
   .incoming(ForceDisconnect, () => {
     throw Disconnect(4009, 'Force disconnected by server');

@@ -8,9 +8,11 @@ import { Drizzle } from './drizzle-module.ts';
 import {
   DeleteRecord,
   GetAllRecords,
+  GetMessageCount,
   GetRecord,
   GetRecordCount,
   InsertRecord,
+  MessageCount,
   RecordCount,
   RecordDeleted,
   RecordInserted,
@@ -24,6 +26,7 @@ export const modulesHandler = server<Env>('modules-test')
   .outgoing(SingleRecord)
   .outgoing(RecordDeleted)
   .outgoing(RecordCount)
+  .outgoing(MessageCount)
   .use(Drizzle({ migrate: true }))
   .onUpgrade((request) => {
     const url = new URL(request.url);
@@ -54,6 +57,10 @@ export const modulesHandler = server<Env>('modules-test')
   .incoming(GetRecordCount, (ctx) => {
     const db = Drizzle.use(ctx);
     ctx.send('record-count', { count: db.count() });
+  })
+  .incoming(GetMessageCount, (ctx) => {
+    const db = Drizzle.use(ctx);
+    ctx.send('message-count', { count: db.getMessageCount() });
   })
   .build();
 
