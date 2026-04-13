@@ -2,14 +2,11 @@ import { defineModule } from '@wskit/server';
 import { count, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/durable-sqlite';
 import * as v from 'valibot';
+import type { Platform } from '@wskit/server-cloudflare';
 import type { DrizzleSqliteDODatabase } from 'drizzle-orm/durable-sqlite';
 import * as schema from './schema.ts';
 import { records } from './schema.ts';
 import type { InsertRecord } from './schema.ts';
-
-interface CfPlatform {
-  ctx: { storage: DurableObjectStorage };
-}
 
 const DRIZZLE_KEY = Symbol('e2e:drizzle');
 
@@ -34,8 +31,8 @@ export const Drizzle = defineModule<{ migrate: boolean }, DrizzleApi>({
     let db: DrizzleSqliteDODatabase<typeof schema>;
     let messageCount = 0;
 
-    hooks.onInit((ctx: { platform: CfPlatform }) => {
-      db = drizzle(ctx.platform.ctx.storage, { schema });
+    hooks.onInit((ctx) => {
+      db = drizzle((ctx.platform as Platform).ctx.storage, { schema });
 
       if (args.migrate) {
         db.run(
@@ -70,12 +67,9 @@ export const Drizzle = defineModule<{ migrate: boolean }, DrizzleApi>({
       return message;
     });
 
-    hooks.scheduled(
-      'drizzle-vacuum',
-      async (ctx: { broadcast: (e: string, p: unknown) => void }) => {
-        ctx.broadcast('drizzle-vacuum-done', { timestamp: Date.now() });
-      },
-    );
+    hooks.scheduled('drizzle-vacuum', async (ctx) => {
+      ctx.broadcast('drizzle-vacuum-done', { timestamp: Date.now() });
+    });
 
     return () => ({
       insert(data) {

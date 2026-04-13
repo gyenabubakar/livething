@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { definePrimitive } from '~/primitive.ts';
-import type { ConnectionInfo } from '~/context.ts';
+import type { ConnectionInfo, InitContext, TaskContext } from '~/context.ts';
 import type { ErrorDef } from '~/errors/errors.ts';
 import type { ErrorsPrimitive } from '~/errors/primitive.ts';
 import type { Primitive, PrimitiveRef, RequiresManifest } from '~/primitive.ts';
@@ -28,7 +28,7 @@ export interface ModuleHooks<TCtx = any> {
     }) => { event: string; payload: unknown } | void,
   ): void;
   /** Run during server startup. */
-  onInit(handler: (ctx: any) => void | Promise<void>): void;
+  onInit(handler: (ctx: InitContext) => void | Promise<void>): void;
   /** Run when a connection is established. */
   onConnect(handler: (ctx: TCtx) => void | Promise<void>): void;
   /** Run when a connection closes. */
@@ -38,7 +38,7 @@ export interface ModuleHooks<TCtx = any> {
   /** Register a scheduled task owned by this module. */
   scheduled<TData>(
     name: string,
-    handler: (ctx: any, data: TData) => void | Promise<void>,
+    handler: (ctx: TaskContext, data: TData) => void | Promise<void>,
     options?: ScheduledOptions<TData>,
   ): ScheduledHandle<TData>;
   /** Create a framework-generated unique ID. */

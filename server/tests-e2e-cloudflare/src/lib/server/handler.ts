@@ -79,7 +79,7 @@ export const handler = base
   })
 
   .intercept((_ctx, message) => {
-    if ((message as { event: string }).event === 'block-test') throw Block;
+    if (message.event === 'block-test') throw Block;
     return message;
   })
   .intercept('echo', (_ctx, payload) => {
