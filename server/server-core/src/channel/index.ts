@@ -1,3 +1,3 @@
-import '~/_builder/side-effects/channels.ts';
-
-export { __sideEffect_channels } from '~/_builder/side-effects/channels.ts';
+export { withChannels } from './with.ts';
+export * from './channel.ts';
+export * from './lifecycle.ts';

@@ -1,3 +1,3 @@
-import '~/_builder/side-effects/hibernation.ts';
-
-export { __sideEffect_hibernation } from '~/_builder/side-effects/hibernation.ts';
+export { withHibernation } from './with.ts';
+export { hibernation } from './hibernation.ts';
+export type { HibernationPrimitive } from './hibernation.ts';

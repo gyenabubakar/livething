@@ -1,3 +1,2 @@
-import '~/_builder/side-effects/intercept.ts';
-
-export { __sideEffect_intercept } from '~/_builder/side-effects/intercept.ts';
+export { withIntercept } from './with.ts';
+export * from './intercept.ts';

@@ -1,25 +1,24 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { server } from '~/_builder/server-builder.ts';
+import { withAck } from '~/ack/with.ts';
 import { scope } from '~/channel/channel.ts';
+import { withChannels } from '~/channel/with.ts';
+import { withDedup } from '~/dedup/with.ts';
 import { error } from '~/errors/errors.ts';
+import { withErrors } from '~/errors/with.ts';
 import { event } from '~/event.ts';
+import { withHeartbeat } from '~/heartbeat/with.ts';
+import { withHibernation } from '~/hibernation/with.ts';
+import { withIntercept } from '~/intercept/with.ts';
+import { withLifecycle } from '~/lifecycle/with.ts';
+import { withNamespaces } from '~/namespace/with.ts';
+import { withReplayCustom } from '~/replay/custom/with.ts';
+import { withReplay } from '~/replay/with.ts';
+import { withRequests } from '~/request/with.ts';
+import { withScheduled } from '~/scheduled/with.ts';
+import { withSequence } from '~/sequence/with.ts';
+import { withStreams } from '~/stream/with.ts';
 import { describe, expect, it } from 'vitest';
-
-import '~/_builder/side-effects/ack.ts';
-import '~/_builder/side-effects/heartbeat.ts';
-import '~/_builder/side-effects/sequence.ts';
-import '~/_builder/side-effects/dedup.ts';
-import '~/_builder/side-effects/hibernation.ts';
-import '~/_builder/side-effects/errors.ts';
-import '~/_builder/side-effects/scheduled.ts';
-import '~/_builder/side-effects/requests.ts';
-import '~/_builder/side-effects/intercept.ts';
-import '~/_builder/side-effects/channels.ts';
-import '~/_builder/side-effects/namespaces.ts';
-import '~/_builder/side-effects/streams.ts';
-import '~/_builder/side-effects/replay.ts';
-import '~/_builder/side-effects/replay-custom.ts';
-import '~/_builder/side-effects/lifecycle.ts';
 
 // ─── Event contracts ────────────────────────────────────────
 const message = event('message', (p: unknown) => p as { text: string; from: string });
@@ -54,10 +53,36 @@ function findAllPrimitives(primitives: readonly any[], tag: string) {
   return primitives.filter((p) => p.__wskit === tag);
 }
 
+function fullServer(name: string) {
+  return withStreams(
+    withRequests(
+      withNamespaces(
+        withChannels(
+          withReplayCustom(
+            withReplay(
+              withScheduled(
+                withIntercept(
+                  withErrors(
+                    withLifecycle(
+                      withAck(
+                        withHeartbeat(withSequence(withDedup(withHibernation(server(name))))),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
 // ─── Tests ──────────────────────────────────────────────────
 
 describe('Integration: full single-file server', () => {
-  const base = server('chat')
+  const base = fullServer('chat')
     .ack()
     .heartbeat({ timeout: 60_000 })
     .sequence({ persist: true })
@@ -229,7 +254,7 @@ describe('Integration: full single-file server', () => {
 });
 
 describe('Integration: multi-file composition', () => {
-  const base = server('chat')
+  const base = fullServer('chat')
     .ack()
     .heartbeat({ timeout: 60_000 })
     .outgoing(message)
@@ -301,7 +326,7 @@ describe('Integration: multi-file composition', () => {
   });
 
   it('full multi-file assembly', () => {
-    const s = server('chat').ack().outgoing(message).outgoing(notification);
+    const s = fullServer('chat').ack().outgoing(message).outgoing(notification);
     const def = s
       .use(
         s.channel(scope('rooms', /^room-.+$/), (ch) =>
@@ -334,7 +359,7 @@ describe('Integration: multi-file composition', () => {
 
 describe('Integration: type inference', () => {
   it('ctx.send typed against accumulated outgoing events', () => {
-    server('chat')
+    fullServer('chat')
       .outgoing(message)
       .outgoing(notification)
       .incoming(sendMessage, async (ctx) => {
@@ -350,7 +375,7 @@ describe('Integration: type inference', () => {
   });
 
   it('ctx.ack available after .ack(), absent without', () => {
-    server('chat')
+    fullServer('chat')
       .ack()
       .outgoing(message)
       .incoming(sendMessage, async (ctx) => {
@@ -366,7 +391,7 @@ describe('Integration: type inference', () => {
   });
 
   it('ctx.ack NOT available in channel scope (top-level only)', () => {
-    server('chat')
+    fullServer('chat')
       .ack()
       .outgoing(message)
       .channel('lobby', (ch) =>
@@ -380,7 +405,7 @@ describe('Integration: type inference', () => {
   });
 
   it('channel scope has parent + local outgoing', () => {
-    server('chat')
+    fullServer('chat')
       .outgoing(message)
       .channel('lobby', (ch) =>
         ch.outgoing(roomMessage).incoming(roomSend, async (ctx) => {
@@ -391,7 +416,7 @@ describe('Integration: type inference', () => {
   });
 
   it('channel scope without parent outgoing only gets local', () => {
-    server('chat').channel('lobby', (ch) =>
+    fullServer('chat').channel('lobby', (ch) =>
       ch.outgoing(roomMessage).incoming(roomSend, async (ctx) => {
         ctx.send('room-message', { text: 'hi', from: 'x' });
 
@@ -402,7 +427,7 @@ describe('Integration: type inference', () => {
   });
 
   it('namespace scope has parent + local outgoing', () => {
-    server('chat')
+    fullServer('chat')
       .outgoing(message)
       .namespace('notifications', (ns) =>
         ns.outgoing(alert).incoming(dismiss, async (ctx) => {
@@ -413,7 +438,7 @@ describe('Integration: type inference', () => {
   });
 
   it('handler payload typed from event schema', () => {
-    server('chat')
+    fullServer('chat')
       .outgoing(message)
       .incoming(sendMessage, async (_ctx, payload) => {
         const text: string = payload.text;
@@ -425,7 +450,7 @@ describe('Integration: type inference', () => {
   });
 
   it('.request() handler payload typed from event schema', () => {
-    server('chat').request(ping, pongSchema, async (ctx, payload) => {
+    fullServer('chat').request(ping, pongSchema, async (ctx, payload) => {
       const ts: number = payload.ts;
       void ts;
 
@@ -437,7 +462,7 @@ describe('Integration: type inference', () => {
   });
 
   it('group inherits parent state', () => {
-    const base = server('chat').ack().outgoing(message).outgoing(notification);
+    const base = fullServer('chat').ack().outgoing(message).outgoing(notification);
 
     base.group((g) =>
       g.outgoing(alert).incoming(sendMessage, async (ctx) => {
@@ -452,12 +477,12 @@ describe('Integration: type inference', () => {
 
 describe('Integration: duplicate detection', () => {
   it('rejects duplicate ack', () => {
-    expect(() => server('chat').ack().ack().build()).toThrow(/Duplicate/);
+    expect(() => fullServer('chat').ack().ack().build()).toThrow(/Duplicate/);
   });
 
   it('rejects duplicate incoming for same event', () => {
     expect(() =>
-      server('chat')
+      fullServer('chat')
         .incoming(sendMessage, async () => {})
         .incoming(sendMessage, async () => {})
         .build(),
@@ -466,7 +491,7 @@ describe('Integration: duplicate detection', () => {
 
   it('allows different incoming events', () => {
     expect(() =>
-      server('chat')
+      fullServer('chat')
         .incoming(sendMessage, async () => {})
         .incoming(typing, async () => {})
         .build(),
@@ -474,7 +499,7 @@ describe('Integration: duplicate detection', () => {
   });
 
   it('rejects duplicate channel scope', () => {
-    const s = server('chat');
+    const s = fullServer('chat');
     expect(() =>
       s
         .use(s.channel('lobby', (ch) => ch))
@@ -484,7 +509,7 @@ describe('Integration: duplicate detection', () => {
   });
 
   it('rejects duplicate namespace', () => {
-    const s = server('chat');
+    const s = fullServer('chat');
     expect(() =>
       s
         .use(s.namespace('notifications', (ns) => ns))
@@ -495,7 +520,7 @@ describe('Integration: duplicate detection', () => {
 
   it('rejects duplicate scheduled task ID', () => {
     expect(() =>
-      server('chat')
+      fullServer('chat')
         .scheduled('cleanup', async () => {})
         .scheduled('cleanup', async () => {})
         .build(),
@@ -504,7 +529,7 @@ describe('Integration: duplicate detection', () => {
 
   it('rejects duplicate lifecycle hooks', () => {
     expect(() =>
-      server('chat')
+      fullServer('chat')
         .onConnect(async () => {})
         .onConnect(async () => {})
         .build(),
@@ -514,7 +539,7 @@ describe('Integration: duplicate detection', () => {
 
 describe('Integration: replay modes', () => {
   it('history mode with all options', () => {
-    const def = server('chat')
+    const def = fullServer('chat')
       .sequence({ persist: true })
       .dedup()
       .replay((r) =>
@@ -532,7 +557,7 @@ describe('Integration: replay modes', () => {
   });
 
   it('snapshot mode with snapshotKey and reduce', () => {
-    const def = server('chat')
+    const def = fullServer('chat')
       .sequence({ persist: true })
       .dedup()
       .replay('snapshot', (r) => r.snapshotKey((ev, _p) => ev).reduce((_prev, next) => next))
@@ -545,7 +570,7 @@ describe('Integration: replay modes', () => {
   });
 
   it('custom replay with hooks', () => {
-    const def = server('chat')
+    const def = fullServer('chat')
       .sequence({ persist: true })
       .dedup()
       .replayCustom((r) =>

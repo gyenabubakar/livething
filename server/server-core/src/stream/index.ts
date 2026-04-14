@@ -1,3 +1,2 @@
-import '~/_builder/side-effects/streams.ts';
-
-export { __sideEffect_streams } from '~/_builder/side-effects/streams.ts';
+export { withStreams } from './with.ts';
+export * from './stream.ts';

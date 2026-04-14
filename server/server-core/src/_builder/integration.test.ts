@@ -10,28 +10,52 @@
  */
 
 import { server } from '~/_builder/server-builder.ts';
+import { withAck } from '~/ack/with.ts';
+import { scope } from '~/channel/channel.ts';
+import { withChannels } from '~/channel/with.ts';
+import { withDedup } from '~/dedup/with.ts';
 import { error } from '~/errors/errors.ts';
+import { withErrors } from '~/errors/with.ts';
 import { event } from '~/event.ts';
+import { withHeartbeat } from '~/heartbeat/with.ts';
+import { withHibernation } from '~/hibernation/with.ts';
+import { withIntercept } from '~/intercept/with.ts';
+import { withLifecycle } from '~/lifecycle/with.ts';
+import { withNamespaces } from '~/namespace/with.ts';
+import { withReplayCustom } from '~/replay/custom/with.ts';
+import { withReplay } from '~/replay/with.ts';
+import { withRequests } from '~/request/with.ts';
+import { withScheduled } from '~/scheduled/with.ts';
+import { withSequence } from '~/sequence/with.ts';
+import { withStreams } from '~/stream/with.ts';
 import { describe, it } from 'vitest';
 import type { InferClient } from '~/infer-client.ts';
 
-import '~/_builder/side-effects/ack.ts';
-import '~/_builder/side-effects/errors.ts';
-import '~/_builder/side-effects/requests.ts';
-import '~/_builder/side-effects/channels.ts';
-import '~/_builder/side-effects/namespaces.ts';
-import '~/_builder/side-effects/streams.ts';
-import '~/_builder/side-effects/lifecycle.ts';
-import '~/_builder/side-effects/heartbeat.ts';
-import '~/_builder/side-effects/sequence.ts';
-import '~/_builder/side-effects/dedup.ts';
-import '~/_builder/side-effects/hibernation.ts';
-import '~/_builder/side-effects/scheduled.ts';
-import '~/_builder/side-effects/intercept.ts';
-import '~/_builder/side-effects/replay.ts';
-import '~/_builder/side-effects/replay-custom.ts';
-
-import { scope } from '~/channel/channel.ts';
+function fullServer<TEnv extends object = Record<string, unknown>>(name: string) {
+  return withStreams(
+    withRequests(
+      withNamespaces(
+        withChannels(
+          withReplayCustom(
+            withReplay(
+              withScheduled(
+                withIntercept(
+                  withErrors(
+                    withLifecycle(
+                      withAck(
+                        withHeartbeat(withSequence(withDedup(withHibernation(server<TEnv>(name))))),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
 
 // ─── Contracts (mimics a real app's shared event definitions) ─
 
@@ -109,7 +133,7 @@ describe('ctx.send() typing', () => {
 
 describe('ctx.ack() availability', () => {
   it('available after .ack() in top-level handler', () => {
-    server('chat')
+    fullServer('chat')
       .ack()
       .outgoing(message)
       .incoming(sendMessage, async (ctx) => {
@@ -127,7 +151,7 @@ describe('ctx.ack() availability', () => {
   });
 
   it('NOT available inside channel scope even when registered at top level', () => {
-    server('chat')
+    fullServer('chat')
       .ack()
       .outgoing(message)
       .channel('lobby', (ch) =>
@@ -142,7 +166,7 @@ describe('ctx.ack() availability', () => {
   });
 
   it('NOT available inside namespace scope', () => {
-    server('chat')
+    fullServer('chat')
       .ack()
       .namespace('alerts', (ns) =>
         ns.outgoing(alertEvent).incoming(dismiss, async (ctx) => {
@@ -170,7 +194,7 @@ describe('handler payload typing', () => {
   });
 
   it('.request() handler has ctx.respond() and typed payload', () => {
-    server('chat').request(ping, pongSchema, async (ctx, payload) => {
+    fullServer('chat').request(ping, pongSchema, async (ctx, payload) => {
       void (payload.ts satisfies number);
 
       // @ts-expect-error — field does not exist on { ts: number }
@@ -181,7 +205,7 @@ describe('handler payload typing', () => {
   });
 
   it('.stream().generate() payload is typed from event schema', () => {
-    server('chat').stream(aiComplete, chunkSchema, (s) =>
+    fullServer('chat').stream(aiComplete, chunkSchema, (s) =>
       s.generate(async function* (_ctx, payload) {
         void (payload.prompt satisfies string);
 
@@ -200,7 +224,7 @@ describe('handler payload typing', () => {
 
 describe('scoped ctx typing', () => {
   it('channel handler gets parent outgoing + local outgoing', () => {
-    server('chat')
+    fullServer('chat')
       .outgoing(message)
       .channel('lobby', (ch) =>
         ch.outgoing(roomMessage).incoming(roomSend, async (ctx) => {
@@ -211,7 +235,7 @@ describe('scoped ctx typing', () => {
   });
 
   it('channel handler without parent outgoing only gets local', () => {
-    server('chat').channel('lobby', (ch) =>
+    fullServer('chat').channel('lobby', (ch) =>
       ch.outgoing(roomMessage).incoming(roomSend, async (ctx) => {
         ctx.send('room-message', { text: 'hi', from: 'x' });
 
@@ -222,7 +246,7 @@ describe('scoped ctx typing', () => {
   });
 
   it('namespace handler gets parent outgoing + local outgoing', () => {
-    server('chat')
+    fullServer('chat')
       .outgoing(message)
       .namespace('alerts', (ns) =>
         ns.outgoing(alertEvent).incoming(dismiss, async (ctx) => {
@@ -233,7 +257,7 @@ describe('scoped ctx typing', () => {
   });
 
   it('namespace handler rejects undeclared events', () => {
-    server('chat').namespace('alerts', (ns) =>
+    fullServer('chat').namespace('alerts', (ns) =>
       ns.outgoing(alertEvent).incoming(dismiss, async (ctx) => {
         // @ts-expect-error — 'nope' not declared in parent or local
         ctx.send('nope', {});
@@ -248,7 +272,7 @@ describe('scoped ctx typing', () => {
 
 describe('ctx.meta typing', () => {
   it('typed when .onUpgrade() returns typed meta object', () => {
-    server('chat')
+    fullServer('chat')
       .outgoing(message)
       .onUpgrade(async (_req) => ({
         meta: { userId: 'abc', role: 'admin' as const },
@@ -271,7 +295,7 @@ describe('ctx.meta typing', () => {
   });
 
   it('flows into channel scope handlers', () => {
-    server('chat')
+    fullServer('chat')
       .onUpgrade(async () => ({ meta: { userId: 'test' } }))
       .channel('lobby', (ch) =>
         ch.outgoing(roomMessage).incoming(roomSend, async (ctx) => {
@@ -284,7 +308,7 @@ describe('ctx.meta typing', () => {
   });
 
   it('flows into namespace scope handlers', () => {
-    server('chat')
+    fullServer('chat')
       .onUpgrade(async () => ({ meta: { userId: 'test' } }))
       .namespace('alerts', (ns) =>
         ns.outgoing(alertEvent).incoming(dismiss, async (ctx) => {
@@ -294,7 +318,7 @@ describe('ctx.meta typing', () => {
   });
 
   it('flows into .onConnect() handler', () => {
-    server('chat')
+    fullServer('chat')
       .outgoing(message)
       .onUpgrade(async () => ({ meta: { userId: 'test' } }))
       .onConnect(async (ctx) => {
@@ -309,7 +333,7 @@ describe('ctx.meta typing', () => {
 
 describe('ctx.channels typing', () => {
   it('static channels restrict name to registered literals', () => {
-    const s = server('chat');
+    const s = fullServer('chat');
     s.use(s.channel('lobby', (ch) => ch.outgoing(roomMessage).incoming(roomSend, async () => {})))
       .use(s.channel('vip', (ch) => ch.incoming(roomSend, async () => {})))
       .incoming(sendMessage, async (ctx) => {
@@ -323,7 +347,7 @@ describe('ctx.channels typing', () => {
   });
 
   it('dynamic channel (scope) allows any string', () => {
-    const s = server('chat');
+    const s = fullServer('chat');
     s.use(
       s.channel(scope('rooms', /^room-.+$/), (ch) =>
         ch.outgoing(roomMessage).incoming(roomSend, async () => {}),
@@ -335,7 +359,7 @@ describe('ctx.channels typing', () => {
   });
 
   it('mixed static + dynamic accepts any string (dynamic widens)', () => {
-    const s = server('chat');
+    const s = fullServer('chat');
     s.use(s.channel('lobby', (ch) => ch.incoming(roomSend, async () => {})))
       .use(s.channel(scope('rooms', /^room-.+$/), (ch) => ch.incoming(roomSend, async () => {})))
       .incoming(sendMessage, async (ctx) => {
@@ -352,7 +376,7 @@ describe('ctx.channels typing', () => {
 
 describe('stream ctx.nudges()', () => {
   it('ctx.nudges() exists when nudges are declared', () => {
-    server('chat').stream(aiComplete, chunkSchema, (s) =>
+    fullServer('chat').stream(aiComplete, chunkSchema, (s) =>
       s.nudge(cancel).generate(async function* (ctx, _payload) {
         const raw = yield { token: 'hi' };
         const msgs = ctx.nudges(raw);
@@ -362,7 +386,7 @@ describe('stream ctx.nudges()', () => {
   });
 
   it('ctx.nudges does NOT exist when no nudges declared', () => {
-    server('chat').stream(aiComplete, chunkSchema, (s) =>
+    fullServer('chat').stream(aiComplete, chunkSchema, (s) =>
       s.generate(async function* (ctx, _payload) {
         // @ts-expect-error — no nudges declared, method should not exist
         ctx.nudges;
@@ -379,7 +403,7 @@ describe('stream ctx.nudges()', () => {
 
 describe('group builder state inheritance', () => {
   it('group handler gets parent outgoing + ack', () => {
-    const base = server('chat').ack().outgoing(message);
+    const base = fullServer('chat').ack().outgoing(message);
 
     base.group((g) =>
       g.incoming(sendMessage, async (ctx) => {
@@ -401,7 +425,7 @@ describe('group builder state inheritance', () => {
   });
 
   it('typed meta flows through group', () => {
-    const base = server('chat')
+    const base = fullServer('chat')
       .outgoing(message)
       .onUpgrade(async () => ({ meta: { userId: 'abc' } }));
 
@@ -420,7 +444,7 @@ describe('group builder state inheritance', () => {
 const Forbidden = error('forbidden', (p: unknown) => p as { reason: string });
 const RateLimit = error('rate-limit', (p: unknown) => p as { retryAfterMs: number });
 
-const _fullBase = server('chat')
+const _fullBase = fullServer('chat')
   .ack()
   .errors(Forbidden, RateLimit)
   .outgoing(message)
@@ -439,7 +463,7 @@ const _fullBase = server('chat')
       }),
   );
 
-const fullServer = _fullBase
+const fullBuilt = _fullBase
   .use(
     _fullBase.channel('lobby', (ch) => ch.outgoing(roomMessage).incoming(roomSend, async () => {})),
   )
@@ -455,7 +479,7 @@ const fullServer = _fullBase
   )
   .build();
 
-type Full = InferClient<typeof fullServer>;
+type Full = InferClient<typeof fullBuilt>;
 
 describe('InferClient: top-level events', () => {
   it('outgoing events → client incoming', () => {
@@ -491,7 +515,7 @@ describe('InferClient: streams', () => {
 });
 
 describe('InferClient: stream without nudges', () => {
-  const noNudgeServer = server('chat')
+  const noNudgeServer = fullServer('chat')
     .stream(aiComplete, chunkSchema, (s) =>
       s.generate(async function* (_ctx, payload) {
         yield { token: payload.prompt };
@@ -585,7 +609,7 @@ describe('InferClient: server with no optional features', () => {
 
 describe('multi-file composition', () => {
   it('group handler ctx preserves parent outgoing + ack', () => {
-    const base = server('chat').ack().outgoing(message).outgoing(notification);
+    const base = fullServer('chat').ack().outgoing(message).outgoing(notification);
 
     base.group((g) =>
       g.incoming(sendMessage, async (ctx) => {
@@ -600,7 +624,7 @@ describe('multi-file composition', () => {
   });
 
   it('channel handler ctx preserves parent outgoing', () => {
-    const base = server('chat').outgoing(message);
+    const base = fullServer('chat').outgoing(message);
 
     base.channel('lobby', (ch) =>
       ch.outgoing(roomMessage).incoming(roomSend, async (ctx) => {
@@ -614,7 +638,7 @@ describe('multi-file composition', () => {
   });
 
   it('namespace handler ctx preserves parent outgoing', () => {
-    const base = server('chat').outgoing(message);
+    const base = fullServer('chat').outgoing(message);
 
     base.namespace('alerts', (ns) =>
       ns.outgoing(alertEvent).incoming(dismiss, async (ctx) => {
@@ -628,7 +652,7 @@ describe('multi-file composition', () => {
   });
 
   it('typed meta flows through group', () => {
-    const base = server('chat')
+    const base = fullServer('chat')
       .outgoing(message)
       .onUpgrade(async () => ({ meta: { userId: 'abc' } }));
 
@@ -648,7 +672,11 @@ describe('multi-file composition', () => {
 // ═══════════════════════════════════════════════════════════════
 
 describe('InferClient from inline assembled server', () => {
-  const _asmBase = server('chat').ack().errors(Forbidden).outgoing(message).outgoing(notification);
+  const _asmBase = fullServer('chat')
+    .ack()
+    .errors(Forbidden)
+    .outgoing(message)
+    .outgoing(notification);
 
   const assembled = _asmBase
     .use(
@@ -752,7 +780,7 @@ describe('typed env via server<TEnv>()', () => {
   });
 
   it('ctx.env is typed in onConnect lifecycle hook', () => {
-    server<MyEnv>('app').onConnect(async (ctx) => {
+    fullServer<MyEnv>('app').onConnect(async (ctx) => {
       void (ctx.env.DATABASE_URL satisfies string);
 
       // @ts-expect-error — not in env
@@ -774,7 +802,7 @@ describe('typed env via server<TEnv>()', () => {
   });
 
   it('ctx.env is typed in channel handlers', () => {
-    const base = server<MyEnv>('app').outgoing(message);
+    const base = fullServer<MyEnv>('app').outgoing(message);
 
     base.channel('lobby', (ch) =>
       ch.outgoing(roomMessage).incoming(roomSend, async (ctx) => {
@@ -787,7 +815,7 @@ describe('typed env via server<TEnv>()', () => {
   });
 
   it('ctx.env is typed in namespace handlers', () => {
-    const base = server<MyEnv>('app').outgoing(message);
+    const base = fullServer<MyEnv>('app').outgoing(message);
 
     base.namespace('alerts', (ns) =>
       ns.outgoing(alertEvent).incoming(dismiss, async (ctx) => {
@@ -800,7 +828,7 @@ describe('typed env via server<TEnv>()', () => {
   });
 
   it('ctx.env is typed after onUpgrade', () => {
-    server<MyEnv>('app')
+    fullServer<MyEnv>('app')
       .onUpgrade(async () => ({ meta: { userId: 'abc' } }))
       .incoming(sendMessage, async (ctx) => {
         void (ctx.env.DATABASE_URL satisfies string);

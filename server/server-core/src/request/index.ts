@@ -1,3 +1,2 @@
-import '~/_builder/side-effects/requests.ts';
-
-export { __sideEffect_requests } from '~/_builder/side-effects/requests.ts';
+export { withRequests } from './with.ts';
+export * from './request.ts';
