@@ -8,3 +8,5 @@ export const ConfirmedCount = event(
   'confirmed-count',
   v.object({ total: v.number(), confirmed: v.number() }),
 );
+export const RoomNote = event('room-note', v.object({ text: v.string(), author: v.string() }));
+export const AddRoomNote = event('add-room-note', v.object({ text: v.string() }));

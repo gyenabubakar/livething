@@ -276,6 +276,13 @@ test.describe('main handler', () => {
     await waitForText(page, 'ai-stream-done', 'stream-done', 15_000);
   });
 
+  test('ai namespace: pre-intercept blocks message (Gap D)', async ({ page }) => {
+    await page.getByTestId('ai-blocked-btn').click();
+    await page.waitForTimeout(500);
+    const reply = await page.getByTestId('ai-blocked-reply').textContent();
+    expect(reply).toBe('');
+  });
+
   // --- Scheduled every (Gap 9) ---
 
   test('scheduled every: heartbeat fires repeatedly (Gap 9)', async ({ page }) => {
@@ -327,6 +334,19 @@ test.describe('main handler', () => {
     await waitForText(page, 'chat-subscribed', 'subscribed');
     await page.getByTestId('chat-info-btn').click();
     await waitForText(page, 'chat-info-result', /chat:members=/);
+  });
+
+  // --- Channel stream (Gap C) ---
+
+  test('chat channel: stream tokens inside channel (Gap C)', async ({ page }) => {
+    await page.getByTestId('chat-join-btn').click();
+    await waitForText(page, 'chat-subscribed', 'subscribed');
+    await page.getByTestId('chat-stream-btn').click();
+    await waitForText(page, 'chat-stream-done', 'chat-stream-done', 15_000);
+    const tokens = await page.getByTestId('chat-stream-tokens').textContent();
+    expect(tokens).toContain('hello');
+    expect(tokens).toContain('channel');
+    expect(tokens).toContain('stream');
   });
 
   // --- Scheduled: schedule then immediately cancel ---
@@ -772,6 +792,13 @@ test.describe('replay handler', () => {
     await waitForText(page, 'history-injected', 'true');
   });
 
+  test('channel sendReplay delivers message in channel scope (Gap F)', async ({ page }) => {
+    await page.getByTestId('room-join-btn').click();
+    await waitForText(page, 'room-subscribed', 'subscribed');
+    await page.getByTestId('request-room-history-btn').click();
+    await waitForText(page, 'room-history-injected', 'true');
+  });
+
   test('sequence persistence across reconnection (Gap 19)', async ({ page }) => {
     await page.getByTestId('send-msg-btn').click();
     await waitForText(page, 'messages', /hello from replay/);
@@ -842,6 +869,23 @@ test.describe('custom replay handler', () => {
     await page.waitForTimeout(1000);
     const afterCount = (await page.getByTestId('notes').textContent())!.split(' | ').length;
     expect(afterCount).toBeGreaterThan(beforeCount);
+  });
+
+  test('channel-scoped custom replay returns channel messages (Gap 4)', async ({ page }) => {
+    await page.getByTestId('room-join-btn').click();
+    await waitForText(page, 'room-subscribed', 'subscribed');
+
+    await page.getByTestId('add-note-btn').click();
+    await waitForText(page, 'notes', /custom replay note/);
+
+    await page.getByTestId('room-note-btn').click();
+    await waitForText(page, 'room-notes', /channel replay note/);
+
+    await page.getByTestId('room-replay-btn').click();
+    await page.waitForTimeout(1000);
+
+    const roomReplayCount = Number(await page.getByTestId('room-replay-count').textContent());
+    expect(roomReplayCount).toBeGreaterThan(0);
   });
 
   test('onAfterSend marks messages as confirmed', async ({ page }) => {

@@ -80,12 +80,16 @@ export interface CustomReplaySendContext {
   readonly log: Logger;
   /** Platform-specific context (e.g. the Cloudflare `DurableObjectState`). */
   readonly platform: unknown;
+  /** The per-connection metadata from `onUpgrade`. */
+  readonly meta: Record<string, unknown>;
 }
 
 /** Shared context fields available in all `onReplay` handler contexts. */
 interface BaseCustomReplayContext {
   /** The connection ID of the client that requested replay. */
   readonly id: string;
+  /** The per-connection metadata from `onUpgrade`. */
+  readonly meta: Record<string, unknown>;
   /** SQL access for querying your own replay store. */
   readonly sql: SQLProvider;
   /** KV access for querying your own replay store. */
@@ -242,6 +246,7 @@ function createTopLevelReplayContext(
 ): TopLevelReplayContext {
   return {
     id: String(baseCtx.id),
+    meta: (baseCtx.meta as Record<string, unknown>) ?? {},
     sql: baseCtx.sql as SQLProvider,
     kv: baseCtx.kv as KVProvider,
     env: (baseCtx.env as Record<string, unknown>) ?? {},
@@ -266,6 +271,7 @@ function createChannelReplayContext(
 ): ChannelReplayContext {
   return {
     id: String(baseCtx.id),
+    meta: (baseCtx.meta as Record<string, unknown>) ?? {},
     channel: { name: channelName },
     sql: baseCtx.sql as SQLProvider,
     kv: baseCtx.kv as KVProvider,
@@ -325,12 +331,12 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
     __setup(engine: EngineAccess) {
       const { channelKey } = engine.getScopeInfo();
 
-      let sendCtx: CustomReplaySendContext | null = null;
+      let baseSendCtx: Omit<CustomReplaySendContext, 'meta'> | null = null;
 
       if (opts.onBeforeSend || opts.onAfterSend) {
         engine.onInit((ctx) => {
           const base = ctx as Record<PropertyKey, unknown>;
-          sendCtx = {
+          baseSendCtx = {
             sql: base.sql as SQLProvider,
             kv: base.kv as KVProvider,
             env: (base.env as Record<string, unknown>) ?? {},
@@ -340,13 +346,16 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
         });
       }
 
+      function buildSendCtx(meta: Record<string, unknown>): CustomReplaySendContext {
+        return { ...baseSendCtx!, meta };
+      }
+
       if (opts.onBeforeSend) {
         engine.onBeforeSend((message) => {
-          // Only forward messages that should be replayable (skip protocol events, etc.)
           if (!shouldStoreReplayMessage(channelKey, message.event, message.payload, new Set()))
             return;
           opts.onBeforeSend!(
-            sendCtx!,
+            buildSendCtx(message.meta),
             channelKey
               ? (toChannelWireMessage(message) as OutgoingWireMessage<CustomReplayScope>)
               : (toTopLevelWireMessage(message) as OutgoingWireMessage<CustomReplayScope>),
@@ -359,7 +368,7 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
           if (!shouldStoreReplayMessage(channelKey, message.event, message.payload, new Set()))
             return;
           return opts.onAfterSend!(
-            sendCtx!,
+            buildSendCtx(message.meta),
             channelKey
               ? (toChannelWireMessage(message) as OutgoingWireMessage<CustomReplayScope>)
               : (toTopLevelWireMessage(message) as OutgoingWireMessage<CustomReplayScope>),

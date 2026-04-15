@@ -300,6 +300,7 @@ export function sendThroughPipeline(
     connectionId: connection.id,
     event: message.event,
     payload: finalPayload,
+    meta: connection.meta,
   };
 
   for (const hook of runtime.beforeSendHooks) {

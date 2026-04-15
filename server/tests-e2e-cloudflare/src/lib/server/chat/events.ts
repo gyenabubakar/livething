@@ -10,3 +10,6 @@ export const ChatMessage = event(
 
 export const GetChatInfo = event('get-chat-info', v.object({}));
 export const ChatInfoSchema = v.object({ channel: v.string(), memberCount: v.number() });
+
+export const ChatStreamPrompt = event('chat-stream', v.object({ prompt: v.string() }));
+export const ChatStreamChunkSchema = v.object({ token: v.string() });

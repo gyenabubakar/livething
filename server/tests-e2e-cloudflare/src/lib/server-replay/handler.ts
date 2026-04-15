@@ -10,6 +10,7 @@ import {
   ChatMsg,
   Cursor,
   RequestHistory,
+  RequestRoomHistory,
   RoomMsg,
   SendCursor,
   SendMsg,
@@ -59,12 +60,22 @@ export const replayHandler = base
   })
   .use(
     base.channel('replay-room', (ch) =>
-      ch.outgoing(RoomMsg).incoming(SendRoomMsg, (ctx, payload) => {
-        const from = ctx.meta.username as string;
-        const msg = { text: payload.text, from };
-        ctx.channel.send('room-msg', msg);
-        ctx.channel.broadcast('room-msg', msg);
-      }),
+      ch
+        .outgoing(RoomMsg)
+        .replay((r) => r)
+        .incoming(SendRoomMsg, (ctx, payload) => {
+          const from = ctx.meta.username as string;
+          const msg = { text: payload.text, from };
+          ctx.channel.send('room-msg', msg);
+          ctx.channel.broadcast('room-msg', msg);
+        })
+        .incoming(RequestRoomHistory, (ctx) => {
+          ctx.channel.sendReplay(
+            'room-msg',
+            { text: 'injected-room-history', from: 'system' },
+            { seq: 0, messageId: 'room-manual-001' },
+          );
+        }),
     ),
   )
   .build();

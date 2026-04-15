@@ -55,7 +55,10 @@
 	let flakyTaskResult = $state('');
 	let broadcastStreamTokens = $state('');
 	let chatInfoResult = $state('');
+	let chatStreamTokens = $state('');
+	let chatStreamDone = $state(false);
 	let deadLetterResult = $state('');
+	let aiBlockedReply = $state('');
 
 	const pendingRequests = new Map<string, (payload: Record<string, unknown>) => void>();
 
@@ -140,7 +143,8 @@
 					streamOkReceived = true;
 					break;
 				case '_streamEnd':
-					if (aiNudgeStreamTokens && !aiNudgeStreamDone) aiNudgeStreamDone = true;
+					if (payload._channel === 'chat') chatStreamDone = true;
+					else if (aiNudgeStreamTokens && !aiNudgeStreamDone) aiNudgeStreamDone = true;
 					else aiStreamDone = true;
 					break;
 				case 'echoed':
@@ -154,6 +158,9 @@
 					break;
 				case 'chat-message':
 					chatMessages = [...chatMessages, `${payload.from}: ${payload.text}`].slice(-20);
+					break;
+				case 'chat-stream':
+					chatStreamTokens += (payload.token as string);
 					break;
 				case 'room-message':
 					roomMessages = [...roomMessages, `${payload.from}: ${payload.text}`].slice(-20);
@@ -237,6 +244,8 @@
 							aiNudgeStreamTokens += payload.token;
 						} else if (evt === 'broadcast-stream') {
 							broadcastStreamTokens += payload.token;
+						} else if (evt === 'ai-blocked-reply') {
+							aiBlockedReply = `leaked:${payload.leaked}`;
 						}
 					}
 					break;
@@ -442,6 +451,17 @@
 		send('query-dead-letter', {});
 	}
 
+	function startChatStream() {
+		chatStreamTokens = '';
+		chatStreamDone = false;
+		send('chat-stream', { prompt: 'hello channel stream', _channel: 'chat' });
+	}
+
+	function sendAiBlockedTest() {
+		aiBlockedReply = '';
+		send('ai-blocked-test', { _namespace: 'ai' });
+	}
+
 	function startBroadcastStream() {
 		broadcastStreamTokens = '';
 		send('broadcast-stream', { prompt: 'hello broadcast world', _namespace: 'ai' });
@@ -524,6 +544,8 @@
 		<button data-testid="ai-stream-error-btn" onclick={startErrorStream} disabled={status !== 'connected'}>Stream Error</button>
 		<button data-testid="ai-stream-cancel-btn" onclick={cancelStream} disabled={status !== 'connected'}>Cancel Stream</button>
 		<button data-testid="ai-speed-up-btn" onclick={() => sendSpeedUp(4)} disabled={status !== 'connected'}>Speed Up</button>
+		<button data-testid="ai-blocked-btn" onclick={sendAiBlockedTest} disabled={status !== 'connected'}>AI Block Test</button>
+		<div data-testid="ai-blocked-reply">{aiBlockedReply}</div>
 		<div data-testid="ai-response">{aiResponse}</div>
 		<div data-testid="ai-model-result">{aiModelResult}</div>
 		<div data-testid="ai-stream-tokens">{aiStreamTokens}</div>
@@ -617,6 +639,13 @@
 		<h2>Chat Request</h2>
 		<button data-testid="chat-info-btn" onclick={requestChatInfo} disabled={!chatSubscribed}>Get Chat Info</button>
 		<div data-testid="chat-info-result">{chatInfoResult}</div>
+	</section>
+
+	<section>
+		<h2>Chat Stream</h2>
+		<button data-testid="chat-stream-btn" onclick={startChatStream} disabled={!chatSubscribed}>Start Chat Stream</button>
+		<div data-testid="chat-stream-tokens">{chatStreamTokens}</div>
+		<div data-testid="chat-stream-done">{chatStreamDone ? 'chat-stream-done' : ''}</div>
 	</section>
 
 	<section>

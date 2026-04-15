@@ -18,3 +18,6 @@ export const AiStreamError = event('stream-error', v.object({}));
 
 export const AiBroadcastStream = event('broadcast-stream', v.object({ prompt: v.string() }));
 export const BroadcastChunkSchema = v.object({ token: v.string() });
+
+export const AiBlockedTest = event('ai-blocked-test', v.object({}));
+export const AiBlockedReply = event('ai-blocked-reply', v.object({ leaked: v.boolean() }));

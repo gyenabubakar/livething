@@ -853,7 +853,10 @@ export interface NamespaceScopeMethods<
  * When outgoing events are known, `send` and `broadcast` are typed to only
  * accept events declared inside the channel.
  */
-export interface ChannelScopeMethods<TOutgoing extends Record<string, any> = Record<string, any>> {
+export interface ChannelScopeMethods<
+  TOutgoing extends Record<string, any> = Record<string, any>,
+  THasReplay extends boolean = false,
+> {
   readonly channel: {
     readonly name: string;
     send<TEvent extends keyof TOutgoing & string>(
@@ -864,7 +867,15 @@ export interface ChannelScopeMethods<TOutgoing extends Record<string, any> = Rec
       event: TEvent,
       payload: TOutgoing[TEvent],
     ): void;
-  };
+  } & (THasReplay extends true
+    ? {
+        sendReplay<TEvent extends keyof TOutgoing & string>(
+          event: TEvent,
+          payload: TOutgoing[TEvent],
+          wire: ReplayWire,
+        ): void;
+      }
+    : {});
 }
 
 /**
@@ -942,10 +953,11 @@ type ReplayApi<TState extends ScopeStateShape> = TState['hasReplay'] extends tru
 type ScopeExtras<
   TKind extends ScopeKind,
   TOutgoing extends Record<string, any> = Record<string, any>,
+  THasReplay extends boolean = false,
 > = TKind extends 'namespace'
   ? NamespaceScopeMethods<TOutgoing>
   : TKind extends 'channel'
-    ? ChannelScopeMethods<TOutgoing>
+    ? ChannelScopeMethods<TOutgoing, THasReplay>
     : {};
 
 // ---------------------------------------------------------------------------
@@ -994,7 +1006,7 @@ export type HandlerCtxFromState<TState extends ScopeStateShape> = SendApi<TState
   ChannelsMethods<TState['channelNames'] extends never ? string : TState['channelNames']> &
   RuntimeContextMethods &
   EnvMethods<TState['env']> &
-  ScopeExtras<TState['kind'], TState['outgoing']>;
+  ScopeExtras<TState['kind'], TState['outgoing'], TState['hasReplay']>;
 
 // ---------------------------------------------------------------------------
 // StreamBaseCtxFromState / StreamCtxFromState
@@ -1021,7 +1033,7 @@ export type StreamBaseCtxFromState<TState extends ScopeStateShape> = SendApi<TSt
   ChannelsMethods<TState['channelNames'] extends never ? string : TState['channelNames']> &
   RuntimeContextMethods &
   EnvMethods<TState['env']> &
-  ScopeExtras<TState['kind'], TState['outgoing']>;
+  ScopeExtras<TState['kind'], TState['outgoing'], TState['hasReplay']>;
 
 /**
  * Build the full ctx for a stream generator by adding `ctx.nudges(...)` on

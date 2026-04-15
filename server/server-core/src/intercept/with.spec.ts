@@ -1,6 +1,7 @@
 import { server } from '~/_builder/server-builder.ts';
 import { event } from '~/event.ts';
 import { withIntercept } from '~/intercept/with.ts';
+import { withNamespaces } from '~/namespace/with.ts';
 import { describe, expect, it } from 'vitest';
 
 const message = event('message', (p: unknown) => p as { text: string });
@@ -49,5 +50,35 @@ describe('.intercept() side-effect', () => {
     const def = base.use(base.group((g) => g.intercept(async () => {}))).build();
 
     expect(def.primitives.some((p) => p.__wskit === 'intercept')).toBe(true);
+  });
+
+  it('works with NamespaceBuilder (pre-intercept)', () => {
+    const base = withIntercept(withNamespaces(server('chat'))).outgoing(message);
+    const def = base
+      .use(
+        base.namespace('ai', (n) =>
+          n.outgoing(message).intercept((_ctx, msg) => {
+            void msg.event;
+            void msg.payload;
+          }),
+        ),
+      )
+      .build();
+
+    expect(def.primitives.some((p) => p.__wskit === 'namespace')).toBe(true);
+  });
+
+  it('works with NamespaceBuilder (post-intercept)', () => {
+    const base = withIntercept(withNamespaces(server('chat'))).outgoing(message);
+    base.namespace('ai', (n) =>
+      n
+        .outgoing(message)
+        .incoming(sendMessage, async () => {})
+        .intercept('send-message', (_ctx, payload) => {
+          const text: string = payload.text;
+          void text;
+          return payload;
+        }),
+    );
   });
 });

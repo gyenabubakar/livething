@@ -13,7 +13,7 @@ function replayCustomImpl(parent: BuilderInternals, callback?: (...args: unknown
   return builder;
 }
 
-const KINDS = ['server', 'group'] as const;
+const KINDS = ['server', 'group', 'channel'] as const;
 
 export function withReplayCustom<TState extends ScopeStateShape, TFeatures>(
   builder: ServerBuilderFull<TState, TFeatures>,

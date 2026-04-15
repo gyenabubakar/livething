@@ -1,4 +1,5 @@
 import { server } from '~/_builder/server-builder.ts';
+import { withChannels } from '~/channel/with.ts';
 import { withDedup } from '~/dedup/with.ts';
 import { event } from '~/event.ts';
 import { withReplayCustom } from '~/replay/custom/with.ts';
@@ -102,6 +103,38 @@ describe('.replay() side-effect', () => {
 
     expect(def.primitives).toHaveLength(5);
   });
+
+  it('works with ChannelBuilder', () => {
+    const base = withChannels(replayReady('chat')).sequence({ persist: true }).dedup();
+    const def = base
+      .use(
+        base.channel('lobby', (c) =>
+          c
+            .outgoing(message)
+            .replay((r) => r.exclude('typing'))
+            .incoming(sendMessage, (ctx) => {
+              ctx.channel.sendReplay('message', { text: 'replay' }, { seq: 1, messageId: 'm1' });
+              ctx.channel.send('message', { text: 'live' });
+            }),
+        ),
+      )
+      .build();
+
+    expect(def.primitives.some((p) => p.__wskit === 'channel')).toBe(true);
+  });
+
+  it('channel ctx.channel.sendReplay rejects undeclared events', () => {
+    const base = withChannels(replayReady('chat')).sequence({ persist: true }).dedup();
+    base.channel('lobby', (c) =>
+      c
+        .outgoing(message)
+        .replay((r) => r)
+        .incoming(sendMessage, (ctx) => {
+          // @ts-expect-error — 'unknown' not declared in this channel
+          ctx.channel.sendReplay('unknown', {}, { seq: 1, messageId: 'm1' });
+        }),
+    );
+  });
 });
 
 describe('.replayCustom() side-effect', () => {
@@ -139,5 +172,32 @@ describe('.replayCustom() side-effect', () => {
       .build();
 
     expect(def.primitives).toHaveLength(4);
+  });
+
+  it('works with ChannelBuilder', () => {
+    const base = withChannels(replayCustomReady('chat')).sequence({ persist: true }).dedup();
+    const def = base
+      .use(
+        base.channel('lobby', (c) =>
+          c.replayCustom((r) =>
+            r
+              .onBeforeSend((ctx, msg) => {
+                void ctx.sql;
+                void ctx.meta;
+                void msg.wire.seq;
+                void msg.wire.messageId;
+              })
+              .onReplay(async (ctx, since) => {
+                void ctx.id;
+                void ctx.meta;
+                void ctx.sql;
+                void since;
+              }),
+          ),
+        ),
+      )
+      .build();
+
+    expect(def.primitives.some((p) => p.__wskit === 'channel')).toBe(true);
   });
 });

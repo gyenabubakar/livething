@@ -55,6 +55,7 @@ describe('custom replay', () => {
         _seq: 1,
         _messageId: 'm1',
       },
+      meta: { username: 'test' },
     };
 
     beforeSendHandlers[0]!(wireMessage);
@@ -144,6 +145,7 @@ describe('custom replay', () => {
         _channel: 'room-1',
         _channelScope: 'rooms',
       },
+      meta: {},
     });
     beforeSendHandlers[0]!({
       connectionId: 'c1',
@@ -155,6 +157,7 @@ describe('custom replay', () => {
         _channel: 'room-2',
         _channelScope: 'other',
       },
+      meta: {},
     });
 
     expect(seen).toEqual([

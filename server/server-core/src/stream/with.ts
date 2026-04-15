@@ -33,7 +33,7 @@ function streamImpl(
   return builder;
 }
 
-const KINDS = ['server', 'group', 'namespace'] as const;
+const KINDS = ['server', 'group', 'namespace', 'channel'] as const;
 
 export function withStreams<TState extends ScopeStateShape, TFeatures>(
   builder: ServerBuilderFull<TState, TFeatures>,

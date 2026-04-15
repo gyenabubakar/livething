@@ -4,7 +4,7 @@ import type { BuilderInternals, ServerBuilderFull } from '~/_types/feature-metho
 import type { ScopeStateShape } from '~/_types/scope-state.ts';
 import type { Primitive } from '~/primitive.ts';
 
-const KINDS = ['server', 'group', 'channel'] as const;
+const KINDS = ['server', 'group', 'channel', 'namespace'] as const;
 
 function isEventContract(value: unknown): value is { event: string } {
   return typeof value === 'object' && value !== null && 'event' in value;

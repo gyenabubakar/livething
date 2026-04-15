@@ -8,6 +8,9 @@
 	let replayCount = $state(0);
 	let replayRequested = $state(false);
 	let confirmedResult = $state('');
+	let roomNotes = $state<string[]>([]);
+	let roomSubscribed = $state('');
+	let roomReplayCount = $state(0);
 
 	function connect() {
 		if (ws) return;
@@ -45,6 +48,11 @@
 				if (replayRequested) replayCount++;
 			} else if (evt === 'confirmed-count') {
 				confirmedResult = `total:${payload.total},confirmed:${payload.confirmed}`;
+			} else if (evt === 'room-note') {
+				roomNotes = [...roomNotes, `${payload.author}: ${payload.text}`].slice(-50);
+				if (replayRequested) roomReplayCount++;
+			} else if (evt === '_subscribeOk') {
+				if (payload._channel === 'custom-room') roomSubscribed = 'subscribed';
 			}
 		};
 	}
@@ -65,6 +73,20 @@
 
 	function getConfirmedCount() {
 		ws?.send(JSON.stringify({ event: 'get-confirmed-count', payload: {} }));
+	}
+
+	function joinRoom() {
+		ws?.send(JSON.stringify({ event: '_subscribe', payload: { _channel: 'custom-room' } }));
+	}
+
+	function addRoomNote(text: string) {
+		ws?.send(JSON.stringify({ event: 'add-room-note', payload: { text, _channel: 'custom-room' } }));
+	}
+
+	function requestRoomReplay() {
+		roomReplayCount = 0;
+		replayRequested = true;
+		ws?.send(JSON.stringify({ event: '_replay', payload: { since: 0, _channel: 'custom-room' } }));
 	}
 </script>
 
@@ -92,6 +114,16 @@
 		<button data-testid="confirmed-btn" onclick={getConfirmedCount} disabled={status !== 'connected'}>Get Confirmed</button>
 		<div data-testid="replay-count">{replayCount}</div>
 		<div data-testid="confirmed-result">{confirmedResult}</div>
+	</section>
+
+	<section>
+		<h2>Custom Room (Channel)</h2>
+		<button data-testid="room-join-btn" onclick={joinRoom} disabled={status !== 'connected'}>Join Room</button>
+		<button data-testid="room-note-btn" onclick={() => addRoomNote('channel replay note')} disabled={status !== 'connected'}>Add Room Note</button>
+		<button data-testid="room-replay-btn" onclick={requestRoomReplay} disabled={status !== 'connected'}>Replay Room</button>
+		<div data-testid="room-subscribed">{roomSubscribed}</div>
+		<div data-testid="room-notes">{roomNotes.join(' | ')}</div>
+		<div data-testid="room-replay-count">{roomReplayCount}</div>
 	</section>
 </main>
 

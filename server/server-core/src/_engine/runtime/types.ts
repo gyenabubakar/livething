@@ -25,6 +25,7 @@ export interface WireOutgoingMessage {
   connectionId: string;
   event: string;
   payload: Record<string, unknown>;
+  meta: Record<string, unknown>;
 }
 
 /**

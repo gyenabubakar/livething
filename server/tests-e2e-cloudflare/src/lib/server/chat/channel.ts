@@ -1,10 +1,18 @@
 import { withChannels } from '@wskit/server/channels';
 import { withIntercept } from '@wskit/server/intercept';
 import { withRequests } from '@wskit/server/requests';
+import { withStreams } from '@wskit/server/streams';
 import { base } from '../setup.ts';
-import { ChatInfoSchema, ChatMessage, GetChatInfo, SendChat } from './events.ts';
+import {
+  ChatInfoSchema,
+  ChatMessage,
+  ChatStreamChunkSchema,
+  ChatStreamPrompt,
+  GetChatInfo,
+  SendChat,
+} from './events.ts';
 
-const chatBase = withRequests(withIntercept(withChannels(base)));
+const chatBase = withStreams(withRequests(withIntercept(withChannels(base))));
 
 export const chatChannel = chatBase.channel('chat', (ch) =>
   ch
@@ -23,6 +31,15 @@ export const chatChannel = chatBase.channel('chat', (ch) =>
     .request(GetChatInfo, ChatInfoSchema, (ctx) => {
       ctx.respond({ channel: ctx.channel.name, memberCount: 1 });
     })
+    .stream(ChatStreamPrompt, ChatStreamChunkSchema, (s) =>
+      s.generate(async function* (_ctx, payload) {
+        const words = payload.prompt.split(' ');
+        for (const word of words) {
+          yield { token: word + ' ' };
+          await new Promise((r) => setTimeout(r, 50));
+        }
+      }),
+    )
     .onBeforeSubscribe((ctx) => {
       if (ctx.meta.username === 'blocked-user') {
         throw new Error('You are not allowed in chat');

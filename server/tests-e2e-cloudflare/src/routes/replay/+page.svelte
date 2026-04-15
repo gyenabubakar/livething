@@ -15,6 +15,7 @@
 	let roomSubscribed = $state('');
 	let roomMessages = $state<string[]>([]);
 	let roomReplayCount = $state(0);
+	let roomHistoryInjected = $state('');
 
 	function connect() {
 		if (ws) return;
@@ -59,6 +60,7 @@
 				const text = `${payload.from}: ${payload.text}`;
 				roomMessages = [...roomMessages, text].slice(-50);
 				if (replayRequested) roomReplayCount++;
+				if (payload.text === 'injected-room-history') roomHistoryInjected = 'true';
 			} else if (evt === '_subscribeOk') {
 				if (payload._channel === 'replay-room') roomSubscribed = 'subscribed';
 			}
@@ -106,6 +108,11 @@
 		historyInjected = '';
 		send('request-history', {});
 	}
+
+	function requestRoomHistory() {
+		roomHistoryInjected = '';
+		send('request-room-history', { _channel: 'replay-room' });
+	}
 </script>
 
 <main>
@@ -143,6 +150,8 @@
 		<div data-testid="room-subscribed">{roomSubscribed}</div>
 		<div data-testid="room-messages">{roomMessages.join(' | ')}</div>
 		<div data-testid="room-replay-count">{roomReplayCount}</div>
+		<button data-testid="request-room-history-btn" onclick={requestRoomHistory} disabled={status !== 'connected'}>Request Room History</button>
+		<div data-testid="room-history-injected">{roomHistoryInjected}</div>
 	</section>
 
 	<section>

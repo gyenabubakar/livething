@@ -1,19 +1,36 @@
 import { server } from '@wskit/server';
+import { withChannels } from '@wskit/server/channels';
 import { withDedup } from '@wskit/server/dedup';
 import { RejectUpgrade } from '@wskit/server/errors';
 import { withLifecycle } from '@wskit/server/lifecycle';
 import { withReplayCustom } from '@wskit/server/replay/custom';
 import { withSequence } from '@wskit/server/sequence';
 import type { InferClient } from '@wskit/server';
-import { AddNote, ConfirmedCount, GetConfirmedCount, Note } from './events.ts';
+import {
+  AddNote,
+  AddRoomNote,
+  ConfirmedCount,
+  GetConfirmedCount,
+  Note,
+  RoomNote,
+} from './events.ts';
 
-export const replayCustomHandler = withReplayCustom(
-  withLifecycle(withSequence(withDedup(server<Env>('replay-custom-test')))),
+const base = withChannels(
+  withReplayCustom(withLifecycle(withSequence(withDedup(server<Env>('replay-custom-test'))))),
 )
   .sequence({ persist: true })
   .dedup()
   .outgoing(Note)
   .outgoing(ConfirmedCount)
+  .outgoing(RoomNote)
+  .onUpgrade((request) => {
+    const url = new URL(request.url);
+    const username = url.searchParams.get('username');
+    if (!username) throw RejectUpgrade(4001, 'Missing username');
+    return { meta: { username } };
+  });
+
+export const replayCustomHandler = base
   .replayCustom((r) =>
     r
       .onBeforeSend((ctx, msg) => {
@@ -55,17 +72,21 @@ export const replayCustomHandler = withReplayCustom(
         confirmed INTEGER NOT NULL DEFAULT 0
       )
     `);
+    ctx.sql.exec(`
+      CREATE TABLE IF NOT EXISTS _custom_room_replay (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        event TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        seq INTEGER NOT NULL,
+        message_id TEXT NOT NULL,
+        channel TEXT
+      )
+    `);
     try {
       ctx.sql.exec('ALTER TABLE _custom_replay ADD COLUMN confirmed INTEGER NOT NULL DEFAULT 0');
     } catch {
       // column already exists
     }
-  })
-  .onUpgrade((request) => {
-    const url = new URL(request.url);
-    const username = url.searchParams.get('username');
-    if (!username) throw RejectUpgrade(4001, 'Missing username');
-    return { meta: { username } };
   })
   .incoming(AddNote, (ctx, payload) => {
     ctx.send('note', { text: payload.text, author: ctx.meta.username });
@@ -78,6 +99,42 @@ export const replayCustomHandler = withReplayCustom(
     const row = rows[0];
     ctx.send('confirmed-count', { total: row?.total ?? 0, confirmed: row?.confirmed ?? 0 });
   })
+  .use(
+    base.channel('custom-room', (ch) =>
+      ch
+        .outgoing(RoomNote)
+        .replayCustom((r) =>
+          r
+            .onBeforeSend((ctx, msg) => {
+              ctx.sql.exec(
+                'INSERT INTO _custom_room_replay (event, payload, seq, message_id) VALUES (?, ?, ?, ?)',
+                msg.event,
+                JSON.stringify(msg.payload),
+                msg.wire.seq,
+                msg.wire.messageId,
+              );
+            })
+            .onReplay(async (ctx, since) => {
+              const rows = ctx.sql
+                .exec(
+                  'SELECT event, payload, seq, message_id FROM _custom_room_replay WHERE seq > ? ORDER BY seq ASC',
+                  since,
+                )
+                .toArray() as { event: string; payload: string; seq: number; message_id: string }[];
+              for (const row of rows) {
+                ctx.sendReplay(row.event, JSON.parse(row.payload), {
+                  seq: row.seq,
+                  messageId: row.message_id,
+                });
+              }
+            }),
+        )
+        .incoming(AddRoomNote, (ctx, payload) => {
+          ctx.channel.send('room-note', { text: payload.text, author: ctx.meta.username });
+          ctx.channel.broadcast('room-note', { text: payload.text, author: ctx.meta.username });
+        }),
+    ),
+  )
   .build();
 
 export type ReplayCustomClient = InferClient<typeof replayCustomHandler>;

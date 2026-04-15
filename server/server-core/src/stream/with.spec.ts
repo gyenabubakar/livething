@@ -1,5 +1,6 @@
 import { server } from '~/_builder/server-builder.ts';
 import { withAck } from '~/ack/with.ts';
+import { withChannels } from '~/channel/with.ts';
 import { event } from '~/event.ts';
 import { withStreams } from '~/stream/with.ts';
 import { describe, expect, it } from 'vitest';
@@ -128,5 +129,37 @@ describe('.stream() side-effect', () => {
 
     expect(def.primitives.some((p) => p.__wskit === 'stream')).toBe(true);
     expect(def.primitives.some((p) => p.__wskit === 'generate')).toBe(true);
+  });
+
+  it('works with ChannelBuilder', () => {
+    const base = withStreams(withChannels(server('chat'))).outgoing(message);
+    const def = base
+      .use(
+        base.channel('lobby', (c) =>
+          c.outgoing(message).stream(aiComplete, chunkSchema, (s) =>
+            s.generate(async function* (ctx, payload) {
+              ctx.channel.send('message', { text: 'streaming' });
+              ctx.channel.broadcast('message', { text: 'all' });
+              yield { token: payload.prompt };
+            }),
+          ),
+        ),
+      )
+      .build();
+
+    expect(def.primitives.some((p) => p.__wskit === 'channel')).toBe(true);
+  });
+
+  it('channel stream ctx rejects undeclared events', () => {
+    const base = withStreams(withChannels(server('chat')));
+    base.channel('lobby', (c) =>
+      c.outgoing(message).stream(aiComplete, chunkSchema, (s) =>
+        s.generate(async function* (ctx, payload) {
+          // @ts-expect-error — 'unknown-event' not declared in this channel
+          ctx.channel.send('unknown-event', {});
+          yield { token: payload.prompt };
+        }),
+      ),
+    );
   });
 });

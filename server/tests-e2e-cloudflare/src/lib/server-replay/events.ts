@@ -9,3 +9,4 @@ export const SendCursor = event('send-cursor', v.object({ x: v.number(), y: v.nu
 export const RoomMsg = event('room-msg', v.object({ text: v.string(), from: v.string() }));
 export const SendRoomMsg = event('send-room-msg', v.object({ text: v.string() }));
 export const RequestHistory = event('request-history', v.object({}));
+export const RequestRoomHistory = event('request-room-history', v.object({}));

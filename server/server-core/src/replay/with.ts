@@ -20,7 +20,7 @@ function replayImpl(
   return builder;
 }
 
-const KINDS = ['server', 'group'] as const;
+const KINDS = ['server', 'group', 'channel'] as const;
 
 export function withReplay<TState extends ScopeStateShape, TFeatures>(
   builder: ServerBuilderFull<TState, TFeatures>,
