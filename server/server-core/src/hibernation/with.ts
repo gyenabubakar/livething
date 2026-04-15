@@ -1,4 +1,4 @@
-import { applyFeature } from '~/_types/feature-methods.ts';
+import { applyFeature } from '~/_builder/apply-feature.ts';
 import { hibernation as createHibernation } from '~/hibernation/hibernation.ts';
 import type { BuilderInternals, ServerBuilderFull } from '~/_types/feature-methods.ts';
 import type { ScopeStateShape } from '~/_types/scope-state.ts';

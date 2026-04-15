@@ -1,4 +1,4 @@
-import { applyFeature } from '~/_types/feature-methods.ts';
+import { applyFeature } from '~/_builder/apply-feature.ts';
 import { NamespaceBuilder } from '~/namespace/builder.ts';
 import { namespace as createNamespace } from '~/namespace/namespace.ts';
 import type { ServerBuilder } from '~/_builder/server-builder.ts';

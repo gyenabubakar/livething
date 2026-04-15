@@ -1,4 +1,4 @@
-import { applyFeature } from '~/_types/feature-methods.ts';
+import { applyFeature } from '~/_builder/apply-feature.ts';
 import { ChannelBuilder } from '~/channel/builder.ts';
 import { channel as createChannel } from '~/channel/channel.ts';
 import type { ServerBuilder } from '~/_builder/server-builder.ts';
