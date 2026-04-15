@@ -1,9 +1,8 @@
-import '@wskit/server/channels';
-
+import { withChannels } from '@wskit/server/channels';
 import { base } from '../setup.ts';
 import { ChatMessage, SendChat } from './events.ts';
 
-export const chatChannel = base.channel('chat', (ch) =>
+export const chatChannel = withChannels(base).channel('chat', (ch) =>
   ch
     .outgoing(ChatMessage)
     .incoming(SendChat, (ctx, payload) => {

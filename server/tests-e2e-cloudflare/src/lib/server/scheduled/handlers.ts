@@ -1,9 +1,8 @@
-import '@wskit/server/scheduled';
-
+import { withScheduled } from '@wskit/server/scheduled';
 import { base } from '../setup.ts';
 import { CancelCleanup, ScheduleCleanup } from './events.ts';
 
-export const scheduledHandlers = base.group((g) =>
+export const scheduledHandlers = withScheduled(base).group((g) =>
   g
     .scheduled('cleanup', async (ctx) => {
       const cleaned = Math.floor(Math.random() * 50) + 1;

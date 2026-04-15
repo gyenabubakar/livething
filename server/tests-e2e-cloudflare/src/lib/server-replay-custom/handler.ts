@@ -1,15 +1,15 @@
 import { server } from '@wskit/server';
+import { withDedup } from '@wskit/server/dedup';
+import { RejectUpgrade } from '@wskit/server/errors';
+import { withLifecycle } from '@wskit/server/lifecycle';
+import { withReplayCustom } from '@wskit/server/replay/custom';
+import { withSequence } from '@wskit/server/sequence';
 import type { InferClient } from '@wskit/server';
-
-import '@wskit/server/dedup';
-import '@wskit/server/lifecycle';
-import '@wskit/server/replay/custom';
-import '@wskit/server/sequence';
-
-import { RejectUpgrade } from '@wskit/server/errors/symbols';
 import { AddNote, ConfirmedCount, GetConfirmedCount, Note } from './events.ts';
 
-export const replayCustomHandler = server<Env>('replay-custom-test')
+export const replayCustomHandler = withReplayCustom(
+  withLifecycle(withSequence(withDedup(server<Env>('replay-custom-test')))),
+)
   .sequence({ persist: true })
   .dedup()
   .outgoing(Note)

@@ -1,14 +1,7 @@
 import { server } from '@wskit/server';
-
-import '@wskit/server/ack';
-import '@wskit/server/dedup';
-import '@wskit/server/errors';
-import '@wskit/server/heartbeat';
-import '@wskit/server/hibernation';
-import '@wskit/server/lifecycle';
-import '@wskit/server/sequence';
-
-import { RejectUpgrade } from '@wskit/server/errors/symbols';
+import { RejectUpgrade, withErrors } from '@wskit/server/errors';
+import { withInfrastructure } from '@wskit/server/infrastructure';
+import { withLifecycle } from '@wskit/server/lifecycle';
 import {
   ConnectionInfoResult,
   ConnectionsByTagResult,
@@ -23,7 +16,7 @@ import { Forbidden, NotFound } from './errors.ts';
 import { CleanupCancelled, CleanupDone } from './scheduled/events.ts';
 import { KvResult, NotesList } from './storage/events.ts';
 
-export const base = server<Env>('e2e-test')
+export const base = withLifecycle(withErrors(withInfrastructure(server<Env>('e2e-test'))))
   .ack()
   .sequence()
   .dedup()

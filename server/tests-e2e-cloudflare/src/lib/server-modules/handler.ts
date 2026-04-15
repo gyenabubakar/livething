@@ -1,9 +1,7 @@
 import { server } from '@wskit/server';
+import { RejectUpgrade } from '@wskit/server/errors';
+import { withLifecycle } from '@wskit/server/lifecycle';
 import type { InferClient } from '@wskit/server';
-
-import '@wskit/server/lifecycle';
-
-import { RejectUpgrade } from '@wskit/server/errors/symbols';
 import { Drizzle } from './drizzle-module.ts';
 import {
   DeleteRecord,
@@ -20,7 +18,7 @@ import {
   SingleRecord,
 } from './events.ts';
 
-export const modulesHandler = server<Env>('modules-test')
+export const modulesHandler = withLifecycle(server<Env>('modules-test'))
   .outgoing(RecordInserted)
   .outgoing(RecordList)
   .outgoing(SingleRecord)

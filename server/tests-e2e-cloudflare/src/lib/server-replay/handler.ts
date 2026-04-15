@@ -1,15 +1,15 @@
 import { server } from '@wskit/server';
+import { withDedup } from '@wskit/server/dedup';
+import { RejectUpgrade } from '@wskit/server/errors';
+import { withLifecycle } from '@wskit/server/lifecycle';
+import { withReplay } from '@wskit/server/replay';
+import { withSequence } from '@wskit/server/sequence';
 import type { InferClient } from '@wskit/server';
-
-import '@wskit/server/dedup';
-import '@wskit/server/lifecycle';
-import '@wskit/server/replay';
-import '@wskit/server/sequence';
-
-import { RejectUpgrade } from '@wskit/server/errors/symbols';
 import { ChatMsg, Cursor, SendCursor, SendMsg } from './events.ts';
 
-export const replayHandler = server<Env>('replay-test')
+export const replayHandler = withReplay(
+  withLifecycle(withSequence(withDedup(server<Env>('replay-test')))),
+)
   .sequence({ persist: true })
   .dedup()
   .outgoing(ChatMsg)

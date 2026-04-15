@@ -1,7 +1,10 @@
-import '@wskit/server/intercept';
-
 import { event } from '@wskit/server';
-import { Block, Defer } from '@wskit/server/errors/symbols';
+import { withChannels } from '@wskit/server/channels';
+import { Block, Defer } from '@wskit/server/errors';
+import { withIntercept } from '@wskit/server/intercept';
+import { withRequests } from '@wskit/server/requests';
+import { withScheduled } from '@wskit/server/scheduled';
+import { withStreams } from '@wskit/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { aiNamespace } from './ai/namespace.ts';
@@ -31,7 +34,7 @@ const KickFromChannel = event(
   v.object({ channel: v.string(), tag: v.string() }),
 );
 
-export const handler = base
+export const handler = withStreams(withChannels(withScheduled(withRequests(withIntercept(base)))))
   .outgoing(DeferResult)
   .outgoing(BlockReply)
   .outgoing(BinaryEchoed)

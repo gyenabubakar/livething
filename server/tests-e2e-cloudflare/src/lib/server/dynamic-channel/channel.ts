@@ -1,10 +1,9 @@
-import '@wskit/server/channels';
-
 import { scope } from '@wskit/server';
+import { withChannels } from '@wskit/server/channels';
 import { base } from '../setup.ts';
 import { RoomMessage, RoomSend } from './events.ts';
 
-export const dynamicRoomChannel = base.channel(scope('rooms', /^room:.+$/), (ch) =>
+export const dynamicRoomChannel = withChannels(base).channel(scope('rooms', /^room:.+$/), (ch) =>
   ch
     .outgoing(RoomMessage)
     .incoming(RoomSend, (ctx, payload) => {

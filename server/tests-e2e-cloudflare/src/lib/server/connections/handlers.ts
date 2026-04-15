@@ -1,4 +1,4 @@
-import { Disconnect } from '@wskit/server/errors/symbols';
+import { Disconnect } from '@wskit/server/errors';
 import { base } from '../setup.ts';
 import {
   ForceDisconnect,

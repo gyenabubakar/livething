@@ -1,7 +1,6 @@
-import '@wskit/server/namespaces';
-import '@wskit/server/requests';
-import '@wskit/server/streams';
-
+import { withNamespaces } from '@wskit/server/namespaces';
+import { withRequests } from '@wskit/server/requests';
+import { withStreams } from '@wskit/server/streams';
 import { NotFound } from '../errors.ts';
 import { base } from '../setup.ts';
 import {
@@ -21,7 +20,7 @@ const FAKE_RESPONSE = 'The quick brown fox jumps over the lazy dog.';
 const FAKE_STREAM =
   'The quick brown fox jumps over the lazy dog. This is a fake AI response streamed token by token.';
 
-export const aiNamespace = base.namespace('ai', (ns) =>
+export const aiNamespace = withRequests(withStreams(withNamespaces(base))).namespace('ai', (ns) =>
   ns
     .outgoing(AiResponse)
     .incoming(AiSend, (ctx, payload) => {
