@@ -23,3 +23,6 @@ export const TriggerVacuum = event('trigger-vacuum', v.object({}));
 export const VacuumDone = event('drizzle-vacuum-done', v.object({ timestamp: v.number() }));
 export const GetOutgoingCount = event('get-outgoing-count', v.object({}));
 export const OutgoingCount = event('outgoing-count', v.object({ count: v.number() }));
+
+export const GetDisconnectCount = event('get-disconnect-count', v.object({}));
+export const DisconnectCount = event('disconnect-count', v.object({ count: v.number() }));

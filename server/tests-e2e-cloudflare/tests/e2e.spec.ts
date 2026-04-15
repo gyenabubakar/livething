@@ -294,6 +294,15 @@ test.describe('main handler', () => {
     expect(result).toMatch(/attempts:[3-9]/);
   });
 
+  test('scheduled dead-letter: always-fail task lands in DLQ (Gap 10)', async ({ page }) => {
+    await page.getByTestId('trigger-always-fail-btn').click();
+    await page.waitForTimeout(3000);
+    await page.getByTestId('query-dead-letter-btn').click();
+    await waitForText(page, 'dead-letter-result', /always-fail-task:attempts=/, 10_000);
+    const result = await page.getByTestId('dead-letter-result').textContent();
+    expect(result).toContain('permanent failure');
+  });
+
   // --- Channel post-intercept (Gap 17) ---
 
   test('channel post-intercept rewrites payload (Gap 17)', async ({ page }) => {
@@ -899,6 +908,48 @@ test.describe('replay-snapshot handler', () => {
     expect(replayCount).toBeLessThanOrEqual(5);
     expect(replayCount).toBeGreaterThan(0);
   });
+
+  test('reduce: multiple increments merge into accumulated total (Gap A)', async ({ page }) => {
+    await page.getByTestId('increment-counter-btn').click();
+    await page.waitForTimeout(300);
+    await page.getByTestId('increment-counter-btn2').click();
+    await page.waitForTimeout(300);
+    await page.getByTestId('increment-counter-btn').click();
+    await page.waitForTimeout(500);
+
+    await page.getByTestId('counter-replay-btn').click();
+    await page.waitForTimeout(1000);
+
+    const snapshots = await page.getByTestId('counter-snapshots').textContent();
+    const hitEntries = snapshots!.split(' | ').filter((s) => s.startsWith('hits:'));
+    expect(hitEntries).toHaveLength(1);
+    const total = Number(hitEntries[0]!.split(':')[1]);
+    expect(total).toBe(13);
+  });
+
+  test('maxAgeMs: old messages pruned after expiry (Gap B)', async ({ page }) => {
+    await page.getByTestId('age-test-btn').click();
+    await page.waitForTimeout(3000);
+
+    await page.evaluate(() => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      if (!ws) return;
+      ws.send(
+        JSON.stringify({
+          event: 'update-doc',
+          payload: { docId: 'age-fresh', title: 'fresh-message' },
+        }),
+      );
+    });
+    await page.waitForTimeout(500);
+
+    await page.getByTestId('replay-btn').click();
+    await page.waitForTimeout(1000);
+
+    const snapshots = await page.getByTestId('snapshots').textContent();
+    expect(snapshots).not.toContain('old-message');
+    expect(snapshots).toContain('fresh-message');
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -971,5 +1022,30 @@ test.describe('modules handler', () => {
 
     await page.getByTestId('outgoing-count-btn').click();
     await waitForText(page, 'outgoing-count', /outgoing: [1-9]/);
+  });
+
+  test('module onDisconnect increments counter (Gap E)', async ({ browser }) => {
+    const page1 = await browser.newPage();
+    const page2 = await browser.newPage();
+    await page1.goto('/modules');
+    await page2.goto('/modules');
+
+    await page1.getByTestId('username-input').fill('mod-user1');
+    await page1.getByTestId('connect-btn').click();
+    await waitForText(page1, 'status', 'connected');
+
+    await page2.getByTestId('username-input').fill('mod-user2');
+    await page2.getByTestId('connect-btn').click();
+    await waitForText(page2, 'status', 'connected');
+
+    await page2.getByTestId('disconnect-btn').click();
+    await waitForText(page2, 'status', 'disconnected');
+    await page1.waitForTimeout(500);
+
+    await page1.getByTestId('disconnect-count-btn').click();
+    await waitForText(page1, 'disconnect-count', /disconnects: [1-9]/);
+
+    await page1.close();
+    await page2.close();
   });
 });

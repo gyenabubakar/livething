@@ -5,7 +5,7 @@ import { withLifecycle } from '@wskit/server/lifecycle';
 import { withReplay } from '@wskit/server/replay';
 import { withSequence } from '@wskit/server/sequence';
 import type { InferClient } from '@wskit/server';
-import { DocSnapshot, UpdateDoc } from './events.ts';
+import { CounterSnapshot, DocSnapshot, IncrementCounter, UpdateDoc } from './events.ts';
 
 export const replaySnapshotHandler = withReplay(
   withLifecycle(withSequence(withDedup(server<Env>('replay-snapshot-test')))),
@@ -13,10 +13,19 @@ export const replaySnapshotHandler = withReplay(
   .sequence({ persist: true })
   .dedup()
   .outgoing(DocSnapshot)
+  .outgoing(CounterSnapshot)
   .replay('snapshot', (r) =>
     r
-      .snapshotKey((_ev, p) => String(p.docId))
-      .retention({ maxMessages: 5 })
+      .snapshotKey((_ev, p) => String(p.docId ?? p.key))
+      .reduce((prev, next) => {
+        if (next.event !== 'counter-snapshot') return next;
+        const prevTotal = prev?.event === 'counter-snapshot' ? (prev.payload.total as number) : 0;
+        return {
+          event: next.event,
+          payload: { ...next.payload, total: prevTotal + (next.payload.total as number) },
+        };
+      })
+      .retention({ maxMessages: 5, maxAgeMs: 2000 })
       .durability('best-effort'),
   )
   .onError((_ctx, error, event) => {
@@ -31,6 +40,10 @@ export const replaySnapshotHandler = withReplay(
   .incoming(UpdateDoc, (ctx, payload) => {
     ctx.send('doc-snapshot', { docId: payload.docId, title: payload.title });
     ctx.broadcast('doc-snapshot', { docId: payload.docId, title: payload.title });
+  })
+  .incoming(IncrementCounter, (ctx, payload) => {
+    ctx.send('counter-snapshot', { key: payload.key, total: payload.amount });
+    ctx.broadcast('counter-snapshot', { key: payload.key, total: payload.amount });
   })
   .build();
 

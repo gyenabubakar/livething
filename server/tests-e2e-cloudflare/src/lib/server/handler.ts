@@ -13,6 +13,7 @@ import { connectionHandlers } from './connections/handlers.ts';
 import { dynamicRoomChannel } from './dynamic-channel/channel.ts';
 import { Echo, GetTime, TimeResponseSchema } from './echo/events.ts';
 import { echoHandlers } from './echo/handlers.ts';
+import { DeadLetterResult } from './scheduled/events.ts';
 import { scheduledHandlers } from './scheduled/handlers.ts';
 import { base } from './setup.ts';
 import { storageHandlers } from './storage/handlers.ts';
@@ -36,6 +37,7 @@ const KickFromChannel = event(
 
 const SkipTest = event('skip-test', v.object({}));
 const SkipReply = event('skip-reply', v.object({ leaked: v.boolean() }));
+const QueryDeadLetter = event('query-dead-letter', v.object({}));
 const ManualValidation = event('manual-validation-test', v.object({ value: v.string() }));
 const AlwaysDefer = event('always-defer', v.object({}));
 const DeferExhaustedResult = event(
@@ -52,6 +54,7 @@ export const handler = withStreams(withChannels(withScheduled(withRequests(withI
   .outgoing(StreamCancelAck)
   .outgoing(SkipReply)
   .outgoing(DeferExhaustedResult)
+  .outgoing(DeadLetterResult)
 
   .onInit((ctx) => {
     ctx.sql.exec(`
@@ -147,6 +150,23 @@ export const handler = withStreams(withChannels(withScheduled(withRequests(withI
 
   .incoming(KickFromChannel, (ctx, payload) => {
     ctx.channels.kick(payload.channel, payload.tag, 'Kicked by admin');
+  })
+
+  .incoming(QueryDeadLetter, (ctx) => {
+    const rows = ctx.sql
+      .exec(
+        'SELECT taskId, attempts, error FROM _wskit_scheduled_dlq ORDER BY failedAt DESC LIMIT 1',
+      )
+      .toArray() as { taskId: string; attempts: number; error: string }[];
+    const row = rows[0];
+    if (row) {
+      const err = JSON.parse(row.error) as { message: string };
+      ctx.send('dead-letter-result', {
+        taskId: row.taskId,
+        attempts: row.attempts,
+        error: err.message,
+      });
+    }
   })
 
   .use(echoHandlers)

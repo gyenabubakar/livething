@@ -14,6 +14,7 @@
 	let messageCountResult = $state('');
 	let vacuumResult = $state('');
 	let outgoingCountResult = $state('');
+	let disconnectCountResult = $state('');
 
 	function connect() {
 		if (ws) return;
@@ -73,6 +74,9 @@
 					break;
 				case 'outgoing-count':
 					outgoingCountResult = `outgoing: ${payload.count}`;
+					break;
+				case 'disconnect-count':
+					disconnectCountResult = `disconnects: ${payload.count}`;
 					break;
 			}
 		};
@@ -155,8 +159,10 @@
 			onclick={() => send('get-outgoing-count', {})}
 			disabled={status !== 'connected'}>Get Outgoing Count</button
 		>
+		<button data-testid="disconnect-count-btn" onclick={() => send('get-disconnect-count', {})} disabled={status !== 'connected'}>Get Disconnect Count</button>
 		<div data-testid="vacuum-result">{vacuumResult}</div>
 		<div data-testid="outgoing-count">{outgoingCountResult}</div>
+		<div data-testid="disconnect-count">{disconnectCountResult}</div>
 	</section>
 
 	<section>

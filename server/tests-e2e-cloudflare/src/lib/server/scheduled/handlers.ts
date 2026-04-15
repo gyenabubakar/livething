@@ -1,6 +1,12 @@
 import { withScheduled } from '@wskit/server/scheduled';
 import { base } from '../setup.ts';
-import { CancelCleanup, ScheduleCleanup, StartHeartbeat, TriggerFlakyTask } from './events.ts';
+import {
+  CancelCleanup,
+  ScheduleCleanup,
+  StartHeartbeat,
+  TriggerAlwaysFail,
+  TriggerFlakyTask,
+} from './events.ts';
 
 let flakyAttempts = 0;
 
@@ -39,5 +45,15 @@ export const scheduledHandlers = withScheduled(base).group((g) =>
     })
     .incoming(TriggerFlakyTask, (ctx) => {
       ctx.schedule('flaky-task', { time: Date.now() + 100 });
+    })
+    .scheduled(
+      'always-fail-task',
+      async () => {
+        throw new Error('permanent failure');
+      },
+      { retry: [50, 100] },
+    )
+    .incoming(TriggerAlwaysFail, (ctx) => {
+      ctx.schedule('always-fail-task', { time: Date.now() + 100 });
     }),
 );

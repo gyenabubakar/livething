@@ -8,6 +8,10 @@
 	let replayCount = $state(0);
 	let replayRequested = $state(false);
 
+	let counterSnapshots = $state<string[]>([]);
+	let counterReplayCount = $state(0);
+	let ageTestResult = $state('');
+
 	function connect() {
 		if (ws) return;
 		status = 'connecting';
@@ -19,6 +23,7 @@
 
 		ws.onopen = () => {
 			status = 'connected';
+			(window as unknown as Record<string, unknown>).__ws = ws;
 		};
 		ws.onclose = () => {
 			status = 'disconnected';
@@ -44,6 +49,12 @@
 				if (replayRequested) {
 					replayCount++;
 					snapshots = [...snapshots, entry];
+				}
+			} else if (evt === 'counter-snapshot') {
+				const entry = `${payload.key}:${payload.total}`;
+				if (replayRequested) {
+					counterReplayCount++;
+					counterSnapshots = [...counterSnapshots, entry];
 				}
 			}
 		};
@@ -73,6 +84,22 @@
 		replayRequested = true;
 		ws?.send(JSON.stringify({ event: '_replay', payload: { since: 0 } }));
 	}
+
+	function incrementCounter(key: string, amount: number) {
+		send('increment-counter', { key, amount });
+	}
+
+	function requestReplayForCounters() {
+		counterReplayCount = 0;
+		counterSnapshots = [];
+		replayRequested = true;
+		ws?.send(JSON.stringify({ event: '_replay', payload: { since: 0 } }));
+	}
+
+	function testMaxAge() {
+		ageTestResult = '';
+		send('update-doc', { docId: 'age-test', title: 'old-message' });
+	}
 </script>
 
 <main>
@@ -100,6 +127,21 @@
 		<button data-testid="replay-btn" onclick={requestReplay} disabled={status !== 'connected'}>Request Replay</button>
 		<div data-testid="replay-count">{replayCount}</div>
 		<div data-testid="snapshots">{snapshots.join(' | ')}</div>
+	</section>
+
+	<section>
+		<h2>Reduce (Counter)</h2>
+		<button data-testid="increment-counter-btn" onclick={() => incrementCounter('hits', 5)} disabled={status !== 'connected'}>Increment +5</button>
+		<button data-testid="increment-counter-btn2" onclick={() => incrementCounter('hits', 3)} disabled={status !== 'connected'}>Increment +3</button>
+		<button data-testid="counter-replay-btn" onclick={requestReplayForCounters} disabled={status !== 'connected'}>Replay Counters</button>
+		<div data-testid="counter-snapshots">{counterSnapshots.join(' | ')}</div>
+		<div data-testid="counter-replay-count">{counterReplayCount}</div>
+	</section>
+
+	<section>
+		<h2>maxAgeMs Test</h2>
+		<button data-testid="age-test-btn" onclick={testMaxAge} disabled={status !== 'connected'}>Send Old Message</button>
+		<div data-testid="age-test-result">{ageTestResult}</div>
 	</section>
 </main>
 

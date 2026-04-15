@@ -18,6 +18,7 @@ export interface DrizzleApi {
   count(): number;
   getMessageCount(): number;
   getOutgoingCount(): number;
+  getDisconnectCount(): number;
 }
 
 export const Drizzle = defineModule<{ migrate: boolean }, DrizzleApi>({
@@ -32,6 +33,7 @@ export const Drizzle = defineModule<{ migrate: boolean }, DrizzleApi>({
     let db: DrizzleSqliteDODatabase<typeof schema>;
     let messageCount = 0;
     let outgoingCount = 0;
+    let disconnectCount = 0;
 
     hooks.onInit((ctx) => {
       db = drizzle((ctx.platform as Platform).ctx.storage, { schema });
@@ -52,8 +54,8 @@ export const Drizzle = defineModule<{ migrate: boolean }, DrizzleApi>({
       ctx.send('drizzle-ready', { tables: ['records'] });
     });
 
-    hooks.onDisconnect((ctx) => {
-      ctx.log.info('Drizzle module: client disconnected', { id: ctx.id });
+    hooks.onDisconnect((_ctx) => {
+      disconnectCount++;
     });
 
     hooks.onShutdown(() => {
@@ -98,6 +100,9 @@ export const Drizzle = defineModule<{ migrate: boolean }, DrizzleApi>({
       },
       getOutgoingCount() {
         return outgoingCount;
+      },
+      getDisconnectCount() {
+        return disconnectCount;
       },
     });
   },

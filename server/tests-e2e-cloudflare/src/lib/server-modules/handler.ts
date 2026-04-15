@@ -6,7 +6,9 @@ import type { InferClient } from '@wskit/server';
 import { Drizzle } from './drizzle-module.ts';
 import {
   DeleteRecord,
+  DisconnectCount,
   GetAllRecords,
+  GetDisconnectCount,
   GetMessageCount,
   GetOutgoingCount,
   GetRecord,
@@ -32,6 +34,7 @@ export const modulesHandler = withScheduled(withLifecycle(server<Env>('modules-t
   .outgoing(MessageCount)
   .outgoing(VacuumDone)
   .outgoing(OutgoingCount)
+  .outgoing(DisconnectCount)
   .use(Drizzle({ migrate: true }))
   .onUpgrade((request) => {
     const url = new URL(request.url);
@@ -73,6 +76,10 @@ export const modulesHandler = withScheduled(withLifecycle(server<Env>('modules-t
   .incoming(GetOutgoingCount, (ctx) => {
     const db = Drizzle.use(ctx);
     ctx.send('outgoing-count', { count: db.getOutgoingCount() });
+  })
+  .incoming(GetDisconnectCount, (ctx) => {
+    const db = Drizzle.use(ctx);
+    ctx.send('disconnect-count', { count: db.getDisconnectCount() });
   })
   .build();
 

@@ -55,6 +55,7 @@
 	let flakyTaskResult = $state('');
 	let broadcastStreamTokens = $state('');
 	let chatInfoResult = $state('');
+	let deadLetterResult = $state('');
 
 	const pendingRequests = new Map<string, (payload: Record<string, unknown>) => void>();
 
@@ -220,6 +221,9 @@
 					break;
 				case 'flaky-task-result':
 					flakyTaskResult = `attempts:${payload.attempts}`;
+					break;
+				case 'dead-letter-result':
+					deadLetterResult = `${payload.taskId}:attempts=${payload.attempts}:${payload.error}`;
 					break;
 				default:
 					if (payload?._namespace === 'ai') {
@@ -430,6 +434,14 @@
 		send('trigger-flaky-task', {});
 	}
 
+	function triggerAlwaysFail() {
+		deadLetterResult = '';
+		send('trigger-always-fail', {});
+	}
+	function queryDeadLetter() {
+		send('query-dead-letter', {});
+	}
+
 	function startBroadcastStream() {
 		broadcastStreamTokens = '';
 		send('broadcast-stream', { prompt: 'hello broadcast world', _namespace: 'ai' });
@@ -586,6 +598,13 @@
 		<button data-testid="trigger-flaky-btn" onclick={triggerFlakyTask} disabled={status !== 'connected'}>Trigger Flaky Task</button>
 		<div data-testid="heartbeat-count">{heartbeatCount}</div>
 		<div data-testid="flaky-task-result">{flakyTaskResult}</div>
+	</section>
+
+	<section>
+		<h2>Dead Letter Queue</h2>
+		<button data-testid="trigger-always-fail-btn" onclick={triggerAlwaysFail} disabled={status !== 'connected'}>Trigger Always Fail</button>
+		<button data-testid="query-dead-letter-btn" onclick={queryDeadLetter} disabled={status !== 'connected'}>Query Dead Letter</button>
+		<div data-testid="dead-letter-result">{deadLetterResult}</div>
 	</section>
 
 	<section>
