@@ -9,6 +9,7 @@ import {
 import { incoming as createIncoming } from '~/incoming/incoming.ts';
 import { outgoing as createOutgoing } from '~/outgoing/outgoing.ts';
 import type { GroupBuilder, ServerBuilder } from '~/_builder/server-builder.ts';
+import type { ChannelBuilderFull, FeatureApplicator } from '~/_types/feature-methods.ts';
 import type {
   HandlerCtxFromState,
   NextState,
@@ -63,6 +64,7 @@ export class ChannelBuilder<
   TParentState extends ScopeStateShape,
   TState extends ScopeStateShape = ChannelState<TParentState>,
   TPattern extends ChannelPattern = ChannelPattern,
+  TFeatures = {},
 > {
   /** @internal */
   readonly _parentBuilder: ServerBuilder<TParentState> | GroupBuilder<TParentState>;
@@ -72,6 +74,8 @@ export class ChannelBuilder<
   readonly _primitives: Primitive[] = [];
   /** @internal */
   readonly _pattern: TPattern;
+  /** @internal */
+  readonly _featureApplicators: FeatureApplicator[] = [];
 
   constructor(
     parentBuilder: ServerBuilder<TParentState> | GroupBuilder<TParentState>,
@@ -85,7 +89,12 @@ export class ChannelBuilder<
 
   outgoing<TEvent extends string, TPayload>(
     eventContract: EventContract<TEvent, TPayload>,
-  ): ChannelBuilder<TParentState, StateAfterOutgoing<TState, TEvent, TPayload>, TPattern> {
+  ): ChannelBuilderFull<
+    TParentState,
+    StateAfterOutgoing<TState, TEvent, TPayload>,
+    TPattern,
+    TFeatures
+  > {
     this._primitives.push(createOutgoing<TEvent, TPayload>(eventContract.event));
     return this as any;
   }
@@ -93,7 +102,12 @@ export class ChannelBuilder<
   incoming<TEvent extends string, TPayload>(
     eventContract: EventContract<TEvent, TPayload>,
     handler: (ctx: HandlerCtxFromState<TState>, payload: TPayload) => void | Promise<void>,
-  ): ChannelBuilder<TParentState, StateAfterIncoming<TState, TEvent, TPayload>, TPattern> {
+  ): ChannelBuilderFull<
+    TParentState,
+    StateAfterIncoming<TState, TEvent, TPayload>,
+    TPattern,
+    TFeatures
+  > {
     this._primitives.push(
       createIncoming(eventContract.event, handler as any, { validator: eventContract.schema }),
     );

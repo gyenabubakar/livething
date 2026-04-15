@@ -1,6 +1,7 @@
 export { WebSocketServer } from './lib/server/durable-object.ts';
 export { ReplayServer } from './lib/server-replay/durable-object.ts';
 export { ReplayCustomServer } from './lib/server-replay-custom/durable-object.ts';
+export { ReplaySnapshotServer } from './lib/server-replay-snapshot/durable-object.ts';
 export { ModulesServer } from './lib/server-modules/durable-object.ts';
 
 export default {
@@ -20,6 +21,11 @@ export default {
     if (url.pathname === '/ws/replay-custom') {
       const id = env.REPLAY_CUSTOM_SERVER.idFromName('default');
       return env.REPLAY_CUSTOM_SERVER.get(id).fetch(request);
+    }
+
+    if (url.pathname === '/ws/replay-snapshot') {
+      const id = env.REPLAY_SNAPSHOT_SERVER.idFromName('default');
+      return env.REPLAY_SNAPSHOT_SERVER.get(id).fetch(request);
     }
 
     if (url.pathname === '/ws/modules') {

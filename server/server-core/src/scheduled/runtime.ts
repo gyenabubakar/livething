@@ -61,9 +61,17 @@ const INSERT_SCHEDULED_DLQ_SQL = `
   ) VALUES (?, ?, ?, ?, ?, ?, ?)
 `;
 
-const RETRY_BACKOFF_MS = [1_000, 5_000, 25_000] as const;
+const DEFAULT_BACKOFF_MS: readonly number[] = [1_000, 5_000, 25_000];
 
-function toRetryFlag(value: unknown): boolean {
+function deserializeRetry(value: unknown): boolean | readonly number[] {
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) return parsed as number[];
+    } catch {
+      // fall through
+    }
+  }
   if (value === 0 || value === false) return false;
   return true;
 }
@@ -94,8 +102,10 @@ function dataMatchesFilter(data: unknown, filter?: Record<string, unknown>): boo
   return true;
 }
 
-function getRetryDelay(attempts: number): number | undefined {
-  return RETRY_BACKOFF_MS[attempts];
+function getRetryDelay(attempts: number, retry: boolean | readonly number[]): number | undefined {
+  if (retry === false) return undefined;
+  const schedule = Array.isArray(retry) ? retry : DEFAULT_BACKOFF_MS;
+  return schedule[attempts];
 }
 
 /**
@@ -121,7 +131,7 @@ function persistSchedulerState(runtime: ScheduledRuntimeAccess): void {
         run.every ?? null,
         run.attempts,
         run.recurring ? 1 : 0,
-        run.retry ? 1 : 0,
+        Array.isArray(run.retry) ? JSON.stringify(run.retry) : run.retry ? 1 : 0,
       );
     }
 
@@ -203,7 +213,7 @@ export function bootstrapScheduledRuntime(runtime: ScheduledRuntimeAccess): void
       every: row.everyMs == null ? undefined : Number(row.everyMs),
       attempts: row.attempts == null ? 0 : Number(row.attempts),
       recurring: row.recurring === 1 || row.recurring === true,
-      retry: toRetryFlag(row.retry),
+      retry: deserializeRetry(row.retry),
     });
   }
 
@@ -278,7 +288,7 @@ export async function handleScheduledAlarm(runtime: ScheduledRuntimeAccess): Pro
     }
 
     const nextAttempts = run.attempts + 1;
-    const retryDelay = run.retry ? getRetryDelay(run.attempts) : undefined;
+    const retryDelay = run.retry ? getRetryDelay(run.attempts, run.retry) : undefined;
 
     if (retryDelay !== undefined) {
       scheduledRuns.set(run.id, {

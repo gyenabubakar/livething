@@ -1,30 +1,37 @@
 import { server } from '@wskit/server';
 import { RejectUpgrade } from '@wskit/server/errors';
 import { withLifecycle } from '@wskit/server/lifecycle';
+import { withScheduled } from '@wskit/server/scheduled';
 import type { InferClient } from '@wskit/server';
 import { Drizzle } from './drizzle-module.ts';
 import {
   DeleteRecord,
   GetAllRecords,
   GetMessageCount,
+  GetOutgoingCount,
   GetRecord,
   GetRecordCount,
   InsertRecord,
   MessageCount,
+  OutgoingCount,
   RecordCount,
   RecordDeleted,
   RecordInserted,
   RecordList,
   SingleRecord,
+  TriggerVacuum,
+  VacuumDone,
 } from './events.ts';
 
-export const modulesHandler = withLifecycle(server<Env>('modules-test'))
+export const modulesHandler = withScheduled(withLifecycle(server<Env>('modules-test')))
   .outgoing(RecordInserted)
   .outgoing(RecordList)
   .outgoing(SingleRecord)
   .outgoing(RecordDeleted)
   .outgoing(RecordCount)
   .outgoing(MessageCount)
+  .outgoing(VacuumDone)
+  .outgoing(OutgoingCount)
   .use(Drizzle({ migrate: true }))
   .onUpgrade((request) => {
     const url = new URL(request.url);
@@ -59,6 +66,13 @@ export const modulesHandler = withLifecycle(server<Env>('modules-test'))
   .incoming(GetMessageCount, (ctx) => {
     const db = Drizzle.use(ctx);
     ctx.send('message-count', { count: db.getMessageCount() });
+  })
+  .incoming(TriggerVacuum, (ctx) => {
+    ctx.schedule('drizzle-vacuum', { time: Date.now() + 200 });
+  })
+  .incoming(GetOutgoingCount, (ctx) => {
+    const db = Drizzle.use(ctx);
+    ctx.send('outgoing-count', { count: db.getOutgoingCount() });
   })
   .build();
 

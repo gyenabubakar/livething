@@ -13,7 +13,12 @@ import {
 import { RoomMessage } from './dynamic-channel/events.ts';
 import { Echoed, UserJoined, UserLeft } from './echo/events.ts';
 import { Forbidden, NotFound } from './errors.ts';
-import { CleanupCancelled, CleanupDone } from './scheduled/events.ts';
+import {
+  CleanupCancelled,
+  CleanupDone,
+  FlakyTaskResult,
+  HeartbeatTick,
+} from './scheduled/events.ts';
 import { KvResult, NotesList } from './storage/events.ts';
 
 export const base = withLifecycle(withErrors(withInfrastructure(server<Env>('e2e-test'))))
@@ -37,6 +42,8 @@ export const base = withLifecycle(withErrors(withInfrastructure(server<Env>('e2e
   .outgoing(SendToConnectionResult)
   .outgoing(ConnectionsByTagResult)
   .outgoing(QualityResult)
+  .outgoing(HeartbeatTick)
+  .outgoing(FlakyTaskResult)
   .onUpgrade((request) => {
     const url = new URL(request.url);
     const username = url.searchParams.get('username');

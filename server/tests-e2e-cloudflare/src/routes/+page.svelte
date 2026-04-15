@@ -49,6 +49,13 @@
 	let qualityResult = $state('');
 	let streamOkReceived = $state(false);
 
+	let skipReply = $state('');
+	let deferExhaustedResult = $state('');
+	let heartbeatCount = $state(0);
+	let flakyTaskResult = $state('');
+	let broadcastStreamTokens = $state('');
+	let chatInfoResult = $state('');
+
 	const pendingRequests = new Map<string, (payload: Record<string, unknown>) => void>();
 
 	function connect() {
@@ -202,6 +209,18 @@
 				case 'channel-members':
 					channelMembersResult = `${payload.channel}:${payload.count}`;
 					break;
+				case 'skip-reply':
+					skipReply = `leaked:${payload.leaked}`;
+					break;
+				case 'defer-exhausted-result':
+					deferExhaustedResult = `${payload.event}:retries=${payload.retries}`;
+					break;
+				case 'heartbeat-tick':
+					heartbeatCount++;
+					break;
+				case 'flaky-task-result':
+					flakyTaskResult = `attempts:${payload.attempts}`;
+					break;
 				default:
 					if (payload?._namespace === 'ai') {
 						if (evt === 'response') {
@@ -212,6 +231,8 @@
 							aiStreamTokens += payload.token;
 						} else if (evt === 'stream-with-nudges') {
 							aiNudgeStreamTokens += payload.token;
+						} else if (evt === 'broadcast-stream') {
+							broadcastStreamTokens += payload.token;
 						}
 					}
 					break;
@@ -383,6 +404,44 @@
 	function sendSpeedUp(factor: number) {
 		send('speed-up', { factor, _namespace: 'ai' });
 	}
+
+	function sendSkipTest() {
+		skipReply = '';
+		send('skip-test', {});
+	}
+
+	function sendManualValidation() {
+		validationErrorResult = '';
+		send('manual-validation-test', { value: 'invalid' });
+	}
+
+	function sendAlwaysDefer() {
+		deferExhaustedResult = '';
+		send('always-defer', {});
+	}
+
+	function startHeartbeat() {
+		heartbeatCount = 0;
+		send('start-heartbeat', {});
+	}
+
+	function triggerFlakyTask() {
+		flakyTaskResult = '';
+		send('trigger-flaky-task', {});
+	}
+
+	function startBroadcastStream() {
+		broadcastStreamTokens = '';
+		send('broadcast-stream', { prompt: 'hello broadcast world', _namespace: 'ai' });
+	}
+
+	function requestChatInfo() {
+		const id = `corr_${++correlationCounter}`;
+		send('get-chat-info', { _correlationId: id, _channel: 'chat' });
+		pendingRequests.set(id, (payload) => {
+			chatInfoResult = `${payload.channel}:members=${payload.memberCount}`;
+		});
+	}
 </script>
 
 <main>
@@ -507,13 +566,38 @@
 	</section>
 
 	<section>
-		<h2>Validation / Defer / Block</h2>
+		<h2>Validation / Defer / Block / Skip</h2>
 		<button data-testid="validation-error-btn" onclick={sendInvalidMessage} disabled={status !== 'connected'}>Send Invalid</button>
 		<button data-testid="defer-btn" onclick={sendDefer} disabled={status !== 'connected'}>Send Defer</button>
 		<button data-testid="block-btn" onclick={sendBlock} disabled={status !== 'connected'}>Send Block</button>
+		<button data-testid="skip-btn" onclick={sendSkipTest} disabled={status !== 'connected'}>Send Skip</button>
+		<button data-testid="manual-validation-btn" onclick={sendManualValidation} disabled={status !== 'connected'}>Manual Validation</button>
+		<button data-testid="always-defer-btn" onclick={sendAlwaysDefer} disabled={status !== 'connected'}>Always Defer</button>
 		<div data-testid="validation-error-result">{validationErrorResult}</div>
 		<div data-testid="defer-result">{deferResult}</div>
 		<div data-testid="block-reply">{blockReply}</div>
+		<div data-testid="skip-reply">{skipReply}</div>
+		<div data-testid="defer-exhausted-result">{deferExhaustedResult}</div>
+	</section>
+
+	<section>
+		<h2>Scheduled Extras</h2>
+		<button data-testid="start-heartbeat-btn" onclick={startHeartbeat} disabled={status !== 'connected'}>Start Heartbeat</button>
+		<button data-testid="trigger-flaky-btn" onclick={triggerFlakyTask} disabled={status !== 'connected'}>Trigger Flaky Task</button>
+		<div data-testid="heartbeat-count">{heartbeatCount}</div>
+		<div data-testid="flaky-task-result">{flakyTaskResult}</div>
+	</section>
+
+	<section>
+		<h2>Broadcast Stream</h2>
+		<button data-testid="broadcast-stream-btn" onclick={startBroadcastStream} disabled={status !== 'connected'}>Start Broadcast Stream</button>
+		<div data-testid="broadcast-stream-tokens">{broadcastStreamTokens}</div>
+	</section>
+
+	<section>
+		<h2>Chat Request</h2>
+		<button data-testid="chat-info-btn" onclick={requestChatInfo} disabled={!chatSubscribed}>Get Chat Info</button>
+		<div data-testid="chat-info-result">{chatInfoResult}</div>
 	</section>
 
 	<section>

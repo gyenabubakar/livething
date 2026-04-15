@@ -17,6 +17,7 @@ export interface DrizzleApi {
   deleteById(id: number): boolean;
   count(): number;
   getMessageCount(): number;
+  getOutgoingCount(): number;
 }
 
 export const Drizzle = defineModule<{ migrate: boolean }, DrizzleApi>({
@@ -30,6 +31,7 @@ export const Drizzle = defineModule<{ migrate: boolean }, DrizzleApi>({
   setup(args, hooks) {
     let db: DrizzleSqliteDODatabase<typeof schema>;
     let messageCount = 0;
+    let outgoingCount = 0;
 
     hooks.onInit((ctx) => {
       db = drizzle((ctx.platform as Platform).ctx.storage, { schema });
@@ -64,6 +66,7 @@ export const Drizzle = defineModule<{ migrate: boolean }, DrizzleApi>({
     });
 
     hooks.onOutgoing((message) => {
+      outgoingCount++;
       return message;
     });
 
@@ -92,6 +95,9 @@ export const Drizzle = defineModule<{ migrate: boolean }, DrizzleApi>({
       },
       getMessageCount() {
         return messageCount;
+      },
+      getOutgoingCount() {
+        return outgoingCount;
       },
     });
   },

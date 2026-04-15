@@ -15,7 +15,7 @@ export interface ScheduledRun {
   every?: number;
   attempts: number;
   recurring: boolean;
-  retry: boolean;
+  retry: boolean | readonly number[];
 }
 
 /**

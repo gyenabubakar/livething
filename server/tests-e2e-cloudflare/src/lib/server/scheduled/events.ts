@@ -10,3 +10,8 @@ export const CleanupDone = event(
 );
 
 export const CleanupCancelled = event('cleanup-cancelled', v.object({ success: v.boolean() }));
+
+export const StartHeartbeat = event('start-heartbeat', v.object({}));
+export const HeartbeatTick = event('heartbeat-tick', v.object({ count: v.number() }));
+export const TriggerFlakyTask = event('trigger-flaky-task', v.object({}));
+export const FlakyTaskResult = event('flaky-task-result', v.object({ attempts: v.number() }));

@@ -27,7 +27,7 @@ class FakeSqlResult {
 function createScheduledRuntime(
   tasks: Array<{
     taskId: string;
-    options?: { every?: number; retry?: boolean };
+    options?: { every?: number; retry?: boolean | readonly number[] };
     handler?: (ctx: unknown, data: unknown) => void | Promise<void>;
   }> = [],
 ) {
@@ -292,5 +292,67 @@ describe('scheduled/runtime', () => {
 
     expect(withoutAlarmTimers.setTimeout).toHaveBeenCalledWith(expect.any(Function), 250);
     now.mockRestore();
+  });
+
+  it('retries with custom backoff schedule and dead-letters after exhausting it', async () => {
+    const handler = vi
+      .fn<(_: unknown, __: unknown) => Promise<void>>()
+      .mockRejectedValueOnce(new Error('fail-1'))
+      .mockRejectedValueOnce(new Error('fail-2'))
+      .mockRejectedValueOnce(new Error('fail-3'));
+    const { runtime, scheduledRuns, deadLetters } = createScheduledRuntime([
+      { taskId: 'quick', handler, options: { retry: [10, 20] } },
+    ]);
+    const now = vi.spyOn(Date, 'now');
+
+    scheduledRuns.set('run_1', {
+      id: 'run_1',
+      taskId: 'quick',
+      time: 0,
+      data: undefined,
+      attempts: 0,
+      recurring: false,
+      retry: [10, 20],
+    });
+
+    now.mockReturnValue(100);
+    await handleScheduledAlarm(runtime);
+    expect(scheduledRuns.get('run_1')?.time).toBe(110);
+    expect(scheduledRuns.get('run_1')?.attempts).toBe(1);
+
+    now.mockReturnValue(110);
+    await handleScheduledAlarm(runtime);
+    expect(scheduledRuns.get('run_1')?.time).toBe(130);
+    expect(scheduledRuns.get('run_1')?.attempts).toBe(2);
+
+    now.mockReturnValue(130);
+    await handleScheduledAlarm(runtime);
+    expect(scheduledRuns.has('run_1')).toBe(false);
+    expect(deadLetters.get('run_1')).toMatchObject({
+      taskId: 'quick',
+      attempts: 3,
+      error: { message: 'fail-3' },
+    });
+    now.mockRestore();
+  });
+
+  it('round-trips custom backoff through serialization', () => {
+    const { runtime, scheduledRuns, storageRows } = createScheduledRuntime([
+      { taskId: 'ser', options: { retry: [100, 200] } },
+    ]);
+
+    scheduleTaskRun(runtime, 'ser', 500, undefined);
+    const serialized = storageRows.scheduled[0];
+    expect(serialized?.retry).toBe('[100,200]');
+
+    scheduledRuns.clear();
+    storageRows.scheduled[0] = {
+      ...serialized!,
+      retry: '[100,200]',
+    };
+    bootstrapScheduledRuntime(runtime);
+
+    const restored = [...scheduledRuns.values()].find((r) => r.taskId === 'ser');
+    expect(restored?.retry).toEqual([100, 200]);
   });
 });

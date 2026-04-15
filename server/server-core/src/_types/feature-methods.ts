@@ -53,7 +53,7 @@ export interface BuilderInternals {
 
 export type FeatureApplicator = (
   target: BuilderInternals,
-  kind: 'server' | 'group' | 'namespace',
+  kind: 'server' | 'group' | 'namespace' | 'channel',
 ) => void;
 
 // ─── Builder kind ──────────────────────────────────────────
@@ -81,6 +81,14 @@ export type NamespaceBuilderFull<
   TFeatures,
 > = NamespaceBuilder<TParentState, TState, TName, TFeatures> &
   NamespaceFeatureMethods<TParentState, TState, TName, TFeatures>;
+
+export type ChannelBuilderFull<
+  TParentState extends ScopeStateShape,
+  TState extends ScopeStateShape,
+  TPattern extends ChannelPattern,
+  TFeatures,
+> = ChannelBuilder<TParentState, TState, TPattern, TFeatures> &
+  ChannelFeatureMethods<TParentState, TState, TPattern, TFeatures>;
 
 // ─── Kind → full builder resolver ──────────────────────────
 
@@ -339,7 +347,7 @@ type MethodType<
                                     validationError: unknown,
                                   ) => void | Promise<void>,
                                 ) => FullBuilder<TState, TFeatures, Kind>
-                              : // ── Intercept (2 overloads) ──────────────────────────
+                              : // ── Intercept (3 overloads) ──────────────────────────
                                 M extends 'intercept'
                                 ? ((
                                     handler: (
@@ -347,12 +355,22 @@ type MethodType<
                                       message: InterceptMessage,
                                     ) => InterceptMessage | void | Promise<InterceptMessage | void>,
                                   ) => FullBuilder<TState, TFeatures, Kind>) &
-                                    (<TEvent extends string>(
+                                    (<TEvent extends string & keyof TState['contract']['outgoing']>(
                                       event: TEvent,
                                       handler: (
                                         ctx: HandlerCtxFromState<TState>,
-                                        payload: any,
-                                      ) => any,
+                                        payload: TState['contract']['outgoing'][TEvent],
+                                      ) =>
+                                        | TState['contract']['outgoing'][TEvent]
+                                        | void
+                                        | Promise<TState['contract']['outgoing'][TEvent] | void>,
+                                    ) => FullBuilder<TState, TFeatures, Kind>) &
+                                    (<TEvent extends string, TPayload>(
+                                      event: EventContract<TEvent, TPayload>,
+                                      handler: (
+                                        ctx: HandlerCtxFromState<TState>,
+                                        payload: TPayload,
+                                      ) => TPayload | void | Promise<TPayload | void>,
                                     ) => FullBuilder<TState, TFeatures, Kind>)
                                 : // ── Scheduled (2 overloads) ──────────────────────────
                                   M extends 'scheduled'
@@ -385,12 +403,18 @@ type MethodType<
                                       >(
                                         pattern: TPattern,
                                         callback: (
-                                          builder: ChannelBuilder<
+                                          builder: ChannelBuilderFull<
                                             TState,
                                             ChannelState<TState>,
-                                            TPattern
+                                            TPattern,
+                                            TFeatures
                                           >,
-                                        ) => ChannelBuilder<TState, TChannelState, TPattern>,
+                                        ) => ChannelBuilderFull<
+                                          TState,
+                                          TChannelState,
+                                          TPattern,
+                                          TFeatures
+                                        >,
                                       ) => ChannelPrimitive<
                                         TPattern,
                                         readonly ChannelChild[],
@@ -678,6 +702,37 @@ type NsMethodType<
           StateWithStream<TState, TEvent, TPayload, TChunks, TNudges>,
           TName,
           TFeatures
+        >) &
+        (<
+          TEvent extends string,
+          TPayload,
+          TChunks,
+          TNudges extends readonly NudgeDeclaration[] = readonly [],
+        >(
+          eventContract: EventContract<TEvent, TPayload>,
+          chunkSchema: Validator<TChunks>,
+          options: { broadcast?: boolean },
+          callback: (
+            builder: StreamBuilder<
+              NamespaceBuilderFull<TParentState, TState, TName, TFeatures>,
+              TState,
+              TEvent,
+              TPayload,
+              TChunks
+            >,
+          ) => StreamBuilder<
+            NamespaceBuilderFull<TParentState, TState, TName, TFeatures>,
+            TState,
+            TEvent,
+            TPayload,
+            TChunks,
+            TNudges
+          >,
+        ) => NamespaceBuilderFull<
+          TParentState,
+          StateWithStream<TState, TEvent, TPayload, TChunks, TNudges>,
+          TName,
+          TFeatures
         >)
     : never;
 
@@ -688,4 +743,70 @@ export type NamespaceFeatureMethods<
   TFeatures,
 > = {
   [M in ActiveNsMethodKeys<TFeatures>]: NsMethodType<TParentState, TState, TName, TFeatures, M>;
+};
+
+// ─── Channel feature methods ──────────────────────────────
+
+type ChMethodFeatureMap = {
+  intercept: 'intercept';
+  request: 'requests';
+};
+
+type ActiveChMethodKeys<TFeatures> = {
+  [M in keyof ChMethodFeatureMap]: ChMethodFeatureMap[M] extends keyof TFeatures ? M : never;
+}[keyof ChMethodFeatureMap];
+
+type ChMethodType<
+  TParentState extends ScopeStateShape,
+  TState extends ScopeStateShape,
+  TPattern extends ChannelPattern,
+  TFeatures,
+  M extends string,
+> = M extends 'intercept'
+  ? ((
+      handler: (
+        ctx: HandlerCtxFromState<TState>,
+        message: InterceptMessage,
+      ) => InterceptMessage | void | Promise<InterceptMessage | void>,
+    ) => ChannelBuilderFull<TParentState, TState, TPattern, TFeatures>) &
+      (<TEvent extends string & keyof TState['contract']['outgoing']>(
+        event: TEvent,
+        handler: (
+          ctx: HandlerCtxFromState<TState>,
+          payload: TState['contract']['outgoing'][TEvent],
+        ) =>
+          | TState['contract']['outgoing'][TEvent]
+          | void
+          | Promise<TState['contract']['outgoing'][TEvent] | void>,
+      ) => ChannelBuilderFull<TParentState, TState, TPattern, TFeatures>) &
+      (<TEvent extends string, TPayload>(
+        event: EventContract<TEvent, TPayload>,
+        handler: (
+          ctx: HandlerCtxFromState<TState>,
+          payload: TPayload,
+        ) => TPayload | void | Promise<TPayload | void>,
+      ) => ChannelBuilderFull<TParentState, TState, TPattern, TFeatures>)
+  : M extends 'request'
+    ? <TEvent extends string, TPayload, TResponse>(
+        eventContract: EventContract<TEvent, TPayload>,
+        responseSchema: Validator<TResponse>,
+        handler: (
+          ctx: HandlerCtxFromState<TState> & RespondMethod<TResponse>,
+          payload: TPayload,
+        ) => void | Promise<void>,
+      ) => ChannelBuilderFull<
+        TParentState,
+        NextState<TState, RequestPrimitive<TEvent, TPayload, TResponse>>,
+        TPattern,
+        TFeatures
+      >
+    : never;
+
+export type ChannelFeatureMethods<
+  TParentState extends ScopeStateShape,
+  TState extends ScopeStateShape,
+  TPattern extends ChannelPattern,
+  TFeatures,
+> = {
+  [M in ActiveChMethodKeys<TFeatures>]: ChMethodType<TParentState, TState, TPattern, TFeatures, M>;
 };

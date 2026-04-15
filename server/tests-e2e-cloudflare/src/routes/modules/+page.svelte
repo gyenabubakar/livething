@@ -12,6 +12,8 @@
 	let dbConnected = $state(false);
 	let messageLog = $state<string[]>([]);
 	let messageCountResult = $state('');
+	let vacuumResult = $state('');
+	let outgoingCountResult = $state('');
 
 	function connect() {
 		if (ws) return;
@@ -65,6 +67,12 @@
 					break;
 				case 'message-count':
 					messageCountResult = `messages: ${payload.count}`;
+					break;
+				case 'drizzle-vacuum-done':
+					vacuumResult = `vacuum:${payload.timestamp}`;
+					break;
+				case 'outgoing-count':
+					outgoingCountResult = `outgoing: ${payload.count}`;
 					break;
 			}
 		};
@@ -133,6 +141,22 @@
 		<div data-testid="record-count">{recordCount}</div>
 		<div data-testid="delete-result">{deleteResult}</div>
 		<div data-testid="message-count">{messageCountResult}</div>
+	</section>
+
+	<section>
+		<h2>Module Extras</h2>
+		<button
+			data-testid="vacuum-btn"
+			onclick={() => send('trigger-vacuum', {})}
+			disabled={status !== 'connected'}>Trigger Vacuum</button
+		>
+		<button
+			data-testid="outgoing-count-btn"
+			onclick={() => send('get-outgoing-count', {})}
+			disabled={status !== 'connected'}>Get Outgoing Count</button
+		>
+		<div data-testid="vacuum-result">{vacuumResult}</div>
+		<div data-testid="outgoing-count">{outgoingCountResult}</div>
 	</section>
 
 	<section>

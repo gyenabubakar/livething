@@ -10,6 +10,11 @@
 	let rawLog = $state<string[]>([]);
 	let sinceValue = $state(0);
 	let cursorEvents = $state<string[]>([]);
+	let historyInjected = $state('');
+
+	let roomSubscribed = $state('');
+	let roomMessages = $state<string[]>([]);
+	let roomReplayCount = $state(0);
 
 	function connect() {
 		if (ws) return;
@@ -47,9 +52,15 @@
 				const text = `${payload.from}: ${payload.text}`;
 				messages = [...messages, text].slice(-50);
 				if (replayRequested) replayCount++;
+				if (payload.text === 'injected-history') historyInjected = 'true';
 			} else if (evt === 'cursor') {
 				cursorEvents = [...cursorEvents, `${payload.x},${payload.y}`].slice(-50);
-				if (replayRequested) replayCount++;
+			} else if (evt === 'room-msg') {
+				const text = `${payload.from}: ${payload.text}`;
+				roomMessages = [...roomMessages, text].slice(-50);
+				if (replayRequested) roomReplayCount++;
+			} else if (evt === '_subscribeOk') {
+				if (payload._channel === 'replay-room') roomSubscribed = 'subscribed';
 			}
 		};
 	}
@@ -58,18 +69,42 @@
 		ws?.close();
 	}
 
+	function send(event: string, payload: Record<string, unknown>) {
+		ws?.send(JSON.stringify({ event, payload }));
+	}
+
 	function sendMsg(text: string) {
-		ws?.send(JSON.stringify({ event: 'send-msg', payload: { text } }));
+		send('send-msg', { text });
 	}
 
 	function sendCursor(x: number, y: number) {
-		ws?.send(JSON.stringify({ event: 'send-cursor', payload: { x, y } }));
+		send('send-cursor', { x, y });
 	}
 
 	function requestReplay() {
 		replayCount = 0;
+		roomReplayCount = 0;
 		replayRequested = true;
 		ws?.send(JSON.stringify({ event: '_replay', payload: { since: sinceValue } }));
+	}
+
+	function joinRoom() {
+		send('_subscribe', { _channel: 'replay-room' });
+	}
+
+	function sendRoomMsg(text: string) {
+		send('send-room-msg', { text, _channel: 'replay-room' });
+	}
+
+	function requestRoomReplay() {
+		roomReplayCount = 0;
+		replayRequested = true;
+		ws?.send(JSON.stringify({ event: '_replay', payload: { since: 0, _channel: 'replay-room' } }));
+	}
+
+	function requestHistory() {
+		historyInjected = '';
+		send('request-history', {});
 	}
 </script>
 
@@ -98,6 +133,22 @@
 		<input data-testid="since-input" type="number" bind:value={sinceValue} />
 		<button data-testid="replay-btn" onclick={requestReplay} disabled={status !== 'connected'}>Request Replay</button>
 		<div data-testid="replay-count">{replayCount}</div>
+	</section>
+
+	<section>
+		<h2>Replay Room (Channel)</h2>
+		<button data-testid="room-join-btn" onclick={joinRoom} disabled={status !== 'connected'}>Join Room</button>
+		<button data-testid="room-send-btn" onclick={() => sendRoomMsg('room hello')} disabled={status !== 'connected'}>Send Room Msg</button>
+		<button data-testid="room-replay-btn" onclick={requestRoomReplay} disabled={status !== 'connected'}>Replay Room</button>
+		<div data-testid="room-subscribed">{roomSubscribed}</div>
+		<div data-testid="room-messages">{roomMessages.join(' | ')}</div>
+		<div data-testid="room-replay-count">{roomReplayCount}</div>
+	</section>
+
+	<section>
+		<h2>Programmatic sendReplay</h2>
+		<button data-testid="request-history-btn" onclick={requestHistory} disabled={status !== 'connected'}>Request History</button>
+		<div data-testid="history-injected">{historyInjected}</div>
 	</section>
 
 	<section>

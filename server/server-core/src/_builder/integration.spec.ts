@@ -584,3 +584,91 @@ describe('Integration: replay modes', () => {
     expect(findPrimitive(def.primitives, 'customReplay')).toBeDefined();
   });
 });
+
+describe('Integration: channel intercept and request', () => {
+  it('channel supports post-intercept with string event', () => {
+    const s = fullServer('chat').outgoing(roomMessage);
+    const ch = s.channel('room', (ch) =>
+      ch
+        .outgoing(roomMessage)
+        .incoming(roomSend, async (ctx, payload) => {
+          ctx.send('room-message', { text: payload.text, from: 'system' });
+        })
+        .intercept('room-send', (_ctx, payload) => {
+          return payload;
+        }),
+    );
+    const def = s.use(ch).build();
+    const channel = findPrimitive(def.primitives, 'channel');
+    const postIntercept = channel.primitives.find(
+      (p: any) => p.__wskit === 'intercept' && p.mode === 'post',
+    );
+    expect(postIntercept).toBeDefined();
+    expect(postIntercept.event).toBe('room-send');
+  });
+
+  it('channel supports pre-intercept', () => {
+    const s = fullServer('chat');
+    const ch = s.channel('room', (ch) =>
+      ch
+        .outgoing(roomMessage)
+        .incoming(roomSend, async () => {})
+        .intercept((_ctx, message) => message),
+    );
+    const def = s.use(ch).build();
+    const channel = findPrimitive(def.primitives, 'channel');
+    const preIntercept = channel.primitives.find(
+      (p: any) => p.__wskit === 'intercept' && p.mode === 'pre',
+    );
+    expect(preIntercept).toBeDefined();
+  });
+
+  it('channel supports request', () => {
+    const s = fullServer('chat');
+    const ch = s.channel('room', (ch) =>
+      ch.outgoing(roomMessage).request(ping, pongSchema, (ctx) => {
+        ctx.respond({ ts: 0, serverTs: Date.now() });
+      }),
+    );
+    const def = s.use(ch).build();
+    const channel = findPrimitive(def.primitives, 'channel');
+    const req = channel.primitives.find((p: any) => p.__wskit === 'request');
+    expect(req).toBeDefined();
+    expect(req.event).toBe('ping');
+  });
+
+  it('post-intercept accepts EventContract with typed payload', () => {
+    const s = fullServer('chat');
+    const ch = s.channel('room', (ch) =>
+      ch
+        .outgoing(roomMessage)
+        .incoming(roomSend, async (ctx, payload) => {
+          ctx.send('room-message', { text: payload.text, from: 'system' });
+        })
+        .intercept(roomSend, (_ctx, payload) => {
+          return { ...payload, text: payload.text.toUpperCase() };
+        }),
+    );
+    const def = s.use(ch).build();
+    const channel = findPrimitive(def.primitives, 'channel');
+    const postIntercept = channel.primitives.find(
+      (p: any) => p.__wskit === 'intercept' && p.mode === 'post',
+    );
+    expect(postIntercept).toBeDefined();
+    expect(postIntercept.event).toBe('room-send');
+  });
+
+  it('top-level post-intercept accepts EventContract', () => {
+    const def = fullServer('chat')
+      .incoming(sendMessage, async () => {})
+      .intercept(sendMessage, (_ctx, payload) => {
+        return { ...payload, text: payload.text.toUpperCase() };
+      })
+      .build();
+
+    const postIntercept = def.primitives.find(
+      (p: any) => p.__wskit === 'intercept' && p.mode === 'post',
+    );
+    expect(postIntercept).toBeDefined();
+  });
+});

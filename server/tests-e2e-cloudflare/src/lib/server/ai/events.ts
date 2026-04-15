@@ -15,3 +15,6 @@ export const NudgePause = event('pause', v.object({}));
 export const NudgeSpeedUp = event('speed-up', v.object({ factor: v.number() }));
 
 export const AiStreamError = event('stream-error', v.object({}));
+
+export const AiBroadcastStream = event('broadcast-stream', v.object({ prompt: v.string() }));
+export const BroadcastChunkSchema = v.object({ token: v.string() });

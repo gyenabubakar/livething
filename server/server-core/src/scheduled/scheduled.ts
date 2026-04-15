@@ -22,10 +22,16 @@ export interface ScheduledOptions<TData = unknown> {
   readonly every?: number;
 
   /**
-   * When `true`, failed task runs are retried with exponential backoff
-   * (1s, 5s, 25s) then dead-letter queue. Defaults to `true`.
+   * Controls retry behaviour for failed task runs.
+   *
+   * - `true` (default) — retries with the default backoff schedule
+   *   `[1_000, 5_000, 25_000]` ms, then dead-letters.
+   * - `false` — no retries; failures go straight to the dead-letter queue.
+   * - `number[]` — custom backoff schedule in milliseconds. The array length
+   *   determines the maximum number of retry attempts (e.g. `[50, 100]` means
+   *   retry at most twice with 50 ms and 100 ms delays).
    */
-  readonly retry?: boolean;
+  readonly retry?: boolean | readonly number[];
 }
 
 /**

@@ -4,12 +4,14 @@ import { withStreams } from '@wskit/server/streams';
 import { NotFound } from '../errors.ts';
 import { base } from '../setup.ts';
 import {
+  AiBroadcastStream,
   AiChunkSchema,
   AiResponse,
   AiSend,
   AiStreamError,
   AiStreamPrompt,
   AiStreamWithNudges,
+  BroadcastChunkSchema,
   GetModel,
   ModelResponseSchema,
   NudgePause,
@@ -63,6 +65,15 @@ export const aiNamespace = withRequests(withStreams(withNamespaces(base))).names
         yield { token: 'starting... ' };
         await new Promise((r) => setTimeout(r, 50));
         throw NotFound({ id: 'model-missing' });
+      }),
+    )
+    .stream(AiBroadcastStream, BroadcastChunkSchema, { broadcast: true }, (s) =>
+      s.generate(async function* (_ctx, payload) {
+        const words = payload.prompt.split(' ');
+        for (const word of words) {
+          yield { token: word + ' ' };
+          await new Promise((r) => setTimeout(r, 50));
+        }
       }),
     ),
 );

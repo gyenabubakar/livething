@@ -6,7 +6,7 @@ import type { EventContract } from '~/event.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { Validator } from '~/types.ts';
 
-const KINDS = ['server', 'group', 'namespace'] as const;
+const KINDS = ['server', 'group', 'namespace', 'channel'] as const;
 
 export function withRequests<TState extends ScopeStateShape, TFeatures>(
   builder: ServerBuilderFull<TState, TFeatures>,

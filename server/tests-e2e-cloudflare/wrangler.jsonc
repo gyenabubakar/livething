@@ -26,6 +26,10 @@
         "name": "MODULES_SERVER",
         "class_name": "ModulesServer",
       },
+      {
+        "name": "REPLAY_SNAPSHOT_SERVER",
+        "class_name": "ReplaySnapshotServer",
+      },
     ],
   },
   "migrations": [
@@ -40,6 +44,10 @@
     {
       "tag": "v3",
       "new_sqlite_classes": ["ReplayCustomServer"],
+    },
+    {
+      "tag": "v4",
+      "new_sqlite_classes": ["ReplaySnapshotServer"],
     },
   ],
 }

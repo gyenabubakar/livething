@@ -18,3 +18,8 @@ export const RecordCount = event('record-count', v.object({ count: v.number() })
 
 export const GetMessageCount = event('get-message-count', v.object({}));
 export const MessageCount = event('message-count', v.object({ count: v.number() }));
+
+export const TriggerVacuum = event('trigger-vacuum', v.object({}));
+export const VacuumDone = event('drizzle-vacuum-done', v.object({ timestamp: v.number() }));
+export const GetOutgoingCount = event('get-outgoing-count', v.object({}));
+export const OutgoingCount = event('outgoing-count', v.object({ count: v.number() }));

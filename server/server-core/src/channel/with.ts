@@ -22,6 +22,9 @@ export function withChannels<TState extends ScopeStateShape, TFeatures>(
         [],
         pattern,
       );
+      for (const apply of this._featureApplicators) {
+        apply(chBuilder, 'channel');
+      }
       callback(chBuilder);
       return (createChannel as (...args: unknown[]) => unknown)(pattern, ...chBuilder._primitives);
     };

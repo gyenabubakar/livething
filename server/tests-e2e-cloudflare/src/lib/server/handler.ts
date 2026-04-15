@@ -1,6 +1,6 @@
 import { event } from '@wskit/server';
 import { withChannels } from '@wskit/server/channels';
-import { Block, Defer } from '@wskit/server/errors';
+import { Block, Defer, DeferExhausted, Skip, ValidationFailed } from '@wskit/server/errors';
 import { withIntercept } from '@wskit/server/intercept';
 import { withRequests } from '@wskit/server/requests';
 import { withScheduled } from '@wskit/server/scheduled';
@@ -11,7 +11,7 @@ import { aiNamespace } from './ai/namespace.ts';
 import { chatChannel } from './chat/channel.ts';
 import { connectionHandlers } from './connections/handlers.ts';
 import { dynamicRoomChannel } from './dynamic-channel/channel.ts';
-import { GetTime, TimeResponseSchema } from './echo/events.ts';
+import { Echo, GetTime, TimeResponseSchema } from './echo/events.ts';
 import { echoHandlers } from './echo/handlers.ts';
 import { scheduledHandlers } from './scheduled/handlers.ts';
 import { base } from './setup.ts';
@@ -34,6 +34,15 @@ const KickFromChannel = event(
   v.object({ channel: v.string(), tag: v.string() }),
 );
 
+const SkipTest = event('skip-test', v.object({}));
+const SkipReply = event('skip-reply', v.object({ leaked: v.boolean() }));
+const ManualValidation = event('manual-validation-test', v.object({ value: v.string() }));
+const AlwaysDefer = event('always-defer', v.object({}));
+const DeferExhaustedResult = event(
+  'defer-exhausted-result',
+  v.object({ event: v.string(), retries: v.number() }),
+);
+
 export const handler = withStreams(withChannels(withScheduled(withRequests(withIntercept(base)))))
   .outgoing(DeferResult)
   .outgoing(BlockReply)
@@ -41,6 +50,8 @@ export const handler = withStreams(withChannels(withScheduled(withRequests(withI
   .outgoing(ValidationErrorFired)
   .outgoing(ChannelMembers)
   .outgoing(StreamCancelAck)
+  .outgoing(SkipReply)
+  .outgoing(DeferExhaustedResult)
 
   .onInit((ctx) => {
     ctx.sql.exec(`
@@ -68,8 +79,15 @@ export const handler = withStreams(withChannels(withScheduled(withRequests(withI
     ctx.log.info('Server shutting down', { connectionCount: ctx.connectionCount });
   })
 
-  .onError((_ctx, error, event) => {
-    console.error(`[wskit] error in ${event}:`, error);
+  .onError((ctx, error, evt) => {
+    if (DeferExhausted.matches(error)) {
+      ctx.send('defer-exhausted-result', {
+        event: evt ?? 'unknown',
+        retries: error.detail.retries,
+      });
+      return;
+    }
+    console.error(`[wskit] error in ${evt}:`, error);
   })
 
   .onBinary((ctx, data) => {
@@ -83,9 +101,10 @@ export const handler = withStreams(withChannels(withScheduled(withRequests(withI
 
   .intercept((_ctx, message) => {
     if (message.event === 'block-test') throw Block;
+    if (message.event === 'skip-test') throw Skip;
     return message;
   })
-  .intercept('echo', (_ctx, payload) => {
+  .intercept(Echo, (_ctx, payload) => {
     if (payload.text === 'intercept-rewrite') {
       return { ...payload, text: 'rewritten-by-intercept' };
     }
@@ -105,8 +124,20 @@ export const handler = withStreams(withChannels(withScheduled(withRequests(withI
     ctx.send('defer-result', { received: true });
   })
 
+  .incoming(AlwaysDefer, () => {
+    throw Defer(50);
+  })
+
   .incoming(BlockTest, (ctx) => {
     ctx.send('block-reply', { leaked: true });
+  })
+
+  .incoming(SkipTest, (ctx) => {
+    ctx.send('skip-reply', { leaked: true });
+  })
+
+  .incoming(ManualValidation, (_ctx, payload) => {
+    if (payload.value === 'invalid') throw ValidationFailed;
   })
 
   .incoming(GetChannelMembers, (ctx, payload) => {

@@ -195,7 +195,7 @@ test.describe('main handler', () => {
     await waitForText(page, 'status', 'disconnected', 10_000);
   });
 
-  // --- Validation / Defer / Block ---
+  // --- Validation / Defer / Block / Skip ---
 
   test('validation error fires onValidationError', async ({ page }) => {
     await page.getByTestId('validation-error-btn').click();
@@ -212,6 +212,21 @@ test.describe('main handler', () => {
     await page.waitForTimeout(500);
     const reply = await page.getByTestId('block-reply').textContent();
     expect(reply).toBe('');
+  });
+
+  test('skip: message passes through to handler (Gap 11)', async ({ page }) => {
+    await page.getByTestId('skip-btn').click();
+    await waitForText(page, 'skip-reply', /leaked:true/);
+  });
+
+  test('manual ValidationFailed triggers onValidationError (Gap 12)', async ({ page }) => {
+    await page.getByTestId('manual-validation-btn').click();
+    await waitForText(page, 'validation-error-result', /validation-error:manual-validation-test/);
+  });
+
+  test('DeferExhausted fires onError after retries exhaust (Gap 13)', async ({ page }) => {
+    await page.getByTestId('always-defer-btn').click();
+    await waitForText(page, 'defer-exhausted-result', /always-defer:retries=/, 15_000);
   });
 
   // --- Channel members + subscribe rejection ---
@@ -259,6 +274,50 @@ test.describe('main handler', () => {
     await page.getByTestId('ai-stream-btn').click();
     await waitForText(page, 'stream-ok-received', 'stream-ok');
     await waitForText(page, 'ai-stream-done', 'stream-done', 15_000);
+  });
+
+  // --- Scheduled every (Gap 9) ---
+
+  test('scheduled every: heartbeat fires repeatedly (Gap 9)', async ({ page }) => {
+    await page.getByTestId('start-heartbeat-btn').click();
+    await page.waitForTimeout(6000);
+    const count = Number(await page.getByTestId('heartbeat-count').textContent());
+    expect(count).toBeGreaterThanOrEqual(2);
+  });
+
+  // --- Scheduled retry with custom backoff (Gap 10) ---
+
+  test('scheduled retry: flaky task succeeds after retries (Gap 10)', async ({ page }) => {
+    await page.getByTestId('trigger-flaky-btn').click();
+    await waitForText(page, 'flaky-task-result', /attempts:/, 10_000);
+    const result = await page.getByTestId('flaky-task-result').textContent();
+    expect(result).toMatch(/attempts:[3-9]/);
+  });
+
+  // --- Channel post-intercept (Gap 17) ---
+
+  test('channel post-intercept rewrites payload (Gap 17)', async ({ page }) => {
+    await page.getByTestId('chat-join-btn').click();
+    await waitForText(page, 'chat-subscribed', 'subscribed');
+    await page.evaluate(() => {
+      const ws = (window as unknown as { __ws: WebSocket }).__ws;
+      ws?.send(
+        JSON.stringify({
+          event: 'send-chat',
+          payload: { text: 'intercept-channel-test', _channel: 'chat' },
+        }),
+      );
+    });
+    await waitForText(page, 'chat-messages', /channel-intercepted/);
+  });
+
+  // --- Channel request (Gap 18) ---
+
+  test('channel request: get-chat-info returns channel name (Gap 18)', async ({ page }) => {
+    await page.getByTestId('chat-join-btn').click();
+    await waitForText(page, 'chat-subscribed', 'subscribed');
+    await page.getByTestId('chat-info-btn').click();
+    await waitForText(page, 'chat-info-result', /chat:members=/);
   });
 
   // --- Scheduled: schedule then immediately cancel ---
@@ -328,7 +387,7 @@ test.describe('subscribe rejection', () => {
         setTimeout(() => resolve('timeout'), 5000);
       });
     });
-    expect(result).toMatch(/closed:\d+/);
+    expect(result).toBe('closed:4001');
   });
 });
 
@@ -540,6 +599,89 @@ test.describe('multi-client', () => {
     await page1.close();
     await page2.close();
   });
+
+  test('sendToConnection with stale ID does not crash (Gap 20)', async ({ browser }) => {
+    const page1 = await browser.newPage();
+    const page2 = await browser.newPage();
+    await page1.goto('/');
+    await page2.goto('/');
+
+    await page1.getByTestId('username-input').fill('user1');
+    await page1.getByTestId('connect-btn').click();
+    await waitForText(page1, 'status', 'connected');
+
+    await page2.getByTestId('username-input').fill('user2');
+    await page2.getByTestId('connect-btn').click();
+    await waitForText(page2, 'status', 'connected');
+
+    await page2.getByTestId('conn-info-btn').click();
+    await waitForText(page2, 'connection-info', /count:/);
+    const page2ConnId = await page2.getByTestId('connection-id').textContent();
+
+    await page2.getByTestId('disconnect-btn').click();
+    await waitForText(page2, 'status', 'disconnected');
+    await page1.waitForTimeout(500);
+
+    await page1.evaluate((staleId) => {
+      const ws = (window as unknown as { __ws: WebSocket }).__ws;
+      ws?.send(
+        JSON.stringify({
+          event: 'send-to-connection',
+          payload: { connectionId: staleId, text: 'hello ghost' },
+        }),
+      );
+    }, page2ConnId);
+
+    await page1.waitForTimeout(1000);
+    await expect(page1.getByTestId('status')).toHaveText('connected');
+
+    await page1.close();
+    await page2.close();
+  });
+
+  test('top-level broadcast reaches second client (Gap 21)', async ({ browser }) => {
+    const page1 = await browser.newPage();
+    const page2 = await browser.newPage();
+    await page1.goto('/');
+    await page2.goto('/');
+
+    await page1.getByTestId('username-input').fill('user1');
+    await page1.getByTestId('connect-btn').click();
+    await waitForText(page1, 'status', 'connected');
+
+    await page2.getByTestId('username-input').fill('user2');
+    await page2.getByTestId('connect-btn').click();
+    await waitForText(page2, 'status', 'connected');
+
+    await waitForText(page1, 'user-events', /joined: user2/);
+
+    await page2.getByTestId('disconnect-btn').click();
+    await waitForText(page1, 'user-events', /left: user2/, 15_000);
+
+    await page1.close();
+    await page2.close();
+  });
+
+  test('broadcast stream reaches second client (Gap 8)', async ({ browser }) => {
+    const page1 = await browser.newPage();
+    const page2 = await browser.newPage();
+    await page1.goto('/');
+    await page2.goto('/');
+
+    await page1.getByTestId('username-input').fill('user1');
+    await page1.getByTestId('connect-btn').click();
+    await waitForText(page1, 'status', 'connected');
+
+    await page2.getByTestId('username-input').fill('user2');
+    await page2.getByTestId('connect-btn').click();
+    await waitForText(page2, 'status', 'connected');
+
+    await page1.getByTestId('broadcast-stream-btn').click();
+    await waitForText(page2, 'broadcast-stream-tokens', /hello/, 15_000);
+
+    await page1.close();
+    await page2.close();
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -597,6 +739,50 @@ test.describe('replay handler', () => {
       ' | ',
     ).length;
     expect(cursorCountAfter).toBe(cursorCountBefore);
+  });
+
+  test('channel-scoped replay returns only channel messages (Gap 3)', async ({ page }) => {
+    await page.getByTestId('room-join-btn').click();
+    await waitForText(page, 'room-subscribed', 'subscribed');
+
+    await page.getByTestId('send-msg-btn').click();
+    await waitForText(page, 'messages', /hello from replay/);
+
+    await page.getByTestId('room-send-btn').click();
+    await waitForText(page, 'room-messages', /room hello/);
+
+    await page.getByTestId('room-replay-btn').click();
+    await page.waitForTimeout(1000);
+
+    const roomReplayCount = Number(await page.getByTestId('room-replay-count').textContent());
+    expect(roomReplayCount).toBeGreaterThan(0);
+  });
+
+  test('programmatic sendReplay delivers message (Gap 5)', async ({ page }) => {
+    await page.getByTestId('request-history-btn').click();
+    await waitForText(page, 'history-injected', 'true');
+  });
+
+  test('sequence persistence across reconnection (Gap 19)', async ({ page }) => {
+    await page.getByTestId('send-msg-btn').click();
+    await waitForText(page, 'messages', /hello from replay/);
+    await page.getByTestId('send-msg-btn').click();
+    await page.waitForTimeout(300);
+    await page.getByTestId('send-msg-btn').click();
+    await page.waitForTimeout(300);
+    const oldSeq = Number(await page.getByTestId('last-seq').textContent());
+    expect(oldSeq).toBeGreaterThan(0);
+
+    await page.getByTestId('disconnect-btn').click();
+    await waitForText(page, 'status', 'disconnected');
+    await page.getByTestId('connect-btn').click();
+    await waitForText(page, 'status', 'connected');
+
+    await page.getByTestId('send-msg-btn').click();
+    await waitForText(page, 'messages', /hello from replay/);
+    await page.waitForTimeout(300);
+    const newSeq = Number(await page.getByTestId('last-seq').textContent());
+    expect(newSeq).toBeGreaterThan(oldSeq);
   });
 
   test('replay from nonzero since', async ({ page }) => {
@@ -665,6 +851,57 @@ test.describe('custom replay handler', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════
+// Replay Snapshot Handler — /ws/replay-snapshot
+// ═══════════════════════════════════════════════════════════════
+
+test.describe('replay-snapshot handler', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/replay-snapshot');
+    await expect(page.getByTestId('status')).toHaveText('disconnected');
+    await page.getByTestId('connect-btn').click();
+    await waitForText(page, 'status', 'connected');
+  });
+
+  test('snapshot mode: only latest value per key replayed (Gap 1)', async ({ page }) => {
+    await page.getByTestId('update-doc-a-btn').click();
+    await page.waitForTimeout(300);
+    await page.getByTestId('update-doc-a2-btn').click();
+    await page.waitForTimeout(500);
+
+    await page.getByTestId('replay-btn').click();
+    await page.waitForTimeout(1000);
+
+    const snapshots = await page.getByTestId('snapshots').textContent();
+    const aEntries = snapshots!.split(' | ').filter((s) => s.startsWith('A:'));
+    expect(aEntries).toHaveLength(1);
+    expect(aEntries[0]).toBe('A:second-title');
+  });
+
+  test('best-effort durability: message replayable after async write (Gap 2)', async ({ page }) => {
+    await page.getByTestId('update-doc-b-btn').click();
+    await page.waitForTimeout(500);
+
+    await page.getByTestId('replay-btn').click();
+    await page.waitForTimeout(1000);
+
+    const snapshots = await page.getByTestId('snapshots').textContent();
+    expect(snapshots).toContain('B:doc-b-title');
+  });
+
+  test('retention pruning: maxMessages limits replayed snapshots (Gap 6)', async ({ page }) => {
+    await page.getByTestId('flood-btn').click();
+    await page.waitForTimeout(1000);
+
+    await page.getByTestId('replay-btn').click();
+    await page.waitForTimeout(1000);
+
+    const replayCount = Number(await page.getByTestId('replay-count').textContent());
+    expect(replayCount).toBeLessThanOrEqual(5);
+    expect(replayCount).toBeGreaterThan(0);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
 // Modules Handler — /ws/modules
 // ═══════════════════════════════════════════════════════════════
 
@@ -719,5 +956,20 @@ test.describe('modules handler', () => {
 
     await page.getByTestId('msg-count-btn').click();
     await waitForText(page, 'message-count', /messages: [3-9]|messages: \d{2,}/);
+  });
+
+  test('module scheduled task fires on trigger (Gap 14)', async ({ page }) => {
+    await waitForText(page, 'db-connected', 'db-ready');
+    await page.getByTestId('vacuum-btn').click();
+    await waitForText(page, 'vacuum-result', /vacuum:\d+/, 10_000);
+  });
+
+  test('module onOutgoing counts outgoing messages (Gap 15)', async ({ page }) => {
+    await waitForText(page, 'db-connected', 'db-ready');
+    await page.getByTestId('insert-btn').click();
+    await waitForText(page, 'insert-result', /id:/);
+
+    await page.getByTestId('outgoing-count-btn').click();
+    await waitForText(page, 'outgoing-count', /outgoing: [1-9]/);
   });
 });
