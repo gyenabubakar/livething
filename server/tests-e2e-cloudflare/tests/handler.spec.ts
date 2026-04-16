@@ -6,8 +6,9 @@ function waitForText(page: Page, testId: string, expected: string | RegExp, time
 }
 
 test.describe('main handler', () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto('/');
+  test.beforeEach(async ({ page }, testInfo) => {
+    const room = `test-${testInfo.testId}`;
+    await page.goto(`/?room=${room}`);
     await expect(page.getByTestId('status')).toHaveText('disconnected');
     await page.getByTestId('connect-btn').click();
     await waitForText(page, 'status', 'connected');
@@ -114,7 +115,7 @@ test.describe('main handler', () => {
 
   test('ai namespace: stream with nudge pause', async ({ page }) => {
     await page.getByTestId('ai-nudge-stream-btn').click();
-    await page.waitForTimeout(300);
+    await expect(page.getByTestId('ai-nudge-stream-tokens')).toHaveText(/.+/);
     await page.getByTestId('ai-nudge-pause-btn').click();
     await waitForText(page, 'ai-nudge-stream-done', 'nudge-stream-done', 10_000);
     const tokens = await page.getByTestId('ai-nudge-stream-tokens').textContent();
@@ -205,7 +206,8 @@ test.describe('main handler', () => {
 
   test('block: handler never runs, no block-reply received', async ({ page }) => {
     await page.getByTestId('block-btn').click();
-    await page.waitForTimeout(200);
+    await page.getByTestId('echo-btn').click();
+    await waitForText(page, 'echo-result', /hello world/);
     const reply = await page.getByTestId('block-reply').textContent();
     expect(reply).toBe('');
   });
@@ -259,7 +261,7 @@ test.describe('main handler', () => {
 
   test('ai namespace: stream speed-up nudge', async ({ page }) => {
     await page.getByTestId('ai-nudge-stream-btn').click();
-    await page.waitForTimeout(200);
+    await expect(page.getByTestId('ai-nudge-stream-tokens')).toHaveText(/.+/);
     await page.getByTestId('ai-speed-up-btn').click();
     await waitForText(page, 'ai-nudge-stream-done', 'nudge-stream-done', 15_000);
     const tokens = await page.getByTestId('ai-nudge-stream-tokens').textContent();
@@ -274,7 +276,8 @@ test.describe('main handler', () => {
 
   test('ai namespace: pre-intercept blocks message', async ({ page }) => {
     await page.getByTestId('ai-blocked-btn').click();
-    await page.waitForTimeout(200);
+    await page.getByTestId('echo-btn').click();
+    await waitForText(page, 'echo-result', /hello world/);
     const reply = await page.getByTestId('ai-blocked-reply').textContent();
     expect(reply).toBe('');
   });
@@ -283,9 +286,10 @@ test.describe('main handler', () => {
 
   test('scheduled every: heartbeat fires repeatedly', async ({ page }) => {
     await page.getByTestId('start-heartbeat-btn').click();
-    await page.waitForTimeout(6000);
-    const count = Number(await page.getByTestId('heartbeat-count').textContent());
-    expect(count).toBeGreaterThanOrEqual(2);
+    await expect(async () => {
+      const count = Number(await page.getByTestId('heartbeat-count').textContent());
+      expect(count).toBeGreaterThanOrEqual(2);
+    }).toPass({ timeout: 15_000 });
   });
 
   // --- Scheduled retry with custom backoff ---
@@ -299,9 +303,11 @@ test.describe('main handler', () => {
 
   test('scheduled dead-letter: always-fail task lands in DLQ', async ({ page }) => {
     await page.getByTestId('trigger-always-fail-btn').click();
-    await page.waitForTimeout(3000);
-    await page.getByTestId('query-dead-letter-btn').click();
-    await waitForText(page, 'dead-letter-result', /always-fail-task:attempts=/, 10_000);
+    await expect(async () => {
+      await page.getByTestId('query-dead-letter-btn').click();
+      const result = await page.getByTestId('dead-letter-result').textContent();
+      expect(result).toMatch(/always-fail-task:attempts=/);
+    }).toPass({ timeout: 10_000 });
     const result = await page.getByTestId('dead-letter-result').textContent();
     expect(result).toContain('permanent failure');
   });
@@ -354,7 +360,8 @@ test.describe('main handler', () => {
     });
     await page.getByTestId('cancel-cleanup-btn').click();
     await waitForText(page, 'cancel-result', 'cancelled');
-    await page.waitForTimeout(500);
+    await page.getByTestId('echo-btn').click();
+    await waitForText(page, 'echo-result', /hello world/);
     const result = await page.getByTestId('scheduled-result').textContent();
     expect(result).toBe('');
   });
@@ -363,12 +370,13 @@ test.describe('main handler', () => {
 
   test('stream cancel: client cancels mid-stream', async ({ page }) => {
     await page.getByTestId('ai-stream-btn').click();
-    await page.waitForTimeout(200);
+    await expect(page.getByTestId('ai-stream-tokens')).toHaveText(/.+/);
     await page.getByTestId('ai-stream-cancel-btn').click();
-    await page.waitForTimeout(200);
-    const tokens = await page.getByTestId('ai-stream-tokens').textContent();
-    expect(tokens!.length).toBeGreaterThan(0);
-    expect(tokens!.length).toBeLessThan(300);
+    await expect(async () => {
+      const tokens = await page.getByTestId('ai-stream-tokens').textContent();
+      expect(tokens!.length).toBeGreaterThan(0);
+      expect(tokens!.length).toBeLessThan(300);
+    }).toPass({ timeout: 5_000 });
   });
 
   // --- namespace-scoped post-intercept ---
@@ -395,7 +403,7 @@ test.describe('main handler', () => {
 
   test('stream cancel sends cancel ack', async ({ page }) => {
     await page.getByTestId('ai-nudge-stream-btn').click();
-    await page.waitForTimeout(300);
+    await expect(page.getByTestId('ai-nudge-stream-tokens')).toHaveText(/.+/);
     await page.getByTestId('ai-stream-cancel-btn').click();
     await waitForText(page, 'stream-cancel-result', 'cancelled');
   });
@@ -404,9 +412,12 @@ test.describe('main handler', () => {
 
   test('ai namespace: compose speed-up then pause in single stream', async ({ page }) => {
     await page.getByTestId('ai-nudge-stream-btn').click();
-    await page.waitForTimeout(200);
+    await expect(page.getByTestId('ai-nudge-stream-tokens')).toHaveText(/.+/);
     await page.getByTestId('ai-speed-up-btn').click();
-    await page.waitForTimeout(300);
+    await expect(async () => {
+      const tokens = await page.getByTestId('ai-nudge-stream-tokens').textContent();
+      expect(tokens!.length).toBeGreaterThan(5);
+    }).toPass({ timeout: 5_000 });
     await page.getByTestId('ai-nudge-pause-btn').click();
     await waitForText(page, 'ai-nudge-stream-done', 'nudge-stream-done', 10_000);
     const tokens = await page.getByTestId('ai-nudge-stream-tokens').textContent();
@@ -420,10 +431,9 @@ test.describe('main handler', () => {
       const ws = (window as unknown as { __ws: WebSocket }).__ws;
       ws?.send(JSON.stringify({ event: '_replay', payload: { since: 0 } }));
     });
-    await page.waitForTimeout(300);
-    await expect(page.getByTestId('status')).toHaveText('connected');
     await page.getByTestId('echo-btn').click();
     await waitForText(page, 'echo-result', /hello world/);
+    await expect(page.getByTestId('status')).toHaveText('connected');
   });
 
   // --- sendTo with empty tag ---
@@ -438,9 +448,8 @@ test.describe('main handler', () => {
         }),
       );
     });
-    await page.waitForTimeout(200);
-    await expect(page.getByTestId('status')).toHaveText('connected');
     await page.getByTestId('echo-btn').click();
     await waitForText(page, 'echo-result', /hello world/);
+    await expect(page.getByTestId('status')).toHaveText('connected');
   });
 });

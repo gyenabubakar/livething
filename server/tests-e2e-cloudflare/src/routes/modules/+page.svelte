@@ -20,8 +20,9 @@
 		if (ws) return;
 		status = 'connecting';
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+		const room = new URL(location.href).searchParams.get('room') ?? 'default';
 		ws = new WebSocket(
-			`${protocol}//${location.host}/ws/modules?username=${encodeURIComponent(username)}`,
+			`${protocol}//${location.host}/ws/modules?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
 
 		ws.onopen = () => {
@@ -84,6 +85,9 @@
 
 	function disconnect() {
 		ws?.close();
+		ws = null;
+		status = 'disconnected';
+		dbConnected = false;
 	}
 
 	function send(event: string, payload: Record<string, unknown> = {}) {

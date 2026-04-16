@@ -6,8 +6,9 @@ function waitForText(page: Page, testId: string, expected: string | RegExp, time
 }
 
 test.describe('replay-snapshot handler', () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto('/replay-snapshot');
+  test.beforeEach(async ({ page }, testInfo) => {
+    const room = `test-${testInfo.testId}`;
+    await page.goto(`/replay-snapshot?room=${room}`);
     await expect(page.getByTestId('status')).toHaveText('disconnected');
     await page.getByTestId('connect-btn').click();
     await waitForText(page, 'status', 'connected');
@@ -15,64 +16,52 @@ test.describe('replay-snapshot handler', () => {
 
   test('snapshot mode: only latest value per key replayed', async ({ page }) => {
     await page.getByTestId('update-doc-a-btn').click();
-    await page.waitForTimeout(200);
     await page.getByTestId('update-doc-a2-btn').click();
-    await page.waitForTimeout(200);
-
     await page.getByTestId('replay-btn').click();
-    await page.waitForTimeout(500);
-
-    const snapshots = await page.getByTestId('snapshots').textContent();
-    const aEntries = snapshots!.split(' | ').filter((s) => s.startsWith('A:'));
-    expect(aEntries).toHaveLength(1);
-    expect(aEntries[0]).toBe('A:second-title');
+    await expect(async () => {
+      const snapshots = await page.getByTestId('snapshots').textContent();
+      const aEntries = snapshots!.split(' | ').filter((s) => s.startsWith('A:'));
+      expect(aEntries).toHaveLength(1);
+      expect(aEntries[0]).toBe('A:second-title');
+    }).toPass({ timeout: 5_000 });
   });
 
   test('best-effort durability: message replayable after async write', async ({ page }) => {
     await page.getByTestId('update-doc-b-btn').click();
-    await page.waitForTimeout(200);
-
     await page.getByTestId('replay-btn').click();
-    await page.waitForTimeout(500);
-
-    const snapshots = await page.getByTestId('snapshots').textContent();
-    expect(snapshots).toContain('B:doc-b-title');
+    await expect(async () => {
+      const snapshots = await page.getByTestId('snapshots').textContent();
+      expect(snapshots).toContain('B:doc-b-title');
+    }).toPass({ timeout: 5_000 });
   });
 
   test('retention pruning: maxMessages limits replayed snapshots', async ({ page }) => {
     await page.getByTestId('flood-btn').click();
-    await page.waitForTimeout(500);
-
-    await page.getByTestId('replay-btn').click();
-    await page.waitForTimeout(500);
-
-    const replayCount = Number(await page.getByTestId('replay-count').textContent());
-    expect(replayCount).toBeLessThanOrEqual(5);
-    expect(replayCount).toBeGreaterThan(0);
+    await expect(async () => {
+      await page.getByTestId('replay-btn').click();
+      await expect(page.getByTestId('replay-count')).not.toHaveText('0', { timeout: 500 });
+      const replayCount = Number(await page.getByTestId('replay-count').textContent());
+      expect(replayCount).toBeLessThanOrEqual(5);
+    }).toPass({ timeout: 10_000 });
   });
 
   test('reduce: multiple increments merge into accumulated total', async ({ page }) => {
     await page.getByTestId('increment-counter-btn').click();
-    await page.waitForTimeout(200);
     await page.getByTestId('increment-counter-btn2').click();
-    await page.waitForTimeout(200);
     await page.getByTestId('increment-counter-btn').click();
-    await page.waitForTimeout(200);
-
     await page.getByTestId('counter-replay-btn').click();
-    await page.waitForTimeout(500);
-
-    const snapshots = await page.getByTestId('counter-snapshots').textContent();
-    const hitEntries = snapshots!.split(' | ').filter((s) => s.startsWith('hits:'));
-    expect(hitEntries).toHaveLength(1);
-    const total = Number(hitEntries[0]!.split(':')[1]);
-    expect(total).toBe(13);
+    await expect(async () => {
+      const snapshots = await page.getByTestId('counter-snapshots').textContent();
+      const hitEntries = snapshots!.split(' | ').filter((s) => s.startsWith('hits:'));
+      expect(hitEntries).toHaveLength(1);
+      const total = Number(hitEntries[0]!.split(':')[1]);
+      expect(total).toBe(13);
+    }).toPass({ timeout: 5_000 });
   });
 
   test('maxAgeMs: old messages pruned after expiry', async ({ page }) => {
     await page.getByTestId('age-test-btn').click();
     await page.waitForTimeout(3000);
-
     await page.evaluate(() => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       if (!ws) return;
@@ -83,13 +72,11 @@ test.describe('replay-snapshot handler', () => {
         }),
       );
     });
-    await page.waitForTimeout(200);
-
     await page.getByTestId('replay-btn').click();
-    await page.waitForTimeout(500);
-
-    const snapshots = await page.getByTestId('snapshots').textContent();
-    expect(snapshots).not.toContain('old-message');
-    expect(snapshots).toContain('fresh-message');
+    await expect(async () => {
+      const snapshots = await page.getByTestId('snapshots').textContent();
+      expect(snapshots).not.toContain('old-message');
+      expect(snapshots).toContain('fresh-message');
+    }).toPass({ timeout: 5_000 });
   });
 });

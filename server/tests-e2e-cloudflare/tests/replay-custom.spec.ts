@@ -6,8 +6,9 @@ function waitForText(page: Page, testId: string, expected: string | RegExp, time
 }
 
 test.describe('custom replay handler', () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto('/replay-custom');
+  test.beforeEach(async ({ page }, testInfo) => {
+    const room = `test-${testInfo.testId}`;
+    await page.goto(`/replay-custom?room=${room}`);
     await expect(page.getByTestId('status')).toHaveText('disconnected');
     await page.getByTestId('connect-btn').click();
     await waitForText(page, 'status', 'connected');
@@ -24,9 +25,10 @@ test.describe('custom replay handler', () => {
 
     const beforeCount = (await page.getByTestId('notes').textContent())!.split(' | ').length;
     await page.getByTestId('replay-btn').click();
-    await page.waitForTimeout(500);
-    const afterCount = (await page.getByTestId('notes').textContent())!.split(' | ').length;
-    expect(afterCount).toBeGreaterThan(beforeCount);
+    await expect(async () => {
+      const afterCount = (await page.getByTestId('notes').textContent())!.split(' | ').length;
+      expect(afterCount).toBeGreaterThan(beforeCount);
+    }).toPass({ timeout: 5_000 });
   });
 
   test('channel-scoped custom replay returns channel messages', async ({ page }) => {
@@ -40,16 +42,15 @@ test.describe('custom replay handler', () => {
     await waitForText(page, 'room-notes', /channel replay note/);
 
     await page.getByTestId('room-replay-btn').click();
-    await page.waitForTimeout(500);
-
-    const roomReplayCount = Number(await page.getByTestId('room-replay-count').textContent());
-    expect(roomReplayCount).toBeGreaterThan(0);
+    await expect(async () => {
+      const roomReplayCount = Number(await page.getByTestId('room-replay-count').textContent());
+      expect(roomReplayCount).toBeGreaterThan(0);
+    }).toPass({ timeout: 5_000 });
   });
 
   test('onAfterSend marks messages as confirmed', async ({ page }) => {
     await page.getByTestId('add-note-btn').click();
     await waitForText(page, 'notes', /custom replay note/);
-    await page.waitForTimeout(200);
 
     await page.getByTestId('confirmed-btn').click();
     await waitForText(page, 'confirmed-result', /total:\d+,confirmed:\d+/);

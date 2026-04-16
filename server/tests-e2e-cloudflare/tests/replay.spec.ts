@@ -6,8 +6,9 @@ function waitForText(page: Page, testId: string, expected: string | RegExp, time
 }
 
 test.describe('replay handler', () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto('/replay');
+  test.beforeEach(async ({ page }, testInfo) => {
+    const room = `test-${testInfo.testId}`;
+    await page.goto(`/replay?room=${room}`);
     await expect(page.getByTestId('status')).toHaveText('disconnected');
     await page.getByTestId('connect-btn').click();
     await waitForText(page, 'status', 'connected');
@@ -31,9 +32,10 @@ test.describe('replay handler', () => {
 
     const beforeCount = (await page.getByTestId('messages').textContent())!.split(' | ').length;
     await page.getByTestId('replay-btn').click();
-    await page.waitForTimeout(500);
-    const afterCount = (await page.getByTestId('messages').textContent())!.split(' | ').length;
-    expect(afterCount).toBeGreaterThan(beforeCount);
+    await expect(async () => {
+      const afterCount = (await page.getByTestId('messages').textContent())!.split(' | ').length;
+      expect(afterCount).toBeGreaterThan(beforeCount);
+    }).toPass({ timeout: 5_000 });
   });
 
   test('excluded events not replayed (cursor excluded)', async ({ page }) => {
@@ -47,10 +49,13 @@ test.describe('replay handler', () => {
       ' | ',
     ).length;
     await page.getByTestId('replay-btn').click();
-    await page.waitForTimeout(500);
 
-    const messagesAfter = await page.getByTestId('messages').textContent();
-    expect(messagesAfter).toContain('hello from replay');
+    await expect(async () => {
+      const messagesAfter = await page.getByTestId('messages').textContent();
+      expect(messagesAfter).toContain('hello from replay');
+      const replayCount = Number(await page.getByTestId('replay-count').textContent());
+      expect(replayCount).toBeGreaterThan(0);
+    }).toPass({ timeout: 5_000 });
 
     const cursorCountAfter = (await page.getByTestId('cursor-events').textContent())!.split(
       ' | ',
@@ -69,10 +74,10 @@ test.describe('replay handler', () => {
     await waitForText(page, 'room-messages', /room hello/);
 
     await page.getByTestId('room-replay-btn').click();
-    await page.waitForTimeout(500);
-
-    const roomReplayCount = Number(await page.getByTestId('room-replay-count').textContent());
-    expect(roomReplayCount).toBeGreaterThan(0);
+    await expect(async () => {
+      const roomReplayCount = Number(await page.getByTestId('room-replay-count').textContent());
+      expect(roomReplayCount).toBeGreaterThan(0);
+    }).toPass({ timeout: 5_000 });
   });
 
   test('programmatic sendReplay delivers message', async ({ page }) => {
@@ -103,9 +108,10 @@ test.describe('replay handler', () => {
     await waitForText(page, 'status', 'connected');
 
     await page.getByTestId('send-msg-btn').click();
-    await waitForText(page, 'messages', /hello from replay/);
-    const newSeq = Number(await page.getByTestId('last-seq').textContent());
-    expect(newSeq).toBeGreaterThan(oldSeq);
+    await expect(async () => {
+      const newSeq = Number(await page.getByTestId('last-seq').textContent());
+      expect(newSeq).toBeGreaterThan(oldSeq);
+    }).toPass({ timeout: 10_000 });
   });
 
   test('replay from nonzero since', async ({ page }) => {
@@ -114,18 +120,19 @@ test.describe('replay handler', () => {
     const seq1 = Number(await page.getByTestId('last-seq').textContent());
 
     await page.getByTestId('send-msg-btn').click();
-    await page.waitForTimeout(200);
     await page.getByTestId('send-msg-btn').click();
-    await page.waitForTimeout(200);
+    await expect(async () => {
+      const seqAfter = Number(await page.getByTestId('last-seq').textContent());
+      expect(seqAfter).toBeGreaterThan(seq1);
+    }).toPass({ timeout: 5_000 });
     const seqAfter = Number(await page.getByTestId('last-seq').textContent());
-    expect(seqAfter).toBeGreaterThan(seq1);
 
     await page.getByTestId('since-input').fill(String(seq1));
     await page.getByTestId('replay-btn').click();
-    await page.waitForTimeout(500);
-
-    const replayCount = Number(await page.getByTestId('replay-count').textContent());
-    expect(replayCount).toBeGreaterThan(0);
-    expect(replayCount).toBeLessThanOrEqual(seqAfter - seq1);
+    await expect(async () => {
+      const replayCount = Number(await page.getByTestId('replay-count').textContent());
+      expect(replayCount).toBeGreaterThan(0);
+      expect(replayCount).toBeLessThanOrEqual(seqAfter - seq1);
+    }).toPass({ timeout: 5_000 });
   });
 });

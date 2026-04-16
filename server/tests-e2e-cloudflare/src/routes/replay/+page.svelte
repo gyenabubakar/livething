@@ -22,8 +22,9 @@
 		status = 'connecting';
 		replayRequested = false;
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+		const room = new URL(location.href).searchParams.get('room') ?? 'default';
 		ws = new WebSocket(
-			`${protocol}//${location.host}/ws/replay?username=${encodeURIComponent(username)}`,
+			`${protocol}//${location.host}/ws/replay?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
 
 		ws.onopen = () => {

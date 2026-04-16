@@ -6,8 +6,9 @@ function waitForText(page: Page, testId: string, expected: string | RegExp, time
 }
 
 test.describe('modules handler', () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto('/modules');
+  test.beforeEach(async ({ page }, testInfo) => {
+    const room = `test-${testInfo.testId}`;
+    await page.goto(`/modules?room=${room}`);
     await expect(page.getByTestId('status')).toHaveText('disconnected');
     await page.getByTestId('connect-btn').click();
     await waitForText(page, 'status', 'connected');
@@ -73,11 +74,12 @@ test.describe('modules handler', () => {
     await waitForText(page, 'outgoing-count', /outgoing: [1-9]/);
   });
 
-  test('module onDisconnect increments counter', async ({ browser }) => {
+  test('module onDisconnect increments counter', async ({ browser }, testInfo) => {
+    const room = `multi-${testInfo.testId}`;
     const page1 = await browser.newPage();
     const page2 = await browser.newPage();
-    await page1.goto('/modules');
-    await page2.goto('/modules');
+    await page1.goto(`/modules?room=${room}`);
+    await page2.goto(`/modules?room=${room}`);
 
     await page1.getByTestId('username-input').fill('mod-user1');
     await page1.getByTestId('connect-btn').click();
@@ -87,11 +89,8 @@ test.describe('modules handler', () => {
     await page2.getByTestId('connect-btn').click();
     await waitForText(page2, 'status', 'connected');
 
-    await page2.evaluate(() => {
-      const ws = (window as unknown as { __ws: WebSocket }).__ws;
-      ws?.close();
-    });
-    await page1.waitForTimeout(500);
+    await page2.getByTestId('disconnect-btn').click();
+    await waitForText(page2, 'status', 'disconnected');
 
     await page1.getByTestId('disconnect-count-btn').click();
     await waitForText(page1, 'disconnect-count', /disconnects: [1-9]/);

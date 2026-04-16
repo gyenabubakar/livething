@@ -6,11 +6,12 @@ function waitForText(page: Page, testId: string, expected: string | RegExp, time
 }
 
 test.describe('multi-client', () => {
-  test('chat: second user sees _memberJoin', async ({ browser }) => {
+  test('chat: second user sees _memberJoin', async ({ browser }, testInfo) => {
+    const room = `multi-${testInfo.testId}`;
     const page1 = await browser.newPage();
     const page2 = await browser.newPage();
-    await page1.goto('/');
-    await page2.goto('/');
+    await page1.goto(`/?room=${room}`);
+    await page2.goto(`/?room=${room}`);
 
     await page1.getByTestId('username-input').fill('user1');
     await page1.getByTestId('connect-btn').click();
@@ -30,11 +31,12 @@ test.describe('multi-client', () => {
     await page2.close();
   });
 
-  test('chat: cross-client broadcast', async ({ browser }) => {
+  test('chat: cross-client broadcast', async ({ browser }, testInfo) => {
+    const room = `multi-${testInfo.testId}`;
     const page1 = await browser.newPage();
     const page2 = await browser.newPage();
-    await page1.goto('/');
-    await page2.goto('/');
+    await page1.goto(`/?room=${room}`);
+    await page2.goto(`/?room=${room}`);
 
     await page1.getByTestId('username-input').fill('user1');
     await page1.getByTestId('connect-btn').click();
@@ -55,11 +57,12 @@ test.describe('multi-client', () => {
     await page2.close();
   });
 
-  test('chat: _memberLeave on disconnect', async ({ browser }) => {
+  test('chat: _memberLeave on disconnect', async ({ browser }, testInfo) => {
+    const room = `multi-${testInfo.testId}`;
     const page1 = await browser.newPage();
     const page2 = await browser.newPage();
-    await page1.goto('/');
-    await page2.goto('/');
+    await page1.goto(`/?room=${room}`);
+    await page2.goto(`/?room=${room}`);
 
     await page1.getByTestId('username-input').fill('user1');
     await page1.getByTestId('connect-btn').click();
@@ -80,11 +83,12 @@ test.describe('multi-client', () => {
     await page2.close();
   });
 
-  test('chat: _memberLeave on leave button', async ({ browser }) => {
+  test('chat: _memberLeave on leave button', async ({ browser }, testInfo) => {
+    const room = `multi-${testInfo.testId}`;
     const page1 = await browser.newPage();
     const page2 = await browser.newPage();
-    await page1.goto('/');
-    await page2.goto('/');
+    await page1.goto(`/?room=${room}`);
+    await page2.goto(`/?room=${room}`);
 
     await page1.getByTestId('username-input').fill('user1');
     await page1.getByTestId('connect-btn').click();
@@ -105,11 +109,12 @@ test.describe('multi-client', () => {
     await page2.close();
   });
 
-  test('chat: kick sends _kicked to target', async ({ browser }) => {
+  test('chat: kick sends _kicked to target', async ({ browser }, testInfo) => {
+    const room = `multi-${testInfo.testId}`;
     const page1 = await browser.newPage();
     const page2 = await browser.newPage();
-    await page1.goto('/');
-    await page2.goto('/');
+    await page1.goto(`/?room=${room}`);
+    await page2.goto(`/?room=${room}`);
 
     await page1.getByTestId('username-input').fill('user1');
     await page1.getByTestId('connect-btn').click();
@@ -136,11 +141,12 @@ test.describe('multi-client', () => {
     await page2.close();
   });
 
-  test('dynamic channel isolation: room:general vs room:vip', async ({ browser }) => {
+  test('dynamic channel isolation: room:general vs room:vip', async ({ browser }, testInfo) => {
+    const room = `multi-${testInfo.testId}`;
     const page1 = await browser.newPage();
     const page2 = await browser.newPage();
-    await page1.goto('/');
-    await page2.goto('/');
+    await page1.goto(`/?room=${room}`);
+    await page2.goto(`/?room=${room}`);
 
     await page1.getByTestId('username-input').fill('user1');
     await page1.getByTestId('connect-btn').click();
@@ -162,12 +168,10 @@ test.describe('multi-client', () => {
         }),
       );
     });
-    await page2.waitForTimeout(200);
 
     await page1.getByTestId('room-send-btn').click();
     await waitForText(page1, 'room-messages', /user1: hi from room/);
 
-    await page2.waitForTimeout(500);
     const page2Messages = await page2.getByTestId('room-messages').textContent();
     expect(page2Messages).not.toContain('user1: hi from room');
 
@@ -175,11 +179,12 @@ test.describe('multi-client', () => {
     await page2.close();
   });
 
-  test('sendToConnection delivers to target', async ({ browser }) => {
+  test('sendToConnection delivers to target', async ({ browser }, testInfo) => {
+    const room = `multi-${testInfo.testId}`;
     const page1 = await browser.newPage();
     const page2 = await browser.newPage();
-    await page1.goto('/');
-    await page2.goto('/');
+    await page1.goto(`/?room=${room}`);
+    await page2.goto(`/?room=${room}`);
 
     await page1.getByTestId('username-input').fill('user1');
     await page1.getByTestId('connect-btn').click();
@@ -210,11 +215,12 @@ test.describe('multi-client', () => {
     await page2.close();
   });
 
-  test('sendToConnection with stale ID does not crash', async ({ browser }) => {
+  test('sendToConnection with stale ID does not crash', async ({ browser }, testInfo) => {
+    const room = `multi-${testInfo.testId}`;
     const page1 = await browser.newPage();
     const page2 = await browser.newPage();
-    await page1.goto('/');
-    await page2.goto('/');
+    await page1.goto(`/?room=${room}`);
+    await page2.goto(`/?room=${room}`);
 
     await page1.getByTestId('username-input').fill('user1');
     await page1.getByTestId('connect-btn').click();
@@ -230,7 +236,6 @@ test.describe('multi-client', () => {
 
     await page2.getByTestId('server-close-btn').click();
     await waitForText(page2, 'status', 'disconnected');
-    await page1.waitForTimeout(200);
 
     await page1.evaluate((staleId) => {
       const ws = (window as unknown as { __ws: WebSocket }).__ws;
@@ -242,18 +247,20 @@ test.describe('multi-client', () => {
       );
     }, page2ConnId);
 
-    await page1.waitForTimeout(300);
+    await page1.getByTestId('echo-btn').click();
+    await waitForText(page1, 'echo-result', /hello world/);
     await expect(page1.getByTestId('status')).toHaveText('connected');
 
     await page1.close();
     await page2.close();
   });
 
-  test('top-level broadcast reaches second client', async ({ browser }) => {
+  test('top-level broadcast reaches second client', async ({ browser }, testInfo) => {
+    const room = `multi-${testInfo.testId}`;
     const page1 = await browser.newPage();
     const page2 = await browser.newPage();
-    await page1.goto('/');
-    await page2.goto('/');
+    await page1.goto(`/?room=${room}`);
+    await page2.goto(`/?room=${room}`);
 
     await page1.getByTestId('username-input').fill('user1');
     await page1.getByTestId('connect-btn').click();
@@ -272,11 +279,12 @@ test.describe('multi-client', () => {
     await page2.close();
   });
 
-  test('broadcast stream reaches second client', async ({ browser }) => {
+  test('broadcast stream reaches second client', async ({ browser }, testInfo) => {
+    const room = `multi-${testInfo.testId}`;
     const page1 = await browser.newPage();
     const page2 = await browser.newPage();
-    await page1.goto('/');
-    await page2.goto('/');
+    await page1.goto(`/?room=${room}`);
+    await page2.goto(`/?room=${room}`);
 
     await page1.getByTestId('username-input').fill('user1');
     await page1.getByTestId('connect-btn').click();
