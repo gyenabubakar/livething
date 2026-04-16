@@ -61,6 +61,15 @@ const buildServe = defineServerAdapter<CloudflareOptions, CloudflareDurableObjec
 
         const result = await this.engine.handleUpgrade(request);
         if (result.reject) {
+          if (result.code && result.code >= 1000) {
+            const pair = new WebSocketPair();
+            pair[1].accept();
+            pair[1].close(result.code, result.reason ?? 'Upgrade rejected');
+            return new Response(null, {
+              status: 101,
+              webSocket: pair[0],
+            } as ResponseInit & { webSocket: WebSocket });
+          }
           const status =
             result.code && result.code >= 400 && result.code <= 599 ? result.code : 403;
           return new Response(result.reason ?? 'Upgrade rejected', { status });
@@ -168,8 +177,8 @@ const buildServe = defineServerAdapter<CloudflareOptions, CloudflareDurableObjec
 });
 
 /**
- * Create a Cloudflare Durable Object class that serves your WebSocket server.
- * This is the main entry point for running a WebSocket server on Cloudflare Workers.
+ * Takes a wskit handler and returns a Cloudflare Durable Object class
+ * that serves WebSocket connections for that handler.
  *
  * @example
  * ```ts

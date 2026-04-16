@@ -46,6 +46,14 @@ interface StreamRuntime {
     validationError: unknown,
     scope?: ResolvedScope,
   ): Promise<void>;
+  broadcastToConnections(
+    connections: readonly RuntimeConnection[],
+    event: string,
+    payload: unknown,
+    options?: { namespace?: string; channel?: string; excludeSelf?: boolean },
+    excludeConnectionId?: string,
+  ): void;
+  connections: Map<string, RuntimeConnection>;
 }
 
 /**
@@ -123,7 +131,12 @@ export async function runStream(
   payload: unknown,
 ): Promise<void> {
   const streamId = runtime.generateId('stream');
-  runtime.sendProtocolMessage(connection, '_streamOk', { _streamId: streamId });
+  runtime.sendProtocolMessage(connection, '_streamOk', {
+    _streamId: streamId,
+    ...(scope.namespace?.name ? { _namespace: scope.namespace.name } : {}),
+    ...(scope.channelName ? { _channel: scope.channelName } : {}),
+    ...(scope.channelScope ? { _channelScope: scope.channelScope } : {}),
+  });
 
   const ctx = runtime.buildConnectionContext(connection, scope) as Record<string, unknown>;
   ctx.nudges = (value: unknown) => (Array.isArray(value) ? value : []);
@@ -152,6 +165,18 @@ export async function runStream(
       const result = await iterator.next(nextInput);
       if (result.done) break;
 
+      if (stream.stream.broadcast) {
+        runtime.broadcastToConnections(
+          [...runtime.connections.values()],
+          event,
+          result.value,
+          {
+            namespace: scope.namespace?.name,
+            channel: scope.channelName,
+          },
+          connection.id,
+        );
+      }
       runtime.sendThroughPipeline(
         connection,
         {
@@ -169,7 +194,12 @@ export async function runStream(
     }
 
     if (!activeStream.closed) {
-      runtime.sendProtocolMessage(connection, '_streamEnd', { _streamId: streamId });
+      runtime.sendProtocolMessage(connection, '_streamEnd', {
+        _streamId: streamId,
+        ...(scope.namespace?.name ? { _namespace: scope.namespace.name } : {}),
+        ...(scope.channelName ? { _channel: scope.channelName } : {}),
+        ...(scope.channelScope ? { _channelScope: scope.channelScope } : {}),
+      });
     }
   } catch (streamError) {
     await runtime.handleRuntimeError(connection, streamError, event, {

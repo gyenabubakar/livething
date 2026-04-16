@@ -56,7 +56,7 @@ describe('errors runtime', () => {
     expect(sent).toEqual([{ event: '_error', payload: { code: 'internal-error' } }]);
   });
 
-  it('does not run error hooks for declared WskitError values', async () => {
+  it('runs error hooks for WskitError values too', async () => {
     const observed: string[] = [];
 
     await sendRuntimeError(
@@ -80,7 +80,7 @@ describe('errors runtime', () => {
       'echo',
     );
 
-    expect(observed).toEqual([]);
+    expect(observed).toEqual(['hook']);
   });
 
   it('notifies validation hooks with the scoped context', async () => {

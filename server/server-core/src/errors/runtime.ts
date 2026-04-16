@@ -2,7 +2,7 @@ import { WskitError } from '@wskit/core';
 import type { ResolvedScope, RuntimeConnection } from '~/_engine/runtime/types.ts';
 
 /**
- * Runtime surface for sending normalized `_error` messages.
+ * Runtime surface for sending normalised `_error` messages.
  */
 interface RuntimeErrorDeps {
   buildConnectionContext(
@@ -69,11 +69,9 @@ export async function sendRuntimeError(
     });
   }
 
-  if (!(error instanceof WskitError)) {
-    for (const hook of deps.errorHooks) {
-      const ctx = deps.buildConnectionContext(connection);
-      await hook(ctx, error, event);
-    }
+  for (const hook of deps.errorHooks) {
+    const ctx = deps.buildConnectionContext(connection);
+    await hook(ctx, error, event);
   }
 
   deps.sendProtocolMessage(connection, '_error', normalizeRuntimeErrorPayload(error, routing));

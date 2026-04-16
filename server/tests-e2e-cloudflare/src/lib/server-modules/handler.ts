@@ -71,7 +71,7 @@ export const modulesHandler = withScheduled(withLifecycle(server<Env>('modules-t
     ctx.send('message-count', { count: db.getMessageCount() });
   })
   .incoming(TriggerVacuum, (ctx) => {
-    ctx.schedule('drizzle-vacuum', { time: Date.now() + 200 });
+    ctx.schedule('__e2e:drizzle:drizzle-vacuum', { time: Date.now() + 200 });
   })
   .incoming(GetOutgoingCount, (ctx) => {
     const db = Drizzle.use(ctx);

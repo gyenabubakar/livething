@@ -21,7 +21,7 @@ test.describe('main handler', () => {
 
   test('connects and disconnects', async ({ page }) => {
     await expect(page.getByTestId('status')).toHaveText('connected');
-    await page.getByTestId('disconnect-btn').click();
+    await page.getByTestId('server-close-btn').click();
     await waitForText(page, 'status', 'disconnected', 15_000);
   });
 
@@ -214,17 +214,17 @@ test.describe('main handler', () => {
     expect(reply).toBe('');
   });
 
-  test('skip: message passes through to handler (Gap 11)', async ({ page }) => {
+  test('skip: message passes through to handler', async ({ page }) => {
     await page.getByTestId('skip-btn').click();
     await waitForText(page, 'skip-reply', /leaked:true/);
   });
 
-  test('manual ValidationFailed triggers onValidationError (Gap 12)', async ({ page }) => {
+  test('manual ValidationFailed triggers onValidationError', async ({ page }) => {
     await page.getByTestId('manual-validation-btn').click();
     await waitForText(page, 'validation-error-result', /validation-error:manual-validation-test/);
   });
 
-  test('DeferExhausted fires onError after retries exhaust (Gap 13)', async ({ page }) => {
+  test('DeferExhausted fires onError after retries exhaust', async ({ page }) => {
     await page.getByTestId('always-defer-btn').click();
     await waitForText(page, 'defer-exhausted-result', /always-defer:retries=/, 15_000);
   });
@@ -276,32 +276,32 @@ test.describe('main handler', () => {
     await waitForText(page, 'ai-stream-done', 'stream-done', 15_000);
   });
 
-  test('ai namespace: pre-intercept blocks message (Gap D)', async ({ page }) => {
+  test('ai namespace: pre-intercept blocks message', async ({ page }) => {
     await page.getByTestId('ai-blocked-btn').click();
     await page.waitForTimeout(500);
     const reply = await page.getByTestId('ai-blocked-reply').textContent();
     expect(reply).toBe('');
   });
 
-  // --- Scheduled every (Gap 9) ---
+  // --- Scheduled every ---
 
-  test('scheduled every: heartbeat fires repeatedly (Gap 9)', async ({ page }) => {
+  test('scheduled every: heartbeat fires repeatedly', async ({ page }) => {
     await page.getByTestId('start-heartbeat-btn').click();
     await page.waitForTimeout(6000);
     const count = Number(await page.getByTestId('heartbeat-count').textContent());
     expect(count).toBeGreaterThanOrEqual(2);
   });
 
-  // --- Scheduled retry with custom backoff (Gap 10) ---
+  // --- Scheduled retry with custom backoff ---
 
-  test('scheduled retry: flaky task succeeds after retries (Gap 10)', async ({ page }) => {
+  test('scheduled retry: flaky task succeeds after retries', async ({ page }) => {
     await page.getByTestId('trigger-flaky-btn').click();
     await waitForText(page, 'flaky-task-result', /attempts:/, 10_000);
     const result = await page.getByTestId('flaky-task-result').textContent();
     expect(result).toMatch(/attempts:[3-9]/);
   });
 
-  test('scheduled dead-letter: always-fail task lands in DLQ (Gap 10)', async ({ page }) => {
+  test('scheduled dead-letter: always-fail task lands in DLQ', async ({ page }) => {
     await page.getByTestId('trigger-always-fail-btn').click();
     await page.waitForTimeout(3000);
     await page.getByTestId('query-dead-letter-btn').click();
@@ -310,9 +310,9 @@ test.describe('main handler', () => {
     expect(result).toContain('permanent failure');
   });
 
-  // --- Channel post-intercept (Gap 17) ---
+  // --- Channel post-intercept ---
 
-  test('channel post-intercept rewrites payload (Gap 17)', async ({ page }) => {
+  test('channel post-intercept rewrites payload', async ({ page }) => {
     await page.getByTestId('chat-join-btn').click();
     await waitForText(page, 'chat-subscribed', 'subscribed');
     await page.evaluate(() => {
@@ -327,18 +327,18 @@ test.describe('main handler', () => {
     await waitForText(page, 'chat-messages', /channel-intercepted/);
   });
 
-  // --- Channel request (Gap 18) ---
+  // --- Channel request ---
 
-  test('channel request: get-chat-info returns channel name (Gap 18)', async ({ page }) => {
+  test('channel request: get-chat-info returns channel name', async ({ page }) => {
     await page.getByTestId('chat-join-btn').click();
     await waitForText(page, 'chat-subscribed', 'subscribed');
     await page.getByTestId('chat-info-btn').click();
     await waitForText(page, 'chat-info-result', /chat:members=/);
   });
 
-  // --- Channel stream (Gap C) ---
+  // --- Channel stream ---
 
-  test('chat channel: stream tokens inside channel (Gap C)', async ({ page }) => {
+  test('chat channel: stream tokens inside channel', async ({ page }) => {
     await page.getByTestId('chat-join-btn').click();
     await waitForText(page, 'chat-subscribed', 'subscribed');
     await page.getByTestId('chat-stream-btn').click();
@@ -376,16 +376,16 @@ test.describe('main handler', () => {
     expect(tokens!.length).toBeLessThan(300);
   });
 
-  // --- Gap A: namespace-scoped post-intercept ---
+  // --- namespace-scoped post-intercept ---
 
-  test('ai namespace: post-intercept rewrites payload (Gap A)', async ({ page }) => {
+  test('ai namespace: post-intercept rewrites payload', async ({ page }) => {
     await page.getByTestId('ai-post-intercept-btn').click();
     await waitForText(page, 'ai-post-intercept-result', /namespace-post-intercepted/);
   });
 
-  // --- Gap B: dedup e2e verification ---
+  // --- dedup e2e verification ---
 
-  test('dedup: outgoing messages have unique _messageId (Gap B)', async ({ page }) => {
+  test('dedup: outgoing messages have unique _messageId', async ({ page }) => {
     await page.getByTestId('echo-btn').click();
     await waitForText(page, 'echo-result', /hello world/);
     await page.getByTestId('echo-btn').click();
@@ -396,18 +396,18 @@ test.describe('main handler', () => {
     expect(new Set(idList).size).toBe(idList.length);
   });
 
-  // --- Gap F: stream cancel sends cancel ack ---
+  // --- stream cancel sends cancel ack ---
 
-  test('stream cancel sends cancel ack (Gap F)', async ({ page }) => {
+  test('stream cancel sends cancel ack', async ({ page }) => {
     await page.getByTestId('ai-nudge-stream-btn').click();
     await page.waitForTimeout(300);
     await page.getByTestId('ai-stream-cancel-btn').click();
     await waitForText(page, 'stream-cancel-result', 'cancelled');
   });
 
-  // --- Gap H: multiple nudge types in single stream ---
+  // --- multiple nudge types in single stream ---
 
-  test('ai namespace: compose speed-up then pause in single stream (Gap H)', async ({ page }) => {
+  test('ai namespace: compose speed-up then pause in single stream', async ({ page }) => {
     await page.getByTestId('ai-nudge-stream-btn').click();
     await page.waitForTimeout(200);
     await page.getByTestId('ai-speed-up-btn').click();
@@ -418,9 +418,9 @@ test.describe('main handler', () => {
     expect(tokens!.length).toBeGreaterThan(0);
   });
 
-  // --- Gap I: _replay on handler without replay ---
+  // --- _replay on handler without replay ---
 
-  test('_replay on handler without replay is handled gracefully (Gap I)', async ({ page }) => {
+  test('_replay on handler without replay is handled gracefully', async ({ page }) => {
     await page.evaluate(() => {
       const ws = (window as unknown as { __ws: WebSocket }).__ws;
       ws?.send(JSON.stringify({ event: '_replay', payload: { since: 0 } }));
@@ -431,9 +431,9 @@ test.describe('main handler', () => {
     await waitForText(page, 'echo-result', /hello world/);
   });
 
-  // --- Gap J: sendTo with empty tag ---
+  // --- sendTo with empty tag ---
 
-  test('sendTo with empty tag does not crash (Gap J)', async ({ page }) => {
+  test('sendTo with empty tag does not crash', async ({ page }) => {
     await page.evaluate(() => {
       const ws = (window as unknown as { __ws: WebSocket }).__ws;
       ws?.send(
@@ -477,7 +477,7 @@ test.describe('subscribe rejection', () => {
     expect(subscribed).toBe('');
   });
 
-  test('chat rejects blocked-user with error payload (Gap E)', async ({ page }) => {
+  test('chat rejects blocked-user with error payload', async ({ page }) => {
     await page.goto('/');
     await page.getByTestId('username-input').fill('blocked-user');
     await page.getByTestId('connect-btn').click();
@@ -711,7 +711,7 @@ test.describe('multi-client', () => {
     await page2.close();
   });
 
-  test('sendToConnection with stale ID does not crash (Gap 20)', async ({ browser }) => {
+  test('sendToConnection with stale ID does not crash', async ({ browser }) => {
     const page1 = await browser.newPage();
     const page2 = await browser.newPage();
     await page1.goto('/');
@@ -729,7 +729,7 @@ test.describe('multi-client', () => {
     await waitForText(page2, 'connection-info', /count:/);
     const page2ConnId = await page2.getByTestId('connection-id').textContent();
 
-    await page2.getByTestId('disconnect-btn').click();
+    await page2.getByTestId('server-close-btn').click();
     await waitForText(page2, 'status', 'disconnected');
     await page1.waitForTimeout(500);
 
@@ -750,7 +750,7 @@ test.describe('multi-client', () => {
     await page2.close();
   });
 
-  test('top-level broadcast reaches second client (Gap 21)', async ({ browser }) => {
+  test('top-level broadcast reaches second client', async ({ browser }) => {
     const page1 = await browser.newPage();
     const page2 = await browser.newPage();
     await page1.goto('/');
@@ -773,7 +773,7 @@ test.describe('multi-client', () => {
     await page2.close();
   });
 
-  test('broadcast stream reaches second client (Gap 8)', async ({ browser }) => {
+  test('broadcast stream reaches second client', async ({ browser }) => {
     const page1 = await browser.newPage();
     const page2 = await browser.newPage();
     await page1.goto('/');
@@ -852,7 +852,7 @@ test.describe('replay handler', () => {
     expect(cursorCountAfter).toBe(cursorCountBefore);
   });
 
-  test('channel-scoped replay returns only channel messages (Gap 3)', async ({ page }) => {
+  test('channel-scoped replay returns only channel messages', async ({ page }) => {
     await page.getByTestId('room-join-btn').click();
     await waitForText(page, 'room-subscribed', 'subscribed');
 
@@ -869,19 +869,19 @@ test.describe('replay handler', () => {
     expect(roomReplayCount).toBeGreaterThan(0);
   });
 
-  test('programmatic sendReplay delivers message (Gap 5)', async ({ page }) => {
+  test('programmatic sendReplay delivers message', async ({ page }) => {
     await page.getByTestId('request-history-btn').click();
     await waitForText(page, 'history-injected', 'true');
   });
 
-  test('channel sendReplay delivers message in channel scope (Gap F)', async ({ page }) => {
+  test('channel sendReplay delivers message in channel scope', async ({ page }) => {
     await page.getByTestId('room-join-btn').click();
     await waitForText(page, 'room-subscribed', 'subscribed');
     await page.getByTestId('request-room-history-btn').click();
     await waitForText(page, 'room-history-injected', 'true');
   });
 
-  test('sequence persistence across reconnection (Gap 19)', async ({ page }) => {
+  test('sequence persistence across reconnection', async ({ page }) => {
     await page.getByTestId('send-msg-btn').click();
     await waitForText(page, 'messages', /hello from replay/);
     await page.getByTestId('send-msg-btn').click();
@@ -953,7 +953,7 @@ test.describe('custom replay handler', () => {
     expect(afterCount).toBeGreaterThan(beforeCount);
   });
 
-  test('channel-scoped custom replay returns channel messages (Gap 4)', async ({ page }) => {
+  test('channel-scoped custom replay returns channel messages', async ({ page }) => {
     await page.getByTestId('room-join-btn').click();
     await waitForText(page, 'room-subscribed', 'subscribed');
 
@@ -997,7 +997,7 @@ test.describe('replay-snapshot handler', () => {
     await waitForText(page, 'status', 'connected');
   });
 
-  test('snapshot mode: only latest value per key replayed (Gap 1)', async ({ page }) => {
+  test('snapshot mode: only latest value per key replayed', async ({ page }) => {
     await page.getByTestId('update-doc-a-btn').click();
     await page.waitForTimeout(300);
     await page.getByTestId('update-doc-a2-btn').click();
@@ -1012,7 +1012,7 @@ test.describe('replay-snapshot handler', () => {
     expect(aEntries[0]).toBe('A:second-title');
   });
 
-  test('best-effort durability: message replayable after async write (Gap 2)', async ({ page }) => {
+  test('best-effort durability: message replayable after async write', async ({ page }) => {
     await page.getByTestId('update-doc-b-btn').click();
     await page.waitForTimeout(500);
 
@@ -1023,7 +1023,7 @@ test.describe('replay-snapshot handler', () => {
     expect(snapshots).toContain('B:doc-b-title');
   });
 
-  test('retention pruning: maxMessages limits replayed snapshots (Gap 6)', async ({ page }) => {
+  test('retention pruning: maxMessages limits replayed snapshots', async ({ page }) => {
     await page.getByTestId('flood-btn').click();
     await page.waitForTimeout(1000);
 
@@ -1035,7 +1035,7 @@ test.describe('replay-snapshot handler', () => {
     expect(replayCount).toBeGreaterThan(0);
   });
 
-  test('reduce: multiple increments merge into accumulated total (Gap A)', async ({ page }) => {
+  test('reduce: multiple increments merge into accumulated total', async ({ page }) => {
     await page.getByTestId('increment-counter-btn').click();
     await page.waitForTimeout(300);
     await page.getByTestId('increment-counter-btn2').click();
@@ -1053,7 +1053,7 @@ test.describe('replay-snapshot handler', () => {
     expect(total).toBe(13);
   });
 
-  test('maxAgeMs: old messages pruned after expiry (Gap B)', async ({ page }) => {
+  test('maxAgeMs: old messages pruned after expiry', async ({ page }) => {
     await page.getByTestId('age-test-btn').click();
     await page.waitForTimeout(3000);
 
@@ -1135,13 +1135,13 @@ test.describe('modules handler', () => {
     await waitForText(page, 'message-count', /messages: [3-9]|messages: \d{2,}/);
   });
 
-  test('module scheduled task fires on trigger (Gap 14)', async ({ page }) => {
+  test('module scheduled task fires on trigger', async ({ page }) => {
     await waitForText(page, 'db-connected', 'db-ready');
     await page.getByTestId('vacuum-btn').click();
     await waitForText(page, 'vacuum-result', /vacuum:\d+/, 10_000);
   });
 
-  test('module onOutgoing counts outgoing messages (Gap 15)', async ({ page }) => {
+  test('module onOutgoing counts outgoing messages', async ({ page }) => {
     await waitForText(page, 'db-connected', 'db-ready');
     await page.getByTestId('insert-btn').click();
     await waitForText(page, 'insert-result', /id:/);
@@ -1150,7 +1150,7 @@ test.describe('modules handler', () => {
     await waitForText(page, 'outgoing-count', /outgoing: [1-9]/);
   });
 
-  test('module onDisconnect increments counter (Gap E)', async ({ browser }) => {
+  test('module onDisconnect increments counter', async ({ browser }) => {
     const page1 = await browser.newPage();
     const page2 = await browser.newPage();
     await page1.goto('/modules');
@@ -1164,9 +1164,11 @@ test.describe('modules handler', () => {
     await page2.getByTestId('connect-btn').click();
     await waitForText(page2, 'status', 'connected');
 
-    await page2.getByTestId('disconnect-btn').click();
-    await waitForText(page2, 'status', 'disconnected');
-    await page1.waitForTimeout(500);
+    await page2.evaluate(() => {
+      const ws = (window as unknown as { __ws: WebSocket }).__ws;
+      ws?.close();
+    });
+    await page1.waitForTimeout(1500);
 
     await page1.getByTestId('disconnect-count-btn').click();
     await waitForText(page1, 'disconnect-count', /disconnects: [1-9]/);

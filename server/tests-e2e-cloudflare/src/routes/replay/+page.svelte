@@ -69,6 +69,8 @@
 
 	function disconnect() {
 		ws?.close();
+		ws = null;
+		status = 'disconnected';
 	}
 
 	function send(event: string, payload: Record<string, unknown>) {

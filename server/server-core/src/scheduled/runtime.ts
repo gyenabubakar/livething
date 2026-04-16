@@ -119,6 +119,8 @@ function persistSchedulerState(runtime: ScheduledRuntimeAccess): void {
   const runs = [...runtime.getScheduledRuns().values()];
   const deadLetters = [...runtime.getScheduledDlq().values()];
 
+  storage.sql.exec(SCHEDULED_TABLE_SQL);
+  storage.sql.exec(SCHEDULED_DLQ_TABLE_SQL);
   storage.sql.transaction((tx) => {
     tx.exec(DELETE_SCHEDULED_SQL);
     for (const run of runs) {

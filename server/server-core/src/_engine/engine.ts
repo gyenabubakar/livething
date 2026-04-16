@@ -6,6 +6,7 @@ import * as EngineMessageRuntime from '~/_engine/runtime/messages.ts';
 import * as ErrorsPrimitive from '~/errors/runtime.ts';
 import * as HeartbeatPrimitive from '~/heartbeat/runtime.ts';
 import * as ScheduledPrimitive from '~/scheduled/runtime.ts';
+import { SCHEDULED_RUNTIME_KEY } from '~/scheduled/scheduled.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type * as EngineAccessModule from '~/_engine/access.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
@@ -87,7 +88,7 @@ export class Engine {
   private hibernationEnabled = false;
   private replayEnabled = false;
   private sequencePersistent = false;
-  private readonly declaredErrorCodes = new Set<string>(['validation-failed']);
+  private readonly declaredErrorCodes = new Set<string>(['validation-failed', 'defer-exhausted']);
   /** Default logger used when the adapter does not provide a custom one. */
   private readonly logger = {
     info(message: string, data?: unknown) {
@@ -257,6 +258,7 @@ export class Engine {
           handler,
           options,
         } as unknown as AnyScheduled);
+        this.ensureScheduledRuntime();
         return { id: taskId };
       },
       generateId: (prefix?: string) => this.generateId(prefix),
@@ -805,6 +807,13 @@ export class Engine {
         validationError: unknown,
         scope?: ResolvedScope,
       ) => this.handleValidationError(connection, event, validationError, scope),
+      broadcastToConnections: (
+        connections: readonly RuntimeConnection[],
+        event: string,
+        payload: unknown,
+        options?: { namespace?: string; channel?: string; excludeSelf?: boolean },
+        excludeConnectionId?: string,
+      ) => this.broadcastToConnections(connections, event, payload, options, excludeConnectionId),
       handleSubscribe: (
         connection: RuntimeConnection,
         payload: Record<string, unknown> | undefined,
@@ -927,6 +936,30 @@ export class Engine {
     for (const hook of this.hooks.alarm) {
       await hook();
     }
+  }
+
+  private ensureScheduledRuntime(): void {
+    if (this.installedFeatures.has(SCHEDULED_RUNTIME_KEY)) return;
+    this.installedFeatures.add(SCHEDULED_RUNTIME_KEY);
+
+    const runtime = {
+      requireStorage: () => this.requireStorage(),
+      requireTimers: () => this.requireTimers(),
+      generateId: (prefix?: string) => this.generateId(prefix),
+      getScheduledRuns: () => this.scheduledRuns,
+      getScheduledDlq: () => this.scheduledDlq,
+      getScheduledTask: (taskId: string) => this.compiled.scheduled.get(taskId),
+      getScheduledTasks: () => this.compiled.scheduled.values(),
+      createTaskContext: () => this.createTaskContext(),
+      rescheduleAlarm: () => this.rescheduleAlarm(),
+    };
+
+    this.hooks.boot.push(() => {
+      ScheduledPrimitive.bootstrapScheduledRuntime(runtime);
+    });
+    this.hooks.alarm.push(async () => {
+      await ScheduledPrimitive.handleScheduledAlarm(runtime);
+    });
   }
 
   /**

@@ -404,6 +404,8 @@ export function loadReplayRows(
   since: number,
   scope: { channelName?: string; channelScope?: string },
 ): ReplayRow[] {
+  const isStaticChannel = scope.channelScope === scope.channelName;
+  const effectiveScope = isStaticChannel ? null : (scope.channelScope ?? null);
   const rows =
     scope.channelName || scope.channelScope
       ? sql.exec(
@@ -426,7 +428,7 @@ export function loadReplayRows(
             ORDER BY seq ASC
           `,
           scope.channelName ?? null,
-          scope.channelScope ?? scope.channelName ?? null,
+          effectiveScope,
           since,
         )
       : sql.exec(

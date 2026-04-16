@@ -43,7 +43,6 @@ export const replaySnapshotHandler = withReplay(
   })
   .incoming(IncrementCounter, (ctx, payload) => {
     ctx.send('counter-snapshot', { key: payload.key, total: payload.amount });
-    ctx.broadcast('counter-snapshot', { key: payload.key, total: payload.amount });
   })
   .build();
 

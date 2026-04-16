@@ -88,7 +88,7 @@ const SCHEDULED_KEY = Symbol('scheduled');
  * is installed only once per engine regardless of how many task primitives are
  * registered.
  */
-const SCHEDULED_RUNTIME_KEY = Symbol('scheduled-runtime');
+export const SCHEDULED_RUNTIME_KEY = Symbol('scheduled-runtime');
 
 /** Overload: register a task with an inline handler function. */
 export function scheduled<TTaskId extends string, TData, TCtx>(

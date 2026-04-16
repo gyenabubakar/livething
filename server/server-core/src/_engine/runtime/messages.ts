@@ -86,6 +86,13 @@ interface DispatchRuntime extends OutgoingRuntime, EngineRuntimeTypes.Connection
     validationError: unknown,
     scope?: EngineRuntimeTypes.ResolvedScope,
   ): Promise<void>;
+  broadcastToConnections(
+    connections: readonly EngineRuntimeTypes.RuntimeConnection[],
+    event: string,
+    payload: unknown,
+    options?: PublicApi.BroadcastOptions & { namespace?: string },
+    excludeConnectionId?: string,
+  ): void;
   handleSubscribe(
     connection: EngineRuntimeTypes.RuntimeConnection,
     payload: Record<string, unknown> | undefined,
@@ -669,6 +676,12 @@ async function handleDispatchError(
 ): Promise<void> {
   if (error === Block) return;
   if (error === Skip) return;
+
+  if (error && (error as { code?: string }).code === 'validation-failed') {
+    await runtime.handleValidationError(connection, event, error);
+    await runtime.handleRuntimeError(connection, error, event);
+    return;
+  }
 
   if (
     error &&

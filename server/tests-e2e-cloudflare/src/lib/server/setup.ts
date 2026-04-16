@@ -26,7 +26,6 @@ export const base = withLifecycle(withErrors(withInfrastructure(server<Env>('e2e
   .sequence()
   .dedup()
   .heartbeat({ timeout: 60_000 })
-  .hibernation()
   .errors(NotFound, Forbidden)
   .outgoing(Echoed)
   .outgoing(UserJoined)
