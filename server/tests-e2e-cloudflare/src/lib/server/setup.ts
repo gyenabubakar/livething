@@ -7,6 +7,7 @@ import {
   ConnectionsByTagResult,
   QualityResult,
   SendToConnectionResult,
+  SendToConnectionStatus,
   TaggedMessage,
   TagResult,
 } from './connections/events.ts';
@@ -39,6 +40,7 @@ export const base = withLifecycle(withErrors(withInfrastructure(server<Env>('e2e
   .outgoing(TaggedMessage)
   .outgoing(RoomMessage)
   .outgoing(SendToConnectionResult)
+  .outgoing(SendToConnectionStatus)
   .outgoing(ConnectionsByTagResult)
   .outgoing(QualityResult)
   .outgoing(HeartbeatTick)

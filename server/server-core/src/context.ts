@@ -244,68 +244,91 @@ export interface ConnectionContext<
 > {
   /** The unique ID for the current WebSocket connection. */
   id: string;
+
   /** Metadata attached during the upgrade step (e.g. user ID, session token). */
   meta: Meta;
+
   /** Tags currently attached to this connection. */
   tags: readonly string[];
+
   /** Attach a tag to this connection so it can be targeted as a group later. */
   tag(label: string): void;
+
   /** Remove a tag from this connection. */
   untag(label: string): void;
 
   /** Send an event to the current connection only. Returns `false` if the send buffer is full. */
   send(event: string, payload: unknown): boolean;
+
   /** Send an event to all live connections, optionally filtered by channel. */
   broadcast(event: string, payload: unknown, options?: BroadcastOptions): void;
+
   /** Send an event to every connection that currently has the given tag. */
   sendTo(tag: string, event: string, payload: unknown): void;
+
   /** Send an event to one specific connection by its ID. Returns `false` if the connection is gone. */
   sendToConnection(connectionId: string, event: string, payload: unknown): boolean;
 
   /** Send a raw binary frame to the current connection. */
   sendBinary(data: ArrayBuffer | ArrayBufferView): boolean;
+
   /** Broadcast a raw binary frame to all connections. */
   broadcastBinary(data: ArrayBuffer | ArrayBufferView, options?: { excludeSelf?: boolean }): void;
 
   /** Close the current WebSocket connection. */
   close(code?: number, reason?: string): void;
+
   /** Get a snapshot of every live connection at this moment. */
   getConnections(): ConnectionInfo<Meta>[];
+
   /** Get every connection that currently has the given tag. */
   getConnectionsByTag(tag: string): ConnectionInfo<Meta>[];
+
   /** The total number of live connections right now. */
   connectionCount: number;
+
   /** Bytes still queued to be sent to this connection. Useful for back-pressure detection. */
   bufferedAmount: number;
+
   /** Round-trip latency in milliseconds, or `null` until the first ping/pong completes. */
   latency: number | null;
+
   /** A simple health label derived from recent ping/pong measurements. */
   quality: 'excellent' | 'good' | 'degraded' | 'poor';
 
   /** Scoped send/broadcast when inside a namespace handler. */
   namespace?: ScopeSendApi;
+
   /** Scoped send/broadcast when inside a channel handler, with optional replay support. */
   channel?: ReplayScopeSendApi;
+
   /** Manage channel membership from any handler. Only present when channels are registered. */
   channels: ChannelManager<string, Meta>;
 
   /** Queue a scheduled task to run at a specific absolute timestamp (ms since epoch). */
   schedule(taskId: string, options: { time: number; data?: unknown }): void;
+
   /** Cancel queued runs for a scheduled task. Pass a `filter` to cancel only matching runs. */
   cancelScheduled(taskId: string, filter?: Record<string, unknown>): void;
+
   /** Set a low-level platform alarm. Prefer `ctx.schedule()` for most cases. */
   setAlarm(time: number): void;
 
   /** SQL storage access. */
   sql: SQLProvider;
+
   /** Key-value storage access. */
   kv: KVProvider;
+
   /** Environment variables provided by the adapter (e.g. secrets, feature flags). */
   env: Env;
+
   /** Structured logger. */
   log: Logger;
+
   /** Keep the platform runtime alive until the promise resolves, even after the handler returns. */
   waitUntil(promise: Promise<unknown>): void;
+
   /** Raw platform object from the adapter (Durable Object stub, etc.). */
   platform: Platform;
 }
@@ -350,32 +373,40 @@ export interface ShutdownContext<
 > {
   /** Close every live connection at once. */
   closeAll(code?: number, reason?: string): void;
+
   /** Broadcast an event to all connections, optionally filtered by channel. */
   broadcast(event: string, payload: unknown, options?: { channel?: string }): void;
 
   /** SQL database access for queries, migrations, and transactions. */
   sql: SQLProvider;
+
   /** Key-value storage for simple get/set/delete operations. */
   kv: KVProvider;
 
   /** Queue a scheduled task to run at a specific time (milliseconds since epoch). */
   schedule(taskId: string, options: { time: number; data?: unknown }): void;
+
   /** Cancel all pending runs of a scheduled task, optionally filtered by data fields. */
   cancelScheduled(taskId: string, filter?: Record<string, unknown>): void;
 
   /** The total number of live WebSocket connections right now. */
   connectionCount: number;
+
   /** Get a snapshot of every live connection. */
   getConnections(): ConnectionInfo<Meta>[];
+
   /** Get every connection that currently has the given tag. */
   getConnectionsByTag(tag: string): ConnectionInfo<Meta>[];
 
   /** Environment variables provided by the hosting platform (e.g. Cloudflare bindings). */
   env: Env;
+
   /** Structured logger — writes to the platform's logging system. */
   log: Logger;
+
   /** Keep the platform runtime alive until the promise resolves, even after the handler returns. */
   waitUntil(promise: Promise<unknown>): void;
+
   /** The raw platform object from the adapter (e.g. DurableObjectState on Cloudflare). */
   platform: Platform;
 }
@@ -394,34 +425,43 @@ export interface TaskContext<
 > {
   /** SQL database access for queries, migrations, and transactions. */
   sql: SQLProvider;
+
   /** Key-value storage for simple get/set/delete operations. */
   kv: KVProvider;
 
   /** Broadcast an event to all connections, optionally filtered by channel. */
   broadcast(event: string, payload: unknown, options?: { channel?: string }): void;
+
   /** Send an event to every connection that has the given tag. */
   sendTo(tag: string, event: string, payload: unknown): void;
+
   /** Send an event to one specific connection by ID. Returns false if the connection doesn't exist. */
   sendToConnection(connectionId: string, event: string, payload: unknown): boolean;
 
   /** Get a snapshot of every live connection. */
   getConnections(): ConnectionInfo<Meta>[];
+
   /** Get every connection that currently has the given tag. */
   getConnectionsByTag(tag: string): ConnectionInfo<Meta>[];
+
   /** The total number of live WebSocket connections right now. */
   connectionCount: number;
 
   /** Queue a scheduled task to run at a specific time (milliseconds since epoch). */
   schedule(taskId: string, options: { time: number; data?: unknown }): void;
+
   /** Cancel all pending runs of a scheduled task, optionally filtered by data fields. */
   cancelScheduled(taskId: string, filter?: Record<string, unknown>): void;
 
   /** Environment variables provided by the hosting platform (e.g. Cloudflare bindings). */
   env: Env;
+
   /** Structured logger — writes to the platform's logging system. */
   log: Logger;
+
   /** Keep the platform runtime alive until the promise resolves, even after the handler returns. */
   waitUntil(promise: Promise<unknown>): void;
+
   /** The raw platform object from the adapter (e.g. DurableObjectState on Cloudflare). */
   platform: Platform;
 }

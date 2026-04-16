@@ -11,7 +11,9 @@ import {
   AddRoomNote,
   ConfirmedCount,
   GetConfirmedCount,
+  GetRoomConfirmedCount,
   Note,
+  RoomConfirmedCount,
   RoomNote,
 } from './events.ts';
 
@@ -23,6 +25,7 @@ const base = withChannels(
   .outgoing(Note)
   .outgoing(ConfirmedCount)
   .outgoing(RoomNote)
+  .outgoing(RoomConfirmedCount)
   .onUpgrade((request) => {
     const url = new URL(request.url);
     const username = url.searchParams.get('username');
@@ -79,11 +82,19 @@ export const replayCustomHandler = base
         payload TEXT NOT NULL,
         seq INTEGER NOT NULL,
         message_id TEXT NOT NULL,
-        channel TEXT
+        channel TEXT,
+        confirmed INTEGER NOT NULL DEFAULT 0
       )
     `);
     try {
       ctx.sql.exec('ALTER TABLE _custom_replay ADD COLUMN confirmed INTEGER NOT NULL DEFAULT 0');
+    } catch {
+      // column already exists
+    }
+    try {
+      ctx.sql.exec(
+        'ALTER TABLE _custom_room_replay ADD COLUMN confirmed INTEGER NOT NULL DEFAULT 0',
+      );
     } catch {
       // column already exists
     }
@@ -103,6 +114,7 @@ export const replayCustomHandler = base
     base.channel('custom-room', (ch) =>
       ch
         .outgoing(RoomNote)
+        .outgoing(RoomConfirmedCount)
         .replayCustom((r) =>
           r
             .onBeforeSend((ctx, msg) => {
@@ -112,6 +124,12 @@ export const replayCustomHandler = base
                 JSON.stringify(msg.payload),
                 msg.wire.seq,
                 msg.wire.messageId,
+              );
+            })
+            .onAfterSend((ctx, msg) => {
+              ctx.sql.exec(
+                'UPDATE _custom_room_replay SET confirmed = 1 WHERE seq = ?',
+                msg.wire.seq,
               );
             })
             .onReplay(async (ctx, since) => {
@@ -132,6 +150,16 @@ export const replayCustomHandler = base
         .incoming(AddRoomNote, (ctx, payload) => {
           ctx.channel.send('room-note', { text: payload.text, author: ctx.meta.username });
           ctx.channel.broadcast('room-note', { text: payload.text, author: ctx.meta.username });
+        })
+        .incoming(GetRoomConfirmedCount, (ctx) => {
+          const rows = ctx.sql
+            .exec('SELECT COUNT(*) as total, SUM(confirmed) as confirmed FROM _custom_room_replay')
+            .toArray() as { total: number; confirmed: number }[];
+          const row = rows[0];
+          ctx.channel.send('room-confirmed-count', {
+            total: row?.total ?? 0,
+            confirmed: row?.confirmed ?? 0,
+          });
         }),
     ),
   )

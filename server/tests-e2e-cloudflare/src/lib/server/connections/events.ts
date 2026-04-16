@@ -37,6 +37,10 @@ export const SendToConnectionResult = event(
   'send-to-connection-result',
   v.object({ text: v.string(), from: v.string() }),
 );
+export const SendToConnectionStatus = event(
+  'send-to-connection-status',
+  v.object({ delivered: v.boolean() }),
+);
 
 export const GetConnectionsByTagEvent = event(
   'get-connections-by-tag',

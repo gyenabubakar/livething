@@ -45,6 +45,7 @@
 	let connectionId = $state('');
 
 	let sendToConnResult = $state('');
+	let sendToConnStatus = $state('');
 	let connectionsByTagResult = $state('');
 	let qualityResult = $state('');
 	let streamOkReceived = $state(false);
@@ -192,6 +193,9 @@
 				}
 				case 'send-to-connection-result':
 					sendToConnResult = `${payload.from}: ${payload.text}`;
+					break;
+				case 'send-to-connection-status':
+					sendToConnStatus = `delivered:${payload.delivered}`;
 					break;
 				case 'connections-by-tag-result':
 					connectionsByTagResult = `${payload.tag}:${(payload.ids as string[]).length}`;
@@ -412,6 +416,7 @@
 	}
 
 	function sendToConnection(connectionId: string, text: string) {
+		sendToConnStatus = '';
 		send('send-to-connection', { connectionId, text });
 	}
 
@@ -604,7 +609,8 @@
 		<div data-testid="connection-id">{connectionId}</div>
 		<div data-testid="tag-result">{tagResult}</div>
 		<div data-testid="tagged-message">{taggedMessage}</div>
-		<div data-testid="send-to-conn-result">{sendToConnResult}</div>
+			<div data-testid="send-to-conn-result">{sendToConnResult}</div>
+			<div data-testid="send-to-conn-status">{sendToConnStatus}</div>
 		<div data-testid="connections-by-tag-result">{connectionsByTagResult}</div>
 		<div data-testid="quality-result">{qualityResult}</div>
 	</section>

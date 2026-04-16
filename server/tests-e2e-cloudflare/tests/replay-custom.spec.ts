@@ -60,4 +60,20 @@ test.describe('custom replay handler', () => {
     expect(Number(match![1])).toBeGreaterThan(0);
     expect(Number(match![2])).toBeGreaterThan(0);
   });
+
+  test('channel onAfterSend marks room messages as confirmed', async ({ page }) => {
+    await page.getByTestId('room-join-btn').click();
+    await waitForText(page, 'room-subscribed', 'subscribed');
+
+    await page.getByTestId('room-note-btn').click();
+    await waitForText(page, 'room-notes', /channel replay note/);
+
+    await page.getByTestId('room-confirmed-btn').click();
+    await waitForText(page, 'room-confirmed-result', /total:\d+,confirmed:\d+/);
+
+    const result = await page.getByTestId('room-confirmed-result').textContent();
+    const match = result!.match(/total:(\d+),confirmed:(\d+)/);
+    expect(Number(match![1])).toBeGreaterThan(0);
+    expect(Number(match![2])).toBeGreaterThan(0);
+  });
 });

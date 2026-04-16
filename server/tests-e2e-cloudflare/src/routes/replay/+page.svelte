@@ -29,6 +29,7 @@
 
 		ws.onopen = () => {
 			status = 'connected';
+			(window as unknown as Record<string, unknown>).__ws = ws;
 		};
 		ws.onclose = () => {
 			status = 'disconnected';

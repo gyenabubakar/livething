@@ -27,22 +27,29 @@ export interface ModuleHooks<TCtx = any> {
       payload: unknown;
     }) => { event: string; payload: unknown } | void,
   ): void;
+
   /** Run during server startup. */
   onInit(handler: (ctx: InitContext) => void | Promise<void>): void;
+
   /** Run when a connection is established. */
   onConnect(handler: (ctx: TCtx) => void | Promise<void>): void;
+
   /** Run when a connection closes. */
   onDisconnect(handler: (ctx: TCtx) => void | Promise<void>): void;
+
   /** Run during server shutdown. */
   onShutdown(handler: () => void | Promise<void>): void;
+
   /** Register a scheduled task owned by this module. */
   scheduled<TData>(
     name: string,
     handler: (ctx: TaskContext, data: TData) => void | Promise<void>,
     options?: ScheduledOptions<TData>,
   ): ScheduledHandle<TData>;
+
   /** Create a framework-generated unique ID. */
   generateId(prefix?: string): string;
+
   /** Read a snapshot of the current connection's state. */
   getState(): ConnectionInfo;
 }
@@ -81,14 +88,19 @@ export interface ModuleConfig<
   readonly id: string;
   /** A unique symbol used for singleton enforcement and dependency tracking. */
   readonly key: symbol;
+
   /** Other primitives this module depends on (validated at build time). */
   readonly dependencies?: readonly PrimitiveRef[];
+
   /** Platform capabilities this module needs (storage, timers, etc.). */
   readonly requires?: RequiresManifest;
+
   /** Server-to-client events this module may send. */
   readonly outgoing?: TOutgoing;
+
   /** Typed errors this module may throw. */
   readonly errors?: ErrorsPrimitive<TErrors>;
+
   /**
    * Called once during engine initialization.
    *
@@ -112,8 +124,10 @@ export interface ModuleInstance<
 > extends Primitive<'module'> {
   readonly id: TId;
   readonly args: TArgs;
+
   readonly outgoing: TOutgoing;
   readonly errors?: ErrorsPrimitive<TErrors>;
+
   readonly setupModule: ModuleConfig<TArgs, TApi, any, TOutgoing, TErrors>['setup'];
 }
 
@@ -133,6 +147,7 @@ export interface ModuleFactory<
   TErrors extends readonly ErrorDef<string, any>[] = readonly [],
 > extends PrimitiveRef {
   (args: TArgs): ModuleInstance<TId, TArgs, TApi, TOutgoing, TErrors>;
+
   /**
    * Access this module's API from inside a handler.
    *
@@ -144,6 +159,7 @@ export interface ModuleFactory<
    * ```
    */
   use<TCtx>(ctx: TCtx): TApi;
+
   readonly id: TId;
 }
 

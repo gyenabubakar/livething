@@ -2,6 +2,12 @@ import type { SqlResult } from '~/context.ts';
 import type { scheduled } from './scheduled.ts';
 import type { ScheduledDeadLetter, ScheduledRun, ScheduledRuntimeAccess } from './types.ts';
 
+/**
+ * Tiny in-memory `SqlResult` used by scheduled-runtime tests.
+ *
+ * It implements only the methods the scheduled runtime reads, so the tests can
+ * stay fast and avoid spinning up a real database.
+ */
 export class FakeSqlResult implements SqlResult {
   constructor(private readonly rows: Record<string, unknown>[]) {}
 
@@ -18,6 +24,13 @@ export class FakeSqlResult implements SqlResult {
   }
 }
 
+/**
+ * In-memory stand-in for the SQL provider used by scheduled-runtime tests.
+ *
+ * It recognizes the handful of SQL statements emitted by the runtime and maps
+ * them onto plain JavaScript `Map`s so tests can inspect scheduled rows and
+ * dead-letter rows directly.
+ */
 export class FakeSqlProvider {
   scheduled = new Map<
     string,
@@ -118,6 +131,13 @@ export class FakeSqlProvider {
   }
 }
 
+/**
+ * Build a fully in-memory scheduled runtime for unit tests.
+ *
+ * The returned object exposes the fake SQL layer plus a few inspection helpers
+ * so tests can assert what got scheduled, what landed in the DLQ, and whether
+ * alarms were rescheduled.
+ */
 export function createRuntime(tasksInput: ReturnType<typeof scheduled>[]) {
   const sql = new FakeSqlProvider();
   const scheduledRuns = new Map<string, ScheduledRun>();

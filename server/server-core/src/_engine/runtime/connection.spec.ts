@@ -1,4 +1,4 @@
-import { acceptConnection } from '~/_engine/runtime/connection.ts';
+import { acceptConnection, handleShutdown } from '~/_engine/runtime/connection.ts';
 import { describe, expect, it } from 'vitest';
 
 function deferred() {
@@ -79,5 +79,59 @@ describe('connection runtime', () => {
     await pendingMessage;
 
     expect(events).toEqual(['connect:start', 'connect:end', 'message']);
+  });
+
+  it('runs module onShutdown hooks during engine shutdown', async () => {
+    const events: string[] = [];
+    const closed: Array<{ code: number; reason: string }> = [];
+    const cleared: unknown[] = [];
+    const connections = new Map([
+      [
+        'conn_1',
+        {
+          id: 'conn_1',
+          descriptor: {
+            close(code: number, reason: string) {
+              closed.push({ code, reason });
+            },
+          },
+        },
+      ],
+    ]) as Map<string, { id: string; descriptor: { close(code: number, reason: string): void } }>;
+
+    await handleShutdown({
+      connections: connections as never,
+      timers: {
+        setTimeout() {
+          return Symbol('timeout');
+        },
+        clearTimeout(handle: unknown) {
+          cleared.push(handle);
+        },
+      },
+      shutdownHooks: [
+        async () => {
+          events.push('server-shutdown');
+        },
+      ],
+      moduleRuntimes: [
+        {
+          async onShutdown() {
+            events.push('module-shutdown');
+          },
+        },
+      ],
+      createShutdownContext() {
+        return { kind: 'shutdown-context' };
+      },
+      async cancelActiveStreamsForConnection(connectionId: string) {
+        events.push(`cancel:${connectionId}`);
+      },
+      alarmState: { current: 'alarm-handle' },
+    });
+
+    expect(events).toEqual(['server-shutdown', 'module-shutdown', 'cancel:conn_1']);
+    expect(closed).toEqual([{ code: 1001, reason: 'Server shutting down' }]);
+    expect(cleared).toEqual(['alarm-handle']);
   });
 });

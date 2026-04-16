@@ -39,10 +39,11 @@ export const connectionHandlers = base.group((g) =>
       ctx.close(payload.code, payload.reason);
     })
     .incoming(SendToConnection, (ctx, payload) => {
-      ctx.sendToConnection(payload.connectionId, 'send-to-connection-result', {
+      const delivered = ctx.sendToConnection(payload.connectionId, 'send-to-connection-result', {
         text: payload.text,
         from: ctx.meta.username,
       });
+      ctx.send('send-to-connection-status', { delivered });
     })
     .incoming(GetConnectionsByTagEvent, (ctx, payload) => {
       const conns = ctx.getConnectionsByTag(payload.tag);

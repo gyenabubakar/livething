@@ -80,6 +80,72 @@ test.describe('replay handler', () => {
     }).toPass({ timeout: 5_000 });
   });
 
+  test('channel replay supports nonzero since', async ({ page }) => {
+    await page.getByTestId('room-join-btn').click();
+    await waitForText(page, 'room-subscribed', 'subscribed');
+
+    await page.evaluate(() => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      ws?.send(
+        JSON.stringify({
+          event: 'send-room-msg',
+          payload: { text: 'room-old-1', _channel: 'replay-room' },
+        }),
+      );
+      ws?.send(
+        JSON.stringify({
+          event: 'send-room-msg',
+          payload: { text: 'room-old-2', _channel: 'replay-room' },
+        }),
+      );
+    });
+    await waitForText(page, 'room-messages', /room-old-2/);
+
+    const seqBefore = Number(await page.getByTestId('last-seq').textContent());
+
+    await page.evaluate(() => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      ws?.send(
+        JSON.stringify({
+          event: 'send-room-msg',
+          payload: { text: 'room-new-1', _channel: 'replay-room' },
+        }),
+      );
+      ws?.send(
+        JSON.stringify({
+          event: 'send-room-msg',
+          payload: { text: 'room-new-2', _channel: 'replay-room' },
+        }),
+      );
+    });
+    await waitForText(page, 'room-messages', /room-new-2/);
+
+    await page.reload();
+    await expect(page.getByTestId('status')).toHaveText('disconnected');
+    await page.getByTestId('connect-btn').click();
+    await waitForText(page, 'status', 'connected');
+    await page.getByTestId('room-join-btn').click();
+    await waitForText(page, 'room-subscribed', 'subscribed');
+
+    await page.evaluate((since) => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      ws?.send(
+        JSON.stringify({
+          event: '_replay',
+          payload: { since, _channel: 'replay-room' },
+        }),
+      );
+    }, seqBefore);
+
+    await expect(async () => {
+      const roomMessages = await page.getByTestId('room-messages').textContent();
+      expect(roomMessages).toContain('room-new-1');
+      expect(roomMessages).toContain('room-new-2');
+      expect(roomMessages).not.toContain('room-old-1');
+      expect(roomMessages).not.toContain('room-old-2');
+    }).toPass({ timeout: 5_000 });
+  });
+
   test('programmatic sendReplay delivers message', async ({ page }) => {
     await page.getByTestId('request-history-btn').click();
     await waitForText(page, 'history-injected', 'true');
@@ -137,5 +203,71 @@ test.describe('replay handler', () => {
       expect(replayCount).toBeGreaterThan(0);
       expect(replayCount).toBeLessThanOrEqual(seqAfter - seq1);
     }).toPass({ timeout: 5_000 });
+  });
+
+  test('history retention prunes old rows once maxMessages is exceeded', async ({ page }) => {
+    await page.evaluate(() => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      for (let i = 0; i < 60; i += 1) {
+        ws?.send(
+          JSON.stringify({
+            event: 'send-msg',
+            payload: { text: `history-${i}` },
+          }),
+        );
+      }
+    });
+    await waitForText(page, 'messages', /history-59/);
+
+    await page.reload();
+    await expect(page.getByTestId('status')).toHaveText('disconnected');
+    await page.getByTestId('connect-btn').click();
+    await waitForText(page, 'status', 'connected');
+
+    await page.getByTestId('replay-btn').click();
+    await expect(async () => {
+      const replayCount = Number(await page.getByTestId('replay-count').textContent());
+      expect(replayCount).toBe(100);
+      const messages = await page.getByTestId('messages').textContent();
+      expect(messages).not.toContain('history-0');
+      expect(messages).toContain('history-59');
+    }).toPass({ timeout: 10_000 });
+  });
+
+  test('history retention prunes rows older than maxAgeMs', async ({ page }) => {
+    await page.evaluate(() => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      ws?.send(
+        JSON.stringify({
+          event: 'send-msg',
+          payload: { text: 'history-expired' },
+        }),
+      );
+    });
+    await waitForText(page, 'messages', /history-expired/);
+    await page.waitForTimeout(2500);
+
+    await page.evaluate(() => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      ws?.send(
+        JSON.stringify({
+          event: 'send-msg',
+          payload: { text: 'history-fresh' },
+        }),
+      );
+    });
+    await waitForText(page, 'messages', /history-fresh/);
+
+    await page.reload();
+    await expect(page.getByTestId('status')).toHaveText('disconnected');
+    await page.getByTestId('connect-btn').click();
+    await waitForText(page, 'status', 'connected');
+
+    await page.getByTestId('replay-btn').click();
+    await expect(async () => {
+      const messages = await page.getByTestId('messages').textContent();
+      expect(messages).toContain('history-fresh');
+      expect(messages).not.toContain('history-expired');
+    }).toPass({ timeout: 10_000 });
   });
 });

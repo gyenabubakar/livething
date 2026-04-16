@@ -28,7 +28,7 @@ export const replayHandler = base
   .outgoing(Cursor)
   .outgoing(RoomMsg)
   .replay((r) =>
-    r.exclude('cursor').retention({ maxMessages: 100, maxAgeMs: 60_000 }).durability('strict'),
+    r.exclude('cursor').retention({ maxMessages: 100, maxAgeMs: 2_000 }).durability('strict'),
   )
   .onError((_ctx, error, event) => {
     console.error(`[replay] error in ${event}:`, error);

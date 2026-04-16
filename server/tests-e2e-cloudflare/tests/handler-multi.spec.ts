@@ -209,6 +209,7 @@ test.describe('multi-client', () => {
       );
     }, page1ConnId);
 
+    await waitForText(page2, 'send-to-conn-status', 'delivered:true');
     await waitForText(page1, 'send-to-conn-result', /user2: hello direct/);
 
     await page1.close();
@@ -247,6 +248,7 @@ test.describe('multi-client', () => {
       );
     }, page2ConnId);
 
+    await waitForText(page1, 'send-to-conn-status', 'delivered:false');
     await page1.getByTestId('echo-btn').click();
     await waitForText(page1, 'echo-result', /hello world/);
     await expect(page1.getByTestId('status')).toHaveText('connected');

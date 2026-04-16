@@ -11,6 +11,7 @@
 	let roomNotes = $state<string[]>([]);
 	let roomSubscribed = $state('');
 	let roomReplayCount = $state(0);
+	let roomConfirmedResult = $state('');
 
 	function connect() {
 		if (ws) return;
@@ -24,6 +25,7 @@
 
 		ws.onopen = () => {
 			status = 'connected';
+			(window as unknown as Record<string, unknown>).__ws = ws;
 		};
 		ws.onclose = () => {
 			status = 'disconnected';
@@ -52,6 +54,8 @@
 			} else if (evt === 'room-note') {
 				roomNotes = [...roomNotes, `${payload.author}: ${payload.text}`].slice(-50);
 				if (replayRequested) roomReplayCount++;
+			} else if (evt === 'room-confirmed-count') {
+				roomConfirmedResult = `total:${payload.total},confirmed:${payload.confirmed}`;
 			} else if (evt === '_subscribeOk') {
 				if (payload._channel === 'custom-room') roomSubscribed = 'subscribed';
 			}
@@ -89,6 +93,11 @@
 		replayRequested = true;
 		ws?.send(JSON.stringify({ event: '_replay', payload: { since: 0, _channel: 'custom-room' } }));
 	}
+
+	function getRoomConfirmedCount() {
+		roomConfirmedResult = '';
+		ws?.send(JSON.stringify({ event: 'get-room-confirmed-count', payload: { _channel: 'custom-room' } }));
+	}
 </script>
 
 <main>
@@ -122,9 +131,11 @@
 		<button data-testid="room-join-btn" onclick={joinRoom} disabled={status !== 'connected'}>Join Room</button>
 		<button data-testid="room-note-btn" onclick={() => addRoomNote('channel replay note')} disabled={status !== 'connected'}>Add Room Note</button>
 		<button data-testid="room-replay-btn" onclick={requestRoomReplay} disabled={status !== 'connected'}>Replay Room</button>
+		<button data-testid="room-confirmed-btn" onclick={getRoomConfirmedCount} disabled={status !== 'connected'}>Get Room Confirmed</button>
 		<div data-testid="room-subscribed">{roomSubscribed}</div>
 		<div data-testid="room-notes">{roomNotes.join(' | ')}</div>
 		<div data-testid="room-replay-count">{roomReplayCount}</div>
+		<div data-testid="room-confirmed-result">{roomConfirmedResult}</div>
 	</section>
 </main>
 

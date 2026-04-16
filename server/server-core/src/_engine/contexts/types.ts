@@ -102,29 +102,50 @@ export interface CreateTaskContextDeps extends ContextCommonDeps {
 // the engine without exposing engine-specific modules from the public API.
 // ---------------------------------------------------------------------------
 
+/** Public broadcast options re-exported here so engine helpers can share one import path. */
 export type BroadcastOptions = PublicApi.BroadcastOptions;
+
+/** Public connection context re-exported for internal helpers that extend live handler ctx objects. */
 export type ConnectionContext<
   TMeta extends Record<string, unknown>,
   TEnv extends Record<string, unknown>,
   TPlatform,
 > = PublicApi.ConnectionContext<TMeta, TEnv, TPlatform>;
+
+/** Public read-only connection snapshot shape used by internal channel/member helpers. */
 export type ConnectionInfo<TMeta extends Record<string, unknown>> = PublicApi.ConnectionInfo<TMeta>;
+
+/** Public init-hook context re-exported for engine setup helpers. */
 export type InitContext<TEnv extends Record<string, unknown>, TPlatform> = PublicApi.InitContext<
   TEnv,
   TPlatform
 >;
+
+/** Public shutdown-hook context re-exported for engine teardown helpers. */
 export type ShutdownContext<
   TMeta extends Record<string, unknown>,
   TEnv extends Record<string, unknown>,
   TPlatform,
 > = PublicApi.ShutdownContext<TMeta, TEnv, TPlatform>;
+
+/** Public scheduled-task context re-exported for runtime task helpers. */
 export type TaskContext<
   TMeta extends Record<string, unknown>,
   TEnv extends Record<string, unknown>,
   TPlatform,
 > = PublicApi.TaskContext<TMeta, TEnv, TPlatform>;
+
+/** Compiled channel definition used by runtime routing and scoped ctx builders. */
 export type CompiledChannel = EngineCompileTypes.CompiledChannel;
+
+/** Compiled namespace definition used by runtime routing and scoped ctx builders. */
 export type CompiledNamespace = EngineCompileTypes.CompiledNamespace;
+
+/** Fully compiled server definition the engine executes at runtime. */
 export type CompiledServer = EngineCompileTypes.CompiledServer;
+
+/** Installed module runtime hooks and API factory bundle for one module instance. */
 export type ModuleRuntime = EngineRuntimeTypes.ModuleRuntime;
+
+/** Live connection record tracked by the engine. */
 export type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
