@@ -115,6 +115,9 @@ test.describe('replay handler', () => {
   });
 
   test('replay from nonzero since', async ({ page }) => {
+    // Each send-msg click produces 2 chat-msg events (ctx.send + ctx.broadcast),
+    // so 3 clicks produce 6 stored messages. Wait until all 6 arrive before
+    // sampling seqAfter, otherwise the assertion races with in-flight messages.
     await page.getByTestId('send-msg-btn').click();
     await waitForText(page, 'messages', /hello from replay/);
     const seq1 = Number(await page.getByTestId('last-seq').textContent());
@@ -123,7 +126,7 @@ test.describe('replay handler', () => {
     await page.getByTestId('send-msg-btn').click();
     await expect(async () => {
       const seqAfter = Number(await page.getByTestId('last-seq').textContent());
-      expect(seqAfter).toBeGreaterThan(seq1);
+      expect(seqAfter).toBeGreaterThanOrEqual(seq1 + 4);
     }).toPass({ timeout: 5_000 });
     const seqAfter = Number(await page.getByTestId('last-seq').textContent());
 

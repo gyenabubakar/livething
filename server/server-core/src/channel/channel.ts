@@ -160,12 +160,25 @@ export function scope<TKey extends string>(key: TKey, pattern: RegExp): ScopeDec
  * named pub/sub channel inside a handler.
  *
  * In practice you rarely call `channel()` directly. Use it through the builder:
- * `server('name').channel('notifications')` — that method calls this factory
- * internally.
+ * `server('name').channel('notifications', (ch) => ...)` — that method calls
+ * this factory internally and gives you a sub-builder scoped to the channel.
  *
- * @param pattern    A string or `ScopeDeclaration` identifying this channel.
+ * @param pattern    A string (static channel name) or a `ScopeDeclaration`
+ *   produced by {@link scope} for dynamic channels with a captured parameter.
  * @param primitives The outgoing events, handlers, lifecycle hooks, etc. that
  *   define the channel's behaviour.
+ *
+ * @example
+ * ```ts
+ * // Builder form (typical):
+ * base.channel('notifications', (ch) =>
+ *   ch.outgoing(Notify).incoming(Ping, (ctx) => ctx.channel.broadcast('notify', {})),
+ * );
+ *
+ * // Direct factory form (rare — for sharing channel definitions):
+ * const notifications = channel('notifications', outgoing('notify'));
+ * base.use(notifications);
+ * ```
  */
 export function channel<
   const TPattern extends ChannelPattern,

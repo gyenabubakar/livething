@@ -14,6 +14,12 @@ export default {
       return env.WEBSOCKET_SERVER.get(id).fetch(request);
     }
 
+    if (url.pathname === '/ws/shutdown') {
+      const id = env.WEBSOCKET_SERVER.idFromName(room);
+      await env.WEBSOCKET_SERVER.get(id).shutdown();
+      return new Response(null, { status: 204 });
+    }
+
     if (url.pathname === '/ws/replay') {
       const id = env.REPLAY_SERVER.idFromName(room);
       return env.REPLAY_SERVER.get(id).fetch(request);

@@ -695,8 +695,8 @@ async function handleDispatchError(
     return;
   }
 
-  // Defer — re-enqueue the message after a delay. After 3 failed attempts
-  // the engine gives up and fires a DeferExhausted error instead.
+  // Defer — re-enqueue the message after a delay. After 3 retries the engine
+  // gives up and fires a DeferExhausted error instead.
   if (error && typeof error === 'object' && (error as { __wskit?: string }).__wskit === 'defer') {
     if (attempt >= 3) {
       await runtime.handleRuntimeError(
@@ -704,7 +704,7 @@ async function handleDispatchError(
         ErrorsPrimitive.DeferExhausted({
           event,
           payload: rawPayload,
-          retries: attempt + 1,
+          retries: attempt,
         }),
         event,
       );

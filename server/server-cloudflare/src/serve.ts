@@ -6,21 +6,39 @@ import { createStorage, createTimers } from './providers.ts';
 import { normalizeBinary } from './utils.ts';
 
 /**
- * Options for the Cloudflare adapter. Currently supports toggling WebSocket hibernation
- * (enabled by default).
+ * Options for the Cloudflare adapter.
+ *
+ * @property hibernation - If `true` (default), the Durable Object uses the
+ * Cloudflare WebSocket hibernation API, which lets the DO be evicted from memory
+ * while clients stay connected and resumes it when a message arrives. Set to
+ * `false` only if you need standard event-listener semantics (which keeps the DO
+ * alive and billable for the full connection lifetime).
  */
 export interface CloudflareOptions {
   hibernation?: boolean;
 }
 
 /**
- * The Durable Object class type that `serve()` returns. Use this as the type for your
- * exported Durable Object class.
+ * The instance shape of a `serve()`-produced Durable Object.
+ *
+ * In addition to the standard DO lifecycle methods, the instance exposes
+ * `shutdown()` as an RPC-callable method. Invoke `stub.shutdown()` from your
+ * Worker to run `onShutdown` hooks and close open sockets. It is a graceful
+ * drain — the DO instance is not destroyed and will accept new connections
+ * until Cloudflare idle-evicts it.
+ */
+export interface WskitDurableObjectInstance<Env = unknown> extends DurableObject<Env> {
+  shutdown(): Promise<void>;
+}
+
+/**
+ * The Durable Object class type that `serve()` returns. Use this as the type
+ * for your exported Durable Object class.
  */
 export type CloudflareDurableObjectClass<Env = unknown> = new (
   ctx: DurableObjectState,
   env: Env,
-) => DurableObject<Env>;
+) => WskitDurableObjectInstance<Env>;
 
 const buildServe = defineServerAdapter<CloudflareOptions, CloudflareDurableObjectClass>({
   id: 'cloudflare',
@@ -172,18 +190,52 @@ const buildServe = defineServerAdapter<CloudflareOptions, CloudflareDurableObjec
         await this.ready;
         await this.engine.handleAlarm();
       }
+
+      /**
+       * Gracefully drain this Durable Object.
+       *
+       * Runs every `onShutdown` hook (handler-level and module-level), cancels
+       * active streams, closes every open WebSocket with close code 1001
+       * ("going away"), and clears the next queued alarm handle.
+       *
+       * Cloudflare does not emit a native shutdown signal, so call this from
+       * your Worker (e.g. from an admin RPC before a deploy) when you need a
+       * clean close. Note that this does **not** destroy the DO instance —
+       * Cloudflare will idle-evict it shortly after all connections close.
+       * A subsequent upgrade request will re-activate the DO with fresh state.
+       * If you need an immediate teardown, call `ctx.abort()` from inside the
+       * DO yourself.
+       */
+      async shutdown(): Promise<void> {
+        await this.ready;
+        await this.engine.handleShutdown();
+      }
     };
   },
 });
 
 /**
- * Takes a wskit handler and returns a Cloudflare Durable Object class
- * that serves WebSocket connections for that handler.
+ * Turn a wskit handler into a Cloudflare Durable Object class.
+ *
+ * Export the returned class from your Worker so the Cloudflare runtime can
+ * instantiate one DO per `idFromName(...)`. Each DO instance owns its own
+ * WebSocket connections, storage, and scheduled alarm. By default the DO
+ * uses the Hibernation API (see {@link CloudflareOptions}).
  *
  * @example
  * ```ts
+ * // src/worker.ts
  * import { serve } from '@wskit/server-cloudflare';
+ * import { handler } from './handler';
+ *
  * export const GameRoom = serve(handler);
+ *
+ * export default {
+ *   async fetch(request, env) {
+ *     const id = env.GameRoom.idFromName('lobby');
+ *     return env.GameRoom.get(id).fetch(request);
+ *   },
+ * };
  * ```
  */
 export function serve(

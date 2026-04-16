@@ -153,7 +153,22 @@ export class ServerBuilder<TState extends ScopeStateShape = InitialState, TFeatu
     this._name = name;
   }
 
-  /** Register an event that this server is allowed to send to clients. */
+  /**
+   * Declare an event the server is allowed to send to clients.
+   *
+   * Pass an {@link EventContract} created with `event()`. The event name and
+   * payload type flow into the client's generated types via {@link InferClient}.
+   *
+   * @example
+   * ```ts
+   * import { server, event } from '@wskit/server';
+   * import { z } from 'zod';
+   *
+   * const Greeting = event('greeting', z.object({ text: z.string() }));
+   *
+   * server('app').outgoing(Greeting);
+   * ```
+   */
   outgoing<TEvent extends string, TPayload>(
     eventContract: EventContract<TEvent, TPayload>,
   ): ServerBuilderFull<StateAfterOutgoing<TState, TEvent, TPayload>, TFeatures> {
@@ -161,7 +176,25 @@ export class ServerBuilder<TState extends ScopeStateShape = InitialState, TFeatu
     return this as any;
   }
 
-  /** Register an event the server can receive from clients and attach a handler for it. */
+  /**
+   * Declare an event the server can receive from clients and attach a handler.
+   *
+   * The handler runs once per incoming message after the event contract's
+   * validator accepts the payload. Throw {@link ValidationFailed} from inside
+   * the handler to reject a message after a custom check.
+   *
+   * @example
+   * ```ts
+   * import { server, event } from '@wskit/server';
+   * import { z } from 'zod';
+   *
+   * const SendChat = event('send-chat', z.object({ text: z.string() }));
+   *
+   * server('app').incoming(SendChat, (ctx, payload) => {
+   *   ctx.broadcast('chat-msg', { text: payload.text });
+   * });
+   * ```
+   */
   incoming<TEvent extends string, TPayload>(
     eventContract: EventContract<TEvent, TPayload>,
     handler: (ctx: HandlerCtxFromState<TState>, payload: TPayload) => void | Promise<void>,
@@ -172,7 +205,19 @@ export class ServerBuilder<TState extends ScopeStateShape = InitialState, TFeatu
     return this as any;
   }
 
-  /** Merge a compiled primitive (channel, namespace, or group) into this builder. */
+  /**
+   * Attach a compiled primitive to this builder.
+   *
+   * Use this to mount a {@link channel}, {@link namespace}, module, or a group
+   * of primitives returned by {@link ServerBuilder.group}. Groups are expanded
+   * in-place; channels and namespaces are attached as nested scopes.
+   *
+   * @example
+   * ```ts
+   * const shared = base.group((g) => g.outgoing(Ping));
+   * base.use(shared);
+   * ```
+   */
   use<P extends Primitive>(primitive: P): ServerBuilderFull<UseResult<TState, P>, TFeatures> {
     if (primitive.__wskit === 'group') {
       this._primitives.push(...(primitive as unknown as GroupPrimitive).primitives);
@@ -182,7 +227,22 @@ export class ServerBuilder<TState extends ScopeStateShape = InitialState, TFeatu
     return this as any;
   }
 
-  /** Create a reusable group of outgoing/incoming primitives that can be `.use()`-d elsewhere. */
+  /**
+   * Define a reusable group of flat primitives that can be `.use()`-d later.
+   *
+   * Groups cannot be nested inside each other and cannot contain channels or
+   * namespaces — use them to share sets of `incoming` and `outgoing` declarations
+   * between multiple builders.
+   *
+   * @example
+   * ```ts
+   * const pingPong = base.group((g) =>
+   *   g.outgoing(Pong).incoming(Ping, (ctx) => ctx.send('pong', {})),
+   * );
+   *
+   * base.use(pingPong);
+   * ```
+   */
   group<TGroupState extends ScopeStateShape>(
     callback: (
       builder: GroupBuilderFull<TState, TFeatures>,
@@ -203,7 +263,22 @@ export class ServerBuilder<TState extends ScopeStateShape = InitialState, TFeatu
     } as GroupPrimitive<TGroupState>;
   }
 
-  /** Compile the builder into a frozen server definition, ready to be passed to an adapter. */
+  /**
+   * Finalize the builder into an immutable {@link ServerDefinition}.
+   *
+   * Pass the returned value to an adapter's `serve()` function (for example
+   * `serve(handler)` from `@wskit/server-cloudflare`). Throws if any build-time
+   * invariant fails — for example, duplicate event names or missing
+   * dependencies between primitives.
+   *
+   * @example
+   * ```ts
+   * import { serve } from '@wskit/server-cloudflare';
+   *
+   * const handler = server('app').outgoing(Greeting).build();
+   * export const Room = serve(handler);
+   * ```
+   */
   build(): ServerDefinition<readonly Primitive[], ContractFromState<TState>> {
     validateBuild(this._primitives);
     return Object.freeze({
@@ -228,7 +303,7 @@ export class GroupBuilder<TState extends ScopeStateShape, TFeatures = {}> {
     this._parent = parent;
   }
 
-  /** Register an event that this server is allowed to send to clients. */
+  /** Declare an event the server is allowed to send to clients (same as {@link ServerBuilder.outgoing}, but scoped to this group). */
   outgoing<TEvent extends string, TPayload>(
     eventContract: EventContract<TEvent, TPayload>,
   ): GroupBuilderFull<StateAfterOutgoing<TState, TEvent, TPayload>, TFeatures> {
@@ -236,7 +311,7 @@ export class GroupBuilder<TState extends ScopeStateShape, TFeatures = {}> {
     return this as any;
   }
 
-  /** Register an event the server can receive from clients and attach a handler for it. */
+  /** Declare an event the server can receive and attach a handler (same as {@link ServerBuilder.incoming}, but scoped to this group). */
   incoming<TEvent extends string, TPayload>(
     eventContract: EventContract<TEvent, TPayload>,
     handler: (ctx: HandlerCtxFromState<TState>, payload: TPayload) => void | Promise<void>,
@@ -247,7 +322,7 @@ export class GroupBuilder<TState extends ScopeStateShape, TFeatures = {}> {
     return this as any;
   }
 
-  /** Merge a compiled primitive (channel or namespace) into this group. Groups cannot be nested. */
+  /** Attach a compiled primitive (channel, namespace, or module) to this group. Groups cannot nest other groups. */
   use<P extends Primitive>(
     primitive: P extends { __wskit: 'group' } ? never : P,
   ): GroupBuilderFull<UseResult<TState, P>, TFeatures> {

@@ -141,8 +141,14 @@ export type ReplayContext<TScope extends CustomReplayScope> = TScope extends 'ch
   : TopLevelReplayContext;
 
 /**
- * The options object passed to `handleReplay()`. All three hooks are optional
- * except `onReplay`, which is required to re-send stored messages on reconnect.
+ * Hooks that describe a custom replay strategy: how outgoing messages get
+ * persisted (via `onBeforeSend` or `onAfterSend`) and how they get replayed
+ * back to a reconnecting client (via `onReplay`). Implement this instead of
+ * the built-in `replay()` when you need custom storage — e.g. a third-party
+ * database, a message broker, or cross-region replication.
+ *
+ * All three hooks are optional except `onReplay`, which is required to re-send
+ * stored messages on reconnect.
  */
 export interface CustomReplayOptions<TScope extends CustomReplayScope = 'top'> {
   /**

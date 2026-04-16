@@ -15,16 +15,22 @@ import type { Primitive } from '~/primitive.ts';
 export interface ServerContract {
   /** Events the server sends to clients (`outgoing()` from the server perspective). */
   readonly incoming: Record<string, any>;
+
   /** Events clients send to the server (`incoming()` from the server perspective). */
   readonly outgoing: Record<string, any>;
+
   /** Request/response pairs initiated by the client. */
   readonly requests: Record<string, any>;
+
   /** Server-sent streams initiated by the client. */
   readonly streams: Record<string, any>;
+
   /** Named server errors that can be sent to the client. */
   readonly errors: Record<string, any>;
+
   /** Channel scopes registered on this server. */
   readonly channels: Record<string, any>;
+
   /** Namespace scopes registered on this server. */
   readonly namespaces: Record<string, any>;
 }

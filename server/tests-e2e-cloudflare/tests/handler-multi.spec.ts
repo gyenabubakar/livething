@@ -279,7 +279,9 @@ test.describe('multi-client', () => {
     await page2.close();
   });
 
-  test('broadcast stream reaches second client', async ({ browser }, testInfo) => {
+  test('broadcast stream reaches trigger connection and second client', async ({
+    browser,
+  }, testInfo) => {
     const room = `multi-${testInfo.testId}`;
     const page1 = await browser.newPage();
     const page2 = await browser.newPage();
@@ -295,6 +297,7 @@ test.describe('multi-client', () => {
     await waitForText(page2, 'status', 'connected');
 
     await page1.getByTestId('broadcast-stream-btn').click();
+    await waitForText(page1, 'broadcast-stream-tokens', /hello/, 15_000);
     await waitForText(page2, 'broadcast-stream-tokens', /hello/, 15_000);
 
     await page1.close();

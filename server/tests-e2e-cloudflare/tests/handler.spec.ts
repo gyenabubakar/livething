@@ -224,7 +224,7 @@ test.describe('main handler', () => {
 
   test('DeferExhausted fires onError after retries exhaust', async ({ page }) => {
     await page.getByTestId('always-defer-btn').click();
-    await waitForText(page, 'defer-exhausted-result', /always-defer:retries=/, 15_000);
+    await waitForText(page, 'defer-exhausted-result', /always-defer:retries=3/, 15_000);
   });
 
   // --- Channel members + subscribe rejection ---
@@ -434,6 +434,18 @@ test.describe('main handler', () => {
     await page.getByTestId('echo-btn').click();
     await waitForText(page, 'echo-result', /hello world/);
     await expect(page.getByTestId('status')).toHaveText('connected');
+  });
+
+  // --- onShutdown hook fires via adapter.shutdown() ---
+
+  test('onShutdown: broadcasts user-left before closing connections', async ({
+    page,
+  }, testInfo) => {
+    const room = `test-${testInfo.testId}`;
+    const shutdownResponse = await page.request.post(`/ws/shutdown?room=${room}`);
+    expect(shutdownResponse.status()).toBe(204);
+    await waitForText(page, 'user-events', /left: server-shutdown/);
+    await waitForText(page, 'status', 'disconnected', 15_000);
   });
 
   // --- sendTo with empty tag ---

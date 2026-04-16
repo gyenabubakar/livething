@@ -57,7 +57,9 @@ export interface ModuleHooks<TCtx = any> {
 export type ModuleContextFactory<TCtx = any, TApi = unknown> = (ctx: TCtx) => TApi;
 
 /**
- * Configuration object for `defineModule`.
+ * Everything a module needs to register with the engine: identity, dependencies,
+ * platform requirements, the events and errors it exposes, and a `setup`
+ * function that wires lifecycle hooks and builds the per-connection API.
  *
  * - `TArgs` is what the developer passes when calling the module factory
  * - `TApi` is what `MyModule.use(ctx)` returns

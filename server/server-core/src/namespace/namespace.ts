@@ -102,10 +102,23 @@ const NAMESPACE_KEY = Symbol('namespace');
  * receive events using the full prefixed names.
  *
  * In practice you rarely call `namespace()` directly. Use it through the
- * builder: `server('name').namespace('chat')` — that method calls this factory.
+ * builder: `server('name').namespace('chat', (ns) => ...)` — that method calls
+ * this factory internally and gives you a sub-builder scoped to the namespace.
  *
  * @param pattern    The namespace name / event prefix.
  * @param primitives The outgoing events, handlers, and interceptors for this namespace.
+ *
+ * @example
+ * ```ts
+ * // Builder form (typical):
+ * base.namespace('chat', (ns) =>
+ *   ns.outgoing(NewMessage).incoming(SendMessage, (ctx, p) => ctx.broadcast('new-message', p)),
+ * );
+ *
+ * // Direct factory form (rare — for sharing namespace definitions):
+ * const chat = namespace('chat', outgoing('new-message'));
+ * base.use(chat);
+ * ```
  */
 export function namespace<
   const TPattern extends string,
