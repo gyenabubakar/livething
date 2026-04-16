@@ -72,6 +72,47 @@ describe('intercept/runtime', () => {
     expect(next).toEqual({ count: 3 });
   });
 
+  it('Skip in a pre-intercept skips that interceptor but continues to the next', async () => {
+    const { Skip } = await import('@wskit/core');
+    const runtime = {
+      buildConnectionContext: () => ({ ok: true }),
+      setActiveConnectionId: vi.fn(),
+    };
+    const connection = createConnection();
+
+    const skipper = intercept(async () => {
+      throw Skip;
+    });
+    const rewriter = intercept(async (_ctx, message) => ({
+      event: message.event,
+      payload: { ...(message.payload as Record<string, unknown>), rewritten: true },
+    }));
+
+    const next = await runPreIntercepts(runtime, connection, {}, [skipper, rewriter], {
+      event: 'test',
+      payload: {},
+    });
+
+    expect(next).toEqual({ event: 'test', payload: { rewritten: true } });
+  });
+
+  it('Block in a pre-intercept still propagates as an error', async () => {
+    const { Block } = await import('@wskit/core');
+    const runtime = {
+      buildConnectionContext: () => ({ ok: true }),
+      setActiveConnectionId: vi.fn(),
+    };
+    const connection = createConnection();
+
+    const blocker = intercept(async () => {
+      throw Block;
+    });
+
+    await expect(
+      runPreIntercepts(runtime, connection, {}, [blocker], { event: 'test', payload: {} }),
+    ).rejects.toBe(Block);
+  });
+
   it('always clears the active connection id even when a scoped callback throws', async () => {
     const runtime = {
       buildConnectionContext: () => ({ ok: true }),

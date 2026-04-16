@@ -362,4 +362,51 @@ describe('replay/runtime', () => {
       ),
     ).toEqual([4, 5]);
   });
+
+  it('loads rows for a static channel where channelScope equals channelName', () => {
+    const { rows, sql } = createReplaySql();
+
+    rows.set('s1', {
+      rowKey: 's1',
+      messageId: 'msg_s1',
+      seq: 1,
+      event: 'room-msg',
+      payload: '{}',
+      namespace: null,
+      channel: 'replay-room',
+      channelScope: null,
+      snapshotKey: null,
+      createdAt: 100,
+    });
+    rows.set('s2', {
+      rowKey: 's2',
+      messageId: 'msg_s2',
+      seq: 2,
+      event: 'room-msg',
+      payload: '{}',
+      namespace: null,
+      channel: 'replay-room',
+      channelScope: null,
+      snapshotKey: null,
+      createdAt: 110,
+    });
+    rows.set('top', {
+      rowKey: 'top',
+      messageId: 'msg_top',
+      seq: 3,
+      event: 'chat-msg',
+      payload: '{}',
+      namespace: null,
+      channel: null,
+      channelScope: null,
+      snapshotKey: null,
+      createdAt: 120,
+    });
+
+    const result = loadReplayRows(sql, 0, {
+      channelName: 'replay-room',
+      channelScope: 'replay-room',
+    });
+    expect(result.map((row) => row.seq)).toEqual([1, 2]);
+  });
 });

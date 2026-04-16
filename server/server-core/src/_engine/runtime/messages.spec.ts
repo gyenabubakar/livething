@@ -193,4 +193,81 @@ describe('message runtime', () => {
 
     expect(handler).not.toHaveBeenCalled();
   });
+
+  it('routes ValidationFailed thrown from a handler to handleValidationError', async () => {
+    const { ValidationFailed } = await import('@wskit/core');
+    const validationErrors: string[] = [];
+    const runtimeErrors: unknown[] = [];
+    const connection = createConnection('conn_1');
+
+    const runtime = {
+      compiled: {
+        outgoing: new Map(),
+        incoming: new Map([
+          [
+            'manual-check',
+            {
+              event: 'manual-check',
+              handler: () => {
+                throw ValidationFailed;
+              },
+              validator: undefined,
+            },
+          ],
+        ]),
+        requests: new Map(),
+        streams: new Map(),
+        preIntercepts: [],
+        postIntercepts: new Map(),
+        namespaces: new Map(),
+        channels: new Map(),
+        channelFamilies: new Map(),
+        scheduled: new Map(),
+        modules: [],
+        requires: {},
+      },
+      connections: new Map([[connection.id, connection]]),
+      toConnectionInfo() {
+        return { id: connection.id };
+      },
+      activeStreams: new Map(),
+      protocolHandlers: new Map(),
+      incomingHooks: [],
+      moduleRuntimes: [],
+      errorHooks: [],
+      requireTimers() {
+        return { setTimeout: () => undefined, clearTimeout() {} };
+      },
+      buildConnectionContext() {
+        return { id: connection.id };
+      },
+      broadcastToConnections() {},
+      sendProtocolMessage() {},
+      sendReplay() {},
+      persistAttachment() {},
+      setActiveConnectionId() {},
+      async handleRuntimeError(_conn: unknown, error: unknown) {
+        runtimeErrors.push(error);
+      },
+      async handleValidationError(_conn: unknown, event: string) {
+        validationErrors.push(event);
+      },
+      async handleSubscribe() {},
+      async handleUnsubscribe() {},
+      waitUntil() {},
+      generateId() {
+        return 'id_1';
+      },
+    };
+
+    await dispatchIncoming(
+      runtime as unknown as Parameters<typeof dispatchIncoming>[0],
+      connection,
+      'manual-check',
+      {},
+    );
+
+    expect(validationErrors).toEqual(['manual-check']);
+    expect(runtimeErrors).toHaveLength(1);
+  });
 });

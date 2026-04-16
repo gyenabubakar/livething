@@ -36,10 +36,7 @@ export default defineConfig({
       formats: ['es'],
     },
     rollupOptions: {
-      external: ['@wskit/core', '@wskit/shared'],
-      treeshake: {
-        moduleSideEffects: true,
-      },
+      external: ['@wskit/core'],
     },
   },
   test: {
