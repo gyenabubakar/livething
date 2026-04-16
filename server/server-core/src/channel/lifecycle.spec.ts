@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import * as v from 'valibot';
+import type { EngineAccess } from '~/_engine/access.ts';
 import { onBeforeSubscribe, onSubscribe, onUnsubscribe } from './lifecycle.ts';
 
 describe('channel lifecycle primitives', () => {
@@ -15,7 +16,7 @@ describe('channel lifecycle primitives', () => {
     expect(primitive.__kind).toBe('lifecycle');
     expect(primitive.validator).toBe(validator);
 
-    primitive.__setup?.(engine as any);
+    primitive.__setup?.(engine as unknown as EngineAccess);
     expect(engine.onBeforeSubscribe).toHaveBeenCalledWith(handler, validator);
   });
 
@@ -30,8 +31,8 @@ describe('channel lifecycle primitives', () => {
     const subscribePrimitive = onSubscribe(subscribe);
     const unsubscribePrimitive = onUnsubscribe(unsubscribe);
 
-    subscribePrimitive.__setup?.(engine as any);
-    unsubscribePrimitive.__setup?.(engine as any);
+    subscribePrimitive.__setup?.(engine as unknown as EngineAccess);
+    unsubscribePrimitive.__setup?.(engine as unknown as EngineAccess);
 
     expect(engine.onSubscribe).toHaveBeenCalledWith(subscribe);
     expect(engine.onUnsubscribe).toHaveBeenCalledWith(unsubscribe);

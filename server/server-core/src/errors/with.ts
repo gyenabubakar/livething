@@ -6,6 +6,20 @@ import type { ErrorDef } from '~/errors/errors.ts';
 
 const KINDS = ['server', 'group'] as const;
 
+/**
+ * Add typed error handling support to a server builder.
+ *
+ * Once enabled, you can call `.errors()` on the builder to register typed
+ * error definitions, and `.onError()` / `.onValidationError()` to attach
+ * hooks that run when those errors occur.
+ *
+ * @example
+ * ```ts
+ * import { server } from '@wskit/server';
+ *
+ * const s = withErrors(server('app'));
+ * ```
+ */
 export function withErrors<TState extends ScopeStateShape, TFeatures>(
   builder: ServerBuilderFull<TState, TFeatures>,
 ): ServerBuilderFull<TState, TFeatures & { errors: true }> {

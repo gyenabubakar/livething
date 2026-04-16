@@ -1,4 +1,5 @@
 import { error } from '~/errors/errors.ts';
+import type { ErrorsPrimitive } from '~/errors/primitive.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import { defineModule, MODULE_API_MAP } from './define.ts';
@@ -10,7 +11,7 @@ describe('defineModule', () => {
     const key = Symbol('analytics');
     const dependency = { __key: Symbol('dep') };
     const setup = vi.fn(() => () => ({ track() {} }));
-    const errorsPrimitive = { __wskit: 'errors', defs: [Forbidden] } as any;
+    const errorsPrimitive = { __wskit: 'errors', defs: [Forbidden] } as unknown as ErrorsPrimitive;
 
     const analytics = defineModule({
       id: 'acme:analytics',

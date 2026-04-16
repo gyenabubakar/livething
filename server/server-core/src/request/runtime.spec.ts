@@ -42,7 +42,7 @@ describe('request/runtime', () => {
     const request = {
       __wskit: 'request',
       event: 'status',
-      handler: vi.fn(async (ctx: any) => {
+      handler: vi.fn(async (ctx: { respond: (value: unknown) => void }) => {
         ctx.respond({ ok: true });
       }),
     } as unknown as RequestPrimitive;

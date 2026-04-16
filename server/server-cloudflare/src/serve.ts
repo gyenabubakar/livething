@@ -1,14 +1,22 @@
-import { DurableObject } from 'cloudflare:workers';
 import { defineServerAdapter } from '@wskit/server/adapters';
+import { DurableObject } from 'cloudflare:workers';
 import type { ConnectionHandle, Engine, ServerDefinition } from '@wskit/server/adapters';
 import { createPlatform } from './platform.ts';
 import { createStorage, createTimers } from './providers.ts';
 import { normalizeBinary } from './utils.ts';
 
+/**
+ * Options for the Cloudflare adapter. Currently supports toggling WebSocket hibernation
+ * (enabled by default).
+ */
 export interface CloudflareOptions {
   hibernation?: boolean;
 }
 
+/**
+ * The Durable Object class type that `serve()` returns. Use this as the type for your
+ * exported Durable Object class.
+ */
 export type CloudflareDurableObjectClass<Env = unknown> = new (
   ctx: DurableObjectState,
   env: Env,
@@ -159,6 +167,16 @@ const buildServe = defineServerAdapter<CloudflareOptions, CloudflareDurableObjec
   },
 });
 
+/**
+ * Create a Cloudflare Durable Object class that serves your WebSocket server.
+ * This is the main entry point for running a WebSocket server on Cloudflare Workers.
+ *
+ * @example
+ * ```ts
+ * import { serve } from '@wskit/server-cloudflare';
+ * export const GameRoom = serve(handler);
+ * ```
+ */
 export function serve(
   handler: ServerDefinition,
   options?: CloudflareOptions,

@@ -39,6 +39,10 @@ async function readFreshKvEntry(
   return entry;
 }
 
+/**
+ * Create an SQLProvider backed by Cloudflare Durable Object SQLite storage.
+ * Supports `exec()` for queries and `transaction()` for atomic operations.
+ */
 export function createSql(state: DurableObjectState): SQLProvider {
   const sql = state.storage.sql as SqlStorageWithTransaction;
   return {
@@ -58,6 +62,10 @@ export function createSql(state: DurableObjectState): SQLProvider {
   };
 }
 
+/**
+ * Create a KVProvider backed by Durable Object SQLite with built-in TTL (time-to-live)
+ * support for automatic key expiry.
+ */
 export function createKv(state: DurableObjectState): KVProvider {
   return {
     async get(key) {
@@ -87,6 +95,9 @@ export function createKv(state: DurableObjectState): KVProvider {
   };
 }
 
+/**
+ * Bundle SQL and KV providers into a single StorageProvider.
+ */
 export function createStorage(state: DurableObjectState): StorageProvider {
   return {
     sql: createSql(state),
@@ -94,6 +105,10 @@ export function createStorage(state: DurableObjectState): StorageProvider {
   };
 }
 
+/**
+ * Create a TimerProvider backed by Durable Object alarms (for persistent wake-ups)
+ * and `setTimeout` (for in-memory delays).
+ */
 export function createTimers(state: DurableObjectState): TimerProvider {
   return {
     async setAlarm(timeMs) {

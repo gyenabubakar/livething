@@ -26,6 +26,21 @@ function addLifecycleMethod(
 
 const KINDS = ['server', 'group'] as const;
 
+/**
+ * Add connection lifecycle hooks to a server builder.
+ *
+ * Once enabled, you can call any of the following on the builder to attach
+ * handlers that fire at the corresponding point in a connection's lifetime:
+ * `.onUpgrade()`, `.onInit()`, `.onConnect()`, `.onDisconnect()`,
+ * `.onShutdown()`, `.onError()`, `.onBinary()`, and `.onValidationError()`.
+ *
+ * @example
+ * ```ts
+ * import { server } from '@wskit/server';
+ *
+ * const s = withLifecycle(server('app'));
+ * ```
+ */
 export function withLifecycle<TState extends ScopeStateShape, TFeatures>(
   builder: ServerBuilderFull<TState, TFeatures>,
 ): ServerBuilderFull<TState, TFeatures & { lifecycle: true }> {

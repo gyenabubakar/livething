@@ -655,46 +655,57 @@ export async function dispatchIncoming(
       await StreamPrimitive.runStream(runtime, connection, scope, event, stream, postPayload);
     }
   } catch (error) {
-    if (error === Block) return;
-    if (error === Skip) return;
+    await handleDispatchError(runtime, connection, event, rawPayload, error, attempt);
+  }
+}
 
-    if (
-      error &&
-      typeof error === 'object' &&
-      (error as { __wskit?: string }).__wskit === 'disconnect'
-    ) {
-      connection.descriptor.close(
-        (error as { code: number }).code,
-        (error as { reason: string }).reason,
+async function handleDispatchError(
+  runtime: DispatchRuntime,
+  connection: RuntimeConnection,
+  event: string,
+  rawPayload: unknown,
+  error: unknown,
+  attempt: number,
+): Promise<void> {
+  if (error === Block) return;
+  if (error === Skip) return;
+
+  if (
+    error &&
+    typeof error === 'object' &&
+    (error as { __wskit?: string }).__wskit === 'disconnect'
+  ) {
+    connection.descriptor.close(
+      (error as { code: number }).code,
+      (error as { reason: string }).reason,
+    );
+    return;
+  }
+
+  // Defer — re-enqueue the message after a delay. After 3 failed attempts
+  // the engine gives up and fires a DeferExhausted error instead.
+  if (error && typeof error === 'object' && (error as { __wskit?: string }).__wskit === 'defer') {
+    if (attempt >= 3) {
+      await runtime.handleRuntimeError(
+        connection,
+        ErrorsPrimitive.DeferExhausted({
+          event,
+          payload: rawPayload,
+          retries: attempt + 1,
+        }),
+        event,
       );
       return;
     }
 
-    // Defer — re-enqueue the message after a delay. After 3 failed attempts
-    // the engine gives up and fires a DeferExhausted error instead.
-    if (error && typeof error === 'object' && (error as { __wskit?: string }).__wskit === 'defer') {
-      if (attempt >= 3) {
-        await runtime.handleRuntimeError(
-          connection,
-          ErrorsPrimitive.DeferExhausted({
-            event,
-            payload: rawPayload,
-            retries: attempt + 1,
-          }),
-          event,
-        );
-        return;
-      }
-
-      const delay = Number((error as { delay: number }).delay);
-      runtime.requireTimers().setTimeout(() => {
-        void dispatchIncoming(runtime, connection, event, rawPayload, attempt + 1);
-      }, delay);
-      return;
-    }
-
-    await runtime.handleRuntimeError(connection, error, event);
+    const delay = Number((error as { delay: number }).delay);
+    runtime.requireTimers().setTimeout(() => {
+      void dispatchIncoming(runtime, connection, event, rawPayload, attempt + 1);
+    }, delay);
+    return;
   }
+
+  await runtime.handleRuntimeError(connection, error, event);
 }
 
 /**
@@ -735,10 +746,20 @@ export async function processTextMessage(
       connection.descriptor.send(JSON.stringify({ event: 'pong' }));
       return;
     case '_subscribe':
-      await runtime.handleSubscribe(
-        connection,
-        parsed.payload as Record<string, unknown> | undefined,
-      );
+      try {
+        await runtime.handleSubscribe(
+          connection,
+          parsed.payload as Record<string, unknown> | undefined,
+        );
+      } catch (error) {
+        const channel = (parsed.payload as Record<string, unknown> | undefined)?._channel;
+        await runtime.handleRuntimeError(
+          connection,
+          error,
+          '_subscribe',
+          channel ? { _channel: channel } : undefined,
+        );
+      }
       return;
     case '_unsubscribe':
       await runtime.handleUnsubscribe(

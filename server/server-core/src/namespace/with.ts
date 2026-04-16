@@ -7,6 +7,21 @@ import type { ScopeStateShape } from '~/_types/scope-state.ts';
 
 const KINDS = ['server', 'group'] as const;
 
+/**
+ * Add namespace support to a server builder.
+ *
+ * Once enabled, you can call `.namespace()` on the builder to define isolated
+ * event scopes within a single connection. Each namespace maintains its own
+ * incoming/outgoing/stream registrations, keeping unrelated event groups from
+ * interfering with each other.
+ *
+ * @example
+ * ```ts
+ * import { server } from '@wskit/server';
+ *
+ * const s = withNamespaces(server('app'));
+ * ```
+ */
 export function withNamespaces<TState extends ScopeStateShape, TFeatures>(
   builder: ServerBuilderFull<TState, TFeatures>,
 ): ServerBuilderFull<TState, TFeatures & { namespaces: true }> {

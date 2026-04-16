@@ -8,6 +8,11 @@ import type {
   OutgoingWireMessage,
 } from '~/replay/custom/custom.ts';
 
+/**
+ * Fluent builder for configuring custom replay logic. Unlike built-in replay,
+ * custom replay gives you full control over what gets stored (`onBeforeSend` /
+ * `onAfterSend`) and how it gets replayed (`onReplay`).
+ */
 export class ReplayCustomBuilder<TParent, _TState extends ScopeStateShape> {
   /** @internal Reference to the parent builder for `_seal()`. */
   readonly _parent: TParent;

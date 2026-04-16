@@ -35,6 +35,20 @@ function streamImpl(
 
 const KINDS = ['server', 'group', 'namespace', 'channel'] as const;
 
+/**
+ * Add server-to-client streaming support to a server builder.
+ *
+ * Once enabled, you can call `.stream()` on the builder to define streaming
+ * endpoints backed by async generators, with optional nudges (client-to-server
+ * signals sent mid-stream) and a broadcast mode for fan-out delivery.
+ *
+ * @example
+ * ```ts
+ * import { server } from '@wskit/server';
+ *
+ * const s = withStreams(server('app'));
+ * ```
+ */
 export function withStreams<TState extends ScopeStateShape, TFeatures>(
   builder: ServerBuilderFull<TState, TFeatures>,
 ): ServerBuilderFull<TState, TFeatures & { streams: true }> {

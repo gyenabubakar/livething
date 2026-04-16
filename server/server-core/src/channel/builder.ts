@@ -60,6 +60,11 @@ type StateAfterIncoming<
   TPayload,
 > = NextState<TState, IncomingPrimitive<TEvent, TPayload, any>>;
 
+/**
+ * Fluent builder for defining a pub/sub channel. Channels let connections
+ * subscribe, unsubscribe, and exchange messages within a named group. Use
+ * `channel()` on a server builder to start one.
+ */
 export class ChannelBuilder<
   TParentState extends ScopeStateShape,
   TState extends ScopeStateShape = ChannelState<TParentState>,
@@ -87,6 +92,7 @@ export class ChannelBuilder<
     this._pattern = pattern;
   }
 
+  /** Register an event this channel can send to its members. */
   outgoing<TEvent extends string, TPayload>(
     eventContract: EventContract<TEvent, TPayload>,
   ): ChannelBuilderFull<
@@ -99,6 +105,7 @@ export class ChannelBuilder<
     return this as any;
   }
 
+  /** Register an event the channel can receive from subscribed clients. */
   incoming<TEvent extends string, TPayload>(
     eventContract: EventContract<TEvent, TPayload>,
     handler: (ctx: HandlerCtxFromState<TState>, payload: TPayload) => void | Promise<void>,
@@ -114,6 +121,7 @@ export class ChannelBuilder<
     return this as any;
   }
 
+  /** Run a check before a client joins — throw to reject the subscription. */
   onBeforeSubscribe(
     handler: (ctx: HandlerCtxFromState<TState>, data?: unknown) => void | Promise<void>,
   ): this {
@@ -121,11 +129,13 @@ export class ChannelBuilder<
     return this;
   }
 
+  /** Run code after a client successfully subscribes. */
   onSubscribe(handler: (ctx: HandlerCtxFromState<TState>) => void | Promise<void>): this {
     this._primitives.push(createOnSubscribe(handler as any) as unknown as Primitive);
     return this;
   }
 
+  /** Run code after a client leaves the channel. */
   onUnsubscribe(handler: (ctx: HandlerCtxFromState<TState>) => void | Promise<void>): this {
     this._primitives.push(createOnUnsubscribe(handler as any) as unknown as Primitive);
     return this;

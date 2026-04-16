@@ -12,6 +12,7 @@ import {
   AiChunkSchema,
   AiResponse,
   AiSend,
+  AiStreamCancelAck,
   AiStreamError,
   AiStreamPrompt,
   AiStreamWithNudges,
@@ -34,8 +35,15 @@ export const aiNamespace = withIntercept(withRequests(withStreams(withNamespaces
         if (message.event === 'ai-blocked-test') throw Block;
         return message;
       })
+      .intercept(AiSend, (_ctx, payload) => {
+        if (payload.text === 'intercept-ns-post-test') {
+          return { ...payload, text: 'namespace-post-intercepted' };
+        }
+        return payload;
+      })
       .outgoing(AiBlockedReply)
       .outgoing(AiResponse)
+      .outgoing(AiStreamCancelAck)
       .incoming(AiSend, (ctx, payload) => {
         ctx.namespace.send('response', {
           text: `[Re: "${payload.text}"] ${FAKE_RESPONSE}`,
@@ -59,15 +67,23 @@ export const aiNamespace = withIntercept(withRequests(withStreams(withNamespaces
           .nudge(NudgePause)
           .nudge(NudgeSpeedUp)
           .generate(async function* (ctx, payload) {
-            const words = `[Re: "${payload.prompt}"] ${FAKE_STREAM}`.split(' ');
-            let delay = 80;
-            for (const word of words) {
-              const nudges = ctx.nudges(yield { token: word + ' ' });
-              if (nudges.some((n) => n.event === 'pause')) break;
-              const speedUp = nudges.find((n) => n.event === 'speed-up');
-              if (speedUp && 'factor' in speedUp.payload)
-                delay = Math.max(10, delay / speedUp.payload.factor);
-              await new Promise((r) => setTimeout(r, delay));
+            let completedNaturally = false;
+            try {
+              const words = `[Re: "${payload.prompt}"] ${FAKE_STREAM}`.split(' ');
+              let delay = 80;
+              for (const word of words) {
+                const nudges = ctx.nudges(yield { token: word + ' ' });
+                if (nudges.some((n) => n.event === 'pause')) break;
+                const speedUp = nudges.find((n) => n.event === 'speed-up');
+                if (speedUp && 'factor' in speedUp.payload)
+                  delay = Math.max(10, delay / speedUp.payload.factor);
+                await new Promise((r) => setTimeout(r, delay));
+              }
+              completedNaturally = true;
+            } finally {
+              if (!completedNaturally) {
+                ctx.namespace.send('stream-cancel-ack', { cancelled: true });
+              }
             }
           }),
       )

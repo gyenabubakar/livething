@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { ValidationFailed } from '@wskit/core';
+import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as ChannelPrimitive from '~/channel/channel.ts';
 import type * as NamespacePrimitive from '~/namespace/namespace.ts';
@@ -35,6 +36,15 @@ export function mergeRequires(
   if (source.hibernation) target.hibernation = true;
 }
 
+function isStandardSchema(v: unknown): v is StandardSchemaV1 {
+  return (
+    !!v &&
+    typeof v === 'object' &&
+    '~standard' in v &&
+    typeof (v as Record<string, any>)['~standard']?.validate === 'function'
+  );
+}
+
 /**
  * Run a validator or standard-schema object and normalize the result.
  *
@@ -48,28 +58,17 @@ export function validateValue(validator: unknown, value: unknown, event = 'unkno
     return validator(value);
   }
 
-  // Standard Schema (Zod, Valibot, ArkType, etc.) — exposes a `~standard`
-  // property with a `validate(value)` method that returns either `{ value }`
-  // on success or `{ issues }` on failure.
-  if (
-    validator &&
-    typeof validator === 'object' &&
-    '~standard' in (validator as object) &&
-    typeof (validator as { '~standard'?: { validate?: (value: unknown) => unknown } })['~standard']
-      ?.validate === 'function'
-  ) {
-    const result = (validator as { '~standard': { validate(value: unknown): unknown } })[
-      '~standard'
-    ].validate(value);
+  if (isStandardSchema(validator)) {
+    const result = validator['~standard'].validate(value);
 
-    if (result && typeof result === 'object' && 'issues' in (result as object)) {
+    if (result && typeof result === 'object' && 'issues' in result) {
       throw ValidationFailed({
         event,
         issues: (result as { issues: { message: string; path?: (string | number)[] }[] }).issues,
       });
     }
 
-    if (result && typeof result === 'object' && 'value' in (result as object)) {
+    if (result && typeof result === 'object' && 'value' in result) {
       return (result as { value: unknown }).value;
     }
 

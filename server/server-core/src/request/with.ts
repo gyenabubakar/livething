@@ -8,6 +8,20 @@ import type { Validator } from '~/types.ts';
 
 const KINDS = ['server', 'group', 'namespace', 'channel'] as const;
 
+/**
+ * Add request-response support to a server builder.
+ *
+ * Once enabled, you can call `.request()` on the builder to define typed
+ * request-response patterns where the client sends a request and the server
+ * replies with a typed payload.
+ *
+ * @example
+ * ```ts
+ * import { server } from '@wskit/server';
+ *
+ * const s = withRequests(server('app'));
+ * ```
+ */
 export function withRequests<TState extends ScopeStateShape, TFeatures>(
   builder: ServerBuilderFull<TState, TFeatures>,
 ): ServerBuilderFull<TState, TFeatures & { requests: true }> {

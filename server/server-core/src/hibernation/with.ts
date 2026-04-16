@@ -6,6 +6,21 @@ import type { Primitive } from '~/primitive.ts';
 
 const KINDS = ['server', 'group'] as const;
 
+/**
+ * Add WebSocket hibernation support to a server builder.
+ *
+ * Once enabled, you can call `.hibernation()` on the builder to opt into
+ * platform-level WebSocket hibernation (e.g. Cloudflare Durable Objects),
+ * letting the runtime suspend itself between messages instead of holding an
+ * active connection open.
+ *
+ * @example
+ * ```ts
+ * import { server } from '@wskit/server';
+ *
+ * const s = withHibernation(server('app'));
+ * ```
+ */
 export function withHibernation<TState extends ScopeStateShape, TFeatures>(
   builder: ServerBuilderFull<TState, TFeatures>,
 ): ServerBuilderFull<TState, TFeatures & { hibernation: true }> {

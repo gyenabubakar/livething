@@ -6,6 +6,21 @@ import type { Primitive } from '~/primitive.ts';
 
 const KINDS = ['server', 'group'] as const;
 
+/**
+ * Add message deduplication support to a server builder.
+ *
+ * Once enabled, you can call `.dedup()` on the builder to turn on
+ * deduplication. The engine will assign a unique `_messageId` to every
+ * outgoing message and silently discard any duplicate deliveries on the
+ * client side.
+ *
+ * @example
+ * ```ts
+ * import { server } from '@wskit/server';
+ *
+ * const s = withDedup(server('app'));
+ * ```
+ */
 export function withDedup<TState extends ScopeStateShape, TFeatures>(
   builder: ServerBuilderFull<TState, TFeatures>,
 ): ServerBuilderFull<TState, TFeatures & { dedup: true }> {

@@ -6,6 +6,20 @@ import type { Primitive } from '~/primitive.ts';
 
 const KINDS = ['server', 'group'] as const;
 
+/**
+ * Add acknowledgment support to a server builder.
+ *
+ * Once enabled, you can call `.ack()` on the builder to opt into client-side
+ * acknowledgments, so clients can await confirmation that their message was
+ * received and processed by the server.
+ *
+ * @example
+ * ```ts
+ * import { server } from '@wskit/server';
+ *
+ * const s = withAck(server('app'));
+ * ```
+ */
 export function withAck<TState extends ScopeStateShape, TFeatures>(
   builder: ServerBuilderFull<TState, TFeatures>,
 ): ServerBuilderFull<TState, TFeatures & { ack: true }> {

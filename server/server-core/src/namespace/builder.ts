@@ -22,6 +22,11 @@ type StateAfterIncoming<
   TPayload,
 > = NextState<TState, IncomingPrimitive<TEvent, TPayload, any>>;
 
+/**
+ * Fluent builder for defining a namespace. Namespaces isolate a set of events
+ * under a name so that different parts of your app (e.g. 'chat', 'ai') can
+ * have their own incoming/outgoing handlers without colliding.
+ */
 export class NamespaceBuilder<
   TParentState extends ScopeStateShape,
   TState extends ScopeStateShape = ScopeStateShape,
@@ -44,6 +49,7 @@ export class NamespaceBuilder<
     this._name = name;
   }
 
+  /** Register an event this namespace can send to clients. */
   outgoing<TEvent extends string, TPayload>(
     eventContract: EventContract<TEvent, TPayload>,
   ): NamespaceBuilderFull<
@@ -56,6 +62,7 @@ export class NamespaceBuilder<
     return this as any;
   }
 
+  /** Register an event this namespace can receive from clients. */
   incoming<TEvent extends string, TPayload>(
     eventContract: EventContract<TEvent, TPayload>,
     handler: (ctx: HandlerCtxFromState<TState>, payload: TPayload) => void | Promise<void>,

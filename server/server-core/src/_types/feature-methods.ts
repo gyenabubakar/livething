@@ -46,11 +46,13 @@ import type { Validator } from '~/types.ts';
 
 export type { ChannelBuilder, NamespaceBuilder, ReplayBuilder, ReplayCustomBuilder, StreamBuilder };
 
+/** Internal state bag every builder instance carries — its accumulated primitives and feature applicators. */
 export interface BuilderInternals {
   readonly _primitives: Primitive[];
   readonly _featureApplicators: FeatureApplicator[];
 }
 
+/** A function that adds one feature's methods to a builder at runtime (called by `applyFeature`). */
 export type FeatureApplicator = (
   target: BuilderInternals,
   kind: 'server' | 'group' | 'namespace' | 'channel',
@@ -58,22 +60,26 @@ export type FeatureApplicator = (
 
 // ─── Builder kind ──────────────────────────────────────────
 
+/** Which type of builder scope this is — determines which feature methods get attached. */
 export type BuilderKind = 'server' | 'group';
 
 // ─── Full builder type aliases ─────────────────────────────
 
+/** A `ServerBuilder` intersected with all feature methods unlocked by the current `TFeatures` flags. */
 export type ServerBuilderFull<TState extends ScopeStateShape, TFeatures> = ServerBuilder<
   TState,
   TFeatures
 > &
   FeatureMethods<TState, TFeatures, 'server'>;
 
+/** A `GroupBuilder` intersected with all feature methods unlocked by the current `TFeatures` flags. */
 export type GroupBuilderFull<TState extends ScopeStateShape, TFeatures> = GroupBuilder<
   TState,
   TFeatures
 > &
   FeatureMethods<TState, TFeatures, 'group'>;
 
+/** A `NamespaceBuilder` intersected with all namespace-level feature methods. */
 export type NamespaceBuilderFull<
   TParentState extends ScopeStateShape,
   TState extends ScopeStateShape,
@@ -82,6 +88,7 @@ export type NamespaceBuilderFull<
 > = NamespaceBuilder<TParentState, TState, TName, TFeatures> &
   NamespaceFeatureMethods<TParentState, TState, TName, TFeatures>;
 
+/** A `ChannelBuilder` intersected with all channel-level feature methods. */
 export type ChannelBuilderFull<
   TParentState extends ScopeStateShape,
   TState extends ScopeStateShape,
@@ -147,6 +154,7 @@ type ChannelContract<TChannelState extends ScopeStateShape> = {
   streams: TChannelState['contract']['streams'];
 };
 
+/** Type-level helpers for channels — used by the builder to track channel scope state, name resolution, and contract shape. */
 export type { ChannelState, ChannelNameFromPattern, ChannelContract };
 
 // ─── Namespace helper types ────────────────────────────────
@@ -171,6 +179,7 @@ type NamespaceContract<TNsState extends ScopeStateShape> = {
   streams: TNsState['contract']['streams'];
 };
 
+/** Type-level helpers for namespaces — used by the builder to track namespace scope state and contract shape. */
 export type { NamespaceState, NamespaceContract };
 
 // ─── Stream helper types ───────────────────────────────────
@@ -225,6 +234,7 @@ type StateWithStream<
   readonly env: TState['env'];
 };
 
+/** The builder state shape after registering a stream endpoint. */
 export type { StateWithStream };
 
 // ════════════════════════════════════════════════════════════
@@ -626,6 +636,10 @@ type MethodType<
 
 // ─── Master feature methods type (mapped, not intersected) ─
 
+/**
+ * Mapped type that resolves which feature methods are available on a builder,
+ * based on which `with*` wrappers have been applied (`TFeatures` flags).
+ */
 export type FeatureMethods<TState extends ScopeStateShape, TFeatures, Kind extends BuilderKind> = {
   [M in ActiveMethodKeys<TFeatures>]: MethodType<TState, TFeatures, Kind, M>;
 };
@@ -761,6 +775,7 @@ type NsMethodType<
           >)
       : never;
 
+/** Feature methods available inside a namespace builder scope. */
 export type NamespaceFeatureMethods<
   TParentState extends ScopeStateShape,
   TState extends ScopeStateShape,
@@ -980,6 +995,7 @@ type ChMethodType<
               >)
           : never;
 
+/** Feature methods available inside a channel builder scope. */
 export type ChannelFeatureMethods<
   TParentState extends ScopeStateShape,
   TState extends ScopeStateShape,

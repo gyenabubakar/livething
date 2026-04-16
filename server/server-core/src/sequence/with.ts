@@ -7,6 +7,20 @@ import type { SequenceOptions } from '~/sequence/sequence.ts';
 
 const KINDS = ['server', 'group'] as const;
 
+/**
+ * Add sequential message numbering to a server builder.
+ *
+ * Once enabled, you can call `.sequence()` on the builder to stamp every
+ * outgoing message with a monotonically increasing sequence number, with
+ * optional persistence so the counter survives client reconnections.
+ *
+ * @example
+ * ```ts
+ * import { server } from '@wskit/server';
+ *
+ * const s = withSequence(server('app'));
+ * ```
+ */
 export function withSequence<TState extends ScopeStateShape, TFeatures>(
   builder: ServerBuilderFull<TState, TFeatures>,
 ): ServerBuilderFull<TState, TFeatures & { sequence: true }> {

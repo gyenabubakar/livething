@@ -153,6 +153,7 @@ export class ServerBuilder<TState extends ScopeStateShape = InitialState, TFeatu
     this._name = name;
   }
 
+  /** Register an event that this server is allowed to send to clients. */
   outgoing<TEvent extends string, TPayload>(
     eventContract: EventContract<TEvent, TPayload>,
   ): ServerBuilderFull<StateAfterOutgoing<TState, TEvent, TPayload>, TFeatures> {
@@ -160,6 +161,7 @@ export class ServerBuilder<TState extends ScopeStateShape = InitialState, TFeatu
     return this as any;
   }
 
+  /** Register an event the server can receive from clients and attach a handler for it. */
   incoming<TEvent extends string, TPayload>(
     eventContract: EventContract<TEvent, TPayload>,
     handler: (ctx: HandlerCtxFromState<TState>, payload: TPayload) => void | Promise<void>,
@@ -170,6 +172,7 @@ export class ServerBuilder<TState extends ScopeStateShape = InitialState, TFeatu
     return this as any;
   }
 
+  /** Merge a compiled primitive (channel, namespace, or group) into this builder. */
   use<P extends Primitive>(primitive: P): ServerBuilderFull<UseResult<TState, P>, TFeatures> {
     if (primitive.__wskit === 'group') {
       this._primitives.push(...(primitive as unknown as GroupPrimitive).primitives);
@@ -179,6 +182,7 @@ export class ServerBuilder<TState extends ScopeStateShape = InitialState, TFeatu
     return this as any;
   }
 
+  /** Create a reusable group of outgoing/incoming primitives that can be `.use()`-d elsewhere. */
   group<TGroupState extends ScopeStateShape>(
     callback: (
       builder: GroupBuilderFull<TState, TFeatures>,
@@ -199,6 +203,7 @@ export class ServerBuilder<TState extends ScopeStateShape = InitialState, TFeatu
     } as GroupPrimitive<TGroupState>;
   }
 
+  /** Compile the builder into a frozen server definition, ready to be passed to an adapter. */
   build(): ServerDefinition<readonly Primitive[], ContractFromState<TState>> {
     validateBuild(this._primitives);
     return Object.freeze({
@@ -223,6 +228,7 @@ export class GroupBuilder<TState extends ScopeStateShape, TFeatures = {}> {
     this._parent = parent;
   }
 
+  /** Register an event that this server is allowed to send to clients. */
   outgoing<TEvent extends string, TPayload>(
     eventContract: EventContract<TEvent, TPayload>,
   ): GroupBuilderFull<StateAfterOutgoing<TState, TEvent, TPayload>, TFeatures> {
@@ -230,6 +236,7 @@ export class GroupBuilder<TState extends ScopeStateShape, TFeatures = {}> {
     return this as any;
   }
 
+  /** Register an event the server can receive from clients and attach a handler for it. */
   incoming<TEvent extends string, TPayload>(
     eventContract: EventContract<TEvent, TPayload>,
     handler: (ctx: HandlerCtxFromState<TState>, payload: TPayload) => void | Promise<void>,
@@ -240,6 +247,7 @@ export class GroupBuilder<TState extends ScopeStateShape, TFeatures = {}> {
     return this as any;
   }
 
+  /** Merge a compiled primitive (channel or namespace) into this group. Groups cannot be nested. */
   use<P extends Primitive>(
     primitive: P extends { __wskit: 'group' } ? never : P,
   ): GroupBuilderFull<UseResult<TState, P>, TFeatures> {
@@ -248,12 +256,38 @@ export class GroupBuilder<TState extends ScopeStateShape, TFeatures = {}> {
   }
 }
 
+/** A compiled group of primitives produced by `ServerBuilder.group()`. */
 export interface GroupPrimitive<
   _TState extends ScopeStateShape = ScopeStateShape,
 > extends Primitive<'group'> {
   readonly primitives: readonly Primitive[];
 }
 
+/**
+ * Create a new wskit server builder.
+ *
+ * This is the starting point for defining your WebSocket server. Chain
+ * `.outgoing()`, `.incoming()`, and feature methods to describe what your
+ * server can do, then call `.build()` to produce a compiled definition.
+ *
+ * By itself, the base builder only supports `.outgoing()`, `.incoming()`,
+ * `.use()`, `.group()`, and `.build()`. Wrap it with `with*` functions
+ * (or use the batteries-included `server` from `@wskit/server/full`) to
+ * unlock features like channels, lifecycle hooks, and streams.
+ *
+ * @example
+ * ```ts
+ * import { server } from '@wskit/server';
+ * import { withLifecycle } from '@wskit/server/lifecycle';
+ *
+ * const handler = withLifecycle(server('my-app'))
+ *   .outgoing(Greeting)
+ *   .incoming(SendChat, (ctx, payload) => {
+ *     ctx.broadcast('greeting', { text: payload.text });
+ *   })
+ *   .build();
+ * ```
+ */
 export function server<TEnv extends object = Record<string, unknown>>(
   name: string,
 ): ServerBuilderFull<InitialState<TEnv>, {}> {

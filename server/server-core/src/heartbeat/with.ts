@@ -7,6 +7,20 @@ import type { Primitive } from '~/primitive.ts';
 
 const KINDS = ['server', 'group'] as const;
 
+/**
+ * Add heartbeat support to a server builder.
+ *
+ * Once enabled, you can call `.heartbeat()` on the builder to enable periodic
+ * ping/pong health checks that track connection latency and overall connection
+ * quality over time.
+ *
+ * @example
+ * ```ts
+ * import { server } from '@wskit/server';
+ *
+ * const s = withHeartbeat(server('app'));
+ * ```
+ */
 export function withHeartbeat<TState extends ScopeStateShape, TFeatures>(
   builder: ServerBuilderFull<TState, TFeatures>,
 ): ServerBuilderFull<TState, TFeatures & { heartbeat: true }> {

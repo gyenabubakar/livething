@@ -24,7 +24,6 @@ const BlockTest = event('block-test', v.object({}));
 const BlockReply = event('block-reply', v.object({ leaked: v.boolean() }));
 const BinaryEchoed = event('binary-echoed', v.object({ size: v.number() }));
 const ValidationErrorFired = event('validation-error-fired', v.object({ event: v.string() }));
-const StreamCancelAck = event('stream-cancel-ack', v.object({ cancelled: v.boolean() }));
 const ChannelMembers = event(
   'channel-members',
   v.object({ channel: v.string(), count: v.number() }),
@@ -51,7 +50,6 @@ export const handler = withStreams(withChannels(withScheduled(withRequests(withI
   .outgoing(BinaryEchoed)
   .outgoing(ValidationErrorFired)
   .outgoing(ChannelMembers)
-  .outgoing(StreamCancelAck)
   .outgoing(SkipReply)
   .outgoing(DeferExhaustedResult)
   .outgoing(DeadLetterResult)

@@ -21,3 +21,5 @@ export const BroadcastChunkSchema = v.object({ token: v.string() });
 
 export const AiBlockedTest = event('ai-blocked-test', v.object({}));
 export const AiBlockedReply = event('ai-blocked-reply', v.object({ leaked: v.boolean() }));
+
+export const AiStreamCancelAck = event('stream-cancel-ack', v.object({ cancelled: v.boolean() }));

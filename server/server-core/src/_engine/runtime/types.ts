@@ -144,20 +144,40 @@ export interface RegisteredEngineHooks {
  * active.
  */
 export interface RuntimeConnection {
+  // -- Identity --
+  /** Unique connection ID assigned by the engine. */
   id: string;
+  /** Opaque key the adapter uses to identify the underlying WebSocket. */
   wsKey: unknown;
+  /** Low-level send/close callbacks provided by the adapter. */
   descriptor: EngineAdapterTypes.ConnectionDescriptor;
+  /** Arbitrary metadata attached during onUpgrade (e.g. username, role). */
   meta: Record<string, unknown>;
+
+  // -- Channel state --
+  /** Tags currently assigned to this connection (used for sendTo/getConnectionsByTag). */
   tags: Set<string>;
+  /** Set of channel names this connection has subscribed to. */
   channels: Set<string>;
+  /** Map of membership keys to channel details, including optional scope. */
   channelMemberships: Map<string, { channelName: string; channelScope?: string }>;
+
+  // -- Ephemeral runtime state --
+  /** Most recent measured round-trip latency in milliseconds, or null if not yet measured. */
   latency: number | null;
+  /** Connection quality tier derived from recent latency samples. */
   quality: 'excellent' | 'good' | 'degraded' | 'poor';
+  /** Resolves once the onConnect lifecycle hook has finished running. */
   lifecycleReady?: Promise<void>;
+  /** The _ackId of the message currently being handled, if ack is enabled. */
   activeAckId?: string;
+  /** Handle for the heartbeat timeout timer. */
   heartbeatTimer?: unknown;
+  /** Handle for the next scheduled ping timer. */
   pingTimer?: unknown;
+  /** Timestamp (ms) when the last ping was sent, used to compute latency. */
   pendingPingSentAt?: number;
+  /** Sliding window of recent latency samples for quality calculation. */
   recentLatencies?: number[];
 }
 

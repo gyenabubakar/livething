@@ -15,6 +15,21 @@ function replayCustomImpl(parent: BuilderInternals, callback?: (...args: unknown
 
 const KINDS = ['server', 'group', 'channel'] as const;
 
+/**
+ * Add custom replay logic to a server builder.
+ *
+ * Once enabled, you can call `.replayCustom()` on the builder to define your
+ * own replay pipeline using `onBeforeSend`, `onAfterSend`, and `onReplay`
+ * hooks, giving you full control over what gets stored and what gets replayed
+ * to reconnecting clients.
+ *
+ * @example
+ * ```ts
+ * import { server } from '@wskit/server';
+ *
+ * const s = withReplayCustom(server('app'));
+ * ```
+ */
 export function withReplayCustom<TState extends ScopeStateShape, TFeatures>(
   builder: ServerBuilderFull<TState, TFeatures>,
 ): ServerBuilderFull<TState, TFeatures & { replayCustom: true }> {

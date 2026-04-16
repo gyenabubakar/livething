@@ -1,7 +1,9 @@
 import { broadcastToChannel, dispatchIncoming, resolveScope } from '~/_engine/runtime/messages.ts';
 import { describe, expect, it, vi } from 'vitest';
+import type { CompiledServer } from '~/_engine/compile/types.ts';
+import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 
-function createConnection(id: string) {
+function createConnection(id: string): RuntimeConnection {
   return {
     id,
     wsKey: Symbol(id),
@@ -18,7 +20,7 @@ function createConnection(id: string) {
     channels: new Set<string>(),
     channelMemberships: new Map<string, { channelName: string; channelScope?: string }>(),
     latency: null,
-    quality: 'good' as const,
+    quality: 'good',
   };
 }
 
@@ -83,10 +85,10 @@ describe('message runtime', () => {
       toConnectionInfo() {
         throw new Error('unused');
       },
-    } as const;
+    };
 
     broadcastToChannel(
-      runtime as any,
+      runtime as unknown as Parameters<typeof broadcastToChannel>[0],
       'room:general',
       'message',
       { text: 'hi' },
@@ -165,21 +167,29 @@ describe('message runtime', () => {
       generateId() {
         return 'id_1';
       },
-    } as const;
+    };
 
     expect(
-      resolveScope(runtime.compiled as any, { _channel: 'room:general', _channelScope: 'rooms' }),
+      resolveScope(runtime.compiled as unknown as CompiledServer, {
+        _channel: 'room:general',
+        _channelScope: 'rooms',
+      }),
     ).toEqual({
       channel: runtime.compiled.channelFamilies.get('rooms'),
       channelName: 'room:general',
       channelScope: 'rooms',
     });
 
-    await dispatchIncoming(runtime as any, connection as any, 'message', {
-      _channel: 'room:general',
-      _channelScope: 'rooms',
-      text: 'hi',
-    });
+    await dispatchIncoming(
+      runtime as unknown as Parameters<typeof dispatchIncoming>[0],
+      connection,
+      'message',
+      {
+        _channel: 'room:general',
+        _channelScope: 'rooms',
+        text: 'hi',
+      },
+    );
 
     expect(handler).not.toHaveBeenCalled();
   });

@@ -375,6 +375,79 @@ test.describe('main handler', () => {
     expect(tokens!.length).toBeGreaterThan(0);
     expect(tokens!.length).toBeLessThan(300);
   });
+
+  // --- Gap A: namespace-scoped post-intercept ---
+
+  test('ai namespace: post-intercept rewrites payload (Gap A)', async ({ page }) => {
+    await page.getByTestId('ai-post-intercept-btn').click();
+    await waitForText(page, 'ai-post-intercept-result', /namespace-post-intercepted/);
+  });
+
+  // --- Gap B: dedup e2e verification ---
+
+  test('dedup: outgoing messages have unique _messageId (Gap B)', async ({ page }) => {
+    await page.getByTestId('echo-btn').click();
+    await waitForText(page, 'echo-result', /hello world/);
+    await page.getByTestId('echo-btn').click();
+    await page.waitForTimeout(500);
+    const ids = await page.getByTestId('received-message-ids').textContent();
+    const idList = ids!.split(',').filter(Boolean);
+    expect(idList.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(idList).size).toBe(idList.length);
+  });
+
+  // --- Gap F: stream cancel sends cancel ack ---
+
+  test('stream cancel sends cancel ack (Gap F)', async ({ page }) => {
+    await page.getByTestId('ai-nudge-stream-btn').click();
+    await page.waitForTimeout(300);
+    await page.getByTestId('ai-stream-cancel-btn').click();
+    await waitForText(page, 'stream-cancel-result', 'cancelled');
+  });
+
+  // --- Gap H: multiple nudge types in single stream ---
+
+  test('ai namespace: compose speed-up then pause in single stream (Gap H)', async ({ page }) => {
+    await page.getByTestId('ai-nudge-stream-btn').click();
+    await page.waitForTimeout(200);
+    await page.getByTestId('ai-speed-up-btn').click();
+    await page.waitForTimeout(300);
+    await page.getByTestId('ai-nudge-pause-btn').click();
+    await waitForText(page, 'ai-nudge-stream-done', 'nudge-stream-done', 10_000);
+    const tokens = await page.getByTestId('ai-nudge-stream-tokens').textContent();
+    expect(tokens!.length).toBeGreaterThan(0);
+  });
+
+  // --- Gap I: _replay on handler without replay ---
+
+  test('_replay on handler without replay is handled gracefully (Gap I)', async ({ page }) => {
+    await page.evaluate(() => {
+      const ws = (window as unknown as { __ws: WebSocket }).__ws;
+      ws?.send(JSON.stringify({ event: '_replay', payload: { since: 0 } }));
+    });
+    await page.waitForTimeout(1000);
+    await expect(page.getByTestId('status')).toHaveText('connected');
+    await page.getByTestId('echo-btn').click();
+    await waitForText(page, 'echo-result', /hello world/);
+  });
+
+  // --- Gap J: sendTo with empty tag ---
+
+  test('sendTo with empty tag does not crash (Gap J)', async ({ page }) => {
+    await page.evaluate(() => {
+      const ws = (window as unknown as { __ws: WebSocket }).__ws;
+      ws?.send(
+        JSON.stringify({
+          event: 'send-to-tag',
+          payload: { tag: 'nonexistent-tag-xyz', text: 'ghost message' },
+        }),
+      );
+    });
+    await page.waitForTimeout(500);
+    await expect(page.getByTestId('status')).toHaveText('connected');
+    await page.getByTestId('echo-btn').click();
+    await waitForText(page, 'echo-result', /hello world/);
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -402,6 +475,15 @@ test.describe('subscribe rejection', () => {
     await page.waitForTimeout(1500);
     const subscribed = await page.getByTestId('room-subscribed').textContent();
     expect(subscribed).toBe('');
+  });
+
+  test('chat rejects blocked-user with error payload (Gap E)', async ({ page }) => {
+    await page.goto('/');
+    await page.getByTestId('username-input').fill('blocked-user');
+    await page.getByTestId('connect-btn').click();
+    await waitForText(page, 'status', 'connected');
+    await page.getByTestId('chat-join-btn').click();
+    await waitForText(page, 'subscribe-error', /chat:/);
   });
 
   test('upgrade rejection: no username closes connection', async ({ page }) => {

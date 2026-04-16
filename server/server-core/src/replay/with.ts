@@ -22,6 +22,21 @@ function replayImpl(
 
 const KINDS = ['server', 'group', 'channel'] as const;
 
+/**
+ * Add built-in message replay support to a server builder.
+ *
+ * Once enabled, you can call `.replay()` on the builder to configure replay
+ * behaviour. When a client reconnects, it can request all messages it missed
+ * since a given sequence number and the server will re-deliver them
+ * automatically.
+ *
+ * @example
+ * ```ts
+ * import { server } from '@wskit/server';
+ *
+ * const s = withReplay(server('app'));
+ * ```
+ */
 export function withReplay<TState extends ScopeStateShape, TFeatures>(
   builder: ServerBuilderFull<TState, TFeatures>,
 ): ServerBuilderFull<TState, TFeatures & { replay: true }> {

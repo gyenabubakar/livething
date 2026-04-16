@@ -11,6 +11,25 @@ import { withRequests } from '~/request/with.ts';
 import { withScheduled } from '~/scheduled/with.ts';
 import { withStreams } from '~/stream/with.ts';
 
+/**
+ * Create a batteries-included server builder with every feature pre-registered.
+ *
+ * This is the quickest way to get started — you don't need to call any
+ * `with*` wrappers yourself. All features (lifecycle, channels, namespaces,
+ * intercepts, streams, requests, replay, scheduled tasks, errors, and
+ * infrastructure) are enabled out of the box.
+ *
+ * @example
+ * ```ts
+ * import { server } from '@wskit/server/full';
+ *
+ * const handler = server('my-app')
+ *   .onConnect((ctx) => { ... })
+ *   .outgoing(Greeting)
+ *   .incoming(SendChat, (ctx, payload) => { ... })
+ *   .build();
+ * ```
+ */
 export function server<TEnv extends object = Record<string, unknown>>(name: string) {
   return withStreams(
     withRequests(

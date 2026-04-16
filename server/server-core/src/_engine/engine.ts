@@ -9,6 +9,7 @@ import * as ScheduledPrimitive from '~/scheduled/runtime.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type * as EngineAccessModule from '~/_engine/access.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
+import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as PublicApi from '~/context.ts';
 import type * as DefineModule from '~/modules/define.ts';
@@ -106,7 +107,7 @@ export class Engine {
   private readonly scheduledRuns = new Map<string, ScheduledPrimitiveTypes.ScheduledRun>();
   private readonly scheduledDlq = new Map<string, ScheduledPrimitiveTypes.ScheduledDeadLetter>();
   private readonly installedFeatures = new Set<symbol>();
-  private alarmHandle: unknown | null = null;
+  private alarmHandle: unknown = null;
   private idCounter = 0;
   private readonly moduleRuntimes: EngineRuntimeTypes.ModuleRuntime[] = [];
   private activeConnectionId?: string;
@@ -529,37 +530,7 @@ export class Engine {
   private createShutdownContext() {
     return EngineContexts.createShutdownContext({
       connections: this.connections,
-      env: this.env,
-      logger: this.logger,
-      platform: this.platform,
-      waitUntilImpl: this.waitUntilImpl,
-      requireStorage: () => this.requireStorage(),
-      requireTimers: () => this.requireTimers(),
-      scheduleTask: (taskId, time, data) => this.scheduleTask(taskId, time, data),
-      cancelScheduled: (taskId, filter) => this.cancelScheduled(taskId, filter),
-      broadcastToConnections: (connections, event, payload, options, excludeConnectionId) => {
-        this.broadcastToConnections(connections, event, payload, options, excludeConnectionId);
-      },
-      sendThroughPipeline: (connection, routing, event, payload) => {
-        return this.sendThroughPipeline(connection, routing, event, payload);
-      },
-      broadcastToChannel: (channelName, event, payload, excludeConnectionId, channelScope) => {
-        this.broadcastToChannel(channelName, event, payload, excludeConnectionId, channelScope);
-      },
-      getChannelMembers: (channelName) => this.getChannelMembers(channelName),
-      kickChannelMembers: (channelName, tag, reason) => {
-        this.kickChannelMembers(channelName, tag, reason);
-      },
-      sendReplay: (connection, channelName, channelScope, event, payload, wire) => {
-        this.sendReplay(connection, channelName, channelScope, event, payload, wire);
-      },
-      sendProtocolMessage: (connection, event, payload) => {
-        this.sendProtocolMessage(connection, event, payload);
-      },
-      persistAttachment: (connection) => this.persistAttachment(connection),
-      toConnectionInfo: (connection) => this.toConnectionInfo(connection),
-      attachModuleApis: (ctx, connection) => this.attachModuleApis(ctx, connection),
-      contextExtenders: this.hooks.contextExtenders,
+      ...this.commonDeps(),
     });
   }
 
@@ -569,37 +540,7 @@ export class Engine {
   private createTaskContext() {
     return EngineContexts.createTaskContext({
       connections: this.connections,
-      env: this.env,
-      logger: this.logger,
-      platform: this.platform,
-      waitUntilImpl: this.waitUntilImpl,
-      requireStorage: () => this.requireStorage(),
-      requireTimers: () => this.requireTimers(),
-      scheduleTask: (taskId, time, data) => this.scheduleTask(taskId, time, data),
-      cancelScheduled: (taskId, filter) => this.cancelScheduled(taskId, filter),
-      broadcastToConnections: (connections, event, payload, options, excludeConnectionId) => {
-        this.broadcastToConnections(connections, event, payload, options, excludeConnectionId);
-      },
-      sendThroughPipeline: (connection, routing, event, payload) => {
-        return this.sendThroughPipeline(connection, routing, event, payload);
-      },
-      broadcastToChannel: (channelName, event, payload, excludeConnectionId, channelScope) => {
-        this.broadcastToChannel(channelName, event, payload, excludeConnectionId, channelScope);
-      },
-      getChannelMembers: (channelName) => this.getChannelMembers(channelName),
-      kickChannelMembers: (channelName, tag, reason) => {
-        this.kickChannelMembers(channelName, tag, reason);
-      },
-      sendReplay: (connection, channelName, channelScope, event, payload, wire) => {
-        this.sendReplay(connection, channelName, channelScope, event, payload, wire);
-      },
-      sendProtocolMessage: (connection, event, payload) => {
-        this.sendProtocolMessage(connection, event, payload);
-      },
-      persistAttachment: (connection) => this.persistAttachment(connection),
-      toConnectionInfo: (connection) => this.toConnectionInfo(connection),
-      attachModuleApis: (ctx, connection) => this.attachModuleApis(ctx, connection),
-      contextExtenders: this.hooks.contextExtenders,
+      ...this.commonDeps(),
     });
   }
 
@@ -617,41 +558,47 @@ export class Engine {
       {
         compiled: this.compiled,
         connections: this.connections,
-        env: this.env,
-        logger: this.logger,
-        platform: this.platform,
-        waitUntilImpl: this.waitUntilImpl,
-        requireStorage: () => this.requireStorage(),
-        requireTimers: () => this.requireTimers(),
-        scheduleTask: (taskId, time, data) => this.scheduleTask(taskId, time, data),
-        cancelScheduled: (taskId, filter) => this.cancelScheduled(taskId, filter),
-        broadcastToConnections: (connections, event, payload, options, excludeConnectionId) => {
-          this.broadcastToConnections(connections, event, payload, options, excludeConnectionId);
-        },
-        sendThroughPipeline: (connectionArg, routing, event, payload) => {
-          return this.sendThroughPipeline(connectionArg, routing, event, payload);
-        },
-        broadcastToChannel: (channelName, event, payload, excludeConnectionId, channelScope) => {
-          this.broadcastToChannel(channelName, event, payload, excludeConnectionId, channelScope);
-        },
-        getChannelMembers: (channelName) => this.getChannelMembers(channelName),
-        kickChannelMembers: (channelName, tag, reason) => {
-          this.kickChannelMembers(channelName, tag, reason);
-        },
-        sendReplay: (connectionArg, channelName, channelScope, event, payload, wire) => {
-          this.sendReplay(connectionArg, channelName, channelScope, event, payload, wire);
-        },
-        sendProtocolMessage: (connectionArg, event, payload) => {
-          this.sendProtocolMessage(connectionArg, event, payload);
-        },
-        persistAttachment: (connectionArg) => this.persistAttachment(connectionArg),
-        toConnectionInfo: (connectionArg) => this.toConnectionInfo(connectionArg),
-        attachModuleApis: (ctx, connectionArg) => this.attachModuleApis(ctx, connectionArg),
-        contextExtenders: this.hooks.contextExtenders,
+        ...this.commonDeps(),
       },
       connection,
       scope,
     );
+  }
+
+  private commonDeps(): EngineContextTypes.ContextCommonDeps {
+    return {
+      env: this.env,
+      logger: this.logger,
+      platform: this.platform,
+      waitUntilImpl: this.waitUntilImpl,
+      requireStorage: () => this.requireStorage(),
+      requireTimers: () => this.requireTimers(),
+      scheduleTask: (taskId, time, data) => this.scheduleTask(taskId, time, data),
+      cancelScheduled: (taskId, filter) => this.cancelScheduled(taskId, filter),
+      broadcastToConnections: (connections, event, payload, options, excludeConnectionId) => {
+        this.broadcastToConnections(connections, event, payload, options, excludeConnectionId);
+      },
+      sendThroughPipeline: (connection, routing, event, payload) => {
+        return this.sendThroughPipeline(connection, routing, event, payload);
+      },
+      broadcastToChannel: (channelName, event, payload, excludeConnectionId, channelScope) => {
+        this.broadcastToChannel(channelName, event, payload, excludeConnectionId, channelScope);
+      },
+      getChannelMembers: (channelName) => this.getChannelMembers(channelName),
+      kickChannelMembers: (channelName, tag, reason) => {
+        this.kickChannelMembers(channelName, tag, reason);
+      },
+      sendReplay: (connection, channelName, channelScope, event, payload, wire) => {
+        this.sendReplay(connection, channelName, channelScope, event, payload, wire);
+      },
+      sendProtocolMessage: (connection, event, payload) => {
+        this.sendProtocolMessage(connection, event, payload);
+      },
+      persistAttachment: (connection) => this.persistAttachment(connection),
+      toConnectionInfo: (connection) => this.toConnectionInfo(connection),
+      attachModuleApis: (ctx, connection) => this.attachModuleApis(ctx, connection),
+      contextExtenders: this.hooks.contextExtenders,
+    };
   }
 
   /**

@@ -4,15 +4,18 @@ import type { CompiledChannel } from '~/_engine/compile/types.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { ConnectionInfo } from '~/index.ts';
 
+/** Tracks which channel a connection is subscribed to, including the optional scope. */
 export interface ChannelMembership {
   channelName: string;
   channelScope?: string;
 }
 
+/** Build a unique string key from a channel name and optional scope, used for membership map lookups. */
 export function createChannelMembershipKey(channelName: string, channelScope?: string): string {
   return `${channelScope ?? ''}::${channelName}`;
 }
 
+/** Record that a connection has joined a channel. */
 export function addChannelMembership(
   connection: Pick<RuntimeConnection, 'channels' | 'channelMemberships' | 'tags'>,
   channelName: string,
@@ -26,6 +29,7 @@ export function addChannelMembership(
   connection.tags.add(`channel:${channelName}`);
 }
 
+/** Check whether a connection is currently subscribed to a channel. */
 export function hasChannelMembership(
   connection: Pick<RuntimeConnection, 'channels' | 'channelMemberships'>,
   channelName: string,
@@ -38,6 +42,7 @@ export function hasChannelMembership(
   return connection.channels.has(channelName);
 }
 
+/** Remove a connection's subscription to a channel. */
 export function removeChannelMembership(
   connection: Pick<RuntimeConnection, 'channels' | 'channelMemberships' | 'tags'>,
   channelName: string,
@@ -55,12 +60,14 @@ export function removeChannelMembership(
   }
 }
 
+/** Get all channel membership entries for a connection. */
 export function listChannelMemberships(
   connection: Pick<RuntimeConnection, 'channelMemberships'>,
 ): ChannelMembership[] {
   return [...connection.channelMemberships.values()];
 }
 
+/** Look up a compiled channel definition by name, supporting both exact and pattern-based channel names. */
 export function resolveCompiledChannel(
   compiled: Pick<ChannelRuntime['compiled'], 'channels' | 'channelFamilies'>,
   channelName: string,

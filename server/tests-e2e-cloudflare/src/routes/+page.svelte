@@ -48,6 +48,7 @@
 	let connectionsByTagResult = $state('');
 	let qualityResult = $state('');
 	let streamOkReceived = $state(false);
+	let lastStreamId = $state('');
 
 	let skipReply = $state('');
 	let deferExhaustedResult = $state('');
@@ -59,6 +60,8 @@
 	let chatStreamDone = $state(false);
 	let deadLetterResult = $state('');
 	let aiBlockedReply = $state('');
+	let aiPostInterceptResult = $state('');
+	let receivedMessageIds = $state<string[]>([]);
 
 	const pendingRequests = new Map<string, (payload: Record<string, unknown>) => void>();
 
@@ -102,6 +105,7 @@
 			const { event: evt, payload } = msg;
 
 			if (payload?._seq) lastSeq = payload._seq as number;
+			if (payload?._messageId) receivedMessageIds = [...receivedMessageIds, payload._messageId as string];
 			messageLog = [...messageLog, `${evt}: ${JSON.stringify(payload)}`].slice(-50);
 
 			if (payload?._correlationId) {
@@ -141,6 +145,7 @@
 					break;
 				case '_streamOk':
 					streamOkReceived = true;
+					if (payload._streamId) lastStreamId = payload._streamId as string;
 					break;
 				case '_streamEnd':
 					if (payload._channel === 'chat') chatStreamDone = true;
@@ -211,9 +216,6 @@
 				case 'block-reply':
 					blockReply = 'leaked';
 					break;
-				case 'stream-cancel-ack':
-					streamCancelResult = 'cancelled';
-					break;
 				case 'channel-members':
 					channelMembersResult = `${payload.channel}:${payload.count}`;
 					break;
@@ -235,7 +237,11 @@
 				default:
 					if (payload?._namespace === 'ai') {
 						if (evt === 'response') {
-							aiResponse = payload.text as string;
+							if ((payload.text as string).includes('namespace-post-intercepted')) {
+								aiPostInterceptResult = payload.text as string;
+							} else {
+								aiResponse = payload.text as string;
+							}
 						} else if (evt === 'get-model') {
 							aiModelResult = `${payload.name} (max: ${payload.maxTokens})`;
 						} else if (evt === 'stream-prompt') {
@@ -246,6 +252,8 @@
 							broadcastStreamTokens += payload.token;
 						} else if (evt === 'ai-blocked-reply') {
 							aiBlockedReply = `leaked:${payload.leaked}`;
+						} else if (evt === 'stream-cancel-ack') {
+							streamCancelResult = 'cancelled';
 						}
 					}
 					break;
@@ -391,7 +399,7 @@
 	}
 
 	function cancelStream() {
-		send('_streamCancel', { _namespace: 'ai' });
+		send('_streamCancel', { _namespace: 'ai', _streamId: lastStreamId });
 	}
 
 	function getChannelMembers(channel: string) {
@@ -455,6 +463,11 @@
 		chatStreamTokens = '';
 		chatStreamDone = false;
 		send('chat-stream', { prompt: 'hello channel stream', _channel: 'chat' });
+	}
+
+	function sendAiPostIntercept() {
+		aiPostInterceptResult = '';
+		send('send', { text: 'intercept-ns-post-test', _namespace: 'ai' });
 	}
 
 	function sendAiBlockedTest() {
@@ -545,7 +558,9 @@
 		<button data-testid="ai-stream-cancel-btn" onclick={cancelStream} disabled={status !== 'connected'}>Cancel Stream</button>
 		<button data-testid="ai-speed-up-btn" onclick={() => sendSpeedUp(4)} disabled={status !== 'connected'}>Speed Up</button>
 		<button data-testid="ai-blocked-btn" onclick={sendAiBlockedTest} disabled={status !== 'connected'}>AI Block Test</button>
+		<button data-testid="ai-post-intercept-btn" onclick={sendAiPostIntercept} disabled={status !== 'connected'}>AI Post Intercept</button>
 		<div data-testid="ai-blocked-reply">{aiBlockedReply}</div>
+		<div data-testid="ai-post-intercept-result">{aiPostInterceptResult}</div>
 		<div data-testid="ai-response">{aiResponse}</div>
 		<div data-testid="ai-model-result">{aiModelResult}</div>
 		<div data-testid="ai-stream-tokens">{aiStreamTokens}</div>
@@ -663,6 +678,11 @@
 	<section>
 		<h2>Sequence</h2>
 		<div data-testid="last-seq">{lastSeq}</div>
+	</section>
+
+	<section>
+		<h2>Dedup</h2>
+		<div data-testid="received-message-ids">{receivedMessageIds.join(',')}</div>
 	</section>
 
 	<section>

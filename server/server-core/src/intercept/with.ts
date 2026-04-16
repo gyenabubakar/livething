@@ -10,6 +10,20 @@ function isEventContract(value: unknown): value is { event: string } {
   return typeof value === 'object' && value !== null && 'event' in value;
 }
 
+/**
+ * Add message interception support to a server builder.
+ *
+ * Once enabled, you can call `.intercept()` on the builder to register
+ * pre-intercepts and post-intercepts that can transform, block, or skip
+ * messages before they reach their handler or before they are sent out.
+ *
+ * @example
+ * ```ts
+ * import { server } from '@wskit/server';
+ *
+ * const s = withIntercept(server('app'));
+ * ```
+ */
 export function withIntercept<TState extends ScopeStateShape, TFeatures>(
   builder: ServerBuilderFull<TState, TFeatures>,
 ): ServerBuilderFull<TState, TFeatures & { intercept: true }> {

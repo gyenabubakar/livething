@@ -8,6 +8,20 @@ import type { ChannelPattern } from '~/channel/channel.ts';
 
 const KINDS = ['server', 'group'] as const;
 
+/**
+ * Add pub/sub channel support to a server builder.
+ *
+ * Once enabled, you can call `.channel()` on the builder to define named
+ * pub/sub channels that connections can subscribe to and leave dynamically at
+ * runtime.
+ *
+ * @example
+ * ```ts
+ * import { server } from '@wskit/server';
+ *
+ * const s = withChannels(server('app'));
+ * ```
+ */
 export function withChannels<TState extends ScopeStateShape, TFeatures>(
   builder: ServerBuilderFull<TState, TFeatures>,
 ): ServerBuilderFull<TState, TFeatures & { channels: true }> {

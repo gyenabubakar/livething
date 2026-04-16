@@ -15,6 +15,11 @@ import type {
 } from '~/stream/stream.ts';
 import type { Validator } from '~/types.ts';
 
+/**
+ * Fluent builder for defining a streaming endpoint. Streams let the server
+ * push a sequence of chunks (via an async generator) to the client, with
+ * optional nudges (mid-stream signals from the client) and broadcast mode.
+ */
 export class StreamBuilder<
   TParentBuilder,
   TParentState extends ScopeStateShape,
@@ -65,8 +70,16 @@ export class StreamBuilder<
     TChunks,
     readonly [...TNudges, NudgeDeclaration<NEvent, NPayload>]
   > {
+    /* oxlint-disable-next-line @typescript-eslint/no-explicit-any -- Validator union can't satisfy either overload individually */
     this._nudges.push(createNudge(eventContract.event, eventContract.schema as any));
-    return this as any;
+    return this as unknown as StreamBuilder<
+      TParentBuilder,
+      TParentState,
+      TEvent,
+      TPayload,
+      TChunks,
+      readonly [...TNudges, NudgeDeclaration<NEvent, NPayload>]
+    >;
   }
 
   /**
@@ -96,10 +109,11 @@ export class StreamBuilder<
       }),
       ...this._nudges,
     );
+    /* oxlint-disable-next-line @typescript-eslint/no-explicit-any -- generic boundary between builder and primitive factory */
     const generatePrimitive = createGenerate(streamPrimitive, handler as any);
     this._parentPrimitives.push(streamPrimitive as Primitive);
     this._parentPrimitives.push(generatePrimitive as Primitive);
-    return this as any;
+    return this;
   }
 
   /**

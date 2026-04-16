@@ -39,9 +39,9 @@ function createRuntime() {
   }[] = [];
 
   const rooms = {
-    key: 'rooms',
+    key: 'rooms' as string,
     kind: 'channel' as const,
-    pattern: scope('rooms', /^room:/),
+    pattern: scope('rooms', /^room:/) as ReturnType<typeof scope>,
     outgoing: new Map(),
     incoming: new Map(),
     requests: new Map(),
@@ -197,7 +197,7 @@ describe('channel runtime', () => {
       ...runtime.compiled.channelFamilies.get('rooms')!,
       key: 'lobbies',
       pattern: scope('lobbies', /^room:/),
-    } as any);
+    });
     connections.set(connection.id, connection);
 
     await unsubscribeConnection(

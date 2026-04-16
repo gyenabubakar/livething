@@ -5,6 +5,13 @@ import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as EngineRuntimeTypes from './types.ts';
 
+interface HibernatableWebSocket {
+  send?(data: string | ArrayBuffer | ArrayBufferView): void;
+  close?(code?: number, reason?: string): void;
+  serializeAttachment?(value: unknown): void;
+  deserializeAttachment?(): unknown;
+}
+
 /**
  * Internal dependency bag for connection-focused runtime helpers.
  */
@@ -263,30 +270,10 @@ export function acceptConnection(
   return createHandle(runtime, connection);
 }
 
-/**
- * Recreate a connection handle after an adapter wakes a hibernated socket.
- */
-export function wakeHibernatedConnection(
-  runtime: ConnectionRuntime,
-  wsKey: unknown,
-): EngineAdapterTypes.ConnectionHandle {
-  const existingId = runtime.wsToConnectionId.get(wsKey);
-  if (existingId) {
-    const existing = runtime.connections.get(existingId)!;
-    return createHandle(runtime, existing);
-  }
-
-  const wsLike = wsKey as {
-    send?(data: string | ArrayBuffer | ArrayBufferView): void;
-    close?(code?: number, reason?: string): void;
-    serializeAttachment?(value: unknown): void;
-    deserializeAttachment?(): unknown;
-  };
-  const attachment =
-    typeof wsLike.deserializeAttachment === 'function' ? wsLike.deserializeAttachment() : {};
-  const restored =
-    attachment && typeof attachment === 'object' ? (attachment as Record<string, unknown>) : {};
-  const channelMemberships = new Map<string, { channelName: string; channelScope?: string }>();
+function restoreChannelMemberships(
+  restored: Record<string, unknown>,
+): Map<string, { channelName: string; channelScope?: string }> {
+  const memberships = new Map<string, { channelName: string; channelScope?: string }>();
 
   if (Array.isArray(restored.channelMemberships)) {
     for (const membership of restored.channelMemberships) {
@@ -304,23 +291,43 @@ export function wakeHibernatedConnection(
           ? (membership as { channelScope: string }).channelScope
           : undefined;
 
-      channelMemberships.set(
-        ChannelPrimitive.createChannelMembershipKey(channelName, channelScope),
-        {
-          channelName,
-          channelScope,
-        },
-      );
+      memberships.set(ChannelPrimitive.createChannelMembershipKey(channelName, channelScope), {
+        channelName,
+        channelScope,
+      });
     }
   }
 
-  if (channelMemberships.size === 0) {
+  if (memberships.size === 0) {
     for (const channelName of (restored.channels as string[]) ?? []) {
-      channelMemberships.set(ChannelPrimitive.createChannelMembershipKey(channelName), {
+      memberships.set(ChannelPrimitive.createChannelMembershipKey(channelName), {
         channelName,
       });
     }
   }
+
+  return memberships;
+}
+
+/**
+ * Recreate a connection handle after an adapter wakes a hibernated socket.
+ */
+export function wakeHibernatedConnection(
+  runtime: ConnectionRuntime,
+  wsKey: unknown,
+): EngineAdapterTypes.ConnectionHandle {
+  const existingId = runtime.wsToConnectionId.get(wsKey);
+  if (existingId) {
+    const existing = runtime.connections.get(existingId)!;
+    return createHandle(runtime, existing);
+  }
+
+  const wsLike = wsKey as HibernatableWebSocket;
+  const attachment =
+    typeof wsLike.deserializeAttachment === 'function' ? wsLike.deserializeAttachment() : {};
+  const restored =
+    attachment && typeof attachment === 'object' ? (attachment as Record<string, unknown>) : {};
+  const channelMemberships = restoreChannelMemberships(restored);
 
   const descriptor: EngineAdapterTypes.ConnectionDescriptor = {
     send: (data) => wsLike.send?.(data),

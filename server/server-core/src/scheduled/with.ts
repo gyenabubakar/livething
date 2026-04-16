@@ -6,6 +6,20 @@ import type { Primitive } from '~/primitive.ts';
 
 const KINDS = ['server', 'group'] as const;
 
+/**
+ * Add scheduled task support to a server builder.
+ *
+ * Once enabled, you can call `.scheduled()` on the builder to register tasks
+ * that run at a specific time or on a recurring interval, with optional retry
+ * logic and dead-letter handling for failed executions.
+ *
+ * @example
+ * ```ts
+ * import { server } from '@wskit/server';
+ *
+ * const s = withScheduled(server('app'));
+ * ```
+ */
 export function withScheduled<TState extends ScopeStateShape, TFeatures>(
   builder: ServerBuilderFull<TState, TFeatures>,
 ): ServerBuilderFull<TState, TFeatures & { scheduled: true }> {

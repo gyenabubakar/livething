@@ -9,6 +9,12 @@ import type {
   ReplayType,
 } from '~/replay/types.ts';
 
+/**
+ * Fluent builder for configuring built-in message replay. Replay stores
+ * outgoing messages and re-sends them to clients that reconnect with a `since`
+ * sequence number. You can configure snapshot mode, retention limits, and
+ * durability.
+ */
 export class ReplayBuilder<TParent, _TState extends ScopeStateShape> {
   /** @internal Reference to the parent builder for `_seal()`. */
   readonly _parent: TParent;
@@ -46,7 +52,7 @@ export class ReplayBuilder<TParent, _TState extends ScopeStateShape> {
   /**
    * Control when messages are persisted relative to when they are sent.
    *
-   * - `'strict'` (default) — writes to SQLite *before* the WebSocket send
+   * - `'strict'` (default) — persists to the replay store *before* the WebSocket send
    *   completes, guaranteeing no message is sent without being stored first.
    * - `'best-effort'` — sends first and stores asynchronously, reducing
    *   latency at the cost of a small window where a sent message might not
