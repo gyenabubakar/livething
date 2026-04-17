@@ -1,6 +1,6 @@
 import { resolve } from 'path';
 import dts from 'vite-plugin-dts';
-import { defineConfig } from 'vitest/config';
+import { defineConfig } from 'vite';
 
 export default defineConfig({
   plugins: [dts()],
@@ -14,8 +14,5 @@ export default defineConfig({
     rollupOptions: {
       external: [/^cloudflare:workers$/, /^@wskit\/server(?:\/.*)?$/],
     },
-  },
-  test: {
-    include: ['src/**/*.spec.ts'],
   },
 });

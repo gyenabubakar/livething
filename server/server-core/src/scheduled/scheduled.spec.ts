@@ -1,10 +1,10 @@
-import { describe, expect, it, vi } from 'vitest';
 import * as v from 'valibot';
+import { describe, expect, it } from 'vitest';
 import { scheduled } from './scheduled.ts';
 
 describe('scheduled', () => {
   it('creates a handler-backed scheduled primitive with storage/timer requirements', () => {
-    const handler = vi.fn();
+    function handler() {}
     const dataSchema = v.object({ roomId: v.string() });
     const primitive = scheduled('cleanup', handler, {
       every: 60_000,
