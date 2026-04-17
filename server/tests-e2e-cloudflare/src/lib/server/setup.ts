@@ -3,6 +3,7 @@ import { RejectUpgrade, withErrors } from '@wskit/server/errors';
 import { withInfrastructure } from '@wskit/server/infrastructure';
 import { withLifecycle } from '@wskit/server/lifecycle';
 import {
+  BroadcastResult,
   ConnectionInfoResult,
   ConnectionsByTagResult,
   QualityResult,
@@ -43,6 +44,7 @@ export const base = withLifecycle(withErrors(withInfrastructure(server<Env>('e2e
   .outgoing(SendToConnectionStatus)
   .outgoing(ConnectionsByTagResult)
   .outgoing(QualityResult)
+  .outgoing(BroadcastResult)
   .outgoing(HeartbeatTick)
   .outgoing(FlakyTaskResult)
   .onUpgrade((request) => {

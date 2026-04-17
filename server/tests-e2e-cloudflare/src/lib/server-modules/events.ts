@@ -26,3 +26,8 @@ export const OutgoingCount = event('outgoing-count', v.object({ count: v.number(
 
 export const GetDisconnectCount = event('get-disconnect-count', v.object({}));
 export const DisconnectCount = event('disconnect-count', v.object({ count: v.number() }));
+
+export const DrizzleReady = event(
+  '__e2e:drizzle:drizzle-ready',
+  v.object({ tables: v.array(v.string()), hooked: v.optional(v.boolean()) }),
+);

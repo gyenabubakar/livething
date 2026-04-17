@@ -11,6 +11,11 @@ import type { ScheduledHandle, ScheduledOptions } from '~/scheduled/scheduled.ts
  *
  * Unlike built-in primitives that get full `EngineAccess`, modules only get
  * these hooks. This keeps module code sandboxed from engine internals.
+ *
+ * If you are new to modules, read this as "everything a module is allowed to
+ * register". A module can hook into lifecycle events, observe messages,
+ * register scheduled work, and build an API that handlers later read with
+ * `MyModule.use(ctx)`.
  */
 export interface ModuleHooks<TCtx = any> {
   /** Observe or rewrite incoming messages before routing. */

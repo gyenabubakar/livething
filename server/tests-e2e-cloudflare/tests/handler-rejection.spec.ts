@@ -44,14 +44,28 @@ test.describe('subscribe rejection', () => {
   test('upgrade rejection: no username closes connection', async ({ page }, testInfo) => {
     const room = `test-${testInfo.testId}`;
     await page.goto(`/?room=${room}`);
-    const result = await page.evaluate(async (r) => {
-      return new Promise<string>((resolve) => {
-        const ws = new WebSocket(`ws://${location.host}/ws?room=${encodeURIComponent(r)}`);
-        ws.onclose = (e) => resolve(`closed:${e.code}`);
-        ws.onerror = () => {};
-        setTimeout(() => resolve('timeout'), 5000);
-      });
-    }, room);
-    expect(result).toBe('closed:4001');
+    for (const pathname of [
+      '/ws',
+      '/ws/replay',
+      '/ws/replay-custom',
+      '/ws/replay-snapshot',
+      '/ws/modules',
+    ]) {
+      const result = await page.evaluate(
+        async ({ currentRoom, targetPath }) => {
+          return new Promise<string>((resolve) => {
+            const ws = new WebSocket(
+              `ws://${location.host}${targetPath}?room=${encodeURIComponent(currentRoom)}`,
+            );
+            ws.onclose = (event) => resolve(`closed:${event.code}`);
+            ws.onerror = () => {};
+            setTimeout(() => resolve('timeout'), 5000);
+          });
+        },
+        { currentRoom: room, targetPath: pathname },
+      );
+
+      expect(result).toBe('closed:4001');
+    }
   });
 });

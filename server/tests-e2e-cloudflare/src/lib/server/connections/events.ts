@@ -60,3 +60,11 @@ export const QualityResult = event(
     bufferedAmount: v.number(),
   }),
 );
+
+export const BroadcastExcludeSelf = event('broadcast-exclude-self', v.object({ text: v.string() }));
+export const BroadcastResult = event(
+  'broadcast-result',
+  v.object({ text: v.string(), from: v.string() }),
+);
+
+export const BroadcastBinaryAll = event('broadcast-binary-all', v.object({ size: v.number() }));

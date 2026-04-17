@@ -1,6 +1,8 @@
 import { Disconnect } from '@wskit/server/errors';
 import { base } from '../setup.ts';
 import {
+  BroadcastBinaryAll,
+  BroadcastExcludeSelf,
   ForceDisconnect,
   GetConnectionInfo,
   GetConnectionsByTagEvent,
@@ -58,6 +60,26 @@ export const connectionHandlers = base.group((g) =>
         quality: ctx.quality ?? null,
         bufferedAmount: ctx.bufferedAmount,
       });
+    })
+    .incoming(BroadcastExcludeSelf, (ctx, payload) => {
+      (
+        ctx as typeof ctx & {
+          broadcast(
+            event: 'broadcast-result',
+            payload: { text: string; from: unknown },
+            options: { excludeSelf: boolean },
+          ): void;
+        }
+      ).broadcast(
+        'broadcast-result',
+        { text: payload.text, from: ctx.meta.username },
+        {
+          excludeSelf: true,
+        },
+      );
+    })
+    .incoming(BroadcastBinaryAll, (ctx, payload) => {
+      ctx.broadcastBinary(new Uint8Array(payload.size).fill(7));
     })
     .incoming(ForceDisconnect, () => {
       throw Disconnect(4009, 'Force disconnected by server');

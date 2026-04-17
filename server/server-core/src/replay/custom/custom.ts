@@ -149,6 +149,10 @@ export type ReplayContext<TScope extends CustomReplayScope> = TScope extends 'ch
  *
  * All three hooks are optional except `onReplay`, which is required to re-send
  * stored messages on reconnect.
+ *
+ * Beginner mental model:
+ * - `onBeforeSend` or `onAfterSend` writes messages into your store
+ * - `onReplay` reads those messages later and calls `ctx.sendReplay(...)`
  */
 export interface CustomReplayOptions<TScope extends CustomReplayScope = 'top'> {
   /**

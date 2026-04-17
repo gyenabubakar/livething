@@ -8,10 +8,12 @@
 	let replayCount = $state(0);
 	let replayRequested = $state(false);
 	let confirmedResult = $state('');
+	let sinceValue = $state(0);
 	let roomNotes = $state<string[]>([]);
 	let roomSubscribed = $state('');
 	let roomReplayCount = $state(0);
 	let roomConfirmedResult = $state('');
+	let roomSinceValue = $state(0);
 
 	function connect() {
 		if (ws) return;
@@ -73,7 +75,7 @@
 	function requestReplay() {
 		replayCount = 0;
 		replayRequested = true;
-		ws?.send(JSON.stringify({ event: '_replay', payload: { since: 0 } }));
+		ws?.send(JSON.stringify({ event: '_replay', payload: { since: sinceValue } }));
 	}
 
 	function getConfirmedCount() {
@@ -91,7 +93,9 @@
 	function requestRoomReplay() {
 		roomReplayCount = 0;
 		replayRequested = true;
-		ws?.send(JSON.stringify({ event: '_replay', payload: { since: 0, _channel: 'custom-room' } }));
+		ws?.send(
+			JSON.stringify({ event: '_replay', payload: { since: roomSinceValue, _channel: 'custom-room' } }),
+		);
 	}
 
 	function getRoomConfirmedCount() {
@@ -120,6 +124,7 @@
 
 	<section>
 		<h2>Replay</h2>
+		<input data-testid="since-input" type="number" bind:value={sinceValue} />
 		<button data-testid="replay-btn" onclick={requestReplay} disabled={status !== 'connected'}>Request Replay</button>
 		<button data-testid="confirmed-btn" onclick={getConfirmedCount} disabled={status !== 'connected'}>Get Confirmed</button>
 		<div data-testid="replay-count">{replayCount}</div>
@@ -130,6 +135,7 @@
 		<h2>Custom Room (Channel)</h2>
 		<button data-testid="room-join-btn" onclick={joinRoom} disabled={status !== 'connected'}>Join Room</button>
 		<button data-testid="room-note-btn" onclick={() => addRoomNote('channel replay note')} disabled={status !== 'connected'}>Add Room Note</button>
+		<input data-testid="room-since-input" type="number" bind:value={roomSinceValue} />
 		<button data-testid="room-replay-btn" onclick={requestRoomReplay} disabled={status !== 'connected'}>Replay Room</button>
 		<button data-testid="room-confirmed-btn" onclick={getRoomConfirmedCount} disabled={status !== 'connected'}>Get Room Confirmed</button>
 		<div data-testid="room-subscribed">{roomSubscribed}</div>

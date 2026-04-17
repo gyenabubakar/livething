@@ -15,8 +15,14 @@ export const StartHeartbeat = event('start-heartbeat', v.object({}));
 export const HeartbeatTick = event('heartbeat-tick', v.object({ count: v.number() }));
 export const TriggerFlakyTask = event('trigger-flaky-task', v.object({}));
 export const FlakyTaskResult = event('flaky-task-result', v.object({ attempts: v.number() }));
+export const TriggerDefaultRetryTask = event('trigger-default-retry-task', v.object({}));
+export const DefaultRetryResult = event('default-retry-result', v.object({ attempts: v.number() }));
 export const TriggerAlwaysFail = event('trigger-always-fail', v.object({}));
 export const DeadLetterResult = event(
   'dead-letter-result',
   v.object({ taskId: v.string(), attempts: v.number(), error: v.string() }),
 );
+
+export const ScheduleFilteredTasks = event('schedule-filtered-tasks', v.object({}));
+export const CancelFilteredTask = event('cancel-filtered-task', v.object({ label: v.string() }));
+export const FilteredTaskResult = event('filtered-task-result', v.object({ label: v.string() }));

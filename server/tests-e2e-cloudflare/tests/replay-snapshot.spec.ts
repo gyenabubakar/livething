@@ -59,6 +59,18 @@ test.describe('replay-snapshot handler', () => {
     }).toPass({ timeout: 5_000 });
   });
 
+  test('reduce can delete a snapshot key', async ({ page }) => {
+    await page.getByTestId('update-doc-a-btn').click();
+    await page.getByTestId('delete-doc-a-btn').click();
+    await page.getByTestId('replay-btn').click();
+
+    await expect(async () => {
+      const snapshots = await page.getByTestId('snapshots').textContent();
+      expect(snapshots).not.toContain('A:first-title');
+      expect(snapshots).not.toContain('A:second-title');
+    }).toPass({ timeout: 5_000 });
+  });
+
   test('maxAgeMs: old messages pruned after expiry', async ({ page }) => {
     await page.getByTestId('age-test-btn').click();
     await page.waitForTimeout(3000);
@@ -77,6 +89,21 @@ test.describe('replay-snapshot handler', () => {
       const snapshots = await page.getByTestId('snapshots').textContent();
       expect(snapshots).not.toContain('old-message');
       expect(snapshots).toContain('fresh-message');
+    }).toPass({ timeout: 5_000 });
+  });
+
+  test('channel snapshot replay keeps only the latest value per key', async ({ page }) => {
+    await page.getByTestId('room-join-btn').click();
+    await waitForText(page, 'room-subscribed', 'subscribed');
+    await page.getByTestId('room-update-doc-a-btn').click();
+    await page.getByTestId('room-update-doc-a2-btn').click();
+    await page.getByTestId('room-replay-btn').click();
+
+    await expect(async () => {
+      const snapshots = await page.getByTestId('room-snapshots').textContent();
+      const entries = snapshots!.split(' | ').filter((entry) => entry.startsWith('A:'));
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toBe('A:room-second');
     }).toPass({ timeout: 5_000 });
   });
 });

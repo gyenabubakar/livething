@@ -13,7 +13,7 @@ import { connectionHandlers } from './connections/handlers.ts';
 import { dynamicRoomChannel } from './dynamic-channel/channel.ts';
 import { Echo, GetTime, TimeResponseSchema } from './echo/events.ts';
 import { echoHandlers } from './echo/handlers.ts';
-import { DeadLetterResult } from './scheduled/events.ts';
+import { DeadLetterResult, DefaultRetryResult, FilteredTaskResult } from './scheduled/events.ts';
 import { scheduledHandlers } from './scheduled/handlers.ts';
 import { base } from './setup.ts';
 import { storageHandlers } from './storage/handlers.ts';
@@ -53,6 +53,8 @@ export const handler = withStreams(withChannels(withScheduled(withRequests(withI
   .outgoing(SkipReply)
   .outgoing(DeferExhaustedResult)
   .outgoing(DeadLetterResult)
+  .outgoing(DefaultRetryResult)
+  .outgoing(FilteredTaskResult)
 
   .onInit((ctx) => {
     ctx.sql.exec(`

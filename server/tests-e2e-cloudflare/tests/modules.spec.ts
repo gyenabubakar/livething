@@ -30,6 +30,11 @@ test.describe('modules handler', () => {
     await waitForText(page, 'record-list', /test-item/);
   });
 
+  test('module onOutgoing can transform a module-owned outgoing event', async ({ page }) => {
+    await waitForText(page, 'drizzle-ready-payload', /"tables":\["records"\]/);
+    await waitForText(page, 'drizzle-ready-payload', /"hooked":true/);
+  });
+
   test('get single record via module API', async ({ page }) => {
     await page.getByTestId('insert-btn').click();
     await waitForText(page, 'insert-result', /id:/);

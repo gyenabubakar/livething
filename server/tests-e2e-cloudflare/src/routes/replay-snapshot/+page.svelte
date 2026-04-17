@@ -11,6 +11,9 @@
 	let counterSnapshots = $state<string[]>([]);
 	let counterReplayCount = $state(0);
 	let ageTestResult = $state('');
+	let roomSubscribed = $state('');
+	let roomSnapshots = $state<string[]>([]);
+	let roomReplayCount = $state(0);
 
 	function connect() {
 		if (ws) return;
@@ -57,6 +60,14 @@
 					counterReplayCount++;
 					counterSnapshots = [...counterSnapshots, entry];
 				}
+			} else if (evt === 'room-doc-snapshot') {
+				const entry = `${payload.docId}:${payload.title}`;
+				if (replayRequested) {
+					roomReplayCount++;
+					roomSnapshots = [...roomSnapshots, entry];
+				}
+			} else if (evt === '_subscribeOk') {
+				if (payload._channel === 'snapshot-room') roomSubscribed = 'subscribed';
 			}
 		};
 	}
@@ -71,6 +82,10 @@
 
 	function updateDoc(docId: string, title: string) {
 		send('update-doc', { docId, title });
+	}
+
+	function deleteDoc(docId: string) {
+		send('delete-doc', { docId });
 	}
 
 	function floodMessages() {
@@ -101,6 +116,21 @@
 		ageTestResult = '';
 		send('update-doc', { docId: 'age-test', title: 'old-message' });
 	}
+
+	function joinRoom() {
+		send('_subscribe', { _channel: 'snapshot-room' });
+	}
+
+	function updateRoomDoc(docId: string, title: string) {
+		send('update-room-doc', { docId, title, _channel: 'snapshot-room' });
+	}
+
+	function requestRoomReplay() {
+		roomReplayCount = 0;
+		roomSnapshots = [];
+		replayRequested = true;
+		ws?.send(JSON.stringify({ event: '_replay', payload: { since: 0, _channel: 'snapshot-room' } }));
+	}
 </script>
 
 <main>
@@ -119,6 +149,7 @@
 		<button data-testid="update-doc-a-btn" onclick={() => updateDoc('A', 'first-title')} disabled={status !== 'connected'}>Update Doc A (first)</button>
 		<button data-testid="update-doc-a2-btn" onclick={() => updateDoc('A', 'second-title')} disabled={status !== 'connected'}>Update Doc A (second)</button>
 		<button data-testid="update-doc-b-btn" onclick={() => updateDoc('B', 'doc-b-title')} disabled={status !== 'connected'}>Update Doc B</button>
+		<button data-testid="delete-doc-a-btn" onclick={() => deleteDoc('A')} disabled={status !== 'connected'}>Delete Doc A</button>
 		<button data-testid="flood-btn" onclick={floodMessages} disabled={status !== 'connected'}>Flood 8 Docs</button>
 		<div data-testid="last-seq">{lastSeq}</div>
 	</section>
@@ -143,6 +174,17 @@
 		<h2>maxAgeMs Test</h2>
 		<button data-testid="age-test-btn" onclick={testMaxAge} disabled={status !== 'connected'}>Send Old Message</button>
 		<div data-testid="age-test-result">{ageTestResult}</div>
+	</section>
+
+	<section>
+		<h2>Channel Snapshot</h2>
+		<button data-testid="room-join-btn" onclick={joinRoom} disabled={status !== 'connected'}>Join snapshot room</button>
+		<button data-testid="room-update-doc-a-btn" onclick={() => updateRoomDoc('A', 'room-first')} disabled={roomSubscribed !== 'subscribed'}>Update Room Doc A (first)</button>
+		<button data-testid="room-update-doc-a2-btn" onclick={() => updateRoomDoc('A', 'room-second')} disabled={roomSubscribed !== 'subscribed'}>Update Room Doc A (second)</button>
+		<button data-testid="room-replay-btn" onclick={requestRoomReplay} disabled={roomSubscribed !== 'subscribed'}>Replay Room</button>
+		<div data-testid="room-subscribed">{roomSubscribed}</div>
+		<div data-testid="room-snapshots">{roomSnapshots.join(' | ')}</div>
+		<div data-testid="room-replay-count">{roomReplayCount}</div>
 	</section>
 </main>
 

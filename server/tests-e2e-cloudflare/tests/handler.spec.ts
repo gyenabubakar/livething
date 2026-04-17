@@ -301,6 +301,21 @@ test.describe('main handler', () => {
     expect(result).toMatch(/attempts:[3-9]/);
   });
 
+  test('scheduled retry: default retry succeeds after one retry', async ({ page }) => {
+    await page.getByTestId('trigger-default-retry-btn').click();
+    await waitForText(page, 'default-retry-result', /attempts:2/, 10_000);
+  });
+
+  test('cancelScheduled filter cancels only matching runs', async ({ page }) => {
+    await page.getByTestId('schedule-filtered-btn').click();
+    await page.getByTestId('cancel-filtered-drop-btn').click();
+    await expect(async () => {
+      const result = await page.getByTestId('filtered-task-result').textContent();
+      expect(result).toContain('keep');
+      expect(result).not.toContain('drop');
+    }).toPass({ timeout: 10_000 });
+  });
+
   test('scheduled dead-letter: always-fail task lands in DLQ', async ({ page }) => {
     await page.getByTestId('trigger-always-fail-btn').click();
     await expect(async () => {

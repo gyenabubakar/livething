@@ -1,4 +1,12 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+
+/**
+ * Type-level wiring for the fluent server builder.
+ *
+ * This file describes what each builder can do after a feature is enabled.
+ * In practice, each primitive updates the builder state, and these helpers
+ * describe how that update changes the available fluent methods and `ctx`.
+ */
 import type { GroupBuilder, ServerBuilder } from '~/_builder/server-builder.ts';
 import type {
   HandlerCtxFromState,
@@ -46,13 +54,24 @@ import type { Validator } from '~/types.ts';
 
 export type { ChannelBuilder, NamespaceBuilder, ReplayBuilder, ReplayCustomBuilder, StreamBuilder };
 
-/** Internal state bag every builder instance carries — its accumulated primitives and feature applicators. */
+/**
+ * The small runtime state every builder instance carries internally.
+ *
+ * `_primitives` is the ordered list of registered primitives.
+ * `_featureApplicators` is the list of functions that attach fluent methods
+ * like `.request(...)` or `.stream(...)`.
+ */
 export interface BuilderInternals {
   readonly _primitives: Primitive[];
   readonly _featureApplicators: FeatureApplicator[];
 }
 
-/** A function that adds one feature's methods to a builder at runtime (called by `applyFeature`). */
+/**
+ * A runtime function that attaches one feature's methods to a builder object.
+ *
+ * Example: `withRequests(...)` installs an applicator that adds `.request(...)`
+ * to the builder.
+ */
 export type FeatureApplicator = (
   target: BuilderInternals,
   kind: 'server' | 'group' | 'namespace' | 'channel',
@@ -60,7 +79,7 @@ export type FeatureApplicator = (
 
 // ─── Builder kind ──────────────────────────────────────────
 
-/** Which type of builder scope this is — determines which feature methods get attached. */
+/** The two top-level builder kinds. This controls which fluent methods are installed. */
 export type BuilderKind = 'server' | 'group';
 
 // ─── Full builder type aliases ─────────────────────────────

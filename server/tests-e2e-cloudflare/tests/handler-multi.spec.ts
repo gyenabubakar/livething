@@ -305,4 +305,52 @@ test.describe('multi-client', () => {
     await page1.close();
     await page2.close();
   });
+
+  test('top-level broadcast with excludeSelf skips sender and reaches peer', async ({
+    browser,
+  }, testInfo) => {
+    const room = `multi-${testInfo.testId}`;
+    const page1 = await browser.newPage();
+    const page2 = await browser.newPage();
+    await page1.goto(`/?room=${room}`);
+    await page2.goto(`/?room=${room}`);
+
+    await page1.getByTestId('username-input').fill('user1');
+    await page1.getByTestId('connect-btn').click();
+    await waitForText(page1, 'status', 'connected');
+
+    await page2.getByTestId('username-input').fill('user2');
+    await page2.getByTestId('connect-btn').click();
+    await waitForText(page2, 'status', 'connected');
+
+    await page1.getByTestId('broadcast-exclude-self-btn').click();
+    await waitForText(page2, 'broadcast-result', /user1: top-level-broadcast/);
+    await expect(page1.getByTestId('broadcast-result')).toHaveText('');
+
+    await page1.close();
+    await page2.close();
+  });
+
+  test('broadcastBinary reaches both clients', async ({ browser }, testInfo) => {
+    const room = `multi-${testInfo.testId}`;
+    const page1 = await browser.newPage();
+    const page2 = await browser.newPage();
+    await page1.goto(`/?room=${room}`);
+    await page2.goto(`/?room=${room}`);
+
+    await page1.getByTestId('username-input').fill('user1');
+    await page1.getByTestId('connect-btn').click();
+    await waitForText(page1, 'status', 'connected');
+
+    await page2.getByTestId('username-input').fill('user2');
+    await page2.getByTestId('connect-btn').click();
+    await waitForText(page2, 'status', 'connected');
+
+    await page1.getByTestId('broadcast-binary-all-btn').click();
+    await waitForText(page1, 'binary-result', 'binary:6');
+    await waitForText(page2, 'binary-result', 'binary:6');
+
+    await page1.close();
+    await page2.close();
+  });
 });

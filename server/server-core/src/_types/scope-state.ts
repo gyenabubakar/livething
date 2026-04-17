@@ -1,4 +1,12 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+
+/**
+ * Type-level state machine for wskit builder scopes.
+ *
+ * As you chain builder calls, wskit folds the registered primitives into one
+ * accumulated state object. That folded state powers the final handler `ctx`
+ * type and the client contract used by `InferClient`.
+ */
 import type { AckPrimitive } from '~/ack/ack.ts';
 import type { ChannelManager, ConnectionContext } from '~/context.ts';
 import type { DedupPrimitive } from '~/dedup/dedup.ts';

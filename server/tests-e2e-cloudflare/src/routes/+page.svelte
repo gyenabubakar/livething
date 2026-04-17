@@ -55,7 +55,10 @@
 	let deferExhaustedResult = $state('');
 	let heartbeatCount = $state(0);
 	let flakyTaskResult = $state('');
+	let defaultRetryResult = $state('');
+	let filteredTaskResult = $state('');
 	let broadcastStreamTokens = $state('');
+	let broadcastResult = $state('');
 	let chatInfoResult = $state('');
 	let chatStreamTokens = $state('');
 	let chatStreamDone = $state(false);
@@ -236,8 +239,17 @@
 				case 'flaky-task-result':
 					flakyTaskResult = `attempts:${payload.attempts}`;
 					break;
+				case 'default-retry-result':
+					defaultRetryResult = `attempts:${payload.attempts}`;
+					break;
+				case 'filtered-task-result':
+					filteredTaskResult = [...new Set([...filteredTaskResult.split('|').filter(Boolean), String(payload.label)])].join('|');
+					break;
 				case 'dead-letter-result':
 					deadLetterResult = `${payload.taskId}:attempts=${payload.attempts}:${payload.error}`;
+					break;
+				case 'broadcast-result':
+					broadcastResult = `${payload.from}: ${payload.text}`;
 					break;
 				default:
 					if (payload?._namespace === 'ai') {
@@ -428,6 +440,16 @@
 		send('get-quality', {});
 	}
 
+	function sendBroadcastExcludeSelf() {
+		broadcastResult = '';
+		send('broadcast-exclude-self', { text: 'top-level-broadcast' });
+	}
+
+	function sendBroadcastBinaryAll() {
+		binaryResult = '';
+		send('broadcast-binary-all', { size: 6 });
+	}
+
 	function sendSpeedUp(factor: number) {
 		send('speed-up', { factor, _namespace: 'ai' });
 	}
@@ -455,6 +477,20 @@
 	function triggerFlakyTask() {
 		flakyTaskResult = '';
 		send('trigger-flaky-task', {});
+	}
+
+	function triggerDefaultRetryTask() {
+		defaultRetryResult = '';
+		send('trigger-default-retry-task', {});
+	}
+
+	function scheduleFilteredTasks() {
+		filteredTaskResult = '';
+		send('schedule-filtered-tasks', {});
+	}
+
+	function cancelFilteredTask(label: string) {
+		send('cancel-filtered-task', { label });
 	}
 
 	function triggerAlwaysFail() {
@@ -605,6 +641,7 @@
 		<button data-testid="force-disconnect-btn" onclick={forceDisconnect} disabled={status !== 'connected'}>Force Disconnect</button>
 		<button data-testid="get-quality-btn" onclick={getQuality} disabled={status !== 'connected'}>Get Quality</button>
 		<button data-testid="get-connections-by-tag-btn" onclick={() => getConnectionsByTag('testuser')} disabled={status !== 'connected'}>Get By Tag</button>
+		<button data-testid="broadcast-exclude-self-btn" onclick={sendBroadcastExcludeSelf} disabled={status !== 'connected'}>Broadcast Exclude Self</button>
 		<div data-testid="connection-info">{connectionInfo}</div>
 		<div data-testid="connection-id">{connectionId}</div>
 		<div data-testid="tag-result">{tagResult}</div>
@@ -613,11 +650,13 @@
 			<div data-testid="send-to-conn-status">{sendToConnStatus}</div>
 		<div data-testid="connections-by-tag-result">{connectionsByTagResult}</div>
 		<div data-testid="quality-result">{qualityResult}</div>
+		<div data-testid="broadcast-result">{broadcastResult}</div>
 	</section>
 
 	<section>
 		<h2>Binary</h2>
 		<button data-testid="binary-send-btn" onclick={sendBinary} disabled={status !== 'connected'}>Send Binary</button>
+		<button data-testid="broadcast-binary-all-btn" onclick={sendBroadcastBinaryAll} disabled={status !== 'connected'}>Broadcast Binary</button>
 		<div data-testid="binary-result">{binaryResult}</div>
 	</section>
 
@@ -640,8 +679,13 @@
 		<h2>Scheduled Extras</h2>
 		<button data-testid="start-heartbeat-btn" onclick={startHeartbeat} disabled={status !== 'connected'}>Start Heartbeat</button>
 		<button data-testid="trigger-flaky-btn" onclick={triggerFlakyTask} disabled={status !== 'connected'}>Trigger Flaky Task</button>
+		<button data-testid="trigger-default-retry-btn" onclick={triggerDefaultRetryTask} disabled={status !== 'connected'}>Trigger Default Retry</button>
+		<button data-testid="schedule-filtered-btn" onclick={scheduleFilteredTasks} disabled={status !== 'connected'}>Schedule Filtered Tasks</button>
+		<button data-testid="cancel-filtered-drop-btn" onclick={() => cancelFilteredTask('drop')} disabled={status !== 'connected'}>Cancel "drop"</button>
 		<div data-testid="heartbeat-count">{heartbeatCount}</div>
 		<div data-testid="flaky-task-result">{flakyTaskResult}</div>
+		<div data-testid="default-retry-result">{defaultRetryResult}</div>
+		<div data-testid="filtered-task-result">{filteredTaskResult}</div>
 	</section>
 
 	<section>

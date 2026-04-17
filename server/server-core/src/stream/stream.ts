@@ -6,6 +6,9 @@ import type { Validator } from '~/types.ts';
 /**
  * Declares one client→server event that can be sent to a running stream as a
  * mid-stream signal. Created by `nudge()` and collected by `StreamBuilder`.
+ *
+ * A good beginner mental model is "a nudge is a control message for a stream
+ * that is already running".
  */
 export interface NudgeDeclaration<TEvent extends string = string, TPayload = unknown> {
   /** The event name the client sends to nudge the stream. */
@@ -36,6 +39,12 @@ export function nudge<TEvent extends string, TSchema extends StandardSchemaV1>(
  *
  * @param event     The event name the client sends to nudge.
  * @param validator Optional schema validator for the nudge payload.
+ *
+ * @example
+ * ```ts
+ * s.nudge(nudge('pause'))
+ * s.nudge(nudge('speed-up', v.object({ factor: v.number() })))
+ * ```
  */
 export function nudge(event: string, validator?: Validator): NudgeDeclaration {
   return { event, validator };

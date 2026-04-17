@@ -69,6 +69,19 @@ export const Drizzle = defineModule<{ migrate: boolean }, DrizzleApi>({
 
     hooks.onOutgoing((message) => {
       outgoingCount++;
+      if (
+        message.event === '__e2e:drizzle:drizzle-ready' &&
+        message.payload &&
+        typeof message.payload === 'object'
+      ) {
+        return {
+          ...message,
+          payload: {
+            ...message.payload,
+            hooked: true,
+          },
+        };
+      }
       return message;
     });
 

@@ -76,4 +76,75 @@ test.describe('custom replay handler', () => {
     expect(Number(match![1])).toBeGreaterThan(0);
     expect(Number(match![2])).toBeGreaterThan(0);
   });
+
+  test('custom replay supports nonzero since', async ({ page }) => {
+    await page.evaluate(() => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      ws?.send(JSON.stringify({ event: 'add-note', payload: { text: 'top-old' } }));
+    });
+    await waitForText(page, 'notes', /top-old/);
+    const since = Number(await page.getByTestId('last-seq').textContent());
+
+    await page.evaluate(() => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      ws?.send(JSON.stringify({ event: 'add-note', payload: { text: 'top-new' } }));
+    });
+    await waitForText(page, 'notes', /top-new/);
+
+    await page.reload();
+    await expect(page.getByTestId('status')).toHaveText('disconnected');
+    await page.getByTestId('connect-btn').click();
+    await waitForText(page, 'status', 'connected');
+    await page.getByTestId('since-input').fill(String(since));
+    await page.getByTestId('replay-btn').click();
+
+    await expect(async () => {
+      const notes = await page.getByTestId('notes').textContent();
+      expect(notes).toContain('top-new');
+      expect(notes).not.toContain('top-old');
+    }).toPass({ timeout: 5_000 });
+  });
+
+  test('channel custom replay supports nonzero since', async ({ page }) => {
+    await page.getByTestId('room-join-btn').click();
+    await waitForText(page, 'room-subscribed', 'subscribed');
+
+    await page.evaluate(() => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      ws?.send(
+        JSON.stringify({
+          event: 'add-room-note',
+          payload: { text: 'room-old', _channel: 'custom-room' },
+        }),
+      );
+    });
+    await waitForText(page, 'room-notes', /room-old/);
+    const since = Number(await page.getByTestId('last-seq').textContent());
+
+    await page.evaluate(() => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      ws?.send(
+        JSON.stringify({
+          event: 'add-room-note',
+          payload: { text: 'room-new', _channel: 'custom-room' },
+        }),
+      );
+    });
+    await waitForText(page, 'room-notes', /room-new/);
+
+    await page.reload();
+    await expect(page.getByTestId('status')).toHaveText('disconnected');
+    await page.getByTestId('connect-btn').click();
+    await waitForText(page, 'status', 'connected');
+    await page.getByTestId('room-join-btn').click();
+    await waitForText(page, 'room-subscribed', 'subscribed');
+    await page.getByTestId('room-since-input').fill(String(since));
+    await page.getByTestId('room-replay-btn').click();
+
+    await expect(async () => {
+      const notes = await page.getByTestId('room-notes').textContent();
+      expect(notes).toContain('room-new');
+      expect(notes).not.toContain('room-old');
+    }).toPass({ timeout: 5_000 });
+  });
 });
