@@ -145,6 +145,55 @@ type StateWithMeta<TState extends ScopeStateShape, TMeta extends Record<string, 
   readonly env: TState['env'];
 };
 
+type BuilderResult<
+  TState extends ScopeStateShape,
+  TFeatures,
+  Kind extends BuilderKind,
+> = FullBuilder<TState, TFeatures, Kind>;
+
+type InterceptMethod<TBuilder, TState extends ScopeStateShape> = ((
+  handler: (
+    ctx: HandlerCtxFromState<TState>,
+    message: InterceptMessage,
+  ) => InterceptMessage | void | Promise<InterceptMessage | void>,
+) => TBuilder) &
+  (<TEvent extends string & keyof TState['contract']['outgoing']>(
+    event: TEvent,
+    handler: (
+      ctx: HandlerCtxFromState<TState>,
+      payload: TState['contract']['outgoing'][TEvent],
+    ) =>
+      | TState['contract']['outgoing'][TEvent]
+      | void
+      | Promise<TState['contract']['outgoing'][TEvent] | void>,
+  ) => TBuilder) &
+  (<TEvent extends string, TPayload>(
+    event: EventContract<TEvent, TPayload>,
+    handler: (
+      ctx: HandlerCtxFromState<TState>,
+      payload: TPayload,
+    ) => TPayload | void | Promise<TPayload | void>,
+  ) => TBuilder);
+
+type ReplayMethod<TBuilder, TState extends ScopeStateShape> = ((
+  type?: ReplayType,
+) => ReplayBuilder<TBuilder, TState>) &
+  ((callback: (builder: ReplayBuilder<TBuilder, TState>) => ReplayBuilder<any, any>) => TBuilder) &
+  ((
+    type: ReplayType,
+    callback: (builder: ReplayBuilder<TBuilder, TState>) => ReplayBuilder<any, any>,
+  ) => TBuilder);
+
+type ReplayCustomMethod<
+  TBuilder,
+  TState extends ScopeStateShape,
+  TScope extends 'top' | 'channel',
+> = (() => ReplayCustomBuilder<TBuilder, TState>) &
+  ((
+    callback: (builder: ReplayCustomBuilder<TBuilder, TState>) => ReplayCustomBuilder<any, any>,
+  ) => TBuilder) &
+  (TScope extends 'top' | 'channel' ? {} : never);
+
 // ─── Channel helper types ──────────────────────────────────
 
 type ChannelState<TParentState extends ScopeStateShape> = ScopeState<
@@ -378,29 +427,7 @@ type MethodType<
                                 ) => FullBuilder<TState, TFeatures, Kind>
                               : // ── Intercept (3 overloads) ──────────────────────────
                                 M extends 'intercept'
-                                ? ((
-                                    handler: (
-                                      ctx: HandlerCtxFromState<TState>,
-                                      message: InterceptMessage,
-                                    ) => InterceptMessage | void | Promise<InterceptMessage | void>,
-                                  ) => FullBuilder<TState, TFeatures, Kind>) &
-                                    (<TEvent extends string & keyof TState['contract']['outgoing']>(
-                                      event: TEvent,
-                                      handler: (
-                                        ctx: HandlerCtxFromState<TState>,
-                                        payload: TState['contract']['outgoing'][TEvent],
-                                      ) =>
-                                        | TState['contract']['outgoing'][TEvent]
-                                        | void
-                                        | Promise<TState['contract']['outgoing'][TEvent] | void>,
-                                    ) => FullBuilder<TState, TFeatures, Kind>) &
-                                    (<TEvent extends string, TPayload>(
-                                      event: EventContract<TEvent, TPayload>,
-                                      handler: (
-                                        ctx: HandlerCtxFromState<TState>,
-                                        payload: TPayload,
-                                      ) => TPayload | void | Promise<TPayload | void>,
-                                    ) => FullBuilder<TState, TFeatures, Kind>)
+                                ? InterceptMethod<BuilderResult<TState, TFeatures, Kind>, TState>
                                 : // ── Scheduled (2 overloads) ──────────────────────────
                                   M extends 'scheduled'
                                   ? (<TTaskId extends string, TData = unknown>(
@@ -579,78 +606,25 @@ type MethodType<
                                               >)
                                           : // ── Replay (3 overloads) ─────────────────────────────
                                             M extends 'replay'
-                                            ? ((
-                                                type?: ReplayType,
-                                              ) => ReplayBuilder<
-                                                FullBuilder<
+                                            ? ReplayMethod<
+                                                BuilderResult<
                                                   NextState<TState, ReplayPrimitive>,
                                                   TFeatures,
                                                   Kind
                                                 >,
                                                 TState
-                                              >) &
-                                                ((
-                                                  callback: (
-                                                    builder: ReplayBuilder<
-                                                      FullBuilder<
-                                                        NextState<TState, ReplayPrimitive>,
-                                                        TFeatures,
-                                                        Kind
-                                                      >,
-                                                      TState
-                                                    >,
-                                                  ) => ReplayBuilder<any, any>,
-                                                ) => FullBuilder<
-                                                  NextState<TState, ReplayPrimitive>,
-                                                  TFeatures,
-                                                  Kind
-                                                >) &
-                                                ((
-                                                  type: ReplayType,
-                                                  callback: (
-                                                    builder: ReplayBuilder<
-                                                      FullBuilder<
-                                                        NextState<TState, ReplayPrimitive>,
-                                                        TFeatures,
-                                                        Kind
-                                                      >,
-                                                      TState
-                                                    >,
-                                                  ) => ReplayBuilder<any, any>,
-                                                ) => FullBuilder<
-                                                  NextState<TState, ReplayPrimitive>,
-                                                  TFeatures,
-                                                  Kind
-                                                >)
+                                              >
                                             : // ── Replay Custom (2 overloads) ──────────────────────
                                               M extends 'replayCustom'
-                                              ? (() => ReplayCustomBuilder<
-                                                  FullBuilder<
+                                              ? ReplayCustomMethod<
+                                                  BuilderResult<
                                                     NextState<TState, CustomReplayPrimitive<'top'>>,
                                                     TFeatures,
                                                     Kind
                                                   >,
-                                                  TState
-                                                >) &
-                                                  ((
-                                                    callback: (
-                                                      builder: ReplayCustomBuilder<
-                                                        FullBuilder<
-                                                          NextState<
-                                                            TState,
-                                                            CustomReplayPrimitive<'top'>
-                                                          >,
-                                                          TFeatures,
-                                                          Kind
-                                                        >,
-                                                        TState
-                                                      >,
-                                                    ) => ReplayCustomBuilder<any, any>,
-                                                  ) => FullBuilder<
-                                                    NextState<TState, CustomReplayPrimitive<'top'>>,
-                                                    TFeatures,
-                                                    Kind
-                                                  >)
+                                                  TState,
+                                                  'top'
+                                                >
                                               : never;
 
 // ─── Master feature methods type (mapped, not intersected) ─
@@ -682,29 +656,7 @@ type NsMethodType<
   TFeatures,
   M extends string,
 > = M extends 'intercept'
-  ? ((
-      handler: (
-        ctx: HandlerCtxFromState<TState>,
-        message: InterceptMessage,
-      ) => InterceptMessage | void | Promise<InterceptMessage | void>,
-    ) => NamespaceBuilderFull<TParentState, TState, TName, TFeatures>) &
-      (<TEvent extends string & keyof TState['contract']['outgoing']>(
-        event: TEvent,
-        handler: (
-          ctx: HandlerCtxFromState<TState>,
-          payload: TState['contract']['outgoing'][TEvent],
-        ) =>
-          | TState['contract']['outgoing'][TEvent]
-          | void
-          | Promise<TState['contract']['outgoing'][TEvent] | void>,
-      ) => NamespaceBuilderFull<TParentState, TState, TName, TFeatures>) &
-      (<TEvent extends string, TPayload>(
-        event: EventContract<TEvent, TPayload>,
-        handler: (
-          ctx: HandlerCtxFromState<TState>,
-          payload: TPayload,
-        ) => TPayload | void | Promise<TPayload | void>,
-      ) => NamespaceBuilderFull<TParentState, TState, TName, TFeatures>)
+  ? InterceptMethod<NamespaceBuilderFull<TParentState, TState, TName, TFeatures>, TState>
   : M extends 'request'
     ? <TEvent extends string, TPayload, TResponse>(
         eventContract: EventContract<TEvent, TPayload>,
@@ -825,29 +777,7 @@ type ChMethodType<
   TFeatures,
   M extends string,
 > = M extends 'intercept'
-  ? ((
-      handler: (
-        ctx: HandlerCtxFromState<TState>,
-        message: InterceptMessage,
-      ) => InterceptMessage | void | Promise<InterceptMessage | void>,
-    ) => ChannelBuilderFull<TParentState, TState, TPattern, TFeatures>) &
-      (<TEvent extends string & keyof TState['contract']['outgoing']>(
-        event: TEvent,
-        handler: (
-          ctx: HandlerCtxFromState<TState>,
-          payload: TState['contract']['outgoing'][TEvent],
-        ) =>
-          | TState['contract']['outgoing'][TEvent]
-          | void
-          | Promise<TState['contract']['outgoing'][TEvent] | void>,
-      ) => ChannelBuilderFull<TParentState, TState, TPattern, TFeatures>) &
-      (<TEvent extends string, TPayload>(
-        event: EventContract<TEvent, TPayload>,
-        handler: (
-          ctx: HandlerCtxFromState<TState>,
-          payload: TPayload,
-        ) => TPayload | void | Promise<TPayload | void>,
-      ) => ChannelBuilderFull<TParentState, TState, TPattern, TFeatures>)
+  ? InterceptMethod<ChannelBuilderFull<TParentState, TState, TPattern, TFeatures>, TState>
   : M extends 'request'
     ? <TEvent extends string, TPayload, TResponse>(
         eventContract: EventContract<TEvent, TPayload>,
@@ -936,9 +866,7 @@ type ChMethodType<
             TFeatures
           >)
       : M extends 'replay'
-        ? ((
-            type?: ReplayType,
-          ) => ReplayBuilder<
+        ? ReplayMethod<
             ChannelBuilderFull<
               TParentState,
               NextState<TState, ReplayPrimitive>,
@@ -946,72 +874,18 @@ type ChMethodType<
               TFeatures
             >,
             TState
-          >) &
-            ((
-              callback: (
-                builder: ReplayBuilder<
-                  ChannelBuilderFull<
-                    TParentState,
-                    NextState<TState, ReplayPrimitive>,
-                    TPattern,
-                    TFeatures
-                  >,
-                  TState
-                >,
-              ) => ReplayBuilder<any, any>,
-            ) => ChannelBuilderFull<
-              TParentState,
-              NextState<TState, ReplayPrimitive>,
-              TPattern,
-              TFeatures
-            >) &
-            ((
-              type: ReplayType,
-              callback: (
-                builder: ReplayBuilder<
-                  ChannelBuilderFull<
-                    TParentState,
-                    NextState<TState, ReplayPrimitive>,
-                    TPattern,
-                    TFeatures
-                  >,
-                  TState
-                >,
-              ) => ReplayBuilder<any, any>,
-            ) => ChannelBuilderFull<
-              TParentState,
-              NextState<TState, ReplayPrimitive>,
-              TPattern,
-              TFeatures
-            >)
+          >
         : M extends 'replayCustom'
-          ? (() => ReplayCustomBuilder<
+          ? ReplayCustomMethod<
               ChannelBuilderFull<
                 TParentState,
                 NextState<TState, CustomReplayPrimitive<'channel'>>,
                 TPattern,
                 TFeatures
               >,
-              TState
-            >) &
-              ((
-                callback: (
-                  builder: ReplayCustomBuilder<
-                    ChannelBuilderFull<
-                      TParentState,
-                      NextState<TState, CustomReplayPrimitive<'channel'>>,
-                      TPattern,
-                      TFeatures
-                    >,
-                    TState
-                  >,
-                ) => ReplayCustomBuilder<any, any>,
-              ) => ChannelBuilderFull<
-                TParentState,
-                NextState<TState, CustomReplayPrimitive<'channel'>>,
-                TPattern,
-                TFeatures
-              >)
+              TState,
+              'channel'
+            >
           : never;
 
 /** Feature methods available inside a channel builder scope. */

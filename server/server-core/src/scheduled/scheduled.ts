@@ -35,16 +35,16 @@ export interface ScheduledOptions<TData = unknown> {
 }
 
 /**
- * An opaque handle returned when a task is enqueued. Pass this to the
- * scheduled task API (e.g. `ctx.scheduleTask`) to cancel or inspect the task.
+ * An opaque handle returned when a task is enqueued. Pass this around when
+ * you need to refer to that specific scheduled run later.
  *
- * `__data` is a phantom type field (never at runtime) that carries the task's
- * data type for type-checking at the call site.
+ * `__data` exists only so TypeScript can remember the task's payload type.
+ * It is not present at runtime.
  */
 export interface ScheduledHandle<TData = unknown> {
   /** The unique ID of this scheduled task instance. */
   readonly id: string;
-  /** Phantom type field — not present at runtime. */
+  /** Type-only field — not present at runtime. */
   readonly __data?: TData;
 }
 

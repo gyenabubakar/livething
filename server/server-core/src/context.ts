@@ -236,12 +236,19 @@ export interface ChannelManager<
  * `Env`      — the environment variables shape provided by the adapter
  * `Meta`     — the per-connection metadata set during the upgrade step
  * `Platform` — the raw platform object from the adapter (e.g. Durable Object stub)
+ *
+ * Mental model:
+ * - identity: `id`, `meta`, `tags`
+ * - messaging: `send`, `broadcast`, `sendTo`, `sendToConnection`
+ * - scope helpers: `namespace`, `channel`, `channels`
+ * - durable/platform services: `schedule`, `sql`, `kv`, `env`, `platform`
  */
 export interface ConnectionContext<
   Env = Record<string, unknown>,
   Meta = Record<string, unknown>,
   Platform = unknown,
 > {
+  // Connection identity
   /** The unique ID for the current WebSocket connection. */
   id: string;
 
@@ -257,6 +264,7 @@ export interface ConnectionContext<
   /** Remove a tag from this connection. */
   untag(label: string): void;
 
+  // Message delivery
   /** Send an event to the current connection only. Returns `false` if the send buffer is full. */
   send(event: string, payload: unknown): boolean;
 
@@ -278,6 +286,7 @@ export interface ConnectionContext<
   /** Close the current WebSocket connection. */
   close(code?: number, reason?: string): void;
 
+  // Connection snapshots
   /** Get a snapshot of every live connection at this moment. */
   getConnections(): ConnectionInfo<Meta>[];
 
@@ -296,6 +305,7 @@ export interface ConnectionContext<
   /** A simple health label derived from recent ping/pong measurements. */
   quality: 'excellent' | 'good' | 'degraded' | 'poor';
 
+  // Scope-aware routing helpers
   /** Scoped send/broadcast when inside a namespace handler. */
   namespace?: ScopeSendApi;
 
@@ -305,6 +315,7 @@ export interface ConnectionContext<
   /** Manage channel membership from any handler. Only present when channels are registered. */
   channels: ChannelManager<string, Meta>;
 
+  // Durable scheduling
   /** Queue a scheduled task to run at a specific absolute timestamp (ms since epoch). */
   schedule(taskId: string, options: { time: number; data?: unknown }): void;
 
@@ -314,6 +325,7 @@ export interface ConnectionContext<
   /** Set a low-level platform alarm. Prefer `ctx.schedule()` for most cases. */
   setAlarm(time: number): void;
 
+  // Storage and platform services
   /** SQL storage access. */
   sql: SQLProvider;
 
@@ -365,18 +377,24 @@ export interface InitContext<Env = Record<string, unknown>, Platform = unknown> 
  *
  * The engine will automatically close any remaining connections after all
  * `onShutdown` handlers finish, so calling `closeAll()` is optional.
+ *
+ * Mental model: this is the whole-server view. You are not inside one
+ * connection, so there is no `send()` or `meta`, but you can still inspect
+ * live connections, broadcast, and queue durable work.
  */
 export interface ShutdownContext<
   Env = Record<string, unknown>,
   Meta = Record<string, unknown>,
   Platform = unknown,
 > {
+  // Connection management
   /** Close every live connection at once. */
   closeAll(code?: number, reason?: string): void;
 
   /** Broadcast an event to all connections, optionally filtered by channel. */
   broadcast(event: string, payload: unknown, options?: { channel?: string }): void;
 
+  // Storage and durable work
   /** SQL database access for queries, migrations, and transactions. */
   sql: SQLProvider;
 
@@ -389,6 +407,7 @@ export interface ShutdownContext<
   /** Cancel all pending runs of a scheduled task, optionally filtered by data fields. */
   cancelScheduled(taskId: string, filter?: Record<string, unknown>): void;
 
+  // Connection snapshots
   /** The total number of live WebSocket connections right now. */
   connectionCount: number;
 
@@ -398,6 +417,7 @@ export interface ShutdownContext<
   /** Get every connection that currently has the given tag. */
   getConnectionsByTag(tag: string): ConnectionInfo<Meta>[];
 
+  // Platform services
   /** Environment variables provided by the hosting platform (e.g. Cloudflare bindings). */
   env: Env;
 
@@ -417,18 +437,23 @@ export interface ShutdownContext<
  * Scheduled tasks are not tied to any one client, so this context has no
  * single-connection `send()`. It can still broadcast to all connections,
  * target groups by tag, and access storage.
+ *
+ * Mental model: this looks like `ShutdownContext`, but it runs for one queued
+ * job instance and receives its payload separately as the handler argument.
  */
 export interface TaskContext<
   Env = Record<string, unknown>,
   Meta = Record<string, unknown>,
   Platform = unknown,
 > {
+  // Storage
   /** SQL database access for queries, migrations, and transactions. */
   sql: SQLProvider;
 
   /** Key-value storage for simple get/set/delete operations. */
   kv: KVProvider;
 
+  // Message delivery
   /** Broadcast an event to all connections, optionally filtered by channel. */
   broadcast(event: string, payload: unknown, options?: { channel?: string }): void;
 
@@ -438,6 +463,7 @@ export interface TaskContext<
   /** Send an event to one specific connection by ID. Returns false if the connection doesn't exist. */
   sendToConnection(connectionId: string, event: string, payload: unknown): boolean;
 
+  // Connection snapshots
   /** Get a snapshot of every live connection. */
   getConnections(): ConnectionInfo<Meta>[];
 
@@ -447,12 +473,14 @@ export interface TaskContext<
   /** The total number of live WebSocket connections right now. */
   connectionCount: number;
 
+  // Durable scheduling
   /** Queue a scheduled task to run at a specific time (milliseconds since epoch). */
   schedule(taskId: string, options: { time: number; data?: unknown }): void;
 
   /** Cancel all pending runs of a scheduled task, optionally filtered by data fields. */
   cancelScheduled(taskId: string, filter?: Record<string, unknown>): void;
 
+  // Platform services
   /** Environment variables provided by the hosting platform (e.g. Cloudflare bindings). */
   env: Env;
 

@@ -136,13 +136,17 @@ type StateAfterIncoming<
 /**
  * The fluent builder used to define a wskit WebSocket server.
  *
- * `TState` tracks accumulated primitives; `TFeatures` tracks which `with*`
- * wrappers have been applied. Feature methods (`.ack()`, `.onConnect()`, etc.)
- * are not on this class — they are added at runtime by `with*` functions and
- * surfaced at the type level via the `ServerBuilderFull` intersection type.
+ * As you chain builder calls, `TState` keeps track of what has been declared
+ * so far, such as outgoing events, requests, replay support, and inferred
+ * handler context fields. `TFeatures` tracks which optional feature families
+ * have been enabled by the `with*` helpers.
  *
- * @template TState - Accumulated builder state.
- * @template TFeatures - Feature flags set by `with*` wrappers.
+ * Feature methods like `.ack()` and `.onConnect()` are attached by those
+ * helpers, so the full fluent API is represented by `ServerBuilderFull`
+ * rather than this class alone.
+ *
+ * @template TState - What the builder has declared so far.
+ * @template TFeatures - Which optional feature families are enabled.
  */
 export class ServerBuilder<TState extends ScopeStateShape = InitialState, TFeatures = {}> {
   readonly _primitives: Primitive[] = [];

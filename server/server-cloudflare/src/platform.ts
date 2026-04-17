@@ -1,6 +1,11 @@
 /**
- * The Cloudflare-specific platform context available via `ctx.platform` in handlers.
- * Provides direct access to the Durable Object state and environment bindings.
+ * The Cloudflare-specific escape hatch exposed as `ctx.platform`.
+ *
+ * Most handler code should prefer the higher-level wskit APIs such as
+ * `ctx.sql`, `ctx.kv`, `ctx.schedule`, and `ctx.env`. Reach for
+ * `ctx.platform` only when you need a Cloudflare capability that wskit does
+ * not wrap directly yet, such as `blockConcurrencyWhile(...)` or raw Durable
+ * Object storage access.
  */
 export interface Platform<Env = unknown> {
   ctx: {
@@ -13,7 +18,7 @@ export interface Platform<Env = unknown> {
 }
 
 /**
- * Create a Platform object from Cloudflare's DurableObjectState and environment bindings.
+ * Build the `ctx.platform` object from Cloudflare's Durable Object runtime.
  */
 export function createPlatform<Env>(state: DurableObjectState, env: Env): Platform<Env> {
   return {

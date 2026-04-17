@@ -79,6 +79,17 @@ test.describe('modules handler', () => {
     await waitForText(page, 'outgoing-count', /outgoing: [1-9]/);
   });
 
+  test('module hooks can observe generateId and getState', async ({ page }) => {
+    await waitForText(page, 'db-connected', 'db-ready');
+
+    await page.getByTestId('generated-id-btn').click();
+    await waitForText(page, 'generated-id-result', /generated: drizzle[-_]/);
+
+    await page.getByTestId('last-state-btn').click();
+    await waitForText(page, 'last-state-result', /"username":"testuser"/);
+    await waitForText(page, 'last-state-result', /"tags":\[\]/);
+  });
+
   test('module onDisconnect increments counter', async ({ browser }, testInfo) => {
     const room = `multi-${testInfo.testId}`;
     const page1 = await browser.newPage();
@@ -102,5 +113,25 @@ test.describe('modules handler', () => {
 
     await page1.close();
     await page2.close();
+  });
+
+  test('module onShutdown is observable after shutdown and reconnect', async ({
+    page,
+  }, testInfo) => {
+    const room = `test-${testInfo.testId}`;
+
+    await page.getByTestId('shutdown-count-btn').click();
+    await waitForText(page, 'shutdown-count', 'shutdowns: 0');
+
+    const response = await page.request.post(`/ws/modules/shutdown?room=${room}`);
+    expect(response.status()).toBe(204);
+
+    await waitForText(page, 'status', 'disconnected', 15_000);
+    await page.getByTestId('connect-btn').click();
+    await waitForText(page, 'status', 'connected');
+    await waitForText(page, 'db-connected', 'db-ready');
+
+    await page.getByTestId('shutdown-count-btn').click();
+    await waitForText(page, 'shutdown-count', 'shutdowns: 1');
   });
 });

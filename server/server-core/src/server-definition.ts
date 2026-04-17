@@ -9,8 +9,8 @@ import type { Primitive } from '~/primitive.ts';
  * (or richer shapes for requests, streams, etc.).
  *
  * `InferClient` reads this to produce the typed client API. Adapters
- * (server-cloudflare, server-bun, etc.) also read it at the type level to
- * ensure your handler and your platform adapter stay in sync.
+ * (server-cloudflare, server-bun, etc.) also use it so your handler and your
+ * platform adapter agree on the same contract.
  */
 export interface ServerContract {
   /** Events the server sends to clients (`outgoing()` from the server perspective). */
@@ -40,8 +40,8 @@ export interface ServerContract {
  *
  * You get a `ServerDefinition` by calling `.build()` at the end of a
  * `server(name)` builder chain. It is an immutable, frozen object that holds
- * all registered primitives and a phantom `__contract` type used by
- * `InferClient` to generate the client-side type.
+ * all registered primitives plus the contract type that `InferClient` uses to
+ * generate the client-side API.
  *
  * Pass a `ServerDefinition` directly to your platform adapter:
  *
@@ -54,7 +54,7 @@ export interface ServerContract {
  * ```
  *
  * @template TPrimitives - The frozen tuple of all registered primitives.
- * @template TContract - The accumulated client contract, read by `InferClient`.
+ * @template TContract - The client contract carried along with the built server.
  */
 export interface ServerDefinition<
   TPrimitives extends readonly Primitive[] = readonly Primitive[],
@@ -63,11 +63,11 @@ export interface ServerDefinition<
   readonly __wskit: 'server';
   readonly primitives: TPrimitives;
   /**
-   * Phantom field — never set at runtime (`undefined` always).
+   * Type-only field — never set at runtime.
    *
-   * TypeScript reads `TContract` from here when you write
-   * `InferClient<typeof myServer>`. The `?` keeps it out of object shapes and
-   * prevents accidental runtime access.
+   * This is how the built server keeps its contract attached for tools like
+   * `InferClient<typeof myServer>`. The `?` keeps it out of normal object
+   * shapes and discourages runtime use.
    */
   readonly __contract?: TContract;
 }

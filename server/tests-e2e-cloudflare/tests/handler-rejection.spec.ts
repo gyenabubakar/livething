@@ -68,4 +68,25 @@ test.describe('subscribe rejection', () => {
       expect(result).toBe('closed:4001');
     }
   });
+
+  test('upgrade rejection: HTTP branch returns 403 response', async ({
+    page,
+    request,
+  }, testInfo) => {
+    const room = `test-${testInfo.testId}`;
+    await page.goto(`/?room=${room}`);
+    const origin = new URL(page.url()).origin;
+
+    const response = await request.fetch(`${origin}/ws/reject-http?room=${room}`, {
+      headers: {
+        Upgrade: 'websocket',
+        Connection: 'Upgrade',
+        'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
+        'Sec-WebSocket-Version': '13',
+      },
+    });
+
+    expect(response.status()).toBe(403);
+    await expect(response.text()).resolves.toBe('Forbidden HTTP upgrade');
+  });
 });

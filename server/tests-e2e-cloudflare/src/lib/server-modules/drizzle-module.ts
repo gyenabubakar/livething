@@ -5,10 +5,16 @@ import * as v from 'valibot';
 import type { Platform } from '@wskit/server-cloudflare';
 import type { DrizzleSqliteDODatabase } from 'drizzle-orm/durable-sqlite';
 import * as schema from './schema.ts';
-import { records } from './schema.ts';
+import { moduleMeta, records } from './schema.ts';
 import type { InsertRecord } from './schema.ts';
 
 const DRIZZLE_KEY = Symbol('e2e:drizzle');
+
+interface LastConnectionState {
+  id: string;
+  username: string | null;
+  tags: string[];
+}
 
 export interface DrizzleApi {
   insert(data: Omit<InsertRecord, 'id' | 'createdAt'>): schema.Record;
@@ -19,6 +25,9 @@ export interface DrizzleApi {
   getMessageCount(): number;
   getOutgoingCount(): number;
   getDisconnectCount(): number;
+  getLastGeneratedId(): string | null;
+  getLastState(): LastConnectionState | null;
+  getShutdownCount(): number;
 }
 
 export const Drizzle = defineModule<{ migrate: boolean }, DrizzleApi>({
@@ -34,6 +43,8 @@ export const Drizzle = defineModule<{ migrate: boolean }, DrizzleApi>({
     let messageCount = 0;
     let outgoingCount = 0;
     let disconnectCount = 0;
+    let lastGeneratedId: string | null = null;
+    let lastState: LastConnectionState | null = null;
 
     hooks.onInit((ctx) => {
       db = drizzle((ctx.platform as Platform).ctx.storage, { schema });
@@ -48,9 +59,25 @@ export const Drizzle = defineModule<{ migrate: boolean }, DrizzleApi>({
           )`,
         );
       }
+
+      db.run(
+        `CREATE TABLE IF NOT EXISTS module_meta (
+          key TEXT PRIMARY KEY,
+          value INTEGER NOT NULL
+        )`,
+      );
+      db.run(`INSERT OR IGNORE INTO module_meta (key, value) VALUES ('shutdown_count', 0)`);
     });
 
     hooks.onConnect((ctx) => {
+      const state = hooks.getState();
+      lastGeneratedId = hooks.generateId('drizzle');
+      lastState = {
+        id: state.id,
+        username:
+          state.meta && typeof state.meta.username === 'string' ? state.meta.username : null,
+        tags: [...state.tags],
+      };
       ctx.send('drizzle-ready', { tables: ['records'] });
     });
 
@@ -59,6 +86,9 @@ export const Drizzle = defineModule<{ migrate: boolean }, DrizzleApi>({
     });
 
     hooks.onShutdown(() => {
+      db.run(
+        "INSERT INTO module_meta (key, value) VALUES ('shutdown_count', 1) ON CONFLICT(key) DO UPDATE SET value = value + 1",
+      );
       console.log('[drizzle-module] shutdown, processed', messageCount, 'messages');
     });
 
@@ -116,6 +146,17 @@ export const Drizzle = defineModule<{ migrate: boolean }, DrizzleApi>({
       },
       getDisconnectCount() {
         return disconnectCount;
+      },
+      getLastGeneratedId() {
+        return lastGeneratedId;
+      },
+      getLastState() {
+        return lastState;
+      },
+      getShutdownCount() {
+        return (
+          db.select().from(moduleMeta).where(eq(moduleMeta.key, 'shutdown_count')).get()?.value ?? 0
+        );
       },
     });
   },

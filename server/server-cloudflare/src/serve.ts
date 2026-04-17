@@ -70,6 +70,54 @@ const buildServe = defineServerAdapter<CloudflareOptions, CloudflareDurableObjec
         });
       }
 
+      private handleRejectedUpgrade(
+        result: Awaited<ReturnType<Engine['handleUpgrade']>>,
+      ): Response {
+        if (result.code && result.code >= 1000) {
+          const pair = new WebSocketPair();
+          pair[1].accept();
+          pair[1].close(result.code, result.reason ?? 'Upgrade rejected');
+          return new Response(null, {
+            status: 101,
+            webSocket: pair[0],
+          } as ResponseInit & { webSocket: WebSocket });
+        }
+
+        const status = result.code && result.code >= 400 && result.code <= 599 ? result.code : 403;
+        return new Response(result.reason ?? 'Upgrade rejected', { status });
+      }
+
+      private createConnectionDescriptor(
+        socket: WebSocket,
+        result: Awaited<ReturnType<Engine['handleUpgrade']>>,
+      ) {
+        return {
+          send: (data: string) => socket.send(data),
+          sendBinary: (data: ArrayBuffer | ArrayBufferView) => socket.send(data),
+          close: (code?: number, reason?: string) => socket.close(code, reason),
+          bufferedAmount: () => 0,
+          meta: result.meta ?? {},
+          tags: result.tags ?? [],
+        };
+      }
+
+      private wireStandardSocket(socket: WebSocket, connection: ConnectionHandle): void {
+        socket.addEventListener('message', (event) => {
+          if (typeof event.data === 'string') {
+            connection.handleMessage(event.data);
+          } else {
+            connection.handleBinary(normalizeBinary(event.data));
+          }
+        });
+        socket.addEventListener('close', (event) => {
+          this.liveConnections.delete(socket);
+          connection.handleClose(event.code, event.reason);
+        });
+        socket.addEventListener('error', (event) => {
+          connection.handleError(event);
+        });
+      }
+
       async fetch(request: Request): Promise<Response> {
         await this.ready;
 
@@ -79,32 +127,13 @@ const buildServe = defineServerAdapter<CloudflareOptions, CloudflareDurableObjec
 
         const result = await this.engine.handleUpgrade(request);
         if (result.reject) {
-          if (result.code && result.code >= 1000) {
-            const pair = new WebSocketPair();
-            pair[1].accept();
-            pair[1].close(result.code, result.reason ?? 'Upgrade rejected');
-            return new Response(null, {
-              status: 101,
-              webSocket: pair[0],
-            } as ResponseInit & { webSocket: WebSocket });
-          }
-          const status =
-            result.code && result.code >= 400 && result.code <= 599 ? result.code : 403;
-          return new Response(result.reason ?? 'Upgrade rejected', { status });
+          return this.handleRejectedUpgrade(result);
         }
 
         const pair = new WebSocketPair();
         const client = pair[0];
         const server = pair[1];
-
-        const descriptor = {
-          send: (data: string) => server.send(data),
-          sendBinary: (data: ArrayBuffer | ArrayBufferView) => server.send(data),
-          close: (code?: number, reason?: string) => server.close(code, reason),
-          bufferedAmount: () => 0,
-          meta: result.meta ?? {},
-          tags: result.tags ?? [],
-        };
+        const descriptor = this.createConnectionDescriptor(server, result);
 
         if (hibernation) {
           this.ctx.acceptWebSocket(server, [...(result.tags ?? [])]);
@@ -116,20 +145,7 @@ const buildServe = defineServerAdapter<CloudflareOptions, CloudflareDurableObjec
         this.liveConnections.set(server, connection);
 
         if (!hibernation) {
-          server.addEventListener('message', (event) => {
-            if (typeof event.data === 'string') {
-              connection.handleMessage(event.data);
-            } else {
-              connection.handleBinary(normalizeBinary(event.data));
-            }
-          });
-          server.addEventListener('close', (event) => {
-            this.liveConnections.delete(server);
-            connection.handleClose(event.code, event.reason);
-          });
-          server.addEventListener('error', (event) => {
-            connection.handleError(event);
-          });
+          this.wireStandardSocket(server, connection);
         }
 
         return new Response(null, {

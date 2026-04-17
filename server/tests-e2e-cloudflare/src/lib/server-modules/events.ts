@@ -27,6 +27,26 @@ export const OutgoingCount = event('outgoing-count', v.object({ count: v.number(
 export const GetDisconnectCount = event('get-disconnect-count', v.object({}));
 export const DisconnectCount = event('disconnect-count', v.object({ count: v.number() }));
 
+export const GetGeneratedId = event('get-generated-id', v.object({}));
+export const GeneratedId = event('generated-id', v.object({ value: v.nullable(v.string()) }));
+
+export const GetLastState = event('get-last-state', v.object({}));
+export const LastState = event(
+  'last-state',
+  v.object({
+    state: v.nullable(
+      v.object({
+        id: v.string(),
+        username: v.nullable(v.string()),
+        tags: v.array(v.string()),
+      }),
+    ),
+  }),
+);
+
+export const GetShutdownCount = event('get-shutdown-count', v.object({}));
+export const ShutdownCount = event('shutdown-count', v.object({ count: v.number() }));
+
 export const DrizzleReady = event(
   '__e2e:drizzle:drizzle-ready',
   v.object({ tables: v.array(v.string()), hooked: v.optional(v.boolean()) }),

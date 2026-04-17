@@ -21,7 +21,7 @@ import type * as StreamPrimitive from '~/stream/stream.ts';
 export type AnyOutgoing = OutgoingPrimitive.OutgoingPrimitive<string, any>;
 /** Any `.incoming()` handler, regardless of event name or payload type. */
 export type AnyIncoming = IncomingPrimitive.IncomingPrimitive<string, any, any>;
-/** Any `.reply()` handler, regardless of event, payload, or response type. */
+/** Any `.request()` handler, regardless of event, payload, or response type. */
 export type AnyRequest = RequestPrimitive.RequestPrimitive<string, any, any, any>;
 /** Any `.generate()` handler attached to a stream declaration. */
 export type AnyGenerate = StreamPrimitive.GeneratePrimitive<

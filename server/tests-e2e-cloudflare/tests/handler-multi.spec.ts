@@ -141,6 +141,59 @@ test.describe('multi-client', () => {
     await page2.close();
   });
 
+  test('chat members count updates exactly after kick, and kicked client is isolated', async ({
+    browser,
+  }, testInfo) => {
+    const room = `multi-${testInfo.testId}`;
+    const page1 = await browser.newPage();
+    const page2 = await browser.newPage();
+    await page1.goto(`/?room=${room}`);
+    await page2.goto(`/?room=${room}`);
+
+    await page1.getByTestId('username-input').fill('user1');
+    await page1.getByTestId('connect-btn').click();
+    await waitForText(page1, 'status', 'connected');
+    await page1.getByTestId('chat-join-btn').click();
+    await waitForText(page1, 'chat-subscribed', 'subscribed');
+
+    await page2.getByTestId('username-input').fill('user2');
+    await page2.getByTestId('connect-btn').click();
+    await waitForText(page2, 'status', 'connected');
+    await page2.getByTestId('chat-join-btn').click();
+    await waitForText(page2, 'chat-subscribed', 'subscribed');
+
+    await page1.getByTestId('get-members-btn').click();
+    await waitForText(page1, 'channel-members-result', 'chat:2');
+
+    await page1.evaluate(() => {
+      const ws = (window as unknown as { __ws: WebSocket }).__ws;
+      ws?.send(
+        JSON.stringify({ event: 'kick-from-channel', payload: { channel: 'chat', tag: 'user2' } }),
+      );
+    });
+
+    await waitForText(page2, 'kicked-result', /kicked:chat/, 10_000);
+
+    await page1.getByTestId('get-members-btn').click();
+    await waitForText(page1, 'channel-members-result', 'chat:1');
+
+    await page2.evaluate(() => {
+      const ws = (window as unknown as { __ws: WebSocket }).__ws;
+      ws?.send(
+        JSON.stringify({
+          event: 'send-chat',
+          payload: { text: 'after-kick', _channel: 'chat' },
+        }),
+      );
+    });
+
+    await page1.waitForTimeout(500);
+    await expect(page1.getByTestId('chat-messages')).not.toContainText('user2: after-kick');
+
+    await page1.close();
+    await page2.close();
+  });
+
   test('dynamic channel isolation: room:general vs room:vip', async ({ browser }, testInfo) => {
     const room = `multi-${testInfo.testId}`;
     const page1 = await browser.newPage();
@@ -255,6 +308,52 @@ test.describe('multi-client', () => {
 
     await page1.close();
     await page2.close();
+  });
+
+  test('sendTo fanout reaches every connection with the matching tag', async ({
+    browser,
+  }, testInfo) => {
+    const room = `multi-${testInfo.testId}`;
+    const page1 = await browser.newPage();
+    const page2 = await browser.newPage();
+    const page3 = await browser.newPage();
+    await page1.goto(`/?room=${room}`);
+    await page2.goto(`/?room=${room}`);
+    await page3.goto(`/?room=${room}`);
+
+    await page1.getByTestId('username-input').fill('user1');
+    await page1.getByTestId('connect-btn').click();
+    await waitForText(page1, 'status', 'connected');
+    await page1.getByTestId('tag-self-btn').click();
+    await waitForText(page1, 'tag-result', /vip/);
+
+    await page2.getByTestId('username-input').fill('user2');
+    await page2.getByTestId('connect-btn').click();
+    await waitForText(page2, 'status', 'connected');
+    await page2.getByTestId('tag-self-btn').click();
+    await waitForText(page2, 'tag-result', /vip/);
+
+    await page3.getByTestId('username-input').fill('sender');
+    await page3.getByTestId('connect-btn').click();
+    await waitForText(page3, 'status', 'connected');
+
+    await page3.evaluate(() => {
+      const ws = (window as unknown as { __ws: WebSocket }).__ws;
+      ws?.send(
+        JSON.stringify({
+          event: 'send-to-tag',
+          payload: { tag: 'vip', text: 'fanout hello' },
+        }),
+      );
+    });
+
+    await waitForText(page1, 'tagged-message', /sender: fanout hello/);
+    await waitForText(page2, 'tagged-message', /sender: fanout hello/);
+    await expect(page3.getByTestId('tagged-message')).toHaveText('');
+
+    await page1.close();
+    await page2.close();
+    await page3.close();
   });
 
   test('top-level broadcast reaches second client', async ({ browser }, testInfo) => {

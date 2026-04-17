@@ -30,6 +30,10 @@
         "name": "REPLAY_SNAPSHOT_SERVER",
         "class_name": "ReplaySnapshotServer",
       },
+      {
+        "name": "HTTP_REJECT_SERVER",
+        "class_name": "RejectHttpServer",
+      },
     ],
   },
   "migrations": [
@@ -48,6 +52,10 @@
     {
       "tag": "v4",
       "new_sqlite_classes": ["ReplaySnapshotServer"],
+    },
+    {
+      "tag": "v5",
+      "new_sqlite_classes": ["RejectHttpServer"],
     },
   ],
 }

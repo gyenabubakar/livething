@@ -1,11 +1,12 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 
 /**
- * Type-level state machine for wskit builder scopes.
+ * The running type state for a wskit builder scope.
  *
- * As you chain builder calls, wskit folds the registered primitives into one
- * accumulated state object. That folded state powers the final handler `ctx`
- * type and the client contract used by `InferClient`.
+ * As you chain builder calls, wskit keeps track of what has been declared so
+ * far in one shared type: outgoing events, requests, errors, replay support,
+ * channel names, and more. That running state is what powers the final
+ * handler `ctx` type and the client contract used by `InferClient`.
  */
 import type { AckPrimitive } from '~/ack/ack.ts';
 import type { ChannelManager, ConnectionContext } from '~/context.ts';
@@ -48,44 +49,50 @@ type AnyCustomReplay = CustomReplayPrimitive;
 type AnyIntercept = InterceptPrimitive<string, any, any>;
 
 // ---------------------------------------------------------------------------
-// The fold engine — how typed ctx is built from a list of primitives
+// How wskit turns registered primitives into the final handler/context types
 // ---------------------------------------------------------------------------
 //
 // The builder's fluent API produces a tuple of primitives:
 //
-//   server('chat').ack().outgoing('typing', ...).incoming('message', ...)
+//   server('chat')
+//     .ack()
+//     .outgoing(event('typing', v.object({ roomId: v.string() })))
+//     .incoming(event('message', v.object({ text: v.string() })), handler)
 //
 // Internally this becomes something like:
 //
-//   readonly [AckPrimitive, OutgoingPrimitive<'typing', ...>, IncomingPrimitive<'message', ...>]
+//   readonly [
+//     AckPrimitive,
+//     OutgoingPrimitive<'typing', ...>,
+//     IncomingPrimitive<'message', ...>
+//   ]
 //
-// To derive the correctly typed ctx for each handler, we "fold" that tuple
-// from left to right. Each primitive advances the state by one step:
+// To derive the correctly typed ctx for each handler, wskit walks through
+// that list from left to right. Each primitive updates the running state:
 //
 //   ScopeState (empty)
 //     → NextState<state, AckPrimitive>          hasAck: true
 //     → NextState<state, OutgoingPrimitive>      outgoing: { typing: ... }
 //     → NextState<state, IncomingPrimitive>      contract.outgoing: { message: ... }
 //
-// The final state is then fed into `HandlerCtxFromState` to produce the ctx
-// type that the developer sees in their handler callbacks.
+// The final state is then passed to `HandlerCtxFromState` to produce the ctx
+// type that developers see in their handler callbacks.
 //
-// This is entirely a compile-time operation — no runtime cost.
+// This only affects types. It does not add runtime work.
 
 // ---------------------------------------------------------------------------
 // FoldablePrimitive
 // ---------------------------------------------------------------------------
 
 /**
- * Every primitive shape that the fold engine knows how to process.
+ * Every primitive shape that this type-state system knows how to process.
  *
- * When the builder collects primitives, each one is tested against this union.
- * Primitives that match are folded into the accumulated state; others are
- * ignored by the fold but still collected for the runtime.
+ * When the builder collects primitives, each one is checked against this
+ * union. Matching primitives update the running type state; others are
+ * ignored here but still exist at runtime.
  *
- * `namespace()` and `channel()` are excluded here because they create their
- * own nested folds — each scope runs its own independent fold over its own
- * list of child primitives.
+ * `namespace()` and `channel()` are excluded here because they each build
+ * their own nested scope state from their child primitives.
  */
 export type FoldablePrimitive =
   | AckPrimitive
@@ -122,12 +129,11 @@ export type ScopeKind = 'top' | 'namespace' | 'channel';
 // ---------------------------------------------------------------------------
 
 /**
- * The client-facing contract accumulated while folding primitives.
+ * The client-facing contract built up as primitives are registered.
  *
  * Each handler primitive (`incoming`, `request`, `generate`) adds entries
- * to this as the fold processes the primitive tuple. The final value of
- * `contract` in the folded state becomes the data that `InferClient` reads
- * to produce the client SDK types.
+ * here as the builder grows. The final `contract` value is what
+ * `InferClient` uses to produce the client SDK types.
  *
  * - `incoming`  — events the server receives from clients (added by `incoming()`)
  * - `outgoing`  — events the server sends to clients   (added by `outgoing()`)
@@ -185,10 +191,10 @@ export type NoOutgoing = Record<never, never>;
 // ---------------------------------------------------------------------------
 
 /**
- * The full accumulated state for one scope as primitives are registered.
+ * The full running state for one scope as primitives are registered.
  *
- * Start at the default (all-false, empty) state and advance it by passing
- * it through `NextState` for each primitive in the tuple.
+ * Start at the default empty state and update it once for each primitive
+ * registered in the scope.
  *
  * Fields:
  * - `kind`         — which scope we are in (`'top'`, `'namespace'`, `'channel'`)
@@ -295,7 +301,10 @@ type RequestEntry<TPrimitive extends AnyRequest> =
  *
  * Example — given:
  * ```ts
- * readonly [nudge('cancel'), nudge('add-context', v.object({ hint: v.string() }))]
+ * readonly [
+ *   nudge('cancel'),
+ *   nudge('add-context', v.object({ hint: v.string() }))
+ * ]
  * ```
  * This produces:
  * ```ts
@@ -336,8 +345,8 @@ type StreamEntry<TStream extends StreamPrimitive> =
 /**
  * Apply one primitive to the current scope state and return the next state.
  *
- * This is the heart of the fold engine. Each branch says exactly what one
- * primitive changes:
+ * This is the heart of the scope-state system. Each branch describes what one
+ * primitive adds or changes:
  *
  * | Primitive                           | What changes                                              |
  * |-------------------------------------|-----------------------------------------------------------|
@@ -351,11 +360,8 @@ type StreamEntry<TStream extends StreamPrimitive> =
  * | `request(event, ...)`               | `contract.requests` gains `{ event: { payload, response } }` |
  * | `generate(stream, ...)`             | `contract.streams` gains the stream entry                 |
  *
- * Everything that is not changed is copied from `TState` unchanged.
- * This ensures the fold never loses previously accumulated information.
- *
- * The deeply nested conditional form (`A extends X ? ... : B extends Y ? ...`)
- * is the standard TypeScript pattern for a multi-branch type-level match.
+ * Everything else is carried over unchanged so the builder never loses
+ * information it learned from earlier calls.
  */
 export type NextState<
   TState extends ScopeStateShape,
@@ -542,10 +548,10 @@ export type NextState<
 // ---------------------------------------------------------------------------
 
 /**
- * Fold an entire tuple of primitives from left to right into one final state.
+ * Turn a whole list of primitives into one final scope state.
  *
- * This is a recursive conditional type. It peels one primitive off the front
- * of the tuple, passes it to `NextState`, and recurses on the rest:
+ * Read this as: start from an empty scope, then apply `NextState` once for
+ * each primitive in order:
  *
  * ```
  * FoldState<[A, B, C]>
@@ -555,12 +561,11 @@ export type NextState<
  *   = final state
  * ```
  *
- * The second parameter (`TState`) accumulates the running state. The default
- * of `ScopeState` (no arguments) is the clean empty starting state.
+ * The second parameter (`TState`) holds the running state. By default it
+ * starts as an empty `ScopeState`.
  *
- * This is why the order of primitives in the builder chain matters for types —
- * an `outgoing()` declared *after* an `incoming()` won't affect the ctx of
- * that `incoming` handler.
+ * This is why builder order matters for types: an `outgoing()` declared
+ * *after* an `incoming()` will not affect that earlier handler's ctx type.
  */
 export type FoldState<
   TItems extends readonly FoldablePrimitive[],
@@ -1081,12 +1086,12 @@ export type ErrorsFromState<TState extends ScopeStateShape> = TState['errors'];
 // ---------------------------------------------------------------------------
 
 /**
- * Filter a mixed tuple down to just the primitives that the fold engine can
- * process, discarding anything else (e.g. scope primitives like `namespace()`
- * and `channel()` that run their own nested folds).
+ * Filter a mixed tuple down to just the primitives that affect scope state,
+ * discarding anything else (such as `namespace()` and `channel()`, which each
+ * build their own nested scope state).
  *
- * This is done recursively: peek at the head of the tuple, keep it if it is
- * a `FoldablePrimitive`, skip it otherwise, then recurse on the tail.
+ * Read this as: walk through the tuple, keep the items that matter for state,
+ * and skip the rest.
  */
 export type FoldableItemsOf<TItems extends readonly unknown[]> = TItems extends readonly [
   infer THead,
@@ -1098,14 +1103,11 @@ export type FoldableItemsOf<TItems extends readonly unknown[]> = TItems extends 
   : readonly [];
 
 /**
- * Compute the full client contract directly from a raw tuple of builder items.
+ * Compute the full client contract from a raw tuple of builder items.
  *
- * Items that are not foldable (e.g. `namespace()`, `channel()`) are filtered
- * out automatically before folding. The fold starts from the clean empty state
- * for the given `TKind`.
- *
- * This is the entry point used by `InferClient` to derive the contract from
- * the top-level primitive list.
+ * Items that do not affect scope state are filtered out automatically first.
+ * Then wskit starts from an empty scope state and walks through the remaining
+ * items to build the final contract.
  */
 export type ContractFromItems<
   TItems extends readonly unknown[],

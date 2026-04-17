@@ -16,6 +16,9 @@
 	let vacuumResult = $state('');
 	let outgoingCountResult = $state('');
 	let disconnectCountResult = $state('');
+	let generatedIdResult = $state('');
+	let lastStateResult = $state('');
+	let shutdownCountResult = $state('');
 
 	function connect() {
 		if (ws) return;
@@ -80,6 +83,15 @@
 					break;
 				case 'disconnect-count':
 					disconnectCountResult = `disconnects: ${payload.count}`;
+					break;
+				case 'generated-id':
+					generatedIdResult = payload.value ? `generated: ${payload.value}` : 'generated: none';
+					break;
+				case 'last-state':
+					lastStateResult = JSON.stringify(payload.state);
+					break;
+				case 'shutdown-count':
+					shutdownCountResult = `shutdowns: ${payload.count}`;
 					break;
 			}
 		};
@@ -166,10 +178,32 @@
 			onclick={() => send('get-outgoing-count', {})}
 			disabled={status !== 'connected'}>Get Outgoing Count</button
 		>
-		<button data-testid="disconnect-count-btn" onclick={() => send('get-disconnect-count', {})} disabled={status !== 'connected'}>Get Disconnect Count</button>
+		<button
+			data-testid="disconnect-count-btn"
+			onclick={() => send('get-disconnect-count', {})}
+			disabled={status !== 'connected'}>Get Disconnect Count</button
+		>
+		<button
+			data-testid="generated-id-btn"
+			onclick={() => send('get-generated-id', {})}
+			disabled={status !== 'connected'}>Get Generated ID</button
+		>
+		<button
+			data-testid="last-state-btn"
+			onclick={() => send('get-last-state', {})}
+			disabled={status !== 'connected'}>Get Last State</button
+		>
+		<button
+			data-testid="shutdown-count-btn"
+			onclick={() => send('get-shutdown-count', {})}
+			disabled={status !== 'connected'}>Get Shutdown Count</button
+		>
 		<div data-testid="vacuum-result">{vacuumResult}</div>
 		<div data-testid="outgoing-count">{outgoingCountResult}</div>
 		<div data-testid="disconnect-count">{disconnectCountResult}</div>
+		<div data-testid="generated-id-result">{generatedIdResult}</div>
+		<div data-testid="last-state-result">{lastStateResult}</div>
+		<div data-testid="shutdown-count">{shutdownCountResult}</div>
 	</section>
 
 	<section>

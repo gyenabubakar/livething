@@ -7,19 +7,25 @@ import { Drizzle } from './drizzle-module.ts';
 import {
   DeleteRecord,
   DisconnectCount,
+  GeneratedId,
   GetAllRecords,
   GetDisconnectCount,
+  GetGeneratedId,
+  GetLastState,
   GetMessageCount,
   GetOutgoingCount,
   GetRecord,
   GetRecordCount,
+  GetShutdownCount,
   InsertRecord,
+  LastState,
   MessageCount,
   OutgoingCount,
   RecordCount,
   RecordDeleted,
   RecordInserted,
   RecordList,
+  ShutdownCount,
   SingleRecord,
   TriggerVacuum,
   VacuumDone,
@@ -35,6 +41,9 @@ export const modulesHandler = withScheduled(withLifecycle(server<Env>('modules-t
   .outgoing(VacuumDone)
   .outgoing(OutgoingCount)
   .outgoing(DisconnectCount)
+  .outgoing(GeneratedId)
+  .outgoing(LastState)
+  .outgoing(ShutdownCount)
   .use(Drizzle({ migrate: true }))
   .onUpgrade((request) => {
     const url = new URL(request.url);
@@ -80,6 +89,18 @@ export const modulesHandler = withScheduled(withLifecycle(server<Env>('modules-t
   .incoming(GetDisconnectCount, (ctx) => {
     const db = Drizzle.use(ctx);
     ctx.send('disconnect-count', { count: db.getDisconnectCount() });
+  })
+  .incoming(GetGeneratedId, (ctx) => {
+    const db = Drizzle.use(ctx);
+    ctx.send('generated-id', { value: db.getLastGeneratedId() });
+  })
+  .incoming(GetLastState, (ctx) => {
+    const db = Drizzle.use(ctx);
+    ctx.send('last-state', { state: db.getLastState() });
+  })
+  .incoming(GetShutdownCount, (ctx) => {
+    const db = Drizzle.use(ctx);
+    ctx.send('shutdown-count', { count: db.getShutdownCount() });
   })
   .build();
 

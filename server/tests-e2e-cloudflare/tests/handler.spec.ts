@@ -248,6 +248,22 @@ test.describe('main handler', () => {
     await waitForText(page, 'quality-result', /buffered:\d+/);
   });
 
+  test('sendToConnection with unknown ID returns delivered:false', async ({ page }) => {
+    await page.evaluate(() => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      ws?.send(
+        JSON.stringify({
+          event: 'send-to-connection',
+          payload: { connectionId: 'conn-does-not-exist', text: 'ghost delivery' },
+        }),
+      );
+    });
+
+    await waitForText(page, 'send-to-conn-status', 'delivered:false');
+    await expect(page.getByTestId('send-to-conn-result')).toHaveText('');
+    await expect(page.getByTestId('status')).toHaveText('connected');
+  });
+
   // --- Storage: get-notes retrieval ---
 
   test('sql: save then get notes separately', async ({ page }) => {

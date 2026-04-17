@@ -9,5 +9,11 @@ export const records = sqliteTable('records', {
     .notNull(),
 });
 
+export const moduleMeta = sqliteTable('module_meta', {
+  key: text('key').primaryKey(),
+  value: integer('value').notNull(),
+});
+
 export type Record = typeof records.$inferSelect;
 export type InsertRecord = typeof records.$inferInsert;
+export type ModuleMeta = typeof moduleMeta.$inferSelect;

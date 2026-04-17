@@ -1,12 +1,12 @@
 import type { Primitive } from '~/primitive.ts';
 
 /**
- * The primitive type produced by `outgoing()`. Carries the event name as a
- * type-level string so the client type generator can build a precise type for
- * every server→client event.
+ * The primitive type produced by `outgoing()`. It keeps track of the event
+ * name and payload type so wskit can type-check server-to-client sends and
+ * generate the matching client types.
  *
- * `_TPayload` is used only for the generated client types — it is not stored on
- * the primitive at runtime, hence the leading underscore.
+ * `_TPayload` is only used for typing. It is not stored on the primitive at
+ * runtime, which is why the name starts with an underscore.
  */
 export interface OutgoingPrimitive<
   TEvent extends string = string,

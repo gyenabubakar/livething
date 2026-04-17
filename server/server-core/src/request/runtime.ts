@@ -30,12 +30,12 @@ export function readCorrelationId(payload: unknown): string | undefined {
 }
 
 /**
- * Execute a matched `.reply()` handler and send the response back to the
+ * Execute a matched `.request(...)` handler and send the response back to the
  * client through the outgoing pipeline.
  *
- * The handler runs inside a scoped connection context. Its return value is
- * sent as an outgoing event with the same name, tagged with the original
- * `_correlationId` so the client can resolve the correct Promise.
+ * A request handler typically calls `ctx.respond(value)`. This runtime helper
+ * captures that value, then emits an outgoing event with the same name and
+ * the original `_correlationId` so the client can resolve the correct Promise.
  */
 export async function handleRequest(
   runtime: RequestRuntime,

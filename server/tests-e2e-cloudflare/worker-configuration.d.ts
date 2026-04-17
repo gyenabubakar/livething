@@ -9,7 +9,8 @@ declare namespace Cloudflare {
       | 'ReplayServer'
       | 'ModulesServer'
       | 'ReplayCustomServer'
-      | 'ReplaySnapshotServer';
+      | 'ReplaySnapshotServer'
+      | 'RejectHttpServer';
   }
   interface Env {
     ASSETS: Fetcher;
@@ -18,6 +19,7 @@ declare namespace Cloudflare {
     REPLAY_CUSTOM_SERVER: DurableObjectNamespace<import('./src/worker').ReplayCustomServer>;
     MODULES_SERVER: DurableObjectNamespace<import('./src/worker').ModulesServer>;
     REPLAY_SNAPSHOT_SERVER: DurableObjectNamespace<import('./src/worker').ReplaySnapshotServer>;
+    HTTP_REJECT_SERVER: DurableObjectNamespace<import('./src/worker').RejectHttpServer>;
   }
 }
 interface Env extends Cloudflare.Env {}

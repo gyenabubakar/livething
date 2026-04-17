@@ -33,7 +33,7 @@ type ErrorMap<TDefs> = SimplifyDeep<
     : never
 >;
 
-/** Extract the contract phantom type from a `ServerDefinition`. */
+/** Extract the stored client contract type from a `ServerDefinition`. */
 type ContractOf<TServer extends ServerDefinition> =
   TServer extends ServerDefinition<any, infer TContract> ? TContract : ServerContract;
 
@@ -51,9 +51,15 @@ type BuiltInErrorUnion = typeof ValidationFailed;
  * are fully type-safe.
  *
  * ```ts
+ * import * as v from 'valibot';
+ * import { event, server } from '@wskit/server';
+ *
  * // server.ts
  * const myServer = server('chat')
- *   .incoming('send-message', { ... })
+ *   .outgoing(event('chat-message', v.object({ text: v.string() })))
+ *   .incoming(event('send-message', v.object({ text: v.string() })), (ctx, payload) => {
+ *     ctx.send('chat-message', payload);
+ *   })
  *   .build();
  *
  * export type MyClient = InferClient<typeof myServer>;
@@ -64,9 +70,13 @@ type BuiltInErrorUnion = typeof ValidationFailed;
  * ws.send('send-message', { text: 'hello' }); // fully typed
  * ```
  *
- * The builder accumulates the contract in its `TState` type parameter and
- * threads it into `ServerDefinition` as a phantom type. `InferClient` reads
- * it directly — there is no fold or tuple traversal at this level.
+ * As you add events, requests, streams, channels, and namespaces to the
+ * builder, TypeScript keeps track of that contract in the builder's type
+ * state. When you call `.build()`, that type information is carried along
+ * with the resulting `ServerDefinition`.
+ *
+ * `InferClient` simply reads that stored contract back out and turns it into
+ * the client type.
  */
 export type InferClient<TServer extends ServerDefinition> = SimplifyDeep<{
   incoming: ContractOf<TServer>['incoming'];
