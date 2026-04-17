@@ -340,12 +340,12 @@
 	function startAiStream(prompt: string) {
 		aiStreamTokens = '';
 		aiStreamDone = false;
-		send('stream-prompt', { prompt, _namespace: 'ai' });
+		send('stream-prompt', { prompt, delayMs: 3, _namespace: 'ai' });
 	}
 	function startNudgeStream(prompt: string) {
 		aiNudgeStreamTokens = '';
 		aiNudgeStreamDone = false;
-		send('stream-with-nudges', { prompt, _namespace: 'ai' });
+		send('stream-with-nudges', { prompt, delayMs: 25, _namespace: 'ai' });
 	}
 	function sendNudgePause() {
 		send('pause', { _namespace: 'ai' });
@@ -357,7 +357,7 @@
 
 	function scheduleCleanup() {
 		scheduledResult = '';
-		send('schedule-cleanup', { delaySec: 1 });
+		send('schedule-cleanup', { delaySec: 0.2 });
 	}
 	function cancelCleanup() {
 		cancelResult = '';
@@ -519,7 +519,7 @@
 
 	function startBroadcastStream() {
 		broadcastStreamTokens = '';
-		send('broadcast-stream', { prompt: 'hello broadcast world', _namespace: 'ai' });
+		send('broadcast-stream', { prompt: 'hello broadcast world', delayMs: 3, _namespace: 'ai' });
 	}
 
 	function requestChatInfo() {

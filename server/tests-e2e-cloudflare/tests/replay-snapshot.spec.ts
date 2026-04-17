@@ -73,7 +73,7 @@ test.describe('replay-snapshot handler', () => {
 
   test('maxAgeMs: old messages pruned after expiry', async ({ page }) => {
     await page.getByTestId('age-test-btn').click();
-    await page.waitForTimeout(3000);
+    await page.waitForTimeout(1200);
     await page.evaluate(() => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       if (!ws) return;

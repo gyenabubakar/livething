@@ -4,11 +4,14 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite build && wrangler dev",
-    "preview": "vite build && wrangler dev",
+    "clean:test-state": "rm -rf .wrangler/state .wrangler/tmp test-results",
+    "dev": "pnpm run dev:ui",
+    "dev:ui": "vite dev --host 127.0.0.1 --port 4173",
+    "dev:worker": "pnpm run clean:test-state && wrangler dev --ip 127.0.0.1 --port 8787",
+    "preview": "vite preview --host 127.0.0.1 --port 4173",
     "prepare": "svelte-kit sync || echo ''",
     "typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-    "test": "playwright test",
+    "test": "pnpm run clean:test-state && playwright test",
     "cf-typegen": "wrangler types"
   },
   "dependencies": {

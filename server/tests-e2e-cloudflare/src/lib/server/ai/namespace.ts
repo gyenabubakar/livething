@@ -24,8 +24,7 @@ import {
 } from './events.ts';
 
 const FAKE_RESPONSE = 'The quick brown fox jumps over the lazy dog.';
-const FAKE_STREAM =
-  'The quick brown fox jumps over the lazy dog. This is a fake AI response streamed token by token.';
+const FAKE_STREAM = 'The quick brown fox streams test tokens.';
 
 export const aiNamespace = withIntercept(withRequests(withStreams(withNamespaces(base)))).namespace(
   'ai',
@@ -56,9 +55,10 @@ export const aiNamespace = withIntercept(withRequests(withStreams(withNamespaces
       .stream(AiStreamPrompt, AiChunkSchema, (s) =>
         s.generate(async function* (_ctx, payload) {
           const words = `[Re: "${payload.prompt}"] ${FAKE_STREAM}`.split(' ');
+          const delayMs = payload.delayMs ?? 3;
           for (const word of words) {
             yield { token: word + ' ' };
-            await new Promise((r) => setTimeout(r, 50));
+            await new Promise((r) => setTimeout(r, delayMs));
           }
         }),
       )
@@ -70,13 +70,13 @@ export const aiNamespace = withIntercept(withRequests(withStreams(withNamespaces
             let completedNaturally = false;
             try {
               const words = `[Re: "${payload.prompt}"] ${FAKE_STREAM}`.split(' ');
-              let delay = 80;
+              let delay = payload.delayMs ?? 12;
               for (const word of words) {
                 const nudges = ctx.nudges(yield { token: word + ' ' });
                 if (nudges.some((n) => n.event === 'pause')) break;
                 const speedUp = nudges.find((n) => n.event === 'speed-up');
                 if (speedUp && 'factor' in speedUp.payload)
-                  delay = Math.max(10, delay / speedUp.payload.factor);
+                  delay = Math.max(1, delay / speedUp.payload.factor);
                 await new Promise((r) => setTimeout(r, delay));
               }
               completedNaturally = true;
@@ -97,9 +97,10 @@ export const aiNamespace = withIntercept(withRequests(withStreams(withNamespaces
       .stream(AiBroadcastStream, BroadcastChunkSchema, { broadcast: true }, (s) =>
         s.generate(async function* (_ctx, payload) {
           const words = payload.prompt.split(' ');
+          const delayMs = payload.delayMs ?? 3;
           for (const word of words) {
             yield { token: word + ' ' };
-            await new Promise((r) => setTimeout(r, 50));
+            await new Promise((r) => setTimeout(r, delayMs));
           }
         }),
       )

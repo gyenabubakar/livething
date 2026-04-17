@@ -418,6 +418,7 @@ test.describe('main handler', () => {
 
   test('stream cancel sends cancel ack', async ({ page }) => {
     await page.getByTestId('ai-nudge-stream-btn').click();
+    await waitForText(page, 'stream-ok-received', 'stream-ok');
     await expect(page.getByTestId('ai-nudge-stream-tokens')).toHaveText(/.+/);
     await page.getByTestId('ai-stream-cancel-btn').click();
     await waitForText(page, 'stream-cancel-result', 'cancelled');

@@ -48,7 +48,7 @@ export const replaySnapshotHandler = base
     r
       .snapshotKey((_ev, p) => String(p.docId ?? p.key))
       .reduce(reduceSnapshot)
-      .retention({ maxMessages: 5, maxAgeMs: 2000 })
+      .retention({ maxMessages: 5, maxAgeMs: 1_000 })
       .durability('best-effort'),
   )
   .onError((_ctx, error, event) => {

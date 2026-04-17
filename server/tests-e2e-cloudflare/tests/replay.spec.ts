@@ -245,7 +245,7 @@ test.describe('replay handler', () => {
       );
     });
     await waitForText(page, 'messages', /history-expired/);
-    await page.waitForTimeout(2500);
+    await page.waitForTimeout(1200);
 
     await page.evaluate(() => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
