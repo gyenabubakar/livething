@@ -35,8 +35,9 @@ export interface UpgradeResult {
    */
   readonly meta?: Record<string, unknown>;
   /**
-   * Routing tags attached to the connection. Used internally by the engine for
-   * channel and namespace routing.
+   * Labels to attach to this connection. Use them to group connections and
+   * later fan out a message to the group with `ctx.sendTo(tag, ...)` or
+   * enumerate them with `ctx.getConnectionsByTag(tag)`.
    */
   readonly tags?: readonly string[];
 }
@@ -102,75 +103,42 @@ export type ValidationErrorHandler<TCtx = any> = (
   validationError: unknown,
 ) => void | Promise<void>;
 
-/**
- * Internal primitive produced by the `.onInit()` builder method.
- *
- * Collected into the server's primitive list and executed by the engine
- * during initialization.
- */
+/** The TypeScript type returned by `onInit()`. */
 export interface InitPrimitive<TCtx = any> extends Primitive<'onInit'> {
   readonly handler: InitHandler<TCtx>;
 }
 
-/**
- * Internal primitive produced by the `.onConnect()` builder method.
- *
- * Executed by the engine each time a new WebSocket connection is accepted.
- */
+/** The TypeScript type returned by `onConnect()`. */
 export interface ConnectPrimitive<TCtx = any> extends Primitive<'onConnect'> {
   readonly handler: ConnectHandler<TCtx>;
 }
 
-/**
- * Internal primitive produced by the `.onDisconnect()` builder method.
- *
- * Executed by the engine when a connection closes.
- */
+/** The TypeScript type returned by `onDisconnect()`. */
 export interface DisconnectPrimitive<TCtx = any> extends Primitive<'onDisconnect'> {
   readonly handler: DisconnectHandler<TCtx>;
 }
 
-/**
- * Internal primitive produced by the `.onShutdown()` builder method.
- *
- * Executed by the engine during graceful shutdown.
- */
+/** The TypeScript type returned by `onShutdown()`. */
 export interface ShutdownPrimitive<TCtx = any> extends Primitive<'onShutdown'> {
   readonly handler: ShutdownHandler<TCtx>;
 }
 
-/**
- * Internal primitive produced by the `.onError()` builder method.
- *
- * Executed by the engine when an unrecognized error is thrown in a handler.
- */
+/** The TypeScript type returned by `onError()`. */
 export interface ErrorPrimitive<TCtx = any> extends Primitive<'onError'> {
   readonly handler: ErrorHandler<TCtx>;
 }
 
-/**
- * Internal primitive produced by the `.onUpgrade()` builder method.
- *
- * Executed by the engine before the WebSocket handshake completes.
- */
+/** The TypeScript type returned by `onUpgrade()`. */
 export interface UpgradePrimitive extends Primitive<'onUpgrade'> {
   readonly handler: UpgradeHandler;
 }
 
-/**
- * Internal primitive produced by the `.onBinary()` builder method.
- *
- * Executed by the engine when a binary WebSocket frame arrives.
- */
+/** The TypeScript type returned by `onBinary()`. */
 export interface BinaryPrimitive<TCtx = any> extends Primitive<'onBinary'> {
   readonly handler: BinaryHandler<TCtx>;
 }
 
-/**
- * Internal primitive produced by the `.onValidationError()` builder method.
- *
- * Executed by the engine when an incoming payload fails schema validation.
- */
+/** The TypeScript type returned by `onValidationError()`. */
 export interface ValidationErrorPrimitive<TCtx = any> extends Primitive<'onValidationError'> {
   readonly handler: ValidationErrorHandler<TCtx>;
 }

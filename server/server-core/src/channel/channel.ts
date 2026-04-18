@@ -47,11 +47,11 @@ type ChannelStatePrimitive =
   | AnyGenerate;
 
 /**
- * A named, optionally parameterised channel pattern used in `scope()`.
- * The `key` is the parameter name captured from the subscription path.
+ * A named dynamic channel pattern used in `scope()`.
+ * Groups many matching subscription paths under one channel family.
  */
 export interface ScopeDeclaration<TKey extends string = string> {
-  /** The parameter name extracted from the dynamic channel name. */
+  /** Identifier for this channel family. Used with `ctx.channels.members(key)`. */
   readonly key: TKey;
   /** Regular expression matched against the subscription path. */
   readonly pattern: RegExp;
@@ -60,7 +60,7 @@ export interface ScopeDeclaration<TKey extends string = string> {
 /**
  * The argument accepted by `channel()`. Either a plain string for exact channel
  * names (e.g. `'notifications'`) or a `ScopeDeclaration` for dynamic names
- * that capture a parameter from the path (e.g. `scope('roomId', /^room:(.+)$/)`)
+ * that match many paths under one family (e.g. `scope('rooms', /^room:.+$/)`).
  */
 export type ChannelPattern = string | ScopeDeclaration<string>;
 
@@ -119,9 +119,8 @@ export type ChannelStreamHandlerContext<
 >;
 
 /**
- * The primitive type produced by `channel()`. Carries the channel pattern and
- * a frozen array of child primitives so the engine can set up routing and
- * dispatch for this channel scope.
+ * The TypeScript type returned by `channel()`. Holds the channel pattern and
+ * the child primitives that define the channel's behaviour.
  */
 export interface ChannelPrimitive<
   TPattern extends ChannelPattern = ChannelPattern,
@@ -140,15 +139,27 @@ const CHANNEL_KEY = Symbol('channel');
 
 /**
  * Create a `ScopeDeclaration` for a dynamic channel name. A dynamic channel
- * name captures a parameter from the subscription path using a regex.
+ * matches many subscription paths against one regex and groups them under a
+ * single scope identifier.
  *
- * The builder's `.channel(scope('roomId', /^room:(.+)$/))` call creates a
- * channel that matches subscriptions like `room:123`, capturing `123` as
- * `ctx.channel.roomId`.
+ * The builder's `.channel(scope('rooms', /^room:.+$/))` call creates a channel
+ * family that matches subscriptions like `room:general`, `room:alpha-42`, etc.
+ * The full matched string is available at `ctx.channel.name` — slice or
+ * re-match it yourself if you need a parameter out of the path.
  *
- * @param key     The parameter name exposed on `ctx.channel`.
- * @param pattern Regex matched against the raw subscription path. The first
- *   capture group becomes the value of `ctx.channel[key]`.
+ * @param key     Identifier for this channel family. Pass it to
+ *   `ctx.channels.members(key)` to list everyone subscribed to channels that
+ *   match the pattern.
+ * @param pattern Regex matched against the subscription path. Anchor it with
+ *   `^` and `$` so it matches the full name.
+ *
+ * @example
+ * ```ts
+ * // Match any room:* subscription. Inside the handler:
+ * // ctx.channel.name === 'room:alpha-42'
+ * // const roomId = ctx.channel.name.slice('room:'.length);
+ * base.channel(scope('rooms', /^room:.+$/), (ch) => ...)
+ * ```
  */
 export function scope<TKey extends string>(key: TKey, pattern: RegExp): ScopeDeclaration<TKey> {
   return { key, pattern };
@@ -164,7 +175,7 @@ export function scope<TKey extends string>(key: TKey, pattern: RegExp): ScopeDec
  * this factory internally and gives you a sub-builder scoped to the channel.
  *
  * @param pattern    A string (static channel name) or a `ScopeDeclaration`
- *   produced by {@link scope} for dynamic channels with a captured parameter.
+ *   produced by {@link scope} for dynamic channels matching many paths.
  * @param primitives The outgoing events, handlers, lifecycle hooks, etc. that
  *   define the channel's behaviour.
  *

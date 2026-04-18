@@ -1,11 +1,16 @@
 /**
- * The Cloudflare-specific escape hatch exposed as `ctx.platform`.
+ * The Cloudflare-specific escape hatch exposed as `ctx.platform` inside your
+ * handlers. Most handler code should use the higher-level wskit APIs
+ * (`ctx.sql`, `ctx.kv`, `ctx.schedule`, `ctx.env`). Reach for `ctx.platform`
+ * only when you need a Cloudflare capability that wskit doesn't wrap — for
+ * example, listing all hibernated sockets by tag or accessing raw Durable
+ * Object storage.
  *
- * Most handler code should prefer the higher-level wskit APIs such as
- * `ctx.sql`, `ctx.kv`, `ctx.schedule`, and `ctx.env`. Reach for
- * `ctx.platform` only when you need a Cloudflare capability that wskit does
- * not wrap directly yet, such as `blockConcurrencyWhile(...)` or raw Durable
- * Object storage access.
+ * @example
+ * ```ts
+ * // List sockets tagged "room:lobby"
+ * const sockets = ctx.platform.ctx.getWebSockets('room:lobby');
+ * ```
  */
 export interface Platform<Env = unknown> {
   ctx: {

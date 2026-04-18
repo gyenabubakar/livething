@@ -3,7 +3,7 @@ import { RejectUpgrade } from '@wskit/server/errors';
 import { withLifecycle } from '@wskit/server/lifecycle';
 import { withScheduled } from '@wskit/server/scheduled';
 import type { InferClient } from '@wskit/server';
-import { Drizzle } from './drizzle-module.ts';
+import { Drizzle, DrizzleDenied } from './drizzle-module.ts';
 import {
   DeleteRecord,
   DisconnectCount,
@@ -33,6 +33,7 @@ import {
   ShutdownCount,
   SingleRecord,
   TriggerModuleAlwaysFail,
+  TriggerModuleDenied,
   TriggerModuleEvery,
   TriggerModuleFlaky,
   TriggerModuleQueryDlq,
@@ -135,6 +136,9 @@ export const modulesHandler = withScheduled(withLifecycle(server<Env>('modules-t
   })
   .incoming(TriggerModuleQueryDlq, (ctx) => {
     ctx.schedule('__e2e:drizzle:drizzle-query-dlq', { time: Date.now() + 100 });
+  })
+  .incoming(TriggerModuleDenied, () => {
+    throw DrizzleDenied({ reason: 'test denial', op: 'insert' });
   })
   .build();
 

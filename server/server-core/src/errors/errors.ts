@@ -8,65 +8,16 @@ import { error } from '@wskit/core';
 // Everything the developer needs for the error system is available from one
 // import path: `import { error, Block, Forbidden } from '@wskit/server/errors'`
 
-/**
- * Create a named error definition. Pass to `.errors()` on the builder so the
- * engine knows this error exists, and use the returned factory to throw the
- * error from your handlers.
- *
- * ```ts
- * const NotFound = error('not-found', (p: { id: string }) => p);
- *
- * // In a handler:
- * throw NotFound({ id: payload.id });
- * ```
- */
-export { error } from '@wskit/core';
-
-/**
- * Base class for all wskit errors sent to clients. Errors thrown with the
- * factories created by `error()` are instances of `WskitError`. You can
- * use `instanceof WskitError` in catch blocks to detect them.
- */
-export { WskitError } from '@wskit/core';
-
-/**
- * Standard WebSocket close codes used by wskit. Use these with `Disconnect()`
- * instead of raw numbers so the intent is clear at the call site.
- */
-export { CloseCodes } from '@wskit/core';
-
-/**
- * Throw `Block` from a handler or interceptor to silently drop the message.
- * No error is sent to the client and `onError` is not called. Useful for
- * rate limiting or ignoring messages from misbehaving clients.
- */
-export { Block } from '@wskit/core';
-
-/**
- * Throw `Skip` from a pre-intercept to pass the current message through
- * to the next interceptor without any modification, bypassing any
- * transformation logic in the current interceptor.
- */
-export { Skip } from '@wskit/core';
-
-/**
- * Throw `ValidationFailed` from a handler or interceptor to trigger
- * `onValidationError` as if the schema validation itself had failed.
- * Useful when performing manual validation steps inside a handler.
- */
-export { ValidationFailed } from '@wskit/core';
-
-/**
- * TypeScript type for the object returned by `error()`. Use this when
- * you need to annotate a variable or parameter that holds an error definition.
- */
-export type { ErrorDef } from '@wskit/core';
-
-/**
- * TypeScript type for an error definition that includes a custom payload
- * factory function. Extends `ErrorDef` with the factory typing.
- */
-export type { ErrorDefWithFactory } from '@wskit/core';
+export {
+  error,
+  WskitError,
+  CloseCodes,
+  Block,
+  Skip,
+  ValidationFailed,
+  ChannelNotFound,
+} from '@wskit/core';
+export type { ErrorDef, ErrorDefWithFactory } from '@wskit/core';
 
 // ---------------------------------------------------------------------------
 // Server-only control flow errors
@@ -132,12 +83,21 @@ export function Defer(delay: number) {
 // ---------------------------------------------------------------------------
 
 /**
- * Fired on the server's `onError` when a deferred message exhausts its
- * retry limit (3 attempts). Never sent to the client — it's a server-side
- * notification only. Auto-registered by the engine.
+ * Fired on your `onError` handler when a message deferred with `Defer(...)`
+ * has been retried the maximum number of times (3) and still hasn't
+ * succeeded. Use this to dead-letter the message — the detail gives you
+ * the original event, payload, and retry count.
  *
- * Detail contains the original event name, the original payload (so you
- * can dead-letter it), and the retry count.
+ * Never sent to the client; this is a server-side signal only.
+ *
+ * @example
+ * ```ts
+ * .onError((ctx, err, event) => {
+ *   if (DeferExhausted.matches(err)) {
+ *     deadLetter.push({ event: err.detail.event, payload: err.detail.payload });
+ *   }
+ * })
+ * ```
  */
 export const DeferExhausted = error('defer-exhausted', (p: unknown) => {
   const obj = p as Record<string, unknown>;

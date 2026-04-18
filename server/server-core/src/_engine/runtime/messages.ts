@@ -531,7 +531,7 @@ export async function handleUnsubscribe(
 /**
  * Main inbound event dispatcher.
  *
- * This runs module hooks, pre/post intercepts, validation, incoming handlers,
+ * This runs module hooks, pre-intercepts, post-intercepts, validation, incoming handlers,
  * requests, and streams in the order described by the server spec.
  */
 export async function dispatchIncoming(
@@ -766,12 +766,17 @@ export async function processTextMessage(
           parsed.payload as Record<string, unknown> | undefined,
         );
       } catch (error) {
-        const channel = (parsed.payload as Record<string, unknown> | undefined)?._channel;
+        const subscribePayload = parsed.payload as Record<string, unknown> | undefined;
+        const channel = subscribePayload?._channel;
+        const channelScope = subscribePayload?._channelScope;
+        const routing: Record<string, unknown> = {};
+        if (channel) routing._channel = channel;
+        if (channelScope) routing._channelScope = channelScope;
         await runtime.handleRuntimeError(
           connection,
           error,
           '_subscribe',
-          channel ? { _channel: channel } : undefined,
+          Object.keys(routing).length > 0 ? routing : undefined,
         );
       }
       return;

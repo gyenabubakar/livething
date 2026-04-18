@@ -8,11 +8,10 @@ import { normalizeBinary } from './utils.ts';
 /**
  * Options for the Cloudflare adapter.
  *
- * @property hibernation - If `true` (default), the Durable Object uses the
- * Cloudflare WebSocket hibernation API, which lets the DO be evicted from memory
- * while clients stay connected and resumes it when a message arrives. Set to
- * `false` only if you need standard event-listener semantics (which keeps the DO
- * alive and billable for the full connection lifetime).
+ * @property hibernation - Enable the WebSocket Hibernation API (default
+ * `true`). Hibernation lets the Durable Object suspend between messages,
+ * reducing billable duration on idle connections. Set to `false` only if
+ * your code relies on standard `addEventListener`-style WebSocket semantics.
  */
 export interface CloudflareOptions {
   hibernation?: boolean;
@@ -21,11 +20,10 @@ export interface CloudflareOptions {
 /**
  * The instance shape of a `serve()`-produced Durable Object.
  *
- * In addition to the standard DO lifecycle methods, the instance exposes
- * `shutdown()` as an RPC-callable method. Invoke `stub.shutdown()` from your
- * Worker to run `onShutdown` hooks and close open sockets. It is a graceful
- * drain — the DO instance is not destroyed and will accept new connections
- * until Cloudflare idle-evicts it.
+ * In addition to the standard Durable Object lifecycle methods, the instance
+ * exposes `shutdown()` as an RPC method. Call `stub.shutdown()` from your
+ * Worker to trigger every `onShutdown` hook and close every open WebSocket
+ * connection gracefully — use it before a deploy or maintenance window.
  */
 export interface WskitDurableObjectInstance<Env = unknown> extends DurableObject<Env> {
   shutdown(): Promise<void>;
@@ -210,17 +208,11 @@ const buildServe = defineServerAdapter<CloudflareOptions, CloudflareDurableObjec
       /**
        * Gracefully drain this Durable Object.
        *
-       * Runs every `onShutdown` hook (handler-level and module-level), cancels
-       * active streams, closes every open WebSocket with close code 1001
-       * ("going away"), and clears the next queued alarm handle.
-       *
-       * Cloudflare does not emit a native shutdown signal, so call this from
-       * your Worker (e.g. from an admin RPC before a deploy) when you need a
-       * clean close. Note that this does **not** destroy the DO instance —
-       * Cloudflare will idle-evict it shortly after all connections close.
-       * A subsequent upgrade request will re-activate the DO with fresh state.
-       * If you need an immediate teardown, call `ctx.abort()` from inside the
-       * DO yourself.
+       * Runs every `onShutdown` hook you registered and closes every open
+       * WebSocket cleanly. Cloudflare doesn't emit a native shutdown signal,
+       * so this is the intended way to trigger a clean close from your
+       * Worker — call it from an admin RPC before a deploy or maintenance
+       * window so clients can reconnect to a fresh instance.
        */
       async shutdown(): Promise<void> {
         await this.ready;

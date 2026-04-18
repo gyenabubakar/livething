@@ -23,7 +23,7 @@ import {
   ScheduleSendToConnDelivery,
   ScheduleSendToConnStatus,
 } from './scheduled/events.ts';
-import { KvResult, NotesList } from './storage/events.ts';
+import { KvResult, NotesList, SqlOneResult, SqlRawResult } from './storage/events.ts';
 
 export const base = withLifecycle(withErrors(withInfrastructure(server<Env>('e2e-test'))))
   .ack()
@@ -38,6 +38,8 @@ export const base = withLifecycle(withErrors(withInfrastructure(server<Env>('e2e
   .outgoing(CleanupCancelled)
   .outgoing(NotesList)
   .outgoing(KvResult)
+  .outgoing(SqlOneResult)
+  .outgoing(SqlRawResult)
   .outgoing(ConnectionInfoResult)
   .outgoing(TagResult)
   .outgoing(TaggedMessage)

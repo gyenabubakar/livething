@@ -172,9 +172,9 @@ function createMatchesFn<TCode extends string, TDetail>(
 export const Block = Object.freeze({ __wskit: 'block' as const });
 
 /**
- * Skip this primitive or module's processing, but continue to the next one.
- * Unlike `Block` (which kills the whole pipeline), `Skip` says "I don't
- * care about this message, let others handle it."
+ * Skip the current hook and pass the message along to the next handler.
+ * Unlike `Block` (which drops the message entirely), `Skip` means
+ * "I don't handle this one — let someone else."
  *
  * ```ts
  * hooks.onIncoming((message) => {
@@ -269,8 +269,17 @@ export function error(
 // ---------------------------------------------------------------------------
 
 /**
- * Thrown by the engine when a message fails schema validation. Auto-registered —
- * you never need to add this to `errors()`. Always present in `InferClientType.__errors__`.
+ * Sent to the client when a message payload fails schema validation. You
+ * don't need to define or register this error yourself — wskit sends it
+ * automatically whenever an incoming payload doesn't match its schema.
+ *
+ * @example
+ * ```ts
+ * // On the client:
+ * if (ValidationFailed.matches(err)) {
+ *   console.error('Bad payload for', err.detail.event, err.detail.issues);
+ * }
+ * ```
  *
  * Detail contains the event name and the Standard Schema issues array.
  */
@@ -284,3 +293,22 @@ export const ValidationFailed = error('validation-failed', (p: unknown) => {
     }>,
   };
 });
+
+/**
+ * The error you get when you try to subscribe to a channel name the server
+ * doesn't recognise — it isn't a declared static channel and doesn't match
+ * any dynamic channel family. Usually means a typo in the channel name or a
+ * mismatch between your client and server versions.
+ *
+ * @example
+ * ```ts
+ * try {
+ *   await room.subscribe();
+ * } catch (err) {
+ *   if (ChannelNotFound.matches(err)) {
+ *     showToast('That channel no longer exists.');
+ *   }
+ * }
+ * ```
+ */
+export const ChannelNotFound = error('channel-not-found');

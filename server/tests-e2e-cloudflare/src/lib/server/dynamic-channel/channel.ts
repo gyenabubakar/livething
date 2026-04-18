@@ -1,19 +1,32 @@
 import { scope } from '@wskit/server';
 import { withChannels } from '@wskit/server/channels';
 import { base } from '../setup.ts';
-import { RoomMessage, RoomSend } from './events.ts';
+import { RoomEchoParam, RoomMessage, RoomParamResult, RoomSend } from './events.ts';
 
-export const dynamicRoomChannel = withChannels(base).channel(scope('rooms', /^room:.+$/), (ch) =>
+const dynamicBase = withChannels(base);
+
+export const dynamicRoomChannel = dynamicBase.channel(scope('rooms', /^room:.+$/), (ch) =>
   ch
     .outgoing(RoomMessage)
+    .outgoing(RoomParamResult)
     .incoming(RoomSend, (ctx, payload) => {
       const msg = { text: payload.text, from: ctx.meta.username, room: ctx.channel.name };
       ctx.channel.send('room-message', msg);
       ctx.channel.broadcast('room-message', msg);
     })
-    .onBeforeSubscribe((ctx) => {
+    .incoming(RoomEchoParam, (ctx) => {
+      const suffix = ctx.channel.name.startsWith('room:')
+        ? ctx.channel.name.slice('room:'.length)
+        : '';
+      ctx.channel.send('room-param-result', { name: ctx.channel.name, suffix });
+    })
+    .onBeforeSubscribe(async (ctx) => {
       if (ctx.meta.username === 'banned-user') {
         throw new Error('You are banned from rooms');
+      }
+      if (ctx.meta.username === 'async-banned-user') {
+        await new Promise((r) => setTimeout(r, 10));
+        throw new Error('Async-rejected from rooms');
       }
     })
     .onSubscribe((ctx) => {

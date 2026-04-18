@@ -88,7 +88,11 @@ export class Engine {
   private hibernationEnabled = false;
   private replayEnabled = false;
   private sequencePersistent = false;
-  private readonly declaredErrorCodes = new Set<string>(['validation-failed', 'defer-exhausted']);
+  private readonly declaredErrorCodes = new Set<string>([
+    'validation-failed',
+    'defer-exhausted',
+    'channel-not-found',
+  ]);
   /** Default logger used when the adapter does not provide a custom one. */
   private readonly logger = {
     info(message: string, data?: unknown) {

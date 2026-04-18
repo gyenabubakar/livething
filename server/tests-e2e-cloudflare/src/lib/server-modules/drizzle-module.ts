@@ -1,4 +1,5 @@
 import { defineModule } from '@wskit/server';
+import { error, errors } from '@wskit/server/errors';
 import { count, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/durable-sqlite';
 import * as v from 'valibot';
@@ -9,6 +10,11 @@ import { moduleMeta, records } from './schema.ts';
 import type { InsertRecord } from './schema.ts';
 
 const DRIZZLE_KEY = Symbol('e2e:drizzle');
+
+export const DrizzleDenied = error(
+  'e2e-drizzle/denied',
+  v.object({ reason: v.string(), op: v.string() }),
+);
 
 interface LastConnectionState {
   id: string;
@@ -30,15 +36,16 @@ export interface DrizzleApi {
   getShutdownCount(): number;
 }
 
-export const Drizzle = defineModule<{ migrate: boolean }, DrizzleApi>({
+export const Drizzle = defineModule({
   id: 'e2e:drizzle',
   key: DRIZZLE_KEY,
   requires: { storage: true },
   outgoing: {
     'drizzle-ready': v.object({ tables: v.array(v.string()) }),
   },
+  errors: errors(DrizzleDenied),
 
-  setup(args, hooks) {
+  setup(args: { migrate: boolean }, hooks): () => DrizzleApi {
     let db: DrizzleSqliteDODatabase<typeof schema>;
     let messageCount = 0;
     let outgoingCount = 0;

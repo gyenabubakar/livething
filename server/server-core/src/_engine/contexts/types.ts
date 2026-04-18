@@ -12,7 +12,11 @@ export interface EngineScopeMeta {
   channelScope?: string;
 }
 
-/** Symbol key used to attach scope metadata (namespace name, channel name) to a handler context. */
+/**
+ * Symbol key used to attach scope metadata (namespace name, channel name) to a handler context.
+ *
+ * @internal
+ */
 export const ENGINE_SCOPE_META = Symbol('wskit-engine-scope-meta');
 
 /**

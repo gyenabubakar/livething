@@ -7,15 +7,9 @@ import type { Primitive, PrimitiveRef, RequiresManifest } from '~/primitive.ts';
 import type { ScheduledHandle, ScheduledOptions } from '~/scheduled/scheduled.ts';
 
 /**
- * The restricted hook surface modules receive during setup.
- *
- * Unlike built-in primitives that get full `EngineAccess`, modules only get
- * these hooks. This keeps module code sandboxed from engine internals.
- *
- * If you are new to modules, read this as "everything a module is allowed to
- * register". A module can hook into lifecycle events, observe messages,
- * register scheduled work, and build an API that handlers later read with
- * `MyModule.use(ctx)`.
+ * The hook surface available to a module during `setup()`. Everything a
+ * module can register — lifecycle hooks, message observers, scheduled tasks,
+ * and helpers — is exposed here.
  */
 export interface ModuleHooks<TCtx = any> {
   /** Observe or rewrite incoming messages before routing. */
@@ -173,6 +167,8 @@ export interface ModuleFactory<
  *
  * `ModuleFactory.use(ctx)` reads from this key. Product code should never
  * access this directly — use `MyModule.use(ctx)` instead.
+ *
+ * @internal
  */
 export const MODULE_API_MAP = Symbol.for('wskit.moduleApis');
 

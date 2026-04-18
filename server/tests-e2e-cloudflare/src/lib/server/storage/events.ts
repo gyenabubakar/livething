@@ -11,3 +11,20 @@ export const NotesList = event(
 export const KvSet = event('kv-set', v.object({ key: v.string(), value: v.string() }));
 export const KvGet = event('kv-get', v.object({ key: v.string() }));
 export const KvResult = event('kv-result', v.object({ key: v.string(), value: v.unknown() }));
+
+export const KvSetTtl = event(
+  'kv-set-ttl',
+  v.object({ key: v.string(), value: v.string(), ttlMs: v.number() }),
+);
+export const KvDelete = event('kv-delete', v.object({ key: v.string() }));
+
+export const SqlOneProbe = event('sql-one-probe', v.object({}));
+export const SqlOneResult = event(
+  'sql-one-result',
+  v.object({ row: v.union([v.object({ c: v.number() }), v.null()]) }),
+);
+export const SqlRawProbe = event('sql-raw-probe', v.object({}));
+export const SqlRawResult = event(
+  'sql-raw-result',
+  v.object({ rows: v.array(v.array(v.unknown())) }),
+);

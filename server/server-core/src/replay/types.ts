@@ -101,20 +101,16 @@ export interface ReplayOptions {
 }
 
 /**
- * The replay event shape a snapshot reducer reads and returns.
- *
- * Snapshot reducers do not manage `_seq`, `_messageId`, or timestamps
- * directly. They only describe the logical event and payload that should be
- * stored as the snapshot value.
+ * The event shape a snapshot `reduce` function reads and returns. Describe
+ * only the logical event and payload — wskit handles sequencing and
+ * deduplication for you.
  */
 export interface ReplaySnapshotValue {
   event: string;
   payload: Record<string, unknown>;
 }
 
-/**
- * One stored replay row in SQLite.
- */
+/** @internal */
 export interface ReplayRow {
   rowKey: string;
   messageId: string;
@@ -128,18 +124,14 @@ export interface ReplayRow {
   createdAt: number;
 }
 
-/**
- * Scope markers extracted from one final outgoing payload.
- */
+/** @internal */
 export interface ReplayPayloadScope {
   namespace: string | null;
   channel: string | null;
   channelScope: string | null;
 }
 
-/**
- * Storage helpers the replay runtime uses.
- */
+/** @internal */
 export interface ReplayStorageAccess {
   sql: SQLProvider;
 }

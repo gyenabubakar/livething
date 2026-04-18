@@ -87,6 +87,8 @@ const SCHEDULED_KEY = Symbol('scheduled');
  * Internal singleton key: the scheduled runtime (SQLite tables, alarm wiring)
  * is installed only once per engine regardless of how many task primitives are
  * registered.
+ *
+ * @internal
  */
 export const SCHEDULED_RUNTIME_KEY = Symbol('scheduled-runtime');
 
@@ -103,22 +105,16 @@ export function scheduled<TTaskId extends string, TData>(
   options?: ScheduledOptions<TData>,
 ): ScheduledPrimitive<TTaskId, TData>;
 /**
- * Creates a scheduled task primitive. Registers a named background task with
- * the engine's scheduler. The second argument is either:
+ * Registers a named background task. The second argument is either:
  *
  * - A **handler function** — runs when the task fires.
- * - A **Standard Schema validator** — declares the task without attaching a
- *   handler here (useful for shared task contracts that are handled elsewhere).
- *
- * The two forms are distinguished at runtime by checking whether the second
- * argument has the `~standard` key that Standard Schema validators carry.
+ * - A **Standard Schema validator** — declares the task's data shape without
+ *   attaching a handler here (handler can be wired in elsewhere).
  *
  * Requires the `storage` and `timers` platform capabilities.
  *
  * @example
  * ```ts
- * import '@wskit/server/scheduled';
- *
  * server('chat')
  *   .scheduled('send-digest', async (ctx, data: { userId: string }) => {
  *     await sendEmail(data.userId);

@@ -5,11 +5,8 @@
 // ---------------------------------------------------------------------------
 
 /**
- * Minimal typed event emitter for internal use. Not exported from any
- * public package — shared between server and client internals.
- *
- * Supports multiple listeners per event, returns unsubscribe functions,
- * and cleans up empty listener sets automatically.
+ * A small typed event emitter. Supports multiple listeners per event and
+ * returns unsubscribe functions.
  *
  * ```ts
  * type Events = {

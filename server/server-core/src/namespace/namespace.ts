@@ -73,9 +73,8 @@ export type NamespaceStreamHandlerContext<TOutgoing extends Record<string, any> 
   >;
 
 /**
- * The primitive type produced by `namespace()`. Carries the namespace name and
- * a frozen array of child primitives so the engine can set up event prefix
- * routing for this namespace scope.
+ * The TypeScript type returned by `namespace()`. Holds the namespace name and
+ * the child primitives that define its behaviour.
  */
 export interface NamespacePrimitive<
   TPattern extends string = string,
@@ -83,7 +82,7 @@ export interface NamespacePrimitive<
   _TName extends string = string,
   _TContract = unknown,
 > extends Primitive<'namespace'> {
-  /** The namespace name used as the event prefix at the wire level. */
+  /** The namespace name. Events declared inside are prefixed with this string. */
   readonly pattern: TPattern;
   /** The primitives that define this namespace's behaviour. */
   readonly primitives: TPrimitives;
@@ -93,13 +92,12 @@ export interface NamespacePrimitive<
 const NAMESPACE_KEY = Symbol('namespace');
 
 /**
- * Creates a namespace primitive. Packages a name and a set of child primitives
- * into a single scope primitive that the engine registers as a named event
- * prefix group inside a handler.
+ * Creates a namespace primitive. Groups a set of events under a shared name
+ * prefix so you can organize a server into logical sections (e.g. `chat`,
+ * `presence`, `editor`) without opening multiple connections.
  *
- * All events declared inside a namespace are prefixed with the namespace name
- * at the wire level (e.g., `chat/message`, `chat/typing`). Clients send and
- * receive events using the full prefixed names.
+ * Events declared inside a namespace are sent and received with the prefix
+ * included (e.g. `chat/message`, `chat/typing`).
  *
  * In practice you rarely call `namespace()` directly. Use it through the
  * builder: `server('name').namespace('chat', (ns) => ...)` — that method calls

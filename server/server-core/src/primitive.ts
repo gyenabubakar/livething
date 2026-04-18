@@ -96,19 +96,14 @@ export type PrimitiveIdentity =
 // ---------------------------------------------------------------------------
 
 /**
- * Base interface for every primitive instance.
+ * Base type for every primitive. Every factory function (`ack()`,
+ * `incoming()`, `channel()`, etc.) returns an object that extends `Primitive`.
  *
- * Every factory function (`incoming()`, `ack()`, `channel()`, etc.) returns
- * an object that extends `Primitive`. The builder's `.use()` method and
- * `defineServer` both read these base fields to collect, validate, sort, and
- * freeze the server definition.
+ * You rarely need to reference this type directly. Use it to annotate a
+ * variable or function parameter that must accept any wskit primitive.
  *
- * The engine later calls `__setup` during initialization to wire each
- * primitive into the runtime pipeline.
- *
- * `Tag` is a literal string that acts as a discriminator, for example
- * `'ack'`, `'incoming'`, or `'channel'`. It makes it safe to narrow a
- * union of primitives with a simple `if (p.__wskit === 'ack')` check.
+ * `Tag` is a discriminator string (e.g. `'ack'`, `'incoming'`, `'channel'`)
+ * that lets you narrow a union of primitives with `if (p.__wskit === 'ack')`.
  */
 export interface Primitive<Tag extends string = string> {
   readonly __wskit: Tag;
@@ -117,15 +112,7 @@ export interface Primitive<Tag extends string = string> {
   readonly __dependencies: readonly PrimitiveRef[];
   readonly __requires: RequiresManifest;
 
-  /**
-   * Called once by the engine during initialization. Receives direct engine
-   * access so the primitive can register hooks, extend ctx, and wire into
-   * the pipeline.
-   *
-   * Modules do not receive `EngineAccess` — they get the narrower
-   * `ModuleHooks` interface instead. This is the key privilege that
-   * separates built-in primitives from user modules.
-   */
+  /** @internal */
   readonly __setup?: (engine: EngineAccess) => void;
 }
 
@@ -134,15 +121,9 @@ export interface Primitive<Tag extends string = string> {
 // ---------------------------------------------------------------------------
 
 /**
- * Configuration object passed to `definePrimitive`.
+ * Configuration passed to `definePrimitive`.
  *
- * Describes the shape and behaviour of one type of built-in primitive —
- * what tag it produces, whether it is a singleton, what capabilities it
- * needs from the platform, and how it wires itself into the engine.
- *
- * `TTag`  — the discriminator string literal (e.g. `'ack'`, `'incoming'`)
- * `TArgs` — the arguments the resulting factory function accepts from the developer
- * `TData` — extra data the primitive instance carries (event name, handler fn, etc.)
+ * @internal
  */
 export interface PrimitiveConfig<
   TTag extends string,
@@ -192,17 +173,7 @@ export interface PrimitiveConfig<
 /**
  * The type returned by `definePrimitive`.
  *
- * The result is both a **factory function** and a **`PrimitiveRef`**:
- *
- * ```ts
- * const ack = definePrimitive({ ... });
- *
- * // As a factory — creates a primitive instance and registers it:
- * defineServer(ack())
- *
- * // As a dependency ref — asserts "ack must be registered somewhere":
- * defineModule({ dependencies: [ack] })
- * ```
+ * @internal
  */
 export interface PrimitiveFactory<
   TTag extends string,

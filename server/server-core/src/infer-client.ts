@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import type { ErrorDef, ValidationFailed } from '~/errors/errors.ts';
+import type { ChannelNotFound, ErrorDef, ValidationFailed } from '~/errors/errors.ts';
 import type { ServerContract, ServerDefinition } from '~/server-definition.ts';
 
 /**
@@ -17,20 +17,35 @@ type SimplifyDeep<T> = T extends (...args: any[]) => any
       : T;
 
 /**
+ * Collapse a union into an intersection.
+ *
+ * `{ a: 1 } | { b: 2 }` becomes `{ a: 1; b: 2 }` — via contravariance of
+ * function argument positions.
+ */
+type UnionToIntersection<U> = (U extends unknown ? (x: U) => void : never) extends (
+  x: infer I,
+) => void
+  ? I
+  : never;
+
+/**
  * Convert a union of `ErrorDef` types into a single merged record.
  *
  * For example, given `ErrorDef<'not-found', { id: string }> | ErrorDef<'forbidden', never>`,
  * this produces `{ 'not-found': { id: string }; forbidden: never }`.
  *
  * The distributive conditional (`TDefs extends infer TDef`) ensures each
- * member of the union is processed independently before being merged.
+ * member of the union is processed independently, then `UnionToIntersection`
+ * merges the per-member records into one record with every code as a key.
  */
 type ErrorMap<TDefs> = SimplifyDeep<
-  TDefs extends infer TDef
-    ? TDef extends ErrorDef<infer TCode, infer TDetail>
-      ? Record<TCode, TDetail>
-      : {}
-    : never
+  UnionToIntersection<
+    TDefs extends infer TDef
+      ? TDef extends ErrorDef<infer TCode, infer TDetail>
+        ? Record<TCode, TDetail>
+        : {}
+      : never
+  >
 >;
 
 /** Extract the stored client contract type from a `ServerDefinition`. */
@@ -38,7 +53,7 @@ type ContractOf<TServer extends ServerDefinition> =
   TServer extends ServerDefinition<any, infer TContract> ? TContract : ServerContract;
 
 /** The set of error types that wskit always adds to every server's error map. */
-type BuiltInErrorUnion = typeof ValidationFailed;
+type BuiltInErrorUnion = typeof ValidationFailed | typeof ChannelNotFound;
 
 /**
  * Read a wskit `ServerDefinition` and turn it into the full client contract type.

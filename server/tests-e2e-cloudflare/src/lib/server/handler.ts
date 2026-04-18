@@ -36,6 +36,8 @@ const KickFromChannel = event(
 
 const SkipTest = event('skip-test', v.object({}));
 const SkipReply = event('skip-reply', v.object({ leaked: v.boolean() }));
+const AckThenThrow = event('ack-then-throw', v.object({}));
+const BinaryMeta = event('binary-meta', v.object({ size: v.number(), username: v.string() }));
 const QueryDeadLetter = event('query-dead-letter', v.object({}));
 const ManualValidation = event('manual-validation-test', v.object({ value: v.string() }));
 const AlwaysDefer = event('always-defer', v.object({}));
@@ -52,6 +54,7 @@ export const handler = withStreams(withChannels(withScheduled(withRequests(withI
   .outgoing(ChannelMembers)
   .outgoing(SkipReply)
   .outgoing(DeferExhaustedResult)
+  .outgoing(BinaryMeta)
   .outgoing(DeadLetterResult)
   .outgoing(DefaultRetryResult)
   .outgoing(FilteredTaskResult)
@@ -96,6 +99,10 @@ export const handler = withStreams(withChannels(withScheduled(withRequests(withI
   .onBinary((ctx, data) => {
     ctx.sendBinary(data);
     ctx.send('binary-echoed', { size: data.byteLength });
+    ctx.send('binary-meta', {
+      size: data.byteLength,
+      username: (ctx.meta.username as string) ?? '',
+    });
   })
 
   .onValidationError((ctx, evt) => {
@@ -141,6 +148,10 @@ export const handler = withStreams(withChannels(withScheduled(withRequests(withI
 
   .incoming(ManualValidation, (_ctx, payload) => {
     if (payload.value === 'invalid') throw ValidationFailed;
+  })
+
+  .incoming(AckThenThrow, () => {
+    throw new Error('post-ack failure');
   })
 
   .incoming(GetChannelMembers, (ctx, payload) => {

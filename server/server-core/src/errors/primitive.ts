@@ -24,19 +24,13 @@ export interface ErrorsPrimitive<
 const ERRORS_KEY = Symbol('errors');
 
 /**
- * Creates an errors primitive. When registered, this primitive tells the engine
- * which named error events this handler can send to clients. At runtime it calls
- * `engine.registerErrorDefinitions(defs)` to make the error factories available
- * in the execution context. At build time the `TDefs` tuple drives the generated
- * client types.
+ * Declares the typed errors your handler can throw. Clients see these codes
+ * in their generated types via `InferClient`, so they can match on specific
+ * errors with `.matches()` in a type-safe way.
  *
- * Error definitions are created with the `error()` helper from
- * `@wskit/server/errors`. Each definition carries an event name and a payload
- * factory function.
- *
- * In practice you rarely call `errors()` directly. Use it through the builder:
- * `server('name').errors(NotFound, Forbidden)` — that method calls this factory
- * internally.
+ * Define errors with the `error()` helper and register them once on the
+ * builder. You rarely call `errors()` directly — use `.errors(NotFound, ...)`
+ * on the builder instead.
  *
  * @param defs One or more error definitions. At least one is required.
  *
@@ -46,7 +40,7 @@ const ERRORS_KEY = Symbol('errors');
  *
  * const NotFound = error('not-found', (p: { id: string }) => p);
  *
- * server('chat').errors(NotFound).incoming(getUser, (ctx, payload) => {
+ * server('chat').errors(NotFound).incoming(getUser, async (ctx, payload) => {
  *   const user = await db.find(payload.id);
  *   if (!user) throw NotFound({ id: payload.id });
  * });

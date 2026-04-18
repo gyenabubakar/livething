@@ -21,24 +21,25 @@ import type { Primitive } from '~/primitive.ts';
 export type CustomReplayScope = 'top' | 'channel';
 
 /**
- * Wire metadata present on every top-level outgoing message after sequence and
- * dedup stamping. Consumers use these values as storage keys and replay cursors.
+ * Metadata attached to every outgoing message. Your `onBeforeSend` /
+ * `onAfterSend` hooks receive this as `message.wire`. Use `seq` as a replay
+ * cursor and `messageId` as a storage key.
  */
 export interface TopLevelOutgoingWire {
-  /** Monotonically increasing sequence number stamped by the `sequence` primitive. */
+  /** A monotonically increasing sequence number, unique per connection. */
   readonly seq: number;
-  /** Unique message ID stamped by the `dedup` primitive. */
+  /** A unique ID for this message. */
   readonly messageId: string;
 }
 
 /**
- * Wire metadata for messages sent inside a channel scope. Extends the top-level
- * wire with the channel name and scope key.
+ * Wire metadata for messages sent inside a channel. Adds the channel name and
+ * its family key to the top-level metadata.
  */
 export interface ChannelOutgoingWire extends TopLevelOutgoingWire {
   /** The channel name the message was sent on. */
   readonly channel: string;
-  /** The channel scope key (used for dynamic / parameterised channels). */
+  /** The channel family key, matching the `key` passed to `scope(key, pattern)`. */
   readonly channelScope: string;
 }
 
@@ -51,16 +52,16 @@ export type OutgoingWire<TScope extends CustomReplayScope> = TScope extends 'cha
   : TopLevelOutgoingWire;
 
 /**
- * The message object passed to `onBeforeSend` and `onAfterSend`. Contains the
- * clean application payload (internal `_seq`, `_messageId`, and similar fields
- * are stripped) and the `wire` metadata object.
+ * A single outgoing message delivered to `onBeforeSend` and `onAfterSend`.
+ * Contains the event name, the clean application payload, and a `wire` object
+ * you can use as a storage key and replay cursor.
  */
 export interface OutgoingWireMessage<TScope extends CustomReplayScope = 'top'> {
   /** The event name. */
   readonly event: string;
-  /** The application payload with internal fields removed. */
+  /** The application payload. */
   readonly payload: Readonly<Record<string, unknown>>;
-  /** Wire metadata (sequence number, message ID, and for channels: channel info). */
+  /** Metadata — sequence number, message ID, and for channels, channel info. */
   readonly wire: OutgoingWire<TScope>;
 }
 
@@ -296,17 +297,16 @@ function createChannelReplayContext(
 }
 
 /**
- * Creates a custom replay primitive. When registered, this primitive wires
- * three optional hooks into the engine's message pipeline, letting developers
- * store and replay messages using any storage backend of their choice.
+ * Custom replay — store and replay messages with your own backend (Postgres,
+ * Redis, an external service, etc.) instead of the built-in SQLite store.
+ * Provide three hooks: one to store messages before they go out, one to
+ * store after send, and one to replay on client reconnect.
  *
- * The primitive automatically depends on `sequence` and `dedup` — both will
- * be auto-injected if not already registered, so that every outgoing message
- * is stamped with `_seq` and `_messageId` before the hooks are called.
+ * `sequence` and `dedup` are enabled automatically if you haven't already
+ * registered them — your hooks always receive fully sequenced messages.
  *
  * In practice you rarely call `handleReplay()` directly. Use it through the
- * builder: `server('name').replayCustom()…done()` — that method calls this
- * factory internally.
+ * builder: `server('name').replayCustom(...).done()`.
  *
  * @param options The three lifecycle hooks for storing and replaying messages.
  *

@@ -126,4 +126,85 @@ test.describe('hibernation handler', () => {
     expect(result.delivered.payload.from).toBe('hiber-1');
     expect(result.delivered.payload.text).toBe('hello sleeper');
   });
+
+  test('main handler preserves SQL state across reconnection (hibernation-friendly)', async ({
+    page,
+  }, testInfo) => {
+    const room = `hib-sql-${testInfo.testId}`;
+    await page.goto(`/?room=${room}`);
+
+    const result = await page.evaluate(async (currentRoom) => {
+      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+
+      type WireMessage = { type: 'json'; event: string; payload: Record<string, unknown> };
+
+      function openOnce(username: string) {
+        return new Promise<{ ws: WebSocket; messages: WireMessage[] }>((resolve, reject) => {
+          const ws = new WebSocket(
+            `${protocol}//${location.host}/ws?username=${encodeURIComponent(username)}&room=${encodeURIComponent(currentRoom)}`,
+          );
+          const messages: WireMessage[] = [];
+          ws.onmessage = (event) => {
+            if (event.data === 'pong' || typeof event.data !== 'string') return;
+            try {
+              const parsed = JSON.parse(event.data) as {
+                event: string;
+                payload: Record<string, unknown>;
+              };
+              messages.push({ type: 'json', event: parsed.event, payload: parsed.payload });
+            } catch {
+              // ignore
+            }
+          };
+          ws.onopen = () => resolve({ ws, messages });
+          ws.onerror = () => reject(new Error('open failed'));
+        });
+      }
+
+      function waitFor(
+        messages: WireMessage[],
+        predicate: (m: WireMessage) => boolean,
+        timeout = 5_000,
+      ) {
+        return new Promise<WireMessage>((resolve, reject) => {
+          const started = Date.now();
+          function poll() {
+            const match = messages.find(predicate);
+            if (match) return resolve(match);
+            if (Date.now() - started > timeout) return reject(new Error('timeout'));
+            setTimeout(poll, 25);
+          }
+          poll();
+        });
+      }
+
+      const first = await openOnce('sql-writer');
+      first.ws.send(
+        JSON.stringify({ event: 'save-note', payload: { title: 'hib', body: 'persist-me' } }),
+      );
+      await waitFor(
+        first.messages,
+        (m) =>
+          m.type === 'json' &&
+          m.event === 'notes-list' &&
+          Array.isArray((m.payload as { notes?: unknown[] }).notes),
+      );
+      first.ws.close();
+
+      await new Promise((r) => setTimeout(r, 150));
+
+      const second = await openOnce('sql-reader');
+      second.ws.send(JSON.stringify({ event: 'get-notes', payload: {} }));
+      const list = (await waitFor(
+        second.messages,
+        (m) => m.type === 'json' && m.event === 'notes-list',
+      )) as Extract<WireMessage, { type: 'json' }>;
+      second.ws.close();
+
+      return list.payload;
+    }, room);
+
+    const notes = (result as { notes: { title: string; body: string }[] }).notes;
+    expect(notes.some((n) => n.title === 'hib' && n.body === 'persist-me')).toBe(true);
+  });
 });

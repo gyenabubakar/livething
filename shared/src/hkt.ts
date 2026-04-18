@@ -7,14 +7,12 @@
 // used by both the client plugin system and the server primitive/module system.
 
 /**
- * Base interface for type functions. Think of it as a function that operates
- * on types instead of values:
+ * Base interface for declaring a type function — a type that computes an API
+ * surface from a contract type. Extend this when you're building a typed
+ * primitive or plugin that adds methods to a socket/server.
  *
- * - `_contract` — the "parameter" slot. Holds `unknown` by default, but
- *   `Apply` overrides it with the actual contract via intersection.
- * - `_api` — the "return value". Computes the API surface from `_contract`.
- *   Because `_api` can reference `this['_contract']`, it reactively updates
- *   when `_contract` is overridden.
+ * Set `_api` to a conditional type that reads from `this['_contract']`, then
+ * resolve the final API with {@link Apply}.
  *
  * ```ts
  * interface MyTypeFn extends TypeFn {
@@ -22,27 +20,24 @@
  *     ? { broadcast<K extends keyof O>(event: K, payload: O[K]): void }
  *     : {};
  * }
+ *
+ * type MyAPI = Apply<MyTypeFn, MySocket>;
  * ```
  */
 export interface TypeFn {
-  /** The input slot — overridden by `Apply` with the real contract. */
+  /** The contract type this function operates on. {@link Apply} supplies it — do not assign directly. */
   readonly _contract: unknown;
-  /** The output slot — computes the API surface from `_contract`. */
+  /** Declare your computed API surface here, reading from `this['_contract']`. */
   readonly _api: unknown;
 }
 
 /**
- * "Call" a type function: override its `_contract` with `Contract`, read `_api`.
- *
- * How it works: intersect `F` with `{ _contract: Contract }`. In an
- * intersection, when the same property appears in both sides, the more
- * specific type wins for reads — so `_contract` resolves to `Contract`
- * instead of the original `unknown`. Then we index into `_api`, which now
- * computes against the new contract.
+ * Resolve a type function against a concrete contract, producing the API
+ * surface declared by `F._api`.
  *
  * ```ts
  * type Result = Apply<ChannelsTypeFn, MySocket>;
- * // ChannelsTypeFn's _api evaluates with _contract = MySocket
+ * // The API that ChannelsTypeFn produces for MySocket.
  * ```
  */
 export type Apply<F extends TypeFn, Contract> = (F & {

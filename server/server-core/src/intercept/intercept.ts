@@ -95,6 +95,26 @@ export function intercept<TEvent extends string>(
  *   the current payload and can replace it. Returning `void` passes the payload
  *   through unchanged.
  *
+ * ### Pipeline order
+ *
+ * For every incoming message the engine walks this pipeline:
+ *
+ * 1. **Pre-intercept** (if any) — one per scope (top-level, namespace, channel).
+ * 2. **Event routing** — match the event to its handler.
+ * 3. **Post-intercept for that event** (if any).
+ * 4. **Validation** — the handler's validator runs (if declared).
+ * 5. **Handler** — `incoming` / `request` / `stream` trigger.
+ *
+ * ### Control-flow errors
+ *
+ * Pre- and post-intercepts can throw:
+ *
+ * - `Block` — silently drops the message; the handler never runs and no
+ *   response is sent.
+ * - `Skip` — from a **pre**-intercept, passes the message through unchanged
+ *   (identical to returning `void`). From a post-intercept it behaves the same.
+ * - `Disconnect(code, reason)` — closes the connection.
+ *
  * @example
  * ```ts
  * // Pre-intercept: log all messages

@@ -1,4 +1,5 @@
 import { withChannels } from '@wskit/server/channels';
+import { Block } from '@wskit/server/errors';
 import { withIntercept } from '@wskit/server/intercept';
 import { withRequests } from '@wskit/server/requests';
 import { withStreams } from '@wskit/server/streams';
@@ -21,6 +22,17 @@ export const chatChannel = chatBase.channel('chat', (ch) =>
       const msg = { text: payload.text, from: ctx.meta.username as string, ts: Date.now() };
       ctx.channel.send('chat-message', msg);
       ctx.channel.broadcast('chat-message', msg);
+    })
+    .intercept((_ctx, message) => {
+      if (
+        message.event === 'send-chat' &&
+        message.payload &&
+        typeof message.payload === 'object' &&
+        (message.payload as { text?: string }).text === 'channel-pre-block'
+      ) {
+        throw Block;
+      }
+      return message;
     })
     .intercept('send-chat', (_ctx, payload) => {
       if (payload.text === 'intercept-channel-test') {

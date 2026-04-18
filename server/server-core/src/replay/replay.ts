@@ -32,29 +32,23 @@ export type ReplaySend = (event: string, payload: unknown, wire: ReplayWire) => 
 const REPLAY_KEY = Symbol('replay');
 
 /**
- * Creates the built-in replay primitive. When registered, this primitive:
+ * Enables built-in message replay. The server records every outgoing message
+ * so reconnecting clients can catch up on what they missed — wskit's client
+ * asks for replay automatically on reconnect, and no extra work is needed
+ * from your handlers.
  *
- * 1. **Stores** every outgoing message in a SQLite table (optionally async
- *    when `durability: 'best-effort'` is set).
- * 2. **Handles** the `_replay` protocol message: when a reconnecting client
- *    sends `{ since: <seq> }`, the engine queries the store for all messages
- *    after that sequence number and re-sends them to the client.
- * 3. **Extends** every handler context with a `sendReplay()` helper that lets
- *    handlers explicitly replay a message without waiting for the protocol.
+ * Handlers also get `ctx.sendReplay()` for manually replaying a stored
+ * message (e.g. in response to a "load older history" request).
  *
- * This primitive automatically depends on `sequence` and `dedup` — both will
- * be auto-injected if not already registered.
- *
- * Requires the `storage` platform capability.
+ * `sequence` and `dedup` are enabled automatically if you haven't already
+ * registered them. Requires the `storage` platform capability.
  *
  * @example
  * ```ts
- * import '@wskit/server/replay';
- *
  * server('chat')
- *   .replay('history')
- *     .retention({ maxAgeMs: 7 * 24 * 60 * 60 * 1000 })
- *     .build();
+ *   .replay()
+ *   .retention({ maxAgeMs: 7 * 24 * 60 * 60 * 1000 })
+ *   .build();
  * ```
  */
 export function replay(options?: ReplayOptions): ReplayPrimitive {
