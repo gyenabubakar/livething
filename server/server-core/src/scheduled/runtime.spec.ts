@@ -176,6 +176,63 @@ describe('scheduled/runtime', () => {
     expect([...scheduledRuns.values()][0]?.data).toEqual({ id: 'b' });
   });
 
+  it('multi-key filter cancels only runs matching every key (AND semantics)', () => {
+    const { runtime, scheduledRuns } = createScheduledRuntime([{ taskId: 'flush' }]);
+
+    scheduleTaskRun(runtime, 'flush', 100, { label: 'drop', tier: 'gold' });
+    scheduleTaskRun(runtime, 'flush', 200, { label: 'drop', tier: 'silver' });
+    scheduleTaskRun(runtime, 'flush', 300, { label: 'keep', tier: 'gold' });
+
+    cancelScheduledRuns(runtime, 'flush', { label: 'drop', tier: 'gold' });
+
+    const survivors = [...scheduledRuns.values()].map((run) => run.data);
+    expect(survivors).toHaveLength(2);
+    expect(survivors).toEqual(
+      expect.arrayContaining([
+        { label: 'drop', tier: 'silver' },
+        { label: 'keep', tier: 'gold' },
+      ]),
+    );
+  });
+
+  it('filter with a key missing from the run data does not match', () => {
+    const { runtime, scheduledRuns } = createScheduledRuntime([{ taskId: 'flush' }]);
+
+    scheduleTaskRun(runtime, 'flush', 100, { id: 'a' });
+    cancelScheduledRuns(runtime, 'flush', { id: 'a', doesNotExist: 'x' });
+
+    expect(scheduledRuns.size).toBe(1);
+  });
+
+  it('filter with a key that does not exist on any run is a no-op', () => {
+    const { runtime, scheduledRuns } = createScheduledRuntime([{ taskId: 'flush' }]);
+
+    scheduleTaskRun(runtime, 'flush', 100, { id: 'a' });
+    scheduleTaskRun(runtime, 'flush', 200, { id: 'b' });
+    cancelScheduledRuns(runtime, 'flush', { __never: '__never' });
+
+    expect(scheduledRuns.size).toBe(2);
+  });
+
+  it('filtered cancel on a recurring task does not remove the recurring baseline run', () => {
+    const { runtime, scheduledRuns } = createScheduledRuntime([
+      { taskId: 'tick', options: { every: 1_000 } },
+    ]);
+
+    bootstrapScheduledRuntime(runtime);
+
+    // Bootstrap seeds the recurring baseline.
+    const before = [...scheduledRuns.values()];
+    expect(before).toHaveLength(1);
+    expect(before[0]?.recurring).toBe(true);
+
+    cancelScheduledRuns(runtime, 'tick', { any: 'filter' });
+
+    // Filter is ignored for recurring runs — baseline survives.
+    expect(scheduledRuns.size).toBe(1);
+    expect([...scheduledRuns.values()][0]?.recurring).toBe(true);
+  });
+
   it('retries failures with backoff and dead-letters exhausted runs', async () => {
     const handler = vi
       .fn<(_: unknown, __: unknown) => Promise<void>>()
