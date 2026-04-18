@@ -94,6 +94,20 @@ export const Drizzle = defineModule<{ migrate: boolean }, DrizzleApi>({
 
     hooks.onIncoming((message) => {
       messageCount++;
+      if (
+        message.event === 'module-rewrite-probe' &&
+        message.payload &&
+        typeof message.payload === 'object'
+      ) {
+        return {
+          event: message.event,
+          payload: {
+            ...(message.payload as Record<string, unknown>),
+            text: `rewritten:${(message.payload as { text: string }).text}`,
+            rewritten: true,
+          },
+        };
+      }
       return message;
     });
 
@@ -117,6 +131,53 @@ export const Drizzle = defineModule<{ migrate: boolean }, DrizzleApi>({
 
     hooks.scheduled('drizzle-vacuum', async (ctx) => {
       ctx.broadcast('drizzle-vacuum-done', { timestamp: Date.now() });
+    });
+
+    let everyTickCount = 0;
+    hooks.scheduled(
+      'drizzle-every-tick',
+      async (ctx) => {
+        everyTickCount++;
+        ctx.broadcast('module-every-tick', { count: everyTickCount });
+      },
+      { every: 500 },
+    );
+
+    let flakyAttempts = 0;
+    hooks.scheduled(
+      'drizzle-flaky',
+      async (ctx) => {
+        flakyAttempts++;
+        if (flakyAttempts < 3) throw new Error('module flaky failure');
+        ctx.broadcast('module-flaky-result', { attempts: flakyAttempts });
+        flakyAttempts = 0;
+      },
+      { retry: [50, 100, 200] },
+    );
+
+    hooks.scheduled(
+      'drizzle-module-always-fail',
+      async () => {
+        throw new Error('module permanent failure');
+      },
+      { retry: [50, 100] },
+    );
+
+    hooks.scheduled('drizzle-query-dlq', async (ctx) => {
+      const rows = ctx.sql
+        .exec(
+          'SELECT taskId, attempts, error FROM _wskit_scheduled_dlq ORDER BY failedAt DESC LIMIT 1',
+        )
+        .toArray() as { taskId: string; attempts: number; error: string }[];
+      const row = rows[0];
+      if (row) {
+        const err = JSON.parse(row.error) as { message: string };
+        ctx.broadcast('module-dlq-result', {
+          taskId: row.taskId,
+          attempts: row.attempts,
+          error: err.message,
+        });
+      }
     });
 
     return () => ({

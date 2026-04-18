@@ -332,6 +332,26 @@ test.describe('main handler', () => {
     }).toPass({ timeout: 10_000 });
   });
 
+  // --- Task-context sendToConnection ---
+
+  test('task-ctx sendToConnection: delivers to live connection', async ({ page }) => {
+    await page.getByTestId('conn-info-btn').click();
+    await expect(page.getByTestId('connection-id')).not.toHaveText('');
+    await page.getByTestId('schedule-send-to-conn-self-btn').click();
+    await waitForText(page, 'schedule-send-to-conn-delivery', 'from-task');
+    await waitForText(page, 'schedule-send-to-conn-status', /delivered:true/);
+  });
+
+  test('task-ctx sendToConnection: stale id reports delivered:false', async ({ page }) => {
+    await page.getByTestId('schedule-send-to-conn-stale-btn').click();
+    await waitForText(
+      page,
+      'schedule-send-to-conn-status',
+      /id:stale-id-does-not-exist,delivered:false/,
+    );
+    await expect(page.getByTestId('schedule-send-to-conn-delivery')).toHaveText('');
+  });
+
   test('scheduled dead-letter: always-fail task lands in DLQ', async ({ page }) => {
     await page.getByTestId('trigger-always-fail-btn').click();
     await expect(async () => {

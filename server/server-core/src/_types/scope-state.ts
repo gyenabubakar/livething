@@ -9,7 +9,7 @@
  * handler `ctx` type and the client contract used by `InferClient`.
  */
 import type { AckPrimitive } from '~/ack/ack.ts';
-import type { ChannelManager, ConnectionContext } from '~/context.ts';
+import type { BroadcastOptions, ChannelManager, ConnectionContext } from '~/context.ts';
 import type { DedupPrimitive } from '~/dedup/dedup.ts';
 import type { ErrorDef } from '~/errors/errors.ts';
 import type { ErrorsPrimitive } from '~/errors/primitive.ts';
@@ -594,17 +594,24 @@ export interface SendMethods<TOutgoing extends Record<string, any>> {
    * Send an event to the current connection.
    *
    * Only events declared with `outgoing()` in the same scope are allowed.
+   *
+   * Returns `false` if the send buffer was full and the frame was dropped;
+   * `true` otherwise.
    */
-  send<TEvent extends keyof TOutgoing & string>(event: TEvent, payload: TOutgoing[TEvent]): void;
+  send<TEvent extends keyof TOutgoing & string>(event: TEvent, payload: TOutgoing[TEvent]): boolean;
 
   /**
    * Broadcast an event to all connections in the current scope.
    *
    * Only events declared with `outgoing()` in the same scope are allowed.
+   *
+   * Pass `options.excludeSelf: true` to skip the caller, or
+   * `options.channel` to restrict delivery to subscribers of a specific channel.
    */
   broadcast<TEvent extends keyof TOutgoing & string>(
     event: TEvent,
     payload: TOutgoing[TEvent],
+    options?: BroadcastOptions,
   ): void;
 }
 

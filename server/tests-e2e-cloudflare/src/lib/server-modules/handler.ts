@@ -20,6 +20,11 @@ import {
   InsertRecord,
   LastState,
   MessageCount,
+  ModuleDlqResult,
+  ModuleEveryTick,
+  ModuleFlakyResult,
+  ModuleRewriteProbe,
+  ModuleRewriteResult,
   OutgoingCount,
   RecordCount,
   RecordDeleted,
@@ -27,6 +32,10 @@ import {
   RecordList,
   ShutdownCount,
   SingleRecord,
+  TriggerModuleAlwaysFail,
+  TriggerModuleEvery,
+  TriggerModuleFlaky,
+  TriggerModuleQueryDlq,
   TriggerVacuum,
   VacuumDone,
 } from './events.ts';
@@ -44,6 +53,10 @@ export const modulesHandler = withScheduled(withLifecycle(server<Env>('modules-t
   .outgoing(GeneratedId)
   .outgoing(LastState)
   .outgoing(ShutdownCount)
+  .outgoing(ModuleRewriteResult)
+  .outgoing(ModuleEveryTick)
+  .outgoing(ModuleFlakyResult)
+  .outgoing(ModuleDlqResult)
   .use(Drizzle({ migrate: true }))
   .onUpgrade((request) => {
     const url = new URL(request.url);
@@ -101,6 +114,27 @@ export const modulesHandler = withScheduled(withLifecycle(server<Env>('modules-t
   .incoming(GetShutdownCount, (ctx) => {
     const db = Drizzle.use(ctx);
     ctx.send('shutdown-count', { count: db.getShutdownCount() });
+  })
+  .incoming(ModuleRewriteProbe, (ctx, payload) => {
+    // payload is whatever the module's onIncoming returned — the handler
+    // echoes it so Playwright can confirm the rewrite fired.
+    const observed = payload as unknown as { text: string; rewritten?: boolean };
+    ctx.send('module-rewrite-result', {
+      text: observed.text,
+      rewritten: observed.rewritten,
+    });
+  })
+  .incoming(TriggerModuleEvery, (ctx) => {
+    ctx.schedule('__e2e:drizzle:drizzle-every-tick', { time: Date.now() + 100 });
+  })
+  .incoming(TriggerModuleFlaky, (ctx) => {
+    ctx.schedule('__e2e:drizzle:drizzle-flaky', { time: Date.now() + 100 });
+  })
+  .incoming(TriggerModuleAlwaysFail, (ctx) => {
+    ctx.schedule('__e2e:drizzle:drizzle-module-always-fail', { time: Date.now() + 100 });
+  })
+  .incoming(TriggerModuleQueryDlq, (ctx) => {
+    ctx.schedule('__e2e:drizzle:drizzle-query-dlq', { time: Date.now() + 100 });
   })
   .build();
 

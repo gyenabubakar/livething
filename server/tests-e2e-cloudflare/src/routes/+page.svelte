@@ -46,6 +46,8 @@
 
 	let sendToConnResult = $state('');
 	let sendToConnStatus = $state('');
+	let scheduleSendToConnStatus = $state('');
+	let scheduleSendToConnDelivery = $state('');
 	let connectionsByTagResult = $state('');
 	let qualityResult = $state('');
 	let streamOkReceived = $state(false);
@@ -199,6 +201,12 @@
 					break;
 				case 'send-to-connection-status':
 					sendToConnStatus = `delivered:${payload.delivered}`;
+					break;
+				case 'schedule-send-to-conn-status':
+					scheduleSendToConnStatus = `id:${payload.connectionId},delivered:${payload.delivered}`;
+					break;
+				case 'schedule-send-to-conn-delivery':
+					scheduleSendToConnDelivery = String(payload.text);
 					break;
 				case 'connections-by-tag-result':
 					connectionsByTagResult = `${payload.tag}:${(payload.ids as string[]).length}`;
@@ -450,6 +458,17 @@
 		send('broadcast-binary-all', { size: 6 });
 	}
 
+	function sendBroadcastBinaryExcludeSelf() {
+		binaryResult = '';
+		send('broadcast-binary-exclude-self', { size: 6 });
+	}
+
+	function scheduleSendToConn(targetId: string, text: string) {
+		scheduleSendToConnStatus = '';
+		scheduleSendToConnDelivery = '';
+		send('schedule-send-to-conn', { connectionId: targetId, text });
+	}
+
 	function sendSpeedUp(factor: number) {
 		send('speed-up', { factor, _namespace: 'ai' });
 	}
@@ -657,6 +676,7 @@
 		<h2>Binary</h2>
 		<button data-testid="binary-send-btn" onclick={sendBinary} disabled={status !== 'connected'}>Send Binary</button>
 		<button data-testid="broadcast-binary-all-btn" onclick={sendBroadcastBinaryAll} disabled={status !== 'connected'}>Broadcast Binary</button>
+		<button data-testid="broadcast-binary-exclude-self-btn" onclick={sendBroadcastBinaryExcludeSelf} disabled={status !== 'connected'}>Broadcast Binary (Exclude Self)</button>
 		<div data-testid="binary-result">{binaryResult}</div>
 	</section>
 
@@ -682,10 +702,14 @@
 		<button data-testid="trigger-default-retry-btn" onclick={triggerDefaultRetryTask} disabled={status !== 'connected'}>Trigger Default Retry</button>
 		<button data-testid="schedule-filtered-btn" onclick={scheduleFilteredTasks} disabled={status !== 'connected'}>Schedule Filtered Tasks</button>
 		<button data-testid="cancel-filtered-drop-btn" onclick={() => cancelFilteredTask('drop')} disabled={status !== 'connected'}>Cancel "drop"</button>
+		<button data-testid="schedule-send-to-conn-self-btn" onclick={() => scheduleSendToConn(connectionId, 'from-task')} disabled={status !== 'connected' || !connectionId}>Schedule SendToConn (Self)</button>
+		<button data-testid="schedule-send-to-conn-stale-btn" onclick={() => scheduleSendToConn('stale-id-does-not-exist', 'ignored')} disabled={status !== 'connected'}>Schedule SendToConn (Stale)</button>
 		<div data-testid="heartbeat-count">{heartbeatCount}</div>
 		<div data-testid="flaky-task-result">{flakyTaskResult}</div>
 		<div data-testid="default-retry-result">{defaultRetryResult}</div>
 		<div data-testid="filtered-task-result">{filteredTaskResult}</div>
+		<div data-testid="schedule-send-to-conn-status">{scheduleSendToConnStatus}</div>
+		<div data-testid="schedule-send-to-conn-delivery">{scheduleSendToConnDelivery}</div>
 	</section>
 
 	<section>

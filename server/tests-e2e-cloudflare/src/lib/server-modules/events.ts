@@ -51,3 +51,24 @@ export const DrizzleReady = event(
   '__e2e:drizzle:drizzle-ready',
   v.object({ tables: v.array(v.string()), hooked: v.optional(v.boolean()) }),
 );
+
+// Module onIncoming rewrite probe — client sends the "raw" event; the module
+// rewrites the payload before the handler sees it. The handler then echoes
+// whatever payload it observed so Playwright can assert the rewrite happened.
+export const ModuleRewriteProbe = event('module-rewrite-probe', v.object({ text: v.string() }));
+export const ModuleRewriteResult = event(
+  'module-rewrite-result',
+  v.object({ text: v.string(), rewritten: v.optional(v.boolean()) }),
+);
+
+// Module scheduled task coverage (every / retry / DLQ)
+export const TriggerModuleEvery = event('trigger-module-every', v.object({}));
+export const ModuleEveryTick = event('module-every-tick', v.object({ count: v.number() }));
+export const TriggerModuleFlaky = event('trigger-module-flaky', v.object({}));
+export const ModuleFlakyResult = event('module-flaky-result', v.object({ attempts: v.number() }));
+export const TriggerModuleAlwaysFail = event('trigger-module-always-fail', v.object({}));
+export const TriggerModuleQueryDlq = event('trigger-module-query-dlq', v.object({}));
+export const ModuleDlqResult = event(
+  'module-dlq-result',
+  v.object({ taskId: v.string(), attempts: v.number(), error: v.string() }),
+);

@@ -181,7 +181,7 @@ export interface ScopeSendApi {
   /** Send an event only to the current connection, scoped to this namespace/channel. */
   send(event: string, payload: unknown): boolean;
   /** Broadcast an event to every connection in this namespace/channel. */
-  broadcast(event: string, payload: unknown): void;
+  broadcast(event: string, payload: unknown, options?: BroadcastOptions): void;
 }
 
 /**
@@ -222,26 +222,45 @@ export interface ChannelManager<
 }
 
 /**
- * The context object passed to every connection-scoped handler.
+ * The runtime **superset** of every field and method that may appear on the
+ * `ctx` argument in a connection-scoped handler.
  *
- * This is what you receive as `ctx` inside `incoming`, `request`, `generate`,
- * `onConnect`, `onDisconnect`, `onError`, `onBinary`, and `onValidationError`
- * handlers.
+ * > Most users do not need to reference this type directly. What you actually
+ * > get as `ctx` inside an `incoming(...)` handler is a narrowed version —
+ * > `HandlerCtxFromState<TState>` — that only exposes the primitives you
+ * > registered. `ConnectionContext` lists **everything the engine might
+ * > provide**; the handler type trims it down.
  *
- * The exact shape depends on which primitives you registered — the `server()`
- * builder narrows it automatically. For example, `ctx.ack()` only exists if you
- * registered `ack()`. Refer to `HandlerCtxFromState` in `scope-state.ts` for
- * how each primitive contributes to the ctx shape.
+ * So:
+ * - `ConnectionContext` = the runtime object's full surface.
+ * - `HandlerCtxFromState` = what TypeScript narrows it to for your handler.
  *
- * `Env`      — the environment variables shape provided by the adapter
- * `Meta`     — the per-connection metadata set during the upgrade step
- * `Platform` — the raw platform object from the adapter (e.g. Durable Object stub)
+ * `ConnectionContext` is passed to handlers registered with: `incoming`,
+ * `request`, `generate`, `onConnect`, `onDisconnect`, `onError`, `onBinary`,
+ * and `onValidationError`.
  *
- * Mental model:
- * - identity: `id`, `meta`, `tags`
- * - messaging: `send`, `broadcast`, `sendTo`, `sendToConnection`
- * - scope helpers: `namespace`, `channel`, `channels`
- * - durable/platform services: `schedule`, `sql`, `kv`, `env`, `platform`
+ * @template Env      Environment variables exposed by the adapter.
+ * @template Meta     Per-connection metadata set in the upgrade step.
+ * @template Platform The raw platform object (e.g. a Cloudflare DO stub).
+ *
+ * @example
+ * ```ts
+ * server('chat')
+ *   .outgoing(Message)
+ *   .incoming(Send, (ctx, payload) => {
+ *     const delivered: boolean = ctx.send('message', { text: payload.text });
+ *     ctx.broadcast('message', { text: payload.text }, { excludeSelf: true });
+ *     if (!delivered) ctx.log.warn('send buffer full', { id: ctx.id });
+ *   });
+ * ```
+ *
+ * Mental model, grouped by purpose:
+ * - **identity** — `id`, `meta`, `tags`, `tag`, `untag`
+ * - **messaging** — `send`, `broadcast`, `sendTo`, `sendToConnection`,
+ *   `sendBinary`, `broadcastBinary`
+ * - **scope helpers** — `namespace`, `channel`, `channels`
+ * - **durability / platform** — `schedule`, `cancelScheduled`, `sql`, `kv`,
+ *   `env`, `log`, `platform`, `waitUntil`
  */
 export interface ConnectionContext<
   Env = Record<string, unknown>,

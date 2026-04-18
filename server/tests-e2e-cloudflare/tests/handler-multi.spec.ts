@@ -452,4 +452,28 @@ test.describe('multi-client', () => {
     await page1.close();
     await page2.close();
   });
+
+  test('broadcastBinary with excludeSelf skips the caller', async ({ browser }, testInfo) => {
+    const room = `multi-${testInfo.testId}`;
+    const page1 = await browser.newPage();
+    const page2 = await browser.newPage();
+    await page1.goto(`/?room=${room}`);
+    await page2.goto(`/?room=${room}`);
+
+    await page1.getByTestId('username-input').fill('user1');
+    await page1.getByTestId('connect-btn').click();
+    await waitForText(page1, 'status', 'connected');
+
+    await page2.getByTestId('username-input').fill('user2');
+    await page2.getByTestId('connect-btn').click();
+    await waitForText(page2, 'status', 'connected');
+
+    await page1.getByTestId('broadcast-binary-exclude-self-btn').click();
+    await waitForText(page2, 'binary-result', 'binary:6');
+    // Caller should stay empty.
+    await expect(page1.getByTestId('binary-result')).toHaveText('');
+
+    await page1.close();
+    await page2.close();
+  });
 });

@@ -20,6 +20,8 @@ import {
   CleanupDone,
   FlakyTaskResult,
   HeartbeatTick,
+  ScheduleSendToConnDelivery,
+  ScheduleSendToConnStatus,
 } from './scheduled/events.ts';
 import { KvResult, NotesList } from './storage/events.ts';
 
@@ -47,6 +49,8 @@ export const base = withLifecycle(withErrors(withInfrastructure(server<Env>('e2e
   .outgoing(BroadcastResult)
   .outgoing(HeartbeatTick)
   .outgoing(FlakyTaskResult)
+  .outgoing(ScheduleSendToConnStatus)
+  .outgoing(ScheduleSendToConnDelivery)
   .onUpgrade((request) => {
     const url = new URL(request.url);
     const username = url.searchParams.get('username');

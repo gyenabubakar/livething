@@ -23,6 +23,19 @@ export const DeadLetterResult = event(
   v.object({ taskId: v.string(), attempts: v.number(), error: v.string() }),
 );
 
+export const ScheduleSendToConn = event(
+  'schedule-send-to-conn',
+  v.object({ connectionId: v.string(), text: v.string() }),
+);
+export const ScheduleSendToConnStatus = event(
+  'schedule-send-to-conn-status',
+  v.object({ connectionId: v.string(), delivered: v.boolean() }),
+);
+export const ScheduleSendToConnDelivery = event(
+  'schedule-send-to-conn-delivery',
+  v.object({ text: v.string() }),
+);
+
 export const ScheduleFilteredTasks = event('schedule-filtered-tasks', v.object({}));
 export const CancelFilteredTask = event('cancel-filtered-task', v.object({ label: v.string() }));
 export const FilteredTaskResult = event('filtered-task-result', v.object({ label: v.string() }));

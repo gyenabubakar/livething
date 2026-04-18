@@ -117,6 +117,40 @@ describe('ctx.send() typing', () => {
       });
   });
 
+  it('ctx.send returns boolean (matches runtime)', () => {
+    server('chat')
+      .outgoing(message)
+      .incoming(sendMessage, async (ctx) => {
+        const ok: boolean = ctx.send('message', { text: 'hi', from: 'x' });
+        assertType<boolean>();
+        void ok;
+      });
+  });
+
+  it('ctx.broadcast accepts BroadcastOptions', () => {
+    server('chat')
+      .outgoing(message)
+      .incoming(sendMessage, async (ctx) => {
+        ctx.broadcast('message', { text: 'hi', from: 'x' }, { excludeSelf: true });
+        ctx.broadcast('message', { text: 'hi', from: 'x' }, { channel: 'lobby' });
+        ctx.broadcast(
+          'message',
+          { text: 'hi', from: 'x' },
+          { excludeSelf: true, channel: 'lobby' },
+        );
+        ctx.broadcast('message', { text: 'hi', from: 'x' });
+      });
+  });
+
+  it('ctx.broadcast rejects unknown option keys', () => {
+    server('chat')
+      .outgoing(message)
+      .incoming(sendMessage, async (ctx) => {
+        // @ts-expect-error — 'nope' is not a valid BroadcastOptions field
+        ctx.broadcast('message', { text: 'hi', from: 'x' }, { nope: true });
+      });
+  });
+
   it('order matters — outgoing declared after incoming is not visible to earlier handler', () => {
     server('chat')
       .incoming(sendMessage, async (ctx) => {

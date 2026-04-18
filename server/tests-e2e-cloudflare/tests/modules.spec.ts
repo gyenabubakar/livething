@@ -70,6 +70,39 @@ test.describe('modules handler', () => {
     await waitForText(page, 'vacuum-result', /vacuum:\d+/, 10_000);
   });
 
+  test('module onIncoming can rewrite incoming payload', async ({ page }) => {
+    await waitForText(page, 'db-connected', 'db-ready');
+    await page.getByTestId('module-rewrite-btn').click();
+    await waitForText(page, 'module-rewrite-result', 'text:rewritten:hello,rewritten:true');
+  });
+
+  test('module scheduled every: fires repeatedly', async ({ page }) => {
+    await waitForText(page, 'db-connected', 'db-ready');
+    await page.getByTestId('trigger-module-every-btn').click();
+    await expect(async () => {
+      const count = Number(await page.getByTestId('module-every-count').textContent());
+      expect(count).toBeGreaterThanOrEqual(2);
+    }).toPass({ timeout: 15_000 });
+  });
+
+  test('module scheduled retry: flaky task succeeds after retries', async ({ page }) => {
+    await waitForText(page, 'db-connected', 'db-ready');
+    await page.getByTestId('trigger-module-flaky-btn').click();
+    await waitForText(page, 'module-flaky-result', /attempts:[3-9]/, 10_000);
+  });
+
+  test('module scheduled DLQ: always-fail task lands in DLQ', async ({ page }) => {
+    await waitForText(page, 'db-connected', 'db-ready');
+    await page.getByTestId('trigger-module-always-fail-btn').click();
+    await expect(async () => {
+      await page.getByTestId('trigger-module-query-dlq-btn').click();
+      const result = await page.getByTestId('module-dlq-result').textContent();
+      expect(result).toMatch(/drizzle-module-always-fail:attempts=/);
+    }).toPass({ timeout: 15_000 });
+    const result = await page.getByTestId('module-dlq-result').textContent();
+    expect(result).toContain('module permanent failure');
+  });
+
   test('module onOutgoing counts outgoing messages', async ({ page }) => {
     await waitForText(page, 'db-connected', 'db-ready');
     await page.getByTestId('insert-btn').click();

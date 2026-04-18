@@ -22,6 +22,15 @@ import type { IncomingPrimitive } from '~/incoming/incoming.ts';
 import type { OutgoingPrimitive } from '~/outgoing/outgoing.ts';
 import type { Primitive } from '~/primitive.ts';
 
+/**
+ * The running type state for one `channel(...)` scope.
+ *
+ * Inherits the outgoing map, `ack`, `replay`, and `meta` from the parent
+ * server scope — so events, ack, and replay declared at the top level are
+ * still visible inside the channel's handler ctx. The contract, however,
+ * starts empty: a channel's own incoming/outgoing/request/stream
+ * declarations are tracked separately.
+ */
 type ChannelState<TParentState extends ScopeStateShape> = ScopeState<
   'channel',
   TParentState['outgoing'],
@@ -41,12 +50,28 @@ type StateAfterOutgoing<
   TPayload,
 > = NextState<TState, OutgoingPrimitive<TEvent, TPayload>>;
 
+/**
+ * Extracts a narrow channel name from a channel pattern.
+ *
+ * For a static name like `'lobby'` the result is the literal `'lobby'`.
+ * For a dynamic pattern such as `scope('room/:id')`, channel names cannot be
+ * enumerated at compile time, so this widens to `string & {}` — any string
+ * is accepted but editor autocomplete still prefers known channel names.
+ */
 type ChannelNameFromPattern<TPattern> = TPattern extends ScopeDeclaration
   ? string & {}
   : TPattern extends string
     ? TPattern
     : never;
 
+/**
+ * The exported contract shape for a single channel scope.
+ *
+ * This is what the inferred client sees for this channel: its incoming,
+ * outgoing, requests, and streams. It intentionally omits infrastructure
+ * bits (ack, replay, channel names) because those live on the top-level
+ * contract, not per-channel.
+ */
 type ChannelContract<TChannelState extends ScopeStateShape> = {
   incoming: TChannelState['contract']['incoming'];
   outgoing: TChannelState['contract']['outgoing'];

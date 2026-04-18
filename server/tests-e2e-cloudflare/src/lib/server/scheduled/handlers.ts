@@ -5,6 +5,7 @@ import {
   CancelFilteredTask,
   ScheduleCleanup,
   ScheduleFilteredTasks,
+  ScheduleSendToConn,
   StartHeartbeat,
   TriggerAlwaysFail,
   TriggerDefaultRetryTask,
@@ -88,5 +89,20 @@ export const scheduledHandlers = withScheduled(base).group((g) =>
     )
     .incoming(TriggerAlwaysFail, (ctx) => {
       ctx.schedule('always-fail-task', { time: Date.now() + 100 });
+    })
+    .scheduled('send-to-conn-task', async (ctx, data: { connectionId: string; text: string }) => {
+      const delivered = ctx.sendToConnection(data.connectionId, 'schedule-send-to-conn-delivery', {
+        text: data.text,
+      });
+      ctx.broadcast('schedule-send-to-conn-status', {
+        connectionId: data.connectionId,
+        delivered,
+      });
+    })
+    .incoming(ScheduleSendToConn, (ctx, payload) => {
+      ctx.schedule('send-to-conn-task', {
+        time: Date.now() + 100,
+        data: { connectionId: payload.connectionId, text: payload.text },
+      });
     }),
 );

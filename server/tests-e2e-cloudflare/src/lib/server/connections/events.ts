@@ -68,3 +68,7 @@ export const BroadcastResult = event(
 );
 
 export const BroadcastBinaryAll = event('broadcast-binary-all', v.object({ size: v.number() }));
+export const BroadcastBinaryExcludeSelf = event(
+  'broadcast-binary-exclude-self',
+  v.object({ size: v.number() }),
+);

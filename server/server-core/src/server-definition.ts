@@ -2,36 +2,58 @@
 import type { Primitive } from '~/primitive.ts';
 
 /**
- * The full shape of the client-facing contract for a server.
+ * The client-facing contract for a server — described from the **client's**
+ * point of view.
  *
- * This describes every category of message that can flow between the server
- * and its clients. Each field is a record mapping event names to payload types
- * (or richer shapes for requests, streams, etc.).
+ * Each field is a record mapping event names to payload types (or richer
+ * shapes for requests and streams). `InferClient<typeof myServer>` reads this
+ * to produce the typed client SDK. Adapters (server-cloudflare, server-bun,
+ * etc.) also consume it so the handler and its adapter agree on one contract.
  *
- * `InferClient` reads this to produce the typed client API. Adapters
- * (server-cloudflare, server-bun, etc.) also use it so your handler and your
- * platform adapter agree on the same contract.
+ * **The naming is client-oriented, which is the opposite of what the server
+ * builder uses.** The table below is the one thing most users get wrong:
+ *
+ * | Server builder call | ServerContract field | Meaning for the client    |
+ * | ------------------- | -------------------- | ------------------------- |
+ * | `.outgoing(Msg)`    | `incoming`           | events the client receives|
+ * | `.incoming(Msg)`    | `outgoing`           | events the client sends   |
+ * | `.request(Req)`     | `requests`           | req/response pairs        |
+ * | `.stream(Stm)`      | `streams`            | server-sent streams       |
+ * | `.errors(...)`      | `errors`             | typed server errors       |
+ * | `.channel('x', …)`  | `channels`           | per-channel sub-contracts |
+ * | `.namespace('y', …)`| `namespaces`         | per-namespace sub-contracts|
+ *
+ * @example
+ * ```ts
+ * // Server side
+ * const chat = server('chat').outgoing(Message).incoming(Send).build();
+ *
+ * // Client side — ctx comes from the server perspective, client sees the flip
+ * type ChatClient = InferClient<typeof chat>;
+ * // ChatClient.incoming.message   ← server-sent events
+ * // ChatClient.outgoing.send      ← client-sent events
+ * ```
  */
 export interface ServerContract {
-  /** Events the server sends to clients (`outgoing()` from the server perspective). */
+  /** Events the **client** receives — declared on the server with `.outgoing(...)`. */
   readonly incoming: Record<string, any>;
 
-  /** Events clients send to the server (`incoming()` from the server perspective). */
+  /** Events the **client** sends — declared on the server with `.incoming(...)`. */
   readonly outgoing: Record<string, any>;
 
-  /** Request/response pairs initiated by the client. */
+  /** Request/response pairs the client can invoke (`.request(...)` on the server). */
   readonly requests: Record<string, any>;
 
-  /** Server-sent streams initiated by the client. */
+  /** Server-sent streams the client subscribes to (`.stream(...)` on the server). */
   readonly streams: Record<string, any>;
 
-  /** Named server errors that can be sent to the client. */
+  /** Named, typed server errors the client can catch. */
   readonly errors: Record<string, any>;
 
-  /** Channel scopes registered on this server. */
+  /** Per-channel sub-contracts. Each entry mirrors this shape for one channel. */
   readonly channels: Record<string, any>;
 
-  /** Namespace scopes registered on this server. */
+  /** Per-namespace sub-contracts. Each entry mirrors this shape for one namespace. */
   readonly namespaces: Record<string, any>;
 }
 

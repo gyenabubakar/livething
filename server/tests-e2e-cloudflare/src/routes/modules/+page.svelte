@@ -19,6 +19,10 @@
 	let generatedIdResult = $state('');
 	let lastStateResult = $state('');
 	let shutdownCountResult = $state('');
+	let rewriteResult = $state('');
+	let everyTickCount = $state(0);
+	let flakyResult = $state('');
+	let dlqResult = $state('');
 
 	function connect() {
 		if (ws) return;
@@ -92,6 +96,18 @@
 					break;
 				case 'shutdown-count':
 					shutdownCountResult = `shutdowns: ${payload.count}`;
+					break;
+				case 'module-rewrite-result':
+					rewriteResult = `text:${payload.text},rewritten:${payload.rewritten ?? false}`;
+					break;
+				case 'module-every-tick':
+					everyTickCount = Number(payload.count);
+					break;
+				case 'module-flaky-result':
+					flakyResult = `attempts:${payload.attempts}`;
+					break;
+				case 'module-dlq-result':
+					dlqResult = `${payload.taskId}:attempts=${payload.attempts}:${payload.error}`;
 					break;
 			}
 		};
@@ -204,6 +220,43 @@
 		<div data-testid="generated-id-result">{generatedIdResult}</div>
 		<div data-testid="last-state-result">{lastStateResult}</div>
 		<div data-testid="shutdown-count">{shutdownCountResult}</div>
+	</section>
+
+	<section>
+		<h2>Module onIncoming Rewrite</h2>
+		<button
+			data-testid="module-rewrite-btn"
+			onclick={() => send('module-rewrite-probe', { text: 'hello' })}
+			disabled={status !== 'connected'}>Send Rewrite Probe</button
+		>
+		<div data-testid="module-rewrite-result">{rewriteResult}</div>
+	</section>
+
+	<section>
+		<h2>Module Scheduled (every / retry / DLQ)</h2>
+		<button
+			data-testid="trigger-module-every-btn"
+			onclick={() => send('trigger-module-every', {})}
+			disabled={status !== 'connected'}>Trigger Every Tick</button
+		>
+		<button
+			data-testid="trigger-module-flaky-btn"
+			onclick={() => send('trigger-module-flaky', {})}
+			disabled={status !== 'connected'}>Trigger Flaky</button
+		>
+		<button
+			data-testid="trigger-module-always-fail-btn"
+			onclick={() => send('trigger-module-always-fail', {})}
+			disabled={status !== 'connected'}>Trigger Always Fail</button
+		>
+		<button
+			data-testid="trigger-module-query-dlq-btn"
+			onclick={() => send('trigger-module-query-dlq', {})}
+			disabled={status !== 'connected'}>Query Module DLQ</button
+		>
+		<div data-testid="module-every-count">{everyTickCount}</div>
+		<div data-testid="module-flaky-result">{flakyResult}</div>
+		<div data-testid="module-dlq-result">{dlqResult}</div>
 	</section>
 
 	<section>
