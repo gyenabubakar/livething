@@ -18,6 +18,10 @@ export interface ScheduledOptions<TData = unknown> {
   /**
    * Repeat interval in milliseconds. When set, the engine automatically
    * re-schedules the task after each successful run.
+   *
+   * Recurring schedules are independent of failure. If a fire fails, the
+   * failure is dead-lettered and the next tick still fires on schedule.
+   * Retries (if configured) run to exhaustion before the next recurring tick.
    */
   readonly every?: number;
 
@@ -30,6 +34,10 @@ export interface ScheduledOptions<TData = unknown> {
    * - `number[]` — custom backoff schedule in milliseconds. The array length
    *   determines the maximum number of retry attempts (e.g. `[50, 100]` means
    *   retry at most twice with 50 ms and 100 ms delays).
+   *
+   * Controls how a single failed fire is retried, not whether the recurring
+   * schedule continues. A recurring task with `retry: false` that always fails
+   * will keep firing on every `every` tick and dead-letter every fire.
    */
   readonly retry?: boolean | readonly number[];
 }

@@ -15,7 +15,11 @@ import type {
  * sequence number. You can configure snapshot mode, retention limits, and
  * durability.
  */
-export class ReplayBuilder<TParent, _TState extends ScopeStateShape> {
+export class ReplayBuilder<
+  TParent,
+  _TState extends ScopeStateShape,
+  _TMode extends ReplayType = 'history',
+> {
   /** @internal Reference to the parent builder for `_seal()`. */
   readonly _parent: TParent;
   /** @internal The parent builder's primitive array for `_seal()` to push into. */
@@ -69,8 +73,13 @@ export class ReplayBuilder<TParent, _TState extends ScopeStateShape> {
    * replay sends only the most recent snapshot for that key.
    *
    * If omitted, the event name is used as the key.
+   *
+   * Calling this method in history mode is a type error and throws at build time.
    */
-  snapshotKey(fn: (event: string, payload: Record<string, unknown>) => string): this {
+  snapshotKey(
+    this: ReplayBuilder<TParent, _TState, 'snapshot'>,
+    fn: (event: string, payload: Record<string, unknown>) => string,
+  ): ReplayBuilder<TParent, _TState, 'snapshot'> {
     this._options = { ...this._options, snapshotKey: fn };
     return this;
   }
@@ -79,19 +88,40 @@ export class ReplayBuilder<TParent, _TState extends ScopeStateShape> {
    * For `'snapshot'` replay mode only: merge consecutive snapshots instead of
    * replacing them. Receives the currently stored snapshot (or `null`) and the
    * incoming event. Return the value to store, or `null` to delete the snapshot.
+   *
+   * Calling this method in history mode is a type error and throws at build time.
    */
   reduce(
+    this: ReplayBuilder<TParent, _TState, 'snapshot'>,
     fn: (
       previous: ReplaySnapshotValue | null,
       next: ReplaySnapshotValue,
     ) => ReplaySnapshotValue | null,
-  ): this {
+  ): ReplayBuilder<TParent, _TState, 'snapshot'> {
     this._options = { ...this._options, reduce: fn };
     return this;
   }
 
+  /** @internal Throw if snapshot-only options are set without `'snapshot'` mode. */
+  private _guardSnapshotOnlyOptions(): void {
+    if ((this._options.type ?? 'history') === 'snapshot') return;
+
+    const offending = this._options.snapshotKey
+      ? 'snapshotKey'
+      : this._options.reduce
+        ? 'reduce'
+        : null;
+
+    if (!offending) return;
+
+    throw new Error(
+      `Replay: \`snapshotKey\` and \`reduce\` only apply when mode is 'snapshot'. Call \`.replay('snapshot', ...)\` instead of \`.replay(...)\` to enable these options, or remove them. (offending option: \`${offending}\`)`,
+    );
+  }
+
   /** @internal Seal the replay config and push it onto the parent's primitive list. */
   _seal(): void {
+    this._guardSnapshotOnlyOptions();
     this._parentPrimitives.push(createReplay(this._options) as unknown as Primitive);
   }
 
@@ -100,6 +130,7 @@ export class ReplayBuilder<TParent, _TState extends ScopeStateShape> {
    * pushing it onto the parent builder. Register it elsewhere with `.use()`.
    */
   extract(): ReplayPrimitive {
+    this._guardSnapshotOnlyOptions();
     return createReplay(this._options) as ReplayPrimitive;
   }
 }

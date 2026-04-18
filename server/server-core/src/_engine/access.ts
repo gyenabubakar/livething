@@ -12,6 +12,13 @@ import type * as ValidationTypes from '~/types.ts';
  * Built-in primitives can use this to attach lifecycle hooks, message-pipeline
  * transforms, scoped channel hooks, and context extensions without getting the
  * full engine instance directly.
+ *
+ * This interface is consumed by two audiences: (1) platform adapter authors
+ * (e.g. the Cloudflare Durable Object adapter), who use the lifecycle entry
+ * points, hook registration, and connection helpers; (2) built-in primitives
+ * (`replay`, `sequence`, `dedup`, etc.), which use the setup-time capability
+ * toggles. Adapter authors can ignore the toggle methods — they are marked
+ * `@internal` and used only during primitive __setup.
  */
 export interface EngineAccess {
   /**
@@ -19,6 +26,8 @@ export interface EngineAccess {
    *
    * Use this when many instances of the same primitive may appear, but the
    * runtime behavior should only be wired into the engine a single time.
+   *
+   * @internal
    */
   installOnce(key: symbol, install: () => void): void;
 
@@ -209,6 +218,8 @@ export interface EngineAccess {
    *
    * Adapters can then ask the engine for that decision instead of inspecting
    * primitive instances directly.
+   *
+   * @internal
    */
   setHibernationEnabled(enabled: boolean): void;
 
@@ -216,6 +227,8 @@ export interface EngineAccess {
    * Tell the engine that automatic replay is enabled for this handler.
    *
    * The engine uses this only for internal startup validation.
+   *
+   * @internal
    */
   setReplayEnabled(enabled: boolean): void;
 
@@ -224,6 +237,8 @@ export interface EngineAccess {
    *
    * This lets startup validation ensure replay is paired with durable
    * sequence tracking.
+   *
+   * @internal
    */
   setSequencePersistent(enabled: boolean): void;
 
@@ -234,6 +249,8 @@ export interface EngineAccess {
    * values per connection and silently drops any incoming frame whose
    * `_messageId` is already in the window. Used by `dedup()` to protect
    * handlers from duplicate client sends (retries, flaky networks).
+   *
+   * @internal
    */
   enableIncomingDedup(cap: number): void;
 

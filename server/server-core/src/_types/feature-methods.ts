@@ -175,13 +175,18 @@ type InterceptMethod<TBuilder, TState extends ScopeStateShape> = ((
     ) => TPayload | void | Promise<TPayload | void>,
   ) => TBuilder);
 
-type ReplayMethod<TBuilder, TState extends ScopeStateShape> = ((
-  type?: ReplayType,
-) => ReplayBuilder<TBuilder, TState>) &
-  ((callback: (builder: ReplayBuilder<TBuilder, TState>) => ReplayBuilder<any, any>) => TBuilder) &
+type ReplayMethod<TBuilder, TState extends ScopeStateShape> = (() => ReplayBuilder<
+  TBuilder,
+  TState,
+  'history'
+>) &
+  (<M extends ReplayType>(type: M) => ReplayBuilder<TBuilder, TState, M>) &
   ((
-    type: ReplayType,
-    callback: (builder: ReplayBuilder<TBuilder, TState>) => ReplayBuilder<any, any>,
+    callback: (builder: ReplayBuilder<TBuilder, TState, 'history'>) => ReplayBuilder<any, any, any>,
+  ) => TBuilder) &
+  (<M extends ReplayType>(
+    type: M,
+    callback: (builder: ReplayBuilder<TBuilder, TState, M>) => ReplayBuilder<any, any, any>,
   ) => TBuilder);
 
 type ReplayCustomMethod<

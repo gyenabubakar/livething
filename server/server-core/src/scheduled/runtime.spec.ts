@@ -393,6 +393,54 @@ describe('scheduled/runtime', () => {
     now.mockRestore();
   });
 
+  it('recurring task with retry:false dead-letters every fire and re-queues the next tick', async () => {
+    const handler = vi
+      .fn<(_: unknown, __: unknown) => Promise<void>>()
+      .mockRejectedValue(new Error('always fails'));
+    const { runtime, scheduledRuns, deadLetters } = createScheduledRuntime([
+      { taskId: 'tick', handler, options: { every: 100, retry: false } },
+    ]);
+    const now = vi.spyOn(Date, 'now');
+
+    now.mockReturnValue(0);
+    bootstrapScheduledRuntime(runtime);
+
+    // Bootstrap seeds a recurring run at 100.
+    let recurring = [...scheduledRuns.values()].find((r) => r.recurring);
+    expect(recurring).toBeDefined();
+
+    // Fire 1.
+    now.mockReturnValue(100);
+    await handleScheduledAlarm(runtime);
+    expect(deadLetters.size).toBe(1);
+
+    recurring = [...scheduledRuns.values()].find((r) => r.recurring);
+    expect(recurring).toBeDefined();
+    expect(recurring?.time).toBe(200);
+
+    // Fire 2.
+    now.mockReturnValue(200);
+    await handleScheduledAlarm(runtime);
+    expect(deadLetters.size).toBe(2);
+
+    recurring = [...scheduledRuns.values()].find((r) => r.recurring);
+    expect(recurring).toBeDefined();
+    expect(recurring?.time).toBe(300);
+
+    // Fire 3.
+    now.mockReturnValue(300);
+    await handleScheduledAlarm(runtime);
+    expect(deadLetters.size).toBe(3);
+
+    recurring = [...scheduledRuns.values()].find((r) => r.recurring);
+    expect(recurring).toBeDefined();
+    expect(recurring?.time).toBe(400);
+
+    expect(handler).toHaveBeenCalledTimes(3);
+
+    now.mockRestore();
+  });
+
   it('round-trips custom backoff through serialization', () => {
     const { runtime, scheduledRuns, storageRows } = createScheduledRuntime([
       { taskId: 'ser', options: { retry: [100, 200] } },

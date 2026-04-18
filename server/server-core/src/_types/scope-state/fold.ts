@@ -49,6 +49,7 @@ type AnyIntercept = InterceptPrimitive<string, any, any>;
 //
 // The builder's fluent API produces a tuple of primitives:
 //
+//   // (assume `withAck` has been applied to enable `.ack()`)
 //   server('chat')
 //     .ack()
 //     .outgoing(event('typing', v.object({ roomId: v.string() })))

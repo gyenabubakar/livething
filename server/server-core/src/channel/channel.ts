@@ -49,6 +49,26 @@ type ChannelStatePrimitive =
 /**
  * A named dynamic channel pattern used in `scope()`.
  * Groups many matching subscription paths under one channel family.
+ *
+ * @example
+ * ```ts
+ * import { server, scope } from '@wskit/server';
+ * import { withChannels } from '@wskit/server/channels';
+ *
+ * // Declare a channel family that matches `room:<anything>` subscriptions.
+ * // The `key` ('rooms') is what you use everywhere except the wire.
+ * withChannels(server('app')).channel(scope('rooms', /^room:.+$/), (ch) =>
+ *   ch.onSubscribe((ctx) => {
+ *     // On the wire, subscribe frames carry `_channelScope: 'rooms'`.
+ *     // Inside a handler, the scope key is exposed as `ctx.channel.scope`.
+ *     console.log(ctx.channel.scope); // → 'rooms'
+ *     console.log(ctx.channel.name);  // → e.g. 'room:alpha-42' (the actual match)
+ *
+ *     // List every connection subscribed to any channel in this family:
+ *     const members = ctx.channels.members('rooms');
+ *   }),
+ * );
+ * ```
  */
 export interface ScopeDeclaration<TKey extends string = string> {
   /** Identifier for this channel family. Used with `ctx.channels.members(key)`. */

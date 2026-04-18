@@ -21,6 +21,7 @@ import type { EventContract } from '~/event.ts';
 import type { IncomingPrimitive } from '~/incoming/incoming.ts';
 import type { OutgoingPrimitive } from '~/outgoing/outgoing.ts';
 import type { Primitive } from '~/primitive.ts';
+import type { Validator } from '~/types.ts';
 
 /**
  * The running type state for one `channel(...)` scope.
@@ -146,11 +147,41 @@ export class ChannelBuilder<
     return this as any;
   }
 
-  /** Run a check before a client joins — throw to reject the subscription. */
-  onBeforeSubscribe(
-    handler: (ctx: HandlerCtxFromState<TState>, data?: unknown) => void | Promise<void>,
+  /**
+   * Run a check before a client joins — throw to reject the subscription.
+   *
+   * Optionally pass `options.validator` (any Standard Schema library such as
+   * Valibot, Zod, or a plain function) to validate the `data` payload the
+   * client sent with its subscribe request. When validation fails, the
+   * subscribe is rejected and the engine routes the failure through
+   * `onValidationError`.
+   *
+   * @example
+   * ```ts
+   * import * as v from 'valibot';
+   * import { server } from '@wskit/server';
+   * import { withChannels } from '@wskit/server/channels';
+   * import { Block, error } from '@wskit/server/errors';
+   *
+   * const Forbidden = error('forbidden');
+   *
+   * withChannels(server('chat'))
+   *   .channel('private-room', (ch) =>
+   *     ch.onBeforeSubscribe(
+   *       async (ctx, data) => {
+   *         if (data.token !== ctx.meta.token) throw Block(Forbidden());
+   *       },
+   *       { validator: v.object({ token: v.string() }) },
+   *     ),
+   *   )
+   *   .build();
+   * ```
+   */
+  onBeforeSubscribe<TData = unknown>(
+    handler: (ctx: HandlerCtxFromState<TState>, data?: TData) => void | Promise<void>,
+    options?: { validator?: Validator<TData> },
   ): this {
-    this._primitives.push(createOnBeforeSubscribe(handler as any) as unknown as Primitive);
+    this._primitives.push(createOnBeforeSubscribe(handler as any, options) as unknown as Primitive);
     return this;
   }
 

@@ -397,6 +397,65 @@ export function pruneReplayScopeRows(
 /**
  * Load replay rows for the active scope after the client's last seen seq.
  */
+/**
+ * Build the SQL string and bound params for one `loadReplayRows` call.
+ * Branches based on whether the scope targets a specific channel/family or the
+ * unscoped top-level replay log.
+ */
+function buildLoadReplayQuery(
+  since: number,
+  scope: { channelName?: string; channelScope?: string },
+): { sql: string; params: unknown[] } {
+  if (scope.channelName || scope.channelScope) {
+    const isStaticChannel = scope.channelScope === scope.channelName;
+    const effectiveScope = isStaticChannel ? null : (scope.channelScope ?? null);
+    return {
+      sql: `
+        SELECT
+          rowKey,
+          messageId,
+          seq,
+          event,
+          payload,
+          namespace,
+          channel,
+          channelScope,
+          snapshotKey,
+          createdAt
+        FROM _wskit_replay
+        WHERE channel IS ?
+          AND channelScope IS ?
+          AND seq > ?
+        ORDER BY seq ASC
+      `,
+      params: [scope.channelName ?? null, effectiveScope, since],
+    };
+  }
+
+  return {
+    sql: `
+      SELECT
+        rowKey,
+        messageId,
+        seq,
+        event,
+        payload,
+        namespace,
+        channel,
+        channelScope,
+        snapshotKey,
+        createdAt
+      FROM _wskit_replay
+      WHERE namespace IS NULL
+        AND channel IS NULL
+        AND channelScope IS NULL
+        AND seq > ?
+      ORDER BY seq ASC
+    `,
+    params: [since],
+  };
+}
+
 export function loadReplayRows(
   sql: {
     exec(query: string, ...params: unknown[]): { toArray(): Record<string, unknown>[] };
@@ -404,55 +463,8 @@ export function loadReplayRows(
   since: number,
   scope: { channelName?: string; channelScope?: string },
 ): ReplayRow[] {
-  const isStaticChannel = scope.channelScope === scope.channelName;
-  const effectiveScope = isStaticChannel ? null : (scope.channelScope ?? null);
-  const rows =
-    scope.channelName || scope.channelScope
-      ? sql.exec(
-          `
-            SELECT
-              rowKey,
-              messageId,
-              seq,
-              event,
-              payload,
-              namespace,
-              channel,
-              channelScope,
-              snapshotKey,
-              createdAt
-            FROM _wskit_replay
-            WHERE channel IS ?
-              AND channelScope IS ?
-              AND seq > ?
-            ORDER BY seq ASC
-          `,
-          scope.channelName ?? null,
-          effectiveScope,
-          since,
-        )
-      : sql.exec(
-          `
-            SELECT
-              rowKey,
-              messageId,
-              seq,
-              event,
-              payload,
-              namespace,
-              channel,
-              channelScope,
-              snapshotKey,
-              createdAt
-            FROM _wskit_replay
-            WHERE namespace IS NULL
-              AND channel IS NULL
-              AND channelScope IS NULL
-              AND seq > ?
-            ORDER BY seq ASC
-          `,
-          since,
-        );
+  const query = buildLoadReplayQuery(since, scope);
+  const rows = sql.exec(query.sql, ...query.params);
 
   return rows.toArray().map((row) => ({
     rowKey: String(row.rowKey),

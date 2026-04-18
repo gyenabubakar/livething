@@ -263,6 +263,7 @@ export function acceptConnection(
   }
 
   const ctx = runtime.buildConnectionContext(connection);
+  // lifecycleReady swallows handler errors into handleRuntimeError; if handleRuntimeError itself throws, the rejection is unhandled — acceptable because that path is fatal anyway.
   connection.lifecycleReady = runtime
     .runConnectionLifecycle('connect', ctx)
     .catch((error) => runtime.handleRuntimeError(connection, error, undefined));

@@ -110,7 +110,7 @@ export interface ModuleConfig<
 }
 
 /**
- * One registered module instance inside a `defineServer(...)` call.
+ * One registered module instance mounted onto a server builder via `.use(...)`.
  *
  * This is what the module factory function returns.
  */
@@ -134,7 +134,7 @@ export interface ModuleInstance<
  * The return type of `defineModule`.
  *
  * It is both a factory function and a `PrimitiveRef`:
- * - Call it with args to create a module instance for `defineServer`
+ * - Call it with args to create a module instance to pass into `server(...).use(...)`
  * - Use `.use(ctx)` inside handlers to access the module's API
  * - Reference it in `dependencies: [myModule]` to declare a dependency
  */
@@ -184,6 +184,14 @@ function isModuleId(value: string): boolean {
  * lifecycle events, register scheduled tasks, and expose a per-connection
  * API.
  *
+ * Events declared by a module are namespaced internally using the module's
+ * id: an event the module sends as `'flushed'` goes onto the wire as
+ * `'__acme:analytics:flushed'`. The prefix prevents collisions with
+ * user-registered events and with events from other modules. User code that
+ * subscribes to these events directly (for example in a custom client
+ * outside wskit's typed clients) sees the prefixed name on the wire — only
+ * code reaching events through the module's own API sees the short form.
+ *
  * ```ts
  * const ANALYTICS_KEY = Symbol('analytics');
  *
@@ -198,8 +206,8 @@ function isModuleId(value: string): boolean {
  *   },
  * });
  *
- * // In defineServer:
- * defineServer(analytics({ trackingId: '...' }), ...)
+ * // Mount onto a server builder:
+ * server('app').use(analytics({ trackingId: '...' }));
  *
  * // In handlers:
  * const tracker = analytics.use(ctx);

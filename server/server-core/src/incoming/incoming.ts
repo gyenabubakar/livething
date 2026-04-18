@@ -55,7 +55,10 @@ const INCOMING_KEY = Symbol('incoming');
  *
  * @example
  * ```ts
- * const SendMessage = event('send-message', z.object({ text: z.string() }));
+ * import { server, event } from '@wskit/server';
+ * import * as v from 'valibot';
+ *
+ * const SendMessage = event('send-message', v.object({ text: v.string() }));
  *
  * server('chat').incoming(SendMessage, async (ctx, payload) => {
  *   await saveMessage(payload.text);

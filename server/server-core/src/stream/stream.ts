@@ -17,14 +17,71 @@ export interface NudgeDeclaration<TEvent extends string = string, TPayload = unk
   readonly validator?: Validator<TPayload>;
 }
 
-/** Overload: declare a nudge without a payload validator. */
+/**
+ * Declare a nudge event for a stream. A nudge is a message the client can send
+ * while the stream is active to influence its output (e.g. "pause", "filter by
+ * category").
+ *
+ * The generator receives nudges as the value of each `yield` expression via
+ * the `TNext` type parameter.
+ *
+ * @param event     The event name the client sends to nudge.
+ * @param validator Optional schema validator for the nudge payload.
+ *
+ * @example
+ * ```ts
+ * import { nudge } from '@wskit/server/streams';
+ * import * as v from 'valibot';
+ *
+ * s.nudge(nudge('pause'))
+ * s.nudge(nudge('speed-up', v.object({ factor: v.number() })))
+ * ```
+ */
 export function nudge<TEvent extends string>(event: TEvent): NudgeDeclaration<TEvent, unknown>;
-/** Overload: declare a nudge with a plain function validator. */
+/**
+ * Declare a nudge event for a stream. A nudge is a message the client can send
+ * while the stream is active to influence its output (e.g. "pause", "filter by
+ * category").
+ *
+ * The generator receives nudges as the value of each `yield` expression via
+ * the `TNext` type parameter.
+ *
+ * @param event     The event name the client sends to nudge.
+ * @param validator Optional schema validator for the nudge payload.
+ *
+ * @example
+ * ```ts
+ * import { nudge } from '@wskit/server/streams';
+ * import * as v from 'valibot';
+ *
+ * s.nudge(nudge('pause'))
+ * s.nudge(nudge('speed-up', v.object({ factor: v.number() })))
+ * ```
+ */
 export function nudge<TEvent extends string, TPayload>(
   event: TEvent,
   validator: (value: unknown) => TPayload,
 ): NudgeDeclaration<TEvent, TPayload>;
-/** Overload: declare a nudge with a Standard Schema validator. */
+/**
+ * Declare a nudge event for a stream. A nudge is a message the client can send
+ * while the stream is active to influence its output (e.g. "pause", "filter by
+ * category").
+ *
+ * The generator receives nudges as the value of each `yield` expression via
+ * the `TNext` type parameter.
+ *
+ * @param event     The event name the client sends to nudge.
+ * @param validator Optional schema validator for the nudge payload.
+ *
+ * @example
+ * ```ts
+ * import { nudge } from '@wskit/server/streams';
+ * import * as v from 'valibot';
+ *
+ * s.nudge(nudge('pause'))
+ * s.nudge(nudge('speed-up', v.object({ factor: v.number() })))
+ * ```
+ */
 export function nudge<TEvent extends string, TSchema extends StandardSchemaV1>(
   event: TEvent,
   validator: TSchema,
@@ -237,19 +294,40 @@ export function generate<TBaseCtx, TStream extends StreamPrimitive, TNext = any>
   };
 }
 
-/** Overload: declare a trigger event without a payload validator. */
+/**
+ * Create a `StreamStartDeclaration` — a plain object that captures the trigger
+ * event name, an optional payload validator, and the broadcast flag.
+ *
+ * This is a convenience factory used by `StreamBuilder` internally. You do not
+ * need to call it when using the builder API — it is exposed for advanced use
+ * cases where you build streams from lower-level primitives.
+ */
 export function start<TEvent extends string>(
   name: TEvent,
   validator?: undefined,
   options?: { broadcast?: boolean },
 ): StreamStartDeclaration<TEvent, unknown>;
-/** Overload: declare a trigger event with a plain function validator. */
+/**
+ * Create a `StreamStartDeclaration` — a plain object that captures the trigger
+ * event name, an optional payload validator, and the broadcast flag.
+ *
+ * This is a convenience factory used by `StreamBuilder` internally. You do not
+ * need to call it when using the builder API — it is exposed for advanced use
+ * cases where you build streams from lower-level primitives.
+ */
 export function start<TEvent extends string, TPayload>(
   name: TEvent,
   validator: (value: unknown) => TPayload,
   options?: { broadcast?: boolean },
 ): StreamStartDeclaration<TEvent, TPayload>;
-/** Overload: declare a trigger event with a Standard Schema validator. */
+/**
+ * Create a `StreamStartDeclaration` — a plain object that captures the trigger
+ * event name, an optional payload validator, and the broadcast flag.
+ *
+ * This is a convenience factory used by `StreamBuilder` internally. You do not
+ * need to call it when using the builder API — it is exposed for advanced use
+ * cases where you build streams from lower-level primitives.
+ */
 export function start<TEvent extends string, TSchema extends StandardSchemaV1>(
   name: TEvent,
   validator: TSchema,

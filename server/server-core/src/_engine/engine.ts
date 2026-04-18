@@ -1,6 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import * as EngineCompile from '~/_engine/compile/compile.ts';
 import * as EngineContexts from '~/_engine/contexts/contexts.ts';
+import * as EngineDeps from '~/_engine/engine.deps.ts';
 import * as EngineConnectionRuntime from '~/_engine/runtime/connection.ts';
 import * as EngineMessageRuntime from '~/_engine/runtime/messages.ts';
 import * as ErrorsPrimitive from '~/errors/runtime.ts';
@@ -10,7 +11,6 @@ import { SCHEDULED_RUNTIME_KEY } from '~/scheduled/scheduled.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type * as EngineAccessModule from '~/_engine/access.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
-import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as PublicApi from '~/context.ts';
 import type * as DefineModule from '~/modules/define.ts';
@@ -77,25 +77,32 @@ function createRegisteredHooks(): EngineRuntimeTypes.RegisteredEngineHooks {
 export class Engine {
   private readonly options: EngineAdapterTypes.EngineOptions;
   private readonly primitives: readonly PrimitiveCore.Primitive[];
-  private readonly compiled: EngineCompileTypes.CompiledServer;
-  private readonly hooks = createRegisteredHooks();
+  /** @internal */
+  readonly compiled: EngineCompileTypes.CompiledServer;
+  /** @internal */
+  readonly hooks = createRegisteredHooks();
   private storage?: PublicApi.StorageProvider;
-  private env: Record<string, unknown> = {};
-  private timers?: PublicApi.TimerProvider;
-  private platform: unknown = {};
-  private waitUntilImpl: (promise: Promise<unknown>) => void = () => {};
+  /** @internal */
+  env: Record<string, unknown> = {};
+  /** @internal */
+  timers?: PublicApi.TimerProvider;
+  /** @internal */
+  platform: unknown = {};
+  /** @internal */
+  waitUntilImpl: (promise: Promise<unknown>) => void = () => {};
   private hasWaitUntil = false;
   private hibernationEnabled = false;
   private replayEnabled = false;
   private sequencePersistent = false;
-  private incomingDedupCap = 0;
+  /** @internal */
+  incomingDedupCap = 0;
   private readonly declaredErrorCodes = new Set<string>([
     'validation-failed',
     'defer-exhausted',
     'channel-not-found',
   ]);
-  /** Default logger used when the adapter does not provide a custom one. */
-  private readonly logger = {
+  /** Default logger used when the adapter does not provide a custom one. @internal */
+  readonly logger = {
     info(message: string, data?: unknown) {
       console.log(message, data ?? {});
     },
@@ -107,16 +114,21 @@ export class Engine {
     },
   };
 
-  private readonly connections = new Map<string, RuntimeConnection>();
-  private readonly wsToConnectionId = new Map<unknown, string>();
-  private readonly activeStreams = new Map<string, EngineRuntimeTypes.ActiveStream>();
+  /** @internal */
+  readonly connections = new Map<string, RuntimeConnection>();
+  /** @internal */
+  readonly wsToConnectionId = new Map<unknown, string>();
+  /** @internal */
+  readonly activeStreams = new Map<string, EngineRuntimeTypes.ActiveStream>();
   private readonly scheduledRuns = new Map<string, ScheduledPrimitiveTypes.ScheduledRun>();
   private readonly scheduledDlq = new Map<string, ScheduledPrimitiveTypes.ScheduledDeadLetter>();
   private readonly installedFeatures = new Set<symbol>();
   private alarmHandle: unknown = null;
   private idCounter = 0;
-  private readonly moduleRuntimes: EngineRuntimeTypes.ModuleRuntime[] = [];
-  private activeConnectionId?: string;
+  /** @internal */
+  readonly moduleRuntimes: EngineRuntimeTypes.ModuleRuntime[] = [];
+  /** @internal */
+  activeConnectionId?: string;
   private initialized = false;
 
   // ─────── Section: connection state / identity ───────
@@ -171,8 +183,9 @@ export class Engine {
 
   /**
    * Read storage or fail with an adapter-specific setup error.
+   * @internal
    */
-  private requireStorage(): PublicApi.StorageProvider {
+  requireStorage(): PublicApi.StorageProvider {
     if (!this.storage) {
       throw new Error(`[wskit] storage not provided by adapter "${this.options.adapterId}".`);
     }
@@ -181,8 +194,9 @@ export class Engine {
 
   /**
    * Read timers or fail with an adapter-specific setup error.
+   * @internal
    */
-  private requireTimers(): PublicApi.TimerProvider {
+  requireTimers(): PublicApi.TimerProvider {
     if (!this.timers) {
       throw new Error(`[wskit] timers not provided by adapter "${this.options.adapterId}".`);
     }
@@ -549,7 +563,7 @@ export class Engine {
   private createShutdownContext() {
     return EngineContexts.createShutdownContext({
       connections: this.connections,
-      ...this.commonDeps(),
+      ...EngineDeps.commonDeps(this),
     });
   }
 
@@ -559,7 +573,7 @@ export class Engine {
   private createTaskContext() {
     return EngineContexts.createTaskContext({
       connections: this.connections,
-      ...this.commonDeps(),
+      ...EngineDeps.commonDeps(this),
     });
   }
 
@@ -569,7 +583,8 @@ export class Engine {
    * When a handler runs inside a namespace or channel, the matching scoped APIs
    * are attached to the returned context.
    */
-  private buildConnectionContext(
+  /** @internal */
+  buildConnectionContext(
     connection: RuntimeConnection,
     scope?: { namespace?: CompiledNamespace; channel?: CompiledChannel },
   ) {
@@ -577,47 +592,11 @@ export class Engine {
       {
         compiled: this.compiled,
         connections: this.connections,
-        ...this.commonDeps(),
+        ...EngineDeps.commonDeps(this),
       },
       connection,
       scope,
     );
-  }
-
-  private commonDeps(): EngineContextTypes.ContextCommonDeps {
-    return {
-      env: this.env,
-      logger: this.logger,
-      platform: this.platform,
-      waitUntilImpl: this.waitUntilImpl,
-      requireStorage: () => this.requireStorage(),
-      requireTimers: () => this.requireTimers(),
-      scheduleTask: (taskId, time, data) => this.scheduleTask(taskId, time, data),
-      cancelScheduled: (taskId, filter) => this.cancelScheduled(taskId, filter),
-      broadcastToConnections: (connections, event, payload, options, excludeConnectionId) => {
-        this.broadcastToConnections(connections, event, payload, options, excludeConnectionId);
-      },
-      sendThroughPipeline: (connection, routing, event, payload) => {
-        return this.sendThroughPipeline(connection, routing, event, payload);
-      },
-      broadcastToChannel: (channelName, event, payload, excludeConnectionId, channelScope) => {
-        this.broadcastToChannel(channelName, event, payload, excludeConnectionId, channelScope);
-      },
-      getChannelMembers: (channelName) => this.getChannelMembers(channelName),
-      kickChannelMembers: (channelName, tag, reason) => {
-        this.kickChannelMembers(channelName, tag, reason);
-      },
-      sendReplay: (connection, channelName, channelScope, event, payload, wire) => {
-        this.sendReplay(connection, channelName, channelScope, event, payload, wire);
-      },
-      sendProtocolMessage: (connection, event, payload) => {
-        this.sendProtocolMessage(connection, event, payload);
-      },
-      persistAttachment: (connection) => this.persistAttachment(connection),
-      toConnectionInfo: (connection) => this.toConnectionInfo(connection),
-      attachModuleApis: (ctx, connection) => this.attachModuleApis(ctx, connection),
-      contextExtenders: this.hooks.contextExtenders,
-    };
   }
 
   /**
@@ -630,19 +609,18 @@ export class Engine {
 
   /**
    * Attach every installed module API object to one context.
+   * @internal
    */
-  private attachModuleApis(
-    ctx: Record<PropertyKey, unknown>,
-    connection?: RuntimeConnection,
-  ): void {
+  attachModuleApis(ctx: Record<PropertyKey, unknown>, connection?: RuntimeConnection): void {
     EngineContexts.attachModuleApis(this.moduleRuntimes, ctx, connection);
   }
 
   /**
    * Send an internal protocol message without any outgoing validation or
    * decoration.
+   * @internal
    */
-  private sendProtocolMessage(
+  sendProtocolMessage(
     connection: RuntimeConnection,
     event: string,
     payload: Record<string, unknown>,
@@ -652,8 +630,9 @@ export class Engine {
 
   /**
    * Send a replay entry with its stored wire metadata restored.
+   * @internal
    */
-  private sendReplay(
+  sendReplay(
     connection: RuntimeConnection,
     channelName: string | undefined,
     channelScope: string | undefined,
@@ -680,204 +659,28 @@ export class Engine {
   /**
    * Convert live connection state into the public info shape used by hooks and
    * module helpers.
+   * @internal
    */
-  private toConnectionInfo(connection: RuntimeConnection) {
+  toConnectionInfo(connection: RuntimeConnection) {
     return EngineContexts.toConnectionInfo(connection);
   }
 
   /**
    * Ask the adapter to serialize connection attachment data when supported.
+   * @internal
    */
-  private persistAttachment(connection: RuntimeConnection): void {
+  persistAttachment(connection: RuntimeConnection): void {
     EngineContexts.persistAttachment(connection);
   }
 
   /**
    * Generate a simple monotonically increasing id for engine-owned runtime
    * objects such as connections, messages, streams, and scheduled runs.
+   * @internal
    */
-  private generateId(prefix = 'id'): string {
+  generateId(prefix = 'id'): string {
     this.idCounter += 1;
     return `${prefix}_${this.idCounter}`;
-  }
-
-  // ─────── Section: runtime accessors ───────
-
-  /**
-   * Build the dependency bag used by helpers that only care about outgoing
-   * message processing.
-   */
-  private outgoingRuntime() {
-    return {
-      compiled: this.compiled,
-      moduleRuntimes: this.moduleRuntimes,
-      outgoingHooks: this.hooks.outgoing,
-      beforeSendHooks: this.hooks.beforeSend,
-      afterSendHooks: this.hooks.afterSend,
-      waitUntil: (promise: Promise<unknown>) => this.waitUntilImpl(promise),
-      logger: this.logger,
-      generateId: (prefix?: string) => this.generateId(prefix),
-      activityHooks: this.hooks.activity,
-    };
-  }
-
-  /**
-   * Build the dependency bag used by helpers that also need live connection and
-   * channel membership data.
-   */
-  private memberRuntime() {
-    return {
-      ...this.outgoingRuntime(),
-      connections: this.connections,
-      toConnectionInfo: (connection: RuntimeConnection) => this.toConnectionInfo(connection),
-      sendThroughPipeline: (
-        connection: RuntimeConnection,
-        routing: RoutingTarget | undefined,
-        event: string,
-        payload: unknown,
-      ) => this.sendThroughPipeline(connection, routing, event, payload),
-    };
-  }
-
-  /**
-   * Build the dependency bag used by channel subscribe and unsubscribe helpers.
-   */
-  private channelRuntime() {
-    return {
-      ...this.memberRuntime(),
-      beforeSubscribeHooks: this.hooks.beforeSubscribe,
-      subscribeHooks: this.hooks.subscribe,
-      unsubscribeHooks: this.hooks.unsubscribe,
-      broadcastToChannel: (
-        channelName: string,
-        event: string,
-        payload: unknown,
-        excludeConnectionId?: string,
-        channelScope?: string,
-      ) => {
-        EngineMessageRuntime.broadcastToChannel(
-          this.dispatchRuntime(),
-          channelName,
-          event,
-          payload,
-          excludeConnectionId,
-          channelScope,
-        );
-      },
-      buildConnectionContext: (connection: RuntimeConnection, scope?: ResolvedScope) => {
-        return this.buildConnectionContext(connection, scope);
-      },
-      persistAttachment: (connection: RuntimeConnection) => this.persistAttachment(connection),
-      sendProtocolMessage: (
-        connection: RuntimeConnection,
-        event: string,
-        payload: Record<string, unknown>,
-      ) => this.sendProtocolMessage(connection, event, payload),
-      handleValidationError: (
-        connection: RuntimeConnection,
-        event: string,
-        validationError: unknown,
-        scope?: ResolvedScope,
-      ) => this.handleValidationError(connection, event, validationError, scope),
-    };
-  }
-
-  /**
-   * Build the dependency bag used by inbound text-message dispatch.
-   */
-  private dispatchRuntime() {
-    return {
-      ...this.memberRuntime(),
-      logger: this.logger,
-      activeStreams: this.activeStreams,
-      protocolHandlers: this.hooks.protocol,
-      incomingHooks: this.hooks.incoming,
-      errorHooks: this.hooks.error,
-      incomingDedupCap: this.incomingDedupCap,
-      requireTimers: () => this.requireTimers(),
-      buildConnectionContext: (connection: RuntimeConnection, scope?: ResolvedScope) => {
-        return this.buildConnectionContext(connection, scope);
-      },
-      sendProtocolMessage: (
-        connection: RuntimeConnection,
-        event: string,
-        payload: Record<string, unknown>,
-      ) => this.sendProtocolMessage(connection, event, payload),
-      sendReplay: (
-        connection: RuntimeConnection,
-        channelName: string | undefined,
-        channelScope: string | undefined,
-        event: string,
-        payload: unknown,
-        wire: { seq: number; messageId: string; channel?: string },
-      ) => this.sendReplay(connection, channelName, channelScope, event, payload, wire),
-      persistAttachment: (connection: RuntimeConnection) => this.persistAttachment(connection),
-      setActiveConnectionId: (value?: string) => {
-        this.activeConnectionId = value;
-      },
-      handleRuntimeError: (
-        connection: RuntimeConnection,
-        error: unknown,
-        event?: string,
-        routing?: Record<string, unknown>,
-      ) => this.handleRuntimeError(connection, error, event, routing),
-      handleValidationError: (
-        connection: RuntimeConnection,
-        event: string,
-        validationError: unknown,
-        scope?: ResolvedScope,
-      ) => this.handleValidationError(connection, event, validationError, scope),
-      broadcastToConnections: (
-        connections: readonly RuntimeConnection[],
-        event: string,
-        payload: unknown,
-        options?: { namespace?: string; channel?: string; excludeSelf?: boolean },
-        excludeConnectionId?: string,
-      ) => this.broadcastToConnections(connections, event, payload, options, excludeConnectionId),
-      handleSubscribe: (
-        connection: RuntimeConnection,
-        payload: Record<string, unknown> | undefined,
-      ) => this.handleSubscribe(connection, payload),
-      handleUnsubscribe: (
-        connection: RuntimeConnection,
-        payload: Record<string, unknown> | undefined,
-      ) => this.handleUnsubscribe(connection, payload),
-    };
-  }
-
-  /**
-   * Build the dependency bag used by connection accept, wake, and close logic.
-   */
-  private connectionRuntime() {
-    return {
-      compiled: this.compiled,
-      timers: this.timers,
-      connections: this.connections,
-      wsToConnectionId: this.wsToConnectionId,
-      generateId: (prefix?: string) => this.generateId(prefix),
-      persistAttachment: (connection: RuntimeConnection) => this.persistAttachment(connection),
-      buildConnectionContext: (connection: RuntimeConnection, scope?: ResolvedScope) => {
-        return this.buildConnectionContext(connection, scope);
-      },
-      runConnectionLifecycle: (
-        kind: 'connect' | 'disconnect',
-        ctx: Record<PropertyKey, unknown>,
-      ) => {
-        return this.runConnectionLifecycle(kind, ctx);
-      },
-      processTextMessage: (connection: RuntimeConnection, data: string) => {
-        return this.processTextMessage(connection, data);
-      },
-      handleBinaryMessage: (connection: RuntimeConnection, data: ArrayBuffer) => {
-        return this.handleBinaryMessage(connection, data);
-      },
-      handleConnectionClose: (connection: RuntimeConnection, code: number, reason: string) => {
-        return this.handleConnectionClose(connection, code, reason);
-      },
-      handleRuntimeError: (connection: RuntimeConnection, error: unknown, event?: string) => {
-        return this.handleRuntimeError(connection, error, event);
-      },
-    };
   }
 
   // ─────── Section: adapter entry points ───────
@@ -887,7 +690,11 @@ export class Engine {
    * to drive it.
    */
   accept(wsKey: unknown, descriptor: ConnectionDescriptor): ConnectionHandle {
-    return EngineConnectionRuntime.acceptConnection(this.connectionRuntime(), wsKey, descriptor);
+    return EngineConnectionRuntime.acceptConnection(
+      EngineDeps.connectionRuntime(this),
+      wsKey,
+      descriptor,
+    );
   }
 
   /**
@@ -907,7 +714,10 @@ export class Engine {
       throw new Error('[wskit] hibernation() is not enabled for this handler.');
     }
 
-    return EngineConnectionRuntime.wakeHibernatedConnection(this.connectionRuntime(), wsKey);
+    return EngineConnectionRuntime.wakeHibernatedConnection(
+      EngineDeps.connectionRuntime(this),
+      wsKey,
+    );
   }
 
   /**
@@ -991,8 +801,9 @@ export class Engine {
    *
    * The queueing rules themselves live in the scheduled primitive helpers; the
    * engine is only providing shared state and services here.
+   * @internal
    */
-  private scheduleTask(taskId: string, time: number, data: unknown): void {
+  scheduleTask(taskId: string, time: number, data: unknown): void {
     ScheduledPrimitive.scheduleTaskRun(
       {
         requireStorage: () => this.requireStorage(),
@@ -1013,8 +824,9 @@ export class Engine {
 
   /**
    * Remove every queued run for one scheduled task id.
+   * @internal
    */
-  private cancelScheduled(taskId: string, filter?: Record<string, unknown>): void {
+  cancelScheduled(taskId: string, filter?: Record<string, unknown>): void {
     ScheduledPrimitive.cancelScheduledRuns(
       {
         requireStorage: () => this.requireStorage(),
@@ -1053,8 +865,9 @@ export class Engine {
   /**
    * Run connect/disconnect lifecycle hooks for both the handler and installed
    * modules.
+   * @internal
    */
-  private async runConnectionLifecycle(
+  async runConnectionLifecycle(
     kind: 'connect' | 'disconnect',
     ctx: Record<PropertyKey, unknown>,
   ): Promise<void> {
@@ -1084,8 +897,9 @@ export class Engine {
   /**
    * Fully close a connection: cancel streams, run disconnect hooks, leave
    * channels, and forget runtime state.
+   * @internal
    */
-  private async handleConnectionClose(
+  async handleConnectionClose(
     connection: RuntimeConnection,
     _code: number,
     _reason: string,
@@ -1123,11 +937,9 @@ export class Engine {
 
   /**
    * Route a binary frame into the optional binary lifecycle hook.
+   * @internal
    */
-  private async handleBinaryMessage(
-    connection: RuntimeConnection,
-    data: ArrayBuffer,
-  ): Promise<void> {
+  async handleBinaryMessage(connection: RuntimeConnection, data: ArrayBuffer): Promise<void> {
     return EngineConnectionRuntime.handleBinaryMessage(
       {
         buildConnectionContext: (targetConnection, scope) => {
@@ -1143,24 +955,30 @@ export class Engine {
 
   /**
    * Parse and route one websocket text frame.
+   * @internal
    */
-  private async processTextMessage(connection: RuntimeConnection, data: string): Promise<void> {
-    return EngineMessageRuntime.processTextMessage(this.dispatchRuntime(), connection, data);
+  async processTextMessage(connection: RuntimeConnection, data: string): Promise<void> {
+    return EngineMessageRuntime.processTextMessage(
+      EngineDeps.dispatchRuntime(this),
+      connection,
+      data,
+    );
   }
 
   // ─────── Section: message dispatch wiring ───────
 
   /**
    * Validate and send one outgoing event through the runtime pipeline.
+   * @internal
    */
-  private sendThroughPipeline(
+  sendThroughPipeline(
     connection: RuntimeConnection,
     routing: RoutingTarget | undefined,
     event: string,
     payload: unknown,
   ): boolean {
     return EngineMessageRuntime.sendThroughPipeline(
-      this.outgoingRuntime(),
+      EngineDeps.outgoingRuntime(this),
       connection,
       routing,
       event,
@@ -1170,8 +988,9 @@ export class Engine {
 
   /**
    * Broadcast a top-level or namespace event to a selected connection set.
+   * @internal
    */
-  private broadcastToConnections(
+  broadcastToConnections(
     connections: readonly RuntimeConnection[],
     event: string,
     payload: unknown,
@@ -1179,7 +998,7 @@ export class Engine {
     excludeConnectionId?: string,
   ): void {
     EngineMessageRuntime.broadcastToConnections(
-      this.outgoingRuntime(),
+      EngineDeps.outgoingRuntime(this),
       connections,
       event,
       payload,
@@ -1190,8 +1009,9 @@ export class Engine {
 
   /**
    * Broadcast an event to every current member of a channel.
+   * @internal
    */
-  private broadcastToChannel(
+  broadcastToChannel(
     channelName: string,
     event: string,
     payload: unknown,
@@ -1199,7 +1019,7 @@ export class Engine {
     channelScope?: string,
   ): void {
     EngineMessageRuntime.broadcastToChannel(
-      this.memberRuntime(),
+      EngineDeps.memberRuntime(this),
       channelName,
       event,
       payload,
@@ -1210,18 +1030,20 @@ export class Engine {
 
   /**
    * Return a public snapshot of the current members in a channel.
+   * @internal
    */
-  private getChannelMembers(channelName: string) {
-    return EngineMessageRuntime.getChannelMembers(this.memberRuntime(), channelName);
+  getChannelMembers(channelName: string) {
+    return EngineMessageRuntime.getChannelMembers(EngineDeps.memberRuntime(this), channelName);
   }
 
   /**
    * Remove tagged members from a channel, typically for moderation.
+   * @internal
    */
-  private kickChannelMembers(channelName: string, tag: string, reason: string): void {
+  kickChannelMembers(channelName: string, tag: string, reason: string): void {
     EngineMessageRuntime.kickChannelMembers(
       {
-        ...this.channelRuntime(),
+        ...EngineDeps.channelRuntime(this),
         leaveChannel: (targetConnection, scope, kickedReason) => {
           return this.leaveChannel(targetConnection, scope, kickedReason);
         },
@@ -1241,7 +1063,7 @@ export class Engine {
     kickedReason?: string,
   ): Promise<void> {
     return EngineMessageRuntime.leaveChannel(
-      this.channelRuntime(),
+      EngineDeps.channelRuntime(this),
       connection,
       scope,
       kickedReason,
@@ -1250,24 +1072,30 @@ export class Engine {
 
   /**
    * Handle the `_subscribe` protocol message for a channel.
+   * @internal
    */
-  private async handleSubscribe(
+  async handleSubscribe(
     connection: RuntimeConnection,
     payload: Record<string, unknown> | undefined,
   ): Promise<void> {
-    return EngineMessageRuntime.handleSubscribe(this.channelRuntime(), connection, payload);
+    return EngineMessageRuntime.handleSubscribe(
+      EngineDeps.channelRuntime(this),
+      connection,
+      payload,
+    );
   }
 
   /**
    * Handle the `_unsubscribe` protocol message for a channel.
+   * @internal
    */
-  private async handleUnsubscribe(
+  async handleUnsubscribe(
     connection: RuntimeConnection,
     payload: Record<string, unknown> | undefined,
   ): Promise<void> {
     return EngineMessageRuntime.handleUnsubscribe(
       {
-        ...this.channelRuntime(),
+        ...EngineDeps.channelRuntime(this),
         leaveChannel: (targetConnection, scope) => this.leaveChannel(targetConnection, scope),
       },
       connection,
@@ -1277,8 +1105,9 @@ export class Engine {
 
   /**
    * Normalize an error and send the engine `_error` protocol message.
+   * @internal
    */
-  private async handleRuntimeError(
+  async handleRuntimeError(
     connection: RuntimeConnection,
     error: unknown,
     event?: string,
@@ -1305,8 +1134,9 @@ export class Engine {
 
   /**
    * Run validation-error hooks before normal error handling continues.
+   * @internal
    */
-  private async handleValidationError(
+  async handleValidationError(
     connection: RuntimeConnection,
     event: string,
     validationError: unknown,

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
-import { runStream } from './runtime.ts';
+import type { ActiveStream, RuntimeConnection } from '~/_engine/runtime/types.ts';
+import { cancelStream, runStream } from './runtime.ts';
 
 function createConnection(id = 'c1'): RuntimeConnection {
   return {
@@ -149,6 +149,37 @@ describe('stream/runtime', () => {
     expect(broadcasts[0]!.excludeConnectionId).toBe('trigger');
     expect(pipelineSends).toHaveLength(1);
     expect(pipelineSends[0]!.event).toBe('broadcast-stream');
+  });
+
+  it('_streamCancel from a non-owner connection is ignored', async () => {
+    const owner = createConnection('owner');
+    const stranger = createConnection('stranger');
+
+    const generator = {
+      return: vi.fn(async () => ({ done: true, value: undefined })),
+      next: vi.fn(),
+      throw: vi.fn(),
+      [Symbol.asyncIterator]() {
+        return this;
+      },
+    } as unknown as AsyncGenerator<unknown, void, unknown>;
+
+    const activeStreams = new Map<string, ActiveStream>();
+    const streamId = 'stream_owned_by_owner';
+    activeStreams.set(streamId, {
+      id: streamId,
+      connectionId: owner.id,
+      generator,
+      nudges: [],
+      nudgeValidators: new Map(),
+      closed: false,
+    });
+
+    await cancelStream({ activeStreams }, stranger, { _streamId: streamId });
+
+    expect(generator.return as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
+    expect(activeStreams.has(streamId)).toBe(true);
+    expect(activeStreams.get(streamId)?.closed).toBe(false);
   });
 
   it('non-broadcast stream does not call broadcastToConnections', async () => {

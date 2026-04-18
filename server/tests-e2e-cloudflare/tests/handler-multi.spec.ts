@@ -109,6 +109,34 @@ test.describe('multi-client', () => {
     await page2.close();
   });
 
+  test('chat: onUnsubscribe broadcasts user-code system "left the chat" message', async ({
+    browser,
+  }, testInfo) => {
+    const room = `multi-${testInfo.testId}`;
+    const page1 = await browser.newPage();
+    const page2 = await browser.newPage();
+    await page1.goto(`/?room=${room}`);
+    await page2.goto(`/?room=${room}`);
+
+    await page1.getByTestId('username-input').fill('user1');
+    await page1.getByTestId('connect-btn').click();
+    await waitForText(page1, 'status', 'connected');
+    await page1.getByTestId('chat-join-btn').click();
+    await waitForText(page1, 'chat-subscribed', 'subscribed');
+
+    await page2.getByTestId('username-input').fill('user2');
+    await page2.getByTestId('connect-btn').click();
+    await waitForText(page2, 'status', 'connected');
+    await page2.getByTestId('chat-join-btn').click();
+    await waitForText(page2, 'chat-subscribed', 'subscribed');
+
+    await page2.getByTestId('chat-leave-btn').click();
+    await waitForText(page1, 'chat-messages', /system: user2 left the chat/, 15_000);
+
+    await page1.close();
+    await page2.close();
+  });
+
   test('chat: kick sends _kicked to target', async ({ browser }, testInfo) => {
     const room = `multi-${testInfo.testId}`;
     const page1 = await browser.newPage();
@@ -517,6 +545,113 @@ test.describe('multi-client', () => {
 
     await page1.close();
     await page2.close();
+  });
+
+  test('cross-connection _streamCancel from non-owner does not stop the stream', async ({
+    browser,
+  }, testInfo) => {
+    const room = `multi-${testInfo.testId}`;
+    const ctx = await browser.newContext();
+    const pageA = await ctx.newPage();
+    const pageB = await ctx.newPage();
+    await pageA.goto(`/?room=${room}`);
+    await pageB.goto(`/?room=${room}`);
+
+    type Frame = { event: string; payload: Record<string, unknown> };
+
+    async function rawConnect(page: Page, username: string) {
+      await page.evaluate(
+        async ({ username, room }) => {
+          const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+          const url = `${protocol}//${location.host}/ws?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`;
+          const ws = new WebSocket(url);
+          const frames: Frame[] = [];
+          (window as unknown as { __raw: WebSocket }).__raw = ws;
+          (window as unknown as { __frames: Frame[] }).__frames = frames;
+          ws.onmessage = (ev) => {
+            if (typeof ev.data !== 'string' || ev.data === 'pong') return;
+            try {
+              frames.push(JSON.parse(ev.data) as Frame);
+            } catch {
+              // ignore
+            }
+          };
+          await new Promise<void>((resolve, reject) => {
+            ws.onopen = () => resolve();
+            ws.onerror = () => reject(new Error('ws failed'));
+          });
+        },
+        { username, room },
+      );
+    }
+
+    await rawConnect(pageA, 'streamer');
+    await rawConnect(pageB, 'attacker');
+
+    // Use a long enough prompt with a 30ms delay between tokens so we have
+    // plenty of time to interleave a cross-connection cancel.
+    await pageA.evaluate(() => {
+      const ws = (window as unknown as { __raw: WebSocket }).__raw;
+      ws.send(
+        JSON.stringify({
+          event: 'stream-prompt',
+          payload: {
+            prompt: 'one two three four five six seven eight nine ten',
+            delayMs: 30,
+            _namespace: 'ai',
+          },
+        }),
+      );
+    });
+
+    // Capture A's _streamId.
+    const streamId = await pageA.evaluate(async () => {
+      const start = Date.now();
+      while (Date.now() - start < 5_000) {
+        const frames = (window as unknown as { __frames: Frame[] }).__frames;
+        const ok = frames.find((f) => f.event === '_streamOk');
+        if (ok) return ok.payload._streamId as string;
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      throw new Error('no _streamOk');
+    });
+    expect(streamId).toBeTruthy();
+
+    // Wait until A has received at least 1 chunk so the stream is live.
+    const baselineChunks = await pageA.evaluate(async () => {
+      const start = Date.now();
+      while (Date.now() - start < 5_000) {
+        const frames = (window as unknown as { __frames: Frame[] }).__frames;
+        const chunks = frames.filter((f) => f.event === 'stream-prompt');
+        if (chunks.length >= 1) return chunks.length;
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      throw new Error('no chunks');
+    });
+
+    // B sends a cross-connection cancel using A's streamId.
+    await pageB.evaluate((sid) => {
+      const ws = (window as unknown as { __raw: WebSocket }).__raw;
+      ws.send(
+        JSON.stringify({
+          event: '_streamCancel',
+          payload: { _namespace: 'ai', _streamId: sid },
+        }),
+      );
+    }, streamId);
+
+    // 'A' should keep producing chunks — wait for at least 2 more.
+    await pageA.waitForFunction(
+      (baseline) => {
+        const frames = (window as unknown as { __frames: { event: string }[] }).__frames;
+        const chunks = frames.filter((f) => f.event === 'stream-prompt');
+        return chunks.length >= baseline + 2;
+      },
+      baselineChunks,
+      { timeout: 10_000 },
+    );
+
+    await ctx.close();
   });
 
   test('broadcastBinary with excludeSelf skips the caller', async ({ browser }, testInfo) => {

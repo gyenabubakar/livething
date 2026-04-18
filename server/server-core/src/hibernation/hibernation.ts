@@ -24,9 +24,10 @@ const HIBERNATION_KEY = Symbol('hibernation');
  *
  * @example
  * ```ts
- * import '@wskit/server/hibernation';
+ * import { server } from '@wskit/server';
+ * import { withHibernation } from '@wskit/server/hibernation';
  *
- * server('chat').hibernation(); // opt in with default enabled = true
+ * withHibernation(server('chat')).hibernation(); // opt in with default enabled = true
  * ```
  */
 export function hibernation(enabled = true): HibernationPrimitive {

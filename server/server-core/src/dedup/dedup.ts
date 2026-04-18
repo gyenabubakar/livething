@@ -30,7 +30,10 @@ const DEDUP_DEFAULT_INCOMING_CAP = 256;
  *
  * @example
  * ```ts
- * server('chat').dedup();
+ * import { server } from '@wskit/server';
+ * import { withDedup } from '@wskit/server/dedup';
+ *
+ * withDedup(server('chat')).dedup();
  * ```
  */
 export function dedup(): DedupPrimitive {

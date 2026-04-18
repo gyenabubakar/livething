@@ -33,8 +33,11 @@ const SEQUENCE_KEY = Symbol('sequence');
  *
  * @example
  * ```ts
- * server('chat').sequence();
- * server('chat').sequence({ persist: true }); // survives server restarts
+ * import { server } from '@wskit/server';
+ * import { withSequence } from '@wskit/server/sequence';
+ *
+ * withSequence(server('chat')).sequence();
+ * withSequence(server('chat')).sequence({ persist: true }); // survives server restarts
  * ```
  */
 export function sequence(options?: SequenceOptions): SequencePrimitive {

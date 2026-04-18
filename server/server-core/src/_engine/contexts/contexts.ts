@@ -359,50 +359,44 @@ export function createModuleScopedContext(
   // log, etc.) passes through to the underlying connection context unchanged.
   return new Proxy(ctx, {
     get(target, key, receiver) {
-      if (key === 'send') {
-        return (event: string, payload: unknown) => {
-          (Reflect.get(target, 'send', receiver) as (event: string, payload: unknown) => void)(
-            prefix(event),
-            payload,
-          );
-        };
+      switch (key) {
+        case 'send':
+          return wrapPrefixedSend(target, receiver, 'send', prefix, 'event-first');
+        case 'broadcast':
+          return wrapPrefixedSend(target, receiver, 'broadcast', prefix, 'event-first');
+        case 'sendTo':
+          return wrapPrefixedSend(target, receiver, 'sendTo', prefix, 'event-second');
+        case 'sendToConnection':
+          return wrapPrefixedSend(target, receiver, 'sendToConnection', prefix, 'event-second');
+        default:
+          return Reflect.get(target, key, receiver);
       }
-      if (key === 'broadcast') {
-        return (event: string, payload: unknown, options?: EngineContextTypes.BroadcastOptions) => {
-          (
-            Reflect.get(target, 'broadcast', receiver) as (
-              event: string,
-              payload: unknown,
-              options?: EngineContextTypes.BroadcastOptions,
-            ) => void
-          )(prefix(event), payload, options);
-        };
-      }
-      if (key === 'sendTo') {
-        return (tag: string, event: string, payload: unknown) => {
-          (
-            Reflect.get(target, 'sendTo', receiver) as (
-              tag: string,
-              event: string,
-              payload: unknown,
-            ) => void
-          )(tag, prefix(event), payload);
-        };
-      }
-      if (key === 'sendToConnection') {
-        return (connectionId: string, event: string, payload: unknown) => {
-          (
-            Reflect.get(target, 'sendToConnection', receiver) as (
-              connectionId: string,
-              event: string,
-              payload: unknown,
-            ) => boolean
-          )(connectionId, prefix(event), payload);
-        };
-      }
-      return Reflect.get(target, key, receiver);
     },
   });
+}
+
+/**
+ * Build a wrapper around one of the four send-like methods on a connection
+ * context. The wrapper rewrites the `event` argument through `prefix` and
+ * forwards every other argument unchanged.
+ *
+ * `position` says which positional arg holds the event name:
+ *   - `event-first`  → `(event, payload, ...rest)` (e.g. `send`, `broadcast`)
+ *   - `event-second` → `(target, event, payload)` (e.g. `sendTo`, `sendToConnection`)
+ */
+function wrapPrefixedSend(
+  target: Record<PropertyKey, unknown>,
+  receiver: unknown,
+  key: 'send' | 'broadcast' | 'sendTo' | 'sendToConnection',
+  prefix: (event: string) => string,
+  position: 'event-first' | 'event-second',
+): (...args: unknown[]) => unknown {
+  const original = Reflect.get(target, key, receiver) as (...args: unknown[]) => unknown;
+  if (position === 'event-first') {
+    return (event: unknown, ...rest: unknown[]) => original(prefix(event as string), ...rest);
+  }
+  return (first: unknown, event: unknown, ...rest: unknown[]) =>
+    original(first, prefix(event as string), ...rest);
 }
 
 /**

@@ -66,8 +66,11 @@ const REQUEST_KEY = Symbol('request');
  *
  * @example
  * ```ts
- * const GetUser = event('get-user', z.object({ id: z.string() }));
- * const UserResponse = z.object({ name: z.string() });
+ * import { server, event } from '@wskit/server';
+ * import * as v from 'valibot';
+ *
+ * const GetUser = event('get-user', v.object({ id: v.string() }));
+ * const UserResponse = v.object({ name: v.string() });
  *
  * server('chat').request(GetUser, UserResponse, async (ctx, payload) => {
  *   const user = await db.findUser(payload.id);

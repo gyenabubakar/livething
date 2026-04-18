@@ -1,6 +1,12 @@
+import { server } from '~/_builder/server-builder.ts';
 import { ENGINE_SCOPE_META } from '~/_engine/contexts/types.ts';
+import { Engine } from '~/_engine/engine.ts';
+import { withDedup } from '~/dedup/with.ts';
+import { event } from '~/event.ts';
 import { handleReplay } from '~/replay/custom/custom.ts';
-import { describe, expect, it } from 'vitest';
+import { withReplayCustom } from '~/replay/custom/with.ts';
+import { withSequence } from '~/sequence/with.ts';
+import { describe, expect, it, vi } from 'vitest';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type { IncomingProtocolEvent, WireOutgoingMessage } from '~/_engine/runtime/types.ts';
 
@@ -194,5 +200,77 @@ describe('custom replay', () => {
     expect(sent).toEqual([
       ['c1', 'room-1', 'rooms', 'message', { text: 'history' }, { seq: 5, messageId: 'm5' }],
     ]);
+  });
+
+  it('strict-durability: onBeforeSend fires before descriptor.send', async () => {
+    const calls: string[] = [];
+    const onBeforeSendSpy = vi.fn(() => {
+      calls.push('onBeforeSend');
+    });
+
+    const msg = event('msg', (p: unknown) => p as { text: string });
+    const sendMsg = event('send-msg', (p: unknown) => p as { text: string });
+
+    const def = withReplayCustom(withDedup(withSequence(server('chat'))))
+      .sequence({ persist: true })
+      .dedup()
+      .replayCustom((r) => r.onBeforeSend(onBeforeSendSpy).onReplay(async (_ctx, _since) => {}))
+      .outgoing(msg)
+      .incoming(sendMsg, async (ctx, payload) => {
+        ctx.send('msg', { text: payload.text });
+      })
+      .build();
+
+    function fakeSqlResult(rows: Record<string, unknown>[] = []) {
+      return {
+        toArray: () => [...rows],
+        one: () => rows[0] ?? null,
+        raw: () => rows.map((r) => Object.values(r)),
+      };
+    }
+    const sql = {
+      exec: () => fakeSqlResult([]),
+      transaction<T>(fn: (tx: unknown) => T) {
+        return fn({ exec: () => fakeSqlResult([]) });
+      },
+    };
+    const storage = {
+      sql,
+      kv: {
+        get: vi.fn(async () => undefined),
+        set: vi.fn(async () => {}),
+        delete: vi.fn(async () => {}),
+        list: vi.fn(async () => []),
+      },
+    };
+    const timers = {
+      setTimeout: (fn: () => void) => fn,
+      clearTimeout: () => {},
+    };
+
+    const engine = new Engine(def, { adapterId: 'strict-custom', hibernation: false });
+    engine.setStorage(storage as never);
+    engine.setTimerProvider(timers as never);
+    engine.setWaitUntil(() => {});
+
+    await engine.initialize();
+
+    const sendSpy = vi.fn((_data) => {
+      calls.push('send');
+    });
+    const handle = engine.accept(Symbol('ws'), {
+      send: sendSpy,
+      sendBinary() {},
+      close() {},
+      bufferedAmount() {
+        return 0;
+      },
+    });
+
+    await handle.handleMessage(JSON.stringify({ event: 'send-msg', payload: { text: 'hi' } }));
+
+    expect(onBeforeSendSpy).toHaveBeenCalled();
+    expect(sendSpy).toHaveBeenCalled();
+    expect(calls).toEqual(['onBeforeSend', 'send']);
   });
 });

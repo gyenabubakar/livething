@@ -17,8 +17,9 @@ export type UnsubscribeHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>
 
 /**
  * Handler called before a client's subscription is confirmed. Throw to reject
- * the subscription. Optionally receives `data` — the payload the client sent
- * with the subscription request (e.g. an auth token).
+ * the subscription (e.g. `throw Block(...)`). Optionally receives `data` —
+ * the payload the client sent with the subscription request (e.g. an auth
+ * token).
  */
 export type BeforeSubscribeHandler<TCtx = any, TData = unknown> = (
   ctx: TCtx,
@@ -55,17 +56,23 @@ const ON_UNSUBSCRIBE_KEY = Symbol('onUnsubscribe');
 /**
  * Creates an `onBeforeSubscribe` lifecycle primitive for a channel. The handler
  * runs before the client's subscription is confirmed. Throw from the handler
- * (e.g. `throw Forbidden()`) to reject the subscription.
+ * (e.g. `throw Block(myError(...))`) to reject the subscription.
  *
  * Optionally pass `options.validator` to validate the subscription data payload
  * the client may send alongside the subscribe request.
  *
  * @example
  * ```ts
- * server('chat')
+ * import { server } from '@wskit/server';
+ * import { withChannels } from '@wskit/server/channels';
+ * import { Block, error } from '@wskit/server/errors';
+ *
+ * const Forbidden = error('forbidden');
+ *
+ * withChannels(server('chat'))
  *   .channel('private-room', (ch) =>
  *     ch.onBeforeSubscribe(async (ctx, data) => {
- *       if (!ctx.meta.roles.includes('member')) throw Forbidden();
+ *       if (!ctx.meta.roles.includes('member')) throw Block(Forbidden());
  *     }),
  *   )
  *   .build();
@@ -96,11 +103,14 @@ export function onBeforeSubscribe<TCtx, TData = unknown>(
  *
  * @example
  * ```ts
- * server('chat')
+ * import { server } from '@wskit/server';
+ * import { withChannels } from '@wskit/server/channels';
+ *
+ * withChannels(server('chat'))
  *   .channel('notifications', (ch) =>
  *     ch.onSubscribe(async (ctx) => {
  *       const items = await db.getUnread(ctx.meta.userId);
- *       ctx.send.notifications(items);
+ *       ctx.send('notifications', items);
  *     }),
  *   )
  *   .build();

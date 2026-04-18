@@ -5,42 +5,33 @@ import * as ChannelPrimitive from '~/channel/runtime.ts';
 import * as ErrorsPrimitive from '~/errors/errors.ts';
 import * as HeartbeatPrimitive from '~/heartbeat/runtime.ts';
 import * as InterceptPrimitive from '~/intercept/runtime.ts';
+import * as OutgoingRuntime from '~/outgoing/runtime.ts';
 import * as RequestPrimitive from '~/request/runtime.ts';
 import * as StreamPrimitive from '~/stream/runtime.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as PublicApi from '~/context.ts';
 import type * as EngineRuntimeTypes from './types.ts';
 
-type CompiledServer = EngineCompileTypes.CompiledServer;
-type ConnectionMembersRuntime = EngineRuntimeTypes.ConnectionMembersRuntime;
 type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
 
+// ───── Section: re-exports of outgoing helpers ─────
+
 /**
- * Minimal dependency bag for outgoing message helpers.
+ * Re-exports of the outgoing pipeline helpers so runtime callers can continue
+ * to import from a single module. The implementations live in
+ * `outgoing/runtime.ts`.
  */
-interface OutgoingRuntime {
-  compiled: EngineCompileTypes.CompiledServer;
-  moduleRuntimes: readonly EngineRuntimeTypes.ModuleRuntime[];
-  outgoingHooks: readonly ((message: {
-    event: string;
-    payload: unknown;
-  }) => { event: string; payload: unknown } | void)[];
-  beforeSendHooks: readonly ((message: EngineRuntimeTypes.WireOutgoingMessage) => void)[];
-  afterSendHooks: readonly ((
-    message: EngineRuntimeTypes.WireOutgoingMessage,
-  ) => void | Promise<void>)[];
-  waitUntil(promise: Promise<unknown>): void;
-  logger: {
-    warn(message: string, data?: unknown): void;
-    error(message: string, data?: unknown): void;
-  };
-  generateId(prefix?: string): string;
-}
+export const sendThroughPipeline = OutgoingRuntime.sendThroughPipeline;
+export const broadcastToConnections = OutgoingRuntime.broadcastToConnections;
+export const broadcastToChannel = OutgoingRuntime.broadcastToChannel;
+
+// ───── Section: dispatch runtime types ─────
 
 /**
  * Larger dependency bag for inbound message dispatch.
  */
-interface DispatchRuntime extends OutgoingRuntime, EngineRuntimeTypes.ConnectionMembersRuntime {
+interface DispatchRuntime
+  extends OutgoingRuntime.OutgoingRuntime, EngineRuntimeTypes.ConnectionMembersRuntime {
   activeStreams: Map<string, EngineRuntimeTypes.ActiveStream>;
   protocolHandlers: ReadonlyMap<
     EngineRuntimeTypes.IncomingProtocolEvent,
@@ -143,6 +134,8 @@ interface ChannelRuntime extends EngineRuntimeTypes.ConnectionMembersRuntime {
   ): Promise<void>;
 }
 
+// ───── Section: incoming dedup ─────
+
 /**
  * Check whether an incoming payload's `_messageId` has already been seen on
  * this connection. If not, record it in the bounded ring.
@@ -175,6 +168,8 @@ function isDuplicateIncoming(
   ring.writePtr = (ring.writePtr + 1) % ring.cap;
   return false;
 }
+
+// ───── Section: scope resolution ─────
 
 /**
  * Read routing markers from an incoming payload and resolve the active scope.
@@ -210,272 +205,7 @@ export function resolveScope(
   return {};
 }
 
-/** Check whether an event name belongs to any installed module's outgoing declarations. */
-function isDeclaredModuleEvent(compiled: CompiledServer, event: string): boolean {
-  for (const moduleInstance of compiled.modules) {
-    for (const eventName of Object.keys(moduleInstance.outgoing)) {
-      if (EngineCompileUtils.prefixedModuleEvent(moduleInstance.id, eventName) === event) {
-        return true;
-      }
-    }
-  }
-
-  return false;
-}
-
-/**
- * Check whether an outgoing event was declared in the correct scope.
- *
- * Module events (`__`-prefixed) are checked against module declarations.
- * Protocol events (`_`-prefixed, single underscore) are always allowed.
- * Everything else must appear in the scope's outgoing or stream maps.
- */
-function isDeclaredOutgoingEvent(
-  compiled: EngineCompileTypes.CompiledServer,
-  event: string,
-  routing?: EngineRuntimeTypes.RoutingTarget,
-): boolean {
-  if (event.startsWith('__')) return isDeclaredModuleEvent(compiled, event);
-  if (EngineCompileUtils.isProtocolEvent(event)) return true;
-
-  if (routing?.namespace) {
-    const namespace = compiled.namespaces.get(routing.namespace);
-    return (namespace?.outgoing.has(event) ?? false) || (namespace?.streams.has(event) ?? false);
-  }
-
-  if (routing?.channel) {
-    const channel = routing.channelScope
-      ? compiled.channelFamilies.get(routing.channelScope)
-      : compiled.channels.get(routing.channel);
-    return (channel?.outgoing.has(event) ?? false) || (channel?.streams.has(event) ?? false);
-  }
-
-  return compiled.outgoing.has(event) || compiled.streams.has(event);
-}
-
-/** Throw if the payload is not a plain object — arrays and primitives are rejected. */
-function assertPayloadRecord(payload: unknown): asserts payload is Record<string, unknown> {
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-    throw new Error('[wskit] Outgoing payload must be a plain object.');
-  }
-}
-
-/** Throw if any payload key starts with `_` — those are reserved for the engine. */
-function assertNoReservedPayloadFields(payload: Record<string, unknown>): void {
-  for (const key of Object.keys(payload)) {
-    if (key.startsWith('_')) {
-      throw new Error(
-        '[wskit] Outgoing payload fields starting with "_" are reserved for the engine.',
-      );
-    }
-  }
-}
-
-/**
- * Throw if the payload has new `_`-prefixed keys that were not present before
- * hooks ran. Hooks are allowed to add `_`-prefixed fields (e.g. `_seq`), but
- * user code and modules must not introduce new ones.
- */
-function assertNoNewReservedPayloadFields(
-  payload: Record<string, unknown>,
-  allowedReservedFields: ReadonlySet<string>,
-): void {
-  for (const key of Object.keys(payload)) {
-    if (key.startsWith('_') && !allowedReservedFields.has(key)) {
-      throw new Error(
-        '[wskit] Outgoing payload fields starting with "_" are reserved for the engine.',
-      );
-    }
-  }
-}
-
-/** Run global + module `onOutgoing` hooks and return the (possibly rewritten) message. */
-function runOutgoingHooks(
-  outgoingHooks: OutgoingRuntime['outgoingHooks'],
-  moduleRuntimes: readonly EngineRuntimeTypes.ModuleRuntime[],
-  message: { event: string; payload: unknown },
-): { message: { event: string; payload: unknown }; allowedReservedFields: ReadonlySet<string> } {
-  let current = message;
-
-  for (const hook of outgoingHooks) {
-    const next = hook(current);
-    if (next) current = next;
-  }
-
-  assertPayloadRecord(current.payload);
-  const allowedReservedFields = new Set(
-    Object.keys(current.payload).filter((key) => key.startsWith('_')),
-  );
-
-  for (const moduleRuntime of moduleRuntimes) {
-    if (!moduleRuntime.onOutgoing) continue;
-    const next = moduleRuntime.onOutgoing(current);
-    if (next) current = next;
-  }
-
-  assertPayloadRecord(current.payload);
-  assertNoNewReservedPayloadFields(current.payload, allowedReservedFields);
-
-  return { message: current, allowedReservedFields };
-}
-
-/** Attach reserved routing markers (`_namespace`, `_channel`, etc.) onto an outgoing payload. */
-function injectRoutingMarkers(
-  payload: Record<string, unknown>,
-  routing: EngineRuntimeTypes.RoutingTarget | undefined,
-): Record<string, unknown> {
-  const finalPayload: Record<string, unknown> = { ...payload };
-  if (routing?.namespace) finalPayload._namespace = routing.namespace;
-  if (routing?.channel) finalPayload._channel = routing.channel;
-  if (routing?.channelScope) finalPayload._channelScope = routing.channelScope;
-  if (routing?.correlationId) finalPayload._correlationId = routing.correlationId;
-  if (routing?.streamId) finalPayload._streamId = routing.streamId;
-  return finalPayload;
-}
-
-/** Fan out after-send hooks, forwarding async rejections through the engine's waitUntil + logger. */
-function invokeAfterSendHooks(
-  afterSendHooks: OutgoingRuntime['afterSendHooks'],
-  waitUntil: OutgoingRuntime['waitUntil'],
-  logger: OutgoingRuntime['logger'],
-  wireMessage: EngineRuntimeTypes.WireOutgoingMessage,
-): void {
-  for (const hook of afterSendHooks) {
-    try {
-      const result = hook(wireMessage);
-
-      if (result && typeof (result as Promise<unknown>).then === 'function') {
-        waitUntil(
-          Promise.resolve(result).catch((error) => {
-            logger.error('[wskit] after-send hook failed', { error });
-          }),
-        );
-      }
-    } catch (error) {
-      logger.error('[wskit] after-send hook failed', { error });
-    }
-  }
-}
-
-/**
- * Push one outgoing event through module hooks, declaration checks, and wire
- * metadata injection before sending it to a connection.
- */
-export function sendThroughPipeline(
-  runtime: OutgoingRuntime,
-  connection: EngineRuntimeTypes.RuntimeConnection,
-  routing: EngineRuntimeTypes.RoutingTarget | undefined,
-  event: string,
-  payload: unknown,
-): boolean {
-  assertPayloadRecord(payload);
-  assertNoReservedPayloadFields(payload);
-
-  const { message } = runOutgoingHooks(runtime.outgoingHooks, runtime.moduleRuntimes, {
-    event,
-    payload,
-  });
-
-  const isRequestResponse = !!routing?.correlationId;
-  if (!isRequestResponse && !isDeclaredOutgoingEvent(runtime.compiled, message.event, routing)) {
-    throw new Error(
-      `[wskit] Outgoing event "${message.event}" was not declared in the active scope.`,
-    );
-  }
-
-  const finalPayload = injectRoutingMarkers(message.payload as Record<string, unknown>, routing);
-
-  const wireMessage: EngineRuntimeTypes.WireOutgoingMessage = {
-    connectionId: connection.id,
-    event: message.event,
-    payload: finalPayload,
-    meta: connection.meta,
-  };
-
-  for (const hook of runtime.beforeSendHooks) {
-    hook(wireMessage);
-  }
-
-  connection.descriptor.send(JSON.stringify({ event: message.event, payload: finalPayload }));
-
-  invokeAfterSendHooks(runtime.afterSendHooks, runtime.waitUntil, runtime.logger, wireMessage);
-
-  return true;
-}
-
-/**
- * Broadcast one event to a set of already-selected connections.
- */
-export function broadcastToConnections(
-  runtime: Pick<
-    OutgoingRuntime,
-    | 'afterSendHooks'
-    | 'beforeSendHooks'
-    | 'compiled'
-    | 'generateId'
-    | 'logger'
-    | 'moduleRuntimes'
-    | 'outgoingHooks'
-    | 'waitUntil'
-  >,
-  connections: readonly EngineRuntimeTypes.RuntimeConnection[],
-  event: string,
-  payload: unknown,
-  options?: PublicApi.BroadcastOptions & { namespace?: string },
-  excludeConnectionId?: string,
-): void {
-  for (const connection of connections) {
-    if (options?.excludeSelf && connection.id === excludeConnectionId) continue;
-    sendThroughPipeline(
-      runtime,
-      connection,
-      {
-        namespace: options?.namespace,
-        channel: options?.channel,
-      },
-      event,
-      payload,
-    );
-  }
-}
-
-/**
- * Broadcast one event to every member currently in a channel.
- */
-export function broadcastToChannel(
-  runtime: ConnectionMembersRuntime &
-    Pick<
-      OutgoingRuntime,
-      | 'afterSendHooks'
-      | 'beforeSendHooks'
-      | 'compiled'
-      | 'generateId'
-      | 'logger'
-      | 'moduleRuntimes'
-      | 'outgoingHooks'
-      | 'waitUntil'
-    >,
-  channelName: string,
-  event: string,
-  payload: unknown,
-  excludeConnectionId?: string,
-  channelScope?: string,
-): void {
-  const connections = [...runtime.connections.values()].filter((connection) => {
-    return ChannelPrimitive.hasChannelMembership(connection, channelName, channelScope);
-  });
-
-  for (const connection of connections) {
-    if (excludeConnectionId && connection.id === excludeConnectionId) continue;
-    sendThroughPipeline(
-      runtime,
-      connection,
-      { channel: channelName, channelScope },
-      event,
-      payload,
-    );
-  }
-}
+// ───── Section: channel membership helpers ─────
 
 /**
  * Return the current public member snapshot for a channel.
@@ -499,7 +229,7 @@ export const leaveChannel = ChannelPrimitive.leaveChannel;
 export function kickChannelMembers(
   runtime: ChannelRuntime &
     Pick<
-      OutgoingRuntime,
+      OutgoingRuntime.OutgoingRuntime,
       | 'afterSendHooks'
       | 'beforeSendHooks'
       | 'compiled'
@@ -532,7 +262,7 @@ export function kickChannelMembers(
 export async function handleSubscribe(
   runtime: ChannelRuntime &
     Pick<
-      OutgoingRuntime,
+      OutgoingRuntime.OutgoingRuntime,
       | 'afterSendHooks'
       | 'beforeSendHooks'
       | 'compiled'
@@ -549,7 +279,7 @@ export async function handleSubscribe(
     {
       ...runtime,
       broadcastToChannel: (channelName, event, nextPayload, excludeConnectionId, channelScope) => {
-        broadcastToChannel(
+        OutgoingRuntime.broadcastToChannel(
           runtime,
           channelName,
           event,
@@ -571,7 +301,7 @@ export async function handleSubscribe(
 export async function handleUnsubscribe(
   runtime: ChannelRuntime &
     Pick<
-      OutgoingRuntime,
+      OutgoingRuntime.OutgoingRuntime,
       | 'afterSendHooks'
       | 'beforeSendHooks'
       | 'compiled'
@@ -595,6 +325,8 @@ export async function handleUnsubscribe(
 ): Promise<void> {
   await ChannelPrimitive.unsubscribeConnection(runtime, connection, payload);
 }
+
+// ───── Section: inbound dispatch ─────
 
 /**
  * Main inbound event dispatcher.
@@ -720,7 +452,13 @@ export async function dispatchIncoming(
           buildConnectionContext: runtime.buildConnectionContext,
           setActiveConnectionId: runtime.setActiveConnectionId,
           sendThroughPipeline: (nextConnection, routing, nextEvent, nextPayload) => {
-            return sendThroughPipeline(runtime, nextConnection, routing, nextEvent, nextPayload);
+            return OutgoingRuntime.sendThroughPipeline(
+              runtime,
+              nextConnection,
+              routing,
+              nextEvent,
+              nextPayload,
+            );
           },
         },
         connection,

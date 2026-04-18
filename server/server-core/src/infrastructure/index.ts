@@ -12,6 +12,15 @@ import type { ScopeStateShape } from '~/_types/scope-state.ts';
  *
  * This is a convenience wrapper — you can also add each feature individually
  * with `withAck`, `withDedup`, `withHeartbeat`, `withSequence`, and `withHibernation`.
+ *
+ * @example
+ * ```ts
+ * import { server } from '@wskit/server';
+ * import { withInfrastructure } from '@wskit/server/infrastructure';
+ *
+ * const s = withInfrastructure(server('app'));
+ * s.ack().heartbeat({ timeout: 60_000 }).sequence().dedup().hibernation();
+ * ```
  */
 export function withInfrastructure<TState extends ScopeStateShape, TFeatures>(
   builder: ServerBuilderFull<TState, TFeatures>,

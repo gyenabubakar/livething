@@ -29,9 +29,10 @@ const HEARTBEAT_KEY = Symbol('heartbeat');
  *
  * @example
  * ```ts
- * import '@wskit/server/heartbeat';
+ * import { server } from '@wskit/server';
+ * import { withHeartbeat } from '@wskit/server/heartbeat';
  *
- * server('chat').heartbeat({ timeout: 30_000 }); // close after 30 s of silence
+ * withHeartbeat(server('chat')).heartbeat({ timeout: 30_000 }); // close after 30 s of silence
  * ```
  */
 export function heartbeat(options: HeartbeatOptions): HeartbeatPrimitive {

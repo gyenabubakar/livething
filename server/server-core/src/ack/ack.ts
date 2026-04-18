@@ -17,7 +17,10 @@ const ACK_KEY = Symbol('ack');
  *
  * @example
  * ```ts
- * server('chat')
+ * import { server } from '@wskit/server';
+ * import { withAck } from '@wskit/server/ack';
+ *
+ * withAck(server('chat'))
  *   .ack()
  *   .incoming(sendMessage, async (ctx, payload) => {
  *     await saveMessage(payload);

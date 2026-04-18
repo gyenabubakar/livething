@@ -95,6 +95,10 @@ export function intercept<TEvent extends string>(
  *   the current payload and can replace it. Returning `void` passes the payload
  *   through unchanged.
  *
+ * Post-intercepts only run when a matching `incoming`, `request`, or `stream`
+ * handler is registered for that event in the same scope. If none exists, the
+ * engine throws at boot.
+ *
  * ### Pipeline order
  *
  * For every incoming message the engine walks this pipeline:

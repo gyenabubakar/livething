@@ -16,22 +16,28 @@ import type { StandardSchemaV1 } from '@standard-schema/spec';
  *
  * **Form 1 — StandardSchema** (any compliant library: valibot, zod, arktype):
  * ```ts
- * incoming('send-message', {
- *   validator: v.object({ text: v.string() }),
- *   handler: (ctx, payload) => { /* payload is { text: string } *\/ }
- * })
+ * import * as v from 'valibot';
+ *
+ * incoming(
+ *   'send-message',
+ *   (ctx, payload) => { /* payload is { text: string } *\/ },
+ *   { validator: v.object({ text: v.string() }) },
+ * );
  * ```
  *
  * **Form 2 — parse function** (return the parsed value or throw):
  * ```ts
- * incoming('send-message', {
- *   validator: (raw) => {
- *     const obj = raw as Record<string, unknown>;
- *     if (typeof obj.text !== 'string') throw new Error('text required');
- *     return { text: obj.text };
+ * incoming(
+ *   'send-message',
+ *   (ctx, payload) => { /* payload is { text: string } *\/ },
+ *   {
+ *     validator: (raw) => {
+ *       const obj = raw as Record<string, unknown>;
+ *       if (typeof obj.text !== 'string') throw new Error('text required');
+ *       return { text: obj.text };
+ *     },
  *   },
- *   handler: (ctx, payload) => { /* payload is { text: string } *\/ }
- * })
+ * );
  * ```
  */
 export type Validator<T = any> = StandardSchemaV1<unknown, T> | ((value: unknown) => T);

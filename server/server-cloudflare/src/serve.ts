@@ -71,6 +71,7 @@ const buildServe = defineServerAdapter<CloudflareOptions, CloudflareDurableObjec
       private handleRejectedUpgrade(
         result: Awaited<ReturnType<Engine['handleUpgrade']>>,
       ): Response {
+        // WebSocket close codes start at 1000 and HTTP statuses cap at 599, so >= 1000 -> treat as a WS close code; otherwise -> HTTP status.
         if (result.code && result.code >= 1000) {
           const pair = new WebSocketPair();
           pair[1].accept();
@@ -229,6 +230,10 @@ const buildServe = defineServerAdapter<CloudflareOptions, CloudflareDurableObjec
  * instantiate one DO per `idFromName(...)`. Each DO instance owns its own
  * WebSocket connections, storage, and scheduled alarm. By default the DO
  * uses the Hibernation API (see {@link CloudflareOptions}).
+ *
+ * The returned value is a class, not an instance. Export it from your worker
+ * module like `export const Room = serve(handler);` — Cloudflare instantiates
+ * it per Durable Object id.
  *
  * @example
  * ```ts

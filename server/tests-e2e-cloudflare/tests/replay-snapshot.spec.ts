@@ -59,6 +59,59 @@ test.describe('replay-snapshot handler', () => {
     }).toPass({ timeout: 5_000 });
   });
 
+  test('reduce-merge snapshot replays merged value with latest seq for since=N1-1', async ({
+    page,
+  }) => {
+    // Increment once — snapshot row stored at seq=N1 with total=5.
+    await page.getByTestId('increment-counter-btn').click(); // +5
+    await expect(async () => {
+      const seqText = await page.getByTestId('last-seq').textContent();
+      expect(Number(seqText)).toBeGreaterThan(0);
+    }).toPass({ timeout: 5_000 });
+    const firstSeq = Number(await page.getByTestId('last-seq').textContent());
+    expect(firstSeq).toBeGreaterThan(0);
+
+    // Increment again — reducer merges 5+3=8, snapshot row updated to seq=N2.
+    await page.getByTestId('increment-counter-btn2').click(); // +3
+    await expect(async () => {
+      const seqText = await page.getByTestId('last-seq').textContent();
+      expect(Number(seqText)).toBeGreaterThan(firstSeq);
+    }).toPass({ timeout: 5_000 });
+    const secondSeq = Number(await page.getByTestId('last-seq').textContent());
+    expect(secondSeq).toBeGreaterThan(firstSeq);
+
+    // Request _replay since=firstSeq-1 (between original creation and merge).
+    // The merged row should come back with seq=N2 and total=8 — proving merging
+    // updates the snapshot's seq to the latest message's seq.
+    const replayed = await page.evaluate(async (since) => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws!;
+      const collected: { event: string; payload: Record<string, unknown> }[] = [];
+      const original = ws.onmessage;
+      ws.onmessage = (ev) => {
+        if (typeof ev.data === 'string' && ev.data !== 'pong') {
+          try {
+            const parsed = JSON.parse(ev.data) as {
+              event: string;
+              payload: Record<string, unknown>;
+            };
+            collected.push(parsed);
+          } catch {
+            // ignore
+          }
+        }
+        if (typeof original === 'function') original.call(ws, ev);
+      };
+      ws.send(JSON.stringify({ event: '_replay', payload: { since } }));
+      await new Promise((r) => setTimeout(r, 1500));
+      return collected.filter((m) => m.event === 'counter-snapshot');
+    }, firstSeq - 1);
+
+    expect(replayed).toHaveLength(1);
+    const merged = replayed[0]!;
+    expect(merged.payload.total).toBe(8);
+    expect(merged.payload._seq).toBe(secondSeq);
+  });
+
   test('reduce can delete a snapshot key', async ({ page }) => {
     await page.getByTestId('update-doc-a-btn').click();
     await page.getByTestId('delete-doc-a-btn').click();

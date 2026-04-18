@@ -6,7 +6,7 @@ import { error } from '@wskit/core';
 // ---------------------------------------------------------------------------
 //
 // Everything the developer needs for the error system is available from one
-// import path: `import { error, Block, Forbidden } from '@wskit/server/errors'`
+// import path: `import { error, Block, ChannelNotFound } from '@wskit/server/errors'`
 
 export {
   error,
@@ -34,6 +34,8 @@ export type { ErrorDef, ErrorDefWithFactory } from '@wskit/core';
  * executing (e.g., logging, cleanup).
  *
  * ```ts
+ * import { Disconnect, CloseCodes } from '@wskit/server/errors';
+ *
  * incoming('send-message', async (ctx, payload) => {
  *   if (ctx.meta.violations > 10) throw Disconnect(CloseCodes.BANNED, 'Too many violations');
  * });
@@ -48,6 +50,8 @@ export function Disconnect(code: number, reason: string) {
  * throwing it anywhere else is treated as an unrecognized error.
  *
  * ```ts
+ * import { RejectUpgrade } from '@wskit/server/errors';
+ *
  * onUpgrade(async (req) => {
  *   const user = await validateToken(req.headers.get('authorization'));
  *   if (!user) throw RejectUpgrade(4002, 'Invalid token');
@@ -70,6 +74,9 @@ export function RejectUpgrade(code: number, reason: string) {
  * error whose `detail.retries` is `3`.
  *
  * ```ts
+ * // pseudo-code — `tryAcquireLock` is a placeholder for your own lock helper
+ * import { Defer } from '@wskit/server/errors';
+ *
  * incoming('process-job', async (ctx, payload) => {
  *   const lock = await tryAcquireLock(payload.resourceId);
  *   if (!lock) throw Defer(1000); // retry in 1 second

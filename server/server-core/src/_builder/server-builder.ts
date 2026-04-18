@@ -61,6 +61,15 @@ type StateAfterOutgoing<
   TPayload,
 > = NextState<TState, OutgoingPrimitive<TEvent, TPayload>>;
 
+/**
+ * Folds a single newly-declared channel or namespace into the running
+ * `TState['contract']`. Used by `UseResult` for `.use(channel(...))` and
+ * `.use(namespace(...))`. Sibling of `MergeGroupContract` — both follow the
+ * same template (preserve all state fields, merge one contract slot); see the
+ * other for shape.
+ *
+ * @internal
+ */
 type MergeScopeContract<
   TState extends ScopeStateShape,
   TField extends 'channels' | 'namespaces',
@@ -92,6 +101,14 @@ type MergeScopeContract<
   readonly env: TState['env'];
 };
 
+/**
+ * Folds an entire group's contract (every field) into the running
+ * `TState['contract']`. Used by `UseResult` for `.use(group(...))`. Sibling of
+ * `MergeScopeContract` — both follow the same template (preserve all state
+ * fields, merge contract slots); see the other for shape.
+ *
+ * @internal
+ */
 type MergeGroupContract<TState extends ScopeStateShape, TGroupState extends ScopeStateShape> = {
   readonly kind: TState['kind'];
   readonly outgoing: TState['outgoing'];
@@ -115,6 +132,14 @@ type MergeGroupContract<TState extends ScopeStateShape, TGroupState extends Scop
   readonly env: TState['env'];
 };
 
+/**
+ * Computes the new `TState` produced by `.use(primitive)`. Dispatches on the
+ * primitive kind: groups merge full contracts, channels and namespaces add
+ * one named entry, foldable primitives advance the state, anything else
+ * leaves the state untouched.
+ *
+ * @internal
+ */
 type UseResult<TState extends ScopeStateShape, P extends Primitive> =
   P extends GroupPrimitive<infer TGroupState extends ScopeStateShape>
     ? MergeGroupContract<TState, TGroupState>
@@ -165,9 +190,9 @@ export class ServerBuilder<TState extends ScopeStateShape = InitialState, TFeatu
    * @example
    * ```ts
    * import { server, event } from '@wskit/server';
-   * import { z } from 'zod';
+   * import * as v from 'valibot';
    *
-   * const Greeting = event('greeting', z.object({ text: z.string() }));
+   * const Greeting = event('greeting', v.object({ text: v.string() }));
    *
    * server('app').outgoing(Greeting);
    * ```
@@ -189,10 +214,11 @@ export class ServerBuilder<TState extends ScopeStateShape = InitialState, TFeatu
    *
    * @example
    * ```ts
-   * import { server, event, ValidationFailed } from '@wskit/server';
-   * import { z } from 'zod';
+   * import { server, event } from '@wskit/server';
+   * import { ValidationFailed } from '@wskit/server/errors';
+   * import * as v from 'valibot';
    *
-   * const SendChat = event('send-chat', z.object({ text: z.string() }));
+   * const SendChat = event('send-chat', v.object({ text: v.string() }));
    *
    * server('app').incoming(SendChat, (ctx, payload) => {
    *   if (payload.text.includes('badword')) {
@@ -341,7 +367,29 @@ export class GroupBuilder<TState extends ScopeStateShape, TFeatures = {}> {
   }
 }
 
-/** A compiled group of primitives produced by `ServerBuilder.group()`. */
+/**
+ * A compiled group of primitives produced by `ServerBuilder.group()`.
+ *
+ * A group is a portable bundle of flat primitives (`incoming`, `outgoing`,
+ * etc.) you can mount onto any builder with `.use()`. Use it to share common
+ * declarations between multiple servers without duplicating code.
+ *
+ * @example
+ * ```ts
+ * import { server, event } from '@wskit/server';
+ * import * as v from 'valibot';
+ *
+ * const Ping = event('ping', v.object({}));
+ *
+ * // .group(...) returns a GroupPrimitive...
+ * const shared = server('app').group((g) =>
+ *   g.incoming(Ping, (ctx) => ctx.send('pong', {})),
+ * );
+ *
+ * // ...and .use(...) consumes one, expanding its primitives in place.
+ * server('app').use(shared);
+ * ```
+ */
 export interface GroupPrimitive<
   _TState extends ScopeStateShape = ScopeStateShape,
 > extends Primitive<'group'> {

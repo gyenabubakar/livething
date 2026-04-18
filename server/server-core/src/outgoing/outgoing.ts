@@ -35,7 +35,11 @@ const OUTGOING_KEY = Symbol('outgoing');
  *
  * @example
  * ```ts
- * const Messages = event('messages', z.array(MessageSchema));
+ * import { server, event } from '@wskit/server';
+ * import * as v from 'valibot';
+ *
+ * const MessageSchema = v.object({ text: v.string() });
+ * const Messages = event('messages', v.array(MessageSchema));
  *
  * server('chat')
  *   .outgoing(Messages) // same as calling outgoing(Messages.event) under the hood

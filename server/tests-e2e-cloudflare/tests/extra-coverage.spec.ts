@@ -218,6 +218,32 @@ test.describe('extra server-feature coverage', () => {
     await closeWs(page);
   });
 
+  test('subscribe with unknown dynamic scope emits _error channel-not-found', async ({
+    page,
+  }, info) => {
+    const room = `xcov-dyn-nomatch-${info.testId}`;
+    await page.goto('/');
+    await openWs(page, '/ws', 'unknowndynuser', room);
+
+    await wsSend(page, '_subscribe', { _channel: 'room:x', _channelScope: 'unknown-family' });
+
+    const err = await waitForNext(page, (m) => m.event === '_error');
+    const payload = err.payload as { code?: string; _channel?: string; _channelScope?: string };
+    expect(payload.code).toBe('channel-not-found');
+    expect(payload._channel).toBe('room:x');
+    expect(payload._channelScope).toBe('unknown-family');
+
+    // Connection stays alive — echo roundtrip still works.
+    await wsSend(page, 'echo', { text: 'post-dyn-nomatch' });
+    const echoed = await waitForNext(
+      page,
+      (m) => m.event === 'echoed' && (m.payload as { text?: string }).text === 'post-dyn-nomatch',
+    );
+    expect(echoed.payload.text).toBe('post-dyn-nomatch');
+
+    await closeWs(page);
+  });
+
   test('kv: delete removes a stored value', async ({ page }, info) => {
     const room = `xcov-kvdel-${info.testId}`;
     await page.goto('/');

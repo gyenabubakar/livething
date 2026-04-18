@@ -6,8 +6,8 @@ import type { EngineAccess } from './_engine/access.ts';
 // ---------------------------------------------------------------------------
 
 /**
- * The kind (category) of a primitive. The builder and `defineServer` use this
- * to decide how each primitive is collected and wired into the engine.
+ * The kind (category) of a primitive. The builder uses this to decide how
+ * each primitive is collected and wired into the engine during `.build()`.
  *
  * - `'handler'`        — registers an event handler (`incoming`, `request`, `stream`)
  * - `'contract'`       — declares types for `InferClient` (`outgoing`, `errors`)
@@ -56,7 +56,7 @@ export interface RequiresManifest {
  * must be registered alongside this one.
  *
  * Each primitive factory carries a `__key` symbol. When you list another
- * factory in `dependencies`, `defineServer` checks at build time that the
+ * factory in `dependencies`, the builder's `.build()` step checks that the
  * referenced primitive was actually registered. If it was not, it throws
  * immediately — no runtime surprises.
  *
@@ -76,7 +76,7 @@ export interface PrimitiveRef {
 // ---------------------------------------------------------------------------
 
 /**
- * Describes how `defineServer` detects duplicate registrations.
+ * Describes how the builder's `.build()` step detects duplicate registrations.
  *
  * - `[key]` — pure singleton. Only one instance of this primitive is allowed
  *   per server handler. Registering `ack()` twice, for example, throws:
