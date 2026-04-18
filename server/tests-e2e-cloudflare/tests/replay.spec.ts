@@ -234,6 +234,69 @@ test.describe('replay handler', () => {
     }).toPass({ timeout: 10_000 });
   });
 
+  test('strict durability: send then immediate disconnect survives and replays', async ({
+    page,
+  }) => {
+    // Queue the last send and disconnect on the same tick so the client never
+    // waits for the server roundtrip. Strict durability must still persist it.
+    await page.evaluate(() => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      ws?.send(JSON.stringify({ event: 'send-msg', payload: { text: 'strict-last-send' } }));
+    });
+    await page.getByTestId('disconnect-btn').click();
+    await waitForText(page, 'status', 'disconnected');
+
+    await page.getByTestId('connect-btn').click();
+    await waitForText(page, 'status', 'connected');
+    await page.getByTestId('replay-btn').click();
+    await expect(async () => {
+      const messages = await page.getByTestId('messages').textContent();
+      expect(messages).toContain('strict-last-send');
+    }).toPass({ timeout: 10_000 });
+  });
+
+  test('reconnect then replay with old seq returns only messages after it', async ({ page }) => {
+    await page.evaluate(() => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      ws?.send(JSON.stringify({ event: 'send-msg', payload: { text: 'preseq-1' } }));
+      ws?.send(JSON.stringify({ event: 'send-msg', payload: { text: 'preseq-2' } }));
+      ws?.send(JSON.stringify({ event: 'send-msg', payload: { text: 'preseq-3' } }));
+    });
+    await waitForText(page, 'messages', /preseq-3/);
+    await expect(async () => {
+      const seq = Number(await page.getByTestId('last-seq').textContent());
+      expect(seq).toBeGreaterThan(0);
+    }).toPass({ timeout: 5_000 });
+    const oldSeq = Number(await page.getByTestId('last-seq').textContent());
+
+    await page.getByTestId('disconnect-btn').click();
+    await waitForText(page, 'status', 'disconnected');
+    await page.getByTestId('connect-btn').click();
+    await waitForText(page, 'status', 'connected');
+
+    await page.evaluate(() => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      ws?.send(JSON.stringify({ event: 'send-msg', payload: { text: 'postseq-1' } }));
+    });
+    await waitForText(page, 'messages', /postseq-1/);
+
+    await page.getByTestId('since-input').fill(String(oldSeq));
+    await page.getByTestId('replay-btn').click();
+
+    await expect(async () => {
+      const replayCount = Number(await page.getByTestId('replay-count').textContent());
+      expect(replayCount).toBeGreaterThan(0);
+      const messages = await page.getByTestId('messages').textContent();
+      expect(messages).toContain('postseq-1');
+    }).toPass({ timeout: 10_000 });
+
+    // The replayed slice must only contain messages strictly after oldSeq.
+    // Since each send-msg produces 2 stored chat-msgs (ctx.send + ctx.broadcast),
+    // one post-disconnect send-msg yields exactly 2 replay rows.
+    const replayCount = Number(await page.getByTestId('replay-count').textContent());
+    expect(replayCount).toBeLessThanOrEqual(2);
+  });
+
   test('history retention prunes rows older than maxAgeMs', async ({ page }) => {
     await page.evaluate(() => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;

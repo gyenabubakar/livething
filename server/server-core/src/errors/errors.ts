@@ -64,8 +64,10 @@ export function RejectUpgrade(code: number, reason: string) {
  * Only valid in `incoming` handlers and intercepts — in `request` or `stream`
  * handlers, it's treated as an unrecognized error (`internal-error`).
  *
- * Max 3 retries per message. After that, the message is dropped and `onError`
- * fires with a `DeferExhausted` error.
+ * Up to 3 retries per message, so the handler runs **at most 4 times total**
+ * (the initial attempt plus 3 retries). After the third retry still throws
+ * `Defer`, the message is dropped and `onError` fires with a `DeferExhausted`
+ * error whose `detail.retries` is `3`.
  *
  * ```ts
  * incoming('process-job', async (ctx, payload) => {
@@ -100,10 +102,19 @@ export function Defer(delay: number) {
  * ```
  */
 export const DeferExhausted = error('defer-exhausted', (p: unknown) => {
+  if (typeof p !== 'object' || p === null) {
+    throw new Error('DeferExhausted detail must be an object');
+  }
   const obj = p as Record<string, unknown>;
+  if (typeof obj.event !== 'string') {
+    throw new Error('DeferExhausted detail.event must be a string');
+  }
+  if (typeof obj.retries !== 'number' || !Number.isFinite(obj.retries)) {
+    throw new Error('DeferExhausted detail.retries must be a finite number');
+  }
   return {
-    event: String(obj.event),
+    event: obj.event,
     payload: obj.payload,
-    retries: Number(obj.retries),
+    retries: obj.retries,
   };
 });

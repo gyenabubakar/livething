@@ -221,6 +221,13 @@ export const onConnect = Object.assign(
 /**
  * Creates an `onDisconnect` lifecycle primitive. The handler is called each
  * time a client disconnects, whether cleanly or due to a network error.
+ *
+ * @example
+ * ```ts
+ * server('chat').use(onDisconnect((ctx) => {
+ *   console.log('client left', ctx.id);
+ * }));
+ * ```
  */
 export const onDisconnect = Object.assign(
   makeLifecycle('onDisconnect', ON_DISCONNECT_KEY, (e, h) => e.onDisconnect(h)) as <TCtx>(
@@ -233,6 +240,13 @@ export const onDisconnect = Object.assign(
  * Creates an `onShutdown` lifecycle primitive. The handler is called when the
  * server begins shutting down. Use this for cleanup such as flushing queues
  * or closing database connections.
+ *
+ * @example
+ * ```ts
+ * server('chat').use(onShutdown(async (ctx) => {
+ *   await queue.flush();
+ * }));
+ * ```
  */
 export const onShutdown = Object.assign(
   makeLifecycle('onShutdown', ON_SHUTDOWN_KEY, (e, h) => e.onShutdown(h)) as <TCtx>(
@@ -246,6 +260,13 @@ export const onShutdown = Object.assign(
  * error is not caught by any other handler. Receives the handler context, the
  * error value, and — when the error occurred inside a named event handler —
  * the event name.
+ *
+ * @example
+ * ```ts
+ * server('chat').use(onError((ctx, error, event) => {
+ *   logger.error({ id: ctx.id, event }, String(error));
+ * }));
+ * ```
  */
 export const onError = Object.assign(
   makeLifecycle('onError', ON_ERROR_KEY, (e, h) => e.onError(h)) as <TCtx>(
@@ -281,6 +302,13 @@ export const onUpgrade = Object.assign(
  * Creates an `onBinary` lifecycle primitive. The handler is called when the
  * client sends a raw binary WebSocket frame. The `data` is the raw `ArrayBuffer`
  * — wskit does not parse it.
+ *
+ * @example
+ * ```ts
+ * server('uploads').use(onBinary((ctx, data) => {
+ *   saveChunk(ctx.id, new Uint8Array(data));
+ * }));
+ * ```
  */
 export const onBinary = Object.assign(
   makeLifecycle('onBinary', ON_BINARY_KEY, (e, h) => e.onBinary(h)) as <TCtx>(
@@ -293,6 +321,13 @@ export const onBinary = Object.assign(
  * Creates an `onValidationError` lifecycle primitive. The handler is called
  * when an incoming message fails schema validation. Receives the handler
  * context, the event name, and the raw validation error from the schema library.
+ *
+ * @example
+ * ```ts
+ * server('chat').use(onValidationError((ctx, event, err) => {
+ *   logger.warn({ id: ctx.id, event }, 'bad payload', err);
+ * }));
+ * ```
  */
 export const onValidationError = Object.assign(
   makeLifecycle('onValidationError', ON_VALIDATION_ERROR_KEY, (e, h) => e.onValidationError(h)) as <

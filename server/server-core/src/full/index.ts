@@ -14,10 +14,31 @@ import { withStreams } from '~/stream/with.ts';
 /**
  * Create a batteries-included server builder with every feature pre-registered.
  *
- * This is the quickest way to get started — you don't need to call any
- * `with*` wrappers yourself. All features (lifecycle, channels, namespaces,
- * intercepts, streams, requests, replay, scheduled tasks, errors, and
- * infrastructure) are enabled out of the box.
+ * Use this when you want the quickest path to a working server and don't mind
+ * paying the full bundle cost up front. Every feature (lifecycle, channels,
+ * namespaces, intercepts, streams, requests, replay, scheduled tasks, errors,
+ * and infrastructure) is enabled out of the box, so the builder exposes every
+ * method without you wiring any `with*` wrapper yourself.
+ *
+ * ### How this differs from `server` in `@wskit/server`
+ *
+ * Both entry points create a builder — the difference is which methods are
+ * available to chain:
+ *
+ * - **`@wskit/server`** — minimal starting point. The returned builder has
+ *   `.incoming`, `.outgoing`, `.use`, `.group`, `.build`. You opt into each
+ *   feature by wrapping the builder with the matching `with*` function
+ *   (`withChannels`, `withStreams`, `withReplay`, etc.) or by importing the
+ *   feature primitive and registering it with `.use(...)`. Smaller bundles
+ *   when you only need a subset.
+ * - **`@wskit/server/full`** (this module) — every `with*` wrapper is applied
+ *   for you, so the builder already has `.channel`, `.namespace`, `.stream`,
+ *   `.request`, `.replay`, `.scheduled`, `.intercept`, lifecycle hooks, and
+ *   infrastructure (`.ack`, `.dedup`, `.heartbeat`, `.sequence`, `.hibernation`)
+ *   chainable directly. Larger bundles; fewer decisions.
+ *
+ * Pick `@wskit/server` when you care about tree-shaking. Pick
+ * `@wskit/server/full` when you want one import and every feature on tap.
  *
  * @example
  * ```ts

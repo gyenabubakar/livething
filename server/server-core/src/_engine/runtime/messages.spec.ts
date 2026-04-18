@@ -209,7 +209,10 @@ describe('message runtime', () => {
             {
               event: 'manual-check',
               handler: () => {
-                throw ValidationFailed;
+                throw ValidationFailed({
+                  event: 'test-event',
+                  issues: [{ message: 'bad' }],
+                });
               },
               validator: undefined,
             },

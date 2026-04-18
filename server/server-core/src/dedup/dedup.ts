@@ -8,8 +8,25 @@ export interface DedupPrimitive extends Primitive<'dedup'> {}
 const DEDUP_KEY = Symbol('dedup');
 
 /**
- * Tags every outgoing message with a unique ID so the client can detect and
- * discard duplicates that may arrive from a replay, retry, or network hiccup.
+ * The default number of recent incoming `_messageId` values remembered per
+ * connection. Chosen to cover realistic burst retry scenarios (a few seconds
+ * of client retries under flaky networks) without growing memory unbounded.
+ */
+const DEDUP_DEFAULT_INCOMING_CAP = 256;
+
+/**
+ * Deduplicates messages in both directions:
+ *
+ * - **Outgoing** — every server-to-client message is stamped with a unique
+ *   `_messageId` so the client can spot and discard duplicates from replays
+ *   or reconnects.
+ * - **Incoming** — the engine remembers the most recent `_messageId` values
+ *   the client has sent (default 256 per connection) and silently drops any
+ *   frame whose id is already in the window. This protects handlers from
+ *   duplicate runs caused by client-side retries on a flaky socket.
+ *
+ * Clients opt in to incoming dedup by attaching a stable `_messageId` to
+ * retried sends. Messages without a `_messageId` are always dispatched.
  *
  * @example
  * ```ts
@@ -25,6 +42,8 @@ export function dedup(): DedupPrimitive {
     __requires: {},
     __setup(engine) {
       engine.installOnce(DEDUP_KEY, () => {
+        engine.enableIncomingDedup(DEDUP_DEFAULT_INCOMING_CAP);
+
         engine.onOutgoing((message) => {
           // Skip internal protocol events (e.g. `_ack`, `_replay`).
           if (isProtocolEvent(message.event)) return;

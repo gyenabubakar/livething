@@ -13,7 +13,13 @@ import { connectionHandlers } from './connections/handlers.ts';
 import { dynamicRoomChannel } from './dynamic-channel/channel.ts';
 import { Echo, GetTime, TimeResponseSchema } from './echo/events.ts';
 import { echoHandlers } from './echo/handlers.ts';
-import { DeadLetterResult, DefaultRetryResult, FilteredTaskResult } from './scheduled/events.ts';
+import {
+  CancelNothing,
+  CancelNothingOk,
+  DeadLetterResult,
+  DefaultRetryResult,
+  FilteredTaskResult,
+} from './scheduled/events.ts';
 import { scheduledHandlers } from './scheduled/handlers.ts';
 import { base } from './setup.ts';
 import { storageHandlers } from './storage/handlers.ts';
@@ -58,6 +64,7 @@ export const handler = withStreams(withChannels(withScheduled(withRequests(withI
   .outgoing(DeadLetterResult)
   .outgoing(DefaultRetryResult)
   .outgoing(FilteredTaskResult)
+  .outgoing(CancelNothingOk)
 
   .onInit((ctx) => {
     ctx.sql.exec(`
@@ -147,7 +154,11 @@ export const handler = withStreams(withChannels(withScheduled(withRequests(withI
   })
 
   .incoming(ManualValidation, (_ctx, payload) => {
-    if (payload.value === 'invalid') throw ValidationFailed;
+    if (payload.value === 'invalid')
+      throw ValidationFailed({
+        event: 'manual-validation',
+        issues: [{ message: 'value cannot be "invalid"' }],
+      });
   })
 
   .incoming(AckThenThrow, () => {
@@ -161,6 +172,12 @@ export const handler = withStreams(withChannels(withScheduled(withRequests(withI
 
   .incoming(KickFromChannel, (ctx, payload) => {
     ctx.channels.kick(payload.channel, payload.tag, 'Kicked by admin');
+  })
+
+  .incoming(CancelNothing, (ctx) => {
+    // Cancelling an unscheduled run: filter never matches, so this is a no-op.
+    ctx.cancelScheduled('cleanup', { __never: '__never' } as never);
+    ctx.send('cancel-nothing-ok', {});
   })
 
   .incoming(QueryDeadLetter, (ctx) => {

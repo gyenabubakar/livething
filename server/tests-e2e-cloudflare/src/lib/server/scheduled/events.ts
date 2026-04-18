@@ -39,3 +39,6 @@ export const ScheduleSendToConnDelivery = event(
 export const ScheduleFilteredTasks = event('schedule-filtered-tasks', v.object({}));
 export const CancelFilteredTask = event('cancel-filtered-task', v.object({ label: v.string() }));
 export const FilteredTaskResult = event('filtered-task-result', v.object({ label: v.string() }));
+
+export const CancelNothing = event('cancel-nothing', v.object({}));
+export const CancelNothingOk = event('cancel-nothing-ok', v.object({}));

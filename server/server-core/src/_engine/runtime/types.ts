@@ -179,6 +179,13 @@ export interface RuntimeConnection {
   pendingPingSentAt?: number;
   /** Sliding window of recent latency samples for quality calculation. */
   recentLatencies?: number[];
+  /**
+   * Bounded ring of `_messageId` values already seen on this connection, used
+   * by `dedup()` to drop duplicate incoming frames before they reach handlers.
+   * Lazy-initialized on first seen id; `undefined` when dedup is off or the
+   * connection has not yet received an id-bearing frame.
+   */
+  seenIncomingIds?: { buf: string[]; writePtr: number; set: Set<string>; cap: number };
 }
 
 /**

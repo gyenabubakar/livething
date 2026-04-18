@@ -453,6 +453,72 @@ test.describe('multi-client', () => {
     await page2.close();
   });
 
+  test('dynamic channel: onSubscribe broadcasts system "entered" to existing members', async ({
+    browser,
+  }, testInfo) => {
+    const room = `multi-${testInfo.testId}`;
+    const page1 = await browser.newPage();
+    const page2 = await browser.newPage();
+    await page1.goto(`/?room=${room}`);
+    await page2.goto(`/?room=${room}`);
+
+    await page1.getByTestId('username-input').fill('u1');
+    await page1.getByTestId('connect-btn').click();
+    await waitForText(page1, 'status', 'connected');
+    await page1.getByTestId('room-join-btn').click();
+    await waitForText(page1, 'room-subscribed', 'subscribed');
+
+    await page2.getByTestId('username-input').fill('u2');
+    await page2.getByTestId('connect-btn').click();
+    await waitForText(page2, 'status', 'connected');
+    await page2.getByTestId('room-join-btn').click();
+    await waitForText(page2, 'room-subscribed', 'subscribed');
+
+    // page1 (existing member) should see the system "entered" broadcast for u2
+    await waitForText(page1, 'room-messages', /system: u2 entered room:general/);
+
+    await page2.getByTestId('disconnect-btn').click();
+    await waitForText(page1, 'room-messages', /system: u2 left room:general/, 15_000);
+
+    await page1.close();
+    await page2.close();
+  });
+
+  test('kick reason string reaches kicked client exactly', async ({ browser }, testInfo) => {
+    const room = `multi-${testInfo.testId}`;
+    const page1 = await browser.newPage();
+    const page2 = await browser.newPage();
+    await page1.goto(`/?room=${room}`);
+    await page2.goto(`/?room=${room}`);
+
+    await page1.getByTestId('username-input').fill('user1');
+    await page1.getByTestId('connect-btn').click();
+    await waitForText(page1, 'status', 'connected');
+    await page1.getByTestId('chat-join-btn').click();
+    await waitForText(page1, 'chat-subscribed', 'subscribed');
+
+    await page2.getByTestId('username-input').fill('user2');
+    await page2.getByTestId('connect-btn').click();
+    await waitForText(page2, 'status', 'connected');
+    await page2.getByTestId('chat-join-btn').click();
+    await waitForText(page2, 'chat-subscribed', 'subscribed');
+
+    await page1.evaluate(() => {
+      const ws = (window as unknown as { __ws: WebSocket }).__ws;
+      ws?.send(
+        JSON.stringify({ event: 'kick-from-channel', payload: { channel: 'chat', tag: 'user2' } }),
+      );
+    });
+
+    await waitForText(page2, 'kicked-result', /Kicked by admin/, 10_000);
+    const kicked = await page2.getByTestId('kicked-result').textContent();
+    expect(kicked).toContain('kicked:chat');
+    expect(kicked).toContain('Kicked by admin');
+
+    await page1.close();
+    await page2.close();
+  });
+
   test('broadcastBinary with excludeSelf skips the caller', async ({ browser }, testInfo) => {
     const room = `multi-${testInfo.testId}`;
     const page1 = await browser.newPage();

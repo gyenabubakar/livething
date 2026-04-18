@@ -10,15 +10,17 @@ const KINDS = ['server', 'group'] as const;
 /**
  * Add heartbeat support to a server builder.
  *
- * Once enabled, you can call `.heartbeat()` on the builder to enable periodic
- * ping/pong health checks that track connection latency and overall connection
- * quality over time.
+ * Once enabled, you can call `.heartbeat({ timeout })` on the builder to arm
+ * an idle-close timer: if no client activity arrives within `timeout` ms, the
+ * connection is closed with `CloseCodes.IDLE`. Latency and connection-quality
+ * tracking are already on by default and do not require this primitive.
  *
  * @example
  * ```ts
  * import { server } from '@wskit/server';
  *
  * const s = withHeartbeat(server('app'));
+ * // later: s.heartbeat({ timeout: 30_000 })
  * ```
  */
 export function withHeartbeat<TState extends ScopeStateShape, TFeatures>(

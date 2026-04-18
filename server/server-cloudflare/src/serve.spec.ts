@@ -1,0 +1,304 @@
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  FakeDurableObjectBase,
+  installPermissiveResponse,
+  installWebSocketPair,
+  makeFakeDOState,
+  makeFakeEngine,
+} from './test-utils.ts';
+import type { FakeEngine } from './test-utils.ts';
+
+const responseRestore = installPermissiveResponse();
+afterAll(() => responseRestore.restore());
+
+vi.mock('cloudflare:workers', () => ({
+  DurableObject: FakeDurableObjectBase,
+}));
+
+type AdapterSetup = (createEngine: () => unknown, options: unknown) => unknown;
+
+let fake: FakeEngine;
+
+// Each serve() call re-invokes defineServerAdapter.setup. We capture the
+// createEngine factory so every DO instance shares the same fake engine
+// we can assert against.
+vi.mock('@wskit/server/adapters', () => ({
+  defineServerAdapter:
+    <TOpts, TSvc>(config: { id: string; hibernation: unknown; setup: AdapterSetup }) =>
+    (_handler: unknown, options: TOpts): TSvc => {
+      return config.setup(() => fake.engine, options) as TSvc;
+    },
+}));
+
+// Import AFTER mocks are in place.
+const { serve } = await import('./serve.ts');
+
+type DOInstance = {
+  fetch(req: Request): Promise<Response>;
+  webSocketMessage(ws: WebSocket, data: string | ArrayBuffer | ArrayBufferView): Promise<void>;
+  webSocketClose(ws: WebSocket, code: number, reason: string, wasClean?: boolean): Promise<void>;
+  webSocketError(ws: WebSocket, err: unknown): Promise<void>;
+  alarm(): Promise<void>;
+  shutdown(): Promise<void>;
+};
+
+function buildClass(opts?: { hibernation?: boolean }) {
+  fake = makeFakeEngine();
+  if (opts?.hibernation !== false) fake.setHibernation(true);
+  return serve({} as never, opts) as unknown as new (
+    ctx: DurableObjectState,
+    env: unknown,
+  ) => DOInstance;
+}
+
+function upgradeRequest() {
+  return new Request('https://do.example/', {
+    headers: { Upgrade: 'websocket' },
+  });
+}
+
+describe('WskitDurableObject fetch / upgrade', () => {
+  let pairs: ReturnType<typeof installWebSocketPair>['pairs'];
+
+  beforeEach(() => {
+    pairs = installWebSocketPair().pairs;
+  });
+
+  it('returns 426 when Upgrade header is missing', async () => {
+    const Cls = buildClass({ hibernation: false });
+    const state = makeFakeDOState();
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+
+    const res = await instance.fetch(new Request('https://do.example/'));
+    expect(res.status).toBe(426);
+    expect(fake.calls.handleUpgrade).toHaveLength(0);
+  });
+
+  it('upgrades and returns 101 with client socket when accepted (standard mode)', async () => {
+    const Cls = buildClass({ hibernation: false });
+    const state = makeFakeDOState();
+    fake.stageUpgrade({ meta: { user: 'a' }, tags: ['t1'] });
+
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+    const res = await instance.fetch(upgradeRequest());
+
+    expect(res.status).toBe(101);
+    // adapter returned the client half of the pair
+    const [client, server] = pairs[0]!;
+    expect((res as unknown as { webSocket: unknown }).webSocket).toBe(client);
+    expect(server.accept).toHaveBeenCalledTimes(1);
+    expect(state.acceptWebSocket).not.toHaveBeenCalled();
+    // descriptor passed into engine.accept carried meta/tags
+    expect(fake.calls.accept).toHaveLength(1);
+    const desc = fake.calls.accept[0]!.descriptor as {
+      meta: Record<string, unknown>;
+      tags: readonly string[];
+    };
+    expect(desc.meta).toEqual({ user: 'a' });
+    expect(desc.tags).toEqual(['t1']);
+  });
+
+  it('wires addEventListener handlers that forward to the connection handle (standard mode)', async () => {
+    const Cls = buildClass({ hibernation: false });
+    const state = makeFakeDOState();
+    fake.stageUpgrade({});
+
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+    await instance.fetch(upgradeRequest());
+
+    const [, server] = pairs[0]!;
+    server.dispatch('message', { data: 'hi' });
+    expect(fake.connectionHandle.handleMessage).toHaveBeenCalledWith('hi');
+
+    const buf = new Uint8Array([1, 2, 3]).buffer;
+    server.dispatch('message', { data: buf });
+    expect(fake.connectionHandle.handleBinary).toHaveBeenCalledTimes(1);
+
+    server.dispatch('close', { code: 1000, reason: 'bye' });
+    expect(fake.connectionHandle.handleClose).toHaveBeenCalledWith(1000, 'bye');
+
+    server.dispatch('error', new Error('boom'));
+    expect(fake.connectionHandle.handleError).toHaveBeenCalled();
+  });
+
+  it('calls state.acceptWebSocket(ws, tags) in hibernation mode', async () => {
+    const Cls = buildClass({ hibernation: true });
+    const state = makeFakeDOState();
+    fake.stageUpgrade({ tags: ['room:lobby', 'tier:free'] });
+
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+    const res = await instance.fetch(upgradeRequest());
+
+    expect(res.status).toBe(101);
+    const [, server] = pairs[0]!;
+    expect(state.acceptWebSocket).toHaveBeenCalledTimes(1);
+    expect(state.acceptWebSocket.mock.calls[0]![0]).toBe(server);
+    expect(state.acceptWebSocket.mock.calls[0]![1]).toEqual(['room:lobby', 'tier:free']);
+    expect(server.accept).not.toHaveBeenCalled();
+    // addEventListener path NOT used under hibernation
+    expect(server.addEventListener).not.toHaveBeenCalled();
+  });
+});
+
+describe('handleRejectedUpgrade', () => {
+  let pairs: ReturnType<typeof installWebSocketPair>['pairs'];
+
+  beforeEach(() => {
+    pairs = installWebSocketPair().pairs;
+  });
+
+  it('returns a 101 response that immediately closes with a WS close code (code >= 1000)', async () => {
+    const Cls = buildClass({ hibernation: false });
+    const state = makeFakeDOState();
+    fake.stageUpgrade({ reject: true, code: 4002, reason: 'bad' });
+
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+    const res = await instance.fetch(upgradeRequest());
+
+    expect(res.status).toBe(101);
+    // One pair created for the rejection path
+    expect(pairs).toHaveLength(1);
+    const [client, server] = pairs[0]!;
+    expect((res as unknown as { webSocket: unknown }).webSocket).toBe(client);
+    expect(server.accept).toHaveBeenCalled();
+    expect(server.close).toHaveBeenCalledWith(4002, 'bad');
+    // engine.accept not called on reject
+    expect(fake.calls.accept).toHaveLength(0);
+  });
+
+  it('returns an HTTP response of the given status when 400 <= code <= 599', async () => {
+    const Cls = buildClass({ hibernation: false });
+    const state = makeFakeDOState();
+    fake.stageUpgrade({ reject: true, code: 401, reason: 'nope' });
+
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+    const res = await instance.fetch(upgradeRequest());
+
+    expect(res.status).toBe(401);
+    expect(await res.text()).toBe('nope');
+  });
+
+  it('defaults to HTTP 403 when reject code is outside WS (>=1000) and HTTP (400-599) ranges', async () => {
+    const Cls = buildClass({ hibernation: false });
+    const state = makeFakeDOState();
+    fake.stageUpgrade({ reject: true, code: 42 });
+
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+    const res = await instance.fetch(upgradeRequest());
+
+    expect(res.status).toBe(403);
+  });
+
+  it('defaults to HTTP 403 when no code is provided on reject', async () => {
+    const Cls = buildClass({ hibernation: false });
+    const state = makeFakeDOState();
+    fake.stageUpgrade({ reject: true, reason: 'Upgrade rejected' });
+
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+    const res = await instance.fetch(upgradeRequest());
+
+    expect(res.status).toBe(403);
+    expect(await res.text()).toBe('Upgrade rejected');
+  });
+});
+
+describe('hibernation wake callbacks', () => {
+  beforeEach(() => {
+    installWebSocketPair();
+  });
+
+  it('webSocketMessage wakes via handleHibernationWake and forwards text', async () => {
+    const Cls = buildClass({ hibernation: true });
+    const state = makeFakeDOState();
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+
+    const ws = { tag: 'hibernated' } as unknown as WebSocket;
+    await instance.webSocketMessage(ws, 'hello');
+
+    expect(fake.calls.handleHibernationWake).toEqual([ws]);
+    expect(fake.connectionHandle.handleMessage).toHaveBeenCalledWith('hello');
+  });
+
+  it('webSocketMessage forwards binary payloads through normalizeBinary', async () => {
+    const Cls = buildClass({ hibernation: true });
+    const state = makeFakeDOState();
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+
+    const ws = {} as unknown as WebSocket;
+    const view = new Uint8Array([7, 8, 9]);
+    await instance.webSocketMessage(ws, view as ArrayBufferView);
+
+    expect(fake.connectionHandle.handleBinary).toHaveBeenCalledTimes(1);
+    const arg = fake.connectionHandle.handleBinary.mock.calls[0]![0] as ArrayBuffer;
+    expect(new Uint8Array(arg)).toEqual(view);
+  });
+
+  it('webSocketClose invokes connection.handleClose with code and reason', async () => {
+    const Cls = buildClass({ hibernation: true });
+    const state = makeFakeDOState();
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+
+    await instance.webSocketClose({} as WebSocket, 1001, 'going away', true);
+    expect(fake.connectionHandle.handleClose).toHaveBeenCalledWith(1001, 'going away');
+  });
+
+  it('webSocketError forwards the error without crashing', async () => {
+    const Cls = buildClass({ hibernation: true });
+    const state = makeFakeDOState();
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+
+    const err = new Error('ws-fail');
+    await expect(instance.webSocketError({} as WebSocket, err)).resolves.toBeUndefined();
+    expect(fake.connectionHandle.handleError).toHaveBeenCalledWith(err);
+  });
+});
+
+describe('alarm() and shutdown() RPCs', () => {
+  beforeEach(() => {
+    installWebSocketPair();
+  });
+
+  it('alarm() waits for ready and invokes engine.handleAlarm', async () => {
+    const Cls = buildClass({ hibernation: true });
+    const state = makeFakeDOState();
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+
+    await instance.alarm();
+    expect(fake.calls.handleAlarm).toBe(1);
+    expect(fake.calls.initialize).toBeGreaterThanOrEqual(1);
+  });
+
+  it('shutdown() invokes engine.handleShutdown', async () => {
+    const Cls = buildClass({ hibernation: true });
+    const state = makeFakeDOState();
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+
+    await instance.shutdown();
+    expect(fake.calls.handleShutdown).toBe(1);
+  });
+});
+
+describe('engine wiring in the constructor', () => {
+  beforeEach(() => {
+    installWebSocketPair();
+  });
+
+  it('provides env, storage, platform, timers, and waitUntil to the engine', () => {
+    const Cls = buildClass({ hibernation: true });
+    const state = makeFakeDOState();
+    const env = { KEY: 'value' };
+    new Cls(state as unknown as DurableObjectState, env);
+
+    expect(fake.calls.setEnv[0]).toEqual(env);
+    expect(fake.calls.setStorage).toHaveLength(1);
+    expect(fake.calls.setPlatform).toHaveLength(1);
+    expect(fake.calls.setTimerProvider).toHaveLength(1);
+    expect(fake.calls.setWaitUntil).toHaveLength(1);
+
+    // setWaitUntil wrapper forwards through to state.waitUntil
+    const wrapper = fake.calls.setWaitUntil[0] as (p: Promise<unknown>) => void;
+    const p = Promise.resolve();
+    wrapper(p);
+    expect(state.waitUntil).toHaveBeenCalledWith(p);
+  });
+});

@@ -88,6 +88,7 @@ export class Engine {
   private hibernationEnabled = false;
   private replayEnabled = false;
   private sequencePersistent = false;
+  private incomingDedupCap = 0;
   private readonly declaredErrorCodes = new Set<string>([
     'validation-failed',
     'defer-exhausted',
@@ -118,6 +119,8 @@ export class Engine {
   private activeConnectionId?: string;
   private initialized = false;
 
+  // ─────── Section: connection state / identity ───────
+
   /**
    * Compile the declarative server definition once up front.
    */
@@ -126,6 +129,8 @@ export class Engine {
     this.primitives = handler.primitives;
     this.compiled = EngineCompile.compileHandlerDefinition(handler);
   }
+
+  // ─────── Section: storage/env/platform setters ───────
 
   /**
    * Provide the storage driver the adapter wants the engine to use.
@@ -227,6 +232,8 @@ export class Engine {
    * Modules do not get direct engine access. They get this smaller surface,
    * which lets them register lifecycle and message hooks in a controlled way.
    */
+  // ─────── Section: hook registration ───────
+
   private createModuleHooks(
     runtime: EngineRuntimeTypes.ModuleRuntime,
   ): DefineModule.ModuleHooks<any> {
@@ -402,6 +409,10 @@ export class Engine {
       setSequencePersistent: (enabled) => {
         this.sequencePersistent = enabled;
       },
+      enableIncomingDedup: (cap) => {
+        if (!Number.isFinite(cap) || cap <= 0) return;
+        this.incomingDedupCap = Math.max(this.incomingDedupCap, Math.floor(cap));
+      },
       registerErrorDefinitions: (defs) => {
         for (const def of defs) {
           this.declaredErrorCodes.add(def.code);
@@ -517,6 +528,8 @@ export class Engine {
     }
     this.initialized = true;
   }
+
+  // ─────── Section: context builders ───────
 
   /**
    * Build the context object used by init hooks.
@@ -688,6 +701,8 @@ export class Engine {
     return `${prefix}_${this.idCounter}`;
   }
 
+  // ─────── Section: runtime accessors ───────
+
   /**
    * Build the dependency bag used by helpers that only care about outgoing
    * message processing.
@@ -778,6 +793,7 @@ export class Engine {
       protocolHandlers: this.hooks.protocol,
       incomingHooks: this.hooks.incoming,
       errorHooks: this.hooks.error,
+      incomingDedupCap: this.incomingDedupCap,
       requireTimers: () => this.requireTimers(),
       buildConnectionContext: (connection: RuntimeConnection, scope?: ResolvedScope) => {
         return this.buildConnectionContext(connection, scope);
@@ -864,6 +880,8 @@ export class Engine {
     };
   }
 
+  // ─────── Section: adapter entry points ───────
+
   /**
    * Accept a newly upgraded websocket and return the callbacks the adapter uses
    * to drive it.
@@ -941,6 +959,8 @@ export class Engine {
       await hook();
     }
   }
+
+  // ─────── Section: scheduled-runtime management ───────
 
   private ensureScheduledRuntime(): void {
     if (this.installedFeatures.has(SCHEDULED_RUNTIME_KEY)) return;
@@ -1027,6 +1047,8 @@ export class Engine {
       onAlarm: () => this.handleAlarm(),
     });
   }
+
+  // ─────── Section: connection lifecycle ───────
 
   /**
    * Run connect/disconnect lifecycle hooks for both the handler and installed
@@ -1125,6 +1147,8 @@ export class Engine {
   private async processTextMessage(connection: RuntimeConnection, data: string): Promise<void> {
     return EngineMessageRuntime.processTextMessage(this.dispatchRuntime(), connection, data);
   }
+
+  // ─────── Section: message dispatch wiring ───────
 
   /**
    * Validate and send one outgoing event through the runtime pipeline.

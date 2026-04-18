@@ -83,6 +83,14 @@ export interface KVProvider {
  *
  * Adapters provide this — it bundles both SQL and key-value access in one
  * object so you only need to pass around one thing.
+ *
+ * @example
+ * ```ts
+ * const storage: StorageProvider = {
+ *   sql,
+ *   kv,
+ * };
+ * ```
  */
 export interface StorageProvider {
   sql: SQLProvider;

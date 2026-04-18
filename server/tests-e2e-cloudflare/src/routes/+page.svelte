@@ -68,6 +68,7 @@
 	let aiBlockedReply = $state('');
 	let aiPostInterceptResult = $state('');
 	let receivedMessageIds = $state<string[]>([]);
+	let cancelNothingResult = $state('');
 
 	const pendingRequests = new Map<string, (payload: Record<string, unknown>) => void>();
 
@@ -258,6 +259,9 @@
 					break;
 				case 'broadcast-result':
 					broadcastResult = `${payload.from}: ${payload.text}`;
+					break;
+				case 'cancel-nothing-ok':
+					cancelNothingResult = 'ok';
 					break;
 				default:
 					if (payload?._namespace === 'ai') {
@@ -488,6 +492,16 @@
 		send('always-defer', {});
 	}
 
+	function sendChatAlwaysDefer() {
+		deferExhaustedResult = '';
+		send('chat-always-defer', { _channel: 'chat' });
+	}
+
+	function sendCancelNothing() {
+		cancelNothingResult = '';
+		send('cancel-nothing', {});
+	}
+
 	function startHeartbeat() {
 		heartbeatCount = 0;
 		send('start-heartbeat', {});
@@ -592,6 +606,7 @@
 		<button data-testid="chat-join-btn" onclick={joinChat} disabled={status !== 'connected' || chatSubscribed}>Join</button>
 		<button data-testid="chat-leave-btn" onclick={leaveChat} disabled={!chatSubscribed}>Leave</button>
 		<button data-testid="chat-send-btn" onclick={() => sendChat('hi from e2e')} disabled={!chatSubscribed}>Send "hi from e2e"</button>
+		<button data-testid="chat-defer-btn" onclick={sendChatAlwaysDefer} disabled={!chatSubscribed}>Chat Always Defer</button>
 		<button data-testid="kick-from-channel-btn" onclick={() => kickFromChannel('chat', '')} disabled={status !== 'connected'}>Kick from Chat</button>
 		<div data-testid="chat-subscribed">{chatSubscribed ? 'subscribed' : ''}</div>
 		<div data-testid="chat-messages">{chatMessages.join(' | ')}</div>
@@ -636,6 +651,8 @@
 		<h2>Scheduled Task</h2>
 		<button data-testid="schedule-btn" onclick={scheduleCleanup} disabled={status !== 'connected'}>Schedule Cleanup (1s)</button>
 		<button data-testid="cancel-cleanup-btn" onclick={cancelCleanup} disabled={status !== 'connected'}>Cancel Cleanup</button>
+		<button data-testid="cancel-nothing-btn" onclick={sendCancelNothing} disabled={status !== 'connected'}>Cancel Nothing</button>
+		<div data-testid="cancel-nothing-result">{cancelNothingResult}</div>
 		<div data-testid="scheduled-result">{scheduledResult}</div>
 		<div data-testid="cancel-result">{cancelResult}</div>
 	</section>

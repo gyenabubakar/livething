@@ -80,7 +80,19 @@ export class WskitError<TCode extends string = string, TDetail = unknown> extend
 // ErrorDef — the thing `error()` returns
 // ---------------------------------------------------------------------------
 
-/** A validation/parse function: takes unknown input, returns typed output or throws. */
+/**
+ * A validation/parse function: takes unknown input, returns typed output, or
+ * throws if the input is malformed.
+ *
+ * **The validator must do real work.** It's also the runtime check used by
+ * `.matches()` — if the function just type-casts without inspecting the value,
+ * `.matches()` effectively only checks the error code, and malformed details
+ * will slip through both the factory and the guard.
+ *
+ * If you're absolutely certain the input is well-formed (e.g. a trusted
+ * internal source), a type cast is acceptable as an explicit escape hatch —
+ * but be aware that you're opting out of runtime safety.
+ */
 type ValidateFn<TDetail> = (value: unknown) => TDetail;
 
 /**
@@ -208,10 +220,23 @@ export const Skip = Object.freeze({ __wskit: 'skip' as const });
  *    });
  *    ```
  *
+ *    The parse function must **actually validate** — checking fields and
+ *    throwing on anything unexpected. This is wskit's zero-runtime-dep
+ *    replacement for bringing in zod/valibot just for error shapes, and it
+ *    doubles as the runtime check used by `.matches()`. If your function
+ *    only type-casts (e.g. `(p) => p as { reason: string }`) then `.matches()`
+ *    will return true for *any* `WskitError` with this code, regardless of
+ *    whether `detail` actually has the expected shape — and the factory will
+ *    happily produce malformed errors. Type-casting is only safe when you are
+ *    absolutely certain the input is well-formed (e.g. a private, server-only
+ *    control-flow error you construct yourself).
+ *
  * 3. **StandardSchema** — detail type inferred from schema output (valibot, zod, arktype):
  *    ```ts
  *    const RateLimited = error('rate-limited', v.object({ retryAfter: v.number() }));
  *    ```
+ *
+ *    Schemas always validate, so this overload is the safest default.
  *
  * Overloads 2 and 3 return a callable factory. Call it to create the error:
  * ```ts
@@ -284,14 +309,41 @@ export function error(
  * Detail contains the event name and the Standard Schema issues array.
  */
 export const ValidationFailed = error('validation-failed', (p: unknown) => {
+  if (typeof p !== 'object' || p === null) {
+    throw new Error('ValidationFailed detail must be an object');
+  }
   const obj = p as Record<string, unknown>;
-  return {
-    event: String(obj.event),
-    issues: obj.issues as Array<{
-      message: string;
-      path?: Array<string | number>;
-    }>,
-  };
+  if (typeof obj.event !== 'string') {
+    throw new Error('ValidationFailed detail.event must be a string');
+  }
+  if (!Array.isArray(obj.issues)) {
+    throw new Error('ValidationFailed detail.issues must be an array');
+  }
+  const issues: Array<{ message: string; path?: Array<string | number> }> = obj.issues.map(
+    (issue, i) => {
+      if (typeof issue !== 'object' || issue === null) {
+        throw new Error(`ValidationFailed detail.issues[${i}] must be an object`);
+      }
+      const { message, path } = issue as Record<string, unknown>;
+      if (typeof message !== 'string') {
+        throw new Error(`ValidationFailed detail.issues[${i}].message must be a string`);
+      }
+      if (path === undefined) return { message };
+      if (!Array.isArray(path)) {
+        throw new Error(`ValidationFailed detail.issues[${i}].path must be an array`);
+      }
+      for (let j = 0; j < path.length; j++) {
+        const part = path[j];
+        if (typeof part !== 'string' && typeof part !== 'number') {
+          throw new Error(
+            `ValidationFailed detail.issues[${i}].path[${j}] must be a string or number`,
+          );
+        }
+      }
+      return { message, path: path as Array<string | number> };
+    },
+  );
+  return { event: obj.event, issues };
 });
 
 /**

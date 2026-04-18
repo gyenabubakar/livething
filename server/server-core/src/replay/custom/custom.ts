@@ -297,34 +297,14 @@ function createChannelReplayContext(
 }
 
 /**
- * Custom replay — store and replay messages with your own backend (Postgres,
- * Redis, an external service, etc.) instead of the built-in SQLite store.
- * Provide three hooks: one to store messages before they go out, one to
- * store after send, and one to replay on client reconnect.
+ * @internal
  *
- * `sequence` and `dedup` are enabled automatically if you haven't already
- * registered them — your hooks always receive fully sequenced messages.
- *
- * In practice you rarely call `handleReplay()` directly. Use it through the
- * builder: `server('name').replayCustom(...).done()`.
+ * Internal primitive factory that powers `.replayCustom()`. It wires the
+ * configured hooks into the engine's outgoing pipeline and `_replay` protocol
+ * handler. This is not part of the public API — use the `.replayCustom()`
+ * builder instead.
  *
  * @param options The three lifecycle hooks for storing and replaying messages.
- *
- * @example
- * ```ts
- * import '@wskit/server/replay/custom';
- *
- * server('chat')
- *   .replayCustom()
- *   .onBeforeSend((ctx, msg) => {
- *     ctx.sql.exec('INSERT INTO replay ...', msg.event, msg.wire.seq);
- *   })
- *   .onReplay(async (ctx, since) => {
- *     const rows = ctx.sql.exec('SELECT ... WHERE seq > ?', since).toArray();
- *     for (const row of rows) ctx.sendReplay(row.event, row.payload, row.wire);
- *   })
- *   .build();
- * ```
  */
 export function handleReplay<TScope extends CustomReplayScope = 'top'>(
   options: CustomReplayOptions<TScope>,

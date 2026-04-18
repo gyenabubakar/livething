@@ -68,4 +68,37 @@ describe('sequence/runtime', () => {
     expect(allocatePersistentSequence(sql)).toBe(2);
     expect(allocatePersistentSequence(sql)).toBe(3);
   });
+
+  it('resumes from a pre-existing sequence row after a restart', () => {
+    // Simulate a server restart where the row already contains nextSeq=42.
+    let currentSeq: number | null = 42;
+    const queries: string[] = [];
+
+    function exec(query: string, ...params: unknown[]) {
+      queries.push(query.replaceAll(/\s+/g, ' ').trim());
+
+      if (query.includes('SELECT nextSeq')) {
+        return new FakeSqlResult(currentSeq == null ? null : { nextSeq: currentSeq });
+      }
+
+      if (query.includes('UPDATE _wskit_sequence')) {
+        currentSeq = Number(params[0]);
+        return new FakeSqlResult(null);
+      }
+
+      return new FakeSqlResult(null);
+    }
+
+    const sql = {
+      exec,
+      transaction<T>(fn: (tx: { exec: typeof exec }) => T): T {
+        return fn({ exec });
+      },
+    };
+
+    expect(allocatePersistentSequence(sql)).toBe(42);
+    expect(allocatePersistentSequence(sql)).toBe(43);
+    // No INSERT should happen when the row already exists.
+    expect(queries.some((q) => q.startsWith('INSERT INTO _wskit_sequence'))).toBe(false);
+  });
 });

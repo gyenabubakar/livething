@@ -1,10 +1,11 @@
 import { withChannels } from '@wskit/server/channels';
-import { Block } from '@wskit/server/errors';
+import { Block, Defer } from '@wskit/server/errors';
 import { withIntercept } from '@wskit/server/intercept';
 import { withRequests } from '@wskit/server/requests';
 import { withStreams } from '@wskit/server/streams';
 import { base } from '../setup.ts';
 import {
+  ChatAlwaysDefer,
   ChatInfoSchema,
   ChatMessage,
   ChatStreamChunkSchema,
@@ -18,6 +19,9 @@ const chatBase = withStreams(withRequests(withIntercept(withChannels(base))));
 export const chatChannel = chatBase.channel('chat', (ch) =>
   ch
     .outgoing(ChatMessage)
+    .incoming(ChatAlwaysDefer, () => {
+      throw Defer(50);
+    })
     .incoming(SendChat, (ctx, payload) => {
       const msg = { text: payload.text, from: ctx.meta.username as string, ts: Date.now() };
       ctx.channel.send('chat-message', msg);

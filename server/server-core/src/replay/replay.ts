@@ -12,6 +12,7 @@ import {
   shouldStoreReplayMessage,
 } from '~/replay/runtime.ts';
 import { sequence } from '~/sequence/sequence.ts';
+import type { EngineAccess } from '~/_engine/access.ts';
 import type { ReplayWire } from '~/_types/scope-state.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { ReplayOptions } from '~/replay/types.ts';
@@ -73,59 +74,9 @@ export function replay(options?: ReplayOptions): ReplayPrimitive {
         pruneExpiredReplayRows(sql, opts.retention, Date.now());
       });
 
-      engine.extendContext((ctx) => {
-        const base = ctx as Record<PropertyKey, unknown> & {
-          id?: string;
-          channel?: Record<PropertyKey, unknown>;
-          sendReplay?: (event: string, payload: unknown, wire: ReplayWire) => void;
-        };
-        const scope = readReplayContextScope(base);
+      const persist = createPersist(opts, engine, channelKey, exclude);
 
-        if (channelKey) {
-          if (scope.channelScope !== channelKey || !base.id || !base.channel) return {};
-
-          base.channel.sendReplay = (event: string, payload: unknown, wire: ReplayWire) => {
-            engine.sendReplay(
-              base.id as string,
-              scope.channelName,
-              scope.channelScope,
-              event,
-              payload,
-              wire,
-            );
-          };
-
-          return {};
-        }
-
-        if (scope.namespaceName || scope.channelName || !base.id) return {};
-
-        base.sendReplay = (event: string, payload: unknown, wire: ReplayWire) => {
-          engine.sendReplay(base.id as string, wire.channel, undefined, event, payload, wire);
-        };
-
-        return {};
-      });
-
-      /**
-       * Persists one outgoing message to the replay store. Called by the
-       * `onBeforeSend` or `onAfterSend` hook depending on `opts.durability`.
-       */
-      function persist(wireMessage: { event: string; payload: Record<string, unknown> }): void {
-        if (!shouldStoreReplayMessage(channelKey, wireMessage.event, wireMessage.payload, exclude))
-          return;
-
-        const { sql } = engine.requireStorage();
-        const row = persistReplayMessage(
-          sql,
-          opts,
-          wireMessage.event,
-          wireMessage.payload,
-          Date.now(),
-        );
-        pruneExpiredReplayRows(sql, opts.retention, row?.createdAt ?? Date.now());
-        pruneReplayScopeRows(sql, opts.retention, readReplayPayloadScope(wireMessage.payload));
-      }
+      engine.extendContext(createContextExtender(engine, channelKey));
 
       if ((opts.durability ?? 'strict') === 'strict') {
         engine.onBeforeSend((wireMessage) => {
@@ -139,33 +90,99 @@ export function replay(options?: ReplayOptions): ReplayPrimitive {
         });
       }
 
-      engine.onProtocolMessage('_replay', async (ctx, payload) => {
-        const scope = readReplayContextScope(ctx as Record<PropertyKey, unknown>);
-        if (!matchesReplayScope(channelKey, scope)) return false;
-
-        const since = Number(payload?.since ?? 0);
-        const { sql } = engine.requireStorage();
-        const rows = loadReplayRows(sql, since, {
-          channelName: scope.channelName,
-          channelScope: scope.channelScope,
-        });
-        const connectionId = String((ctx as Record<PropertyKey, unknown>).id ?? '');
-        if (!connectionId) return true;
-
-        for (const row of rows) {
-          engine.sendReplay(
-            connectionId,
-            row.channel ?? undefined,
-            row.channelScope ?? undefined,
-            row.event,
-            JSON.parse(row.payload) as Record<string, unknown>,
-            { seq: row.seq, messageId: row.messageId, channel: row.channel ?? undefined },
-          );
-        }
-
-        return true;
-      });
+      engine.onProtocolMessage('_replay', createReplayProtocolHandler(engine, channelKey));
     },
+  };
+}
+
+/** Build the `extendContext` callback that attaches `sendReplay` to the relevant scope. */
+function createContextExtender(
+  engine: EngineAccess,
+  channelKey: string | undefined,
+): (ctx: unknown) => Record<string, unknown> {
+  return (ctx) => {
+    const base = ctx as Record<PropertyKey, unknown> & {
+      id?: string;
+      channel?: Record<PropertyKey, unknown>;
+      sendReplay?: (event: string, payload: unknown, wire: ReplayWire) => void;
+    };
+    const scope = readReplayContextScope(base);
+
+    if (channelKey) {
+      if (scope.channelScope !== channelKey || !base.id || !base.channel) return {};
+
+      base.channel.sendReplay = (event: string, payload: unknown, wire: ReplayWire) => {
+        engine.sendReplay(
+          base.id as string,
+          scope.channelName,
+          scope.channelScope,
+          event,
+          payload,
+          wire,
+        );
+      };
+
+      return {};
+    }
+
+    if (scope.namespaceName || scope.channelName || !base.id) return {};
+
+    base.sendReplay = (event: string, payload: unknown, wire: ReplayWire) => {
+      engine.sendReplay(base.id as string, wire.channel, undefined, event, payload, wire);
+    };
+
+    return {};
+  };
+}
+
+/** Build the persist closure shared by strict/eventual durability branches. */
+function createPersist(
+  opts: ReplayOptions,
+  engine: EngineAccess,
+  channelKey: string | undefined,
+  exclude: Set<string>,
+): (wireMessage: { event: string; payload: Record<string, unknown> }) => void {
+  return (wireMessage) => {
+    if (!shouldStoreReplayMessage(channelKey, wireMessage.event, wireMessage.payload, exclude))
+      return;
+
+    const { sql } = engine.requireStorage();
+    const row = persistReplayMessage(sql, opts, wireMessage.event, wireMessage.payload, Date.now());
+    pruneExpiredReplayRows(sql, opts.retention, row?.createdAt ?? Date.now());
+    pruneReplayScopeRows(sql, opts.retention, readReplayPayloadScope(wireMessage.payload));
+  };
+}
+
+/** Build the `_replay` protocol handler that fan-outs stored rows to the requester. */
+function createReplayProtocolHandler(
+  engine: EngineAccess,
+  channelKey: string | undefined,
+): (ctx: unknown, payload: Record<string, unknown> | undefined) => Promise<boolean> {
+  return async (ctx, payload) => {
+    const scope = readReplayContextScope(ctx as Record<PropertyKey, unknown>);
+    if (!matchesReplayScope(channelKey, scope)) return false;
+
+    const since = Number(payload?.since ?? 0);
+    const { sql } = engine.requireStorage();
+    const rows = loadReplayRows(sql, since, {
+      channelName: scope.channelName,
+      channelScope: scope.channelScope,
+    });
+    const connectionId = String((ctx as Record<PropertyKey, unknown>).id ?? '');
+    if (!connectionId) return true;
+
+    for (const row of rows) {
+      engine.sendReplay(
+        connectionId,
+        row.channel ?? undefined,
+        row.channelScope ?? undefined,
+        row.event,
+        JSON.parse(row.payload) as Record<string, unknown>,
+        { seq: row.seq, messageId: row.messageId, channel: row.channel ?? undefined },
+      );
+    }
+
+    return true;
   };
 }
 

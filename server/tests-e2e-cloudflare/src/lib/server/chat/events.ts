@@ -13,3 +13,5 @@ export const ChatInfoSchema = v.object({ channel: v.string(), memberCount: v.num
 
 export const ChatStreamPrompt = event('chat-stream', v.object({ prompt: v.string() }));
 export const ChatStreamChunkSchema = v.object({ token: v.string() });
+
+export const ChatAlwaysDefer = event('chat-always-defer', v.object({}));

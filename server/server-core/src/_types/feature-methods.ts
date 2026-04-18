@@ -355,46 +355,54 @@ type MethodType<
   Kind extends BuilderKind,
   M extends string,
 > =
-  // ── Infrastructure ───────────────────────────────────
+  // ─────── Section: ack ───────
   M extends 'ack'
     ? () => FullBuilder<NextState<TState, AckPrimitive>, TFeatures, Kind>
-    : M extends 'dedup'
+    : // ─────── Section: dedup ───────
+      M extends 'dedup'
       ? () => FullBuilder<NextState<TState, DedupPrimitive>, TFeatures, Kind>
-      : M extends 'heartbeat'
+      : // ─────── Section: heartbeat ───────
+        M extends 'heartbeat'
         ? (
             options: HeartbeatOptions,
           ) => FullBuilder<NextState<TState, HeartbeatPrimitive>, TFeatures, Kind>
-        : M extends 'sequence'
+        : // ─────── Section: sequence ───────
+          M extends 'sequence'
           ? (
               options?: SequenceOptions,
             ) => FullBuilder<NextState<TState, SequencePrimitive>, TFeatures, Kind>
-          : M extends 'hibernation'
+          : // ─────── Section: hibernation ───────
+            M extends 'hibernation'
             ? (
                 enabled?: boolean,
               ) => FullBuilder<NextState<TState, HibernationPrimitive>, TFeatures, Kind>
-            : // ── Contract ─────────────────────────────────────────
+            : // ─────── Section: errors ───────
               M extends 'errors'
               ? <const TDefs extends readonly [AnyErrorDef, ...AnyErrorDef[]]>(
                   ...defs: TDefs
                 ) => FullBuilder<NextState<TState, ErrorsPrimitive<TDefs>>, TFeatures, Kind>
-              : // ── Lifecycle ────────────────────────────────────────
+              : // ─────── Section: onInit ───────
                 M extends 'onInit'
                 ? (
                     handler: (ctx: InitContext) => void | Promise<void>,
                   ) => FullBuilder<TState, TFeatures, Kind>
-                : M extends 'onConnect'
+                : // ─────── Section: onConnect ───────
+                  M extends 'onConnect'
                   ? (
                       handler: (ctx: HandlerCtxFromState<TState>) => void | Promise<void>,
                     ) => FullBuilder<TState, TFeatures, Kind>
-                  : M extends 'onDisconnect'
+                  : // ─────── Section: onDisconnect ───────
+                    M extends 'onDisconnect'
                     ? (
                         handler: (ctx: HandlerCtxFromState<TState>) => void | Promise<void>,
                       ) => FullBuilder<TState, TFeatures, Kind>
-                    : M extends 'onShutdown'
+                    : // ─────── Section: onShutdown ───────
+                      M extends 'onShutdown'
                       ? (
                           handler: (ctx: ShutdownContext) => void | Promise<void>,
                         ) => FullBuilder<TState, TFeatures, Kind>
-                      : M extends 'onError'
+                      : // ─────── Section: onError ───────
+                        M extends 'onError'
                         ? (
                             handler: (
                               ctx: HandlerCtxFromState<TState>,
@@ -402,7 +410,8 @@ type MethodType<
                               event?: string,
                             ) => void | Promise<void>,
                           ) => FullBuilder<TState, TFeatures, Kind>
-                        : M extends 'onUpgrade'
+                        : // ─────── Section: onUpgrade ───────
+                          M extends 'onUpgrade'
                           ? <TMeta extends Record<string, unknown> = Record<string, unknown>>(
                               handler: (
                                 request: Request,
@@ -410,14 +419,16 @@ type MethodType<
                                 | { meta?: TMeta; tags?: readonly string[] }
                                 | Promise<{ meta?: TMeta; tags?: readonly string[] }>,
                             ) => FullBuilder<StateWithMeta<TState, TMeta>, TFeatures, Kind>
-                          : M extends 'onBinary'
+                          : // ─────── Section: onBinary ───────
+                            M extends 'onBinary'
                             ? (
                                 handler: (
                                   ctx: HandlerCtxFromState<TState>,
                                   data: ArrayBuffer,
                                 ) => void | Promise<void>,
                               ) => FullBuilder<TState, TFeatures, Kind>
-                            : M extends 'onValidationError'
+                            : // ─────── Section: onValidationError ───────
+                              M extends 'onValidationError'
                               ? (
                                   handler: (
                                     ctx: HandlerCtxFromState<TState>,
@@ -425,10 +436,10 @@ type MethodType<
                                     validationError: unknown,
                                   ) => void | Promise<void>,
                                 ) => FullBuilder<TState, TFeatures, Kind>
-                              : // ── Intercept (3 overloads) ──────────────────────────
+                              : // ─────── Section: intercept ───────
                                 M extends 'intercept'
                                 ? InterceptMethod<BuilderResult<TState, TFeatures, Kind>, TState>
-                                : // ── Scheduled (2 overloads) ──────────────────────────
+                                : // ─────── Section: scheduled ───────
                                   M extends 'scheduled'
                                   ? (<TTaskId extends string, TData = unknown>(
                                       taskId: TTaskId,
@@ -451,7 +462,7 @@ type MethodType<
                                         TFeatures,
                                         Kind
                                       >)
-                                  : // ── Channels ─────────────────────────────────────────
+                                  : // ─────── Section: channel ───────
                                     M extends 'channel'
                                     ? <
                                         TPattern extends ChannelPattern,
@@ -477,7 +488,7 @@ type MethodType<
                                         ChannelNameFromPattern<TPattern>,
                                         ChannelContract<TChannelState>
                                       >
-                                    : // ── Namespaces ───────────────────────────────────────
+                                    : // ─────── Section: namespace ───────
                                       M extends 'namespace'
                                       ? <TName extends string, TNsState extends ScopeStateShape>(
                                           name: TName,
@@ -500,7 +511,7 @@ type MethodType<
                                           TName,
                                           NamespaceContract<TNsState>
                                         >
-                                      : // ── Requests ─────────────────────────────────────────
+                                      : // ─────── Section: request ───────
                                         M extends 'request'
                                         ? <TEvent extends string, TPayload, TResponse>(
                                             eventContract: EventContract<TEvent, TPayload>,
@@ -518,7 +529,7 @@ type MethodType<
                                             TFeatures,
                                             Kind
                                           >
-                                        : // ── Streams (3 overloads) ────────────────────────────
+                                        : // ─────── Section: stream ───────
                                           M extends 'stream'
                                           ? (<TEvent extends string, TPayload, TChunks>(
                                               eventContract: EventContract<TEvent, TPayload>,
@@ -604,7 +615,7 @@ type MethodType<
                                                 TFeatures,
                                                 Kind
                                               >)
-                                          : // ── Replay (3 overloads) ─────────────────────────────
+                                          : // ─────── Section: replay ───────
                                             M extends 'replay'
                                             ? ReplayMethod<
                                                 BuilderResult<
@@ -614,7 +625,7 @@ type MethodType<
                                                 >,
                                                 TState
                                               >
-                                            : // ── Replay Custom (2 overloads) ──────────────────────
+                                            : // ─────── Section: replayCustom ───────
                                               M extends 'replayCustom'
                                               ? ReplayCustomMethod<
                                                   BuilderResult<

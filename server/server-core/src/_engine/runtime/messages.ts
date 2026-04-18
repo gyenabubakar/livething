@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { Block, Skip } from '@wskit/core';
+import { Block, Skip, WskitError } from '@wskit/core';
 import * as EngineCompileUtils from '~/_engine/compile/utils.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import * as ErrorsPrimitive from '~/errors/errors.ts';
@@ -53,6 +53,11 @@ interface DispatchRuntime extends OutgoingRuntime, EngineRuntimeTypes.Connection
     event: string;
     payload: unknown;
   }) => { event: string; payload: unknown } | void)[];
+  /**
+   * Size of the per-connection seen-id ring used by incoming dedup. Zero means
+   * incoming dedup is disabled (no `dedup()` primitive registered).
+   */
+  incomingDedupCap: number;
   errorHooks: readonly ((ctx: any, error: unknown, event?: string) => void | Promise<void>)[];
   requireTimers(): PublicApi.TimerProvider;
   buildConnectionContext(
@@ -136,6 +141,39 @@ interface ChannelRuntime extends EngineRuntimeTypes.ConnectionMembersRuntime {
     validationError: unknown,
     scope?: EngineRuntimeTypes.ResolvedScope,
   ): Promise<void>;
+}
+
+/**
+ * Check whether an incoming payload's `_messageId` has already been seen on
+ * this connection. If not, record it in the bounded ring.
+ *
+ * Returns `true` when the frame is a duplicate and should be dropped. Payloads
+ * without a string `_messageId` are never considered duplicates — the client
+ * opted out of receiver-side dedup for that frame.
+ */
+function isDuplicateIncoming(
+  connection: EngineRuntimeTypes.RuntimeConnection,
+  rawPayload: unknown,
+  cap: number,
+): boolean {
+  if (!rawPayload || typeof rawPayload !== 'object') return false;
+  const messageId = (rawPayload as { _messageId?: unknown })._messageId;
+  if (typeof messageId !== 'string' || messageId.length === 0) return false;
+
+  let ring = connection.seenIncomingIds;
+  if (!ring || ring.cap !== cap) {
+    ring = { buf: new Array<string>(cap), writePtr: 0, set: new Set<string>(), cap };
+    connection.seenIncomingIds = ring;
+  }
+
+  if (ring.set.has(messageId)) return true;
+
+  const evicted = ring.buf[ring.writePtr];
+  if (evicted !== undefined) ring.set.delete(evicted);
+  ring.buf[ring.writePtr] = messageId;
+  ring.set.add(messageId);
+  ring.writePtr = (ring.writePtr + 1) % ring.cap;
+  return false;
 }
 
 /**
@@ -251,6 +289,74 @@ function assertNoNewReservedPayloadFields(
   }
 }
 
+/** Run global + module `onOutgoing` hooks and return the (possibly rewritten) message. */
+function runOutgoingHooks(
+  outgoingHooks: OutgoingRuntime['outgoingHooks'],
+  moduleRuntimes: readonly EngineRuntimeTypes.ModuleRuntime[],
+  message: { event: string; payload: unknown },
+): { message: { event: string; payload: unknown }; allowedReservedFields: ReadonlySet<string> } {
+  let current = message;
+
+  for (const hook of outgoingHooks) {
+    const next = hook(current);
+    if (next) current = next;
+  }
+
+  assertPayloadRecord(current.payload);
+  const allowedReservedFields = new Set(
+    Object.keys(current.payload).filter((key) => key.startsWith('_')),
+  );
+
+  for (const moduleRuntime of moduleRuntimes) {
+    if (!moduleRuntime.onOutgoing) continue;
+    const next = moduleRuntime.onOutgoing(current);
+    if (next) current = next;
+  }
+
+  assertPayloadRecord(current.payload);
+  assertNoNewReservedPayloadFields(current.payload, allowedReservedFields);
+
+  return { message: current, allowedReservedFields };
+}
+
+/** Attach reserved routing markers (`_namespace`, `_channel`, etc.) onto an outgoing payload. */
+function injectRoutingMarkers(
+  payload: Record<string, unknown>,
+  routing: EngineRuntimeTypes.RoutingTarget | undefined,
+): Record<string, unknown> {
+  const finalPayload: Record<string, unknown> = { ...payload };
+  if (routing?.namespace) finalPayload._namespace = routing.namespace;
+  if (routing?.channel) finalPayload._channel = routing.channel;
+  if (routing?.channelScope) finalPayload._channelScope = routing.channelScope;
+  if (routing?.correlationId) finalPayload._correlationId = routing.correlationId;
+  if (routing?.streamId) finalPayload._streamId = routing.streamId;
+  return finalPayload;
+}
+
+/** Fan out after-send hooks, forwarding async rejections through the engine's waitUntil + logger. */
+function invokeAfterSendHooks(
+  afterSendHooks: OutgoingRuntime['afterSendHooks'],
+  waitUntil: OutgoingRuntime['waitUntil'],
+  logger: OutgoingRuntime['logger'],
+  wireMessage: EngineRuntimeTypes.WireOutgoingMessage,
+): void {
+  for (const hook of afterSendHooks) {
+    try {
+      const result = hook(wireMessage);
+
+      if (result && typeof (result as Promise<unknown>).then === 'function') {
+        waitUntil(
+          Promise.resolve(result).catch((error) => {
+            logger.error('[wskit] after-send hook failed', { error });
+          }),
+        );
+      }
+    } catch (error) {
+      logger.error('[wskit] after-send hook failed', { error });
+    }
+  }
+}
+
 /**
  * Push one outgoing event through module hooks, declaration checks, and wire
  * metadata injection before sending it to a connection.
@@ -265,30 +371,10 @@ export function sendThroughPipeline(
   assertPayloadRecord(payload);
   assertNoReservedPayloadFields(payload);
 
-  let message: { event: string; payload: unknown } = { event, payload };
-
-  for (const hook of runtime.outgoingHooks) {
-    const next = hook(message);
-    if (next) message = next;
-  }
-
-  assertPayloadRecord(message.payload);
-  const allowedReservedFields = new Set(
-    Object.keys(message.payload).filter((key) => key.startsWith('_')),
-  );
-
-  for (const moduleRuntime of runtime.moduleRuntimes) {
-    if (!moduleRuntime.onOutgoing) continue;
-    const next = moduleRuntime.onOutgoing(message);
-    if (next) message = next;
-  }
-
-  assertPayloadRecord(message.payload);
-  assertNoNewReservedPayloadFields(message.payload, allowedReservedFields);
-
-  const finalPayload: Record<string, unknown> = {
-    ...message.payload,
-  };
+  const { message } = runOutgoingHooks(runtime.outgoingHooks, runtime.moduleRuntimes, {
+    event,
+    payload,
+  });
 
   const isRequestResponse = !!routing?.correlationId;
   if (!isRequestResponse && !isDeclaredOutgoingEvent(runtime.compiled, message.event, routing)) {
@@ -297,11 +383,7 @@ export function sendThroughPipeline(
     );
   }
 
-  if (routing?.namespace) finalPayload._namespace = routing.namespace;
-  if (routing?.channel) finalPayload._channel = routing.channel;
-  if (routing?.channelScope) finalPayload._channelScope = routing.channelScope;
-  if (routing?.correlationId) finalPayload._correlationId = routing.correlationId;
-  if (routing?.streamId) finalPayload._streamId = routing.streamId;
+  const finalPayload = injectRoutingMarkers(message.payload as Record<string, unknown>, routing);
 
   const wireMessage: EngineRuntimeTypes.WireOutgoingMessage = {
     connectionId: connection.id,
@@ -316,21 +398,7 @@ export function sendThroughPipeline(
 
   connection.descriptor.send(JSON.stringify({ event: message.event, payload: finalPayload }));
 
-  for (const hook of runtime.afterSendHooks) {
-    try {
-      const result = hook(wireMessage);
-
-      if (result && typeof (result as Promise<unknown>).then === 'function') {
-        runtime.waitUntil(
-          Promise.resolve(result).catch((error) => {
-            runtime.logger.error('[wskit] after-send hook failed', { error });
-          }),
-        );
-      }
-    } catch (error) {
-      runtime.logger.error('[wskit] after-send hook failed', { error });
-    }
-  }
+  invokeAfterSendHooks(runtime.afterSendHooks, runtime.waitUntil, runtime.logger, wireMessage);
 
   return true;
 }
@@ -541,6 +609,12 @@ export async function dispatchIncoming(
   rawPayload: unknown,
   attempt = 0,
 ): Promise<void> {
+  if (attempt === 0 && runtime.incomingDedupCap > 0) {
+    if (isDuplicateIncoming(connection, rawPayload, runtime.incomingDedupCap)) {
+      return;
+    }
+  }
+
   const scope = resolveScope(runtime.compiled, rawPayload);
   if (
     scope.channelName &&
@@ -678,7 +752,7 @@ async function handleDispatchError(
   if (error === Block) return;
   if (error === Skip) return;
 
-  if (error && (error as { code?: string }).code === 'validation-failed') {
+  if (error instanceof WskitError && error.code === 'validation-failed') {
     await runtime.handleValidationError(connection, event, error);
     await runtime.handleRuntimeError(connection, error, event);
     return;

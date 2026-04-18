@@ -42,7 +42,15 @@ export interface UpgradeDecision {
 
 /** Configuration the adapter passes when creating an engine instance. */
 export interface EngineOptions {
+  /**
+   * Stable identifier for the adapter, used for wake/hibernate routing on
+   * platforms that need to look up the right engine after a cold start.
+   */
   adapterId: string;
+  /**
+   * Whether the adapter supports hibernation-style deserialization of socket
+   * attachments (for example, Cloudflare Durable Objects' `serializeAttachment`).
+   */
   hibernation: boolean;
 }
 

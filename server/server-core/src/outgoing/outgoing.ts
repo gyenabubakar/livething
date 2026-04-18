@@ -40,7 +40,7 @@ const OUTGOING_KEY = Symbol('outgoing');
  * server('chat')
  *   .outgoing(Messages) // same as calling outgoing(Messages.event) under the hood
  *   .onConnect((ctx) => {
- *     ctx.send.messages([]);
+ *     ctx.send('messages', []);
  *   });
  * ```
  */

@@ -185,16 +185,23 @@ export class ServerBuilder<TState extends ScopeStateShape = InitialState, TFeatu
    *
    * The handler runs once per incoming message after the event contract's
    * validator accepts the payload. Throw {@link ValidationFailed} from inside
-   * the handler to reject a message after a custom check.
+   * the handler to reject a message after a custom check — always call it as
+   * a constructor: `throw ValidationFailed({ event: 'send-chat', issues: [{ message: '...' }] })`.
    *
    * @example
    * ```ts
-   * import { server, event } from '@wskit/server';
+   * import { server, event, ValidationFailed } from '@wskit/server';
    * import { z } from 'zod';
    *
    * const SendChat = event('send-chat', z.object({ text: z.string() }));
    *
    * server('app').incoming(SendChat, (ctx, payload) => {
+   *   if (payload.text.includes('badword')) {
+   *     throw ValidationFailed({
+   *       event: 'send-chat',
+   *       issues: [{ message: 'text contains a disallowed word' }],
+   *     });
+   *   }
    *   ctx.broadcast('chat-msg', { text: payload.text });
    * });
    * ```

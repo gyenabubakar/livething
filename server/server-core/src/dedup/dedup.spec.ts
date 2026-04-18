@@ -23,7 +23,11 @@ function installDedup(): {
     generateId(prefix = 'id') {
       return `${prefix}-${nextId++}`;
     },
-  } as Pick<EngineAccess, 'generateId' | 'installOnce' | 'onOutgoing'> as EngineAccess;
+    enableIncomingDedup() {},
+  } as Pick<
+    EngineAccess,
+    'generateId' | 'installOnce' | 'onOutgoing' | 'enableIncomingDedup'
+  > as EngineAccess;
 
   dedup().__setup?.(engine);
 
@@ -73,7 +77,11 @@ describe('dedup', () => {
       generateId(prefix = 'id') {
         return `${prefix}-${nextId++}`;
       },
-    } as Pick<EngineAccess, 'generateId' | 'installOnce' | 'onOutgoing'> as EngineAccess;
+      enableIncomingDedup() {},
+    } as Pick<
+      EngineAccess,
+      'generateId' | 'installOnce' | 'onOutgoing' | 'enableIncomingDedup'
+    > as EngineAccess;
 
     dedup().__setup?.(engine);
     dedup().__setup?.(engine);

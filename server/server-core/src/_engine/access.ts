@@ -228,6 +228,16 @@ export interface EngineAccess {
   setSequencePersistent(enabled: boolean): void;
 
   /**
+   * Turn on server-side deduplication of incoming messages.
+   *
+   * When enabled, the engine remembers the most recent `cap` `_messageId`
+   * values per connection and silently drops any incoming frame whose
+   * `_messageId` is already in the window. Used by `dedup()` to protect
+   * handlers from duplicate client sends (retries, flaky networks).
+   */
+  enableIncomingDedup(cap: number): void;
+
+  /**
    * Register the application's declared error definitions.
    *
    * The engine uses this registry only for runtime checks such as warning when
@@ -275,7 +285,8 @@ export interface EngineAccess {
    * Send one replay message to a live connection with explicit wire metadata.
    *
    * Primitives use this to resend history without re-running the normal
-   * outgoing pipeline.
+   * outgoing pipeline. Unlike `rawSend`, this routes through the replay
+   * pipeline and applies `onBeforeSend` / `onAfterSend` hooks.
    */
   sendReplay(
     connectionId: string,
@@ -318,7 +329,10 @@ export interface EngineAccess {
   /**
    * Send one raw protocol event directly to a live connection by id.
    *
-   * This bypasses the normal typed ctx helpers.
+   * This bypasses the normal typed ctx helpers and skips `onOutgoing` /
+   * `onBeforeSend` / `onAfterSend` hooks — used for ack and protocol messages
+   * that should not go through the replay pipeline. For replay resends, use
+   * `sendReplay` instead.
    */
   rawSend(connectionId: string, event: string, payload: unknown): void;
 }

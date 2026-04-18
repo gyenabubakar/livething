@@ -117,6 +117,142 @@ export function createTaskContext(
   return ctx;
 }
 
+type MessagingDeps = Pick<
+  EngineContextTypes.BuildConnectionContextDeps,
+  'broadcastToConnections' | 'connections' | 'sendThroughPipeline'
+>;
+
+/** Build the top-level send/broadcast/close messaging surface for a connection ctx. */
+function buildMessagingApi(
+  connection: EngineContextTypes.RuntimeConnection,
+  deps: MessagingDeps,
+): Pick<
+  EngineContextTypes.ConnectionContext<Record<string, unknown>, Record<string, unknown>, unknown>,
+  'broadcast' | 'broadcastBinary' | 'close' | 'send' | 'sendBinary' | 'sendTo' | 'sendToConnection'
+> {
+  return {
+    send: (event, payload) => deps.sendThroughPipeline(connection, undefined, event, payload),
+    broadcast: (event, payload, options) => {
+      deps.broadcastToConnections(
+        [...deps.connections.values()],
+        event,
+        payload,
+        options,
+        connection.id,
+      );
+    },
+    sendTo: (tag, event, payload) => {
+      for (const target of deps.connections.values()) {
+        if (target.tags.has(tag)) {
+          deps.sendThroughPipeline(target, undefined, event, payload);
+        }
+      }
+    },
+    sendToConnection: (connectionId, event, payload) => {
+      const target = deps.connections.get(connectionId);
+      if (!target) return false;
+      deps.sendThroughPipeline(target, undefined, event, payload);
+      return true;
+    },
+    sendBinary: (data) => {
+      connection.descriptor.sendBinary(data);
+      return true;
+    },
+    broadcastBinary: (data, options) => {
+      for (const target of deps.connections.values()) {
+        if (options?.excludeSelf && target.id === connection.id) continue;
+        target.descriptor.sendBinary(data);
+      }
+    },
+    close: (code, reason) => connection.descriptor.close(code, reason),
+  };
+}
+
+type ChannelsApiDeps = Pick<
+  EngineContextTypes.BuildConnectionContextDeps,
+  'getChannelMembers' | 'kickChannelMembers'
+>;
+
+/** Build the `ctx.channels` helper surface (members/kick). */
+function buildChannelsApi(
+  _connection: EngineContextTypes.RuntimeConnection,
+  deps: ChannelsApiDeps,
+): EngineContextTypes.ConnectionContext<
+  Record<string, unknown>,
+  Record<string, unknown>,
+  unknown
+>['channels'] {
+  return {
+    members: (name) => deps.getChannelMembers(name),
+    kick: (channelNameToKick, tag, reason) => {
+      deps.kickChannelMembers(channelNameToKick, tag, reason);
+    },
+  };
+}
+
+type ScopeExtrasDeps = Pick<
+  EngineContextTypes.BuildConnectionContextDeps,
+  'broadcastToChannel' | 'broadcastToConnections' | 'connections' | 'sendThroughPipeline'
+>;
+
+/** Attach scope-bound `ctx.namespace` / `ctx.channel` helpers when a scope is active. */
+function buildScopeExtras(
+  connection: EngineContextTypes.RuntimeConnection,
+  scope:
+    | {
+        namespace?: EngineContextTypes.CompiledNamespace;
+        channel?: EngineContextTypes.CompiledChannel;
+        channelName?: string;
+        channelScope?: string;
+      }
+    | undefined,
+  deps: ScopeExtrasDeps,
+): { namespace?: unknown; channel?: unknown } {
+  const extras: { namespace?: unknown; channel?: unknown } = {};
+
+  if (scope?.namespace) {
+    const namespace = scope.namespace;
+    extras.namespace = {
+      name: namespace.name,
+      send: (event: string, payload: unknown) => {
+        return deps.sendThroughPipeline(connection, { namespace: namespace.name }, event, payload);
+      },
+      broadcast: (event: string, payload: unknown) => {
+        deps.broadcastToConnections(
+          [...deps.connections.values()],
+          event,
+          payload,
+          { namespace: namespace.name },
+          connection.id,
+        );
+      },
+    };
+  }
+
+  if (scope?.channel) {
+    const channel = scope.channel;
+    const channelName =
+      scope.channelName ?? (typeof channel.pattern === 'string' ? channel.pattern : '');
+    const channelScope = scope.channelScope;
+    extras.channel = {
+      name: channelName,
+      send: (event: string, payload: unknown) => {
+        return deps.sendThroughPipeline(
+          connection,
+          { channel: channelName, channelScope },
+          event,
+          payload,
+        );
+      },
+      broadcast: (event: string, payload: unknown) => {
+        deps.broadcastToChannel(channelName, event, payload, connection.id, channelScope);
+      },
+    };
+  }
+
+  return extras;
+}
+
 /**
  * Build the per-connection handler context.
  *
@@ -157,40 +293,7 @@ export function buildConnectionContext(
       connection.tags.delete(label);
       deps.persistAttachment(connection);
     },
-    send: (event, payload) => deps.sendThroughPipeline(connection, undefined, event, payload),
-    broadcast: (event, payload, options) => {
-      deps.broadcastToConnections(
-        [...deps.connections.values()],
-        event,
-        payload,
-        options,
-        connection.id,
-      );
-    },
-    sendTo: (tag, event, payload) => {
-      for (const target of deps.connections.values()) {
-        if (target.tags.has(tag)) {
-          deps.sendThroughPipeline(target, undefined, event, payload);
-        }
-      }
-    },
-    sendToConnection: (connectionId, event, payload) => {
-      const target = deps.connections.get(connectionId);
-      if (!target) return false;
-      deps.sendThroughPipeline(target, undefined, event, payload);
-      return true;
-    },
-    sendBinary: (data) => {
-      connection.descriptor.sendBinary(data);
-      return true;
-    },
-    broadcastBinary: (data, options) => {
-      for (const target of deps.connections.values()) {
-        if (options?.excludeSelf && target.id === connection.id) continue;
-        target.descriptor.sendBinary(data);
-      }
-    },
-    close: (code, reason) => connection.descriptor.close(code, reason),
+    ...buildMessagingApi(connection, deps),
     getConnections: () => {
       return [...deps.connections.values()].map((target) => deps.toConnectionInfo(target));
     },
@@ -203,12 +306,7 @@ export function buildConnectionContext(
     bufferedAmount: connection.descriptor.bufferedAmount(),
     latency: connection.latency,
     quality: connection.quality,
-    channels: {
-      members: (name) => deps.getChannelMembers(name),
-      kick: (channelNameToKick, tag, reason) => {
-        deps.kickChannelMembers(channelNameToKick, tag, reason);
-      },
-    },
+    channels: buildChannelsApi(connection, deps),
     schedule: (taskId, options) => {
       deps.scheduleTask(taskId, options.time, options.data);
     },
@@ -229,45 +327,9 @@ export function buildConnectionContext(
     platform: deps.platform,
   };
 
-  if (scope?.namespace) {
-    const namespace = scope.namespace;
-    base.namespace = {
-      name: namespace.name,
-      send: (event, payload) => {
-        return deps.sendThroughPipeline(connection, { namespace: namespace.name }, event, payload);
-      },
-      broadcast: (event, payload) => {
-        deps.broadcastToConnections(
-          [...deps.connections.values()],
-          event,
-          payload,
-          { namespace: namespace.name },
-          connection.id,
-        );
-      },
-    };
-  }
-
-  if (scope?.channel) {
-    const channel = scope.channel;
-    const channelName =
-      scope.channelName ?? (typeof channel.pattern === 'string' ? channel.pattern : '');
-    const channelScope = scope.channelScope;
-    base.channel = {
-      name: channelName,
-      send: (event, payload) => {
-        return deps.sendThroughPipeline(
-          connection,
-          { channel: channelName, channelScope },
-          event,
-          payload,
-        );
-      },
-      broadcast: (event, payload) => {
-        deps.broadcastToChannel(channelName, event, payload, connection.id, channelScope);
-      },
-    };
-  }
+  const scopeExtras = buildScopeExtras(connection, scope, deps);
+  if (scopeExtras.namespace) base.namespace = scopeExtras.namespace as typeof base.namespace;
+  if (scopeExtras.channel) base.channel = scopeExtras.channel as typeof base.channel;
 
   for (const extend of deps.contextExtenders ?? []) {
     Object.assign(base, extend(base));

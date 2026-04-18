@@ -500,6 +500,24 @@ test.describe('main handler', () => {
     await waitForText(page, 'status', 'disconnected', 15_000);
   });
 
+  // --- channel-scoped Defer exhaustion ---
+
+  test('chat channel: always-defer throws exhaust chat-always-defer', async ({ page }) => {
+    await page.getByTestId('chat-join-btn').click();
+    await waitForText(page, 'chat-subscribed', 'subscribed');
+    await page.getByTestId('chat-defer-btn').click();
+    await waitForText(page, 'defer-exhausted-result', /chat-always-defer:retries=/, 15_000);
+  });
+
+  // --- cancelScheduled with no matching runs ---
+
+  test('cancelScheduled with no matching task id succeeds silently', async ({ page }) => {
+    await page.getByTestId('cancel-nothing-btn').click();
+    await waitForText(page, 'cancel-nothing-result', 'ok');
+    await page.getByTestId('echo-btn').click();
+    await waitForText(page, 'echo-result', /hello world/);
+  });
+
   // --- sendTo with empty tag ---
 
   test('sendTo with empty tag does not crash', async ({ page }) => {
