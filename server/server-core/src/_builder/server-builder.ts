@@ -7,7 +7,6 @@ import type {
   ServerBuilderFull,
 } from '~/_types/feature-methods.ts';
 import type {
-  ClientContractState,
   FoldablePrimitive,
   HandlerCtxFromState,
   MergeRecords,
@@ -93,32 +92,32 @@ type MergeScopeContract<
   readonly env: TState['env'];
 };
 
-type MergeGroupContract<
-  TState extends ScopeStateShape,
-  TGroupContract extends ClientContractState,
-> = {
+type MergeGroupContract<TState extends ScopeStateShape, TGroupState extends ScopeStateShape> = {
   readonly kind: TState['kind'];
   readonly outgoing: TState['outgoing'];
   readonly hasAck: TState['hasAck'];
   readonly hasReplay: TState['hasReplay'];
   readonly contract: {
-    incoming: MergeRecords<TState['contract']['incoming'], TGroupContract['incoming']>;
-    outgoing: MergeRecords<TState['contract']['outgoing'], TGroupContract['outgoing']>;
-    requests: MergeRecords<TState['contract']['requests'], TGroupContract['requests']>;
-    streams: MergeRecords<TState['contract']['streams'], TGroupContract['streams']>;
-    channels: MergeRecords<TState['contract']['channels'], TGroupContract['channels']>;
-    namespaces: MergeRecords<TState['contract']['namespaces'], TGroupContract['namespaces']>;
+    incoming: MergeRecords<TState['contract']['incoming'], TGroupState['contract']['incoming']>;
+    outgoing: MergeRecords<TState['contract']['outgoing'], TGroupState['contract']['outgoing']>;
+    requests: MergeRecords<TState['contract']['requests'], TGroupState['contract']['requests']>;
+    streams: MergeRecords<TState['contract']['streams'], TGroupState['contract']['streams']>;
+    channels: MergeRecords<TState['contract']['channels'], TGroupState['contract']['channels']>;
+    namespaces: MergeRecords<
+      TState['contract']['namespaces'],
+      TGroupState['contract']['namespaces']
+    >;
   };
   readonly errors: TState['errors'];
   readonly meta: TState['meta'];
   readonly channelNames: TState['channelNames'];
-  readonly scheduledTaskIds: TState['scheduledTaskIds'];
+  readonly scheduledTaskIds: TState['scheduledTaskIds'] | TGroupState['scheduledTaskIds'];
   readonly env: TState['env'];
 };
 
 type UseResult<TState extends ScopeStateShape, P extends Primitive> =
   P extends GroupPrimitive<infer TGroupState extends ScopeStateShape>
-    ? MergeGroupContract<TState, TGroupState['contract']>
+    ? MergeGroupContract<TState, TGroupState>
     : P extends ChannelPrimitive<any, any, infer TName extends string, infer TContract>
       ? MergeScopeContract<TState, 'channels', TName, TContract>
       : P extends NamespacePrimitive<any, any, infer TName extends string, infer TContract>

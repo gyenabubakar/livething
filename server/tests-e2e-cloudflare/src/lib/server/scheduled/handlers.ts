@@ -3,6 +3,7 @@ import { base } from '../setup.ts';
 import {
   CancelCleanup,
   CancelFilteredTask,
+  CancelNothing,
   ScheduleCleanup,
   ScheduleFilteredTasks,
   ScheduleSendToConn,
@@ -79,6 +80,12 @@ export const scheduledHandlers = withScheduled(base).group((g) =>
     })
     .incoming(CancelFilteredTask, (ctx, payload) => {
       ctx.cancelScheduled('filtered-cleanup', { label: payload.label });
+    })
+    .incoming(CancelNothing, (ctx) => {
+      // Cancelling a real task name with a filter that never matches — exercises
+      // the no-op branch of cancelScheduled.
+      ctx.cancelScheduled('cleanup', { __never: '__never' });
+      ctx.send('cancel-nothing-ok', {});
     })
     .scheduled(
       'always-fail-task',

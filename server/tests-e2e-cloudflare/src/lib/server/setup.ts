@@ -16,6 +16,7 @@ import { RoomMessage } from './dynamic-channel/events.ts';
 import { Echoed, UserJoined, UserLeft } from './echo/events.ts';
 import { Forbidden, NotFound } from './errors.ts';
 import {
+  CancelNothingOk,
   CleanupCancelled,
   CleanupDone,
   FlakyTaskResult,
@@ -36,6 +37,7 @@ export const base = withLifecycle(withErrors(withInfrastructure(server<Env>('e2e
   .outgoing(UserLeft)
   .outgoing(CleanupDone)
   .outgoing(CleanupCancelled)
+  .outgoing(CancelNothingOk)
   .outgoing(NotesList)
   .outgoing(KvResult)
   .outgoing(SqlOneResult)
