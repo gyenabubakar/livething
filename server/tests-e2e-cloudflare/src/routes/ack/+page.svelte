@@ -44,6 +44,7 @@
 <input data-testid="username" bind:value={username} />
 <button data-testid="connect" onclick={connect}>Connect</button>
 <button data-testid="send-ok" onclick={() => sendAckCheck('ack-ok')}>Send (ack-ok)</button>
+<button data-testid="send-ok-2" onclick={() => sendAckCheck('ack-ok-2')}>Send (ack-ok-2)</button>
 <button data-testid="send-throw" onclick={() => sendThrow('ack-throw')}>Throw (ack-throw)</button>
 <span data-testid="status">{status}</span>
 <span data-testid="reply">{ackCheckOk ? 'yes' : 'no'}</span>

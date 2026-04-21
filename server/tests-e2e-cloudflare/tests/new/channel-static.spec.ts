@@ -35,27 +35,52 @@ test.describe('channel-static', () => {
 
   test('_unsubscribe when not subscribed is a silent no-op', async ({ page }, testInfo) => {
     await openPage(page, `test-${testInfo.testId}`);
-    // Never subscribed; unsubscribe should be ignored without an error frame.
+    // Click unsubscribe first (should be silent), then subscribe — the
+    // successful subscribe-ok is the positive signal that proves the
+    // unsubscribe didn't close or fault the channel handler pipeline.
     await page.getByTestId('unsubscribe-room').click();
-    await page.waitForTimeout(500);
+    await page.getByTestId('subscribe-room').click();
+    await expect(page.getByTestId('subscribe-ok-count')).toHaveText('1');
     await expect(page.getByTestId('subscribe-error')).toHaveText('');
   });
 
   test('publishing to a channel without subscribing first is silently dropped', async ({
-    page,
+    browser,
   }, testInfo) => {
-    await openPage(page, `test-${testInfo.testId}`);
-    await page.getByTestId('publish-without-sub').click();
-    await page.waitForTimeout(500);
-    await expect(page.getByTestId('user-messages')).toHaveText('');
+    const room = `test-${testInfo.testId}`;
+    const ctxA = await browser.newContext();
+    const ctxB = await browser.newContext();
+    const a = await ctxA.newPage();
+    const b = await ctxB.newPage();
+    await openPage(a, room, 'alice');
+    await openPage(b, room, 'bob');
+    // Bob subscribes; alice does not. Alice tries to publish unsubscribed.
+    await b.getByTestId('subscribe-room').click();
+    await expect(b.getByTestId('subscribe-ok-count')).toHaveText('1');
+
+    await a.getByTestId('publish-without-sub').click();
+
+    // Now alice subscribes and publishes a second time — bob should receive
+    // only the SECOND message, proving the first was dropped.
+    await a.getByTestId('subscribe-room').click();
+    await expect(a.getByTestId('subscribe-ok-count')).toHaveText('1');
+    await a.getByTestId('send-hello').click();
+
+    await expect(b.getByTestId('user-messages')).toContainText('alice:hello');
+    await expect(b.getByTestId('user-messages')).not.toContainText('alice:stray');
+
+    await ctxA.close();
+    await ctxB.close();
   });
 
-  test('onBeforeSubscribe Block rejection prevents the subscription', async ({
+  test('onBeforeSubscribe rejection emits _error and prevents the subscription', async ({
     page,
   }, testInfo) => {
     await openPage(page, `test-${testInfo.testId}`, 'blocked-user');
     await page.getByTestId('subscribe-room').click();
-    await page.waitForTimeout(500);
+    // The thrown error in onBeforeSubscribe is routed back as an _error
+    // frame — that's our positive signal. Then assert no _subscribeOk.
+    await expect(page.getByTestId('subscribe-error')).toContainText('room:');
     await expect(page.getByTestId('subscribe-ok-count')).toHaveText('0');
   });
 
@@ -73,11 +98,14 @@ test.describe('channel-static', () => {
     await expect(b.getByTestId('subscribe-ok-count')).toHaveText('1');
 
     // ctx.channel.broadcast fans out to OTHER members; sender does not
-    // receive their own broadcast.
+    // receive their own broadcast. Peer-round-trip proves delivery without a
+    // fixed timeout: if alice's own broadcast were going to echo back, it
+    // would arrive before bob's subsequent broadcast does.
     await a.getByTestId('send-hello').click();
     await expect(b.getByTestId('user-messages')).toContainText('alice:hello');
-    await a.waitForTimeout(300);
-    await expect(a.getByTestId('user-messages')).toHaveText('');
+    await b.getByTestId('send-hello').click();
+    await expect(a.getByTestId('user-messages')).toContainText('bob:hello');
+    await expect(a.getByTestId('user-messages')).not.toContainText('alice:hello');
 
     await ctxA.close();
     await ctxB.close();

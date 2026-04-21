@@ -65,6 +65,9 @@
 <button data-testid="send-after-kick" onclick={() => sendRoom('after-kick')}>
 	Send after-kick
 </button>
+<button data-testid="send-after-resub" onclick={() => sendRoom('after-resub')}>
+	Send after-resub
+</button>
 
 <span data-testid="status">{status}</span>
 <span data-testid="subscribed">{subscribed ? 'yes' : 'no'}</span>

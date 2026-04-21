@@ -26,7 +26,11 @@ test.describe('dedup', () => {
 
     // Same fixed id; dedup should drop this before the handler.
     await page.getByTestId('echo-dup-id').click();
-    await page.waitForTimeout(500);
+
+    // Positive signal: send a different frame; once its reply lands, the
+    // duplicate has definitely been handled (and dropped). Count must stay 1.
+    await page.getByTestId('echo-plain').click();
+    await expect(page.getByTestId('count-plain')).toHaveText('1');
     await expect(page.getByTestId('count-dup-hi')).toHaveText('1');
   });
 

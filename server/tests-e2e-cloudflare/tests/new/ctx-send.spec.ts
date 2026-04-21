@@ -135,12 +135,17 @@ test.describe('ctx-send', () => {
     await expect(a.getByTestId('status')).toHaveText('connected');
     await expect(b.getByTestId('status')).toHaveText('connected');
 
+    // a excludes self with 'hello-excl' → only b receives.
+    // Then b broadcasts-all with 'hello-all' → both receive.
+    // Checking a's messages for 'bob:hello-all' but not 'alice:hello-excl'
+    // is deterministic: if a's own excludeSelf had looped back, it would
+    // land in a's message list before b's broadcast does.
     await a.getByTestId('broadcast-excl-hello').click();
-
     await expect(b.getByTestId('messages')).toContainText('alice:hello-excl');
-    // Sender must stay empty. Poll briefly to give any stray frame a chance.
-    await a.waitForTimeout(500);
-    await expect(a.getByTestId('messages')).toHaveText('');
+
+    await b.getByTestId('broadcast-hello').click();
+    await expect(a.getByTestId('messages')).toContainText('bob:hello');
+    await expect(a.getByTestId('messages')).not.toContainText('alice:hello-excl');
 
     await ctxA.close();
     await ctxB.close();

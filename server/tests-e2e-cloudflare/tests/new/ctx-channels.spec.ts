@@ -72,9 +72,15 @@ test.describe('ctx-channels', () => {
     await a.getByTestId('get-members').click();
     await expect(a.getByTestId('members-result')).toHaveText('room:1');
 
-    // Post-kick, user2's send should not reach user1.
+    // Post-kick, user2's send should be dropped (no longer a member).
     await b.getByTestId('send-after-kick').click();
-    await a.waitForTimeout(500);
+
+    // Positive signal: user2 re-subscribes and sends again; user1 should see
+    // only the second message. If the first had leaked through, it'd be in
+    // user1's room-messages too.
+    await b.getByTestId('subscribe-room').click();
+    await b.getByTestId('send-after-resub').click();
+    await expect(a.getByTestId('room-messages')).toContainText('user2:after-resub');
     await expect(a.getByTestId('room-messages')).not.toContainText('user2:after-kick');
 
     await ctxA.close();

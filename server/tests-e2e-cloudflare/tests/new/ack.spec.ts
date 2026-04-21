@@ -25,8 +25,11 @@ test.describe('ack', () => {
     // Throwing handler never calls ctx.ack(); no _ack frame should arrive.
     await page.getByTestId('send-throw').click();
 
-    // Healthy acks are sub-500ms (proven by baseline). 1s is a generous margin.
-    await page.waitForTimeout(1_000);
+    // Positive signal: follow the throw with a second successful send. Once
+    // its ack arrives, the throw-me frame has fully been processed — if its
+    // ack were going to come, it would be in the list by now.
+    await page.getByTestId('send-ok-2').click();
+    await expect(page.getByTestId('ack-ids')).toContainText('ack-ok-2');
     await expect(page.getByTestId('ack-ids')).not.toContainText('ack-throw');
   });
 });

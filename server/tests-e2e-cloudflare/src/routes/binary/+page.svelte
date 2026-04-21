@@ -3,6 +3,7 @@
 	let status = $state<'disconnected' | 'connecting' | 'connected'>('disconnected');
 	let username = $state('testuser');
 	let lastBinarySize = $state<number | null>(null);
+	let receivedSizes = $state<number[]>([]);
 	let metaUsername = $state('');
 
 	function connect() {
@@ -24,12 +25,14 @@
 		ws.onmessage = (ev) => {
 			if (ev.data instanceof ArrayBuffer) {
 				lastBinarySize = ev.data.byteLength;
+				receivedSizes = [...receivedSizes, ev.data.byteLength];
 				return;
 			}
 			if (typeof ev.data !== 'string') return;
 			const data = JSON.parse(ev.data);
 			if (data.event === 'binary-meta') {
 				lastBinarySize = data.payload?.size ?? null;
+				receivedSizes = [...receivedSizes, data.payload?.size];
 				metaUsername = data.payload?.username ?? '';
 			}
 		};
@@ -53,9 +56,11 @@
 <button data-testid="connect" onclick={connect}>Connect</button>
 <button data-testid="send-5" onclick={() => sendBytes(5)}>Send 5 bytes</button>
 <button data-testid="broadcast-all-6" onclick={() => broadcastAll(6)}>Broadcast 6 bytes (all)</button>
+<button data-testid="broadcast-all-8" onclick={() => broadcastAll(8)}>Broadcast 8 bytes (all)</button>
 <button data-testid="broadcast-exclude-self-6" onclick={() => broadcastExcludeSelf(6)}>
 	Broadcast 6 bytes (exclude self)
 </button>
 <span data-testid="status">{status}</span>
 <span data-testid="last-size">{lastBinarySize ?? ''}</span>
+<span data-testid="received-sizes">{receivedSizes.join(',')}</span>
 <span data-testid="meta-username">{metaUsername}</span>

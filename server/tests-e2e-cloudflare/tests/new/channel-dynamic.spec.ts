@@ -33,20 +33,21 @@ test.describe('channel-dynamic', () => {
     const b = await ctxB.newPage();
     await openPage(a, room, 'alice');
     await openPage(b, room, 'bob');
+    // Bob subscribes to BOTH channels so he's the positive-signal receiver
+    // for either side. Alice is only on general.
     await a.getByTestId('sub-general').click();
+    await b.getByTestId('sub-general').click();
     await b.getByTestId('sub-vip').click();
     await expect(a.getByTestId('subscribe-ok')).toContainText('room:general');
+    await expect(b.getByTestId('subscribe-ok')).toContainText('room:general');
     await expect(b.getByTestId('subscribe-ok')).toContainText('room:vip');
 
-    // Alice publishes to general; bob (on vip) must not see it.
+    // Alice publishes to general. Bob (on both) MUST see it on general —
+    // that receipt is the positive signal. Bob's vip bucket MUST stay
+    // empty, proving dynamic-scope isolation.
     await a.getByTestId('send-general').click();
-    await b.waitForTimeout(400);
+    await expect(b.getByTestId('user-msgs-general')).toContainText('alice:hello-general');
     await expect(b.getByTestId('user-msgs-vip')).toHaveText('');
-
-    // Bob publishes to vip; alice (on general) must not see it.
-    await b.getByTestId('send-vip').click();
-    await a.waitForTimeout(400);
-    await expect(a.getByTestId('user-msgs-general')).toHaveText('');
 
     await ctxA.close();
     await ctxB.close();

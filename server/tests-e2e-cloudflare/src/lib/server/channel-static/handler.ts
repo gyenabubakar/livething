@@ -1,6 +1,5 @@
 import { event, server } from '@wskit/server';
 import { withChannels } from '@wskit/server/channels';
-import { Block } from '@wskit/server/errors';
 import { withLifecycle } from '@wskit/server/lifecycle';
 import * as v from 'valibot';
 import { requireUsername } from '../_shared/upgrade.ts';
@@ -27,7 +26,7 @@ const roomChannel = base.channel('room', (ch) =>
     })
     .onBeforeSubscribe((ctx) => {
       if (ctx.meta.username === 'blocked-user') {
-        throw Block;
+        throw new Error('blocked-user may not subscribe');
       }
     })
     .onSubscribe((ctx) => {

@@ -63,11 +63,16 @@ test.describe('binary', () => {
     await expect(a.getByTestId('status')).toHaveText('connected');
     await expect(b.getByTestId('status')).toHaveText('connected');
 
+    // a excludes self with size 6 → only b should receive 6.
+    // Then b broadcasts-all with size 8 → both receive 8.
+    // Checking a's received-sizes for "8" but not "6" is deterministic:
+    // if a's own excludeSelf had looped back, 6 would be in the list too.
     await a.getByTestId('broadcast-exclude-self-6').click();
-    await expect(b.getByTestId('last-size')).toHaveText('6');
-    // Caller must stay empty. Poll briefly to give any stray frame a chance.
-    await a.waitForTimeout(500);
-    await expect(a.getByTestId('last-size')).toHaveText('');
+    await expect(b.getByTestId('received-sizes')).toContainText('6');
+
+    await b.getByTestId('broadcast-all-8').click();
+    await expect(a.getByTestId('received-sizes')).toContainText('8');
+    await expect(a.getByTestId('received-sizes')).not.toContainText('6');
 
     await ctxA.close();
     await ctxB.close();
