@@ -65,6 +65,8 @@
       { "name": "CTX_TAGS_SERVER", "class_name": "CtxTagsServer" },
       { "name": "CTX_QUALITY_SERVER", "class_name": "CtxQualityServer" },
       { "name": "CTX_META_SERVER", "class_name": "CtxMetaServer" },
+      { "name": "HEARTBEAT_SERVER", "class_name": "HeartbeatServer" },
+      { "name": "PROTOCOL_PINGS_SERVER", "class_name": "ProtocolPingsServer" },
     ],
   },
   "migrations": [
@@ -119,6 +121,10 @@
         "CtxQualityServer",
         "CtxMetaServer",
       ],
+    },
+    {
+      "tag": "v8",
+      "new_sqlite_classes": ["HeartbeatServer", "ProtocolPingsServer"],
     },
   ],
 }
