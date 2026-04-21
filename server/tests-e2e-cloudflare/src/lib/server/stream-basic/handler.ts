@@ -14,7 +14,10 @@ export const streamBasicHandler = withStreams(withLifecycle(server<Env>('stream-
     s.generate(async function* (_ctx, payload) {
       for (let i = 0; i < payload.count; i++) {
         yield { index: i };
-        await new Promise((r) => setTimeout(r, 20));
+        // 75ms pacing so a count=10 stream takes ~750ms; plenty of window
+        // for a client _streamCancel to land before completion even under
+        // parallel load.
+        await new Promise((r) => setTimeout(r, 75));
       }
     }),
   )

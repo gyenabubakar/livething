@@ -4,19 +4,29 @@ import { withStreams } from '@wskit/server/streams';
 import * as v from 'valibot';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const StartStream = event('start-stream', v.object({ count: v.number() }));
-const StreamChunkSchema = v.object({ index: v.number() });
-const Stop = event('stop', v.object({}));
+const StartNudgeStream = event('start-nudge-stream', v.object({ prompt: v.string() }));
+const Token = v.object({ token: v.string() });
+const PauseNudge = event('pause', v.object({}));
+const SpeedUpNudge = event('speed-up', v.object({ factor: v.number() }));
 
 export const streamNudgesHandler = withStreams(withLifecycle(server<Env>('stream-nudges')))
   .onUpgrade((request) => requireUsername(request))
-  .stream(StartStream, StreamChunkSchema, (s) =>
-    s.nudge(Stop).generate(async function* (ctx, payload) {
-      for (let i = 0; i < payload.count; i++) {
-        const nudges = ctx.nudges(yield { index: i });
-        if (nudges.some((n) => n.event === 'stop')) break;
-        await new Promise((r) => setTimeout(r, 10));
-      }
-    }),
+  .stream(StartNudgeStream, Token, (s) =>
+    s
+      .nudge(PauseNudge)
+      .nudge(SpeedUpNudge)
+      .generate(async function* (ctx, payload) {
+        const words = payload.prompt.split(' ');
+        let delay = 50;
+        for (const word of words) {
+          const nudges = ctx.nudges(yield { token: word + ' ' });
+          if (nudges.some((n) => n.event === 'pause')) return;
+          const speedUp = nudges.find((n) => n.event === 'speed-up');
+          if (speedUp && 'factor' in speedUp.payload) {
+            delay = Math.max(1, delay / speedUp.payload.factor);
+          }
+          await new Promise((r) => setTimeout(r, delay));
+        }
+      }),
   )
   .build();
