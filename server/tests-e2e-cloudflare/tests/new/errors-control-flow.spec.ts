@@ -1,0 +1,54 @@
+import { expect, test } from '@playwright/test';
+
+test.describe('errors-control-flow', () => {
+  test.beforeEach(async ({ page }, testInfo) => {
+    const room = `test-${testInfo.testId}`;
+    await page.goto(`/errors-control-flow?room=${room}`);
+    await page.getByTestId('connect').click();
+    await expect(page.getByTestId('status')).toHaveText('connected');
+  });
+
+  test('force disconnect (Disconnect error) closes the connection', async ({ page }) => {
+    await page.getByTestId('force-disconnect').click();
+    await expect(page.getByTestId('status')).toHaveText('disconnected');
+  });
+
+  test('Defer: message retried after the delay eventually succeeds', async ({ page }) => {
+    await page.getByTestId('defer-test').click();
+    await expect(page.getByTestId('defer-result')).toHaveText('deferred-received');
+  });
+
+  test('Block in pre-intercept: handler never runs, no reply leaks', async ({ page }) => {
+    await page.getByTestId('block-test').click();
+    // Follow up with a real echo to prove the connection + pipeline are alive.
+    await page.getByTestId('do-echo').click();
+    await expect(page.getByTestId('echo-result')).toHaveText('alive');
+    await expect(page.getByTestId('block-reply')).toHaveText('');
+  });
+
+  test('Skip in pre-intercept: message passes through to the handler', async ({ page }) => {
+    await page.getByTestId('skip-test').click();
+    await expect(page.getByTestId('skip-reply')).toHaveText('leaked:true');
+  });
+
+  test('manual ValidationFailed triggers onValidationError', async ({ page }) => {
+    await page.getByTestId('manual-validation').click();
+    await expect(page.getByTestId('validation-error')).toHaveText(
+      'validation-error:manual-validation',
+    );
+  });
+
+  test('DeferExhausted fires onError after retries exhaust', async ({ page }) => {
+    await page.getByTestId('always-defer').click();
+    await expect(page.getByTestId('defer-exhausted')).toContainText('always-defer:retries=');
+  });
+
+  test('chat channel: always-defer exhausts and fires onError inside the channel', async ({
+    page,
+  }) => {
+    await page.getByTestId('subscribe-chat').click();
+    await expect(page.getByTestId('chat-subscribed')).toHaveText('yes');
+    await page.getByTestId('chat-always-defer').click();
+    await expect(page.getByTestId('defer-exhausted')).toContainText('chat-always-defer:retries=');
+  });
+});
