@@ -117,6 +117,12 @@ export default {
       return env.BINARY_SERVER.get(id).fetch(request);
     }
 
+    if (url.pathname === '/ws/lifecycle-hooks/shutdown') {
+      const id = env.LIFECYCLE_HOOKS_SERVER.idFromName(room);
+      await env.LIFECYCLE_HOOKS_SERVER.get(id).shutdown();
+      return new Response(null, { status: 204 });
+    }
+
     const featureBinding = FEATURE_ROUTES[url.pathname];
     if (featureBinding) {
       const namespace = env[featureBinding] as DurableObjectNamespace;

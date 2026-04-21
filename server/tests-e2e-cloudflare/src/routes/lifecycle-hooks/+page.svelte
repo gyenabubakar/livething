@@ -1,0 +1,59 @@
+<script lang="ts">
+	let ws: WebSocket | null = $state(null);
+	let status = $state<'disconnected' | 'connecting' | 'connected'>('disconnected');
+	let closeCode = $state<number | null>(null);
+	let username = $state('testuser');
+	let connectedUser = $state('');
+	let disconnectedUsers = $state<string[]>([]);
+	let validationErrorFired = $state('');
+
+	function connect() {
+		if (ws) return;
+		status = 'connecting';
+		closeCode = null;
+		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+		const room = new URL(location.href).searchParams.get('room') ?? 'default';
+		ws = new WebSocket(
+			`${protocol}//${location.host}/ws/lifecycle-hooks?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
+		);
+		ws.onopen = () => {
+			status = 'connected';
+		};
+		ws.onclose = (ev) => {
+			closeCode = ev.code;
+			status = 'disconnected';
+			ws = null;
+		};
+		ws.onmessage = (ev) => {
+			if (typeof ev.data !== 'string') return;
+			const data = JSON.parse(ev.data);
+			if (data.event === 'connected') connectedUser = data.payload?.username ?? '';
+			if (data.event === 'disconnected') {
+				disconnectedUsers = [...disconnectedUsers, data.payload?.username ?? ''];
+			}
+			if (data.event === 'validation-error-fired') {
+				validationErrorFired = data.payload?.event ?? '';
+			}
+		};
+	}
+
+	function sendBadEvent() {
+		ws?.send(JSON.stringify({ event: 'bad-event', payload: { value: 'not-a-number' } }));
+	}
+
+	function disconnectSelf() {
+		ws?.close();
+	}
+</script>
+
+<h1>lifecycle-hooks feature</h1>
+<input data-testid="username" bind:value={username} />
+<button data-testid="connect" onclick={connect}>Connect</button>
+<button data-testid="disconnect" onclick={disconnectSelf}>Disconnect self</button>
+<button data-testid="send-bad" onclick={sendBadEvent}>Send bad event</button>
+
+<span data-testid="status">{status}</span>
+<span data-testid="close-code">{closeCode ?? ''}</span>
+<span data-testid="connected-user">{connectedUser}</span>
+<span data-testid="disconnected-users">{disconnectedUsers.join(',')}</span>
+<span data-testid="validation-error">{validationErrorFired}</span>
