@@ -1,7 +1,7 @@
 import { applyFeature } from '~/_builder/apply-feature.ts';
 import { ReplayCustomBuilder } from '~/replay/custom/builder.ts';
 import type { BuilderInternals, ServerBuilderFull } from '~/_types/feature-methods.ts';
-import type { ScopeStateShape } from '~/_types/scope-state.ts';
+import type { ScopeStateShape } from '~/_types/scope-state';
 
 function replayCustomImpl(parent: BuilderInternals, callback?: (...args: unknown[]) => unknown) {
   const builder = new ReplayCustomBuilder(parent, parent._primitives);

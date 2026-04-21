@@ -3,7 +3,7 @@ import { ChannelBuilder } from '~/channel/builder.ts';
 import { channel as createChannel } from '~/channel/channel.ts';
 import type { ServerBuilder } from '~/_builder/server-builder.ts';
 import type { BuilderInternals, ServerBuilderFull } from '~/_types/feature-methods.ts';
-import type { ScopeStateShape } from '~/_types/scope-state.ts';
+import type { ScopeStateShape } from '~/_types/scope-state';
 import type { ChannelPattern } from '~/channel/channel.ts';
 
 const KINDS = ['server', 'group'] as const;

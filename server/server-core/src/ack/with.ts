@@ -1,7 +1,7 @@
 import { applyFeature } from '~/_builder/apply-feature.ts';
 import { ack as createAck } from '~/ack/ack.ts';
 import type { BuilderInternals, ServerBuilderFull } from '~/_types/feature-methods.ts';
-import type { ScopeStateShape } from '~/_types/scope-state.ts';
+import type { ScopeStateShape } from '~/_types/scope-state';
 import type { Primitive } from '~/primitive.ts';
 
 const KINDS = ['server', 'group'] as const;

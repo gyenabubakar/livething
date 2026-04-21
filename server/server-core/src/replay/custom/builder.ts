@@ -1,5 +1,5 @@
 import { handleReplay as createHandleReplay } from '~/replay/custom/custom.ts';
-import type { ScopeStateShape } from '~/_types/scope-state.ts';
+import type { ScopeStateShape } from '~/_types/scope-state';
 import type { Primitive } from '~/primitive.ts';
 import type {
   CustomReplayOptions,

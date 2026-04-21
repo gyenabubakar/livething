@@ -14,7 +14,7 @@ import type {
   NoOutgoing,
   ScopeState,
   ScopeStateShape,
-} from '~/_types/scope-state.ts';
+} from '~/_types/scope-state';
 import type { ChannelPrimitive } from '~/channel/channel.ts';
 import type { ErrorDef } from '~/errors/errors.ts';
 import type { EventContract } from '~/event.ts';

@@ -3,7 +3,7 @@ import { NamespaceBuilder } from '~/namespace/builder.ts';
 import { namespace as createNamespace } from '~/namespace/namespace.ts';
 import type { ServerBuilder } from '~/_builder/server-builder.ts';
 import type { BuilderInternals, ServerBuilderFull } from '~/_types/feature-methods.ts';
-import type { ScopeStateShape } from '~/_types/scope-state.ts';
+import type { ScopeStateShape } from '~/_types/scope-state';
 
 const KINDS = ['server', 'group'] as const;
 

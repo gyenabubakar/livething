@@ -4,7 +4,7 @@ import { withHeartbeat } from '~/heartbeat/with.ts';
 import { withHibernation } from '~/hibernation/with.ts';
 import { withSequence } from '~/sequence/with.ts';
 import type { ServerBuilderFull } from '~/_types/feature-methods.ts';
-import type { ScopeStateShape } from '~/_types/scope-state.ts';
+import type { ScopeStateShape } from '~/_types/scope-state';
 
 /**
  * Add all low-level infrastructure features to a server builder in one call:

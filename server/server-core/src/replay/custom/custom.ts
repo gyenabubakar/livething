@@ -9,7 +9,7 @@ import {
 } from '~/replay/runtime.ts';
 import { sequence } from '~/sequence/sequence.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
-import type { ReplayWire } from '~/_types/scope-state.ts';
+import type { ReplayWire } from '~/_types/scope-state';
 import type { KVProvider, Logger, SQLProvider } from '~/context.ts';
 import type { Primitive } from '~/primitive.ts';
 

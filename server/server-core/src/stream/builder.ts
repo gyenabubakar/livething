@@ -4,11 +4,10 @@ import {
   start as createStart,
   stream as createStream,
 } from '~/stream/stream.ts';
-import type { HandlerCtxFromState, ScopeStateShape } from '~/_types/scope-state.ts';
+import type { HandlerCtxFromState, ScopeStateShape } from '~/_types/scope-state';
 import type { EventContract } from '~/event.ts';
 import type { Primitive } from '~/primitive.ts';
 import type {
-  GeneratePrimitive,
   NudgeDeclaration,
   StreamHandlerContext,
   StreamNudgeMessages,
@@ -37,7 +36,7 @@ export class StreamBuilder<
   /** @internal Validator for the trigger payload. */
   readonly _triggerSchema: Validator<TPayload>;
   /** @internal Whether to fan the stream out to all connections. */
-  readonly _broadcast: boolean;
+  _broadcast = false;
   /** @internal Nudge declarations accumulated via `.nudge()`. */
   readonly _nudges: NudgeDeclaration[] = [];
 
@@ -46,13 +45,20 @@ export class StreamBuilder<
     parentPrimitives: Primitive[],
     eventContract: EventContract<TEvent, TPayload>,
     _chunkSchema: Validator<TChunks>,
-    options?: { broadcast?: boolean },
   ) {
     this._parentBuilder = parentBuilder;
     this._parentPrimitives = parentPrimitives;
     this._event = eventContract.event;
     this._triggerSchema = eventContract.schema;
-    this._broadcast = options?.broadcast ?? false;
+  }
+
+  /**
+   * Enable broadcast mode: each chunk yielded by the generator will be sent to
+   * all active connections, not just the one that triggered the stream.
+   */
+  broadcast(): this {
+    this._broadcast = true;
+    return this;
   }
 
   /**
@@ -114,27 +120,5 @@ export class StreamBuilder<
     this._parentPrimitives.push(streamPrimitive as Primitive);
     this._parentPrimitives.push(generatePrimitive as Primitive);
     return this;
-  }
-
-  /**
-   * Package the stream into a standalone `GeneratePrimitive` without pushing it
-   * onto the parent builder. The extracted primitive has a placeholder generator
-   * that throws — call `.use(primitive)` on a builder to attach the real handler.
-   *
-   * Use this to declare the stream contract in a shared file and attach the
-   * generator in a concrete handler file.
-   */
-  extract(): GeneratePrimitive {
-    const streamPrimitive = createStream<TEvent, TPayload, TChunks, typeof this._nudges>(
-      createStart(this._event, this._triggerSchema as (value: unknown) => TPayload, {
-        broadcast: this._broadcast,
-      }),
-      ...this._nudges,
-    );
-    return createGenerate(streamPrimitive, () => {
-      throw new Error(
-        '[wskit] Stream extracted without .generate() — attach a generator before using.',
-      );
-    }) as GeneratePrimitive;
   }
 }

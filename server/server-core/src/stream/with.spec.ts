@@ -78,8 +78,8 @@ describe('.stream() side-effect', () => {
 
   it('supports broadcast option', () => {
     const def = withStreams(server('chat'))
-      .stream(aiComplete, chunkSchema, { broadcast: true }, (s) =>
-        s.generate(async function* (_ctx, payload) {
+      .stream(aiComplete, chunkSchema, (s) =>
+        s.broadcast().generate(async function* (_ctx, payload) {
           yield { token: payload.prompt };
         }),
       )

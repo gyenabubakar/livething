@@ -240,54 +240,45 @@ export function compileHandlerDefinition(
  * because the dispatcher returns early when no handler matches, so this failure
  * must surface at boot instead of silently doing nothing.
  */
+interface HandlerScope {
+  incoming: ReadonlyMap<string, unknown>;
+  requests: ReadonlyMap<string, unknown>;
+  streams: ReadonlyMap<string, unknown>;
+}
+
+function scopeHasHandler(scope: HandlerScope, event: string): boolean {
+  return scope.incoming.has(event) || scope.requests.has(event) || scope.streams.has(event);
+}
+
+function assertPostInterceptHandlerExists(
+  scope: HandlerScope,
+  event: string,
+  scopeLabel: string,
+): void {
+  if (scopeHasHandler(scope, event)) return;
+  throw new Error(
+    `[wskit] Post-intercept registered for '${event}' in ${scopeLabel} but no incoming/request/stream handler accepts '${event}' there. Add a handler or remove the post-intercept.`,
+  );
+}
+
 function validatePostInterceptHandlers(compiled: EngineCompileTypes.CompiledServer): void {
-  function assertHandlerExists(
-    event: string,
-    scopeLabel: string,
-    has: (e: string) => boolean,
-  ): void {
-    if (has(event)) return;
-    throw new Error(
-      `[wskit] Post-intercept registered for '${event}' in ${scopeLabel} but no incoming/request/stream handler accepts '${event}' there. Add a handler or remove the post-intercept.`,
-    );
-  }
-
-  function topHas(event: string): boolean {
-    return (
-      compiled.incoming.has(event) || compiled.requests.has(event) || compiled.streams.has(event)
-    );
-  }
-
   for (const event of compiled.postIntercepts.keys()) {
-    assertHandlerExists(event, 'top-level', topHas);
+    assertPostInterceptHandlerExists(compiled, event, 'top-level');
   }
 
   for (const namespace of compiled.namespaces.values()) {
-    function has(event: string): boolean {
-      return (
-        namespace.incoming.has(event) ||
-        namespace.requests.has(event) ||
-        namespace.streams.has(event)
-      );
-    }
     for (const event of namespace.postIntercepts.keys()) {
-      assertHandlerExists(event, `namespace '${namespace.name}'`, has);
+      assertPostInterceptHandlerExists(namespace, event, `namespace '${namespace.name}'`);
     }
   }
 
-  function validateChannel(channel: EngineCompileTypes.CompiledChannel): void {
-    function has(event: string): boolean {
-      return (
-        channel.incoming.has(event) || channel.requests.has(event) || channel.streams.has(event)
-      );
-    }
-    const patternLabel =
-      typeof channel.pattern === 'string' ? channel.pattern : channel.pattern.key;
-    for (const event of channel.postIntercepts.keys()) {
-      assertHandlerExists(event, `channel '${patternLabel}'`, has);
-    }
-  }
+  for (const channel of compiled.channels.values()) validateChannelPostIntercepts(channel);
+  for (const channel of compiled.channelFamilies.values()) validateChannelPostIntercepts(channel);
+}
 
-  for (const channel of compiled.channels.values()) validateChannel(channel);
-  for (const channel of compiled.channelFamilies.values()) validateChannel(channel);
+function validateChannelPostIntercepts(channel: EngineCompileTypes.CompiledChannel): void {
+  const patternLabel = typeof channel.pattern === 'string' ? channel.pattern : channel.pattern.key;
+  for (const event of channel.postIntercepts.keys()) {
+    assertPostInterceptHandlerExists(channel, event, `channel '${patternLabel}'`);
+  }
 }

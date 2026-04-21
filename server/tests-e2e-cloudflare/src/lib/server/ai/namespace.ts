@@ -94,8 +94,8 @@ export const aiNamespace = withIntercept(withRequests(withStreams(withNamespaces
           throw NotFound({ id: 'model-missing' });
         }),
       )
-      .stream(AiBroadcastStream, BroadcastChunkSchema, { broadcast: true }, (s) =>
-        s.generate(async function* (_ctx, payload) {
+      .stream(AiBroadcastStream, BroadcastChunkSchema, (s) =>
+        s.broadcast().generate(async function* (_ctx, payload) {
           const words = payload.prompt.split(' ');
           const delayMs = payload.delayMs ?? 3;
           for (const word of words) {

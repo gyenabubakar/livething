@@ -15,7 +15,7 @@ import type {
   NextState,
   ScopeState,
   ScopeStateShape,
-} from '~/_types/scope-state.ts';
+} from '~/_types/scope-state';
 import type { ChannelPattern, ScopeDeclaration } from '~/channel/channel.ts';
 import type { EventContract } from '~/event.ts';
 import type { IncomingPrimitive } from '~/incoming/incoming.ts';

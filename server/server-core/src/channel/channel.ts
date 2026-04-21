@@ -4,7 +4,7 @@ import type {
   NoOutgoing,
   ScopeState,
   StreamBaseCtxFromState,
-} from '~/_types/scope-state.ts';
+} from '~/_types/scope-state';
 import type {
   BeforeSubscribePrimitive,
   SubscribePrimitive,

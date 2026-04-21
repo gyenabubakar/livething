@@ -1,7 +1,7 @@
 import { applyFeature } from '~/_builder/apply-feature.ts';
 import { StreamBuilder } from '~/stream/builder.ts';
 import type { BuilderInternals, ServerBuilderFull } from '~/_types/feature-methods.ts';
-import type { ScopeStateShape } from '~/_types/scope-state.ts';
+import type { ScopeStateShape } from '~/_types/scope-state';
 import type { EventContract } from '~/event.ts';
 import type { Validator } from '~/types.ts';
 
@@ -9,28 +9,11 @@ function streamImpl(
   parent: BuilderInternals,
   eventContract: EventContract,
   chunkSchema: Validator,
-  callbackOrOptions?: { broadcast?: boolean } | ((...args: unknown[]) => unknown),
-  maybeCallback?: (...args: unknown[]) => unknown,
+  callback: (...args: unknown[]) => unknown,
 ) {
-  const isCallback3 = typeof callbackOrOptions === 'function';
-  const options = isCallback3
-    ? undefined
-    : typeof callbackOrOptions === 'object'
-      ? callbackOrOptions
-      : undefined;
-  const callback = isCallback3 ? callbackOrOptions : maybeCallback;
-  const builder = new StreamBuilder(
-    parent,
-    parent._primitives,
-    eventContract,
-    chunkSchema,
-    options,
-  );
-  if (callback) {
-    callback(builder);
-    return parent;
-  }
-  return builder;
+  const builder = new StreamBuilder(parent, parent._primitives, eventContract, chunkSchema);
+  callback(builder);
+  return parent;
 }
 
 const KINDS = ['server', 'group', 'namespace', 'channel'] as const;
@@ -57,10 +40,9 @@ export function withStreams<TState extends ScopeStateShape, TFeatures>(
       this: BuilderInternals,
       eventContract: EventContract,
       chunkSchema: Validator,
-      callbackOrOptions?: { broadcast?: boolean } | ((...args: unknown[]) => unknown),
-      maybeCallback?: (...args: unknown[]) => unknown,
+      callback: (...args: unknown[]) => unknown,
     ) {
-      return streamImpl(this, eventContract, chunkSchema, callbackOrOptions, maybeCallback);
+      return streamImpl(this, eventContract, chunkSchema, callback);
     };
   });
   return builder as ServerBuilderFull<TState, TFeatures & { streams: true }>;

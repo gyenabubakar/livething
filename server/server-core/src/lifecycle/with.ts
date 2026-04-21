@@ -10,7 +10,7 @@ import {
   onValidationError as createOnValidationError,
 } from '~/lifecycle/lifecycle.ts';
 import type { BuilderInternals, ServerBuilderFull } from '~/_types/feature-methods.ts';
-import type { ScopeStateShape } from '~/_types/scope-state.ts';
+import type { ScopeStateShape } from '~/_types/scope-state';
 import type { Primitive } from '~/primitive.ts';
 
 function addLifecycleMethod(

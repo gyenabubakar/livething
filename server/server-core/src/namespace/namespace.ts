@@ -4,7 +4,7 @@ import type {
   NoOutgoing,
   ScopeState,
   StreamBaseCtxFromState,
-} from '~/_types/scope-state.ts';
+} from '~/_types/scope-state';
 import type { IncomingPrimitive } from '~/incoming/incoming.ts';
 import type { PostInterceptPrimitive, PreInterceptPrimitive } from '~/intercept/intercept.ts';
 import type { OutgoingPrimitive } from '~/outgoing/outgoing.ts';

@@ -14,7 +14,7 @@ import type {
   NextState,
   ScopeState,
   ScopeStateShape,
-} from '~/_types/scope-state.ts';
+} from '~/_types/scope-state';
 import type { AckPrimitive } from '~/ack/ack.ts';
 import type { ChannelBuilder } from '~/channel/builder.ts';
 import type {
@@ -536,90 +536,42 @@ type MethodType<
                                           >
                                         : // ─────── Section: stream ───────
                                           M extends 'stream'
-                                          ? (<TEvent extends string, TPayload, TChunks>(
+                                          ? <
+                                              TEvent extends string,
+                                              TPayload,
+                                              TChunks,
+                                              TNudges extends readonly NudgeDeclaration[] =
+                                                readonly [],
+                                            >(
                                               eventContract: EventContract<TEvent, TPayload>,
                                               chunkSchema: Validator<TChunks>,
-                                              options?: { broadcast?: boolean },
-                                            ) => StreamBuilder<
-                                              FullBuilder<TState, TFeatures, Kind>,
-                                              TState,
-                                              TEvent,
-                                              TPayload,
-                                              TChunks
-                                            >) &
-                                              (<
-                                                TEvent extends string,
-                                                TPayload,
-                                                TChunks,
-                                                TNudges extends readonly NudgeDeclaration[] =
-                                                  readonly [],
-                                              >(
-                                                eventContract: EventContract<TEvent, TPayload>,
-                                                chunkSchema: Validator<TChunks>,
-                                                callback: (
-                                                  builder: StreamBuilder<
-                                                    FullBuilder<TState, TFeatures, Kind>,
-                                                    TState,
-                                                    TEvent,
-                                                    TPayload,
-                                                    TChunks
-                                                  >,
-                                                ) => StreamBuilder<
+                                              callback: (
+                                                builder: StreamBuilder<
                                                   FullBuilder<TState, TFeatures, Kind>,
                                                   TState,
                                                   TEvent,
                                                   TPayload,
-                                                  TChunks,
-                                                  TNudges
+                                                  TChunks
                                                 >,
-                                              ) => FullBuilder<
-                                                StateWithStream<
-                                                  TState,
-                                                  TEvent,
-                                                  TPayload,
-                                                  TChunks,
-                                                  TNudges
-                                                >,
-                                                TFeatures,
-                                                Kind
-                                              >) &
-                                              (<
-                                                TEvent extends string,
+                                              ) => StreamBuilder<
+                                                FullBuilder<TState, TFeatures, Kind>,
+                                                TState,
+                                                TEvent,
                                                 TPayload,
                                                 TChunks,
-                                                TNudges extends readonly NudgeDeclaration[] =
-                                                  readonly [],
-                                              >(
-                                                eventContract: EventContract<TEvent, TPayload>,
-                                                chunkSchema: Validator<TChunks>,
-                                                options: { broadcast?: boolean },
-                                                callback: (
-                                                  builder: StreamBuilder<
-                                                    FullBuilder<TState, TFeatures, Kind>,
-                                                    TState,
-                                                    TEvent,
-                                                    TPayload,
-                                                    TChunks
-                                                  >,
-                                                ) => StreamBuilder<
-                                                  FullBuilder<TState, TFeatures, Kind>,
-                                                  TState,
-                                                  TEvent,
-                                                  TPayload,
-                                                  TChunks,
-                                                  TNudges
-                                                >,
-                                              ) => FullBuilder<
-                                                StateWithStream<
-                                                  TState,
-                                                  TEvent,
-                                                  TPayload,
-                                                  TChunks,
-                                                  TNudges
-                                                >,
-                                                TFeatures,
-                                                Kind
-                                              >)
+                                                TNudges
+                                              >,
+                                            ) => FullBuilder<
+                                              StateWithStream<
+                                                TState,
+                                                TEvent,
+                                                TPayload,
+                                                TChunks,
+                                                TNudges
+                                              >,
+                                              TFeatures,
+                                              Kind
+                                            >
                                           : // ─────── Section: replay ───────
                                             M extends 'replay'
                                             ? ReplayMethod<
@@ -688,78 +640,36 @@ type NsMethodType<
         TFeatures
       >
     : M extends 'stream'
-      ? (<TEvent extends string, TPayload, TChunks>(
+      ? <
+          TEvent extends string,
+          TPayload,
+          TChunks,
+          TNudges extends readonly NudgeDeclaration[] = readonly [],
+        >(
           eventContract: EventContract<TEvent, TPayload>,
           chunkSchema: Validator<TChunks>,
-          options?: { broadcast?: boolean },
-        ) => StreamBuilder<
-          NamespaceBuilderFull<TParentState, TState, TName, TFeatures>,
-          TState,
-          TEvent,
-          TPayload,
-          TChunks
-        >) &
-          (<
-            TEvent extends string,
-            TPayload,
-            TChunks,
-            TNudges extends readonly NudgeDeclaration[] = readonly [],
-          >(
-            eventContract: EventContract<TEvent, TPayload>,
-            chunkSchema: Validator<TChunks>,
-            callback: (
-              builder: StreamBuilder<
-                NamespaceBuilderFull<TParentState, TState, TName, TFeatures>,
-                TState,
-                TEvent,
-                TPayload,
-                TChunks
-              >,
-            ) => StreamBuilder<
+          callback: (
+            builder: StreamBuilder<
               NamespaceBuilderFull<TParentState, TState, TName, TFeatures>,
               TState,
               TEvent,
               TPayload,
-              TChunks,
-              TNudges
+              TChunks
             >,
-          ) => NamespaceBuilderFull<
-            TParentState,
-            StateWithStream<TState, TEvent, TPayload, TChunks, TNudges>,
-            TName,
-            TFeatures
-          >) &
-          (<
-            TEvent extends string,
+          ) => StreamBuilder<
+            NamespaceBuilderFull<TParentState, TState, TName, TFeatures>,
+            TState,
+            TEvent,
             TPayload,
             TChunks,
-            TNudges extends readonly NudgeDeclaration[] = readonly [],
-          >(
-            eventContract: EventContract<TEvent, TPayload>,
-            chunkSchema: Validator<TChunks>,
-            options: { broadcast?: boolean },
-            callback: (
-              builder: StreamBuilder<
-                NamespaceBuilderFull<TParentState, TState, TName, TFeatures>,
-                TState,
-                TEvent,
-                TPayload,
-                TChunks
-              >,
-            ) => StreamBuilder<
-              NamespaceBuilderFull<TParentState, TState, TName, TFeatures>,
-              TState,
-              TEvent,
-              TPayload,
-              TChunks,
-              TNudges
-            >,
-          ) => NamespaceBuilderFull<
-            TParentState,
-            StateWithStream<TState, TEvent, TPayload, TChunks, TNudges>,
-            TName,
-            TFeatures
-          >)
+            TNudges
+          >,
+        ) => NamespaceBuilderFull<
+          TParentState,
+          StateWithStream<TState, TEvent, TPayload, TChunks, TNudges>,
+          TName,
+          TFeatures
+        >
       : never;
 
 /** Feature methods available inside a namespace builder scope. */
@@ -809,78 +719,36 @@ type ChMethodType<
         TFeatures
       >
     : M extends 'stream'
-      ? (<TEvent extends string, TPayload, TChunks>(
+      ? <
+          TEvent extends string,
+          TPayload,
+          TChunks,
+          TNudges extends readonly NudgeDeclaration[] = readonly [],
+        >(
           eventContract: EventContract<TEvent, TPayload>,
           chunkSchema: Validator<TChunks>,
-          options?: { broadcast?: boolean },
-        ) => StreamBuilder<
-          ChannelBuilderFull<TParentState, TState, TPattern, TFeatures>,
-          TState,
-          TEvent,
-          TPayload,
-          TChunks
-        >) &
-          (<
-            TEvent extends string,
-            TPayload,
-            TChunks,
-            TNudges extends readonly NudgeDeclaration[] = readonly [],
-          >(
-            eventContract: EventContract<TEvent, TPayload>,
-            chunkSchema: Validator<TChunks>,
-            callback: (
-              builder: StreamBuilder<
-                ChannelBuilderFull<TParentState, TState, TPattern, TFeatures>,
-                TState,
-                TEvent,
-                TPayload,
-                TChunks
-              >,
-            ) => StreamBuilder<
+          callback: (
+            builder: StreamBuilder<
               ChannelBuilderFull<TParentState, TState, TPattern, TFeatures>,
               TState,
               TEvent,
               TPayload,
-              TChunks,
-              TNudges
+              TChunks
             >,
-          ) => ChannelBuilderFull<
-            TParentState,
-            StateWithStream<TState, TEvent, TPayload, TChunks, TNudges>,
-            TPattern,
-            TFeatures
-          >) &
-          (<
-            TEvent extends string,
+          ) => StreamBuilder<
+            ChannelBuilderFull<TParentState, TState, TPattern, TFeatures>,
+            TState,
+            TEvent,
             TPayload,
             TChunks,
-            TNudges extends readonly NudgeDeclaration[] = readonly [],
-          >(
-            eventContract: EventContract<TEvent, TPayload>,
-            chunkSchema: Validator<TChunks>,
-            options: { broadcast?: boolean },
-            callback: (
-              builder: StreamBuilder<
-                ChannelBuilderFull<TParentState, TState, TPattern, TFeatures>,
-                TState,
-                TEvent,
-                TPayload,
-                TChunks
-              >,
-            ) => StreamBuilder<
-              ChannelBuilderFull<TParentState, TState, TPattern, TFeatures>,
-              TState,
-              TEvent,
-              TPayload,
-              TChunks,
-              TNudges
-            >,
-          ) => ChannelBuilderFull<
-            TParentState,
-            StateWithStream<TState, TEvent, TPayload, TChunks, TNudges>,
-            TPattern,
-            TFeatures
-          >)
+            TNudges
+          >,
+        ) => ChannelBuilderFull<
+          TParentState,
+          StateWithStream<TState, TEvent, TPayload, TChunks, TNudges>,
+          TPattern,
+          TFeatures
+        >
       : M extends 'replay'
         ? ReplayMethod<
             ChannelBuilderFull<

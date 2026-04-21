@@ -1,7 +1,7 @@
 import { applyFeature } from '~/_builder/apply-feature.ts';
 import { request as createRequest } from '~/request/request.ts';
 import type { BuilderInternals, ServerBuilderFull } from '~/_types/feature-methods.ts';
-import type { ScopeStateShape } from '~/_types/scope-state.ts';
+import type { ScopeStateShape } from '~/_types/scope-state';
 import type { EventContract } from '~/event.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { Validator } from '~/types.ts';

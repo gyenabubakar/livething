@@ -29,7 +29,7 @@
     "dev": "vite build --watch",
     "build": "tsc && vite build",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist node_modules"
   },
   "devDependencies": {
     "msw": "^2.12.14",

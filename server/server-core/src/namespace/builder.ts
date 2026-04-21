@@ -4,7 +4,7 @@ import { namespace as createNamespace } from '~/namespace/namespace.ts';
 import { outgoing as createOutgoing } from '~/outgoing/outgoing.ts';
 import type { GroupBuilder, ServerBuilder } from '~/_builder/server-builder.ts';
 import type { FeatureApplicator, NamespaceBuilderFull } from '~/_types/feature-methods.ts';
-import type { HandlerCtxFromState, NextState, ScopeStateShape } from '~/_types/scope-state.ts';
+import type { HandlerCtxFromState, NextState, ScopeStateShape } from '~/_types/scope-state';
 import type { EventContract } from '~/event.ts';
 import type { IncomingPrimitive } from '~/incoming/incoming.ts';
 import type { OutgoingPrimitive } from '~/outgoing/outgoing.ts';
