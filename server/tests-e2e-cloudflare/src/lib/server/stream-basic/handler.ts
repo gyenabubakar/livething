@@ -4,17 +4,25 @@ import { withStreams } from '@wskit/server/streams';
 import * as v from 'valibot';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const StartStream = event('start-stream', v.object({ count: v.number() }));
-const StreamChunkSchema = v.object({ index: v.number() });
+const StartTokens = event('start-tokens', v.object({ count: v.number() }));
+const StartBoom = event('start-boom', v.object({}));
+const Token = v.object({ index: v.number() });
 
 export const streamBasicHandler = withStreams(withLifecycle(server<Env>('stream-basic')))
   .onUpgrade((request) => requireUsername(request))
-  .stream(StartStream, StreamChunkSchema, (s) =>
+  .stream(StartTokens, Token, (s) =>
     s.generate(async function* (_ctx, payload) {
       for (let i = 0; i < payload.count; i++) {
         yield { index: i };
-        await new Promise((r) => setTimeout(r, 10));
+        await new Promise((r) => setTimeout(r, 20));
       }
+    }),
+  )
+  .stream(StartBoom, Token, (s) =>
+    s.generate(async function* () {
+      yield { index: 0 };
+      await new Promise((r) => setTimeout(r, 20));
+      throw new Error('boom');
     }),
   )
   .build();
