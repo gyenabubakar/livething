@@ -4,6 +4,8 @@ export { ReplayCustomServer } from './lib/server-replay-custom/durable-object.ts
 export { ReplaySnapshotServer } from './lib/server-replay-snapshot/durable-object.ts';
 export { ModulesServer } from './lib/server-modules/durable-object.ts';
 export { RejectHttpServer } from './lib/server-reject-http/durable-object.ts';
+export { AckServer } from './lib/server/ack/durable-object.ts';
+export { BinaryServer } from './lib/server/binary/durable-object.ts';
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -50,6 +52,16 @@ export default {
     if (url.pathname === '/ws/reject-http') {
       const id = env.HTTP_REJECT_SERVER.idFromName(room);
       return env.HTTP_REJECT_SERVER.get(id).fetch(request);
+    }
+
+    if (url.pathname === '/ws/ack') {
+      const id = env.ACK_SERVER.idFromName(room);
+      return env.ACK_SERVER.get(id).fetch(request);
+    }
+
+    if (url.pathname === '/ws/binary') {
+      const id = env.BINARY_SERVER.idFromName(room);
+      return env.BINARY_SERVER.get(id).fetch(request);
     }
 
     return env.ASSETS.fetch(request);

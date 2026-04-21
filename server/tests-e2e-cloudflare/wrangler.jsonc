@@ -34,6 +34,14 @@
         "name": "HTTP_REJECT_SERVER",
         "class_name": "RejectHttpServer",
       },
+      {
+        "name": "ACK_SERVER",
+        "class_name": "AckServer",
+      },
+      {
+        "name": "BINARY_SERVER",
+        "class_name": "BinaryServer",
+      },
     ],
   },
   "migrations": [
@@ -56,6 +64,10 @@
     {
       "tag": "v5",
       "new_sqlite_classes": ["RejectHttpServer"],
+    },
+    {
+      "tag": "v6",
+      "new_sqlite_classes": ["AckServer", "BinaryServer"],
     },
   ],
 }
