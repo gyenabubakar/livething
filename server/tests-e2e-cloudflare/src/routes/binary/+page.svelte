@@ -2,14 +2,16 @@
 	let ws: WebSocket | null = $state(null);
 	let status = $state<'disconnected' | 'connecting' | 'connected'>('disconnected');
 	let username = $state('testuser');
-	let lastSize = $state<number | null>(null);
+	let lastBinarySize = $state<number | null>(null);
+	let metaUsername = $state('');
 
 	function connect() {
 		if (ws) return;
 		status = 'connecting';
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+		const room = new URL(location.href).searchParams.get('room') ?? 'default';
 		ws = new WebSocket(
-			`${protocol}//${location.host}/ws/binary?username=${encodeURIComponent(username)}`,
+			`${protocol}//${location.host}/ws/binary?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
 		ws.binaryType = 'arraybuffer';
 		ws.onopen = () => {
@@ -20,25 +22,40 @@
 			ws = null;
 		};
 		ws.onmessage = (ev) => {
+			if (ev.data instanceof ArrayBuffer) {
+				lastBinarySize = ev.data.byteLength;
+				return;
+			}
 			if (typeof ev.data !== 'string') return;
 			const data = JSON.parse(ev.data);
-			if (data.event === 'binary-echoed') lastSize = data.payload?.size ?? null;
+			if (data.event === 'binary-meta') {
+				lastBinarySize = data.payload?.size ?? null;
+				metaUsername = data.payload?.username ?? '';
+			}
 		};
-	}
-
-	function disconnect() {
-		ws?.close();
 	}
 
 	function sendBytes(n: number) {
 		ws?.send(new Uint8Array(n).buffer);
+	}
+
+	function broadcastAll(size: number) {
+		ws?.send(JSON.stringify({ event: 'broadcast-all', payload: { size } }));
+	}
+
+	function broadcastExcludeSelf(size: number) {
+		ws?.send(JSON.stringify({ event: 'broadcast-exclude-self', payload: { size } }));
 	}
 </script>
 
 <h1>binary feature</h1>
 <input data-testid="username" bind:value={username} />
 <button data-testid="connect" onclick={connect}>Connect</button>
-<button data-testid="disconnect" onclick={disconnect}>Disconnect</button>
-<button data-testid="send-8" onclick={() => sendBytes(8)}>Send 8 bytes</button>
+<button data-testid="send-5" onclick={() => sendBytes(5)}>Send 5 bytes</button>
+<button data-testid="broadcast-all-6" onclick={() => broadcastAll(6)}>Broadcast 6 bytes (all)</button>
+<button data-testid="broadcast-exclude-self-6" onclick={() => broadcastExcludeSelf(6)}>
+	Broadcast 6 bytes (exclude self)
+</button>
 <span data-testid="status">{status}</span>
-<span data-testid="last-size">{lastSize ?? ''}</span>
+<span data-testid="last-size">{lastBinarySize ?? ''}</span>
+<span data-testid="meta-username">{metaUsername}</span>
