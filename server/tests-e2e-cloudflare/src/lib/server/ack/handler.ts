@@ -4,14 +4,19 @@ import { withLifecycle } from '@wskit/server/lifecycle';
 import * as v from 'valibot';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const Ping = event('ping', v.object({ n: v.number() }));
-const Pong = event('pong', v.object({ n: v.number() }));
+const AckCheck = event('ack-check', v.object({}));
+const AckCheckOk = event('ack-check-ok', v.object({}));
+const ThrowMe = event('throw-me', v.object({}));
 
 export const ackHandler = withLifecycle(withAck(server<Env>('ack')))
   .ack()
-  .outgoing(Pong)
+  .outgoing(AckCheckOk)
   .onUpgrade((request) => requireUsername(request))
-  .incoming(Ping, (ctx, payload) => {
-    ctx.send('pong', { n: payload.n });
+  .incoming(AckCheck, (ctx) => {
+    ctx.send('ack-check-ok', {});
+    ctx.ack();
+  })
+  .incoming(ThrowMe, () => {
+    throw new Error('intentional failure to prove ack is not emitted on throw');
   })
   .build();

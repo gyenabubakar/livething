@@ -2,15 +2,16 @@
 	let ws: WebSocket | null = $state(null);
 	let status = $state<'disconnected' | 'connecting' | 'connected'>('disconnected');
 	let username = $state('testuser');
-	let lastAckSeq = $state(0);
-	let pongN = $state<number | null>(null);
+	let ackIds = $state<string[]>([]);
+	let ackCheckOk = $state(false);
 
 	function connect() {
 		if (ws) return;
 		status = 'connecting';
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+		const room = new URL(location.href).searchParams.get('room') ?? 'default';
 		ws = new WebSocket(
-			`${protocol}//${location.host}/ws/ack?username=${encodeURIComponent(username)}`,
+			`${protocol}//${location.host}/ws/ack?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
 		ws.onopen = () => {
 			status = 'connected';
@@ -20,26 +21,30 @@
 			ws = null;
 		};
 		ws.onmessage = (ev) => {
+			if (typeof ev.data !== 'string') return;
 			const data = JSON.parse(ev.data);
-			if (data.event === '_ack') lastAckSeq = data.payload?.seq ?? 0;
-			if (data.event === 'pong') pongN = data.payload?.n ?? null;
+			if (data.event === '_ack') {
+				const id = data.payload?._ackId;
+				if (id) ackIds = [...ackIds, id];
+			}
+			if (data.event === 'ack-check-ok') ackCheckOk = true;
 		};
 	}
 
-	function disconnect() {
-		ws?.close();
+	function sendAckCheck(ackId: string) {
+		ws?.send(JSON.stringify({ event: 'ack-check', payload: { _ackId: ackId } }));
 	}
 
-	function sendPing(n: number) {
-		ws?.send(JSON.stringify({ event: 'ping', payload: { n } }));
+	function sendThrow(ackId: string) {
+		ws?.send(JSON.stringify({ event: 'throw-me', payload: { _ackId: ackId } }));
 	}
 </script>
 
 <h1>ack feature</h1>
 <input data-testid="username" bind:value={username} />
 <button data-testid="connect" onclick={connect}>Connect</button>
-<button data-testid="disconnect" onclick={disconnect}>Disconnect</button>
-<button data-testid="ping" onclick={() => sendPing(1)}>Ping</button>
+<button data-testid="send-ok" onclick={() => sendAckCheck('ack-ok')}>Send (ack-ok)</button>
+<button data-testid="send-throw" onclick={() => sendThrow('ack-throw')}>Throw (ack-throw)</button>
 <span data-testid="status">{status}</span>
-<span data-testid="last-ack-seq">{lastAckSeq}</span>
-<span data-testid="pong-n">{pongN ?? ''}</span>
+<span data-testid="reply">{ackCheckOk ? 'yes' : 'no'}</span>
+<span data-testid="ack-ids">{ackIds.join(',')}</span>
