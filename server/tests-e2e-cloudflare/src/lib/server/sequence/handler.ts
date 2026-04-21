@@ -4,17 +4,14 @@ import { withSequence } from '@wskit/server/sequence';
 import * as v from 'valibot';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const Ping = event('ping', v.object({}));
-const Pong = event('pong', v.object({ n: v.number() }));
-
-let counter = 0;
+const Tick = event('tick', v.object({}));
+const Tock = event('tock', v.object({}));
 
 export const sequenceHandler = withSequence(withLifecycle(server<Env>('sequence')))
   .sequence()
-  .outgoing(Pong)
+  .outgoing(Tock)
   .onUpgrade((request) => requireUsername(request))
-  .incoming(Ping, (ctx) => {
-    counter++;
-    ctx.send('pong', { n: counter });
+  .incoming(Tick, (ctx) => {
+    ctx.send('tock', {});
   })
   .build();
