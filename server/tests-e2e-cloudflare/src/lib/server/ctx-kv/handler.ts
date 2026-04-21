@@ -20,6 +20,7 @@ export const ctxKvHandler = withLifecycle(server<Env>('ctx-kv'))
       payload.value,
       payload.ttlMs ? { ttl: payload.ttlMs } : undefined,
     );
+    ctx.send('kv-result', { key: payload.key, value: payload.value });
   })
   .incoming(KvGet, async (ctx, payload) => {
     const value = (await ctx.kv.get(payload.key)) as string | null;
@@ -27,5 +28,6 @@ export const ctxKvHandler = withLifecycle(server<Env>('ctx-kv'))
   })
   .incoming(KvDelete, async (ctx, payload) => {
     await ctx.kv.delete(payload.key);
+    ctx.send('kv-result', { key: payload.key, value: null });
   })
   .build();
