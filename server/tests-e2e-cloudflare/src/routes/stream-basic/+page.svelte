@@ -8,6 +8,7 @@
 	let streamError = $state('');
 	let streamEnd = $state(false);
 	let cancelOkReceived = $state(false);
+	let cancelObserved = $state(false);
 
 	function reset() {
 		lastStreamId = '';
@@ -16,6 +17,7 @@
 		streamError = '';
 		streamEnd = false;
 		cancelOkReceived = false;
+		cancelObserved = false;
 	}
 
 	function connect() {
@@ -56,9 +58,14 @@
 					break;
 				case 'start-tokens':
 				case 'start-boom':
+				case 'start-typed-error':
+				case 'start-cancel-observe':
 					if (typeof data.payload?.index === 'number') {
 						chunkIndices = [...chunkIndices, data.payload.index];
 					}
+					break;
+				case 'cancel-observed':
+					cancelObserved = true;
 					break;
 			}
 		};
@@ -71,6 +78,14 @@
 	function startBoom() {
 		reset();
 		ws?.send(JSON.stringify({ event: 'start-boom', payload: {} }));
+	}
+	function startTypedError() {
+		reset();
+		ws?.send(JSON.stringify({ event: 'start-typed-error', payload: {} }));
+	}
+	function startCancelObserve() {
+		reset();
+		ws?.send(JSON.stringify({ event: 'start-cancel-observe', payload: {} }));
 	}
 	function startEmpty() {
 		reset();
@@ -89,6 +104,8 @@
 <button data-testid="start-3" onclick={() => startTokens(3)}>Start 3 tokens</button>
 <button data-testid="start-10" onclick={() => startTokens(10)}>Start 10 tokens</button>
 <button data-testid="start-boom" onclick={startBoom}>Start boom</button>
+<button data-testid="start-typed-error" onclick={startTypedError}>Start typed-error</button>
+<button data-testid="start-cancel-observe" onclick={startCancelObserve}>Start cancel-observe</button>
 <button data-testid="cancel" onclick={cancelStream}>Cancel</button>
 
 <span data-testid="status">{status}</span>
@@ -98,3 +115,4 @@
 <span data-testid="stream-error">{streamError}</span>
 <span data-testid="stream-end">{streamEnd ? 'yes' : 'no'}</span>
 <span data-testid="cancel-ok">{cancelOkReceived ? 'yes' : 'no'}</span>
+<span data-testid="cancel-observed">{cancelObserved ? 'yes' : 'no'}</span>

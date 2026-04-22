@@ -118,6 +118,41 @@ test.describe('channel-dynamic', () => {
     await ctxB.close();
   });
 
+  test('onBeforeSubscribe sync rejection prevents subscription for banned-user', async ({
+    page,
+  }, testInfo) => {
+    await openPage(page, `test-${testInfo.testId}`, 'banned-user');
+    await page.getByTestId('sub-general').click();
+    await expect(page.getByTestId('subscribe-error')).toContainText('room:general');
+    await expect(page.getByTestId('subscribe-ok')).toHaveText('');
+  });
+
+  test('onBeforeSubscribe async rejection prevents subscription for async-banned-user', async ({
+    page,
+  }, testInfo) => {
+    await openPage(page, `test-${testInfo.testId}`, 'async-banned-user');
+    await page.getByTestId('sub-general').click();
+    await expect(page.getByTestId('subscribe-error')).toContainText('room:general');
+    await expect(page.getByTestId('subscribe-ok')).toHaveText('');
+  });
+
+  test('regex scope exposes the full matched name and its suffix inside the handler', async ({
+    page,
+  }, testInfo) => {
+    await openPage(page, `test-${testInfo.testId}`);
+    await page.getByTestId('sub-alpha-123').click();
+    await expect(page.getByTestId('subscribe-ok')).toContainText('room:alpha-123');
+    await page.getByTestId('echo-name-alpha-123').click();
+    await expect(page.getByTestId('name-result')).toHaveText('room:alpha-123|alpha-123');
+  });
+
+  test('unknown _channelScope round-trips in the _error payload', async ({ page }, testInfo) => {
+    await openPage(page, `test-${testInfo.testId}`);
+    await page.getByTestId('sub-unknown-scope').click();
+    await expect(page.getByTestId('subscribe-error')).toHaveText('room:x:channel-not-found');
+    await expect(page.getByTestId('subscribe-error-scope')).toHaveText('unknown-family');
+  });
+
   test('two clients on the same dynamic channel name are in the same broadcast group', async ({
     browser,
   }, testInfo) => {

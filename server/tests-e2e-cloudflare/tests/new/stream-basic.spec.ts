@@ -100,6 +100,27 @@ test.describe('stream-basic', () => {
     await expect(page.getByTestId('stream-end')).toHaveText('no');
   });
 
+  test('stream error preserves a registered error factory code', async ({ page }, testInfo) => {
+    await openPage(page, `test-${testInfo.testId}`);
+    await page.getByTestId('start-typed-error').click();
+    // The factory code `not-found` must survive the wire — not the generic `boom`.
+    await expect(page.getByTestId('stream-error')).toHaveText('stream-error:not-found');
+  });
+
+  test('generator finally observes cancellation and can fire a server event', async ({
+    page,
+  }, testInfo) => {
+    await openPage(page, `test-${testInfo.testId}`);
+    await page.getByTestId('start-cancel-observe').click();
+    await expect(page.getByTestId('chunk-indices')).toContainText('0');
+
+    // Cancel mid-stream — the generator's finally block must run and emit
+    // cancel-observed. If the stream had completed naturally, the event
+    // would NOT fire (the flag guards the finally block).
+    await page.getByTestId('cancel').click();
+    await expect(page.getByTestId('cancel-observed')).toHaveText('yes');
+  });
+
   test('multiple concurrent streams from same connection each have distinct _streamId', async ({
     page,
   }, testInfo) => {

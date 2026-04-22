@@ -47,10 +47,18 @@ test.describe('ctx-sql', () => {
   });
 
   test('SqlResult.one returns null when no rows match', async ({ page }) => {
+    // Seed with one row first so the page has a definitive signal that
+    // events are round-tripping. Then fire the no-match probe and follow
+    // with a positive probe — once the positive probe's response lands, we
+    // know the no-match frame has also been processed.
+    await page.getByTestId('save-note').click();
+    await expect(page.getByTestId('note-titles')).toContainText('Test Note');
+
     await page.getByTestId('sql-one-empty').click();
-    // Query with WHERE id = -999 (no match), one() should return null
-    // When row is null, display should be empty
-    const count = await page.getByTestId('one-empty-count').textContent();
-    expect(count).toBe('');
+    await page.getByTestId('sql-one').click();
+    await expect(page.getByTestId('one-count')).toHaveText(/[1-9]\d*/);
+
+    // No-match probe must have resolved by now; its count cell stays empty.
+    await expect(page.getByTestId('one-empty-count')).toHaveText('');
   });
 });

@@ -148,6 +148,39 @@ test.describe('modules handler', () => {
     await page2.close();
   });
 
+  test('module typed error reaches the client with code and detail intact', async ({
+    page,
+  }, testInfo) => {
+    const room = `test-${testInfo.testId}-err`;
+
+    const err = await page.evaluate(async (currentRoom) => {
+      type Msg = { event: string; payload: Record<string, unknown> };
+      return new Promise<Msg>((resolve, reject) => {
+        const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const url = `${protocol}//${location.host}/ws/modules?username=${encodeURIComponent('erruser')}&room=${encodeURIComponent(currentRoom)}`;
+        const ws = new WebSocket(url);
+        ws.onopen = () => {
+          ws.send(JSON.stringify({ event: 'trigger-module-denied', payload: {} }));
+        };
+        ws.onmessage = (ev) => {
+          if (typeof ev.data !== 'string') return;
+          const parsed = JSON.parse(ev.data) as Msg;
+          if (parsed.event === '_error' && (parsed.payload as { code?: string }).code) {
+            resolve(parsed);
+            ws.close();
+          }
+        };
+        ws.onerror = () => reject(new Error('ws failed'));
+        setTimeout(() => reject(new Error('timeout')), 5_000);
+      });
+    }, room);
+
+    const payload = err.payload as { code: string; detail?: { reason?: string; op?: string } };
+    expect(payload.code).toBe('e2e-drizzle/denied');
+    expect(payload.detail?.reason).toBe('test denial');
+    expect(payload.detail?.op).toBe('insert');
+  });
+
   test('module onShutdown is observable after shutdown and reconnect', async ({
     page,
   }, testInfo) => {

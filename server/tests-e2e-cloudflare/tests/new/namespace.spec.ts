@@ -41,6 +41,19 @@ test.describe('namespace', () => {
     await page2.close();
   });
 
+  test('stream declared inside a namespace yields chunks and ends normally', async ({
+    page,
+  }, testInfo) => {
+    const room = `test-${testInfo.testId}`;
+    await page.goto(`/namespace?room=${room}`);
+    await page.getByTestId('connect').click();
+    await waitForText(page, 'status', 'connected');
+
+    await page.getByTestId('start-ns-stream').click();
+    await expect(page.getByTestId('ns-stream-chunks')).toHaveText('0,1,2');
+    await expect(page.getByTestId('ns-stream-end')).toHaveText('yes');
+  });
+
   test('ctx.namespace.name returns the matched namespace name', async ({ page }, testInfo) => {
     const room = `test-${testInfo.testId}`;
     await page.goto(`/namespace?room=${room}`);

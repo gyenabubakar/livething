@@ -21,6 +21,8 @@ test.describe('channel-static', () => {
     await expect(page.getByTestId('subscribe-ok-count')).toHaveText('1');
     await page.getByTestId('subscribe-room').click();
     await expect(page.getByTestId('subscribe-ok-count')).toHaveText('2');
+    // Each _subscribeOk frame must carry the requested _channel name back.
+    await expect(page.getByTestId('subscribe-ok-channels')).toHaveText('room,room');
   });
 
   test('subscribing to an unknown channel emits _error with code channel-not-found', async ({
@@ -152,6 +154,83 @@ test.describe('channel-static', () => {
 
     await ctxA.close();
     await ctxB.close();
+  });
+
+  test('stream declared inside a channel yields chunks and ends normally', async ({
+    page,
+  }, testInfo) => {
+    await openPage(page, `test-${testInfo.testId}`);
+    await page.getByTestId('subscribe-room').click();
+    await expect(page.getByTestId('subscribe-ok-count')).toHaveText('1');
+    await page.getByTestId('start-channel-stream-3').click();
+    await expect(page.getByTestId('channel-stream-chunks')).toHaveText('0,1,2');
+    await expect(page.getByTestId('channel-stream-end')).toHaveText('yes');
+  });
+
+  test('framework _memberJoin frame delivers when a peer subscribes', async ({
+    browser,
+  }, testInfo) => {
+    const room = `test-${testInfo.testId}`;
+    const ctxA = await browser.newContext();
+    const ctxB = await browser.newContext();
+    const a = await ctxA.newPage();
+    const b = await ctxB.newPage();
+    await openPage(a, room, 'alice');
+    await a.getByTestId('subscribe-room').click();
+    await expect(a.getByTestId('subscribe-ok-count')).toHaveText('1');
+
+    await openPage(b, room, 'bob');
+    await b.getByTestId('subscribe-room').click();
+
+    // Alice (existing member) should see the framework _memberJoin frame
+    // referencing bob's connection on the 'room' channel.
+    await expect(a.getByTestId('member-joins')).toContainText('room:');
+
+    await ctxA.close();
+    await ctxB.close();
+  });
+
+  test('framework _memberLeave frame delivers on manual _unsubscribe', async ({
+    browser,
+  }, testInfo) => {
+    const room = `test-${testInfo.testId}`;
+    const ctxA = await browser.newContext();
+    const ctxB = await browser.newContext();
+    const a = await ctxA.newPage();
+    const b = await ctxB.newPage();
+    await openPage(a, room, 'alice');
+    await openPage(b, room, 'bob');
+    await a.getByTestId('subscribe-room').click();
+    await b.getByTestId('subscribe-room').click();
+    await expect(a.getByTestId('subscribe-ok-count')).toHaveText('1');
+    await expect(b.getByTestId('subscribe-ok-count')).toHaveText('1');
+
+    await b.getByTestId('unsubscribe-room').click();
+    await expect(a.getByTestId('member-leaves')).toContainText('room:');
+
+    await ctxA.close();
+    await ctxB.close();
+  });
+
+  test('framework _memberLeave frame delivers on connection drop', async ({
+    browser,
+  }, testInfo) => {
+    const room = `test-${testInfo.testId}`;
+    const ctxA = await browser.newContext();
+    const ctxB = await browser.newContext();
+    const a = await ctxA.newPage();
+    const b = await ctxB.newPage();
+    await openPage(a, room, 'alice');
+    await openPage(b, room, 'bob');
+    await a.getByTestId('subscribe-room').click();
+    await b.getByTestId('subscribe-room').click();
+    await expect(a.getByTestId('subscribe-ok-count')).toHaveText('1');
+    await expect(b.getByTestId('subscribe-ok-count')).toHaveText('1');
+
+    await ctxB.close();
+    await expect(a.getByTestId('member-leaves')).toContainText('room:', { timeout: 15_000 });
+
+    await ctxA.close();
   });
 
   test('connection drop (not manual unsubscribe) still fires onUnsubscribe', async ({

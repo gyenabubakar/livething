@@ -48,6 +48,30 @@ test.describe('lifecycle-hooks', () => {
     await expect(page.getByTestId('status')).toHaveText('disconnected');
   });
 
+  test('onShutdown broadcasts user-left to every connected client', async ({
+    browser,
+  }, testInfo) => {
+    const room = `test-${testInfo.testId}-shutdown-multi`;
+    const ctxA = await browser.newContext();
+    const ctxB = await browser.newContext();
+    const a = await ctxA.newPage();
+    const b = await ctxB.newPage();
+    await openPage(a, room, 'alice');
+    await openPage(b, room, 'bob');
+
+    const response = await a.request.post(`/ws/lifecycle-hooks/shutdown?room=${room}`);
+    expect(response.status()).toBe(204);
+
+    // Both clients must observe the server-shutdown broadcast before disconnecting.
+    await expect(a.getByTestId('disconnected-users')).toContainText('server-shutdown');
+    await expect(b.getByTestId('disconnected-users')).toContainText('server-shutdown');
+    await expect(a.getByTestId('status')).toHaveText('disconnected');
+    await expect(b.getByTestId('status')).toHaveText('disconnected');
+
+    await ctxA.close();
+    await ctxB.close();
+  });
+
   test('onUpgrade rejection (missing username) closes the socket with code 4001', async ({
     page,
   }, testInfo) => {
@@ -88,6 +112,42 @@ test.describe('lifecycle-hooks', () => {
       },
     });
     expect(response.status()).toBe(403);
+    await expect(response.text()).resolves.toBe('Forbidden HTTP upgrade');
+  });
+
+  test('requireUsername rejects missing username with close code 4001 across multiple mounts', async ({
+    page,
+  }, testInfo) => {
+    const room = `test-${testInfo.testId}`;
+    await page.goto(`/lifecycle-hooks?room=${room}`);
+
+    const mounts = [
+      '/ws/lifecycle-hooks',
+      '/ws/ack',
+      '/ws/channel-static',
+      '/ws/ctx-send',
+      '/ws/replay',
+      '/ws/replay-custom',
+      '/ws/replay-snapshot',
+      '/ws/modules',
+    ];
+
+    for (const mount of mounts) {
+      const result = await page.evaluate(
+        async ({ mount, room }) => {
+          return new Promise<string>((resolve) => {
+            const ws = new WebSocket(
+              `ws://${location.host}${mount}?room=${encodeURIComponent(room)}`,
+            );
+            ws.onclose = (ev) => resolve(`closed:${ev.code}`);
+            ws.onerror = () => {};
+            setTimeout(() => resolve('timeout'), 5_000);
+          });
+        },
+        { mount, room },
+      );
+      expect(result, `mount ${mount}`).toBe('closed:4001');
+    }
   });
 
   test('onValidationError fires when an incoming payload fails its schema', async ({

@@ -3,9 +3,14 @@
 	let status = $state<'disconnected' | 'connecting' | 'connected'>('disconnected');
 	let username = $state('testuser');
 	let subscribeOkCount = $state(0);
+	let subscribeOkChannels = $state<string[]>([]);
 	let subscribeError = $state('');
 	let userMessages = $state<string[]>([]);
 	let systemMessages = $state<string[]>([]);
+	let memberJoins = $state<string[]>([]);
+	let memberLeaves = $state<string[]>([]);
+	let channelStreamChunks = $state<number[]>([]);
+	let channelStreamEnd = $state(false);
 
 	function connect() {
 		if (ws) return;
@@ -25,9 +30,27 @@
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
 			const data = JSON.parse(ev.data);
-			if (data.event === '_subscribeOk') subscribeOkCount += 1;
+			if (data.event === '_subscribeOk') {
+				subscribeOkCount += 1;
+				subscribeOkChannels = [...subscribeOkChannels, data.payload?._channel ?? ''];
+			}
 			if (data.event === '_error' && data.payload?._channel) {
 				subscribeError = `${data.payload._channel}:${data.payload.code}`;
+			}
+			if (data.event === '_memberJoin' && data.payload?._channel) {
+				memberJoins = [...memberJoins, `${data.payload._channel}:${data.payload.connectionId}`];
+			}
+			if (data.event === '_memberLeave' && data.payload?._channel) {
+				memberLeaves = [
+					...memberLeaves,
+					`${data.payload._channel}:${data.payload.connectionId}`,
+				];
+			}
+			if (data.event === 'start-channel-stream' && typeof data.payload?.index === 'number') {
+				channelStreamChunks = [...channelStreamChunks, data.payload.index];
+			}
+			if (data.event === '_streamEnd' && data.payload?._channel === 'room') {
+				channelStreamEnd = true;
 			}
 			if (data.event === 'room-message') {
 				const entry = `${data.payload.from}:${data.payload.text}`;
@@ -59,6 +82,11 @@
 		// Same send, but this button is used WITHOUT subscribing first.
 		send('send-message', { text, _channel: 'room' });
 	}
+	function startChannelStream(count: number) {
+		channelStreamChunks = [];
+		channelStreamEnd = false;
+		send('start-channel-stream', { count, _channel: 'room' });
+	}
 </script>
 
 <h1>channel-static feature</h1>
@@ -72,9 +100,17 @@
 <button data-testid="publish-without-sub" onclick={() => publishWithoutSub('stray')}>
 	Publish without sub
 </button>
+<button data-testid="start-channel-stream-3" onclick={() => startChannelStream(3)}>
+	Start channel stream (3)
+</button>
 
 <span data-testid="status">{status}</span>
 <span data-testid="subscribe-ok-count">{subscribeOkCount}</span>
+<span data-testid="subscribe-ok-channels">{subscribeOkChannels.join(',')}</span>
 <span data-testid="subscribe-error">{subscribeError}</span>
 <span data-testid="user-messages">{userMessages.join(',')}</span>
 <span data-testid="system-messages">{systemMessages.join(',')}</span>
+<span data-testid="member-joins">{memberJoins.join(' | ')}</span>
+<span data-testid="member-leaves">{memberLeaves.join(' | ')}</span>
+<span data-testid="channel-stream-chunks">{channelStreamChunks.join(',')}</span>
+<span data-testid="channel-stream-end">{channelStreamEnd ? 'yes' : 'no'}</span>

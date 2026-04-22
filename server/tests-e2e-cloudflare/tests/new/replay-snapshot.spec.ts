@@ -7,7 +7,10 @@ function waitForText(page: Page, testId: string, expected: string | RegExp, time
 
 test.describe('replay-snapshot handler', () => {
   test.beforeEach(async ({ page }, testInfo) => {
-    const room = `test-${testInfo.testId}`;
+    // Include retry count so each attempt uses a fresh DO (room) — otherwise
+    // a retried test sees leftover state written by the prior failed attempt
+    // and can't pass no matter how stable the logic is.
+    const room = `test-${testInfo.testId}-r${testInfo.retry}`;
     await page.goto(`/replay-snapshot?room=${room}`);
     await expect(page.getByTestId('status')).toHaveText('disconnected');
     await page.getByTestId('connect-btn').click();

@@ -29,9 +29,14 @@ test.describe('ctx-tags', () => {
   });
 
   test('untag of non-existent tag is a no-op', async ({ page }) => {
+    // onUpgrade already tagged this connection with its username, so 'tags'
+    // is non-empty from the start. Untagging 'vip' (which was never set)
+    // must not remove the username tag and must not crash the pipeline.
     await page.getByTestId('untag-vip').click();
-    await expect(page.getByTestId('tags')).toHaveText('');
-    // Verify connection still works after no-op untag.
+    await expect(page.getByTestId('tags')).not.toContainText('vip');
+    await expect(page.getByTestId('tags')).toContainText('testuser');
+
+    // Positive signal: the connection still accepts new tags after the no-op.
     await page.getByTestId('tag-vip').click();
     await expect(page.getByTestId('tags')).toContainText('vip');
   });
@@ -80,15 +85,19 @@ test.describe('ctx-tags', () => {
     await expect(page1.getByTestId('status')).toHaveText('connected');
     await expect(page2.getByTestId('status')).toHaveText('connected');
 
-    // Both tag themselves with 'crew'.
+    // Both tag themselves with 'crew'. Wait for each page's tag-result to
+    // confirm the tag has been applied on the DO side before continuing —
+    // otherwise page1's query below could race ahead of page2's write.
     await page1.evaluate(() => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       ws?.send(JSON.stringify({ event: 'tag-self', payload: { tag: 'crew' } }));
     });
+    await expect(page1.getByTestId('tags')).toContainText('crew');
     await page2.evaluate(() => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       ws?.send(JSON.stringify({ event: 'tag-self', payload: { tag: 'crew' } }));
     });
+    await expect(page2.getByTestId('tags')).toContainText('crew');
 
     // Page1 queries for 'crew' tag and expects to see at least 2 connections.
     await page1.evaluate(() => {

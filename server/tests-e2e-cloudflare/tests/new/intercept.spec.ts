@@ -72,6 +72,33 @@ test.describe('intercept', () => {
     await expect(page.getByTestId('echoed')).toContainText('top:top-post-passthrough');
   });
 
+  test('namespace pre-intercept Block prevents the handler from running', async ({
+    page,
+  }, testInfo) => {
+    await openPage(page, `test-${testInfo.testId}`);
+    await page.getByTestId('send-ns-pre-block').click();
+    // Give the blocked frame time to not produce any reply.
+    await page.waitForTimeout(200);
+    await expect(page.getByTestId('echoed')).toHaveText('');
+    // Positive signal: a normal ns-pre rewrite still works after a block.
+    await page.getByTestId('send-ns-pre').click();
+    await expect(page.getByTestId('echoed')).toContainText('ns:ns-pre-rewritten');
+  });
+
+  test('channel pre-intercept Block prevents the handler from running', async ({
+    page,
+  }, testInfo) => {
+    await openPage(page, `test-${testInfo.testId}`);
+    await page.getByTestId('subscribe-room').click();
+    await expect(page.getByTestId('subscribed')).toHaveText('yes');
+    await page.getByTestId('send-ch-pre-block').click();
+    await page.waitForTimeout(200);
+    await expect(page.getByTestId('echoed')).toHaveText('');
+    // Positive signal: a normal ch-pre rewrite still works after a block.
+    await page.getByTestId('send-ch-pre').click();
+    await expect(page.getByTestId('echoed')).toContainText('ch:ch-pre-rewritten');
+  });
+
   test('post-intercept Block throws and prevents handler execution', async ({ page }, testInfo) => {
     await openPage(page, `test-${testInfo.testId}`);
     await page.getByTestId('send-top-post-block').click();

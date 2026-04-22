@@ -68,7 +68,10 @@ export const ctxSqlHandler = withLifecycle(server<Env>('ctx-sql'))
     ctx.send('sql-raw-result', { rows: rows as unknown[][] });
   })
   .incoming(SqlOneEmptyProbe, (ctx) => {
-    const row = ctx.sql.exec('SELECT COUNT(*) AS c FROM notes WHERE id = -999').one() as {
+    // Select a real column (not an aggregate) with a predicate that matches
+    // no rows. Aggregates like COUNT(*) always return one row even on empty
+    // result sets, which would defeat the point of this probe.
+    const row = ctx.sql.exec('SELECT id AS c FROM notes WHERE id = -999').one() as {
       c: number;
     } | null;
     ctx.send('sql-one-empty-result', { row: row ? { c: Number(row.c) } : null });

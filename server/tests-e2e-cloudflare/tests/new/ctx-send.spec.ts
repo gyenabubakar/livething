@@ -118,6 +118,42 @@ test.describe('ctx-send', () => {
     await ctxB.close();
   });
 
+  test('ctx.close propagates the given code and reason on the wire', async ({ page }, testInfo) => {
+    const room = `test-${testInfo.testId}`;
+    await page.goto('/ctx-send');
+
+    const closed = await page.evaluate(async (currentRoom) => {
+      return new Promise<{ code: number; reason: string }>((resolve, reject) => {
+        const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const url = `${protocol}//${location.host}/ws/ctx-send?username=${encodeURIComponent('closer')}&room=${encodeURIComponent(currentRoom)}`;
+        const ws = new WebSocket(url);
+        ws.onopen = () => {
+          ws.send(JSON.stringify({ event: 'do-server-close', payload: {} }));
+        };
+        ws.onclose = (ev) => resolve({ code: ev.code, reason: ev.reason });
+        ws.onerror = () => reject(new Error('ws failed'));
+        setTimeout(() => reject(new Error('timeout')), 5_000);
+      });
+    }, room);
+
+    expect(closed.code).toBe(4010);
+    expect(closed.reason).toBe('server-close');
+  });
+
+  test('sendTo with an empty tag does not crash the connection', async ({ page }, testInfo) => {
+    const room = `test-${testInfo.testId}`;
+    await page.goto(`/ctx-send?room=${room}`);
+    await page.getByTestId('connect').click();
+    await expect(page.getByTestId('status')).toHaveText('connected');
+
+    await page.getByTestId('send-to-empty').click();
+
+    // Positive signal: sendTo on the real username-tag still delivers after the no-op.
+    await page.getByTestId('send-to-self').click();
+    await expect(page.getByTestId('messages')).toContainText('testuser:tagged');
+    await expect(page.getByTestId('status')).toHaveText('connected');
+  });
+
   test('broadcast with excludeSelf skips sender and reaches peer', async ({
     browser,
   }, testInfo) => {

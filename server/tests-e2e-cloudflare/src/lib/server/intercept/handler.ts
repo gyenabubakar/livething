@@ -40,13 +40,10 @@ const nsIntercept = base.namespace('ns', (n) =>
   n
     .outgoing(Echoed)
     .intercept((_ctx, message) => {
-      if (
-        message.event === 'echo' &&
-        message.payload &&
-        typeof message.payload === 'object' &&
-        (message.payload as { text?: string }).text === 'ns-pre'
-      ) {
-        return { ...message, payload: { text: 'ns-pre-rewritten' } };
+      if (message.event === 'echo' && message.payload && typeof message.payload === 'object') {
+        const text = (message.payload as { text?: string }).text;
+        if (text === 'ns-pre') return { ...message, payload: { text: 'ns-pre-rewritten' } };
+        if (text === 'ns-pre-block') throw Block;
       }
       return message;
     })
@@ -63,13 +60,10 @@ const chIntercept = base.channel('room', (c) =>
   c
     .outgoing(Echoed)
     .intercept((_ctx, message) => {
-      if (
-        message.event === 'echo' &&
-        message.payload &&
-        typeof message.payload === 'object' &&
-        (message.payload as { text?: string }).text === 'ch-pre'
-      ) {
-        return { ...message, payload: { text: 'ch-pre-rewritten' } };
+      if (message.event === 'echo' && message.payload && typeof message.payload === 'object') {
+        const text = (message.payload as { text?: string }).text;
+        if (text === 'ch-pre') return { ...message, payload: { text: 'ch-pre-rewritten' } };
+        if (text === 'ch-pre-block') throw Block;
       }
       return message;
     })

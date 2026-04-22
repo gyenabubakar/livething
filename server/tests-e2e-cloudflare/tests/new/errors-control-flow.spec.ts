@@ -40,7 +40,30 @@ test.describe('errors-control-flow', () => {
 
   test('DeferExhausted fires onError after retries exhaust', async ({ page }) => {
     await page.getByTestId('always-defer').click();
-    await expect(page.getByTestId('defer-exhausted')).toContainText('always-defer:retries=');
+    await expect(page.getByTestId('defer-exhausted')).toContainText('always-defer:retries=3');
+  });
+
+  test('Disconnect(code, reason) closes the wire with the given code and reason', async ({
+    page,
+  }, testInfo) => {
+    const room = `test-${testInfo.testId}-raw`;
+
+    const closed = await page.evaluate(async (currentRoom) => {
+      return new Promise<{ code: number; reason: string }>((resolve, reject) => {
+        const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const url = `${protocol}//${location.host}/ws/errors-control-flow?username=${encodeURIComponent('disc')}&room=${encodeURIComponent(currentRoom)}`;
+        const ws = new WebSocket(url);
+        ws.onopen = () => {
+          ws.send(JSON.stringify({ event: 'force-disconnect', payload: {} }));
+        };
+        ws.onclose = (ev) => resolve({ code: ev.code, reason: ev.reason });
+        ws.onerror = () => reject(new Error('ws failed'));
+        setTimeout(() => reject(new Error('timeout')), 5_000);
+      });
+    }, room);
+
+    expect(closed.code).toBe(4009);
+    expect(closed.reason).toBe('force disconnect');
   });
 
   test('chat channel: always-defer exhausts and fires onError inside the channel', async ({

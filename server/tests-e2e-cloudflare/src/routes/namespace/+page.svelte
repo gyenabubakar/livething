@@ -6,6 +6,8 @@
 	let nameQueryResult = $state('');
 	let responses = $state<Record<string, string>>({});
 	let correlationCounter = 0;
+	let nsStreamChunks = $state<number[]>([]);
+	let nsStreamEnd = $state(false);
 
 	function connect() {
 		if (ws) return;
@@ -26,6 +28,10 @@
 			if (typeof ev.data !== 'string') return;
 			const data = JSON.parse(ev.data);
 			if (data.event === 'ns-message') lastNsMessage = data.payload?.text ?? '';
+			if (data.event === 'start-ns-stream' && typeof data.payload?.index === 'number') {
+				nsStreamChunks = [...nsStreamChunks, data.payload.index];
+			}
+			if (data.event === '_streamEnd') nsStreamEnd = true;
 			const id = data.payload?._correlationId as string | undefined;
 			if (id) {
 				const payload = data.payload ?? {};
@@ -45,6 +51,14 @@
 		ws?.send(JSON.stringify({ event: 'broadcast-ns', payload: { text, _namespace: 'ns' } }));
 	}
 
+	function startNsStream(count: number) {
+		nsStreamChunks = [];
+		nsStreamEnd = false;
+		ws?.send(
+			JSON.stringify({ event: 'start-ns-stream', payload: { count, _namespace: 'ns' } }),
+		);
+	}
+
 	function queryNsName() {
 		const id = `req-${++correlationCounter}`;
 		ws?.send(
@@ -62,6 +76,9 @@
 <button data-testid="send-ns" onclick={() => sendNs('hello ns')}>Send ns hello</button>
 <button data-testid="broadcast-ns" onclick={() => broadcastNs('broadcast msg')}>Broadcast ns msg</button>
 <button data-testid="query-ns-name" onclick={queryNsName}>Query ns.name</button>
+<button data-testid="start-ns-stream" onclick={() => startNsStream(3)}>Start ns stream</button>
 <span data-testid="status">{status}</span>
 <span data-testid="ns-message">{lastNsMessage}</span>
 <span data-testid="ns-name-result">{nameQueryResult}</span>
+<span data-testid="ns-stream-chunks">{nsStreamChunks.join(',')}</span>
+<span data-testid="ns-stream-end">{nsStreamEnd ? 'yes' : 'no'}</span>

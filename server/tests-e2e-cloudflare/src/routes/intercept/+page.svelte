@@ -52,8 +52,10 @@
 <button data-testid="send-top-post-block" onclick={() => send('top-post-block')}>Send top-post-block</button>
 <button data-testid="send-ns-pre" onclick={() => send('ns-pre', 'ns')}>Send ns-pre</button>
 <button data-testid="send-ns-post" onclick={() => send('ns-post', 'ns')}>Send ns-post</button>
+<button data-testid="send-ns-pre-block" onclick={() => send('ns-pre-block', 'ns')}>Send ns-pre-block</button>
 <button data-testid="send-ch-pre" onclick={() => send('ch-pre', 'room')}>Send ch-pre</button>
 <button data-testid="send-ch-post" onclick={() => send('ch-post', 'room')}>Send ch-post</button>
+<button data-testid="send-ch-pre-block" onclick={() => send('ch-pre-block', 'room')}>Send ch-pre-block</button>
 
 <span data-testid="status">{status}</span>
 <span data-testid="subscribed">{subscribed ? 'yes' : 'no'}</span>

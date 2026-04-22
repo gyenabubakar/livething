@@ -16,6 +16,8 @@ const NotesList = event(
 );
 const TagSelf = event('tag-self', v.object({ tag: v.string() }));
 const TagResult = event('tag-result', v.object({ tags: v.array(v.string()) }));
+const SendToTag = event('send-to-tag', v.object({ tag: v.string(), text: v.string() }));
+const TaggedMessage = event('tagged-message', v.object({ text: v.string(), from: v.string() }));
 
 const base = withChannels(
   withHibernation(withInfrastructure(withLifecycle(server<Env>('hibernation')))),
@@ -23,6 +25,7 @@ const base = withChannels(
   .hibernation()
   .outgoing(NotesList)
   .outgoing(TagResult)
+  .outgoing(TaggedMessage)
   .onUpgrade((request) => requireUsername(request))
   .onInit((ctx) => {
     ctx.sql.exec(`
@@ -65,5 +68,11 @@ export const hibernationHandler = base
     // ctx.tag() doesn't mutate ctx.tags in place; compose the new set.
     const next = Array.from(new Set([...ctx.tags, payload.tag]));
     ctx.send('tag-result', { tags: next });
+  })
+  .incoming(SendToTag, (ctx, payload) => {
+    ctx.sendTo(payload.tag, 'tagged-message', {
+      text: payload.text,
+      from: ctx.meta.username,
+    });
   })
   .build();

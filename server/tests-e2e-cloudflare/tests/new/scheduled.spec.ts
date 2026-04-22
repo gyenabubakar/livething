@@ -104,6 +104,8 @@ test.describe('scheduled', () => {
       await page.getByTestId('query-dlq').click();
       await expect(page.getByTestId('dead-letter')).toContainText('always-fail-task');
     }).toPass({ timeout: 10_000 });
+    // The stored error message must survive into the DLQ row.
+    await expect(page.getByTestId('dead-letter')).toContainText('permanent failure');
   });
 
   test('scheduled empty backoff retry: fails once and goes to DLQ', async ({ page }, testInfo) => {

@@ -4,6 +4,8 @@
 	let username = $state('testuser');
 	let subscribeOk = $state<string[]>([]);
 	let subscribeError = $state('');
+	let subscribeErrorScope = $state('');
+	let nameResult = $state('');
 	let userMessagesByChannel = $state<Record<string, string[]>>({});
 	let systemMessagesByChannel = $state<Record<string, string[]>>({});
 
@@ -37,6 +39,10 @@
 			}
 			if (data.event === '_error' && data.payload?._channel) {
 				subscribeError = `${data.payload._channel}:${data.payload.code}`;
+				subscribeErrorScope = data.payload._channelScope ?? '';
+			}
+			if (data.event === 'name-result') {
+				nameResult = `${data.payload.name}|${data.payload.suffix}`;
 			}
 			if (data.event === 'room-message') {
 				const ch = data.payload?.channel ?? '';
@@ -59,6 +65,12 @@
 		// Missing _channelScope — should emit _error channel-not-found.
 		send('_subscribe', { _channel: channel });
 	}
+	function subscribeUnknownScope(channel: string, scopeName: string) {
+		send('_subscribe', { _channel: channel, _channelScope: scopeName });
+	}
+	function echoName(channel: string) {
+		send('echo-name', { _channel: channel, _channelScope: 'room' });
+	}
 	function sendTo(channel: string, text: string) {
 		send('send-message', { text, _channel: channel, _channelScope: 'room' });
 	}
@@ -71,6 +83,21 @@
 <button data-testid="sub-general" onclick={() => subscribe('room:general')}>Subscribe room:general</button>
 <button data-testid="sub-vip" onclick={() => subscribe('room:vip')}>Subscribe room:vip</button>
 <button data-testid="sub-zzz-no-scope" onclick={() => subscribeNoScope('zzz')}>Subscribe bogus</button>
+<button
+	data-testid="sub-unknown-scope"
+	onclick={() => subscribeUnknownScope('room:x', 'unknown-family')}
+>
+	Subscribe unknown-family
+</button>
+<button data-testid="sub-alpha-123" onclick={() => subscribe('room:alpha-123')}>
+	Subscribe room:alpha-123
+</button>
+<button data-testid="echo-name-general" onclick={() => echoName('room:general')}>
+	Echo name general
+</button>
+<button data-testid="echo-name-alpha-123" onclick={() => echoName('room:alpha-123')}>
+	Echo name alpha-123
+</button>
 <button data-testid="send-general" onclick={() => sendTo('room:general', 'hello-general')}>
 	Send general
 </button>
@@ -79,6 +106,8 @@
 <span data-testid="status">{status}</span>
 <span data-testid="subscribe-ok">{subscribeOk.join(',')}</span>
 <span data-testid="subscribe-error">{subscribeError}</span>
+<span data-testid="subscribe-error-scope">{subscribeErrorScope}</span>
+<span data-testid="name-result">{nameResult}</span>
 <span data-testid="user-msgs-general">{userMessagesFor('room:general')}</span>
 <span data-testid="user-msgs-vip">{userMessagesFor('room:vip')}</span>
 <span data-testid="system-msgs-general">{systemMessagesFor('room:general')}</span>

@@ -1,6 +1,7 @@
 import { event, server } from '@wskit/server';
 import { withChannels } from '@wskit/server/channels';
 import { withLifecycle } from '@wskit/server/lifecycle';
+import { withStreams } from '@wskit/server/streams';
 import * as v from 'valibot';
 import { requireUsername } from '../_shared/upgrade.ts';
 
@@ -9,9 +10,11 @@ const RoomMessage = event(
   v.object({ text: v.string(), from: v.string(), kind: v.string() }),
 );
 const SendMessage = event('send-message', v.object({ text: v.string() }));
+const StartChannelStream = event('start-channel-stream', v.object({ count: v.number() }));
+const ChannelToken = v.object({ index: v.number() });
 
-const base = withChannels(withLifecycle(server<Env>('channel-static'))).onUpgrade((request) =>
-  requireUsername(request),
+const base = withStreams(withChannels(withLifecycle(server<Env>('channel-static')))).onUpgrade(
+  (request) => requireUsername(request),
 );
 
 const roomChannel = base.channel('room', (ch) =>
@@ -24,6 +27,14 @@ const roomChannel = base.channel('room', (ch) =>
         kind: 'user',
       });
     })
+    .stream(StartChannelStream, ChannelToken, (s) =>
+      s.generate(async function* (_ctx, payload) {
+        for (let i = 0; i < payload.count; i++) {
+          yield { index: i };
+          await new Promise((r) => setTimeout(r, 30));
+        }
+      }),
+    )
     .onBeforeSubscribe((ctx) => {
       if (ctx.meta.username === 'blocked-user') {
         throw new Error('blocked-user may not subscribe');

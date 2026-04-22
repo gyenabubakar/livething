@@ -84,6 +84,43 @@ test.describe('hibernation', () => {
     await bobCtx.close();
   });
 
+  test('tag-based sendTo delivers across hibernation wake', async ({ browser }, testInfo) => {
+    const room = `hib-sendto-${testInfo.testId}`;
+
+    const aliceCtx = await browser.newContext();
+    const bobCtx = await browser.newContext();
+    const alice = await aliceCtx.newPage();
+    const bob = await bobCtx.newPage();
+
+    await alice.goto(`/hibernation?room=${room}`);
+    await bob.goto(`/hibernation?room=${room}`);
+
+    await alice.getByTestId('username').fill('alice');
+    await bob.getByTestId('username').fill('bob');
+
+    await alice.getByTestId('connect').click();
+    await bob.getByTestId('connect').click();
+
+    await expect(alice.getByTestId('status')).toHaveText('connected');
+    await expect(bob.getByTestId('status')).toHaveText('connected');
+
+    // Bob tags himself as sleeper before the hibernation window.
+    await bob.getByTestId('tag-sleeper').click();
+    await expect(bob.getByTestId('tags')).toContainText('sleeper');
+
+    // Idle window for hibernation.
+    await alice.waitForTimeout(1_500);
+
+    // After wake, alice sendTo('sleeper', ...) must still deliver to bob.
+    await alice.getByTestId('send-to-sleepers').click();
+    await expect(bob.getByTestId('tagged-messages')).toContainText(
+      'alice:hello-sleeper-after-wake',
+    );
+
+    await aliceCtx.close();
+    await bobCtx.close();
+  });
+
   test('SQL state survives across hibernation wake', async ({ browser }, testInfo) => {
     const room = `hib-sql-${testInfo.testId}`;
 

@@ -6,6 +6,7 @@
 	let roomMessages = $state<string[]>([]);
 	let savedNotes = $state<Array<{ title: string; body: string }>>([]);
 	let tags = $state<string[]>([]);
+	let taggedMessages = $state<string[]>([]);
 
 	function connect() {
 		if (ws) return;
@@ -30,6 +31,9 @@
 			if (data.event === 'room-message') roomMessages = [...roomMessages, data.payload.text];
 			if (data.event === 'notes-list') savedNotes = data.payload.notes;
 			if (data.event === 'tag-result') tags = data.payload.tags;
+			if (data.event === 'tagged-message') {
+				taggedMessages = [...taggedMessages, `${data.payload.from}:${data.payload.text}`];
+			}
 		};
 	}
 
@@ -54,6 +58,10 @@
 	function tagSelf(tag: string) {
 		ws?.send(JSON.stringify({ event: 'tag-self', payload: { tag } }));
 	}
+
+	function sendToTag(tag: string, text: string) {
+		ws?.send(JSON.stringify({ event: 'send-to-tag', payload: { tag, text } }));
+	}
 </script>
 
 <h1>hibernation feature</h1>
@@ -72,8 +80,12 @@
 <button data-testid="tag-sleeper" onclick={() => tagSelf('sleeper')}>
 	Tag as sleeper
 </button>
+<button data-testid="send-to-sleepers" onclick={() => sendToTag('sleeper', 'hello-sleeper-after-wake')}>
+	SendTo sleepers
+</button>
 <span data-testid="status">{status}</span>
 <span data-testid="subscribed">{subscribed ? 'yes' : 'no'}</span>
 <span data-testid="room-messages">{roomMessages.join(',')}</span>
 <span data-testid="saved-notes">{savedNotes.map(n => `${n.title}:${n.body}`).join('|')}</span>
 <span data-testid="tags">{tags.join(',')}</span>
+<span data-testid="tagged-messages">{taggedMessages.join(',')}</span>

@@ -58,6 +58,10 @@ test.describe('ctx-channels', () => {
     await b.getByTestId('username').fill('user2');
     await a.getByTestId('connect').click();
     await b.getByTestId('connect').click();
+    // Must wait for both sockets to be OPEN before sending subscribe frames,
+    // otherwise ws.send() during CONNECTING throws and the subscribe is lost.
+    await expect(a.getByTestId('status')).toHaveText('connected');
+    await expect(b.getByTestId('status')).toHaveText('connected');
     await a.getByTestId('subscribe-room').click();
     await b.getByTestId('subscribe-room').click();
     await expect(a.getByTestId('subscribed')).toHaveText('yes');
@@ -114,9 +118,15 @@ test.describe('ctx-channels', () => {
     await a.getByTestId('connect').click();
     await b.getByTestId('connect').click();
     await c.getByTestId('connect').click();
+    await expect(a.getByTestId('status')).toHaveText('connected');
+    await expect(b.getByTestId('status')).toHaveText('connected');
+    await expect(c.getByTestId('status')).toHaveText('connected');
     await a.getByTestId('subscribe-room').click();
     await b.getByTestId('subscribe-room').click();
     await c.getByTestId('subscribe-room').click();
+    await expect(a.getByTestId('subscribed')).toHaveText('yes');
+    await expect(b.getByTestId('subscribed')).toHaveText('yes');
+    await expect(c.getByTestId('subscribed')).toHaveText('yes');
 
     await a.getByTestId('get-members').click();
     await expect(a.getByTestId('members-result')).toHaveText('room:3');
@@ -138,6 +148,8 @@ test.describe('ctx-channels', () => {
     await b.getByTestId('username').fill('user2');
     await a.getByTestId('connect').click();
     await b.getByTestId('connect').click();
+    await expect(a.getByTestId('status')).toHaveText('connected');
+    await expect(b.getByTestId('status')).toHaveText('connected');
     await a.getByTestId('subscribe-room').click();
     await b.getByTestId('subscribe-room').click();
     await expect(a.getByTestId('subscribed')).toHaveText('yes');
