@@ -48,8 +48,13 @@ export async function handleRequest(
 ): Promise<void> {
   const correlationId = readCorrelationId(rawPayload);
   let response: unknown;
+  let responded = false;
   await runWithScopedContext(runtime, connection, scope, (ctx) => {
     (ctx as Record<PropertyKey, unknown>).respond = (value: unknown) => {
+      if (responded) {
+        throw new Error('[wskit] ctx.respond() was already called for this request invocation.');
+      }
+      responded = true;
       response = value;
     };
     return request.handler(ctx, payload);

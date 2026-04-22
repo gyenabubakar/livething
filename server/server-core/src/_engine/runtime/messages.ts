@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { Block, Skip, WskitError } from '@wskit/core';
+import { Block, WskitError } from '@wskit/core';
 import * as EngineCompileUtils from '~/_engine/compile/utils.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import * as ErrorsPrimitive from '~/errors/errors.ts';
@@ -488,7 +488,6 @@ async function handleDispatchError(
   attempt: number,
 ): Promise<void> {
   if (error === Block) return;
-  if (error === Skip) return;
 
   if (error instanceof WskitError && error.code === 'validation-failed') {
     await runtime.handleValidationError(connection, event, error);

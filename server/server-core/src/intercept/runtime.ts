@@ -1,5 +1,4 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { Skip } from '@wskit/core';
 import type { ResolvedScope, RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type {
   InterceptMessage,
@@ -60,16 +59,11 @@ export async function runPreIntercepts(
   let nextMessage = message;
 
   for (const intercept of intercepts) {
-    try {
-      const next = await runWithScopedContext(runtime, connection, scope, (ctx) => {
-        return intercept.handler(ctx, nextMessage);
-      });
+    const next = await runWithScopedContext(runtime, connection, scope, (ctx) => {
+      return intercept.handler(ctx, nextMessage);
+    });
 
-      if (next) nextMessage = next;
-    } catch (error) {
-      if (error === Skip) continue;
-      throw error;
-    }
+    if (next) nextMessage = next;
   }
 
   return nextMessage;

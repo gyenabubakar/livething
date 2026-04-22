@@ -330,6 +330,10 @@ export function wakeHibernatedConnection(
     attachment && typeof attachment === 'object' ? (attachment as Record<string, unknown>) : {};
   const channelMemberships = restoreChannelMemberships(restored);
 
+  const restoredStreamIds = Array.isArray(restored.activeStreamIds)
+    ? (restored.activeStreamIds as string[])
+    : [];
+
   const descriptor: EngineAdapterTypes.ConnectionDescriptor = {
     send: (data) => wsLike.send?.(data),
     sendBinary: (data) => wsLike.send?.(data),
@@ -338,6 +342,13 @@ export function wakeHibernatedConnection(
     meta: (restored.meta as Record<string, unknown>) ?? {},
     tags: (restored.tags as string[]) ?? [],
   };
+
+  for (const streamId of restoredStreamIds) {
+    descriptor.send(
+      JSON.stringify({ event: '_error', payload: { code: 'internal-error', _streamId: streamId } }),
+    );
+  }
+
   const connection: EngineRuntimeTypes.RuntimeConnection = {
     id: typeof restored.id === 'string' ? restored.id : runtime.generateId('conn'),
     wsKey,

@@ -13,7 +13,6 @@ export {
   WskitError,
   CloseCodes,
   Block,
-  Skip,
   ValidationFailed,
   ChannelNotFound,
 } from '@wskit/core';
@@ -72,6 +71,15 @@ export function RejectUpgrade(code: number, reason: string) {
  * (the initial attempt plus 3 retries). After the third retry still throws
  * `Defer`, the message is dropped and `onError` fires with a `DeferExhausted`
  * error whose `detail.retries` is `3`.
+ *
+ * **In request handlers:** do not throw `Defer` after calling `ctx.respond()`.
+ * When the engine retries, the handler runs again from the top and a second
+ * `ctx.respond()` call will throw a runtime error. Throw `Defer` before
+ * responding, or not at all.
+ *
+ * **Timeout budget:** each retry adds `delay` milliseconds before the handler
+ * runs again. The client's request timeout still counts down during retries —
+ * three defers of 500 ms each consume 1.5 s before the handler can succeed.
  *
  * ```ts
  * // pseudo-code — `tryAcquireLock` is a placeholder for your own lock helper

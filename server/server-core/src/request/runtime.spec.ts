@@ -70,6 +70,27 @@ describe('request/runtime', () => {
     );
   });
 
+  it('calling ctx.respond() twice in one invocation throws', async () => {
+    const runtime = {
+      buildConnectionContext: () => ({ ok: true }),
+      setActiveConnectionId: vi.fn(),
+      sendThroughPipeline: vi.fn(() => true),
+    };
+    const connection = createConnection();
+    const request = {
+      __wskit: 'request',
+      event: 'status',
+      handler: vi.fn(async (ctx: { respond: (value: unknown) => void }) => {
+        ctx.respond({ first: true });
+        ctx.respond({ second: true });
+      }),
+    } as unknown as RequestPrimitive;
+
+    await expect(handleRequest(runtime, connection, {}, 'status', request, {}, {})).rejects.toThrow(
+      '[wskit] ctx.respond() was already called',
+    );
+  });
+
   it('clears the active connection id when a request handler throws', async () => {
     const runtime = {
       buildConnectionContext: () => ({ ok: true }),

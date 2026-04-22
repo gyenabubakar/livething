@@ -186,6 +186,12 @@ export interface RuntimeConnection {
    * connection has not yet received an id-bearing frame.
    */
   seenIncomingIds?: { buf: string[]; writePtr: number; set: Set<string>; cap: number };
+  /**
+   * IDs of streams currently in-flight for this connection. Written into the
+   * hibernation attachment so orphaned streams can be signalled with `_error`
+   * on wake. Lazy-initialized when the first stream starts.
+   */
+  activeStreamIds?: Set<string>;
 }
 
 /**

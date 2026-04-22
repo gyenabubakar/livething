@@ -457,6 +457,7 @@ export function persistAttachment(connection: EngineContextTypes.RuntimeConnecti
       tags: [...connection.tags],
       channels: [...connection.channels],
       channelMemberships: [...connection.channelMemberships.values()],
+      activeStreamIds: [...(connection.activeStreamIds ?? [])],
     });
   }
 }

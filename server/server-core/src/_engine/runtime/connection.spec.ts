@@ -1,4 +1,8 @@
-import { acceptConnection, handleShutdown } from '~/_engine/runtime/connection.ts';
+import {
+  acceptConnection,
+  handleShutdown,
+  wakeHibernatedConnection,
+} from '~/_engine/runtime/connection.ts';
 import { describe, expect, it } from 'vitest';
 
 function deferred() {
@@ -79,6 +83,123 @@ describe('connection runtime', () => {
     await pendingMessage;
 
     expect(events).toEqual(['connect:start', 'connect:end', 'message']);
+  });
+
+  it('wakeHibernatedConnection sends _error for each orphaned stream ID in the attachment', () => {
+    const sent: string[] = [];
+    const wsKey = {
+      send(data: string) {
+        sent.push(data);
+      },
+      close() {},
+      serializeAttachment() {},
+      deserializeAttachment() {
+        return {
+          id: 'conn_1',
+          meta: {},
+          tags: [],
+          channels: [],
+          channelMemberships: [],
+          activeStreamIds: ['stream_1', 'stream_2'],
+        };
+      },
+    };
+
+    wakeHibernatedConnection(
+      {
+        compiled: {
+          outgoing: new Map(),
+          incoming: new Map(),
+          requests: new Map(),
+          streams: new Map(),
+          preIntercepts: [],
+          postIntercepts: new Map(),
+          namespaces: new Map(),
+          channels: new Map(),
+          channelFamilies: new Map(),
+          scheduled: new Map(),
+          modules: [],
+          requires: {},
+        },
+        timers: undefined,
+        connections: new Map(),
+        wsToConnectionId: new Map(),
+        generateId() {
+          return 'conn_1';
+        },
+        persistAttachment() {},
+        buildConnectionContext(connection) {
+          return { id: connection.id };
+        },
+        async runConnectionLifecycle() {},
+        async processTextMessage() {},
+        async handleBinaryMessage() {},
+        async handleConnectionClose() {},
+        async handleRuntimeError() {},
+      },
+      wsKey,
+    );
+
+    expect(sent).toHaveLength(2);
+    expect(JSON.parse(sent[0]!)).toEqual({
+      event: '_error',
+      payload: { code: 'internal-error', _streamId: 'stream_1' },
+    });
+    expect(JSON.parse(sent[1]!)).toEqual({
+      event: '_error',
+      payload: { code: 'internal-error', _streamId: 'stream_2' },
+    });
+  });
+
+  it('wakeHibernatedConnection sends no _error frames when attachment has no active streams', () => {
+    const sent: string[] = [];
+    const wsKey = {
+      send(data: string) {
+        sent.push(data);
+      },
+      close() {},
+      serializeAttachment() {},
+      deserializeAttachment() {
+        return { id: 'conn_1', meta: {}, tags: [], channels: [], channelMemberships: [] };
+      },
+    };
+
+    wakeHibernatedConnection(
+      {
+        compiled: {
+          outgoing: new Map(),
+          incoming: new Map(),
+          requests: new Map(),
+          streams: new Map(),
+          preIntercepts: [],
+          postIntercepts: new Map(),
+          namespaces: new Map(),
+          channels: new Map(),
+          channelFamilies: new Map(),
+          scheduled: new Map(),
+          modules: [],
+          requires: {},
+        },
+        timers: undefined,
+        connections: new Map(),
+        wsToConnectionId: new Map(),
+        generateId() {
+          return 'conn_1';
+        },
+        persistAttachment() {},
+        buildConnectionContext(connection) {
+          return { id: connection.id };
+        },
+        async runConnectionLifecycle() {},
+        async processTextMessage() {},
+        async handleBinaryMessage() {},
+        async handleConnectionClose() {},
+        async handleRuntimeError() {},
+      },
+      wsKey,
+    );
+
+    expect(sent).toHaveLength(0);
   });
 
   it('runs module onShutdown hooks during engine shutdown', async () => {

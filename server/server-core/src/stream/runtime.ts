@@ -13,6 +13,9 @@ import type { ActiveStream, ResolvedScope, RuntimeConnection } from '~/_engine/r
 interface StreamRuntime {
   activeStreams: Map<string, ActiveStream>;
   generateId(prefix?: string): string;
+  logger: {
+    warn(message: string, data?: Record<string, unknown>): void;
+  };
   buildConnectionContext(
     connection: RuntimeConnection,
     scope?: ResolvedScope,
@@ -54,6 +57,7 @@ interface StreamRuntime {
     excludeConnectionId?: string,
   ): void;
   connections: Map<string, RuntimeConnection>;
+  persistAttachment(connection: RuntimeConnection): void;
 }
 
 /**
@@ -157,6 +161,9 @@ export async function runStream(
   };
 
   runtime.activeStreams.set(streamId, activeStream);
+  if (!connection.activeStreamIds) connection.activeStreamIds = new Set();
+  connection.activeStreamIds.add(streamId);
+  runtime.persistAttachment(connection);
 
   try {
     let nextInput: unknown = stream.stream.nudges.length > 0 ? [] : undefined;
@@ -202,13 +209,32 @@ export async function runStream(
       });
     }
   } catch (streamError) {
-    await runtime.handleRuntimeError(connection, streamError, event, {
+    const routing = {
       _streamId: streamId,
       ...(scope.namespace?.name ? { _namespace: scope.namespace.name } : {}),
       ...(scope.channelName ? { _channel: scope.channelName } : {}),
       ...(scope.channelScope ? { _channelScope: scope.channelScope } : {}),
-    });
+    };
+
+    if (
+      streamError &&
+      typeof streamError === 'object' &&
+      (streamError as { __wskit?: string }).__wskit === 'defer'
+    ) {
+      runtime.logger.warn(
+        '[wskit] Defer thrown inside a stream handler — streams cannot be retried',
+        {
+          event,
+          streamId,
+        },
+      );
+      runtime.sendProtocolMessage(connection, '_error', { code: 'internal-error', ...routing });
+    } else {
+      await runtime.handleRuntimeError(connection, streamError, event, routing);
+    }
   } finally {
+    connection.activeStreamIds?.delete(streamId);
     runtime.activeStreams.delete(streamId);
+    runtime.persistAttachment(connection);
   }
 }

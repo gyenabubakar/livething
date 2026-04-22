@@ -63,6 +63,8 @@ function createStreamRuntime() {
         broadcasts.push({ event, payload, excludeConnectionId });
       },
       setActiveConnectionId: vi.fn(),
+      persistAttachment: vi.fn(),
+      logger: { warn: vi.fn() },
       async handleRuntimeError() {},
       async handleValidationError() {},
     },
@@ -203,5 +205,68 @@ describe('stream/runtime', () => {
     );
 
     expect(broadcasts).toHaveLength(0);
+  });
+
+  it('Defer thrown from a stream handler logs a warning and sends _error directly, skipping onError hooks', async () => {
+    const { runtime, protocolMessages } = createStreamRuntime();
+    const connection = createConnection();
+    const handleRuntimeError = vi.fn();
+    runtime.handleRuntimeError = handleRuntimeError;
+
+    const stream = {
+      stream: { nudges: [], broadcast: false },
+      generator: async function* () {
+        throw Object.freeze({ __wskit: 'defer' as const, delay: 500 });
+        yield; // make it a generator
+      },
+    };
+
+    await runStream(
+      runtime as Parameters<typeof runStream>[0],
+      connection,
+      {},
+      'stream-event',
+      stream as never,
+      {},
+    );
+
+    expect(handleRuntimeError).not.toHaveBeenCalled();
+    expect((runtime.logger.warn as ReturnType<typeof vi.fn>).mock.calls[0]![0]).toMatch(/Defer/);
+    const errMsg = protocolMessages.find((m) => m.event === '_error');
+    expect(errMsg).toBeDefined();
+    expect(errMsg!.payload.code).toBe('internal-error');
+    expect(errMsg!.payload._streamId).toBe('stream_1');
+  });
+
+  it('persistAttachment is called with stream ID added on start and removed on end', async () => {
+    const { runtime } = createStreamRuntime();
+    const connection = createConnection();
+    const snapshots: string[][] = [];
+
+    (runtime.persistAttachment as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      snapshots.push([...(connection.activeStreamIds ?? [])]);
+    });
+
+    const stream = {
+      stream: { nudges: [], broadcast: false },
+      generator: async function* () {
+        yield { token: 'hi' };
+      },
+    };
+
+    await runStream(
+      runtime as Parameters<typeof runStream>[0],
+      connection,
+      {},
+      'my-stream',
+      stream as never,
+      {},
+    );
+
+    // First call: stream ID was added to activeStreamIds before yield
+    expect(snapshots[0]).toContain('stream_1');
+    // Last call: stream ID was removed from activeStreamIds in finally
+    expect(snapshots[snapshots.length - 1]).not.toContain('stream_1');
+    expect(connection.activeStreamIds?.has('stream_1')).toBe(false);
   });
 });

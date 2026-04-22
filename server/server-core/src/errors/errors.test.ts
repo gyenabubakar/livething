@@ -9,7 +9,6 @@ import {
   Disconnect,
   error,
   RejectUpgrade,
-  Skip,
   ValidationFailed,
 } from './errors.ts';
 import type { ErrorDef, ErrorDefWithFactory } from './errors.ts';
@@ -22,8 +21,7 @@ const _err: ErrorDef<'test', void> = error('test');
 void _err;
 
 const _block: { readonly __wskit: 'block' } = Block;
-const _skip: { readonly __wskit: 'skip' } = Skip;
-void [_block, _skip];
+void _block;
 
 const _closeCodes: typeof CloseCodes = CloseCodes;
 void _closeCodes;
