@@ -2,7 +2,7 @@ export { ReplayServer } from './lib/server/replay-history/durable-object.ts';
 export { ReplayCustomServer } from './lib/server/replay-custom/durable-object.ts';
 export { ReplaySnapshotServer } from './lib/server/replay-snapshot/durable-object.ts';
 export { ModulesServer } from './lib/server/modules/durable-object.ts';
-export { RejectHttpServer } from './lib/server-reject-http/durable-object.ts';
+export { RejectHttpServer } from './lib/server/lifecycle-hooks-http-reject/durable-object.ts';
 export { AckServer } from './lib/server/ack/durable-object.ts';
 export { BinaryServer } from './lib/server/binary/durable-object.ts';
 export { IncomingServer } from './lib/server/incoming/durable-object.ts';
