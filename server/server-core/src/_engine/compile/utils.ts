@@ -62,9 +62,26 @@ export function validateValue(validator: unknown, value: unknown, event = 'unkno
     const result = validator['~standard'].validate(value);
 
     if (result && typeof result === 'object' && 'issues' in result) {
+      const rawIssues = (result as { issues: Array<{ message: string; path?: unknown[] }> }).issues;
       throw ValidationFailed({
         event,
-        issues: (result as { issues: { message: string; path?: (string | number)[] }[] }).issues,
+        issues: rawIssues.map((issue) => {
+          const normalized: { message: string; path?: Array<string | number> } = {
+            message: issue.message,
+          };
+          if (Array.isArray(issue.path)) {
+            const pathKeys = issue.path.flatMap((p) => {
+              if (typeof p === 'string' || typeof p === 'number') return [p];
+              if (p && typeof p === 'object' && 'key' in (p as object)) {
+                const k = (p as { key: unknown }).key;
+                if (typeof k === 'string' || typeof k === 'number') return [k];
+              }
+              return [];
+            });
+            if (pathKeys.length > 0) normalized.path = pathKeys;
+          }
+          return normalized;
+        }),
       });
     }
 

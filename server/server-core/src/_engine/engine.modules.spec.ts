@@ -351,3 +351,22 @@ describe('replay durability branching', () => {
     expect(sent).toHaveLength(1);
   });
 });
+
+describe('handleHibernationWake guard', () => {
+  it('throws when hibernation() primitive is not registered', () => {
+    const def = server('chat').build();
+    const { engine } = setupEngine(def);
+    expect(() => engine.handleHibernationWake(Symbol('ws'))).toThrow(
+      '[wskit] hibernation() is not enabled for this handler.',
+    );
+  });
+
+  it('throws when adapter supports hibernation but the hibernation() primitive was not registered', () => {
+    const def = server('chat').build();
+    const engine = new Engine(def, { adapterId: 'test', hibernation: true });
+    // No hibernation() primitive → hibernationEnabled stays false → usesHibernation() = false
+    expect(() => engine.handleHibernationWake(Symbol('ws'))).toThrow(
+      '[wskit] hibernation() is not enabled for this handler.',
+    );
+  });
+});

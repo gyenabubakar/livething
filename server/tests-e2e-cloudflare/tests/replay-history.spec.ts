@@ -73,11 +73,17 @@ test.describe('replay handler', () => {
     await page.getByTestId('room-send-btn').click();
     await waitForText(page, 'room-messages', /room hello/);
 
+    const messagesBefore = await page.getByTestId('messages').textContent();
+
     await page.getByTestId('room-replay-btn').click();
     await expect(async () => {
       const roomReplayCount = Number(await page.getByTestId('room-replay-count').textContent());
       expect(roomReplayCount).toBeGreaterThan(0);
     }).toPass({ timeout: 5_000 });
+
+    // Channel replay must not leak top-level messages back to the client.
+    const messagesAfter = await page.getByTestId('messages').textContent();
+    expect(messagesAfter).toBe(messagesBefore);
   });
 
   test('channel replay supports nonzero since', async ({ page }) => {
