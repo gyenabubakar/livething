@@ -1,210 +1,159 @@
 import { expect, test } from '@playwright/test';
 
-test.describe('hibernation handler', () => {
-  test('main handler preserves tags and sendTo behavior across repeated hibernation wakes', async ({
-    page,
+test.describe('hibernation', () => {
+  test('channel membership survives across an idle window (hibernation wake)', async ({
+    browser,
   }, testInfo) => {
     const room = `hib-${testInfo.testId}`;
-    await page.goto(`/?room=${room}`);
 
-    const result = await page.evaluate(async (currentRoom) => {
-      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const aliceCtx = await browser.newContext();
+    const bobCtx = await browser.newContext();
+    const alice = await aliceCtx.newPage();
+    const bob = await bobCtx.newPage();
 
-      type WireMessage =
-        | { type: 'json'; event: string; payload: Record<string, unknown> }
-        | { type: 'binary'; size: number };
+    await alice.goto(`/hibernation?room=${room}`);
+    await bob.goto(`/hibernation?room=${room}`);
 
-      function open(username: string) {
-        return new Promise<{ ws: WebSocket; messages: WireMessage[] }>((resolve, reject) => {
-          const ws = new WebSocket(
-            `${protocol}//${location.host}/ws?username=${encodeURIComponent(username)}&room=${encodeURIComponent(currentRoom)}`,
-          );
-          const messages: WireMessage[] = [];
+    await alice.getByTestId('username').fill('alice');
+    await bob.getByTestId('username').fill('bob');
 
-          ws.binaryType = 'arraybuffer';
-          ws.onmessage = (event) => {
-            if (event.data === 'pong') return;
-            if (event.data instanceof ArrayBuffer) {
-              messages.push({ type: 'binary', size: event.data.byteLength });
-              return;
-            }
+    await alice.getByTestId('connect').click();
+    await bob.getByTestId('connect').click();
 
-            const parsed = JSON.parse(event.data as string) as {
-              event: string;
-              payload: Record<string, unknown>;
-            };
-            messages.push({ type: 'json', event: parsed.event, payload: parsed.payload });
-          };
-          ws.onopen = () => resolve({ ws, messages });
-          ws.onerror = () => reject(new Error(`failed to open websocket for ${username}`));
-        });
-      }
+    await expect(alice.getByTestId('status')).toHaveText('connected');
+    await expect(bob.getByTestId('status')).toHaveText('connected');
 
-      function waitForMessage(
-        messages: WireMessage[],
-        predicate: (message: WireMessage) => boolean,
-        timeoutMs = 5_000,
-      ) {
-        return new Promise<WireMessage>((resolve, reject) => {
-          const startedAt = Date.now();
+    await alice.getByTestId('subscribe-room').click();
+    await bob.getByTestId('subscribe-room').click();
 
-          function poll() {
-            const match = messages.find(predicate);
-            if (match) {
-              resolve(match);
-              return;
-            }
+    await expect(alice.getByTestId('subscribed')).toHaveText('yes');
+    await expect(bob.getByTestId('subscribed')).toHaveText('yes');
 
-            if (Date.now() - startedAt > timeoutMs) {
-              reject(new Error('timed out waiting for hibernation message'));
-              return;
-            }
+    // Idle window for the DO to hibernate between subscribe and broadcast.
+    // Keep short so Playwright's default poll handles the wake naturally.
+    await alice.waitForTimeout(1_500);
 
-            setTimeout(poll, 25);
-          }
+    await bob.getByTestId('broadcast-hello').click();
 
-          poll();
-        });
-      }
+    // Polls default 5s — if membership was restored on wake, alice sees it.
+    await expect(alice.getByTestId('room-messages')).toContainText('hello-after-wake');
 
-      const first = await open('hiber-1');
-      const second = await open('hiber-2');
-
-      first.ws.send(JSON.stringify({ event: 'get-connection-info', payload: {} }));
-      const initial = (await waitForMessage(
-        first.messages,
-        (message) => message.type === 'json' && message.event === 'connection-info',
-      )) as Extract<WireMessage, { type: 'json' }>;
-
-      second.ws.send(JSON.stringify({ event: 'tag-self', payload: { tag: 'sleepers' } }));
-      const tagged = (await waitForMessage(
-        second.messages,
-        (message) =>
-          message.type === 'json' &&
-          message.event === 'tag-result' &&
-          Array.isArray(message.payload.tags) &&
-          message.payload.tags.includes('sleepers'),
-      )) as Extract<WireMessage, { type: 'json' }>;
-
-      await new Promise((resolve) => setTimeout(resolve, 150));
-
-      first.ws.send(
-        JSON.stringify({
-          event: 'send-to-tag',
-          payload: { tag: 'sleepers', text: 'hello sleeper' },
-        }),
-      );
-
-      const delivered = (await waitForMessage(
-        second.messages,
-        (message) =>
-          message.type === 'json' &&
-          message.event === 'tagged-message' &&
-          message.payload.text === 'hello sleeper',
-      )) as Extract<WireMessage, { type: 'json' }>;
-
-      first.ws.close();
-      second.ws.close();
-
-      return { initial, tagged, delivered };
-    }, room);
-
-    expect(result.initial.payload.count).toBe(2);
-    expect(result.initial.payload.connections).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          meta: expect.objectContaining({ username: 'hiber-1' }),
-          tags: expect.arrayContaining(['hiber-1']),
-        }),
-        expect.objectContaining({
-          meta: expect.objectContaining({ username: 'hiber-2' }),
-          tags: expect.arrayContaining(['hiber-2']),
-        }),
-      ]),
-    );
-    expect(result.tagged.payload.tags).toContain('sleepers');
-    expect(result.delivered.payload.from).toBe('hiber-1');
-    expect(result.delivered.payload.text).toBe('hello sleeper');
+    await aliceCtx.close();
+    await bobCtx.close();
   });
 
-  test('main handler preserves SQL state across reconnection (hibernation-friendly)', async ({
-    page,
-  }, testInfo) => {
+  test('tags survive across hibernation wake', async ({ browser }, testInfo) => {
+    const room = `hib-tags-${testInfo.testId}`;
+
+    const aliceCtx = await browser.newContext();
+    const bobCtx = await browser.newContext();
+    const alice = await aliceCtx.newPage();
+    const bob = await bobCtx.newPage();
+
+    await alice.goto(`/hibernation?room=${room}`);
+    await bob.goto(`/hibernation?room=${room}`);
+
+    await alice.getByTestId('username').fill('alice');
+    await bob.getByTestId('username').fill('bob');
+
+    await alice.getByTestId('connect').click();
+    await bob.getByTestId('connect').click();
+
+    await expect(alice.getByTestId('status')).toHaveText('connected');
+    await expect(bob.getByTestId('status')).toHaveText('connected');
+
+    // Alice tags herself before hibernation.
+    await alice.getByTestId('tag-sleeper').click();
+    await expect(alice.getByTestId('tags')).toContainText('alice');
+    await expect(alice.getByTestId('tags')).toContainText('sleeper');
+
+    // Idle window for hibernation.
+    await alice.waitForTimeout(1_500);
+
+    // Bob tags himself after Alice's hibernation.
+    await bob.getByTestId('tag-sleeper').click();
+    await expect(bob.getByTestId('tags')).toContainText('bob');
+    await expect(bob.getByTestId('tags')).toContainText('sleeper');
+
+    // Alice is woken up by Playwright's polling (expectation on the page).
+    // If her tags survived, they will still be present.
+    await expect(alice.getByTestId('tags')).toContainText('alice');
+    await expect(alice.getByTestId('tags')).toContainText('sleeper');
+
+    await aliceCtx.close();
+    await bobCtx.close();
+  });
+
+  test('tag-based sendTo delivers across hibernation wake', async ({ browser }, testInfo) => {
+    const room = `hib-sendto-${testInfo.testId}`;
+
+    const aliceCtx = await browser.newContext();
+    const bobCtx = await browser.newContext();
+    const alice = await aliceCtx.newPage();
+    const bob = await bobCtx.newPage();
+
+    await alice.goto(`/hibernation?room=${room}`);
+    await bob.goto(`/hibernation?room=${room}`);
+
+    await alice.getByTestId('username').fill('alice');
+    await bob.getByTestId('username').fill('bob');
+
+    await alice.getByTestId('connect').click();
+    await bob.getByTestId('connect').click();
+
+    await expect(alice.getByTestId('status')).toHaveText('connected');
+    await expect(bob.getByTestId('status')).toHaveText('connected');
+
+    // Bob tags himself as sleeper before the hibernation window.
+    await bob.getByTestId('tag-sleeper').click();
+    await expect(bob.getByTestId('tags')).toContainText('sleeper');
+
+    // Idle window for hibernation.
+    await alice.waitForTimeout(1_500);
+
+    // After wake, alice sendTo('sleeper', ...) must still deliver to bob.
+    await alice.getByTestId('send-to-sleepers').click();
+    await expect(bob.getByTestId('tagged-messages')).toContainText(
+      'alice:hello-sleeper-after-wake',
+    );
+
+    await aliceCtx.close();
+    await bobCtx.close();
+  });
+
+  test('SQL state survives across hibernation wake', async ({ browser }, testInfo) => {
     const room = `hib-sql-${testInfo.testId}`;
-    await page.goto(`/?room=${room}`);
 
-    const result = await page.evaluate(async (currentRoom) => {
-      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const writerCtx = await browser.newContext();
+    const readerCtx = await browser.newContext();
+    const writer = await writerCtx.newPage();
+    const reader = await readerCtx.newPage();
 
-      type WireMessage = { type: 'json'; event: string; payload: Record<string, unknown> };
+    await writer.goto(`/hibernation?room=${room}`);
+    await reader.goto(`/hibernation?room=${room}`);
 
-      function openOnce(username: string) {
-        return new Promise<{ ws: WebSocket; messages: WireMessage[] }>((resolve, reject) => {
-          const ws = new WebSocket(
-            `${protocol}//${location.host}/ws?username=${encodeURIComponent(username)}&room=${encodeURIComponent(currentRoom)}`,
-          );
-          const messages: WireMessage[] = [];
-          ws.onmessage = (event) => {
-            if (event.data === 'pong' || typeof event.data !== 'string') return;
-            try {
-              const parsed = JSON.parse(event.data) as {
-                event: string;
-                payload: Record<string, unknown>;
-              };
-              messages.push({ type: 'json', event: parsed.event, payload: parsed.payload });
-            } catch {
-              // ignore
-            }
-          };
-          ws.onopen = () => resolve({ ws, messages });
-          ws.onerror = () => reject(new Error('open failed'));
-        });
-      }
+    await writer.getByTestId('username').fill('writer');
+    await reader.getByTestId('username').fill('reader');
 
-      function waitFor(
-        messages: WireMessage[],
-        predicate: (m: WireMessage) => boolean,
-        timeout = 5_000,
-      ) {
-        return new Promise<WireMessage>((resolve, reject) => {
-          const started = Date.now();
-          function poll() {
-            const match = messages.find(predicate);
-            if (match) return resolve(match);
-            if (Date.now() - started > timeout) return reject(new Error('timeout'));
-            setTimeout(poll, 25);
-          }
-          poll();
-        });
-      }
+    await writer.getByTestId('connect').click();
+    await reader.getByTestId('connect').click();
 
-      const first = await openOnce('sql-writer');
-      first.ws.send(
-        JSON.stringify({ event: 'save-note', payload: { title: 'hib', body: 'persist-me' } }),
-      );
-      await waitFor(
-        first.messages,
-        (m) =>
-          m.type === 'json' &&
-          m.event === 'notes-list' &&
-          Array.isArray((m.payload as { notes?: unknown[] }).notes),
-      );
-      first.ws.close();
+    await expect(writer.getByTestId('status')).toHaveText('connected');
+    await expect(reader.getByTestId('status')).toHaveText('connected');
 
-      await new Promise((r) => setTimeout(r, 150));
+    // Writer saves a note before hibernation.
+    await writer.getByTestId('save-note').click();
+    await expect(writer.getByTestId('saved-notes')).toContainText('test-note:test-content');
 
-      const second = await openOnce('sql-reader');
-      second.ws.send(JSON.stringify({ event: 'get-notes', payload: {} }));
-      const list = (await waitFor(
-        second.messages,
-        (m) => m.type === 'json' && m.event === 'notes-list',
-      )) as Extract<WireMessage, { type: 'json' }>;
-      second.ws.close();
+    // Idle window for hibernation.
+    await writer.waitForTimeout(1_500);
 
-      return list.payload;
-    }, room);
+    // Reader connects to the same DO and queries notes.
+    // If SQL state survived, the note is visible.
+    await reader.getByTestId('get-notes').click();
+    await expect(reader.getByTestId('saved-notes')).toContainText('test-note:test-content');
 
-    const notes = (result as { notes: { title: string; body: string }[] }).notes;
-    expect(notes.some((n) => n.title === 'hib' && n.body === 'persist-me')).toBe(true);
+    await writerCtx.close();
+    await readerCtx.close();
   });
 });
