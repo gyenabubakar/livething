@@ -15,10 +15,23 @@ const NsInfoSchema = v.object({ namespace: v.string() });
 const GetChannelInfo = event('get-channel-info', v.object({}));
 const ChannelInfoSchema = v.object({ channel: v.string() });
 
+const NoResponseEvent = event('no-response', v.object({}));
+const NoResponseSchema = v.object({ ok: v.boolean() });
+
+const DoubleResponseEvent = event('double-response', v.object({}));
+const DoubleResponseSchema = v.object({ count: v.number() });
+
 const base = withChannels(withNamespaces(withRequests(withLifecycle(server<Env>('request')))))
   .onUpgrade((request) => requireUsername(request))
   .request(GetTime, TimeResponseSchema, (ctx) => {
     ctx.respond({ now: 'fixed-now-string' });
+  })
+  .request(NoResponseEvent, NoResponseSchema, () => {
+    // Intentionally never call ctx.respond - request should hang
+  })
+  .request(DoubleResponseEvent, DoubleResponseSchema, (ctx) => {
+    ctx.respond({ count: 1 });
+    ctx.respond({ count: 2 });
   });
 
 const ns = base.namespace('ns', (n) =>

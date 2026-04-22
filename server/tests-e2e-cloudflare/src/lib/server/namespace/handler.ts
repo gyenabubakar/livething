@@ -7,6 +7,7 @@ import { requireUsername } from '../_shared/upgrade.ts';
 
 const NsMessage = event('ns-message', v.object({ text: v.string() }));
 const SendNs = event('send-ns', v.object({ text: v.string() }));
+const BroadcastNs = event('broadcast-ns', v.object({ text: v.string() }));
 const GetNsInfo = event('get-ns-info', v.object({}));
 const NsInfoSchema = v.object({ namespace: v.string() });
 
@@ -19,6 +20,9 @@ const ns = base.namespace('ns', (n) =>
     .outgoing(NsMessage)
     .incoming(SendNs, (ctx, payload) => {
       ctx.namespace.send('ns-message', { text: payload.text });
+    })
+    .incoming(BroadcastNs, (ctx, payload) => {
+      ctx.namespace.broadcast('ns-message', { text: payload.text });
     })
     .request(GetNsInfo, NsInfoSchema, (ctx) => {
       ctx.respond({ namespace: ctx.namespace.name });

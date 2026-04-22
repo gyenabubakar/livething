@@ -49,6 +49,9 @@
 			JSON.stringify({ event: 'kick-in-channel', payload: { channel: 'room', tag, reason } }),
 		);
 	}
+	function kickNonmember() {
+		ws?.send(JSON.stringify({ event: 'kick-nonmember', payload: {} }));
+	}
 	function sendRoom(text: string) {
 		ws?.send(JSON.stringify({ event: 'send-room-message', payload: { text, _channel: 'room' } }));
 	}
@@ -61,6 +64,9 @@
 <button data-testid="get-members" onclick={getMembers}>Get members</button>
 <button data-testid="kick-user2" onclick={() => kick('user2', 'Kicked by admin')}>
 	Kick user2
+</button>
+<button data-testid="kick-nonmember" onclick={kickNonmember}>
+	Kick nonmember
 </button>
 <button data-testid="send-after-kick" onclick={() => sendRoom('after-kick')}>
 	Send after-kick

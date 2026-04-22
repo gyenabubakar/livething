@@ -14,4 +14,20 @@ test.describe('heartbeat', () => {
     await expect(page.getByTestId('status')).toHaveText('disconnected', { timeout: 10_000 });
     await expect(page.getByTestId('close-code')).toHaveText('4004');
   });
+
+  test('activity resets the idle timer, keeping connection alive', async ({ page }, testInfo) => {
+    const room = `test-${testInfo.testId}`;
+    await page.goto(`/heartbeat?room=${room}`);
+    await page.getByTestId('connect').click();
+    await expect(page.getByTestId('status')).toHaveText('connected');
+
+    // Handler timeout is 1_000 ms. Send a message at 600 ms, then wait another 600 ms.
+    // If activity resets timer, total silence is never 1_000 ms, so connection stays.
+    await page.waitForTimeout(600);
+    await page.getByTestId('send-echo').click();
+    await page.waitForTimeout(600);
+
+    // Should still be connected (total silence never reached 1_000 ms).
+    await expect(page.getByTestId('status')).toHaveText('connected');
+  });
 });

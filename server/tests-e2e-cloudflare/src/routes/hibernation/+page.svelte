@@ -4,6 +4,8 @@
 	let username = $state('testuser');
 	let subscribed = $state(false);
 	let roomMessages = $state<string[]>([]);
+	let savedNotes = $state<Array<{ title: string; body: string }>>([]);
+	let tags = $state<string[]>([]);
 
 	function connect() {
 		if (ws) return;
@@ -26,6 +28,8 @@
 			const data = JSON.parse(ev.data);
 			if (data.event === '_subscribeOk') subscribed = true;
 			if (data.event === 'room-message') roomMessages = [...roomMessages, data.payload.text];
+			if (data.event === 'notes-list') savedNotes = data.payload.notes;
+			if (data.event === 'tag-result') tags = data.payload.tags;
 		};
 	}
 
@@ -38,6 +42,18 @@
 			JSON.stringify({ event: 'broadcast-to-room', payload: { text, _channel: 'room' } }),
 		);
 	}
+
+	function saveNote(title: string, body: string) {
+		ws?.send(JSON.stringify({ event: 'save-note', payload: { title, body } }));
+	}
+
+	function getNotes() {
+		ws?.send(JSON.stringify({ event: 'get-notes', payload: {} }));
+	}
+
+	function tagSelf(tag: string) {
+		ws?.send(JSON.stringify({ event: 'tag-self', payload: { tag } }));
+	}
 </script>
 
 <h1>hibernation feature</h1>
@@ -47,6 +63,17 @@
 <button data-testid="broadcast-hello" onclick={() => broadcastRoom('hello-after-wake')}>
 	Broadcast hello
 </button>
+<button data-testid="save-note" onclick={() => saveNote('test-note', 'test-content')}>
+	Save note
+</button>
+<button data-testid="get-notes" onclick={getNotes}>
+	Get notes
+</button>
+<button data-testid="tag-sleeper" onclick={() => tagSelf('sleeper')}>
+	Tag as sleeper
+</button>
 <span data-testid="status">{status}</span>
 <span data-testid="subscribed">{subscribed ? 'yes' : 'no'}</span>
 <span data-testid="room-messages">{roomMessages.join(',')}</span>
+<span data-testid="saved-notes">{savedNotes.map(n => `${n.title}:${n.body}`).join('|')}</span>
+<span data-testid="tags">{tags.join(',')}</span>

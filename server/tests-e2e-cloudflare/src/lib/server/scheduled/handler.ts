@@ -49,6 +49,15 @@ const ScheduleSendToConnStatus = event(
 const WhoAmI = event('who-am-i', v.object({}));
 const WhoAmIResult = event('who-am-i-result', v.object({ connectionId: v.string() }));
 
+const TriggerEmptyBackoff = event('trigger-empty-backoff', v.object({}));
+const ScheduleBroadcastTask = event('schedule-broadcast-task', v.object({}));
+const BroadcastResult = event('broadcast-result', v.object({ text: v.string() }));
+const ScheduleSendToTag = event('schedule-send-to-tag', v.object({}));
+const SendToTagResult = event('send-to-tag-result', v.object({ text: v.string() }));
+const TagVip = event('tag-vip', v.object({}));
+const CancelNonexistent = event('cancel-nonexistent', v.object({}));
+const CancelNonexistentOk = event('cancel-nonexistent-ok', v.object({}));
+
 // --- handler ---------------------------------------------------------------
 
 let flakyAttempts = 0;
@@ -66,6 +75,9 @@ export const scheduledHandler = withScheduled(withLifecycle(server<Env>('schedul
   .outgoing(ScheduleSendToConnDelivery)
   .outgoing(ScheduleSendToConnStatus)
   .outgoing(WhoAmIResult)
+  .outgoing(BroadcastResult)
+  .outgoing(SendToTagResult)
+  .outgoing(CancelNonexistentOk)
   .onUpgrade((request) => requireUsername(request))
   .scheduled('cleanup', (ctx) => {
     ctx.broadcast('cleanup-done', { at: Date.now() });
@@ -119,6 +131,19 @@ export const scheduledHandler = withScheduled(withLifecycle(server<Env>('schedul
       connectionId: data.connectionId,
       delivered,
     });
+  })
+  .scheduled(
+    'empty-backoff-task',
+    () => {
+      throw new Error('always fails with empty backoff');
+    },
+    { retry: [] },
+  )
+  .scheduled('broadcast-task', (ctx) => {
+    ctx.broadcast('broadcast-result', { text: 'from-task' });
+  })
+  .scheduled('send-to-tag-task', (ctx) => {
+    ctx.sendTo('vip', 'send-to-tag-result', { text: 'tagged-from-task' });
   })
   .incoming(ScheduleCleanup, (ctx, payload) => {
     ctx.schedule('cleanup', { time: Date.now() + payload.delayMs });
@@ -178,5 +203,22 @@ export const scheduledHandler = withScheduled(withLifecycle(server<Env>('schedul
   })
   .incoming(WhoAmI, (ctx) => {
     ctx.send('who-am-i-result', { connectionId: ctx.id });
+  })
+  .incoming(TriggerEmptyBackoff, (ctx) => {
+    ctx.schedule('empty-backoff-task', { time: Date.now() + 50 });
+  })
+  .incoming(ScheduleBroadcastTask, (ctx) => {
+    ctx.schedule('broadcast-task', { time: Date.now() + 50 });
+  })
+  .incoming(ScheduleSendToTag, (ctx) => {
+    ctx.schedule('send-to-tag-task', { time: Date.now() + 50 });
+  })
+  .incoming(TagVip, (ctx) => {
+    ctx.tag('vip');
+  })
+  .incoming(CancelNonexistent, (ctx) => {
+    // Use a real task id with a filter that can never match any enqueued run.
+    ctx.cancelScheduled('filtered-cleanup', { label: '__nonexistent__' });
+    ctx.send('cancel-nonexistent-ok', {});
   })
   .build();

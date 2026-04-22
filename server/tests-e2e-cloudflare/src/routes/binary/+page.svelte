@@ -49,6 +49,15 @@
 	function broadcastExcludeSelf(size: number) {
 		ws?.send(JSON.stringify({ event: 'broadcast-exclude-self', payload: { size } }));
 	}
+
+	function sendBinaryZero() {
+		ws?.send(JSON.stringify({ event: 'broadcast-all', payload: { size: 0 } }));
+	}
+
+	// Expose for tests
+	if (typeof window !== 'undefined') {
+		(window as unknown as Record<string, unknown>).__sendBinaryZero = sendBinaryZero;
+	}
 </script>
 
 <h1>binary feature</h1>

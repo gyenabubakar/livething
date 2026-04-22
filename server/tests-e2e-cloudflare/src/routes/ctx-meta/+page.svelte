@@ -3,6 +3,8 @@
 	let status = $state<'disconnected' | 'connecting' | 'connected'>('disconnected');
 	let username = $state('testuser');
 	let echoed = $state('');
+	let membersList = $state('');
+	let broadcastReceived = $state('');
 
 	function connect() {
 		if (ws) return;
@@ -23,11 +25,25 @@
 			if (typeof ev.data !== 'string') return;
 			const data = JSON.parse(ev.data);
 			if (data.event === 'who-am-i-result') echoed = data.payload?.username ?? '';
+			if (data.event === 'members-list-result') {
+				membersList = (data.payload?.members ?? []).join(', ');
+			}
+			if (data.event === 'broadcast-identity-received') {
+				broadcastReceived = data.payload?.from ?? '';
+			}
 		};
 	}
 
 	function askWhoAmI() {
 		ws?.send(JSON.stringify({ event: 'who-am-i', payload: {} }));
+	}
+
+	function listMembers() {
+		ws?.send(JSON.stringify({ event: 'list-members', payload: {} }));
+	}
+
+	function broadcastIdentity() {
+		ws?.send(JSON.stringify({ event: 'broadcast-identity', payload: {} }));
 	}
 </script>
 
@@ -35,5 +51,9 @@
 <input data-testid="username" bind:value={username} />
 <button data-testid="connect" onclick={connect}>Connect</button>
 <button data-testid="who-am-i" onclick={askWhoAmI}>Who am I</button>
+<button data-testid="list-members" onclick={listMembers}>List Members</button>
+<button data-testid="broadcast-identity" onclick={broadcastIdentity}>Broadcast Identity</button>
 <span data-testid="status">{status}</span>
 <span data-testid="echoed-username">{echoed}</span>
+<span data-testid="members-list">{membersList}</span>
+<span data-testid="broadcast-received">{broadcastReceived}</span>

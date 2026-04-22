@@ -23,6 +23,7 @@ export const ctxTagsHandler = withLifecycle(server<Env>('ctx-tags'))
   .onUpgrade((request) => requireUsername(request))
   .incoming(TagSelf, (ctx, payload) => {
     ctx.tag(payload.tag);
+    // ctx.tag() doesn't mutate ctx.tags in place; compose the new set.
     ctx.send('tag-result', { tags: [...ctx.tags, payload.tag].join(',') });
   })
   .incoming(UntagSelf, (ctx, payload) => {

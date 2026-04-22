@@ -15,6 +15,9 @@
 	let cancelNothingOk = $state(false);
 	let sendToConnDelivery = $state('');
 	let sendToConnStatus = $state('');
+	let broadcastResult = $state('');
+	let sendToTagResult = $state('');
+	let cancelNonexistentOk = $state(false);
 
 	function connect() {
 		if (ws) return;
@@ -68,6 +71,15 @@
 				case 'who-am-i-result':
 					connectionId = data.payload?.connectionId ?? '';
 					break;
+				case 'broadcast-result':
+					broadcastResult = data.payload?.text ?? '';
+					break;
+				case 'send-to-tag-result':
+					sendToTagResult = data.payload?.text ?? '';
+					break;
+				case 'cancel-nonexistent-ok':
+					cancelNonexistentOk = true;
+					break;
 			}
 		};
 	}
@@ -105,6 +117,19 @@
 	Cancel drop
 </button>
 <button data-testid="cancel-nothing" onclick={() => send('cancel-nothing')}>Cancel nothing</button>
+<button data-testid="trigger-empty-backoff" onclick={() => send('trigger-empty-backoff')}>
+	Trigger empty backoff
+</button>
+<button data-testid="schedule-broadcast-task" onclick={() => send('schedule-broadcast-task')}>
+	Schedule broadcast task
+</button>
+<button data-testid="schedule-send-to-tag" onclick={() => send('schedule-send-to-tag')}>
+	Schedule send-to-tag
+</button>
+<button data-testid="cancel-nonexistent-task" onclick={() => send('cancel-nonexistent')}>
+	Cancel nonexistent
+</button>
+<button data-testid="tag-vip" onclick={() => send('tag-vip')}>Tag vip</button>
 
 <input data-testid="target-id" bind:value={targetId} placeholder="target connection id" />
 <button
@@ -142,3 +167,6 @@
 <span data-testid="cancel-nothing-ok">{cancelNothingOk ? 'yes' : 'no'}</span>
 <span data-testid="send-to-conn-delivery">{sendToConnDelivery}</span>
 <span data-testid="send-to-conn-status">{sendToConnStatus}</span>
+<span data-testid="broadcast-result">{broadcastResult}</span>
+<span data-testid="send-to-tag-result">{sendToTagResult}</span>
+<span data-testid="cancel-nonexistent-ok">{cancelNonexistentOk ? 'yes' : 'no'}</span>

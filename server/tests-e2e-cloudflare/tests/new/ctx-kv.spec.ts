@@ -35,4 +35,29 @@ test.describe('ctx-kv', () => {
     await page.getByTestId('get-ttl').click();
     await expect(page.getByTestId('value-ttl')).not.toHaveText('ephemeral');
   });
+  test('get of non-existent key returns null', async ({ page }) => {
+    await page.getByTestId('get-nonexistent').click();
+    await expect(page.getByTestId('value-nonexistent')).toHaveText('null');
+  });
+  test('set without ttl then overwrite replaces the value', async ({ page }) => {
+    await page.getByTestId('set-overwrite-v1').click();
+    await expect(page.getByTestId('value-overwrite')).toHaveText('first');
+
+    await page.getByTestId('set-overwrite-v2').click();
+    await expect(page.getByTestId('value-overwrite')).toHaveText('second');
+
+    await page.getByTestId('get-overwrite').click();
+    await expect(page.getByTestId('value-overwrite')).toHaveText('second');
+  });
+  test('delete of non-existent key succeeds silently', async ({ page }) => {
+    await page.getByTestId('delete-never-set').click();
+    await expect(page.getByTestId('value-never-set')).toHaveText('null');
+
+    await page.getByTestId('get-never-set').click();
+    await expect(page.getByTestId('value-never-set')).toHaveText('null');
+  });
+  test('set then immediate get in one handler interaction returns the value', async ({ page }) => {
+    await page.getByTestId('set-get-atomic').click();
+    await expect(page.getByTestId('value-atomic')).toHaveText('atomic-val');
+  });
 });

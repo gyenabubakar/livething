@@ -19,6 +19,10 @@
 			status = 'disconnected';
 			ws = null;
 		};
+		ws.onerror = () => {
+			status = 'disconnected';
+			ws = null;
+		};
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
 			const data = JSON.parse(ev.data);

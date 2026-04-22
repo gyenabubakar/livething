@@ -18,6 +18,12 @@ const SqlOneResult = event(
   v.object({ row: v.nullable(v.object({ c: v.number() })) }),
 );
 
+const SqlOneEmptyProbe = event('sql-one-empty-probe', v.object({}));
+const SqlOneEmptyResult = event(
+  'sql-one-empty-result',
+  v.object({ row: v.nullable(v.object({ c: v.number() })) }),
+);
+
 const SqlRawProbe = event('sql-raw-probe', v.object({}));
 const SqlRawResult = event('sql-raw-result', v.object({ rows: v.array(v.array(v.unknown())) }));
 
@@ -34,6 +40,7 @@ function selectNotes(ctx: {
 export const ctxSqlHandler = withLifecycle(server<Env>('ctx-sql'))
   .outgoing(NotesList)
   .outgoing(SqlOneResult)
+  .outgoing(SqlOneEmptyResult)
   .outgoing(SqlRawResult)
   .onInit((ctx) => {
     ctx.sql.exec(`
@@ -59,5 +66,11 @@ export const ctxSqlHandler = withLifecycle(server<Env>('ctx-sql'))
   .incoming(SqlRawProbe, (ctx) => {
     const rows = ctx.sql.exec('SELECT id, title FROM notes ORDER BY id DESC').raw();
     ctx.send('sql-raw-result', { rows: rows as unknown[][] });
+  })
+  .incoming(SqlOneEmptyProbe, (ctx) => {
+    const row = ctx.sql.exec('SELECT COUNT(*) AS c FROM notes WHERE id = -999').one() as {
+      c: number;
+    } | null;
+    ctx.send('sql-one-empty-result', { row: row ? { c: Number(row.c) } : null });
   })
   .build();

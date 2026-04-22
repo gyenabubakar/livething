@@ -30,6 +30,10 @@ const roomChannel = base.channel('room', (ch) =>
       }
     })
     .onSubscribe((ctx) => {
+      // ctx.channel.name is the static name 'room' — verify it's accessible
+      if (ctx.channel.name !== 'room') {
+        throw new Error(`expected channel.name to be 'room', got ${ctx.channel.name}`);
+      }
       ctx.channel.broadcast('room-message', {
         text: `${ctx.meta.username} entered`,
         from: 'system',

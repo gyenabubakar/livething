@@ -72,6 +72,10 @@
 		reset();
 		ws?.send(JSON.stringify({ event: 'start-boom', payload: {} }));
 	}
+	function startEmpty() {
+		reset();
+		ws?.send(JSON.stringify({ event: 'start-empty', payload: {} }));
+	}
 	function cancelStream() {
 		ws?.send(JSON.stringify({ event: '_streamCancel', payload: { _streamId: lastStreamId } }));
 	}
@@ -81,6 +85,7 @@
 <input data-testid="username" bind:value={username} />
 <button data-testid="connect" onclick={connect}>Connect</button>
 
+<button data-testid="start-0" onclick={() => startEmpty()}>Start 0 tokens</button>
 <button data-testid="start-3" onclick={() => startTokens(3)}>Start 3 tokens</button>
 <button data-testid="start-10" onclick={() => startTokens(10)}>Start 10 tokens</button>
 <button data-testid="start-boom" onclick={startBoom}>Start boom</button>

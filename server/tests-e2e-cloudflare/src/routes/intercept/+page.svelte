@@ -46,6 +46,10 @@
 
 <button data-testid="send-top-pre" onclick={() => send('top-pre')}>Send top-pre</button>
 <button data-testid="send-top-post" onclick={() => send('top-post')}>Send top-post</button>
+<button data-testid="send-top-passthrough" onclick={() => send('top-passthrough')}>Send top-passthrough</button>
+<button data-testid="send-top-post-passthrough" onclick={() => send('top-post-passthrough')}>Send top-post-passthrough</button>
+<button data-testid="send-top-chain" onclick={() => send('top-chain')}>Send top-chain</button>
+<button data-testid="send-top-post-block" onclick={() => send('top-post-block')}>Send top-post-block</button>
 <button data-testid="send-ns-pre" onclick={() => send('ns-pre', 'ns')}>Send ns-pre</button>
 <button data-testid="send-ns-post" onclick={() => send('ns-post', 'ns')}>Send ns-post</button>
 <button data-testid="send-ch-pre" onclick={() => send('ch-pre', 'room')}>Send ch-pre</button>

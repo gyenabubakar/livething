@@ -77,4 +77,30 @@ test.describe('binary', () => {
     await ctxA.close();
     await ctxB.close();
   });
+
+  test('sendBinary delivers binary data to self', async ({ page }, testInfo) => {
+    const room = `test-${testInfo.testId}`;
+    await page.goto(`/binary?room=${room}`);
+    await page.getByTestId('connect').click();
+    await expect(page.getByTestId('status')).toHaveText('connected');
+
+    // Handler receives binary via onBinary, echoes via ctx.sendBinary()
+    // which delivers the exact bytes back to the same connection
+    await page.getByTestId('send-5').click();
+    await expect(page.getByTestId('last-size')).toHaveText('5');
+    await expect(page.getByTestId('received-sizes')).toContainText('5');
+  });
+
+  test('onBinary fires for each binary frame in sequence', async ({ page }, testInfo) => {
+    const room = `test-${testInfo.testId}`;
+    await page.goto(`/binary?room=${room}`);
+    await page.getByTestId('connect').click();
+    await expect(page.getByTestId('status')).toHaveText('connected');
+
+    await page.getByTestId('send-5').click();
+    await expect(page.getByTestId('last-size')).toHaveText('5');
+
+    await page.getByTestId('send-5').click();
+    await expect(page.getByTestId('received-sizes')).toContainText('5,5');
+  });
 });

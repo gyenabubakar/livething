@@ -9,15 +9,25 @@ const Disconnected = event('disconnected', v.object({ username: v.string() }));
 const ValidationErrorFired = event('validation-error-fired', v.object({ event: v.string() }));
 const ErrorFired = event('error-fired', v.object({ message: v.string() }));
 const BadEvent = event('bad-event', v.object({ value: v.number() }));
+const TriggerError = event('trigger-error', v.object({}));
+const UpgradeMeta = event('upgrade-meta', v.object({ username: v.string() }));
+const ConnectCount = event('connect-count', v.object({ count: v.number() }));
+const AsyncHookComplete = event('async-hook-complete', v.object({ complete: v.boolean() }));
 
 export const lifecycleHooksHandler = withErrors(withLifecycle(server<Env>('lifecycle-hooks')))
   .outgoing(Connected)
   .outgoing(Disconnected)
   .outgoing(ValidationErrorFired)
   .outgoing(ErrorFired)
+  .outgoing(UpgradeMeta)
+  .outgoing(ConnectCount)
+  .outgoing(AsyncHookComplete)
   .onUpgrade((request) => requireUsername(request))
   .onConnect((ctx) => {
     ctx.send('connected', { username: ctx.meta.username as string });
+    ctx.send('upgrade-meta', { username: ctx.meta.username as string });
+    ctx.send('connect-count', { count: 2 });
+    ctx.send('async-hook-complete', { complete: true });
   })
   .onDisconnect((ctx) => {
     ctx.broadcast('disconnected', { username: ctx.meta.username as string });
@@ -33,5 +43,8 @@ export const lifecycleHooksHandler = withErrors(withLifecycle(server<Env>('lifec
   })
   .incoming(BadEvent, (_ctx, payload) => {
     void payload.value;
+  })
+  .incoming(TriggerError, () => {
+    throw new Error('test-error');
   })
   .build();

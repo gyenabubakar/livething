@@ -55,4 +55,29 @@ test.describe('intercept', () => {
     await page.getByTestId('send-ch-post').click();
     await expect(page.getByTestId('echoed')).toContainText('ch:ch-post-rewritten');
   });
+
+  test('pre-intercept returning void passes message through unchanged', async ({
+    page,
+  }, testInfo) => {
+    await openPage(page, `test-${testInfo.testId}`);
+    await page.getByTestId('send-top-passthrough').click();
+    await expect(page.getByTestId('echoed')).toContainText('top:top-passthrough');
+  });
+
+  test('post-intercept returning void passes payload through unchanged', async ({
+    page,
+  }, testInfo) => {
+    await openPage(page, `test-${testInfo.testId}`);
+    await page.getByTestId('send-top-post-passthrough').click();
+    await expect(page.getByTestId('echoed')).toContainText('top:top-post-passthrough');
+  });
+
+  test('post-intercept Block throws and prevents handler execution', async ({ page }, testInfo) => {
+    await openPage(page, `test-${testInfo.testId}`);
+    await page.getByTestId('send-top-post-block').click();
+    await page.waitForTimeout(200);
+    await expect(page.getByTestId('echoed')).toHaveText('');
+    await page.getByTestId('send-top-pre').click();
+    await expect(page.getByTestId('echoed')).toContainText('top:top-pre-rewritten');
+  });
 });

@@ -153,4 +153,28 @@ test.describe('channel-static', () => {
     await ctxA.close();
     await ctxB.close();
   });
+
+  test('connection drop (not manual unsubscribe) still fires onUnsubscribe', async ({
+    browser,
+  }, testInfo) => {
+    const room = `test-${testInfo.testId}`;
+    const ctxA = await browser.newContext();
+    const ctxB = await browser.newContext();
+    const a = await ctxA.newPage();
+    const b = await ctxB.newPage();
+    await openPage(a, room, 'alice');
+    await openPage(b, room, 'bob');
+    await a.getByTestId('subscribe-room').click();
+    await b.getByTestId('subscribe-room').click();
+    await expect(a.getByTestId('subscribe-ok-count')).toHaveText('1');
+    await expect(b.getByTestId('subscribe-ok-count')).toHaveText('1');
+
+    // Close bob's connection without explicit unsubscribe
+    await ctxB.close();
+
+    // Alice should still see bob's "left" system message
+    await expect(a.getByTestId('system-messages')).toContainText('bob left', { timeout: 15_000 });
+
+    await ctxA.close();
+  });
 });

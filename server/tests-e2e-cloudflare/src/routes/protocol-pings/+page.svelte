@@ -31,6 +31,10 @@
 	function sendJsonPing() {
 		ws?.send(JSON.stringify({ event: 'ping' }));
 	}
+
+	if (typeof window !== 'undefined') {
+		(window as unknown as Record<string, unknown>).__ws = () => ws;
+	}
 </script>
 
 <h1>protocol-pings feature</h1>

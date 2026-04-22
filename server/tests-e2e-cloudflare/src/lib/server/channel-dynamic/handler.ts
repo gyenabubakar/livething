@@ -37,6 +37,14 @@ const roomChannel = base.channel(scope('room', /^room:.+$/), (ch) =>
         from: 'system',
         kind: 'system',
       });
+    })
+    .onUnsubscribe((ctx) => {
+      ctx.channel.broadcast('room-message', {
+        channel: ctx.channel.name,
+        text: `${ctx.meta.username} left`,
+        from: 'system',
+        kind: 'system',
+      });
     }),
 );
 

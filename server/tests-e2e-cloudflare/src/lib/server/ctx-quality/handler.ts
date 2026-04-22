@@ -8,7 +8,7 @@ const QualityResult = event(
   'quality-result',
   v.object({
     quality: v.string(),
-    latency: v.number(),
+    latency: v.union([v.number(), v.null()]),
     bufferedAmount: v.number(),
   }),
 );
@@ -19,7 +19,7 @@ export const ctxQualityHandler = withLifecycle(server<Env>('ctx-quality'))
   .incoming(GetQuality, (ctx) => {
     ctx.send('quality-result', {
       quality: ctx.quality,
-      latency: ctx.latency ?? 0,
+      latency: ctx.latency,
       bufferedAmount: ctx.bufferedAmount ?? 0,
     });
   })

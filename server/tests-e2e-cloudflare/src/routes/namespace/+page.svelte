@@ -3,6 +3,9 @@
 	let status = $state<'disconnected' | 'connecting' | 'connected'>('disconnected');
 	let username = $state('testuser');
 	let lastNsMessage = $state('');
+	let nameQueryResult = $state('');
+	let responses = $state<Record<string, string>>({});
+	let correlationCounter = 0;
 
 	function connect() {
 		if (ws) return;
@@ -23,11 +26,33 @@
 			if (typeof ev.data !== 'string') return;
 			const data = JSON.parse(ev.data);
 			if (data.event === 'ns-message') lastNsMessage = data.payload?.text ?? '';
+			const id = data.payload?._correlationId as string | undefined;
+			if (id) {
+				const payload = data.payload ?? {};
+				responses = { ...responses, [id]: JSON.stringify(payload) };
+				if (payload.namespace) {
+					nameQueryResult = payload.namespace;
+				}
+			}
 		};
 	}
 
 	function sendNs(text: string) {
 		ws?.send(JSON.stringify({ event: 'send-ns', payload: { text, _namespace: 'ns' } }));
+	}
+
+	function broadcastNs(text: string) {
+		ws?.send(JSON.stringify({ event: 'broadcast-ns', payload: { text, _namespace: 'ns' } }));
+	}
+
+	function queryNsName() {
+		const id = `req-${++correlationCounter}`;
+		ws?.send(
+			JSON.stringify({
+				event: 'get-ns-info',
+				payload: { _correlationId: id, _namespace: 'ns' },
+			}),
+		);
 	}
 </script>
 
@@ -35,5 +60,8 @@
 <input data-testid="username" bind:value={username} />
 <button data-testid="connect" onclick={connect}>Connect</button>
 <button data-testid="send-ns" onclick={() => sendNs('hello ns')}>Send ns hello</button>
+<button data-testid="broadcast-ns" onclick={() => broadcastNs('broadcast msg')}>Broadcast ns msg</button>
+<button data-testid="query-ns-name" onclick={queryNsName}>Query ns.name</button>
 <span data-testid="status">{status}</span>
 <span data-testid="ns-message">{lastNsMessage}</span>
+<span data-testid="ns-name-result">{nameQueryResult}</span>

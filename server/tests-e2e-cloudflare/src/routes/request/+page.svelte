@@ -51,6 +51,12 @@
 	function subscribeRoom() {
 		ws?.send(JSON.stringify({ event: '_subscribe', payload: { _channel: 'room' } }));
 	}
+	function noResponse() {
+		return request('no-response');
+	}
+	function doubleResponse() {
+		return request('double-response');
+	}
 
 	let lastId = $state('');
 	function click(fn: () => string) {
@@ -65,6 +71,8 @@
 <button data-testid="get-time" onclick={() => click(getTime)}>Get time</button>
 <button data-testid="get-ns-info" onclick={() => click(getNsInfo)}>Get ns info</button>
 <button data-testid="get-ch-info" onclick={() => click(getChannelInfo)}>Get channel info</button>
+<button data-testid="no-response" onclick={() => click(noResponse)}>No response</button>
+<button data-testid="double-response" onclick={() => click(doubleResponse)}>Double response</button>
 
 <span data-testid="status">{status}</span>
 <span data-testid="subscribed">{subscribed ? 'yes' : 'no'}</span>

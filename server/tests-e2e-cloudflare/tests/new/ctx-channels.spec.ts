@@ -86,4 +86,74 @@ test.describe('ctx-channels', () => {
     await ctxA.close();
     await ctxB.close();
   });
+
+  test('ctx.channels.members returns empty array for non-existent channel', async ({
+    page,
+  }, testInfo) => {
+    const room = `test-${testInfo.testId}`;
+    await page.goto(`/ctx-channels?room=${room}`);
+    await page.getByTestId('connect').click();
+    await expect(page.getByTestId('status')).toHaveText('connected');
+
+    // Check members on a channel we never subscribed to
+    await page.getByTestId('get-members').click();
+    await expect(page.getByTestId('members-result')).toHaveText('room:0');
+  });
+
+  test('ctx.channels.members returns multiple peers', async ({ browser }, testInfo) => {
+    const room = `test-${testInfo.testId}`;
+    const ctxA = await browser.newContext();
+    const ctxB = await browser.newContext();
+    const ctxC = await browser.newContext();
+    const a = await ctxA.newPage();
+    const b = await ctxB.newPage();
+    const c = await ctxC.newPage();
+    await a.goto(`/ctx-channels?room=${room}`);
+    await b.goto(`/ctx-channels?room=${room}`);
+    await c.goto(`/ctx-channels?room=${room}`);
+    await a.getByTestId('connect').click();
+    await b.getByTestId('connect').click();
+    await c.getByTestId('connect').click();
+    await a.getByTestId('subscribe-room').click();
+    await b.getByTestId('subscribe-room').click();
+    await c.getByTestId('subscribe-room').click();
+
+    await a.getByTestId('get-members').click();
+    await expect(a.getByTestId('members-result')).toHaveText('room:3');
+
+    await ctxA.close();
+    await ctxB.close();
+    await ctxC.close();
+  });
+
+  test('ctx.channels.kick is silent no-op for non-member tag', async ({ browser }, testInfo) => {
+    const room = `test-${testInfo.testId}`;
+    const ctxA = await browser.newContext();
+    const ctxB = await browser.newContext();
+    const a = await ctxA.newPage();
+    const b = await ctxB.newPage();
+    await a.goto(`/ctx-channels?room=${room}`);
+    await b.goto(`/ctx-channels?room=${room}`);
+    await a.getByTestId('username').fill('user1');
+    await b.getByTestId('username').fill('user2');
+    await a.getByTestId('connect').click();
+    await b.getByTestId('connect').click();
+    await a.getByTestId('subscribe-room').click();
+    await b.getByTestId('subscribe-room').click();
+    await expect(a.getByTestId('subscribed')).toHaveText('yes');
+    await expect(b.getByTestId('subscribed')).toHaveText('yes');
+
+    // Kick with a non-existent tag (user3 never joined)
+    await a.getByTestId('kick-nonmember').click();
+
+    // Positive signal: user2 can still send — if kick had fired, user2 would be gone.
+    await b.getByTestId('send-after-resub').click();
+    await expect(a.getByTestId('room-messages')).toContainText('user2:after-resub');
+
+    // By the time the message was routed, any spurious kicked frame would have arrived.
+    await expect(b.getByTestId('kicked-result')).toHaveText('');
+
+    await ctxA.close();
+    await ctxB.close();
+  });
 });

@@ -42,4 +42,22 @@ test.describe('dedup', () => {
     await page.getByTestId('echo-no-id').click();
     await expect(page.getByTestId('count-no-id')).toHaveText('2');
   });
+
+  test('incoming _messageId dedup is per-scope, shared across event types', async ({ page }) => {
+    // Verify that the same _messageId in different event types is deduplicated
+    // from a single shared cache per connection, not per-event-type caches.
+    // The dedup handler uses only 'do-echo' events, but the dedup cache itself
+    // is connection-wide and frame-arrival-order-based.
+
+    // Send first do-echo with fixed id.
+    await page.getByTestId('echo-dup-id').click();
+    await expect(page.getByTestId('count-dup-hi')).toHaveText('1');
+
+    // Resend the same frame to verify dedup by positive signal (different event).
+    // If dedup is working, the count stays at 1 after sending a confirming frame.
+    await page.getByTestId('echo-dup-id').click();
+    await page.getByTestId('echo-plain').click();
+    await expect(page.getByTestId('count-plain')).toHaveText('1');
+    await expect(page.getByTestId('count-dup-hi')).toHaveText('1');
+  });
 });

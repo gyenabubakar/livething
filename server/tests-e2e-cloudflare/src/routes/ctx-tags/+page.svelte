@@ -14,6 +14,7 @@
 		ws = new WebSocket(
 			`${protocol}//${location.host}/ws/ctx-tags?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
+		(window as unknown as { __ws: WebSocket }).__ws = ws;
 		ws.onopen = () => {
 			status = 'connected';
 		};

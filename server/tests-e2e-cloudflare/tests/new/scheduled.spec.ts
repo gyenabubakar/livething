@@ -105,4 +105,57 @@ test.describe('scheduled', () => {
       await expect(page.getByTestId('dead-letter')).toContainText('always-fail-task');
     }).toPass({ timeout: 10_000 });
   });
+
+  test('scheduled empty backoff retry: fails once and goes to DLQ', async ({ page }, testInfo) => {
+    await openPage(page, `test-${testInfo.testId}`);
+    await page.getByTestId('trigger-empty-backoff').click();
+    // With retry: [], task fires once, fails, goes to DLQ (no retries).
+    await expect(async () => {
+      await page.getByTestId('query-dlq').click();
+      await expect(page.getByTestId('dead-letter')).toContainText('empty-backoff-task');
+    }).toPass({ timeout: 10_000 });
+  });
+
+  test('scheduled task: ctx.broadcast sends to all connections', async ({ page }, testInfo) => {
+    const room = `test-${testInfo.testId}`;
+    // Open two connections.
+    await openPage(page, room, 'user1');
+    const page2 = await page.context().newPage();
+    await openPage(page2, room, 'user2');
+
+    // Schedule task that broadcasts.
+    await page.getByTestId('schedule-broadcast-task').click();
+    // Both connections should receive the broadcast.
+    await expect(page.getByTestId('broadcast-result')).toContainText('from-task');
+    await expect(page2.getByTestId('broadcast-result')).toContainText('from-task');
+    await page2.close();
+  });
+
+  test('scheduled task: ctx.sendTo tags targets specific connections', async ({
+    page,
+  }, testInfo) => {
+    const room = `test-${testInfo.testId}`;
+    await openPage(page, room, 'user1');
+    const page2 = await page.context().newPage();
+    await openPage(page2, room, 'user2');
+
+    // Tag user2 as 'vip'.
+    await page2.getByTestId('tag-vip').click();
+    await page.getByTestId('schedule-send-to-tag').click();
+    // Only user2 (vip) receives it.
+    await expect(page2.getByTestId('send-to-tag-result')).toContainText('tagged-from-task');
+    await expect(page.getByTestId('send-to-tag-result')).toHaveText('');
+    await page2.close();
+  });
+
+  test('cancelScheduled on never-registered task id succeeds silently', async ({
+    page,
+  }, testInfo) => {
+    await openPage(page, `test-${testInfo.testId}`);
+    await page.getByTestId('cancel-nonexistent-task').click();
+    await expect(page.getByTestId('cancel-nonexistent-ok')).toHaveText('yes');
+    // Positive signal: connection still healthy.
+    await page.getByTestId('schedule-cleanup-soon').click();
+    await expect(page.getByTestId('cleanup-fired')).toHaveText('yes');
+  });
 });

@@ -28,18 +28,17 @@
 		};
 	}
 
-	function triggerNotFound() {
-		ws?.send(JSON.stringify({ event: 'trigger-not-found', payload: {} }));
-	}
-	function triggerForbidden() {
-		ws?.send(JSON.stringify({ event: 'trigger-forbidden', payload: {} }));
+	function send(event: string) {
+		ws?.send(JSON.stringify({ event, payload: {} }));
 	}
 </script>
 
 <h1>errors-factory feature</h1>
 <input data-testid="username" bind:value={username} />
 <button data-testid="connect" onclick={connect}>Connect</button>
-<button data-testid="trigger-not-found" onclick={triggerNotFound}>Trigger not-found</button>
-<button data-testid="trigger-forbidden" onclick={triggerForbidden}>Trigger forbidden</button>
+<button data-testid="trigger-not-found" onclick={() => send('trigger-not-found')}>Trigger not-found</button>
+<button data-testid="trigger-forbidden" onclick={() => send('trigger-forbidden')}>Trigger forbidden</button>
+<button data-testid="trigger-simple" onclick={() => send('trigger-simple')}>Trigger simple</button>
+<button data-testid="trigger-unregistered" onclick={() => send('trigger-unregistered')}>Trigger unregistered</button>
 <span data-testid="status">{status}</span>
 <span data-testid="error-result">{errorResult}</span>

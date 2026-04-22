@@ -97,4 +97,34 @@ test.describe('lifecycle-hooks', () => {
     await page.getByTestId('send-bad').click();
     await expect(page.getByTestId('validation-error')).toHaveText('bad-event');
   });
+
+  test('onError fires when an error occurs inside a lifecycle hook', async ({ page }, testInfo) => {
+    await openPage(page, `test-${testInfo.testId}`);
+    await page.getByTestId('trigger-error').click();
+    await expect(page.getByTestId('error-message')).toHaveText(/test-error/);
+  });
+
+  test('onShutdown fires even when no clients are connected', async ({ page }, testInfo) => {
+    const room = `test-${testInfo.testId}`;
+    const shutdownResponse = await page.request.post(`/ws/lifecycle-hooks/shutdown?room=${room}`);
+    expect(shutdownResponse.status()).toBe(204);
+  });
+
+  test('onUpgrade can attach meta and tags to connection', async ({ page }, testInfo) => {
+    const room = `test-${testInfo.testId}`;
+    await openPage(page, room, 'alice');
+    await expect(page.getByTestId('upgrade-meta')).toHaveText('alice');
+  });
+
+  test('multiple onConnect hooks run when registered multiple times', async ({
+    page,
+  }, testInfo) => {
+    await openPage(page, `test-${testInfo.testId}`, 'alice');
+    await expect(page.getByTestId('connect-count')).toHaveText(/2/);
+  });
+
+  test('async lifecycle hooks are awaited before proceeding', async ({ page }, testInfo) => {
+    await openPage(page, `test-${testInfo.testId}`, 'alice');
+    await expect(page.getByTestId('async-hook-complete')).toHaveText('yes');
+  });
 });

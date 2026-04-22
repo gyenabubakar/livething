@@ -24,6 +24,10 @@ const base = withChannels(withLifecycle(server<Env>('ctx-channels')))
   })
   .incoming(KickInChannel, (ctx, payload) => {
     ctx.channels.kick(payload.channel, payload.tag, payload.reason);
+  })
+  .incoming(event('kick-nonmember', v.object({})), (ctx) => {
+    // Attempt to kick a tag that never existed
+    ctx.channels.kick('room', 'user3', 'Non-existent user');
   });
 
 const roomChannel = base.channel('room', (c) =>

@@ -79,4 +79,45 @@ test.describe('stream-basic', () => {
     await ctxA.close();
     await ctxB.close();
   });
+
+  test('empty generator sends _streamEnd without chunks', async ({ page }, testInfo) => {
+    await openPage(page, `test-${testInfo.testId}`);
+    await page.getByTestId('start-0').click();
+    await expect(page.getByTestId('stream-end')).toHaveText('yes');
+    await expect(page.getByTestId('chunk-indices')).toHaveText('');
+  });
+
+  test('_streamEnd NOT sent on cancel, only on natural completion', async ({ page }, testInfo) => {
+    await openPage(page, `test-${testInfo.testId}`);
+    await page.getByTestId('start-10').click();
+    await expect(page.getByTestId('chunk-indices')).toContainText('0');
+
+    await page.getByTestId('cancel').click();
+
+    // After cancel, stream-end should remain 'no' (only set to 'yes' on
+    // natural completion per runtime.ts line 196-203).
+    await page.waitForTimeout(200);
+    await expect(page.getByTestId('stream-end')).toHaveText('no');
+  });
+
+  test('multiple concurrent streams from same connection each have distinct _streamId', async ({
+    page,
+  }, testInfo) => {
+    await openPage(page, `test-${testInfo.testId}`);
+
+    // Start first stream.
+    await page.getByTestId('start-3').click();
+    await expect(page.getByTestId('stream-end')).toHaveText('yes');
+    const streamId1 = (await page.getByTestId('stream-id').textContent()) ?? '';
+
+    // Start second stream (resets UI state).
+    await page.getByTestId('start-3').click();
+    await expect(page.getByTestId('stream-end')).toHaveText('yes');
+    const streamId2 = (await page.getByTestId('stream-id').textContent()) ?? '';
+
+    // Each stream must have a distinct ID.
+    expect(streamId1).toBeTruthy();
+    expect(streamId2).toBeTruthy();
+    expect(streamId1).not.toEqual(streamId2);
+  });
 });

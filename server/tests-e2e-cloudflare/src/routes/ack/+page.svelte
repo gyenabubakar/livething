@@ -38,6 +38,10 @@
 	function sendThrow(ackId: string) {
 		ws?.send(JSON.stringify({ event: 'throw-me', payload: { _ackId: ackId } }));
 	}
+
+	function sendNoAckId() {
+		ws?.send(JSON.stringify({ event: 'ack-check', payload: {} }));
+	}
 </script>
 
 <h1>ack feature</h1>
@@ -46,6 +50,7 @@
 <button data-testid="send-ok" onclick={() => sendAckCheck('ack-ok')}>Send (ack-ok)</button>
 <button data-testid="send-ok-2" onclick={() => sendAckCheck('ack-ok-2')}>Send (ack-ok-2)</button>
 <button data-testid="send-throw" onclick={() => sendThrow('ack-throw')}>Throw (ack-throw)</button>
+<button data-testid="send-no-ack-id" onclick={sendNoAckId}>Send (no _ackId)</button>
 <span data-testid="status">{status}</span>
 <span data-testid="reply">{ackCheckOk ? 'yes' : 'no'}</span>
 <span data-testid="ack-ids">{ackIds.join(',')}</span>

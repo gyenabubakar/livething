@@ -4,6 +4,7 @@
 	let username = $state('testuser');
 	let titles = $state<string[]>([]);
 	let oneCount = $state<number | null>(null);
+	let oneEmptyCount = $state<number | null>(null);
 	let rawRows = $state<string>('');
 
 	function connect() {
@@ -30,6 +31,9 @@
 			if (data.event === 'sql-one-result') {
 				oneCount = data.payload?.row?.c ?? null;
 			}
+			if (data.event === 'sql-one-empty-result') {
+				oneEmptyCount = data.payload?.row?.c ?? null;
+			}
 			if (data.event === 'sql-raw-result') {
 				rawRows = JSON.stringify(data.payload?.rows ?? []);
 			}
@@ -48,6 +52,9 @@
 	function sqlRaw() {
 		ws?.send(JSON.stringify({ event: 'sql-raw-probe', payload: {} }));
 	}
+	function sqlOneEmpty() {
+		ws?.send(JSON.stringify({ event: 'sql-one-empty-probe', payload: {} }));
+	}
 </script>
 
 <h1>ctx-sql feature</h1>
@@ -59,9 +66,11 @@
 </button>
 <button data-testid="get-notes" onclick={getNotes}>Get notes</button>
 <button data-testid="sql-one" onclick={sqlOne}>SqlOne probe</button>
+<button data-testid="sql-one-empty" onclick={sqlOneEmpty}>SqlOne empty probe</button>
 <button data-testid="sql-raw" onclick={sqlRaw}>SqlRaw probe</button>
 
 <span data-testid="status">{status}</span>
 <span data-testid="note-titles">{titles.join(',')}</span>
 <span data-testid="one-count">{oneCount ?? ''}</span>
+<span data-testid="one-empty-count">{oneEmptyCount ?? ''}</span>
 <span data-testid="raw-rows">{rawRows}</span>

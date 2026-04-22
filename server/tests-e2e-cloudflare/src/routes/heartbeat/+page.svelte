@@ -22,10 +22,17 @@
 			ws = null;
 		};
 	}
+
+	function sendEcho() {
+		if (ws && ws.readyState === WebSocket.OPEN) {
+			ws.send(JSON.stringify({ type: 'echo', timestamp: Date.now() }));
+		}
+	}
 </script>
 
 <h1>heartbeat feature</h1>
 <input data-testid="username" bind:value={username} />
 <button data-testid="connect" onclick={connect}>Connect</button>
+<button data-testid="send-echo" onclick={sendEcho}>Send Echo</button>
 <span data-testid="status">{status}</span>
 <span data-testid="close-code">{closeCode ?? ''}</span>

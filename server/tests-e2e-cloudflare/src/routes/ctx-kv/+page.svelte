@@ -44,6 +44,9 @@
 	function kvDelete(key: string) {
 		ws?.send(JSON.stringify({ event: 'kv-delete', payload: { key } }));
 	}
+	function kvSetGet(key: string, value: string) {
+		ws?.send(JSON.stringify({ event: 'kv-set-get', payload: { key, value } }));
+	}
 </script>
 
 <h1>ctx-kv feature</h1>
@@ -62,7 +65,27 @@
 </button>
 <button data-testid="get-ttl" onclick={() => kvGet('ttl')}>Get ttl</button>
 
+<button data-testid="get-nonexistent" onclick={() => kvGet('nonexistent')}>Get nonexistent</button>
+<button data-testid="set-overwrite-v1" onclick={() => kvSet('overwrite', 'first')}>
+	Set overwrite=first
+</button>
+<button data-testid="set-overwrite-v2" onclick={() => kvSet('overwrite', 'second')}>
+	Set overwrite=second
+</button>
+<button data-testid="get-overwrite" onclick={() => kvGet('overwrite')}>Get overwrite</button>
+
+<button data-testid="delete-never-set" onclick={() => kvDelete('never-set')}>Delete never-set</button>
+<button data-testid="get-never-set" onclick={() => kvGet('never-set')}>Get never-set</button>
+
+<button data-testid="set-get-atomic" onclick={() => kvSetGet('atomic', 'atomic-val')}>
+	Set then get atomic
+</button>
+
 <span data-testid="status">{status}</span>
 <span data-testid="value-basic">{latest('basic')}</span>
 <span data-testid="value-gone">{latest('gone')}</span>
 <span data-testid="value-ttl">{latest('ttl')}</span>
+<span data-testid="value-nonexistent">{latest('nonexistent')}</span>
+<span data-testid="value-overwrite">{latest('overwrite')}</span>
+<span data-testid="value-never-set">{latest('never-set')}</span>
+<span data-testid="value-atomic">{latest('atomic')}</span>

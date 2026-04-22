@@ -32,4 +32,29 @@ test.describe('ack', () => {
     await expect(page.getByTestId('ack-ids')).toContainText('ack-ok-2');
     await expect(page.getByTestId('ack-ids')).not.toContainText('ack-throw');
   });
+  test('multiple acks in sequence each carry their own _ackId', async ({ page }) => {
+    await page.getByTestId('send-ok').click();
+    await expect(page.getByTestId('ack-ids')).toContainText('ack-ok');
+
+    await page.getByTestId('send-ok-2').click();
+    await expect(page.getByTestId('ack-ids')).toContainText('ack-ok-2');
+
+    // Both should be present in the comma-separated list.
+    const ackIds = await page.getByTestId('ack-ids').textContent();
+    expect(ackIds).toContain('ack-ok');
+    expect(ackIds).toContain('ack-ok-2');
+  });
+  test('message without _ackId does not emit _ack', async ({ page }) => {
+    // Send a message with no _ackId field at all. Add a driver button for this.
+    await page.getByTestId('send-no-ack-id').click();
+
+    // Follow with a known ack to prove the wire is still healthy and the
+    // previous message was fully processed.
+    await page.getByTestId('send-ok').click();
+    await expect(page.getByTestId('ack-ids')).toContainText('ack-ok');
+
+    // The list should only contain ack-ok, not any undefined/null ack.
+    const ackIds = await page.getByTestId('ack-ids').textContent();
+    expect(ackIds).toBe('ack-ok');
+  });
 });

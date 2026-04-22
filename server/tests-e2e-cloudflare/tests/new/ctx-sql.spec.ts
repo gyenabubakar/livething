@@ -35,4 +35,22 @@ test.describe('ctx-sql', () => {
     await expect(page.getByTestId('raw-rows')).toContainText(/^\[\[/);
     await expect(page.getByTestId('raw-rows')).toContainText('Test Note');
   });
+
+  test('exec with parameter binding (?) correctly inserts and retrieves', async ({ page }) => {
+    await page.getByTestId('save-note').click();
+    // Note: handler uses INSERT INTO notes (title, body) VALUES (?, ?)
+    // so if binding is broken, the title would be the literal '?' or undefined
+    await expect(page.getByTestId('note-titles')).toContainText('Test Note');
+    // Verify the exact title was inserted (not a placeholder)
+    const titles = await page.getByTestId('note-titles').textContent();
+    expect(titles).toBe('Test Note');
+  });
+
+  test('SqlResult.one returns null when no rows match', async ({ page }) => {
+    await page.getByTestId('sql-one-empty').click();
+    // Query with WHERE id = -999 (no match), one() should return null
+    // When row is null, display should be empty
+    const count = await page.getByTestId('one-empty-count').textContent();
+    expect(count).toBe('');
+  });
 });

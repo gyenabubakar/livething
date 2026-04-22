@@ -94,4 +94,55 @@ test.describe('channel-dynamic', () => {
     await ctxA.close();
     await ctxB.close();
   });
+
+  test('onUnsubscribe broadcasts a system message when client leaves the dynamic channel', async ({
+    browser,
+  }, testInfo) => {
+    const room = `test-${testInfo.testId}`;
+    const ctxA = await browser.newContext();
+    const ctxB = await browser.newContext();
+    const a = await ctxA.newPage();
+    const b = await ctxB.newPage();
+    await openPage(a, room, 'alice');
+    await a.getByTestId('sub-general').click();
+    await expect(a.getByTestId('subscribe-ok')).toContainText('room:general');
+
+    await openPage(b, room, 'bob');
+    await b.getByTestId('sub-general').click();
+    await expect(a.getByTestId('system-msgs-general')).toContainText('bob entered');
+
+    await b.close();
+    await expect(a.getByTestId('system-msgs-general')).toContainText('bob left');
+
+    await ctxA.close();
+    await ctxB.close();
+  });
+
+  test('two clients on the same dynamic channel name are in the same broadcast group', async ({
+    browser,
+  }, testInfo) => {
+    const room = `test-${testInfo.testId}`;
+    const ctxA = await browser.newContext();
+    const ctxB = await browser.newContext();
+    const a = await ctxA.newPage();
+    const b = await ctxB.newPage();
+    await openPage(a, room, 'alice');
+    await openPage(b, room, 'bob');
+
+    // Both subscribe to the SAME dynamic channel (room:general)
+    await a.getByTestId('sub-general').click();
+    await b.getByTestId('sub-general').click();
+    await expect(a.getByTestId('subscribe-ok')).toContainText('room:general');
+    await expect(b.getByTestId('subscribe-ok')).toContainText('room:general');
+
+    // ctx.channel.broadcast is peer-only; round-trip to verify the shared group.
+    await a.getByTestId('send-general').click();
+    await expect(b.getByTestId('user-msgs-general')).toContainText('alice:hello-general');
+
+    await b.getByTestId('send-general').click();
+    await expect(a.getByTestId('user-msgs-general')).toContainText('bob:hello-general');
+
+    await ctxA.close();
+    await ctxB.close();
+  });
 });

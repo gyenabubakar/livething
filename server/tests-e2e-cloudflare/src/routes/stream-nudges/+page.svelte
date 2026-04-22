@@ -52,6 +52,11 @@
 	function pause() {
 		ws?.send(JSON.stringify({ event: 'pause', payload: { _streamId: lastStreamId } }));
 	}
+	function pauseMultiple(count: number) {
+		for (let i = 0; i < count; i++) {
+			ws?.send(JSON.stringify({ event: 'pause', payload: { _streamId: lastStreamId } }));
+		}
+	}
 	function speedUp(factor: number) {
 		ws?.send(
 			JSON.stringify({ event: 'speed-up', payload: { factor, _streamId: lastStreamId } }),
@@ -68,6 +73,7 @@
 	Start long
 </button>
 <button data-testid="pause" onclick={pause}>Pause</button>
+<button data-testid="pause-multiple" onclick={() => pauseMultiple(3)}>Pause x3</button>
 <button data-testid="speed-up" onclick={() => speedUp(50)}>Speed up x50</button>
 
 <span data-testid="status">{status}</span>

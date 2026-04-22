@@ -6,6 +6,7 @@ import { requireUsername } from '../_shared/upgrade.ts';
 
 const StartTokens = event('start-tokens', v.object({ count: v.number() }));
 const StartBoom = event('start-boom', v.object({}));
+const StartEmpty = event('start-empty', v.object({}));
 const Token = v.object({ index: v.number() });
 
 export const streamBasicHandler = withStreams(withLifecycle(server<Env>('stream-basic')))
@@ -26,6 +27,11 @@ export const streamBasicHandler = withStreams(withLifecycle(server<Env>('stream-
       yield { index: 0 };
       await new Promise((r) => setTimeout(r, 20));
       throw new Error('boom');
+    }),
+  )
+  .stream(StartEmpty, Token, (s) =>
+    s.generate(async function* () {
+      // Generator yields nothing; immediately sends _streamEnd
     }),
   )
   .build();

@@ -1,8 +1,8 @@
 export { WebSocketServer } from './lib/server/durable-object.ts';
-export { ReplayServer } from './lib/server-replay/durable-object.ts';
-export { ReplayCustomServer } from './lib/server-replay-custom/durable-object.ts';
-export { ReplaySnapshotServer } from './lib/server-replay-snapshot/durable-object.ts';
-export { ModulesServer } from './lib/server-modules/durable-object.ts';
+export { ReplayServer } from './lib/server/replay-history/durable-object.ts';
+export { ReplayCustomServer } from './lib/server/replay-custom/durable-object.ts';
+export { ReplaySnapshotServer } from './lib/server/replay-snapshot/durable-object.ts';
+export { ModulesServer } from './lib/server/modules/durable-object.ts';
 export { RejectHttpServer } from './lib/server-reject-http/durable-object.ts';
 export { AckServer } from './lib/server/ack/durable-object.ts';
 export { BinaryServer } from './lib/server/binary/durable-object.ts';

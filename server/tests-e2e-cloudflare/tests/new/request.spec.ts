@@ -31,4 +31,15 @@ test.describe('request', () => {
     await page.getByTestId('get-ch-info').click();
     await expect(page.getByTestId('last-response')).toContainText('"channel":"room"');
   });
+
+  test('handler that never calls ctx.respond leaves request hanging (no response received)', async ({
+    page,
+  }, testInfo) => {
+    await openPage(page, `test-${testInfo.testId}`);
+    await page.getByTestId('no-response').click();
+    // Wait 2 seconds to ensure no response arrives
+    await page.waitForTimeout(2000);
+    const response = await page.getByTestId('last-response').textContent();
+    expect(response).toBe('');
+  });
 });

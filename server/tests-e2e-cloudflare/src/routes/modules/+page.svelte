@@ -23,6 +23,8 @@
 	let everyTickCount = $state(0);
 	let flakyResult = $state('');
 	let dlqResult = $state('');
+	let errorLog = $state('');
+	let moduleTaskDataResult = $state('');
 
 	function connect() {
 		if (ws) return;
@@ -108,6 +110,12 @@
 					break;
 				case 'module-dlq-result':
 					dlqResult = `${payload.taskId}:attempts=${payload.attempts}:${payload.error}`;
+					break;
+				case 'error-result':
+					errorLog = JSON.stringify(payload);
+					break;
+				case 'module-task-data-result':
+					moduleTaskDataResult = payload.result as string;
 					break;
 			}
 		};
@@ -257,6 +265,26 @@
 		<div data-testid="module-every-count">{everyTickCount}</div>
 		<div data-testid="module-flaky-result">{flakyResult}</div>
 		<div data-testid="module-dlq-result">{dlqResult}</div>
+	</section>
+
+	<section>
+		<h2>Module Error Handling</h2>
+		<button
+			data-testid="module-error-btn"
+			onclick={() => send('trigger-module-error', {})}
+			disabled={status !== 'connected'}>Trigger Module Error</button
+		>
+		<div data-testid="error-log">{errorLog}</div>
+	</section>
+
+	<section>
+		<h2>Module Scheduled with Data Validation</h2>
+		<button
+			data-testid="trigger-module-task-with-data-btn"
+			onclick={() => send('trigger-module-task-with-data', {})}
+			disabled={status !== 'connected'}>Trigger Task with Data</button
+		>
+		<div data-testid="module-task-data-result">{moduleTaskDataResult}</div>
 	</section>
 
 	<section>
