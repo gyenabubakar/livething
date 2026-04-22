@@ -7,6 +7,10 @@
 	let savedNotes = $state<Array<{ title: string; body: string }>>([]);
 	let tags = $state<string[]>([]);
 	let taggedMessages = $state<string[]>([]);
+	let slowStreamId = $state('');
+	let slowStreamOk = $state(false);
+	let slowStreamError = $state('');
+	let slowStreamChunks = $state<number[]>([]);
 
 	function connect() {
 		if (ws) return;
@@ -33,6 +37,16 @@
 			if (data.event === 'tag-result') tags = data.payload.tags;
 			if (data.event === 'tagged-message') {
 				taggedMessages = [...taggedMessages, `${data.payload.from}:${data.payload.text}`];
+			}
+			if (data.event === '_streamOk' && data.payload?._streamId) {
+				slowStreamId = data.payload._streamId;
+				slowStreamOk = true;
+			}
+			if (data.event === 'start-slow-stream' && typeof data.payload?.index === 'number') {
+				slowStreamChunks = [...slowStreamChunks, data.payload.index];
+			}
+			if (data.event === '_error' && data.payload?._streamId) {
+				slowStreamError = `${data.payload.code}:${data.payload._streamId}`;
 			}
 		};
 	}
@@ -62,6 +76,18 @@
 	function sendToTag(tag: string, text: string) {
 		ws?.send(JSON.stringify({ event: 'send-to-tag', payload: { tag, text } }));
 	}
+
+	function startSlowStream() {
+		slowStreamId = '';
+		slowStreamOk = false;
+		slowStreamError = '';
+		slowStreamChunks = [];
+		ws?.send(JSON.stringify({ event: 'start-slow-stream', payload: {} }));
+	}
+
+	function wakeWithPing() {
+		ws?.send(JSON.stringify({ event: 'get-notes', payload: {} }));
+	}
 </script>
 
 <h1>hibernation feature</h1>
@@ -83,9 +109,15 @@
 <button data-testid="send-to-sleepers" onclick={() => sendToTag('sleeper', 'hello-sleeper-after-wake')}>
 	SendTo sleepers
 </button>
+<button data-testid="start-slow-stream" onclick={startSlowStream}>Start slow stream</button>
+<button data-testid="wake-with-ping" onclick={wakeWithPing}>Wake with ping</button>
 <span data-testid="status">{status}</span>
 <span data-testid="subscribed">{subscribed ? 'yes' : 'no'}</span>
 <span data-testid="room-messages">{roomMessages.join(',')}</span>
 <span data-testid="saved-notes">{savedNotes.map(n => `${n.title}:${n.body}`).join('|')}</span>
 <span data-testid="tags">{tags.join(',')}</span>
 <span data-testid="tagged-messages">{taggedMessages.join(',')}</span>
+<span data-testid="slow-stream-ok">{slowStreamOk ? 'yes' : 'no'}</span>
+<span data-testid="slow-stream-id">{slowStreamId}</span>
+<span data-testid="slow-stream-error">{slowStreamError}</span>
+<span data-testid="slow-stream-chunks">{slowStreamChunks.join(',')}</span>

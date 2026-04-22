@@ -4,7 +4,6 @@
 	let username = $state('testuser');
 	let echoResult = $state('');
 	let blockReply = $state('');
-	let skipReply = $state('');
 	let deferResult = $state('');
 	let deferExhausted = $state('');
 	let validationError = $state('');
@@ -35,9 +34,6 @@
 				case 'block-reply':
 					blockReply = `leaked:${data.payload?.leaked}`;
 					break;
-				case 'skip-reply':
-					skipReply = `leaked:${data.payload?.leaked}`;
-					break;
 				case 'defer-result':
 					deferResult = 'deferred-received';
 					break;
@@ -65,7 +61,6 @@
 
 <button data-testid="do-echo" onclick={() => send('do-echo', { text: 'alive' })}>Do echo</button>
 <button data-testid="block-test" onclick={() => send('block-test')}>Block test</button>
-<button data-testid="skip-test" onclick={() => send('skip-test')}>Skip test</button>
 <button data-testid="defer-test" onclick={() => send('defer-test')}>Defer test</button>
 <button data-testid="always-defer" onclick={() => send('always-defer')}>Always defer</button>
 <button data-testid="manual-validation" onclick={() => send('manual-validation')}>
@@ -87,7 +82,6 @@
 <span data-testid="status">{status}</span>
 <span data-testid="echo-result">{echoResult}</span>
 <span data-testid="block-reply">{blockReply}</span>
-<span data-testid="skip-reply">{skipReply}</span>
 <span data-testid="defer-result">{deferResult}</span>
 <span data-testid="defer-exhausted">{deferExhausted}</span>
 <span data-testid="validation-error">{validationError}</span>

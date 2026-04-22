@@ -168,8 +168,6 @@ function createMatchesFn<TCode extends string, TDetail>(
 //
 // These are signals to the wskit engine — they're not sent to the client.
 // Throw them from handlers, intercepts, or hooks to control message flow.
-// Both server and client share Block and Skip.
-
 /**
  * Drop the current message silently. No error is sent to the client,
  * the handler never fires (or stops executing if thrown mid-handler).
@@ -182,19 +180,6 @@ function createMatchesFn<TCode extends string, TDetail>(
  * ```
  */
 export const Block = Object.freeze({ __wskit: 'block' as const });
-
-/**
- * Skip the current hook and pass the message along to the next handler.
- * Unlike `Block` (which drops the message entirely), `Skip` means
- * "I don't handle this one — let someone else."
- *
- * ```ts
- * hooks.onIncoming((message) => {
- *   if (message.event !== 'my-event') throw Skip;
- * });
- * ```
- */
-export const Skip = Object.freeze({ __wskit: 'skip' as const });
 
 // ---------------------------------------------------------------------------
 // error() — define application errors

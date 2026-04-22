@@ -1,4 +1,4 @@
-import { Block, CloseCodes, error, Skip, ValidationFailed, WskitError } from '~/errors.ts';
+import { Block, CloseCodes, error, ValidationFailed, WskitError } from '~/errors.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
@@ -261,24 +261,6 @@ describe('Block', () => {
 
   it('has no other properties', () => {
     expect(Object.keys(Block)).toEqual(['__wskit']);
-  });
-});
-
-// ===========================================================================
-// Skip
-// ===========================================================================
-
-describe('Skip', () => {
-  it('has __wskit tag', () => {
-    expect(Skip.__wskit).toBe('skip');
-  });
-
-  it('is frozen', () => {
-    expect(Object.isFrozen(Skip)).toBe(true);
-  });
-
-  it('has no other properties', () => {
-    expect(Object.keys(Skip)).toEqual(['__wskit']);
   });
 });
 

@@ -5,7 +5,6 @@ import {
   Defer,
   DeferExhausted,
   Disconnect,
-  Skip,
   ValidationFailed,
   withErrors,
 } from '@wskit/server/errors';
@@ -19,9 +18,6 @@ const Echoed = event('echoed', v.object({ text: v.string() }));
 
 const BlockTest = event('block-test', v.object({}));
 const BlockReply = event('block-reply', v.object({ leaked: v.boolean() }));
-
-const SkipTest = event('skip-test', v.object({}));
-const SkipReply = event('skip-reply', v.object({ leaked: v.boolean() }));
 
 const DeferTest = event('defer-test', v.object({}));
 const DeferResult = event('defer-result', v.object({ received: v.boolean() }));
@@ -44,7 +40,6 @@ const base = withChannels(
 )
   .outgoing(Echoed)
   .outgoing(BlockReply)
-  .outgoing(SkipReply)
   .outgoing(DeferResult)
   .outgoing(DeferExhaustedResult)
   .outgoing(ValidationErrorFired)
@@ -62,7 +57,6 @@ const base = withChannels(
   })
   .intercept((_ctx, message) => {
     if (message.event === 'block-test') throw Block;
-    if (message.event === 'skip-test') throw Skip;
     return message;
   })
   .incoming(DoEcho, (ctx, payload) => {
@@ -70,9 +64,6 @@ const base = withChannels(
   })
   .incoming(BlockTest, (ctx) => {
     ctx.send('block-reply', { leaked: true });
-  })
-  .incoming(SkipTest, (ctx) => {
-    ctx.send('skip-reply', { leaked: true });
   })
   .incoming(DeferTest, async (ctx) => {
     const key = `defer:${ctx.id}`;

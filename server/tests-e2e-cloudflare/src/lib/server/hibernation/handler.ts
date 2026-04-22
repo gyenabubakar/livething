@@ -3,6 +3,7 @@ import { withChannels } from '@wskit/server/channels';
 import { withHibernation } from '@wskit/server/hibernation';
 import { withInfrastructure } from '@wskit/server/infrastructure';
 import { withLifecycle } from '@wskit/server/lifecycle';
+import { withStreams } from '@wskit/server/streams';
 import * as v from 'valibot';
 import { requireUsername } from '../_shared/upgrade.ts';
 
@@ -19,8 +20,11 @@ const TagResult = event('tag-result', v.object({ tags: v.array(v.string()) }));
 const SendToTag = event('send-to-tag', v.object({ tag: v.string(), text: v.string() }));
 const TaggedMessage = event('tagged-message', v.object({ text: v.string(), from: v.string() }));
 
-const base = withChannels(
-  withHibernation(withInfrastructure(withLifecycle(server<Env>('hibernation')))),
+const StartSlowStream = event('start-slow-stream', v.object({}));
+const SlowChunk = v.object({ index: v.number() });
+
+const base = withStreams(
+  withChannels(withHibernation(withInfrastructure(withLifecycle(server<Env>('hibernation'))))),
 )
   .hibernation()
   .outgoing(NotesList)
@@ -45,6 +49,15 @@ const roomChannel = base.channel('room', (c) =>
 );
 
 export const hibernationHandler = base
+  .stream(StartSlowStream, SlowChunk, (s) =>
+    s.generate(async function* () {
+      for (let i = 0; i < 10; i++) {
+        yield { index: i };
+        // Long gap so the DO can hibernate between yields.
+        await new Promise((r) => setTimeout(r, 2_000));
+      }
+    }),
+  )
   .use(roomChannel)
   .incoming(SaveNote, (ctx, payload) => {
     ctx.sql.exec('INSERT INTO notes (title, body) VALUES (?, ?)', payload.title, payload.body);

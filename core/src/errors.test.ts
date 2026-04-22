@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 
-import { Block, CloseCodes, error, Skip, ValidationFailed, WskitError } from '~/errors.ts';
+import { Block, CloseCodes, error, ValidationFailed, WskitError } from '~/errors.ts';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type { ErrorDef } from '~/errors.ts';
 
@@ -166,20 +166,14 @@ error('NotFound');
 error('SCREAMING');
 
 // ===========================================================================
-// 9. Block and Skip — frozen singletons
+// 9. Block — frozen singleton
 // ===========================================================================
 
 const _blockWskit: 'block' = Block.__wskit;
 void _blockWskit;
 
-const _skipWskit: 'skip' = Skip.__wskit;
-void _skipWskit;
-
 // @ts-expect-error — Block is frozen, cannot add properties
 Block.extra = true;
-
-// @ts-expect-error — Skip is frozen, cannot add properties
-Skip.extra = true;
 
 // ===========================================================================
 // 10. ValidationFailed — built-in error def with factory

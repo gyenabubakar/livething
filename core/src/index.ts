@@ -3,7 +3,6 @@ export {
   WskitError,
   CloseCodes,
   Block,
-  Skip,
   ValidationFailed,
   ChannelNotFound,
 } from './errors.ts';

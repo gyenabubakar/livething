@@ -26,11 +26,6 @@ test.describe('errors-control-flow', () => {
     await expect(page.getByTestId('block-reply')).toHaveText('');
   });
 
-  test('Skip in pre-intercept: message passes through to the handler', async ({ page }) => {
-    await page.getByTestId('skip-test').click();
-    await expect(page.getByTestId('skip-reply')).toHaveText('leaked:true');
-  });
-
   test('manual ValidationFailed triggers onValidationError', async ({ page }) => {
     await page.getByTestId('manual-validation').click();
     await expect(page.getByTestId('validation-error')).toHaveText(
