@@ -102,8 +102,7 @@
   },
   "dependencies": {
     "@standard-schema/spec": "^1.1.0",
-    "@wskit/core": "workspace:*",
-    "@wskit/shared": "workspace:*"
+    "@wskit/core": "workspace:*"
   },
   "devDependencies": {
     "valibot": "^1.3.1",

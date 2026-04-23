@@ -1,7 +1,7 @@
 import { error } from '~/errors/errors.ts';
-import type { ErrorsPrimitive } from '~/errors/primitive.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
+import type { ErrorsPrimitive } from '~/errors/primitive.ts';
 import { defineModule, MODULE_API_MAP } from './define.ts';
 
 const Forbidden = error('forbidden', v.object({ reason: v.string() }));

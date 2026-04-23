@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
 import * as v from 'valibot';
+import { describe, expect, it, vi } from 'vitest';
 import { generate, nudge, start, stream } from './stream.ts';
 
 describe('stream primitives', () => {

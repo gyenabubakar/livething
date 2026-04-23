@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
 import * as v from 'valibot';
+import { describe, expect, it, vi } from 'vitest';
 import type { EngineAccess } from '~/_engine/access.ts';
 import { onBeforeSubscribe, onSubscribe, onUnsubscribe } from './lifecycle.ts';
 
