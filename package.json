@@ -12,12 +12,16 @@
     "dev": "pnpm -r --parallel run dev",
     "test": "pnpm -r --parallel run test",
     "typecheck": "pnpm -r --parallel run typecheck",
+    "commitlint": "commitlint --edit",
+    "commitlint:last": "commitlint --from HEAD~1 --to HEAD --verbose",
     "oxlint": "oxlint --fix .",
     "format": "prettier --cache --log-level=error --write .",
     "clean": "pnpm -r --parallel run clean",
     "check": "pnpm format && pnpm typecheck && pnpm oxlint && pnpm test"
   },
   "devDependencies": {
+    "@commitlint/cli": "^20.5.0",
+    "@commitlint/config-conventional": "^20.5.0",
     "@ianvs/prettier-plugin-sort-imports": "^4.4.2",
     "@types/node": "^24.12.0",
     "@vitest/coverage-v8": "^4.1.4",

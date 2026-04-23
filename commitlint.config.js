@@ -1,0 +1,44 @@
+const scopes = [
+  'client',
+  'core',
+  'server',
+  'shared',
+  'server-adapters',
+  'server-adapters/cloudflare',
+  'cloudflare',
+  'tests-e2e',
+  'e2e',
+  'coverage',
+  'repo',
+  'workspace',
+  'infra',
+  'server-core',
+  'server-cloudflare',
+  'e2e-cloudflare',
+];
+
+export default {
+  extends: ['@commitlint/config-conventional'],
+  rules: {
+    'header-max-length': [2, 'always', 120],
+    'scope-enum': [2, 'always', scopes],
+    'subject-case': [0],
+    'type-enum': [
+      2,
+      'always',
+      [
+        'build',
+        'chore',
+        'ci',
+        'docs',
+        'feat',
+        'fix',
+        'perf',
+        'refactor',
+        'revert',
+        'style',
+        'test',
+      ],
+    ],
+  },
+};
