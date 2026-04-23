@@ -98,7 +98,6 @@ describe('connection runtime', () => {
           id: 'conn_1',
           meta: {},
           tags: [],
-          channels: [],
           channelMemberships: [],
           activeStreamIds: ['stream_1', 'stream_2'],
         };
@@ -160,7 +159,7 @@ describe('connection runtime', () => {
       close() {},
       serializeAttachment() {},
       deserializeAttachment() {
-        return { id: 'conn_1', meta: {}, tags: [], channels: [], channelMemberships: [] };
+        return { id: 'conn_1', meta: {}, tags: [], channelMemberships: [] };
       },
     };
 

@@ -1,4 +1,8 @@
-import type { ScheduledDeadLetter, ScheduledRuntimeAccess } from './types.ts';
+import type {
+  ScheduledCancelResult,
+  ScheduledDeadLetter,
+  ScheduledRuntimeAccess,
+} from './types.ts';
 
 const SCHEDULED_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS _wskit_scheduled (
@@ -369,8 +373,10 @@ export function cancelScheduledRuns(
   runtime: ScheduledRuntimeAccess,
   taskId: string,
   filter?: Record<string, unknown>,
-): void {
+): ScheduledCancelResult {
   const scheduledRuns = runtime.getScheduledRuns();
+  const taskExists = !!runtime.getScheduledTask(taskId);
+  let removed = 0;
 
   for (const [id, run] of scheduledRuns) {
     if (run.taskId !== taskId) continue;
@@ -378,17 +384,20 @@ export function cancelScheduledRuns(
     if (run.recurring) {
       if (!filter) {
         scheduledRuns.delete(id);
+        removed += 1;
       }
       continue;
     }
 
     if (dataMatchesFilter(run.data, filter)) {
       scheduledRuns.delete(id);
+      removed += 1;
     }
   }
 
   persistSchedulerState(runtime);
   runtime.rescheduleAlarm();
+  return { taskExists, removed };
 }
 
 /**

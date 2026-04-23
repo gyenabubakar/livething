@@ -100,8 +100,9 @@ describe('message runtime', () => {
     expect(lobbiesMember.descriptor.send).not.toHaveBeenCalled();
   });
 
-  it('drops incoming channel traffic when only a same-name membership exists in another scope', async () => {
+  it('rejects incoming channel traffic when only a same-name membership exists in another scope', async () => {
     const handler = vi.fn();
+    const errors: Array<{ error: unknown; event?: string; routing?: unknown }> = [];
     const connection = createConnection('conn_1');
     addMembership(connection, 'room:general', 'lobbies');
 
@@ -159,7 +160,9 @@ describe('message runtime', () => {
       sendReplay() {},
       persistAttachment() {},
       setActiveConnectionId() {},
-      async handleRuntimeError() {},
+      async handleRuntimeError(_conn: unknown, error: unknown, event?: string, routing?: unknown) {
+        errors.push({ error, event, routing });
+      },
       async handleValidationError() {},
       async handleSubscribe() {},
       async handleUnsubscribe() {},
@@ -192,6 +195,13 @@ describe('message runtime', () => {
     );
 
     expect(handler).not.toHaveBeenCalled();
+    expect(errors).toHaveLength(1);
+    expect(errors[0]!.event).toBe('message');
+    expect(errors[0]!.routing).toEqual({
+      _channel: 'room:general',
+      _channelScope: 'rooms',
+    });
+    expect((errors[0]!.error as { code?: string }).code).toBe('channel-not-subscribed');
   });
 
   it('routes ValidationFailed thrown from a handler to handleValidationError', async () => {

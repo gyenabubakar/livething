@@ -299,14 +299,6 @@ function restoreChannelMemberships(
     }
   }
 
-  if (memberships.size === 0) {
-    for (const channelName of (restored.channels as string[]) ?? []) {
-      memberships.set(ChannelPrimitive.createChannelMembershipKey(channelName), {
-        channelName,
-      });
-    }
-  }
-
   return memberships;
 }
 

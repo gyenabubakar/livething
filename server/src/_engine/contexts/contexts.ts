@@ -29,6 +29,16 @@ export function createShutdownContext(
   deps: EngineContextTypes.CreateTaskContextDeps,
 ): EngineContextTypes.ShutdownContext<Record<string, unknown>, Record<string, unknown>, unknown> {
   const storage = deps.requireStorage();
+  function cancelScheduled(taskId: string, filter?: Record<string, unknown>): void {
+    const result = deps.cancelScheduled(taskId, filter);
+    if (result.removed === 0) {
+      deps.logger.error('[wskit] cancelScheduled matched no runs', {
+        taskId,
+        filter,
+        taskExists: result.taskExists,
+      });
+    }
+  }
   return {
     closeAll: (code, reason) => {
       for (const connection of deps.connections.values()) {
@@ -43,9 +53,7 @@ export function createShutdownContext(
     schedule: (taskId, options) => {
       deps.scheduleTask(taskId, options.time, options.data);
     },
-    cancelScheduled: (taskId, filter) => {
-      deps.cancelScheduled(taskId, filter);
-    },
+    cancelScheduled,
     connectionCount: deps.connections.size,
     getConnections: () => {
       return [...deps.connections.values()].map((connection) => deps.toConnectionInfo(connection));
@@ -88,7 +96,13 @@ export function createTaskContext(
     },
     sendToConnection: (connectionId, event, payload) => {
       const connection = deps.connections.get(connectionId);
-      if (!connection) return false;
+      if (!connection) {
+        deps.logger.error('[wskit] sendToConnection target not found', {
+          connectionId,
+          event,
+        });
+        return false;
+      }
       deps.sendThroughPipeline(connection, undefined, event, payload);
       return true;
     },
@@ -105,7 +119,14 @@ export function createTaskContext(
       deps.scheduleTask(taskId, options.time, options.data);
     },
     cancelScheduled: (taskId, filter) => {
-      deps.cancelScheduled(taskId, filter);
+      const result = deps.cancelScheduled(taskId, filter);
+      if (result.removed === 0) {
+        deps.logger.error('[wskit] cancelScheduled matched no runs', {
+          taskId,
+          filter,
+          taskExists: result.taskExists,
+        });
+      }
     },
     env: deps.env,
     log: deps.logger,
@@ -119,7 +140,7 @@ export function createTaskContext(
 
 type MessagingDeps = Pick<
   EngineContextTypes.BuildConnectionContextDeps,
-  'broadcastToConnections' | 'connections' | 'sendThroughPipeline'
+  'broadcastToConnections' | 'connections' | 'logger' | 'sendThroughPipeline'
 >;
 
 /** Build the top-level send/broadcast/close messaging surface for a connection ctx. */
@@ -150,7 +171,13 @@ function buildMessagingApi(
     },
     sendToConnection: (connectionId, event, payload) => {
       const target = deps.connections.get(connectionId);
-      if (!target) return false;
+      if (!target) {
+        deps.logger.error('[wskit] sendToConnection target not found', {
+          connectionId,
+          event,
+        });
+        return false;
+      }
       deps.sendThroughPipeline(target, undefined, event, payload);
       return true;
     },
@@ -271,6 +298,16 @@ export function buildConnectionContext(
 ): EngineContextTypes.ConnectionContext<Record<string, unknown>, Record<string, unknown>, unknown> &
   Record<PropertyKey, unknown> {
   const storage = deps.requireStorage();
+  function cancelScheduled(taskId: string, filter?: Record<string, unknown>): void {
+    const result = deps.cancelScheduled(taskId, filter);
+    if (result.removed === 0) {
+      deps.logger.error('[wskit] cancelScheduled matched no runs', {
+        taskId,
+        filter,
+        taskExists: result.taskExists,
+      });
+    }
+  }
   const base: EngineContextTypes.ConnectionContext<
     Record<string, unknown>,
     Record<string, unknown>,
@@ -310,9 +347,7 @@ export function buildConnectionContext(
     schedule: (taskId, options) => {
       deps.scheduleTask(taskId, options.time, options.data);
     },
-    cancelScheduled: (taskId, filter) => {
-      deps.cancelScheduled(taskId, filter);
-    },
+    cancelScheduled,
     setAlarm: (time) => {
       const timers = deps.requireTimers();
       if (timers.setAlarm) {
@@ -455,7 +490,6 @@ export function persistAttachment(connection: EngineContextTypes.RuntimeConnecti
       id: connection.id,
       meta: connection.meta,
       tags: [...connection.tags],
-      channels: [...connection.channels],
       channelMemberships: [...connection.channelMemberships.values()],
       activeStreamIds: [...(connection.activeStreamIds ?? [])],
     });

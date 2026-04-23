@@ -290,7 +290,13 @@ export async function unsubscribeConnection(
   if (!payload) return;
 
   const scope = resolveChannel(runtime, payload);
-  if (!scope) return;
+  if (!scope) {
+    throw new WskitError('channel-not-found', undefined);
+  }
+
+  if (!hasChannelMembership(connection, scope.channelName, scope.channelScope)) {
+    throw new WskitError('channel-not-subscribed', undefined);
+  }
 
   await runtime.leaveChannel(connection, scope);
 }

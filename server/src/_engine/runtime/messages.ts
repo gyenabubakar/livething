@@ -352,6 +352,15 @@ export async function dispatchIncoming(
     scope.channelName &&
     !ChannelPrimitive.hasChannelMembership(connection, scope.channelName, scope.channelScope)
   ) {
+    await runtime.handleRuntimeError(
+      connection,
+      new WskitError('channel-not-subscribed', undefined),
+      event,
+      {
+        _channel: scope.channelName,
+        ...(scope.channelScope ? { _channelScope: scope.channelScope } : {}),
+      },
+    );
     return;
   }
 
@@ -592,10 +601,25 @@ export async function processTextMessage(
       }
       return;
     case '_unsubscribe':
-      await runtime.handleUnsubscribe(
-        connection,
-        parsed.payload as Record<string, unknown> | undefined,
-      );
+      try {
+        await runtime.handleUnsubscribe(
+          connection,
+          parsed.payload as Record<string, unknown> | undefined,
+        );
+      } catch (error) {
+        const unsubscribePayload = parsed.payload as Record<string, unknown> | undefined;
+        const channel = unsubscribePayload?._channel;
+        const channelScope = unsubscribePayload?._channelScope;
+        const routing: Record<string, unknown> = {};
+        if (channel) routing._channel = channel;
+        if (channelScope) routing._channelScope = channelScope;
+        await runtime.handleRuntimeError(
+          connection,
+          error,
+          '_unsubscribe',
+          Object.keys(routing).length > 0 ? routing : undefined,
+        );
+      }
       return;
     case '_streamCancel':
       await StreamPrimitive.cancelStream(

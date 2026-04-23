@@ -67,7 +67,9 @@ test.describe('scheduled', () => {
     await expect(page.getByTestId('filtered-labels')).not.toContainText('drop');
   });
 
-  test('cancelScheduled with no matching task id succeeds silently', async ({ page }, testInfo) => {
+  test('cancelScheduled with no matching task id leaves the connection healthy', async ({
+    page,
+  }, testInfo) => {
     await openPage(page, `test-${testInfo.testId}`);
     await page.getByTestId('cancel-nothing').click();
     await expect(page.getByTestId('cancel-nothing-ok')).toHaveText('yes');
@@ -150,7 +152,7 @@ test.describe('scheduled', () => {
     await page2.close();
   });
 
-  test('cancelScheduled on never-registered task id succeeds silently', async ({
+  test('cancelScheduled on a never-registered task id leaves the connection healthy', async ({
     page,
   }, testInfo) => {
     await openPage(page, `test-${testInfo.testId}`);

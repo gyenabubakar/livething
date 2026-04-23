@@ -38,6 +38,11 @@ export interface ScheduledDeadLetter {
   };
 }
 
+export interface ScheduledCancelResult {
+  taskExists: boolean;
+  removed: number;
+}
+
 /**
  * The small runtime surface the scheduled primitive needs from the engine.
  *

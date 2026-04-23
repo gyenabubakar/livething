@@ -26,7 +26,12 @@ function createConnection(id = 'c1'): RuntimeConnection {
 function createStreamRuntime() {
   const protocolMessages: { event: string; payload: Record<string, unknown> }[] = [];
   const pipelineSends: { event: string; payload: unknown }[] = [];
-  const broadcasts: { event: string; payload: unknown; excludeConnectionId?: string }[] = [];
+  const broadcasts: {
+    event: string;
+    payload: unknown;
+    options?: { namespace?: string; channel?: string; excludeSelf?: boolean };
+    excludeConnectionId?: string;
+  }[] = [];
 
   return {
     protocolMessages,
@@ -57,10 +62,10 @@ function createStreamRuntime() {
         _conns: readonly RuntimeConnection[],
         event: string,
         payload: unknown,
-        _options?: unknown,
+        options?: { namespace?: string; channel?: string; excludeSelf?: boolean },
         excludeConnectionId?: string,
       ) => {
-        broadcasts.push({ event, payload, excludeConnectionId });
+        broadcasts.push({ event, payload, options, excludeConnectionId });
       },
       setActiveConnectionId: vi.fn(),
       persistAttachment: vi.fn(),
@@ -148,6 +153,7 @@ describe('stream/runtime', () => {
 
     expect(broadcasts).toHaveLength(1);
     expect(broadcasts[0]!.event).toBe('broadcast-stream');
+    expect(broadcasts[0]!.options?.excludeSelf).toBe(true);
     expect(broadcasts[0]!.excludeConnectionId).toBe('trigger');
     expect(pipelineSends).toHaveLength(1);
     expect(pipelineSends[0]!.event).toBe('broadcast-stream');

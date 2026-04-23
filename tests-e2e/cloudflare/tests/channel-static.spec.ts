@@ -35,18 +35,19 @@ test.describe('channel-static', () => {
     );
   });
 
-  test('_unsubscribe when not subscribed is a silent no-op', async ({ page }, testInfo) => {
+  test('_unsubscribe when not subscribed emits _error channel-not-subscribed', async ({
+    page,
+  }, testInfo) => {
     await openPage(page, `test-${testInfo.testId}`);
-    // Click unsubscribe first (should be silent), then subscribe — the
-    // successful subscribe-ok is the positive signal that proves the
-    // unsubscribe didn't close or fault the channel handler pipeline.
     await page.getByTestId('unsubscribe-room').click();
+    await expect(page.getByTestId('subscribe-error')).toHaveText('room:channel-not-subscribed');
+
+    // Positive signal that the connection remains healthy after the protocol error.
     await page.getByTestId('subscribe-room').click();
     await expect(page.getByTestId('subscribe-ok-count')).toHaveText('1');
-    await expect(page.getByTestId('subscribe-error')).toHaveText('');
   });
 
-  test('publishing to a channel without subscribing first is silently dropped', async ({
+  test('publishing to a channel without subscribing first emits _error', async ({
     browser,
   }, testInfo) => {
     const room = `test-${testInfo.testId}`;
@@ -61,9 +62,10 @@ test.describe('channel-static', () => {
     await expect(b.getByTestId('subscribe-ok-count')).toHaveText('1');
 
     await a.getByTestId('publish-without-sub').click();
+    await expect(a.getByTestId('subscribe-error')).toHaveText('room:channel-not-subscribed');
 
     // Now alice subscribes and publishes a second time — bob should receive
-    // only the SECOND message, proving the first was dropped.
+    // only the subscribed publish.
     await a.getByTestId('subscribe-room').click();
     await expect(a.getByTestId('subscribe-ok-count')).toHaveText('1');
     await a.getByTestId('send-hello').click();

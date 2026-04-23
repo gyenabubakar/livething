@@ -180,6 +180,7 @@ export async function runStream(
           {
             namespace: scope.namespace?.name,
             channel: scope.channelName,
+            excludeSelf: true,
           },
           connection.id,
         );

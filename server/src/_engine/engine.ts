@@ -100,6 +100,7 @@ export class Engine {
     'validation-failed',
     'defer-exhausted',
     'channel-not-found',
+    'channel-not-subscribed',
   ]);
   /** Default logger used when the adapter does not provide a custom one. @internal */
   readonly logger = {
@@ -827,8 +828,11 @@ export class Engine {
    * Remove every queued run for one scheduled task id.
    * @internal
    */
-  cancelScheduled(taskId: string, filter?: Record<string, unknown>): void {
-    ScheduledPrimitive.cancelScheduledRuns(
+  cancelScheduled(
+    taskId: string,
+    filter?: Record<string, unknown>,
+  ): ScheduledPrimitiveTypes.ScheduledCancelResult {
+    return ScheduledPrimitive.cancelScheduledRuns(
       {
         requireStorage: () => this.requireStorage(),
         requireTimers: () => this.requireTimers(),

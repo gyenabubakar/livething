@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { Block } from '@wskit/core';
+import { Block, WskitError } from '@wskit/core';
 import { handleUpgrade, wakeHibernatedConnection } from '~/_engine/runtime/connection.ts';
 import { dispatchIncoming, processTextMessage } from '~/_engine/runtime/messages.ts';
 import { Defer, Disconnect, RejectUpgrade } from '~/errors/errors.ts';
@@ -375,6 +375,39 @@ describe('processTextMessage protocol branches', () => {
       _channelScope: 'rooms',
     });
   });
+
+  it('routes _unsubscribe failures through handleRuntimeError with channel routing metadata', async () => {
+    const connection = createConnection();
+    const errors: Array<{ error: unknown; event: string | undefined; routing?: unknown }> = [];
+
+    const runtime = baseDispatchRuntime({
+      connections: new Map([[connection.id, connection]]),
+      async handleUnsubscribe() {
+        throw new WskitError('channel-not-subscribed', undefined);
+      },
+      async handleRuntimeError(_conn, error, event, routing) {
+        errors.push({ error, event, routing });
+      },
+    });
+    const runtimeWithActivity = { ...runtime, activityHooks: [] } as any;
+
+    await processTextMessage(
+      runtimeWithActivity,
+      connection,
+      JSON.stringify({
+        event: '_unsubscribe',
+        payload: { _channel: 'room:general', _channelScope: 'rooms' },
+      }),
+    );
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0]!.event).toBe('_unsubscribe');
+    expect(errors[0]!.routing).toEqual({
+      _channel: 'room:general',
+      _channelScope: 'rooms',
+    });
+    expect((errors[0]!.error as { code?: string }).code).toBe('channel-not-subscribed');
+  });
 });
 
 // -------------------------------------------------------------------
@@ -407,7 +440,6 @@ describe('restoreChannelMemberships via wakeHibernatedConnection', () => {
         id: 'hib_1',
         meta: {},
         tags: [],
-        channels: ['room:a'],
         channelMemberships: [
           { channelName: 'room:a', channelScope: 'rooms' },
           { channelName: 'room:b' },
@@ -426,7 +458,7 @@ describe('restoreChannelMemberships via wakeHibernatedConnection', () => {
     expect(connection!.channelMemberships.has('::room:b')).toBe(true);
   });
 
-  it('falls back to the legacy channels[] list when no memberships array', () => {
+  it('does not restore channel memberships when the attachment omits channelMemberships', () => {
     const runtime = makeRuntime();
     const wsKey = {
       deserializeAttachment: () => ({
@@ -443,9 +475,8 @@ describe('restoreChannelMemberships via wakeHibernatedConnection', () => {
 
     const connection = runtime.connections.get('hib_2');
     expect(connection).toBeDefined();
-    expect(connection!.channelMemberships.size).toBe(2);
-    expect(connection!.channelMemberships.has('::lobby:1')).toBe(true);
-    expect(connection!.channelMemberships.has('::lobby:2')).toBe(true);
+    expect(connection!.channelMemberships.size).toBe(0);
+    expect(connection!.channels.size).toBe(0);
   });
 });
 

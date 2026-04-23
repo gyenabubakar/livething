@@ -30,8 +30,3 @@ _type_experiments
 
 ideas.md
 .playwright-mcp/
-
-# ignored temporarily
-audit/
-BEHAVIOR_COVERAGE__SERVER.md
-TESTING_GUIDELINES.md

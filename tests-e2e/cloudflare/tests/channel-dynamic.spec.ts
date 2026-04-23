@@ -53,7 +53,7 @@ test.describe('channel-dynamic', () => {
     await ctxB.close();
   });
 
-  test('ctx.channel.broadcast fans out within the dynamic name to peers', async ({
+  test('ctx.channel.broadcast reaches peers subscribed to the same dynamic channel name', async ({
     browser,
   }, testInfo) => {
     const room = `test-${testInfo.testId}`;

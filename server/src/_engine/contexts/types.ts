@@ -1,6 +1,7 @@
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as PublicApi from '~/context.ts';
+import type { ScheduledCancelResult } from '~/scheduled/types.ts';
 
 /**
  * Hidden scope markers attached to live connection contexts for engine-owned
@@ -31,7 +32,7 @@ export interface ContextCommonDeps {
   requireStorage(): PublicApi.StorageProvider;
   requireTimers(): PublicApi.TimerProvider;
   scheduleTask(taskId: string, time: number, data: unknown): void;
-  cancelScheduled(taskId: string, filter?: Record<string, unknown>): void;
+  cancelScheduled(taskId: string, filter?: Record<string, unknown>): ScheduledCancelResult;
   broadcastToConnections(
     connections: readonly EngineRuntimeTypes.RuntimeConnection[],
     event: string,

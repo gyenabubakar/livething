@@ -1,5 +1,9 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { buildConnectionContext, createTaskContext } from '~/_engine/contexts/contexts.ts';
+import {
+  buildConnectionContext,
+  createTaskContext,
+  persistAttachment,
+} from '~/_engine/contexts/contexts.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 
@@ -45,7 +49,7 @@ function baseDeps(overrides: Partial<Parameters<typeof buildConnectionContext>[0
       clearTimeout: () => {},
     }),
     scheduleTask: vi.fn(),
-    cancelScheduled: vi.fn(),
+    cancelScheduled: vi.fn(() => ({ taskExists: true, removed: 1 })),
     broadcastToConnections: vi.fn(),
     sendThroughPipeline: vi.fn(() => true),
     broadcastToChannel: vi.fn(),
@@ -81,6 +85,10 @@ describe('sendToConnection', () => {
 
     expect(result).toBe(false);
     expect(deps.sendThroughPipeline).not.toHaveBeenCalled();
+    expect(deps.logger.error).toHaveBeenCalledWith('[wskit] sendToConnection target not found', {
+      connectionId: 'nonexistent-id',
+      event: 'evt',
+    });
   });
 
   it('task context sendToConnection returns false for unknown ids', () => {
@@ -88,6 +96,10 @@ describe('sendToConnection', () => {
     const task = createTaskContext(deps);
 
     expect(task.sendToConnection('missing', 'evt', {})).toBe(false);
+    expect(deps.logger.error).toHaveBeenCalledWith('[wskit] sendToConnection target not found', {
+      connectionId: 'missing',
+      event: 'evt',
+    });
   });
 
   it('returns true and invokes the send pipeline when target exists', () => {
@@ -120,6 +132,42 @@ describe('ctx.waitUntil', () => {
     ctx.waitUntil(task);
 
     expect(waitUntilImpl).toHaveBeenCalledWith(task);
+  });
+});
+
+describe('ctx.cancelScheduled', () => {
+  it('logs an error when a connection context cancellation matches no runs', () => {
+    const connection = createConnection('c1');
+    const deps = baseDeps({
+      connections: new Map([[connection.id, connection]]),
+      cancelScheduled: vi.fn(() => ({ taskExists: false, removed: 0 })),
+    });
+
+    const ctx = buildConnectionContext(deps, connection);
+    ctx.cancelScheduled('missing-task', { id: 'x' });
+
+    expect(deps.cancelScheduled).toHaveBeenCalledWith('missing-task', { id: 'x' });
+    expect(deps.logger.error).toHaveBeenCalledWith('[wskit] cancelScheduled matched no runs', {
+      taskId: 'missing-task',
+      filter: { id: 'x' },
+      taskExists: false,
+    });
+  });
+
+  it('logs an error when a task context cancellation matches no runs', () => {
+    const deps = baseDeps({
+      cancelScheduled: vi.fn(() => ({ taskExists: true, removed: 0 })),
+    });
+    const task = createTaskContext(deps);
+
+    task.cancelScheduled('cleanup', { label: 'drop' });
+
+    expect(deps.cancelScheduled).toHaveBeenCalledWith('cleanup', { label: 'drop' });
+    expect(deps.logger.error).toHaveBeenCalledWith('[wskit] cancelScheduled matched no runs', {
+      taskId: 'cleanup',
+      filter: { label: 'drop' },
+      taskExists: true,
+    });
   });
 });
 
@@ -324,5 +372,31 @@ describe('ctx.log', () => {
     (task as any).log.info('scheduled tick', { task: 'cleanup' });
 
     expect(info).toHaveBeenCalledWith('scheduled tick', { task: 'cleanup' });
+  });
+});
+
+describe('persistAttachment', () => {
+  it('serializes channelMemberships without the legacy channels list', () => {
+    const serializeAttachment = vi.fn();
+    const connection = createConnection('c1');
+    connection.wsKey = { serializeAttachment } as RuntimeConnection['wsKey'];
+    connection.meta = { username: 'user1' };
+    connection.tags.add('vip');
+    connection.channels.add('room:general');
+    connection.channelMemberships.set('rooms::room:general', {
+      channelName: 'room:general',
+      channelScope: 'rooms',
+    });
+    connection.activeStreamIds = new Set(['stream_1']);
+
+    persistAttachment(connection);
+
+    expect(serializeAttachment).toHaveBeenCalledWith({
+      id: 'c1',
+      meta: { username: 'user1' },
+      tags: ['vip'],
+      channelMemberships: [{ channelName: 'room:general', channelScope: 'rooms' }],
+      activeStreamIds: ['stream_1'],
+    });
   });
 });
