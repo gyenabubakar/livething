@@ -5,7 +5,7 @@ import {
   subscribeConnection,
   unsubscribeConnection,
 } from '~/channel/runtime.ts';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 function createConnection(id = 'conn_1', meta: Record<string, unknown> = {}) {
   return {
@@ -225,5 +225,31 @@ describe('channel runtime', () => {
         channelScope: 'rooms',
       },
     ]);
+  });
+
+  it('onBeforeSubscribe fires before addChannelMembership (ordering guarantee)', async () => {
+    const connection = createConnection('conn_1');
+    const { runtime, connections } = createRuntime();
+    connections.set(connection.id, connection);
+
+    let wasMemberDuringHook = true;
+    const hook = vi.fn(async () => {
+      wasMemberDuringHook = connection.channels.has('room:general');
+    });
+
+    await subscribeConnection(
+      {
+        ...runtime,
+        beforeSubscribeHooks: new Map([['rooms', [{ handler: hook, validator: undefined }]]]),
+      },
+      connection,
+      { _channel: 'room:general', _channelScope: 'rooms' },
+    );
+
+    expect(hook).toHaveBeenCalledTimes(1);
+    // At hook invocation time the connection must NOT yet be a member.
+    expect(wasMemberDuringHook).toBe(false);
+    // After subscribe completes the connection IS a member.
+    expect(connection.channels.has('room:general')).toBe(true);
   });
 });

@@ -4,6 +4,7 @@ import { Engine } from '~/_engine/engine.ts';
 import { withDedup } from '~/dedup/with.ts';
 import { event } from '~/event.ts';
 import { withHibernation } from '~/hibernation/with.ts';
+import { withIntercept } from '~/intercept/with.ts';
 import { defineModule } from '~/modules/define.ts';
 import { withReplay } from '~/replay/with.ts';
 import { withSequence } from '~/sequence/with.ts';
@@ -184,6 +185,74 @@ describe('module scheduled task registration', () => {
     const entry = compiled.scheduled.get('__acme:cron:tick');
     expect(entry.handler).toBe(handler);
     expect(entry.taskId).toBe('__acme:cron:tick');
+  });
+});
+
+describe('C8: module onIncoming runs before top-level pre-intercept', () => {
+  it('pre-intercept sees the payload already mutated by module onIncoming', async () => {
+    const interceptSaw: Array<{ event: string; payload: unknown }> = [];
+
+    const MOD_KEY = Symbol('mutate');
+    const mutate = defineModule({
+      id: 'acme:mutate',
+      key: MOD_KEY,
+      setup(_args, hooks) {
+        hooks.onIncoming((m) => {
+          return { event: m.event, payload: { ...(m.payload as any), moduleAdded: true } };
+        });
+        return () => ({});
+      },
+    });
+
+    const hit = event('hit', (p: unknown) => p as { id: number });
+
+    const def = withIntercept(server('chat'))
+      .use(mutate({}))
+      .intercept((_ctx, m) => {
+        interceptSaw.push({ event: m.event, payload: m.payload });
+        return m;
+      })
+      .incoming(hit, async () => {})
+      .build();
+
+    const { engine } = setupEngine(def);
+    await engine.initialize();
+    const handle = engine.accept(Symbol('ws'), {
+      send() {},
+      sendBinary() {},
+      close() {},
+      bufferedAmount() {
+        return 0;
+      },
+    });
+    await handle.handleMessage(JSON.stringify({ event: 'hit', payload: { id: 42 } }));
+
+    expect(interceptSaw).toHaveLength(1);
+    expect(interceptSaw[0]!.payload).toMatchObject({ id: 42, moduleAdded: true });
+  });
+});
+
+describe('module onInit wiring', () => {
+  it('onInit callback fires during engine initialize()', async () => {
+    let initFired = false;
+
+    const MOD_KEY = Symbol('init');
+    const initMod = defineModule({
+      id: 'acme:init',
+      key: MOD_KEY,
+      setup(_args, hooks) {
+        hooks.onInit(() => {
+          initFired = true;
+        });
+        return () => ({});
+      },
+    });
+
+    const def = server('chat').use(initMod({})).build();
+    const { engine } = setupEngine(def);
+    await engine.initialize();
+
+    expect(initFired).toBe(true);
   });
 });
 

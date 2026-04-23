@@ -190,6 +190,31 @@ test.describe('channel-static', () => {
     await ctxB.close();
   });
 
+  test('joining client receives _subscribeOk before existing member observes _memberJoin', async ({
+    browser,
+  }, testInfo) => {
+    const room = `test-${testInfo.testId}`;
+    const ctxA = await browser.newContext();
+    const ctxB = await browser.newContext();
+    const a = await ctxA.newPage();
+    const b = await ctxB.newPage();
+    await openPage(a, room, 'alice');
+    await a.getByTestId('subscribe-room').click();
+    await expect(a.getByTestId('subscribe-ok-count')).toHaveText('1');
+
+    await openPage(b, room, 'bob');
+    await b.getByTestId('subscribe-room').click();
+
+    // Bob (the joining client) must receive _subscribeOk before we check Alice's side.
+    // This assertion waits for Bob's ack to arrive, confirming the server sent it first.
+    await expect(b.getByTestId('subscribe-ok-count')).toHaveText('1');
+    // Only now verify that Alice (existing member) observed the _memberJoin.
+    await expect(a.getByTestId('member-joins')).toContainText('room:');
+
+    await ctxA.close();
+    await ctxB.close();
+  });
+
   test('framework _memberLeave frame delivers on manual _unsubscribe', async ({
     browser,
   }, testInfo) => {

@@ -89,4 +89,75 @@ describe('heartbeat/runtime', () => {
     expect(connection.quality).toBe('good');
     expect(connection.pendingPingSentAt).toBeUndefined();
   });
+
+  it('derives quality "excellent" when average latency is below 100ms', () => {
+    const connection = {
+      latency: null,
+      quality: 'good' as 'excellent' | 'good' | 'degraded' | 'poor',
+      pendingPingSentAt: 0,
+    };
+
+    recordConnectionLatency(connection, 50);
+
+    expect(connection.latency).toBe(50);
+    expect(connection.quality).toBe('excellent');
+  });
+
+  it('derives quality "degraded" when average latency is between 300ms and 1000ms', () => {
+    const connection = {
+      latency: null,
+      quality: 'good' as 'excellent' | 'good' | 'degraded' | 'poor',
+      pendingPingSentAt: 0,
+    };
+
+    recordConnectionLatency(connection, 500);
+
+    expect(connection.latency).toBe(500);
+    expect(connection.quality).toBe('degraded');
+  });
+
+  it('evicts the oldest sample once the window reaches 5 entries', () => {
+    const connection = {
+      latency: null,
+      quality: 'good' as 'excellent' | 'good' | 'degraded' | 'poor',
+      pendingPingSentAt: 0,
+      recentLatencies: [10, 20, 30, 40, 50],
+    };
+
+    // 6th sample: 60ms. The oldest sample (10) should be evicted, leaving [20,30,40,50,60].
+    recordConnectionLatency(connection, 60);
+
+    expect(connection.recentLatencies).toEqual([20, 30, 40, 50, 60]);
+    expect(connection.recentLatencies).toHaveLength(5);
+    expect(connection.latency).toBe(40);
+  });
+
+  it('skips update when there is no pending ping', () => {
+    const connection = {
+      latency: 100,
+      quality: 'good' as 'excellent' | 'good' | 'degraded' | 'poor',
+      pendingPingSentAt: undefined,
+    };
+
+    recordConnectionLatency(connection, 999);
+
+    expect(connection.latency).toBe(100);
+    expect(connection.quality).toBe('good');
+  });
+
+  it('refreshHeartbeatTimeout does not call clearTimeout when no previous timer exists', () => {
+    const timers = {
+      setTimeout: vi.fn(() => 'new-handle'),
+      clearTimeout: vi.fn(),
+    };
+    const connection = {
+      heartbeatTimer: undefined as unknown,
+      descriptor: { close: vi.fn() },
+    };
+
+    refreshHeartbeatTimeout(timers, connection, 5_000);
+
+    expect(timers.clearTimeout).not.toHaveBeenCalled();
+    expect(connection.heartbeatTimer).toBe('new-handle');
+  });
 });

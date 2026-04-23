@@ -34,4 +34,27 @@ test.describe('stream-broadcast', () => {
     await ctxA.close();
     await ctxB.close();
   });
+
+  test('trigger receives each chunk twice (stream path + broadcast fan-out)', async ({
+    browser,
+  }, testInfo) => {
+    const room = `test-${testInfo.testId}`;
+    const page = await browser.newPage();
+
+    await page.goto(`/stream-broadcast?room=${room}`);
+    await page.getByTestId('connect').click();
+    await expect(page.getByTestId('status')).toHaveText('connected');
+
+    await page.getByTestId('start-3').click();
+    await expect(page.getByTestId('stream-end')).toHaveText('yes');
+
+    // With broadcast:true, the trigger gets each chunk twice:
+    //   - once from sendThroughPipeline (the normal per-client stream path, with _streamId)
+    //   - once from broadcastToConnections fan-out (no _streamId, no excludeSelf)
+    // This is current behavior. If excludeSelf:true is ever added, this test will fail
+    // with '0,1,2' and the expected value should be updated accordingly.
+    await expect(page.getByTestId('indices')).toHaveText('0,0,1,1,2,2');
+
+    await page.close();
+  });
 });

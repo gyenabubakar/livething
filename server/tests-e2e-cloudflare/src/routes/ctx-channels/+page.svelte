@@ -4,6 +4,7 @@
 	let username = $state('testuser');
 	let subscribed = $state(false);
 	let membersResult = $state('');
+	let memberIdResult = $state('');
 	let kickedResult = $state('');
 	let roomMessages = $state<string[]>([]);
 
@@ -29,6 +30,9 @@
 			if (data.event === 'members-result') {
 				membersResult = `${data.payload.channel}:${data.payload.count}`;
 			}
+			if (data.event === 'member-id-result') {
+				memberIdResult = data.payload?.id ?? '';
+			}
 			if (data.event === '_kicked') {
 				kickedResult = `kicked:${data.payload._channel}:${data.payload.reason ?? ''}`;
 			}
@@ -43,6 +47,9 @@
 	}
 	function getMembers() {
 		ws?.send(JSON.stringify({ event: 'get-members', payload: { channel: 'room' } }));
+	}
+	function getMemberId() {
+		ws?.send(JSON.stringify({ event: 'get-member-id', payload: { channel: 'room' } }));
 	}
 	function kick(tag: string, reason: string) {
 		ws?.send(
@@ -62,6 +69,7 @@
 <button data-testid="connect" onclick={connect}>Connect</button>
 <button data-testid="subscribe-room" onclick={subscribeRoom}>Subscribe room</button>
 <button data-testid="get-members" onclick={getMembers}>Get members</button>
+<button data-testid="get-member-id" onclick={getMemberId}>Get member id</button>
 <button data-testid="kick-user2" onclick={() => kick('user2', 'Kicked by admin')}>
 	Kick user2
 </button>
@@ -78,5 +86,6 @@
 <span data-testid="status">{status}</span>
 <span data-testid="subscribed">{subscribed ? 'yes' : 'no'}</span>
 <span data-testid="members-result">{membersResult}</span>
+<span data-testid="member-id-result">{memberIdResult}</span>
 <span data-testid="kicked-result">{kickedResult}</span>
 <span data-testid="room-messages">{roomMessages.join(',')}</span>

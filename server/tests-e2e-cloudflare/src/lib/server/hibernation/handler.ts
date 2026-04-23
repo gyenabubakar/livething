@@ -23,6 +23,9 @@ const TaggedMessage = event('tagged-message', v.object({ text: v.string(), from:
 const StartSlowStream = event('start-slow-stream', v.object({}));
 const SlowChunk = v.object({ index: v.number() });
 
+const GetRoomMembers = event('get-room-members', v.object({}));
+const RoomMembersCount = event('room-members-count', v.object({ count: v.number() }));
+
 const base = withStreams(
   withChannels(withHibernation(withInfrastructure(withLifecycle(server<Env>('hibernation'))))),
 )
@@ -30,6 +33,7 @@ const base = withStreams(
   .outgoing(NotesList)
   .outgoing(TagResult)
   .outgoing(TaggedMessage)
+  .outgoing(RoomMembersCount)
   .onUpgrade((request) => requireUsername(request))
   .onInit((ctx) => {
     ctx.sql.exec(`
@@ -87,5 +91,8 @@ export const hibernationHandler = base
       text: payload.text,
       from: ctx.meta.username,
     });
+  })
+  .incoming(GetRoomMembers, (ctx) => {
+    ctx.send('room-members-count', { count: ctx.channels.members('room').length });
   })
   .build();

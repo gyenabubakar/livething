@@ -7,6 +7,7 @@ import { requireUsername } from '../_shared/upgrade.ts';
 
 const StartTokens = event('start-tokens', v.object({ count: v.number() }));
 const StartBoom = event('start-boom', v.object({}));
+const StartBoomImmediate = event('start-boom-immediate', v.object({}));
 const StartTyped = event('start-typed-error', v.object({}));
 const StartCancelObserve = event('start-cancel-observe', v.object({}));
 const StartEmpty = event('start-empty', v.object({}));
@@ -37,6 +38,12 @@ export const streamBasicHandler = withStreams(
       yield { index: 0 };
       await new Promise((r) => setTimeout(r, 20));
       throw new Error('boom');
+    }),
+  )
+  .stream(StartBoomImmediate, Token, (s) =>
+    s.generate(async function* () {
+      throw new Error('boom-immediate');
+      yield { index: 0 }; // unreachable — satisfies generator type
     }),
   )
   .stream(StartTyped, Token, (s) =>

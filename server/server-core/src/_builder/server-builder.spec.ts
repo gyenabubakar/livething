@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { event } from '~/event.ts';
+import { server as fullServer } from '~/full/index.ts';
 import { describe, expect, it } from 'vitest';
 import { server } from './server-builder.ts';
 
@@ -122,6 +123,37 @@ describe('ServerBuilder — type inference', () => {
   });
 });
 
+// ─── full/index server ──────────────────────────────────────
+
+describe('server from full/index', () => {
+  it('exposes every feature method without manual with* wrappers', () => {
+    const builder = fullServer('test');
+    expect(typeof builder.channel).toBe('function');
+    expect(typeof builder.namespace).toBe('function');
+    expect(typeof builder.stream).toBe('function');
+    expect(typeof builder.request).toBe('function');
+    expect(typeof builder.replay).toBe('function');
+    expect(typeof builder.scheduled).toBe('function');
+    expect(typeof builder.intercept).toBe('function');
+    expect(typeof builder.onConnect).toBe('function');
+    expect(typeof builder.ack).toBe('function');
+    expect(typeof builder.dedup).toBe('function');
+    expect(typeof builder.heartbeat).toBe('function');
+    expect(typeof builder.sequence).toBe('function');
+    expect(typeof builder.hibernation).toBe('function');
+  });
+});
+
+// ─── event() identity chain ─────────────────────────────────
+
+describe('event() identity chain', () => {
+  it('wire name flows into primitive __identity[1] when mounted via .outgoing()', () => {
+    const greet = event('greet', (p: unknown) => p as {});
+    const def = server('x').outgoing(greet).build();
+    expect(def.primitives[0]?.__identity[1]).toBe('greet');
+  });
+});
+
 // ─── GroupBuilder ───────────────────────────────────────────
 
 describe('GroupBuilder', () => {
@@ -179,5 +211,15 @@ describe('GroupBuilder', () => {
           ctx.send('notification', { title: 'Hello' });
         }),
       );
+  });
+
+  it('GroupBuilder.use() rejects nested groups at compile time', () => {
+    const base = server('chat').outgoing(message);
+    const outerGroup = base.group((g) => g.outgoing(notification));
+
+    base.group((g) => {
+      // @ts-expect-error — groups cannot be nested inside other groups
+      return g.use(outerGroup);
+    });
   });
 });

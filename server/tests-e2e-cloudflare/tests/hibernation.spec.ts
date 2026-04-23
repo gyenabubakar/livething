@@ -121,6 +121,49 @@ test.describe('hibernation', () => {
     await bobCtx.close();
   });
 
+  test('ctx.channels.members() count is correct after hibernation wake', async ({
+    browser,
+  }, testInfo) => {
+    const room = `hib-members-${testInfo.testId}`;
+
+    const aliceCtx = await browser.newContext();
+    const bobCtx = await browser.newContext();
+    const alice = await aliceCtx.newPage();
+    const bob = await bobCtx.newPage();
+
+    await alice.goto(`/hibernation?room=${room}`);
+    await bob.goto(`/hibernation?room=${room}`);
+
+    await alice.getByTestId('username').fill('alice');
+    await bob.getByTestId('username').fill('bob');
+
+    await alice.getByTestId('connect').click();
+    await bob.getByTestId('connect').click();
+
+    await expect(alice.getByTestId('status')).toHaveText('connected');
+    await expect(bob.getByTestId('status')).toHaveText('connected');
+
+    await alice.getByTestId('subscribe-room').click();
+    await bob.getByTestId('subscribe-room').click();
+
+    await expect(alice.getByTestId('subscribed')).toHaveText('yes');
+    await expect(bob.getByTestId('subscribed')).toHaveText('yes');
+
+    // Idle window for the DO to hibernate.
+    await alice.waitForTimeout(1_500);
+
+    // Bob sends a message to wake the DO, then queries members.
+    await bob.getByTestId('get-room-members').click();
+
+    // ctx.channels.members('room') must return the restored memberships post-wake.
+    await expect(bob.getByTestId('room-members-count')).not.toHaveText('-1');
+    const count = Number(await bob.getByTestId('room-members-count').textContent());
+    expect(count).toBeGreaterThanOrEqual(1);
+
+    await aliceCtx.close();
+    await bobCtx.close();
+  });
+
   test('SQL state survives across hibernation wake', async ({ browser }, testInfo) => {
     const room = `hib-sql-${testInfo.testId}`;
 

@@ -176,9 +176,7 @@ test.describe('lifecycle-hooks', () => {
     await expect(page.getByTestId('upgrade-meta')).toHaveText('alice');
   });
 
-  test('multiple onConnect hooks run when registered multiple times', async ({
-    page,
-  }, testInfo) => {
+  test('onConnect hook delivers connect-count event on client join', async ({ page }, testInfo) => {
     await openPage(page, `test-${testInfo.testId}`, 'alice');
     await expect(page.getByTestId('connect-count')).toHaveText(/2/);
   });

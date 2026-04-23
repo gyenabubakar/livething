@@ -57,6 +57,7 @@ const base = withChannels(
   })
   .intercept((_ctx, message) => {
     if (message.event === 'block-test') throw Block;
+    if (message.event === 'disconnect-intercept') throw Disconnect(4011, 'intercepted disconnect');
     return message;
   })
   .incoming(DoEcho, (ctx, payload) => {

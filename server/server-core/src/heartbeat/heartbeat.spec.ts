@@ -63,4 +63,33 @@ describe('heartbeat', () => {
       { connectionId: 'conn-1', timeoutMs: 30_000 },
     ]);
   });
+
+  it('skips refreshConnectionIdleTimeout when ctx.id is falsy (empty string)', () => {
+    const connectHandlers: Array<NonNullable<Parameters<EngineAccess['onConnect']>[0]>> = [];
+    const refreshed: Array<string> = [];
+    const installs = new Set<symbol>();
+
+    const engine = {
+      installOnce(key, install) {
+        if (installs.has(key)) return;
+        installs.add(key);
+        install();
+      },
+      onConnect(handler) {
+        connectHandlers.push(handler);
+      },
+      onConnectionActivity() {},
+      refreshConnectionIdleTimeout(connectionId: string) {
+        refreshed.push(connectionId);
+      },
+    } as Pick<
+      EngineAccess,
+      'installOnce' | 'onConnect' | 'onConnectionActivity' | 'refreshConnectionIdleTimeout'
+    > as EngineAccess;
+
+    heartbeat({ timeout: 30_000 }).__setup?.(engine);
+    void connectHandlers[0]!({ id: '' });
+
+    expect(refreshed).toHaveLength(0);
+  });
 });

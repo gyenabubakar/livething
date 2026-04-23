@@ -69,6 +69,9 @@
 <button data-testid="force-disconnect" onclick={() => send('force-disconnect')}>
 	Force disconnect
 </button>
+<button data-testid="disconnect-intercept" onclick={() => send('disconnect-intercept')}>
+	Disconnect from intercept
+</button>
 <button data-testid="subscribe-chat" onclick={() => send('_subscribe', { _channel: 'chat' })}>
 	Subscribe chat
 </button>

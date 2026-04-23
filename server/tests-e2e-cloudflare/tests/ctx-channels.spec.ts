@@ -136,6 +136,22 @@ test.describe('ctx-channels', () => {
     await ctxC.close();
   });
 
+  test('ctx.channels.members() entries have a non-empty id (connectionId) field', async ({
+    page,
+  }, testInfo) => {
+    const room = `test-${testInfo.testId}`;
+    await page.goto(`/ctx-channels?room=${room}`);
+    await page.getByTestId('connect').click();
+    await expect(page.getByTestId('status')).toHaveText('connected');
+    await page.getByTestId('subscribe-room').click();
+    await expect(page.getByTestId('subscribed')).toHaveText('yes');
+
+    await page.getByTestId('get-member-id').click();
+    // The first member's id must be a non-empty string — not ''.
+    await expect(page.getByTestId('member-id-result')).not.toHaveText('');
+    await expect(page.getByTestId('member-id-result')).toHaveText(/.+/);
+  });
+
   test('ctx.channels.kick is silent no-op for non-member tag', async ({ browser }, testInfo) => {
     const room = `test-${testInfo.testId}`;
     const ctxA = await browser.newContext();

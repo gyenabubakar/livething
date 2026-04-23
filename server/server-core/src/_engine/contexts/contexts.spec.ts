@@ -230,6 +230,71 @@ describe('extendContext last-wins ordering', () => {
   });
 });
 
+describe('ctx.channel.send', () => {
+  it('routes through sendThroughPipeline and does not call broadcastToChannel', () => {
+    const connection = createConnection('c1');
+    const sendThroughPipeline = vi.fn(() => true);
+    const broadcastToChannel = vi.fn();
+    const deps = baseDeps({
+      connections: new Map([[connection.id, connection]]),
+      sendThroughPipeline,
+      broadcastToChannel,
+    });
+
+    const scope = {
+      channel: {
+        kind: 'channel' as const,
+        key: 'rooms',
+        pattern: 'general',
+        outgoing: new Map(),
+        incoming: new Map(),
+        requests: new Map(),
+        streams: new Map(),
+        preIntercepts: [],
+        postIntercepts: new Map(),
+      } as any,
+      channelName: 'general',
+      channelScope: 'rooms',
+    };
+
+    const ctx = buildConnectionContext(deps, connection, scope);
+    (ctx as any).channel.send('greeting', { msg: 'hi' });
+
+    expect(sendThroughPipeline).toHaveBeenCalledWith(
+      connection,
+      { channel: 'general', channelScope: 'rooms' },
+      'greeting',
+      { msg: 'hi' },
+    );
+    expect(broadcastToChannel).not.toHaveBeenCalled();
+  });
+});
+
+describe('ctx.channels.members()', () => {
+  it('returns the ConnectionInfo array from getChannelMembers', () => {
+    const connection = createConnection('c1');
+    const memberInfo = {
+      id: 'c2',
+      meta: {},
+      tags: [],
+      channels: [],
+      latency: null,
+      quality: 'good' as const,
+      bufferedAmount: 0,
+    };
+    const deps = baseDeps({
+      connections: new Map([[connection.id, connection]]),
+      getChannelMembers: vi.fn(() => [memberInfo]),
+    });
+
+    const ctx = buildConnectionContext(deps, connection);
+    const members = ctx.channels.members('room');
+
+    expect(members).toEqual([memberInfo]);
+    expect(deps.getChannelMembers).toHaveBeenCalledWith('room');
+  });
+});
+
 describe('ctx.log', () => {
   it('connection ctx.log forwards info/warn/error to the adapter logger', () => {
     const info = vi.fn();

@@ -61,6 +61,29 @@ test.describe('errors-control-flow', () => {
     expect(closed.reason).toBe('force disconnect');
   });
 
+  test('Disconnect thrown from inside a pre-intercept closes the connection', async ({
+    page,
+  }, testInfo) => {
+    const room = `test-${testInfo.testId}-intercept`;
+
+    const closed = await page.evaluate(async (currentRoom) => {
+      return new Promise<{ code: number; reason: string }>((resolve, reject) => {
+        const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const url = `${protocol}//${location.host}/ws/errors-control-flow?username=${encodeURIComponent('tester')}&room=${encodeURIComponent(currentRoom)}`;
+        const ws = new WebSocket(url);
+        ws.onopen = () => {
+          ws.send(JSON.stringify({ event: 'disconnect-intercept', payload: {} }));
+        };
+        ws.onclose = (ev) => resolve({ code: ev.code, reason: ev.reason });
+        ws.onerror = () => reject(new Error('ws failed'));
+        setTimeout(() => reject(new Error('timeout')), 5_000);
+      });
+    }, room);
+
+    expect(closed.code).toBe(4011);
+    expect(closed.reason).toBe('intercepted disconnect');
+  });
+
   test('chat channel: always-defer exhausts and fires onError inside the channel', async ({
     page,
   }) => {

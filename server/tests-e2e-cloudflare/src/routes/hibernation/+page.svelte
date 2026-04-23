@@ -11,6 +11,7 @@
 	let slowStreamOk = $state(false);
 	let slowStreamError = $state('');
 	let slowStreamChunks = $state<number[]>([]);
+	let roomMembersCount = $state(-1);
 
 	function connect() {
 		if (ws) return;
@@ -47,6 +48,9 @@
 			}
 			if (data.event === '_error' && data.payload?._streamId) {
 				slowStreamError = `${data.payload.code}:${data.payload._streamId}`;
+			}
+			if (data.event === 'room-members-count') {
+				roomMembersCount = data.payload.count;
 			}
 		};
 	}
@@ -88,6 +92,10 @@
 	function wakeWithPing() {
 		ws?.send(JSON.stringify({ event: 'get-notes', payload: {} }));
 	}
+
+	function getRoomMembers() {
+		ws?.send(JSON.stringify({ event: 'get-room-members', payload: {} }));
+	}
 </script>
 
 <h1>hibernation feature</h1>
@@ -111,6 +119,7 @@
 </button>
 <button data-testid="start-slow-stream" onclick={startSlowStream}>Start slow stream</button>
 <button data-testid="wake-with-ping" onclick={wakeWithPing}>Wake with ping</button>
+<button data-testid="get-room-members" onclick={getRoomMembers}>Get room members</button>
 <span data-testid="status">{status}</span>
 <span data-testid="subscribed">{subscribed ? 'yes' : 'no'}</span>
 <span data-testid="room-messages">{roomMessages.join(',')}</span>
@@ -121,3 +130,4 @@
 <span data-testid="slow-stream-id">{slowStreamId}</span>
 <span data-testid="slow-stream-error">{slowStreamError}</span>
 <span data-testid="slow-stream-chunks">{slowStreamChunks.join(',')}</span>
+<span data-testid="room-members-count">{roomMembersCount}</span>

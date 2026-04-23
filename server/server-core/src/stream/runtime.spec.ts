@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ActiveStream, RuntimeConnection } from '~/_engine/runtime/types.ts';
-import { cancelStream, runStream } from './runtime.ts';
+import { bufferStreamNudge, cancelStream, runStream } from './runtime.ts';
 
 function createConnection(id = 'c1'): RuntimeConnection {
   return {
@@ -236,6 +236,45 @@ describe('stream/runtime', () => {
     expect(errMsg).toBeDefined();
     expect(errMsg!.payload.code).toBe('internal-error');
     expect(errMsg!.payload._streamId).toBe('stream_1');
+  });
+
+  it('bufferStreamNudge returns false for an unknown _streamId', async () => {
+    const { runtime } = createStreamRuntime();
+    const connection = createConnection();
+
+    const result = await bufferStreamNudge(
+      runtime as Parameters<typeof bufferStreamNudge>[0],
+      connection,
+      'nudge-event',
+      { _streamId: 'does-not-exist' },
+    );
+
+    expect(result).toBe(false);
+  });
+
+  it('bufferStreamNudge returns false for an unknown event name on an active stream', async () => {
+    const { runtime } = createStreamRuntime();
+    const connection = createConnection();
+
+    const activeStream: ActiveStream = {
+      id: 'stream_1',
+      connectionId: connection.id,
+      generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
+      nudges: [],
+      nudgeValidators: new Map([['known-nudge', undefined]]),
+      closed: false,
+    };
+    runtime.activeStreams.set('stream_1', activeStream);
+
+    const result = await bufferStreamNudge(
+      runtime as Parameters<typeof bufferStreamNudge>[0],
+      connection,
+      'unknown-nudge',
+      { _streamId: 'stream_1' },
+    );
+
+    expect(result).toBe(false);
+    expect(activeStream.nudges).toHaveLength(0);
   });
 
   it('persistAttachment is called with stream ID added on start and removed on end', async () => {

@@ -69,6 +69,23 @@ describe('createSql', () => {
     expect(Array.isArray(raw)).toBe(true);
   });
 
+  it('returns null from one() when the cursor returns null (empty result set, no throw)', () => {
+    const state = {
+      storage: {
+        sql: {
+          exec: () => ({
+            toArray: () => [],
+            one: () => null,
+            raw: () => [][Symbol.iterator](),
+          }),
+        },
+      },
+    } as unknown as DurableObjectState;
+
+    const sql = createSql(state);
+    expect(sql.exec('SELECT 1 WHERE 0').one()).toBeNull();
+  });
+
   it('returns null from one() when the underlying cursor throws', () => {
     const state = {
       storage: {

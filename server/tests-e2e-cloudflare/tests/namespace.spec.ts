@@ -18,6 +18,32 @@ test.describe('namespace', () => {
     await expect(page.getByTestId('ns-message')).toHaveText('hello ns');
   });
 
+  test('ctx.namespace.send reaches only the triggering connection, not other clients', async ({
+    browser,
+  }, testInfo) => {
+    const room = `test-${testInfo.testId}`;
+    const page1 = await browser.newPage();
+    const page2 = await browser.newPage();
+
+    await page1.goto(`/namespace?room=${room}`);
+    await page1.getByTestId('connect').click();
+    await waitForText(page1, 'status', 'connected');
+
+    await page2.goto(`/namespace?room=${room}`);
+    await page2.getByTestId('connect').click();
+    await waitForText(page2, 'status', 'connected');
+
+    await page1.getByTestId('send-ns').click();
+    // page1 receives its own message via ctx.namespace.send.
+    await waitForText(page1, 'ns-message', 'hello ns');
+
+    // page2 must NOT have received the message — ctx.namespace.send is per-connection only.
+    await expect(page2.getByTestId('ns-message')).toHaveText('');
+
+    await page1.close();
+    await page2.close();
+  });
+
   test('ctx.namespace.broadcast sends outgoing events to all connections', async ({
     browser,
   }, testInfo) => {

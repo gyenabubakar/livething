@@ -125,6 +125,7 @@ export class Engine {
   private readonly installedFeatures = new Set<symbol>();
   private alarmHandle: unknown = null;
   private idCounter = 0;
+  private readonly instanceNonce = Math.random().toString(36).slice(2, 8);
   /** @internal */
   readonly moduleRuntimes: EngineRuntimeTypes.ModuleRuntime[] = [];
   /** @internal */
@@ -680,7 +681,7 @@ export class Engine {
    */
   generateId(prefix = 'id'): string {
     this.idCounter += 1;
-    return `${prefix}_${this.idCounter}`;
+    return `${prefix}_${this.instanceNonce}_${this.idCounter}`;
   }
 
   // ─────── Section: adapter entry points ───────

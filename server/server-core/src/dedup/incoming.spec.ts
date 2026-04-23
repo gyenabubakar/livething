@@ -113,6 +113,35 @@ describe('incoming dedup', () => {
     expect(runtime.incomingHook).toHaveBeenCalledTimes(2);
   });
 
+  it('bypasses dedup check when attempt > 0 (re-dispatch path)', async () => {
+    const connection = makeConnection();
+    const runtime = makeRuntime(16);
+
+    await dispatchIncoming(runtime, connection, 'echo', { _messageId: 'retry-me' });
+    // Second call with attempt=0 — same id, should be dropped.
+    await dispatchIncoming(runtime, connection, 'echo', { _messageId: 'retry-me' }, 0);
+    // Third call with attempt=1 — dedup is skipped, should dispatch again.
+    await dispatchIncoming(runtime, connection, 'echo', { _messageId: 'retry-me' }, 1);
+
+    expect(runtime.incomingHook).toHaveBeenCalledTimes(2);
+  });
+
+  it('default cap is 256 (DEDUP_DEFAULT_INCOMING_CAP)', async () => {
+    const connection = makeConnection();
+    // Cap of 256 mirrors the default set by the dedup() primitive.
+    const runtime = makeRuntime(256);
+
+    await dispatchIncoming(runtime, connection, 'echo', { _messageId: 'first' });
+    // Fill the ring so 'first' is evicted.
+    for (let i = 0; i < 256; i += 1) {
+      await dispatchIncoming(runtime, connection, 'echo', { _messageId: `id-${i}` });
+    }
+    // After 256 more entries, 'first' was evicted — resending it must dispatch again.
+    await dispatchIncoming(runtime, connection, 'echo', { _messageId: 'first' });
+
+    expect(runtime.incomingHook).toHaveBeenCalledTimes(1 + 256 + 1);
+  });
+
   it('is disabled when cap is 0', async () => {
     const connection = makeConnection();
     const runtime = makeRuntime(0);

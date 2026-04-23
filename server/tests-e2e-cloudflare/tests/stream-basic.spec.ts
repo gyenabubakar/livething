@@ -100,6 +100,19 @@ test.describe('stream-basic', () => {
     await expect(page.getByTestId('stream-end')).toHaveText('no');
   });
 
+  test('throw before first yield sends _streamOk then _error with no chunks', async ({
+    page,
+  }, testInfo) => {
+    await openPage(page, `test-${testInfo.testId}`);
+    await page.getByTestId('start-boom-immediate').click();
+    // _streamOk is sent before the generator body runs.
+    await expect(page.getByTestId('stream-ok')).toHaveText('yes');
+    // No chunks — generator threw before the first yield.
+    await expect(page.getByTestId('chunk-indices')).toHaveText('');
+    // Error frame must arrive.
+    await expect(page.getByTestId('stream-error')).toContainText('stream-error:');
+  });
+
   test('stream error preserves a registered error factory code', async ({ page }, testInfo) => {
     await openPage(page, `test-${testInfo.testId}`);
     await page.getByTestId('start-typed-error').click();

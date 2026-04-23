@@ -202,6 +202,81 @@ describe('custom replay', () => {
     ]);
   });
 
+  it('ctx.sendReplay() in onReplay does not re-trigger onBeforeSend', async () => {
+    const beforeSendCalls: string[] = [];
+    const replaySent: Parameters<EngineAccess['sendReplay']>[] = [];
+    const initHandlers: Array<(ctx: unknown) => void> = [];
+    const protocolHandlers: Array<NonNullable<Parameters<EngineAccess['onProtocolMessage']>[1]>> =
+      [];
+
+    const engine = {
+      getScopeInfo() {
+        return {};
+      },
+      onInit(handler: (ctx: unknown) => void | Promise<void>) {
+        initHandlers.push(handler as (ctx: unknown) => void);
+      },
+      onBeforeSend(handler: Parameters<EngineAccess['onBeforeSend']>[0]) {
+        beforeSendCalls; // captured via closure below
+        // Register a spy that records call events.
+        handler as unknown as (msg: unknown) => void;
+        // We'll record any calls via the spy below.
+        const spy = vi.fn((msg: { event: string }) => {
+          beforeSendCalls.push(msg.event);
+        });
+        (engine as unknown as { __spy: typeof spy }).__spy = spy;
+        // Wrap: call our spy then the real handler.
+        (engine as unknown as { __handler: typeof handler }).__handler = handler;
+      },
+      onProtocolMessage(
+        event: string,
+        handler: NonNullable<Parameters<EngineAccess['onProtocolMessage']>[1]>,
+      ) {
+        if (event === '_replay') protocolHandlers.push(handler);
+      },
+      sendReplay(...args: Parameters<EngineAccess['sendReplay']>) {
+        replaySent.push(args);
+      },
+    } as unknown as EngineAccess;
+
+    handleReplay({
+      onBeforeSend(_ctx, message) {
+        beforeSendCalls.push(message.event);
+      },
+      onReplay(ctx, _since) {
+        ctx.sendReplay('message', { text: 'replayed' }, { seq: 1, messageId: 'm1' });
+      },
+    }).__setup?.(engine);
+
+    for (const handler of initHandlers) {
+      handler({ sql: {}, kv: {}, env: {}, log: {}, platform: {} });
+    }
+
+    // Capture how many onBeforeSend calls happen before onReplay runs.
+    const countBefore = beforeSendCalls.length;
+
+    await protocolHandlers[0]!(
+      {
+        id: 'c1',
+        sql: {},
+        kv: {},
+        env: {},
+        log: {},
+        platform: {},
+        waitUntil() {},
+        [ENGINE_SCOPE_META]: {},
+      },
+      { since: 0 },
+    );
+
+    // sendReplay was called inside onReplay.
+    expect(replaySent).toHaveLength(1);
+    expect(replaySent[0]![3]).toBe('message');
+
+    // onBeforeSend must NOT have fired again for the replayed message.
+    expect(beforeSendCalls.length).toBe(countBefore);
+  });
+
   it('strict-durability: onBeforeSend fires before descriptor.send', async () => {
     const calls: string[] = [];
     const onBeforeSendSpy = vi.fn(() => {

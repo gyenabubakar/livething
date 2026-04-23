@@ -58,6 +58,7 @@
 					break;
 				case 'start-tokens':
 				case 'start-boom':
+				case 'start-boom-immediate':
 				case 'start-typed-error':
 				case 'start-cancel-observe':
 					if (typeof data.payload?.index === 'number') {
@@ -78,6 +79,10 @@
 	function startBoom() {
 		reset();
 		ws?.send(JSON.stringify({ event: 'start-boom', payload: {} }));
+	}
+	function startBoomImmediate() {
+		reset();
+		ws?.send(JSON.stringify({ event: 'start-boom-immediate', payload: {} }));
 	}
 	function startTypedError() {
 		reset();
@@ -104,6 +109,7 @@
 <button data-testid="start-3" onclick={() => startTokens(3)}>Start 3 tokens</button>
 <button data-testid="start-10" onclick={() => startTokens(10)}>Start 10 tokens</button>
 <button data-testid="start-boom" onclick={startBoom}>Start boom</button>
+<button data-testid="start-boom-immediate" onclick={startBoomImmediate}>Start boom-immediate</button>
 <button data-testid="start-typed-error" onclick={startTypedError}>Start typed-error</button>
 <button data-testid="start-cancel-observe" onclick={startCancelObserve}>Start cancel-observe</button>
 <button data-testid="cancel" onclick={cancelStream}>Cancel</button>

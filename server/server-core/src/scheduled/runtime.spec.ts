@@ -441,6 +441,37 @@ describe('scheduled/runtime', () => {
     now.mockRestore();
   });
 
+  it('one-shot task with retry:false dead-letters immediately without re-queuing', async () => {
+    const handler = vi.fn().mockRejectedValueOnce(new Error('boom'));
+    const { runtime, scheduledRuns, deadLetters } = createScheduledRuntime([
+      { taskId: 'oneshot', handler, options: { retry: false } },
+    ]);
+    const now = vi.spyOn(Date, 'now').mockReturnValue(100);
+
+    scheduledRuns.set('run_1', {
+      id: 'run_1',
+      taskId: 'oneshot',
+      time: 0,
+      data: { x: 1 },
+      attempts: 0,
+      recurring: false,
+      retry: false,
+    });
+
+    await handleScheduledAlarm(runtime);
+
+    expect(deadLetters.get('run_1')).toMatchObject({
+      taskId: 'oneshot',
+      attempts: 1,
+      error: { message: 'boom' },
+    });
+    // One-shot with retry:false must not be re-queued.
+    expect(scheduledRuns.has('run_1')).toBe(false);
+    expect([...scheduledRuns.values()]).toHaveLength(0);
+
+    now.mockRestore();
+  });
+
   it('round-trips custom backoff through serialization', () => {
     const { runtime, scheduledRuns, storageRows } = createScheduledRuntime([
       { taskId: 'ser', options: { retry: [100, 200] } },

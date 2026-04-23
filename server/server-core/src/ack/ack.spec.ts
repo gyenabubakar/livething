@@ -49,11 +49,18 @@ describe('ack', () => {
       [ENGINE_SCOPE_META]: { namespaceName: 'admin' },
     };
 
+    const channelCtx: Record<PropertyKey, unknown> = {
+      id: 'c3',
+      [ENGINE_SCOPE_META]: { channelName: 'room-1' },
+    };
+
     Object.assign(topLevelCtx, extenders[0]!(topLevelCtx));
     Object.assign(namespacedCtx, extenders[0]!(namespacedCtx));
+    Object.assign(channelCtx, extenders[0]!(channelCtx));
 
     expect(typeof topLevelCtx.ack).toBe('function');
     expect(namespacedCtx.ack).toBeUndefined();
+    expect(channelCtx.ack).toBeUndefined();
 
     (topLevelCtx.ack as () => void)();
     expect(sent).toEqual(['c1']);

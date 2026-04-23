@@ -217,8 +217,8 @@ export const scheduledHandler = withScheduled(withLifecycle(server<Env>('schedul
     ctx.tag('vip');
   })
   .incoming(CancelNonexistent, (ctx) => {
-    // Use a real task id with a filter that can never match any enqueued run.
-    ctx.cancelScheduled('filtered-cleanup', { label: '__nonexistent__' });
+    // Cast to bypass the type guard: test that cancelling an unknown id at runtime is a no-op.
+    (ctx.cancelScheduled as (id: string) => void)('nonexistent-task-id');
     ctx.send('cancel-nonexistent-ok', {});
   })
   .build();

@@ -1,6 +1,37 @@
 import { WskitError } from '@wskit/core';
 import { describe, expect, it } from 'vitest';
-import { Defer, DeferExhausted, Disconnect, RejectUpgrade } from './errors.ts';
+import { CloseCodes, Defer, DeferExhausted, Disconnect, RejectUpgrade } from './errors.ts';
+
+// ===========================================================================
+// CloseCodes
+// ===========================================================================
+
+describe('CloseCodes', () => {
+  it('exposes the standard 1xxx codes', () => {
+    expect(CloseCodes.NORMAL).toBe(1000);
+    expect(CloseCodes.GOING_AWAY).toBe(1001);
+  });
+
+  it('exposes the wskit 4xxx codes', () => {
+    expect(CloseCodes.AUTH_EXPIRED).toBe(4001);
+    expect(CloseCodes.AUTH_INVALID).toBe(4002);
+    expect(CloseCodes.DUPLICATE).toBe(4003);
+    expect(CloseCodes.IDLE).toBe(4004);
+    expect(CloseCodes.RATE_LIMITED).toBe(4005);
+    expect(CloseCodes.BANNED).toBe(4009);
+    expect(CloseCodes.CAPACITY).toBe(4010);
+  });
+
+  it('is frozen', () => {
+    expect(Object.isFrozen(CloseCodes)).toBe(true);
+  });
+
+  it('Disconnect(CloseCodes.IDLE, ...) produces code 4004', () => {
+    const dc = Disconnect(CloseCodes.IDLE, 'Heartbeat timeout');
+    expect(dc.code).toBe(4004);
+    expect(dc.reason).toBe('Heartbeat timeout');
+  });
+});
 
 // ===========================================================================
 // Disconnect

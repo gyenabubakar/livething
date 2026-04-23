@@ -91,6 +91,32 @@ describe('request/runtime', () => {
     );
   });
 
+  it('passes undefined to sendThroughPipeline when handler never calls ctx.respond()', async () => {
+    const sendThroughPipeline = vi.fn(() => true);
+    const runtime = {
+      buildConnectionContext: () => ({ ok: true }),
+      setActiveConnectionId: vi.fn(),
+      sendThroughPipeline,
+    };
+    const connection = createConnection();
+    const request = {
+      __wskit: 'request',
+      event: 'status',
+      handler: vi.fn(async () => {
+        // Never calls ctx.respond() — response stays undefined.
+      }),
+    } as unknown as RequestPrimitive;
+
+    await handleRequest(runtime, connection, {}, 'status', request, {}, {});
+
+    expect(sendThroughPipeline).toHaveBeenCalledWith(
+      connection,
+      expect.anything(),
+      'status',
+      undefined,
+    );
+  });
+
   it('clears the active connection id when a request handler throws', async () => {
     const runtime = {
       buildConnectionContext: () => ({ ok: true }),

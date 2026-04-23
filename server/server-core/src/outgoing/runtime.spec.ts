@@ -125,4 +125,115 @@ describe('outgoing/runtime sendThroughPipeline', () => {
       /Outgoing event "bar" was not declared in the active scope/,
     );
   });
+
+  it('accepts an event declared in a namespace scope when namespace routing is provided', () => {
+    const runtime = createRuntime({
+      compiled: {
+        outgoing: new Map(),
+        streams: new Map(),
+        namespaces: new Map([
+          [
+            'admin',
+            {
+              outgoing: new Map([['ns-event', { event: 'ns-event' }]]),
+              streams: new Map(),
+            },
+          ],
+        ]),
+        channels: new Map(),
+        channelFamilies: new Map(),
+        modules: [],
+      } as unknown as OutgoingRuntime['compiled'],
+    });
+    const connection = createConnection();
+
+    expect(() =>
+      sendThroughPipeline(runtime, connection, { namespace: 'admin' }, 'ns-event', { a: 1 }),
+    ).not.toThrow();
+  });
+
+  it('accepts an event declared in a channel family scope when channelScope routing is provided', () => {
+    const runtime = createRuntime({
+      compiled: {
+        outgoing: new Map(),
+        streams: new Map(),
+        namespaces: new Map(),
+        channels: new Map(),
+        channelFamilies: new Map([
+          [
+            'rooms',
+            {
+              outgoing: new Map([['room-event', { event: 'room-event' }]]),
+              streams: new Map(),
+            },
+          ],
+        ]),
+        modules: [],
+      } as unknown as OutgoingRuntime['compiled'],
+    });
+    const connection = createConnection();
+
+    expect(() =>
+      sendThroughPipeline(
+        runtime,
+        connection,
+        { channel: 'room-1', channelScope: 'rooms' },
+        'room-event',
+        { a: 1 },
+      ),
+    ).not.toThrow();
+  });
+
+  it('throws when an undeclared event is sent inside a namespace scope', () => {
+    const runtime = createRuntime({
+      compiled: {
+        outgoing: new Map(),
+        streams: new Map(),
+        namespaces: new Map([
+          [
+            'admin',
+            {
+              outgoing: new Map([['ns-event', { event: 'ns-event' }]]),
+              streams: new Map(),
+            },
+          ],
+        ]),
+        channels: new Map(),
+        channelFamilies: new Map(),
+        modules: [],
+      } as unknown as OutgoingRuntime['compiled'],
+    });
+    const connection = createConnection();
+
+    // 'other-event' is not in the admin namespace's outgoing declarations.
+    expect(() =>
+      sendThroughPipeline(runtime, connection, { namespace: 'admin' }, 'other-event', {}),
+    ).toThrow(/Outgoing event "other-event" was not declared in the active scope/);
+  });
+
+  it('accepts an event declared in a named channel scope when channel routing is provided', () => {
+    const runtime = createRuntime({
+      compiled: {
+        outgoing: new Map(),
+        streams: new Map(),
+        namespaces: new Map(),
+        channels: new Map([
+          [
+            'general',
+            {
+              outgoing: new Map([['chat-msg', { event: 'chat-msg' }]]),
+              streams: new Map(),
+            },
+          ],
+        ]),
+        channelFamilies: new Map(),
+        modules: [],
+      } as unknown as OutgoingRuntime['compiled'],
+    });
+    const connection = createConnection();
+
+    expect(() =>
+      sendThroughPipeline(runtime, connection, { channel: 'general' }, 'chat-msg', { a: 1 }),
+    ).not.toThrow();
+  });
 });
