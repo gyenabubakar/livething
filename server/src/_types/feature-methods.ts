@@ -544,14 +544,12 @@ type MethodType<
                                                 readonly [],
                                             >(
                                               eventContract: EventContract<TEvent, TPayload>,
-                                              chunkSchema: Validator<TChunks>,
                                               callback: (
                                                 builder: StreamBuilder<
                                                   FullBuilder<TState, TFeatures, Kind>,
                                                   TState,
                                                   TEvent,
-                                                  TPayload,
-                                                  TChunks
+                                                  TPayload
                                                 >,
                                               ) => StreamBuilder<
                                                 FullBuilder<TState, TFeatures, Kind>,
@@ -559,7 +557,8 @@ type MethodType<
                                                 TEvent,
                                                 TPayload,
                                                 TChunks,
-                                                TNudges
+                                                TNudges,
+                                                true
                                               >,
                                             ) => FullBuilder<
                                               StateWithStream<
@@ -647,14 +646,12 @@ type NsMethodType<
           TNudges extends readonly NudgeDeclaration[] = readonly [],
         >(
           eventContract: EventContract<TEvent, TPayload>,
-          chunkSchema: Validator<TChunks>,
           callback: (
             builder: StreamBuilder<
               NamespaceBuilderFull<TParentState, TState, TName, TFeatures>,
               TState,
               TEvent,
-              TPayload,
-              TChunks
+              TPayload
             >,
           ) => StreamBuilder<
             NamespaceBuilderFull<TParentState, TState, TName, TFeatures>,
@@ -662,7 +659,8 @@ type NsMethodType<
             TEvent,
             TPayload,
             TChunks,
-            TNudges
+            TNudges,
+            true
           >,
         ) => NamespaceBuilderFull<
           TParentState,
@@ -726,14 +724,12 @@ type ChMethodType<
           TNudges extends readonly NudgeDeclaration[] = readonly [],
         >(
           eventContract: EventContract<TEvent, TPayload>,
-          chunkSchema: Validator<TChunks>,
           callback: (
             builder: StreamBuilder<
               ChannelBuilderFull<TParentState, TState, TPattern, TFeatures>,
               TState,
               TEvent,
-              TPayload,
-              TChunks
+              TPayload
             >,
           ) => StreamBuilder<
             ChannelBuilderFull<TParentState, TState, TPattern, TFeatures>,
@@ -741,7 +737,8 @@ type ChMethodType<
             TEvent,
             TPayload,
             TChunks,
-            TNudges
+            TNudges,
+            true
           >,
         ) => ChannelBuilderFull<
           TParentState,

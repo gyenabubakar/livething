@@ -53,8 +53,8 @@ const roomChannel = base.channel('room', (c) =>
 );
 
 export const hibernationHandler = base
-  .stream(StartSlowStream, SlowChunk, (s) =>
-    s.generate(async function* () {
+  .stream(StartSlowStream, (s) =>
+    s.chunk(SlowChunk).generate(async function* () {
       for (let i = 0; i < 10; i++) {
         yield { index: i };
         // Long gap so the DO can hibernate between yields.

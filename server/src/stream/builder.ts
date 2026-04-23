@@ -24,8 +24,9 @@ export class StreamBuilder<
   TParentState extends ScopeStateShape,
   TEvent extends string,
   TPayload,
-  TChunks,
+  TChunks = unknown,
   TNudges extends readonly NudgeDeclaration[] = readonly [],
+  THasChunk extends boolean = false,
 > {
   /** @internal Reference to the parent builder for `_seal()`. */
   readonly _parentBuilder: TParentBuilder;
@@ -35,6 +36,7 @@ export class StreamBuilder<
   readonly _event: TEvent;
   /** @internal Validator for the trigger payload. */
   readonly _triggerSchema: Validator<TPayload>;
+  declare readonly _hasChunk: THasChunk;
   /** @internal Whether to fan the stream out to all connections. */
   _broadcast = false;
   /** @internal Nudge declarations accumulated via `.nudge()`. */
@@ -44,7 +46,6 @@ export class StreamBuilder<
     parentBuilder: TParentBuilder,
     parentPrimitives: Primitive[],
     eventContract: EventContract<TEvent, TPayload>,
-    _chunkSchema: Validator<TChunks>,
   ) {
     this._parentBuilder = parentBuilder;
     this._parentPrimitives = parentPrimitives;
@@ -61,6 +62,22 @@ export class StreamBuilder<
     return this;
   }
 
+  /** Declare the shape of each chunk yielded by `.generate()`. */
+  chunk<TNextChunks>(
+    chunkSchema: Validator<TNextChunks>,
+  ): StreamBuilder<TParentBuilder, TParentState, TEvent, TPayload, TNextChunks, TNudges, true> {
+    void chunkSchema;
+    return this as unknown as StreamBuilder<
+      TParentBuilder,
+      TParentState,
+      TEvent,
+      TPayload,
+      TNextChunks,
+      TNudges,
+      true
+    >;
+  }
+
   /**
    * Declare a client→server event that can be sent while this stream is active.
    * The generator receives nudges via `ctx.nudges()` as `yield` return values,
@@ -74,7 +91,8 @@ export class StreamBuilder<
     TEvent,
     TPayload,
     TChunks,
-    readonly [...TNudges, NudgeDeclaration<NEvent, NPayload>]
+    readonly [...TNudges, NudgeDeclaration<NEvent, NPayload>],
+    THasChunk
   > {
     /* oxlint-disable-next-line @typescript-eslint/no-explicit-any -- Validator union can't satisfy either overload individually */
     this._nudges.push(createNudge(eventContract.event, eventContract.schema as any));
@@ -84,14 +102,15 @@ export class StreamBuilder<
       TEvent,
       TPayload,
       TChunks,
-      readonly [...TNudges, NudgeDeclaration<NEvent, NPayload>]
+      readonly [...TNudges, NudgeDeclaration<NEvent, NPayload>],
+      THasChunk
     >;
   }
 
   /**
    * Attach the `AsyncGenerator` that produces the stream's chunks. This
    * immediately registers the stream and generate primitives on the parent
-   * builder.
+   * builder. Call `.chunk(...)` first to declare the chunk shape.
    *
    * The generator receives `ctx` (the handler context extended with
    * `ctx.nudges()`) and the validated trigger `payload`. Each `yield` sends one
@@ -100,6 +119,7 @@ export class StreamBuilder<
    * since the last yield.
    */
   generate(
+    this: StreamBuilder<TParentBuilder, TParentState, TEvent, TPayload, TChunks, TNudges, true>,
     handler: (
       ctx: StreamHandlerContext<HandlerCtxFromState<TParentState>, TNudges>,
       payload: TPayload,
@@ -108,7 +128,7 @@ export class StreamBuilder<
       void,
       TNudges extends readonly [] ? undefined : StreamNudgeMessages<TNudges>
     >,
-  ): StreamBuilder<TParentBuilder, TParentState, TEvent, TPayload, TChunks, TNudges> {
+  ): StreamBuilder<TParentBuilder, TParentState, TEvent, TPayload, TChunks, TNudges, true> {
     const streamPrimitive = createStream<TEvent, TPayload, TChunks, typeof this._nudges>(
       createStart(this._event, this._triggerSchema as (value: unknown) => TPayload, {
         broadcast: this._broadcast,

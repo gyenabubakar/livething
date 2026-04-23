@@ -11,8 +11,9 @@ const SpeedUpNudge = event('speed-up', v.object({ factor: v.number() }));
 
 export const streamNudgesHandler = withStreams(withLifecycle(server<Env>('stream-nudges')))
   .onUpgrade((request) => requireUsername(request))
-  .stream(StartNudgeStream, Token, (s) =>
+  .stream(StartNudgeStream, (s) =>
     s
+      .chunk(Token)
       .nudge(PauseNudge)
       .nudge(SpeedUpNudge)
       .generate(async function* (ctx, payload) {

@@ -126,10 +126,13 @@ describe('Integration: full single-file server', () => {
         }),
       ),
     )
-    .stream(aiComplete, chunkSchema, (s) =>
-      s.nudge(cancel).generate(async function* (_ctx, payload) {
-        yield { token: payload.prompt };
-      }),
+    .stream(aiComplete, (s) =>
+      s
+        .chunk(chunkSchema)
+        .nudge(cancel)
+        .generate(async function* (_ctx, payload) {
+          yield { token: payload.prompt };
+        }),
     )
     .onUpgrade(async () => ({ meta: { userId: 'test' } }))
     .onConnect(async (ctx) => {
@@ -312,10 +315,13 @@ describe('Integration: multi-file composition', () => {
     const def = base
       .use(
         base.group((g) =>
-          g.stream(aiComplete, chunkSchema, (s) =>
-            s.nudge(cancel).generate(async function* (_ctx, payload) {
-              yield { token: payload.prompt };
-            }),
+          g.stream(aiComplete, (s) =>
+            s
+              .chunk(chunkSchema)
+              .nudge(cancel)
+              .generate(async function* (_ctx, payload) {
+                yield { token: payload.prompt };
+              }),
           ),
         ),
       )

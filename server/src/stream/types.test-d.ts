@@ -21,8 +21,9 @@ function chunkSchema(p: unknown) {
 
 // ─── Scope 1: top-level server ─────────────────────────────────
 
-withStreams(server('app')).stream(aiPrompt, chunkSchema, (s) =>
+withStreams(server('app')).stream(aiPrompt, (s) =>
   s
+    .chunk(chunkSchema)
     .nudge(pause)
     .nudge(speedUp)
     .generate(async function* (ctx, payload) {
@@ -42,36 +43,46 @@ withStreams(server('app')).stream(aiPrompt, chunkSchema, (s) =>
     }),
 );
 
-withStreams(server('app')).stream(aiPrompt, chunkSchema, (s) =>
-  s.generate(async function* (ctx, _payload) {
+withStreams(server('app')).stream(aiPrompt, (s) =>
+  s.chunk(chunkSchema).generate(async function* (ctx, _payload) {
     // @ts-expect-error — no nudges declared, ctx.nudges must not exist
     ctx.nudges;
     yield { token: 'hi' };
   }),
 );
 
+withStreams(server('app')).stream(aiPrompt, (s) => {
+  // @ts-expect-error — .chunk(...) must be declared before .generate()
+  return s.generate(async function* (_ctx, _payload) {
+    yield { token: 'hi' };
+  });
+});
+
 // ─── Scope 2: group ─────────────────────────────────────────────
 
 const groupBase = withStreams(server('app'));
 
 groupBase.group((g) =>
-  g.stream(aiPrompt, chunkSchema, (s) =>
-    s.nudge(pause).generate(async function* (ctx, payload) {
-      void (payload.prompt satisfies string);
-      const raw = yield { token: 'hi' };
-      const nudges = ctx.nudges(raw);
-      for (const n of nudges) {
-        if (n.event === 'pause') {
-          void (n.payload.reason satisfies string);
+  g.stream(aiPrompt, (s) =>
+    s
+      .chunk(chunkSchema)
+      .nudge(pause)
+      .generate(async function* (ctx, payload) {
+        void (payload.prompt satisfies string);
+        const raw = yield { token: 'hi' };
+        const nudges = ctx.nudges(raw);
+        for (const n of nudges) {
+          if (n.event === 'pause') {
+            void (n.payload.reason satisfies string);
+          }
         }
-      }
-    }),
+      }),
   ),
 );
 
 groupBase.group((g) =>
-  g.stream(aiPrompt, chunkSchema, (s) =>
-    s.generate(async function* (ctx, _payload) {
+  g.stream(aiPrompt, (s) =>
+    s.chunk(chunkSchema).generate(async function* (ctx, _payload) {
       // @ts-expect-error — no nudges in group scope stream, ctx.nudges must not exist
       ctx.nudges;
       yield { token: 'hi' };
@@ -82,23 +93,26 @@ groupBase.group((g) =>
 // ─── Scope 3: namespace ─────────────────────────────────────────
 
 withNamespaces(withStreams(server('app'))).namespace('ai', (ns) =>
-  ns.stream(aiPrompt, chunkSchema, (s) =>
-    s.nudge(pause).generate(async function* (ctx, payload) {
-      void (payload.prompt satisfies string);
-      const raw = yield { token: 'hi' };
-      const nudges = ctx.nudges(raw);
-      for (const n of nudges) {
-        if (n.event === 'pause') {
-          void (n.payload.reason satisfies string);
+  ns.stream(aiPrompt, (s) =>
+    s
+      .chunk(chunkSchema)
+      .nudge(pause)
+      .generate(async function* (ctx, payload) {
+        void (payload.prompt satisfies string);
+        const raw = yield { token: 'hi' };
+        const nudges = ctx.nudges(raw);
+        for (const n of nudges) {
+          if (n.event === 'pause') {
+            void (n.payload.reason satisfies string);
+          }
         }
-      }
-    }),
+      }),
   ),
 );
 
 withNamespaces(withStreams(server('app'))).namespace('ai', (ns) =>
-  ns.stream(aiPrompt, chunkSchema, (s) =>
-    s.generate(async function* (ctx, _payload) {
+  ns.stream(aiPrompt, (s) =>
+    s.chunk(chunkSchema).generate(async function* (ctx, _payload) {
       // @ts-expect-error — no nudges, ctx.nudges must not exist in namespace scope
       ctx.nudges;
       yield { token: 'hi' };
@@ -109,23 +123,26 @@ withNamespaces(withStreams(server('app'))).namespace('ai', (ns) =>
 // ─── Scope 4: channel ────────────────────────────────────────────
 
 withStreams(withChannels(server('app'))).channel('lobby', (ch) =>
-  ch.stream(aiPrompt, chunkSchema, (s) =>
-    s.nudge(pause).generate(async function* (ctx, payload) {
-      void (payload.prompt satisfies string);
-      const raw = yield { token: 'hi' };
-      const nudges = ctx.nudges(raw);
-      for (const n of nudges) {
-        if (n.event === 'pause') {
-          void (n.payload.reason satisfies string);
+  ch.stream(aiPrompt, (s) =>
+    s
+      .chunk(chunkSchema)
+      .nudge(pause)
+      .generate(async function* (ctx, payload) {
+        void (payload.prompt satisfies string);
+        const raw = yield { token: 'hi' };
+        const nudges = ctx.nudges(raw);
+        for (const n of nudges) {
+          if (n.event === 'pause') {
+            void (n.payload.reason satisfies string);
+          }
         }
-      }
-    }),
+      }),
   ),
 );
 
 withStreams(withChannels(server('app'))).channel('lobby', (ch) =>
-  ch.stream(aiPrompt, chunkSchema, (s) =>
-    s.generate(async function* (ctx, _payload) {
+  ch.stream(aiPrompt, (s) =>
+    s.chunk(chunkSchema).generate(async function* (ctx, _payload) {
       // @ts-expect-error — no nudges, ctx.nudges must not exist in channel scope
       ctx.nudges;
       yield { token: 'hi' };
@@ -135,17 +152,20 @@ withStreams(withChannels(server('app'))).channel('lobby', (ch) =>
 
 // ─── Broadcast on builder ────────────────────────────────────────
 
-withStreams(server('app')).stream(aiPrompt, chunkSchema, (s) =>
-  s.broadcast().generate(async function* (_ctx, payload) {
-    void (payload.prompt satisfies string);
-    yield { token: 'hi' };
-  }),
+withStreams(server('app')).stream(aiPrompt, (s) =>
+  s
+    .chunk(chunkSchema)
+    .broadcast()
+    .generate(async function* (_ctx, payload) {
+      void (payload.prompt satisfies string);
+      yield { token: 'hi' };
+    }),
 );
 
 // ─── Parent builder preserved after .stream() ────────────────────
 
-const afterStream = withStreams(server('app')).stream(aiPrompt, chunkSchema, (s) =>
-  s.generate(async function* (_ctx, payload) {
+const afterStream = withStreams(server('app')).stream(aiPrompt, (s) =>
+  s.chunk(chunkSchema).generate(async function* (_ctx, payload) {
     void (payload.prompt satisfies string);
     yield { token: 'hi' };
   }),
@@ -153,9 +173,8 @@ const afterStream = withStreams(server('app')).stream(aiPrompt, chunkSchema, (s)
 
 afterStream.stream(
   event('second-stream', (p: unknown) => p as { id: string }),
-  chunkSchema,
   (s) =>
-    s.generate(async function* (_ctx, payload) {
+    s.chunk(chunkSchema).generate(async function* (_ctx, payload) {
       void (payload.id satisfies string);
       yield { token: 'hi' };
     }),

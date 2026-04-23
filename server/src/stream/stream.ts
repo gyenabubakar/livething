@@ -169,8 +169,8 @@ export interface StreamStartDeclaration<TEvent extends string = string, TPayload
 
 /**
  * The primitive type produced by `stream()`. Describes the trigger event, the
- * nudges, and the broadcast flag. The engine uses this to set up stream routing
- * and dispatch.
+ * chunk type declared by `.chunk(...)`, the nudges, and the broadcast flag.
+ * The engine uses this to set up stream routing and dispatch.
  *
  * `_TChunks` is used only by the type system (for the `generate()` pairing) and
  * is not stored at runtime.
@@ -235,8 +235,8 @@ const GENERATE_KEY = Symbol('generate');
  *
  * This primitive must be paired with a `generate()` primitive before the engine
  * can run the stream. In practice you rarely call `stream()` directly — the
- * `StreamBuilder` (from `.stream()` on the server builder) calls both `stream()`
- * and `generate()` for you.
+ * `StreamBuilder` (from `.stream()` on the server builder) calls `stream()`
+ * after you declare `.chunk(...)`, then pairs it with `generate()`.
  *
  * @param startDecl Trigger event name, optional validator, and broadcast flag.
  * @param nudges    Zero or more nudge declarations from `nudge()`.
@@ -268,7 +268,7 @@ export function stream<
  * `AsyncGenerator` function that produces chunks.
  *
  * In practice you rarely call `generate()` directly. The `StreamBuilder`
- * calls it via `.generate(handler)`.
+ * calls it via `.chunk(...).generate(handler)`.
  *
  * @param streamDecl The stream declaration to attach the generator to.
  * @param generator  The `AsyncGenerator` that yields chunks to the client.

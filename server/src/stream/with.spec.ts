@@ -16,8 +16,8 @@ function chunkSchema(p: unknown) {
 describe('.stream() side-effect', () => {
   it('adds stream + generate primitives', () => {
     const def = withStreams(server('chat'))
-      .stream(aiComplete, chunkSchema, (s) =>
-        s.generate(async function* (_ctx, payload) {
+      .stream(aiComplete, (s) =>
+        s.chunk(chunkSchema).generate(async function* (_ctx, payload) {
           yield { token: payload.prompt };
         }),
       )
@@ -31,8 +31,8 @@ describe('.stream() side-effect', () => {
     withAck(withStreams(server('chat')))
       .ack()
       .outgoing(message)
-      .stream(aiComplete, chunkSchema, (s) =>
-        s.generate(async function* (ctx, payload) {
+      .stream(aiComplete, (s) =>
+        s.chunk(chunkSchema).generate(async function* (ctx, payload) {
           ctx.send('message', { text: 'starting' });
           yield { token: payload.prompt };
         }),
@@ -40,8 +40,8 @@ describe('.stream() side-effect', () => {
   });
 
   it('types generator payload from event schema', () => {
-    withStreams(server('chat')).stream(aiComplete, chunkSchema, (s) =>
-      s.generate(async function* (_ctx, payload) {
+    withStreams(server('chat')).stream(aiComplete, (s) =>
+      s.chunk(chunkSchema).generate(async function* (_ctx, payload) {
         const prompt: string = payload.prompt;
         void prompt;
 
@@ -55,8 +55,9 @@ describe('.stream() side-effect', () => {
 
   it('supports nudges', () => {
     const def = withStreams(server('chat'))
-      .stream(aiComplete, chunkSchema, (s) =>
+      .stream(aiComplete, (s) =>
         s
+          .chunk(chunkSchema)
           .nudge(cancel)
           .nudge(addContext)
           .generate(async function* (ctx, payload) {
@@ -78,10 +79,13 @@ describe('.stream() side-effect', () => {
 
   it('supports broadcast option', () => {
     const def = withStreams(server('chat'))
-      .stream(aiComplete, chunkSchema, (s) =>
-        s.broadcast().generate(async function* (_ctx, payload) {
-          yield { token: payload.prompt };
-        }),
+      .stream(aiComplete, (s) =>
+        s
+          .chunk(chunkSchema)
+          .broadcast()
+          .generate(async function* (_ctx, payload) {
+            yield { token: payload.prompt };
+          }),
       )
       .build();
 
@@ -94,8 +98,8 @@ describe('.stream() side-effect', () => {
   it('callback form returns to parent for continued chaining', () => {
     const def = withStreams(server('chat'))
       .outgoing(message)
-      .stream(aiComplete, chunkSchema, (s) =>
-        s.generate(async function* (_ctx, payload) {
+      .stream(aiComplete, (s) =>
+        s.chunk(chunkSchema).generate(async function* (_ctx, payload) {
           yield { token: payload.prompt };
         }),
       )
@@ -117,8 +121,8 @@ describe('.stream() side-effect', () => {
     const def = base
       .use(
         base.group((g) =>
-          g.stream(aiComplete, chunkSchema, (s) =>
-            s.generate(async function* (ctx, payload) {
+          g.stream(aiComplete, (s) =>
+            s.chunk(chunkSchema).generate(async function* (ctx, payload) {
               ctx.send('message', { text: 'streaming' });
               yield { token: payload.prompt };
             }),
@@ -136,8 +140,8 @@ describe('.stream() side-effect', () => {
     const def = base
       .use(
         base.channel('lobby', (c) =>
-          c.outgoing(message).stream(aiComplete, chunkSchema, (s) =>
-            s.generate(async function* (ctx, payload) {
+          c.outgoing(message).stream(aiComplete, (s) =>
+            s.chunk(chunkSchema).generate(async function* (ctx, payload) {
               ctx.channel.send('message', { text: 'streaming' });
               ctx.channel.broadcast('message', { text: 'all' });
               yield { token: payload.prompt };
@@ -153,8 +157,8 @@ describe('.stream() side-effect', () => {
   it('channel stream ctx rejects undeclared events', () => {
     const base = withStreams(withChannels(server('chat')));
     base.channel('lobby', (c) =>
-      c.outgoing(message).stream(aiComplete, chunkSchema, (s) =>
-        s.generate(async function* (ctx, payload) {
+      c.outgoing(message).stream(aiComplete, (s) =>
+        s.chunk(chunkSchema).generate(async function* (ctx, payload) {
           // @ts-expect-error — 'unknown-event' not declared in this channel
           ctx.channel.send('unknown-event', {});
           yield { token: payload.prompt };

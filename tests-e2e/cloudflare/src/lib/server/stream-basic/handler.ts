@@ -22,8 +22,8 @@ export const streamBasicHandler = withStreams(
   .errors(StreamNotFound)
   .outgoing(CancelObserved)
   .onUpgrade((request) => requireUsername(request))
-  .stream(StartTokens, Token, (s) =>
-    s.generate(async function* (_ctx, payload) {
+  .stream(StartTokens, (s) =>
+    s.chunk(Token).generate(async function* (_ctx, payload) {
       for (let i = 0; i < payload.count; i++) {
         yield { index: i };
         // 75ms pacing so a count=10 stream takes ~750ms; plenty of window
@@ -33,28 +33,28 @@ export const streamBasicHandler = withStreams(
       }
     }),
   )
-  .stream(StartBoom, Token, (s) =>
-    s.generate(async function* () {
+  .stream(StartBoom, (s) =>
+    s.chunk(Token).generate(async function* () {
       yield { index: 0 };
       await new Promise((r) => setTimeout(r, 20));
       throw new Error('boom');
     }),
   )
-  .stream(StartBoomImmediate, Token, (s) =>
-    s.generate(async function* () {
+  .stream(StartBoomImmediate, (s) =>
+    s.chunk(Token).generate(async function* () {
       throw new Error('boom-immediate');
       yield { index: 0 }; // unreachable — satisfies generator type
     }),
   )
-  .stream(StartTyped, Token, (s) =>
-    s.generate(async function* () {
+  .stream(StartTyped, (s) =>
+    s.chunk(Token).generate(async function* () {
       yield { index: 0 };
       await new Promise((r) => setTimeout(r, 20));
       throw StreamNotFound({ id: 'model-missing' });
     }),
   )
-  .stream(StartCancelObserve, Token, (s) =>
-    s.generate(async function* (ctx) {
+  .stream(StartCancelObserve, (s) =>
+    s.chunk(Token).generate(async function* (ctx) {
       let completedNaturally = false;
       try {
         for (let i = 0; i < 20; i++) {
@@ -69,8 +69,8 @@ export const streamBasicHandler = withStreams(
       }
     }),
   )
-  .stream(StartEmpty, Token, (s) =>
-    s.generate(async function* () {
+  .stream(StartEmpty, (s) =>
+    s.chunk(Token).generate(async function* () {
       // Generator yields nothing; immediately sends _streamEnd
     }),
   )

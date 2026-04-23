@@ -30,8 +30,8 @@ const ns = base.namespace('ns', (n) =>
     .request(GetNsInfo, NsInfoSchema, (ctx) => {
       ctx.respond({ namespace: ctx.namespace.name });
     })
-    .stream(StartNsStream, NsToken, (s) =>
-      s.generate(async function* (_ctx, payload) {
+    .stream(StartNsStream, (s) =>
+      s.chunk(NsToken).generate(async function* (_ctx, payload) {
         for (let i = 0; i < payload.count; i++) {
           yield { index: i };
           await new Promise((r) => setTimeout(r, 30));

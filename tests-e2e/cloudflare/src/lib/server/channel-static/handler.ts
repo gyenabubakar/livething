@@ -27,8 +27,8 @@ const roomChannel = base.channel('room', (ch) =>
         kind: 'user',
       });
     })
-    .stream(StartChannelStream, ChannelToken, (s) =>
-      s.generate(async function* (_ctx, payload) {
+    .stream(StartChannelStream, (s) =>
+      s.chunk(ChannelToken).generate(async function* (_ctx, payload) {
         for (let i = 0; i < payload.count; i++) {
           yield { index: i };
           await new Promise((r) => setTimeout(r, 30));

@@ -239,8 +239,8 @@ describe('handler payload typing', () => {
   });
 
   it('.stream().generate() payload is typed from event schema', () => {
-    fullServer('chat').stream(aiComplete, chunkSchema, (s) =>
-      s.generate(async function* (_ctx, payload) {
+    fullServer('chat').stream(aiComplete, (s) =>
+      s.chunk(chunkSchema).generate(async function* (_ctx, payload) {
         void (payload.prompt satisfies string);
 
         // @ts-expect-error — field does not exist on { prompt: string }
@@ -410,18 +410,21 @@ describe('ctx.channels typing', () => {
 
 describe('stream ctx.nudges()', () => {
   it('ctx.nudges() exists when nudges are declared', () => {
-    fullServer('chat').stream(aiComplete, chunkSchema, (s) =>
-      s.nudge(cancel).generate(async function* (ctx, _payload) {
-        const raw = yield { token: 'hi' };
-        const msgs = ctx.nudges(raw);
-        void msgs;
-      }),
+    fullServer('chat').stream(aiComplete, (s) =>
+      s
+        .chunk(chunkSchema)
+        .nudge(cancel)
+        .generate(async function* (ctx, _payload) {
+          const raw = yield { token: 'hi' };
+          const msgs = ctx.nudges(raw);
+          void msgs;
+        }),
     );
   });
 
   it('ctx.nudges does NOT exist when no nudges declared', () => {
-    fullServer('chat').stream(aiComplete, chunkSchema, (s) =>
-      s.generate(async function* (ctx, _payload) {
+    fullServer('chat').stream(aiComplete, (s) =>
+      s.chunk(chunkSchema).generate(async function* (ctx, _payload) {
         // @ts-expect-error — no nudges declared, method should not exist
         ctx.nudges;
 
@@ -488,8 +491,9 @@ const _fullBase = fullServer('chat')
   .request(ping, pongSchema, async (ctx, payload) => {
     ctx.respond({ ts: payload.ts, serverTs: Date.now() });
   })
-  .stream(aiComplete, chunkSchema, (s) =>
+  .stream(aiComplete, (s) =>
     s
+      .chunk(chunkSchema)
       .nudge(cancel)
       .nudge(addContext)
       .generate(async function* (_ctx, payload) {
@@ -550,8 +554,8 @@ describe('InferClient: streams', () => {
 
 describe('InferClient: stream without nudges', () => {
   const noNudgeServer = fullServer('chat')
-    .stream(aiComplete, chunkSchema, (s) =>
-      s.generate(async function* (_ctx, payload) {
+    .stream(aiComplete, (s) =>
+      s.chunk(chunkSchema).generate(async function* (_ctx, payload) {
         yield { token: payload.prompt };
       }),
     )
@@ -735,10 +739,13 @@ describe('InferClient from inline assembled server', () => {
     )
     .use(
       _asmBase.group((g) =>
-        g.stream(aiComplete, chunkSchema, (s) =>
-          s.nudge(cancel).generate(async function* (_ctx, p) {
-            yield { token: p.prompt };
-          }),
+        g.stream(aiComplete, (s) =>
+          s
+            .chunk(chunkSchema)
+            .nudge(cancel)
+            .generate(async function* (_ctx, p) {
+              yield { token: p.prompt };
+            }),
         ),
       ),
     )
