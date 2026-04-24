@@ -189,6 +189,22 @@ describe('error() with zod', () => {
 });
 
 // ===========================================================================
+// error() — async StandardSchema guard
+// ===========================================================================
+
+describe('error() async StandardSchema rejection', () => {
+  it('throws when the factory is called with an async valibot schema', () => {
+    const asyncSchema = v.pipeAsync(
+      v.string(),
+      v.checkAsync(async () => true, 'ok'),
+    );
+    // oxlint-disable-next-line @typescript-eslint/no-explicit-any
+    const AsyncDef = error('async-test', asyncSchema as any);
+    expect(() => AsyncDef('value' as never)).toThrow(/does not support async/);
+  });
+});
+
+// ===========================================================================
 // .matches() — edge cases
 // ===========================================================================
 
@@ -299,5 +315,56 @@ describe('ValidationFailed', () => {
 
   it('.matches() returns false for non-WskitError', () => {
     expect(ValidationFailed.matches(new Error('validation-failed'))).toBe(false);
+  });
+});
+
+describe('ValidationFailed parser — bad payload', () => {
+  it('throws when detail is not an object', () => {
+    // oxlint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(() => ValidationFailed('not-an-object' as any)).toThrow('must be an object');
+  });
+
+  it('throws when detail.event is not a string', () => {
+    // oxlint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(() => ValidationFailed({ issues: [] } as any)).toThrow('detail.event must be a string');
+  });
+
+  it('throws when detail.issues is not an array', () => {
+    // oxlint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(() => ValidationFailed({ event: 'x', issues: 'nope' } as any)).toThrow(
+      'detail.issues must be an array',
+    );
+  });
+
+  it('throws when an issue is not an object', () => {
+    // oxlint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(() => ValidationFailed({ event: 'x', issues: ['bad'] } as any)).toThrow(
+      'issues[0] must be an object',
+    );
+  });
+
+  it('throws when an issue.message is not a string', () => {
+    // oxlint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(() => ValidationFailed({ event: 'x', issues: [{ message: 99 }] } as any)).toThrow(
+      'issues[0].message must be a string',
+    );
+  });
+
+  it('throws when an issue.path is not an array', () => {
+    // oxlint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(() =>
+      // oxlint-disable-next-line @typescript-eslint/no-explicit-any
+      ValidationFailed({ event: 'x', issues: [{ message: 'bad', path: 'wrong' }] } as any),
+    ).toThrow('issues[0].path must be an array');
+  });
+
+  it('throws when a path element is not a string or number', () => {
+    expect(() =>
+      ValidationFailed({
+        event: 'x',
+        // oxlint-disable-next-line @typescript-eslint/no-explicit-any
+        issues: [{ message: 'bad', path: [{}] }] as any,
+      }),
+    ).toThrow('issues[0].path[0] must be a string or number');
   });
 });

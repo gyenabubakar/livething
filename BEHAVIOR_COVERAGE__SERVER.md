@@ -45,6 +45,7 @@ What it covers:
 - `@wskit/server/full` exposes the full feature surface without manual `with*` wrappers - [server/src/\_builder/server-builder.spec.ts](./server/src/_builder/server-builder.spec.ts), [server/src/\_builder/integration.spec.ts](./server/src/_builder/integration.spec.ts)
 - callback-style and multi-file `group(...)` composition inline correctly and preserve parent state - [server/src/\_builder/server-builder.spec.ts](./server/src/_builder/server-builder.spec.ts), [server/src/\_builder/integration.spec.ts](./server/src/_builder/integration.spec.ts)
 - env typing, meta typing, scoped outgoing visibility, `ctx.ack()` availability, `ctx.nudges()`, and `InferClient` contracts are exercised end-to-end at the type layer - [server/src/\_builder/integration.spec.ts](./server/src/_builder/integration.spec.ts), [server/src/\_builder/integration.test.ts](./server/src/_builder/integration.test.ts)
+- the public API surface for each feature entry point is type-checked to confirm exported symbols are accessible and internal primitives are hidden - [server/src/public-api.test-d.ts](./server/src/public-api.test-d.ts)
 
 ### 3. Lifecycle hooks and connection/runtime engine
 
@@ -63,7 +64,7 @@ What it covers:
 
 #### E2E
 
-- `onConnect`, `onDisconnect`, `onShutdown`, `onUpgrade`, `onValidationError`, async lifecycle waiting, and lifecycle error routing are exercised against a live Cloudflare worker, including shutdown with no connected clients and upgrade-attached `meta` / `tags` - [tests-e2e/cloudflare/tests/lifecycle-hooks.spec.ts](./tests-e2e/cloudflare/tests/lifecycle-hooks.spec.ts)
+- `onConnect`, `onDisconnect`, `onShutdown`, `onUpgrade`, `onValidationError`, async lifecycle waiting, and `onError` catching handler-thrown errors are exercised against a live Cloudflare worker, including shutdown with no connected clients and upgrade-attached `meta` / `tags` - [tests-e2e/cloudflare/tests/lifecycle-hooks.spec.ts](./tests-e2e/cloudflare/tests/lifecycle-hooks.spec.ts)
 - binary-frame lifecycle coverage proves per-frame `onBinary` invocation, `ctx.meta` access, `sendBinary` self-delivery, and `broadcastBinary` fan-out with and without `excludeSelf` on the wire - [tests-e2e/cloudflare/tests/binary.spec.ts](./tests-e2e/cloudflare/tests/binary.spec.ts)
 - raw text and JSON ping/pong protocol handling works without dedicated handlers - [tests-e2e/cloudflare/tests/protocol-pings.spec.ts](./tests-e2e/cloudflare/tests/protocol-pings.spec.ts)
 
@@ -100,7 +101,7 @@ What it covers:
 
 - outgoing contracts are keyed by event name and enforced by the runtime pipeline - [server/src/outgoing/outgoing.spec.ts](./server/src/outgoing/outgoing.spec.ts), [server/src/outgoing/runtime.spec.ts](./server/src/outgoing/runtime.spec.ts)
 - the send pipeline rejects array/primitive payloads, reserved-key collisions, and undeclared events, including scoped namespace/channel routing rules - [server/src/outgoing/runtime.spec.ts](./server/src/outgoing/runtime.spec.ts)
-- connection and task context helpers cover `sendToConnection`, `broadcast`, `broadcastBinary`, `waitUntil`, `setAlarm`, `ctx.channels.members()`, `ctx.channel.send`, context-extender precedence, and logger forwarding - [server/src/\_engine/contexts/contexts.spec.ts](./server/src/_engine/contexts/contexts.spec.ts)
+- connection and task context helpers cover `sendToConnection`, `broadcast`, `broadcastBinary`, `waitUntil`, `setAlarm`, `ctx.channels.members()`, `ctx.channel.send`, `cancelScheduled` no-match logging (both connection and task contexts), attachment serialization shape (channelMemberships without the legacy channels list), context-extender precedence, and logger forwarding - [server/src/\_engine/contexts/contexts.spec.ts](./server/src/_engine/contexts/contexts.spec.ts)
 
 #### E2E
 
@@ -277,7 +278,7 @@ What it covers:
 
 #### Unit / integrated
 
-- scheduled primitives cover handler-backed declarations, schema-only declarations, storage/timer requirements, and builder registration/duplicate detection - [server/src/scheduled/scheduled.spec.ts](./server/src/scheduled/scheduled.spec.ts), [server/src/scheduled/with.spec.ts](./server/src/scheduled/with.spec.ts)
+- scheduled primitives cover handler-backed declarations (with and without `.data()` schemas), a throw when `.run(...)` is omitted, storage/timer requirements, and builder registration/duplicate detection - [server/src/scheduled/scheduled.spec.ts](./server/src/scheduled/scheduled.spec.ts), [server/src/scheduled/with.spec.ts](./server/src/scheduled/with.spec.ts)
 - runtime coverage proves scheduler bootstrap, recurring baselines, one-shot queueing, filtered cancel semantics, retry with default or custom backoff, dead-lettering, `retry:false`, alarm-vs-timeout behavior, and serialization of custom backoff - [server/src/scheduled/runtime.spec.ts](./server/src/scheduled/runtime.spec.ts)
 
 #### E2E
@@ -366,7 +367,7 @@ What it covers:
 #### Unit / integrated
 
 - adapter-definition helpers support no-arg engine factories, option passing, hibernation option functions, and independent engine instances - [server/src/\_adapters/define.spec.ts](./server/src/_adapters/define.spec.ts)
-- the Cloudflare platform exposes env, storage, SQL, KV, timers, websocket access, binary normalization, and KV expiry cleanup with the expected fallbacks - [server-adapters/cloudflare/src/platform.spec.ts](./server-adapters/cloudflare/src/platform.spec.ts), [server-adapters/cloudflare/src/providers.spec.ts](./server-adapters/cloudflare/src/providers.spec.ts)
+- the Cloudflare platform exposes env, storage, SQL, KV, timers, websocket access, binary normalization, and KV expiry cleanup with the expected fallbacks, including `sql.transaction()` falling back to inline execution when `transactionSync` is unavailable on the D1 binding - [server-adapters/cloudflare/src/platform.spec.ts](./server-adapters/cloudflare/src/platform.spec.ts), [server-adapters/cloudflare/src/providers.spec.ts](./server-adapters/cloudflare/src/providers.spec.ts)
 - `serve(...)` covers HTTP upgrade rejection, accepted websocket upgrade wiring, hibernation-mode websocket acceptance, rejected upgrade mapping, wake callbacks, and alarm/shutdown RPC wiring into the engine - [server-adapters/cloudflare/src/serve.spec.ts](./server-adapters/cloudflare/src/serve.spec.ts)
 
 #### E2E

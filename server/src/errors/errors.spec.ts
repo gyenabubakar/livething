@@ -131,3 +131,29 @@ describe('DeferExhausted', () => {
     expect(DeferExhausted.matches(new Error('defer-exhausted'))).toBe(false);
   });
 });
+
+describe('DeferExhausted parser — bad payload', () => {
+  it('throws when detail is not an object', () => {
+    // oxlint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(() => DeferExhausted('not-an-object' as any)).toThrow('must be an object');
+  });
+
+  it('throws when detail.event is not a string', () => {
+    // oxlint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(() => DeferExhausted({ retries: 3 } as any)).toThrow('detail.event must be a string');
+  });
+
+  it('throws when detail.retries is not a number', () => {
+    // oxlint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(() => DeferExhausted({ event: 'x', retries: 'nope' } as any)).toThrow(
+      'detail.retries must be a finite number',
+    );
+  });
+
+  it('throws when detail.retries is Infinity', () => {
+    // oxlint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(() => DeferExhausted({ event: 'x', retries: Infinity } as any)).toThrow(
+      'detail.retries must be a finite number',
+    );
+  });
+});
