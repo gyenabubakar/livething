@@ -249,8 +249,11 @@ type ScheduleOptionsForTask<TTask extends ScheduledTaskDefinition<any, any>> =
  * builder state.
  */
 export interface GenericScheduleMethods {
+  /** Enqueue a scheduled task by ID. */
   schedule(taskId: string, options: { time: number; data?: unknown }): void;
+  /** Cancel scheduled runs for a task, optionally matching stored task data. */
   cancelScheduled(taskId: string, filter?: Record<string, unknown>): void;
+  /** Set a low-level platform alarm. Prefer `ctx.schedule(...)` for tasks. */
   setAlarm(time: number): void;
 }
 
@@ -263,14 +266,23 @@ export interface GenericScheduleMethods {
 export interface ScheduleMethods<
   TScheduledTasks extends Record<string, ScheduledTaskDefinition<any, any>>,
 > {
+  /**
+   * Enqueue a registered scheduled task.
+   *
+   * Tasks declared without `.data(...)` accept only `{ time }`. Tasks declared
+   * with `.data(schema)` require a matching `data` payload unless the schema
+   * itself allows `undefined`.
+   */
   schedule<TTaskId extends keyof TScheduledTasks & string>(
     taskId: TTaskId,
     options: ScheduleOptionsForTask<TScheduledTasks[TTaskId]>,
   ): void;
+  /** Cancel scheduled runs for a registered task, optionally matching stored task data. */
   cancelScheduled<TTaskId extends keyof TScheduledTasks & string>(
     taskId: TTaskId,
     filter?: Record<string, unknown>,
   ): void;
+  /** Set a low-level platform alarm. Prefer `ctx.schedule(...)` for tasks. */
   setAlarm(time: number): void;
 }
 
@@ -282,17 +294,60 @@ export interface ScheduleMethods<
  * don't need type-level tracking in `ScopeState`.
  */
 export interface RuntimeContextMethods {
+  /**
+   * SQL database access for this handler.
+   *
+   * Use `ctx.sql.exec(...)` for one query and `ctx.sql.transaction(...)` when
+   * several queries must commit or roll back together.
+   */
   readonly sql: ConnectionContext['sql'];
+
+  /**
+   * Key-value storage for lightweight state.
+   *
+   * Useful for flags, counters, simple caches, and values that do not need a
+   * relational SQL query.
+   */
   readonly kv: ConnectionContext['kv'];
+
+  /**
+   * Structured logger provided by the adapter.
+   *
+   * Prefer `ctx.log.info/warn/error(...)` over `console.log` so adapters can
+   * route and index log fields consistently.
+   */
   readonly log: ConnectionContext['log'];
+
+  /** Raw platform object provided by the adapter, such as a Cloudflare Durable Object state. */
   readonly platform: ConnectionContext['platform'];
+
+  /**
+   * Keep platform work alive after the handler returns.
+   *
+   * Pass background promises here for logging, persistence, or cleanup work
+   * that should continue even after the current message handler finishes.
+   */
   waitUntil: ConnectionContext['waitUntil'];
+
+  /** Close the current WebSocket connection with an optional close code and reason. */
   close: ConnectionContext['close'];
+
+  /** Get a point-in-time snapshot of every live connection. */
   getConnections: ConnectionContext['getConnections'];
+
+  /** Get a point-in-time snapshot of live connections that have the given tag. */
   getConnectionsByTag: ConnectionContext['getConnectionsByTag'];
+
+  /** The current number of live WebSocket connections. */
   readonly connectionCount: ConnectionContext['connectionCount'];
+
+  /** Send a raw binary frame to the current connection. */
   sendBinary: ConnectionContext['sendBinary'];
+
+  /** Broadcast a raw binary frame to live connections. */
   broadcastBinary: ConnectionContext['broadcastBinary'];
+
+  /** Send an event to one specific connection ID. Returns `false` when it cannot be delivered. */
   sendToConnection: ConnectionContext['sendToConnection'];
 }
 
@@ -303,6 +358,7 @@ export interface RuntimeContextMethods {
  * that type instead of `Record<string, unknown>`.
  */
 export interface EnvMethods<TEnv extends object = Record<string, unknown>> {
+  /** Environment bindings provided by the adapter, typed from `server<TEnv>(...)`. */
   readonly env: TEnv;
 }
 
@@ -315,12 +371,21 @@ export interface EnvMethods<TEnv extends object = Record<string, unknown>> {
 export interface NamespaceScopeMethods<
   TOutgoing extends Record<string, any> = Record<string, any>,
 > {
+  /**
+   * Namespace-scoped send helpers for the current handler.
+   *
+   * These helpers automatically target the namespace the handler belongs to,
+   * so you do not have to include the namespace name in each send call.
+   */
   readonly namespace: {
+    /** The concrete namespace name for the current handler. */
     readonly name: string;
+    /** Send a namespace-scoped event to the current connection. */
     send<TEvent extends keyof TOutgoing & string>(
       event: TEvent,
       payload: TOutgoing[TEvent],
     ): boolean;
+    /** Broadcast a namespace-scoped event to live connections in this namespace. */
     broadcast<TEvent extends keyof TOutgoing & string>(
       event: TEvent,
       payload: TOutgoing[TEvent],
@@ -338,18 +403,28 @@ export interface ChannelScopeMethods<
   TOutgoing extends Record<string, any> = Record<string, any>,
   THasReplay extends boolean = false,
 > {
+  /**
+   * Channel-scoped send helpers for the current handler.
+   *
+   * These helpers automatically target the concrete channel instance the
+   * current handler belongs to.
+   */
   readonly channel: {
+    /** The concrete channel name for the current handler. */
     readonly name: string;
+    /** Send a channel-scoped event to the current connection. */
     send<TEvent extends keyof TOutgoing & string>(
       event: TEvent,
       payload: TOutgoing[TEvent],
     ): boolean;
+    /** Broadcast a channel-scoped event to subscribed channel members. */
     broadcast<TEvent extends keyof TOutgoing & string>(
       event: TEvent,
       payload: TOutgoing[TEvent],
     ): void;
   } & (THasReplay extends true
     ? {
+        /** Send a channel-scoped replayable event with explicit replay wire metadata. */
         sendReplay<TEvent extends keyof TOutgoing & string>(
           event: TEvent,
           payload: TOutgoing[TEvent],

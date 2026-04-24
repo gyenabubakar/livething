@@ -93,7 +93,9 @@ export interface KVProvider {
  * ```
  */
 export interface StorageProvider {
+  /** SQL database access for queries and transactions. */
   sql: SQLProvider;
+  /** Key-value storage for lightweight state and caches. */
   kv: KVProvider;
 }
 
@@ -135,8 +137,11 @@ export interface TimerProvider {
  * ```
  */
 export interface Logger {
+  /** Write an informational log entry. */
   info(message: string, data?: Record<string, unknown>): void;
+  /** Write a warning log entry for recoverable or suspicious behavior. */
   warn(message: string, data?: Record<string, unknown>): void;
+  /** Write an error log entry for failed operations or unexpected exceptions. */
   error(message: string, data?: Record<string, unknown>): void;
 }
 
@@ -201,6 +206,12 @@ export interface ScopeSendApi {
  * it to required only when replay is actually registered for that scope.
  */
 export interface ReplayScopeSendApi extends ScopeSendApi {
+  /**
+   * Send a replayable event scoped to this namespace or channel.
+   *
+   * Provide replay wire metadata so reconnecting clients can request missed
+   * messages and deduplicate anything they already received.
+   */
   sendReplay?(
     event: string,
     payload: unknown,

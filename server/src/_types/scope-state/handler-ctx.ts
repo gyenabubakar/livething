@@ -68,6 +68,7 @@ type AckApi<TState extends ScopeStateShape> = TState['kind'] extends 'top'
 type ReplayApi<TState extends ScopeStateShape> = TState['hasReplay'] extends true
   ? keyof TState['outgoing'] extends never
     ? {
+        /** Send a replayable message when no outgoing event map is known yet. */
         sendReplay(event: string, payload: unknown, wire: ReplayWire): void;
       }
     : ReplayMethods<TState['outgoing']>

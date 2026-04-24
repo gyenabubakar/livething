@@ -49,7 +49,23 @@ export class NamespaceBuilder<
     this._name = name;
   }
 
-  /** Register an event this namespace can send to clients. */
+  /**
+   * Declare an event this namespace is allowed to send to clients.
+   *
+   * Pass an {@link EventContract} created with `event()`. The event is added
+   * to this namespace's client contract, separate from top-level events and
+   * other namespaces, so namespace handlers can send or broadcast it with
+   * type-checked payloads.
+   *
+   * @example
+   * ```ts
+   * const Alert = event('alert', v.object({ message: v.string() }));
+   *
+   * withNamespaces(server('app')).namespace('notifications', (ns) =>
+   *   ns.outgoing(Alert),
+   * );
+   * ```
+   */
   outgoing<TEvent extends string, TPayload>(
     eventContract: EventContract<TEvent, TPayload>,
   ): NamespaceBuilderFull<
@@ -62,7 +78,23 @@ export class NamespaceBuilder<
     return this as any;
   }
 
-  /** Register an event this namespace can receive from clients. */
+  /**
+   * Declare an event this namespace can receive from clients.
+   *
+   * The handler runs only after the event contract validates the payload. Its
+   * `ctx` is namespace-scoped, so it includes namespace helpers and the
+   * top-level context that flows into namespaces, including metadata,
+   * scheduling, storage, and declared outgoing events.
+   *
+   * @example
+   * ```ts
+   * const Dismiss = event('dismiss-alert', v.object({ id: v.string() }));
+   *
+   * ns.incoming(Dismiss, (ctx, payload) => {
+   *   ctx.namespace.broadcast('alert-dismissed', { id: payload.id });
+   * });
+   * ```
+   */
   incoming<TEvent extends string, TPayload>(
     eventContract: EventContract<TEvent, TPayload>,
     handler: (ctx: HandlerCtxFromState<TState>, payload: TPayload) => void | Promise<void>,

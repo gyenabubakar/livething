@@ -131,6 +131,12 @@ export type StreamNudgeMessages<TNudges extends readonly NudgeDeclaration[]> = r
  * arrived since the last yield.
  */
 export interface StreamNudgesApi<TNudges extends readonly NudgeDeclaration[]> {
+  /**
+   * Parse the raw value returned from a stream `yield` into typed nudge messages.
+   *
+   * Call this inside `.generate(...)` after a `yield` when the stream declared
+   * one or more `.nudge(...)` controls.
+   */
   nudges(value: unknown): StreamNudgeMessages<TNudges>;
 }
 

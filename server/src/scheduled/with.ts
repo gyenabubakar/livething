@@ -16,6 +16,7 @@ const KINDS = ['server', 'group'] as const;
  * @example
  * ```ts
  * import { server } from '@wskit/server';
+ * import { withScheduled } from '@wskit/server/scheduled';
  *
  * const s = withScheduled(server('app'));
  * ```

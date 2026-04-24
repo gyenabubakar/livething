@@ -118,7 +118,22 @@ export class ChannelBuilder<
     this._pattern = pattern;
   }
 
-  /** Register an event this channel can send to its members. */
+  /**
+   * Declare an event this channel is allowed to send to subscribed members.
+   *
+   * Pass an {@link EventContract} created with `event()`. The event name and
+   * payload type become part of this channel's client contract, and channel
+   * handlers can send or broadcast the event with type-checked payloads.
+   *
+   * @example
+   * ```ts
+   * const RoomMessage = event('room-message', v.object({ text: v.string() }));
+   *
+   * withChannels(server('chat')).channel('lobby', (ch) =>
+   *   ch.outgoing(RoomMessage),
+   * );
+   * ```
+   */
   outgoing<TEvent extends string, TPayload>(
     eventContract: EventContract<TEvent, TPayload>,
   ): ChannelBuilderFull<
@@ -131,7 +146,24 @@ export class ChannelBuilder<
     return this as any;
   }
 
-  /** Register an event the channel can receive from subscribed clients. */
+  /**
+   * Declare an event this channel can receive from subscribed clients.
+   *
+   * The handler runs after the event contract validates the payload. Its
+   * `ctx` is channel-scoped, so it includes channel helpers plus any top-level
+   * context that flows into channels, such as metadata, scheduling, storage,
+   * and declared outgoing events.
+   *
+   * @example
+   * ```ts
+   * const SendRoomMessage = event('send-room-message', v.object({ text: v.string() }));
+   * const RoomMessage = event('room-message', v.object({ text: v.string() }));
+   *
+   * ch.outgoing(RoomMessage).incoming(SendRoomMessage, (ctx, payload) => {
+   *   ctx.channel.broadcast('room-message', { text: payload.text });
+   * });
+   * ```
+   */
   incoming<TEvent extends string, TPayload>(
     eventContract: EventContract<TEvent, TPayload>,
     handler: (ctx: HandlerCtxFromState<TState>, payload: TPayload) => void | Promise<void>,

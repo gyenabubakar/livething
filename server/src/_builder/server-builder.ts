@@ -61,6 +61,20 @@ type StateAfterOutgoing<
   TPayload,
 > = NextState<TState, OutgoingPrimitive<TEvent, TPayload>>;
 
+type ServerBuilderAfterOutgoing<
+  TState extends ScopeStateShape,
+  TFeatures,
+  TEvent extends string,
+  TPayload,
+> = ServerBuilderFull<StateAfterOutgoing<TState, TEvent, TPayload>, TFeatures>;
+
+type GroupBuilderAfterOutgoing<
+  TState extends ScopeStateShape,
+  TFeatures,
+  TEvent extends string,
+  TPayload,
+> = GroupBuilderFull<StateAfterOutgoing<TState, TEvent, TPayload>, TFeatures>;
+
 /**
  * Folds a single newly-declared channel or namespace into the running
  * `TState['contract']`. Used by `UseResult` for `.use(channel(...))` and
@@ -199,7 +213,7 @@ export class ServerBuilder<TState extends ScopeStateShape = InitialState, TFeatu
    */
   outgoing<TEvent extends string, TPayload>(
     eventContract: EventContract<TEvent, TPayload>,
-  ): ServerBuilderFull<StateAfterOutgoing<TState, TEvent, TPayload>, TFeatures> {
+  ): ServerBuilderAfterOutgoing<TState, TFeatures, TEvent, TPayload> {
     this._primitives.push(createOutgoing<TEvent, TPayload>(eventContract.event));
     return this as any;
   }
@@ -339,15 +353,53 @@ export class GroupBuilder<TState extends ScopeStateShape, TFeatures = {}> {
     this._parent = parent;
   }
 
-  /** Declare an event the server is allowed to send to clients (same as {@link ServerBuilder.outgoing}, but scoped to this group). */
+  /**
+   * Declare an event this group is allowed to send to clients.
+   *
+   * Pass an {@link EventContract} created with `event()`. The event name and
+   * payload type flow into any builder that `.use()`s this group, so handlers
+   * mounted after the group can call `ctx.send(...)` or `ctx.broadcast(...)`
+   * with the event safely typed.
+   *
+   * @example
+   * ```ts
+   * import { event, server } from '@wskit/server';
+   * import * as v from 'valibot';
+   *
+   * const Pong = event('pong', v.object({ at: v.number() }));
+   *
+   * const base = server('app');
+   * const pingPong = base.group((g) => g.outgoing(Pong));
+   * ```
+   */
   outgoing<TEvent extends string, TPayload>(
     eventContract: EventContract<TEvent, TPayload>,
-  ): GroupBuilderFull<StateAfterOutgoing<TState, TEvent, TPayload>, TFeatures> {
+  ): GroupBuilderAfterOutgoing<TState, TFeatures, TEvent, TPayload> {
     this._primitives.push(createOutgoing<TEvent, TPayload>(eventContract.event));
     return this as any;
   }
 
-  /** Declare an event the server can receive and attach a handler (same as {@link ServerBuilder.incoming}, but scoped to this group). */
+  /**
+   * Declare an event this group can receive from clients and attach a handler.
+   *
+   * The handler runs only after the event contract's validator accepts the
+   * payload. Its `ctx` type includes everything declared earlier in the group
+   * and in the parent builder, so shared group handlers keep the same typed
+   * `send`, `broadcast`, tags, scheduling, and context helpers as normal
+   * handlers.
+   *
+   * @example
+   * ```ts
+   * const Ping = event('ping', v.object({}));
+   * const Pong = event('pong', v.object({ at: v.number() }));
+   *
+   * const pingPong = base.group((g) =>
+   *   g.outgoing(Pong).incoming(Ping, (ctx) => {
+   *     ctx.send('pong', { at: Date.now() });
+   *   }),
+   * );
+   * ```
+   */
   incoming<TEvent extends string, TPayload>(
     eventContract: EventContract<TEvent, TPayload>,
     handler: (ctx: HandlerCtxFromState<TState>, payload: TPayload) => void | Promise<void>,
@@ -358,7 +410,14 @@ export class GroupBuilder<TState extends ScopeStateShape, TFeatures = {}> {
     return this as any;
   }
 
-  /** Attach a compiled primitive (channel, namespace, or module) to this group. Groups cannot nest other groups. */
+  /**
+   * Attach a compiled primitive to this group.
+   *
+   * Use this for channels, namespaces, modules, or other feature primitives
+   * that should travel with the group. Groups cannot contain other groups; if
+   * you need several shared bundles, mount them separately on the parent
+   * builder.
+   */
   use<P extends Primitive>(
     primitive: P extends { __wskit: 'group' } ? never : P,
   ): GroupBuilderFull<UseResult<TState, P>, TFeatures> {
