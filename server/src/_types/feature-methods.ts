@@ -42,11 +42,7 @@ import type { CustomReplayPrimitive } from '~/replay/custom/custom.ts';
 import type { ReplayPrimitive } from '~/replay/replay.ts';
 import type { ReplayType } from '~/replay/types.ts';
 import type { RequestPrimitive, RespondMethod } from '~/request/request.ts';
-import type {
-  ScheduledHandler,
-  ScheduledOptions,
-  ScheduledPrimitive,
-} from '~/scheduled/scheduled.ts';
+import type { ScheduledBuilder, ScheduledPrimitive } from '~/scheduled/scheduled.ts';
 import type { SequenceOptions, SequencePrimitive } from '~/sequence/sequence.ts';
 import type { StreamBuilder } from '~/stream/builder.ts';
 import type { NudgeDeclaration } from '~/stream/stream.ts';
@@ -141,7 +137,7 @@ type StateWithMeta<TState extends ScopeStateShape, TMeta extends Record<string, 
   readonly errors: TState['errors'];
   readonly meta: TMeta;
   readonly channelNames: TState['channelNames'];
-  readonly scheduledTaskIds: TState['scheduledTaskIds'];
+  readonly scheduledTasks: TState['scheduledTasks'];
   readonly env: TState['env'];
 };
 
@@ -210,7 +206,7 @@ type ChannelState<TParentState extends ScopeStateShape> = ScopeState<
   readonly [],
   TParentState['meta'],
   TParentState['channelNames'],
-  TParentState['scheduledTaskIds'],
+  TParentState['scheduledTasks'],
   TParentState['env']
 >;
 
@@ -241,7 +237,7 @@ type NamespaceState<TParentState extends ScopeStateShape> = ScopeState<
   readonly [],
   TParentState['meta'],
   TParentState['channelNames'],
-  TParentState['scheduledTaskIds'],
+  TParentState['scheduledTasks'],
   TParentState['env']
 >;
 
@@ -303,7 +299,7 @@ type StateWithStream<
   readonly errors: TState['errors'];
   readonly meta: TState['meta'];
   readonly channelNames: TState['channelNames'];
-  readonly scheduledTaskIds: TState['scheduledTaskIds'];
+  readonly scheduledTasks: TState['scheduledTasks'];
   readonly env: TState['env'];
 };
 
@@ -446,27 +442,29 @@ type MethodType<
                                 ? InterceptMethod<BuilderResult<TState, TFeatures, Kind>, TState>
                                 : // ─────── Section: scheduled ───────
                                   M extends 'scheduled'
-                                  ? (<TTaskId extends string, TData = unknown>(
+                                  ? <
+                                      TTaskId extends string,
+                                      TData = never,
+                                      THasData extends boolean = false,
+                                    >(
                                       taskId: TTaskId,
-                                      handler: ScheduledHandler<TaskContext, TData>,
-                                      options?: ScheduledOptions<TData>,
+                                      callback: (
+                                        builder: ScheduledBuilder<TTaskId, TaskContext>,
+                                      ) => ScheduledBuilder<
+                                        TTaskId,
+                                        TaskContext,
+                                        TData,
+                                        THasData,
+                                        true
+                                      >,
                                     ) => FullBuilder<
                                       NextState<
                                         TState,
-                                        ScheduledPrimitive<TTaskId, TData, TaskContext>
+                                        ScheduledPrimitive<TTaskId, TData, THasData, TaskContext>
                                       >,
                                       TFeatures,
                                       Kind
-                                    >) &
-                                      (<TTaskId extends string, TData>(
-                                        taskId: TTaskId,
-                                        dataSchema: Validator<TData>,
-                                        options?: ScheduledOptions<TData>,
-                                      ) => FullBuilder<
-                                        NextState<TState, ScheduledPrimitive<TTaskId, TData>>,
-                                        TFeatures,
-                                        Kind
-                                      >)
+                                    >
                                   : // ─────── Section: channel ───────
                                     M extends 'channel'
                                     ? <

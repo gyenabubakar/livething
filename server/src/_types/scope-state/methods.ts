@@ -227,14 +227,50 @@ export interface ReplayMethods<TOutgoing extends Record<string, any>> {
 }
 
 /**
+ * Type-level metadata recorded for each declared scheduled task.
+ *
+ * `hasData` controls whether `ctx.schedule(...)` accepts a `data` payload for
+ * the task, and `data` carries the inferred payload type when present.
+ */
+export interface ScheduledTaskDefinition<TData = never, THasData extends boolean = false> {
+  readonly hasData: THasData;
+  readonly data: TData;
+}
+
+type ScheduleOptionsForTask<TTask extends ScheduledTaskDefinition<any, any>> =
+  TTask extends ScheduledTaskDefinition<infer TData, true>
+    ? undefined extends TData
+      ? { time: number; data?: TData }
+      : { time: number; data: TData }
+    : { time: number };
+
+/**
+ * Untyped scheduling surface used when no tasks are known in the current
+ * builder state.
+ */
+export interface GenericScheduleMethods {
+  schedule(taskId: string, options: { time: number; data?: unknown }): void;
+  cancelScheduled(taskId: string, filter?: Record<string, unknown>): void;
+  setAlarm(time: number): void;
+}
+
+/**
  * Provides `ctx.schedule()`, `ctx.cancelScheduled()`, and `ctx.setAlarm()`.
  *
  * These are always available on connection handler contexts — they delegate
  * to the engine's scheduled-task infrastructure and the platform's alarm API.
  */
-export interface ScheduleMethods<TScheduledTaskIds extends string = string> {
-  schedule(taskId: TScheduledTaskIds, options: { time: number; data?: unknown }): void;
-  cancelScheduled(taskId: TScheduledTaskIds, filter?: Record<string, unknown>): void;
+export interface ScheduleMethods<
+  TScheduledTasks extends Record<string, ScheduledTaskDefinition<any, any>>,
+> {
+  schedule<TTaskId extends keyof TScheduledTasks & string>(
+    taskId: TTaskId,
+    options: ScheduleOptionsForTask<TScheduledTasks[TTaskId]>,
+  ): void;
+  cancelScheduled<TTaskId extends keyof TScheduledTasks & string>(
+    taskId: TTaskId,
+    filter?: Record<string, unknown>,
+  ): void;
   setAlarm(time: number): void;
 }
 

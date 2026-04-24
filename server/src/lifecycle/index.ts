@@ -1,2 +1,2 @@
 export { withLifecycle } from './with.ts';
-export * from './lifecycle.ts';
+export type { UpgradeResult } from './lifecycle.ts';

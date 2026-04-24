@@ -4,7 +4,7 @@ import type { ConnectionInfo, InitContext, TaskContext } from '~/context.ts';
 import type { ErrorDef } from '~/errors/errors.ts';
 import type { ErrorsPrimitive } from '~/errors/primitive.ts';
 import type { Primitive, PrimitiveRef, RequiresManifest } from '~/primitive.ts';
-import type { ScheduledHandle, ScheduledOptions } from '~/scheduled/scheduled.ts';
+import type { ScheduledBuilder, ScheduledHandle } from '~/scheduled/scheduled.ts';
 
 /**
  * The hook surface available to a module during `setup()`. Everything a
@@ -40,10 +40,11 @@ export interface ModuleHooks<TCtx = any> {
   onShutdown(handler: () => void | Promise<void>): void;
 
   /** Register a scheduled task owned by this module. */
-  scheduled<TData>(
+  scheduled<TData = never, THasData extends boolean = false>(
     name: string,
-    handler: (ctx: TaskContext, data: TData) => void | Promise<void>,
-    options?: ScheduledOptions<TData>,
+    callback: (
+      builder: ScheduledBuilder<string, TaskContext>,
+    ) => ScheduledBuilder<string, TaskContext, TData, THasData, true>,
   ): ScheduledHandle<TData>;
 
   /** Create a framework-generated unique ID. */

@@ -1,2 +1,2 @@
 export { withAck } from './with.ts';
-export * from './ack.ts';
+export { ack } from './ack.ts';

@@ -1,2 +1,3 @@
 export { withReplay } from './with.ts';
-export * from './replay.ts';
+export { replay } from './replay.ts';
+export type { ReplayOptions } from './types.ts';

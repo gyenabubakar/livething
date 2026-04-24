@@ -1,2 +1,2 @@
 export { withDedup } from './with.ts';
-export * from './dedup.ts';
+export { dedup } from './dedup.ts';

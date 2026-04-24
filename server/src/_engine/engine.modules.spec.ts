@@ -167,7 +167,7 @@ describe('module scheduled task registration', () => {
       key: MOD_KEY,
       requires: { timers: true, storage: true },
       setup(_args, hooks) {
-        hooks.scheduled('tick', handler);
+        hooks.scheduled('tick', (t) => t.run(handler));
         return () => ({});
       },
     });

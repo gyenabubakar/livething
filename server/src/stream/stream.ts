@@ -30,11 +30,10 @@ export interface NudgeDeclaration<TEvent extends string = string, TPayload = unk
  *
  * @example
  * ```ts
- * import { nudge } from '@wskit/server/streams';
  * import * as v from 'valibot';
  *
- * s.nudge(nudge('pause'))
- * s.nudge(nudge('speed-up', v.object({ factor: v.number() })))
+ * const pause = nudge('pause');
+ * const speedUp = nudge('speed-up', v.object({ factor: v.number() }));
  * ```
  */
 export function nudge<TEvent extends string>(event: TEvent): NudgeDeclaration<TEvent, unknown>;
@@ -51,11 +50,10 @@ export function nudge<TEvent extends string>(event: TEvent): NudgeDeclaration<TE
  *
  * @example
  * ```ts
- * import { nudge } from '@wskit/server/streams';
  * import * as v from 'valibot';
  *
- * s.nudge(nudge('pause'))
- * s.nudge(nudge('speed-up', v.object({ factor: v.number() })))
+ * const pause = nudge('pause');
+ * const speedUp = nudge('speed-up', v.object({ factor: v.number() }));
  * ```
  */
 export function nudge<TEvent extends string, TPayload>(
@@ -75,11 +73,10 @@ export function nudge<TEvent extends string, TPayload>(
  *
  * @example
  * ```ts
- * import { nudge } from '@wskit/server/streams';
  * import * as v from 'valibot';
  *
- * s.nudge(nudge('pause'))
- * s.nudge(nudge('speed-up', v.object({ factor: v.number() })))
+ * const pause = nudge('pause');
+ * const speedUp = nudge('speed-up', v.object({ factor: v.number() }));
  * ```
  */
 export function nudge<TEvent extends string, TSchema extends StandardSchemaV1>(

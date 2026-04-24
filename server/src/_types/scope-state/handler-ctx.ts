@@ -10,6 +10,7 @@ import type {
   ConnectionMetaMethods,
   ConnectionTagsMethods,
   EnvMethods,
+  GenericScheduleMethods,
   GenericSendToMethods,
   LatencyMethods,
   NamespaceScopeMethods,
@@ -73,6 +74,14 @@ type ReplayApi<TState extends ScopeStateShape> = TState['hasReplay'] extends tru
   : {};
 
 /**
+ * Use typed `ctx.schedule(...)` when scheduled task metadata is known;
+ * otherwise fall back to the broad runtime shape.
+ */
+type ScheduleApi<TState extends ScopeStateShape> = keyof TState['scheduledTasks'] extends never
+  ? GenericScheduleMethods
+  : ScheduleMethods<TState['scheduledTasks']>;
+
+/**
  * Add the scope-specific fields (`ctx.namespace` or `ctx.channel`) based on
  * which kind of scope the handler lives in. Top-level handlers get neither.
  *
@@ -131,7 +140,7 @@ export type HandlerCtxFromState<TState extends ScopeStateShape> = SendApi<TState
   UntagMethods &
   AckApi<TState> &
   ReplayApi<TState> &
-  ScheduleMethods<TState['scheduledTaskIds'] extends never ? string : TState['scheduledTaskIds']> &
+  ScheduleApi<TState> &
   ChannelsMethods<TState['channelNames'] extends never ? string : TState['channelNames']> &
   RuntimeContextMethods &
   EnvMethods<TState['env']> &

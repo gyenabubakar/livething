@@ -10,5 +10,4 @@ export type {
   ChannelReplayContext,
   ReplayContext,
   CustomReplayOptions,
-  CustomReplayPrimitive,
 } from './custom.ts';

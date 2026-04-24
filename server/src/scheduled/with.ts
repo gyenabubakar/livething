@@ -10,8 +10,8 @@ const KINDS = ['server', 'group'] as const;
  * Add scheduled task support to a server builder.
  *
  * Once enabled, you can call `.scheduled()` on the builder to register tasks
- * that run at a specific time or on a recurring interval, with optional retry
- * logic and dead-letter handling for failed executions.
+ * that run at a specific time or on a recurring interval. Inside the callback,
+ * configure task data, recurrence, and retry behavior before calling `.run(...)`.
  *
  * @example
  * ```ts
@@ -27,11 +27,10 @@ export function withScheduled<TState extends ScopeStateShape, TFeatures>(
     t.scheduled = function (
       this: BuilderInternals,
       taskId: string,
-      handlerOrSchema: unknown,
-      options?: unknown,
+      callback: (...args: unknown[]) => unknown,
     ) {
       const factory = createScheduled as (...args: unknown[]) => Primitive;
-      this._primitives.push(factory(taskId, handlerOrSchema, options));
+      this._primitives.push(factory(taskId, callback));
       return this;
     };
   });

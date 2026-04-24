@@ -34,7 +34,7 @@ export type AnyPreIntercept = InterceptPrimitive.PreInterceptPrimitive<any>;
 /** Any post-validation `.intercept(event, handler)` primitive. */
 export type AnyPostIntercept = InterceptPrimitive.PostInterceptPrimitive<string, any, any>;
 /** Any `.scheduled()` task declaration. */
-export type AnyScheduled = ScheduledPrimitive.ScheduledPrimitive<string, any, any>;
+export type AnyScheduled = ScheduledPrimitive.ScheduledPrimitive<string, any, any, any>;
 /** Any installed module instance from `defineModule(...)`. */
 export type AnyModule = DefineModule.ModuleInstance<
   string,

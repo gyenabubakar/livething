@@ -9,6 +9,7 @@
  * handler `ctx` type and the client contract used by `InferClient`.
  */
 import type { ContractFromState, ErrorsFromState } from '~/_types/scope-state/extract.ts';
+import type { ScheduledTaskDefinition } from '~/_types/scope-state/methods.ts';
 import type { AckPrimitive } from '~/ack/ack.ts';
 import type { DedupPrimitive } from '~/dedup/dedup.ts';
 import type { ErrorDef } from '~/errors/errors.ts';
@@ -165,7 +166,7 @@ export interface ScopeStateShape {
   readonly errors: readonly AnyErrorDef[];
   readonly meta: Record<string, unknown>;
   readonly channelNames: string;
-  readonly scheduledTaskIds: string;
+  readonly scheduledTasks: Record<string, ScheduledTaskDefinition<any, any>>;
   readonly env: object;
 }
 
@@ -201,7 +202,7 @@ export type NoOutgoing = Record<never, never>;
  * - `errors`       — the list of server error definitions registered with `errors()`
  * - `meta`         — the per-connection metadata shape inferred from `.onUpgrade()` return
  * - `channelNames`      — union of registered channel names for typed `ctx.channels` methods
- * - `scheduledTaskIds`  — union of registered scheduled task IDs for typed `ctx.schedule()`
+ * - `scheduledTasks`    — scheduled task metadata keyed by task ID for typed `ctx.schedule()`
  *
  * All parameters have default values so `ScopeState` (no arguments) gives a
  * clean empty starting state for the top-level scope.
@@ -222,7 +223,7 @@ export type ScopeState<
   TErrors extends readonly AnyErrorDef[] = readonly [],
   TMeta extends Record<string, unknown> = Record<string, unknown>,
   TChannelNames extends string = never,
-  TScheduledTaskIds extends string = never,
+  TScheduledTasks extends Record<string, ScheduledTaskDefinition<any, any>> = {},
   TEnv extends object = Record<string, unknown>,
 > = {
   readonly kind: TKind;
@@ -233,7 +234,7 @@ export type ScopeState<
   readonly errors: TErrors;
   readonly meta: TMeta;
   readonly channelNames: TChannelNames;
-  readonly scheduledTaskIds: TScheduledTaskIds;
+  readonly scheduledTasks: TScheduledTasks;
   readonly env: TEnv;
 };
 
@@ -373,7 +374,7 @@ export type NextState<
       readonly errors: TState['errors'];
       readonly meta: TState['meta'];
       readonly channelNames: TState['channelNames'];
-      readonly scheduledTaskIds: TState['scheduledTaskIds'];
+      readonly scheduledTasks: TState['scheduledTasks'];
       readonly env: TState['env'];
     }
   : // Branch 2: passive infrastructure — no ctx change
@@ -392,11 +393,11 @@ export type NextState<
         readonly errors: TState['errors'];
         readonly meta: TState['meta'];
         readonly channelNames: TState['channelNames'];
-        readonly scheduledTaskIds: TState['scheduledTaskIds'];
+        readonly scheduledTasks: TState['scheduledTasks'];
         readonly env: TState['env'];
       }
-    : // Branch 3: scheduled(taskId) — accumulate task ID for typed ctx.schedule()
-      TPrimitive extends ScheduledPrimitive<infer TTaskId, any, any>
+    : // Branch 3: scheduled(taskId) — accumulate task metadata for typed ctx.schedule()
+      TPrimitive extends ScheduledPrimitive<infer TTaskId, infer TData, infer THasData, any>
       ? {
           readonly kind: TState['kind'];
           readonly outgoing: TState['outgoing'];
@@ -406,7 +407,10 @@ export type NextState<
           readonly errors: TState['errors'];
           readonly meta: TState['meta'];
           readonly channelNames: TState['channelNames'];
-          readonly scheduledTaskIds: TState['scheduledTaskIds'] | TTaskId;
+          readonly scheduledTasks: MergeRecords<
+            TState['scheduledTasks'],
+            Record<TTaskId, ScheduledTaskDefinition<TData, THasData>>
+          >;
           readonly env: TState['env'];
         }
       : // Branch 4: replay() — enable ctx.sendReplay()
@@ -420,7 +424,7 @@ export type NextState<
             readonly errors: TState['errors'];
             readonly meta: TState['meta'];
             readonly channelNames: TState['channelNames'];
-            readonly scheduledTaskIds: TState['scheduledTaskIds'];
+            readonly scheduledTasks: TState['scheduledTasks'];
             readonly env: TState['env'];
           }
         : // Branch 5: errors(...) — replace the error definition list
@@ -435,7 +439,7 @@ export type NextState<
                 readonly errors: TDefs;
                 readonly meta: TState['meta'];
                 readonly channelNames: TState['channelNames'];
-                readonly scheduledTaskIds: TState['scheduledTaskIds'];
+                readonly scheduledTasks: TState['scheduledTasks'];
                 readonly env: TState['env'];
               }
             : TState
@@ -457,7 +461,7 @@ export type NextState<
                 readonly errors: TState['errors'];
                 readonly meta: TState['meta'];
                 readonly channelNames: TState['channelNames'];
-                readonly scheduledTaskIds: TState['scheduledTaskIds'];
+                readonly scheduledTasks: TState['scheduledTasks'];
                 readonly env: TState['env'];
               }
             : // Branch 7: incoming(event) — add to client→server contract (client sends it)
@@ -482,7 +486,7 @@ export type NextState<
                     readonly errors: TState['errors'];
                     readonly meta: TState['meta'];
                     readonly channelNames: TState['channelNames'];
-                    readonly scheduledTaskIds: TState['scheduledTaskIds'];
+                    readonly scheduledTasks: TState['scheduledTasks'];
                     readonly env: TState['env'];
                   }
                 : TState
@@ -507,7 +511,7 @@ export type NextState<
                     readonly errors: TState['errors'];
                     readonly meta: TState['meta'];
                     readonly channelNames: TState['channelNames'];
-                    readonly scheduledTaskIds: TState['scheduledTaskIds'];
+                    readonly scheduledTasks: TState['scheduledTasks'];
                     readonly env: TState['env'];
                   }
                 : // Branch 9: generate(stream) — add to contract.streams
@@ -532,7 +536,7 @@ export type NextState<
                         readonly errors: TState['errors'];
                         readonly meta: TState['meta'];
                         readonly channelNames: TState['channelNames'];
-                        readonly scheduledTaskIds: TState['scheduledTaskIds'];
+                        readonly scheduledTasks: TState['scheduledTasks'];
                         readonly env: TState['env'];
                       }
                     : TState

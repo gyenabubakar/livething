@@ -1,3 +1,7 @@
 export { withChannels } from './with.ts';
-export * from './channel.ts';
-export * from './lifecycle.ts';
+export { scope } from './channel.ts';
+export type {
+  ScopeDeclaration,
+  ChannelHandlerContext,
+  ChannelStreamHandlerContext,
+} from './channel.ts';

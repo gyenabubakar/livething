@@ -13,6 +13,7 @@
 	let deadLetter = $state('');
 	let filteredLabels = $state<string[]>([]);
 	let cancelNothingOk = $state(false);
+	let scheduleGuardError = $state('');
 	let sendToConnDelivery = $state('');
 	let sendToConnStatus = $state('');
 	let broadcastResult = $state('');
@@ -61,6 +62,9 @@
 					break;
 				case 'cancel-nothing-ok':
 					cancelNothingOk = true;
+					break;
+				case 'schedule-guard-error':
+					scheduleGuardError = data.payload?.message ?? '';
 					break;
 				case 'schedule-send-to-conn-delivery':
 					sendToConnDelivery = data.payload?.text ?? '';
@@ -117,6 +121,9 @@
 	Cancel drop
 </button>
 <button data-testid="cancel-nothing" onclick={() => send('cancel-nothing')}>Cancel nothing</button>
+<button data-testid="trigger-invalid-cleanup-data" onclick={() => send('trigger-invalid-cleanup-data')}>
+	Trigger invalid cleanup data
+</button>
 <button data-testid="trigger-empty-backoff" onclick={() => send('trigger-empty-backoff')}>
 	Trigger empty backoff
 </button>
@@ -165,6 +172,7 @@
 <span data-testid="dead-letter">{deadLetter}</span>
 <span data-testid="filtered-labels">{filteredLabels.join(',')}</span>
 <span data-testid="cancel-nothing-ok">{cancelNothingOk ? 'yes' : 'no'}</span>
+<span data-testid="schedule-guard-error">{scheduleGuardError}</span>
 <span data-testid="send-to-conn-delivery">{sendToConnDelivery}</span>
 <span data-testid="send-to-conn-status">{sendToConnStatus}</span>
 <span data-testid="broadcast-result">{broadcastResult}</span>

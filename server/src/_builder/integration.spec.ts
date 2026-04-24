@@ -101,8 +101,10 @@ describe('Integration: full single-file server', () => {
     .request(ping, pongSchema, async (ctx, payload) => {
       ctx.respond({ ts: payload.ts, serverTs: Date.now() });
     })
-    .scheduled('cleanup', async () => {}, { every: 60_000 })
-    .scheduled('expire-hold', (p: unknown) => p as { orderId: string })
+    .scheduled('cleanup', (t) => t.every(60_000).run(async () => {}))
+    .scheduled('expire-hold', (t) =>
+      t.data((p: unknown) => p as { orderId: string }).run(async (_ctx, data) => void data.orderId),
+    )
     .replay((r) => r.exclude('typing').retention({ maxAgeMs: 3_600_000 }).durability('strict'));
 
   const def = base
@@ -527,8 +529,8 @@ describe('Integration: duplicate detection', () => {
   it('rejects duplicate scheduled task ID', () => {
     expect(() =>
       fullServer('chat')
-        .scheduled('cleanup', async () => {})
-        .scheduled('cleanup', async () => {})
+        .scheduled('cleanup', (t) => t.run(async () => {}))
+        .scheduled('cleanup', (t) => t.run(async () => {}))
         .build(),
     ).toThrow(/Duplicate/);
   });

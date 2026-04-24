@@ -7,7 +7,7 @@ import * as EngineMessageRuntime from '~/_engine/runtime/messages.ts';
 import * as ErrorsPrimitive from '~/errors/runtime.ts';
 import * as HeartbeatPrimitive from '~/heartbeat/runtime.ts';
 import * as ScheduledPrimitive from '~/scheduled/runtime.ts';
-import { SCHEDULED_RUNTIME_KEY } from '~/scheduled/scheduled.ts';
+import { scheduled as createScheduled, SCHEDULED_RUNTIME_KEY } from '~/scheduled/scheduled.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type * as EngineAccessModule from '~/_engine/access.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
@@ -272,19 +272,9 @@ export class Engine {
       onShutdown: (handler) => {
         runtime.onShutdown = handler;
       },
-      scheduled: (
-        name: string,
-        handler: (ctx: any, data: any) => void | Promise<void>,
-        options,
-      ) => {
+      scheduled: (name: string, callback) => {
         const taskId = `__${runtime.instance.id}:${name}`;
-        this.compiled.scheduled.set(taskId, {
-          ...runtime.instance,
-          __wskit: 'scheduled',
-          taskId,
-          handler,
-          options,
-        } as unknown as AnyScheduled);
+        this.compiled.scheduled.set(taskId, createScheduled(taskId, callback) as AnyScheduled);
         this.ensureScheduledRuntime();
         return { id: taskId };
       },
@@ -510,6 +500,9 @@ export class Engine {
     if (this.initialized) return;
     this.validateRequires();
     this.installPrimitiveHooks();
+    if (this.compiled.scheduled.size > 0) {
+      this.ensureScheduledRuntime();
+    }
     this.validateEngineRequirements();
 
     for (const moduleInstance of this.compiled.modules) {

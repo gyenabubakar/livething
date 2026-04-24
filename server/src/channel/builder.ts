@@ -41,7 +41,7 @@ type ChannelState<TParentState extends ScopeStateShape> = ScopeState<
   readonly [],
   TParentState['meta'],
   TParentState['channelNames'],
-  TParentState['scheduledTaskIds'],
+  TParentState['scheduledTasks'],
   TParentState['env']
 >;
 

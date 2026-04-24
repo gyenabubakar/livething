@@ -1,6 +1,7 @@
 import { server } from '~/_builder/server-builder.ts';
 import { event } from '~/event.ts';
 import { withScheduled } from '~/scheduled/with.ts';
+import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 
 const message = event('message', (p: unknown) => p as { text: string });
@@ -8,7 +9,7 @@ const message = event('message', (p: unknown) => p as { text: string });
 describe('.scheduled() side-effect', () => {
   it('adds scheduled primitive with handler', () => {
     const def = withScheduled(server('chat'))
-      .scheduled('cleanup', async () => {})
+      .scheduled('cleanup', (t) => t.run(async () => {}))
       .build();
 
     expect(def.primitives).toHaveLength(1);
@@ -17,7 +18,12 @@ describe('.scheduled() side-effect', () => {
 
   it('accepts every option', () => {
     const def = withScheduled(server('chat'))
-      .scheduled('cleanup', async () => {}, { every: 60_000, retry: false })
+      .scheduled('cleanup', (t) =>
+        t
+          .every(60_000)
+          .retry(false)
+          .run(async () => {}),
+      )
       .build();
 
     const prim = def.primitives[0] as unknown as {
@@ -29,9 +35,13 @@ describe('.scheduled() side-effect', () => {
     expect(prim.options?.retry).toBe(false);
   });
 
-  it('accepts schema-only declaration form', () => {
+  it('accepts data-backed declarations', () => {
     const def = withScheduled(server('chat'))
-      .scheduled('expire-hold', (p: unknown) => p as { orderId: string })
+      .scheduled('expire-hold', (t) =>
+        t.data(v.object({ orderId: v.string() })).run(async (_ctx, data) => {
+          void data.orderId;
+        }),
+      )
       .build();
 
     expect(def.primitives).toHaveLength(1);
@@ -40,8 +50,8 @@ describe('.scheduled() side-effect', () => {
 
   it('allows multiple scheduled tasks with different IDs', () => {
     const def = withScheduled(server('chat'))
-      .scheduled('cleanup', async () => {})
-      .scheduled('expire-hold', async () => {})
+      .scheduled('cleanup', (t) => t.run(async () => {}))
+      .scheduled('expire-hold', (t) => t.run(async () => {}))
       .build();
 
     expect(def.primitives).toHaveLength(2);
@@ -50,8 +60,8 @@ describe('.scheduled() side-effect', () => {
   it('rejects duplicate task IDs', () => {
     expect(() =>
       withScheduled(server('chat'))
-        .scheduled('cleanup', async () => {})
-        .scheduled('cleanup', async () => {})
+        .scheduled('cleanup', (t) => t.run(async () => {}))
+        .scheduled('cleanup', (t) => t.run(async () => {}))
         .build(),
     ).toThrow(/Duplicate registration/);
   });
@@ -59,7 +69,7 @@ describe('.scheduled() side-effect', () => {
   it('chains with other primitives', () => {
     const def = withScheduled(server('chat'))
       .outgoing(message)
-      .scheduled('cleanup', async () => {}, { every: 60_000 })
+      .scheduled('cleanup', (t) => t.every(60_000).run(async () => {}))
       .build();
 
     expect(def.primitives).toHaveLength(2);
@@ -70,7 +80,7 @@ describe('.scheduled() side-effect', () => {
   it('works with GroupBuilder', () => {
     const base = withScheduled(server('chat')).outgoing(message);
     const def = base
-      .use(base.group((g) => g.scheduled('cleanup', async () => {}, { every: 60_000 })))
+      .use(base.group((g) => g.scheduled('cleanup', (t) => t.every(60_000).run(async () => {}))))
       .build();
 
     expect(def.primitives.some((p) => p.__wskit === 'scheduled')).toBe(true);

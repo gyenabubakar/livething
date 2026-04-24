@@ -1,2 +1,3 @@
 export { withSequence } from './with.ts';
-export * from './sequence.ts';
+export { sequence } from './sequence.ts';
+export type { SequenceOptions } from './sequence.ts';

@@ -1,6 +1,4 @@
 export { server } from './_builder/index.ts';
-export { ServerBuilder, GroupBuilder } from './_builder/index.ts';
-export type { GroupPrimitive } from './_builder/index.ts';
 
 export { event } from './event.ts';
 export type { EventContract } from './event.ts';

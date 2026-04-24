@@ -51,7 +51,7 @@ type InitialState<TEnv extends object = Record<string, unknown>> = ScopeState<
   readonly [],
   Record<string, unknown>,
   never,
-  never,
+  {},
   TEnv
 >;
 
@@ -97,7 +97,7 @@ type MergeScopeContract<
   readonly channelNames: TField extends 'channels'
     ? TState['channelNames'] | TName
     : TState['channelNames'];
-  readonly scheduledTaskIds: TState['scheduledTaskIds'];
+  readonly scheduledTasks: TState['scheduledTasks'];
   readonly env: TState['env'];
 };
 
@@ -128,7 +128,7 @@ type MergeGroupContract<TState extends ScopeStateShape, TGroupState extends Scop
   readonly errors: TState['errors'];
   readonly meta: TState['meta'];
   readonly channelNames: TState['channelNames'];
-  readonly scheduledTaskIds: TState['scheduledTaskIds'] | TGroupState['scheduledTaskIds'];
+  readonly scheduledTasks: MergeRecords<TState['scheduledTasks'], TGroupState['scheduledTasks']>;
   readonly env: TState['env'];
 };
 

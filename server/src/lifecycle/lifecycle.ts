@@ -186,11 +186,9 @@ function makeLifecycle<TTag extends string>(
  *
  * @example
  * ```ts
- * import { onInit } from '@wskit/server/lifecycle';
- *
- * server('chat').use(onInit(async (ctx) => {
+ * server('chat').onInit(async (ctx) => {
  *   await db.migrate();
- * }));
+ * });
  * ```
  */
 export const onInit = Object.assign(
@@ -206,9 +204,9 @@ export const onInit = Object.assign(
  *
  * @example
  * ```ts
- * server('chat').use(onConnect((ctx) => {
+ * server('chat').onConnect((ctx) => {
  *   console.log('client connected', ctx.id);
- * }));
+ * });
  * ```
  */
 export const onConnect = Object.assign(
@@ -224,9 +222,9 @@ export const onConnect = Object.assign(
  *
  * @example
  * ```ts
- * server('chat').use(onDisconnect((ctx) => {
+ * server('chat').onDisconnect((ctx) => {
  *   console.log('client left', ctx.id);
- * }));
+ * });
  * ```
  */
 export const onDisconnect = Object.assign(
@@ -243,9 +241,9 @@ export const onDisconnect = Object.assign(
  *
  * @example
  * ```ts
- * server('chat').use(onShutdown(async (ctx) => {
+ * server('chat').onShutdown(async (ctx) => {
  *   await queue.flush();
- * }));
+ * });
  * ```
  */
 export const onShutdown = Object.assign(
@@ -263,9 +261,9 @@ export const onShutdown = Object.assign(
  *
  * @example
  * ```ts
- * server('chat').use(onError((ctx, error, event) => {
+ * server('chat').onError((ctx, error, event) => {
  *   logger.error({ id: ctx.id, event }, String(error));
- * }));
+ * });
  * ```
  */
 export const onError = Object.assign(
@@ -284,11 +282,11 @@ export const onError = Object.assign(
  *
  * @example
  * ```ts
- * server('chat').use(onUpgrade(async (req) => {
+ * server('chat').onUpgrade(async (req) => {
  *   const user = await auth.verify(req.headers.get('authorization'));
  *   if (!user) throw RejectUpgrade(4001, 'Unauthorized');
  *   return { meta: { userId: user.id } };
- * }));
+ * });
  * ```
  */
 export const onUpgrade = Object.assign(
@@ -305,9 +303,9 @@ export const onUpgrade = Object.assign(
  *
  * @example
  * ```ts
- * server('uploads').use(onBinary((ctx, data) => {
+ * server('uploads').onBinary((ctx, data) => {
  *   saveChunk(ctx.id, new Uint8Array(data));
- * }));
+ * });
  * ```
  */
 export const onBinary = Object.assign(
@@ -324,9 +322,9 @@ export const onBinary = Object.assign(
  *
  * @example
  * ```ts
- * server('chat').use(onValidationError((ctx, event, err) => {
+ * server('chat').onValidationError((ctx, event, err) => {
  *   logger.warn({ id: ctx.id, event }, 'bad payload', err);
- * }));
+ * });
  * ```
  */
 export const onValidationError = Object.assign(

@@ -32,6 +32,8 @@ const FilteredTaskResult = event('filtered-task-result', v.object({ label: v.str
 
 const CancelNothing = event('cancel-nothing', v.object({}));
 const CancelNothingOk = event('cancel-nothing-ok', v.object({}));
+const TriggerInvalidCleanupData = event('trigger-invalid-cleanup-data', v.object({}));
+const ScheduleGuardError = event('schedule-guard-error', v.object({ message: v.string() }));
 
 const ScheduleSendToConn = event(
   'schedule-send-to-conn',
@@ -72,6 +74,7 @@ export const scheduledHandler = withScheduled(withLifecycle(server<Env>('schedul
   .outgoing(DeadLetterResult)
   .outgoing(FilteredTaskResult)
   .outgoing(CancelNothingOk)
+  .outgoing(ScheduleGuardError)
   .outgoing(ScheduleSendToConnDelivery)
   .outgoing(ScheduleSendToConnStatus)
   .outgoing(WhoAmIResult)
@@ -79,72 +82,71 @@ export const scheduledHandler = withScheduled(withLifecycle(server<Env>('schedul
   .outgoing(SendToTagResult)
   .outgoing(CancelNonexistentOk)
   .onUpgrade((request) => requireUsername(request))
-  .scheduled('cleanup', (ctx) => {
-    ctx.broadcast('cleanup-done', { at: Date.now() });
-  })
-  .scheduled(
-    'heartbeat-tick',
-    (ctx) => {
-      ctx.broadcast('heartbeat-tick', { count: Date.now() });
-    },
-    { every: 300 },
+  .scheduled('cleanup', (t) =>
+    t.run((ctx) => {
+      ctx.broadcast('cleanup-done', { at: Date.now() });
+    }),
   )
-  .scheduled(
-    'flaky-task',
-    (ctx) => {
+  .scheduled('heartbeat-tick', (t) =>
+    t.every(300).run((ctx) => {
+      ctx.broadcast('heartbeat-tick', { count: Date.now() });
+    }),
+  )
+  .scheduled('flaky-task', (t) =>
+    t.retry([50, 100, 200]).run((ctx) => {
       flakyAttempts += 1;
       if (flakyAttempts < 3) throw new Error('flaky');
       ctx.broadcast('flaky-task-result', { attempts: flakyAttempts });
       flakyAttempts = 0;
-    },
-    { retry: [50, 100, 200] },
+    }),
   )
-  .scheduled(
-    'default-retry-task',
-    (ctx) => {
+  .scheduled('default-retry-task', (t) =>
+    t.retry(true).run((ctx) => {
       defaultRetryAttempts += 1;
       if (defaultRetryAttempts < 2) throw new Error('retry-once');
       ctx.broadcast('default-retry-result', { attempts: defaultRetryAttempts });
       defaultRetryAttempts = 0;
-    },
-    { retry: true },
+    }),
   )
-  .scheduled(
-    'always-fail-task',
-    () => {
+  .scheduled('always-fail-task', (t) =>
+    t.retry([25, 50]).run(() => {
       throw new Error('permanent failure');
-    },
-    { retry: [25, 50] },
+    }),
   )
-  .scheduled(
-    'filtered-cleanup',
-    (ctx, data: { label: string }) => {
-      ctx.broadcast('filtered-task-result', { label: data.label });
-    },
-    { retry: false },
+  .scheduled('filtered-cleanup', (t) =>
+    t
+      .data(v.object({ label: v.string() }))
+      .retry(false)
+      .run((ctx, data) => {
+        ctx.broadcast('filtered-task-result', { label: data.label });
+      }),
   )
-  .scheduled('send-to-conn-task', (ctx, data: { connectionId: string; text: string }) => {
-    const delivered = ctx.sendToConnection(data.connectionId, 'schedule-send-to-conn-delivery', {
-      text: data.text,
-    });
-    ctx.broadcast('schedule-send-to-conn-status', {
-      connectionId: data.connectionId,
-      delivered,
-    });
-  })
-  .scheduled(
-    'empty-backoff-task',
-    () => {
+  .scheduled('send-to-conn-task', (t) =>
+    t.data(v.object({ connectionId: v.string(), text: v.string() })).run((ctx, data) => {
+      const delivered = ctx.sendToConnection(data.connectionId, 'schedule-send-to-conn-delivery', {
+        text: data.text,
+      });
+      ctx.broadcast('schedule-send-to-conn-status', {
+        connectionId: data.connectionId,
+        delivered,
+      });
+    }),
+  )
+  .scheduled('empty-backoff-task', (t) =>
+    t.retry([]).run(() => {
       throw new Error('always fails with empty backoff');
-    },
-    { retry: [] },
+    }),
   )
-  .scheduled('broadcast-task', (ctx) => {
-    ctx.broadcast('broadcast-result', { text: 'from-task' });
-  })
-  .scheduled('send-to-tag-task', (ctx) => {
-    ctx.sendTo('vip', 'send-to-tag-result', { text: 'tagged-from-task' });
-  })
+  .scheduled('broadcast-task', (t) =>
+    t.run((ctx) => {
+      ctx.broadcast('broadcast-result', { text: 'from-task' });
+    }),
+  )
+  .scheduled('send-to-tag-task', (t) =>
+    t.run((ctx) => {
+      ctx.sendTo('vip', 'send-to-tag-result', { text: 'tagged-from-task' });
+    }),
+  )
   .incoming(ScheduleCleanup, (ctx, payload) => {
     ctx.schedule('cleanup', { time: Date.now() + payload.delayMs });
   })
@@ -194,6 +196,18 @@ export const scheduledHandler = withScheduled(withLifecycle(server<Env>('schedul
     // exercising the "nothing to cancel" no-op branch.
     ctx.cancelScheduled('filtered-cleanup', { label: '__never__' });
     ctx.send('cancel-nothing-ok', {});
+  })
+  .incoming(TriggerInvalidCleanupData, (ctx) => {
+    try {
+      (ctx.schedule as (taskId: string, options: { time: number; data?: unknown }) => void)(
+        'cleanup',
+        { time: Date.now() + 50, data: { nope: true } },
+      );
+    } catch (error) {
+      ctx.send('schedule-guard-error', {
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
   })
   .incoming(ScheduleSendToConn, (ctx, payload) => {
     ctx.schedule('send-to-conn-task', {

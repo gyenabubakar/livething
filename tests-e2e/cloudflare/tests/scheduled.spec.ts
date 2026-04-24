@@ -78,6 +78,18 @@ test.describe('scheduled', () => {
     await expect(page.getByTestId('cleanup-fired')).toHaveText('yes');
   });
 
+  test('schedule guard rejects data for no-data tasks without killing the connection', async ({
+    page,
+  }, testInfo) => {
+    await openPage(page, `test-${testInfo.testId}`);
+    await page.getByTestId('trigger-invalid-cleanup-data').click();
+    await expect(page.getByTestId('schedule-guard-error')).toContainText(
+      'does not declare .data(...)',
+    );
+    await page.getByTestId('schedule-cleanup-soon').click();
+    await expect(page.getByTestId('cleanup-fired')).toHaveText('yes');
+  });
+
   test('task-ctx sendToConnection: delivers to a live connection', async ({ page }, testInfo) => {
     await openPage(page, `test-${testInfo.testId}`);
     await page.getByTestId('who-am-i').click();

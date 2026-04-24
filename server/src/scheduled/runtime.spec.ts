@@ -1,3 +1,4 @@
+import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import {
   bootstrapScheduledRuntime,
@@ -28,7 +29,11 @@ function createScheduledRuntime(
   tasks: Array<{
     taskId: string;
     options?: { every?: number; retry?: boolean | readonly number[] };
-    handler?: (ctx: unknown, data: unknown) => void | Promise<void>;
+    hasData?: boolean;
+    dataSchema?: unknown;
+    handler?:
+      | ((ctx: unknown) => void | Promise<void>)
+      | ((ctx: unknown, data: unknown) => void | Promise<void>);
   }> = [],
 ) {
   const scheduledRuns = new Map<string, ScheduledRun>();
@@ -166,7 +171,9 @@ describe('scheduled/runtime', () => {
   });
 
   it('queues one-shot runs and cancels matching queued runs', () => {
-    const { runtime, scheduledRuns } = createScheduledRuntime([{ taskId: 'flush' }]);
+    const { runtime, scheduledRuns } = createScheduledRuntime([
+      { taskId: 'flush', hasData: true, dataSchema: (value: unknown) => value },
+    ]);
 
     scheduleTaskRun(runtime, 'flush', 100, { id: 'a' });
     scheduleTaskRun(runtime, 'flush', 200, { id: 'b' });
@@ -176,8 +183,86 @@ describe('scheduled/runtime', () => {
     expect([...scheduledRuns.values()][0]?.data).toEqual({ id: 'b' });
   });
 
+  it('invokes no-data tasks with only ctx', async () => {
+    const handler = vi.fn(async () => {});
+    const { runtime, scheduledRuns } = createScheduledRuntime([{ taskId: 'flush', handler }]);
+    const now = vi.spyOn(Date, 'now').mockReturnValue(100);
+
+    scheduledRuns.set('run_1', {
+      id: 'run_1',
+      taskId: 'flush',
+      time: 0,
+      data: undefined,
+      attempts: 0,
+      recurring: false,
+      retry: true,
+    });
+
+    await handleScheduledAlarm(runtime);
+
+    expect(handler).toHaveBeenCalledWith({ ok: true });
+    expect(handler.mock.calls[0]).toHaveLength(1);
+    now.mockRestore();
+  });
+
+  it('invokes data-backed tasks with validated data', async () => {
+    const handler = vi.fn(async () => {});
+    const { runtime, scheduledRuns } = createScheduledRuntime([
+      {
+        taskId: 'flush',
+        hasData: true,
+        dataSchema: v.object({ count: v.pipe(v.string(), v.transform(Number)) }),
+        handler,
+      },
+    ]);
+    const now = vi.spyOn(Date, 'now').mockReturnValue(100);
+
+    scheduleTaskRun(runtime, 'flush', 50, { count: '5' });
+    const run = [...scheduledRuns.values()][0]!;
+    expect(run.data).toEqual({ count: 5 });
+
+    await handleScheduledAlarm(runtime);
+
+    expect(handler).toHaveBeenCalledWith({ ok: true }, { count: 5 });
+    now.mockRestore();
+  });
+
+  it('throws when data is queued for a task without .data(...)', () => {
+    const { runtime } = createScheduledRuntime([{ taskId: 'flush' }]);
+
+    expect(() => scheduleTaskRun(runtime, 'flush', 100, { nope: true })).toThrow(
+      /does not declare \.data/,
+    );
+  });
+
+  it('throws when required task data is omitted', () => {
+    const { runtime } = createScheduledRuntime([
+      {
+        taskId: 'flush',
+        hasData: true,
+        dataSchema: v.object({ label: v.string() }),
+      },
+    ]);
+
+    expect(() => scheduleTaskRun(runtime, 'flush', 100, undefined)).toThrow();
+  });
+
+  it('throws when task data fails validation at enqueue time', () => {
+    const { runtime } = createScheduledRuntime([
+      {
+        taskId: 'flush',
+        hasData: true,
+        dataSchema: v.object({ label: v.string() }),
+      },
+    ]);
+
+    expect(() => scheduleTaskRun(runtime, 'flush', 100, { label: 42 })).toThrow();
+  });
+
   it('multi-key filter cancels only runs matching every key (AND semantics)', () => {
-    const { runtime, scheduledRuns } = createScheduledRuntime([{ taskId: 'flush' }]);
+    const { runtime, scheduledRuns } = createScheduledRuntime([
+      { taskId: 'flush', hasData: true, dataSchema: (value: unknown) => value },
+    ]);
 
     scheduleTaskRun(runtime, 'flush', 100, { label: 'drop', tier: 'gold' });
     scheduleTaskRun(runtime, 'flush', 200, { label: 'drop', tier: 'silver' });
@@ -196,7 +281,9 @@ describe('scheduled/runtime', () => {
   });
 
   it('filter with a key missing from the run data does not match', () => {
-    const { runtime, scheduledRuns } = createScheduledRuntime([{ taskId: 'flush' }]);
+    const { runtime, scheduledRuns } = createScheduledRuntime([
+      { taskId: 'flush', hasData: true, dataSchema: (value: unknown) => value },
+    ]);
 
     scheduleTaskRun(runtime, 'flush', 100, { id: 'a' });
     cancelScheduledRuns(runtime, 'flush', { id: 'a', doesNotExist: 'x' });
@@ -205,7 +292,9 @@ describe('scheduled/runtime', () => {
   });
 
   it('filter with a key that does not exist on any run is a no-op', () => {
-    const { runtime, scheduledRuns } = createScheduledRuntime([{ taskId: 'flush' }]);
+    const { runtime, scheduledRuns } = createScheduledRuntime([
+      { taskId: 'flush', hasData: true, dataSchema: (value: unknown) => value },
+    ]);
 
     scheduleTaskRun(runtime, 'flush', 100, { id: 'a' });
     scheduleTaskRun(runtime, 'flush', 200, { id: 'b' });

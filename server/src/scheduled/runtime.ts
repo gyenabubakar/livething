@@ -1,3 +1,4 @@
+import { validateValue } from '~/_engine/compile/utils.ts';
 import type {
   ScheduledCancelResult,
   ScheduledDeadLetter,
@@ -177,12 +178,15 @@ function ensureRecurringRuns(runtime: ScheduledRuntimeAccess): void {
     );
 
     if (!hasRecurringRun) {
+      const data = task.hasData
+        ? validateValue(task.dataSchema, undefined, task.taskId)
+        : undefined;
       const id = runtime.generateId('task');
       scheduledRuns.set(id, {
         id,
         taskId: task.taskId,
         time: now + every,
-        data: undefined,
+        data,
         every,
         attempts: 0,
         recurring: true,
@@ -270,7 +274,15 @@ export async function handleScheduledAlarm(runtime: ScheduledRuntimeAccess): Pro
     due.map(async (run) => {
       const task = runtime.getScheduledTask(run.taskId);
       if (task?.handler) {
-        await task.handler(runtime.createTaskContext(), run.data);
+        const ctx = runtime.createTaskContext();
+        if (task.hasData) {
+          await (task.handler as (ctx: unknown, data: unknown) => void | Promise<void>)(
+            ctx,
+            run.data,
+          );
+        } else {
+          await (task.handler as (ctx: unknown) => void | Promise<void>)(ctx);
+        }
       }
       return run;
     }),
@@ -316,12 +328,16 @@ export async function handleScheduledAlarm(runtime: ScheduledRuntimeAccess): Pro
     });
 
     if (run.recurring && run.every) {
+      const task = runtime.getScheduledTask(run.taskId);
+      const data = task?.hasData
+        ? validateValue(task.dataSchema, undefined, task.taskId)
+        : undefined;
       const id = runtime.generateId('task');
       scheduledRuns.set(id, {
         id,
         taskId: run.taskId,
         time: now + run.every,
-        data: undefined,
+        data,
         every: run.every,
         attempts: 0,
         recurring: true,
@@ -348,12 +364,19 @@ export function scheduleTaskRun(
 ): void {
   const task = runtime.getScheduledTask(taskId);
   const id = runtime.generateId('task');
+  let normalizedData = data;
+
+  if (task?.hasData) {
+    normalizedData = validateValue(task.dataSchema, data, taskId);
+  } else if (data !== undefined) {
+    throw new Error(`[wskit] scheduled task "${taskId}" does not declare .data(...).`);
+  }
 
   runtime.getScheduledRuns().set(id, {
     id,
     taskId,
     time,
-    data,
+    data: normalizedData,
     attempts: 0,
     recurring: false,
     retry: task?.options?.retry ?? true,
