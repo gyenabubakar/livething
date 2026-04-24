@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { allocatePersistentSequence, ensureSequenceSchema } from './runtime.ts';
 
-class FakeSqlResult {
+class FakeSqlResult<TRow = unknown> {
   constructor(private readonly row: Record<string, unknown> | null) {}
 
-  toArray(): Record<string, unknown>[] {
-    return this.row ? [this.row] : [];
+  toArray(): TRow[] {
+    return this.row ? ([this.row] as TRow[]) : [];
   }
 
-  one(): Record<string, unknown> | null {
-    return this.row;
+  one(): TRow | null {
+    return this.row as TRow | null;
   }
 
   raw(): unknown[][] {
@@ -21,24 +21,24 @@ function createSql() {
   const calls: string[] = [];
   let nextSeq: number | null = null;
 
-  function exec(query: string, ...params: unknown[]) {
+  function exec<TRow = unknown>(query: string, ...params: unknown[]) {
     calls.push(query.replaceAll(/\s+/g, ' ').trim());
 
     if (query.includes('SELECT nextSeq')) {
-      return new FakeSqlResult(nextSeq == null ? null : { nextSeq });
+      return new FakeSqlResult<TRow>(nextSeq == null ? null : { nextSeq });
     }
 
     if (query.includes('INSERT INTO _wskit_sequence')) {
       nextSeq = Number(params[1]);
-      return new FakeSqlResult(null);
+      return new FakeSqlResult<TRow>(null);
     }
 
     if (query.includes('UPDATE _wskit_sequence')) {
       nextSeq = Number(params[0]);
-      return new FakeSqlResult(null);
+      return new FakeSqlResult<TRow>(null);
     }
 
-    return new FakeSqlResult(null);
+    return new FakeSqlResult<TRow>(null);
   }
 
   return {
@@ -74,19 +74,19 @@ describe('sequence/runtime', () => {
     let currentSeq: number | null = 42;
     const queries: string[] = [];
 
-    function exec(query: string, ...params: unknown[]) {
+    function exec<TRow = unknown>(query: string, ...params: unknown[]) {
       queries.push(query.replaceAll(/\s+/g, ' ').trim());
 
       if (query.includes('SELECT nextSeq')) {
-        return new FakeSqlResult(currentSeq == null ? null : { nextSeq: currentSeq });
+        return new FakeSqlResult<TRow>(currentSeq == null ? null : { nextSeq: currentSeq });
       }
 
       if (query.includes('UPDATE _wskit_sequence')) {
         currentSeq = Number(params[0]);
-        return new FakeSqlResult(null);
+        return new FakeSqlResult<TRow>(null);
       }
 
-      return new FakeSqlResult(null);
+      return new FakeSqlResult<TRow>(null);
     }
 
     const sql = {

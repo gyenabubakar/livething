@@ -6,13 +6,13 @@ import { sequence } from '~/sequence/sequence.ts';
 import { describe, expect, it } from 'vitest';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type { IncomingProtocolEvent } from '~/_engine/runtime/types.ts';
-import type { StorageProvider } from '~/context.ts';
+import type { SqlResult, StorageProvider } from '~/context.ts';
 import type { ReplayRow } from '~/replay/types.ts';
 
 class FakeReplaySql {
   rows = new Map<string, ReplayRow>();
 
-  exec(query: string, ...params: unknown[]) {
+  exec<TRow = unknown>(query: string, ...params: unknown[]) {
     const normalizedQuery = query.replaceAll(/\s+/g, ' ').trim();
 
     if (
@@ -23,10 +23,10 @@ class FakeReplaySql {
       const row = this.rows.get(String(params[0]));
       return {
         toArray() {
-          return row ? [row] : [];
+          return row ? ([row] as TRow[]) : [];
         },
         one() {
-          return row ?? null;
+          return (row as TRow | undefined) ?? null;
         },
         raw() {
           return row ? [Object.values(row)] : [];
@@ -38,10 +38,10 @@ class FakeReplaySql {
       this.rows.delete(String(params[0]));
       return {
         toArray() {
-          return [];
+          return [] as TRow[];
         },
         one() {
-          return null;
+          return null as TRow | null;
         },
         raw() {
           return [];
@@ -65,10 +65,10 @@ class FakeReplaySql {
       this.rows.set(row.rowKey, row);
       return {
         toArray() {
-          return [];
+          return [] as TRow[];
         },
         one() {
-          return null;
+          return null as TRow | null;
         },
         raw() {
           return [];
@@ -78,10 +78,10 @@ class FakeReplaySql {
 
     return {
       toArray() {
-        return [];
+        return [] as TRow[];
       },
       one() {
-        return null;
+        return null as TRow | null;
       },
       raw() {
         return [];
@@ -358,13 +358,13 @@ describe('replay', () => {
       requireStorage(): StorageProvider {
         return {
           sql: {
-            exec() {
+            exec<TRow = unknown>() {
               return {
                 toArray() {
-                  return rows;
+                  return rows as TRow[];
                 },
                 one() {
-                  return rows[0] ?? null;
+                  return (rows[0] as TRow | undefined) ?? null;
                 },
                 raw() {
                   return [];
@@ -373,10 +373,7 @@ describe('replay', () => {
             },
             transaction<T>(
               fn: (tx: {
-                exec(
-                  query: string,
-                  ...params: unknown[]
-                ): ReturnType<StorageProvider['sql']['exec']>;
+                exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow>;
               }) => T,
             ) {
               return fn(this);

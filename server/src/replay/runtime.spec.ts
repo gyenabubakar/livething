@@ -13,15 +13,15 @@ import {
 } from './runtime.ts';
 import type { ReplayRow } from './types.ts';
 
-class FakeSqlResult {
+class FakeSqlResult<TRow = unknown> {
   constructor(private readonly rows: Array<Record<string, unknown>>) {}
 
-  toArray(): Record<string, unknown>[] {
-    return [...this.rows];
+  toArray(): TRow[] {
+    return [...this.rows] as TRow[];
   }
 
-  one(): Record<string, unknown> | null {
-    return this.rows[0] ?? null;
+  one(): TRow | null {
+    return (this.rows[0] as TRow | undefined) ?? null;
   }
 
   raw(): unknown[][] {
@@ -33,14 +33,14 @@ function createReplaySql() {
   const rows = new Map<string, ReplayRow>();
   const calls: { query: string; params: unknown[] }[] = [];
 
-  function exec(query: string, ...params: unknown[]) {
+  function exec<TRow = unknown>(query: string, ...params: unknown[]) {
     const normalized = query.replaceAll(/\s+/g, ' ').trim();
     calls.push({ query: normalized, params });
 
     if (normalized.startsWith('SELECT rowKey, messageId, seq, event, payload, namespace')) {
       if (normalized.includes('WHERE channel IS ?')) {
         const [channel, channelScope, since] = params;
-        return new FakeSqlResult(
+        return new FakeSqlResult<TRow>(
           [...rows.values()]
             .filter(
               (row) =>
@@ -54,7 +54,7 @@ function createReplaySql() {
       }
 
       const [since] = params;
-      return new FakeSqlResult(
+      return new FakeSqlResult<TRow>(
         [...rows.values()]
           .filter(
             (row) =>
@@ -70,7 +70,7 @@ function createReplaySql() {
 
     if (normalized.startsWith('SELECT rowKey, messageId, seq, event, payload')) {
       const row = rows.get(String(params[0]));
-      return new FakeSqlResult(row ? [{ ...row }] : []);
+      return new FakeSqlResult<TRow>(row ? [{ ...row }] : []);
     }
 
     if (normalized.startsWith('INSERT OR REPLACE INTO _wskit_replay')) {
@@ -98,12 +98,12 @@ function createReplaySql() {
         snapshotKey: (snapshotKey as string | null) ?? null,
         createdAt: Number(createdAt),
       });
-      return new FakeSqlResult([]);
+      return new FakeSqlResult<TRow>([]);
     }
 
     if (normalized.startsWith('DELETE FROM _wskit_replay WHERE rowKey = ?')) {
       rows.delete(String(params[0]));
-      return new FakeSqlResult([]);
+      return new FakeSqlResult<TRow>([]);
     }
 
     if (normalized.startsWith('DELETE FROM _wskit_replay WHERE createdAt < ?')) {
@@ -111,7 +111,7 @@ function createReplaySql() {
       for (const [key, row] of rows) {
         if (row.createdAt < cutoff) rows.delete(key);
       }
-      return new FakeSqlResult([]);
+      return new FakeSqlResult<TRow>([]);
     }
 
     if (normalized.startsWith('DELETE FROM _wskit_replay WHERE rowKey IN (')) {
@@ -126,10 +126,10 @@ function createReplaySql() {
         .sort((a, b) => b.seq - a.seq)
         .slice(Number(offset));
       for (const row of doomed) rows.delete(row.rowKey);
-      return new FakeSqlResult([]);
+      return new FakeSqlResult<TRow>([]);
     }
 
-    return new FakeSqlResult([]);
+    return new FakeSqlResult<TRow>([]);
   }
 
   return {

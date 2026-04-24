@@ -10,12 +10,14 @@ type SqlStorageWithTransaction = SqlStorage & {
   transactionSync?<T>(closure: () => T): T;
 };
 
-function wrapCursor(cursor: SqlStorageCursor<Record<string, SqlStorageValue>>): SqlResult {
+function wrapCursor<TRow = unknown>(
+  cursor: SqlStorageCursor<Record<string, SqlStorageValue>>,
+): SqlResult<TRow> {
   return {
-    toArray: () => cursor.toArray() as Record<string, unknown>[],
+    toArray: () => cursor.toArray() as TRow[],
     one: () => {
       try {
-        return (cursor.one() as Record<string, unknown>) ?? null;
+        return (cursor.one() as TRow) ?? null;
       } catch {
         return null;
       }
@@ -46,17 +48,25 @@ async function readFreshKvEntry(
 export function createSql(state: DurableObjectState): SQLProvider {
   const sql = state.storage.sql as SqlStorageWithTransaction;
   return {
-    exec(query, ...params) {
-      return wrapCursor(sql.exec(query, ...params));
+    exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow> {
+      return wrapCursor<TRow>(sql.exec(query, ...params));
     },
-    transaction<T>(fn: (tx: { exec(query: string, ...params: unknown[]): SqlResult }) => T): T {
+    transaction<T>(
+      fn: (tx: { exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow> }) => T,
+    ): T {
       if (typeof sql.transactionSync === 'function') {
         return sql.transactionSync(() =>
-          fn({ exec: (query, ...params) => wrapCursor(sql.exec(query, ...params)) }),
+          fn({
+            exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow> {
+              return wrapCursor<TRow>(sql.exec(query, ...params));
+            },
+          }),
         );
       }
       return fn({
-        exec: (query, ...params) => wrapCursor(sql.exec(query, ...params)),
+        exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow> {
+          return wrapCursor<TRow>(sql.exec(query, ...params));
+        },
       });
     },
   };

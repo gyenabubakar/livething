@@ -3,36 +3,36 @@ import { describe, expect, it } from 'vitest';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type { SQLProvider } from '~/context.ts';
 
-class FakeSqlResult {
-  constructor(private readonly rows: Record<string, unknown>[]) {}
+class FakeSqlResult<TRow = unknown> {
+  constructor(private readonly rows: TRow[]) {}
 
-  toArray(): Record<string, unknown>[] {
+  toArray(): TRow[] {
     return [...this.rows];
   }
 
-  one(): Record<string, unknown> | null {
+  one(): TRow | null {
     return this.rows[0] ?? null;
   }
 
   raw(): unknown[][] {
-    return this.rows.map((row) => Object.values(row));
+    return this.rows.map((row) => Object.values(row as Record<string, unknown>));
   }
 }
 
 class FakeSqlProvider implements SQLProvider {
   readonly sequence = new Map<string, { scope: string; nextSeq: number }>();
 
-  exec(query: string, ...params: unknown[]): FakeSqlResult {
+  exec<TRow = unknown>(query: string, ...params: unknown[]): FakeSqlResult<TRow> {
     const normalizedQuery = query.replaceAll(/\s+/g, ' ').trim();
 
     if (normalizedQuery.startsWith('CREATE TABLE IF NOT EXISTS _wskit_sequence')) {
-      return new FakeSqlResult([]);
+      return new FakeSqlResult<TRow>([]);
     }
 
     if (normalizedQuery.startsWith('SELECT nextSeq FROM _wskit_sequence WHERE scope = ?')) {
       const scope = String(params[0]);
       const row = this.sequence.get(scope);
-      return new FakeSqlResult(row ? [row] : []);
+      return new FakeSqlResult<TRow>((row ? [row] : []) as TRow[]);
     }
 
     if (
@@ -43,7 +43,7 @@ class FakeSqlProvider implements SQLProvider {
         scope,
         nextSeq: Number(params[1]),
       });
-      return new FakeSqlResult([]);
+      return new FakeSqlResult<TRow>([]);
     }
 
     if (normalizedQuery.startsWith('UPDATE _wskit_sequence SET nextSeq = ? WHERE scope = ?')) {
@@ -52,13 +52,17 @@ class FakeSqlProvider implements SQLProvider {
         scope,
         nextSeq: Number(params[0]),
       });
-      return new FakeSqlResult([]);
+      return new FakeSqlResult<TRow>([]);
     }
 
-    return new FakeSqlResult([]);
+    return new FakeSqlResult<TRow>([]);
   }
 
-  transaction<T>(fn: (tx: { exec(query: string, ...params: unknown[]): FakeSqlResult }) => T): T {
+  transaction<T>(
+    fn: (tx: {
+      exec<TRow = unknown>(query: string, ...params: unknown[]): FakeSqlResult<TRow>;
+    }) => T,
+  ): T {
     return fn({ exec: this.exec.bind(this) });
   }
 }

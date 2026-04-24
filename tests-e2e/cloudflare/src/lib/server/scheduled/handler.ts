@@ -170,10 +170,12 @@ export const scheduledHandler = withScheduled(withLifecycle(server<Env>('schedul
   })
   .incoming(QueryDeadLetter, (ctx) => {
     const rows = ctx.sql
-      .exec(
-        'SELECT taskId, attempts, error FROM _wskit_scheduled_dlq ORDER BY failedAt DESC LIMIT 1',
-      )
-      .toArray() as { taskId: string; attempts: number; error: string }[];
+      .exec<{
+        taskId: string;
+        attempts: number;
+        error: string;
+      }>('SELECT taskId, attempts, error FROM _wskit_scheduled_dlq ORDER BY failedAt DESC LIMIT 1')
+      .toArray();
     const row = rows[0];
     if (!row) return;
     const parsed = JSON.parse(row.error) as { message: string };

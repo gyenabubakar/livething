@@ -28,13 +28,15 @@ const SqlRawProbe = event('sql-raw-probe', v.object({}));
 const SqlRawResult = event('sql-raw-result', v.object({ rows: v.array(v.array(v.unknown())) }));
 
 function selectNotes(ctx: {
-  sql: { exec: (sql: string, ...params: unknown[]) => { toArray: () => unknown[] } };
+  sql: { exec: <TRow = unknown>(sql: string, ...params: unknown[]) => { toArray: () => TRow[] } };
 }) {
-  return ctx.sql.exec('SELECT id, title, body FROM notes ORDER BY id DESC').toArray() as {
-    id: number;
-    title: string;
-    body: string;
-  }[];
+  return ctx.sql
+    .exec<{
+      id: number;
+      title: string;
+      body: string;
+    }>('SELECT id, title, body FROM notes ORDER BY id DESC')
+    .toArray();
 }
 
 export const ctxSqlHandler = withLifecycle(server<Env>('ctx-sql'))
@@ -60,7 +62,7 @@ export const ctxSqlHandler = withLifecycle(server<Env>('ctx-sql'))
     ctx.send('notes-list', { notes: selectNotes(ctx) });
   })
   .incoming(SqlOneProbe, (ctx) => {
-    const row = ctx.sql.exec('SELECT COUNT(*) AS c FROM notes').one() as { c: number } | null;
+    const row = ctx.sql.exec<{ c: number }>('SELECT COUNT(*) AS c FROM notes').one();
     ctx.send('sql-one-result', { row: row ? { c: Number(row.c) } : null });
   })
   .incoming(SqlRawProbe, (ctx) => {
@@ -71,9 +73,7 @@ export const ctxSqlHandler = withLifecycle(server<Env>('ctx-sql'))
     // Select a real column (not an aggregate) with a predicate that matches
     // no rows. Aggregates like COUNT(*) always return one row even on empty
     // result sets, which would defeat the point of this probe.
-    const row = ctx.sql.exec('SELECT id AS c FROM notes WHERE id = -999').one() as {
-      c: number;
-    } | null;
+    const row = ctx.sql.exec<{ c: number }>('SELECT id AS c FROM notes WHERE id = -999').one();
     ctx.send('sql-one-empty-result', { row: row ? { c: Number(row.c) } : null });
   })
   .build();

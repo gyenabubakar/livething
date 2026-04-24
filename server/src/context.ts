@@ -7,16 +7,20 @@
  * when you want column arrays instead of named-key objects.
  *
  * ```ts
- * const rows = ctx.sql.exec('SELECT * FROM messages WHERE room = ?', roomId).toArray();
- * const row  = ctx.sql.exec('SELECT * FROM users WHERE id = ?', userId).one();
+ * const rows = ctx.sql
+ *   .exec<{ id: number; text: string }>('SELECT id, text FROM messages WHERE room = ?', roomId)
+ *   .toArray();
+ * const row = ctx.sql
+ *   .exec<{ id: string }>('SELECT id FROM users WHERE id = ?', userId)
+ *   .one();
  * ```
  */
-export interface SqlResult {
-  /** Return every matching row as an array of key-value objects. */
-  toArray(): Record<string, unknown>[];
+export interface SqlResult<T = unknown> {
+  /** Return every matching row as an array of the expected row shape. */
+  toArray(): T[];
 
   /** Return the first matching row, or `null` if the query returned nothing. */
-  one(): Record<string, unknown> | null;
+  one(): T | null;
 
   /** Return every matching row as raw column arrays (no key names). */
   raw(): unknown[][];
@@ -41,8 +45,13 @@ export interface SqlResult {
  * ```
  */
 export interface SQLProvider {
-  /** Run one SQL statement. Bind values with positional `?` placeholders. */
-  exec(query: string, ...params: unknown[]): SqlResult;
+  /**
+   * Run one SQL statement. Bind values with positional `?` placeholders.
+   *
+   * Pass a generic row type when you know the query's result shape. The generic
+   * is a TypeScript hint only; wskit does not validate SQL rows at runtime.
+   */
+  exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow>;
 
   /**
    * Run multiple queries inside a single atomic transaction.
@@ -50,7 +59,9 @@ export interface SQLProvider {
    * If the callback throws, the transaction is rolled back and the error
    * propagates to the caller.
    */
-  transaction<T>(fn: (tx: { exec(query: string, ...params: unknown[]): SqlResult }) => T): T;
+  transaction<T>(
+    fn: (tx: { exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow> }) => T,
+  ): T;
 }
 
 /**

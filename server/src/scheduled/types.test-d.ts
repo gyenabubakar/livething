@@ -15,7 +15,19 @@ const trigger = event('trigger', (p: unknown) => p as {});
 withScheduled(server('app'))
   .scheduled('cleanup', (t) =>
     t.retry(false).run((ctx) => {
-      void ctx.sql;
+      const rows = ctx.sql.exec<{ id: string }>('SELECT id FROM users').toArray();
+      const row = ctx.sql.exec<{ id: string }>('SELECT id FROM users LIMIT 1').one();
+      const unknownRows = ctx.sql.exec('SELECT id FROM users').toArray();
+
+      if (rows[0]) void (rows[0].id satisfies string);
+      if (row) void (row.id satisfies string);
+      ctx.sql.transaction((tx) => {
+        const txRow = tx.exec<{ id: number }>('SELECT id FROM users LIMIT 1').one();
+        if (txRow) void (txRow.id satisfies number);
+      });
+
+      // @ts-expect-error — SQL rows default to unknown until a row type is provided
+      unknownRows[0].id;
     }),
   )
   .incoming(trigger, (ctx) => {

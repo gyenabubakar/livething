@@ -50,11 +50,16 @@ export const replayCustomHandler = base
       })
       .onReplay(async (ctx, since) => {
         const rows = ctx.sql
-          .exec(
+          .exec<{
+            event: string;
+            payload: string;
+            seq: number;
+            message_id: string;
+          }>(
             'SELECT event, payload, seq, message_id FROM _custom_replay WHERE seq > ? ORDER BY seq ASC',
             since,
           )
-          .toArray() as { event: string; payload: string; seq: number; message_id: string }[];
+          .toArray();
 
         for (const row of rows) {
           ctx.sendReplay(row.event, JSON.parse(row.payload), {
@@ -105,8 +110,11 @@ export const replayCustomHandler = base
   })
   .incoming(GetConfirmedCount, (ctx) => {
     const rows = ctx.sql
-      .exec('SELECT COUNT(*) as total, SUM(confirmed) as confirmed FROM _custom_replay')
-      .toArray() as { total: number; confirmed: number }[];
+      .exec<{
+        total: number;
+        confirmed: number;
+      }>('SELECT COUNT(*) as total, SUM(confirmed) as confirmed FROM _custom_replay')
+      .toArray();
     const row = rows[0];
     ctx.send('confirmed-count', { total: row?.total ?? 0, confirmed: row?.confirmed ?? 0 });
   })
@@ -134,11 +142,16 @@ export const replayCustomHandler = base
             })
             .onReplay(async (ctx, since) => {
               const rows = ctx.sql
-                .exec(
+                .exec<{
+                  event: string;
+                  payload: string;
+                  seq: number;
+                  message_id: string;
+                }>(
                   'SELECT event, payload, seq, message_id FROM _custom_room_replay WHERE seq > ? ORDER BY seq ASC',
                   since,
                 )
-                .toArray() as { event: string; payload: string; seq: number; message_id: string }[];
+                .toArray();
               for (const row of rows) {
                 ctx.sendReplay(row.event, JSON.parse(row.payload), {
                   seq: row.seq,
@@ -153,8 +166,11 @@ export const replayCustomHandler = base
         })
         .incoming(GetRoomConfirmedCount, (ctx) => {
           const rows = ctx.sql
-            .exec('SELECT COUNT(*) as total, SUM(confirmed) as confirmed FROM _custom_room_replay')
-            .toArray() as { total: number; confirmed: number }[];
+            .exec<{
+              total: number;
+              confirmed: number;
+            }>('SELECT COUNT(*) as total, SUM(confirmed) as confirmed FROM _custom_room_replay')
+            .toArray();
           const row = rows[0];
           ctx.channel.send('room-confirmed-count', {
             total: row?.total ?? 0,

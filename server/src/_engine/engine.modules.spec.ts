@@ -10,19 +10,19 @@ import { withReplay } from '~/replay/with.ts';
 import { withSequence } from '~/sequence/with.ts';
 import { describe, expect, it, vi } from 'vitest';
 
-function fakeSqlResult(rows: Record<string, unknown>[] = []) {
+function fakeSqlResult<TRow = unknown>(rows: Record<string, unknown>[] = []) {
   return {
-    toArray: () => [...rows],
-    one: () => rows[0] ?? null,
+    toArray: () => [...rows] as TRow[],
+    one: () => (rows[0] as TRow | undefined) ?? null,
     raw: () => rows.map((r) => Object.values(r)),
   };
 }
 
 function makeFakeStorage() {
   const execCalls: Array<{ query: string; params: unknown[] }> = [];
-  function exec(query: string, ...params: unknown[]) {
+  function exec<TRow = unknown>(query: string, ...params: unknown[]) {
     execCalls.push({ query, params });
-    return fakeSqlResult([]);
+    return fakeSqlResult<TRow>([]);
   }
   const sql = {
     exec,

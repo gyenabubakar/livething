@@ -66,18 +66,16 @@ export const hibernationHandler = base
   .incoming(SaveNote, (ctx, payload) => {
     ctx.sql.exec('INSERT INTO notes (title, body) VALUES (?, ?)', payload.title, payload.body);
     ctx.send('notes-list', {
-      notes: ctx.sql.exec('SELECT title, body FROM notes').toArray() as {
-        title: string;
-        body: string;
-      }[],
+      notes: ctx.sql
+        .exec<{ title: string; body: string }>('SELECT title, body FROM notes')
+        .toArray(),
     });
   })
   .incoming(GetNotes, (ctx) => {
     ctx.send('notes-list', {
-      notes: ctx.sql.exec('SELECT title, body FROM notes').toArray() as {
-        title: string;
-        body: string;
-      }[],
+      notes: ctx.sql
+        .exec<{ title: string; body: string }>('SELECT title, body FROM notes')
+        .toArray(),
     });
   })
   .incoming(TagSelf, (ctx, payload) => {

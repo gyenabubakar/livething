@@ -141,12 +141,12 @@ export function buildReplayRow(
  */
 export function getReplayRowByKey(
   sql: {
-    exec(query: string, ...params: unknown[]): { one(): unknown };
+    exec<TRow = unknown>(query: string, ...params: unknown[]): { one(): TRow | null };
   },
   rowKey: string,
 ): ReplayRow | null {
   const row = sql
-    .exec(
+    .exec<ReplayRow>(
       `
         SELECT
           rowKey,
@@ -164,7 +164,7 @@ export function getReplayRowByKey(
       `,
       rowKey,
     )
-    .one() as Record<string, unknown> | null;
+    .one();
 
   if (!row) return null;
 
@@ -240,11 +240,11 @@ export function persistReplayMessage(
     exec(query: string, ...params: unknown[]): unknown;
     transaction<T>(
       fn: (tx: {
-        exec(
+        exec<TRow = unknown>(
           query: string,
           ...params: unknown[]
         ): {
-          one(): unknown;
+          one(): TRow | null;
         };
       }) => T,
     ): T;
@@ -458,13 +458,13 @@ function buildLoadReplayQuery(
 
 export function loadReplayRows(
   sql: {
-    exec(query: string, ...params: unknown[]): { toArray(): Record<string, unknown>[] };
+    exec<TRow = unknown>(query: string, ...params: unknown[]): { toArray(): TRow[] };
   },
   since: number,
   scope: { channelName?: string; channelScope?: string },
 ): ReplayRow[] {
   const query = buildLoadReplayQuery(since, scope);
-  const rows = sql.exec(query.sql, ...query.params);
+  const rows = sql.exec<ReplayRow>(query.sql, ...query.params);
 
   return rows.toArray().map((row) => ({
     rowKey: String(row.rowKey),

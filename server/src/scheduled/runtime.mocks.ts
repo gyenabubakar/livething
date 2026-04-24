@@ -8,19 +8,19 @@ import type { ScheduledDeadLetter, ScheduledRun, ScheduledRuntimeAccess } from '
  * It implements only the methods the scheduled runtime reads, so the tests can
  * stay fast and avoid spinning up a real database.
  */
-export class FakeSqlResult implements SqlResult {
-  constructor(private readonly rows: Record<string, unknown>[]) {}
+export class FakeSqlResult<TRow = unknown> implements SqlResult<TRow> {
+  constructor(private readonly rows: TRow[]) {}
 
-  toArray(): Record<string, unknown>[] {
+  toArray(): TRow[] {
     return [...this.rows];
   }
 
-  one(): Record<string, unknown> | null {
+  one(): TRow | null {
     return this.rows[0] ?? null;
   }
 
   raw(): unknown[][] {
-    return this.rows.map((row) => Object.values(row));
+    return this.rows.map((row) => Object.values(row as Record<string, unknown>));
   }
 }
 
@@ -59,15 +59,15 @@ export class FakeSqlProvider {
     }
   >();
 
-  exec(query: string, ...params: unknown[]): FakeSqlResult {
+  exec<TRow = unknown>(query: string, ...params: unknown[]): FakeSqlResult<TRow> {
     const normalizedQuery = query.replaceAll(/\s+/g, ' ').trim();
 
     if (normalizedQuery.startsWith('CREATE TABLE IF NOT EXISTS _wskit_scheduled_dlq')) {
-      return new FakeSqlResult([]);
+      return new FakeSqlResult<TRow>([]);
     }
 
     if (normalizedQuery.startsWith('CREATE TABLE IF NOT EXISTS _wskit_scheduled')) {
-      return new FakeSqlResult([]);
+      return new FakeSqlResult<TRow>([]);
     }
 
     if (
@@ -75,7 +75,7 @@ export class FakeSqlProvider {
         'SELECT id, taskId, time, data, everyMs, attempts, recurring, retry FROM _wskit_scheduled',
       )
     ) {
-      return new FakeSqlResult([...this.scheduled.values()]);
+      return new FakeSqlResult<TRow>([...this.scheduled.values()] as TRow[]);
     }
 
     if (
@@ -83,17 +83,17 @@ export class FakeSqlProvider {
         'SELECT id, taskId, time, failedAt, data, attempts, error FROM _wskit_scheduled_dlq',
       )
     ) {
-      return new FakeSqlResult([...this.scheduledDlq.values()]);
+      return new FakeSqlResult<TRow>([...this.scheduledDlq.values()] as TRow[]);
     }
 
     if (normalizedQuery.startsWith('DELETE FROM _wskit_scheduled_dlq')) {
       this.scheduledDlq.clear();
-      return new FakeSqlResult([]);
+      return new FakeSqlResult<TRow>([]);
     }
 
     if (normalizedQuery.startsWith('DELETE FROM _wskit_scheduled')) {
       this.scheduled.clear();
-      return new FakeSqlResult([]);
+      return new FakeSqlResult<TRow>([]);
     }
 
     if (normalizedQuery.startsWith('INSERT INTO _wskit_scheduled ')) {
@@ -107,7 +107,7 @@ export class FakeSqlProvider {
         recurring: Number(params[6]),
         retry: Number(params[7]),
       });
-      return new FakeSqlResult([]);
+      return new FakeSqlResult<TRow>([]);
     }
 
     if (normalizedQuery.startsWith('INSERT INTO _wskit_scheduled_dlq')) {
@@ -120,13 +120,17 @@ export class FakeSqlProvider {
         attempts: Number(params[5]),
         error: String(params[6]),
       });
-      return new FakeSqlResult([]);
+      return new FakeSqlResult<TRow>([]);
     }
 
-    return new FakeSqlResult([]);
+    return new FakeSqlResult<TRow>([]);
   }
 
-  transaction<T>(fn: (tx: { exec(query: string, ...params: unknown[]): FakeSqlResult }) => T): T {
+  transaction<T>(
+    fn: (tx: {
+      exec<TRow = unknown>(query: string, ...params: unknown[]): FakeSqlResult<TRow>;
+    }) => T,
+  ): T {
     return fn({ exec: this.exec.bind(this) });
   }
 }

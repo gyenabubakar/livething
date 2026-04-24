@@ -46,7 +46,7 @@ export function ensureSequenceSchema(sql: SQLProvider): void {
  */
 export function allocatePersistentSequence(sql: SQLProvider): number {
   return sql.transaction((tx) => {
-    const row = tx.exec(SELECT_SEQUENCE_SQL, GLOBAL_SEQUENCE_SCOPE).one();
+    const row = tx.exec<{ nextSeq: number }>(SELECT_SEQUENCE_SQL, GLOBAL_SEQUENCE_SCOPE).one();
 
     if (!row) {
       tx.exec(INSERT_SEQUENCE_SQL, GLOBAL_SEQUENCE_SCOPE, 2);

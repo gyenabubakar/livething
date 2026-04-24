@@ -169,10 +169,14 @@ export const Drizzle = defineModule({
     hooks.scheduled('drizzle-query-dlq', (t) =>
       t.run(async (ctx) => {
         const rows = ctx.sql
-          .exec(
+          .exec<{
+            taskId: string;
+            attempts: number;
+            error: string;
+          }>(
             'SELECT taskId, attempts, error FROM _wskit_scheduled_dlq ORDER BY failedAt DESC LIMIT 1',
           )
-          .toArray() as { taskId: string; attempts: number; error: string }[];
+          .toArray();
         const row = rows[0];
         if (row) {
           const err = JSON.parse(row.error) as { message: string };

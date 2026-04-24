@@ -9,15 +9,15 @@ import {
 } from './runtime.ts';
 import type { ScheduledDeadLetter, ScheduledRun, ScheduledRuntimeAccess } from './types.ts';
 
-class FakeSqlResult {
+class FakeSqlResult<TRow = unknown> {
   constructor(private readonly rows: Record<string, unknown>[]) {}
 
-  toArray(): Record<string, unknown>[] {
-    return [...this.rows];
+  toArray(): TRow[] {
+    return [...this.rows] as TRow[];
   }
 
-  one(): Record<string, unknown> | null {
-    return this.rows[0] ?? null;
+  one(): TRow | null {
+    return (this.rows[0] as TRow | undefined) ?? null;
   }
 
   raw(): unknown[][] {
@@ -51,7 +51,7 @@ function createScheduledRuntime(
     clearTimeout: vi.fn(),
   };
 
-  function exec(query: string, ...params: unknown[]) {
+  function exec<TRow = unknown>(query: string, ...params: unknown[]) {
     const normalized = query.replaceAll(/\s+/g, ' ').trim();
 
     if (
@@ -59,7 +59,7 @@ function createScheduledRuntime(
         'SELECT id, taskId, time, data, everyMs, attempts, recurring, retry FROM _wskit_scheduled',
       )
     ) {
-      return new FakeSqlResult(storageRows.scheduled);
+      return new FakeSqlResult<TRow>(storageRows.scheduled);
     }
 
     if (
@@ -67,17 +67,17 @@ function createScheduledRuntime(
         'SELECT id, taskId, time, failedAt, data, attempts, error FROM _wskit_scheduled_dlq',
       )
     ) {
-      return new FakeSqlResult(storageRows.dlq);
+      return new FakeSqlResult<TRow>(storageRows.dlq);
     }
 
     if (normalized.startsWith('DELETE FROM _wskit_scheduled_dlq')) {
       storageRows.dlq = [];
-      return new FakeSqlResult([]);
+      return new FakeSqlResult<TRow>([]);
     }
 
     if (normalized.startsWith('DELETE FROM _wskit_scheduled')) {
       storageRows.scheduled = [];
-      return new FakeSqlResult([]);
+      return new FakeSqlResult<TRow>([]);
     }
 
     if (normalized.startsWith('INSERT INTO _wskit_scheduled_dlq')) {
@@ -91,7 +91,7 @@ function createScheduledRuntime(
         attempts,
         error,
       });
-      return new FakeSqlResult([]);
+      return new FakeSqlResult<TRow>([]);
     }
 
     if (normalized.startsWith('INSERT INTO _wskit_scheduled')) {
@@ -106,10 +106,10 @@ function createScheduledRuntime(
         recurring,
         retry,
       });
-      return new FakeSqlResult([]);
+      return new FakeSqlResult<TRow>([]);
     }
 
-    return new FakeSqlResult([]);
+    return new FakeSqlResult<TRow>([]);
   }
   const sql = {
     exec,
