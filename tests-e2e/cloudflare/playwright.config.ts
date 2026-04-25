@@ -1,13 +1,10 @@
 import { defineConfig } from '@playwright/test';
-import { SHARDS } from './shards.ts';
 
 export default defineConfig({
   testDir: 'tests',
   fullyParallel: true,
   timeout: 30_000,
-  // Each shard handles a small subset of routes, so each Wrangler stays
-  // lightly loaded. Two workers per shard keeps concurrency balanced.
-  workers: SHARDS.length * 2,
+  workers: 8,
   retries: 1,
   use: {
     baseURL: 'http://127.0.0.1:4173',
@@ -19,11 +16,11 @@ export default defineConfig({
       reuseExistingServer: !process.env.CI,
       timeout: 30_000,
     },
-    ...SHARDS.map(({ port }) => ({
-      command: `wrangler dev --ip 127.0.0.1 --port ${port} --persist-to .wrangler/state-${port}`,
-      port,
+    {
+      command: 'wrangler dev --ip 127.0.0.1 --port 8787 --persist-to .wrangler/state-8787',
+      port: 8787,
       reuseExistingServer: !process.env.CI,
       timeout: 30_000,
-    })),
+    },
   ],
 });
