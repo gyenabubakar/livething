@@ -1,6 +1,6 @@
 # wskit Server - Behavior Coverage
 
-Last updated: 2026-04-23
+Last updated: 2026-04-25
 
 ## How to read this
 
@@ -28,6 +28,7 @@ What it covers:
 - `error(...)` supports code-only definitions and typed factories with `matches()` guards - [core/src/errors.spec.ts](./core/src/errors.spec.ts)
 - parser-backed and schema-backed errors validate runtime detail before constructing `WskitError` - [core/src/errors.spec.ts](./core/src/errors.spec.ts)
 - `Block` and `ValidationFailed` keep their intended runtime identity and match semantics - [core/src/errors.spec.ts](./core/src/errors.spec.ts)
+- type-layer fixtures verify `error()` overload narrowing (code-only `ErrorDef` is not callable, parser/schema factories are callable, `matches()` narrows correctly), `CloseCodes` immutability, and the `ValidationFailed` factory shape - [core/src/errors.test.ts](./core/src/errors.test.ts)
 
 ### 2. Server factory, builder composition, and typing (`@wskit/server`, `@wskit/server/full`)
 
@@ -59,8 +60,10 @@ What it covers:
 - lifecycle hooks register correctly, chain together, reject duplicates, and preserve builder typing - [server/src/lifecycle/with.spec.ts](./server/src/lifecycle/with.spec.ts)
 - connection startup waits for async connect work before processing frames - [server/src/\_engine/runtime/connection.spec.ts](./server/src/_engine/runtime/connection.spec.ts)
 - upgrade decisions cover normal accept, explicit reject, empty-hook pass-through, and internal-error fallback - [server/src/\_engine/runtime/behaviors.spec.ts](./server/src/_engine/runtime/behaviors.spec.ts)
-- retry control flow for `Defer`, `Disconnect`, `Block`, invalid JSON, protocol pings, stream cancel, runtime error routing, and async `onAfterSend` rejection logging is covered in the dispatch engine - [server/src/\_engine/runtime/behaviors.spec.ts](./server/src/_engine/runtime/behaviors.spec.ts), [server/src/\_engine/runtime/messages.spec.ts](./server/src/_engine/runtime/messages.spec.ts)
-- hibernation wake restores serialized `channelMemberships` and reports orphaned streams correctly, and runtime shutdown runs module shutdown hooks - [server/src/\_engine/runtime/behaviors.spec.ts](./server/src/_engine/runtime/behaviors.spec.ts), [server/src/\_engine/runtime/connection.spec.ts](./server/src/_engine/runtime/connection.spec.ts)
+- retry control flow for `Defer`, `Disconnect`, `Block`, invalid JSON, protocol pings, stream cancel, and async `onAfterSend` rejection logging is covered in the dispatch engine - [server/src/\_engine/runtime/behaviors.spec.ts](./server/src/_engine/runtime/behaviors.spec.ts), [server/src/\_engine/runtime/messages.spec.ts](./server/src/_engine/runtime/messages.spec.ts)
+- failed `_subscribe` and `_unsubscribe` frames each route through `handleRuntimeError` with the originating channel routing metadata (`_channel`, `_channelScope`), so `onError` sees which channel triggered the failure - [server/src/\_engine/runtime/behaviors.spec.ts](./server/src/_engine/runtime/behaviors.spec.ts)
+- hibernation wake restores serialized `channelMemberships` when present, deliberately leaves memberships empty when the attachment uses the legacy `channels` array format (migration safety), reports orphaned streams via per-id `_error` frames, and runtime shutdown runs module shutdown hooks - [server/src/\_engine/runtime/behaviors.spec.ts](./server/src/_engine/runtime/behaviors.spec.ts), [server/src/\_engine/runtime/connection.spec.ts](./server/src/_engine/runtime/connection.spec.ts)
+- the `InitContext` passed to `onInit` is type-constrained: it exposes `sql`, `kv`, `env`, `log`, and `platform`, and explicitly does not expose connection-level APIs like `send`, `broadcast`, `id`, `close`, or `schedule` - [server/src/context.test-d.ts](./server/src/context.test-d.ts)
 
 #### E2E
 
@@ -101,7 +104,7 @@ What it covers:
 
 - outgoing contracts are keyed by event name and enforced by the runtime pipeline - [server/src/outgoing/outgoing.spec.ts](./server/src/outgoing/outgoing.spec.ts), [server/src/outgoing/runtime.spec.ts](./server/src/outgoing/runtime.spec.ts)
 - the send pipeline rejects array/primitive payloads, reserved-key collisions, and undeclared events, including scoped namespace/channel routing rules - [server/src/outgoing/runtime.spec.ts](./server/src/outgoing/runtime.spec.ts)
-- connection and task context helpers cover `sendToConnection`, `broadcast`, `broadcastBinary`, `waitUntil`, `setAlarm`, `ctx.channels.members()`, `ctx.channel.send`, `cancelScheduled` no-match logging (both connection and task contexts), attachment serialization shape (channelMemberships without the legacy channels list), context-extender precedence, and logger forwarding - [server/src/\_engine/contexts/contexts.spec.ts](./server/src/_engine/contexts/contexts.spec.ts)
+- connection and task context helpers cover `sendToConnection`, `broadcast`, `broadcastBinary`, `waitUntil`, `setAlarm`, `ctx.channels.members()`, `ctx.channel.send`, `cancelScheduled` no-match logging (both connection and task contexts), attachment serialization shape (`channelMemberships` replaces the legacy `channels` list, plus `activeStreamIds` so wake can detect orphaned streams), context-extender precedence, and logger forwarding - [server/src/\_engine/contexts/contexts.spec.ts](./server/src/_engine/contexts/contexts.spec.ts)
 
 #### E2E
 
@@ -125,6 +128,7 @@ What it covers:
 #### Unit / integrated
 
 - the ack primitive has singleton identity and only extends top-level connection contexts - [server/src/ack/ack.spec.ts](./server/src/ack/ack.spec.ts)
+- type-layer fixture pins the `AckPrimitive` shape, the `__wskit: 'ack'` tag, and the `PrimitiveRef` assignability of `ack` itself - [server/src/ack/ack.test.ts](./server/src/ack/ack.test.ts)
 - builder registration, grouping, and type availability of `ctx.ack()` are covered - [server/src/ack/with.spec.ts](./server/src/ack/with.spec.ts), [server/src/\_builder/integration.spec.ts](./server/src/_builder/integration.spec.ts), [server/src/\_builder/integration.test.ts](./server/src/_builder/integration.test.ts)
 
 #### E2E
@@ -143,6 +147,7 @@ What it covers:
 #### Unit / integrated
 
 - request primitives preserve event identity, validators, and handler metadata - [server/src/request/request.spec.ts](./server/src/request/request.spec.ts)
+- type-layer fixture proves the literal event name flows through, `ctx.respond()` is typed to `TResponse`, payload is inferred from a parse function or Standard Schema, requests without a validator give `unknown` payload, and a carried `TCtx` is threaded through the handler - [server/src/request/request.test.ts](./server/src/request/request.test.ts)
 - request runtime reads correlation ids, sends routed responses, rejects double-respond, preserves hanging requests when `ctx.respond()` is never called, and clears active connection state after errors - [server/src/request/runtime.spec.ts](./server/src/request/runtime.spec.ts)
 - builder registration, duplicate detection, grouping, and typed payload/response flow are covered - [server/src/request/with.spec.ts](./server/src/request/with.spec.ts), [server/src/\_builder/integration.spec.ts](./server/src/_builder/integration.spec.ts), [server/src/\_builder/integration.test.ts](./server/src/_builder/integration.test.ts)
 
@@ -162,6 +167,7 @@ What it covers:
 #### Unit / integrated
 
 - intercept primitives distinguish pre-validation and post-validation paths and keep repeatable identity - [server/src/intercept/intercept.spec.ts](./server/src/intercept/intercept.spec.ts)
+- type-layer fixture pins `PreInterceptPrimitive<TCtx>` and `PostInterceptPrimitive<TEvent, TPayload, TCtx>` generics so handlers can read typed `ctx` (e.g. `ctx.userId`, `ctx.orgId`) and typed payload fields - [server/src/intercept/intercept.test.ts](./server/src/intercept/intercept.test.ts)
 - runtime coverage proves ordered rewriting, validated payload delivery to post-intercepts, propagation of `Block`, and cleanup of active connection state - [server/src/intercept/runtime.spec.ts](./server/src/intercept/runtime.spec.ts)
 - builder wrappers cover top-level, namespace, and group registration and typing - [server/src/intercept/with.spec.ts](./server/src/intercept/with.spec.ts), [server/src/\_builder/integration.spec.ts](./server/src/_builder/integration.spec.ts)
 - compile-time validation rejects post-intercepts that target events with no matching handler in the relevant scope - [server/src/\_engine/compile/compile.spec.ts](./server/src/_engine/compile/compile.spec.ts)
@@ -253,10 +259,12 @@ What it covers:
 
 #### Unit / integrated
 
-- replay builders enforce snapshot-only option guards and preserve callback configuration - [server/src/replay/builder.spec.ts](./server/src/replay/builder.spec.ts), [server/src/replay/with.spec.ts](./server/src/replay/with.spec.ts)
+- replay builders enforce snapshot-only option guards and preserve callback configuration; the `with.spec.ts` file additionally covers `.replayCustom()` builder registration, `onBeforeSend`/`onAfterSend`/`onReplay` hook wiring, callback-form chaining back to the parent, and `ChannelBuilder` integration with typed `ctx.sql`, `ctx.meta`, `msg.wire.seq`, and `msg.wire.messageId` - [server/src/replay/builder.spec.ts](./server/src/replay/builder.spec.ts), [server/src/replay/with.spec.ts](./server/src/replay/with.spec.ts)
 - replay primitives cover automatic replay options, reducer behavior, context extension, scoped `sendReplay`, and replay-request matching - [server/src/replay/replay.spec.ts](./server/src/replay/replay.spec.ts)
+- type-layer fixture pins the `ReplayPrimitive` shape, `ReplayType`, `ReplayDurability`, and the `snapshotKey`/`reduce` callback signatures - [server/src/replay/replay.test.ts](./server/src/replay/replay.test.ts)
 - replay runtime covers schema/index creation, scope ownership matching, row construction from final wire payloads, history persistence, snapshot reduction and deletion, pruning, and row loading across normal and channel scopes - [server/src/replay/runtime.spec.ts](./server/src/replay/runtime.spec.ts)
 - custom replay coverage proves top-level cloning, channel filtering, `ctx.sendReplay()` not re-triggering `onBeforeSend`, and strict-durability ordering - [server/src/replay/custom/custom.spec.ts](./server/src/replay/custom/custom.spec.ts)
+- type-layer fixture pins the user-visible `wire` shape difference between the top-level and channel variants of custom replay: only the channel variant exposes `wire.channel` and `wire.channelScope` - [server/src/replay/custom/custom.test.ts](./server/src/replay/custom/custom.test.ts)
 - engine-level validation enforces replay requirements such as pairing replay with persistent sequencing, and tests replay durability hook ordering - [server/src/\_engine/engine.modules.spec.ts](./server/src/_engine/engine.modules.spec.ts)
 
 #### E2E
@@ -280,6 +288,7 @@ What it covers:
 
 - scheduled primitives cover handler-backed declarations (with and without `.data()` schemas), a throw when `.run(...)` is omitted, storage/timer requirements, and builder registration/duplicate detection - [server/src/scheduled/scheduled.spec.ts](./server/src/scheduled/scheduled.spec.ts), [server/src/scheduled/with.spec.ts](./server/src/scheduled/with.spec.ts)
 - runtime coverage proves scheduler bootstrap, recurring baselines, one-shot queueing, filtered cancel semantics, retry with default or custom backoff, dead-lettering, `retry:false`, alarm-vs-timeout behavior, and serialization of custom backoff - [server/src/scheduled/runtime.spec.ts](./server/src/scheduled/runtime.spec.ts)
+- compile-time fixture pins the scheduled-task API: `ctx.schedule()` rejects `data` for no-data tasks, requires the right shape for tasks declared with `.data(schema)`, threads typed `data` into `.run(...)`, supports optional schemas, schedules group-scoped tasks, and exposes typed `ctx.sql.exec<TRow>()` (with `unknown` rows when no row type is given) inside run handlers - [server/src/scheduled/types.test-d.ts](./server/src/scheduled/types.test-d.ts)
 
 #### E2E
 
@@ -299,10 +308,10 @@ What it covers:
 #### Unit / integrated
 
 - builder registration covers ordering, defaults, composition, and duplicate rejection for all infrastructure primitives - [server/src/\_builder/infrastructure.spec.ts](./server/src/_builder/infrastructure.spec.ts)
-- `sequence` covers singleton identity, optional persistence requirements, protocol-event skipping, `_seq` injection, module-owned outgoing frames, SQLite bootstrapping, and restart continuity - [server/src/sequence/sequence.spec.ts](./server/src/sequence/sequence.spec.ts), [server/src/sequence/runtime.spec.ts](./server/src/sequence/runtime.spec.ts)
-- `dedup` covers singleton identity, `_messageId` injection for normal and module-owned outgoing frames, protocol-event skipping, incoming duplicate suppression windows, per-connection isolation, bypass on retry dispatch, and disabled mode when cap is zero - [server/src/dedup/dedup.spec.ts](./server/src/dedup/dedup.spec.ts), [server/src/dedup/incoming.spec.ts](./server/src/dedup/incoming.spec.ts)
-- `heartbeat` covers idle timer refresh, ping scheduling, pong/latency rolling averages, connection quality derivation, and safe cleanup - [server/src/heartbeat/heartbeat.spec.ts](./server/src/heartbeat/heartbeat.spec.ts), [server/src/heartbeat/runtime.spec.ts](./server/src/heartbeat/runtime.spec.ts)
-- `hibernation` covers registration defaults and adapter-setting propagation - [server/src/hibernation/hibernation.spec.ts](./server/src/hibernation/hibernation.spec.ts)
+- `sequence` covers singleton identity, optional persistence requirements, protocol-event skipping, `_seq` injection, module-owned outgoing frames, SQLite bootstrapping, and restart continuity - [server/src/sequence/sequence.spec.ts](./server/src/sequence/sequence.spec.ts), [server/src/sequence/runtime.spec.ts](./server/src/sequence/runtime.spec.ts); type-layer fixture pins the `SequencePrimitive` shape and `SequenceOptions.persist` typing - [server/src/sequence/sequence.test.ts](./server/src/sequence/sequence.test.ts)
+- `dedup` covers singleton identity, `_messageId` injection for normal and module-owned outgoing frames, protocol-event skipping, incoming duplicate suppression windows, per-connection isolation, bypass on retry dispatch, and disabled mode when cap is zero - [server/src/dedup/dedup.spec.ts](./server/src/dedup/dedup.spec.ts), [server/src/dedup/incoming.spec.ts](./server/src/dedup/incoming.spec.ts); type-layer fixture pins the `DedupPrimitive` shape and `__wskit: 'dedup'` tag - [server/src/dedup/dedup.test.ts](./server/src/dedup/dedup.test.ts)
+- `heartbeat` covers idle timer refresh, ping scheduling, pong/latency rolling averages, connection quality derivation, and safe cleanup - [server/src/heartbeat/heartbeat.spec.ts](./server/src/heartbeat/heartbeat.spec.ts), [server/src/heartbeat/runtime.spec.ts](./server/src/heartbeat/runtime.spec.ts); type-layer fixture pins the `HeartbeatPrimitive` shape and `timeout` field type - [server/src/heartbeat/heartbeat.test.ts](./server/src/heartbeat/heartbeat.test.ts)
+- `hibernation` covers registration defaults and adapter-setting propagation - [server/src/hibernation/hibernation.spec.ts](./server/src/hibernation/hibernation.spec.ts); type-layer fixture pins the `enabled` flag and the `__requires.hibernation` capability marker - [server/src/hibernation/hibernation.test.ts](./server/src/hibernation/hibernation.test.ts)
 - engine-level checks enforce replay/persistent-sequence coupling and hibernation adapter support - [server/src/\_engine/engine.modules.spec.ts](./server/src/_engine/engine.modules.spec.ts)
 
 #### E2E
@@ -324,7 +333,9 @@ What it covers:
 #### Unit / integrated
 
 - server-side close-code catalog, `Disconnect`, `RejectUpgrade`, and `DeferExhausted` semantics are covered - [server/src/errors/errors.spec.ts](./server/src/errors/errors.spec.ts)
+- type-layer fixture pins the `__wskit` tags on `Disconnect`, `RejectUpgrade`, and `Defer`, the `DeferExhausted` factory shape, `DeferExhausted.matches()` narrowing, and the re-exported core symbols (`Block`, `CloseCodes`, `error`, `ValidationFailed`) - [server/src/errors/errors.test.ts](./server/src/errors/errors.test.ts)
 - the `errors(...)` primitive registers declared definitions in setup and rejects duplicate registration - [server/src/errors/primitive.spec.ts](./server/src/errors/primitive.spec.ts), [server/src/errors/with.spec.ts](./server/src/errors/with.spec.ts)
+- type-layer fixture pins the `ErrorsPrimitive` tuple shape so declared error codes flow through with their literal types - [server/src/errors/primitive.test.ts](./server/src/errors/primitive.test.ts)
 - runtime coverage proves normalization of thrown `WskitError` and unknown values into `_error`, execution of error hooks, scoped validation notifications, and warnings for undeclared thrown errors - [server/src/errors/runtime.spec.ts](./server/src/errors/runtime.spec.ts)
 - schema validation helpers convert Standard Schema and parser failures into `ValidationFailed` consistently - [server/src/\_engine/compile/utils.spec.ts](./server/src/_engine/compile/utils.spec.ts)
 
@@ -369,6 +380,7 @@ What it covers:
 - adapter-definition helpers support no-arg engine factories, option passing, hibernation option functions, and independent engine instances - [server/src/\_adapters/define.spec.ts](./server/src/_adapters/define.spec.ts)
 - the Cloudflare platform exposes env, storage, SQL, KV, timers, websocket access, binary normalization, and KV expiry cleanup with the expected fallbacks, including `sql.transaction()` falling back to inline execution when `transactionSync` is unavailable on the D1 binding - [server-adapters/cloudflare/src/platform.spec.ts](./server-adapters/cloudflare/src/platform.spec.ts), [server-adapters/cloudflare/src/providers.spec.ts](./server-adapters/cloudflare/src/providers.spec.ts)
 - `serve(...)` covers HTTP upgrade rejection, accepted websocket upgrade wiring, hibernation-mode websocket acceptance, rejected upgrade mapping, wake callbacks, and alarm/shutdown RPC wiring into the engine - [server-adapters/cloudflare/src/serve.spec.ts](./server-adapters/cloudflare/src/serve.spec.ts)
+- the adapter package's public API surface is type-checked: `serve`, `CloudflareOptions`, and `Platform` are exported, while internal helpers (`createPlatform`, `createStorage`, `createTimers`, `normalizeBinary`) are not reachable from the package root - [server-adapters/cloudflare/src/public-api.test-d.ts](./server-adapters/cloudflare/src/public-api.test-d.ts)
 
 #### E2E
 
