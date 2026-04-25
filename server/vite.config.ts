@@ -35,8 +35,6 @@ export default defineConfig({
       },
       formats: ['es'],
     },
-    rollupOptions: {
-      external: ['@wskit/core'],
-    },
+    rollupOptions: {},
   },
 });
