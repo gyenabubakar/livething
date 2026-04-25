@@ -244,12 +244,12 @@ function buildScopeExtras(
       send: (event: string, payload: unknown) => {
         return deps.sendThroughPipeline(connection, { namespace: namespace.name }, event, payload);
       },
-      broadcast: (event: string, payload: unknown) => {
+      broadcast: (event: string, payload: unknown, options?: { excludeSelf?: boolean }) => {
         deps.broadcastToConnections(
           [...deps.connections.values()],
           event,
           payload,
-          { namespace: namespace.name },
+          { namespace: namespace.name, excludeSelf: options?.excludeSelf },
           connection.id,
         );
       },
@@ -271,8 +271,15 @@ function buildScopeExtras(
           payload,
         );
       },
-      broadcast: (event: string, payload: unknown) => {
-        deps.broadcastToChannel(channelName, event, payload, connection.id, channelScope);
+      broadcast: (event: string, payload: unknown, options?: { excludeSelf?: boolean }) => {
+        deps.broadcastToChannel(
+          channelName,
+          event,
+          payload,
+          connection.id,
+          channelScope,
+          options?.excludeSelf,
+        );
       },
     };
   }

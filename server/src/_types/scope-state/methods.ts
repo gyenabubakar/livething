@@ -26,11 +26,11 @@ export interface SendMethods<TOutgoing extends Record<string, any>> {
   send<TEvent extends keyof TOutgoing & string>(event: TEvent, payload: TOutgoing[TEvent]): boolean;
 
   /**
-   * Broadcast an event to all connections in the current scope.
+   * Broadcast an event to all connections in the current scope except the caller.
    *
    * Only events declared with `outgoing()` in the same scope are allowed.
    *
-   * Pass `options.excludeSelf: true` to skip the caller, or
+   * Pass `{ excludeSelf: false }` to also deliver to the calling connection, or
    * `options.channel` to restrict delivery to subscribers of a specific channel.
    */
   broadcast<TEvent extends keyof TOutgoing & string>(
@@ -385,10 +385,16 @@ export interface NamespaceScopeMethods<
       event: TEvent,
       payload: TOutgoing[TEvent],
     ): boolean;
-    /** Broadcast a namespace-scoped event to live connections in this namespace. */
+    /**
+     * Broadcast a namespace-scoped event to live connections in this namespace.
+     *
+     * Excludes the calling connection by default. Pass `{ excludeSelf: false }`
+     * to also deliver the event to the sender.
+     */
     broadcast<TEvent extends keyof TOutgoing & string>(
       event: TEvent,
       payload: TOutgoing[TEvent],
+      options?: { excludeSelf?: boolean },
     ): void;
   };
 }
@@ -417,10 +423,16 @@ export interface ChannelScopeMethods<
       event: TEvent,
       payload: TOutgoing[TEvent],
     ): boolean;
-    /** Broadcast a channel-scoped event to subscribed channel members. */
+    /**
+     * Broadcast a channel-scoped event to subscribed channel members.
+     *
+     * Excludes the calling connection by default. Pass `{ excludeSelf: false }`
+     * to also deliver the event to the sender.
+     */
     broadcast<TEvent extends keyof TOutgoing & string>(
       event: TEvent,
       payload: TOutgoing[TEvent],
+      options?: { excludeSelf?: boolean },
     ): void;
   } & (THasReplay extends true
     ? {

@@ -188,7 +188,10 @@ export interface ConnectionInfo<Meta = Record<string, unknown>> {
 export interface BroadcastOptions {
   /** Only broadcast to connections subscribed to this channel. */
   readonly channel?: string;
-  /** Skip sending to the connection that is calling broadcast. */
+  /**
+   * Whether to skip the calling connection. Defaults to `true` inside a
+   * connection handler — pass `false` to include the sender as well.
+   */
   readonly excludeSelf?: boolean;
 }
 
@@ -279,7 +282,7 @@ export interface ChannelManager<
  *   .outgoing(Message)
  *   .incoming(Send, (ctx, payload) => {
  *     const delivered: boolean = ctx.send('message', { text: payload.text });
- *     ctx.broadcast('message', { text: payload.text }, { excludeSelf: true });
+ *     ctx.broadcast('message', { text: payload.text });
  *     if (!delivered) ctx.log.warn('send buffer full', { id: ctx.id });
  *   });
  * ```
@@ -317,7 +320,10 @@ export interface ConnectionContext<
   /** Send an event to the current connection only. Returns `false` if the send buffer is full. */
   send(event: string, payload: unknown): boolean;
 
-  /** Send an event to all live connections, optionally filtered by channel. */
+  /**
+   * Send an event to all live connections except the caller. Pass
+   * `{ excludeSelf: false }` to include the calling connection as well.
+   */
   broadcast(event: string, payload: unknown, options?: BroadcastOptions): void;
 
   /** Send an event to every connection that currently has the given tag. */

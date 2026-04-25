@@ -36,17 +36,18 @@ test.describe('stream-basic', () => {
 
     await page.getByTestId('cancel').click();
 
-    // Count chunks ~right after cancel; wait past the natural completion
-    // window; the count must not grow to 10 (generator was stopped).
+    // Wait for the cancel to reach the server and stop the generator before
+    // sampling. With 200 ms chunk pacing this is plenty of time for the round
+    // trip even under parallel load.
+    await page.waitForTimeout(500);
     const snapshot = (await page.getByTestId('chunk-indices').textContent()) ?? '';
     await page.waitForTimeout(500);
     const after = (await page.getByTestId('chunk-indices').textContent()) ?? '';
     const afterCount = after.split(',').filter(Boolean).length;
     expect(afterCount).toBeLessThan(10);
-    // And the stream should be quiescent — the post-cancel count shouldn't
-    // keep growing. Allow one straggler that may have been in-flight.
+    // Stream must be fully quiescent — no new chunks after the cancel settled.
     const snapCount = snapshot.split(',').filter(Boolean).length;
-    expect(afterCount - snapCount).toBeLessThanOrEqual(1);
+    expect(afterCount - snapCount).toBe(0);
   });
 
   test('_streamCancel from a different connection is ignored', async ({ browser }, testInfo) => {

@@ -29,7 +29,7 @@ export const streamBasicHandler = withStreams(
         // 75ms pacing so a count=10 stream takes ~750ms; plenty of window
         // for a client _streamCancel to land before completion even under
         // parallel load.
-        await new Promise((r) => setTimeout(r, 75));
+        await new Promise((r) => setTimeout(r, 200));
       }
     }),
   )

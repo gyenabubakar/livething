@@ -1015,6 +1015,7 @@ export class Engine {
     payload: unknown,
     excludeConnectionId?: string,
     channelScope?: string,
+    excludeSelf?: boolean,
   ): void {
     EngineMessageRuntime.broadcastToChannel(
       EngineDeps.memberRuntime(this),
@@ -1023,6 +1024,7 @@ export class Engine {
       payload,
       excludeConnectionId,
       channelScope,
+      excludeSelf,
     );
   }
 

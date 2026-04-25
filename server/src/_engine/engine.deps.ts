@@ -32,8 +32,22 @@ export function commonDeps(engine: Engine): EngineContextTypes.ContextCommonDeps
     sendThroughPipeline: (connection, routing, event, payload) => {
       return engine.sendThroughPipeline(connection, routing, event, payload);
     },
-    broadcastToChannel: (channelName, event, payload, excludeConnectionId, channelScope) => {
-      engine.broadcastToChannel(channelName, event, payload, excludeConnectionId, channelScope);
+    broadcastToChannel: (
+      channelName,
+      event,
+      payload,
+      excludeConnectionId,
+      channelScope,
+      excludeSelf,
+    ) => {
+      engine.broadcastToChannel(
+        channelName,
+        event,
+        payload,
+        excludeConnectionId,
+        channelScope,
+        excludeSelf,
+      );
     },
     getChannelMembers: (channelName) => engine.getChannelMembers(channelName),
     kickChannelMembers: (channelName, tag, reason) => {
@@ -109,6 +123,7 @@ export function channelRuntime(engine: Engine) {
       payload: unknown,
       excludeConnectionId?: string,
       channelScope?: string,
+      excludeSelf?: boolean,
     ) => {
       EngineMessageRuntime.broadcastToChannel(
         dispatchRuntime(engine),
@@ -117,6 +132,7 @@ export function channelRuntime(engine: Engine) {
         payload,
         excludeConnectionId,
         channelScope,
+        excludeSelf,
       );
     },
     buildConnectionContext: (connection: RuntimeConnection, scope?: ResolvedScope) => {

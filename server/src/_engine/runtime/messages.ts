@@ -125,6 +125,7 @@ interface ChannelRuntime extends EngineRuntimeTypes.ConnectionMembersRuntime {
     payload: unknown,
     excludeConnectionId?: string,
     channelScope?: string,
+    excludeSelf?: boolean,
   ): void;
   handleValidationError(
     connection: EngineRuntimeTypes.RuntimeConnection,
@@ -278,7 +279,14 @@ export async function handleSubscribe(
   await ChannelPrimitive.subscribeConnection(
     {
       ...runtime,
-      broadcastToChannel: (channelName, event, nextPayload, excludeConnectionId, channelScope) => {
+      broadcastToChannel: (
+        channelName,
+        event,
+        nextPayload,
+        excludeConnectionId,
+        channelScope,
+        excludeSelf,
+      ) => {
         OutgoingRuntime.broadcastToChannel(
           runtime,
           channelName,
@@ -286,6 +294,7 @@ export async function handleSubscribe(
           nextPayload,
           excludeConnectionId,
           channelScope,
+          excludeSelf,
         );
       },
       toConnectionInfo: (nextConnection) => runtime.toConnectionInfo(nextConnection),

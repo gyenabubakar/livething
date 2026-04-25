@@ -30,7 +30,7 @@ export const ctxSendHandler = withLifecycle(server<Env>('ctx-send'))
     ctx.broadcast(
       'message',
       { text: payload.text, from: ctx.meta.username },
-      { excludeSelf: true },
+      { excludeSelf: false },
     );
   })
   .incoming(DoSendTo, (ctx, payload) => {

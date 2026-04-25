@@ -114,6 +114,7 @@ interface ChannelRuntime {
     payload: unknown,
     excludeConnectionId?: string,
     channelScope?: string,
+    excludeSelf?: boolean,
   ): void;
   handleValidationError(
     connection: RuntimeConnection,

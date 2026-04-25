@@ -25,7 +25,7 @@ const ns = base.namespace('ns', (n) =>
       ctx.namespace.send('ns-message', { text: payload.text });
     })
     .incoming(BroadcastNs, (ctx, payload) => {
-      ctx.namespace.broadcast('ns-message', { text: payload.text });
+      ctx.namespace.broadcast('ns-message', { text: payload.text }, { excludeSelf: false });
     })
     .request(GetNsInfo, NsInfoSchema, (ctx) => {
       ctx.respond({ namespace: ctx.namespace.name });

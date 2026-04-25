@@ -18,8 +18,14 @@ test.describe('replay-snapshot handler', () => {
   });
 
   test('snapshot mode: only latest value per key replayed', async ({ page }) => {
+    const seqBefore = Number(await page.getByTestId('last-seq').textContent());
     await page.getByTestId('update-doc-a-btn').click();
     await page.getByTestId('update-doc-a2-btn').click();
+    await expect(async () => {
+      expect(Number(await page.getByTestId('last-seq').textContent())).toBeGreaterThanOrEqual(
+        seqBefore + 2,
+      );
+    }).toPass({ timeout: 5_000 });
     await page.getByTestId('replay-btn').click();
     await expect(async () => {
       const snapshots = await page.getByTestId('snapshots').textContent();
@@ -49,9 +55,15 @@ test.describe('replay-snapshot handler', () => {
   });
 
   test('reduce: multiple increments merge into accumulated total', async ({ page }) => {
+    const seqBefore = Number(await page.getByTestId('last-seq').textContent());
     await page.getByTestId('increment-counter-btn').click();
     await page.getByTestId('increment-counter-btn2').click();
     await page.getByTestId('increment-counter-btn').click();
+    await expect(async () => {
+      expect(Number(await page.getByTestId('last-seq').textContent())).toBeGreaterThanOrEqual(
+        seqBefore + 3,
+      );
+    }).toPass({ timeout: 5_000 });
     await page.getByTestId('counter-replay-btn').click();
     await expect(async () => {
       const snapshots = await page.getByTestId('counter-snapshots').textContent();
@@ -151,8 +163,14 @@ test.describe('replay-snapshot handler', () => {
   test('channel snapshot replay keeps only the latest value per key', async ({ page }) => {
     await page.getByTestId('room-join-btn').click();
     await waitForText(page, 'room-subscribed', 'subscribed');
+    const seqAfterJoin = Number(await page.getByTestId('last-seq').textContent());
     await page.getByTestId('room-update-doc-a-btn').click();
     await page.getByTestId('room-update-doc-a2-btn').click();
+    await expect(async () => {
+      expect(Number(await page.getByTestId('last-seq').textContent())).toBeGreaterThanOrEqual(
+        seqAfterJoin + 2,
+      );
+    }).toPass({ timeout: 5_000 });
     await page.getByTestId('room-replay-btn').click();
 
     await expect(async () => {

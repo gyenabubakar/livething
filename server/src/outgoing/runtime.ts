@@ -252,7 +252,12 @@ export function broadcastToConnections(
   excludeConnectionId?: string,
 ): void {
   for (const connection of connections) {
-    if (options?.excludeSelf && connection.id === excludeConnectionId) continue;
+    if (
+      excludeConnectionId &&
+      (options?.excludeSelf ?? true) &&
+      connection.id === excludeConnectionId
+    )
+      continue;
     sendThroughPipeline(
       runtime,
       connection,
@@ -287,13 +292,15 @@ export function broadcastToChannel(
   payload: unknown,
   excludeConnectionId?: string,
   channelScope?: string,
+  excludeSelf?: boolean,
 ): void {
   const connections = [...runtime.connections.values()].filter((connection) => {
     return ChannelPrimitive.hasChannelMembership(connection, channelName, channelScope);
   });
 
   for (const connection of connections) {
-    if (excludeConnectionId && connection.id === excludeConnectionId) continue;
+    if (excludeConnectionId && (excludeSelf ?? true) && connection.id === excludeConnectionId)
+      continue;
     sendThroughPipeline(
       runtime,
       connection,

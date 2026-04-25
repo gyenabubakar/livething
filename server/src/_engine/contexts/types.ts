@@ -60,6 +60,7 @@ export interface ContextCommonDeps {
     payload: unknown,
     excludeConnectionId?: string,
     channelScope?: string,
+    excludeSelf?: boolean,
   ): void;
   getChannelMembers(channelName: string): ConnectionInfo<Record<string, unknown>>[];
   kickChannelMembers(channelName: string, tag: string, reason: string): void;

@@ -240,7 +240,7 @@ describe('ctx.broadcastBinary', () => {
 });
 
 describe('ctx.broadcast excludeSelf', () => {
-  it('skips the originating connection when excludeSelf is true', () => {
+  it('skips self by default (no options passed)', () => {
     const self = createConnection('self');
     const peer = createConnection('peer');
     const broadcastToConnections = vi.fn();
@@ -253,13 +253,37 @@ describe('ctx.broadcast excludeSelf', () => {
     });
 
     const ctx = buildConnectionContext(deps, self);
-    ctx.broadcast('message', { text: 'hello' }, { excludeSelf: true });
+    ctx.broadcast('message', { text: 'hello' });
 
     expect(broadcastToConnections).toHaveBeenCalledWith(
       [self, peer],
       'message',
       { text: 'hello' },
-      { excludeSelf: true },
+      undefined,
+      'self',
+    );
+  });
+
+  it('includes self when excludeSelf is false', () => {
+    const self = createConnection('self');
+    const peer = createConnection('peer');
+    const broadcastToConnections = vi.fn();
+    const deps = baseDeps({
+      connections: new Map([
+        [self.id, self],
+        [peer.id, peer],
+      ]),
+      broadcastToConnections,
+    });
+
+    const ctx = buildConnectionContext(deps, self);
+    ctx.broadcast('message', { text: 'hello' }, { excludeSelf: false });
+
+    expect(broadcastToConnections).toHaveBeenCalledWith(
+      [self, peer],
+      'message',
+      { text: 'hello' },
+      { excludeSelf: false },
       'self',
     );
   });

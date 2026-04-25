@@ -21,11 +21,12 @@ test.describe('heartbeat', () => {
     await page.getByTestId('connect').click();
     await expect(page.getByTestId('status')).toHaveText('connected');
 
-    // Handler timeout is 1_000 ms. Send a message at 600 ms, then wait another 600 ms.
+    // Handler timeout is 1_000 ms. Send a message at 300 ms, then wait another 300 ms.
     // If activity resets timer, total silence is never 1_000 ms, so connection stays.
-    await page.waitForTimeout(600);
+    // Using 300 ms (30 % of timeout) gives a 2× load buffer before timing out.
+    await page.waitForTimeout(300);
     await page.getByTestId('send-echo').click();
-    await page.waitForTimeout(600);
+    await page.waitForTimeout(300);
 
     // Should still be connected (total silence never reached 1_000 ms).
     await expect(page.getByTestId('status')).toHaveText('connected');

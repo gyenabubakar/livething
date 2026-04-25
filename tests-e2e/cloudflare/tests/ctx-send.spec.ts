@@ -109,10 +109,11 @@ test.describe('ctx-send', () => {
     await expect(a.getByTestId('status')).toHaveText('connected');
     await expect(b.getByTestId('status')).toHaveText('connected');
 
-    await a.getByTestId('broadcast-hello').click();
+    // broadcast-excl-hello uses { excludeSelf: false } — reaches everyone including sender.
+    await a.getByTestId('broadcast-excl-hello').click();
 
-    await expect(a.getByTestId('messages')).toContainText('alice:hello');
-    await expect(b.getByTestId('messages')).toContainText('alice:hello');
+    await expect(a.getByTestId('messages')).toContainText('alice:hello-excl');
+    await expect(b.getByTestId('messages')).toContainText('alice:hello-excl');
 
     await ctxA.close();
     await ctxB.close();
@@ -154,9 +155,7 @@ test.describe('ctx-send', () => {
     await expect(page.getByTestId('status')).toHaveText('connected');
   });
 
-  test('broadcast with excludeSelf skips sender and reaches peer', async ({
-    browser,
-  }, testInfo) => {
+  test('default broadcast excludes sender and reaches peer', async ({ browser }, testInfo) => {
     const room = `test-${testInfo.testId}`;
     const ctxA = await browser.newContext();
     const ctxB = await browser.newContext();
@@ -171,17 +170,17 @@ test.describe('ctx-send', () => {
     await expect(a.getByTestId('status')).toHaveText('connected');
     await expect(b.getByTestId('status')).toHaveText('connected');
 
-    // a excludes self with 'hello-excl' → only b receives.
-    // Then b broadcasts-all with 'hello-all' → both receive.
-    // Checking a's messages for 'bob:hello-all' but not 'alice:hello-excl'
-    // is deterministic: if a's own excludeSelf had looped back, it would
-    // land in a's message list before b's broadcast does.
-    await a.getByTestId('broadcast-excl-hello').click();
-    await expect(b.getByTestId('messages')).toContainText('alice:hello-excl');
+    // a uses the default broadcast (excludes self) → only b receives 'alice:hello'.
+    // Then b uses { excludeSelf: false } → both receive 'bob:hello-excl'.
+    // Checking a's messages for 'bob:hello-excl' but not 'alice:hello' is
+    // deterministic: if the default had looped back to a, it would arrive
+    // before b's broadcast, so the absence check is reliable.
+    await a.getByTestId('broadcast-hello').click();
+    await expect(b.getByTestId('messages')).toContainText('alice:hello');
 
-    await b.getByTestId('broadcast-hello').click();
-    await expect(a.getByTestId('messages')).toContainText('bob:hello');
-    await expect(a.getByTestId('messages')).not.toContainText('alice:hello-excl');
+    await b.getByTestId('broadcast-excl-hello').click();
+    await expect(a.getByTestId('messages')).toContainText('bob:hello-excl');
+    await expect(a.getByTestId('messages')).not.toContainText('alice:hello');
 
     await ctxA.close();
     await ctxB.close();
