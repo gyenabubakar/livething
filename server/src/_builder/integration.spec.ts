@@ -107,6 +107,15 @@ describe('Integration: full single-file server', () => {
     )
     .replay((r) => r.exclude('typing').retention({ maxAgeMs: 3_600_000 }).durability('strict'));
 
+  const aiStream = base.stream(aiComplete, (s) =>
+    s
+      .chunk(chunkSchema)
+      .nudge(cancel)
+      .generate(async function* (_ctx, payload) {
+        yield { token: payload.prompt };
+      }),
+  );
+
   const def = base
     .use(
       base.channel(scope('rooms', /^room-.+$/), (ch) =>
@@ -128,14 +137,7 @@ describe('Integration: full single-file server', () => {
         }),
       ),
     )
-    .stream(aiComplete, (s) =>
-      s
-        .chunk(chunkSchema)
-        .nudge(cancel)
-        .generate(async function* (_ctx, payload) {
-          yield { token: payload.prompt };
-        }),
-    )
+    .use(aiStream)
     .onUpgrade(async () => ({ meta: { userId: 'test' } }))
     .onConnect(async (ctx) => {
       ctx.send('notification', { title: 'Welcome' });
@@ -313,21 +315,16 @@ describe('Integration: multi-file composition', () => {
     expect(findPrimitive(def.primitives, 'namespace')).toBeDefined();
   });
 
-  it('stream in group inlines correctly', () => {
-    const def = base
-      .use(
-        base.group((g) =>
-          g.stream(aiComplete, (s) =>
-            s
-              .chunk(chunkSchema)
-              .nudge(cancel)
-              .generate(async function* (_ctx, payload) {
-                yield { token: payload.prompt };
-              }),
-          ),
-        ),
-      )
-      .build();
+  it('top-level stream primitive expands when .use()-d', () => {
+    const streamPrim = base.stream(aiComplete, (s) =>
+      s
+        .chunk(chunkSchema)
+        .nudge(cancel)
+        .generate(async function* (_ctx, payload) {
+          yield { token: payload.prompt };
+        }),
+    );
+    const def = base.use(streamPrim).build();
 
     expect(findPrimitive(def.primitives, 'stream')).toBeDefined();
     expect(findPrimitive(def.primitives, 'generate')).toBeDefined();

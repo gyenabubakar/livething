@@ -490,18 +490,20 @@ const _fullBase = fullServer('chat')
   .incoming(typing, async () => {})
   .request(ping, pongSchema, async (ctx, payload) => {
     ctx.respond({ ts: payload.ts, serverTs: Date.now() });
-  })
-  .stream(aiComplete, (s) =>
-    s
-      .chunk(chunkSchema)
-      .nudge(cancel)
-      .nudge(addContext)
-      .generate(async function* (_ctx, payload) {
-        yield { token: payload.prompt };
-      }),
-  );
+  });
+
+const _fullStreamPrim = _fullBase.stream(aiComplete, (s) =>
+  s
+    .chunk(chunkSchema)
+    .nudge(cancel)
+    .nudge(addContext)
+    .generate(async function* (_ctx, payload) {
+      yield { token: payload.prompt };
+    }),
+);
 
 const fullBuilt = _fullBase
+  .use(_fullStreamPrim)
   .use(
     _fullBase.channel('lobby', (ch) => ch.outgoing(roomMessage).incoming(roomSend, async () => {})),
   )
@@ -553,13 +555,13 @@ describe('InferClient: streams', () => {
 });
 
 describe('InferClient: stream without nudges', () => {
-  const noNudgeServer = fullServer('chat')
-    .stream(aiComplete, (s) =>
-      s.chunk(chunkSchema).generate(async function* (_ctx, payload) {
-        yield { token: payload.prompt };
-      }),
-    )
-    .build();
+  const _noNudgeBase = fullServer('chat');
+  const _noNudgeStream = _noNudgeBase.stream(aiComplete, (s) =>
+    s.chunk(chunkSchema).generate(async function* (_ctx, payload) {
+      yield { token: payload.prompt };
+    }),
+  );
+  const noNudgeServer = _noNudgeBase.use(_noNudgeStream).build();
 
   type NoNudge = InferClient<typeof noNudgeServer>;
 
@@ -738,15 +740,13 @@ describe('InferClient from inline assembled server', () => {
       ),
     )
     .use(
-      _asmBase.group((g) =>
-        g.stream(aiComplete, (s) =>
-          s
-            .chunk(chunkSchema)
-            .nudge(cancel)
-            .generate(async function* (_ctx, p) {
-              yield { token: p.prompt };
-            }),
-        ),
+      _asmBase.stream(aiComplete, (s) =>
+        s
+          .chunk(chunkSchema)
+          .nudge(cancel)
+          .generate(async function* (_ctx, p) {
+            yield { token: p.prompt };
+          }),
       ),
     )
     .build();

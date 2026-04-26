@@ -52,16 +52,18 @@ const roomChannel = base.channel('room', (c) =>
   }),
 );
 
+const slowStream = base.stream(StartSlowStream, (s) =>
+  s.chunk(SlowChunk).generate(async function* () {
+    for (let i = 0; i < 10; i++) {
+      yield { index: i };
+      // Long gap so the DO can hibernate between yields.
+      await new Promise((r) => setTimeout(r, 2_000));
+    }
+  }),
+);
+
 export const hibernationHandler = base
-  .stream(StartSlowStream, (s) =>
-    s.chunk(SlowChunk).generate(async function* () {
-      for (let i = 0; i < 10; i++) {
-        yield { index: i };
-        // Long gap so the DO can hibernate between yields.
-        await new Promise((r) => setTimeout(r, 2_000));
-      }
-    }),
-  )
+  .use(slowStream)
   .use(roomChannel)
   .incoming(SaveNote, (ctx, payload) => {
     ctx.sql.exec('INSERT INTO notes (title, body) VALUES (?, ?)', payload.title, payload.body);

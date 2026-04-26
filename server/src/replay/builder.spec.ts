@@ -34,29 +34,4 @@ describe('ReplayBuilder snapshot-only option guards', () => {
     builder.reduce((_prev, next) => next);
     expect(() => builder._seal()).not.toThrow();
   });
-
-  it('extract() throws when history mode has snapshotKey set', () => {
-    const builder = makeBuilder();
-    (builder as unknown as { snapshotKey: (fn: unknown) => unknown }).snapshotKey(
-      (event: string) => event,
-    );
-    expect(() => builder.extract()).toThrow(/only apply when mode is 'snapshot'/);
-    expect(() => builder.extract()).toThrow(/snapshotKey/);
-  });
-
-  it('extract() throws when history mode has reduce set', () => {
-    const builder = makeBuilder();
-    (builder as unknown as { reduce: (fn: unknown) => unknown }).reduce(
-      (_prev: unknown, next: unknown) => next,
-    );
-    expect(() => builder.extract()).toThrow(/only apply when mode is 'snapshot'/);
-    expect(() => builder.extract()).toThrow(/reduce/);
-  });
-
-  it('extract() does not throw when snapshot mode uses both options', () => {
-    const builder = makeBuilder('snapshot');
-    builder.snapshotKey((event) => event);
-    builder.reduce((_prev, next) => next);
-    expect(() => builder.extract()).not.toThrow();
-  });
 });

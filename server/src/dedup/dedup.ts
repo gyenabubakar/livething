@@ -17,16 +17,13 @@ const DEDUP_DEFAULT_INCOMING_CAP = 256;
 /**
  * Deduplicates messages in both directions:
  *
- * - **Outgoing** — every server-to-client message is stamped with a unique
- *   `_messageId` so the client can spot and discard duplicates from replays
- *   or reconnects.
- * - **Incoming** — the engine remembers the most recent `_messageId` values
- *   the client has sent (default 256 per connection) and silently drops any
- *   frame whose id is already in the window. This protects handlers from
- *   duplicate runs caused by client-side retries on a flaky socket.
+ * - **Outgoing** — every server-to-client message is stamped with a unique id
+ *   so clients can detect and drop duplicates from replays or reconnects.
+ * - **Incoming** — duplicate sends from a client are silently dropped before
+ *   handlers run, protecting them from client-side retries on a flaky socket.
  *
- * Clients opt in to incoming dedup by attaching a stable `_messageId` to
- * retried sends. Messages without a `_messageId` are always dispatched.
+ * Clients opt in to incoming dedup by attaching a stable id to retried sends.
+ * Sends without an id are always dispatched.
  *
  * @example
  * ```ts

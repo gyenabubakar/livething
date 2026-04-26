@@ -5,7 +5,7 @@ import type { ScopeStateShape } from '~/_types/scope-state';
 import type { HeartbeatOptions } from '~/heartbeat/heartbeat.ts';
 import type { Primitive } from '~/primitive.ts';
 
-const KINDS = ['server', 'group'] as const;
+const KINDS = ['server'] as const;
 
 /**
  * Add heartbeat support to a server builder.

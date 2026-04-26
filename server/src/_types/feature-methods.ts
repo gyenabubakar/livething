@@ -7,7 +7,7 @@
  * In practice, each primitive updates the builder state, and these helpers
  * describe how that update changes the available fluent methods and `ctx`.
  */
-import type { GroupBuilder, ServerBuilder } from '~/_builder/server-builder.ts';
+import type { GroupBuilder, GroupPrimitive, ServerBuilder } from '~/_builder/server-builder.ts';
 import type {
   HandlerCtxFromState,
   MergeRecords,
@@ -632,6 +632,43 @@ export interface RequestBuilderMethods<
   ): FullBuilder<NextState<TState, RequestPrimitive<TEvent, TPayload, TResponse>>, TFeatures, Kind>;
 }
 
+/** @internal */
+type StreamOnlyState<
+  TEvent extends string,
+  TPayload,
+  TChunks,
+  TNudges extends readonly NudgeDeclaration[],
+> = ScopeState<
+  'top',
+  Record<never, never>,
+  false,
+  false,
+  {
+    incoming: {};
+    outgoing: {};
+    requests: {};
+    streams: StreamContractEntry<TEvent, TPayload, TChunks, TNudges>;
+    channels: {};
+    namespaces: {};
+  },
+  readonly [],
+  Record<string, unknown>,
+  never,
+  {},
+  Record<string, unknown>
+>;
+
+/**
+ * The primitive returned by a server-level `.stream(...)` call. Pass it to
+ * `.use(streamPrim)` to register the stream endpoint on a builder.
+ */
+export type StreamBundlePrimitive<
+  TEvent extends string,
+  TPayload,
+  TChunks,
+  TNudges extends readonly NudgeDeclaration[],
+> = GroupPrimitive<StreamOnlyState<TEvent, TPayload, TChunks, TNudges>>;
+
 /** Adds streaming handlers. */
 export interface StreamBuilderMethods<
   TState extends ScopeStateShape,
@@ -639,11 +676,12 @@ export interface StreamBuilderMethods<
   Kind extends BuilderKind,
 > {
   /**
-   * Register a streaming handler.
+   * Define a streaming endpoint and return its primitive for `.use(...)`.
    *
    * The callback receives a stream builder. Call `.chunk(schema)` to define
    * the chunk payload shape, optionally add `.nudge(...)` controls or
-   * `.broadcast()`, then finish with `.generate(...)`.
+   * `.broadcast()`, then finish with `.generate(...)`. Mount the returned
+   * primitive on a builder with `.use(streamPrim)` to register it.
    */
   stream<
     TEvent extends string,
@@ -663,7 +701,7 @@ export interface StreamBuilderMethods<
       TNudges,
       true
     >,
-  ): FullBuilder<StateWithStream<TState, TEvent, TPayload, TChunks, TNudges>, TFeatures, Kind>;
+  ): StreamBundlePrimitive<TEvent, TPayload, TChunks, TNudges>;
 }
 
 /** Adds replay support for outgoing messages. */
@@ -708,15 +746,25 @@ type MethodType<
   Kind extends BuilderKind,
   M extends string,
 > = M extends 'ack'
-  ? AckBuilderMethods<TState, TFeatures, Kind>['ack']
+  ? Kind extends 'server'
+    ? AckBuilderMethods<TState, TFeatures, 'server'>['ack']
+    : never
   : M extends 'dedup'
-    ? DedupBuilderMethods<TState, TFeatures, Kind>['dedup']
+    ? Kind extends 'server'
+      ? DedupBuilderMethods<TState, TFeatures, 'server'>['dedup']
+      : never
     : M extends 'heartbeat'
-      ? HeartbeatBuilderMethods<TState, TFeatures, Kind>['heartbeat']
+      ? Kind extends 'server'
+        ? HeartbeatBuilderMethods<TState, TFeatures, 'server'>['heartbeat']
+        : never
       : M extends 'sequence'
-        ? SequenceBuilderMethods<TState, TFeatures, Kind>['sequence']
+        ? Kind extends 'server'
+          ? SequenceBuilderMethods<TState, TFeatures, 'server'>['sequence']
+          : never
         : M extends 'hibernation'
-          ? HibernationBuilderMethods<TState, TFeatures, Kind>['hibernation']
+          ? Kind extends 'server'
+            ? HibernationBuilderMethods<TState, TFeatures, 'server'>['hibernation']
+            : never
           : M extends 'errors'
             ? ErrorBuilderMethods<TState, TFeatures, Kind>['errors']
             : M extends keyof LifecycleBuilderMethods<TState, TFeatures, Kind>
@@ -735,21 +783,31 @@ type MethodType<
                       : M extends 'request'
                         ? RequestBuilderMethods<TState, TFeatures, Kind>['request']
                         : M extends 'stream'
-                          ? StreamBuilderMethods<TState, TFeatures, Kind>['stream']
+                          ? Kind extends 'server'
+                            ? StreamBuilderMethods<TState, TFeatures, 'server'>['stream']
+                            : never
                           : M extends 'replay'
-                            ? ReplayBuilderMethods<
-                                BuilderResult<NextState<TState, ReplayPrimitive>, TFeatures, Kind>,
-                                TState
-                              >['replay']
-                            : M extends 'replayCustom'
-                              ? ReplayCustomBuilderMethods<
+                            ? Kind extends 'server'
+                              ? ReplayBuilderMethods<
                                   BuilderResult<
-                                    NextState<TState, CustomReplayPrimitive<'top'>>,
+                                    NextState<TState, ReplayPrimitive>,
                                     TFeatures,
-                                    Kind
+                                    'server'
                                   >,
                                   TState
-                                >['replayCustom']
+                                >['replay']
+                              : never
+                            : M extends 'replayCustom'
+                              ? Kind extends 'server'
+                                ? ReplayCustomBuilderMethods<
+                                    BuilderResult<
+                                      NextState<TState, CustomReplayPrimitive<'top'>>,
+                                      TFeatures,
+                                      'server'
+                                    >,
+                                    TState
+                                  >['replayCustom']
+                                : never
                               : never;
 
 /**

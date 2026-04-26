@@ -258,15 +258,11 @@ export interface ChannelManager<
  * The runtime **superset** of every field and method that may appear on the
  * `ctx` argument in a connection-scoped handler.
  *
- * > Most users do not need to reference this type directly. What you actually
- * > get as `ctx` inside an `incoming(...)` handler is a narrowed version —
- * > `HandlerCtxFromState<TState>` — that only exposes the primitives you
- * > registered. `ConnectionContext` lists **everything the engine might
- * > provide**; the handler type trims it down.
- *
- * So:
- * - `ConnectionContext` = the runtime object's full surface.
- * - `HandlerCtxFromState` = what TypeScript narrows it to for your handler.
+ * Most users do not need to reference this type directly. What you actually get
+ * as `ctx` inside an `incoming(...)` handler is a narrowed view that only
+ * exposes the fields relevant to what you registered on the builder. This
+ * interface lists **everything the engine might provide**; your handler type
+ * trims it down.
  *
  * `ConnectionContext` is passed to handlers registered with: `incoming`,
  * `request`, `generate`, `onConnect`, `onDisconnect`, `onError`, `onBinary`,

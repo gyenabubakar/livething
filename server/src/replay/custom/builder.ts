@@ -3,7 +3,6 @@ import type { ScopeStateShape } from '~/_types/scope-state';
 import type { Primitive } from '~/primitive.ts';
 import type {
   CustomReplayOptions,
-  CustomReplayPrimitive,
   CustomReplaySendContext,
   OutgoingWireMessage,
 } from '~/replay/custom/custom.ts';
@@ -21,7 +20,7 @@ export class ReplayCustomBuilder<TParent, _TState extends ScopeStateShape> {
   /**
    * @internal Accumulated hook functions. Typed as `any` here because the
    * generic scope parameter (`'top'` vs `'channel'`) is resolved only when
-   * `_seal()` or `.extract()` casts to `CustomReplayOptions<'top'>`.
+   * `_seal()` casts to `CustomReplayOptions<'top'>`.
    */
   _options: { -readonly [K in keyof CustomReplayOptions<'top'>]?: CustomReplayOptions<'top'>[K] } =
     {};
@@ -78,16 +77,5 @@ export class ReplayCustomBuilder<TParent, _TState extends ScopeStateShape> {
     this._parentPrimitives.push(
       createHandleReplay(this._options as CustomReplayOptions<'top'>) as unknown as Primitive,
     );
-  }
-
-  /**
-   * Package the configured hooks into a standalone `CustomReplayPrimitive`
-   * without pushing it onto the parent builder. Register it elsewhere with
-   * `.use()`.
-   */
-  extract(): CustomReplayPrimitive<'top'> {
-    return createHandleReplay(
-      this._options as CustomReplayOptions<'top'>,
-    ) as CustomReplayPrimitive<'top'>;
   }
 }

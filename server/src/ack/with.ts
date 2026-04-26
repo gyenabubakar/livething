@@ -4,7 +4,7 @@ import type { BuilderInternals, ServerBuilderFull } from '~/_types/feature-metho
 import type { ScopeStateShape } from '~/_types/scope-state';
 import type { Primitive } from '~/primitive.ts';
 
-const KINDS = ['server', 'group'] as const;
+const KINDS = ['server'] as const;
 
 /**
  * Add acknowledgment support to a server builder.

@@ -1,7 +1,6 @@
 import { replay as createReplay } from '~/replay/replay.ts';
 import type { ScopeStateShape } from '~/_types/scope-state';
 import type { Primitive } from '~/primitive.ts';
-import type { ReplayPrimitive } from '~/replay/replay.ts';
 import type {
   ReplayOptions,
   ReplayRetention,
@@ -123,14 +122,5 @@ export class ReplayBuilder<
   _seal(): void {
     this._guardSnapshotOnlyOptions();
     this._parentPrimitives.push(createReplay(this._options) as unknown as Primitive);
-  }
-
-  /**
-   * Package the configured options into a standalone `ReplayPrimitive` without
-   * pushing it onto the parent builder. Register it elsewhere with `.use()`.
-   */
-  extract(): ReplayPrimitive {
-    this._guardSnapshotOnlyOptions();
-    return createReplay(this._options) as ReplayPrimitive;
   }
 }

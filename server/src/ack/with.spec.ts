@@ -48,10 +48,11 @@ describe('.ack() side-effect', () => {
     );
   });
 
-  it('ack registered in group is detected by callback form', () => {
+  it('.ack() is not available inside .group() (server-only infra)', () => {
     const base = withAck(server('chat')).outgoing(message);
-    const def = base.use(base.group((g) => g.ack())).build();
-
-    expect(def.primitives.some((p) => p.__wskit === 'ack')).toBe(true);
+    base.group((g) => {
+      expect((g as unknown as { ack?: unknown }).ack).toBeUndefined();
+      return g;
+    });
   });
 });

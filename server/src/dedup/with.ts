@@ -4,15 +4,15 @@ import type { BuilderInternals, ServerBuilderFull } from '~/_types/feature-metho
 import type { ScopeStateShape } from '~/_types/scope-state';
 import type { Primitive } from '~/primitive.ts';
 
-const KINDS = ['server', 'group'] as const;
+const KINDS = ['server'] as const;
 
 /**
  * Add message deduplication support to a server builder.
  *
  * Once enabled, you can call `.dedup()` on the builder to turn on
- * deduplication. The engine will assign a unique `_messageId` to every
- * outgoing message and silently discard any duplicate deliveries on the
- * client side.
+ * deduplication. Every outgoing message is stamped with a unique id so
+ * clients can drop duplicates, and incoming messages with a repeated id are
+ * silently discarded before handlers run.
  *
  * @example
  * ```ts

@@ -3,14 +3,12 @@ import type { ServerDefinition } from '~/server-definition.ts';
 import type { AdapterConfig } from './types.ts';
 
 /**
- * Define a platform adapter.
+ * Define a platform adapter that wraps a wskit server definition and returns
+ * a platform-specific service.
  *
- * The returned `serve()` passes a no-arg engine factory to the adapter's
- * `setup` function. Hibernation is resolved from the adapter config — either
- * a static boolean or a function of the serve options.
- *
- * Single-instance adapters (Node, Bun, Deno) call the factory once.
- * Per-instance adapters (Cloudflare DOs) call it in each constructor.
+ * Implement the `setup` callback to wire your platform's WebSocket API into
+ * the engine. The first argument to `setup` is a factory for the engine —
+ * call it to get an engine instance to attach to.
  */
 export function defineServerAdapter<TOptions, TService>(config: AdapterConfig<TOptions, TService>) {
   return function serve(handler: ServerDefinition, options: TOptions): TService {

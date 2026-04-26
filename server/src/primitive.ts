@@ -6,15 +6,8 @@ import type { EngineAccess } from './_engine/access.ts';
 // ---------------------------------------------------------------------------
 
 /**
- * The kind (category) of a primitive. The builder uses this to decide how
- * each primitive is collected and wired into the engine during `.build()`.
- *
- * - `'handler'`        — registers an event handler (`incoming`, `request`, `stream`)
- * - `'contract'`       — declares types for `InferClient` (`outgoing`, `errors`)
- * - `'infrastructure'` — configures the message pipeline (`ack`, `replay`, etc.)
- * - `'lifecycle'`      — hooks into connection/server lifecycle events
- * - `'scope'`          — groups primitives into namespaces or channels
- * - `'module'`         — user-defined primitive (works within standard interfaces)
+ * The category tag every primitive carries. Set automatically by each
+ * primitive factory — you never assign it yourself.
  */
 export type PrimitiveKind =
   | 'handler'
@@ -29,12 +22,9 @@ export type PrimitiveKind =
 // ---------------------------------------------------------------------------
 
 /**
- * Declares which platform capabilities a primitive needs at runtime.
- *
- * The engine collects these from every registered primitive and validates
- * at startup that the adapter provides everything required. If a capability
- * is missing, the engine throws with a clear error before any connection
- * is accepted.
+ * Declares which platform capabilities a primitive needs at runtime. When any
+ * required capability is not provided by the adapter, the server fails to
+ * start with a clear error — before any connection is accepted.
  *
  * ```ts
  * // A primitive that needs both SQL storage and timers:
@@ -53,14 +43,12 @@ export interface RequiresManifest {
 
 /**
  * A reference to a primitive factory, used to declare that another primitive
- * must be registered alongside this one.
+ * must be registered alongside this one. List the factories you depend on in
+ * `dependencies` — if any are missing when `.build()` runs, it throws
+ * immediately with a clear error.
  *
- * Each primitive factory carries a `__key` symbol. When you list another
- * factory in `dependencies`, the builder's `.build()` step checks that the
- * referenced primitive was actually registered. If it was not, it throws
- * immediately — no runtime surprises.
- *
- * Dependencies are assertions only — they do not configure anything.
+ * Dependencies are assertions only — they do not change how primitives are
+ * configured.
  *
  * ```ts
  * // "This module requires both ack and replay to be registered":
@@ -76,16 +64,8 @@ export interface PrimitiveRef {
 // ---------------------------------------------------------------------------
 
 /**
- * Describes how the builder's `.build()` step detects duplicate registrations.
- *
- * - `[key]` — pure singleton. Only one instance of this primitive is allowed
- *   per server handler. Registering `ack()` twice, for example, throws:
- *   `[wskit] Duplicate registration: ack is registered twice.`
- *
- * - `[key, registrationId]` — allows multiple instances as long as each has a
- *   unique `registrationId`. `incoming('send-message')` and
- *   `incoming('join-room')` are both `incoming` but have different IDs, so
- *   they are both allowed.
+ * The identity descriptor for a primitive. Set automatically by each primitive
+ * factory — you do not interact with this directly.
  */
 export type PrimitiveIdentity =
   | readonly [key: symbol]
@@ -99,11 +79,8 @@ export type PrimitiveIdentity =
  * Base type for every primitive. Every factory function (`ack()`,
  * `incoming()`, `channel()`, etc.) returns an object that extends `Primitive`.
  *
- * You rarely need to reference this type directly. Use it to annotate a
+ * You rarely need to reference this type directly — use it to annotate a
  * variable or function parameter that must accept any wskit primitive.
- *
- * `Tag` is a discriminator string (e.g. `'ack'`, `'incoming'`, `'channel'`)
- * that lets you narrow a union of primitives with `if (p.__wskit === 'ack')`.
  */
 export interface Primitive<Tag extends string = string> {
   readonly __wskit: Tag;

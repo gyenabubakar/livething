@@ -5,7 +5,7 @@ import type { ScopeStateShape } from '~/_types/scope-state';
 import type { Primitive } from '~/primitive.ts';
 import type { SequenceOptions } from '~/sequence/sequence.ts';
 
-const KINDS = ['server', 'group'] as const;
+const KINDS = ['server'] as const;
 
 /**
  * Add sequential message numbering to a server builder.

@@ -56,11 +56,11 @@ type ChannelStatePrimitive =
  * import { withChannels } from '@wskit/server/channels';
  *
  * // Declare a channel family that matches `room:<anything>` subscriptions.
- * // The `key` ('rooms') is what you use everywhere except the wire.
+ * // The `key` ('rooms') is the family name you use in handlers.
  * withChannels(server('app')).channel(scope('rooms', /^room:.+$/), (ch) =>
  *   ch.onSubscribe((ctx) => {
- *     // On the wire, subscribe frames carry `_channelScope: 'rooms'`.
- *     // Inside a handler, the scope key is exposed as `ctx.channel.scope`.
+ *     // Inside a handler, the family key is on ctx.channel.scope and the
+ *     // matched channel name is on ctx.channel.name.
  *     console.log(ctx.channel.scope); // → 'rooms'
  *     console.log(ctx.channel.name);  // → e.g. 'room:alpha-42' (the actual match)
  *

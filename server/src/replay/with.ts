@@ -20,7 +20,7 @@ function replayImpl(
   return builder;
 }
 
-const KINDS = ['server', 'group', 'channel'] as const;
+const KINDS = ['server', 'channel'] as const;
 
 /**
  * Add built-in message replay support to a server builder.

@@ -174,14 +174,13 @@ type StateAfterIncoming<
 /**
  * The fluent builder used to define a wskit WebSocket server.
  *
- * As you chain builder calls, `TState` keeps track of what has been declared
- * so far, such as outgoing events, requests, replay support, and inferred
- * handler context fields. `TFeatures` tracks which optional feature families
- * have been enabled by the `with*` helpers.
+ * As you chain builder calls, the builder remembers what has been declared
+ * so far — outgoing events, requests, replay support, handler context fields —
+ * and uses that to type later calls.
  *
- * Feature methods like `.ack()` and `.onConnect()` are attached by those
- * helpers, so the full fluent API is represented by `ServerBuilderFull`
- * rather than this class alone.
+ * Feature methods like `.ack()` and `.onConnect()` are attached by the `with*`
+ * helpers, so you always work with the full fluent builder type rather than
+ * this class on its own.
  *
  * @template TState - What the builder has declared so far.
  * @template TFeatures - Which optional feature families are enabled.
@@ -259,8 +258,9 @@ export class ServerBuilder<TState extends ScopeStateShape = InitialState, TFeatu
    * Attach a compiled primitive to this builder.
    *
    * Use this to mount a {@link channel}, {@link namespace}, module, or a group
-   * of primitives returned by {@link ServerBuilder.group}. Groups are expanded
-   * in-place; channels and namespaces are attached as nested scopes.
+   * of primitives returned by {@link ServerBuilder.group}. A group's
+   * declarations are added to the current scope; channels and namespaces
+   * become their own sub-scopes.
    *
    * @example
    * ```ts
@@ -445,7 +445,7 @@ export class GroupBuilder<TState extends ScopeStateShape, TFeatures = {}> {
  *   g.incoming(Ping, (ctx) => ctx.send('pong', {})),
  * );
  *
- * // ...and .use(...) consumes one, expanding its primitives in place.
+ * // ...and .use(...) registers its declarations in the current scope.
  * server('app').use(shared);
  * ```
  */

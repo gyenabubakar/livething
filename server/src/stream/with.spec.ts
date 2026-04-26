@@ -13,30 +13,30 @@ function chunkSchema(p: unknown) {
   return p as { token: string };
 }
 
-describe('.stream() side-effect', () => {
-  it('adds stream + generate primitives', () => {
-    const def = withStreams(server('chat'))
-      .stream(aiComplete, (s) =>
-        s.chunk(chunkSchema).generate(async function* (_ctx, payload) {
-          yield { token: payload.prompt };
-        }),
-      )
-      .build();
+describe('.stream() at server level returns a primitive', () => {
+  it('returns a primitive that .use() expands into stream + generate', () => {
+    const base = withStreams(server('chat'));
+    const streamPrim = base.stream(aiComplete, (s) =>
+      s.chunk(chunkSchema).generate(async function* (_ctx, payload) {
+        yield { token: payload.prompt };
+      }),
+    );
+    const def = base.use(streamPrim).build();
 
     expect(def.primitives.some((p) => p.__wskit === 'stream')).toBe(true);
     expect(def.primitives.some((p) => p.__wskit === 'generate')).toBe(true);
   });
 
   it('types generator ctx from parent builder state', () => {
-    withAck(withStreams(server('chat')))
+    const base = withAck(withStreams(server('chat')))
       .ack()
-      .outgoing(message)
-      .stream(aiComplete, (s) =>
-        s.chunk(chunkSchema).generate(async function* (ctx, payload) {
-          ctx.send('message', { text: 'starting' });
-          yield { token: payload.prompt };
-        }),
-      );
+      .outgoing(message);
+    base.stream(aiComplete, (s) =>
+      s.chunk(chunkSchema).generate(async function* (ctx, payload) {
+        ctx.send('message', { text: 'starting' });
+        yield { token: payload.prompt };
+      }),
+    );
   });
 
   it('types generator payload from event schema', () => {
@@ -54,55 +54,56 @@ describe('.stream() side-effect', () => {
   });
 
   it('supports nudges', () => {
-    const def = withStreams(server('chat'))
-      .stream(aiComplete, (s) =>
-        s
-          .chunk(chunkSchema)
-          .nudge(cancel)
-          .nudge(addContext)
-          .generate(async function* (ctx, payload) {
-            const nudges = ctx.nudges(yield { token: payload.prompt });
-            for (const n of nudges) {
-              if (n.event === 'cancel') return;
-            }
-          }),
-      )
-      .build();
+    const base = withStreams(server('chat'));
+    const streamPrim = base.stream(aiComplete, (s) =>
+      s
+        .chunk(chunkSchema)
+        .nudge(cancel)
+        .nudge(addContext)
+        .generate(async function* (ctx, payload) {
+          const nudges = ctx.nudges(yield { token: payload.prompt });
+          for (const n of nudges) {
+            if (n.event === 'cancel') return;
+          }
+        }),
+    );
+    const def = base.use(streamPrim).build();
 
-    const streamPrim = def.primitives.find((p) => p.__wskit === 'stream') as unknown as {
+    const innerStream = def.primitives.find((p) => p.__wskit === 'stream') as unknown as {
       nudges: readonly { event: string }[];
     };
-    expect(streamPrim.nudges).toHaveLength(2);
-    expect(streamPrim.nudges[0]!.event).toBe('cancel');
-    expect(streamPrim.nudges[1]!.event).toBe('add-context');
+    expect(innerStream.nudges).toHaveLength(2);
+    expect(innerStream.nudges[0]!.event).toBe('cancel');
+    expect(innerStream.nudges[1]!.event).toBe('add-context');
   });
 
   it('supports broadcast option', () => {
-    const def = withStreams(server('chat'))
-      .stream(aiComplete, (s) =>
-        s
-          .chunk(chunkSchema)
-          .broadcast()
-          .generate(async function* (_ctx, payload) {
-            yield { token: payload.prompt };
-          }),
-      )
-      .build();
-
-    const streamPrim = def.primitives.find((p) => p.__wskit === 'stream') as unknown as {
-      broadcast: boolean;
-    };
-    expect(streamPrim.broadcast).toBe(true);
-  });
-
-  it('callback form returns to parent for continued chaining', () => {
-    const def = withStreams(server('chat'))
-      .outgoing(message)
-      .stream(aiComplete, (s) =>
-        s.chunk(chunkSchema).generate(async function* (_ctx, payload) {
+    const base = withStreams(server('chat'));
+    const streamPrim = base.stream(aiComplete, (s) =>
+      s
+        .chunk(chunkSchema)
+        .broadcast()
+        .generate(async function* (_ctx, payload) {
           yield { token: payload.prompt };
         }),
-      )
+    );
+    const def = base.use(streamPrim).build();
+
+    const innerStream = def.primitives.find((p) => p.__wskit === 'stream') as unknown as {
+      broadcast: boolean;
+    };
+    expect(innerStream.broadcast).toBe(true);
+  });
+
+  it('captured stream primitive plus chaining produces stable order', () => {
+    const base = withStreams(server('chat')).outgoing(message);
+    const streamPrim = base.stream(aiComplete, (s) =>
+      s.chunk(chunkSchema).generate(async function* (_ctx, payload) {
+        yield { token: payload.prompt };
+      }),
+    );
+    const def = base
+      .use(streamPrim)
       .incoming(
         event('send', (p: unknown) => p as { text: string }),
         async (ctx) => {
@@ -114,28 +115,15 @@ describe('.stream() side-effect', () => {
     expect(def.primitives).toHaveLength(4);
   });
 
-  it('works with GroupBuilder', () => {
-    const base = withAck(withStreams(server('chat')))
-      .ack()
-      .outgoing(message);
-    const def = base
-      .use(
-        base.group((g) =>
-          g.stream(aiComplete, (s) =>
-            s.chunk(chunkSchema).generate(async function* (ctx, payload) {
-              ctx.send('message', { text: 'streaming' });
-              yield { token: payload.prompt };
-            }),
-          ),
-        ),
-      )
-      .build();
-
-    expect(def.primitives.some((p) => p.__wskit === 'stream')).toBe(true);
-    expect(def.primitives.some((p) => p.__wskit === 'generate')).toBe(true);
+  it('.stream() is not exposed inside .group() (use a top-level stream + .use())', () => {
+    const base = withStreams(server('chat'));
+    base.group((g) => {
+      expect((g as unknown as { stream?: unknown }).stream).toBeUndefined();
+      return g;
+    });
   });
 
-  it('works with ChannelBuilder', () => {
+  it('works inside a channel — auto-seals onto the channel bundle', () => {
     const base = withStreams(withChannels(server('chat'))).outgoing(message);
     const def = base
       .use(

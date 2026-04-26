@@ -13,7 +13,7 @@ function replayCustomImpl(parent: BuilderInternals, callback?: (...args: unknown
   return builder;
 }
 
-const KINDS = ['server', 'group', 'channel'] as const;
+const KINDS = ['server', 'channel'] as const;
 
 /**
  * Add custom replay logic to a server builder.
