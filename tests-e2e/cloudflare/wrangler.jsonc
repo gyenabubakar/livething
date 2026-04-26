@@ -63,6 +63,8 @@
       { "name": "CTX_META_SERVER", "class_name": "CtxMetaServer" },
       { "name": "HEARTBEAT_SERVER", "class_name": "HeartbeatServer" },
       { "name": "PROTOCOL_PINGS_SERVER", "class_name": "ProtocolPingsServer" },
+      { "name": "FULL_IMPORT_SERVER", "class_name": "FullImportServer" },
+      { "name": "MULTIFILE_SERVER", "class_name": "MultifileServer" },
     ],
   },
   "migrations": [
@@ -125,6 +127,10 @@
     {
       "tag": "v9",
       "deleted_classes": ["WebSocketServer"],
+    },
+    {
+      "tag": "v10",
+      "new_sqlite_classes": ["FullImportServer", "MultifileServer"],
     },
   ],
 }

@@ -43,8 +43,9 @@ What it covers:
 
 - `event(...)` builds the named contract used by incoming, outgoing, request, and stream features - [server/src/\_builder/server-builder.spec.ts](./server/src/_builder/server-builder.spec.ts), [server/src/incoming/incoming.spec.ts](./server/src/incoming/incoming.spec.ts), [server/src/outgoing/outgoing.spec.ts](./server/src/outgoing/outgoing.spec.ts)
 - the base builder returns a frozen `ServerDefinition`, preserves declaration order, and rejects duplicate identities - [server/src/\_builder/server-builder.spec.ts](./server/src/_builder/server-builder.spec.ts), [server/src/\_builder/integration.spec.ts](./server/src/_builder/integration.spec.ts)
-- `@wskit/server/full` exposes the full feature surface without manual `with*` wrappers - [server/src/\_builder/server-builder.spec.ts](./server/src/_builder/server-builder.spec.ts), [server/src/\_builder/integration.spec.ts](./server/src/_builder/integration.spec.ts)
+- `@wskit/server/full` exposes the full feature surface without manual `with*` wrappers - [server/src/\_builder/server-builder.spec.ts](./server/src/_builder/server-builder.spec.ts), [server/src/\_builder/integration.spec.ts](./server/src/_builder/integration.spec.ts); a live e2e handler also drives onConnect, incoming + .ack, and .request through the unified import - [tests-e2e/cloudflare/tests/full-import.spec.ts](./tests-e2e/cloudflare/tests/full-import.spec.ts)
 - callback-style and multi-file `group(...)` composition inline correctly and preserve parent state - [server/src/\_builder/server-builder.spec.ts](./server/src/_builder/server-builder.spec.ts), [server/src/\_builder/integration.spec.ts](./server/src/_builder/integration.spec.ts)
+- multi-file composition (shared `base` in setup.ts, channel primitive in rooms.ts, top-level handlers in handler.ts mounted via `.use()`) is exercised live against Cloudflare to confirm primitives and type state survive file boundaries - [tests-e2e/cloudflare/tests/multifile.spec.ts](./tests-e2e/cloudflare/tests/multifile.spec.ts)
 - env typing, meta typing, scoped outgoing visibility, `ctx.ack()` availability, `ctx.nudges()`, and `InferClient` contracts are exercised end-to-end at the type layer - [server/src/\_builder/integration.spec.ts](./server/src/_builder/integration.spec.ts), [server/src/\_builder/integration.test.ts](./server/src/_builder/integration.test.ts)
 - the public API surface for each feature entry point is type-checked to confirm exported symbols are accessible and internal primitives are hidden - [server/src/public-api.test-d.ts](./server/src/public-api.test-d.ts)
 
@@ -70,6 +71,14 @@ What it covers:
 - `onConnect`, `onDisconnect`, `onShutdown`, `onUpgrade`, `onValidationError`, async lifecycle waiting, and `onError` catching handler-thrown errors are exercised against a live Cloudflare worker, including shutdown with no connected clients and upgrade-attached `meta` / `tags` - [tests-e2e/cloudflare/tests/lifecycle-hooks.spec.ts](./tests-e2e/cloudflare/tests/lifecycle-hooks.spec.ts)
 - binary-frame lifecycle coverage proves per-frame `onBinary` invocation, `ctx.meta` access, `sendBinary` self-delivery, and `broadcastBinary` fan-out with and without `excludeSelf` on the wire - [tests-e2e/cloudflare/tests/binary.spec.ts](./tests-e2e/cloudflare/tests/binary.spec.ts)
 - raw text and JSON ping/pong protocol handling works without dedicated handlers - [tests-e2e/cloudflare/tests/protocol-pings.spec.ts](./tests-e2e/cloudflare/tests/protocol-pings.spec.ts)
+
+> **Caveat — `onShutdown` on Cloudflare DOs.** The e2e coverage above triggers
+> `onShutdown` by calling the adapter's explicit `shutdown()` RPC method. That
+> path is fully testable. The other path — Cloudflare evicting a DO naturally
+> (after inactivity, during deployments, or at the runtime's discretion) — is
+> **not testable end-to-end**, because Cloudflare does not emit any signal
+> before evicting a DO. The recommended pattern on CF is to write state
+> incrementally as it changes, rather than deferring cleanup to `onShutdown`.
 
 ### 4. Incoming events
 

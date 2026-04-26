@@ -30,6 +30,8 @@ export { CtxQualityServer } from './lib/server/ctx-quality/durable-object.ts';
 export { CtxMetaServer } from './lib/server/ctx-meta/durable-object.ts';
 export { HeartbeatServer } from './lib/server/heartbeat/durable-object.ts';
 export { ProtocolPingsServer } from './lib/server/protocol-pings/durable-object.ts';
+export { FullImportServer } from './lib/server/full-import/durable-object.ts';
+export { MultifileServer } from './lib/server/multifile/durable-object.ts';
 
 const FEATURE_ROUTES: Record<string, keyof Env> = {
   '/ws/incoming': 'INCOMING_SERVER',
@@ -57,6 +59,8 @@ const FEATURE_ROUTES: Record<string, keyof Env> = {
   '/ws/ctx-meta': 'CTX_META_SERVER',
   '/ws/heartbeat': 'HEARTBEAT_SERVER',
   '/ws/protocol-pings': 'PROTOCOL_PINGS_SERVER',
+  '/ws/full-import': 'FULL_IMPORT_SERVER',
+  '/ws/multifile': 'MULTIFILE_SERVER',
 };
 
 export default {
