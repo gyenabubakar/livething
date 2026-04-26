@@ -176,7 +176,7 @@ describe('defer retry behavior', () => {
     expect(errors).toEqual([]);
   });
 
-  it('fires DeferExhausted through handleRuntimeError after 3 retries', async () => {
+  it('fires DeferExhausted through onError hooks after 3 retries, without sending to client', async () => {
     const connection = createConnection();
     const handler = vi.fn(async () => {
       throw Defer(1);
@@ -189,14 +189,16 @@ describe('defer retry behavior', () => {
         incoming: new Map([['work', { event: 'work', handler, validator: undefined }]]),
       } as any,
       connections: new Map([[connection.id, connection]]),
+      errorHooks: [
+        async (_ctx: unknown, error: unknown) => {
+          errors.push(error);
+        },
+      ],
       requireTimers() {
         return {
           setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
           clearTimeout: (h: unknown) => clearTimeout(h as ReturnType<typeof setTimeout>),
         } as any;
-      },
-      async handleRuntimeError(_c, error) {
-        errors.push(error);
       },
     });
 

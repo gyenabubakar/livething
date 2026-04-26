@@ -1,4 +1,4 @@
-import { WskitError } from '@wskit/core';
+import { InternalError, WskitError } from '@wskit/core';
 import type { ResolvedScope, RuntimeConnection } from '~/_engine/runtime/types.ts';
 
 /**
@@ -48,7 +48,7 @@ export function normalizeRuntimeErrorPayload(
     return { code: error.code, detail: error.detail, ...routing };
   }
 
-  return { code: 'internal-error', ...routing };
+  return { code: InternalError.code, ...routing };
 }
 
 /**

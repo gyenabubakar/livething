@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { Block, WskitError } from '@wskit/core';
+import { Block, ChannelNotSubscribed, WskitError } from '@wskit/core';
 import * as EngineCompileUtils from '~/_engine/compile/utils.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import * as ErrorsPrimitive from '~/errors/errors.ts';
@@ -361,15 +361,10 @@ export async function dispatchIncoming(
     scope.channelName &&
     !ChannelPrimitive.hasChannelMembership(connection, scope.channelName, scope.channelScope)
   ) {
-    await runtime.handleRuntimeError(
-      connection,
-      new WskitError('channel-not-subscribed', undefined),
-      event,
-      {
-        _channel: scope.channelName,
-        ...(scope.channelScope ? { _channelScope: scope.channelScope } : {}),
-      },
-    );
+    await runtime.handleRuntimeError(connection, ChannelNotSubscribed(), event, {
+      _channel: scope.channelName,
+      ...(scope.channelScope ? { _channelScope: scope.channelScope } : {}),
+    });
     return;
   }
 
@@ -529,15 +524,15 @@ async function handleDispatchError(
   // gives up and fires a DeferExhausted error instead.
   if (error && typeof error === 'object' && (error as { __wskit?: string }).__wskit === 'defer') {
     if (attempt >= 3) {
-      await runtime.handleRuntimeError(
-        connection,
-        ErrorsPrimitive.DeferExhausted({
-          event,
-          payload: rawPayload,
-          retries: attempt,
-        }),
+      const exhausted = ErrorsPrimitive.DeferExhausted({
         event,
-      );
+        payload: rawPayload,
+        retries: attempt,
+      });
+      // Fire onError hooks only — DeferExhausted is a server-side signal and must not reach the client.
+      for (const hook of runtime.errorHooks) {
+        await hook(runtime.buildConnectionContext(connection), exhausted, event);
+      }
       return;
     }
 

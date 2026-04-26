@@ -228,7 +228,7 @@ export const Block = Object.freeze({ __wskit: 'block' as const });
  * throw Forbidden({ reason: 'Not a member' });
  * ```
  */
-export function error<TCode extends string>(code: TCode): ErrorDef<TCode, void>;
+export function error<TCode extends string>(code: TCode): ErrorDefWithFactory<TCode, void>;
 export function error<TCode extends string, TDetail>(
   code: TCode,
   parse: ValidateFn<TDetail>,
@@ -240,16 +240,10 @@ export function error<TCode extends string, TSchema extends StandardSchemaV1>(
 export function error(
   code: string,
   schemaOrParse?: StandardSchemaV1 | ValidateFn<any>,
-): ErrorDef | ErrorDefWithFactory<string, any> {
-  if (!schemaOrParse) {
-    return {
-      code,
-      matches: createMatchesFn(code),
-    };
-  }
-
-  const validate: ValidateFn<any> =
-    typeof schemaOrParse === 'function'
+): ErrorDefWithFactory<string, any> {
+  const validate: ValidateFn<any> | undefined = !schemaOrParse
+    ? undefined
+    : typeof schemaOrParse === 'function'
       ? schemaOrParse
       : (value: unknown) => {
           const result = schemaOrParse['~standard'].validate(value);
@@ -266,8 +260,8 @@ export function error(
           return result.value;
         };
 
-  function factory(detail: any) {
-    return new WskitError(code, validate(detail));
+  function factory(detail?: any) {
+    return new WskitError(code, validate ? validate(detail) : undefined);
   }
   factory.code = code;
   factory.matches = createMatchesFn(code, validate);
@@ -349,3 +343,34 @@ export const ValidationFailed = error('validation-failed', (p: unknown) => {
  * ```
  */
 export const ChannelNotFound = error('channel-not-found');
+
+/**
+ * Thrown when a client sends a message to a channel it isn't subscribed to,
+ * or tries to unsubscribe from a channel it never joined.
+ *
+ * @example
+ * ```ts
+ * try {
+ *   await room.unsubscribe();
+ * } catch (err) {
+ *   if (ChannelNotSubscribed.matches(err)) {
+ *     // already left, safe to ignore
+ *   }
+ * }
+ * ```
+ */
+export const ChannelNotSubscribed = error('channel-not-subscribed');
+
+/**
+ * Sent to the client when an unhandled server-side error occurs that wskit
+ * doesn't know how to classify. The server logs the real error; the client
+ * receives this opaque code so internal details are never leaked.
+ *
+ * @example
+ * ```ts
+ * if (InternalError.matches(err)) {
+ *   showToast('Something went wrong. Please try again.');
+ * }
+ * ```
+ */
+export const InternalError = error('internal-error');

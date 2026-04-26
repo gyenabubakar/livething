@@ -4,6 +4,7 @@ import * as EngineContexts from '~/_engine/contexts/contexts.ts';
 import * as EngineDeps from '~/_engine/engine.deps.ts';
 import * as EngineConnectionRuntime from '~/_engine/runtime/connection.ts';
 import * as EngineMessageRuntime from '~/_engine/runtime/messages.ts';
+import { ChannelNotFound, ChannelNotSubscribed, ValidationFailed } from '@wskit/core';
 import * as ErrorsPrimitive from '~/errors/runtime.ts';
 import * as HeartbeatPrimitive from '~/heartbeat/runtime.ts';
 import * as ScheduledPrimitive from '~/scheduled/runtime.ts';
@@ -97,10 +98,9 @@ export class Engine {
   /** @internal */
   incomingDedupCap = 0;
   private readonly declaredErrorCodes = new Set<string>([
-    'validation-failed',
-    'defer-exhausted',
-    'channel-not-found',
-    'channel-not-subscribed',
+    ValidationFailed.code,
+    ChannelNotFound.code,
+    ChannelNotSubscribed.code,
   ]);
   /** Default logger used when the adapter does not provide a custom one. @internal */
   readonly logger = {

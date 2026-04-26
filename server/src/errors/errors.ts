@@ -15,6 +15,8 @@ export {
   Block,
   ValidationFailed,
   ChannelNotFound,
+  ChannelNotSubscribed,
+  InternalError,
 } from '@wskit/core';
 export type { ErrorDef, ErrorDefWithFactory } from '@wskit/core';
 

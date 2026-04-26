@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { InternalError } from '@wskit/core';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import type { AnyGenerate } from '~/_engine/compile/types.ts';
 import type { ActiveStream, ResolvedScope, RuntimeConnection } from '~/_engine/runtime/types.ts';
@@ -229,7 +230,7 @@ export async function runStream(
           streamId,
         },
       );
-      runtime.sendProtocolMessage(connection, '_error', { code: 'internal-error', ...routing });
+      runtime.sendProtocolMessage(connection, '_error', { code: InternalError.code, ...routing });
     } else {
       await runtime.handleRuntimeError(connection, streamError, event, routing);
     }

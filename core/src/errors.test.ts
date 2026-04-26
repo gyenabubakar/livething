@@ -2,7 +2,7 @@
 
 import { Block, CloseCodes, error, ValidationFailed, WskitError } from '~/errors.ts';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
-import type { ErrorDef } from '~/errors.ts';
+import type { ErrorDef, ErrorDefWithFactory } from '~/errors.ts';
 
 // ===========================================================================
 // 1. CloseCodes — frozen, correct values
@@ -62,9 +62,9 @@ void _notFoundCode;
 const _notFoundDef: ErrorDef<'not-found', void> = NotFound;
 void _notFoundDef;
 
-// Code-only errors are NOT callable — no factory
-// @ts-expect-error — NotFound is not a function
-NotFound();
+// Code-only errors are callable — factory returns WskitError with void detail
+const _notFoundErr: WskitError<'not-found', void> = NotFound();
+void _notFoundErr;
 
 // .matches() exists
 const _matchesFn: (err: unknown) => err is WskitError<'not-found', void> = NotFound.matches;
@@ -141,11 +141,13 @@ if (NotFound.matches(unknownErr)) {
 // 7. ErrorDef — type structure
 // ===========================================================================
 
-// Code-only ErrorDef has no call signature
-const _codeOnlyDef: ErrorDef<'gone', void> = error('gone');
-void _codeOnlyDef;
-// @ts-expect-error — not callable
+// Code-only error() returns a callable factory with void detail
+const _codeOnlyDef: ErrorDefWithFactory<'gone', void> = error('gone');
 _codeOnlyDef();
+
+// ErrorDef (the base interface) is still non-callable by type
+const _baseOnlyDef: ErrorDef<'gone', void> = error('gone');
+void _baseOnlyDef;
 
 // Factory ErrorDef IS callable
 const _factoryDef = error('bad-input', (p: unknown) => p as { field: string });

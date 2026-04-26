@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { WskitError } from '@wskit/core';
+import { ChannelNotFound, ChannelNotSubscribed } from '@wskit/core';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import type { CompiledChannel } from '~/_engine/compile/types.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
@@ -216,7 +216,7 @@ export async function subscribeConnection(
 
   const scope = resolveChannel(runtime, payload);
   if (!scope) {
-    throw new WskitError('channel-not-found', undefined);
+    throw ChannelNotFound();
   }
 
   const existingMembers = getChannelMembers(runtime, scope.channelName);
@@ -292,11 +292,11 @@ export async function unsubscribeConnection(
 
   const scope = resolveChannel(runtime, payload);
   if (!scope) {
-    throw new WskitError('channel-not-found', undefined);
+    throw ChannelNotFound();
   }
 
   if (!hasChannelMembership(connection, scope.channelName, scope.channelScope)) {
-    throw new WskitError('channel-not-subscribed', undefined);
+    throw ChannelNotSubscribed();
   }
 
   await runtime.leaveChannel(connection, scope);

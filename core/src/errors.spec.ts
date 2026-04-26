@@ -61,8 +61,11 @@ describe('error() code-only', () => {
     expect(NotFound.code).toBe('not-found');
   });
 
-  it('is not callable', () => {
-    expect(typeof NotFound).toBe('object');
+  it('is callable and returns WskitError with no detail', () => {
+    const err = NotFound();
+    expect(err).toBeInstanceOf(WskitError);
+    expect(err.code).toBe('not-found');
+    expect(err.detail).toBeUndefined();
   });
 
   it('.matches() returns true for matching WskitError', () => {

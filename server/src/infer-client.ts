@@ -1,5 +1,11 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import type { ChannelNotFound, ErrorDef, ValidationFailed } from '~/errors/errors.ts';
+import type {
+  ChannelNotFound,
+  ChannelNotSubscribed,
+  ErrorDef,
+  InternalError,
+  ValidationFailed,
+} from '~/errors/errors.ts';
 import type { ServerContract, ServerDefinition } from '~/server-definition.ts';
 
 /**
@@ -53,7 +59,11 @@ type ContractOf<TServer extends ServerDefinition> =
   TServer extends ServerDefinition<any, infer TContract> ? TContract : ServerContract;
 
 /** The set of error types that wskit always adds to every server's error map. */
-type BuiltInErrorUnion = typeof ValidationFailed | typeof ChannelNotFound;
+type BuiltInErrorUnion =
+  | typeof ValidationFailed
+  | typeof ChannelNotFound
+  | typeof ChannelNotSubscribed
+  | typeof InternalError;
 
 /**
  * Read a wskit `ServerDefinition` and turn it into the full client contract type.
