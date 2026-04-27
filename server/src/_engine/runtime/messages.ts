@@ -40,10 +40,7 @@ interface DispatchRuntime
       payload: Record<string, unknown> | undefined,
     ) => boolean | void | Promise<boolean | void>)[]
   >;
-  incomingHooks: readonly ((message: {
-    event: string;
-    payload: unknown;
-  }) => { event: string; payload: unknown } | void)[];
+  incomingHooks: readonly ((message: { event: string; payload: unknown }) => unknown | void)[];
   /**
    * Size of the per-connection seen-id ring used by incoming dedup. Zero means
    * incoming dedup is disabled (no `dedup()` primitive registered).
@@ -393,15 +390,20 @@ export async function dispatchIncoming(
   let message = { event, payload: rawPayload };
 
   try {
+    // Hook return value is treated as the new payload only — routing was
+    // resolved above (incoming/request/stream lookup). Whatever a hook
+    // returns becomes message.payload verbatim, even if the returned object
+    // happens to have its own event/payload fields. The event name is
+    // locked from the moment the message hit the dispatcher.
     for (const hook of runtime.incomingHooks) {
       const next = hook(message);
-      if (next) message = next;
+      if (next !== undefined) message = { event: message.event, payload: next };
     }
 
     for (const moduleRuntime of runtime.moduleRuntimes) {
       if (!moduleRuntime.onIncoming) continue;
       const next = moduleRuntime.onIncoming(message);
-      if (next) message = next;
+      if (next !== undefined) message = { event: message.event, payload: next };
     }
 
     message = await InterceptPrimitive.runPreIntercepts(

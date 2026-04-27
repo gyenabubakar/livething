@@ -49,11 +49,8 @@ export function dedup(): DedupPrimitive {
           if (isProtocolEvent(message.event)) return;
 
           return {
-            event: message.event,
-            payload: {
-              ...(message.payload as Record<string, unknown>),
-              _messageId: engine.generateId('msg'),
-            },
+            ...(message.payload as Record<string, unknown>),
+            _messageId: engine.generateId('msg'),
           };
         });
       });

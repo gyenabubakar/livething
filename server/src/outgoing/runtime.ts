@@ -13,10 +13,7 @@ type CompiledServer = EngineCompileTypes.CompiledServer;
 export interface OutgoingRuntime {
   compiled: EngineCompileTypes.CompiledServer;
   moduleRuntimes: readonly EngineRuntimeTypes.ModuleRuntime[];
-  outgoingHooks: readonly ((message: {
-    event: string;
-    payload: unknown;
-  }) => { event: string; payload: unknown } | void)[];
+  outgoingHooks: readonly ((message: { event: string; payload: unknown }) => unknown | void)[];
   beforeSendHooks: readonly ((message: EngineRuntimeTypes.WireOutgoingMessage) => void)[];
   afterSendHooks: readonly ((
     message: EngineRuntimeTypes.WireOutgoingMessage,
@@ -122,9 +119,12 @@ function runOutgoingHooks(
 ): { message: { event: string; payload: unknown }; allowedReservedFields: ReadonlySet<string> } {
   let current = message;
 
+  // Hook return value replaces the payload only — the event is already
+  // bound. A hook returning `{ event, payload }` puts the whole object in
+  // `current.payload`; routing fields on the object have no special meaning.
   for (const hook of outgoingHooks) {
     const next = hook(current);
-    if (next) current = next;
+    if (next !== undefined) current = { event: current.event, payload: next };
   }
 
   assertPayloadRecord(current.payload);
@@ -135,7 +135,7 @@ function runOutgoingHooks(
   for (const moduleRuntime of moduleRuntimes) {
     if (!moduleRuntime.onOutgoing) continue;
     const next = moduleRuntime.onOutgoing(current);
-    if (next) current = next;
+    if (next !== undefined) current = { event: current.event, payload: next };
   }
 
   assertPayloadRecord(current.payload);

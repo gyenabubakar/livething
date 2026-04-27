@@ -89,8 +89,8 @@ describe('outgoing/runtime sendThroughPipeline', () => {
       moduleRuntimes: [
         {
           onOutgoing: (message: { event: string; payload: unknown }) => ({
-            event: message.event,
-            payload: { ...(message.payload as Record<string, unknown>), _x: 'leak' },
+            ...(message.payload as Record<string, unknown>),
+            _x: 'leak',
           }),
         } as unknown as OutgoingRuntime['moduleRuntimes'][number],
       ],

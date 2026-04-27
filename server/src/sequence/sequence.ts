@@ -71,11 +71,8 @@ export function sequence(options?: SequenceOptions): SequencePrimitive {
             : (current += 1);
 
           return {
-            event: message.event,
-            payload: {
-              ...(message.payload as Record<string, unknown>),
-              _seq: nextSeq,
-            },
+            ...(message.payload as Record<string, unknown>),
+            _seq: nextSeq,
           };
         });
       });

@@ -12,20 +12,20 @@ import type { ScheduledBuilder, ScheduledHandle } from '~/scheduled/scheduled.ts
  * and helpers — is exposed here.
  */
 export interface ModuleHooks<TCtx = any> {
-  /** Observe or rewrite incoming messages before routing. */
-  onIncoming(
-    handler: (message: {
-      event: string;
-      payload: unknown;
-    }) => { event: string; payload: unknown } | void,
-  ): void;
-  /** Observe or rewrite outgoing messages before they are sent. */
-  onOutgoing(
-    handler: (message: {
-      event: string;
-      payload: unknown;
-    }) => { event: string; payload: unknown } | void,
-  ): void;
+  /**
+   * Observe or rewrite the payload of an incoming message before the handler
+   * runs. Return a value to replace the payload; return `void` to leave it as
+   * is. Routing has already been resolved at this point — the event name is
+   * locked, so anything you return becomes the new payload only (the event
+   * cannot be redirected from a hook).
+   */
+  onIncoming(handler: (message: { event: string; payload: unknown }) => unknown | void): void;
+  /**
+   * Observe or rewrite the payload of an outgoing message before it is sent.
+   * Same return contract as `onIncoming`: returned value becomes the new
+   * payload, void leaves it untouched, the event name is locked.
+   */
+  onOutgoing(handler: (message: { event: string; payload: unknown }) => unknown | void): void;
 
   /** Run during server startup. */
   onInit(handler: (ctx: InitContext) => void | Promise<void>): void;

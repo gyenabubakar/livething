@@ -54,17 +54,11 @@ export interface RegisteredEngineHooks {
   /** Fires on every text/binary frame — used by heartbeat to reset idle timers. */
   activity: ((connectionId: string) => void | Promise<void>)[];
 
-  /** Runs before routing — can rewrite or observe raw incoming messages. */
-  incoming: ((message: {
-    event: string;
-    payload: unknown;
-  }) => { event: string; payload: unknown } | void)[];
+  /** Runs before routing — can observe or rewrite the payload (event is locked). */
+  incoming: ((message: { event: string; payload: unknown }) => unknown | void)[];
 
-  /** Runs before wire serialization — can rewrite or observe outgoing messages. */
-  outgoing: ((message: {
-    event: string;
-    payload: unknown;
-  }) => { event: string; payload: unknown } | void)[];
+  /** Runs before wire serialization — can observe or rewrite the payload (event is locked). */
+  outgoing: ((message: { event: string; payload: unknown }) => unknown | void)[];
 
   /** Runs after wire metadata is attached but before the frame is sent. */
   beforeSend: ((message: WireOutgoingMessage) => void)[];
@@ -223,14 +217,8 @@ export interface ActiveStream {
 export interface ModuleRuntime {
   instance: EngineCompileTypes.AnyModule;
   onInit?: (ctx: any) => void | Promise<void>;
-  onIncoming?: (message: {
-    event: string;
-    payload: unknown;
-  }) => { event: string; payload: unknown } | void;
-  onOutgoing?: (message: {
-    event: string;
-    payload: unknown;
-  }) => { event: string; payload: unknown } | void;
+  onIncoming?: (message: { event: string; payload: unknown }) => unknown | void;
+  onOutgoing?: (message: { event: string; payload: unknown }) => unknown | void;
   onConnect?: (ctx: any) => void | Promise<void>;
   onDisconnect?: (ctx: any) => void | Promise<void>;
   onShutdown?: () => void | Promise<void>;

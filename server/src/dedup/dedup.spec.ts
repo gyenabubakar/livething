@@ -94,14 +94,8 @@ describe('dedup', () => {
     const first = hook({ event: 'message', payload: { text: 'hello' } });
     const second = hook({ event: 'alert', payload: { level: 'warn' } });
 
-    expect(first).toEqual({
-      event: 'message',
-      payload: { text: 'hello', _messageId: 'msg-1' },
-    });
-    expect(second).toEqual({
-      event: 'alert',
-      payload: { level: 'warn', _messageId: 'msg-2' },
-    });
+    expect(first).toEqual({ text: 'hello', _messageId: 'msg-1' });
+    expect(second).toEqual({ level: 'warn', _messageId: 'msg-2' });
   });
 
   it('skips protocol events that start with an underscore', () => {
@@ -110,10 +104,7 @@ describe('dedup', () => {
     const appMessage = hook({ event: 'message', payload: { text: 'hello' } });
 
     expect(protocolMessage).toBeUndefined();
-    expect(appMessage).toEqual({
-      event: 'message',
-      payload: { text: 'hello', _messageId: 'msg-1' },
-    });
+    expect(appMessage).toEqual({ text: 'hello', _messageId: 'msg-1' });
   });
 
   it('still dedups module-owned outgoing events with a double underscore prefix', () => {
@@ -123,9 +114,6 @@ describe('dedup', () => {
       payload: { count: 1 },
     });
 
-    expect(moduleMessage).toEqual({
-      event: '__acme:analytics:flushed',
-      payload: { count: 1, _messageId: 'msg-1' },
-    });
+    expect(moduleMessage).toEqual({ count: 1, _messageId: 'msg-1' });
   });
 });

@@ -82,7 +82,7 @@ describe('module onIncoming wiring', () => {
       setup(_args, hooks) {
         hooks.onIncoming((m) => {
           observed.push(m);
-          return { event: m.event, payload: { ...(m.payload as any), seen: true } };
+          return { ...(m.payload as any), seen: true };
         });
         return () => ({});
       },
@@ -121,7 +121,7 @@ describe('module onOutgoing wiring', () => {
       setup(_args, hooks) {
         hooks.onOutgoing((m) => {
           observed.push(m);
-          return { event: m.event, payload: { ...(m.payload as any), tagged: true } };
+          return { ...(m.payload as any), tagged: true };
         });
         return () => ({});
       },
@@ -198,7 +198,7 @@ describe('C8: module onIncoming runs before top-level pre-intercept', () => {
       key: MOD_KEY,
       setup(_args, hooks) {
         hooks.onIncoming((m) => {
-          return { event: m.event, payload: { ...(m.payload as any), moduleAdded: true } };
+          return { ...(m.payload as any), moduleAdded: true };
         });
         return () => ({});
       },

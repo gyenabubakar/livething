@@ -180,14 +180,8 @@ describe('sequence', () => {
     const first = hook({ event: 'message', payload: { text: 'hello' } });
     const second = hook({ event: 'alert', payload: { level: 'warn' } });
 
-    expect(first).toEqual({
-      event: 'message',
-      payload: { text: 'hello', _seq: 1 },
-    });
-    expect(second).toEqual({
-      event: 'alert',
-      payload: { level: 'warn', _seq: 2 },
-    });
+    expect(first).toEqual({ text: 'hello', _seq: 1 });
+    expect(second).toEqual({ level: 'warn', _seq: 2 });
   });
 
   it('skips protocol events that start with an underscore', () => {
@@ -196,10 +190,7 @@ describe('sequence', () => {
     const appMessage = hook({ event: 'message', payload: { text: 'hello' } });
 
     expect(protocolMessage).toBeUndefined();
-    expect(appMessage).toEqual({
-      event: 'message',
-      payload: { text: 'hello', _seq: 1 },
-    });
+    expect(appMessage).toEqual({ text: 'hello', _seq: 1 });
   });
 
   it('still sequences module-owned outgoing events with a double underscore prefix', () => {
@@ -209,10 +200,7 @@ describe('sequence', () => {
       payload: { count: 1 },
     });
 
-    expect(moduleMessage).toEqual({
-      event: '__acme:analytics:flushed',
-      payload: { count: 1, _seq: 1 },
-    });
+    expect(moduleMessage).toEqual({ count: 1, _seq: 1 });
   });
 
   it('creates its SQLite table during boot when persistence is enabled', async () => {
@@ -236,13 +224,7 @@ describe('sequence', () => {
     const firstMessage = first.hook({ event: 'message', payload: { text: 'one' } });
     const secondMessage = second.hook({ event: 'message', payload: { text: 'two' } });
 
-    expect(firstMessage).toEqual({
-      event: 'message',
-      payload: { text: 'one', _seq: 1 },
-    });
-    expect(secondMessage).toEqual({
-      event: 'message',
-      payload: { text: 'two', _seq: 2 },
-    });
+    expect(firstMessage).toEqual({ text: 'one', _seq: 1 });
+    expect(secondMessage).toEqual({ text: 'two', _seq: 2 });
   });
 });

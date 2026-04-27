@@ -42,28 +42,20 @@ export interface EngineAccess {
   /**
    * Observe or rewrite incoming wire messages before the engine routes them.
    *
-   * Return a new `{ event, payload }` object to replace the message, or return
-   * nothing to leave it unchanged.
+   * Return a value to replace the payload, or return nothing to leave it
+   * unchanged. The event name is locked at this point — routing is already
+   * resolved — so the return value becomes the new payload only, even if
+   * the returned object happens to have its own event field.
    */
-  onIncoming(
-    handler: (message: {
-      event: string;
-      payload: unknown;
-    }) => { event: string; payload: unknown } | void,
-  ): void;
+  onIncoming(handler: (message: { event: string; payload: unknown }) => unknown | void): void;
 
   /**
    * Observe or rewrite outgoing wire messages before they are serialized.
    *
-   * Return a new `{ event, payload }` object to replace the message, or return
-   * nothing to keep the original message.
+   * Return a value to replace the payload, or return nothing to keep the
+   * original. Same locked-event semantics as `onIncoming`.
    */
-  onOutgoing(
-    handler: (message: {
-      event: string;
-      payload: unknown;
-    }) => { event: string; payload: unknown } | void,
-  ): void;
+  onOutgoing(handler: (message: { event: string; payload: unknown }) => unknown | void): void;
 
   /**
    * Observe one fully prepared outgoing wire message before it is sent.
