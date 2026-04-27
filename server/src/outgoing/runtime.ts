@@ -248,7 +248,7 @@ export function broadcastToConnections(
   connections: readonly EngineRuntimeTypes.RuntimeConnection[],
   event: string,
   payload: unknown,
-  options?: PublicApi.BroadcastOptions & { namespace?: string },
+  options?: PublicApi.BroadcastOptions & { namespace?: string; channelScope?: string },
   excludeConnectionId?: string,
 ): void {
   for (const connection of connections) {
@@ -264,6 +264,7 @@ export function broadcastToConnections(
       {
         namespace: options?.namespace,
         channel: options?.channel,
+        channelScope: options?.channelScope,
       },
       event,
       payload,

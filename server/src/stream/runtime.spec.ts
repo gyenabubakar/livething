@@ -158,6 +158,42 @@ describe('stream/runtime', () => {
     expect(pipelineSends[0]!.event).toBe('broadcast-stream');
   });
 
+  it('broadcast stream forwards channelScope to peer sends (dynamic channel families)', async () => {
+    const { runtime, broadcasts, pipelineSends } = createStreamRuntime();
+    const trigger = createConnection('trigger');
+    const peer = createConnection('peer');
+    runtime.connections.set(trigger.id, trigger);
+    runtime.connections.set(peer.id, peer);
+
+    const stream = {
+      stream: { nudges: [], broadcast: true },
+      generator: async function* () {
+        yield { token: 'hi' };
+      },
+    };
+
+    // Stream declared inside `channel(scope('rooms', /^room:.+$/))`. The
+    // active scope carries channelName: 'room:123' and channelScope: 'rooms'.
+    // Peer broadcasts must forward channelScope so the outgoing pipeline
+    // resolves the channel family rather than failing the declaration check
+    // against a non-existent static channel called 'room:123'.
+    await runStream(
+      runtime as Parameters<typeof runStream>[0],
+      trigger,
+      { channelName: 'room:123', channelScope: 'rooms' },
+      'broadcast-stream',
+      stream as never,
+      {},
+    );
+
+    expect(broadcasts).toHaveLength(1);
+    expect(broadcasts[0]!.options?.channel).toBe('room:123');
+    expect((broadcasts[0]!.options as { channelScope?: string })?.channelScope).toBe('rooms');
+
+    // The trigger's own send should also carry channelScope for symmetry.
+    expect(pipelineSends).toHaveLength(1);
+  });
+
   it('_streamCancel from a non-owner connection is ignored', async () => {
     const owner = createConnection('owner');
     const stranger = createConnection('stranger');

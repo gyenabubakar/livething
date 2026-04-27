@@ -54,7 +54,12 @@ interface StreamRuntime {
     connections: readonly RuntimeConnection[],
     event: string,
     payload: unknown,
-    options?: { namespace?: string; channel?: string; excludeSelf?: boolean },
+    options?: {
+      namespace?: string;
+      channel?: string;
+      channelScope?: string;
+      excludeSelf?: boolean;
+    },
     excludeConnectionId?: string,
   ): void;
   connections: Map<string, RuntimeConnection>;
@@ -182,6 +187,11 @@ export async function runStream(
           {
             namespace: scope.namespace?.name,
             channel: scope.channelName,
+            // For dynamic channel families (e.g. scope('rooms', /^room:.+$/))
+            // the family key lives in scope.channelScope. Forward it so peer
+            // sends resolve the channel family rather than failing the
+            // outgoing-event check against a non-existent static channel.
+            channelScope: scope.channelScope,
             excludeSelf: true,
           },
           connection.id,

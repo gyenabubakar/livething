@@ -86,7 +86,7 @@ interface DispatchRuntime
     connections: readonly EngineRuntimeTypes.RuntimeConnection[],
     event: string,
     payload: unknown,
-    options?: PublicApi.BroadcastOptions & { namespace?: string },
+    options?: PublicApi.BroadcastOptions & { namespace?: string; channelScope?: string },
     excludeConnectionId?: string,
   ): void;
   handleSubscribe(
