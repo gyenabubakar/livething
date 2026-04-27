@@ -3,9 +3,7 @@ import { defineConfig } from 'vite';
 import dts from 'vite-plugin-dts';
 
 export default defineConfig({
-  plugins: [
-    dts({ rollupTypes: true, exclude: ['**/*.spec.ts', '**/*.test.ts', '**/*.test-d.ts'] }),
-  ],
+  plugins: [dts({ exclude: ['**/*.spec.ts', '**/*.test.ts', '**/*.test-d.ts'] })],
   resolve: {
     alias: {
       '~': resolve(__dirname, 'src'),

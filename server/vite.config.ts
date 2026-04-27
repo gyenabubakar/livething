@@ -35,6 +35,11 @@ export default defineConfig({
       },
       formats: ['es'],
     },
-    rollupOptions: {},
+    rollupOptions: {
+      // @wskit/core is now a real published peer; consumers install it
+      // alongside @wskit/server. Keep it external so the server bundle does
+      // not duplicate core's runtime code.
+      external: [/^@wskit\/core(?:\/.*)?$/, /^@standard-schema\/.+$/],
+    },
   },
 });
