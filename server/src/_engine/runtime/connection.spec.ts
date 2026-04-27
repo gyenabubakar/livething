@@ -85,6 +85,158 @@ describe('connection runtime', () => {
     expect(events).toEqual(['connect:start', 'connect:end', 'message']);
   });
 
+  it('queues every adapter callback received during onConnect and runs them all after the gate resolves', async () => {
+    const events: string[] = [];
+    const gate = deferred();
+
+    const handle = acceptConnection(
+      {
+        compiled: {
+          outgoing: new Map(),
+          incoming: new Map(),
+          requests: new Map(),
+          streams: new Map(),
+          preIntercepts: [],
+          postIntercepts: new Map(),
+          namespaces: new Map(),
+          channels: new Map(),
+          channelFamilies: new Map(),
+          scheduled: new Map(),
+          modules: [],
+          requires: {},
+        },
+        timers: undefined,
+        connections: new Map(),
+        wsToConnectionId: new Map(),
+        generateId() {
+          return 'conn_2';
+        },
+        persistAttachment() {},
+        buildConnectionContext(connection) {
+          return { id: connection.id };
+        },
+        async runConnectionLifecycle(kind) {
+          events.push(`lifecycle:${kind}:start`);
+          if (kind === 'connect') await gate.promise;
+          events.push(`lifecycle:${kind}:end`);
+        },
+        async processTextMessage(_conn, data) {
+          events.push(`message:${data}`);
+        },
+        async handleBinaryMessage() {
+          events.push('binary');
+        },
+        async handleConnectionClose() {
+          events.push('close');
+        },
+        async handleRuntimeError() {
+          events.push('error');
+        },
+      },
+      Symbol('ws'),
+      {
+        send() {},
+        sendBinary() {},
+        close() {},
+        bufferedAmount() {
+          return 0;
+        },
+      },
+    );
+
+    // Fire three messages and a close while connect is still running.
+    const a = handle.handleMessage('a');
+    const b = handle.handleMessage('b');
+    const c = handle.handleMessage('c');
+    const closed = handle.handleClose(1000, 'bye');
+
+    await Promise.resolve();
+    expect(events).toEqual(['lifecycle:connect:start']);
+
+    gate.resolve();
+    await Promise.all([a, b, c, closed]);
+
+    // onConnect must complete before any callback runs. After that, all four
+    // queued callbacks run (order between message and close is permitted to
+    // interleave but every one must execute exactly once).
+    expect(events[0]).toBe('lifecycle:connect:start');
+    expect(events[1]).toBe('lifecycle:connect:end');
+    const remaining = events.slice(2).sort();
+    expect(remaining).toEqual(['close', 'message:a', 'message:b', 'message:c']);
+  });
+
+  it('runs onConnect even when handleClose is the first callback the adapter fires', async () => {
+    const events: string[] = [];
+    const gate = deferred();
+
+    const handle = acceptConnection(
+      {
+        compiled: {
+          outgoing: new Map(),
+          incoming: new Map(),
+          requests: new Map(),
+          streams: new Map(),
+          preIntercepts: [],
+          postIntercepts: new Map(),
+          namespaces: new Map(),
+          channels: new Map(),
+          channelFamilies: new Map(),
+          scheduled: new Map(),
+          modules: [],
+          requires: {},
+        },
+        timers: undefined,
+        connections: new Map(),
+        wsToConnectionId: new Map(),
+        generateId() {
+          return 'conn_3';
+        },
+        persistAttachment() {},
+        buildConnectionContext(connection) {
+          return { id: connection.id };
+        },
+        async runConnectionLifecycle(kind) {
+          events.push(`lifecycle:${kind}`);
+          if (kind === 'connect') await gate.promise;
+        },
+        async processTextMessage() {
+          events.push('message');
+        },
+        async handleBinaryMessage() {
+          events.push('binary');
+        },
+        async handleConnectionClose() {
+          events.push('close');
+        },
+        async handleRuntimeError() {
+          events.push('error');
+        },
+      },
+      Symbol('ws'),
+      {
+        send() {},
+        sendBinary() {},
+        close() {},
+        bufferedAmount() {
+          return 0;
+        },
+      },
+    );
+
+    const closed = handle.handleClose(1000, 'gone');
+
+    await Promise.resolve();
+    expect(events).toEqual(['lifecycle:connect']);
+
+    gate.resolve();
+    await closed;
+
+    // onConnect must run even when the very first adapter callback is close.
+    // Disconnect handlers run inside handleConnectionClose, which the test
+    // mock collapses into a single 'close' event for ordering purposes.
+    expect(events).toEqual(['lifecycle:connect', 'close']);
+  });
+
   it('wakeHibernatedConnection sends _error for each orphaned stream ID in the attachment', () => {
     const sent: string[] = [];
     const wsKey = {
