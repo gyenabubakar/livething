@@ -347,6 +347,30 @@ describe('processTextMessage protocol branches', () => {
     expect(warn).toHaveBeenCalledWith('Invalid JSON message dropped');
   });
 
+  it('drops valid-but-malformed JSON frames (null, primitives, arrays, missing event)', async () => {
+    const connection = createConnection();
+    const warn = vi.fn();
+    const runtime = baseDispatchRuntime({
+      connections: new Map([[connection.id, connection]]),
+      logger: { warn, error: vi.fn() },
+    });
+    const runtimeWithActivity = { ...runtime, activityHooks: [] } as any;
+
+    // Each of these is valid JSON, so JSON.parse succeeds. Without a shape
+    // guard, reading `parsed.event` would throw and crash the adapter's
+    // message handler.
+    const malformedFrames = ['null', '123', '"hello"', 'true', '[]', '{}', '{"payload":{}}'];
+
+    for (const frame of malformedFrames) {
+      await processTextMessage(runtimeWithActivity, connection, frame);
+    }
+
+    expect(warn).toHaveBeenCalledTimes(malformedFrames.length);
+    for (const call of warn.mock.calls) {
+      expect(call[0]).toBe('Invalid message shape dropped');
+    }
+  });
+
   it('routes _subscribe failures through handleRuntimeError with channel routing metadata', async () => {
     const connection = createConnection();
     const errors: Array<{ error: unknown; event: string | undefined; routing?: unknown }> = [];

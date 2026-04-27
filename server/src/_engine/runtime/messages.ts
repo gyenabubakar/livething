@@ -588,6 +588,14 @@ export async function processTextMessage(
     return;
   }
 
+  // JSON.parse accepts more than plain objects — `null`, `123`, `"text"`,
+  // `[]`, `{}`-without-event all parse successfully. Reading `parsed.event`
+  // on those would throw and crash the adapter's message handler. Drop them.
+  if (!parsed || typeof parsed !== 'object' || typeof parsed.event !== 'string') {
+    runtime.logger.warn('Invalid message shape dropped');
+    return;
+  }
+
   switch (parsed.event) {
     case 'ping':
       connection.descriptor.send(JSON.stringify({ event: 'pong' }));
