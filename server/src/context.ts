@@ -325,6 +325,11 @@ export interface ConnectionContext<
   /**
    * Send an event to all live connections except the caller. Pass
    * `{ excludeSelf: false }` to include the calling connection as well.
+   *
+   * Treat data you broadcast as untrusted by the receiving clients. The
+   * server-side schema validated the inbound payload, but receivers must
+   * still escape the data before rendering it. See `SECURITY.md` for the full
+   * boundary.
    */
   broadcast(event: string, payload: unknown, options?: BroadcastOptions): void;
 
