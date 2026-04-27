@@ -429,8 +429,15 @@ export async function dispatchIncoming(
       );
     } catch (error) {
       rethrowIfConfigError(error);
+      // validateValue is the only producer of validation errors in this path.
+      // Route them fully here (validation hook + error hook) and stop dispatch.
+      // Don't rethrow — the outer catch's WskitError 'validation-failed' branch
+      // would call handleValidationError again and double-fire user hooks.
+      // Manual `throw ValidationFailed(...)` from a handler still routes through
+      // the outer catch since it escapes after this try/catch returns.
       await runtime.handleValidationError(connection, event, error, scope);
-      throw error;
+      await runtime.handleRuntimeError(connection, error, event);
+      return;
     }
 
     const topPost = runtime.compiled.postIntercepts.get(event) ?? [];

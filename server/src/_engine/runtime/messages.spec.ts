@@ -359,4 +359,83 @@ describe('message runtime', () => {
     expect(handleValidationError).not.toHaveBeenCalled();
     expect(handler).not.toHaveBeenCalled();
   });
+
+  it('fires handleValidationError exactly once when a schema validator rejects a payload', async () => {
+    const handleValidationError = vi.fn();
+    const handleRuntimeError = vi.fn();
+    const handler = vi.fn();
+    const connection = createConnection('conn_1');
+
+    // Standard Schema-shaped validator that always returns issues.
+    const rejectingSchema = {
+      '~standard': {
+        version: 1,
+        vendor: 'test',
+        validate: () => ({ issues: [{ message: 'bad' }] }),
+      },
+    };
+
+    const runtime = {
+      compiled: {
+        outgoing: new Map(),
+        incoming: new Map([
+          ['send-strict', { event: 'send-strict', handler, validator: rejectingSchema }],
+        ]),
+        requests: new Map(),
+        streams: new Map(),
+        preIntercepts: [],
+        postIntercepts: new Map(),
+        namespaces: new Map(),
+        channels: new Map(),
+        channelFamilies: new Map(),
+        scheduled: new Map(),
+        modules: [],
+        requires: {},
+        replayClaimedChannelKeys: new Set(),
+      },
+      connections: new Map([[connection.id, connection]]),
+      toConnectionInfo() {
+        return { id: connection.id };
+      },
+      activeStreams: new Map(),
+      protocolHandlers: new Map(),
+      incomingHooks: [],
+      moduleRuntimes: [],
+      errorHooks: [],
+      requireTimers() {
+        return { setTimeout: () => undefined, clearTimeout() {} };
+      },
+      buildConnectionContext() {
+        return { id: connection.id };
+      },
+      broadcastToConnections() {},
+      sendProtocolMessage() {},
+      sendReplay() {},
+      persistAttachment() {},
+      setActiveConnectionId() {},
+      handleRuntimeError,
+      handleValidationError,
+      async handleSubscribe() {},
+      async handleUnsubscribe() {},
+      waitUntil() {},
+      generateId() {
+        return 'id_1';
+      },
+    };
+
+    await dispatchIncoming(
+      runtime as unknown as Parameters<typeof dispatchIncoming>[0],
+      connection,
+      'send-strict',
+      {},
+    );
+
+    // Schema validation rejected the payload. Validation hook fires once
+    // (regression test for the prior double-fire bug — the inner catch
+    // routed the error AND the outer dispatch error path matched
+    // 'validation-failed' and routed it again).
+    expect(handleValidationError).toHaveBeenCalledTimes(1);
+    expect(handleRuntimeError).toHaveBeenCalledTimes(1);
+    expect(handler).not.toHaveBeenCalled();
+  });
 });
