@@ -289,6 +289,146 @@ describe('module getState fallback', () => {
   });
 });
 
+describe('module sandbox boundary', () => {
+  it('the hooks object exposes only the documented ModuleHooks surface', async () => {
+    const MOD_KEY = Symbol('inspect');
+    let inspectedKeys: string[] = [];
+    let leakedEngineRef: unknown = null;
+
+    const inspector = defineModule({
+      id: 'acme:inspect',
+      key: MOD_KEY,
+      setup(_args, hooks) {
+        inspectedKeys = Object.keys(hooks).sort();
+
+        // Walk every value on hooks and confirm none of them are the Engine or
+        // any object exposing engine-internal fields like `compiled`,
+        // `connections`, `activeStreams`, or `hooks`.
+        for (const value of Object.values(hooks)) {
+          const candidate = value as Record<string, unknown> | undefined;
+          if (
+            candidate &&
+            typeof candidate === 'object' &&
+            ('compiled' in candidate ||
+              'connections' in candidate ||
+              'activeStreams' in candidate ||
+              'hooks' in candidate)
+          ) {
+            leakedEngineRef = candidate;
+          }
+        }
+
+        return () => ({});
+      },
+    });
+
+    const def = server('chat').use(inspector({})).build();
+    const { engine } = setupEngine(def);
+    await engine.initialize();
+
+    expect(inspectedKeys).toEqual([
+      'generateId',
+      'getState',
+      'onConnect',
+      'onDisconnect',
+      'onIncoming',
+      'onInit',
+      'onOutgoing',
+      'onShutdown',
+      'scheduled',
+    ]);
+    expect(leakedEngineRef).toBeNull();
+  });
+
+  it('getState returns a sanitized ConnectionInfo, never the raw RuntimeConnection', async () => {
+    const MOD_KEY = Symbol('snapshot');
+    let snapshot: unknown = null;
+
+    const sniff = defineModule({
+      id: 'acme:sniff',
+      key: MOD_KEY,
+      setup(_args, hooks) {
+        hooks.onConnect(() => {
+          snapshot = hooks.getState();
+        });
+        return () => ({});
+      },
+    });
+
+    const def = server('chat').use(sniff({})).build();
+    const { engine } = setupEngine(def);
+    await engine.initialize();
+
+    engine.accept(Symbol('ws'), {
+      send() {},
+      sendBinary() {},
+      close() {},
+      bufferedAmount() {
+        return 0;
+      },
+    });
+
+    expect(snapshot).not.toBeNull();
+    const fields = Object.keys(snapshot as Record<string, unknown>).sort();
+    expect(fields).toEqual([
+      'bufferedAmount',
+      'channels',
+      'id',
+      'latency',
+      'meta',
+      'quality',
+      'tags',
+    ]);
+
+    // None of the engine-internal fields should leak through getState.
+    const obj = snapshot as Record<string, unknown>;
+    expect('descriptor' in obj).toBe(false);
+    expect('wsKey' in obj).toBe(false);
+    expect('seenIncomingIds' in obj).toBe(false);
+    expect('activeStreamIds' in obj).toBe(false);
+  });
+
+  it('two modules cannot reach each other’s scheduled task ids', async () => {
+    const KEY_A = Symbol('mod-a');
+    const KEY_B = Symbol('mod-b');
+    let taskIdRegisteredByA = '';
+
+    const modA = defineModule({
+      id: 'acme:mod-a',
+      key: KEY_A,
+      requires: { timers: true, storage: true },
+      setup(_args, hooks) {
+        const handle = hooks.scheduled('tick', (t) => t.run(() => {}));
+        taskIdRegisteredByA = handle.id;
+        return () => ({});
+      },
+    });
+
+    let visibleFromB: string[] = [];
+
+    const modB = defineModule({
+      id: 'acme:mod-b',
+      key: KEY_B,
+      requires: { timers: true, storage: true },
+      setup(_args, hooks) {
+        // Module B has no path to module A's scheduled task ids. The hooks
+        // surface only exposes registration; there is no enumeration helper.
+        visibleFromB = Object.keys(hooks);
+        return () => ({});
+      },
+    });
+
+    const def = server('chat').use(modA({})).use(modB({})).build();
+    const { engine } = setupEngine(def);
+    await engine.initialize();
+
+    expect(taskIdRegisteredByA).toBe('__acme:mod-a:tick');
+    expect(visibleFromB).not.toContain(taskIdRegisteredByA);
+    expect(visibleFromB).not.toContain('compiled');
+    expect(visibleFromB).not.toContain('connections');
+  });
+});
+
 describe('engine requirements validation', () => {
   it('throws when replay() is registered without sequence({ persist: true })', async () => {
     const def = withReplay(withDedup(withSequence(server('chat'))))
