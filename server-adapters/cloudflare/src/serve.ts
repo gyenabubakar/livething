@@ -1,6 +1,6 @@
 import { defineServerAdapter } from '@wskit/server/adapters';
 import { DurableObject } from 'cloudflare:workers';
-import type { ConnectionHandle, Engine, ServerDefinition } from '@wskit/server/adapters';
+import type { ConnectionHandle, Engine, Logger, ServerDefinition } from '@wskit/server/adapters';
 import { createPlatform } from './platform.ts';
 import { createStorage, createTimers } from './providers.ts';
 import { normalizeBinary } from './utils.ts';
@@ -55,9 +55,22 @@ const buildServe = defineServerAdapter<CloudflareOptions, CloudflareDurableObjec
 
         this.engine = createEngine();
 
+        const logger: Logger = {
+          info(message: string, data?: Record<string, unknown>) {
+            console.log(message, data ?? {});
+          },
+          warn(message: string, data?: Record<string, unknown>) {
+            console.warn(message, data ?? {});
+          },
+          error(message: string, data?: Record<string, unknown>) {
+            console.error(message, data ?? {});
+          },
+        };
+
+        this.engine.setLogger(logger);
         this.engine.setEnv((env ?? {}) as Record<string, unknown>);
         this.engine.setPlatform(createPlatform(ctx, env));
-        this.engine.setStorage(createStorage(ctx, this.engine.logger));
+        this.engine.setStorage(createStorage(ctx, logger));
         this.engine.setTimerProvider(createTimers(ctx));
         this.engine.setWaitUntil((promise: Promise<unknown>) => {
           ctx.waitUntil?.(promise);

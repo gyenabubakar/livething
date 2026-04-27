@@ -19,7 +19,7 @@ type BroadcastOptions = PublicApi.BroadcastOptions;
 export function commonDeps(engine: Engine): EngineContextTypes.ContextCommonDeps {
   return {
     env: engine.env,
-    logger: engine.logger,
+    logger: engine.getLogger(),
     platform: engine.platform,
     waitUntilImpl: engine.waitUntilImpl,
     requireStorage: () => engine.requireStorage(),
@@ -74,13 +74,13 @@ export function commonDeps(engine: Engine): EngineContextTypes.ContextCommonDeps
  */
 export function outgoingRuntime(engine: Engine) {
   return {
-    compiled: engine.compiled,
+    compiled: engine.getCompiled(),
     moduleRuntimes: engine.moduleRuntimes,
     outgoingHooks: engine.hooks.outgoing,
     beforeSendHooks: engine.hooks.beforeSend,
     afterSendHooks: engine.hooks.afterSend,
     waitUntil: (promise: Promise<unknown>) => engine.waitUntilImpl(promise),
-    logger: engine.logger,
+    logger: engine.getLogger(),
     generateId: (prefix?: string) => engine.generateId(prefix),
     activityHooks: engine.hooks.activity,
   };
@@ -161,7 +161,7 @@ export function channelRuntime(engine: Engine) {
 export function dispatchRuntime(engine: Engine) {
   return {
     ...memberRuntime(engine),
-    logger: engine.logger,
+    logger: engine.getLogger(),
     activeStreams: engine.activeStreams,
     protocolHandlers: engine.hooks.protocol,
     incomingHooks: engine.hooks.incoming,
@@ -225,7 +225,7 @@ export function dispatchRuntime(engine: Engine) {
  */
 export function connectionRuntime(engine: Engine) {
   return {
-    compiled: engine.compiled,
+    compiled: engine.getCompiled(),
     timers: engine.timers,
     connections: engine.connections,
     wsToConnectionId: engine.wsToConnectionId,

@@ -294,6 +294,14 @@ describe('engine wiring in the constructor', () => {
     expect(fake.calls.setPlatform).toHaveLength(1);
     expect(fake.calls.setTimerProvider).toHaveLength(1);
     expect(fake.calls.setWaitUntil).toHaveLength(1);
+    expect(fake.calls.setLogger).toHaveLength(1);
+
+    // The same Logger instance the adapter passes to engine.setLogger is also
+    // passed into the storage providers, so kv warnings flow through one logger.
+    const adapterLogger = fake.calls.setLogger[0] as Record<string, unknown>;
+    expect(typeof adapterLogger.info).toBe('function');
+    expect(typeof adapterLogger.warn).toBe('function');
+    expect(typeof adapterLogger.error).toBe('function');
 
     // setWaitUntil wrapper forwards through to state.waitUntil
     const wrapper = fake.calls.setWaitUntil[0] as (p: Promise<unknown>) => void;

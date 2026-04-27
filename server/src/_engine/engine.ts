@@ -1,10 +1,10 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { ChannelNotFound, ChannelNotSubscribed, ValidationFailed } from '@wskit/core';
 import * as EngineCompile from '~/_engine/compile/compile.ts';
 import * as EngineContexts from '~/_engine/contexts/contexts.ts';
 import * as EngineDeps from '~/_engine/engine.deps.ts';
 import * as EngineConnectionRuntime from '~/_engine/runtime/connection.ts';
 import * as EngineMessageRuntime from '~/_engine/runtime/messages.ts';
-import { ChannelNotFound, ChannelNotSubscribed, ValidationFailed } from '@wskit/core';
 import * as ErrorsPrimitive from '~/errors/runtime.ts';
 import * as HeartbeatPrimitive from '~/heartbeat/runtime.ts';
 import * as ScheduledPrimitive from '~/scheduled/runtime.ts';
@@ -78,8 +78,7 @@ function createRegisteredHooks(): EngineRuntimeTypes.RegisteredEngineHooks {
 export class Engine {
   private readonly options: EngineAdapterTypes.EngineOptions;
   private readonly primitives: readonly PrimitiveCore.Primitive[];
-  /** @internal */
-  readonly compiled: EngineCompileTypes.CompiledServer;
+  private readonly compiled: EngineCompileTypes.CompiledServer;
   /** @internal */
   readonly hooks = createRegisteredHooks();
   private storage?: PublicApi.StorageProvider;
@@ -102,8 +101,8 @@ export class Engine {
     ChannelNotFound.code,
     ChannelNotSubscribed.code,
   ]);
-  /** Default logger used when the adapter does not provide a custom one. @internal */
-  readonly logger = {
+  /** Logger used by the engine and runtime modules. Adapters supply a custom logger via {@link Engine.setLogger}; otherwise the engine falls back to a console-backed default. */
+  private logger: PublicApi.Logger = {
     info(message: string, data?: unknown) {
       console.log(message, data ?? {});
     },
@@ -181,6 +180,34 @@ export class Engine {
   setWaitUntil(waitUntil: (promise: Promise<unknown>) => void): void {
     this.hasWaitUntil = true;
     this.waitUntilImpl = waitUntil;
+  }
+
+  /**
+   * Provide the structured logger the engine and runtime modules should write to.
+   *
+   * Call once during adapter setup. If never called, the engine falls back to
+   * a `console.*`-backed default.
+   */
+  setLogger(logger: PublicApi.Logger): void {
+    this.logger = logger;
+  }
+
+  /**
+   * Read the active logger.
+   *
+   * @internal
+   */
+  getLogger(): PublicApi.Logger {
+    return this.logger;
+  }
+
+  /**
+   * Read the compiled handler definition built at construction time.
+   *
+   * @internal
+   */
+  getCompiled(): EngineCompileTypes.CompiledServer {
+    return this.compiled;
   }
 
   /**

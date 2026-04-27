@@ -131,6 +131,7 @@ export interface FakeEngine {
     setPlatform: unknown[];
     setTimerProvider: unknown[];
     setWaitUntil: unknown[];
+    setLogger: unknown[];
     handleUpgrade: Request[];
     accept: Array<{ ws: unknown; descriptor: unknown }>;
     handleHibernationWake: unknown[];
@@ -157,6 +158,7 @@ export function makeFakeEngine(): FakeEngine {
     setPlatform: [],
     setTimerProvider: [],
     setWaitUntil: [],
+    setLogger: [],
     handleUpgrade: [],
     accept: [],
     handleHibernationWake: [],
@@ -192,6 +194,9 @@ export function makeFakeEngine(): FakeEngine {
     },
     setWaitUntil: (fn: unknown) => {
       calls.setWaitUntil.push(fn);
+    },
+    setLogger: (logger: unknown) => {
+      calls.setLogger.push(logger);
     },
     handleUpgrade: vi.fn(async (req: Request) => {
       calls.handleUpgrade.push(req);
