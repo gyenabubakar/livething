@@ -3,10 +3,15 @@ import type { Engine } from '~/_engine/engine.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
 import { defineServerAdapter } from './define.ts';
 
+const noopHibernation = {
+  persist: vi.fn(),
+  restore: vi.fn(() => undefined),
+};
+
 describe('defineServerAdapter', () => {
   it('passes no-arg engine factory and options to setup', () => {
     const setup = vi.fn(() => ({ ok: true }));
-    const serve = defineServerAdapter({ id: 'test', hibernation: true, setup });
+    const serve = defineServerAdapter({ id: 'test', hibernation: noopHibernation, setup });
 
     const handler = { __wskit: 'server', primitives: [] } as unknown as ServerDefinition;
     const result = serve(handler, { port: 3000 });
@@ -22,34 +27,47 @@ describe('defineServerAdapter', () => {
 
     const engine = createEngine();
     expect(engine).toMatchObject({
-      options: { adapterId: 'test', hibernation: true },
+      options: { adapterId: 'test', hibernation: noopHibernation },
     });
   });
 
-  it('resolves hibernation from a function of options', () => {
+  it('passes the adapter hibernation API straight through to engine options', () => {
     let capturedFactory: (() => Engine) | undefined;
-    const serve = defineServerAdapter<{ hibernate: boolean }, {}>({
+    const api = { persist: vi.fn(), restore: vi.fn(() => ({ id: 'restored' })) };
+    const serve = defineServerAdapter({
       id: 'cf',
-      hibernation: (opts) => opts.hibernate,
+      hibernation: api,
       setup(createEngine) {
         capturedFactory = createEngine;
         return {};
       },
     });
 
-    serve({ __wskit: 'server', primitives: [] } as unknown as ServerDefinition, {
-      hibernate: false,
+    serve({ __wskit: 'server', primitives: [] } as unknown as ServerDefinition, {} as never);
+    expect(capturedFactory!()).toMatchObject({ options: { hibernation: api } });
+  });
+
+  it('omits hibernation in engine options when the adapter does not provide one', () => {
+    let capturedFactory: (() => Engine) | undefined;
+    const serve = defineServerAdapter({
+      id: 'no-hib',
+      setup(createEngine) {
+        capturedFactory = createEngine;
+        return {};
+      },
     });
-    expect(capturedFactory!()).toMatchObject({
-      options: { hibernation: false },
-    });
+
+    serve({ __wskit: 'server', primitives: [] } as unknown as ServerDefinition, {} as never);
+    const engine = capturedFactory!();
+    expect((engine as unknown as { options: { hibernation?: unknown } }).options.hibernation).toBe(
+      undefined,
+    );
   });
 
   it('factory creates independent engine instances', () => {
     let capturedFactory: (() => Engine) | undefined;
     const serve = defineServerAdapter({
       id: 'multi',
-      hibernation: false,
       setup(createEngine) {
         capturedFactory = createEngine;
         return {};

@@ -341,7 +341,7 @@ describe('custom replay', () => {
       clearTimeout: () => {},
     };
 
-    const engine = new Engine(def, { adapterId: 'strict-custom', hibernation: false });
+    const engine = new Engine(def, { adapterId: 'strict-custom' });
     engine.setStorage(storage as never);
     engine.setTimerProvider(timers as never);
     engine.setWaitUntil(() => {});

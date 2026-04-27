@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 function makeEngine() {
   const def = server('test').build();
-  return new Engine(def as any, { adapterId: 'test', hibernation: false });
+  return new Engine(def as any, { adapterId: 'test' });
 }
 
 describe('Engine.setLogger', () => {

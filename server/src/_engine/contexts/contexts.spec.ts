@@ -399,10 +399,10 @@ describe('ctx.log', () => {
 });
 
 describe('persistAttachment', () => {
-  it('serializes channelMemberships without the legacy channels list', () => {
-    const serializeAttachment = vi.fn();
+  it('routes the connection snapshot through the adapter hibernation API', () => {
+    const persist = vi.fn();
     const connection = createConnection('c1');
-    connection.wsKey = { serializeAttachment } as RuntimeConnection['wsKey'];
+    connection.wsKey = Symbol('ws') as unknown as RuntimeConnection['wsKey'];
     connection.meta = { username: 'user1' };
     connection.tags.add('vip');
     connection.channelMemberships.set('rooms::room:general', {
@@ -411,14 +411,22 @@ describe('persistAttachment', () => {
     });
     connection.activeStreamIds = new Set(['stream_1']);
 
-    persistAttachment(connection);
+    persistAttachment(connection, { persist, restore: () => undefined });
 
-    expect(serializeAttachment).toHaveBeenCalledWith({
+    expect(persist).toHaveBeenCalledTimes(1);
+    expect(persist).toHaveBeenCalledWith(connection.wsKey, {
       id: 'c1',
       meta: { username: 'user1' },
       tags: ['vip'],
       channelMemberships: [{ channelName: 'room:general', channelScope: 'rooms' }],
       activeStreamIds: ['stream_1'],
     });
+  });
+
+  it('no-ops when the adapter does not provide a hibernation API', () => {
+    const connection = createConnection('c2');
+    connection.wsKey = Symbol('ws') as unknown as RuntimeConnection['wsKey'];
+
+    expect(() => persistAttachment(connection, undefined)).not.toThrow();
   });
 });

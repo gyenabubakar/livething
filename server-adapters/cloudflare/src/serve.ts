@@ -6,18 +6,6 @@ import { createStorage, createTimers } from './providers.ts';
 import { normalizeBinary } from './utils.ts';
 
 /**
- * Options for the Cloudflare adapter.
- *
- * @property hibernation - Enable the WebSocket Hibernation API (default
- * `true`). Hibernation lets the Durable Object suspend between messages,
- * reducing billable duration on idle connections. Set to `false` only if
- * your code relies on standard `addEventListener`-style WebSocket semantics.
- */
-export interface CloudflareOptions {
-  hibernation?: boolean;
-}
-
-/**
  * The instance shape of a `serve()`-produced Durable Object.
  *
  * In addition to the standard Durable Object lifecycle methods, the instance
@@ -38,13 +26,20 @@ export type CloudflareDurableObjectClass<Env = unknown> = new (
   env: Env,
 ) => WskitDurableObjectInstance<Env>;
 
-const buildServe = defineServerAdapter<CloudflareOptions, CloudflareDurableObjectClass>({
+const buildServe = defineServerAdapter<undefined, CloudflareDurableObjectClass>({
   id: 'cloudflare',
-  hibernation: (options) => options?.hibernation ?? true,
+  // Persist per-socket snapshots through Cloudflare's attachment slot so the
+  // engine never reaches into platform-specific WebSocket APIs directly.
+  hibernation: {
+    persist(wsKey, snapshot) {
+      (wsKey as WebSocket).serializeAttachment(snapshot);
+    },
+    restore(wsKey) {
+      return (wsKey as WebSocket).deserializeAttachment();
+    },
+  },
 
-  setup(createEngine, options) {
-    const hibernation = options?.hibernation ?? true;
-
+  setup(createEngine) {
     return class WskitDurableObject<Env = unknown> extends DurableObject<Env> {
       private readonly engine: Engine;
       private readonly liveConnections = new Map<WebSocket, ConnectionHandle>();
@@ -147,7 +142,9 @@ const buildServe = defineServerAdapter<CloudflareOptions, CloudflareDurableObjec
         const server = pair[1];
         const descriptor = this.createConnectionDescriptor(server, result);
 
-        if (hibernation) {
+        // Hibernation is opt-in at the handler level via `.hibernation()`.
+        const hibernating = this.engine.usesHibernation();
+        if (hibernating) {
           this.ctx.acceptWebSocket(server, [...(result.tags ?? [])]);
         } else {
           server.accept();
@@ -156,7 +153,7 @@ const buildServe = defineServerAdapter<CloudflareOptions, CloudflareDurableObjec
         const connection = this.engine.accept(server, descriptor);
         this.liveConnections.set(server, connection);
 
-        if (!hibernation) {
+        if (!hibernating) {
           this.wireStandardSocket(server, connection);
         }
 
@@ -242,7 +239,8 @@ const buildServe = defineServerAdapter<CloudflareOptions, CloudflareDurableObjec
  * Export the returned class from your Worker so the Cloudflare runtime can
  * instantiate one DO per `idFromName(...)`. Each DO instance owns its own
  * WebSocket connections, storage, and scheduled alarm. By default the DO
- * uses the Hibernation API (see {@link CloudflareOptions}).
+ * uses the Cloudflare WebSocket Hibernation API when the handler calls
+ * `.hibernation()`.
  *
  * The returned value is a class, not an instance. Export it from your worker
  * module like `export const Room = serve(handler);` — Cloudflare instantiates
@@ -264,9 +262,6 @@ const buildServe = defineServerAdapter<CloudflareOptions, CloudflareDurableObjec
  * };
  * ```
  */
-export function serve(
-  handler: ServerDefinition,
-  options?: CloudflareOptions,
-): CloudflareDurableObjectClass {
-  return buildServe(handler, options ?? {});
+export function serve(handler: ServerDefinition): CloudflareDurableObjectClass {
+  return buildServe(handler, undefined);
 }

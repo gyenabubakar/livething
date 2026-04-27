@@ -5,11 +5,15 @@ import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as EngineRuntimeTypes from './types.ts';
 
+/**
+ * Minimal subset of the WebSocket-like object the engine wraps on wake. The
+ * descriptor uses `send` and `close` to drive the underlying socket; the
+ * per-connection snapshot is loaded via `runtime.restoreAttachment(wsKey)`,
+ * which routes through the adapter's hibernation API.
+ */
 interface HibernatableWebSocket {
   send?(data: string | ArrayBuffer | ArrayBufferView): void;
   close?(code?: number, reason?: string): void;
-  serializeAttachment?(value: unknown): void;
-  deserializeAttachment?(): unknown;
 }
 
 /**
@@ -22,6 +26,12 @@ interface ConnectionRuntime {
   wsToConnectionId: Map<unknown, string>;
   generateId(prefix?: string): string;
   persistAttachment(connection: EngineRuntimeTypes.RuntimeConnection): void;
+  /**
+   * Adapter-provided snapshot restore. Returns the value the adapter most
+   * recently passed to `persist(wsKey, snapshot)`, or `undefined` if there is
+   * nothing to restore. Adapters without hibernation support omit this field.
+   */
+  restoreAttachment?(wsKey: unknown): unknown;
   buildConnectionContext(
     connection: EngineRuntimeTypes.RuntimeConnection,
     scope?: EngineRuntimeTypes.ResolvedScope,
@@ -315,8 +325,7 @@ export function wakeHibernatedConnection(
   }
 
   const wsLike = wsKey as HibernatableWebSocket;
-  const attachment =
-    typeof wsLike.deserializeAttachment === 'function' ? wsLike.deserializeAttachment() : {};
+  const attachment = runtime.restoreAttachment ? runtime.restoreAttachment(wsKey) : undefined;
   const restored =
     attachment && typeof attachment === 'object' ? (attachment as Record<string, unknown>) : {};
   const channelMemberships = restoreChannelMemberships(restored);

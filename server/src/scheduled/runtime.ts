@@ -465,11 +465,10 @@ export function rescheduleScheduledAlarm(
       timers.clearTimeout(runtime.getAlarmHandle());
       runtime.setAlarmHandle(null);
     }
-    // Adapters with native, durable alarms (e.g. Cloudflare DOs) hold onto
-    // a previously-set alarm even after the queue empties. Without this
-    // delete, the platform would still wake the DO at the old alarm time
-    // and find nothing to run — billed wake for no useful work. Adapters
-    // without durable alarms simply omit deleteAlarm and the call no-ops.
+    // Native durable alarms (e.g. Cloudflare DOs) survive past the queue
+    // emptying. Cancel them too so the platform doesn't wake the DO at an
+    // old alarm time to find nothing to run. Adapters without durable
+    // alarms omit deleteAlarm and the call no-ops.
     if (timers.deleteAlarm) {
       void timers.deleteAlarm();
     }

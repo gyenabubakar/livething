@@ -107,15 +107,11 @@ export const Drizzle = defineModule({
         typeof message.payload === 'object'
       ) {
         return {
-          event: message.event,
-          payload: {
-            ...(message.payload as Record<string, unknown>),
-            text: `rewritten:${(message.payload as { text: string }).text}`,
-            rewritten: true,
-          },
+          ...(message.payload as Record<string, unknown>),
+          text: `rewritten:${(message.payload as { text: string }).text}`,
+          rewritten: true,
         };
       }
-      return message;
     });
 
     hooks.onOutgoing((message) => {
@@ -126,14 +122,10 @@ export const Drizzle = defineModule({
         typeof message.payload === 'object'
       ) {
         return {
-          ...message,
-          payload: {
-            ...message.payload,
-            hooked: true,
-          },
+          ...(message.payload as Record<string, unknown>),
+          hooked: true,
         };
       }
-      return message;
     });
 
     hooks.scheduled('drizzle-vacuum', (t) =>

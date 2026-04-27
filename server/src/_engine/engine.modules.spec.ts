@@ -58,7 +58,7 @@ function makeTimers() {
 }
 
 function setupEngine(def: any) {
-  const engine = new Engine(def, { adapterId: 'test', hibernation: false });
+  const engine = new Engine(def, { adapterId: 'test' });
   const { storage, execCalls } = makeFakeStorage();
   const { timers } = makeTimers();
   engine.setStorage(storage);
@@ -453,7 +453,7 @@ describe('engine requirements validation', () => {
 
   it('throws when hibernation() is used but adapter does not support it', async () => {
     const def = withHibernation(server('chat')).hibernation().build();
-    const engine = new Engine(def, { adapterId: 'no-hib', hibernation: false });
+    const engine = new Engine(def, { adapterId: 'no-hib' });
     const { storage } = makeFakeStorage();
     const { timers } = makeTimers();
     engine.setStorage(storage);
@@ -479,7 +479,7 @@ describe('replay durability branching', () => {
       })
       .build();
 
-    const engine = new Engine(def, { adapterId: 'best-effort', hibernation: false });
+    const engine = new Engine(def, { adapterId: 'best-effort' });
     const { storage, execCalls } = makeFakeStorage();
     const { timers } = makeTimers();
     engine.setStorage(storage);
@@ -531,7 +531,7 @@ describe('replay durability branching', () => {
       })
       .build();
 
-    const engine = new Engine(def, { adapterId: 'strict', hibernation: false });
+    const engine = new Engine(def, { adapterId: 'strict' });
     const { storage, execCalls } = makeFakeStorage();
     const { timers } = makeTimers();
     engine.setStorage(storage);
@@ -572,7 +572,10 @@ describe('handleHibernationWake guard', () => {
 
   it('throws when adapter supports hibernation but the hibernation() primitive was not registered', () => {
     const def = server('chat').build();
-    const engine = new Engine(def, { adapterId: 'test', hibernation: true });
+    const engine = new Engine(def, {
+      adapterId: 'test',
+      hibernation: { persist: () => {}, restore: () => undefined },
+    });
     // No hibernation() primitive → hibernationEnabled stays false → usesHibernation() = false
     expect(() => engine.handleHibernationWake(Symbol('ws'))).toThrow(
       '[wskit] hibernation() is not enabled for this handler.',

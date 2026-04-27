@@ -12,13 +12,10 @@ import type { AdapterConfig } from './types.ts';
  */
 export function defineServerAdapter<TOptions, TService>(config: AdapterConfig<TOptions, TService>) {
   return function serve(handler: ServerDefinition, options: TOptions): TService {
-    const hibernation =
-      typeof config.hibernation === 'function' ? config.hibernation(options) : config.hibernation;
-
     function createEngine() {
       return new EngineModule.Engine(handler, {
         adapterId: config.id,
-        hibernation,
+        hibernation: config.hibernation,
       });
     }
 

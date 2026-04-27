@@ -440,7 +440,7 @@ describe('processTextMessage protocol branches', () => {
 // wakeHibernatedConnection → restoreChannelMemberships branches
 // -------------------------------------------------------------------
 describe('restoreChannelMemberships via wakeHibernatedConnection', () => {
-  function makeRuntime() {
+  function makeRuntime(snapshot: unknown) {
     return {
       compiled: baseCompiled() as any,
       timers: undefined,
@@ -448,6 +448,7 @@ describe('restoreChannelMemberships via wakeHibernatedConnection', () => {
       wsToConnectionId: new Map(),
       generateId: () => 'conn_new',
       persistAttachment() {},
+      restoreAttachment: () => snapshot,
       buildConnectionContext(c: RuntimeConnection) {
         return { id: c.id };
       },
@@ -460,20 +461,16 @@ describe('restoreChannelMemberships via wakeHibernatedConnection', () => {
   }
 
   it('restores from the channelMemberships array when present', () => {
-    const runtime = makeRuntime();
-    const wsKey = {
-      deserializeAttachment: () => ({
-        id: 'hib_1',
-        meta: {},
-        tags: [],
-        channelMemberships: [
-          { channelName: 'room:a', channelScope: 'rooms' },
-          { channelName: 'room:b' },
-        ],
-      }),
-      send() {},
-      close() {},
-    };
+    const runtime = makeRuntime({
+      id: 'hib_1',
+      meta: {},
+      tags: [],
+      channelMemberships: [
+        { channelName: 'room:a', channelScope: 'rooms' },
+        { channelName: 'room:b' },
+      ],
+    });
+    const wsKey = { send() {}, close() {} };
 
     wakeHibernatedConnection(runtime as any, wsKey);
 
@@ -485,17 +482,13 @@ describe('restoreChannelMemberships via wakeHibernatedConnection', () => {
   });
 
   it('does not restore channel memberships when the attachment omits channelMemberships', () => {
-    const runtime = makeRuntime();
-    const wsKey = {
-      deserializeAttachment: () => ({
-        id: 'hib_2',
-        meta: {},
-        tags: [],
-        channels: ['lobby:1', 'lobby:2'],
-      }),
-      send() {},
-      close() {},
-    };
+    const runtime = makeRuntime({
+      id: 'hib_2',
+      meta: {},
+      tags: [],
+      channels: ['lobby:1', 'lobby:2'],
+    });
+    const wsKey = { send() {}, close() {} };
 
     wakeHibernatedConnection(runtime as any, wsKey);
 

@@ -45,10 +45,7 @@ type DOInstance = {
 function buildClass(opts?: { hibernation?: boolean }) {
   fake = makeFakeEngine();
   if (opts?.hibernation !== false) fake.setHibernation(true);
-  return serve({} as never, opts) as unknown as new (
-    ctx: DurableObjectState,
-    env: unknown,
-  ) => DOInstance;
+  return serve({} as never) as unknown as new (ctx: DurableObjectState, env: unknown) => DOInstance;
 }
 
 function upgradeRequest() {

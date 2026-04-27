@@ -40,6 +40,29 @@ export interface UpgradeDecision {
   tags?: readonly string[];
 }
 
+/**
+ * The pluggable mechanism an adapter provides for persisting and restoring
+ * per-socket state across hibernation cycles. The engine writes a snapshot to
+ * `persist(wsKey, snapshot)` whenever connection state changes; on wake,
+ * `restore(wsKey)` returns the most recent snapshot the platform held onto.
+ *
+ * Adapters that support hibernation declare this object on their
+ * `defineServerAdapter` config; adapters that don't omit it. The presence of
+ * the object is the capability signal — there is no separate boolean flag.
+ *
+ * Cloudflare implementation:
+ * ```ts
+ * {
+ *   persist: (ws, snapshot) => (ws as WebSocket).serializeAttachment(snapshot),
+ *   restore: (ws)            => (ws as WebSocket).deserializeAttachment(),
+ * }
+ * ```
+ */
+export interface HibernationApi {
+  persist(wsKey: unknown, snapshot: unknown): void;
+  restore(wsKey: unknown): unknown;
+}
+
 /** Configuration the adapter passes when creating an engine instance. */
 export interface EngineOptions {
   /**
@@ -48,10 +71,13 @@ export interface EngineOptions {
    */
   adapterId: string;
   /**
-   * Whether the adapter supports hibernation-style deserialization of socket
-   * attachments (for example, Cloudflare Durable Objects' `serializeAttachment`).
+   * Adapter-provided hibernation persistence mechanism. Present when the
+   * adapter supports hibernation; omitted otherwise. The engine validates at
+   * `initialize()` that this is present whenever the handler called
+   * `.hibernation()` and throws a clear error if the combination is
+   * unsupported.
    */
-  hibernation: boolean;
+  hibernation?: HibernationApi;
 }
 
 /** The runtime engine created by the adapter from a compiled server definition. Handles connections, message routing, and lifecycle. */
@@ -65,6 +91,11 @@ export type Engine = EngineModule.Engine;
  */
 export interface AdapterConfig<TOptions, TService> {
   id: string;
-  hibernation: boolean | ((options: TOptions) => boolean);
+  /**
+   * Adapter-provided hibernation persistence. Adapters that don't support
+   * hibernation omit this field; the engine then rejects any handler that
+   * registered `.hibernation()` at `initialize()` time.
+   */
+  hibernation?: HibernationApi;
   setup(createEngine: () => Engine, options: TOptions): TService;
 }

@@ -693,7 +693,7 @@ export class Engine {
    * @internal
    */
   persistAttachment(connection: RuntimeConnection): void {
-    EngineContexts.persistAttachment(connection);
+    EngineContexts.persistAttachment(connection, this.options.hibernation);
   }
 
   /**
@@ -725,7 +725,20 @@ export class Engine {
    * hibernation on a platform that supports it.
    */
   usesHibernation(): boolean {
-    return this.options.hibernation && this.hibernationEnabled;
+    return this.hibernationEnabled;
+  }
+
+  /**
+   * Read the adapter's hibernation API.
+   *
+   * Adapters that support hibernation provide `persist` + `restore`. The
+   * engine routes connection-state snapshots through these methods instead
+   * of reaching into platform-specific WebSocket APIs directly.
+   *
+   * @internal
+   */
+  getHibernationApi(): EngineAdapterTypes.HibernationApi | undefined {
+    return this.options.hibernation;
   }
 
   /**

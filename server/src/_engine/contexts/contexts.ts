@@ -487,18 +487,22 @@ export function toConnectionInfo(
 }
 
 /**
- * Persist connection attachment data when the adapter supports socket
- * serialization for hibernation or resume.
+ * Persist connection state through the adapter's hibernation API so it
+ * survives platform-level eviction. Adapters that don't support hibernation
+ * simply pass `undefined` and the call no-ops.
  */
-export function persistAttachment(connection: EngineContextTypes.RuntimeConnection): void {
-  const wsLike = connection.wsKey as { serializeAttachment?: (value: unknown) => void };
-  if (typeof wsLike.serializeAttachment === 'function') {
-    wsLike.serializeAttachment({
-      id: connection.id,
-      meta: connection.meta,
-      tags: [...connection.tags],
-      channelMemberships: [...connection.channelMemberships.values()],
-      activeStreamIds: [...(connection.activeStreamIds ?? [])],
-    });
-  }
+export function persistAttachment(
+  connection: EngineContextTypes.RuntimeConnection,
+  hibernationApi:
+    | { persist(wsKey: unknown, snapshot: unknown): void; restore(wsKey: unknown): unknown }
+    | undefined,
+): void {
+  if (!hibernationApi) return;
+  hibernationApi.persist(connection.wsKey, {
+    id: connection.id,
+    meta: connection.meta,
+    tags: [...connection.tags],
+    channelMemberships: [...connection.channelMemberships.values()],
+    activeStreamIds: [...(connection.activeStreamIds ?? [])],
+  });
 }

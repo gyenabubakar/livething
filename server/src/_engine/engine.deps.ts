@@ -231,6 +231,7 @@ export function connectionRuntime(engine: Engine) {
     wsToConnectionId: engine.wsToConnectionId,
     generateId: (prefix?: string) => engine.generateId(prefix),
     persistAttachment: (connection: RuntimeConnection) => engine.persistAttachment(connection),
+    restoreAttachment: (wsKey: unknown) => engine.getHibernationApi()?.restore(wsKey),
     buildConnectionContext: (connection: RuntimeConnection, scope?: ResolvedScope) => {
       return engine.buildConnectionContext(connection, scope);
     },

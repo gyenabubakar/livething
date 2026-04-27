@@ -247,16 +247,6 @@ describe('connection runtime', () => {
         sent.push(data);
       },
       close() {},
-      serializeAttachment() {},
-      deserializeAttachment() {
-        return {
-          id: 'conn_1',
-          meta: {},
-          tags: [],
-          channelMemberships: [],
-          activeStreamIds: ['stream_1', 'stream_2'],
-        };
-      },
     };
 
     wakeHibernatedConnection(
@@ -283,6 +273,13 @@ describe('connection runtime', () => {
           return 'conn_1';
         },
         persistAttachment() {},
+        restoreAttachment: () => ({
+          id: 'conn_1',
+          meta: {},
+          tags: [],
+          channelMemberships: [],
+          activeStreamIds: ['stream_1', 'stream_2'],
+        }),
         buildConnectionContext(connection) {
           return { id: connection.id };
         },
@@ -313,10 +310,6 @@ describe('connection runtime', () => {
         sent.push(data);
       },
       close() {},
-      serializeAttachment() {},
-      deserializeAttachment() {
-        return { id: 'conn_1', meta: {}, tags: [], channelMemberships: [] };
-      },
     };
 
     wakeHibernatedConnection(
@@ -343,6 +336,7 @@ describe('connection runtime', () => {
           return 'conn_1';
         },
         persistAttachment() {},
+        restoreAttachment: () => ({ id: 'conn_1', meta: {}, tags: [], channelMemberships: [] }),
         buildConnectionContext(connection) {
           return { id: connection.id };
         },
