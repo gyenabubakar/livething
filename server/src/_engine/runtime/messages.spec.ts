@@ -17,7 +17,6 @@ function createConnection(id: string): RuntimeConnection {
     },
     meta: {},
     tags: new Set<string>(),
-    channels: new Set<string>(),
     channelMemberships: new Map<string, { channelName: string; channelScope?: string }>(),
     latency: null,
     quality: 'good',
@@ -29,7 +28,6 @@ function addMembership(
   channelName: string,
   channelScope?: string,
 ) {
-  connection.channels.add(channelName);
   connection.channelMemberships.set(`${channelScope ?? ''}::${channelName}`, {
     channelName,
     channelScope,

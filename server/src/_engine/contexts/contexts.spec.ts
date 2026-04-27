@@ -21,7 +21,6 @@ function createConnection(id: string): RuntimeConnection {
     },
     meta: {},
     tags: new Set<string>(),
-    channels: new Set<string>(),
     channelMemberships: new Map(),
     latency: null,
     quality: 'good',
@@ -62,7 +61,7 @@ function baseDeps(overrides: Partial<Parameters<typeof buildConnectionContext>[0
       id: c.id,
       meta: c.meta,
       tags: [...c.tags],
-      channels: [...c.channels],
+      channels: [...c.channelMemberships.values()].map((m) => m.channelName),
       latency: c.latency,
       quality: c.quality,
       bufferedAmount: 0,
@@ -406,7 +405,6 @@ describe('persistAttachment', () => {
     connection.wsKey = { serializeAttachment } as RuntimeConnection['wsKey'];
     connection.meta = { username: 'user1' };
     connection.tags.add('vip');
-    connection.channels.add('room:general');
     connection.channelMemberships.set('rooms::room:general', {
       channelName: 'room:general',
       channelScope: 'rooms',

@@ -21,7 +21,6 @@ function createConnection(id = 'conn_1', meta: Record<string, unknown> = {}) {
     },
     meta,
     tags: new Set<string>(),
-    channels: new Set<string>(),
     channelMemberships: new Map(),
     latency: null,
     quality: 'good' as const,
@@ -70,7 +69,7 @@ function createRuntime() {
           id: connection.id,
           meta: connection.meta,
           tags: [...connection.tags],
-          channels: [...connection.channels],
+          channels: [...connection.channelMemberships.values()].map((m) => m.channelName),
           latency: connection.latency,
           quality: connection.quality,
           bufferedAmount: 0,
@@ -120,7 +119,9 @@ describe('channel runtime', () => {
       _channelScope: 'rooms',
     });
 
-    expect(second.channels.has('room:general')).toBe(true);
+    expect(
+      [...second.channelMemberships.values()].some((m) => m.channelName === 'room:general'),
+    ).toBe(true);
     expect(second.tags.has('channel:room:general')).toBe(true);
     expect(protocol).toEqual([
       {
@@ -173,7 +174,9 @@ describe('channel runtime', () => {
       },
     );
 
-    expect(connection.channels.has('room:general')).toBe(false);
+    expect(
+      [...connection.channelMemberships.values()].some((m) => m.channelName === 'room:general'),
+    ).toBe(false);
     expect(connection.tags.has('channel:room:general')).toBe(false);
     expect(broadcasts).toEqual([
       {
@@ -213,7 +216,9 @@ describe('channel runtime', () => {
       },
     );
 
-    expect(connection.channels.has('room:general')).toBe(true);
+    expect(
+      [...connection.channelMemberships.values()].some((m) => m.channelName === 'room:general'),
+    ).toBe(true);
     expect(connection.channelMemberships.size).toBe(1);
     expect(connection.channelMemberships.has('lobbies::room:general')).toBe(true);
     expect(broadcasts).toEqual([
@@ -225,6 +230,39 @@ describe('channel runtime', () => {
         channelScope: 'rooms',
       },
     ]);
+  });
+
+  it('subscribeConnection only syncs members from the same scope (cross-scope isolation)', async () => {
+    // Two channel families that share the concrete channel name 'room:general'.
+    // A connection joining one scope should only see the other scope's members
+    // when subscribing — not connections from a sibling scope.
+    const roomsMember = createConnection('rooms-member', { userId: 'a' });
+    const lobbiesMember = createConnection('lobbies-member', { userId: 'b' });
+    addChannelMembership(roomsMember, 'room:general', 'rooms');
+    addChannelMembership(lobbiesMember, 'room:general', 'lobbies');
+
+    const newSubscriber = createConnection('new-sub');
+    const { runtime, connections, protocol } = createRuntime();
+    runtime.compiled.channelFamilies.set('lobbies', {
+      ...runtime.compiled.channelFamilies.get('rooms')!,
+      key: 'lobbies',
+      pattern: scope('lobbies', /^room:/),
+    });
+    connections.set(roomsMember.id, roomsMember);
+    connections.set(lobbiesMember.id, lobbiesMember);
+    connections.set(newSubscriber.id, newSubscriber);
+
+    await subscribeConnection(runtime, newSubscriber, {
+      _channel: 'room:general',
+      _channelScope: 'rooms',
+    });
+
+    // _memberJoin syncs sent to the new subscriber must include only the
+    // 'rooms' scope member, not the 'lobbies' scope member.
+    const memberJoins = protocol.filter(
+      (m) => m.connectionId === 'new-sub' && m.event === '_memberJoin',
+    );
+    expect(memberJoins.map((m) => m.payload.connectionId)).toEqual(['rooms-member']);
   });
 
   it('onBeforeSubscribe with an async validator throws WskitConfigError without routing through handleValidationError', async () => {
@@ -260,7 +298,9 @@ describe('channel runtime', () => {
 
     let wasMemberDuringHook = true;
     const hook = vi.fn(async () => {
-      wasMemberDuringHook = connection.channels.has('room:general');
+      wasMemberDuringHook = [...connection.channelMemberships.values()].some(
+        (m) => m.channelName === 'room:general',
+      );
     });
 
     await subscribeConnection(
@@ -276,6 +316,8 @@ describe('channel runtime', () => {
     // At hook invocation time the connection must NOT yet be a member.
     expect(wasMemberDuringHook).toBe(false);
     // After subscribe completes the connection IS a member.
-    expect(connection.channels.has('room:general')).toBe(true);
+    expect(
+      [...connection.channelMemberships.values()].some((m) => m.channelName === 'room:general'),
+    ).toBe(true);
   });
 });

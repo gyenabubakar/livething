@@ -20,7 +20,6 @@ function createConnection(id = 'conn_1'): RuntimeConnection {
     },
     meta: {},
     tags: new Set<string>(),
-    channels: new Set<string>(),
     channelMemberships: new Map(),
     latency: null,
     quality: 'good',
@@ -75,7 +74,7 @@ function baseDispatchRuntime(
         id: connection.id,
         meta: connection.meta,
         tags: [...connection.tags],
-        channels: [...connection.channels],
+        channels: [...connection.channelMemberships.values()].map((m) => m.channelName),
         latency: connection.latency,
         quality: connection.quality,
         bufferedAmount: 0,
@@ -503,7 +502,6 @@ describe('restoreChannelMemberships via wakeHibernatedConnection', () => {
     const connection = runtime.connections.get('hib_2');
     expect(connection).toBeDefined();
     expect(connection!.channelMemberships.size).toBe(0);
-    expect(connection!.channels.size).toBe(0);
   });
 });
 

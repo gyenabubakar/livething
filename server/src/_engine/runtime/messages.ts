@@ -210,13 +210,28 @@ export function resolveScope(
 
 /**
  * Return the current public member snapshot for a channel.
+ *
+ * When `channelScope` is supplied (e.g. a dynamic channel family key) the
+ * lookup uses the exact membership key so two scopes that happen to share a
+ * concrete channel name stay isolated. Without a scope, returns every
+ * connection that has any membership matching the name — same fallback used
+ * by `ctx.channels.members(name)` when the caller doesn't know the scope.
  */
 export function getChannelMembers(
   runtime: EngineRuntimeTypes.ConnectionMembersRuntime,
   channelName: string,
+  channelScope?: string,
 ): PublicApi.ConnectionInfo<Record<string, unknown>>[] {
+  const membershipKey = channelScope ? `${channelScope}::${channelName}` : null;
+
   return [...runtime.connections.values()]
-    .filter((connection) => connection.channels.has(channelName))
+    .filter((connection) => {
+      if (membershipKey) return connection.channelMemberships.has(membershipKey);
+      for (const membership of connection.channelMemberships.values()) {
+        if (membership.channelName === channelName) return true;
+      }
+      return false;
+    })
     .map((connection) => runtime.toConnectionInfo(connection));
 }
 

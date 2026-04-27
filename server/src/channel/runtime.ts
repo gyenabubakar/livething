@@ -18,11 +18,10 @@ export function createChannelMembershipKey(channelName: string, channelScope?: s
 
 /** Record that a connection has joined a channel. */
 export function addChannelMembership(
-  connection: Pick<RuntimeConnection, 'channels' | 'channelMemberships' | 'tags'>,
+  connection: Pick<RuntimeConnection, 'channelMemberships' | 'tags'>,
   channelName: string,
   channelScope?: string,
 ): void {
-  connection.channels.add(channelName);
   connection.channelMemberships.set(createChannelMembershipKey(channelName, channelScope), {
     channelName,
     channelScope,
@@ -32,31 +31,29 @@ export function addChannelMembership(
 
 /** Check whether a connection is currently subscribed to a channel. */
 export function hasChannelMembership(
-  connection: Pick<RuntimeConnection, 'channels' | 'channelMemberships'>,
+  connection: Pick<RuntimeConnection, 'channelMemberships'>,
   channelName: string,
   channelScope?: string,
 ): boolean {
-  if (connection.channelMemberships.size > 0) {
-    return connection.channelMemberships.has(createChannelMembershipKey(channelName, channelScope));
-  }
-
-  return connection.channels.has(channelName);
+  return connection.channelMemberships.has(createChannelMembershipKey(channelName, channelScope));
 }
 
 /** Remove a connection's subscription to a channel. */
 export function removeChannelMembership(
-  connection: Pick<RuntimeConnection, 'channels' | 'channelMemberships' | 'tags'>,
+  connection: Pick<RuntimeConnection, 'channelMemberships' | 'tags'>,
   channelName: string,
   channelScope?: string,
 ): void {
   connection.channelMemberships.delete(createChannelMembershipKey(channelName, channelScope));
 
+  // Drop the channel:<name> tag only when no other scoped membership for the
+  // same concrete channel name remains — a connection can be in two scopes
+  // that share a name, and we keep the tag while either is alive.
   const hasRemainingMembership = [...connection.channelMemberships.values()].some(
     (membership) => membership.channelName === channelName,
   );
 
   if (!hasRemainingMembership) {
-    connection.channels.delete(channelName);
     connection.tags.delete(`channel:${channelName}`);
   }
 }
@@ -139,9 +136,25 @@ interface ResolvedChannelScope {
 function getChannelMembers(
   runtime: Pick<ChannelRuntime, 'connections' | 'toConnectionInfo'>,
   channelName: string,
+  channelScope?: string,
 ): ConnectionInfo<Record<string, unknown>>[] {
+  // When a scope is supplied, filter on the exact membership key — two
+  // channel families that happen to share a concrete channel name stay
+  // isolated. Without a scope, fall back to "any membership for this name"
+  // so callers that only know the name (e.g. ctx.channels.members(name) at
+  // top-level) keep working.
+  const matches = channelScope
+    ? (connection: RuntimeConnection) =>
+        connection.channelMemberships.has(createChannelMembershipKey(channelName, channelScope))
+    : (connection: RuntimeConnection) => {
+        for (const membership of connection.channelMemberships.values()) {
+          if (membership.channelName === channelName) return true;
+        }
+        return false;
+      };
+
   return [...runtime.connections.values()]
-    .filter((connection) => connection.channels.has(channelName))
+    .filter(matches)
     .map((connection) => runtime.toConnectionInfo(connection));
 }
 
@@ -219,7 +232,10 @@ export async function subscribeConnection(
     throw ChannelNotFound();
   }
 
-  const existingMembers = getChannelMembers(runtime, scope.channelName);
+  // Pass the scope so the _memberJoin syncs only include connections that
+  // joined this same scope, not connections in a different family that
+  // happen to use the same concrete channel name.
+  const existingMembers = getChannelMembers(runtime, scope.channelName, scope.channelScope);
   const ctx = runtime.buildConnectionContext(connection, scope);
   const data = { ...payload };
   delete data._channel;
@@ -320,7 +336,7 @@ export function kickChannelMembers(
   reason: string,
 ): void {
   for (const connection of runtime.connections.values()) {
-    if (!connection.channels.has(channelName) || !connection.tags.has(tag)) continue;
+    if (!connection.tags.has(tag)) continue;
 
     for (const membership of listChannelMemberships(connection)) {
       if (membership.channelName !== channelName) continue;

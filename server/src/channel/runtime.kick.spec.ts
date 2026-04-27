@@ -16,7 +16,6 @@ function createConnection(id: string) {
     },
     meta: {},
     tags: new Set<string>(),
-    channels: new Set<string>(),
     channelMemberships: new Map(),
     latency: null,
     quality: 'good' as const,
@@ -75,7 +74,7 @@ describe('channels.kick end-to-end', () => {
           id: c.id,
           meta: c.meta,
           tags: [...c.tags],
-          channels: [...c.channels],
+          channels: [...c.channelMemberships.values()].map((m) => m.channelName),
           latency: null,
           quality: 'good' as const,
           bufferedAmount: 0,
@@ -126,8 +125,14 @@ describe('channels.kick end-to-end', () => {
     );
 
     // Kept connection still a member.
-    expect(kept.channels.has('room:general')).toBe(true);
-    expect(banned.channels.has('room:general')).toBe(false);
-    expect(alsoBanned.channels.has('room:general')).toBe(false);
+    expect(
+      [...kept.channelMemberships.values()].some((m) => m.channelName === 'room:general'),
+    ).toBe(true);
+    expect(
+      [...banned.channelMemberships.values()].some((m) => m.channelName === 'room:general'),
+    ).toBe(false);
+    expect(
+      [...alsoBanned.channelMemberships.values()].some((m) => m.channelName === 'room:general'),
+    ).toBe(false);
   });
 });

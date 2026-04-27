@@ -479,7 +479,7 @@ export function toConnectionInfo(
     id: connection.id,
     meta: connection.meta,
     tags: [...connection.tags],
-    channels: [...connection.channels],
+    channels: [...connection.channelMemberships.values()].map((m) => m.channelName),
     latency: connection.latency,
     quality: connection.quality,
     bufferedAmount: connection.descriptor.bufferedAmount(),

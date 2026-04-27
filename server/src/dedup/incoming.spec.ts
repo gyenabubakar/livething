@@ -9,7 +9,6 @@ function makeConnection(id = 'c1'): RuntimeConnection {
     descriptor: { send() {}, close() {} } as unknown as RuntimeConnection['descriptor'],
     meta: {},
     tags: new Set(),
-    channels: new Set(),
     channelMemberships: new Map(),
     latency: null,
     quality: 'good',

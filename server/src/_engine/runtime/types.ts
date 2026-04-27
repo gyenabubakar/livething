@@ -157,9 +157,14 @@ export interface RuntimeConnection {
   // -- Channel state --
   /** Tags currently assigned to this connection (used for sendTo/getConnectionsByTag). */
   tags: Set<string>;
-  /** Set of channel names this connection has subscribed to. */
-  channels: Set<string>;
-  /** Map of membership keys to channel details, including optional scope. */
+  /**
+   * Map of membership keys to channel details, including optional scope.
+   *
+   * The membership key is `${channelScope ?? ''}::${channelName}` so the same
+   * concrete channel name in two channel families (or a static channel and a
+   * channel family that share a name) stay isolated. Scope-aware lookups
+   * (membership checks, member listings, kick filters) all read this map.
+   */
   channelMemberships: Map<string, { channelName: string; channelScope?: string }>;
 
   // -- Ephemeral runtime state --
