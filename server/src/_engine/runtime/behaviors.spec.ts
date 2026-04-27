@@ -41,6 +41,7 @@ function baseCompiled() {
     scheduled: new Map(),
     modules: [],
     requires: {},
+    replayClaimedChannelKeys: new Set(),
   };
 }
 

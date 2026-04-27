@@ -98,6 +98,15 @@ export interface CompiledServer {
   scheduled: Map<string, AnyScheduled>;
   modules: AnyModule[];
   requires: RequiresManifest;
+  /**
+   * Channel keys (static channel names or scope keys) that have an explicit
+   * `.replay(...)` or `.replay(false)` registered inside them.
+   *
+   * Server-level replay uses this to decide which channels' traffic it should
+   * skip. Without an entry here, server-level replay captures the channel's
+   * outgoing messages too — that's the auto-cascade behavior.
+   */
+  replayClaimedChannelKeys: Set<string>;
 }
 
 export type { ChannelPrimitive, NamespacePrimitive, OutgoingPrimitive, RequestPrimitive };

@@ -156,7 +156,13 @@ describe('replay/runtime', () => {
 
   it('matches replay ownership by scope and excludes mismatched messages', () => {
     expect(matchesReplayScope(undefined, {})).toBe(true);
-    expect(matchesReplayScope(undefined, { channelName: 'room-1' })).toBe(false);
+    // Server-level replay cascades into channels by default — the message
+    // matches when the channel has not registered its own replay primitive.
+    expect(matchesReplayScope(undefined, { channelName: 'room-1' })).toBe(true);
+    // Once the channel claims its own replay, server-level steps aside.
+    expect(matchesReplayScope(undefined, { channelName: 'room-1' }, new Set(['room-1']))).toBe(
+      false,
+    );
     expect(matchesReplayScope('rooms', { channelScope: 'rooms' })).toBe(true);
     expect(
       shouldStoreReplayMessage(
@@ -174,6 +180,45 @@ describe('replay/runtime', () => {
         new Set(['typing']),
       ),
     ).toBe(false);
+  });
+
+  it('server-level shouldStoreReplayMessage cascades into channels not in the claimed set', () => {
+    // No channel has claimed; server-level captures channel traffic.
+    expect(
+      shouldStoreReplayMessage(
+        undefined,
+        'message',
+        { _channel: 'room-1', _channelScope: 'rooms' },
+        new Set(),
+      ),
+    ).toBe(true);
+
+    // 'rooms' is claimed (channel registered its own replay) — server-level skips.
+    expect(
+      shouldStoreReplayMessage(
+        undefined,
+        'message',
+        { _channel: 'room-1', _channelScope: 'rooms' },
+        new Set(),
+        new Set(['rooms']),
+      ),
+    ).toBe(false);
+
+    // Static channel claimed by name (no _channelScope on payload).
+    expect(
+      shouldStoreReplayMessage(
+        undefined,
+        'message',
+        { _channel: 'lobby' },
+        new Set(),
+        new Set(['lobby']),
+      ),
+    ).toBe(false);
+
+    // Top-level traffic is always captured by server-level replay.
+    expect(
+      shouldStoreReplayMessage(undefined, 'message', { text: 'hi' }, new Set(), new Set(['rooms'])),
+    ).toBe(true);
   });
 
   it('builds replay rows from final wire payloads and strips metadata for reducers', () => {

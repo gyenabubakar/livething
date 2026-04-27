@@ -116,3 +116,95 @@ describe('compile post-intercept validation', () => {
     expect(() => compileHandlerDefinition(def)).not.toThrow();
   });
 });
+
+describe('compile replayClaimedChannelKeys', () => {
+  it('is empty when no replay primitive is registered', async () => {
+    const { withReplay } = await import('~/replay/with.ts');
+    const def = withReplay(server('chat')).build();
+    const compiled = compileHandlerDefinition(def);
+    expect(compiled.replayClaimedChannelKeys).toEqual(new Set());
+  });
+
+  it('is empty when replay is registered only at the server level (cascade default)', async () => {
+    const { withReplay } = await import('~/replay/with.ts');
+    const { withDedup } = await import('~/dedup/with.ts');
+    const { withSequence } = await import('~/sequence/with.ts');
+
+    const def = withReplay(withSequence(withDedup(server('chat'))))
+      .sequence({ persist: true })
+      .dedup()
+      .replay((r) => r)
+      .build();
+
+    const compiled = compileHandlerDefinition(def);
+    expect(compiled.replayClaimedChannelKeys).toEqual(new Set());
+  });
+
+  it('records a static channel key when the channel has its own .replay()', async () => {
+    const { withReplay } = await import('~/replay/with.ts');
+    const { withDedup } = await import('~/dedup/with.ts');
+    const { withSequence } = await import('~/sequence/with.ts');
+
+    const base = withReplay(withChannels(withSequence(withDedup(server('chat')))));
+    const def = base
+      .sequence({ persist: true })
+      .dedup()
+      .use(base.channel('lobby', (c) => c.outgoing(roomSend).replay((r) => r)))
+      .build();
+
+    const compiled = compileHandlerDefinition(def);
+    expect(compiled.replayClaimedChannelKeys).toEqual(new Set(['lobby']));
+  });
+
+  it('records a channel scope key when the channel family has its own .replay()', async () => {
+    const { withReplay } = await import('~/replay/with.ts');
+    const { withDedup } = await import('~/dedup/with.ts');
+    const { withSequence } = await import('~/sequence/with.ts');
+    const { scope } = await import('~/channel/channel.ts');
+
+    const base = withReplay(withChannels(withSequence(withDedup(server('chat')))));
+    const def = base
+      .sequence({ persist: true })
+      .dedup()
+      .use(base.channel(scope('rooms', /^room-.+$/), (c) => c.outgoing(roomSend).replay((r) => r)))
+      .build();
+
+    const compiled = compileHandlerDefinition(def);
+    expect(compiled.replayClaimedChannelKeys).toEqual(new Set(['rooms']));
+  });
+
+  it('records a channel that opts out via .replay(false)', async () => {
+    const { withReplay } = await import('~/replay/with.ts');
+    const { withDedup } = await import('~/dedup/with.ts');
+    const { withSequence } = await import('~/sequence/with.ts');
+
+    const base = withReplay(withChannels(withSequence(withDedup(server('chat')))));
+    const def = base
+      .sequence({ persist: true })
+      .dedup()
+      .use(base.channel('public-room', (c) => c.outgoing(roomSend).replay(false)))
+      .build();
+
+    const compiled = compileHandlerDefinition(def);
+    expect(compiled.replayClaimedChannelKeys).toEqual(new Set(['public-room']));
+  });
+
+  it('records every channel that registered or disabled replay independently', async () => {
+    const { withReplay } = await import('~/replay/with.ts');
+    const { withDedup } = await import('~/dedup/with.ts');
+    const { withSequence } = await import('~/sequence/with.ts');
+    const { scope } = await import('~/channel/channel.ts');
+
+    const base = withReplay(withChannels(withSequence(withDedup(server('chat')))));
+    const def = base
+      .sequence({ persist: true })
+      .dedup()
+      .use(base.channel('lobby', (c) => c.outgoing(roomSend).replay((r) => r)))
+      .use(base.channel(scope('rooms', /^room-.+$/), (c) => c.outgoing(roomSend).replay((r) => r)))
+      .use(base.channel('public-room', (c) => c.outgoing(roomSend).replay(false)))
+      .build();
+
+    const compiled = compileHandlerDefinition(def);
+    expect(compiled.replayClaimedChannelKeys).toEqual(new Set(['lobby', 'rooms', 'public-room']));
+  });
+});

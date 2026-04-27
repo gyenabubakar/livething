@@ -246,6 +246,9 @@ describe('replay', () => {
         extenders.push(factory);
       },
       setReplayEnabled() {},
+      getReplayClaimedChannelKeys() {
+        return new Set();
+      },
       onBeforeSend() {},
       onAfterSend() {},
       onBoot() {},
@@ -260,6 +263,7 @@ describe('replay', () => {
       | 'onBoot'
       | 'onProtocolMessage'
       | 'setReplayEnabled'
+      | 'getReplayClaimedChannelKeys'
       | 'sendReplay'
     > as EngineAccess;
 
@@ -285,6 +289,9 @@ describe('replay', () => {
         extenders.push(factory);
       },
       setReplayEnabled() {},
+      getReplayClaimedChannelKeys() {
+        return new Set();
+      },
       onBeforeSend() {},
       onAfterSend() {},
       onBoot() {},
@@ -299,6 +306,7 @@ describe('replay', () => {
       | 'onBoot'
       | 'onProtocolMessage'
       | 'setReplayEnabled'
+      | 'getReplayClaimedChannelKeys'
       | 'sendReplay'
     > as EngineAccess;
 
@@ -352,6 +360,9 @@ describe('replay', () => {
       },
       extendContext() {},
       setReplayEnabled() {},
+      getReplayClaimedChannelKeys() {
+        return new Set();
+      },
       onBeforeSend() {},
       onAfterSend() {},
       onBoot() {},
@@ -410,6 +421,7 @@ describe('replay', () => {
       | 'onProtocolMessage'
       | 'requireStorage'
       | 'setReplayEnabled'
+      | 'getReplayClaimedChannelKeys'
       | 'sendReplay'
     > as EngineAccess;
 
@@ -436,5 +448,17 @@ describe('replay', () => {
         { seq: 5, messageId: 'msg-1', channel: 'room-1' },
       ],
     ]);
+  });
+
+  it('replay(false) returns a disabled primitive with no setup work', () => {
+    const primitive = replay(false);
+    expect(primitive.disabled).toBe(true);
+    expect(primitive.options).toEqual({});
+    expect(primitive.__dependencies).toEqual([]);
+    expect(primitive.__requires).toEqual({});
+    // The disabled primitive intentionally has no __setup so nothing wires
+    // hooks for this scope. Its only purpose is to mark the scope as claimed
+    // at compile time.
+    expect(primitive.__setup).toBeUndefined();
   });
 });

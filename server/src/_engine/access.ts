@@ -195,6 +195,14 @@ export interface EngineAccess {
   getScopeInfo(): { channelKey?: string };
 
   /**
+   * Read the set of channel keys that have explicit replay registered.
+   *
+   * Server-level replay uses this to skip channels that registered their own
+   * `.replay(...)` or `.replay(false)` — that scope is already claimed.
+   */
+  getReplayClaimedChannelKeys(): ReadonlySet<string>;
+
+  /**
    * Add extra fields or methods to every live connection context.
    */
   extendContext(factory: (baseCtx: unknown) => Record<string, unknown>): void;

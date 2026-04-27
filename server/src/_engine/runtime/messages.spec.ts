@@ -135,6 +135,7 @@ describe('message runtime', () => {
         scheduled: new Map(),
         modules: [],
         requires: {},
+        replayClaimedChannelKeys: new Set(),
       },
       connections: new Map([[connection.id, connection]]),
       toConnectionInfo() {
@@ -238,6 +239,7 @@ describe('message runtime', () => {
         scheduled: new Map(),
         modules: [],
         requires: {},
+        replayClaimedChannelKeys: new Set(),
       },
       connections: new Map([[connection.id, connection]]),
       toConnectionInfo() {
@@ -313,6 +315,7 @@ describe('message runtime', () => {
         scheduled: new Map(),
         modules: [],
         requires: {},
+        replayClaimedChannelKeys: new Set(),
       },
       connections: new Map([[connection.id, connection]]),
       toConnectionInfo() {

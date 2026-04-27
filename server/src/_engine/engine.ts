@@ -428,6 +428,7 @@ export class Engine {
       getScopeInfo: () => ({
         channelKey: scope?.channelKey,
       }),
+      getReplayClaimedChannelKeys: () => this.compiled.replayClaimedChannelKeys,
       extendContext: (factory) => {
         this.hooks.contextExtenders.push(factory);
       },

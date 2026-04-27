@@ -21,6 +21,13 @@ import type { ReplayOptions } from '~/replay/types.ts';
 export interface ReplayPrimitive extends Primitive<'replay'> {
   /** The full resolved replay configuration. */
   readonly options: ReplayOptions;
+  /**
+   * `true` when the developer registered `replay(false)` to opt out of cascade
+   * for this scope. Disabled primitives carry no setup work; they only exist to
+   * appear in the compile-time claimed-scope map so server-level replay knows
+   * to skip this scope.
+   */
+  readonly disabled?: boolean;
 }
 
 /**
@@ -38,6 +45,14 @@ const REPLAY_KEY = Symbol('replay');
  * asks for replay automatically on reconnect, and no extra work is needed
  * from your handlers.
  *
+ * **Cascade behavior.** A server-level `.replay(...)` captures every outgoing
+ * message, including channel-scoped traffic. To use a different replay
+ * strategy for a specific channel, call `.replay(...)` inside that channel's
+ * sub-builder — server-level skips channels that claim their own replay. To
+ * opt a specific channel out of replay entirely, call `.replay(false)` inside
+ * it; messages on that channel are not stored or replayed by either the
+ * server-level or channel-level replay.
+ *
  * Handlers also get `ctx.sendReplay()` for manually replaying a stored
  * message (e.g. in response to a "load older history" request).
  *
@@ -54,7 +69,19 @@ const REPLAY_KEY = Symbol('replay');
  *   .build();
  * ```
  */
-export function replay(options?: ReplayOptions): ReplayPrimitive {
+export function replay(options?: ReplayOptions | false): ReplayPrimitive {
+  if (options === false) {
+    return {
+      __wskit: 'replay',
+      __kind: 'infrastructure',
+      __identity: [REPLAY_KEY],
+      __dependencies: [],
+      __requires: {},
+      options: {},
+      disabled: true,
+    };
+  }
+
   const opts = options ?? {};
 
   return {
@@ -154,6 +181,7 @@ class ReplayInstaller {
         wireMessage.event,
         wireMessage.payload,
         this.exclude,
+        this.engine.getReplayClaimedChannelKeys(),
       )
     )
       return;
@@ -176,7 +204,9 @@ class ReplayInstaller {
     payload: Record<string, unknown> | undefined,
   ): Promise<boolean> => {
     const scope = readReplayContextScope(ctx as Record<PropertyKey, unknown>);
-    if (!matchesReplayScope(this.channelKey, scope)) return false;
+    if (!matchesReplayScope(this.channelKey, scope, this.engine.getReplayClaimedChannelKeys())) {
+      return false;
+    }
 
     const since = Number(payload?.since ?? 0);
     const { sql } = this.engine.requireStorage();

@@ -722,6 +722,13 @@ export interface ReplayBuilderMethods<TBuilder, TState extends ScopeStateShape> 
     type: M,
     callback: (builder: ReplayBuilder<TBuilder, TState, M>) => ReplayBuilder<any, any, any>,
   ): TBuilder;
+
+  /**
+   * Opt this scope out of replay entirely. Use inside `.channel(...)` when a
+   * specific channel should not have its outgoing messages stored or replayed
+   * by either the channel-scoped or the cascading server-level replay.
+   */
+  replay(disabled: false): TBuilder;
 }
 
 /** Adds custom replay storage hooks. */

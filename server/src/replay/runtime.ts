@@ -47,19 +47,27 @@ export function ensureReplaySchema(sql: {
 /**
  * Decide whether one replay primitive instance owns the current scope.
  *
- * Top-level replay handles only top-level traffic. Channel replay handles only
- * its own concrete channel or channel-family key.
+ * Channel replay handles only its own concrete channel or channel-family key.
+ * Server-level replay handles every scope EXCEPT those claimed by another
+ * replay primitive — channels that registered their own `.replay(...)` or
+ * opted out via `.replay(false)`. That cascade behavior is what lets a single
+ * top-level `withReplay` capture and serve replay for every unclaimed channel.
  */
 export function matchesReplayScope(
   channelKey: string | undefined,
   scope: { namespaceName?: string; channelName?: string; channelScope?: string },
+  claimedChannelKeys: ReadonlySet<string> = EMPTY_CLAIMED_CHANNEL_KEYS,
 ): boolean {
   if (channelKey) {
     return scope.channelScope === channelKey || scope.channelName === channelKey;
   }
 
-  return !scope.namespaceName && !scope.channelName && !scope.channelScope;
+  if (scope.channelScope && claimedChannelKeys.has(scope.channelScope)) return false;
+  if (scope.channelName && claimedChannelKeys.has(scope.channelName)) return false;
+  return true;
 }
+
+const EMPTY_CLAIMED_CHANNEL_KEYS: ReadonlySet<string> = new Set();
 
 /**
  * Read the hidden scope markers attached to one live connection ctx.
@@ -81,12 +89,19 @@ export function readReplayPayloadScope(payload: Record<string, unknown>): Replay
 
 /**
  * Decide whether one final outgoing message belongs to this replay instance.
+ *
+ * Channel-scoped replay only stores messages for its own channel. Server-level
+ * replay (no `channelKey`) cascades — it stores messages for every scope
+ * except the channels listed in `claimedChannelKeys`, which are the channels
+ * that registered their own `.replay(...)` or disabled replay via
+ * `.replay(false)`.
  */
 export function shouldStoreReplayMessage(
   channelKey: string | undefined,
   event: string,
   payload: Record<string, unknown>,
   exclude: ReadonlySet<string>,
+  claimedChannelKeys: ReadonlySet<string> = EMPTY_CLAIMED_CHANNEL_KEYS,
 ): boolean {
   if (exclude.has(event)) return false;
 
@@ -96,7 +111,9 @@ export function shouldStoreReplayMessage(
     return scope.channelScope === channelKey || scope.channel === channelKey;
   }
 
-  return !scope.namespace && !scope.channel && !scope.channelScope;
+  if (scope.channelScope && claimedChannelKeys.has(scope.channelScope)) return false;
+  if (scope.channel && claimedChannelKeys.has(scope.channel)) return false;
+  return true;
 }
 
 /**
