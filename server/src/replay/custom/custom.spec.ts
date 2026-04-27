@@ -19,6 +19,9 @@ describe('custom replay', () => {
       getScopeInfo() {
         return {};
       },
+      getReplayClaimedChannelKeys() {
+        return new Set();
+      },
       onInit(handler) {
         initHandlers.push(handler as (ctx: unknown) => void);
       },
@@ -28,7 +31,11 @@ describe('custom replay', () => {
       onProtocolMessage() {},
     } as Pick<
       EngineAccess,
-      'getScopeInfo' | 'onInit' | 'onBeforeSend' | 'onProtocolMessage'
+      | 'getScopeInfo'
+      | 'getReplayClaimedChannelKeys'
+      | 'onInit'
+      | 'onBeforeSend'
+      | 'onProtocolMessage'
     > as EngineAccess;
 
     handleReplay({
@@ -94,6 +101,9 @@ describe('custom replay', () => {
       getScopeInfo() {
         return { channelKey: 'rooms' };
       },
+      getReplayClaimedChannelKeys() {
+        return new Set();
+      },
       onInit(handler) {
         initHandlers2.push(handler as (ctx: unknown) => void);
       },
@@ -111,7 +121,12 @@ describe('custom replay', () => {
       },
     } as Pick<
       EngineAccess,
-      'getScopeInfo' | 'onInit' | 'onBeforeSend' | 'onProtocolMessage' | 'sendReplay'
+      | 'getScopeInfo'
+      | 'getReplayClaimedChannelKeys'
+      | 'onInit'
+      | 'onBeforeSend'
+      | 'onProtocolMessage'
+      | 'sendReplay'
     > as EngineAccess;
 
     handleReplay<'channel'>({
@@ -212,6 +227,9 @@ describe('custom replay', () => {
     const engine = {
       getScopeInfo() {
         return {};
+      },
+      getReplayClaimedChannelKeys() {
+        return new Set();
       },
       onInit(handler: (ctx: unknown) => void | Promise<void>) {
         initHandlers.push(handler as (ctx: unknown) => void);

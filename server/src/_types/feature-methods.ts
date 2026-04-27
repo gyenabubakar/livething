@@ -704,7 +704,14 @@ export interface StreamBuilderMethods<
   ): StreamBundlePrimitive<TEvent, TPayload, TChunks, TNudges>;
 }
 
-/** Adds replay support for outgoing messages. */
+/**
+ * Adds replay support for outgoing messages.
+ *
+ * Server-level `.replay(...)` cascades into channels by default — every
+ * outgoing message is captured, including channel-scoped traffic. A channel
+ * can override the cascade by calling `.replay({ ... })` inside its
+ * sub-builder, or opt out entirely with `.replay(false)`.
+ */
 export interface ReplayBuilderMethods<TBuilder, TState extends ScopeStateShape> {
   /** Enable history replay with default options. */
   replay(): ReplayBuilder<TBuilder, TState, 'history'>;

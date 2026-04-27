@@ -342,7 +342,15 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
 
       if (opts.onBeforeSend) {
         engine.onBeforeSend((message) => {
-          if (!shouldStoreReplayMessage(channelKey, message.event, message.payload, new Set()))
+          if (
+            !shouldStoreReplayMessage(
+              channelKey,
+              message.event,
+              message.payload,
+              new Set(),
+              engine.getReplayClaimedChannelKeys(),
+            )
+          )
             return;
           opts.onBeforeSend!(
             buildSendCtx(message.meta),
@@ -355,7 +363,15 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
 
       if (opts.onAfterSend) {
         engine.onAfterSend((message) => {
-          if (!shouldStoreReplayMessage(channelKey, message.event, message.payload, new Set()))
+          if (
+            !shouldStoreReplayMessage(
+              channelKey,
+              message.event,
+              message.payload,
+              new Set(),
+              engine.getReplayClaimedChannelKeys(),
+            )
+          )
             return;
           return opts.onAfterSend!(
             buildSendCtx(message.meta),
@@ -372,7 +388,9 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
 
         // Only handle the replay request if it matches this primitive's scope
         // (top-level vs. the correct channel).
-        if (!matchesReplayScope(channelKey, scope)) return false;
+        if (!matchesReplayScope(channelKey, scope, engine.getReplayClaimedChannelKeys())) {
+          return false;
+        }
 
         if (channelKey && scope.channelName && scope.channelScope) {
           await opts.onReplay(

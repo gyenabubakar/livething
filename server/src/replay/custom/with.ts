@@ -23,6 +23,12 @@ const KINDS = ['server', 'channel'] as const;
  * hooks, giving you full control over what gets stored and what gets replayed
  * to reconnecting clients.
  *
+ * Cascade behavior matches `withReplay`: a server-level `.replayCustom(...)`
+ * captures every outgoing message, including channel-scoped traffic. Channels
+ * that register their own `.replay(...)` or `.replayCustom(...)` claim their
+ * scope and the server-level cascade skips them. A channel can opt out via
+ * `.replay(false)` inside it.
+ *
  * @example
  * ```ts
  * import { server } from '@wskit/server';
