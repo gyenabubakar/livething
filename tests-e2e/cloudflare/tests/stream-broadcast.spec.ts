@@ -31,6 +31,48 @@ test.describe('stream-broadcast', () => {
     await ctxB.close();
   });
 
+  test('broadcast stream inside a dynamic channel family carries _channelScope on peer chunks', async ({
+    browser,
+  }, testInfo) => {
+    const room = `test-${testInfo.testId}`;
+    const ctxA = await browser.newContext();
+    const ctxB = await browser.newContext();
+    const a = await ctxA.newPage();
+    const b = await ctxB.newPage();
+
+    await a.goto(`/stream-broadcast?room=${room}`);
+    await b.goto(`/stream-broadcast?room=${room}`);
+    await a.getByTestId('username').fill('alice');
+    await b.getByTestId('username').fill('bob');
+    await a.getByTestId('connect').click();
+    await b.getByTestId('connect').click();
+    await expect(a.getByTestId('status')).toHaveText('connected');
+    await expect(b.getByTestId('status')).toHaveText('connected');
+
+    // Both clients subscribe to the same room before the stream runs so
+    // peer broadcast hits an actual channel member.
+    await a.getByTestId('join-room').click();
+    await b.getByTestId('join-room').click();
+    await expect(a.getByTestId('room-subscribed')).toHaveText('yes');
+    await expect(b.getByTestId('room-subscribed')).toHaveText('yes');
+
+    // Trigger the broadcast stream from alice. Pre-fix, the peer (bob)
+    // never received chunks because the engine rejected them as undeclared
+    // (channelScope dropped from broadcast options) — or received them
+    // without _channelScope so the page filter skipped them.
+    await a.getByTestId('start-room-3').click();
+    await expect(a.getByTestId('room-stream-end')).toHaveText('yes');
+    await expect(a.getByTestId('room-indices')).toHaveText('0,1,2');
+
+    // Peer received every chunk AND the chunks carried _channelScope so the
+    // client could attribute them to the 'rooms' family.
+    await expect(b.getByTestId('room-indices')).toHaveText('0,1,2');
+    await expect(b.getByTestId('room-scope-seen')).toHaveText('rooms');
+
+    await ctxA.close();
+    await ctxB.close();
+  });
+
   test('trigger receives each chunk once while peers still receive the broadcast', async ({
     browser,
   }, testInfo) => {
