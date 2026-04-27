@@ -24,21 +24,18 @@ function identityLabel(primitive: Primitive): string {
 }
 
 /**
- * Walk the full primitive tree and return the set of identity keys that are
- * actually registered.
+ * Collect the identity keys registered directly in a scope.
  *
- * `refs` accumulates as the recursion walks nested scopes, so the final
- * dependency check has a complete picture of everything available.
+ * Groups expand into their parent scope at compile time, so their refs are
+ * pulled up here. Channels and namespaces own their own scope and are not
+ * walked into.
  */
-function collectRegisteredRefs(
-  primitives: readonly Primitive[],
-  refs = new Set<symbol>(),
-): Set<symbol> {
+function collectScopeRefs(primitives: readonly Primitive[], refs = new Set<symbol>()): Set<symbol> {
   for (const primitive of primitives) {
     refs.add(primitive.__identity[0]);
 
-    if (hasNestedPrimitives(primitive)) {
-      collectRegisteredRefs(primitive.primitives, refs);
+    if (hasNestedPrimitives(primitive) && primitive.__wskit === 'group') {
+      collectScopeRefs(primitive.primitives, refs);
     }
   }
 
@@ -85,27 +82,45 @@ function validateUniqueIdentities(
 
 /**
  * Walk the primitive tree and throw if a primitive declares a dependency on
- * another primitive that was not registered.
+ * another primitive that was not registered in its scope (or an outer scope).
  *
- * Dependencies are expressed as `PrimitiveRef` objects (factory functions with
- * a `__key` symbol). A dependency is satisfied if its `__key` appears anywhere
- * in the full set of registered refs, including nested scopes.
+ * Visibility rules:
+ * - Server-level refs are visible everywhere.
+ * - Refs registered inside a channel are visible only inside that channel.
+ * - Namespace-local refs are visible only inside that namespace, but the
+ *   namespace inherits its parent scope's refs.
+ * - Groups expand into the parent scope, so their refs are pulled up by
+ *   `collectScopeRefs` before the walk.
+ *
+ * `parentRefs` is the set of refs visible from outside this scope. Each
+ * scope adds its own primitives (and groups, recursively) on top of that
+ * before checking dependencies and recursing into nested channels and
+ * namespaces.
  */
-function validateDependencies(
+function validateScopeDependencies(
   primitives: readonly Primitive[],
-  registeredRefs: ReadonlySet<symbol>,
+  parentRefs: ReadonlySet<symbol>,
 ): void {
+  const scopeRefs = collectScopeRefs(primitives, new Set(parentRefs));
+  walkScope(primitives, scopeRefs);
+}
+
+function walkScope(primitives: readonly Primitive[], scopeRefs: ReadonlySet<symbol>): void {
   for (const primitive of primitives) {
     for (const dependency of primitive.__dependencies) {
-      if (!registeredRefs.has(dependency.__key)) {
+      if (!scopeRefs.has(dependency.__key)) {
         throw new Error(
-          `[wskit] ${identityLabel(primitive)} requires a missing dependency. Register the required primitive in your server builder.`,
+          `[wskit] ${identityLabel(primitive)} requires a missing dependency. Register the required primitive in the same scope or an outer scope.`,
         );
       }
     }
 
-    if (hasNestedPrimitives(primitive)) {
-      validateDependencies(primitive.primitives, registeredRefs);
+    if (!hasNestedPrimitives(primitive)) continue;
+
+    if (primitive.__wskit === 'group') {
+      walkScope(primitive.primitives, scopeRefs);
+    } else {
+      validateScopeDependencies(primitive.primitives, scopeRefs);
     }
   }
 }
@@ -127,5 +142,5 @@ function validateDependencies(
  */
 export function validateBuild(primitives: readonly Primitive[]): void {
   validateUniqueIdentities(primitives);
-  validateDependencies(primitives, collectRegisteredRefs(primitives));
+  validateScopeDependencies(primitives, new Set());
 }

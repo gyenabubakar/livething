@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { InternalError } from '@wskit/core';
+import { InternalError, isWskitConfigError } from '@wskit/core';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import type { AnyGenerate } from '~/_engine/compile/types.ts';
 import type { ActiveStream, ResolvedScope, RuntimeConnection } from '~/_engine/runtime/types.ts';
@@ -116,6 +116,7 @@ export async function bufferStreamNudge(
       payload: validateValue(validator, nudgePayload, event),
     });
   } catch (error) {
+    if (isWskitConfigError(error)) throw error;
     await runtime.handleValidationError(connection, event, error);
     return false;
   }

@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { ChannelNotFound, ChannelNotSubscribed } from '@wskit/core';
+import { ChannelNotFound, ChannelNotSubscribed, isWskitConfigError } from '@wskit/core';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import type { CompiledChannel } from '~/_engine/compile/types.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
@@ -232,6 +232,7 @@ export async function subscribeConnection(
       try {
         validatedData = validateValue(hook.validator, data, '_subscribe');
       } catch (error) {
+        if (isWskitConfigError(error)) throw error;
         await runtime.handleValidationError(connection, '_subscribe', error, scope);
         throw error;
       }

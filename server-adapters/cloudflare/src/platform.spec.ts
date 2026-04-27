@@ -91,7 +91,9 @@ describe('createSql', () => {
       storage: {
         sql: {
           exec: () => ({
-            toArray: () => [],
+            toArray: () => {
+              throw new Error('boom');
+            },
             one: () => {
               throw new Error('no row');
             },
@@ -103,6 +105,25 @@ describe('createSql', () => {
 
     const sql = createSql(state);
     expect(sql.exec('SELECT 1').one()).toBeNull();
+  });
+
+  it('returns the first row from one() when the cursor has multiple rows', () => {
+    const state = {
+      storage: {
+        sql: {
+          exec: () => ({
+            toArray: () => [{ id: 1 }, { id: 2 }, { id: 3 }],
+            one: () => {
+              throw new Error('cursor.one() throws on multi-row');
+            },
+            raw: () => [][Symbol.iterator](),
+          }),
+        },
+      },
+    } as unknown as DurableObjectState;
+
+    const sql = createSql(state);
+    expect(sql.exec('SELECT * FROM t').one()).toEqual({ id: 1 });
   });
 
   it('transaction falls back to inline execution when transactionSync is missing', () => {

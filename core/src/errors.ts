@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import type { StandardSchemaV1 } from '@standard-schema/spec';
+import { assertSyncResult } from './sync-guard.ts';
 
 // ---------------------------------------------------------------------------
 // Close codes
@@ -246,12 +247,10 @@ export function error(
     : typeof schemaOrParse === 'function'
       ? schemaOrParse
       : (value: unknown) => {
-          const result = schemaOrParse['~standard'].validate(value);
-          if (result instanceof Promise) {
-            throw new Error(
-              `[wskit] error() does not support async validators. Use a sync schema or parse function for "${code}".`,
-            );
-          }
+          const result = assertSyncResult(
+            schemaOrParse['~standard'].validate(value),
+            `error("${code}")`,
+          );
           if (result.issues) {
             throw new Error(
               `[wskit] Validation failed for error "${code}": ${result.issues[0]?.message}`,

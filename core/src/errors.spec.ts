@@ -203,7 +203,7 @@ describe('error() async StandardSchema rejection', () => {
     );
     // oxlint-disable-next-line @typescript-eslint/no-explicit-any
     const AsyncDef = error('async-test', asyncSchema as any);
-    expect(() => AsyncDef('value' as never)).toThrow(/does not support async/);
+    expect(() => AsyncDef('value' as never)).toThrow(/async validators are not supported/);
   });
 });
 

@@ -17,7 +17,8 @@ function wrapCursor<TRow = unknown>(
     toArray: () => cursor.toArray() as TRow[],
     one: () => {
       try {
-        return (cursor.one() as TRow) ?? null;
+        const rows = cursor.toArray() as TRow[];
+        return rows[0] ?? null;
       } catch {
         return null;
       }
@@ -83,6 +84,11 @@ export function createKv(state: DurableObjectState): KVProvider {
       return (await readFreshKvEntry(state, key, entry))?.value;
     },
     async set(key, value, options) {
+      if (options?.ttl === 0) {
+        console.warn(
+          `[wskit] kv.set("${key}", { ttl: 0 }) — a ttl of 0 is treated as "no expiry"; pass a positive number of milliseconds to enable expiry, or omit ttl.`,
+        );
+      }
       await state.storage.put(key, {
         value,
         expiresAt: options?.ttl ? Date.now() + options.ttl : undefined,

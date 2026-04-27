@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { Block, ChannelNotSubscribed, WskitError } from '@wskit/core';
+import { Block, ChannelNotSubscribed, isWskitConfigError, WskitError } from '@wskit/core';
 import * as EngineCompileUtils from '~/_engine/compile/utils.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import * as ErrorsPrimitive from '~/errors/errors.ts';
@@ -428,6 +428,7 @@ export async function dispatchIncoming(
         event,
       );
     } catch (error) {
+      if (isWskitConfigError(error)) throw error;
       await runtime.handleValidationError(connection, event, error, scope);
       throw error;
     }
