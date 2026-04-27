@@ -7,6 +7,7 @@
     "node": ">=24"
   },
   "scripts": {
+    "postinstall": "pnpm -r run build",
     "prepare": "husky",
     "build": "pnpm -r run build",
     "dev": "pnpm -r --parallel run dev",
@@ -17,7 +18,7 @@
     "oxlint": "oxlint --fix .",
     "format": "prettier --cache --log-level=error --write .",
     "clean": "pnpm -r --parallel run clean",
-    "check": "pnpm build && pnpm format && pnpm typecheck && pnpm oxlint && pnpm test"
+    "check": "pnpm format && pnpm typecheck && pnpm oxlint && pnpm test"
   },
   "devDependencies": {
     "@commitlint/cli": "^20.5.0",
