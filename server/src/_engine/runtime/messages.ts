@@ -501,6 +501,7 @@ async function handleDispatchError(
   error: unknown,
   attempt: number,
 ): Promise<void> {
+  if (isWskitConfigError(error)) throw error;
   if (error === Block) return;
 
   if (error instanceof WskitError && error.code === 'validation-failed') {

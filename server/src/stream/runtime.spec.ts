@@ -283,6 +283,35 @@ describe('stream/runtime', () => {
     expect(activeStream.nudges).toHaveLength(0);
   });
 
+  it('bufferStreamNudge throws WskitConfigError without routing through handleValidationError when the nudge validator is async', async () => {
+    const { runtime } = createStreamRuntime();
+    const connection = createConnection();
+    const handleValidationError = vi.fn();
+    runtime.handleValidationError = handleValidationError;
+
+    const activeStream: ActiveStream = {
+      id: 'stream_1',
+      connectionId: connection.id,
+      generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
+      nudges: [],
+      nudgeValidators: new Map([['async-nudge', (v: unknown) => Promise.resolve(v)]]),
+      closed: false,
+    };
+    runtime.activeStreams.set('stream_1', activeStream);
+
+    await expect(
+      bufferStreamNudge(
+        runtime as Parameters<typeof bufferStreamNudge>[0],
+        connection,
+        'async-nudge',
+        { _streamId: 'stream_1' },
+      ),
+    ).rejects.toThrow(/async validators are not supported/);
+
+    expect(handleValidationError).not.toHaveBeenCalled();
+    expect(activeStream.nudges).toHaveLength(0);
+  });
+
   it('persistAttachment is called with stream ID added on start and removed on end', async () => {
     const { runtime } = createStreamRuntime();
     const connection = createConnection();

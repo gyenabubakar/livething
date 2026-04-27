@@ -3,6 +3,17 @@ import { createPlatform } from './platform.ts';
 import { createSql, createStorage, createTimers } from './providers.ts';
 import { normalizeBinary } from './utils.ts';
 
+function fakeCursor<T>(rows: T[]) {
+  return {
+    toArray: () => rows,
+    one: () => rows[0],
+    raw: () => rows.map((r) => Object.values(r as Record<string, unknown>))[Symbol.iterator](),
+    [Symbol.iterator]: () => rows[Symbol.iterator](),
+  };
+}
+
+const noopLogger = { info: () => {}, warn: () => {}, error: () => {} };
+
 function fakeState() {
   let alarm: number | null = null;
   const rows = [{ id: 1 }, { id: 2 }];
@@ -13,11 +24,7 @@ function fakeState() {
       waitUntil: vi.fn(),
       storage: {
         sql: {
-          exec: vi.fn(() => ({
-            toArray: () => rows,
-            one: () => rows[0],
-            raw: () => [[1], [2]][Symbol.iterator](),
-          })),
+          exec: vi.fn(() => fakeCursor(rows)),
         },
         setAlarm: vi.fn(async (t: number) => {
           alarm = t;
@@ -64,12 +71,40 @@ describe('createSql', () => {
     const result = sql.exec('SELECT * FROM t WHERE id = ?', 1);
     expect(state.storage.sql.exec).toHaveBeenCalledWith('SELECT * FROM t WHERE id = ?', 1);
     expect(result.toArray()).toEqual([{ id: 1 }, { id: 2 }]);
-    expect(result.one()).toEqual({ id: 1 });
     const raw = result.raw();
     expect(Array.isArray(raw)).toBe(true);
   });
 
-  it('returns null from one() when the cursor returns null (empty result set, no throw)', () => {
+  it('one() returns the row when the cursor has exactly one row', () => {
+    const state = {
+      storage: { sql: { exec: () => fakeCursor([{ id: 7 }]) } },
+    } as unknown as DurableObjectState;
+
+    const sql = createSql(state);
+    expect(sql.exec('SELECT 1').one()).toEqual({ id: 7 });
+  });
+
+  it('one() returns null when the cursor is empty', () => {
+    const state = {
+      storage: { sql: { exec: () => fakeCursor([]) } },
+    } as unknown as DurableObjectState;
+
+    const sql = createSql(state);
+    expect(sql.exec('SELECT 1 WHERE 0').one()).toBeNull();
+  });
+
+  it('one() throws when the cursor has more than one row', () => {
+    const state = {
+      storage: { sql: { exec: () => fakeCursor([{ id: 1 }, { id: 2 }]) } },
+    } as unknown as DurableObjectState;
+
+    const sql = createSql(state);
+    expect(() => sql.exec('SELECT * FROM t').one()).toThrow(
+      /expected at most one row, but the query returned multiple/,
+    );
+  });
+
+  it('one() propagates errors thrown by the underlying cursor iterator', () => {
     const state = {
       storage: {
         sql: {
@@ -77,53 +112,16 @@ describe('createSql', () => {
             toArray: () => [],
             one: () => null,
             raw: () => [][Symbol.iterator](),
+            [Symbol.iterator]: () => {
+              throw new Error('sql failure');
+            },
           }),
         },
       },
     } as unknown as DurableObjectState;
 
     const sql = createSql(state);
-    expect(sql.exec('SELECT 1 WHERE 0').one()).toBeNull();
-  });
-
-  it('returns null from one() when the underlying cursor throws', () => {
-    const state = {
-      storage: {
-        sql: {
-          exec: () => ({
-            toArray: () => {
-              throw new Error('boom');
-            },
-            one: () => {
-              throw new Error('no row');
-            },
-            raw: () => [][Symbol.iterator](),
-          }),
-        },
-      },
-    } as unknown as DurableObjectState;
-
-    const sql = createSql(state);
-    expect(sql.exec('SELECT 1').one()).toBeNull();
-  });
-
-  it('returns the first row from one() when the cursor has multiple rows', () => {
-    const state = {
-      storage: {
-        sql: {
-          exec: () => ({
-            toArray: () => [{ id: 1 }, { id: 2 }, { id: 3 }],
-            one: () => {
-              throw new Error('cursor.one() throws on multi-row');
-            },
-            raw: () => [][Symbol.iterator](),
-          }),
-        },
-      },
-    } as unknown as DurableObjectState;
-
-    const sql = createSql(state);
-    expect(sql.exec('SELECT * FROM t').one()).toEqual({ id: 1 });
+    expect(() => sql.exec('SELECT bad').one()).toThrow(/sql failure/);
   });
 
   it('transaction falls back to inline execution when transactionSync is missing', () => {
@@ -175,7 +173,7 @@ describe('createStorage', () => {
     });
     (state.storage as unknown as Record<string, unknown>).list = vi.fn(async () => new Map());
 
-    const storage = createStorage(state as unknown as DurableObjectState);
+    const storage = createStorage(state as unknown as DurableObjectState, noopLogger);
     expect(typeof storage.sql.exec).toBe('function');
     expect(typeof storage.kv.get).toBe('function');
   });

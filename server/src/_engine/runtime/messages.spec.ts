@@ -283,4 +283,77 @@ describe('message runtime', () => {
     expect(validationErrors).toEqual(['manual-check']);
     expect(runtimeErrors).toHaveLength(1);
   });
+
+  it('propagates WskitConfigError without routing through handleValidationError (async validator)', async () => {
+    const handleValidationError = vi.fn();
+    const handleRuntimeError = vi.fn();
+    const handler = vi.fn();
+    const connection = createConnection('conn_1');
+
+    const runtime = {
+      compiled: {
+        outgoing: new Map(),
+        incoming: new Map([
+          [
+            'do-thing',
+            {
+              event: 'do-thing',
+              handler,
+              validator: (value: unknown) => Promise.resolve(value),
+            },
+          ],
+        ]),
+        requests: new Map(),
+        streams: new Map(),
+        preIntercepts: [],
+        postIntercepts: new Map(),
+        namespaces: new Map(),
+        channels: new Map(),
+        channelFamilies: new Map(),
+        scheduled: new Map(),
+        modules: [],
+        requires: {},
+      },
+      connections: new Map([[connection.id, connection]]),
+      toConnectionInfo() {
+        return { id: connection.id };
+      },
+      activeStreams: new Map(),
+      protocolHandlers: new Map(),
+      incomingHooks: [],
+      moduleRuntimes: [],
+      errorHooks: [],
+      requireTimers() {
+        return { setTimeout: () => undefined, clearTimeout() {} };
+      },
+      buildConnectionContext() {
+        return { id: connection.id };
+      },
+      broadcastToConnections() {},
+      sendProtocolMessage() {},
+      sendReplay() {},
+      persistAttachment() {},
+      setActiveConnectionId() {},
+      handleRuntimeError,
+      handleValidationError,
+      async handleSubscribe() {},
+      async handleUnsubscribe() {},
+      waitUntil() {},
+      generateId() {
+        return 'id_1';
+      },
+    };
+
+    await expect(
+      dispatchIncoming(
+        runtime as unknown as Parameters<typeof dispatchIncoming>[0],
+        connection,
+        'do-thing',
+        {},
+      ),
+    ).rejects.toThrow(/async validators are not supported/);
+
+    expect(handleValidationError).not.toHaveBeenCalled();
+    expect(handler).not.toHaveBeenCalled();
+  });
 });

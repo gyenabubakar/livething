@@ -19,7 +19,13 @@ export interface SqlResult<T = unknown> {
   /** Return every matching row as an array of the expected row shape. */
   toArray(): T[];
 
-  /** Return the first matching row, or `null` if the query returned nothing. */
+  /**
+   * Return the matching row, or `null` if the query returned nothing.
+   *
+   * Throws if the query returned more than one row — `.one()` is for
+   * single-row reads. If your query can match multiple rows and you only want
+   * the first, add `LIMIT 1` to the SQL or use `.toArray()[0]` instead.
+   */
   one(): T | null;
 
   /** Return every matching row as raw column arrays (no key names). */

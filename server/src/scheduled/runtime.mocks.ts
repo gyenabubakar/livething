@@ -16,6 +16,10 @@ export class FakeSqlResult<TRow = unknown> implements SqlResult<TRow> {
   }
 
   one(): TRow | null {
+    if (this.rows.length === 0) return null;
+    if (this.rows.length > 1) {
+      throw new Error('one() expected at most one row, but the cursor has multiple');
+    }
     return this.rows[0] ?? null;
   }
 

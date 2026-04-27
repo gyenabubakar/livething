@@ -227,6 +227,32 @@ describe('channel runtime', () => {
     ]);
   });
 
+  it('onBeforeSubscribe with an async validator throws WskitConfigError without routing through handleValidationError', async () => {
+    const connection = createConnection('conn_1');
+    const { runtime, connections } = createRuntime();
+    connections.set(connection.id, connection);
+
+    const handleValidationError = vi.fn();
+    const hook = vi.fn();
+
+    await expect(
+      subscribeConnection(
+        {
+          ...runtime,
+          handleValidationError,
+          beforeSubscribeHooks: new Map([
+            ['rooms', [{ handler: hook, validator: (v: unknown) => Promise.resolve(v) }]],
+          ]),
+        },
+        connection,
+        { _channel: 'room:general', _channelScope: 'rooms' },
+      ),
+    ).rejects.toThrow(/async validators are not supported/);
+
+    expect(handleValidationError).not.toHaveBeenCalled();
+    expect(hook).not.toHaveBeenCalled();
+  });
+
   it('onBeforeSubscribe fires before addChannelMembership (ordering guarantee)', async () => {
     const connection = createConnection('conn_1');
     const { runtime, connections } = createRuntime();

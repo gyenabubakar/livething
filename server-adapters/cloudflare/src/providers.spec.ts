@@ -28,7 +28,8 @@ function createState(entries: Record<string, KvEntry>) {
     },
   } as unknown as DurableObjectState;
 
-  return { kv: createKv(state), storageMap, deleteSpy };
+  const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+  return { kv: createKv(state, logger), storageMap, deleteSpy, logger };
 }
 
 describe('createKv', () => {
@@ -66,5 +67,24 @@ describe('createKv', () => {
     expect(storageMap.has('other:stale')).toBe(true);
 
     vi.useRealTimers();
+  });
+
+  it('warns through the engine logger when set() is called with ttl: 0', async () => {
+    const { kv, logger } = createState({});
+
+    await kv.set('session:abc', 'value', { ttl: 0 });
+
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('kv.set("session:abc"'));
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('ttl of 0'));
+  });
+
+  it('does not warn for normal set() calls without ttl', async () => {
+    const { kv, logger } = createState({});
+
+    await kv.set('foo', 'bar');
+    await kv.set('foo', 'bar', { ttl: 1000 });
+
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 });

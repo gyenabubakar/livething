@@ -57,7 +57,7 @@ const buildServe = defineServerAdapter<CloudflareOptions, CloudflareDurableObjec
 
         this.engine.setEnv((env ?? {}) as Record<string, unknown>);
         this.engine.setPlatform(createPlatform(ctx, env));
-        this.engine.setStorage(createStorage(ctx));
+        this.engine.setStorage(createStorage(ctx, this.engine.logger));
         this.engine.setTimerProvider(createTimers(ctx));
         this.engine.setWaitUntil((promise: Promise<unknown>) => {
           ctx.waitUntil?.(promise);

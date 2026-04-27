@@ -1,5 +1,6 @@
 import type {
   KVProvider,
+  Logger,
   SQLProvider,
   SqlResult,
   StorageProvider,
@@ -16,12 +17,16 @@ function wrapCursor<TRow = unknown>(
   return {
     toArray: () => cursor.toArray() as TRow[],
     one: () => {
-      try {
-        const rows = cursor.toArray() as TRow[];
-        return rows[0] ?? null;
-      } catch {
-        return null;
+      const iter = cursor[Symbol.iterator]();
+      const first = iter.next();
+      if (first.done) return null;
+      const second = iter.next();
+      if (!second.done) {
+        throw new Error(
+          '[wskit] sql.one() expected at most one row, but the query returned multiple. Add LIMIT 1 to the SQL, or use .toArray().',
+        );
       }
+      return first.value as TRow;
     },
     raw: () => [...cursor.raw()] as unknown[][],
   };
@@ -76,8 +81,14 @@ export function createSql(state: DurableObjectState): SQLProvider {
 /**
  * Create a KVProvider backed by Durable Object SQLite with built-in TTL (time-to-live)
  * support for automatic key expiry.
+ *
+ * When `kv.set()` is called with `ttl: 0`, the provider emits a warning that
+ * includes the key name, since `0` is treated as "no expiry" rather than
+ * "expire immediately". If your key names encode sensitive data (for example
+ * `session:${userId}`), the key name will appear in the warning output — use
+ * a non-zero ttl or omit it to avoid the warning.
  */
-export function createKv(state: DurableObjectState): KVProvider {
+export function createKv(state: DurableObjectState, logger: Logger): KVProvider {
   return {
     async get(key) {
       const entry = (await state.storage.get(key)) as KvEntry | undefined;
@@ -85,7 +96,7 @@ export function createKv(state: DurableObjectState): KVProvider {
     },
     async set(key, value, options) {
       if (options?.ttl === 0) {
-        console.warn(
+        logger.warn(
           `[wskit] kv.set("${key}", { ttl: 0 }) — a ttl of 0 is treated as "no expiry"; pass a positive number of milliseconds to enable expiry, or omit ttl.`,
         );
       }
@@ -114,10 +125,10 @@ export function createKv(state: DurableObjectState): KVProvider {
 /**
  * Bundle SQL and KV providers into a single StorageProvider.
  */
-export function createStorage(state: DurableObjectState): StorageProvider {
+export function createStorage(state: DurableObjectState, logger: Logger): StorageProvider {
   return {
     sql: createSql(state),
-    kv: createKv(state),
+    kv: createKv(state, logger),
   };
 }
 

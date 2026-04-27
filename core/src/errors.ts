@@ -245,7 +245,7 @@ export function error(
   const validate: ValidateFn<any> | undefined = !schemaOrParse
     ? undefined
     : typeof schemaOrParse === 'function'
-      ? schemaOrParse
+      ? (value: unknown) => assertSyncResult(schemaOrParse(value), `error("${code}")`)
       : (value: unknown) => {
           const result = assertSyncResult(
             schemaOrParse['~standard'].validate(value),

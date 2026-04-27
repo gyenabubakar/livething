@@ -10,6 +10,7 @@ export type {
 export type { ServerContract, ServerDefinition } from '~/server-definition.ts';
 export type {
   KVProvider,
+  Logger,
   SQLProvider,
   SqlResult,
   StorageProvider,
