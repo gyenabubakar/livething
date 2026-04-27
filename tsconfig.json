@@ -5,7 +5,6 @@
     "lib": ["ES2022"],
     "types": ["node"],
     "moduleResolution": "bundler",
-    "customConditions": ["@wskit/source"],
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "noEmit": true,

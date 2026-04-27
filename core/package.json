@@ -6,7 +6,6 @@
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
-      "@wskit/source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     }

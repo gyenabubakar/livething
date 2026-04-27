@@ -17,7 +17,7 @@
     "oxlint": "oxlint --fix .",
     "format": "prettier --cache --log-level=error --write .",
     "clean": "pnpm -r --parallel run clean",
-    "check": "pnpm format && pnpm typecheck && pnpm oxlint && pnpm test"
+    "check": "pnpm build && pnpm format && pnpm typecheck && pnpm oxlint && pnpm test"
   },
   "devDependencies": {
     "@commitlint/cli": "^20.5.0",
