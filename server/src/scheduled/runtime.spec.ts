@@ -370,6 +370,52 @@ describe('scheduled/runtime', () => {
     now.mockRestore();
   });
 
+  it('clears the native alarm when the scheduled queue empties', () => {
+    const deleteAlarm = vi.fn(async () => {});
+    const runtime = {
+      // Empty queue — no next run.
+      getScheduledRuns: () => new Map<string, ScheduledRun>(),
+      timers: {
+        setAlarm: vi.fn(async () => {}),
+        deleteAlarm,
+        setTimeout: vi.fn(),
+        clearTimeout: vi.fn(),
+      },
+      requireTimers() {
+        return this.timers;
+      },
+      getAlarmHandle: () => null,
+      setAlarmHandle: vi.fn(),
+      onAlarm: vi.fn(async () => {}),
+    };
+
+    rescheduleScheduledAlarm(runtime);
+
+    // Native durable alarms (e.g. CF DOs) must be cleared too — otherwise
+    // the platform wakes the DO at the previously-set time and finds
+    // nothing scheduled, billing for a wake that does no work.
+    expect(deleteAlarm).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips deleteAlarm when the adapter does not provide it', () => {
+    const runtime = {
+      getScheduledRuns: () => new Map<string, ScheduledRun>(),
+      timers: {
+        // No setAlarm / deleteAlarm — adapter has no durable alarm.
+        setTimeout: vi.fn(),
+        clearTimeout: vi.fn(),
+      },
+      requireTimers() {
+        return this.timers;
+      },
+      getAlarmHandle: () => null,
+      setAlarmHandle: vi.fn(),
+      onAlarm: vi.fn(async () => {}),
+    };
+
+    expect(() => rescheduleScheduledAlarm(runtime)).not.toThrow();
+  });
+
   it('uses timer alarms when available and falls back to timeouts otherwise', () => {
     const withAlarm = {
       getScheduledRuns: () =>
