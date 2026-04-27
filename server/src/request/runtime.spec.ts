@@ -91,7 +91,7 @@ describe('request/runtime', () => {
     );
   });
 
-  it('passes undefined to sendThroughPipeline when handler never calls ctx.respond()', async () => {
+  it('does not call sendThroughPipeline when handler never calls ctx.respond()', async () => {
     const sendThroughPipeline = vi.fn(() => true);
     const runtime = {
       buildConnectionContext: () => ({ ok: true }),
@@ -103,18 +103,15 @@ describe('request/runtime', () => {
       __wskit: 'request',
       event: 'status',
       handler: vi.fn(async () => {
-        // Never calls ctx.respond() — response stays undefined.
+        // Never calls ctx.respond() — leave the request hanging on the
+        // client. Pushing `undefined` through the pipeline would fail the
+        // payload-must-be-an-object check and surface as a spurious _error.
       }),
     } as unknown as RequestPrimitive;
 
     await handleRequest(runtime, connection, {}, 'status', request, {}, {});
 
-    expect(sendThroughPipeline).toHaveBeenCalledWith(
-      connection,
-      expect.anything(),
-      'status',
-      undefined,
-    );
+    expect(sendThroughPipeline).not.toHaveBeenCalled();
   });
 
   it('clears the active connection id when a request handler throws', async () => {

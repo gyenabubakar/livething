@@ -60,6 +60,11 @@ export async function handleRequest(
     return request.handler(ctx, payload);
   });
 
+  // Handler that never called ctx.respond() — leave the request hanging on
+  // the client side. Pushing `undefined` through the pipeline would fail the
+  // payload-must-be-an-object check and surface as a spurious internal error.
+  if (!responded) return;
+
   runtime.sendThroughPipeline(
     connection,
     {
