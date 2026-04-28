@@ -226,6 +226,135 @@ describe('custom replay', () => {
     ]);
   });
 
+  it('silently denies channel replay for a non-member', async () => {
+    const protocolHandlers: Array<NonNullable<Parameters<EngineAccess['onProtocolMessage']>[1]>> =
+      [];
+    const replayCalls: Array<unknown> = [];
+    const sent: Array<Parameters<EngineAccess['sendReplay']>> = [];
+    const engine = {
+      getScopeInfo() {
+        return { channelKey: 'rooms' };
+      },
+      getReplayClaimedChannelKeys() {
+        return new Set();
+      },
+      onInit() {},
+      onBeforeSend() {},
+      onProtocolMessage(
+        event: IncomingProtocolEvent,
+        handler: NonNullable<Parameters<EngineAccess['onProtocolMessage']>[1]>,
+      ) {
+        if (event === '_replay') protocolHandlers.push(handler);
+      },
+      sendReplay(...args: Parameters<EngineAccess['sendReplay']>) {
+        sent.push(args);
+      },
+    } as Pick<
+      EngineAccess,
+      | 'getScopeInfo'
+      | 'getReplayClaimedChannelKeys'
+      | 'onInit'
+      | 'onBeforeSend'
+      | 'onProtocolMessage'
+      | 'sendReplay'
+    > as EngineAccess;
+
+    handleReplay<'channel'>({
+      onReplay() {
+        replayCalls.push('called');
+      },
+    }).__setup?.(engine);
+
+    const result = await protocolHandlers[0]!(
+      {
+        id: 'non-member',
+        sql: {},
+        kv: {},
+        env: {},
+        log: {},
+        platform: {},
+        waitUntil() {},
+        [ENGINE_SCOPE_META]: {
+          channelName: 'room-private',
+          channelScope: 'rooms',
+        },
+        [ENGINE_INTERNAL_CONNECTION]: {
+          channelMemberships: new Map(),
+        },
+      },
+      { since: 0 },
+    );
+
+    expect(result).toBe(true);
+    expect(replayCalls).toEqual([]);
+    expect(sent).toEqual([]);
+  });
+
+  it('builds a channel-shaped context for static channel replay (no _channelScope on payload)', async () => {
+    const protocolHandlers: Array<NonNullable<Parameters<EngineAccess['onProtocolMessage']>[1]>> =
+      [];
+    const seenContexts: Array<{ id: string; channelName: string }> = [];
+    const engine = {
+      getScopeInfo() {
+        return { channelKey: 'replay-room' };
+      },
+      getReplayClaimedChannelKeys() {
+        return new Set();
+      },
+      onInit() {},
+      onBeforeSend() {},
+      onProtocolMessage(
+        event: IncomingProtocolEvent,
+        handler: NonNullable<Parameters<EngineAccess['onProtocolMessage']>[1]>,
+      ) {
+        if (event === '_replay') protocolHandlers.push(handler);
+      },
+      sendReplay() {},
+    } as Pick<
+      EngineAccess,
+      | 'getScopeInfo'
+      | 'getReplayClaimedChannelKeys'
+      | 'onInit'
+      | 'onBeforeSend'
+      | 'onProtocolMessage'
+      | 'sendReplay'
+    > as EngineAccess;
+
+    handleReplay<'channel'>({
+      onReplay(ctx) {
+        seenContexts.push({ id: ctx.id, channelName: ctx.channel.name });
+      },
+    }).__setup?.(engine);
+
+    const result = await protocolHandlers[0]!(
+      {
+        id: 'c-static',
+        sql: {},
+        kv: {},
+        env: {},
+        log: {},
+        platform: {},
+        waitUntil() {},
+        [ENGINE_SCOPE_META]: {
+          channelName: 'replay-room',
+          // Note: no channelScope — this is a static channel.
+        },
+        [ENGINE_INTERNAL_CONNECTION]: {
+          channelMemberships: new Map([
+            [
+              createChannelMembershipKey('replay-room'),
+              { channelName: 'replay-room', channelScope: undefined },
+            ],
+          ]),
+        },
+      },
+      { since: 0 },
+    );
+
+    expect(result).toBe(true);
+    expect(seenContexts).toEqual([{ id: 'c-static', channelName: 'replay-room' }]);
+  });
+
   it('ctx.sendReplay() in onReplay does not re-trigger onBeforeSend', async () => {
     const beforeSendCalls: string[] = [];
     const replaySent: Parameters<EngineAccess['sendReplay']>[] = [];

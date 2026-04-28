@@ -1,6 +1,7 @@
 import {
   acceptConnection,
   handleShutdown,
+  runConnectionLifecycle,
   wakeHibernatedConnection,
 } from '~/_engine/runtime/connection.ts';
 import { describe, expect, it } from 'vitest';
@@ -404,5 +405,51 @@ describe('connection runtime', () => {
     expect(events).toEqual(['server-shutdown', 'module-shutdown', 'cancel:conn_1']);
     expect(closed).toEqual([{ code: 1001, reason: 'Server shutting down' }]);
     expect(cleared).toEqual(['alarm-handle']);
+  });
+
+  it('restores activeConnectionState.current when an onConnect hook throws', async () => {
+    const activeConnectionState: { current?: string } = { current: 'previous-conn' };
+
+    await expect(
+      runConnectionLifecycle(
+        {
+          connectHooks: [
+            () => {
+              throw new Error('boom');
+            },
+          ],
+          disconnectHooks: [],
+          moduleRuntimes: [],
+          activeConnectionState,
+          createModuleScopedContext(_id, ctx) {
+            return ctx;
+          },
+        },
+        'connect',
+        { id: 'conn_42' },
+      ),
+    ).rejects.toThrow('boom');
+
+    expect(activeConnectionState.current).toBe('previous-conn');
+  });
+
+  it('restores activeConnectionState.current to undefined when no previous value existed', async () => {
+    const activeConnectionState: { current?: string } = {};
+
+    await runConnectionLifecycle(
+      {
+        connectHooks: [() => {}],
+        disconnectHooks: [],
+        moduleRuntimes: [],
+        activeConnectionState,
+        createModuleScopedContext(_id, ctx) {
+          return ctx;
+        },
+      },
+      'connect',
+      { id: 'conn_99' },
+    );
+
+    expect(activeConnectionState.current).toBeUndefined();
   });
 });

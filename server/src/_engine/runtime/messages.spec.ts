@@ -203,6 +203,58 @@ describe('message runtime', () => {
     expect((errors[0]!.error as { code?: string }).code).toBe('channel-not-subscribed');
   });
 
+  it('resolveScope throws ChannelNotFound when _channel does not match the family regex', () => {
+    const compiled = {
+      namespaces: new Map(),
+      channels: new Map(),
+      channelFamilies: new Map([
+        [
+          'rooms',
+          {
+            key: 'rooms',
+            kind: 'channel' as const,
+            pattern: { key: 'rooms', pattern: /^room:/ },
+            outgoing: new Map(),
+            incoming: new Map(),
+            requests: new Map(),
+            streams: new Map(),
+            preIntercepts: [],
+            postIntercepts: new Map(),
+          },
+        ],
+      ]),
+    } as unknown as CompiledServer;
+
+    expect(() =>
+      resolveScope(compiled, { _channel: 'admin', _channelScope: 'rooms' }),
+    ).toThrowError(/channel-not-found/i);
+  });
+
+  it('resolveScope returns the scope when _channel matches the family regex', () => {
+    const family = {
+      key: 'rooms',
+      kind: 'channel' as const,
+      pattern: { key: 'rooms', pattern: /^room:/ },
+      outgoing: new Map(),
+      incoming: new Map(),
+      requests: new Map(),
+      streams: new Map(),
+      preIntercepts: [],
+      postIntercepts: new Map(),
+    };
+    const compiled = {
+      namespaces: new Map(),
+      channels: new Map(),
+      channelFamilies: new Map([['rooms', family]]),
+    } as unknown as CompiledServer;
+
+    expect(resolveScope(compiled, { _channel: 'room:lobby', _channelScope: 'rooms' })).toEqual({
+      channel: family,
+      channelName: 'room:lobby',
+      channelScope: 'rooms',
+    });
+  });
+
   it('routes ValidationFailed thrown from a handler to handleValidationError', async () => {
     const { ValidationFailed } = await import('@wskit/core');
     const validationErrors: string[] = [];

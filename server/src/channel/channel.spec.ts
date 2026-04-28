@@ -1,0 +1,39 @@
+import { isWskitConfigError, WskitConfigError } from '@wskit/core';
+import { describe, expect, it } from 'vitest';
+import { scope } from './channel.ts';
+
+describe('scope() regex flag validation', () => {
+  it('rejects the "g" (global) flag', () => {
+    let thrown: unknown;
+    try {
+      scope('rooms', /^room-.+$/g);
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(WskitConfigError);
+    expect(isWskitConfigError(thrown)).toBe(true);
+    expect((thrown as Error).message).toMatch(/"g"/);
+  });
+
+  it('rejects the "y" (sticky) flag', () => {
+    expect(() => scope('rooms', /^room-.+$/y)).toThrow(WskitConfigError);
+  });
+
+  it('rejects regex with both "g" and "y"', () => {
+    expect(() => scope('rooms', /^room-.+$/gy)).toThrow(WskitConfigError);
+  });
+
+  it('accepts the "i" (case-insensitive) flag', () => {
+    expect(() => scope('rooms', /^room-.+$/i)).not.toThrow();
+  });
+
+  it('accepts "m" and "s" flags', () => {
+    expect(() => scope('rooms', /^room-.+$/m)).not.toThrow();
+    expect(() => scope('rooms', /^room-.+$/s)).not.toThrow();
+  });
+
+  it('accepts a flag-free regex', () => {
+    const result = scope('rooms', /^room-.+$/);
+    expect(result).toEqual({ key: 'rooms', pattern: /^room-.+$/ });
+  });
+});

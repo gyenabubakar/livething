@@ -1,6 +1,8 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import {
   buildConnectionContext,
+  createInitContext,
+  createShutdownContext,
   createTaskContext,
   persistAttachment,
 } from '~/_engine/contexts/contexts.ts';
@@ -428,5 +430,77 @@ describe('persistAttachment', () => {
     connection.wsKey = Symbol('ws') as unknown as RuntimeConnection['wsKey'];
 
     expect(() => persistAttachment(connection, undefined)).not.toThrow();
+  });
+});
+
+describe('lazy storage in init/shutdown/task contexts', () => {
+  function makeFailingRequireStorage() {
+    return () => {
+      throw new Error('[wskit] storage not provided');
+    };
+  }
+
+  function makeShutdownDeps(requireStorage: () => any) {
+    return {
+      env: {},
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      platform: {},
+      waitUntilImpl: vi.fn(),
+      requireStorage,
+      requireTimers: () => ({
+        setTimeout: () => undefined,
+        clearTimeout: () => {},
+      }),
+      scheduleTask: vi.fn(),
+      cancelScheduled: vi.fn(() => ({ taskExists: true, removed: 1 })),
+      broadcastToConnections: vi.fn(),
+      sendThroughPipeline: vi.fn(() => true),
+      broadcastToChannel: vi.fn(),
+      getChannelMembers: vi.fn(() => []),
+      kickChannelMembers: vi.fn(),
+      sendReplay: vi.fn(),
+      sendProtocolMessage: vi.fn(),
+      persistAttachment: vi.fn(),
+      toConnectionInfo: (c: any) => c,
+      attachModuleApis: vi.fn(),
+      connections: new Map<string, RuntimeConnection>(),
+      contextExtenders: [],
+    } as any;
+  }
+
+  it('createInitContext does not call requireStorage eagerly', () => {
+    expect(() => createInitContext(makeShutdownDeps(makeFailingRequireStorage()))).not.toThrow();
+  });
+
+  it('createShutdownContext does not call requireStorage eagerly', () => {
+    expect(() =>
+      createShutdownContext(makeShutdownDeps(makeFailingRequireStorage())),
+    ).not.toThrow();
+  });
+
+  it('createTaskContext does not call requireStorage eagerly', () => {
+    expect(() => createTaskContext(makeShutdownDeps(makeFailingRequireStorage()))).not.toThrow();
+  });
+
+  it('init ctx.sql.exec throws the requireStorage error only when invoked', () => {
+    const ctx = createInitContext(makeShutdownDeps(makeFailingRequireStorage()));
+    expect(() => ctx.sql.exec('SELECT 1')).toThrow('[wskit] storage not provided');
+  });
+
+  it('init ctx.kv.get throws the requireStorage error only when invoked', async () => {
+    const ctx = createInitContext(makeShutdownDeps(makeFailingRequireStorage()));
+    await expect(ctx.kv.get('k')).rejects.toThrow('[wskit] storage not provided');
+  });
+
+  it('lazy view forwards calls to the real provider when storage exists', () => {
+    const realSqlExec = vi.fn(() => ({ toArray: () => [], one: () => null, raw: () => [] }));
+    const ctx = createInitContext(
+      makeShutdownDeps(() => ({
+        sql: { exec: realSqlExec, transaction: vi.fn() },
+        kv: { get: vi.fn(), set: vi.fn(), delete: vi.fn(), list: vi.fn() },
+      })),
+    );
+    ctx.sql.exec('SELECT 1', 1, 2);
+    expect(realSqlExec).toHaveBeenCalledWith('SELECT 1', 1, 2);
   });
 });

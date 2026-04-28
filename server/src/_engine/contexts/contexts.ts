@@ -24,16 +24,16 @@ function createLazyStorageView(requireStorage: () => PublicApi.StorageProvider):
     },
   };
   const kv: PublicApi.KVProvider = {
-    get(key) {
+    async get(key) {
       return requireStorage().kv.get(key);
     },
-    set(key, value, options) {
+    async set(key, value, options) {
       return requireStorage().kv.set(key, value, options);
     },
-    delete(key) {
+    async delete(key) {
       return requireStorage().kv.delete(key);
     },
-    list(prefix) {
+    async list(prefix) {
       return requireStorage().kv.list(prefix);
     },
   };
