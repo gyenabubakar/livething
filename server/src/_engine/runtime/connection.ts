@@ -107,33 +107,36 @@ export async function runConnectionLifecycle(
   kind: 'connect' | 'disconnect',
   ctx: Record<PropertyKey, unknown>,
 ): Promise<void> {
+  const previous = runtime.activeConnectionState.current;
   runtime.activeConnectionState.current = String(ctx.id);
 
-  if (kind === 'connect') {
-    for (const hook of runtime.connectHooks) {
-      await hook(ctx);
-    }
-    for (const moduleRuntime of runtime.moduleRuntimes) {
-      if (moduleRuntime.onConnect) {
-        await moduleRuntime.onConnect(
-          runtime.createModuleScopedContext(moduleRuntime.instance.id, ctx),
-        );
+  try {
+    if (kind === 'connect') {
+      for (const hook of runtime.connectHooks) {
+        await hook(ctx);
+      }
+      for (const moduleRuntime of runtime.moduleRuntimes) {
+        if (moduleRuntime.onConnect) {
+          await moduleRuntime.onConnect(
+            runtime.createModuleScopedContext(moduleRuntime.instance.id, ctx),
+          );
+        }
+      }
+    } else {
+      for (const hook of runtime.disconnectHooks) {
+        await hook(ctx);
+      }
+      for (const moduleRuntime of runtime.moduleRuntimes) {
+        if (moduleRuntime.onDisconnect) {
+          await moduleRuntime.onDisconnect(
+            runtime.createModuleScopedContext(moduleRuntime.instance.id, ctx),
+          );
+        }
       }
     }
-  } else {
-    for (const hook of runtime.disconnectHooks) {
-      await hook(ctx);
-    }
-    for (const moduleRuntime of runtime.moduleRuntimes) {
-      if (moduleRuntime.onDisconnect) {
-        await moduleRuntime.onDisconnect(
-          runtime.createModuleScopedContext(moduleRuntime.instance.id, ctx),
-        );
-      }
-    }
+  } finally {
+    runtime.activeConnectionState.current = previous;
   }
-
-  runtime.activeConnectionState.current = undefined;
 }
 
 /**
