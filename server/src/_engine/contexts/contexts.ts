@@ -1,7 +1,44 @@
 import * as EngineCompileUtils from '~/_engine/compile/utils.ts';
 import * as DefineModule from '~/modules/define.ts';
+import type * as PublicApi from '~/context.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
 import * as EngineContextTypes from './types.ts';
+
+/**
+ * Build a `sql`/`kv` view that defers `requireStorage()` until a method is
+ * actually invoked. Hooks and tasks that never touch storage stay valid on
+ * adapters that do not provide it; hooks that do reach for `ctx.sql.exec(...)`
+ * or `ctx.kv.get(...)` still get the adapter's "storage not provided" error
+ * at the call site.
+ */
+function createLazyStorageView(requireStorage: () => PublicApi.StorageProvider): {
+  sql: PublicApi.SQLProvider;
+  kv: PublicApi.KVProvider;
+} {
+  const sql: PublicApi.SQLProvider = {
+    exec(query, ...params) {
+      return requireStorage().sql.exec(query, ...params);
+    },
+    transaction(fn) {
+      return requireStorage().sql.transaction(fn);
+    },
+  };
+  const kv: PublicApi.KVProvider = {
+    get(key) {
+      return requireStorage().kv.get(key);
+    },
+    set(key, value, options) {
+      return requireStorage().kv.set(key, value, options);
+    },
+    delete(key) {
+      return requireStorage().kv.delete(key);
+    },
+    list(prefix) {
+      return requireStorage().kv.list(prefix);
+    },
+  };
+  return { sql, kv };
+}
 
 /**
  * Build the context passed to the `onInit` lifecycle hook.
@@ -12,10 +49,10 @@ export function createInitContext(
     'env' | 'logger' | 'platform' | 'requireStorage'
   >,
 ): EngineContextTypes.InitContext<Record<string, unknown>, unknown> {
-  const storage = deps.requireStorage();
+  const { sql, kv } = createLazyStorageView(deps.requireStorage);
   return {
-    sql: storage.sql,
-    kv: storage.kv,
+    sql,
+    kv,
     env: deps.env,
     log: deps.logger,
     platform: deps.platform,
@@ -28,7 +65,7 @@ export function createInitContext(
 export function createShutdownContext(
   deps: EngineContextTypes.CreateTaskContextDeps,
 ): EngineContextTypes.ShutdownContext<Record<string, unknown>, Record<string, unknown>, unknown> {
-  const storage = deps.requireStorage();
+  const { sql, kv } = createLazyStorageView(deps.requireStorage);
   function cancelScheduled(taskId: string, filter?: Record<string, unknown>): void {
     const result = deps.cancelScheduled(taskId, filter);
     if (result.removed === 0) {
@@ -48,8 +85,8 @@ export function createShutdownContext(
     broadcast: (event, payload, options) => {
       deps.broadcastToConnections([...deps.connections.values()], event, payload, options);
     },
-    sql: storage.sql,
-    kv: storage.kv,
+    sql,
+    kv,
     schedule: (taskId, options) => {
       deps.scheduleTask(taskId, options.time, options.data);
     },
@@ -76,14 +113,14 @@ export function createShutdownContext(
 export function createTaskContext(
   deps: EngineContextTypes.CreateTaskContextDeps,
 ): EngineContextTypes.TaskContext<Record<string, unknown>, Record<string, unknown>, unknown> {
-  const storage = deps.requireStorage();
+  const { sql, kv } = createLazyStorageView(deps.requireStorage);
   const ctx: EngineContextTypes.TaskContext<
     Record<string, unknown>,
     Record<string, unknown>,
     unknown
   > = {
-    sql: storage.sql,
-    kv: storage.kv,
+    sql,
+    kv,
     broadcast: (event, payload, options) => {
       deps.broadcastToConnections([...deps.connections.values()], event, payload, options);
     },
@@ -304,7 +341,7 @@ export function buildConnectionContext(
   },
 ): EngineContextTypes.ConnectionContext<Record<string, unknown>, Record<string, unknown>, unknown> &
   Record<PropertyKey, unknown> {
-  const storage = deps.requireStorage();
+  const { sql, kv } = createLazyStorageView(deps.requireStorage);
   function cancelScheduled(taskId: string, filter?: Record<string, unknown>): void {
     const result = deps.cancelScheduled(taskId, filter);
     if (result.removed === 0) {
@@ -362,8 +399,8 @@ export function buildConnectionContext(
         void timers.setAlarm(time);
       }
     },
-    sql: storage.sql,
-    kv: storage.kv,
+    sql,
+    kv,
     env: deps.env,
     log: deps.logger,
     waitUntil: deps.waitUntilImpl,
