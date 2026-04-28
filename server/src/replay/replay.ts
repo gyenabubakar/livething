@@ -1,4 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/types.ts';
+import * as ChannelPrimitive from '~/channel/runtime.ts';
 import { dedup } from '~/dedup/dedup.ts';
 import {
   ensureReplaySchema,
@@ -13,6 +15,7 @@ import {
 } from '~/replay/runtime.ts';
 import { sequence } from '~/sequence/sequence.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
+import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { ReplayWire } from '~/_types/scope-state';
 import type { Primitive } from '~/primitive.ts';
 import type { ReplayOptions } from '~/replay/types.ts';
@@ -206,6 +209,21 @@ class ReplayInstaller {
     const scope = readReplayContextScope(ctx as Record<PropertyKey, unknown>);
     if (!matchesReplayScope(this.channelKey, scope, this.engine.getReplayClaimedChannelKeys())) {
       return false;
+    }
+
+    if (scope.channelName) {
+      const connection = (ctx as Record<PropertyKey, unknown>)[ENGINE_INTERNAL_CONNECTION] as
+        | RuntimeConnection
+        | undefined;
+      if (
+        !connection ||
+        !ChannelPrimitive.hasChannelMembership(connection, scope.channelName, scope.channelScope)
+      ) {
+        // Silent ack: a non-member asking for channel replay gets no rows
+        // and no error frame, matching the principle that the server should
+        // not confirm channel existence to non-members.
+        return true;
+      }
     }
 
     const since = Number(payload?.since ?? 0);

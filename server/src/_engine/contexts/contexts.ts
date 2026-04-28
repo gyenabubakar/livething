@@ -326,6 +326,7 @@ export function buildConnectionContext(
       channelName: scope?.channelName,
       channelScope: scope?.channelScope ?? scope?.channel?.key,
     } satisfies EngineContextTypes.EngineScopeMeta,
+    [EngineContextTypes.ENGINE_INTERNAL_CONNECTION]: connection,
     id: connection.id,
     meta: connection.meta,
     tags: [...connection.tags],

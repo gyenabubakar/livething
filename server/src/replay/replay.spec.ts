@@ -1,4 +1,5 @@
-import { ENGINE_SCOPE_META } from '~/_engine/contexts/types.ts';
+import { ENGINE_INTERNAL_CONNECTION, ENGINE_SCOPE_META } from '~/_engine/contexts/types.ts';
+import { createChannelMembershipKey } from '~/channel/runtime.ts';
 import { dedup } from '~/dedup/dedup.ts';
 import { replay } from '~/replay/replay.ts';
 import { persistReplayMessage } from '~/replay/runtime.ts';
@@ -428,16 +429,34 @@ describe('replay', () => {
     replay().__setup?.(engine);
 
     const handler = protocolHandlers[0]!;
+    const memberConnection = {
+      channelMemberships: new Map([
+        [
+          createChannelMembershipKey('room-1', 'rooms'),
+          { channelName: 'room-1', channelScope: 'rooms' },
+        ],
+      ]),
+    };
     const matchingCtx = {
       id: 'c1',
       [ENGINE_SCOPE_META]: {
         channelName: 'room-1',
         channelScope: 'rooms',
       },
+      [ENGINE_INTERNAL_CONNECTION]: memberConnection,
+    };
+    const nonMemberCtx = {
+      id: 'c3',
+      [ENGINE_SCOPE_META]: {
+        channelName: 'room-1',
+        channelScope: 'rooms',
+      },
+      [ENGINE_INTERNAL_CONNECTION]: { channelMemberships: new Map() },
     };
 
     expect(await handler(matchingCtx, { since: 4 })).toBe(true);
     expect(await handler({ id: 'c2', [ENGINE_SCOPE_META]: {} }, { since: 9 })).toBe(false);
+    expect(await handler(nonMemberCtx, { since: 4 })).toBe(true);
     expect(sent).toEqual([
       [
         'c1',
