@@ -164,6 +164,43 @@ test.describe('replay handler', () => {
     await waitForText(page, 'room-history-injected', 'true');
   });
 
+  test('non-member channel replay request is silently denied (no rows replayed)', async ({
+    browser,
+  }, testInfo) => {
+    const room = `test-${testInfo.testId}-nonmember`;
+    const ctxA = await browser.newContext();
+    const ctxB = await browser.newContext();
+    const a = await ctxA.newPage();
+    const b = await ctxB.newPage();
+
+    // Client A joins replay-room and posts a message that gets stored.
+    await a.goto(`/replay?room=${room}`);
+    await a.getByTestId('username-input').fill('alice');
+    await a.getByTestId('connect-btn').click();
+    await waitForText(a, 'status', 'connected');
+    await a.getByTestId('room-join-btn').click();
+    await waitForText(a, 'room-subscribed', 'subscribed');
+    await a.getByTestId('room-send-btn').click();
+    await waitForText(a, 'room-messages', /room hello/);
+
+    // Client B connects to the SAME room namespace but does NOT subscribe
+    // to replay-room. B then asks for replay-room history.
+    await b.goto(`/replay?room=${room}`);
+    await b.getByTestId('username-input').fill('bob');
+    await b.getByTestId('connect-btn').click();
+    await waitForText(b, 'status', 'connected');
+    await b.getByTestId('room-replay-btn').click();
+
+    // Wait long enough that any rows would have arrived. The membership
+    // gate must keep room-replay-count at 0 for B.
+    await b.waitForTimeout(2000);
+    expect(await b.getByTestId('room-replay-count').textContent()).toBe('0');
+    expect(await b.getByTestId('room-messages').textContent()).toBe('');
+
+    await ctxA.close();
+    await ctxB.close();
+  });
+
   test('sequence persistence across reconnection', async ({ page }) => {
     await page.getByTestId('send-msg-btn').click();
     await waitForText(page, 'messages', /hello from replay/);

@@ -25,6 +25,16 @@ test.describe('channel-dynamic', () => {
     await expect(page.getByTestId('subscribe-error')).toHaveText('zzz:channel-not-found');
   });
 
+  test('subscribing with a name that fails the family regex emits _error channel-not-found', async ({
+    page,
+  }, testInfo) => {
+    await openPage(page, `test-${testInfo.testId}`);
+    // _channelScope='room' is a valid family; _channel='admin' does NOT match /^room:.+$/.
+    // The server must reject this rather than silently accept it as a 'room' subscription.
+    await page.getByTestId('sub-name-fails-regex').click();
+    await expect(page.getByTestId('subscribe-error')).toHaveText('admin:channel-not-found');
+  });
+
   test('dynamic channels with different suffixes stay isolated', async ({ browser }, testInfo) => {
     const room = `test-${testInfo.testId}`;
     const ctxA = await browser.newContext();

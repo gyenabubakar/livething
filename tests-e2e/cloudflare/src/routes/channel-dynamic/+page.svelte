@@ -89,6 +89,12 @@
 >
 	Subscribe unknown-family
 </button>
+<button
+	data-testid="sub-name-fails-regex"
+	onclick={() => subscribeUnknownScope('admin', 'room')}
+>
+	Subscribe name-fails-regex
+</button>
 <button data-testid="sub-alpha-123" onclick={() => subscribe('room:alpha-123')}>
 	Subscribe room:alpha-123
 </button>

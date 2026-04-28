@@ -42,4 +42,16 @@ test.describe('request', () => {
     const response = await page.getByTestId('last-response').textContent();
     expect(response).toBe('');
   });
+
+  test('strict-object request schema accepts the payload despite injected _correlationId', async ({
+    page,
+  }, testInfo) => {
+    // The request-response wire envelope injects _correlationId. With a
+    // strict-object schema (v.strictObject({ id: ... })), the server must
+    // strip transport markers BEFORE validation, otherwise validation
+    // would reject the extra key.
+    await openPage(page, `test-${testInfo.testId}`);
+    await page.getByTestId('strict-echo').click();
+    await expect(page.getByTestId('last-response')).toContainText('"echoed":"value-42"');
+  });
 });

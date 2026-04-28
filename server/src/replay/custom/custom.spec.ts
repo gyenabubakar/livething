@@ -217,7 +217,7 @@ describe('custom replay', () => {
           ]),
         },
       },
-      { since: 4 },
+      { since: 4, _channel: 'room-1', _channelScope: 'rooms' },
     );
 
     expect(replayCalls).toEqual([{ since: 4, channel: 'room-1' }]);
@@ -282,7 +282,7 @@ describe('custom replay', () => {
           channelMemberships: new Map(),
         },
       },
-      { since: 0 },
+      { since: 0, _channel: 'room-private', _channelScope: 'rooms' },
     );
 
     expect(result).toBe(true);

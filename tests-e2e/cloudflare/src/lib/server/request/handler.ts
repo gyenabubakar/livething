@@ -21,6 +21,12 @@ const NoResponseSchema = v.object({ ok: v.boolean() });
 const DoubleResponseEvent = event('double-response', v.object({}));
 const DoubleResponseSchema = v.object({ count: v.number() });
 
+// Strict-object request: any extra key (including transport markers like
+// _correlationId) would normally fail validation. The server's payload
+// stripping must run BEFORE this validator sees the payload.
+const StrictEcho = event('strict-echo', v.strictObject({ id: v.string() }));
+const StrictEchoResponseSchema = v.strictObject({ echoed: v.string() });
+
 const base = withChannels(withNamespaces(withRequests(withLifecycle(server<Env>('request')))))
   .onUpgrade((request) => requireUsername(request))
   .request(GetTime, TimeResponseSchema, (ctx) => {
@@ -32,6 +38,9 @@ const base = withChannels(withNamespaces(withRequests(withLifecycle(server<Env>(
   .request(DoubleResponseEvent, DoubleResponseSchema, (ctx) => {
     ctx.respond({ count: 1 });
     ctx.respond({ count: 2 });
+  })
+  .request(StrictEcho, StrictEchoResponseSchema, (ctx, payload) => {
+    ctx.respond({ echoed: payload.id });
   });
 
 const ns = base.namespace('ns', (n) =>

@@ -215,9 +215,14 @@ class ReplayInstaller {
       const connection = (ctx as Record<PropertyKey, unknown>)[ENGINE_INTERNAL_CONNECTION] as
         | RuntimeConnection
         | undefined;
+      // Membership keys store the raw wire `_channelScope` (undefined for
+      // static channels). `scope.channelScope` from ENGINE_SCOPE_META falls
+      // back to the channel.key, so use the payload directly here.
+      const wireChannelScope =
+        typeof payload?._channelScope === 'string' ? payload._channelScope : undefined;
       if (
         !connection ||
-        !ChannelPrimitive.hasChannelMembership(connection, scope.channelName, scope.channelScope)
+        !ChannelPrimitive.hasChannelMembership(connection, scope.channelName, wireChannelScope)
       ) {
         // Silent ack: a non-member asking for channel replay gets no rows
         // and no error frame, matching the principle that the server should

@@ -454,9 +454,13 @@ describe('replay', () => {
       [ENGINE_INTERNAL_CONNECTION]: { channelMemberships: new Map() },
     };
 
-    expect(await handler(matchingCtx, { since: 4 })).toBe(true);
+    expect(
+      await handler(matchingCtx, { since: 4, _channel: 'room-1', _channelScope: 'rooms' }),
+    ).toBe(true);
     expect(await handler({ id: 'c2', [ENGINE_SCOPE_META]: {} }, { since: 9 })).toBe(false);
-    expect(await handler(nonMemberCtx, { since: 4 })).toBe(true);
+    expect(
+      await handler(nonMemberCtx, { since: 4, _channel: 'room-1', _channelScope: 'rooms' }),
+    ).toBe(true);
     expect(sent).toEqual([
       [
         'c1',

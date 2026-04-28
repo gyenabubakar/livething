@@ -57,6 +57,9 @@
 	function doubleResponse() {
 		return request('double-response');
 	}
+	function strictEcho() {
+		return request('strict-echo', { id: 'value-42' });
+	}
 
 	let lastId = $state('');
 	function click(fn: () => string) {
@@ -73,6 +76,7 @@
 <button data-testid="get-ch-info" onclick={() => click(getChannelInfo)}>Get channel info</button>
 <button data-testid="no-response" onclick={() => click(noResponse)}>No response</button>
 <button data-testid="double-response" onclick={() => click(doubleResponse)}>Double response</button>
+<button data-testid="strict-echo" onclick={() => click(strictEcho)}>Strict echo</button>
 
 <span data-testid="status">{status}</span>
 <span data-testid="subscribed">{subscribed ? 'yes' : 'no'}</span>
