@@ -65,6 +65,20 @@ export function listChannelMemberships(
   return [...connection.channelMemberships.values()];
 }
 
+/**
+ * Check whether a concrete channel name satisfies a compiled channel's pattern.
+ * Static channels carry a string pattern (always passes — exact lookup is the
+ * gate). Dynamic families carry a `ScopeDeclaration` with a regex; the name
+ * must match the regex to be accepted.
+ */
+export function matchesScopePattern(
+  pattern: CompiledChannel['pattern'],
+  channelName: string,
+): boolean {
+  if (typeof pattern === 'string') return true;
+  return pattern.pattern.test(channelName);
+}
+
 /** Look up a compiled channel definition by name, supporting both exact and pattern-based channel names. */
 export function resolveCompiledChannel(
   compiled: Pick<ChannelRuntime['compiled'], 'channels' | 'channelFamilies'>,
@@ -171,6 +185,7 @@ function resolveChannel(
     : runtime.compiled.channels.get(payload._channel);
 
   if (!channel) return;
+  if (!matchesScopePattern(channel.pattern, payload._channel)) return;
 
   return {
     channel,

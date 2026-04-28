@@ -1,5 +1,11 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { Block, ChannelNotSubscribed, rethrowIfConfigError, WskitError } from '@wskit/core';
+import {
+  Block,
+  ChannelNotFound,
+  ChannelNotSubscribed,
+  rethrowIfConfigError,
+  WskitError,
+} from '@wskit/core';
 import * as EngineCompileUtils from '~/_engine/compile/utils.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import * as ErrorsPrimitive from '~/errors/errors.ts';
@@ -187,8 +193,12 @@ export function resolveScope(
 
   if (typeof record._channel === 'string') {
     if (typeof record._channelScope === 'string') {
+      const family = compiled.channelFamilies.get(record._channelScope);
+      if (family && !ChannelPrimitive.matchesScopePattern(family.pattern, record._channel)) {
+        throw ChannelNotFound();
+      }
       return {
-        channel: compiled.channelFamilies.get(record._channelScope),
+        channel: family,
         channelName: record._channel,
         channelScope: record._channelScope,
       };
