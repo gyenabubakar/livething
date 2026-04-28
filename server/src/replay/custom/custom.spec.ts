@@ -1,6 +1,7 @@
 import { server } from '~/_builder/server-builder.ts';
-import { ENGINE_SCOPE_META } from '~/_engine/contexts/types.ts';
+import { ENGINE_INTERNAL_CONNECTION, ENGINE_SCOPE_META } from '~/_engine/contexts/types.ts';
 import { Engine } from '~/_engine/engine.ts';
+import { createChannelMembershipKey } from '~/channel/runtime.ts';
 import { withDedup } from '~/dedup/with.ts';
 import { event } from '~/event.ts';
 import { handleReplay } from '~/replay/custom/custom.ts';
@@ -206,6 +207,14 @@ describe('custom replay', () => {
         [ENGINE_SCOPE_META]: {
           channelName: 'room-1',
           channelScope: 'rooms',
+        },
+        [ENGINE_INTERNAL_CONNECTION]: {
+          channelMemberships: new Map([
+            [
+              createChannelMembershipKey('room-1', 'rooms'),
+              { channelName: 'room-1', channelScope: 'rooms' },
+            ],
+          ]),
         },
       },
       { since: 4 },

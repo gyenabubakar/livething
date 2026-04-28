@@ -1,6 +1,8 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 /* oxlint-disable eslint-plugin-import(no-cycle) */
 
+import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/types.ts';
+import * as ChannelPrimitive from '~/channel/runtime.ts';
 import { dedup } from '~/dedup/dedup.ts';
 import {
   matchesReplayScope,
@@ -9,6 +11,7 @@ import {
 } from '~/replay/runtime.ts';
 import { sequence } from '~/sequence/sequence.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
+import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { ReplayWire } from '~/_types/scope-state';
 import type { KVProvider, Logger, SQLProvider } from '~/context.ts';
 import type { Primitive } from '~/primitive.ts';
@@ -278,7 +281,7 @@ function createChannelReplayContext(
   engine: EngineAccess,
   baseCtx: Record<PropertyKey, unknown>,
   channelName: string,
-  channelScope: string,
+  channelScope: string | undefined,
 ): ChannelReplayContext {
   return {
     id: String(baseCtx.id),
@@ -392,7 +395,22 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
           return false;
         }
 
-        if (channelKey && scope.channelName && scope.channelScope) {
+        if (channelKey && scope.channelName) {
+          const connection = baseCtx[ENGINE_INTERNAL_CONNECTION] as RuntimeConnection | undefined;
+          if (
+            !connection ||
+            !ChannelPrimitive.hasChannelMembership(
+              connection,
+              scope.channelName,
+              scope.channelScope,
+            )
+          ) {
+            // Silent ack: a non-member asking for channel replay gets no
+            // rows and no error frame, matching the principle that the
+            // server should not confirm channel existence to non-members.
+            return true;
+          }
+
           await opts.onReplay(
             createChannelReplayContext(
               engine,
