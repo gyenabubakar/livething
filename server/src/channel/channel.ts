@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { WskitConfigError } from '@wskit/core';
 import type {
   HandlerCtxFromState,
   NoOutgoing,
@@ -182,6 +183,14 @@ const CHANNEL_KEY = Symbol('channel');
  * ```
  */
 export function scope<TKey extends string>(key: TKey, pattern: RegExp): ScopeDeclaration<TKey> {
+  if (pattern.global || pattern.sticky) {
+    throw new WskitConfigError(
+      `scope("${key}", ...): regex flags "g" and "y" are not allowed because ` +
+        `they make RegExp.prototype.test stateful, which causes scope-pattern ` +
+        `checks to alternate between match and no-match for the same input. ` +
+        `Use the same pattern without the "g" or "y" flag.`,
+    );
+  }
   return { key, pattern };
 }
 
