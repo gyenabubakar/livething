@@ -96,6 +96,40 @@ export function validateValue(validator: unknown, value: unknown, event = 'unkno
 }
 
 /**
+ * Reserved keys the engine uses on the wire for routing, correlation, and
+ * delivery bookkeeping. They are stripped from incoming payloads before user
+ * validators or handlers see them, so application schemas (including strict
+ * ones) can describe only the app data and handler functions never observe
+ * private transport fields as if they were domain values.
+ */
+export const PROTOCOL_PAYLOAD_FIELDS: ReadonlySet<string> = new Set([
+  '_channel',
+  '_channelScope',
+  '_namespace',
+  '_correlationId',
+  '_ackId',
+  '_messageId',
+  '_seq',
+  '_streamId',
+]);
+
+/**
+ * Return a shallow copy of `payload` with every reserved transport key
+ * removed. Non-object payloads are returned unchanged so primitive payloads
+ * (numbers, strings, arrays) flow through untouched.
+ */
+export function stripProtocolFields(payload: unknown): unknown {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return payload;
+  const source = payload as Record<string, unknown>;
+  const cleaned: Record<string, unknown> = {};
+  for (const key of Object.keys(source)) {
+    if (PROTOCOL_PAYLOAD_FIELDS.has(key)) continue;
+    cleaned[key] = source[key];
+  }
+  return cleaned;
+}
+
+/**
  * Reserve a private wire event name for a module-owned event.
  */
 export function prefixedModuleEvent(moduleId: string, event: string): string {

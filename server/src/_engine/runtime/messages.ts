@@ -447,11 +447,13 @@ export async function dispatchIncoming(
     const primitive = incoming ?? request ?? stream;
     if (!primitive) return;
 
+    const appPayload = EngineCompileUtils.stripProtocolFields(message.payload);
+
     let payload: unknown;
     try {
       payload = EngineCompileUtils.validateValue(
         'stream' in primitive ? primitive.stream.validator : primitive.validator,
-        message.payload,
+        appPayload,
         event,
       );
     } catch (error) {

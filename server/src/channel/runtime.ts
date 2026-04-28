@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { ChannelNotFound, ChannelNotSubscribed, rethrowIfConfigError } from '@wskit/core';
-import { validateValue } from '~/_engine/compile/utils.ts';
+import { stripProtocolFields, validateValue } from '~/_engine/compile/utils.ts';
 import type { CompiledChannel } from '~/_engine/compile/types.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { ConnectionInfo } from '~/index.ts';
@@ -252,9 +252,7 @@ export async function subscribeConnection(
   // happen to use the same concrete channel name.
   const existingMembers = getChannelMembers(runtime, scope.channelName, scope.channelScope);
   const ctx = runtime.buildConnectionContext(connection, scope);
-  const data = { ...payload };
-  delete data._channel;
-  delete data._channelScope;
+  const data = stripProtocolFields(payload);
 
   for (const hook of runtime.beforeSubscribeHooks.get(scope.channel.key) ?? []) {
     let validatedData: unknown = data;
