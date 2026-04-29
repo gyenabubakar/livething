@@ -174,4 +174,19 @@ test.describe('scheduled', () => {
     await page.getByTestId('schedule-cleanup-soon').click();
     await expect(page.getByTestId('cleanup-fired')).toHaveText('yes');
   });
+
+  test('ctx.schedule on an unregistered task id throws synchronously', async ({
+    page,
+  }, testInfo) => {
+    // Pre-fix: scheduleTaskRun silently queued unknown task ids when no
+    // data was supplied. The runner later found no handler and dropped
+    // the run without surfacing anything to the developer. The handler
+    // now throws at schedule time so typos are caught immediately.
+    await openPage(page, `test-${testInfo.testId}`);
+    await page.getByTestId('schedule-unknown-task').click();
+    await expect(page.getByTestId('schedule-unknown-task-result')).toContainText('rejected:');
+    await expect(page.getByTestId('schedule-unknown-task-result')).toContainText(
+      'is not registered',
+    );
+  });
 });

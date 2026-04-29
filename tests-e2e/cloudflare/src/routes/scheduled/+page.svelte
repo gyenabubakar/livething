@@ -19,6 +19,7 @@
 	let broadcastResult = $state('');
 	let sendToTagResult = $state('');
 	let cancelNonexistentOk = $state(false);
+	let scheduleUnknownTaskResult = $state('');
 
 	function connect() {
 		if (ws) return;
@@ -84,6 +85,9 @@
 				case 'cancel-nonexistent-ok':
 					cancelNonexistentOk = true;
 					break;
+				case 'schedule-unknown-task-result':
+					scheduleUnknownTaskResult = `${data.payload?.rejected ? 'rejected' : 'accepted'}:${data.payload?.message ?? ''}`;
+					break;
 			}
 		};
 	}
@@ -136,6 +140,12 @@
 <button data-testid="cancel-nonexistent-task" onclick={() => send('cancel-nonexistent')}>
 	Cancel nonexistent
 </button>
+<button
+	data-testid="schedule-unknown-task"
+	onclick={() => send('trigger-schedule-unknown-task')}
+>
+	Schedule unknown task
+</button>
 <button data-testid="tag-vip" onclick={() => send('tag-vip')}>Tag vip</button>
 
 <input data-testid="target-id" bind:value={targetId} placeholder="target connection id" />
@@ -178,3 +188,4 @@
 <span data-testid="broadcast-result">{broadcastResult}</span>
 <span data-testid="send-to-tag-result">{sendToTagResult}</span>
 <span data-testid="cancel-nonexistent-ok">{cancelNonexistentOk ? 'yes' : 'no'}</span>
+<span data-testid="schedule-unknown-task-result">{scheduleUnknownTaskResult}</span>

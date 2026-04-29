@@ -384,10 +384,13 @@ export function scheduleTaskRun(
   data: unknown,
 ): void {
   const task = runtime.getScheduledTask(taskId);
+  if (!task) {
+    throw new Error(`[wskit] scheduled task "${taskId}" is not registered.`);
+  }
   const id = runtime.generateId('task');
   let normalizedData = data;
 
-  if (task?.hasData) {
+  if (task.hasData) {
     normalizedData = validateValue(task.dataSchema, data, taskId);
   } else if (data !== undefined) {
     throw new Error(`[wskit] scheduled task "${taskId}" does not declare .data(...).`);

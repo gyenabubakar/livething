@@ -60,6 +60,12 @@ const TagVip = event('tag-vip', v.object({}));
 const CancelNonexistent = event('cancel-nonexistent', v.object({}));
 const CancelNonexistentOk = event('cancel-nonexistent-ok', v.object({}));
 
+const TriggerScheduleUnknownTask = event('trigger-schedule-unknown-task', v.object({}));
+const ScheduleUnknownTaskResult = event(
+  'schedule-unknown-task-result',
+  v.object({ rejected: v.boolean(), message: v.string() }),
+);
+
 // --- handler ---------------------------------------------------------------
 
 let flakyAttempts = 0;
@@ -81,6 +87,7 @@ export const scheduledHandler = withScheduled(withLifecycle(server<Env>('schedul
   .outgoing(BroadcastResult)
   .outgoing(SendToTagResult)
   .outgoing(CancelNonexistentOk)
+  .outgoing(ScheduleUnknownTaskResult)
   .onUpgrade((request) => requireUsername(request))
   .scheduled('cleanup', (t) =>
     t.run((ctx) => {
@@ -236,5 +243,22 @@ export const scheduledHandler = withScheduled(withLifecycle(server<Env>('schedul
     // Cast to bypass the type guard: test that cancelling an unknown id at runtime is a no-op.
     (ctx.cancelScheduled as (id: string) => void)('nonexistent-task-id');
     ctx.send('cancel-nonexistent-ok', {});
+  })
+  .incoming(TriggerScheduleUnknownTask, (ctx) => {
+    // ctx.schedule with an unregistered task id must throw synchronously so
+    // typos surface at schedule time instead of silently being queued and
+    // dropped when the alarm later finds no handler.
+    let rejected = false;
+    let message = '';
+    try {
+      (ctx.schedule as (id: string, opts: { time: number }) => void)(
+        'typo-task-id-that-is-not-registered',
+        { time: Date.now() + 60_000 },
+      );
+    } catch (err) {
+      rejected = true;
+      message = (err as Error).message;
+    }
+    ctx.send('schedule-unknown-task-result', { rejected, message });
   })
   .build();

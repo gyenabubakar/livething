@@ -235,6 +235,16 @@ describe('scheduled/runtime', () => {
     );
   });
 
+  it('throws synchronously when scheduling an unregistered task id', () => {
+    const { runtime, scheduledRuns } = createScheduledRuntime([{ taskId: 'flush' }]);
+
+    expect(() => scheduleTaskRun(runtime, 'typo-flush', 100, undefined)).toThrow(
+      /scheduled task "typo-flush" is not registered/,
+    );
+    // The unknown id must NOT have been queued.
+    expect([...scheduledRuns.values()].map((r) => r.taskId)).not.toContain('typo-flush');
+  });
+
   it('throws when required task data is omitted', () => {
     const { runtime } = createScheduledRuntime([
       {
