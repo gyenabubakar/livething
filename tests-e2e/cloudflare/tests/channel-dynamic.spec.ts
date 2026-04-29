@@ -35,6 +35,37 @@ test.describe('channel-dynamic', () => {
     await expect(page.getByTestId('subscribe-error')).toHaveText('admin:channel-not-found');
   });
 
+  test('protocol-event with regex-failing scope keeps the websocket alive', async ({
+    page,
+  }, testInfo) => {
+    // resolveScope throws ChannelNotFound when the wire scope key is known
+    // but the channel name does not match the family regex. The server's
+    // protocol-message branch must route that through handleRuntimeError
+    // (clean _error frame, websocket stays open) rather than letting the
+    // throw escape the WS message callback.
+    await openPage(page, `test-${testInfo.testId}`);
+
+    // Send a bogus _replay with regex-failing channel under a known scope.
+    await page.evaluate(() => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      ws?.send(
+        JSON.stringify({
+          event: '_replay',
+          payload: { _channel: 'admin', _channelScope: 'room', since: 0 },
+        }),
+      );
+    });
+
+    // Server emits _error with the routing markers preserved.
+    await expect(page.getByTestId('subscribe-error')).toHaveText('admin:channel-not-found');
+    await expect(page.getByTestId('subscribe-error-scope')).toHaveText('room');
+
+    // The websocket must still be alive — a follow-up valid subscribe still works.
+    await page.getByTestId('sub-general').click();
+    await expect(page.getByTestId('subscribe-ok')).toContainText('room:general');
+    await expect(page.getByTestId('status')).toHaveText('connected');
+  });
+
   test('dynamic channels with different suffixes stay isolated', async ({ browser }, testInfo) => {
     const room = `test-${testInfo.testId}`;
     const ctxA = await browser.newContext();

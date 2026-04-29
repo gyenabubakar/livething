@@ -26,6 +26,8 @@
 		);
 		ws.onopen = () => {
 			status = 'connected';
+			// Expose for tests that need to send raw frames (e.g. protocol events).
+			(window as unknown as { __ws?: WebSocket }).__ws = ws ?? undefined;
 		};
 		ws.onclose = () => {
 			status = 'disconnected';
