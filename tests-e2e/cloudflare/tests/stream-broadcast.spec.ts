@@ -73,6 +73,52 @@ test.describe('stream-broadcast', () => {
     await ctxB.close();
   });
 
+  test('channel-scoped broadcast stream chunks do not reach non-members', async ({
+    browser,
+  }, testInfo) => {
+    const room = `test-${testInfo.testId}`;
+    const ctxA = await browser.newContext();
+    const ctxB = await browser.newContext();
+    const ctxM = await browser.newContext();
+    const a = await ctxA.newPage();
+    const b = await ctxB.newPage();
+    const mallory = await ctxM.newPage();
+
+    await a.goto(`/stream-broadcast?room=${room}`);
+    await b.goto(`/stream-broadcast?room=${room}`);
+    await mallory.goto(`/stream-broadcast?room=${room}`);
+    await a.getByTestId('username').fill('alice');
+    await b.getByTestId('username').fill('bob');
+    await mallory.getByTestId('username').fill('mallory');
+    await a.getByTestId('connect').click();
+    await b.getByTestId('connect').click();
+    await mallory.getByTestId('connect').click();
+    await expect(a.getByTestId('status')).toHaveText('connected');
+    await expect(b.getByTestId('status')).toHaveText('connected');
+    await expect(mallory.getByTestId('status')).toHaveText('connected');
+
+    // Alice and Bob subscribe; Mallory connects but never subscribes.
+    await a.getByTestId('join-room').click();
+    await b.getByTestId('join-room').click();
+    await expect(a.getByTestId('room-subscribed')).toHaveText('yes');
+    await expect(b.getByTestId('room-subscribed')).toHaveText('yes');
+
+    await a.getByTestId('start-room-3').click();
+    await expect(a.getByTestId('room-stream-end')).toHaveText('yes');
+    await expect(a.getByTestId('room-indices')).toHaveText('0,1,2');
+    await expect(b.getByTestId('room-indices')).toHaveText('0,1,2');
+
+    // Mallory is still connected. Wait long enough for chunks to have
+    // arrived if the membership filter was off, then assert empty.
+    await mallory.waitForTimeout(2000);
+    expect(await mallory.getByTestId('room-indices').textContent()).toBe('');
+    expect(await mallory.getByTestId('room-stream-end').textContent()).toBe('no');
+
+    await ctxA.close();
+    await ctxB.close();
+    await ctxM.close();
+  });
+
   test('trigger receives each chunk once while peers still receive the broadcast', async ({
     browser,
   }, testInfo) => {

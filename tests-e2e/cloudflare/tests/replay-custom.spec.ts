@@ -48,6 +48,42 @@ test.describe('custom replay handler', () => {
     }).toPass({ timeout: 5_000 });
   });
 
+  test('channel _replay request hits the channel handler, not the server-level handler', async ({
+    page,
+  }) => {
+    // Cascade contract: when a channel has its own `.replayCustom()`, the
+    // server-level replayCustom must NOT also handle channel-scoped _replay
+    // requests. Pre-fix the channel primitive's `__wskit` tag did not match
+    // the compile-step claim collector's expectation, so the channel never
+    // marked itself as claimed and the server-level handler ran first,
+    // returning top-level rows for a channel request.
+
+    // Add a top-level note. Stored in `_custom_replay`.
+    await page.getByTestId('add-note-btn').click();
+    await waitForText(page, 'notes', /custom replay note/);
+
+    // Join the channel and add a channel note. Stored in `_custom_room_replay`.
+    await page.getByTestId('room-join-btn').click();
+    await waitForText(page, 'room-subscribed', 'subscribed');
+    await page.getByTestId('room-note-btn').click();
+    await waitForText(page, 'room-notes', /channel replay note/);
+
+    // Trigger a channel-scoped _replay. Only the channel handler should run.
+    await page.getByTestId('room-replay-btn').click();
+
+    // Channel rows arrived (channel handler did fire).
+    await expect(async () => {
+      const count = Number(await page.getByTestId('room-replay-count').textContent());
+      expect(count).toBeGreaterThan(0);
+    }).toPass({ timeout: 5_000 });
+
+    // Server-level handler MUST be skipped — its rows would land in the
+    // top-level `notes` bucket and increment replayCount. Wait long enough
+    // for any rogue rows to have arrived, then assert it stayed at 0.
+    await page.waitForTimeout(1000);
+    expect(await page.getByTestId('replay-count').textContent()).toBe('0');
+  });
+
   test('onAfterSend marks messages as confirmed', async ({ page }) => {
     await page.getByTestId('add-note-btn').click();
     await waitForText(page, 'notes', /custom replay note/);
