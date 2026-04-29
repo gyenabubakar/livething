@@ -25,6 +25,7 @@
 	let dlqResult = $state('');
 	let errorLog = $state('');
 	let moduleTaskDataResult = $state('');
+	let streamConnIdChunks = $state<string[]>([]);
 
 	function connect() {
 		if (ws) return;
@@ -116,6 +117,11 @@
 					break;
 				case 'module-task-data-result':
 					moduleTaskDataResult = payload.result as string;
+					break;
+				case 'stream-connection-id':
+					if (typeof payload.id === 'string') {
+						streamConnIdChunks = [...streamConnIdChunks, payload.id];
+					}
 					break;
 			}
 		};
@@ -285,6 +291,16 @@
 			disabled={status !== 'connected'}>Trigger Task with Data</button
 		>
 		<div data-testid="module-task-data-result">{moduleTaskDataResult}</div>
+	</section>
+
+	<section>
+		<h2>Stream calling module hooks.getState()</h2>
+		<button
+			data-testid="stream-connection-id-btn"
+			onclick={() => send('stream-connection-id', { count: 3 })}
+			disabled={status !== 'connected'}>Start stream</button
+		>
+		<div data-testid="stream-connection-id-chunks">{streamConnIdChunks.join(',')}</div>
 	</section>
 
 	<section>

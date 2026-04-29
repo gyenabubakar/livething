@@ -1,7 +1,9 @@
-import { server } from '@wskit/server';
+import { event, server } from '@wskit/server';
 import { RejectUpgrade } from '@wskit/server/errors';
 import { withLifecycle } from '@wskit/server/lifecycle';
 import { withScheduled } from '@wskit/server/scheduled';
+import { withStreams } from '@wskit/server/streams';
+import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { Drizzle, DrizzleDenied } from './drizzle-module.ts';
 import {
@@ -45,7 +47,29 @@ import {
   VacuumDone,
 } from './events.ts';
 
-export const modulesHandler = withScheduled(withLifecycle(server<Env>('modules-test')))
+// Stream + module event used to pin the bug where the engine cleared
+// activeConnectionId before the generator body advanced. The stream's
+// generator body calls `Drizzle.use(ctx).getCurrentConnectionId()` (which
+// returns `hooks.getState()?.id`) on each yield, so each chunk carries the
+// id the engine had set at iterator.next() time.
+const StreamConnectionId = event('stream-connection-id', v.object({ count: v.number() }));
+
+const baseModules = withStreams(withScheduled(withLifecycle(server<Env>('modules-test'))));
+
+const streamConnectionIdPrimitive = baseModules.stream(StreamConnectionId, (s) =>
+  s.chunk(v.object({ id: v.string() })).generate(async function* (ctx, payload) {
+    const db = Drizzle.use(ctx);
+    for (let i = 0; i < payload.count; i++) {
+      // Each chunk carries the id observed via hooks.getState() at this
+      // point in the generator body. If the engine cleared the active id
+      // before iterator.next(), the id would be empty.
+      yield { id: db.getCurrentConnectionId() ?? '' };
+      await new Promise((r) => setTimeout(r, 5));
+    }
+  }),
+);
+
+export const modulesHandler = baseModules
   .outgoing(RecordInserted)
   .outgoing(RecordList)
   .outgoing(SingleRecord)
@@ -164,6 +188,7 @@ export const modulesHandler = withScheduled(withLifecycle(server<Env>('modules-t
       data: { value: 'test-data' },
     });
   })
+  .use(streamConnectionIdPrimitive)
   .build();
 
 export type ModulesClient = InferClient<typeof modulesHandler>;

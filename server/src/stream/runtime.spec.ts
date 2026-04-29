@@ -464,4 +464,46 @@ describe('stream/runtime', () => {
     expect(snapshots[snapshots.length - 1]).not.toContain('stream_1');
     expect(connection.activeStreamIds?.has('stream_1')).toBe(false);
   });
+
+  it('generator body sees the stream owner connection id via setActiveConnectionId', async () => {
+    // Pre-fix the engine bracketed setActiveConnectionId around generator
+    // construction (which only returns the iterator, doesn't run the body).
+    // By the time `iterator.next()` ran the body, the active id was already
+    // cleared. Module APIs that call hooks.getState() inside a stream
+    // generator saw `undefined` instead of the stream owner's id.
+    const { runtime } = createStreamRuntime();
+    const connection = createConnection();
+
+    let activeId: string | undefined;
+    runtime.setActiveConnectionId = vi.fn((id?: string) => {
+      activeId = id;
+    });
+
+    const idsObservedFromBody: (string | undefined)[] = [];
+
+    const stream = {
+      stream: { nudges: [], broadcast: false },
+      generator: async function* () {
+        // Read at the top of each yield iteration. The bracket must be set
+        // around iterator.next() so this reads the stream owner's id.
+        idsObservedFromBody.push(activeId);
+        yield { token: 'a' };
+        idsObservedFromBody.push(activeId);
+        yield { token: 'b' };
+      },
+    };
+
+    await runStream(
+      runtime as Parameters<typeof runStream>[0],
+      connection,
+      {},
+      'my-stream',
+      stream as never,
+      {},
+    );
+
+    expect(idsObservedFromBody).toEqual(['c1', 'c1']);
+    // After the stream ends, the bracket has restored undefined.
+    expect(activeId).toBeUndefined();
+  });
 });

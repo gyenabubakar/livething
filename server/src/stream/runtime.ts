@@ -153,9 +153,12 @@ export async function runStream(
   const ctx = runtime.buildConnectionContext(connection, scope) as Record<string, unknown>;
   ctx.nudges = (value: unknown) => (Array.isArray(value) ? value : []);
 
-  runtime.setActiveConnectionId(connection.id);
+  // Construct the iterator. The generator body does not run yet — calling an
+  // async generator function only returns the iterator; the body advances on
+  // each `iterator.next()` call below. Bracketing the connection id around
+  // construction would clear it before the body could ever observe it, so
+  // the bracket lives around each `iterator.next()` instead.
   const iterator = stream.generator(ctx, payload);
-  runtime.setActiveConnectionId(undefined);
 
   const activeStream: ActiveStream = {
     id: streamId,
@@ -177,7 +180,17 @@ export async function runStream(
     let nextInput: unknown = stream.stream.nudges.length > 0 ? [] : undefined;
 
     while (!activeStream.closed) {
-      const result = await iterator.next(nextInput);
+      // Set the active connection id around each advance so module APIs the
+      // generator calls before its first internal await (e.g. hooks.getState())
+      // see the stream owner's connection. Restore afterwards so unrelated
+      // operations don't observe a stale id.
+      runtime.setActiveConnectionId(connection.id);
+      let result: IteratorResult<unknown>;
+      try {
+        result = await iterator.next(nextInput);
+      } finally {
+        runtime.setActiveConnectionId(undefined);
+      }
       if (result.done) break;
 
       if (stream.stream.broadcast) {

@@ -34,6 +34,13 @@ export interface DrizzleApi {
   getLastGeneratedId(): string | null;
   getLastState(): LastConnectionState | null;
   getShutdownCount(): number;
+  /**
+   * Read `hooks.getState()` lazily — at API-call time, not at module-setup
+   * or onConnect time. Used by the streams-active-connection-id e2e test
+   * to verify the engine keeps the active connection id set across
+   * stream iterator advances.
+   */
+  getCurrentConnectionId(): string | null;
 }
 
 export const Drizzle = defineModule({
@@ -231,6 +238,9 @@ export const Drizzle = defineModule({
         return (
           db.select().from(moduleMeta).where(eq(moduleMeta.key, 'shutdown_count')).get()?.value ?? 0
         );
+      },
+      getCurrentConnectionId() {
+        return hooks.getState()?.id ?? null;
       },
     });
   },

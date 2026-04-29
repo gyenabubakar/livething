@@ -200,4 +200,37 @@ test.describe('modules handler', () => {
     await page.getByTestId('shutdown-count-btn').click();
     await waitForText(page, 'shutdown-count', 'shutdowns: 1');
   });
+
+  test('module hooks.getState() inside a stream generator returns the stream owner connection id', async ({
+    page,
+  }, testInfo) => {
+    // Pre-fix the engine bracketed setActiveConnectionId around generator
+    // construction (which only returns the iterator — the body never runs
+    // there). By the time iterator.next() advanced the body, the active id
+    // was cleared. Module APIs that called hooks.getState() inside a
+    // stream generator saw `undefined`.
+    const room = `test-${testInfo.testId}-stream-state`;
+    await page.goto(`/modules?room=${room}`);
+    await page.getByTestId('connect-btn').click();
+    await waitForText(page, 'status', 'connected');
+    await waitForText(page, 'db-connected', 'db-ready');
+
+    // Capture the connection id observed at onConnect time — every stream
+    // chunk should carry this same id.
+    await page.getByTestId('last-state-btn').click();
+    await expect(async () => {
+      const lastState = await page.getByTestId('last-state-result').textContent();
+      expect(lastState).toMatch(/"id":"[^"]+"/);
+    }).toPass({ timeout: 5_000 });
+    const expectedId = JSON.parse((await page.getByTestId('last-state-result').textContent())!)
+      .id as string;
+
+    await page.getByTestId('stream-connection-id-btn').click();
+    await expect(async () => {
+      const text = (await page.getByTestId('stream-connection-id-chunks').textContent()) ?? '';
+      const ids = text.split(',').filter(Boolean);
+      expect(ids).toHaveLength(3);
+      for (const id of ids) expect(id).toBe(expectedId);
+    }).toPass({ timeout: 5_000 });
+  });
 });
