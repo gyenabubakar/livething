@@ -494,6 +494,88 @@ describe('message runtime', () => {
     expect(handler).not.toHaveBeenCalled();
   });
 
+  it('does not fall back to top-level handlers for events sent inside a channel scope', async () => {
+    // A channel-subscribed client sending an event with `_channel: '...'`
+    // must hit only handlers declared inside that channel. Falling through
+    // to top-level handlers would let any channel member fire any
+    // top-level event by tagging it with the channel — breaking scope
+    // isolation.
+    const topLevelHandler = vi.fn();
+    const connection = createConnection('conn_1');
+    addMembership(connection, 'room', undefined);
+
+    const runtime = {
+      compiled: {
+        outgoing: new Map(),
+        incoming: new Map([
+          ['top-only', { event: 'top-only', handler: topLevelHandler, validator: undefined }],
+        ]),
+        requests: new Map(),
+        streams: new Map(),
+        preIntercepts: [],
+        postIntercepts: new Map(),
+        namespaces: new Map(),
+        channels: new Map([
+          [
+            'room',
+            {
+              key: 'room',
+              kind: 'channel' as const,
+              pattern: 'room',
+              outgoing: new Map(),
+              incoming: new Map(), // channel does NOT register 'top-only'
+              requests: new Map(),
+              streams: new Map(),
+              preIntercepts: [],
+              postIntercepts: new Map(),
+            },
+          ],
+        ]),
+        channelFamilies: new Map(),
+        scheduled: new Map(),
+        modules: [],
+        requires: {},
+        replayClaimedChannelKeys: new Set(),
+      },
+      connections: new Map([[connection.id, connection]]),
+      toConnectionInfo() {
+        return { id: connection.id };
+      },
+      activeStreams: new Map(),
+      protocolHandlers: new Map(),
+      incomingHooks: [],
+      moduleRuntimes: [],
+      errorHooks: [],
+      requireTimers() {
+        return { setTimeout: () => undefined, clearTimeout() {} };
+      },
+      buildConnectionContext() {
+        return { id: connection.id };
+      },
+      sendProtocolMessage() {},
+      sendReplay() {},
+      persistAttachment() {},
+      setActiveConnectionId() {},
+      async handleRuntimeError() {},
+      async handleValidationError() {},
+      async handleSubscribe() {},
+      async handleUnsubscribe() {},
+      waitUntil() {},
+      generateId() {
+        return 'id_1';
+      },
+    };
+
+    await dispatchIncoming(
+      runtime as unknown as Parameters<typeof dispatchIncoming>[0],
+      connection,
+      'top-only',
+      { _channel: 'room' },
+    );
+
+    expect(topLevelHandler).not.toHaveBeenCalled();
+  });
+
   it('routes a thrown scope-resolution error to handleRuntimeError instead of rejecting', async () => {
     const connection = createConnection('conn_1');
     const handleRuntimeError = vi.fn();

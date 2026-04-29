@@ -35,6 +35,48 @@ test.describe('channel-dynamic', () => {
     await expect(page.getByTestId('subscribe-error')).toHaveText('admin:channel-not-found');
   });
 
+  test('top-level events tagged with _channel do not fall back to top-level handlers', async ({
+    page,
+  }, testInfo) => {
+    // Scope isolation: a client sending `top-only-action` with `_channel`
+    // claims the event happens inside that channel scope. The channel
+    // scope does NOT register `top-only-action`, so the engine must drop
+    // the message rather than fall through to the top-level handler.
+    await openPage(page, `test-${testInfo.testId}`);
+
+    // Sanity check: top-level dispatch (no `_channel`) DOES fire the handler.
+    await page.evaluate(() => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      ws?.send(JSON.stringify({ event: 'top-only-action', payload: {} }));
+    });
+    await expect(page.getByTestId('top-only-action-fired')).toHaveText('testuser');
+
+    // Now send the same event with `_channel: 'room:general'`. With scope
+    // isolation, the channel-scoped lookup misses and the message is
+    // silently dropped — the `top-only-action-fired` value must NOT change
+    // from the previous run.
+    await page.evaluate(() => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      ws?.send(
+        JSON.stringify({
+          event: 'top-only-action',
+          payload: { _channel: 'room:general', _channelScope: 'room' },
+        }),
+      );
+    });
+
+    // Positive signal that round-trips have been processed: a normal scoped
+    // send still works and the room receives it.
+    await page.getByTestId('sub-general').click();
+    await expect(page.getByTestId('subscribe-ok')).toContainText('room:general');
+    await page.getByTestId('echo-name-general').click();
+    await expect(page.getByTestId('name-result')).toHaveText('room:general|general');
+
+    // The top-level handler did not fire a second time during the
+    // channel-scoped send — the value is still the one from the sanity check.
+    expect(await page.getByTestId('top-only-action-fired').textContent()).toBe('testuser');
+  });
+
   test('protocol-event with regex-failing scope keeps the websocket alive', async ({
     page,
   }, testInfo) => {

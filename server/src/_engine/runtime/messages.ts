@@ -390,12 +390,16 @@ export async function dispatchIncoming(
     return;
   }
 
-  const scopedIncoming = scope.channel?.incoming.get(event) ?? scope.namespace?.incoming.get(event);
-  const scopedRequest = scope.channel?.requests.get(event) ?? scope.namespace?.requests.get(event);
-  const scopedStream = scope.channel?.streams.get(event) ?? scope.namespace?.streams.get(event);
-  const incoming = scopedIncoming ?? runtime.compiled.incoming.get(event);
-  const request = scopedRequest ?? runtime.compiled.requests.get(event);
-  const stream = scopedStream ?? runtime.compiled.streams.get(event);
+  // Scope isolation: when the wire payload claims a channel or namespace
+  // scope, only handlers declared inside that scope are reachable. Falling
+  // back to top-level handlers from inside a scope would let a channel
+  // member fire any top-level event by tagging it with `_channel: '...'`,
+  // breaking scope contracts (and potentially leaking admin-only top-level
+  // events to channel-subscribed clients).
+  const scoped = scope.channel ?? scope.namespace;
+  const incoming = scoped ? scoped.incoming.get(event) : runtime.compiled.incoming.get(event);
+  const request = scoped ? scoped.requests.get(event) : runtime.compiled.requests.get(event);
+  const stream = scoped ? scoped.streams.get(event) : runtime.compiled.streams.get(event);
 
   let message = { event, payload: rawPayload };
 

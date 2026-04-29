@@ -6,6 +6,7 @@
 	let subscribeError = $state('');
 	let subscribeErrorScope = $state('');
 	let nameResult = $state('');
+	let topOnlyActionFired = $state('');
 	let userMessagesByChannel = $state<Record<string, string[]>>({});
 	let systemMessagesByChannel = $state<Record<string, string[]>>({});
 
@@ -36,6 +37,9 @@
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
 			const data = JSON.parse(ev.data);
+			if (data.event === 'top-only-action-fired') {
+				topOnlyActionFired = data.payload?.from ?? '';
+			}
 			if (data.event === '_subscribeOk') {
 				subscribeOk = [...subscribeOk, data.payload?._channel ?? ''];
 			}
@@ -119,3 +123,4 @@
 <span data-testid="user-msgs-general">{userMessagesFor('room:general')}</span>
 <span data-testid="user-msgs-vip">{userMessagesFor('room:vip')}</span>
 <span data-testid="system-msgs-general">{systemMessagesFor('room:general')}</span>
+<span data-testid="top-only-action-fired">{topOnlyActionFired}</span>

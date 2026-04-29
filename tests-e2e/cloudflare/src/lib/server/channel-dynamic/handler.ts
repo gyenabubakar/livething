@@ -17,9 +17,19 @@ const SendMessage = event('send-message', v.object({ text: v.string() }));
 const EchoName = event('echo-name', v.object({}));
 const NameResult = event('name-result', v.object({ name: v.string(), suffix: v.string() }));
 
-const base = withChannels(withLifecycle(server<Env>('channel-dynamic'))).onUpgrade((request) =>
-  requireUsername(request),
-);
+// Top-level event with a handler. Used to verify scope isolation: a client
+// inside the `room` channel scope sending this event with `_channel: 'room:1'`
+// must NOT reach the top-level handler. Pre-fix the dispatcher fell through
+// to top-level handlers when the scoped lookup missed.
+const TopOnlyAction = event('top-only-action', v.object({}));
+const TopOnlyActionFired = event('top-only-action-fired', v.object({ from: v.string() }));
+
+const base = withChannels(withLifecycle(server<Env>('channel-dynamic')))
+  .onUpgrade((request) => requireUsername(request))
+  .outgoing(TopOnlyActionFired)
+  .incoming(TopOnlyAction, (ctx) => {
+    ctx.send('top-only-action-fired', { from: ctx.meta.username });
+  });
 
 const roomChannel = base.channel(scope('room', /^room:.+$/), (ch) =>
   ch
