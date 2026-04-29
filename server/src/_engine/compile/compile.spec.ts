@@ -189,6 +189,26 @@ describe('compile replayClaimedChannelKeys', () => {
     expect(compiled.replayClaimedChannelKeys).toEqual(new Set(['public-room']));
   });
 
+  it('records a channel key when the channel has its own .replayCustom()', async () => {
+    const { withReplayCustom } = await import('~/replay/custom/with.ts');
+    const { withDedup } = await import('~/dedup/with.ts');
+    const { withSequence } = await import('~/sequence/with.ts');
+
+    const base = withReplayCustom(withChannels(withSequence(withDedup(server('chat')))));
+    const def = base
+      .sequence({ persist: true })
+      .dedup()
+      .use(
+        base.channel('lobby', (c) =>
+          c.outgoing(roomSend).replayCustom((r) => r.onReplay(async () => {})),
+        ),
+      )
+      .build();
+
+    const compiled = compileHandlerDefinition(def);
+    expect(compiled.replayClaimedChannelKeys).toEqual(new Set(['lobby']));
+  });
+
   it('records every channel that registered or disabled replay independently', async () => {
     const { withReplay } = await import('~/replay/with.ts');
     const { withDedup } = await import('~/dedup/with.ts');

@@ -196,7 +196,7 @@ export interface CustomReplayOptions<TScope extends CustomReplayScope = 'top'> {
 /** The primitive type produced by `handleReplay()`. */
 export interface CustomReplayPrimitive<
   TScope extends CustomReplayScope = CustomReplayScope,
-> extends Primitive<'customReplay'> {
+> extends Primitive<'replayCustom'> {
   /** The configured replay hooks. */
   readonly options: CustomReplayOptions<TScope>;
 }
@@ -315,7 +315,7 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
   const opts = options as CustomReplayOptions<CustomReplayScope>;
 
   return {
-    __wskit: 'customReplay',
+    __wskit: 'replayCustom',
     __kind: 'infrastructure',
     __identity: [CUSTOM_REPLAY_KEY],
     __dependencies: [sequence, dedup],

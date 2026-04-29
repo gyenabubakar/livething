@@ -145,7 +145,7 @@ describe('.replayCustom() side-effect', () => {
       .replayCustom((r) => r.onReplay(async (_ctx, _since) => {}))
       .build();
 
-    expect(def.primitives.some((p) => p.__wskit === 'customReplay')).toBe(true);
+    expect(def.primitives.some((p) => p.__wskit === 'replayCustom')).toBe(true);
   });
 
   it('accepts onBeforeSend and onAfterSend hooks', () => {
@@ -160,7 +160,7 @@ describe('.replayCustom() side-effect', () => {
       )
       .build();
 
-    expect(def.primitives.some((p) => p.__wskit === 'customReplay')).toBe(true);
+    expect(def.primitives.some((p) => p.__wskit === 'replayCustom')).toBe(true);
   });
 
   it('callback form returns to parent for continued chaining', () => {

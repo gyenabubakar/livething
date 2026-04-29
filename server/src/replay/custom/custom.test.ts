@@ -25,7 +25,7 @@ const topLevelReplay = handleReplay({
 });
 
 const _topLevelReplayPrimitive: CustomReplayPrimitive = topLevelReplay;
-const _topLevelTag: 'customReplay' = topLevelReplay.__wskit;
+const _topLevelTag: 'replayCustom' = topLevelReplay.__wskit;
 const _topLevelKind: PrimitiveKind = topLevelReplay.__kind;
 const _topLevelRef: PrimitiveRef = handleReplay;
 void [_topLevelReplayPrimitive, _topLevelTag, _topLevelKind, _topLevelRef];
@@ -49,7 +49,7 @@ const channelReplay = handleReplay<'channel'>({
 });
 
 const _channelReplayPrimitive: CustomReplayPrimitive<'channel'> = channelReplay;
-const _channelTag: 'customReplay' = channelReplay.__wskit;
+const _channelTag: 'replayCustom' = channelReplay.__wskit;
 const _channelKind: PrimitiveKind = channelReplay.__kind;
 const _channelRef: PrimitiveRef = handleReplay;
 void [_channelReplayPrimitive, _channelTag, _channelKind, _channelRef];

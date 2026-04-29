@@ -586,7 +586,7 @@ describe('Integration: replay modes', () => {
       )
       .build();
 
-    expect(findPrimitive(def.primitives, 'customReplay')).toBeDefined();
+    expect(findPrimitive(def.primitives, 'replayCustom')).toBeDefined();
   });
 });
 
