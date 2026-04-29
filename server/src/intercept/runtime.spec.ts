@@ -24,7 +24,7 @@ function createConnection(): RuntimeConnection {
 }
 
 describe('intercept/runtime', () => {
-  it('runs pre intercepts in order and lets them rewrite the message', async () => {
+  it('runs pre intercepts in order and lets them rewrite the payload', async () => {
     const runtime = {
       buildConnectionContext: () => ({ ok: true }),
       setActiveConnectionId: vi.fn(),
@@ -32,12 +32,12 @@ describe('intercept/runtime', () => {
     const connection = createConnection();
 
     const first = intercept(async (_ctx, message) => ({
-      event: message.event,
-      payload: { ...(message.payload as Record<string, unknown>), a: 1 },
+      ...(message.payload as Record<string, unknown>),
+      a: 1,
     }));
     const second = intercept(async (_ctx, message) => ({
-      event: message.event,
-      payload: { ...(message.payload as Record<string, unknown>), b: 2 },
+      ...(message.payload as Record<string, unknown>),
+      b: 2,
     }));
 
     const next = await runPreIntercepts(runtime, connection, {}, [first, second], {
@@ -50,6 +50,68 @@ describe('intercept/runtime', () => {
     expect(runtime.setActiveConnectionId).toHaveBeenNthCalledWith(2, undefined);
     expect(runtime.setActiveConnectionId).toHaveBeenNthCalledWith(3, 'c1');
     expect(runtime.setActiveConnectionId).toHaveBeenNthCalledWith(4, undefined);
+  });
+
+  it('locks the event name: a returned {event, payload} object becomes the new payload as a whole', async () => {
+    const runtime = {
+      buildConnectionContext: () => ({ ok: true }),
+      setActiveConnectionId: vi.fn(),
+    };
+    const connection = createConnection();
+
+    // User code that "tries" to rewrite the event by returning a full
+    // {event, payload} shape. The engine must NOT route based on this —
+    // the wrapper object becomes the new payload verbatim.
+    const aliasing = intercept(async (_ctx, _message) => ({
+      event: 'real',
+      payload: { count: 7 },
+    }));
+
+    const next = await runPreIntercepts(runtime, connection, {}, [aliasing], {
+      event: 'alias',
+      payload: { ignored: true },
+    });
+
+    // Event stays locked at the wire-level 'alias'. The whole returned
+    // object becomes message.payload.
+    expect(next.event).toBe('alias');
+    expect(next.payload).toEqual({ event: 'real', payload: { count: 7 } });
+  });
+
+  it('void return from a pre-intercept passes the payload through unchanged', async () => {
+    const runtime = {
+      buildConnectionContext: () => ({ ok: true }),
+      setActiveConnectionId: vi.fn(),
+    };
+    const connection = createConnection();
+
+    const passthrough = intercept(() => undefined);
+
+    const next = await runPreIntercepts(runtime, connection, {}, [passthrough], {
+      event: 'foo',
+      payload: { keep: true },
+    });
+
+    expect(next).toEqual({ event: 'foo', payload: { keep: true } });
+  });
+
+  it('null and other falsy non-undefined returns from a pre-intercept ARE treated as the new payload', async () => {
+    // Only `undefined` means "no change". `null`, `0`, `false`, `''` are
+    // valid replacement payloads.
+    const runtime = {
+      buildConnectionContext: () => ({ ok: true }),
+      setActiveConnectionId: vi.fn(),
+    };
+    const connection = createConnection();
+
+    const nuller = intercept(() => null);
+
+    const next = await runPreIntercepts(runtime, connection, {}, [nuller], {
+      event: 'foo',
+      payload: { original: true },
+    });
+
+    expect(next).toEqual({ event: 'foo', payload: null });
   });
 
   it('runs post intercepts in order and lets them rewrite the payload', async () => {

@@ -210,7 +210,6 @@ describe('C8: module onIncoming runs before top-level pre-intercept', () => {
       .use(mutate({}))
       .intercept((_ctx, m) => {
         interceptSaw.push({ event: m.event, payload: m.payload });
-        return m;
       })
       .incoming(hit, async () => {})
       .build();

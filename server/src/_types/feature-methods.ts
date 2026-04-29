@@ -528,14 +528,17 @@ export interface InterceptBuilderMethods<TBuilder, TState extends ScopeStateShap
   /**
    * Intercept every incoming message before its handler runs.
    *
-   * Return a modified message to rewrite what the downstream handler sees, or
-   * return nothing to let the original message continue unchanged.
+   * Return a new payload to replace the current one. Return nothing to let
+   * the original payload continue unchanged. The event name is locked —
+   * routing was already resolved at dispatch entry, so any returned object
+   * (even one shaped like `{ event, payload }`) is treated as the new
+   * payload as a whole, not as a routing instruction.
    */
   intercept(
     handler: (
       ctx: HandlerCtxFromState<TState>,
       message: InterceptMessage,
-    ) => InterceptMessage | void | Promise<InterceptMessage | void>,
+    ) => unknown | void | Promise<unknown | void>,
   ): TBuilder;
 
   /**

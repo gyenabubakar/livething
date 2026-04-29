@@ -41,10 +41,12 @@ export async function runWithScopedContext<T>(
 /**
  * Run every pre-validation intercept in registration order.
  *
- * Each intercept sees the message *before* schema validation. If an intercept
- * returns a new `{ event, payload }` object, that replacement is forwarded to
- * the next intercept and eventually to the validator. Returning nothing leaves
- * the message unchanged.
+ * Each intercept sees the message *before* schema validation. The returned
+ * value (when not `undefined`) becomes the new `payload` for the next
+ * intercept and eventually for the validator. The event name is locked —
+ * routing was resolved at dispatch entry and an intercept return of
+ * `{ event, payload }` becomes the new payload as a whole, not a routing
+ * instruction.
  *
  * Throwing inside an intercept stops the chain — the error propagates to the
  * engine's normal error handling (e.g. `Block`, `Skip`, typed errors).
@@ -63,7 +65,9 @@ export async function runPreIntercepts(
       return intercept.handler(ctx, nextMessage);
     });
 
-    if (next) nextMessage = next;
+    if (next !== undefined) {
+      nextMessage = { event: nextMessage.event, payload: next };
+    }
   }
 
   return nextMessage;

@@ -18,10 +18,11 @@ const base = withChannels(withNamespaces(withIntercept(withLifecycle(server<Env>
   .intercept((_ctx, message) => {
     if (message.event === 'echo' && message.payload && typeof message.payload === 'object') {
       const text = (message.payload as { text?: string }).text;
-      if (text === 'top-pre') return { ...message, payload: { text: 'top-pre-rewritten' } };
+      if (text === 'top-pre') return { text: 'top-pre-rewritten' };
       if (text === 'top-passthrough') return; // void → pass through unchanged
     }
-    return message;
+    // void return — pass payload through unchanged. The event name is
+    // locked from the dispatcher; pre-intercepts cannot rewrite it.
   })
   // Top-level post-intercept: typed, runs after validation on `echo` only.
   // wskit allows at most ONE post-intercept per event per scope — all Echo
@@ -42,10 +43,9 @@ const nsIntercept = base.namespace('ns', (n) =>
     .intercept((_ctx, message) => {
       if (message.event === 'echo' && message.payload && typeof message.payload === 'object') {
         const text = (message.payload as { text?: string }).text;
-        if (text === 'ns-pre') return { ...message, payload: { text: 'ns-pre-rewritten' } };
+        if (text === 'ns-pre') return { text: 'ns-pre-rewritten' };
         if (text === 'ns-pre-block') throw Block;
       }
-      return message;
     })
     .intercept(Echo, (_ctx, payload) => {
       if (payload.text === 'ns-post') return { text: 'ns-post-rewritten' };
@@ -62,10 +62,9 @@ const chIntercept = base.channel('room', (c) =>
     .intercept((_ctx, message) => {
       if (message.event === 'echo' && message.payload && typeof message.payload === 'object') {
         const text = (message.payload as { text?: string }).text;
-        if (text === 'ch-pre') return { ...message, payload: { text: 'ch-pre-rewritten' } };
+        if (text === 'ch-pre') return { text: 'ch-pre-rewritten' };
         if (text === 'ch-pre-block') throw Block;
       }
-      return message;
     })
     .intercept(Echo, (_ctx, payload) => {
       if (payload.text === 'ch-post') return { text: 'ch-post-rewritten' };

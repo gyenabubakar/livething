@@ -3,7 +3,9 @@ import type { Primitive } from '~/primitive.ts';
 
 /**
  * The shape of a message as it travels through the pre-intercept pipeline.
- * Interceptors receive and return this object to transform or inspect messages.
+ * Interceptors receive this object to inspect the incoming event and
+ * payload. The event name is locked from the moment the message hits the
+ * dispatcher — interceptors cannot rewrite routing.
  */
 export interface InterceptMessage {
   /** The event name exactly as it arrived from the client. */
@@ -14,10 +16,13 @@ export interface InterceptMessage {
 
 /**
  * The return type of a pre-intercept handler.
- * Return a new `InterceptMessage` to transform the message, or return `void` /
- * `undefined` to pass it through unchanged.
+ *
+ * Return a new payload to replace the current one. Return `void` / `undefined`
+ * to pass it through unchanged. The event name cannot be rewritten — whatever
+ * value you return becomes `message.payload` verbatim, even if it happens to
+ * be an object with its own `event` and `payload` fields.
  */
-export type PreInterceptResult = InterceptMessage | void | Promise<InterceptMessage | void>;
+export type PreInterceptResult = unknown | void | Promise<unknown | void>;
 
 /**
  * The return type of a post-intercept handler.
@@ -87,8 +92,10 @@ export function intercept<TEvent extends string>(
  * Creates an intercept primitive in one of two modes:
  *
  * - **Pre-intercept** (`firstArg` is a function): fires before the event is
- *   dispatched. Receives the raw `{ event, payload }` and can replace it.
- *   Returning `void` passes the message through unchanged.
+ *   dispatched. Receives the raw `{ event, payload }` and can replace the
+ *   payload. The event name is locked — whatever you return becomes the new
+ *   `payload`, even if the returned value has its own `event` field.
+ *   Returning `void` passes the payload through unchanged.
  *
  * - **Post-intercept** (`firstArg` is a string): fires for a single named
  *   event, after the event is matched but before the handler runs. Receives
