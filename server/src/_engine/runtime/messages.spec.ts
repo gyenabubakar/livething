@@ -1,4 +1,9 @@
-import { broadcastToChannel, dispatchIncoming, resolveScope } from '~/_engine/runtime/messages.ts';
+import {
+  broadcastToChannel,
+  dispatchIncoming,
+  processTextMessage,
+  resolveScope,
+} from '~/_engine/runtime/messages.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { CompiledServer } from '~/_engine/compile/types.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
@@ -487,5 +492,92 @@ describe('message runtime', () => {
     expect(handleValidationError).toHaveBeenCalledTimes(1);
     expect(handleRuntimeError).toHaveBeenCalledTimes(1);
     expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('routes a thrown scope-resolution error to handleRuntimeError instead of rejecting', async () => {
+    const connection = createConnection('conn_1');
+    const handleRuntimeError = vi.fn();
+
+    const runtime = {
+      compiled: {
+        outgoing: new Map(),
+        incoming: new Map(),
+        requests: new Map(),
+        streams: new Map(),
+        preIntercepts: [],
+        postIntercepts: new Map(),
+        namespaces: new Map(),
+        channels: new Map(),
+        // Family pattern requires room:N. The replay payload below uses the
+        // family key but a name that fails the regex, so resolveScope throws
+        // ChannelNotFound.
+        channelFamilies: new Map([
+          [
+            'rooms',
+            {
+              key: 'rooms',
+              kind: 'channel' as const,
+              pattern: { key: 'rooms', pattern: /^room:\d+$/ },
+              outgoing: new Map(),
+              incoming: new Map(),
+              requests: new Map(),
+              streams: new Map(),
+              preIntercepts: [],
+              postIntercepts: new Map(),
+            },
+          ],
+        ]),
+        scheduled: new Map(),
+        modules: [],
+        requires: {},
+        replayClaimedChannelKeys: new Set(),
+      },
+      connections: new Map([[connection.id, connection]]),
+      toConnectionInfo() {
+        return { id: connection.id };
+      },
+      activeStreams: new Map(),
+      protocolHandlers: new Map(),
+      incomingHooks: [],
+      moduleRuntimes: [],
+      errorHooks: [],
+      activityHooks: [],
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      requireTimers() {
+        return { setTimeout: () => undefined, clearTimeout() {} };
+      },
+      buildConnectionContext() {
+        return { id: connection.id };
+      },
+      sendProtocolMessage() {},
+      sendReplay() {},
+      persistAttachment() {},
+      setActiveConnectionId() {},
+      handleRuntimeError,
+      async handleValidationError() {},
+      async handleSubscribe() {},
+      async handleUnsubscribe() {},
+      waitUntil() {},
+      generateId() {
+        return 'id_1';
+      },
+    };
+
+    await expect(
+      processTextMessage(
+        runtime as unknown as Parameters<typeof processTextMessage>[0],
+        connection,
+        JSON.stringify({
+          event: '_replay',
+          payload: { _channel: 'admin', _channelScope: 'rooms', since: 0 },
+        }),
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(handleRuntimeError).toHaveBeenCalledTimes(1);
+    const [, error, event, routing] = handleRuntimeError.mock.calls[0]!;
+    expect((error as { code?: string }).code).toBe('channel-not-found');
+    expect(event).toBe('_replay');
+    expect(routing).toEqual({ _channel: 'admin', _channelScope: 'rooms' });
   });
 });

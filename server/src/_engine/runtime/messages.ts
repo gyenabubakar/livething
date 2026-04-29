@@ -692,14 +692,31 @@ export async function processTextMessage(
   }
 
   if (EngineCompileUtils.isIncomingProtocolEvent(parsed.event)) {
-    const handlers = runtime.protocolHandlers.get(parsed.event) ?? [];
-    const scope = resolveScope(runtime.compiled, parsed.payload);
-    const ctx = runtime.buildConnectionContext(connection, scope);
+    try {
+      const handlers = runtime.protocolHandlers.get(parsed.event) ?? [];
+      const scope = resolveScope(runtime.compiled, parsed.payload);
+      const ctx = runtime.buildConnectionContext(connection, scope);
 
-    for (const handler of handlers) {
-      const handled = await handler(ctx, parsed.payload as Record<string, unknown> | undefined);
+      for (const handler of handlers) {
+        const handled = await handler(ctx, parsed.payload as Record<string, unknown> | undefined);
 
-      if (handled) return;
+        if (handled) return;
+      }
+    } catch (error) {
+      const protocolPayload = parsed.payload as Record<string, unknown> | undefined;
+      const channel = protocolPayload?._channel;
+      const channelScope = protocolPayload?._channelScope;
+      const namespace = protocolPayload?._namespace;
+      const routing: Record<string, unknown> = {};
+      if (typeof channel === 'string') routing._channel = channel;
+      if (typeof channelScope === 'string') routing._channelScope = channelScope;
+      if (typeof namespace === 'string') routing._namespace = namespace;
+      await runtime.handleRuntimeError(
+        connection,
+        error,
+        parsed.event,
+        Object.keys(routing).length > 0 ? routing : undefined,
+      );
     }
 
     return;
