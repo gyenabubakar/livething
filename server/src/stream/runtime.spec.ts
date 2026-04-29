@@ -30,6 +30,7 @@ function createStreamRuntime() {
     payload: unknown;
     options?: { namespace?: string; channel?: string; excludeSelf?: boolean };
     excludeConnectionId?: string;
+    targetIds: string[];
   }[] = [];
 
   return {
@@ -58,13 +59,19 @@ function createStreamRuntime() {
         return true;
       },
       broadcastToConnections: (
-        _conns: readonly RuntimeConnection[],
+        conns: readonly RuntimeConnection[],
         event: string,
         payload: unknown,
         options?: { namespace?: string; channel?: string; excludeSelf?: boolean },
         excludeConnectionId?: string,
       ) => {
-        broadcasts.push({ event, payload, options, excludeConnectionId });
+        broadcasts.push({
+          event,
+          payload,
+          options,
+          excludeConnectionId,
+          targetIds: conns.map((c) => c.id),
+        });
       },
       setActiveConnectionId: vi.fn(),
       persistAttachment: vi.fn(),
@@ -162,6 +169,15 @@ describe('stream/runtime', () => {
     const { runtime, broadcasts, pipelineSends } = createStreamRuntime();
     const trigger = createConnection('trigger');
     const peer = createConnection('peer');
+    // Both are members of the channel family scope.
+    trigger.channelMemberships.set('rooms::room:123', {
+      channelName: 'room:123',
+      channelScope: 'rooms',
+    });
+    peer.channelMemberships.set('rooms::room:123', {
+      channelName: 'room:123',
+      channelScope: 'rooms',
+    });
     runtime.connections.set(trigger.id, trigger);
     runtime.connections.set(peer.id, peer);
 
@@ -192,6 +208,76 @@ describe('stream/runtime', () => {
 
     // The trigger's own send should also carry channelScope for symmetry.
     expect(pipelineSends).toHaveLength(1);
+  });
+
+  it('channel-scoped broadcast stream excludes non-members from the targets list', async () => {
+    const { runtime, broadcasts } = createStreamRuntime();
+    const trigger = createConnection('trigger');
+    const member = createConnection('member');
+    const nonMember = createConnection('non-member');
+
+    trigger.channelMemberships.set('rooms::room:1', {
+      channelName: 'room:1',
+      channelScope: 'rooms',
+    });
+    member.channelMemberships.set('rooms::room:1', {
+      channelName: 'room:1',
+      channelScope: 'rooms',
+    });
+    // nonMember is connected but never subscribed.
+
+    runtime.connections.set(trigger.id, trigger);
+    runtime.connections.set(member.id, member);
+    runtime.connections.set(nonMember.id, nonMember);
+
+    const stream = {
+      stream: { nudges: [], broadcast: true },
+      generator: async function* () {
+        yield { token: 'private' };
+      },
+    };
+
+    await runStream(
+      runtime as Parameters<typeof runStream>[0],
+      trigger,
+      { channelName: 'room:1', channelScope: 'rooms' },
+      'broadcast-stream',
+      stream as never,
+      {},
+    );
+
+    expect(broadcasts).toHaveLength(1);
+    // The targets list passed to broadcastToConnections must only contain
+    // members of the channel — never the non-member.
+    expect(broadcasts[0]!.targetIds).toEqual(expect.arrayContaining(['trigger', 'member']));
+    expect(broadcasts[0]!.targetIds).not.toContain('non-member');
+  });
+
+  it('top-level broadcast stream still targets every connection (no membership concept)', async () => {
+    const { runtime, broadcasts } = createStreamRuntime();
+    const trigger = createConnection('trigger');
+    const other = createConnection('other');
+    runtime.connections.set(trigger.id, trigger);
+    runtime.connections.set(other.id, other);
+
+    const stream = {
+      stream: { nudges: [], broadcast: true },
+      generator: async function* () {
+        yield { token: 'hi' };
+      },
+    };
+
+    await runStream(
+      runtime as Parameters<typeof runStream>[0],
+      trigger,
+      {}, // no channelName — top-level broadcast
+      'broadcast-stream',
+      stream as never,
+      {},
+    );
+
+    expect(broadcasts).toHaveLength(1);
+    expect(broadcasts[0]!.targetIds).toEqual(expect.arrayContaining(['trigger', 'other']));
   });
 
   it('_streamCancel from a non-owner connection is ignored', async () => {

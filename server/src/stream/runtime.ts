@@ -1,6 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { InternalError, rethrowIfConfigError } from '@wskit/core';
 import { validateValue } from '~/_engine/compile/utils.ts';
+import * as ChannelPrimitive from '~/channel/runtime.ts';
 import type { AnyGenerate } from '~/_engine/compile/types.ts';
 import type { ActiveStream, ResolvedScope, RuntimeConnection } from '~/_engine/runtime/types.ts';
 
@@ -180,8 +181,17 @@ export async function runStream(
       if (result.done) break;
 
       if (stream.stream.broadcast) {
+        // Channel-scoped streams broadcast to channel members only — the
+        // chunk carries `_channel` in the wire envelope, and a non-member
+        // has no business receiving it. Top-level and namespace-scoped
+        // streams broadcast to every connection (no membership concept).
+        const targets = scope.channelName
+          ? [...runtime.connections.values()].filter((target) =>
+              ChannelPrimitive.hasChannelMembership(target, scope.channelName!, scope.channelScope),
+            )
+          : [...runtime.connections.values()];
         runtime.broadcastToConnections(
-          [...runtime.connections.values()],
+          targets,
           event,
           result.value,
           {
