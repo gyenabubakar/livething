@@ -1,5 +1,6 @@
 import { event, scope, server } from '@wskit/server';
 import { withChannels } from '@wskit/server/channels';
+import { ValidationFailed } from '@wskit/server/errors';
 import { withLifecycle } from '@wskit/server/lifecycle';
 import * as v from 'valibot';
 import { requireUsername } from '../_shared/upgrade.ts';
@@ -24,11 +25,31 @@ const NameResult = event('name-result', v.object({ name: v.string(), suffix: v.s
 const TopOnlyAction = event('top-only-action', v.object({}));
 const TopOnlyActionFired = event('top-only-action-fired', v.object({ from: v.string() }));
 
+// Channel-scoped handler that performs a custom semantic check and manually
+// throws ValidationFailed. Used to pin that onValidationError sees ctx.channel
+// for manually-thrown failures (not just schema-failed payloads).
+const TriggerManualValidation = event('trigger-manual-validation', v.object({}));
+const ValidationObserved = event(
+  'validation-observed',
+  v.object({ channel: v.string(), event: v.string() }),
+);
+
 const base = withChannels(withLifecycle(server<Env>('channel-dynamic')))
   .onUpgrade((request) => requireUsername(request))
   .outgoing(TopOnlyActionFired)
+  .outgoing(ValidationObserved)
   .incoming(TopOnlyAction, (ctx) => {
     ctx.send('top-only-action-fired', { from: ctx.meta.username });
+  })
+  .onValidationError((ctx, eventName) => {
+    // The hook reports the scope it observed back to the connection.
+    // For a manually-thrown ValidationFailed inside the room channel,
+    // ctx.channel must be set; pre-fix it was undefined.
+    const c = ctx as unknown as { channel?: { name?: string } };
+    ctx.send('validation-observed', {
+      channel: c.channel?.name ?? '<top-level>',
+      event: eventName,
+    });
   });
 
 const roomChannel = base.channel(scope('room', /^room:.+$/), (ch) =>
@@ -47,6 +68,12 @@ const roomChannel = base.channel(scope('room', /^room:.+$/), (ch) =>
       const name = ctx.channel.name;
       const suffix = name.slice(name.indexOf(':') + 1);
       ctx.channel.send('name-result', { name, suffix });
+    })
+    .incoming(TriggerManualValidation, () => {
+      throw ValidationFailed({
+        event: 'trigger-manual-validation',
+        issues: [{ message: 'manual semantic check failed' }],
+      });
     })
     .onBeforeSubscribe(async (ctx) => {
       if (ctx.meta.username === 'banned-user') {

@@ -530,6 +530,104 @@ describe('message runtime', () => {
     expect(handler).not.toHaveBeenCalled();
   });
 
+  it('manual ValidationFailed thrown from a channel handler reaches handleValidationError with the resolved scope', async () => {
+    // Pre-fix the outer dispatch catch called handleValidationError
+    // without scope, so onValidationError hooks saw a top-level ctx (no
+    // ctx.channel / ctx.namespace) for manually-thrown ValidationFailed
+    // — but a properly scoped ctx for schema-failed payloads. Same hook,
+    // two different shapes.
+    const { ValidationFailed } = await import('@wskit/core');
+    const handleValidationError = vi.fn();
+    const handleRuntimeError = vi.fn();
+    const connection = createConnection('conn_1');
+    addMembership(connection, 'room', undefined);
+
+    const channel = {
+      key: 'room',
+      kind: 'channel' as const,
+      pattern: 'room',
+      outgoing: new Map(),
+      incoming: new Map([
+        [
+          'manual-check',
+          {
+            event: 'manual-check',
+            validator: undefined,
+            handler: () => {
+              throw ValidationFailed({
+                event: 'manual-check',
+                issues: [{ message: 'manual semantic check failed' }],
+              });
+            },
+          },
+        ],
+      ]),
+      requests: new Map(),
+      streams: new Map(),
+      preIntercepts: [],
+      postIntercepts: new Map(),
+    };
+
+    const runtime = {
+      compiled: {
+        outgoing: new Map(),
+        incoming: new Map(),
+        requests: new Map(),
+        streams: new Map(),
+        preIntercepts: [],
+        postIntercepts: new Map(),
+        namespaces: new Map(),
+        channels: new Map([['room', channel]]),
+        channelFamilies: new Map(),
+        scheduled: new Map(),
+        modules: [],
+        requires: {},
+        replayClaimedChannelKeys: new Set(),
+      },
+      connections: new Map([[connection.id, connection]]),
+      toConnectionInfo() {
+        return { id: connection.id };
+      },
+      activeStreams: new Map(),
+      protocolHandlers: new Map(),
+      incomingHooks: [],
+      moduleRuntimes: [],
+      errorHooks: [],
+      requireTimers() {
+        return { setTimeout: () => undefined, clearTimeout() {} };
+      },
+      buildConnectionContext() {
+        return { id: connection.id };
+      },
+      sendProtocolMessage() {},
+      sendReplay() {},
+      persistAttachment() {},
+      setActiveConnectionId() {},
+      handleRuntimeError,
+      handleValidationError,
+      async handleSubscribe() {},
+      async handleUnsubscribe() {},
+      sendThroughPipeline: () => true,
+      waitUntil() {},
+      generateId() {
+        return 'id_1';
+      },
+    };
+
+    await dispatchIncoming(
+      runtime as unknown as Parameters<typeof dispatchIncoming>[0],
+      connection,
+      'manual-check',
+      { _channel: 'room' },
+    );
+
+    expect(handleValidationError).toHaveBeenCalledTimes(1);
+    const [, , , scope] = handleValidationError.mock.calls[0]!;
+    expect(scope).toBeDefined();
+    expect((scope as { channelName?: string }).channelName).toBe('room');
+    expect((scope as { channel?: unknown }).channel).toBe(channel);
+  });
+
   it('a thrown request handler error preserves _correlationId on the error frame', async () => {
     // Pre-fix handleDispatchError called handleRuntimeError without
     // routing, so the _error frame the client received carried no

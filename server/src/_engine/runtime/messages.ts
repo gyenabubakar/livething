@@ -533,7 +533,7 @@ export async function dispatchIncoming(
       await StreamPrimitive.runStream(runtime, connection, scope, event, stream, postPayload);
     }
   } catch (error) {
-    await handleDispatchError(runtime, connection, event, rawPayload, error, attempt);
+    await handleDispatchError(runtime, connection, event, rawPayload, scope, error, attempt);
   }
 }
 
@@ -542,6 +542,7 @@ async function handleDispatchError(
   connection: RuntimeConnection,
   event: string,
   rawPayload: unknown,
+  scope: EngineRuntimeTypes.ResolvedScope,
   error: unknown,
   attempt: number,
 ): Promise<void> {
@@ -549,7 +550,10 @@ async function handleDispatchError(
   if (error === Block) return;
 
   if (error instanceof WskitError && error.code === 'validation-failed') {
-    await runtime.handleValidationError(connection, event, error);
+    // Pass `scope` so onValidationError hooks see the same channel/namespace
+    // ctx for manually-thrown ValidationFailed as they do for schema
+    // failures (which already pass scope at the inner catch).
+    await runtime.handleValidationError(connection, event, error, scope);
     await runtime.handleRuntimeError(connection, error, event, routingFromPayload(rawPayload));
     return;
   }

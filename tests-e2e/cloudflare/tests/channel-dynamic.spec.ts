@@ -236,6 +236,34 @@ test.describe('channel-dynamic', () => {
     await expect(page.getByTestId('subscribe-error-scope')).toHaveText('unknown-family');
   });
 
+  test('onValidationError sees ctx.channel for a manually-thrown ValidationFailed inside a channel handler', async ({
+    page,
+  }, testInfo) => {
+    // Pre-fix the outer dispatch catch called handleValidationError
+    // without scope, so onValidationError saw a top-level ctx (no
+    // ctx.channel) for manually-thrown ValidationFailed. The hook
+    // couldn't tell which channel the failure happened in.
+    await openPage(page, `test-${testInfo.testId}`);
+    await page.getByTestId('sub-general').click();
+    await expect(page.getByTestId('subscribe-ok')).toContainText('room:general');
+
+    await page.evaluate(() => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      ws?.send(
+        JSON.stringify({
+          event: 'trigger-manual-validation',
+          payload: { _channel: 'room:general', _channelScope: 'room' },
+        }),
+      );
+    });
+
+    // The hook reports `<channelName>|<event>`. ctx.channel.name must be
+    // 'room:general', not '<top-level>'.
+    await expect(page.getByTestId('validation-observed')).toHaveText(
+      'room:general|trigger-manual-validation',
+    );
+  });
+
   test('regular events tagged with an unknown _namespace do not fall back to top-level handlers', async ({
     page,
   }, testInfo) => {
