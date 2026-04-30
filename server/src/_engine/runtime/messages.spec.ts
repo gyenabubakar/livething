@@ -494,6 +494,84 @@ describe('message runtime', () => {
     expect(handler).not.toHaveBeenCalled();
   });
 
+  it('a thrown request handler error preserves _correlationId on the error frame', async () => {
+    // Pre-fix handleDispatchError called handleRuntimeError without
+    // routing, so the _error frame the client received carried no
+    // correlation id and the request-response plugin could not settle
+    // the pending request — it hung until timeout.
+    const handleRuntimeError = vi.fn();
+    const connection = createConnection('conn_1');
+
+    const runtime = {
+      compiled: {
+        outgoing: new Map(),
+        incoming: new Map(),
+        requests: new Map([
+          [
+            'get-user',
+            {
+              event: 'get-user',
+              validator: undefined,
+              responseValidator: undefined,
+              handler: () => {
+                throw new Error('NotFound');
+              },
+            },
+          ],
+        ]),
+        streams: new Map(),
+        preIntercepts: [],
+        postIntercepts: new Map(),
+        namespaces: new Map(),
+        channels: new Map(),
+        channelFamilies: new Map(),
+        scheduled: new Map(),
+        modules: [],
+        requires: {},
+        replayClaimedChannelKeys: new Set(),
+      },
+      connections: new Map([[connection.id, connection]]),
+      toConnectionInfo() {
+        return { id: connection.id };
+      },
+      activeStreams: new Map(),
+      protocolHandlers: new Map(),
+      incomingHooks: [],
+      moduleRuntimes: [],
+      errorHooks: [],
+      requireTimers() {
+        return { setTimeout: () => undefined, clearTimeout() {} };
+      },
+      buildConnectionContext() {
+        return { id: connection.id };
+      },
+      sendProtocolMessage() {},
+      sendReplay() {},
+      persistAttachment() {},
+      setActiveConnectionId() {},
+      handleRuntimeError,
+      async handleValidationError() {},
+      async handleSubscribe() {},
+      async handleUnsubscribe() {},
+      sendThroughPipeline: () => true,
+      waitUntil() {},
+      generateId() {
+        return 'id_1';
+      },
+    };
+
+    await dispatchIncoming(
+      runtime as unknown as Parameters<typeof dispatchIncoming>[0],
+      connection,
+      'get-user',
+      { id: 'u1', _correlationId: 'corr-42' },
+    );
+
+    expect(handleRuntimeError).toHaveBeenCalledTimes(1);
+    const [, , , routing] = handleRuntimeError.mock.calls[0]!;
+    expect(routing).toEqual({ _correlationId: 'corr-42' });
+  });
+
   it('does not fall back to top-level handlers for events sent inside a channel scope', async () => {
     // A channel-subscribed client sending an event with `_channel: '...'`
     // must hit only handlers declared inside that channel. Falling through

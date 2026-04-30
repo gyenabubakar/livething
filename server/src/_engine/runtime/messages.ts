@@ -546,7 +546,7 @@ async function handleDispatchError(
 
   if (error instanceof WskitError && error.code === 'validation-failed') {
     await runtime.handleValidationError(connection, event, error);
-    await runtime.handleRuntimeError(connection, error, event);
+    await runtime.handleRuntimeError(connection, error, event, routingFromPayload(rawPayload));
     return;
   }
 
@@ -585,7 +585,28 @@ async function handleDispatchError(
     return;
   }
 
-  await runtime.handleRuntimeError(connection, error, event);
+  // Preserve protocol routing markers from the raw payload on the error
+  // frame. Most importantly `_correlationId`: without it a thrown request
+  // handler error reaches the client uncorrelated, so the request-response
+  // plugin can't settle the pending request and it hangs until timeout.
+  await runtime.handleRuntimeError(connection, error, event, routingFromPayload(rawPayload));
+}
+
+/**
+ * Extract protocol routing markers (correlation, ack, scope) from a raw
+ * incoming payload so they can ride along on a server-side error frame and
+ * the client can correlate the failure with its pending operation.
+ */
+function routingFromPayload(rawPayload: unknown): Record<string, unknown> | undefined {
+  if (!rawPayload || typeof rawPayload !== 'object') return undefined;
+  const record = rawPayload as Record<string, unknown>;
+  const routing: Record<string, unknown> = {};
+  if (typeof record._correlationId === 'string') routing._correlationId = record._correlationId;
+  if (typeof record._ackId === 'string') routing._ackId = record._ackId;
+  if (typeof record._channel === 'string') routing._channel = record._channel;
+  if (typeof record._channelScope === 'string') routing._channelScope = record._channelScope;
+  if (typeof record._namespace === 'string') routing._namespace = record._namespace;
+  return Object.keys(routing).length > 0 ? routing : undefined;
 }
 
 /**

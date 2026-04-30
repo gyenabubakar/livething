@@ -60,6 +60,9 @@
 	function strictEcho() {
 		return request('strict-echo', { id: 'value-42' });
 	}
+	function throwingRequest() {
+		return request('throwing-request');
+	}
 
 	let lastId = $state('');
 	function click(fn: () => string) {
@@ -77,6 +80,7 @@
 <button data-testid="no-response" onclick={() => click(noResponse)}>No response</button>
 <button data-testid="double-response" onclick={() => click(doubleResponse)}>Double response</button>
 <button data-testid="strict-echo" onclick={() => click(strictEcho)}>Strict echo</button>
+<button data-testid="throwing-request" onclick={() => click(throwingRequest)}>Throwing request</button>
 
 <span data-testid="status">{status}</span>
 <span data-testid="subscribed">{subscribed ? 'yes' : 'no'}</span>

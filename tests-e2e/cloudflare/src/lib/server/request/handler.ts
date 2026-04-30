@@ -27,6 +27,12 @@ const DoubleResponseSchema = v.object({ count: v.number() });
 const StrictEcho = event('strict-echo', v.strictObject({ id: v.string() }));
 const StrictEchoResponseSchema = v.strictObject({ echoed: v.string() });
 
+// Request whose handler throws — used to pin that the engine threads
+// `_correlationId` from the raw payload through to the `_error` frame so
+// the client request-response plugin can settle the pending request.
+const ThrowingRequest = event('throwing-request', v.object({}));
+const ThrowingRequestResponseSchema = v.object({ never: v.string() });
+
 const base = withChannels(withNamespaces(withRequests(withLifecycle(server<Env>('request')))))
   .onUpgrade((request) => requireUsername(request))
   .request(GetTime, TimeResponseSchema, (ctx) => {
@@ -41,6 +47,9 @@ const base = withChannels(withNamespaces(withRequests(withLifecycle(server<Env>(
   })
   .request(StrictEcho, StrictEchoResponseSchema, (ctx, payload) => {
     ctx.respond({ echoed: payload.id });
+  })
+  .request(ThrowingRequest, ThrowingRequestResponseSchema, () => {
+    throw new Error('intentional handler throw');
   });
 
 const ns = base.namespace('ns', (n) =>

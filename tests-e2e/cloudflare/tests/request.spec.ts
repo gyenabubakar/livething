@@ -43,6 +43,28 @@ test.describe('request', () => {
     expect(response).toBe('');
   });
 
+  test('thrown request handler error settles via _error frame with the original _correlationId', async ({
+    page,
+  }, testInfo) => {
+    // Pre-fix handleDispatchError called handleRuntimeError without
+    // routing, so the `_error` the client received carried no
+    // `_correlationId`. The request-response plugin only settles
+    // pending requests when an inbound message has a matching id, so
+    // the request hung until timeout instead of failing fast with the
+    // server error.
+    await openPage(page, `test-${testInfo.testId}`);
+    await page.getByTestId('throwing-request').click();
+
+    // The page records any frame whose payload contains _correlationId
+    // into responses[id] and exposes it as `last-response`.
+    await expect(page.getByTestId('last-response')).not.toHaveText('');
+    const text = (await page.getByTestId('last-response').textContent()) ?? '';
+    // The error code is included in the payload; what matters most is
+    // that the frame was correlated at all (otherwise the page would
+    // show empty).
+    expect(text).toContain('"code"');
+  });
+
   test('strict-object request schema accepts the payload despite injected _correlationId', async ({
     page,
   }, testInfo) => {
