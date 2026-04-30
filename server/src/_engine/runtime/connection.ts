@@ -202,6 +202,7 @@ export async function handleConnectionClose(
         channelScope?: string;
       },
     ): Promise<void>;
+    logger?: { error(message: string, fields?: Record<string, unknown>): void };
   },
   connection: EngineRuntimeTypes.RuntimeConnection,
 ): Promise<void> {
@@ -211,7 +212,20 @@ export async function handleConnectionClose(
   runtime.wsToConnectionId.delete(connection.wsKey);
 
   const ctx = runtime.buildConnectionContext(connection);
-  await runtime.runConnectionLifecycle('disconnect', ctx);
+  try {
+    // A user-supplied onDisconnect hook (or a module's onDisconnect) may
+    // throw. Contain the throw so the rest of the close cleanup —
+    // channel leaves (which broadcast `_memberLeave` to peers), heartbeat
+    // timer teardown — still runs. Otherwise channel members never see
+    // the leave and timers leak.
+    await runtime.runConnectionLifecycle('disconnect', ctx);
+    /* oxlint-disable-next-line @typescript-eslint/no-unused-vars */
+  } catch (error) {
+    runtime.logger?.error('[wskit] disconnect lifecycle hook threw', {
+      connectionId: connection.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 
   for (const membership of ChannelPrimitive.listChannelMemberships(connection)) {
     const resolved = ChannelPrimitive.resolveCompiledChannel(

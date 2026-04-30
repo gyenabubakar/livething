@@ -283,4 +283,40 @@ test.describe('channel-static', () => {
 
     await ctxA.close();
   });
+
+  test('peer still receives _memberLeave when the leaver onDisconnect hook throws', async ({
+    browser,
+  }, testInfo) => {
+    // Pre-fix a throwing onDisconnect aborted the close sequence: channel
+    // memberships were never released, peers never received the
+    // `_memberLeave` broadcast, the onUnsubscribe hook never ran. The fix
+    // contains the throw so channel-leave fan-out still happens.
+    const room = `test-${testInfo.testId}-throwing-disconnect`;
+    const ctxThrower = await browser.newContext();
+    const ctxObserver = await browser.newContext();
+    const thrower = await ctxThrower.newPage();
+    const observer = await ctxObserver.newPage();
+
+    // The 'throwing-user' username triggers the throwing onDisconnect hook
+    // wired in the channel-static fixture.
+    await openPage(thrower, room, 'throwing-user');
+    await openPage(observer, room, 'observer');
+    await thrower.getByTestId('subscribe-room').click();
+    await observer.getByTestId('subscribe-room').click();
+    await expect(thrower.getByTestId('subscribe-ok-count')).toHaveText('1');
+    await expect(observer.getByTestId('subscribe-ok-count')).toHaveText('1');
+
+    await ctxThrower.close();
+
+    // The observer must receive the leave broadcast from the channel
+    // onUnsubscribe hook even though the top-level onDisconnect threw.
+    await expect(observer.getByTestId('system-messages')).toContainText('throwing-user left', {
+      timeout: 15_000,
+    });
+    await expect(observer.getByTestId('member-leaves')).toContainText('room:', {
+      timeout: 15_000,
+    });
+
+    await ctxObserver.close();
+  });
 });

@@ -1,6 +1,7 @@
 import {
   acceptConnection,
   cancelActiveStreamsForConnection,
+  handleConnectionClose,
   handleShutdown,
   runConnectionLifecycle,
   wakeHibernatedConnection,
@@ -452,6 +453,63 @@ describe('connection runtime', () => {
     );
 
     expect(activeConnectionState.current).toBeUndefined();
+  });
+
+  it('handleConnectionClose continues channel-leave fan-out when a disconnect hook throws', async () => {
+    // Pre-fix a throwing onDisconnect aborted the close sequence —
+    // channel members never received `_memberLeave`, the heartbeat
+    // timer leaked. handleConnectionClose now contains the throw and
+    // proceeds with the remaining cleanup.
+    const events: string[] = [];
+    const logger = { error: vi.fn(), warn: vi.fn(), info: vi.fn() };
+    const wsKey = Symbol('ws');
+    const connection = {
+      id: 'c1',
+      wsKey,
+      descriptor: {
+        send() {},
+        sendBinary() {},
+        close() {},
+        bufferedAmount() {
+          return 0;
+        },
+      },
+      meta: {},
+      tags: new Set<string>(),
+      channelMemberships: new Map([['::room', { channelName: 'room' }]]),
+      latency: null,
+      quality: 'good' as const,
+    };
+    const runtime = {
+      compiled: {
+        channels: new Map(),
+        channelFamilies: new Map(),
+      } as never,
+      connections: new Map([[connection.id, connection]]) as never,
+      wsToConnectionId: new Map([[wsKey, connection.id]]) as never,
+      timers: undefined,
+      logger,
+      async cancelActiveStreamsForConnection() {
+        events.push('streams-cancelled');
+      },
+      buildConnectionContext: () => ({ id: connection.id }),
+      async runConnectionLifecycle() {
+        events.push('disconnect-hook:start');
+        throw new Error('disconnect hook threw');
+      },
+      async leaveChannel() {
+        events.push('channel-left');
+      },
+    };
+
+    await expect(
+      handleConnectionClose(runtime as never, connection as never),
+    ).resolves.toBeUndefined();
+
+    // Channel-leave still ran despite the hook throwing.
+    expect(events).toEqual(['streams-cancelled', 'disconnect-hook:start', 'channel-left']);
+    expect(logger.error).toHaveBeenCalledTimes(1);
+    expect(logger.error.mock.calls[0]![0]).toMatch(/disconnect lifecycle hook threw/);
   });
 
   it('cancelActiveStreamsForConnection logs and continues when one stream cleanup throws', async () => {

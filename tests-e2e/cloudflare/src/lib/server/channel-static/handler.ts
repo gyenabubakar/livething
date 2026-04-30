@@ -13,9 +13,16 @@ const SendMessage = event('send-message', v.object({ text: v.string() }));
 const StartChannelStream = event('start-channel-stream', v.object({ count: v.number() }));
 const ChannelToken = v.object({ index: v.number() });
 
-const base = withStreams(withChannels(withLifecycle(server<Env>('channel-static')))).onUpgrade(
-  (request) => requireUsername(request),
-);
+const base = withStreams(withChannels(withLifecycle(server<Env>('channel-static'))))
+  .onUpgrade((request) => requireUsername(request))
+  // A disconnect hook that throws for one specific username — used to pin
+  // that handleConnectionClose contains the throw so the rest of the
+  // close cleanup (channel leaves, _memberLeave fan-out) still runs.
+  .onDisconnect((ctx) => {
+    if (ctx.meta.username === 'throwing-user') {
+      throw new Error('intentional onDisconnect throw');
+    }
+  });
 
 const roomChannel = base.channel('room', (ch) =>
   ch
