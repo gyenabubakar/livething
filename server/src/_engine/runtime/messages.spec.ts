@@ -628,6 +628,84 @@ describe('message runtime', () => {
     expect((scope as { channel?: unknown }).channel).toBe(channel);
   });
 
+  it('a schema-failed request preserves _correlationId on the error frame', async () => {
+    // The inner schema-validation catch (validateValue throws) is a
+    // separate code path from the outer dispatch catch. The outer-catch
+    // routing fix (commit 8789c0a) didn't touch this branch — schema
+    // failures still went out uncorrelated. Same hang-until-timeout
+    // symptom on the client request-response plugin.
+    const v = await import('valibot');
+    const handleRuntimeError = vi.fn();
+    const connection = createConnection('conn_1');
+
+    const runtime = {
+      compiled: {
+        outgoing: new Map(),
+        incoming: new Map(),
+        requests: new Map([
+          [
+            'get-user',
+            {
+              event: 'get-user',
+              validator: v.object({ id: v.string() }),
+              responseValidator: undefined,
+              handler: () => {},
+            },
+          ],
+        ]),
+        streams: new Map(),
+        preIntercepts: [],
+        postIntercepts: new Map(),
+        namespaces: new Map(),
+        channels: new Map(),
+        channelFamilies: new Map(),
+        scheduled: new Map(),
+        modules: [],
+        requires: {},
+        replayClaimedChannelKeys: new Set(),
+      },
+      connections: new Map([[connection.id, connection]]),
+      toConnectionInfo() {
+        return { id: connection.id };
+      },
+      activeStreams: new Map(),
+      protocolHandlers: new Map(),
+      incomingHooks: [],
+      moduleRuntimes: [],
+      errorHooks: [],
+      requireTimers() {
+        return { setTimeout: () => undefined, clearTimeout() {} };
+      },
+      buildConnectionContext() {
+        return { id: connection.id };
+      },
+      sendProtocolMessage() {},
+      sendReplay() {},
+      persistAttachment() {},
+      setActiveConnectionId() {},
+      handleRuntimeError,
+      async handleValidationError() {},
+      async handleSubscribe() {},
+      async handleUnsubscribe() {},
+      sendThroughPipeline: () => true,
+      waitUntil() {},
+      generateId() {
+        return 'id_1';
+      },
+    };
+
+    await dispatchIncoming(
+      runtime as unknown as Parameters<typeof dispatchIncoming>[0],
+      connection,
+      'get-user',
+      { id: 42, _correlationId: 'corr-99' }, // wrong type — schema fails
+    );
+
+    expect(handleRuntimeError).toHaveBeenCalledTimes(1);
+    const [, , , routing] = handleRuntimeError.mock.calls[0]!;
+    expect(routing).toEqual({ _correlationId: 'corr-99' });
+  });
+
   it('a thrown request handler error preserves _correlationId on the error frame', async () => {
     // Pre-fix handleDispatchError called handleRuntimeError without
     // routing, so the _error frame the client received carried no

@@ -473,7 +473,10 @@ export async function dispatchIncoming(
       // Manual `throw ValidationFailed(...)` from a handler still routes through
       // the outer catch since it escapes after this try/catch returns.
       await runtime.handleValidationError(connection, event, error, scope);
-      await runtime.handleRuntimeError(connection, error, event);
+      // Preserve protocol routing markers (especially `_correlationId`) so a
+      // request whose payload fails the schema settles via the client
+      // request-response plugin instead of hanging until timeout.
+      await runtime.handleRuntimeError(connection, error, event, routingFromPayload(rawPayload));
       return;
     }
 

@@ -43,6 +43,22 @@ test.describe('request', () => {
     expect(response).toBe('');
   });
 
+  test('schema-failed request settles via _error frame with the original _correlationId', async ({
+    page,
+  }, testInfo) => {
+    // Pre-fix the inner schema-validation catch (separate code path from
+    // a thrown handler) called handleRuntimeError without routing — the
+    // `_error` reached the client uncorrelated and the request hung
+    // until timeout. The page only records frames whose payload contains
+    // _correlationId, so the assertion `last-response not empty` is the
+    // pin: a populated value means the error was correlated.
+    await openPage(page, `test-${testInfo.testId}`);
+    await page.getByTestId('malformed-strict-echo').click();
+    await expect(page.getByTestId('last-response')).not.toHaveText('');
+    const text = (await page.getByTestId('last-response').textContent()) ?? '';
+    expect(text).toContain('"code"');
+  });
+
   test('thrown request handler error settles via _error frame with the original _correlationId', async ({
     page,
   }, testInfo) => {

@@ -63,6 +63,12 @@
 	function throwingRequest() {
 		return request('throwing-request');
 	}
+	function malformedStrictEcho() {
+		// Wrong type for the strict-echo schema (`id` must be a string). The
+		// server emits a validation `_error`; the test asserts it carries
+		// `_correlationId` so the request settles instead of hanging.
+		return request('strict-echo', { id: 42 } as unknown as Record<string, unknown>);
+	}
 
 	let lastId = $state('');
 	function click(fn: () => string) {
@@ -81,6 +87,7 @@
 <button data-testid="double-response" onclick={() => click(doubleResponse)}>Double response</button>
 <button data-testid="strict-echo" onclick={() => click(strictEcho)}>Strict echo</button>
 <button data-testid="throwing-request" onclick={() => click(throwingRequest)}>Throwing request</button>
+<button data-testid="malformed-strict-echo" onclick={() => click(malformedStrictEcho)}>Malformed strict echo</button>
 
 <span data-testid="status">{status}</span>
 <span data-testid="subscribed">{subscribed ? 'yes' : 'no'}</span>
