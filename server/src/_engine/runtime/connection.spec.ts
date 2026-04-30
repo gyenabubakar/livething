@@ -1,10 +1,11 @@
 import {
   acceptConnection,
+  cancelActiveStreamsForConnection,
   handleShutdown,
   runConnectionLifecycle,
   wakeHibernatedConnection,
 } from '~/_engine/runtime/connection.ts';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 function deferred() {
   let resolve!: () => void;
@@ -451,5 +452,61 @@ describe('connection runtime', () => {
     );
 
     expect(activeConnectionState.current).toBeUndefined();
+  });
+
+  it('cancelActiveStreamsForConnection logs and continues when one stream cleanup throws', async () => {
+    // A user-supplied generator can throw from its `finally` block when
+    // generator.return() runs. Pre-fix that throw escaped the helper and
+    // aborted the rest of handleConnectionClose (delete connection, run
+    // disconnect hooks, leave channels, clear timers). Now the helper
+    // catches the throw, logs it, and keeps cleaning up subsequent streams.
+    const throwing = (async function* () {
+      try {
+        yield 1;
+      } finally {
+        // oxlint-disable-next-line no-unsafe-finally
+        throw new Error('user finally threw');
+      }
+    })();
+    await throwing.next(); // prime past the yield
+
+    const clean = (async function* () {
+      yield 'ok';
+    })();
+    await clean.next();
+
+    const logger = { error: vi.fn(), warn: vi.fn(), info: vi.fn() };
+    const runtime = {
+      activeStreams: new Map<string, never>([
+        [
+          'stream_throwing',
+          {
+            id: 'stream_throwing',
+            connectionId: 'c1',
+            generator: throwing,
+            closed: false,
+          } as never,
+        ],
+        [
+          'stream_clean',
+          {
+            id: 'stream_clean',
+            connectionId: 'c1',
+            generator: clean,
+            closed: false,
+          } as never,
+        ],
+      ]),
+      logger,
+    };
+
+    await expect(cancelActiveStreamsForConnection(runtime, 'c1')).resolves.toBeUndefined();
+
+    // Both streams removed despite the first one throwing.
+    expect(runtime.activeStreams.size).toBe(0);
+    expect(logger.error).toHaveBeenCalledTimes(1);
+    const [message, fields] = logger.error.mock.calls[0]!;
+    expect(message).toMatch(/stream cleanup threw/);
+    expect((fields as { streamId?: string }).streamId).toBe('stream_throwing');
   });
 });

@@ -153,6 +153,7 @@ export async function cancelActiveStreamsForConnection(
         closed: boolean;
       }
     >;
+    logger?: { error(message: string, fields?: Record<string, unknown>): void };
   },
   connectionId: string,
 ): Promise<void> {
@@ -160,7 +161,18 @@ export async function cancelActiveStreamsForConnection(
     if (activeStream.connectionId !== connectionId) continue;
     activeStream.closed = true;
     try {
+      // A user-supplied generator may throw from its `finally` block. Log
+      // and move on — the rest of connection-close cleanup (running
+      // disconnect hooks, leaving channels, clearing timers, deleting the
+      // connection from the runtime maps) must still happen even when one
+      // stream's teardown blows up.
       await activeStream.generator.return(undefined);
+    } catch (error) {
+      runtime.logger?.error('[wskit] stream cleanup threw on connection close', {
+        streamId: activeStream.id,
+        connectionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
     } finally {
       runtime.activeStreams.delete(activeStream.id);
     }

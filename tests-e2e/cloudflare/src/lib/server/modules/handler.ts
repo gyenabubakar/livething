@@ -54,6 +54,12 @@ import {
 // id the engine had set at iterator.next() time.
 const StreamConnectionId = event('stream-connection-id', v.object({ count: v.number() }));
 
+// Stream whose `finally` block throws on cancel (connection close drives
+// `generator.return()` which fires the finally). Used to pin that the rest
+// of connection-close cleanup — including the module's onDisconnect hook —
+// still runs even when stream teardown blows up.
+const StreamThrowOnCancel = event('stream-throw-on-cancel', v.object({}));
+
 const baseModules = withStreams(withScheduled(withLifecycle(server<Env>('modules-test'))));
 
 const streamConnectionIdPrimitive = baseModules.stream(StreamConnectionId, (s) =>
@@ -65,6 +71,25 @@ const streamConnectionIdPrimitive = baseModules.stream(StreamConnectionId, (s) =
       // before iterator.next(), the id would be empty.
       yield { id: db.getCurrentConnectionId() ?? '' };
       await new Promise((r) => setTimeout(r, 5));
+    }
+  }),
+);
+
+const streamThrowOnCancelPrimitive = baseModules.stream(StreamThrowOnCancel, (s) =>
+  s.chunk(v.object({ tick: v.number() })).generate(async function* () {
+    try {
+      let i = 0;
+      while (true) {
+        yield { tick: i++ };
+        await new Promise((r) => setTimeout(r, 50));
+      }
+    } finally {
+      // Throwing from `finally` simulates a real-world cleanup failure
+      // (e.g. an external service the generator was holding open is
+      // unreachable). The engine must catch and continue connection
+      // cleanup despite this.
+      // oxlint-disable-next-line no-unsafe-finally
+      throw new Error('e2e: stream finally threw');
     }
   }),
 );
@@ -189,6 +214,7 @@ export const modulesHandler = baseModules
     });
   })
   .use(streamConnectionIdPrimitive)
+  .use(streamThrowOnCancelPrimitive)
   .build();
 
 export type ModulesClient = InferClient<typeof modulesHandler>;

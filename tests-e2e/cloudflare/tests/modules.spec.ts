@@ -201,6 +201,54 @@ test.describe('modules handler', () => {
     await waitForText(page, 'shutdown-count', 'shutdowns: 1');
   });
 
+  test('connection close still runs onDisconnect when a stream finally throws on cancel', async ({
+    browser,
+  }, testInfo) => {
+    // Pre-fix the engine awaited generator.return() inside
+    // cancelActiveStreamsForConnection without catching. A stream whose
+    // `finally` block threw (e.g. external resource cleanup failing)
+    // aborted the rest of handleConnectionClose — onDisconnect hooks
+    // never ran, channel members were never notified, the connection
+    // entry leaked. The fix catches and logs per-stream and continues
+    // the cleanup.
+    const room = `multi-${testInfo.testId}-throwfinally`;
+    const observer = await browser.newPage();
+    const offender = await browser.newPage();
+    await observer.goto(`/modules?room=${room}`);
+    await offender.goto(`/modules?room=${room}`);
+    await observer.getByTestId('username-input').fill('observer');
+    await observer.getByTestId('connect-btn').click();
+    await waitForText(observer, 'status', 'connected');
+    await offender.getByTestId('username-input').fill('offender');
+    await offender.getByTestId('connect-btn').click();
+    await waitForText(offender, 'status', 'connected');
+
+    // Offender starts the stream whose finally throws, waits for at least
+    // one chunk so the iterator is parked at a yield (so .return() actually
+    // hits the finally), then disconnects.
+    await offender.getByTestId('stream-throw-on-cancel-btn').click();
+    await expect(async () => {
+      const chunks = Number(await offender.getByTestId('stream-throw-chunks').textContent());
+      expect(chunks).toBeGreaterThan(0);
+    }).toPass({ timeout: 5_000 });
+
+    await offender.getByTestId('disconnect-btn').click();
+    await waitForText(offender, 'status', 'disconnected');
+
+    // Observer asks for the disconnect count from the drizzle module's
+    // onDisconnect hook. If the stream cleanup failure aborted the close,
+    // the count would stay 0. Post-fix it ticks to 1.
+    await expect(async () => {
+      await observer.getByTestId('disconnect-count-btn').click();
+      await expect(observer.getByTestId('disconnect-count')).toHaveText(/disconnects: [1-9]/, {
+        timeout: 1_000,
+      });
+    }).toPass({ timeout: 15_000 });
+
+    await observer.close();
+    await offender.close();
+  });
+
   test('module hooks.getState() inside a stream generator returns the stream owner connection id', async ({
     page,
   }, testInfo) => {

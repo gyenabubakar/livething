@@ -26,6 +26,7 @@
 	let errorLog = $state('');
 	let moduleTaskDataResult = $state('');
 	let streamConnIdChunks = $state<string[]>([]);
+	let streamThrowChunks = $state(0);
 
 	function connect() {
 		if (ws) return;
@@ -121,6 +122,11 @@
 				case 'stream-connection-id':
 					if (typeof payload.id === 'string') {
 						streamConnIdChunks = [...streamConnIdChunks, payload.id];
+					}
+					break;
+				case 'stream-throw-on-cancel':
+					if (typeof payload.tick === 'number') {
+						streamThrowChunks++;
 					}
 					break;
 			}
@@ -301,6 +307,16 @@
 			disabled={status !== 'connected'}>Start stream</button
 		>
 		<div data-testid="stream-connection-id-chunks">{streamConnIdChunks.join(',')}</div>
+	</section>
+
+	<section>
+		<h2>Stream that throws from finally on cancel</h2>
+		<button
+			data-testid="stream-throw-on-cancel-btn"
+			onclick={() => send('stream-throw-on-cancel')}
+			disabled={status !== 'connected'}>Start throwing stream</button
+		>
+		<div data-testid="stream-throw-chunks">{streamThrowChunks}</div>
 	</section>
 
 	<section>
