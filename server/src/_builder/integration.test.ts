@@ -585,6 +585,12 @@ describe('InferClient: errors', () => {
   it('validation-failed is always in __errors__', () => {
     assertType<Full['__errors__']['validation-failed']>();
   });
+
+  it('built-in scope errors (channel-not-found, channel-not-subscribed, namespace-not-found) are always in __errors__', () => {
+    assertType<Full['__errors__']['channel-not-found']>();
+    assertType<Full['__errors__']['channel-not-subscribed']>();
+    assertType<Full['__errors__']['namespace-not-found']>();
+  });
 });
 
 describe('InferClient: channels', () => {

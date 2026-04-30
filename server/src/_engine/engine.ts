@@ -1,5 +1,10 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { ChannelNotFound, ChannelNotSubscribed, ValidationFailed } from '@wskit/core';
+import {
+  ChannelNotFound,
+  ChannelNotSubscribed,
+  NamespaceNotFound,
+  ValidationFailed,
+} from '@wskit/core';
 import * as EngineCompile from '~/_engine/compile/compile.ts';
 import * as EngineContexts from '~/_engine/contexts/contexts.ts';
 import * as EngineDeps from '~/_engine/engine.deps.ts';
@@ -100,6 +105,7 @@ export class Engine {
     ValidationFailed.code,
     ChannelNotFound.code,
     ChannelNotSubscribed.code,
+    NamespaceNotFound.code,
   ]);
   /** Logger used by the engine and runtime modules. Adapters supply a custom logger via {@link Engine.setLogger}; otherwise the engine falls back to a console-backed default. */
   private logger: PublicApi.Logger = {

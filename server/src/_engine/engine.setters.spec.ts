@@ -58,4 +58,17 @@ describe('Engine.getCompiled', () => {
     expect(compiled.incoming).toBeInstanceOf(Map);
     expect(compiled.outgoing).toBeInstanceOf(Map);
   });
+
+  it('declared error codes include every built-in error the engine emits', () => {
+    // sendRuntimeError logs a warning when an emitted WskitError is not in
+    // the declared set. Built-in errors (validation-failed,
+    // channel-not-found, channel-not-subscribed, namespace-not-found) must
+    // all be present so the engine never warns about its own emits.
+    const engine = makeEngine();
+    const declared = (engine as unknown as { declaredErrorCodes: Set<string> }).declaredErrorCodes;
+    expect(declared.has('validation-failed')).toBe(true);
+    expect(declared.has('channel-not-found')).toBe(true);
+    expect(declared.has('channel-not-subscribed')).toBe(true);
+    expect(declared.has('namespace-not-found')).toBe(true);
+  });
 });
