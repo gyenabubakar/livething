@@ -71,7 +71,9 @@ interface StreamRuntime {
  * Cancel one live stream when the owning client sends `_streamCancel`.
  */
 export async function cancelStream(
-  runtime: Pick<StreamRuntime, 'activeStreams'>,
+  runtime: Pick<StreamRuntime, 'activeStreams'> & {
+    logger?: { error(message: string, fields?: Record<string, unknown>): void };
+  },
   connection: RuntimeConnection,
   payload: Record<string, unknown> | undefined,
 ): Promise<void> {
@@ -85,7 +87,18 @@ export async function cancelStream(
   activeStream.closed = true;
 
   try {
+    // A user-supplied generator may throw from its `finally` block when
+    // generator.return() runs the cleanup. Log and contain it — the throw
+    // would otherwise escape the WS message callback as an unhandled
+    // adapter error. Mirrors the per-stream catch in
+    // cancelActiveStreamsForConnection (commit 168c1b9).
     await activeStream.generator.return(undefined);
+  } catch (error) {
+    runtime.logger?.error('[wskit] stream cleanup threw on _streamCancel', {
+      streamId: activeStream.id,
+      connectionId: connection.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
   } finally {
     runtime.activeStreams.delete(activeStream.id);
   }

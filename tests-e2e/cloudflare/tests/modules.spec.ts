@@ -201,6 +201,43 @@ test.describe('modules handler', () => {
     await waitForText(page, 'shutdown-count', 'shutdowns: 1');
   });
 
+  test('_streamCancel survives a generator finally throw — websocket stays alive', async ({
+    page,
+  }, testInfo) => {
+    // The connection-close path catches per-stream cleanup throws (commit
+    // 168c1b9). The explicit _streamCancel path was a separate code path
+    // that didn't catch — the throw escaped processTextMessage into the
+    // adapter WS callback. The fix mirrors the connection-close catch.
+    await page.goto(`/modules?room=test-${testInfo.testId}-streamcancel`);
+    await page.getByTestId('connect-btn').click();
+    await waitForText(page, 'status', 'connected');
+    await waitForText(page, 'db-connected', 'db-ready');
+
+    await page.getByTestId('stream-throw-on-cancel-btn').click();
+    await expect(async () => {
+      const id = (await page.getByTestId('stream-throw-id').textContent()) ?? '';
+      expect(id.length).toBeGreaterThan(0);
+    }).toPass({ timeout: 5_000 });
+    const streamId = (await page.getByTestId('stream-throw-id').textContent())!;
+
+    // Wait for at least one chunk so the iterator is parked at a yield —
+    // .return() will run the user's finally block and throw.
+    await expect(async () => {
+      const chunks = Number(await page.getByTestId('stream-throw-chunks').textContent());
+      expect(chunks).toBeGreaterThan(0);
+    }).toPass({ timeout: 5_000 });
+
+    await page.evaluate((id) => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      ws?.send(JSON.stringify({ event: '_streamCancel', payload: { _streamId: id } }));
+    }, streamId);
+
+    // The websocket must still be healthy. A normal request still works.
+    await page.getByTestId('insert-btn').click();
+    await waitForText(page, 'insert-result', /id: \d+/);
+    await expect(page.getByTestId('status')).toHaveText('connected');
+  });
+
   test('connection close still runs onDisconnect when a stream finally throws on cancel', async ({
     browser,
   }, testInfo) => {

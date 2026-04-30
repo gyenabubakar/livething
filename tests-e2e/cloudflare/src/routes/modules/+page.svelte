@@ -27,6 +27,7 @@
 	let moduleTaskDataResult = $state('');
 	let streamConnIdChunks = $state<string[]>([]);
 	let streamThrowChunks = $state(0);
+	let streamThrowId = $state('');
 
 	function connect() {
 		if (ws) return;
@@ -38,6 +39,7 @@
 		);
 
 		ws.onopen = () => {
+			(window as unknown as { __ws?: WebSocket }).__ws = ws ?? undefined;
 			status = 'connected';
 		};
 		ws.onclose = () => {
@@ -128,6 +130,9 @@
 					if (typeof payload.tick === 'number') {
 						streamThrowChunks++;
 					}
+					break;
+				case '_streamOk':
+					if (typeof payload?._streamId === 'string') streamThrowId = payload._streamId;
 					break;
 			}
 		};
@@ -317,6 +322,7 @@
 			disabled={status !== 'connected'}>Start throwing stream</button
 		>
 		<div data-testid="stream-throw-chunks">{streamThrowChunks}</div>
+		<div data-testid="stream-throw-id">{streamThrowId}</div>
 	</section>
 
 	<section>

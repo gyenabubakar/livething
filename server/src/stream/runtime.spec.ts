@@ -311,6 +311,43 @@ describe('stream/runtime', () => {
     expect(activeStreams.get(streamId)?.closed).toBe(false);
   });
 
+  it('cancelStream catches and logs when the generator finally throws', async () => {
+    // Pre-fix the throw escaped through processTextMessage into the
+    // adapter WS message callback as an unhandled adapter error. The
+    // engine must contain it, log it, and complete the cleanup.
+    const owner = createConnection('owner');
+    const generator = (async function* () {
+      try {
+        yield 1;
+      } finally {
+        // oxlint-disable-next-line no-unsafe-finally
+        throw new Error('user finally threw');
+      }
+    })();
+    await generator.next(); // park at the yield so .return() hits the finally
+
+    const activeStreams = new Map<string, ActiveStream>();
+    activeStreams.set('stream_1', {
+      id: 'stream_1',
+      connectionId: owner.id,
+      generator: generator as AsyncGenerator<unknown, void, unknown>,
+      nudges: [],
+      nudgeValidators: new Map(),
+      closed: false,
+    });
+    const logger = { error: vi.fn(), warn: vi.fn(), info: vi.fn() };
+
+    await expect(
+      cancelStream({ activeStreams, logger }, owner, { _streamId: 'stream_1' }),
+    ).resolves.toBeUndefined();
+
+    expect(activeStreams.has('stream_1')).toBe(false);
+    expect(logger.error).toHaveBeenCalledTimes(1);
+    const [message, fields] = logger.error.mock.calls[0]!;
+    expect(message).toMatch(/stream cleanup threw on _streamCancel/);
+    expect((fields as { streamId?: string }).streamId).toBe('stream_1');
+  });
+
   it('non-broadcast stream does not call broadcastToConnections', async () => {
     const { runtime, broadcasts } = createStreamRuntime();
     const connection = createConnection();
