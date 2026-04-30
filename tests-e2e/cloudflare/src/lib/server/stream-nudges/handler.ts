@@ -6,12 +6,25 @@ import { requireUsername } from '../_shared/upgrade.ts';
 
 const StartNudgeStream = event('start-nudge-stream', v.object({ prompt: v.string() }));
 const Token = v.object({ token: v.string() });
-const PauseNudge = event('pause', v.object({}));
+// Strict schema so a payload with extra keys (besides the stripped
+// `_streamId`) fails nudge validation. Used by the e2e test that pins
+// "malformed nudges do not fall through to top-level dispatch".
+const PauseNudge = event('pause', v.strictObject({}));
 const SpeedUpNudge = event('speed-up', v.object({ factor: v.number() }));
 
-const base = withStreams(withLifecycle(server<Env>('stream-nudges'))).onUpgrade((request) =>
-  requireUsername(request),
-);
+// Top-level handler with the SAME event name as the nudge. Pre-fix, a
+// malformed pause nudge fell through to dispatchIncoming and would have
+// fired this handler with the malformed payload. Post-fix the nudge path
+// returns "handled (with error)" and dispatch is skipped.
+const PauseTopLevel = event('pause', v.object({ leak: v.optional(v.string()) }));
+const PauseTopLevelFired = event('pause-top-level-fired', v.object({ leak: v.string() }));
+
+const base = withStreams(withLifecycle(server<Env>('stream-nudges')))
+  .onUpgrade((request) => requireUsername(request))
+  .outgoing(PauseTopLevelFired)
+  .incoming(PauseTopLevel, (ctx, payload) => {
+    ctx.send('pause-top-level-fired', { leak: payload.leak ?? '<empty>' });
+  });
 
 const nudgeStream = base.stream(StartNudgeStream, (s) =>
   s

@@ -106,4 +106,34 @@ test.describe('stream-nudges', () => {
     const tokens = (await page.getByTestId('tokens').textContent()) ?? '';
     expect(tokens.length).toBeGreaterThan(0);
   });
+
+  test('malformed nudges do not fall through to a same-named top-level handler', async ({
+    page,
+  }, testInfo) => {
+    // The fixture registers BOTH a stream `pause` nudge (strict, rejects
+    // extra keys) AND a top-level .incoming(Pause, ...) that would fire
+    // `pause-top-level-fired`. Pre-fix bufferStreamNudge returned false
+    // on validation failure, so processTextMessage fell through to
+    // dispatchIncoming and ran the top-level handler with the malformed
+    // payload.
+    await openPage(page, `test-${testInfo.testId}`);
+
+    await page.getByTestId('start-long').click();
+    await expect(async () => {
+      const id = (await page.getByTestId('stream-id').textContent()) ?? '';
+      expect(id.length).toBeGreaterThan(0);
+    }).toPass({ timeout: 3_000 });
+
+    await page.getByTestId('malformed-pause').click();
+
+    // Wait long enough for any rogue dispatch to land. The top-level
+    // handler must NOT have fired — the leak field stays empty.
+    await page.waitForTimeout(1000);
+    expect(await page.getByTestId('pause-top-level-leak').textContent()).toBe('');
+
+    // Positive signal that the websocket is still healthy: a valid pause
+    // nudge still ends the stream as expected.
+    await page.getByTestId('pause').click();
+    await expect(page.getByTestId('stream-end')).toHaveText('yes');
+  });
 });

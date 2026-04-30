@@ -433,6 +433,49 @@ describe('stream/runtime', () => {
     expect(activeStream.nudges).toHaveLength(0);
   });
 
+  it('bufferStreamNudge returns true after a sync validation failure (handled with error)', async () => {
+    // A frame that matched an active stream and a registered nudge event
+    // belongs to the stream. If the nudge validator rejects, the engine
+    // routes the validation error AND must signal "handled" so the caller
+    // does not fall through to dispatchIncoming — which would otherwise
+    // re-route the malformed nudge through any same-named top-level
+    // .incoming() handler.
+    const { runtime } = createStreamRuntime();
+    const connection = createConnection();
+    const handleValidationError = vi.fn();
+    runtime.handleValidationError = handleValidationError;
+
+    const activeStream: ActiveStream = {
+      id: 'stream_1',
+      connectionId: connection.id,
+      generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
+      nudges: [],
+      nudgeValidators: new Map([
+        [
+          'pause',
+          (value: unknown) => {
+            if ((value as { bad?: boolean }).bad) throw new Error('schema rejects bad=true');
+            return value;
+          },
+        ],
+      ]),
+      closed: false,
+    };
+    runtime.activeStreams.set('stream_1', activeStream);
+
+    const result = await bufferStreamNudge(
+      runtime as Parameters<typeof bufferStreamNudge>[0],
+      connection,
+      'pause',
+      { _streamId: 'stream_1', bad: true },
+    );
+
+    expect(result).toBe(true);
+    expect(handleValidationError).toHaveBeenCalledTimes(1);
+    expect(handleValidationError).toHaveBeenCalledWith(connection, 'pause', expect.any(Error));
+    expect(activeStream.nudges).toHaveLength(0);
+  });
+
   it('persistAttachment is called with stream ID added on start and removed on end', async () => {
     const { runtime } = createStreamRuntime();
     const connection = createConnection();

@@ -124,7 +124,12 @@ export async function bufferStreamNudge(
   } catch (error) {
     rethrowIfConfigError(error);
     await runtime.handleValidationError(connection, event, error);
-    return false;
+    // The frame matched an active stream and a registered nudge event —
+    // it was meant for the stream. Treat it as handled (with error) so
+    // the caller does not fall through to dispatchIncoming, which would
+    // re-route a malformed nudge through any same-named top-level
+    // .incoming() handler.
+    return true;
   }
 
   return true;

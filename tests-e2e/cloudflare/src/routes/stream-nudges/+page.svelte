@@ -5,11 +5,15 @@
 	let lastStreamId = $state('');
 	let tokens = $state('');
 	let streamEnd = $state(false);
+	let pauseTopLevelLeak = $state('');
+	let lastError = $state('');
 
 	function reset() {
 		lastStreamId = '';
 		tokens = '';
 		streamEnd = false;
+		pauseTopLevelLeak = '';
+		lastError = '';
 	}
 
 	function connect() {
@@ -41,6 +45,12 @@
 				case 'start-nudge-stream':
 					if (typeof data.payload?.token === 'string') tokens += data.payload.token;
 					break;
+				case 'pause-top-level-fired':
+					pauseTopLevelLeak = String(data.payload?.leak ?? '');
+					break;
+				case '_error':
+					lastError = String(data.payload?.code ?? '');
+					break;
 			}
 		};
 	}
@@ -62,6 +72,14 @@
 			JSON.stringify({ event: 'speed-up', payload: { factor, _streamId: lastStreamId } }),
 		);
 	}
+	function malformedPause() {
+		ws?.send(
+			JSON.stringify({
+				event: 'pause',
+				payload: { _streamId: lastStreamId, leak: 'should-not-reach-handler' },
+			}),
+		);
+	}
 </script>
 
 <h1>stream-nudges feature</h1>
@@ -75,8 +93,11 @@
 <button data-testid="pause" onclick={pause}>Pause</button>
 <button data-testid="pause-multiple" onclick={() => pauseMultiple(3)}>Pause x3</button>
 <button data-testid="speed-up" onclick={() => speedUp(50)}>Speed up x50</button>
+<button data-testid="malformed-pause" onclick={malformedPause}>Malformed pause</button>
 
 <span data-testid="status">{status}</span>
 <span data-testid="stream-id">{lastStreamId}</span>
 <span data-testid="tokens">{tokens}</span>
 <span data-testid="stream-end">{streamEnd ? 'yes' : 'no'}</span>
+<span data-testid="pause-top-level-leak">{pauseTopLevelLeak}</span>
+<span data-testid="last-error">{lastError}</span>
