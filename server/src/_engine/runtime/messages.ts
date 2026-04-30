@@ -3,6 +3,7 @@ import {
   Block,
   ChannelNotFound,
   ChannelNotSubscribed,
+  NamespaceNotFound,
   rethrowIfConfigError,
   WskitError,
 } from '@wskit/core';
@@ -186,15 +187,16 @@ export function resolveScope(
   const record = payload as Record<string, unknown>;
 
   if (typeof record._namespace === 'string') {
-    return {
-      namespace: compiled.namespaces.get(record._namespace),
-    };
+    const namespace = compiled.namespaces.get(record._namespace);
+    if (!namespace) throw NamespaceNotFound();
+    return { namespace };
   }
 
   if (typeof record._channel === 'string') {
     if (typeof record._channelScope === 'string') {
       const family = compiled.channelFamilies.get(record._channelScope);
-      if (family && !ChannelPrimitive.matchesScopePattern(family.pattern, record._channel)) {
+      if (!family) throw ChannelNotFound();
+      if (!ChannelPrimitive.matchesScopePattern(family.pattern, record._channel)) {
         throw ChannelNotFound();
       }
       return {
@@ -204,8 +206,10 @@ export function resolveScope(
       };
     }
 
+    const channel = compiled.channels.get(record._channel);
+    if (!channel) throw ChannelNotFound();
     return {
-      channel: compiled.channels.get(record._channel),
+      channel,
       channelName: record._channel,
     };
   }

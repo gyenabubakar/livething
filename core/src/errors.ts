@@ -344,6 +344,24 @@ export const ValidationFailed = error('validation-failed', (p: unknown) => {
 export const ChannelNotFound = error('channel-not-found');
 
 /**
+ * The error you get when you target a namespace the server doesn't
+ * recognise. Usually a typo in `_namespace` or a mismatch between your
+ * client and server versions.
+ *
+ * @example
+ * ```ts
+ * try {
+ *   await client.namespace('amdin').do('something');
+ * } catch (err) {
+ *   if (NamespaceNotFound.matches(err)) {
+ *     showToast('Unknown namespace.');
+ *   }
+ * }
+ * ```
+ */
+export const NamespaceNotFound = error('namespace-not-found');
+
+/**
  * Thrown when a client sends a message to a channel it isn't subscribed to,
  * or tries to unsubscribe from a channel it never joined.
  *
