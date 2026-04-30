@@ -69,14 +69,17 @@ describe('createKv', () => {
     vi.useRealTimers();
   });
 
-  it('warns through the engine logger when set() is called with ttl: 0', async () => {
+  it('warns through the engine logger when set() is called with ttl: 0 without leaking the key', async () => {
     const { kv, logger } = createState({});
 
     await kv.set('session:abc', 'value', { ttl: 0 });
 
     expect(logger.warn).toHaveBeenCalledTimes(1);
-    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('kv.set("session:abc"'));
-    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('ttl of 0'));
+    const message = (logger.warn as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string;
+    expect(message).toContain('ttl: 0');
+    // Keys often encode user/session ids — they must NOT appear in the
+    // warning message, which can be piped into log aggregators.
+    expect(message).not.toContain('session:abc');
   });
 
   it('does not warn for normal set() calls without ttl', async () => {

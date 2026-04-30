@@ -96,8 +96,11 @@ export function createKv(state: DurableObjectState, logger: Logger): KVProvider 
     },
     async set(key, value, options) {
       if (options?.ttl === 0) {
+        // Don't include the key in the message — keys often encode user or
+        // session ids and would leak into log output. The user can locate
+        // the call site via their own log context or a stack trace.
         logger.warn(
-          `[wskit] kv.set("${key}", { ttl: 0 }) — a ttl of 0 is treated as "no expiry"; pass a positive number of milliseconds to enable expiry, or omit ttl.`,
+          '[wskit] kv.set called with { ttl: 0 } — Cloudflare treats 0 as "no expiry". Pass a positive number of milliseconds to enable expiry, or omit ttl.',
         );
       }
       await state.storage.put(key, {
