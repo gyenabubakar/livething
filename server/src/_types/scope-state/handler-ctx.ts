@@ -93,11 +93,28 @@ type ScopeExtras<
   TKind extends ScopeKind,
   TOutgoing extends Record<string, any> = Record<string, any>,
   THasReplay extends boolean = false,
+  TMeta extends Record<string, unknown> = Record<string, unknown>,
 > = TKind extends 'namespace'
   ? NamespaceScopeMethods<TOutgoing>
   : TKind extends 'channel'
-    ? ChannelScopeMethods<TOutgoing, THasReplay>
+    ? ChannelScopeMethods<TOutgoing, THasReplay, TMeta>
     : {};
+
+/**
+ * Include `ctx.channels` only when at least one channel is registered AND we
+ * are not currently inside a channel-scoped handler. Inside a channel handler
+ * use `ctx.channel` instead.
+ */
+type ChannelsApi<TState extends ScopeStateShape> = TState['kind'] extends 'channel'
+  ? {}
+  : [TState['staticChannelNames'] | TState['channelFamilyKeys']] extends [never]
+    ? {}
+    : ChannelsMethods<
+        TState['staticChannelNames'],
+        TState['channelFamilyKeys'],
+        TState['channelOutgoingByKey'],
+        TState['meta']
+      >;
 
 // ---------------------------------------------------------------------------
 // HandlerCtxFromState
@@ -142,10 +159,10 @@ export type HandlerCtxFromState<TState extends ScopeStateShape> = SendApi<TState
   AckApi<TState> &
   ReplayApi<TState> &
   ScheduleApi<TState> &
-  ChannelsMethods<TState['channelNames'] extends never ? string : TState['channelNames']> &
+  ChannelsApi<TState> &
   RuntimeContextMethods &
   EnvMethods<TState['env']> &
-  ScopeExtras<TState['kind'], TState['outgoing'], TState['hasReplay']>;
+  ScopeExtras<TState['kind'], TState['outgoing'], TState['hasReplay'], TState['meta']>;
 
 // ---------------------------------------------------------------------------
 // StreamBaseCtxFromState / StreamCtxFromState
@@ -169,10 +186,10 @@ export type StreamBaseCtxFromState<TState extends ScopeStateShape> = SendApi<TSt
   TagMethods &
   UntagMethods &
   ReplayApi<TState> &
-  ChannelsMethods<TState['channelNames'] extends never ? string : TState['channelNames']> &
+  ChannelsApi<TState> &
   RuntimeContextMethods &
   EnvMethods<TState['env']> &
-  ScopeExtras<TState['kind'], TState['outgoing'], TState['hasReplay']>;
+  ScopeExtras<TState['kind'], TState['outgoing'], TState['hasReplay'], TState['meta']>;
 
 /**
  * Build the full ctx for a stream generator by adding `ctx.nudges(...)` on

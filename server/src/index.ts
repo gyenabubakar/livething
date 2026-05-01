@@ -20,7 +20,8 @@ export type { InferClient } from './infer-client.ts';
 
 export type {
   BroadcastOptions,
-  ChannelManager,
+  ChannelHandle,
+  ChannelsManager,
   ConnectionContext,
   ConnectionInfo,
   InitContext,

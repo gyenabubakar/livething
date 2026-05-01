@@ -115,7 +115,12 @@ export type ChannelHandlerContext<
     { incoming: {}; outgoing: {}; requests: {}; streams: {}; channels: {}; namespaces: {} },
     readonly [],
     Record<string, unknown>,
-    never
+    never,
+    {},
+    Record<string, unknown>,
+    never,
+    never,
+    {}
   >
 >;
 
@@ -135,7 +140,12 @@ export type ChannelStreamHandlerContext<
     { incoming: {}; outgoing: {}; requests: {}; streams: {}; channels: {}; namespaces: {} },
     readonly [],
     Record<string, unknown>,
-    never
+    never,
+    {},
+    Record<string, unknown>,
+    never,
+    never,
+    {}
   >
 >;
 

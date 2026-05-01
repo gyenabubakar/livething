@@ -42,7 +42,10 @@ type ChannelState<TParentState extends ScopeStateShape> = ScopeState<
   TParentState['meta'],
   TParentState['channelNames'],
   TParentState['scheduledTasks'],
-  TParentState['env']
+  TParentState['env'],
+  TParentState['staticChannelNames'],
+  TParentState['channelFamilyKeys'],
+  TParentState['channelOutgoingByKey']
 >;
 
 type StateAfterOutgoing<

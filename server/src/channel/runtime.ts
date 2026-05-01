@@ -335,8 +335,14 @@ export async function unsubscribeConnection(
 /**
  * Remove tagged members from a channel, usually for moderation or access
  * control.
+ *
+ * Scoped to the exact `channelName + channelScope` pair: kicks never cross
+ * into a different channel family that happens to share a concrete name.
+ *
+ * Awaits every triggered `leaveChannel` so `onUnsubscribe` rejections
+ * propagate to the caller and so the kick is observable as complete.
  */
-export function kickChannelMembers(
+export async function kickChannelMembers(
   runtime: ChannelRuntime & {
     leaveChannel(
       connection: RuntimeConnection,
@@ -347,12 +353,15 @@ export function kickChannelMembers(
   channelName: string,
   tag: string,
   reason: string,
-): void {
+  channelScope?: string,
+): Promise<void> {
+  const pending: Promise<void>[] = [];
   for (const connection of runtime.connections.values()) {
     if (!connection.tags.has(tag)) continue;
 
     for (const membership of listChannelMemberships(connection)) {
       if (membership.channelName !== channelName) continue;
+      if (channelScope !== undefined && membership.channelScope !== channelScope) continue;
 
       const channel = resolveCompiledChannel(
         runtime.compiled,
@@ -360,15 +369,18 @@ export function kickChannelMembers(
         membership.channelScope,
       );
 
-      void runtime.leaveChannel(
-        connection,
-        {
-          channel,
-          channelName: membership.channelName,
-          channelScope: membership.channelScope,
-        },
-        reason,
+      pending.push(
+        runtime.leaveChannel(
+          connection,
+          {
+            channel,
+            channelName: membership.channelName,
+            channelScope: membership.channelScope,
+          },
+          reason,
+        ),
       );
     }
   }
+  await Promise.all(pending);
 }

@@ -55,7 +55,12 @@ function baseDeps(overrides: Partial<Parameters<typeof buildConnectionContext>[0
     sendThroughPipeline: vi.fn(() => true),
     broadcastToChannel: vi.fn(),
     getChannelMembers: vi.fn(() => []),
-    kickChannelMembers: vi.fn(),
+    kickChannelMembers: vi.fn(async () => {}),
+    resolveChannel: vi.fn((target: any) =>
+      typeof target === 'string'
+        ? { channelName: target }
+        : { channelName: target.name, channelScope: target.family },
+    ),
     sendReplay: vi.fn(),
     sendProtocolMessage: vi.fn(),
     persistAttachment: vi.fn(),
@@ -343,8 +348,8 @@ describe('ctx.channel.send', () => {
   });
 });
 
-describe('ctx.channels.members()', () => {
-  it('returns the ConnectionInfo array from getChannelMembers', () => {
+describe('ctx.channels.get(name).members()', () => {
+  it('returns the ConnectionInfo array from getChannelMembers, scoped to the resolved channel', () => {
     const connection = createConnection('c1');
     const memberInfo = {
       id: 'c2',
@@ -361,10 +366,65 @@ describe('ctx.channels.members()', () => {
     });
 
     const ctx = buildConnectionContext(deps, connection);
-    const members = ctx.channels.members('room');
+    const members = (ctx as any).channels.get('room').members();
 
     expect(members).toEqual([memberInfo]);
-    expect(deps.getChannelMembers).toHaveBeenCalledWith('room');
+    expect(deps.getChannelMembers).toHaveBeenCalledWith('room', undefined);
+  });
+
+  it('throws ChannelNotFound when the channel does not resolve', () => {
+    const connection = createConnection('c1');
+    const deps = baseDeps({
+      connections: new Map([[connection.id, connection]]),
+      resolveChannel: vi.fn(() => undefined),
+    });
+
+    const ctx = buildConnectionContext(deps, connection);
+    expect(() => (ctx as any).channels.get('missing')).toThrow();
+  });
+
+  it('routes get(family, name) to the family scope and validates the pattern via resolveChannel', () => {
+    const connection = createConnection('c1');
+    const memberInfo = {
+      id: 'c2',
+      meta: {},
+      tags: [],
+      channels: [],
+      latency: null,
+      quality: 'good' as const,
+      bufferedAmount: 0,
+    };
+    const resolveChannel = vi.fn((target: any) =>
+      typeof target === 'string'
+        ? undefined
+        : { channelName: target.name, channelScope: target.family },
+    );
+    const deps = baseDeps({
+      connections: new Map([[connection.id, connection]]),
+      getChannelMembers: vi.fn(() => [memberInfo]),
+      resolveChannel,
+    });
+
+    const ctx = buildConnectionContext(deps, connection);
+    const members = (ctx as any).channels.get('publicRooms', 'room:42').members();
+
+    expect(members).toEqual([memberInfo]);
+    expect(resolveChannel).toHaveBeenCalledWith({ family: 'publicRooms', name: 'room:42' });
+    expect(deps.getChannelMembers).toHaveBeenCalledWith('room:42', 'publicRooms');
+  });
+
+  it('kick on the handle is awaitable and forwards scope to kickChannelMembers', async () => {
+    const connection = createConnection('c1');
+    const kickChannelMembers = vi.fn(async () => {});
+    const deps = baseDeps({
+      connections: new Map([[connection.id, connection]]),
+      kickChannelMembers,
+    });
+
+    const ctx = buildConnectionContext(deps, connection);
+    await (ctx as any).channels.get('room').kick('banned', 'spam');
+
+    expect(kickChannelMembers).toHaveBeenCalledWith('room', 'banned', 'spam', undefined);
   });
 });
 

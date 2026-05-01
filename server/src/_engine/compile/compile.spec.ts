@@ -228,3 +228,27 @@ describe('compile replayClaimedChannelKeys', () => {
     expect(compiled.replayClaimedChannelKeys).toEqual(new Set(['lobby', 'rooms', 'public-room']));
   });
 });
+
+describe('compile static-name vs family-key collision', () => {
+  it('throws when a static channel name collides with a later channel-family key', async () => {
+    const { channel, scope } = await import('~/channel/channel.ts');
+    // Build a primitive list manually so we can sidestep the builder-level
+    // identity-dedup check and exercise the compile-time disjoint check.
+    const def = {
+      __wskit: 'server' as const,
+      primitives: [channel('rooms'), channel(scope('rooms', /^.+$/))],
+    } as unknown as Parameters<typeof compileHandlerDefinition>[0];
+
+    expect(() => compileHandlerDefinition(def)).toThrow(/disjoint/);
+  });
+
+  it('throws when a channel-family key collides with a later static channel name', async () => {
+    const { channel, scope } = await import('~/channel/channel.ts');
+    const def = {
+      __wskit: 'server' as const,
+      primitives: [channel(scope('rooms', /^.+$/)), channel('rooms')],
+    } as unknown as Parameters<typeof compileHandlerDefinition>[0];
+
+    expect(() => compileHandlerDefinition(def)).toThrow(/disjoint/);
+  });
+});

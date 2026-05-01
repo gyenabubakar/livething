@@ -371,35 +371,34 @@ describe('ctx.channels typing', () => {
     s.use(s.channel('lobby', (ch) => ch.outgoing(roomMessage).incoming(roomSend, async () => {})))
       .use(s.channel('vip', (ch) => ch.incoming(roomSend, async () => {})))
       .incoming(sendMessage, async (ctx) => {
-        ctx.channels.members('lobby');
-        ctx.channels.members('vip');
-        ctx.channels.kick('lobby', 'banned', 'reason');
+        ctx.channels.get('lobby').members();
+        ctx.channels.get('vip').members();
+        await ctx.channels.get('lobby').kick('banned', 'reason');
 
         // @ts-expect-error — 'nonexistent' is not a registered channel
-        ctx.channels.members('nonexistent');
+        ctx.channels.get('nonexistent');
       });
   });
 
-  it('dynamic channel (scope) allows any string', () => {
+  it('dynamic channel (scope) requires concrete name', () => {
     const s = fullServer('chat');
     s.use(
       s.channel(scope('rooms', /^room-.+$/), (ch) =>
         ch.outgoing(roomMessage).incoming(roomSend, async () => {}),
       ),
     ).incoming(sendMessage, async (ctx) => {
-      ctx.channels.members('room-123');
-      ctx.channels.members('any-string-ok');
+      ctx.channels.get('rooms', 'room-123').members();
+      ctx.channels.get('rooms', 'any-string-ok').members();
     });
   });
 
-  it('mixed static + dynamic accepts any string (dynamic widens)', () => {
+  it('mixed static + dynamic — both forms work, names stay disjoint', () => {
     const s = fullServer('chat');
     s.use(s.channel('lobby', (ch) => ch.incoming(roomSend, async () => {})))
       .use(s.channel(scope('rooms', /^room-.+$/), (ch) => ch.incoming(roomSend, async () => {})))
       .incoming(sendMessage, async (ctx) => {
-        ctx.channels.members('lobby');
-        ctx.channels.members('room-abc');
-        ctx.channels.members('anything-goes');
+        ctx.channels.get('lobby').members();
+        ctx.channels.get('rooms', 'room-abc').members();
       });
   });
 });

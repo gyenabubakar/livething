@@ -73,8 +73,19 @@ export interface ContextCommonDeps {
     channelScope?: string,
     excludeSelf?: boolean,
   ): void;
-  getChannelMembers(channelName: string): ConnectionInfo<Record<string, unknown>>[];
-  kickChannelMembers(channelName: string, tag: string, reason: string): void;
+  getChannelMembers(
+    channelName: string,
+    channelScope?: string,
+  ): ConnectionInfo<Record<string, unknown>>[];
+  kickChannelMembers(
+    channelName: string,
+    tag: string,
+    reason: string,
+    channelScope?: string,
+  ): Promise<void>;
+  resolveChannel(
+    target: string | { family: string; name: string },
+  ): { channelName: string; channelScope?: string } | undefined;
   sendReplay(
     connection: EngineRuntimeTypes.RuntimeConnection,
     channelName: string | undefined,

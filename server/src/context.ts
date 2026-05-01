@@ -240,24 +240,69 @@ export interface ReplayScopeSendApi extends ScopeSendApi {
 }
 
 /**
- * Manage channel membership from any handler context.
+ * A handle to one resolved channel, returned by `ctx.channel` (in-channel) and
+ * by `ctx.channels.get(...)` (anywhere). Use it to send to the caller, broadcast
+ * to subscribers, list members, or kick tagged connections out of this exact
+ * channel scope.
  *
- * Available as `ctx.channels` when at least one `channel()` is registered.
- *
- * `TChannelNames` is the union of registered channel name strings — when only
- * static channels are registered, typos in `name` / `channelName` are caught
- * at compile time. When dynamic channels exist the union includes `string & {}`
- * so any string is accepted but autocomplete still suggests known names.
+ * `TOutgoing` is typed to the events declared inside the channel's
+ * sub-builder, so `send` and `broadcast` only accept those events. `Meta` matches
+ * the per-connection metadata shape from your `.onUpgrade()`.
  */
-export interface ChannelManager<
-  TChannelNames extends string = string,
+export interface ChannelHandle<
+  TOutgoing extends Record<string, unknown> = Record<string, unknown>,
   Meta = Record<string, unknown>,
 > {
-  /** Get every connection currently subscribed to the given channel. */
-  members(name: TChannelNames): ConnectionInfo<Meta>[];
+  /** The concrete channel name this handle targets. */
+  readonly name: string;
+  /** Send a channel-scoped event to the current connection. */
+  send<E extends keyof TOutgoing & string>(event: E, payload: TOutgoing[E]): boolean;
+  /**
+   * Broadcast a channel-scoped event to subscribers of this exact channel scope.
+   *
+   * Excludes the calling connection by default. Pass `{ excludeSelf: false }`
+   * to also deliver the event to the sender.
+   */
+  broadcast<E extends keyof TOutgoing & string>(
+    event: E,
+    payload: TOutgoing[E],
+    options?: { excludeSelf?: boolean },
+  ): void;
+  /** List the connections currently subscribed to this exact channel scope. */
+  members(): ConnectionInfo<Meta>[];
+  /**
+   * Remove every connection that has the given tag from this exact channel
+   * scope, sending each kicked connection a `_kicked` frame with the reason and
+   * notifying remaining subscribers via `_memberLeave`.
+   *
+   * Awaits all `onUnsubscribe` hook completions; rejections from those hooks
+   * propagate to the caller.
+   */
+  kick(tag: string, reason: string): Promise<void>;
+}
 
-  /** Remove all connections with the given tag from a channel, with a reason string. */
-  kick(channelName: TChannelNames, tag: string, reason: string): void;
+/**
+ * Look up a channel handle from any handler. Use the single-argument overload
+ * for static channel names, and the two-argument overload for dynamic channel
+ * families declared with `scope(key, pattern)`. The returned handle is bound to
+ * the resolved scope so members and kicks never cross into a different family.
+ *
+ * Available as `ctx.channels` when at least one `channel()` is registered at
+ * the top level. Inside a channel handler, prefer `ctx.channel` instead.
+ */
+export interface ChannelsManager<
+  TStaticNames extends string = string,
+  TFamilyKeys extends string = string,
+  TOutgoingByKey extends Record<string, Record<string, unknown>> = Record<
+    string,
+    Record<string, unknown>
+  >,
+  Meta = Record<string, unknown>,
+> {
+  /** Resolve a static channel by its registered name. */
+  get<K extends TStaticNames>(name: K): ChannelHandle<TOutgoingByKey[K], Meta>;
+  /** Resolve a concrete channel inside a registered channel family. */
+  get<K extends TFamilyKeys>(family: K, name: string): ChannelHandle<TOutgoingByKey[K], Meta>;
 }
 
 /**
@@ -374,8 +419,8 @@ export interface ConnectionContext<
   /** Scoped send/broadcast when inside a channel handler, with optional replay support. */
   channel?: ReplayScopeSendApi;
 
-  /** Manage channel membership from any handler. Only present when channels are registered. */
-  channels: ChannelManager<string, Meta>;
+  /** Resolve a channel handle from any handler. Only present when channels are registered. */
+  channels: ChannelsManager<string, string, Record<string, Record<string, unknown>>, Meta>;
 
   // Durable scheduling
   /** Queue a scheduled task to run at a specific absolute timestamp (ms since epoch). */

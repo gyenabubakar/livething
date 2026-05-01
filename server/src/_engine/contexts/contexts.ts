@@ -1,3 +1,4 @@
+import { ChannelNotFound } from '@wskit/core';
 import * as EngineCompileUtils from '~/_engine/compile/utils.ts';
 import * as DefineModule from '~/modules/define.ts';
 import type * as PublicApi from '~/context.ts';
@@ -232,31 +233,82 @@ function buildMessagingApi(
   };
 }
 
-type ChannelsApiDeps = Pick<
+type ChannelHandleDeps = Pick<
   EngineContextTypes.BuildConnectionContextDeps,
-  'getChannelMembers' | 'kickChannelMembers'
+  'broadcastToChannel' | 'getChannelMembers' | 'kickChannelMembers' | 'sendThroughPipeline'
 >;
 
-/** Build the `ctx.channels` helper surface (members/kick). */
-function buildChannelsApi(
-  _connection: EngineContextTypes.RuntimeConnection,
-  deps: ChannelsApiDeps,
-): EngineContextTypes.ConnectionContext<
-  Record<string, unknown>,
-  Record<string, unknown>,
-  unknown
->['channels'] {
+/**
+ * Build a `ChannelHandle` bound to the given resolved scope. Used both by
+ * `ctx.channel` (in-channel handlers) and `ctx.channels.get(...)` (anywhere).
+ *
+ * @internal
+ */
+export function buildChannelHandle(
+  connection: EngineContextTypes.RuntimeConnection,
+  scope: { channelName: string; channelScope?: string },
+  deps: ChannelHandleDeps,
+): PublicApi.ChannelHandle {
   return {
-    members: (name) => deps.getChannelMembers(name),
-    kick: (channelNameToKick, tag, reason) => {
-      deps.kickChannelMembers(channelNameToKick, tag, reason);
+    name: scope.channelName,
+    send: (event: string, payload: unknown) =>
+      deps.sendThroughPipeline(
+        connection,
+        { channel: scope.channelName, channelScope: scope.channelScope },
+        event,
+        payload,
+      ),
+    broadcast: (event: string, payload: unknown, options?: { excludeSelf?: boolean }) => {
+      deps.broadcastToChannel(
+        scope.channelName,
+        event,
+        payload,
+        connection.id,
+        scope.channelScope,
+        options?.excludeSelf,
+      );
+    },
+    members: () => deps.getChannelMembers(scope.channelName, scope.channelScope),
+    kick: (tag: string, reason: string) =>
+      deps.kickChannelMembers(scope.channelName, tag, reason, scope.channelScope),
+  };
+}
+
+type ChannelsApiDeps = Pick<
+  EngineContextTypes.BuildConnectionContextDeps,
+  | 'broadcastToChannel'
+  | 'getChannelMembers'
+  | 'kickChannelMembers'
+  | 'resolveChannel'
+  | 'sendThroughPipeline'
+>;
+
+/** Build the `ctx.channels` helper surface — only `get(...)`. */
+function buildChannelsApi(
+  connection: EngineContextTypes.RuntimeConnection,
+  deps: ChannelsApiDeps,
+): { get(...args: unknown[]): PublicApi.ChannelHandle } {
+  return {
+    get(...args: unknown[]) {
+      const target =
+        args.length >= 2
+          ? { family: args[0] as string, name: args[1] as string }
+          : (args[0] as string);
+      const resolved = deps.resolveChannel(target);
+      if (!resolved) throw ChannelNotFound();
+      return buildChannelHandle(connection, resolved, deps);
     },
   };
 }
 
 type ScopeExtrasDeps = Pick<
   EngineContextTypes.BuildConnectionContextDeps,
-  'broadcastToChannel' | 'broadcastToConnections' | 'connections' | 'sendThroughPipeline'
+  | 'broadcastToChannel'
+  | 'broadcastToConnections'
+  | 'connections'
+  | 'getChannelMembers'
+  | 'kickChannelMembers'
+  | 'sendThroughPipeline'
 >;
 
 /** Attach scope-bound `ctx.namespace` / `ctx.channel` helpers when a scope is active. */
@@ -298,27 +350,7 @@ function buildScopeExtras(
     const channelName =
       scope.channelName ?? (typeof channel.pattern === 'string' ? channel.pattern : '');
     const channelScope = scope.channelScope;
-    extras.channel = {
-      name: channelName,
-      send: (event: string, payload: unknown) => {
-        return deps.sendThroughPipeline(
-          connection,
-          { channel: channelName, channelScope },
-          event,
-          payload,
-        );
-      },
-      broadcast: (event: string, payload: unknown, options?: { excludeSelf?: boolean }) => {
-        deps.broadcastToChannel(
-          channelName,
-          event,
-          payload,
-          connection.id,
-          channelScope,
-          options?.excludeSelf,
-        );
-      },
-    };
+    extras.channel = buildChannelHandle(connection, { channelName, channelScope }, deps);
   }
 
   return extras;

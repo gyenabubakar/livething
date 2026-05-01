@@ -93,6 +93,6 @@ export const hibernationHandler = base
     });
   })
   .incoming(GetRoomMembers, (ctx) => {
-    ctx.send('room-members-count', { count: ctx.channels.members('room').length });
+    ctx.send('room-members-count', { count: ctx.channels.get('room').members().length });
   })
   .build();

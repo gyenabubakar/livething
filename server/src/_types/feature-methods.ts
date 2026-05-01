@@ -137,6 +137,9 @@ type StateWithMeta<TState extends ScopeStateShape, TMeta extends Record<string, 
   readonly errors: TState['errors'];
   readonly meta: TMeta;
   readonly channelNames: TState['channelNames'];
+  readonly staticChannelNames: TState['staticChannelNames'];
+  readonly channelFamilyKeys: TState['channelFamilyKeys'];
+  readonly channelOutgoingByKey: TState['channelOutgoingByKey'];
   readonly scheduledTasks: TState['scheduledTasks'];
   readonly env: TState['env'];
 };
@@ -218,7 +221,10 @@ type ChannelState<TParentState extends ScopeStateShape> = ScopeState<
   TParentState['meta'],
   TParentState['channelNames'],
   TParentState['scheduledTasks'],
-  TParentState['env']
+  TParentState['env'],
+  TParentState['staticChannelNames'],
+  TParentState['channelFamilyKeys'],
+  TParentState['channelOutgoingByKey']
 >;
 
 type ChannelNameFromPattern<TPattern> = TPattern extends ScopeDeclaration
@@ -249,7 +255,10 @@ type NamespaceState<TParentState extends ScopeStateShape> = ScopeState<
   TParentState['meta'],
   TParentState['channelNames'],
   TParentState['scheduledTasks'],
-  TParentState['env']
+  TParentState['env'],
+  TParentState['staticChannelNames'],
+  TParentState['channelFamilyKeys'],
+  TParentState['channelOutgoingByKey']
 >;
 
 type NamespaceContract<TNsState extends ScopeStateShape> = {
@@ -310,6 +319,9 @@ type StateWithStream<
   readonly errors: TState['errors'];
   readonly meta: TState['meta'];
   readonly channelNames: TState['channelNames'];
+  readonly staticChannelNames: TState['staticChannelNames'];
+  readonly channelFamilyKeys: TState['channelFamilyKeys'];
+  readonly channelOutgoingByKey: TState['channelOutgoingByKey'];
   readonly scheduledTasks: TState['scheduledTasks'];
   readonly env: TState['env'];
 };

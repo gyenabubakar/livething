@@ -279,8 +279,9 @@ export function kickChannelMembers(
   channelName: string,
   tag: string,
   reason: string,
-): void {
-  ChannelPrimitive.kickChannelMembers(runtime, channelName, tag, reason);
+  channelScope?: string,
+): Promise<void> {
+  return ChannelPrimitive.kickChannelMembers(runtime, channelName, tag, reason, channelScope);
 }
 
 /**

@@ -1,6 +1,11 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 
-import type { BroadcastOptions, ChannelManager, ConnectionContext } from '~/context.ts';
+import type {
+  BroadcastOptions,
+  ChannelHandle,
+  ChannelsManager,
+  ConnectionContext,
+} from '~/context.ts';
 
 // ---------------------------------------------------------------------------
 // Typed send / broadcast methods
@@ -408,58 +413,47 @@ export interface NamespaceScopeMethods<
 export interface ChannelScopeMethods<
   TOutgoing extends Record<string, any> = Record<string, any>,
   THasReplay extends boolean = false,
+  TMeta extends Record<string, unknown> = Record<string, unknown>,
 > {
   /**
-   * Channel-scoped send helpers for the current handler.
-   *
-   * These helpers automatically target the concrete channel instance the
-   * current handler belongs to.
+   * The handle for the channel instance this handler is running in. Use it to
+   * send to the caller, broadcast to subscribers, list members, or kick a
+   * tagged connection out of the channel.
    */
-  readonly channel: {
-    /** The concrete channel name for the current handler. */
-    readonly name: string;
-    /** Send a channel-scoped event to the current connection. */
-    send<TEvent extends keyof TOutgoing & string>(
-      event: TEvent,
-      payload: TOutgoing[TEvent],
-    ): boolean;
-    /**
-     * Broadcast a channel-scoped event to subscribed channel members.
-     *
-     * Excludes the calling connection by default. Pass `{ excludeSelf: false }`
-     * to also deliver the event to the sender.
-     */
-    broadcast<TEvent extends keyof TOutgoing & string>(
-      event: TEvent,
-      payload: TOutgoing[TEvent],
-      options?: { excludeSelf?: boolean },
-    ): void;
-  } & (THasReplay extends true
-    ? {
-        /** Send a channel-scoped replayable event with explicit replay wire metadata. */
-        sendReplay<TEvent extends keyof TOutgoing & string>(
-          event: TEvent,
-          payload: TOutgoing[TEvent],
-          wire: ReplayWire,
-        ): void;
-      }
-    : {});
+  readonly channel: ChannelHandle<TOutgoing, TMeta> &
+    (THasReplay extends true
+      ? {
+          /** Send a channel-scoped replayable event with explicit replay wire metadata. */
+          sendReplay<TEvent extends keyof TOutgoing & string>(
+            event: TEvent,
+            payload: TOutgoing[TEvent],
+            wire: ReplayWire,
+          ): void;
+        }
+      : {});
 }
 
 /**
- * Provides `ctx.channels` — manage channel membership from any handler.
+ * Provides `ctx.channels.get(...)` — resolve a channel handle from any handler.
  *
- * When channel names are known (from `.channel()` calls), the `name` parameter
- * on `members()` and `kick()` is typed as the union of registered channel
- * names. Static channels produce exact string literals; dynamic channels
- * (via `scope()`) widen to `string & {}` so any string is accepted but
- * autocomplete still suggests known names.
+ * The first overload is used for static channel names (literal `.channel('lobby', ...)`),
+ * the second for channel families declared with `scope(key, regex)`. The
+ * resolved handle is bound to that exact channel scope, so member listings,
+ * kicks, and broadcasts never cross into a different family.
  */
-export interface ChannelsMethods<TChannelNames extends string = string> {
+export interface ChannelsMethods<
+  TStaticNames extends string = string,
+  TFamilyKeys extends string = string,
+  TOutgoingByKey extends Record<string, Record<string, unknown>> = Record<
+    string,
+    Record<string, unknown>
+  >,
+  TMeta extends Record<string, unknown> = Record<string, unknown>,
+> {
   /**
-   * Manage channel membership from any handler — list members, kick
-   * connections by tag. Available everywhere, not just inside channel-scoped
-   * handlers.
+   * Resolve a channel handle from any handler. Pass a static channel name to
+   * get a handle for that channel, or a family key plus a concrete name to
+   * resolve a channel inside a `scope()` family.
    */
-  readonly channels: ChannelManager<TChannelNames>;
+  readonly channels: ChannelsManager<TStaticNames, TFamilyKeys, TOutgoingByKey, TMeta>;
 }

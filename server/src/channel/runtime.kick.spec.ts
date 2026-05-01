@@ -98,7 +98,7 @@ describe('channels.kick end-to-end', () => {
       async handleValidationError() {},
     };
 
-    kickChannelMembers(
+    await kickChannelMembers(
       {
         ...runtime,
         leaveChannel: async (connection: any, scope: any, kickedReason: any) =>
@@ -108,10 +108,6 @@ describe('channels.kick end-to-end', () => {
       'troll',
       'spam',
     );
-
-    // Allow queued async leaveChannel calls to flush.
-    await Promise.resolve();
-    await Promise.resolve();
 
     const kicked = protocol.filter((p) => p.event === '_kicked');
     expect(kicked).toHaveLength(2);
@@ -134,5 +130,68 @@ describe('channels.kick end-to-end', () => {
     expect(
       [...alsoBanned.channelMemberships.values()].some((m) => m.channelName === 'room:general'),
     ).toBe(false);
+  });
+
+  it('propagates onUnsubscribe rejections to the kick caller', async () => {
+    const banned = createConnection('banned');
+    addChannelMembership(banned, 'room:general');
+    banned.tags.add('troll');
+
+    const generalChannel = {
+      key: 'room:general',
+      kind: 'channel' as const,
+      pattern: 'room:general',
+      outgoing: new Map(),
+      incoming: new Map(),
+      requests: new Map(),
+      streams: new Map(),
+      preIntercepts: [],
+      postIntercepts: new Map(),
+    };
+
+    const connections = new Map([[banned.id, banned]]);
+
+    const runtime = {
+      compiled: {
+        channels: new Map([['room:general', generalChannel]]),
+        channelFamilies: new Map(),
+      },
+      connections,
+      beforeSubscribeHooks: new Map(),
+      subscribeHooks: new Map(),
+      unsubscribeHooks: new Map([
+        [
+          'room:general',
+          [
+            async () => {
+              throw new Error('hook boom');
+            },
+          ],
+        ],
+      ]),
+      toConnectionInfo() {
+        return {} as any;
+      },
+      buildConnectionContext() {
+        return {} as any;
+      },
+      persistAttachment() {},
+      sendProtocolMessage() {},
+      broadcastToChannel() {},
+      async handleValidationError() {},
+    };
+
+    await expect(
+      kickChannelMembers(
+        {
+          ...runtime,
+          leaveChannel: async (connection: any, scope: any, kickedReason: any) =>
+            leaveChannel(runtime as any, connection, scope, kickedReason),
+        } as any,
+        'room:general',
+        'troll',
+        'spam',
+      ),
+    ).rejects.toThrow('hook boom');
   });
 });

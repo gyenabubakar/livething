@@ -166,6 +166,9 @@ export interface ScopeStateShape {
   readonly errors: readonly AnyErrorDef[];
   readonly meta: Record<string, unknown>;
   readonly channelNames: string;
+  readonly staticChannelNames: string;
+  readonly channelFamilyKeys: string;
+  readonly channelOutgoingByKey: Record<string, Record<string, any>>;
   readonly scheduledTasks: Record<string, ScheduledTaskDefinition<any, any>>;
   readonly env: object;
 }
@@ -225,6 +228,9 @@ export type ScopeState<
   TChannelNames extends string = never,
   TScheduledTasks extends Record<string, ScheduledTaskDefinition<any, any>> = {},
   TEnv extends object = Record<string, unknown>,
+  TStaticChannelNames extends string = never,
+  TChannelFamilyKeys extends string = never,
+  TChannelOutgoingByKey extends Record<string, Record<string, any>> = {},
 > = {
   readonly kind: TKind;
   readonly outgoing: TOutgoing;
@@ -234,6 +240,9 @@ export type ScopeState<
   readonly errors: TErrors;
   readonly meta: TMeta;
   readonly channelNames: TChannelNames;
+  readonly staticChannelNames: TStaticChannelNames;
+  readonly channelFamilyKeys: TChannelFamilyKeys;
+  readonly channelOutgoingByKey: TChannelOutgoingByKey;
   readonly scheduledTasks: TScheduledTasks;
   readonly env: TEnv;
 };
@@ -374,6 +383,9 @@ export type NextState<
       readonly errors: TState['errors'];
       readonly meta: TState['meta'];
       readonly channelNames: TState['channelNames'];
+      readonly staticChannelNames: TState['staticChannelNames'];
+      readonly channelFamilyKeys: TState['channelFamilyKeys'];
+      readonly channelOutgoingByKey: TState['channelOutgoingByKey'];
       readonly scheduledTasks: TState['scheduledTasks'];
       readonly env: TState['env'];
     }
@@ -393,6 +405,9 @@ export type NextState<
         readonly errors: TState['errors'];
         readonly meta: TState['meta'];
         readonly channelNames: TState['channelNames'];
+        readonly staticChannelNames: TState['staticChannelNames'];
+        readonly channelFamilyKeys: TState['channelFamilyKeys'];
+        readonly channelOutgoingByKey: TState['channelOutgoingByKey'];
         readonly scheduledTasks: TState['scheduledTasks'];
         readonly env: TState['env'];
       }
@@ -407,6 +422,9 @@ export type NextState<
           readonly errors: TState['errors'];
           readonly meta: TState['meta'];
           readonly channelNames: TState['channelNames'];
+          readonly staticChannelNames: TState['staticChannelNames'];
+          readonly channelFamilyKeys: TState['channelFamilyKeys'];
+          readonly channelOutgoingByKey: TState['channelOutgoingByKey'];
           readonly scheduledTasks: MergeRecords<
             TState['scheduledTasks'],
             Record<TTaskId, ScheduledTaskDefinition<TData, THasData>>
@@ -424,6 +442,9 @@ export type NextState<
             readonly errors: TState['errors'];
             readonly meta: TState['meta'];
             readonly channelNames: TState['channelNames'];
+            readonly staticChannelNames: TState['staticChannelNames'];
+            readonly channelFamilyKeys: TState['channelFamilyKeys'];
+            readonly channelOutgoingByKey: TState['channelOutgoingByKey'];
             readonly scheduledTasks: TState['scheduledTasks'];
             readonly env: TState['env'];
           }
@@ -439,6 +460,9 @@ export type NextState<
                 readonly errors: TDefs;
                 readonly meta: TState['meta'];
                 readonly channelNames: TState['channelNames'];
+                readonly staticChannelNames: TState['staticChannelNames'];
+                readonly channelFamilyKeys: TState['channelFamilyKeys'];
+                readonly channelOutgoingByKey: TState['channelOutgoingByKey'];
                 readonly scheduledTasks: TState['scheduledTasks'];
                 readonly env: TState['env'];
               }
@@ -461,6 +485,9 @@ export type NextState<
                 readonly errors: TState['errors'];
                 readonly meta: TState['meta'];
                 readonly channelNames: TState['channelNames'];
+                readonly staticChannelNames: TState['staticChannelNames'];
+                readonly channelFamilyKeys: TState['channelFamilyKeys'];
+                readonly channelOutgoingByKey: TState['channelOutgoingByKey'];
                 readonly scheduledTasks: TState['scheduledTasks'];
                 readonly env: TState['env'];
               }
@@ -486,6 +513,9 @@ export type NextState<
                     readonly errors: TState['errors'];
                     readonly meta: TState['meta'];
                     readonly channelNames: TState['channelNames'];
+                    readonly staticChannelNames: TState['staticChannelNames'];
+                    readonly channelFamilyKeys: TState['channelFamilyKeys'];
+                    readonly channelOutgoingByKey: TState['channelOutgoingByKey'];
                     readonly scheduledTasks: TState['scheduledTasks'];
                     readonly env: TState['env'];
                   }
@@ -511,6 +541,9 @@ export type NextState<
                     readonly errors: TState['errors'];
                     readonly meta: TState['meta'];
                     readonly channelNames: TState['channelNames'];
+                    readonly staticChannelNames: TState['staticChannelNames'];
+                    readonly channelFamilyKeys: TState['channelFamilyKeys'];
+                    readonly channelOutgoingByKey: TState['channelOutgoingByKey'];
                     readonly scheduledTasks: TState['scheduledTasks'];
                     readonly env: TState['env'];
                   }
@@ -536,6 +569,9 @@ export type NextState<
                         readonly errors: TState['errors'];
                         readonly meta: TState['meta'];
                         readonly channelNames: TState['channelNames'];
+                        readonly staticChannelNames: TState['staticChannelNames'];
+                        readonly channelFamilyKeys: TState['channelFamilyKeys'];
+                        readonly channelOutgoingByKey: TState['channelOutgoingByKey'];
                         readonly scheduledTasks: TState['scheduledTasks'];
                         readonly env: TState['env'];
                       }

@@ -15,7 +15,7 @@ import type {
   ScopeState,
   ScopeStateShape,
 } from '~/_types/scope-state';
-import type { ChannelPrimitive } from '~/channel/channel.ts';
+import type { ChannelPattern, ChannelPrimitive, ScopeDeclaration } from '~/channel/channel.ts';
 import type { ErrorDef } from '~/errors/errors.ts';
 import type { EventContract } from '~/event.ts';
 import type { IncomingPrimitive } from '~/incoming/incoming.ts';
@@ -52,7 +52,10 @@ type InitialState<TEnv extends object = Record<string, unknown>> = ScopeState<
   Record<string, unknown>,
   never,
   {},
-  TEnv
+  TEnv,
+  never,
+  never,
+  {}
 >;
 
 type StateAfterOutgoing<
@@ -84,11 +87,26 @@ type GroupBuilderAfterOutgoing<
  *
  * @internal
  */
+/**
+ * Pull the server→client event map out of a channel contract.
+ *
+ * In wskit's contract, `contract.incoming` is what the *client* receives
+ * (i.e. events the server sends out), and `contract.outgoing` is what the
+ * client sends. The handle's `send`/`broadcast` accept events from the
+ * server-outgoing direction, so we read `incoming` from the contract here.
+ */
+type ChannelOutgoingFromContract<TContract> = TContract extends { incoming: infer O }
+  ? O extends Record<string, any>
+    ? O
+    : {}
+  : {};
+
 type MergeScopeContract<
   TState extends ScopeStateShape,
   TField extends 'channels' | 'namespaces',
   TName extends string,
   TContract,
+  TPattern extends ChannelPattern | undefined = undefined,
 > = {
   readonly kind: TState['kind'];
   readonly outgoing: TState['outgoing'];
@@ -111,6 +129,31 @@ type MergeScopeContract<
   readonly channelNames: TField extends 'channels'
     ? TState['channelNames'] | TName
     : TState['channelNames'];
+  readonly staticChannelNames: TField extends 'channels'
+    ? TPattern extends ScopeDeclaration<any>
+      ? TState['staticChannelNames']
+      : TPattern extends string
+        ? TState['staticChannelNames'] | TPattern
+        : TState['staticChannelNames']
+    : TState['staticChannelNames'];
+  readonly channelFamilyKeys: TField extends 'channels'
+    ? TPattern extends ScopeDeclaration<infer K extends string>
+      ? TState['channelFamilyKeys'] | K
+      : TState['channelFamilyKeys']
+    : TState['channelFamilyKeys'];
+  readonly channelOutgoingByKey: TField extends 'channels'
+    ? TPattern extends ScopeDeclaration<infer K extends string>
+      ? MergeRecords<
+          TState['channelOutgoingByKey'],
+          Record<K, ChannelOutgoingFromContract<TContract>>
+        >
+      : TPattern extends string
+        ? MergeRecords<
+            TState['channelOutgoingByKey'],
+            Record<TPattern, ChannelOutgoingFromContract<TContract>>
+          >
+        : TState['channelOutgoingByKey']
+    : TState['channelOutgoingByKey'];
   readonly scheduledTasks: TState['scheduledTasks'];
   readonly env: TState['env'];
 };
@@ -141,7 +184,13 @@ type MergeGroupContract<TState extends ScopeStateShape, TGroupState extends Scop
   };
   readonly errors: TState['errors'];
   readonly meta: TState['meta'];
-  readonly channelNames: TState['channelNames'];
+  readonly channelNames: TState['channelNames'] | TGroupState['channelNames'];
+  readonly staticChannelNames: TState['staticChannelNames'] | TGroupState['staticChannelNames'];
+  readonly channelFamilyKeys: TState['channelFamilyKeys'] | TGroupState['channelFamilyKeys'];
+  readonly channelOutgoingByKey: MergeRecords<
+    TState['channelOutgoingByKey'],
+    TGroupState['channelOutgoingByKey']
+  >;
   readonly scheduledTasks: MergeRecords<TState['scheduledTasks'], TGroupState['scheduledTasks']>;
   readonly env: TState['env'];
 };
@@ -157,8 +206,13 @@ type MergeGroupContract<TState extends ScopeStateShape, TGroupState extends Scop
 type UseResult<TState extends ScopeStateShape, P extends Primitive> =
   P extends GroupPrimitive<infer TGroupState extends ScopeStateShape>
     ? MergeGroupContract<TState, TGroupState>
-    : P extends ChannelPrimitive<any, any, infer TName extends string, infer TContract>
-      ? MergeScopeContract<TState, 'channels', TName, TContract>
+    : P extends ChannelPrimitive<
+          infer TPattern extends ChannelPattern,
+          any,
+          infer TName extends string,
+          infer TContract
+        >
+      ? MergeScopeContract<TState, 'channels', TName, TContract, TPattern>
       : P extends NamespacePrimitive<any, any, infer TName extends string, infer TContract>
         ? MergeScopeContract<TState, 'namespaces', TName, TContract>
         : P extends FoldablePrimitive

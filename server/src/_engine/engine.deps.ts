@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import * as EngineMessageRuntime from '~/_engine/runtime/messages.ts';
+import * as ChannelPrimitive from '~/channel/runtime.ts';
 import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
 import type { Engine } from '~/_engine/engine.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
@@ -49,9 +50,22 @@ export function commonDeps(engine: Engine): EngineContextTypes.ContextCommonDeps
         excludeSelf,
       );
     },
-    getChannelMembers: (channelName) => engine.getChannelMembers(channelName),
-    kickChannelMembers: (channelName, tag, reason) => {
-      engine.kickChannelMembers(channelName, tag, reason);
+    getChannelMembers: (channelName, channelScope) =>
+      engine.getChannelMembers(channelName, channelScope),
+    kickChannelMembers: (channelName, tag, reason, channelScope) => {
+      return engine.kickChannelMembers(channelName, tag, reason, channelScope);
+    },
+    resolveChannel: (target) => {
+      const compiled = engine.getCompiled();
+      if (typeof target === 'string') {
+        const compiledChannel = compiled.channels.get(target);
+        if (!compiledChannel) return undefined;
+        return { channelName: target };
+      }
+      const family = compiled.channelFamilies.get(target.family);
+      if (!family) return undefined;
+      if (!ChannelPrimitive.matchesScopePattern(family.pattern, target.name)) return undefined;
+      return { channelName: target.name, channelScope: target.family };
     },
     sendReplay: (connection, channelName, channelScope, event, payload, wire) => {
       engine.sendReplay(connection, channelName, channelScope, event, payload, wire);

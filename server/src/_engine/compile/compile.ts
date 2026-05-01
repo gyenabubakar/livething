@@ -197,8 +197,20 @@ function visitCompiledPrimitives(
       const compiledChannel = compileChannel(primitive);
 
       if (typeof primitive.pattern === 'string') {
+        if (compiled.channelFamilies.has(primitive.pattern)) {
+          throw new Error(
+            `[wskit] Channel name '${primitive.pattern}' is also registered as a channel family key. ` +
+              `Static channel names and family keys must be disjoint — rename one of them.`,
+          );
+        }
         compiled.channels.set(primitive.pattern, compiledChannel);
       } else {
+        if (compiled.channels.has(primitive.pattern.key)) {
+          throw new Error(
+            `[wskit] Channel family key '${primitive.pattern.key}' is also registered as a static channel name. ` +
+              `Static channel names and family keys must be disjoint — rename one of them.`,
+          );
+        }
         compiled.channelFamilies.set(primitive.pattern.key, compiledChannel);
       }
 

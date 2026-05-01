@@ -1079,16 +1079,25 @@ export class Engine {
    * Return a public snapshot of the current members in a channel.
    * @internal
    */
-  getChannelMembers(channelName: string) {
-    return EngineMessageRuntime.getChannelMembers(EngineDeps.memberRuntime(this), channelName);
+  getChannelMembers(channelName: string, channelScope?: string) {
+    return EngineMessageRuntime.getChannelMembers(
+      EngineDeps.memberRuntime(this),
+      channelName,
+      channelScope,
+    );
   }
 
   /**
    * Remove tagged members from a channel, typically for moderation.
    * @internal
    */
-  kickChannelMembers(channelName: string, tag: string, reason: string): void {
-    EngineMessageRuntime.kickChannelMembers(
+  kickChannelMembers(
+    channelName: string,
+    tag: string,
+    reason: string,
+    channelScope?: string,
+  ): Promise<void> {
+    return EngineMessageRuntime.kickChannelMembers(
       {
         ...EngineDeps.channelRuntime(this),
         leaveChannel: (targetConnection, scope, kickedReason) => {
@@ -1098,6 +1107,7 @@ export class Engine {
       channelName,
       tag,
       reason,
+      channelScope,
     );
   }
 
