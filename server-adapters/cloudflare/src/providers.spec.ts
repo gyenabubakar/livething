@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createKv } from './providers.ts';
+import { createKv, createSql } from './providers.ts';
 
 type KvEntry = { value: unknown; expiresAt?: number };
 
@@ -89,5 +89,63 @@ describe('createKv', () => {
     await kv.set('foo', 'bar', { ttl: 1000 });
 
     expect(logger.warn).not.toHaveBeenCalled();
+  });
+});
+
+describe('createSql.transaction', () => {
+  function fakeCursor(rows: Record<string, unknown>[] = []) {
+    const iter = rows[Symbol.iterator]();
+    return {
+      toArray: () => [...rows],
+      [Symbol.iterator]: () => iter,
+      raw: () => rows.map((row) => Object.values(row)),
+    };
+  }
+
+  it('does not throw at construction when transactionSync is missing', () => {
+    const state = {
+      storage: {
+        sql: {
+          exec: vi.fn(() => fakeCursor()),
+          // No transactionSync.
+        },
+      },
+    } as unknown as DurableObjectState;
+
+    expect(() => createSql(state)).not.toThrow();
+  });
+
+  it('throws on transaction() when transactionSync is missing, before invoking the callback', () => {
+    const state = {
+      storage: {
+        sql: {
+          exec: vi.fn(() => fakeCursor()),
+        },
+      },
+    } as unknown as DurableObjectState;
+
+    const sql = createSql(state);
+    const callback = vi.fn();
+
+    expect(() => sql.transaction(callback)).toThrow(/\[wskit\].*transactionSync/);
+    expect(callback).not.toHaveBeenCalled();
+  });
+
+  it('uses transactionSync when available', () => {
+    const transactionSync = vi.fn(<T>(closure: () => T) => closure());
+    const state = {
+      storage: {
+        sql: {
+          exec: vi.fn(() => fakeCursor()),
+          transactionSync,
+        },
+      },
+    } as unknown as DurableObjectState;
+
+    const sql = createSql(state);
+    const result = sql.transaction(() => 42);
+
+    expect(result).toBe(42);
+    expect(transactionSync).toHaveBeenCalledTimes(1);
   });
 });

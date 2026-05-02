@@ -124,15 +124,13 @@ describe('createSql', () => {
     expect(() => sql.exec('SELECT bad').one()).toThrow(/sql failure/);
   });
 
-  it('transaction falls back to inline execution when transactionSync is missing', () => {
+  it('transaction throws when transactionSync is missing instead of silently degrading', () => {
     const { state } = fakeState();
     const sql = createSql(state as unknown as DurableObjectState);
 
-    const out = sql.transaction((tx) => {
-      const res = tx.exec('INSERT ...');
-      return res.toArray().length;
-    });
-    expect(out).toBe(2);
+    expect(() => sql.transaction((tx) => tx.exec('INSERT ...').toArray().length)).toThrow(
+      /\[wskit\].*transactionSync/,
+    );
   });
 
   it('transaction uses transactionSync when the storage exposes it', () => {

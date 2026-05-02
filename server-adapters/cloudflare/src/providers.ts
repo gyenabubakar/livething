@@ -60,20 +60,25 @@ export function createSql(state: DurableObjectState): SQLProvider {
     transaction<T>(
       fn: (tx: { exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow> }) => T,
     ): T {
-      if (typeof sql.transactionSync === 'function') {
-        return sql.transactionSync(() =>
-          fn({
-            exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow> {
-              return wrapCursor<TRow>(sql.exec(query, ...params));
-            },
-          }),
+      if (typeof sql.transactionSync !== 'function') {
+        // Refuse to silently downgrade `transaction(callback)` to plain
+        // exec() calls — that breaks the documented all-or-nothing contract
+        // and leaves writes from a partially-executed callback committed.
+        // Throw before invoking the callback so the caller can react.
+        throw new Error(
+          '[wskit] this Cloudflare runtime does not support atomic transactions. ' +
+            'ctx.sql.transaction() requires sql.transactionSync(). Upgrade your ' +
+            'Cloudflare Workers runtime, or in tests provide a mock storage that ' +
+            'implements transactionSync.',
         );
       }
-      return fn({
-        exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow> {
-          return wrapCursor<TRow>(sql.exec(query, ...params));
-        },
-      });
+      return sql.transactionSync(() =>
+        fn({
+          exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow> {
+            return wrapCursor<TRow>(sql.exec(query, ...params));
+          },
+        }),
+      );
     },
   };
 }
