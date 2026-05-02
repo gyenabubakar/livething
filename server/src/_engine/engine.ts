@@ -663,8 +663,8 @@ export class Engine {
    */
   sendReplay(
     connection: RuntimeConnection,
-    channelName: string | undefined,
-    channelScope: string | undefined,
+    channelName: string | null,
+    channelScope: string | null,
     event: string,
     payload: unknown,
     wire: { seq: number; messageId: string; channel?: string },
@@ -679,8 +679,9 @@ export class Engine {
       _messageId: wire.messageId,
     };
 
-    if (channelName ?? wire.channel) finalPayload._channel = channelName ?? wire.channel;
-    if (channelScope) finalPayload._channelScope = channelScope;
+    const resolvedChannel = channelName ?? wire.channel ?? null;
+    if (resolvedChannel !== null) finalPayload._channel = resolvedChannel;
+    if (channelScope !== null) finalPayload._channelScope = channelScope;
 
     connection.descriptor.send(JSON.stringify({ event, payload: finalPayload }));
   }
@@ -1060,8 +1061,8 @@ export class Engine {
     channelName: string,
     event: string,
     payload: unknown,
-    excludeConnectionId?: string,
-    channelScope?: string,
+    excludeConnectionId: string | undefined,
+    channelScope: string | null,
     excludeSelf?: boolean,
   ): void {
     EngineMessageRuntime.broadcastToChannel(
@@ -1079,7 +1080,7 @@ export class Engine {
    * Return a public snapshot of the current members in a channel.
    * @internal
    */
-  getChannelMembers(channelName: string, channelScope?: string) {
+  getChannelMembers(channelName: string, channelScope: string | null) {
     return EngineMessageRuntime.getChannelMembers(
       EngineDeps.memberRuntime(this),
       channelName,
@@ -1095,7 +1096,7 @@ export class Engine {
     channelName: string,
     tag: string,
     reason: string,
-    channelScope?: string,
+    channelScope: string | null,
   ): Promise<void> {
     return EngineMessageRuntime.kickChannelMembers(
       {
@@ -1116,7 +1117,7 @@ export class Engine {
    */
   private async leaveChannel(
     connection: RuntimeConnection,
-    scope: { channel?: CompiledChannel; channelName: string; channelScope?: string },
+    scope: { channel?: CompiledChannel; channelName: string; channelScope: string | null },
     kickedReason?: string,
   ): Promise<void> {
     return EngineMessageRuntime.leaveChannel(

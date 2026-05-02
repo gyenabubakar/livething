@@ -57,7 +57,7 @@ export function ensureReplaySchema(sql: {
  */
 export function matchesReplayScope(
   channelKey: string | undefined,
-  scope: { namespaceName?: string; channelName?: string; channelScope?: string },
+  scope: { namespaceName?: string; channelName?: string; channelScope?: string | null },
   claimedChannelKeys: ReadonlySet<string> = EMPTY_CLAIMED_CHANNEL_KEYS,
 ): boolean {
   if (channelKey) {
@@ -83,8 +83,8 @@ export function isChannelReplayAuthorized(
 ): boolean {
   if (!scope.channelName) return true;
   if (!connection) return false;
-  const wireChannelScope =
-    typeof payload?._channelScope === 'string' ? payload._channelScope : undefined;
+  const wireChannelScope: string | null =
+    typeof payload?._channelScope === 'string' ? payload._channelScope : null;
   return ChannelPrimitive.hasChannelMembership(connection, scope.channelName, wireChannelScope);
 }
 
@@ -438,13 +438,36 @@ export function pruneReplayScopeRows(
  * Branches based on whether the scope targets a specific channel/family or the
  * unscoped top-level replay log.
  */
-function buildLoadReplayQuery(
+export function buildLoadReplayQuery(
   since: number,
-  scope: { channelName?: string; channelScope?: string },
+  scope: { channelName?: string; channelScope: string | null },
 ): { sql: string; params: unknown[] } {
-  if (scope.channelName || scope.channelScope) {
-    const isStaticChannel = scope.channelScope === scope.channelName;
-    const effectiveScope = isStaticChannel ? null : (scope.channelScope ?? null);
+  if (scope.channelName) {
+    if (scope.channelScope === null) {
+      // Static channel: scope marker is explicit null, never guessed from
+      // value equality with the channel name.
+      return {
+        sql: `
+          SELECT
+            rowKey,
+            messageId,
+            seq,
+            event,
+            payload,
+            namespace,
+            channel,
+            channelScope,
+            snapshotKey,
+            createdAt
+          FROM _wskit_replay
+          WHERE channel IS ?
+            AND channelScope IS NULL
+            AND seq > ?
+          ORDER BY seq ASC
+        `,
+        params: [scope.channelName, since],
+      };
+    }
     return {
       sql: `
         SELECT
@@ -464,7 +487,7 @@ function buildLoadReplayQuery(
           AND seq > ?
         ORDER BY seq ASC
       `,
-      params: [scope.channelName ?? null, effectiveScope, since],
+      params: [scope.channelName, scope.channelScope, since],
     };
   }
 
@@ -497,7 +520,7 @@ export function loadReplayRows(
     exec<TRow = unknown>(query: string, ...params: unknown[]): { toArray(): TRow[] };
   },
   since: number,
-  scope: { channelName?: string; channelScope?: string },
+  scope: { channelName?: string; channelScope: string | null },
 ): ReplayRow[] {
   const query = buildLoadReplayQuery(since, scope);
   const rows = sql.exec<ReplayRow>(query.sql, ...query.params);

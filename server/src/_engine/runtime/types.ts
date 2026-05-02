@@ -152,14 +152,15 @@ export interface RuntimeConnection {
   /** Tags currently assigned to this connection (used for sendTo/getConnectionsByTag). */
   tags: Set<string>;
   /**
-   * Map of membership keys to channel details, including optional scope.
+   * Map of membership keys to channel details, with an explicit scope marker.
    *
-   * The membership key is `${channelScope ?? ''}::${channelName}` so the same
-   * concrete channel name in two channel families (or a static channel and a
-   * channel family that share a name) stay isolated. Scope-aware lookups
-   * (membership checks, member listings, kick filters) all read this map.
+   * `channelScope` is `null` for static channels and the family key for
+   * dynamic channel families. Encoding the marker as a tuple key keeps the
+   * same concrete channel name in two families (or a static channel and a
+   * family that share a name) isolated. Scope-aware lookups (membership
+   * checks, member listings, kick filters, broadcasts) all read this map.
    */
-  channelMemberships: Map<string, { channelName: string; channelScope?: string }>;
+  channelMemberships: Map<string, { channelName: string; channelScope: string | null }>;
 
   // -- Ephemeral runtime state --
   /** Most recent measured round-trip latency in milliseconds, or null if not yet measured. */
@@ -234,7 +235,12 @@ export interface ModuleRuntime {
 export interface RoutingTarget {
   namespace?: string;
   channel?: string;
-  channelScope?: string;
+  /**
+   * Channel scope marker. `null` for static channels (no scope), a non-empty
+   * family key for dynamic channel families, `undefined` when the route does
+   * not target a channel at all (e.g. a top-level or namespace send).
+   */
+  channelScope?: string | null;
   correlationId?: string;
   streamId?: string;
 }
@@ -249,7 +255,12 @@ export interface ResolvedScope {
   namespace?: EngineCompileTypes.CompiledNamespace;
   channel?: EngineCompileTypes.CompiledChannel;
   channelName?: string;
-  channelScope?: string;
+  /**
+   * Scope marker for channel-scoped frames: `null` when the frame targets a
+   * static channel, the family key when it targets a dynamic family, and
+   * `undefined` when no channel is in scope at all.
+   */
+  channelScope?: string | null;
 }
 
 /**

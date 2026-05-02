@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import * as ChannelPrimitive from '~/channel/runtime.ts';
 import { RESERVED_EVENT_NAMES } from '~/event.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
 import type * as DefineServer from '~/server-definition.ts';
@@ -247,7 +248,31 @@ export function compileHandlerDefinition(
   collectReplayClaimedScopes(handler.primitives, compiled.replayClaimedChannelKeys);
   validatePostInterceptHandlers(compiled);
   validateNoReservedEventNames(compiled);
+  validateChannelFamilyPatternsDisjointFromStaticNames(compiled);
   return compiled;
+}
+
+/**
+ * Refuse to boot when any registered channel family's pattern matches a
+ * registered static channel name. The two would route the same wire
+ * `_channel` value to different compiled definitions depending on which side
+ * the lookup hit first; surfacing the conflict at boot time keeps the runtime
+ * behavior unambiguous.
+ */
+function validateChannelFamilyPatternsDisjointFromStaticNames(
+  compiled: EngineCompileTypes.CompiledServer,
+): void {
+  for (const [familyKey, family] of compiled.channelFamilies) {
+    for (const staticName of compiled.channels.keys()) {
+      if (ChannelPrimitive.matchesScopePattern(family.pattern, staticName)) {
+        throw new Error(
+          `[wskit] Channel family '${familyKey}' has a pattern that matches the static ` +
+            `channel name '${staticName}'. Static channel names and family patterns must be ` +
+            `disjoint — narrow the family pattern or rename the static channel.`,
+        );
+      }
+    }
+  }
 }
 
 /**

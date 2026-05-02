@@ -156,8 +156,8 @@ class ReplayInstaller {
       base.channel.sendReplay = (event: string, payload: unknown, wire: ReplayWire) => {
         this.engine.sendReplay(
           base.id as string,
-          scope.channelName,
-          scope.channelScope,
+          scope.channelName ?? null,
+          scope.channelScope ?? null,
           event,
           payload,
           wire,
@@ -170,7 +170,7 @@ class ReplayInstaller {
     if (scope.namespaceName || scope.channelName || !base.id) return {};
 
     base.sendReplay = (event: string, payload: unknown, wire: ReplayWire) => {
-      this.engine.sendReplay(base.id as string, wire.channel, undefined, event, payload, wire);
+      this.engine.sendReplay(base.id as string, wire.channel ?? null, null, event, payload, wire);
     };
 
     return {};
@@ -225,7 +225,7 @@ class ReplayInstaller {
     const { sql } = this.engine.requireStorage();
     const rows = loadReplayRows(sql, since, {
       channelName: scope.channelName,
-      channelScope: scope.channelScope,
+      channelScope: scope.channelScope ?? null,
     });
     const connectionId = String((ctx as Record<PropertyKey, unknown>).id ?? '');
     if (!connectionId) return true;
@@ -233,8 +233,8 @@ class ReplayInstaller {
     for (const row of rows) {
       this.engine.sendReplay(
         connectionId,
-        row.channel ?? undefined,
-        row.channelScope ?? undefined,
+        row.channel,
+        row.channelScope,
         row.event,
         JSON.parse(row.payload) as Record<string, unknown>,
         { seq: row.seq, messageId: row.messageId, channel: row.channel ?? undefined },

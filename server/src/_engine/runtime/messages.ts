@@ -66,8 +66,8 @@ interface DispatchRuntime
   ): void;
   sendReplay(
     connection: EngineRuntimeTypes.RuntimeConnection,
-    channelName: string | undefined,
-    channelScope: string | undefined,
+    channelName: string | null,
+    channelScope: string | null,
     event: string,
     payload: unknown,
     wire: { seq: number; messageId: string; channel?: string },
@@ -90,7 +90,7 @@ interface DispatchRuntime
     connections: readonly EngineRuntimeTypes.RuntimeConnection[],
     event: string,
     payload: unknown,
-    options?: PublicApi.BroadcastOptions & { namespace?: string; channelScope?: string },
+    options?: PublicApi.BroadcastOptions & { namespace?: string; channelScope?: string | null },
     excludeConnectionId?: string,
   ): void;
   handleSubscribe(
@@ -127,8 +127,8 @@ interface ChannelRuntime extends EngineRuntimeTypes.ConnectionMembersRuntime {
     channelName: string,
     event: string,
     payload: unknown,
-    excludeConnectionId?: string,
-    channelScope?: string,
+    excludeConnectionId: string | undefined,
+    channelScope: string | null,
     excludeSelf?: boolean,
   ): void;
   handleValidationError(
@@ -211,6 +211,7 @@ export function resolveScope(
     return {
       channel,
       channelName: record._channel,
+      channelScope: null,
     };
   }
 
@@ -222,29 +223,20 @@ export function resolveScope(
 /**
  * Return the current public member snapshot for a channel.
  *
- * When `channelScope` is supplied (e.g. a dynamic channel family key) the
- * lookup uses the exact membership key so two scopes that happen to share a
- * concrete channel name stay isolated. Without a scope, returns every
- * connection that has any membership matching the name — same fallback used
- * by `ctx.channels.members(name)` when the caller doesn't know the scope.
+ * The lookup is always exact-match on the (`channelName`, `channelScope`)
+ * pair. Pass `null` for static channels and the family key for dynamic
+ * channel families. Two scopes that happen to share a concrete channel name
+ * stay strictly isolated — no membership ever crosses into the wrong scope.
  */
 export function getChannelMembers(
   runtime: EngineRuntimeTypes.ConnectionMembersRuntime,
   channelName: string,
-  channelScope?: string,
+  channelScope: string | null,
 ): PublicApi.ConnectionInfo<Record<string, unknown>>[] {
-  const membershipKey = channelScope
-    ? ChannelPrimitive.createChannelMembershipKey(channelName, channelScope)
-    : null;
+  const membershipKey = ChannelPrimitive.createChannelMembershipKey(channelName, channelScope);
 
   return [...runtime.connections.values()]
-    .filter((connection) => {
-      if (membershipKey) return connection.channelMemberships.has(membershipKey);
-      for (const membership of connection.channelMemberships.values()) {
-        if (membership.channelName === channelName) return true;
-      }
-      return false;
-    })
+    .filter((connection) => connection.channelMemberships.has(membershipKey))
     .map((connection) => runtime.toConnectionInfo(connection));
 }
 
@@ -273,7 +265,7 @@ export function kickChannelMembers(
         scope: {
           channel?: EngineCompileTypes.CompiledChannel;
           channelName: string;
-          channelScope?: string;
+          channelScope: string | null;
         },
         kickedReason?: string,
       ): Promise<void>;
@@ -281,7 +273,7 @@ export function kickChannelMembers(
   channelName: string,
   tag: string,
   reason: string,
-  channelScope?: string,
+  channelScope: string | null,
 ): Promise<void> {
   return ChannelPrimitive.kickChannelMembers(runtime, channelName, tag, reason, channelScope);
 }
@@ -354,7 +346,7 @@ export async function handleUnsubscribe(
         scope: {
           channel?: EngineCompileTypes.CompiledChannel;
           channelName: string;
-          channelScope?: string;
+          channelScope: string | null;
         },
       ): Promise<void>;
     },
@@ -388,11 +380,17 @@ export async function dispatchIncoming(
   const scope = resolveScope(runtime.compiled, rawPayload);
   if (
     scope.channelName &&
-    !ChannelPrimitive.hasChannelMembership(connection, scope.channelName, scope.channelScope)
+    !ChannelPrimitive.hasChannelMembership(
+      connection,
+      scope.channelName,
+      scope.channelScope ?? null,
+    )
   ) {
     await runtime.handleRuntimeError(connection, ChannelNotSubscribed(), event, {
       _channel: scope.channelName,
-      ...(scope.channelScope ? { _channelScope: scope.channelScope } : {}),
+      ...(scope.channelScope !== null && scope.channelScope !== undefined
+        ? { _channelScope: scope.channelScope }
+        : {}),
     });
     return;
   }

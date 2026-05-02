@@ -255,6 +255,12 @@ export interface ChannelHandle<
 > {
   /** The concrete channel name this handle targets. */
   readonly name: string;
+  /**
+   * The channel family key when this handle was resolved from a dynamic
+   * family registered with `scope(key, pattern)`, or `null` when the handle
+   * targets a static channel registered with a string name.
+   */
+  readonly scope: string | null;
   /** Send a channel-scoped event to the current connection. */
   send<E extends keyof TOutgoing & string>(event: E, payload: TOutgoing[E]): boolean;
   /**

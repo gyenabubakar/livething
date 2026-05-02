@@ -10,7 +10,12 @@ import type { ScheduledCancelResult } from '~/scheduled/types.ts';
 export interface EngineScopeMeta {
   namespaceName?: string;
   channelName?: string;
-  channelScope?: string;
+  /**
+   * Scope marker for the active channel: `null` for static channels, the
+   * family key for dynamic channel families, `undefined` when no channel is
+   * active.
+   */
+  channelScope?: string | null;
 }
 
 /**
@@ -48,7 +53,7 @@ export interface ContextCommonDeps {
     connections: readonly EngineRuntimeTypes.RuntimeConnection[],
     event: string,
     payload: unknown,
-    options?: PublicApi.BroadcastOptions & { namespace?: string; channelScope?: string },
+    options?: PublicApi.BroadcastOptions & { namespace?: string; channelScope?: string | null },
     excludeConnectionId?: string,
   ): void;
   sendThroughPipeline(
@@ -57,7 +62,7 @@ export interface ContextCommonDeps {
       | {
           namespace?: string;
           channel?: string;
-          channelScope?: string;
+          channelScope?: string | null;
           correlationId?: string;
           streamId?: string;
         }
@@ -69,27 +74,27 @@ export interface ContextCommonDeps {
     channelName: string,
     event: string,
     payload: unknown,
-    excludeConnectionId?: string,
-    channelScope?: string,
+    excludeConnectionId: string | undefined,
+    channelScope: string | null,
     excludeSelf?: boolean,
   ): void;
   getChannelMembers(
     channelName: string,
-    channelScope?: string,
+    channelScope: string | null,
   ): ConnectionInfo<Record<string, unknown>>[];
   kickChannelMembers(
     channelName: string,
     tag: string,
     reason: string,
-    channelScope?: string,
+    channelScope: string | null,
   ): Promise<void>;
   resolveChannel(
     target: string | { family: string; name: string },
-  ): { channelName: string; channelScope?: string } | undefined;
+  ): { channelName: string; channelScope: string | null } | undefined;
   sendReplay(
     connection: EngineRuntimeTypes.RuntimeConnection,
-    channelName: string | undefined,
-    channelScope: string | undefined,
+    channelName: string | null,
+    channelScope: string | null,
     event: string,
     payload: unknown,
     wire: { seq: number; messageId: string; channel?: string },

@@ -1,5 +1,6 @@
 import { server } from '~/_builder/server-builder.ts';
 import { compileHandlerDefinition } from '~/_engine/compile/compile.ts';
+import { scope } from '~/channel/channel.ts';
 import { withChannels } from '~/channel/with.ts';
 import { event } from '~/event.ts';
 import { withIntercept } from '~/intercept/with.ts';
@@ -299,5 +300,53 @@ describe('compile reserved-event-name guard', () => {
     expect(() => compileHandlerDefinition(def)).toThrow(
       /'_kicked' is a reserved protocol event name/,
     );
+  });
+});
+
+describe('compile family-pattern vs static-name conflict guard', () => {
+  it('throws when a family pattern matches a registered static channel name (static first)', () => {
+    const base = withChannels(server('chat'));
+    const def = base
+      .use(base.channel('room:general', (ch) => ch.outgoing(roomSend)))
+      .use(
+        base.channel(scope('rooms', /^room:.+$/), (ch) =>
+          ch.outgoing(event('rm', (p: unknown) => p)),
+        ),
+      )
+      .build();
+
+    expect(() => compileHandlerDefinition(def)).toThrow(
+      /Channel family 'rooms' has a pattern that matches the static channel name 'room:general'/,
+    );
+  });
+
+  it('throws when a family pattern matches a registered static channel name (family first)', () => {
+    const base = withChannels(server('chat'));
+    const def = base
+      .use(
+        base.channel(scope('rooms', /^room:.+$/), (ch) =>
+          ch.outgoing(event('rm', (p: unknown) => p)),
+        ),
+      )
+      .use(base.channel('room:general', (ch) => ch.outgoing(roomSend)))
+      .build();
+
+    expect(() => compileHandlerDefinition(def)).toThrow(
+      /Channel family 'rooms' has a pattern that matches the static channel name 'room:general'/,
+    );
+  });
+
+  it('does not throw when the family pattern excludes every registered static name', () => {
+    const base = withChannels(server('chat'));
+    const def = base
+      .use(base.channel('general', (ch) => ch.outgoing(roomSend)))
+      .use(
+        base.channel(scope('rooms', /^room:.+$/), (ch) =>
+          ch.outgoing(event('rm', (p: unknown) => p)),
+        ),
+      )
+      .build();
+
+    expect(() => compileHandlerDefinition(def)).not.toThrow();
   });
 });

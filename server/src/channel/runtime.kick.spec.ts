@@ -28,9 +28,9 @@ describe('channels.kick end-to-end', () => {
     const banned = createConnection('banned');
     const alsoBanned = createConnection('also_banned');
 
-    addChannelMembership(kept, 'room:general');
-    addChannelMembership(banned, 'room:general');
-    addChannelMembership(alsoBanned, 'room:general');
+    addChannelMembership(kept, 'room:general', null);
+    addChannelMembership(banned, 'room:general', null);
+    addChannelMembership(alsoBanned, 'room:general', null);
     banned.tags.add('troll');
     alsoBanned.tags.add('troll');
 
@@ -107,6 +107,7 @@ describe('channels.kick end-to-end', () => {
       'room:general',
       'troll',
       'spam',
+      null,
     );
 
     const kicked = protocol.filter((p) => p.event === '_kicked');
@@ -134,7 +135,7 @@ describe('channels.kick end-to-end', () => {
 
   it('propagates onUnsubscribe rejections to the kick caller', async () => {
     const banned = createConnection('banned');
-    addChannelMembership(banned, 'room:general');
+    addChannelMembership(banned, 'room:general', null);
     banned.tags.add('troll');
 
     const generalChannel = {
@@ -191,6 +192,7 @@ describe('channels.kick end-to-end', () => {
         'room:general',
         'troll',
         'spam',
+        null,
       ),
     ).rejects.toThrow('hook boom');
   });

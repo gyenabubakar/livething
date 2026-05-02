@@ -199,7 +199,7 @@ export async function handleConnectionClose(
       scope: {
         channel?: EngineCompileTypes.CompiledChannel;
         channelName: string;
-        channelScope?: string;
+        channelScope: string | null;
       },
     ): Promise<void>;
     logger?: { error(message: string, fields?: Record<string, unknown>): void };
@@ -311,8 +311,8 @@ export function acceptConnection(
 
 function restoreChannelMemberships(
   restored: Record<string, unknown>,
-): Map<string, { channelName: string; channelScope?: string }> {
-  const memberships = new Map<string, { channelName: string; channelScope?: string }>();
+): Map<string, { channelName: string; channelScope: string | null }> {
+  const memberships = new Map<string, { channelName: string; channelScope: string | null }>();
 
   if (Array.isArray(restored.channelMemberships)) {
     for (const membership of restored.channelMemberships) {
@@ -325,10 +325,10 @@ function restoreChannelMemberships(
 
       if (!channelName) continue;
 
-      const channelScope =
+      const channelScope: string | null =
         typeof (membership as { channelScope?: unknown }).channelScope === 'string'
           ? (membership as { channelScope: string }).channelScope
-          : undefined;
+          : null;
 
       memberships.set(ChannelPrimitive.createChannelMembershipKey(channelName, channelScope), {
         channelName,

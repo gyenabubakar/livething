@@ -1,6 +1,6 @@
 import { isWskitConfigError, WskitConfigError } from '@wskit/core';
 import { describe, expect, it } from 'vitest';
-import { scope } from './channel.ts';
+import { channel, scope } from './channel.ts';
 
 describe('scope() regex flag validation', () => {
   it('rejects the "g" (global) flag', () => {
@@ -35,5 +35,23 @@ describe('scope() regex flag validation', () => {
   it('accepts a flag-free regex', () => {
     const result = scope('rooms', /^room-.+$/);
     expect(result).toEqual({ key: 'rooms', pattern: /^room-.+$/ });
+  });
+});
+
+describe('scope() / channel() empty-key rejection', () => {
+  it('scope() throws when the key is the empty string', () => {
+    expect(() => scope('', /^room-.+$/)).toThrow(WskitConfigError);
+  });
+
+  it('scope() throws when the key is whitespace only', () => {
+    expect(() => scope('   ', /^room-.+$/)).toThrow(WskitConfigError);
+  });
+
+  it('channel() throws when the static channel name is the empty string', () => {
+    expect(() => channel('')).toThrow(WskitConfigError);
+  });
+
+  it('channel() throws when the static channel name is whitespace only', () => {
+    expect(() => channel('   ')).toThrow(WskitConfigError);
   });
 });

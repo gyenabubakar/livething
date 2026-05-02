@@ -307,8 +307,8 @@ export interface EngineAccess {
    */
   sendReplay(
     connectionId: string,
-    channelName: string | undefined,
-    channelScope: string | undefined,
+    channelName: string | null,
+    channelScope: string | null,
     event: string,
     payload: unknown,
     wire: { seq: number; messageId: string; channel?: string },

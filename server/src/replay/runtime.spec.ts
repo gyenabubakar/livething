@@ -2,6 +2,7 @@ import { createChannelMembershipKey } from '~/channel/runtime.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import {
+  buildLoadReplayQuery,
   buildReplayRow,
   ensureReplaySchema,
   isChannelReplayAuthorized,
@@ -41,6 +42,23 @@ function createReplaySql() {
     calls.push({ query: normalized, params });
 
     if (normalized.startsWith('SELECT rowKey, messageId, seq, event, payload, namespace')) {
+      if (
+        normalized.includes('channelScope IS NULL') &&
+        normalized.includes('WHERE channel IS ?')
+      ) {
+        const [channel, since] = params;
+        return new FakeSqlResult<TRow>(
+          [...rows.values()]
+            .filter(
+              (row) =>
+                row.channel === ((channel as string | null) ?? null) &&
+                row.channelScope === null &&
+                row.seq > Number(since),
+            )
+            .sort((a, b) => a.seq - b.seq)
+            .map((row) => ({ ...row })),
+        );
+      }
       if (normalized.includes('WHERE channel IS ?')) {
         const [channel, channelScope, since] = params;
         return new FakeSqlResult<TRow>(
@@ -400,9 +418,10 @@ describe('replay/runtime', () => {
     expect([...rows.keys()]).not.toContain('c1');
 
     expect(
-      loadReplayRows(sql, 1, {} as { channelName?: string; channelScope?: string }).map(
-        (row) => row.seq,
-      ),
+      loadReplayRows(sql, 1, { channelScope: null } as {
+        channelName?: string;
+        channelScope: string | null;
+      }).map((row) => row.seq),
     ).toEqual([2]);
     expect(
       loadReplayRows(sql, 2, { channelName: 'room-1', channelScope: 'rooms' }).map(
@@ -413,11 +432,12 @@ describe('replay/runtime', () => {
 
   describe('isChannelReplayAuthorized', () => {
     function makeConnection(memberships: { name: string; scope?: string }[]): RuntimeConnection {
-      const map = new Map<string, { channelName: string; channelScope?: string }>();
+      const map = new Map<string, { channelName: string; channelScope: string | null }>();
       for (const m of memberships) {
-        map.set(createChannelMembershipKey(m.name, m.scope), {
+        const scope: string | null = m.scope ?? null;
+        map.set(createChannelMembershipKey(m.name, scope), {
           channelName: m.name,
-          channelScope: m.scope,
+          channelScope: scope,
         });
       }
       return { channelMemberships: map } as unknown as RuntimeConnection;
@@ -454,7 +474,7 @@ describe('replay/runtime', () => {
     });
   });
 
-  it('loads rows for a static channel where channelScope equals channelName', () => {
+  it('loads rows for a static channel using the explicit null scope marker', () => {
     const { rows, sql } = createReplaySql();
 
     rows.set('s1', {
@@ -481,23 +501,45 @@ describe('replay/runtime', () => {
       snapshotKey: null,
       createdAt: 110,
     });
-    rows.set('top', {
-      rowKey: 'top',
-      messageId: 'msg_top',
-      seq: 3,
-      event: 'chat-msg',
-      payload: '{}',
-      namespace: null,
-      channel: null,
-      channelScope: null,
-      snapshotKey: null,
-      createdAt: 120,
-    });
 
     const result = loadReplayRows(sql, 0, {
       channelName: 'replay-room',
-      channelScope: 'replay-room',
+      channelScope: null,
     });
     expect(result.map((row) => row.seq)).toEqual([1, 2]);
+  });
+});
+
+describe('buildLoadReplayQuery', () => {
+  it('produces the static-channel query (channelScope IS NULL) when scope.channelScope is null', () => {
+    const query = buildLoadReplayQuery(0, { channelName: 'lobby', channelScope: null });
+    expect(query.sql).toMatch(/channelScope\s+IS\s+NULL/);
+    expect(query.sql).not.toMatch(/channelScope\s+IS\s+\?/);
+    expect(query.params).toEqual(['lobby', 0]);
+  });
+
+  it('produces the family query when scope.channelScope is a non-null family key', () => {
+    const query = buildLoadReplayQuery(7, { channelName: 'room:1', channelScope: 'rooms' });
+    expect(query.sql).toMatch(/channelScope\s+IS\s+\?/);
+    expect(query.params).toEqual(['room:1', 'rooms', 7]);
+  });
+
+  it('still produces the family query when the family key happens to equal the channel name', () => {
+    // Regression: the previous heuristic compared scope.channelScope to
+    // scope.channelName and silently fell into the static path. Now the
+    // null-vs-string marker drives the branch, so a family with key 'rooms'
+    // and concrete name 'rooms' resolves as a family query.
+    const query = buildLoadReplayQuery(0, { channelName: 'rooms', channelScope: 'rooms' });
+    expect(query.sql).toMatch(/channelScope\s+IS\s+\?/);
+    expect(query.sql).not.toMatch(/channelScope\s+IS\s+NULL/);
+    expect(query.params).toEqual(['rooms', 'rooms', 0]);
+  });
+
+  it('produces the unscoped top-level query when no channelName is provided', () => {
+    const query = buildLoadReplayQuery(0, { channelScope: null });
+    expect(query.sql).toMatch(/namespace IS NULL/);
+    expect(query.sql).toMatch(/channel IS NULL/);
+    expect(query.sql).toMatch(/channelScope IS NULL/);
+    expect(query.params).toEqual([0]);
   });
 });

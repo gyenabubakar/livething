@@ -62,9 +62,10 @@ function isDeclaredOutgoingEvent(
   }
 
   if (routing?.channel) {
-    const channel = routing.channelScope
-      ? compiled.channelFamilies.get(routing.channelScope)
-      : compiled.channels.get(routing.channel);
+    const channel =
+      routing.channelScope === null || routing.channelScope === undefined
+        ? compiled.channels.get(routing.channel)
+        : compiled.channelFamilies.get(routing.channelScope);
     return (channel?.outgoing.has(event) ?? false) || (channel?.streams.has(event) ?? false);
   }
 
@@ -152,7 +153,9 @@ function injectRoutingMarkers(
   const finalPayload: Record<string, unknown> = { ...payload };
   if (routing?.namespace) finalPayload._namespace = routing.namespace;
   if (routing?.channel) finalPayload._channel = routing.channel;
-  if (routing?.channelScope) finalPayload._channelScope = routing.channelScope;
+  if (routing?.channelScope !== null && routing?.channelScope !== undefined) {
+    finalPayload._channelScope = routing.channelScope;
+  }
   if (routing?.correlationId) finalPayload._correlationId = routing.correlationId;
   if (routing?.streamId) finalPayload._streamId = routing.streamId;
   return finalPayload;
@@ -248,7 +251,7 @@ export function broadcastToConnections(
   connections: readonly EngineRuntimeTypes.RuntimeConnection[],
   event: string,
   payload: unknown,
-  options?: PublicApi.BroadcastOptions & { namespace?: string; channelScope?: string },
+  options?: PublicApi.BroadcastOptions & { namespace?: string; channelScope?: string | null },
   excludeConnectionId?: string,
 ): void {
   for (const connection of connections) {
@@ -291,8 +294,8 @@ export function broadcastToChannel(
   channelName: string,
   event: string,
   payload: unknown,
-  excludeConnectionId?: string,
-  channelScope?: string,
+  excludeConnectionId: string | undefined,
+  channelScope: string | null,
   excludeSelf?: boolean,
 ): void {
   const connections = [...runtime.connections.values()].filter((connection) => {

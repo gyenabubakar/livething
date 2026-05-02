@@ -37,7 +37,16 @@ const channelReplay = handleReplay<'channel'>({
     const _seq: number = message.wire.seq;
     const _messageId: string = message.wire.messageId;
     const _channel: string = message.wire.channel;
-    const _channelScope: string = message.wire.channelScope;
+    // channelScope is `string | null` — `null` for static channels, family
+    // key for dynamic families. Assigning a `string` is allowed; reading and
+    // calling string methods without a null-guard is a type error.
+    const _channelScope: string | null = message.wire.channelScope;
+    // @ts-expect-error — channelScope may be null; .toUpperCase() needs a guard
+    message.wire.channelScope.toUpperCase();
+    if (message.wire.channelScope !== null) {
+      const _afterGuard: string = message.wire.channelScope.toUpperCase();
+      void _afterGuard;
+    }
     void [_ctx, _message, _seq, _messageId, _channel, _channelScope];
   },
   onReplay(ctx, since) {

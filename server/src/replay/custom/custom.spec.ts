@@ -411,8 +411,8 @@ describe('custom replay', () => {
         [ENGINE_INTERNAL_CONNECTION]: {
           channelMemberships: new Map([
             [
-              createChannelMembershipKey('replay-room'),
-              { channelName: 'replay-room', channelScope: undefined },
+              createChannelMembershipKey('replay-room', null),
+              { channelName: 'replay-room', channelScope: null },
             ],
           ]),
         },

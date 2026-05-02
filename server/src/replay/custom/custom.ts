@@ -37,13 +37,21 @@ export interface TopLevelOutgoingWire {
 
 /**
  * Wire metadata for messages sent inside a channel. Adds the channel name and
- * its family key to the top-level metadata.
+ * its scope marker to the top-level metadata.
+ *
+ * `channelScope` is the family key (matching `scope(key, pattern)`) when the
+ * message was sent on a dynamic channel family, and `null` when it was sent
+ * on a static channel (registered with a string name). Always check for
+ * `null` before treating the value as a string.
  */
 export interface ChannelOutgoingWire extends TopLevelOutgoingWire {
   /** The channel name the message was sent on. */
   readonly channel: string;
-  /** The channel family key, matching the `key` passed to `scope(key, pattern)`. */
-  readonly channelScope: string;
+  /**
+   * Family key for dynamic channels, `null` for static channels. Read this
+   * with a null-guard — static-channel messages do not carry a family key.
+   */
+  readonly channelScope: string | null;
 }
 
 /**
@@ -234,20 +242,30 @@ function toChannelWireMessage(message: {
   event: string;
   payload: Record<string, unknown>;
 }): OutgoingWireMessage<'channel'> {
-  return JSON.parse(
-    JSON.stringify({
-      event: message.event,
-      payload: Object.fromEntries(
-        Object.entries(message.payload).filter(([key]) => !key.startsWith('_')),
-      ),
-      wire: {
-        seq: message.payload._seq,
-        messageId: message.payload._messageId,
-        channel: message.payload._channel,
-        channelScope: message.payload._channelScope,
-      },
-    }),
-  ) as OutgoingWireMessage<'channel'>;
+  // JSON.stringify drops `undefined` values; force the explicit `null` so
+  // static-channel messages keep `channelScope: null` after the round-trip
+  // instead of dropping the key entirely.
+  const channelScope =
+    typeof message.payload._channelScope === 'string' ? message.payload._channelScope : null;
+  const stringified = JSON.stringify({
+    event: message.event,
+    payload: Object.fromEntries(
+      Object.entries(message.payload).filter(([key]) => !key.startsWith('_')),
+    ),
+    wire: {
+      seq: message.payload._seq,
+      messageId: message.payload._messageId,
+      channel: message.payload._channel,
+      channelScope,
+    },
+  });
+  const parsed = JSON.parse(stringified) as OutgoingWireMessage<'channel'> & {
+    wire: { channelScope: string | null };
+  };
+  if (parsed.wire.channelScope === undefined) {
+    (parsed.wire as { channelScope: string | null }).channelScope = null;
+  }
+  return parsed;
 }
 
 /**
@@ -268,7 +286,7 @@ function createTopLevelReplayContext(
     platform: baseCtx.platform,
     waitUntil: baseCtx.waitUntil as (promise: Promise<unknown>) => void,
     sendReplay(event, payload, wire) {
-      engine.sendReplay(String(baseCtx.id), wire.channel, undefined, event, payload, wire);
+      engine.sendReplay(String(baseCtx.id), wire.channel ?? null, null, event, payload, wire);
     },
   };
 }
@@ -281,7 +299,7 @@ function createChannelReplayContext(
   engine: EngineAccess,
   baseCtx: Record<PropertyKey, unknown>,
   channelName: string,
-  channelScope: string | undefined,
+  channelScope: string | null,
 ): ChannelReplayContext {
   return {
     id: String(baseCtx.id),
@@ -409,8 +427,8 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
           // Channel primitive scope: build the channel-shaped context.
           // Membership keys store the raw wire `_channelScope`; mirror that
           // here so the context's sendReplay routes through the right scope.
-          const wireChannelScope =
-            typeof payload?._channelScope === 'string' ? payload._channelScope : undefined;
+          const wireChannelScope: string | null =
+            typeof payload?._channelScope === 'string' ? payload._channelScope : null;
 
           await opts.onReplay(
             createChannelReplayContext(

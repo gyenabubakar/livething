@@ -32,7 +32,7 @@ interface StreamRuntime {
     scope: {
       namespace?: string;
       channel?: string;
-      channelScope?: string;
+      channelScope?: string | null;
       streamId?: string;
     },
     event: string,
@@ -58,7 +58,7 @@ interface StreamRuntime {
     options?: {
       namespace?: string;
       channel?: string;
-      channelScope?: string;
+      channelScope?: string | null;
       excludeSelf?: boolean;
     },
     excludeConnectionId?: string,
@@ -218,7 +218,11 @@ export async function runStream(
         // streams broadcast to every connection (no membership concept).
         const targets = scope.channelName
           ? [...runtime.connections.values()].filter((target) =>
-              ChannelPrimitive.hasChannelMembership(target, scope.channelName!, scope.channelScope),
+              ChannelPrimitive.hasChannelMembership(
+                target,
+                scope.channelName!,
+                scope.channelScope ?? null,
+              ),
             )
           : [...runtime.connections.values()];
         runtime.broadcastToConnections(

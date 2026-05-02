@@ -193,6 +193,11 @@ const CHANNEL_KEY = Symbol('channel');
  * ```
  */
 export function scope<TKey extends string>(key: TKey, pattern: RegExp): ScopeDeclaration<TKey> {
+  if (typeof key !== 'string' || key.trim() === '') {
+    throw new WskitConfigError(
+      `[wskit] scope() requires a non-empty key — got ${JSON.stringify(key)}.`,
+    );
+  }
   if (pattern.global || pattern.sticky) {
     throw new WskitConfigError(
       `scope("${key}", ...): regex flags "g" and "y" are not allowed because ` +
@@ -234,6 +239,11 @@ export function channel<
   const TPattern extends ChannelPattern,
   const TPrimitives extends readonly ChannelChild[],
 >(pattern: TPattern, ...primitives: TPrimitives): ChannelPrimitive<TPattern, TPrimitives> {
+  if (typeof pattern === 'string' && pattern.trim() === '') {
+    throw new WskitConfigError(
+      `[wskit] channel() requires a non-empty name — got ${JSON.stringify(pattern)}.`,
+    );
+  }
   return {
     __wskit: 'channel',
     __kind: 'scope',

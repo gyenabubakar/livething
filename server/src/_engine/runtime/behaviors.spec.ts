@@ -481,7 +481,9 @@ describe('restoreChannelMemberships via wakeHibernatedConnection', () => {
     expect(connection!.channelMemberships.has(createChannelMembershipKey('room:a', 'rooms'))).toBe(
       true,
     );
-    expect(connection!.channelMemberships.has(createChannelMembershipKey('room:b'))).toBe(true);
+    expect(connection!.channelMemberships.has(createChannelMembershipKey('room:b', null))).toBe(
+      true,
+    );
   });
 
   it('does not restore channel memberships when the attachment omits channelMemberships', () => {

@@ -60,7 +60,7 @@ export function commonDeps(engine: Engine): EngineContextTypes.ContextCommonDeps
       if (typeof target === 'string') {
         const compiledChannel = compiled.channels.get(target);
         if (!compiledChannel) return undefined;
-        return { channelName: target };
+        return { channelName: target, channelScope: null };
       }
       const family = compiled.channelFamilies.get(target.family);
       if (!family) return undefined;
@@ -135,8 +135,8 @@ export function channelRuntime(engine: Engine) {
       channelName: string,
       event: string,
       payload: unknown,
-      excludeConnectionId?: string,
-      channelScope?: string,
+      excludeConnectionId: string | undefined,
+      channelScope: string | null,
       excludeSelf?: boolean,
     ) => {
       EngineMessageRuntime.broadcastToChannel(
@@ -192,8 +192,8 @@ export function dispatchRuntime(engine: Engine) {
     ) => engine.sendProtocolMessage(connection, event, payload),
     sendReplay: (
       connection: RuntimeConnection,
-      channelName: string | undefined,
-      channelScope: string | undefined,
+      channelName: string | null,
+      channelScope: string | null,
       event: string,
       payload: unknown,
       wire: { seq: number; messageId: string; channel?: string },

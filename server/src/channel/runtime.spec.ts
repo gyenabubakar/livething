@@ -95,10 +95,16 @@ function createRuntime() {
         channelName: string,
         event: string,
         payload: unknown,
-        excludeConnectionId?: string,
-        channelScope?: string,
+        excludeConnectionId: string | undefined,
+        channelScope: string | null,
       ) {
-        broadcasts.push({ channelName, event, payload, excludeConnectionId, channelScope });
+        broadcasts.push({
+          channelName,
+          event,
+          payload,
+          excludeConnectionId,
+          channelScope: channelScope ?? undefined,
+        });
       },
       async handleValidationError() {},
     },
@@ -115,7 +121,7 @@ describe('createChannelMembershipKey', () => {
   });
 
   it('uses JSON-encoded tuples as the key format', () => {
-    expect(createChannelMembershipKey('lobby')).toBe(JSON.stringify([null, 'lobby']));
+    expect(createChannelMembershipKey('lobby', null)).toBe(JSON.stringify([null, 'lobby']));
     expect(createChannelMembershipKey('lobby', 'rooms')).toBe(JSON.stringify(['rooms', 'lobby']));
   });
 });

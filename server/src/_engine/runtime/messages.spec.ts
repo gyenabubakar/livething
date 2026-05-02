@@ -23,7 +23,7 @@ function createConnection(id: string): RuntimeConnection {
     },
     meta: {},
     tags: new Set<string>(),
-    channelMemberships: new Map<string, { channelName: string; channelScope?: string }>(),
+    channelMemberships: new Map<string, { channelName: string; channelScope: string | null }>(),
     latency: null,
     quality: 'good',
   };
@@ -32,7 +32,7 @@ function createConnection(id: string): RuntimeConnection {
 function addMembership(
   connection: ReturnType<typeof createConnection>,
   channelName: string,
-  channelScope?: string,
+  channelScope: string | null = null,
 ) {
   connection.channelMemberships.set(createChannelMembershipKey(channelName, channelScope), {
     channelName,
@@ -952,5 +952,68 @@ describe('message runtime', () => {
     expect((error as { code?: string }).code).toBe('channel-not-found');
     expect(event).toBe('_replay');
     expect(routing).toEqual({ _channel: 'admin', _channelScope: 'rooms' });
+  });
+});
+
+describe('getChannelMembers scope isolation', () => {
+  it('returns only static members when called with null scope', async () => {
+    const { getChannelMembers } = await import('~/_engine/runtime/messages.ts');
+    const staticMember = createConnection('static');
+    const familyMember = createConnection('family');
+    addMembership(staticMember, 'lobby', null);
+    addMembership(familyMember, 'lobby', 'rooms');
+
+    const runtime = {
+      connections: new Map([
+        [staticMember.id, staticMember],
+        [familyMember.id, familyMember],
+      ]),
+      compiled: {} as CompiledServer,
+      toConnectionInfo: (c: RuntimeConnection) => ({
+        id: c.id,
+        meta: c.meta,
+        tags: [...c.tags],
+        channels: [...c.channelMemberships.values()].map((m) => m.channelName),
+        latency: null,
+        quality: 'good' as const,
+        bufferedAmount: 0,
+      }),
+      sendThroughPipeline: () => true,
+    };
+
+    const result = getChannelMembers(runtime, 'lobby', null);
+    expect(result.map((r) => r.id)).toEqual(['static']);
+  });
+
+  it('returns only the matching family members when called with a family key', async () => {
+    const { getChannelMembers } = await import('~/_engine/runtime/messages.ts');
+    const staticMember = createConnection('static');
+    const familyMember = createConnection('family');
+    const otherFamilyMember = createConnection('other');
+    addMembership(staticMember, 'lobby', null);
+    addMembership(familyMember, 'lobby', 'rooms');
+    addMembership(otherFamilyMember, 'lobby', 'lobbies');
+
+    const runtime = {
+      connections: new Map([
+        [staticMember.id, staticMember],
+        [familyMember.id, familyMember],
+        [otherFamilyMember.id, otherFamilyMember],
+      ]),
+      compiled: {} as CompiledServer,
+      toConnectionInfo: (c: RuntimeConnection) => ({
+        id: c.id,
+        meta: c.meta,
+        tags: [...c.tags],
+        channels: [...c.channelMemberships.values()].map((m) => m.channelName),
+        latency: null,
+        quality: 'good' as const,
+        bufferedAmount: 0,
+      }),
+      sendThroughPipeline: () => true,
+    };
+
+    const result = getChannelMembers(runtime, 'lobby', 'rooms');
+    expect(result.map((r) => r.id)).toEqual(['family']);
   });
 });

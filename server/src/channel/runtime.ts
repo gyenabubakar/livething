@@ -5,22 +5,33 @@ import type { CompiledChannel } from '~/_engine/compile/types.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { ConnectionInfo } from '~/index.ts';
 
-/** Tracks which channel a connection is subscribed to, including the optional scope. */
+/**
+ * Tracks which channel a connection is subscribed to.
+ *
+ * `channelScope` is `null` for static channels and a non-empty family key for
+ * dynamic channel families. The two cases never collapse into the same shape.
+ */
 export interface ChannelMembership {
   channelName: string;
-  channelScope?: string;
+  channelScope: string | null;
 }
 
-/** Build a unique string key from a channel name and optional scope, used for membership map lookups. */
-export function createChannelMembershipKey(channelName: string, channelScope?: string): string {
-  return JSON.stringify([channelScope ?? null, channelName]);
+/**
+ * Build a unique string key from a channel name and explicit scope marker.
+ * Pass `null` for static channels and the family key for dynamic families.
+ */
+export function createChannelMembershipKey(
+  channelName: string,
+  channelScope: string | null,
+): string {
+  return JSON.stringify([channelScope, channelName]);
 }
 
 /** Record that a connection has joined a channel. */
 export function addChannelMembership(
   connection: Pick<RuntimeConnection, 'channelMemberships' | 'tags'>,
   channelName: string,
-  channelScope?: string,
+  channelScope: string | null,
 ): void {
   connection.channelMemberships.set(createChannelMembershipKey(channelName, channelScope), {
     channelName,
@@ -33,7 +44,7 @@ export function addChannelMembership(
 export function hasChannelMembership(
   connection: Pick<RuntimeConnection, 'channelMemberships'>,
   channelName: string,
-  channelScope?: string,
+  channelScope: string | null,
 ): boolean {
   return connection.channelMemberships.has(createChannelMembershipKey(channelName, channelScope));
 }
@@ -42,7 +53,7 @@ export function hasChannelMembership(
 export function removeChannelMembership(
   connection: Pick<RuntimeConnection, 'channelMemberships' | 'tags'>,
   channelName: string,
-  channelScope?: string,
+  channelScope: string | null,
 ): void {
   connection.channelMemberships.delete(createChannelMembershipKey(channelName, channelScope));
 
@@ -79,15 +90,19 @@ export function matchesScopePattern(
   return pattern.pattern.test(channelName);
 }
 
-/** Look up a compiled channel definition by name, supporting both exact and pattern-based channel names. */
+/**
+ * Look up a compiled channel definition by name. Pass `null` to look up a
+ * static channel by name; pass a family key to look up a dynamic channel
+ * family.
+ */
 export function resolveCompiledChannel(
   compiled: Pick<ChannelRuntime['compiled'], 'channels' | 'channelFamilies'>,
   channelName: string,
-  channelScope?: string,
+  channelScope: string | null,
 ): CompiledChannel | undefined {
-  return channelScope
-    ? compiled.channelFamilies.get(channelScope)
-    : compiled.channels.get(channelName);
+  return channelScope === null
+    ? compiled.channels.get(channelName)
+    : compiled.channelFamilies.get(channelScope);
 }
 
 /**
@@ -111,7 +126,7 @@ interface ChannelRuntime {
   toConnectionInfo(connection: RuntimeConnection): ConnectionInfo<Record<string, unknown>>;
   buildConnectionContext(
     connection: RuntimeConnection,
-    scope?: { channel?: CompiledChannel; channelName?: string; channelScope?: string },
+    scope?: { channel?: CompiledChannel; channelName?: string; channelScope?: string | null },
   ): Record<PropertyKey, unknown>;
   persistAttachment(connection: RuntimeConnection): void;
   sendProtocolMessage(
@@ -123,52 +138,38 @@ interface ChannelRuntime {
     channelName: string,
     event: string,
     payload: unknown,
-    excludeConnectionId?: string,
-    channelScope?: string,
+    excludeConnectionId: string | undefined,
+    channelScope: string | null,
     excludeSelf?: boolean,
   ): void;
   handleValidationError(
     connection: RuntimeConnection,
     event: string,
     validationError: unknown,
-    scope?: { channel?: CompiledChannel; channelName?: string; channelScope?: string },
+    scope?: { channel?: CompiledChannel; channelName?: string; channelScope?: string | null },
   ): Promise<void>;
 }
 
 interface ChannelScope {
   channel?: CompiledChannel;
   channelName: string;
-  channelScope?: string;
+  channelScope: string | null;
 }
 
 interface ResolvedChannelScope {
   channel: CompiledChannel;
   channelName: string;
-  channelScope?: string;
+  channelScope: string | null;
 }
 
-function getChannelMembers(
+function getChannelMembersByScope(
   runtime: Pick<ChannelRuntime, 'connections' | 'toConnectionInfo'>,
   channelName: string,
-  channelScope?: string,
+  channelScope: string | null,
 ): ConnectionInfo<Record<string, unknown>>[] {
-  // When a scope is supplied, filter on the exact membership key — two
-  // channel families that happen to share a concrete channel name stay
-  // isolated. Without a scope, fall back to "any membership for this name"
-  // so callers that only know the name (e.g. ctx.channels.members(name) at
-  // top-level) keep working.
-  const matches = channelScope
-    ? (connection: RuntimeConnection) =>
-        connection.channelMemberships.has(createChannelMembershipKey(channelName, channelScope))
-    : (connection: RuntimeConnection) => {
-        for (const membership of connection.channelMemberships.values()) {
-          if (membership.channelName === channelName) return true;
-        }
-        return false;
-      };
-
+  const membershipKey = createChannelMembershipKey(channelName, channelScope);
   return [...runtime.connections.values()]
-    .filter(matches)
+    .filter((connection) => connection.channelMemberships.has(membershipKey))
     .map((connection) => runtime.toConnectionInfo(connection));
 }
 
@@ -178,11 +179,12 @@ function resolveChannel(
 ): ResolvedChannelScope | undefined {
   if (typeof payload._channel !== 'string') return;
 
-  const channelScope =
-    typeof payload._channelScope === 'string' ? payload._channelScope : undefined;
-  const channel = channelScope
-    ? runtime.compiled.channelFamilies.get(channelScope)
-    : runtime.compiled.channels.get(payload._channel);
+  const channelScope: string | null =
+    typeof payload._channelScope === 'string' ? payload._channelScope : null;
+  const channel =
+    channelScope === null
+      ? runtime.compiled.channels.get(payload._channel)
+      : runtime.compiled.channelFamilies.get(channelScope);
 
   if (!channel) return;
   if (!matchesScopePattern(channel.pattern, payload._channel)) return;
@@ -217,7 +219,7 @@ export async function leaveChannel(
   if (kickedReason) {
     runtime.sendProtocolMessage(connection, '_kicked', {
       _channel: scope.channelName,
-      ...(scope.channelScope ? { _channelScope: scope.channelScope } : {}),
+      ...(scope.channelScope !== null ? { _channelScope: scope.channelScope } : {}),
       reason: kickedReason,
     });
   }
@@ -250,7 +252,7 @@ export async function subscribeConnection(
   // Pass the scope so the _memberJoin syncs only include connections that
   // joined this same scope, not connections in a different family that
   // happen to use the same concrete channel name.
-  const existingMembers = getChannelMembers(runtime, scope.channelName, scope.channelScope);
+  const existingMembers = getChannelMembersByScope(runtime, scope.channelName, scope.channelScope);
   const ctx = runtime.buildConnectionContext(connection, scope);
   const data = stripProtocolFields(payload);
 
@@ -279,13 +281,13 @@ export async function subscribeConnection(
 
   runtime.sendProtocolMessage(connection, '_subscribeOk', {
     _channel: scope.channelName,
-    ...(scope.channelScope ? { _channelScope: scope.channelScope } : {}),
+    ...(scope.channelScope !== null ? { _channelScope: scope.channelScope } : {}),
   });
 
   for (const member of existingMembers) {
     runtime.sendProtocolMessage(connection, '_memberJoin', {
       _channel: scope.channelName,
-      ...(scope.channelScope ? { _channelScope: scope.channelScope } : {}),
+      ...(scope.channelScope !== null ? { _channelScope: scope.channelScope } : {}),
       connectionId: member.id,
       meta: member.meta,
     });
@@ -353,34 +355,33 @@ export async function kickChannelMembers(
   channelName: string,
   tag: string,
   reason: string,
-  channelScope?: string,
+  channelScope: string | null,
 ): Promise<void> {
+  const targetKey = createChannelMembershipKey(channelName, channelScope);
   const pending: Promise<void>[] = [];
   for (const connection of runtime.connections.values()) {
     if (!connection.tags.has(tag)) continue;
 
-    for (const membership of listChannelMemberships(connection)) {
-      if (membership.channelName !== channelName) continue;
-      if (channelScope !== undefined && membership.channelScope !== channelScope) continue;
+    const membership = connection.channelMemberships.get(targetKey);
+    if (!membership) continue;
 
-      const channel = resolveCompiledChannel(
-        runtime.compiled,
-        membership.channelName,
-        membership.channelScope,
-      );
+    const channel = resolveCompiledChannel(
+      runtime.compiled,
+      membership.channelName,
+      membership.channelScope,
+    );
 
-      pending.push(
-        runtime.leaveChannel(
-          connection,
-          {
-            channel,
-            channelName: membership.channelName,
-            channelScope: membership.channelScope,
-          },
-          reason,
-        ),
-      );
-    }
+    pending.push(
+      runtime.leaveChannel(
+        connection,
+        {
+          channel,
+          channelName: membership.channelName,
+          channelScope: membership.channelScope,
+        },
+        reason,
+      ),
+    );
   }
   await Promise.all(pending);
 }

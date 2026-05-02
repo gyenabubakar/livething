@@ -246,11 +246,12 @@ type ChannelHandleDeps = Pick<
  */
 export function buildChannelHandle(
   connection: EngineContextTypes.RuntimeConnection,
-  scope: { channelName: string; channelScope?: string },
+  scope: { channelName: string; channelScope: string | null },
   deps: ChannelHandleDeps,
 ): PublicApi.ChannelHandle {
   return {
     name: scope.channelName,
+    scope: scope.channelScope,
     send: (event: string, payload: unknown) =>
       deps.sendThroughPipeline(
         connection,
@@ -319,7 +320,7 @@ function buildScopeExtras(
         namespace?: EngineContextTypes.CompiledNamespace;
         channel?: EngineContextTypes.CompiledChannel;
         channelName?: string;
-        channelScope?: string;
+        channelScope?: string | null;
       }
     | undefined,
   deps: ScopeExtrasDeps,
@@ -349,7 +350,7 @@ function buildScopeExtras(
     const channel = scope.channel;
     const channelName =
       scope.channelName ?? (typeof channel.pattern === 'string' ? channel.pattern : '');
-    const channelScope = scope.channelScope;
+    const channelScope = scope.channelScope ?? null;
     extras.channel = buildChannelHandle(connection, { channelName, channelScope }, deps);
   }
 
@@ -369,7 +370,7 @@ export function buildConnectionContext(
     namespace?: EngineContextTypes.CompiledNamespace;
     channel?: EngineContextTypes.CompiledChannel;
     channelName?: string;
-    channelScope?: string;
+    channelScope?: string | null;
   },
 ): EngineContextTypes.ConnectionContext<Record<string, unknown>, Record<string, unknown>, unknown> &
   Record<PropertyKey, unknown> {
