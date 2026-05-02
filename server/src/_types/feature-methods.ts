@@ -634,8 +634,11 @@ export interface RequestBuilderMethods<
    * Register an incoming request handler that responds through `ctx.respond(...)`.
    *
    * Requests are client-initiated messages that expect a response payload. The
-   * request payload comes from the event contract, and the response payload is
-   * validated against `responseSchema` before it is sent back to the client.
+   * request payload comes from the event contract; the response schema is
+   * recorded on the server definition for type inference and future runtime
+   * introspection, but is not enforced at send time. Outgoing validation is
+   * intentional overhead the framework avoids — the type contract on the
+   * client is the developer's responsibility.
    */
   request<TEvent extends string, TPayload, TResponse>(
     eventContract: EventContract<TEvent, TPayload>,
