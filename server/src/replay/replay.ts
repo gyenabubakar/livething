@@ -1,9 +1,9 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/types.ts';
-import * as ChannelPrimitive from '~/channel/runtime.ts';
 import { dedup } from '~/dedup/dedup.ts';
 import {
   ensureReplaySchema,
+  isChannelReplayAuthorized,
   loadReplayRows,
   matchesReplayScope,
   persistReplayMessage,
@@ -211,24 +211,14 @@ class ReplayInstaller {
       return false;
     }
 
-    if (scope.channelName) {
-      const connection = (ctx as Record<PropertyKey, unknown>)[ENGINE_INTERNAL_CONNECTION] as
-        | RuntimeConnection
-        | undefined;
-      // Membership keys store the raw wire `_channelScope` (undefined for
-      // static channels). `scope.channelScope` from ENGINE_SCOPE_META falls
-      // back to the channel.key, so use the payload directly here.
-      const wireChannelScope =
-        typeof payload?._channelScope === 'string' ? payload._channelScope : undefined;
-      if (
-        !connection ||
-        !ChannelPrimitive.hasChannelMembership(connection, scope.channelName, wireChannelScope)
-      ) {
-        // Silent ack: a non-member asking for channel replay gets no rows
-        // and no error frame, matching the principle that the server should
-        // not confirm channel existence to non-members.
-        return true;
-      }
+    const connection = (ctx as Record<PropertyKey, unknown>)[ENGINE_INTERNAL_CONNECTION] as
+      | RuntimeConnection
+      | undefined;
+    if (!isChannelReplayAuthorized(connection, scope, payload)) {
+      // Silent ack: a non-member asking for channel replay gets no rows
+      // and no error frame, matching the principle that the server should
+      // not confirm channel existence to non-members.
+      return true;
     }
 
     const since = Number(payload?.since ?? 0);

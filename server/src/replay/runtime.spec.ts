@@ -1,7 +1,10 @@
+import { createChannelMembershipKey } from '~/channel/runtime.ts';
 import { describe, expect, it, vi } from 'vitest';
+import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import {
   buildReplayRow,
   ensureReplaySchema,
+  isChannelReplayAuthorized,
   loadReplayRows,
   matchesReplayScope,
   persistReplayMessage,
@@ -406,6 +409,49 @@ describe('replay/runtime', () => {
         (row) => row.seq,
       ),
     ).toEqual([4, 5]);
+  });
+
+  describe('isChannelReplayAuthorized', () => {
+    function makeConnection(memberships: { name: string; scope?: string }[]): RuntimeConnection {
+      const map = new Map<string, { channelName: string; channelScope?: string }>();
+      for (const m of memberships) {
+        map.set(createChannelMembershipKey(m.name, m.scope), {
+          channelName: m.name,
+          channelScope: m.scope,
+        });
+      }
+      return { channelMemberships: map } as unknown as RuntimeConnection;
+    }
+
+    it('returns true when no channel scope is on the request', () => {
+      expect(isChannelReplayAuthorized(undefined, {}, undefined)).toBe(true);
+      expect(isChannelReplayAuthorized(makeConnection([]), {}, { since: 0 })).toBe(true);
+    });
+
+    it('returns false when channel scope is present but no connection is supplied', () => {
+      expect(isChannelReplayAuthorized(undefined, { channelName: 'private' }, undefined)).toBe(
+        false,
+      );
+    });
+
+    it('returns false when the connection has no membership matching the channel + scope', () => {
+      const conn = makeConnection([{ name: 'public', scope: 'rooms' }]);
+      expect(
+        isChannelReplayAuthorized(conn, { channelName: 'private' }, { _channelScope: 'rooms' }),
+      ).toBe(false);
+    });
+
+    it('returns true when the connection is a member of the requested channel + scope', () => {
+      const conn = makeConnection([{ name: 'private', scope: 'rooms' }]);
+      expect(
+        isChannelReplayAuthorized(conn, { channelName: 'private' }, { _channelScope: 'rooms' }),
+      ).toBe(true);
+    });
+
+    it('returns true for a static channel membership when the request omits _channelScope', () => {
+      const conn = makeConnection([{ name: 'lobby' }]);
+      expect(isChannelReplayAuthorized(conn, { channelName: 'lobby' }, { since: 0 })).toBe(true);
+    });
   });
 
   it('loads rows for a static channel where channelScope equals channelName', () => {

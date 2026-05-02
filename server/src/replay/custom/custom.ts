@@ -2,9 +2,9 @@
 /* oxlint-disable eslint-plugin-import(no-cycle) */
 
 import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/types.ts';
-import * as ChannelPrimitive from '~/channel/runtime.ts';
 import { dedup } from '~/dedup/dedup.ts';
 import {
+  isChannelReplayAuthorized,
   matchesReplayScope,
   readReplayContextScope,
   shouldStoreReplayMessage,
@@ -395,22 +395,22 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
           return false;
         }
 
+        const connection = baseCtx[ENGINE_INTERNAL_CONNECTION] as RuntimeConnection | undefined;
+        // Channel-scoped replay requests — including those landing on the
+        // top-level custom-replay handler when the request carries
+        // `_channel`/`_channelScope` — must verify membership. Otherwise any
+        // connected client can harvest a channel's history by crafting one
+        // replay frame.
+        if (!isChannelReplayAuthorized(connection, scope, payload)) {
+          return true;
+        }
+
         if (channelKey && scope.channelName) {
-          const connection = baseCtx[ENGINE_INTERNAL_CONNECTION] as RuntimeConnection | undefined;
-          // Membership keys store the raw wire `_channelScope` (undefined
-          // for static channels). `scope.channelScope` from ENGINE_SCOPE_META
-          // falls back to the channel.key, so use the payload directly here.
+          // Channel primitive scope: build the channel-shaped context.
+          // Membership keys store the raw wire `_channelScope`; mirror that
+          // here so the context's sendReplay routes through the right scope.
           const wireChannelScope =
             typeof payload?._channelScope === 'string' ? payload._channelScope : undefined;
-          if (
-            !connection ||
-            !ChannelPrimitive.hasChannelMembership(connection, scope.channelName, wireChannelScope)
-          ) {
-            // Silent ack: a non-member asking for channel replay gets no
-            // rows and no error frame, matching the principle that the
-            // server should not confirm channel existence to non-members.
-            return true;
-          }
 
           await opts.onReplay(
             createChannelReplayContext(

@@ -1,5 +1,7 @@
 import { ENGINE_SCOPE_META } from '~/_engine/contexts/types.ts';
+import * as ChannelPrimitive from '~/channel/runtime.ts';
 import type { EngineScopeMeta } from '~/_engine/contexts/types.ts';
+import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type {
   ReplayOptions,
   ReplayPayloadScope,
@@ -68,6 +70,23 @@ export function matchesReplayScope(
 }
 
 const EMPTY_CLAIMED_CHANNEL_KEYS: ReadonlySet<string> = new Set();
+
+/**
+ * Check whether a connection may receive replay rows for a channel-scoped
+ * request. Non-channel requests pass through. Channel requests require live
+ * membership in the same (channelName, channelScope) the request asks for.
+ */
+export function isChannelReplayAuthorized(
+  connection: RuntimeConnection | undefined,
+  scope: { channelName?: string },
+  payload: Record<string, unknown> | undefined,
+): boolean {
+  if (!scope.channelName) return true;
+  if (!connection) return false;
+  const wireChannelScope =
+    typeof payload?._channelScope === 'string' ? payload._channelScope : undefined;
+  return ChannelPrimitive.hasChannelMembership(connection, scope.channelName, wireChannelScope);
+}
 
 /**
  * Read the hidden scope markers attached to one live connection ctx.

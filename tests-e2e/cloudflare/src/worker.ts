@@ -15,6 +15,7 @@ export { ChannelDynamicServer } from './lib/server/channel-dynamic/durable-objec
 export { ChannelScopeIsolationServer } from './lib/server/channel-scope-isolation/durable-object.ts';
 export { ChannelKeyCollisionServer } from './lib/server/channel-key-collision/durable-object.ts';
 export { ErrorHookIsolationServer } from './lib/server/error-hook-isolation/durable-object.ts';
+export { ReplayMembershipGateServer } from './lib/server/replay-membership-gate/durable-object.ts';
 export { LifecycleHooksServer } from './lib/server/lifecycle-hooks/durable-object.ts';
 export { NamespaceServer } from './lib/server/namespace/durable-object.ts';
 export { InterceptServer } from './lib/server/intercept/durable-object.ts';
@@ -47,6 +48,7 @@ const FEATURE_ROUTES: Record<string, keyof Env> = {
   '/ws/channel-scope-isolation': 'CHANNEL_SCOPE_ISOLATION_SERVER',
   '/ws/channel-key-collision': 'CHANNEL_KEY_COLLISION_SERVER',
   '/ws/error-hook-isolation': 'ERROR_HOOK_ISOLATION_SERVER',
+  '/ws/replay-membership-gate': 'REPLAY_MEMBERSHIP_GATE_SERVER',
   '/ws/lifecycle-hooks': 'LIFECYCLE_HOOKS_SERVER',
   '/ws/namespace': 'NAMESPACE_SERVER',
   '/ws/intercept': 'INTERCEPT_SERVER',

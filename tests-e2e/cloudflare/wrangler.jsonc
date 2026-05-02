@@ -48,6 +48,7 @@
       { "name": "CHANNEL_SCOPE_ISOLATION_SERVER", "class_name": "ChannelScopeIsolationServer" },
       { "name": "CHANNEL_KEY_COLLISION_SERVER", "class_name": "ChannelKeyCollisionServer" },
       { "name": "ERROR_HOOK_ISOLATION_SERVER", "class_name": "ErrorHookIsolationServer" },
+      { "name": "REPLAY_MEMBERSHIP_GATE_SERVER", "class_name": "ReplayMembershipGateServer" },
       { "name": "LIFECYCLE_HOOKS_SERVER", "class_name": "LifecycleHooksServer" },
       { "name": "NAMESPACE_SERVER", "class_name": "NamespaceServer" },
       { "name": "INTERCEPT_SERVER", "class_name": "InterceptServer" },
@@ -146,6 +147,10 @@
     {
       "tag": "v13",
       "new_sqlite_classes": ["ErrorHookIsolationServer"],
+    },
+    {
+      "tag": "v14",
+      "new_sqlite_classes": ["ReplayMembershipGateServer"],
     },
   ],
 }

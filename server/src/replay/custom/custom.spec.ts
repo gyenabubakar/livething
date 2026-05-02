@@ -290,6 +290,75 @@ describe('custom replay', () => {
     expect(sent).toEqual([]);
   });
 
+  it('top-level custom replay rejects channel-scoped _replay from a non-member without invoking onReplay', async () => {
+    const protocolHandlers: Array<NonNullable<Parameters<EngineAccess['onProtocolMessage']>[1]>> =
+      [];
+    const replayCalls: Array<unknown> = [];
+    const sent: Array<Parameters<EngineAccess['sendReplay']>> = [];
+    const engine = {
+      // Top-level: NO channelKey.
+      getScopeInfo() {
+        return {};
+      },
+      getReplayClaimedChannelKeys() {
+        return new Set();
+      },
+      onInit() {},
+      onBeforeSend() {},
+      onProtocolMessage(
+        event: IncomingProtocolEvent,
+        handler: NonNullable<Parameters<EngineAccess['onProtocolMessage']>[1]>,
+      ) {
+        if (event === '_replay') protocolHandlers.push(handler);
+      },
+      sendReplay(...args: Parameters<EngineAccess['sendReplay']>) {
+        sent.push(args);
+      },
+    } as Pick<
+      EngineAccess,
+      | 'getScopeInfo'
+      | 'getReplayClaimedChannelKeys'
+      | 'onInit'
+      | 'onBeforeSend'
+      | 'onProtocolMessage'
+      | 'sendReplay'
+    > as EngineAccess;
+
+    handleReplay({
+      onReplay() {
+        replayCalls.push('called');
+      },
+    }).__setup?.(engine);
+
+    const result = await protocolHandlers[0]!(
+      {
+        id: 'snooper',
+        sql: {},
+        kv: {},
+        env: {},
+        log: {},
+        platform: {},
+        waitUntil() {},
+        [ENGINE_SCOPE_META]: {
+          // Top-level _replay request that nonetheless carries a channel
+          // scope on the payload — without the membership check the
+          // top-level handler would happily run onReplay.
+          channelName: 'private-room',
+          channelScope: 'rooms',
+        },
+        [ENGINE_INTERNAL_CONNECTION]: {
+          channelMemberships: new Map(),
+        },
+      },
+      { since: 0, _channel: 'private-room', _channelScope: 'rooms' },
+    );
+
+    // Silent ack — no rows leaked, onReplay never ran.
+    expect(result).toBe(true);
+    expect(replayCalls).toEqual([]);
+    expect(sent).toEqual([]);
+  });
+
   it('builds a channel-shaped context for static channel replay (no _channelScope on payload)', async () => {
     const protocolHandlers: Array<NonNullable<Parameters<EngineAccess['onProtocolMessage']>[1]>> =
       [];
