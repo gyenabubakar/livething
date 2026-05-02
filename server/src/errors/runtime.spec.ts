@@ -42,6 +42,7 @@ describe('errors runtime', () => {
         ],
         logger: {
           warn() {},
+          error() {},
         },
         sendProtocolMessage(_connection, event, payload) {
           sent.push({ event, payload });
@@ -72,6 +73,7 @@ describe('errors runtime', () => {
         ],
         logger: {
           warn() {},
+          error() {},
         },
         sendProtocolMessage() {},
       },
@@ -108,6 +110,48 @@ describe('errors runtime', () => {
     expect(events).toEqual(['_subscribe:room-1']);
   });
 
+  it('isolates a throwing onError hook so subsequent hooks and the _error send still run', async () => {
+    const sent: Array<{ event: string; payload: Record<string, unknown> }> = [];
+    const observed: string[] = [];
+    const errors: string[] = [];
+
+    await sendRuntimeError(
+      {
+        buildConnectionContext() {
+          return { id: 'c1' };
+        },
+        declaredErrorCodes: new Set(),
+        errorHooks: [
+          () => {
+            throw new Error('hook blew up');
+          },
+          async () => {
+            observed.push('second');
+          },
+        ],
+        logger: {
+          warn() {},
+          error(message) {
+            errors.push(message);
+          },
+        },
+        sendProtocolMessage(_connection, event, payload) {
+          sent.push({ event, payload });
+        },
+      },
+      { id: 'c1' } as never,
+      new Error('boom'),
+      'echo',
+    );
+
+    // Second hook still ran despite the first throwing.
+    expect(observed).toEqual(['second']);
+    // Logger received the isolation message.
+    expect(errors).toEqual(['[wskit] onError hook threw; sending _error to client anyway']);
+    // _error frame was sent exactly once with the normalized payload.
+    expect(sent).toEqual([{ event: '_error', payload: { code: 'internal-error' } }]);
+  });
+
   it('warns when a thrown WskitError was never declared', async () => {
     const warnings: string[] = [];
     const sent: Array<{ event: string; payload: Record<string, unknown> }> = [];
@@ -123,6 +167,7 @@ describe('errors runtime', () => {
           warn(message) {
             warnings.push(message);
           },
+          error() {},
         },
         sendProtocolMessage(_connection, event, payload) {
           sent.push({ event, payload });

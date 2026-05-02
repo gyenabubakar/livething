@@ -47,6 +47,7 @@
       { "name": "CHANNEL_DYNAMIC_SERVER", "class_name": "ChannelDynamicServer" },
       { "name": "CHANNEL_SCOPE_ISOLATION_SERVER", "class_name": "ChannelScopeIsolationServer" },
       { "name": "CHANNEL_KEY_COLLISION_SERVER", "class_name": "ChannelKeyCollisionServer" },
+      { "name": "ERROR_HOOK_ISOLATION_SERVER", "class_name": "ErrorHookIsolationServer" },
       { "name": "LIFECYCLE_HOOKS_SERVER", "class_name": "LifecycleHooksServer" },
       { "name": "NAMESPACE_SERVER", "class_name": "NamespaceServer" },
       { "name": "INTERCEPT_SERVER", "class_name": "InterceptServer" },
@@ -141,6 +142,10 @@
     {
       "tag": "v12",
       "new_sqlite_classes": ["ChannelKeyCollisionServer"],
+    },
+    {
+      "tag": "v13",
+      "new_sqlite_classes": ["ErrorHookIsolationServer"],
     },
   ],
 }

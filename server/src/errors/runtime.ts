@@ -13,6 +13,7 @@ interface RuntimeErrorDeps {
   errorHooks: readonly ((ctx: unknown, error: unknown, event?: string) => void | Promise<void>)[];
   logger: {
     warn(message: string, data?: unknown): void;
+    error(message: string, data?: unknown): void;
   };
   sendProtocolMessage(
     connection: RuntimeConnection,
@@ -71,7 +72,18 @@ export async function sendRuntimeError(
 
   for (const hook of deps.errorHooks) {
     const ctx = deps.buildConnectionContext(connection);
-    await hook(ctx, error, event);
+    try {
+      await hook(ctx, error, event);
+    } catch (hookError) {
+      // A throwing hook must never block the `_error` frame from reaching the
+      // client — otherwise request Promises hang and stream onError callbacks
+      // never fire. Hooks are observational; isolate failures here and
+      // continue to the remaining hooks plus the protocol send below.
+      deps.logger.error('[wskit] onError hook threw; sending _error to client anyway', {
+        event,
+        error: hookError instanceof Error ? hookError.message : String(hookError),
+      });
+    }
   }
 
   deps.sendProtocolMessage(connection, '_error', normalizeRuntimeErrorPayload(error, routing));
