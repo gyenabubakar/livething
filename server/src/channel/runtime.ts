@@ -13,7 +13,7 @@ export interface ChannelMembership {
 
 /** Build a unique string key from a channel name and optional scope, used for membership map lookups. */
 export function createChannelMembershipKey(channelName: string, channelScope?: string): string {
-  return `${channelScope ?? ''}::${channelName}`;
+  return JSON.stringify([channelScope ?? null, channelName]);
 }
 
 /** Record that a connection has joined a channel. */

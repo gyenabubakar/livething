@@ -4,6 +4,7 @@ import {
   processTextMessage,
   resolveScope,
 } from '~/_engine/runtime/messages.ts';
+import { createChannelMembershipKey } from '~/channel/runtime.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { CompiledServer } from '~/_engine/compile/types.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
@@ -33,7 +34,7 @@ function addMembership(
   channelName: string,
   channelScope?: string,
 ) {
-  connection.channelMemberships.set(`${channelScope ?? ''}::${channelName}`, {
+  connection.channelMemberships.set(createChannelMembershipKey(channelName, channelScope), {
     channelName,
     channelScope,
   });

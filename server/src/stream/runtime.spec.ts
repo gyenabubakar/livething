@@ -1,3 +1,4 @@
+import { createChannelMembershipKey } from '~/channel/runtime.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { ActiveStream, RuntimeConnection } from '~/_engine/runtime/types.ts';
 import { bufferStreamNudge, cancelStream, runStream } from './runtime.ts';
@@ -170,11 +171,11 @@ describe('stream/runtime', () => {
     const trigger = createConnection('trigger');
     const peer = createConnection('peer');
     // Both are members of the channel family scope.
-    trigger.channelMemberships.set('rooms::room:123', {
+    trigger.channelMemberships.set(createChannelMembershipKey('room:123', 'rooms'), {
       channelName: 'room:123',
       channelScope: 'rooms',
     });
-    peer.channelMemberships.set('rooms::room:123', {
+    peer.channelMemberships.set(createChannelMembershipKey('room:123', 'rooms'), {
       channelName: 'room:123',
       channelScope: 'rooms',
     });
@@ -216,11 +217,11 @@ describe('stream/runtime', () => {
     const member = createConnection('member');
     const nonMember = createConnection('non-member');
 
-    trigger.channelMemberships.set('rooms::room:1', {
+    trigger.channelMemberships.set(createChannelMembershipKey('room:1', 'rooms'), {
       channelName: 'room:1',
       channelScope: 'rooms',
     });
-    member.channelMemberships.set('rooms::room:1', {
+    member.channelMemberships.set(createChannelMembershipKey('room:1', 'rooms'), {
       channelName: 'room:1',
       channelScope: 'rooms',
     });

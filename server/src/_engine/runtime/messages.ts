@@ -233,7 +233,9 @@ export function getChannelMembers(
   channelName: string,
   channelScope?: string,
 ): PublicApi.ConnectionInfo<Record<string, unknown>>[] {
-  const membershipKey = channelScope ? `${channelScope}::${channelName}` : null;
+  const membershipKey = channelScope
+    ? ChannelPrimitive.createChannelMembershipKey(channelName, channelScope)
+    : null;
 
   return [...runtime.connections.values()]
     .filter((connection) => {

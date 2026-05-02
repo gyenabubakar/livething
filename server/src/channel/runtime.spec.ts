@@ -1,6 +1,7 @@
 import { scope } from '~/channel/channel.ts';
 import {
   addChannelMembership,
+  createChannelMembershipKey,
   leaveChannel,
   subscribeConnection,
   unsubscribeConnection,
@@ -103,6 +104,21 @@ function createRuntime() {
     },
   };
 }
+
+describe('createChannelMembershipKey', () => {
+  it('produces distinct keys for previously colliding (scope, name) pairs', () => {
+    // Family 'rooms' + name 'private::lobby' would have collided with family
+    // 'rooms::private' + name 'lobby' under the old `${scope}::${name}` join.
+    const a = createChannelMembershipKey('private::lobby', 'rooms');
+    const b = createChannelMembershipKey('lobby', 'rooms::private');
+    expect(a).not.toBe(b);
+  });
+
+  it('uses JSON-encoded tuples as the key format', () => {
+    expect(createChannelMembershipKey('lobby')).toBe(JSON.stringify([null, 'lobby']));
+    expect(createChannelMembershipKey('lobby', 'rooms')).toBe(JSON.stringify(['rooms', 'lobby']));
+  });
+});
 
 describe('channel runtime', () => {
   it('subscribes a connection and sends member sync events', async () => {
@@ -220,7 +236,9 @@ describe('channel runtime', () => {
       [...connection.channelMemberships.values()].some((m) => m.channelName === 'room:general'),
     ).toBe(true);
     expect(connection.channelMemberships.size).toBe(1);
-    expect(connection.channelMemberships.has('lobbies::room:general')).toBe(true);
+    expect(
+      connection.channelMemberships.has(createChannelMembershipKey('room:general', 'lobbies')),
+    ).toBe(true);
     expect(broadcasts).toEqual([
       {
         channelName: 'room:general',

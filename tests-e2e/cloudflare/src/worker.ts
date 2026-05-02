@@ -13,6 +13,7 @@ export { StreamBroadcastServer } from './lib/server/stream-broadcast/durable-obj
 export { ChannelStaticServer } from './lib/server/channel-static/durable-object.ts';
 export { ChannelDynamicServer } from './lib/server/channel-dynamic/durable-object.ts';
 export { ChannelScopeIsolationServer } from './lib/server/channel-scope-isolation/durable-object.ts';
+export { ChannelKeyCollisionServer } from './lib/server/channel-key-collision/durable-object.ts';
 export { LifecycleHooksServer } from './lib/server/lifecycle-hooks/durable-object.ts';
 export { NamespaceServer } from './lib/server/namespace/durable-object.ts';
 export { InterceptServer } from './lib/server/intercept/durable-object.ts';
@@ -43,6 +44,7 @@ const FEATURE_ROUTES: Record<string, keyof Env> = {
   '/ws/channel-static': 'CHANNEL_STATIC_SERVER',
   '/ws/channel-dynamic': 'CHANNEL_DYNAMIC_SERVER',
   '/ws/channel-scope-isolation': 'CHANNEL_SCOPE_ISOLATION_SERVER',
+  '/ws/channel-key-collision': 'CHANNEL_KEY_COLLISION_SERVER',
   '/ws/lifecycle-hooks': 'LIFECYCLE_HOOKS_SERVER',
   '/ws/namespace': 'NAMESPACE_SERVER',
   '/ws/intercept': 'INTERCEPT_SERVER',

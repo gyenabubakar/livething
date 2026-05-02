@@ -2,6 +2,7 @@
 import { Block, WskitError } from '@wskit/core';
 import { handleUpgrade, wakeHibernatedConnection } from '~/_engine/runtime/connection.ts';
 import { dispatchIncoming, processTextMessage } from '~/_engine/runtime/messages.ts';
+import { createChannelMembershipKey } from '~/channel/runtime.ts';
 import { Defer, Disconnect, RejectUpgrade } from '~/errors/errors.ts';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
@@ -477,8 +478,10 @@ describe('restoreChannelMemberships via wakeHibernatedConnection', () => {
     const connection = runtime.connections.get('hib_1');
     expect(connection).toBeDefined();
     expect(connection!.channelMemberships.size).toBe(2);
-    expect(connection!.channelMemberships.has('rooms::room:a')).toBe(true);
-    expect(connection!.channelMemberships.has('::room:b')).toBe(true);
+    expect(connection!.channelMemberships.has(createChannelMembershipKey('room:a', 'rooms'))).toBe(
+      true,
+    );
+    expect(connection!.channelMemberships.has(createChannelMembershipKey('room:b'))).toBe(true);
   });
 
   it('does not restore channel memberships when the attachment omits channelMemberships', () => {
