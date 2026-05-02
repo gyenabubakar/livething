@@ -33,4 +33,35 @@ describe('scheduled', () => {
   it('throws when .run(...) is omitted', () => {
     expect(() => scheduled('cleanup', ((t: unknown) => t) as never)).toThrow(/must call \.run/);
   });
+
+  describe('.every() input validation', () => {
+    function handler() {}
+    function build(value: number) {
+      return () => scheduled('tick', (t) => t.every(value).run(handler));
+    }
+
+    it('rejects zero', () => {
+      expect(build(0)).toThrow(/positive finite integer/);
+    });
+
+    it('rejects negative numbers', () => {
+      expect(build(-1)).toThrow(/positive finite integer/);
+      expect(build(-1000)).toThrow(/positive finite integer/);
+    });
+
+    it('rejects fractional numbers', () => {
+      expect(build(1.5)).toThrow(/positive finite integer/);
+    });
+
+    it('rejects NaN and Infinity', () => {
+      expect(build(Number.NaN)).toThrow(/positive finite integer/);
+      expect(build(Number.POSITIVE_INFINITY)).toThrow(/positive finite integer/);
+      expect(build(Number.NEGATIVE_INFINITY)).toThrow(/positive finite integer/);
+    });
+
+    it('accepts positive integers', () => {
+      expect(build(1)).not.toThrow();
+      expect(build(60_000)).not.toThrow();
+    });
+  });
 });

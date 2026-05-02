@@ -109,7 +109,13 @@ export class ScheduledBuilder<
     return this as unknown as ScheduledBuilder<TTaskId, TCtx, TNextData, true, THasRun>;
   }
 
-  /** Schedule this task to repeat at the given interval in milliseconds. */
+  /**
+   * Schedule this task to repeat at the given interval in milliseconds.
+   *
+   * Must be a positive finite integer. Zero, negative, fractional, NaN, and
+   * Infinity are rejected at registration — non-positive intervals would
+   * silently drop the task or produce immediate-firing alarm churn.
+   */
   every(
     this: THasData extends true
       ? undefined extends TData
@@ -118,6 +124,11 @@ export class ScheduledBuilder<
       : ScheduledBuilder<TTaskId, TCtx, TData, THasData, THasRun>,
     everyMs: number,
   ): this {
+    if (!Number.isInteger(everyMs) || everyMs <= 0) {
+      throw new Error(
+        `[wskit] .every(ms) requires a positive finite integer (milliseconds). Got ${String(everyMs)}.`,
+      );
+    }
     this._options = { ...this._options, every: everyMs };
     return this as unknown as this;
   }
