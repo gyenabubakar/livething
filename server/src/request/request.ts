@@ -47,6 +47,15 @@ export interface RequestPrimitive<
    * fires instead.
    */
   readonly validator?: Validator<TPayload>;
+  /**
+   * Optional response schema recorded on the primitive for type inference and
+   * future runtime introspection (e.g. a dashboard reading the
+   * `ServerDefinition`). The engine does NOT validate `ctx.respond(value)` at
+   * send time — outgoing validation is intentional overhead the framework
+   * avoids; the type contract on the client side is the developer's
+   * responsibility.
+   */
+  readonly responseSchema?: Validator<TResponse>;
 }
 
 /** Unique symbol. The registration ID is the event name, so each event is its own singleton. */
@@ -58,11 +67,15 @@ const REQUEST_KEY = Symbol('request');
  * uses `ctx.respond(value)` to send the response back to the client.
  *
  * In practice you rarely call `request()` directly. Use it through the builder
- * via `.request(eventContract, responseSchema, handler)`.
+ * via `.request(eventContract, responseSchema, handler)`. The response schema
+ * is recorded on the primitive for type inference and future introspection,
+ * not enforced at runtime.
  *
  * @param event   The event name to respond to.
  * @param handler The function that handles the request.
  * @param options.validator Optional schema validator for the inbound payload.
+ * @param options.responseSchema Optional response schema kept on the
+ *   primitive for type inference and runtime introspection. Not enforced.
  *
  * @example
  * ```ts
@@ -81,7 +94,7 @@ const REQUEST_KEY = Symbol('request');
 export function request<TEvent extends string, TPayload, TResponse, TCtx = any>(
   event: TEvent,
   handler: RequestHandler<TCtx, TPayload, TResponse>,
-  options?: { validator?: Validator<TPayload> },
+  options?: { validator?: Validator<TPayload>; responseSchema?: Validator<TResponse> },
 ): RequestPrimitive<TEvent, TPayload, TResponse, TCtx> {
   return {
     __wskit: 'request',
@@ -92,6 +105,7 @@ export function request<TEvent extends string, TPayload, TResponse, TCtx = any>(
     event,
     handler,
     validator: options?.validator,
+    responseSchema: options?.responseSchema,
   };
 }
 
