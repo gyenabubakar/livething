@@ -252,3 +252,52 @@ describe('compile static-name vs family-key collision', () => {
     expect(() => compileHandlerDefinition(def)).toThrow(/disjoint/);
   });
 });
+
+describe('compile reserved-event-name guard', () => {
+  it('throws at compile when a primitive uses a reserved event name (event() bypass)', () => {
+    // Hand-rolled event-shaped object — bypasses event()'s own assertion.
+    const sneaky = {
+      __wskit: 'event' as const,
+      event: '_subscribe',
+      schema: (p: unknown) => p,
+    };
+
+    const def = withChannels(server('chat'))
+      .outgoing(sneaky as never)
+      .build();
+
+    expect(() => compileHandlerDefinition(def)).toThrow(
+      /'_subscribe' is a reserved protocol event name/,
+    );
+  });
+
+  it('refuses reserved names registered inside namespaces', () => {
+    const sneakyError = {
+      __wskit: 'event' as const,
+      event: '_error',
+      schema: (p: unknown) => p,
+    };
+    const base = withNamespaces(server('chat'));
+    const def = base
+      .use(base.namespace('alerts', (ns) => ns.outgoing(sneakyError as never)))
+      .build();
+
+    expect(() => compileHandlerDefinition(def)).toThrow(
+      /'_error' is a reserved protocol event name/,
+    );
+  });
+
+  it('refuses reserved names registered inside channels', () => {
+    const sneakyKicked = {
+      __wskit: 'event' as const,
+      event: '_kicked',
+      schema: (p: unknown) => p,
+    };
+    const base = withChannels(server('chat'));
+    const def = base.use(base.channel('lobby', (c) => c.outgoing(sneakyKicked as never))).build();
+
+    expect(() => compileHandlerDefinition(def)).toThrow(
+      /'_kicked' is a reserved protocol event name/,
+    );
+  });
+});

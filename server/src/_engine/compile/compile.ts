@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { RESERVED_EVENT_NAMES } from '~/event.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
 import type * as DefineServer from '~/server-definition.ts';
 import * as EngineCompileUtils from './utils.ts';
@@ -245,7 +246,51 @@ export function compileHandlerDefinition(
   visitCompiledPrimitives(compiled, handler.primitives);
   collectReplayClaimedScopes(handler.primitives, compiled.replayClaimedChannelKeys);
   validatePostInterceptHandlers(compiled);
+  validateNoReservedEventNames(compiled);
   return compiled;
+}
+
+/**
+ * Walk every event name registered on the compiled server and refuse boot
+ * if any clash with the wskit wire protocol. Also catches the bypass case
+ * where a developer hand-rolls an event-shaped object instead of calling
+ * `event(name, schema)` — the runtime guard sees the same primitives.
+ */
+function validateNoReservedEventNames(compiled: EngineCompileTypes.CompiledServer): void {
+  function check(event: string, scopeLabel: string): void {
+    if (RESERVED_EVENT_NAMES.has(event)) {
+      throw new Error(
+        `[wskit] '${event}' is a reserved protocol event name (used by ${scopeLabel}). ` +
+          `Pick a different name for your event.`,
+      );
+    }
+  }
+
+  function checkScope(
+    scope: {
+      outgoing: ReadonlyMap<string, unknown>;
+      incoming: ReadonlyMap<string, unknown>;
+      requests: ReadonlyMap<string, unknown>;
+      streams: ReadonlyMap<string, unknown>;
+    },
+    label: string,
+  ): void {
+    for (const event of scope.outgoing.keys()) check(event, `${label} outgoing`);
+    for (const event of scope.incoming.keys()) check(event, `${label} incoming`);
+    for (const event of scope.requests.keys()) check(event, `${label} request`);
+    for (const event of scope.streams.keys()) check(event, `${label} stream`);
+  }
+
+  checkScope(compiled, 'top-level');
+  for (const namespace of compiled.namespaces.values()) {
+    checkScope(namespace, `namespace '${namespace.name}'`);
+  }
+  for (const channel of compiled.channels.values()) {
+    checkScope(channel, `channel '${channel.key}'`);
+  }
+  for (const family of compiled.channelFamilies.values()) {
+    checkScope(family, `channel family '${family.key}'`);
+  }
 }
 
 /**

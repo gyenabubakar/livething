@@ -5,7 +5,7 @@ import { withRequests } from '~/request/with.ts';
 import { describe, expect, it, vi } from 'vitest';
 
 const message = event('message', (p: unknown) => p as { text: string });
-const ping = event('ping', (p: unknown) => p as { ts: number });
+const ping = event('health-check', (p: unknown) => p as { ts: number });
 function pongSchema(p: unknown) {
   return p as { ts: number; serverTs: number };
 }

@@ -25,7 +25,7 @@ const message = event('message', (p: unknown) => p as { text: string; from: stri
 const notification = event('notification', (p: unknown) => p as { title: string });
 const sendMessage = event('send-message', (p: unknown) => p as { text: string });
 const typing = event('typing', (p: unknown) => p as { userId: string });
-const ping = event('ping', (p: unknown) => p as { ts: number });
+const ping = event('health-check', (p: unknown) => p as { ts: number });
 const roomMessage = event('room-message', (p: unknown) => p as { text: string; from: string });
 const roomSend = event('room-send', (p: unknown) => p as { text: string });
 const alert = event('alert', (p: unknown) => p as { id: string; severity: string });
@@ -639,7 +639,7 @@ describe('Integration: channel intercept and request', () => {
     const channel = findPrimitive(def.primitives, 'channel');
     const req = channel.primitives.find((p: any) => p.__wskit === 'request');
     expect(req).toBeDefined();
-    expect(req.event).toBe('ping');
+    expect(req.event).toBe('health-check');
   });
 
   it('post-intercept accepts EventContract with typed payload', () => {
