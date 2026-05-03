@@ -9,6 +9,13 @@ interface RuntimeErrorDeps {
     connection: RuntimeConnection,
     scope?: ResolvedScope,
   ): Record<PropertyKey, unknown>;
+  /**
+   * Resolve a scope from the wire routing markers carried alongside a runtime
+   * error. The engine looks up `_namespace`, `_channel`, and `_channelScope`
+   * against the compiled handler so the hook context can carry `ctx.namespace`
+   * or `ctx.channel`. Returns undefined when no scope can be derived.
+   */
+  resolveScopeFromRouting?(routing: Record<string, unknown>): ResolvedScope | undefined;
   declaredErrorCodes: ReadonlySet<string>;
   errorHooks: readonly ((ctx: unknown, error: unknown, event?: string) => void | Promise<void>)[];
   logger: {
@@ -70,8 +77,9 @@ export async function sendRuntimeError(
     });
   }
 
+  const scope = routing ? deps.resolveScopeFromRouting?.(routing) : undefined;
   for (const hook of deps.errorHooks) {
-    const ctx = deps.buildConnectionContext(connection);
+    const ctx = deps.buildConnectionContext(connection, scope);
     try {
       await hook(ctx, error, event);
     } catch (hookError) {

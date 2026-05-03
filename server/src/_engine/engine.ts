@@ -10,6 +10,7 @@ import * as EngineContexts from '~/_engine/contexts/contexts.ts';
 import * as EngineDeps from '~/_engine/engine.deps.ts';
 import * as EngineConnectionRuntime from '~/_engine/runtime/connection.ts';
 import * as EngineMessageRuntime from '~/_engine/runtime/messages.ts';
+import * as ChannelPrimitive from '~/channel/runtime.ts';
 import * as ErrorsPrimitive from '~/errors/runtime.ts';
 import * as HeartbeatPrimitive from '~/heartbeat/runtime.ts';
 import * as ScheduledPrimitive from '~/scheduled/runtime.ts';
@@ -1179,6 +1180,7 @@ export class Engine {
         buildConnectionContext: (targetConnection, scope) => {
           return this.buildConnectionContext(targetConnection, scope);
         },
+        resolveScopeFromRouting: (errorRouting) => this.resolveScopeFromRouting(errorRouting),
         declaredErrorCodes: this.declaredErrorCodes,
         errorHooks: this.hooks.error,
         logger: this.logger,
@@ -1191,6 +1193,43 @@ export class Engine {
       event,
       routing,
     );
+  }
+
+  /**
+   * Resolve a `ResolvedScope` from the wire routing markers carried alongside
+   * a runtime error. Used by `onError` hook context construction so the hook
+   * sees `ctx.namespace` / `ctx.channel` matching the throwing handler.
+   *
+   * Returns undefined for routing that does not name a known namespace or
+   * channel — top-level fallback keeps hooks observable even when the routing
+   * is malformed.
+   * @internal
+   */
+  private resolveScopeFromRouting(
+    routing: Record<string, unknown>,
+  ): EngineRuntimeTypes.ResolvedScope | undefined {
+    if (typeof routing._namespace === 'string') {
+      const namespace = this.compiled.namespaces.get(routing._namespace);
+      if (namespace) return { namespace };
+    }
+    if (typeof routing._channel === 'string') {
+      if (typeof routing._channelScope === 'string') {
+        const family = this.compiled.channelFamilies.get(routing._channelScope);
+        if (family && ChannelPrimitive.matchesScopePattern(family.pattern, routing._channel)) {
+          return {
+            channel: family,
+            channelName: routing._channel,
+            channelScope: routing._channelScope,
+          };
+        }
+      } else {
+        const channel = this.compiled.channels.get(routing._channel);
+        if (channel) {
+          return { channel, channelName: routing._channel, channelScope: null };
+        }
+      }
+    }
+    return undefined;
   }
 
   /**

@@ -186,4 +186,67 @@ describe('errors runtime', () => {
       },
     ]);
   });
+
+  it('builds the onError hook ctx with the scope resolved from routing markers', async () => {
+    const builtScopes: unknown[] = [];
+    const fakeChannel = { name: 'rooms' };
+
+    await sendRuntimeError(
+      {
+        buildConnectionContext(_connection, scope) {
+          builtScopes.push(scope);
+          return { id: 'c1' };
+        },
+        resolveScopeFromRouting(routing) {
+          if (typeof routing._channel === 'string' && typeof routing._channelScope === 'string') {
+            return {
+              channel: fakeChannel as never,
+              channelName: routing._channel,
+              channelScope: routing._channelScope,
+            };
+          }
+          return undefined;
+        },
+        declaredErrorCodes: new Set(),
+        errorHooks: [async () => {}, async () => {}],
+        logger: { warn() {}, error() {} },
+        sendProtocolMessage() {},
+      },
+      { id: 'c1' } as never,
+      new Error('boom'),
+      'post',
+      { _channel: 'room-7', _channelScope: 'rooms' },
+    );
+
+    expect(builtScopes).toEqual([
+      { channel: fakeChannel, channelName: 'room-7', channelScope: 'rooms' },
+      { channel: fakeChannel, channelName: 'room-7', channelScope: 'rooms' },
+    ]);
+  });
+
+  it('falls back to top-level ctx when routing does not resolve to a known scope', async () => {
+    const builtScopes: unknown[] = [];
+
+    await sendRuntimeError(
+      {
+        buildConnectionContext(_connection, scope) {
+          builtScopes.push(scope);
+          return { id: 'c1' };
+        },
+        resolveScopeFromRouting() {
+          return undefined;
+        },
+        declaredErrorCodes: new Set(),
+        errorHooks: [async () => {}],
+        logger: { warn() {}, error() {} },
+        sendProtocolMessage() {},
+      },
+      { id: 'c1' } as never,
+      new Error('boom'),
+      'post',
+      { _namespace: 'unknown' },
+    );
+
+    expect(builtScopes).toEqual([undefined]);
+  });
 });

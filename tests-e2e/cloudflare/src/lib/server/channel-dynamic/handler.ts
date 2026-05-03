@@ -34,12 +34,30 @@ const ValidationObserved = event(
   v.object({ channel: v.string(), event: v.string() }),
 );
 
+// Channel-scoped handler that throws an unrecognized error. Used to pin that
+// onError sees ctx.channel for runtime errors that bubble out of a scoped
+// handler — not just a top-level ctx.
+const TriggerScopedError = event('trigger-scoped-error', v.object({}));
+const ScopedErrorObserved = event(
+  'scoped-error-observed',
+  v.object({ channel: v.string(), scope: v.string(), event: v.string() }),
+);
+
 const base = withChannels(withLifecycle(server<Env>('channel-dynamic')))
   .onUpgrade((request) => requireUsername(request))
   .outgoing(TopOnlyActionFired)
   .outgoing(ValidationObserved)
+  .outgoing(ScopedErrorObserved)
   .incoming(TopOnlyAction, (ctx) => {
     ctx.send('top-only-action-fired', { from: ctx.meta.username });
+  })
+  .onError((ctx, _error, eventName) => {
+    const c = ctx as unknown as { channel?: { name?: string; scope?: string | null } };
+    ctx.send('scoped-error-observed', {
+      channel: c.channel?.name ?? '<top-level>',
+      scope: c.channel?.scope ?? '<no-scope>',
+      event: eventName ?? '<unknown>',
+    });
   })
   .onValidationError((ctx, eventName) => {
     // The hook reports the scope it observed back to the connection.
@@ -74,6 +92,9 @@ const roomChannel = base.channel(scope('room', /^room:.+$/), (ch) =>
         event: 'trigger-manual-validation',
         issues: [{ message: 'manual semantic check failed' }],
       });
+    })
+    .incoming(TriggerScopedError, () => {
+      throw new Error('scoped runtime error');
     })
     .onBeforeSubscribe(async (ctx) => {
       if (ctx.meta.username === 'banned-user') {

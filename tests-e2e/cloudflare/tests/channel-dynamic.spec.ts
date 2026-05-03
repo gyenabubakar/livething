@@ -264,6 +264,34 @@ test.describe('channel-dynamic', () => {
     );
   });
 
+  test('onError sees ctx.channel for an unrecognized error thrown inside a channel handler', async ({
+    page,
+  }, testInfo) => {
+    // Pre-fix sendRuntimeError built the onError hook ctx without scope, so
+    // ctx.channel was undefined even when the throw came from inside a
+    // channel family. The hook had no way to log "which room blew up."
+    await openPage(page, `test-${testInfo.testId}`);
+    await page.getByTestId('sub-general').click();
+    await expect(page.getByTestId('subscribe-ok')).toContainText('room:general');
+
+    await page.evaluate(() => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      ws?.send(
+        JSON.stringify({
+          event: 'trigger-scoped-error',
+          payload: { _channel: 'room:general', _channelScope: 'room' },
+        }),
+      );
+    });
+
+    // The hook reports `<channelName>|<scope>|<event>`. ctx.channel.name must
+    // be 'room:general' and ctx.channel.scope must be 'room' — not
+    // '<top-level>' / '<no-scope>'.
+    await expect(page.getByTestId('scoped-error-observed')).toHaveText(
+      'room:general|room|trigger-scoped-error',
+    );
+  });
+
   test('regular events tagged with an unknown _namespace do not fall back to top-level handlers', async ({
     page,
   }, testInfo) => {

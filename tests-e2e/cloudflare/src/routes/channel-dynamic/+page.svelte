@@ -8,6 +8,7 @@
 	let nameResult = $state('');
 	let topOnlyActionFired = $state('');
 	let validationObserved = $state('');
+	let scopedErrorObserved = $state('');
 	let userMessagesByChannel = $state<Record<string, string[]>>({});
 	let systemMessagesByChannel = $state<Record<string, string[]>>({});
 
@@ -43,6 +44,9 @@
 			}
 			if (data.event === 'validation-observed') {
 				validationObserved = `${data.payload?.channel ?? ''}|${data.payload?.event ?? ''}`;
+			}
+			if (data.event === 'scoped-error-observed') {
+				scopedErrorObserved = `${data.payload?.channel ?? ''}|${data.payload?.scope ?? ''}|${data.payload?.event ?? ''}`;
 			}
 			if (data.event === '_subscribeOk') {
 				subscribeOk = [...subscribeOk, data.payload?._channel ?? ''];
@@ -129,3 +133,4 @@
 <span data-testid="system-msgs-general">{systemMessagesFor('room:general')}</span>
 <span data-testid="top-only-action-fired">{topOnlyActionFired}</span>
 <span data-testid="validation-observed">{validationObserved}</span>
+<span data-testid="scoped-error-observed">{scopedErrorObserved}</span>
