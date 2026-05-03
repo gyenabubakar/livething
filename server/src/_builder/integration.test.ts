@@ -132,13 +132,11 @@ describe('ctx.send() typing', () => {
       .outgoing(message)
       .incoming(sendMessage, async (ctx) => {
         ctx.broadcast('message', { text: 'hi', from: 'x' }, { excludeSelf: true });
-        ctx.broadcast('message', { text: 'hi', from: 'x' }, { channel: 'lobby' });
-        ctx.broadcast(
-          'message',
-          { text: 'hi', from: 'x' },
-          { excludeSelf: true, channel: 'lobby' },
-        );
+        ctx.broadcast('message', { text: 'hi', from: 'x' }, { excludeSelf: false });
         ctx.broadcast('message', { text: 'hi', from: 'x' });
+        // @ts-expect-error — `channel` is no longer a top-level broadcast option;
+        // route channel-scoped fan-out through ctx.channels.get(...).
+        ctx.broadcast('message', { text: 'hi', from: 'x' }, { channel: 'lobby' });
       });
   });
 

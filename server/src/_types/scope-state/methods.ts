@@ -35,8 +35,10 @@ export interface SendMethods<TOutgoing extends Record<string, any>> {
    *
    * Only events declared with `outgoing()` in the same scope are allowed.
    *
-   * Pass `{ excludeSelf: false }` to also deliver to the calling connection, or
-   * `options.channel` to restrict delivery to subscribers of a specific channel.
+   * Pass `{ excludeSelf: false }` to also deliver to the calling connection.
+   * To restrict delivery to subscribers of a specific channel, resolve a
+   * channel handle with `ctx.channels.get(...)` and call `broadcast` on it
+   * — the handle filters by channel membership and respects family scope.
    */
   broadcast<TEvent extends keyof TOutgoing & string>(
     event: TEvent,

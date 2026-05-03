@@ -83,8 +83,8 @@ export function createShutdownContext(
         connection.descriptor.close(code, reason);
       }
     },
-    broadcast: (event, payload, options) => {
-      deps.broadcastToConnections([...deps.connections.values()], event, payload, options);
+    broadcast: (event, payload) => {
+      deps.broadcastToConnections([...deps.connections.values()], event, payload, undefined);
     },
     sql,
     kv,
@@ -122,8 +122,8 @@ export function createTaskContext(
   > = {
     sql,
     kv,
-    broadcast: (event, payload, options) => {
-      deps.broadcastToConnections([...deps.connections.values()], event, payload, options);
+    broadcast: (event, payload) => {
+      deps.broadcastToConnections([...deps.connections.values()], event, payload, undefined);
     },
     sendTo: (tag, event, payload) => {
       for (const connection of deps.connections.values()) {

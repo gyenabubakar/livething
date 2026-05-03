@@ -190,10 +190,15 @@ export interface ConnectionInfo<Meta = Record<string, unknown>> {
 
 /**
  * Options for `ctx.broadcast(...)`.
+ *
+ * `ctx.broadcast` always fans out to every connection on the server. To
+ * fan out only to subscribers of a specific channel, resolve a channel
+ * handle with `ctx.channels.get(...)` and use its `broadcast(...)` method
+ * — that path filters by channel membership and respects family vs static
+ * scope. Sending a top-level broadcast with a channel filter is not a
+ * supported operation.
  */
 export interface BroadcastOptions {
-  /** Only broadcast to connections subscribed to this channel. */
-  readonly channel?: string;
   /**
    * Whether to skip the calling connection. Defaults to `true` inside a
    * connection handler — pass `false` to include the sender as well.
@@ -504,8 +509,12 @@ export interface ShutdownContext<
   /** Close every live connection at once. */
   closeAll(code?: number, reason?: string): void;
 
-  /** Broadcast an event to all connections, optionally filtered by channel. */
-  broadcast(event: string, payload: unknown, options?: { channel?: string }): void;
+  /**
+   * Broadcast an event to every live connection. To target only members of
+   * a specific channel, resolve the channel through your handler's typed
+   * channel surface — the shutdown context does not filter by channel.
+   */
+  broadcast(event: string, payload: unknown): void;
 
   // Storage and durable work
   /** SQL database access for queries, migrations, and transactions. */
@@ -567,8 +576,12 @@ export interface TaskContext<
   kv: KVProvider;
 
   // Message delivery
-  /** Broadcast an event to all connections, optionally filtered by channel. */
-  broadcast(event: string, payload: unknown, options?: { channel?: string }): void;
+  /**
+   * Broadcast an event to every live connection. The task context has no
+   * channel filter — for channel-scoped broadcasts, resolve a channel
+   * handle from a connection-scoped handler instead.
+   */
+  broadcast(event: string, payload: unknown): void;
 
   /** Send an event to every connection that has the given tag. */
   sendTo(tag: string, event: string, payload: unknown): void;
