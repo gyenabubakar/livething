@@ -103,4 +103,30 @@ test.describe('binary', () => {
     await page.getByTestId('send-5').click();
     await expect(page.getByTestId('received-sizes')).toContainText('5,5');
   });
+
+  test('a thrown onBinary hook routes through _error and onError instead of escaping', async ({
+    page,
+  }, testInfo) => {
+    const room = `test-${testInfo.testId}`;
+    await page.goto(`/binary?room=${room}`);
+    await page.getByTestId('connect').click();
+    await expect(page.getByTestId('status')).toHaveText('connected');
+
+    // Send a poison binary frame whose first byte triggers a throw inside onBinary.
+    await page.evaluate(() => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      if (!ws) throw new Error('socket not exposed');
+      const buf = new Uint8Array([0xfe, 0x00, 0x00, 0x00]).buffer;
+      ws.send(buf);
+    });
+
+    // Client receives _error → handler routed the throw through handleRuntimeError.
+    await expect(page.getByTestId('last-error-code')).toHaveText('internal-error');
+    // onError lifecycle hook also fires with the original message.
+    await expect(page.getByTestId('observed-error-message')).toHaveText('poison binary frame');
+
+    // Connection still healthy: a follow-up clean binary still echoes.
+    await page.getByTestId('send-5').click();
+    await expect(page.getByTestId('last-size')).toHaveText('5');
+  });
 });

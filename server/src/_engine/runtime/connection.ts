@@ -250,9 +250,14 @@ export async function handleConnectionClose(
 
 /**
  * Route binary frames into the optional binary lifecycle hook.
+ *
+ * A throw from any hook is routed through the engine's runtime-error path
+ * so the client gets `_error` and `onError` hooks fire — the same shape
+ * text-message handlers already follow. The first throw stops the
+ * remaining binary hooks for this frame.
  */
 export async function handleBinaryMessage(
-  runtime: Pick<ConnectionRuntime, 'buildConnectionContext'> & {
+  runtime: Pick<ConnectionRuntime, 'buildConnectionContext' | 'handleRuntimeError'> & {
     activityHooks: readonly ((connectionId: string) => void | Promise<void>)[];
     binaryHooks: readonly ((
       ctx: Record<PropertyKey, unknown>,
@@ -268,7 +273,12 @@ export async function handleBinaryMessage(
   if (runtime.binaryHooks.length === 0) return;
   const ctx = runtime.buildConnectionContext(connection);
   for (const hook of runtime.binaryHooks) {
-    await hook(ctx, data);
+    try {
+      await hook(ctx, data);
+    } catch (error) {
+      await runtime.handleRuntimeError(connection, error, undefined);
+      return;
+    }
   }
 }
 

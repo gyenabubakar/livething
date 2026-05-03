@@ -5,6 +5,8 @@
 	let lastBinarySize = $state<number | null>(null);
 	let receivedSizes = $state<number[]>([]);
 	let metaUsername = $state('');
+	let lastErrorCode = $state('');
+	let observedErrorMessage = $state('');
 
 	function connect() {
 		if (ws) return;
@@ -17,6 +19,7 @@
 		ws.binaryType = 'arraybuffer';
 		ws.onopen = () => {
 			status = 'connected';
+			(window as unknown as { __ws?: WebSocket }).__ws = ws ?? undefined;
 		};
 		ws.onclose = () => {
 			status = 'disconnected';
@@ -34,6 +37,12 @@
 				lastBinarySize = data.payload?.size ?? null;
 				receivedSizes = [...receivedSizes, data.payload?.size];
 				metaUsername = data.payload?.username ?? '';
+			}
+			if (data.event === '_error') {
+				lastErrorCode = data.payload?.code ?? '';
+			}
+			if (data.event === 'binary-hook-error-observed') {
+				observedErrorMessage = data.payload?.message ?? '';
 			}
 		};
 	}
@@ -73,3 +82,5 @@
 <span data-testid="last-size">{lastBinarySize ?? ''}</span>
 <span data-testid="received-sizes">{receivedSizes.join(',')}</span>
 <span data-testid="meta-username">{metaUsername}</span>
+<span data-testid="last-error-code">{lastErrorCode}</span>
+<span data-testid="observed-error-message">{observedErrorMessage}</span>

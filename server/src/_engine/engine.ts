@@ -991,6 +991,9 @@ export class Engine {
         buildConnectionContext: (targetConnection, scope) => {
           return this.buildConnectionContext(targetConnection, scope);
         },
+        handleRuntimeError: (targetConnection, error, event) => {
+          return this.handleRuntimeError(targetConnection, error, event);
+        },
         activityHooks: this.hooks.activity,
         binaryHooks: this.hooks.binary,
       },

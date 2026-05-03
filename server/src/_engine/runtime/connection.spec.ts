@@ -1,6 +1,7 @@
 import {
   acceptConnection,
   cancelActiveStreamsForConnection,
+  handleBinaryMessage,
   handleConnectionClose,
   handleShutdown,
   runConnectionLifecycle,
@@ -566,5 +567,80 @@ describe('connection runtime', () => {
     const [message, fields] = logger.error.mock.calls[0]!;
     expect(message).toMatch(/stream cleanup threw/);
     expect((fields as { streamId?: string }).streamId).toBe('stream_throwing');
+  });
+
+  describe('handleBinaryMessage', () => {
+    function makeConnection(id = 'conn_1') {
+      return {
+        id,
+        wsKey: Symbol(id),
+        descriptor: {
+          send: vi.fn(),
+          sendBinary: vi.fn(),
+          close: vi.fn(),
+          bufferedAmount() {
+            return 0;
+          },
+        },
+        meta: {},
+        tags: new Set<string>(),
+        channelMemberships: new Map(),
+        latency: null,
+        quality: 'good' as const,
+      };
+    }
+
+    it('routes a thrown hook error through handleRuntimeError instead of escaping', async () => {
+      const handleRuntimeError = vi.fn(async () => {});
+      const buildConnectionContext = vi.fn(() => ({ id: 'conn_1' }));
+      const failingHook = vi.fn(async () => {
+        throw new Error('bad protobuf bytes');
+      });
+      const followUpHook = vi.fn();
+
+      const connection = makeConnection();
+
+      await expect(
+        handleBinaryMessage(
+          {
+            buildConnectionContext,
+            handleRuntimeError,
+            activityHooks: [],
+            binaryHooks: [failingHook, followUpHook],
+          } as never,
+          connection as never,
+          new ArrayBuffer(4),
+        ),
+      ).resolves.toBeUndefined();
+
+      expect(handleRuntimeError).toHaveBeenCalledTimes(1);
+      const call = handleRuntimeError.mock.calls[0] as unknown as [unknown, unknown];
+      const routedConnection = call[0] as { id: string };
+      const routedError = call[1] as Error;
+      expect(routedConnection.id).toBe('conn_1');
+      expect(routedError.message).toBe('bad protobuf bytes');
+      // First throw stops the loop — later hooks do not run for this frame.
+      expect(followUpHook).not.toHaveBeenCalled();
+    });
+
+    it('does not call handleRuntimeError when every hook succeeds', async () => {
+      const handleRuntimeError = vi.fn(async () => {});
+      const hook = vi.fn(async () => {});
+      const connection = makeConnection();
+
+      await handleBinaryMessage(
+        {
+          buildConnectionContext: () => ({ id: 'conn_1' }),
+          handleRuntimeError,
+          activityHooks: [],
+          binaryHooks: [hook],
+        } as never,
+        connection as never,
+        new ArrayBuffer(2),
+      );
+
+      expect(hook).toHaveBeenCalledTimes(1);
+      expect(handleRuntimeError).not.toHaveBeenCalled();
+    });
   });
 });
