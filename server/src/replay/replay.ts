@@ -236,14 +236,15 @@ class ReplayInstaller {
     if (!connectionId) return true;
 
     for (const row of rows) {
-      this.engine.sendReplay(
-        connectionId,
-        row.channel,
-        row.channelScope,
-        row.event,
-        JSON.parse(row.payload) as Record<string, unknown>,
-        { seq: row.seq, messageId: row.messageId, channel: row.channel ?? undefined },
-      );
+      const rowPayload = JSON.parse(row.payload) as Record<string, unknown>;
+      // Defense-in-depth: even if a stale store has 1:1 request responses
+      // from before the persist-side filter landed, never resend them.
+      if (typeof rowPayload._correlationId === 'string') continue;
+      this.engine.sendReplay(connectionId, row.channel, row.channelScope, row.event, rowPayload, {
+        seq: row.seq,
+        messageId: row.messageId,
+        channel: row.channel ?? undefined,
+      });
     }
 
     return true;

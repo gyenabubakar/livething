@@ -114,6 +114,10 @@ export function readReplayPayloadScope(payload: Record<string, unknown>): Replay
  * except the channels listed in `claimedChannelKeys`, which are the channels
  * that registered their own `.replay(...)` or disabled replay via
  * `.replay(false)`.
+ *
+ * Frames that carry `_correlationId` are private 1:1 request responses. They
+ * never belong in a replay store — a different connection later asking for
+ * `_replay` would receive somebody else's response.
  */
 export function shouldStoreReplayMessage(
   channelKey: string | undefined,
@@ -123,6 +127,10 @@ export function shouldStoreReplayMessage(
   claimedChannelKeys: ReadonlySet<string> = EMPTY_CLAIMED_CHANNEL_KEYS,
 ): boolean {
   if (exclude.has(event)) return false;
+  // Skip 1:1 request responses — they are addressed to one in-flight caller
+  // via _correlationId and replaying them would hand a different client the
+  // original requester's response.
+  if (typeof payload._correlationId === 'string') return false;
 
   const scope = readReplayPayloadScope(payload);
 

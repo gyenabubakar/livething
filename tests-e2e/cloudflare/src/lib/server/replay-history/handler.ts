@@ -4,21 +4,24 @@ import { withDedup } from '@wskit/server/dedup';
 import { RejectUpgrade } from '@wskit/server/errors';
 import { withLifecycle } from '@wskit/server/lifecycle';
 import { withReplay } from '@wskit/server/replay';
+import { withRequests } from '@wskit/server/requests';
 import { withSequence } from '@wskit/server/sequence';
 import type { InferClient } from '@wskit/server';
 import {
   ChatMsg,
   Cursor,
+  GetToken,
   RequestHistory,
   RequestRoomHistory,
   RoomMsg,
   SendCursor,
   SendMsg,
   SendRoomMsg,
+  TokenResponse,
 } from './events.ts';
 
 const base = withChannels(
-  withReplay(withLifecycle(withSequence(withDedup(server<Env>('replay-test'))))),
+  withRequests(withReplay(withLifecycle(withSequence(withDedup(server<Env>('replay-test')))))),
 );
 
 export const replayHandler = base
@@ -57,6 +60,11 @@ export const replayHandler = base
         messageId: 'manual-001',
       },
     );
+  })
+  .request(GetToken, TokenResponse, (ctx) => {
+    // Private 1:1 response. Replay must not persist this — a different client
+    // calling _replay later would otherwise receive someone else's token.
+    ctx.respond({ token: `secret-for-${ctx.meta.username}` });
   })
   .use(
     base.channel('replay-room', (ch) =>

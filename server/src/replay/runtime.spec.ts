@@ -242,6 +242,34 @@ describe('replay/runtime', () => {
     ).toBe(true);
   });
 
+  it('skips frames with _correlationId — request responses are private and must not be replayed', () => {
+    // Server-level replay.
+    expect(
+      shouldStoreReplayMessage(
+        undefined,
+        'get-token',
+        { token: 'SECRET-A', _correlationId: 'req-abc' },
+        new Set(),
+      ),
+    ).toBe(false);
+    // Channel-scoped replay.
+    expect(
+      shouldStoreReplayMessage(
+        'rooms',
+        'get-token',
+        {
+          token: 'SECRET-A',
+          _correlationId: 'req-abc',
+          _channel: 'room-1',
+          _channelScope: 'rooms',
+        },
+        new Set(),
+      ),
+    ).toBe(false);
+    // Sanity: the same payload without _correlationId is captured.
+    expect(shouldStoreReplayMessage(undefined, 'message', { text: 'hi' }, new Set())).toBe(true);
+  });
+
   it('builds replay rows from final wire payloads and strips metadata for reducers', () => {
     const payload = {
       text: 'hello',

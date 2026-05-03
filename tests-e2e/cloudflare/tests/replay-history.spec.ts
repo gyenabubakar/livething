@@ -19,6 +19,60 @@ test.describe('replay handler', () => {
     await waitForText(page, 'messages', /testuser: hello from replay/);
   });
 
+  test('private request responses are not stored or resent on _replay', async ({ page }) => {
+    // Pre-fix the replay store persisted any outgoing frame including
+    // ctx.respond(...) responses (which carry _correlationId). A different
+    // client could later send _replay { since: 0 } and receive somebody
+    // else's request response.
+    //
+    // Send a request, receive the response, then ask for replay since 0
+    // and assert nothing comes back with a _correlationId field.
+    const result = await page.evaluate(async () => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      if (!ws) throw new Error('socket not exposed');
+      const got: { event: string; payload: Record<string, unknown> }[] = [];
+      const original = ws.onmessage;
+      ws.onmessage = (ev) => {
+        if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
+        if (typeof original === 'function') original.call(ws, ev);
+      };
+      // Send a request with a correlationId. The handler responds with a token.
+      ws.send(
+        JSON.stringify({
+          event: 'get-token',
+          payload: { _correlationId: 'req-test-1' },
+        }),
+      );
+      await new Promise((r) => setTimeout(r, 200));
+      // Ask for full replay history.
+      ws.send(JSON.stringify({ event: '_replay', payload: { since: 0 } }));
+      await new Promise((r) => setTimeout(r, 400));
+      ws.onmessage = original;
+      return got;
+    });
+
+    // The response itself was delivered to the original requester.
+    const directResponse = result.find(
+      (m) => m.event === 'get-token' && m.payload._correlationId === 'req-test-1',
+    );
+    expect(directResponse).toBeDefined();
+    expect(directResponse!.payload.token).toBe('secret-for-testuser');
+
+    // No replayed frame should carry a _correlationId.
+    const replayedWithCorrelationId = result.filter(
+      (m) =>
+        m.event === 'get-token' &&
+        typeof m.payload._correlationId === 'string' &&
+        m.payload._correlationId !== 'req-test-1',
+    );
+    expect(replayedWithCorrelationId).toEqual([]);
+
+    // Stronger check: the response must not be replayed at all. The original
+    // arrived once (above); if replay had stored it, we would see it twice.
+    const allGetTokenFrames = result.filter((m) => m.event === 'get-token');
+    expect(allGetTokenFrames).toHaveLength(1);
+  });
+
   test('sequence numbers present', async ({ page }) => {
     await page.getByTestId('send-msg-btn').click();
     await waitForText(page, 'messages', /hello from replay/);

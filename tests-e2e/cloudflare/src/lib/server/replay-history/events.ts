@@ -10,3 +10,7 @@ export const RoomMsg = event('room-msg', v.object({ text: v.string(), from: v.st
 export const SendRoomMsg = event('send-room-msg', v.object({ text: v.string() }));
 export const RequestHistory = event('request-history', v.object({}));
 export const RequestRoomHistory = event('request-room-history', v.object({}));
+// A request-response. The handler replies with a private token via
+// ctx.respond(...). Used to pin that the response is NEVER stored in replay.
+export const GetToken = event('get-token', v.object({}));
+export const TokenResponse = v.object({ token: v.string() });
