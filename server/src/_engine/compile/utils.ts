@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { assertSyncResult, ValidationFailed } from '@wskit/core';
+import { RESERVED_EVENT_NAMES } from '~/event.ts';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as ChannelPrimitive from '~/channel/channel.ts';
@@ -145,6 +146,19 @@ export function prefixedModuleEvent(moduleId: string, event: string): string {
  */
 export function isProtocolEvent(event: string): boolean {
   return event.startsWith('_') && !event.startsWith('__');
+}
+
+/**
+ * True when `event` is one of the wire's named protocol events.
+ *
+ * Used by the wire-send declaration check so user code cannot emit any
+ * single-underscore name except the ones the engine actually recognises.
+ * The single source of truth for this list is `RESERVED_EVENT_NAMES`
+ * in `~/event.ts` — extending the wire protocol means adding the new
+ * name there, and this check picks it up automatically.
+ */
+export function isEngineOutgoingProtocolEvent(event: string): boolean {
+  return RESERVED_EVENT_NAMES.has(event);
 }
 
 /**

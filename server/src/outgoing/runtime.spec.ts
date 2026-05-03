@@ -125,6 +125,22 @@ describe('outgoing/runtime sendThroughPipeline', () => {
     );
   });
 
+  it('rejects single-underscore names that are not engine protocol events', () => {
+    // Pre-fix any `_*` name short-circuited as "protocol traffic" and went
+    // out without declaration, sequence, dedup, or replay. Now only the
+    // engine's known outgoing protocol names are accepted; any other
+    // single-underscore name fails the declaration check.
+    const runtime = createRuntime();
+    const connection = createConnection();
+
+    expect(() =>
+      sendThroughPipeline(runtime, connection, undefined, '_evilName', { x: 1 }),
+    ).toThrow(/Outgoing event "_evilName" was not declared in the active scope/);
+    expect(() =>
+      sendThroughPipeline(runtime, connection, undefined, '_anything', { x: 1 }),
+    ).toThrow(/Outgoing event "_anything" was not declared/);
+  });
+
   it('accepts an event declared in a namespace scope when namespace routing is provided', () => {
     const runtime = createRuntime({
       compiled: {

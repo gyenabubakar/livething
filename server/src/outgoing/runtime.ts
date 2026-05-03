@@ -45,8 +45,10 @@ function isDeclaredModuleEvent(compiled: CompiledServer, event: string): boolean
  * Check whether an outgoing event was declared in the correct scope.
  *
  * Module events (`__`-prefixed) are checked against module declarations.
- * Protocol events (`_`-prefixed, single underscore) are always allowed.
- * Everything else must appear in the scope's outgoing or stream maps.
+ * Single-underscore names are reserved for engine protocol traffic — only
+ * the engine-known protocol names pass this check; any other `_`-prefixed
+ * name fails so future protocol additions stay non-breaking. Everything
+ * else must appear in the scope's outgoing or stream maps.
  */
 function isDeclaredOutgoingEvent(
   compiled: EngineCompileTypes.CompiledServer,
@@ -54,7 +56,7 @@ function isDeclaredOutgoingEvent(
   routing?: EngineRuntimeTypes.RoutingTarget,
 ): boolean {
   if (event.startsWith('__')) return isDeclaredModuleEvent(compiled, event);
-  if (EngineCompileUtils.isProtocolEvent(event)) return true;
+  if (event.startsWith('_')) return EngineCompileUtils.isEngineOutgoingProtocolEvent(event);
 
   if (routing?.namespace) {
     const namespace = compiled.namespaces.get(routing.namespace);

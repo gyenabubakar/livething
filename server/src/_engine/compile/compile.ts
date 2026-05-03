@@ -289,6 +289,16 @@ function validateNoReservedEventNames(compiled: EngineCompileTypes.CompiledServe
           `Pick a different name for your event.`,
       );
     }
+    // Catch hand-rolled / `as any` events that bypass the friendly check
+    // in `event(...)`. The single-underscore prefix is reserved for engine
+    // protocol events as a name-shape rule, so the framework can add new
+    // protocol events later without breaking user handlers.
+    if (event.startsWith('_') && !event.startsWith('__')) {
+      throw new Error(
+        `[wskit] '${event}' starts with a reserved single-underscore prefix (used by ${scopeLabel}). ` +
+          `That prefix is reserved for engine protocol events — pick a different name.`,
+      );
+    }
   }
 
   function checkScope(

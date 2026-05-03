@@ -302,6 +302,23 @@ describe('compile reserved-event-name guard', () => {
     );
   });
 
+  it('rejects any single-underscore event name at boot, even ones not in the explicit reserved set', () => {
+    // Hand-rolled event-shaped object — bypasses event()'s constructor guard.
+    const sneaky = {
+      __wskit: 'event' as const,
+      event: '_my_custom',
+      schema: (p: unknown) => p,
+    };
+
+    const def = server('chat')
+      .outgoing(sneaky as never)
+      .build();
+
+    expect(() => compileHandlerDefinition(def)).toThrow(
+      /'_my_custom' starts with a reserved single-underscore prefix/,
+    );
+  });
+
   it('refuses reserved names registered as a stream nudge (event() bypass)', async () => {
     // A hand-rolled nudge declaration bypasses event() and lands on the
     // stream primitive's nudges array. Without the boot guard a stream

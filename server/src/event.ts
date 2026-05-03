@@ -94,6 +94,15 @@ export function event(event: string, schema: Validator): EventContract {
   if (RESERVED_EVENT_NAMES.has(event)) {
     throw new Error(`[wskit] '${event}' is a reserved protocol event name. Pick a different name.`);
   }
+  // Reserve every single-underscore name. The exact engine protocol set
+  // can grow later — using any of those prefixes today means future
+  // additions would silently collide with user code.
+  if (event.startsWith('_') && !event.startsWith('__')) {
+    throw new Error(
+      `[wskit] '${event}' starts with a reserved single-underscore prefix. ` +
+        `That prefix is reserved for engine protocol events — pick a different name.`,
+    );
+  }
   return {
     __wskit: 'event',
     event,

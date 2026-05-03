@@ -14,9 +14,17 @@ describe('event() reserved-name guard', () => {
   it('accepts non-reserved names', () => {
     expect(() => event('send-message', v.object({ text: v.string() }))).not.toThrow();
     expect(() => event('typing', v.object({}))).not.toThrow();
-    // Underscored names that are NOT reserved still work — only the wire-protocol
-    // names are blocked.
-    expect(() => event('_my_custom', v.object({}))).not.toThrow();
+    // Module-owned events (`__module:event`) are allowed.
+    expect(() => event('__acme:flushed', v.object({}))).not.toThrow();
+  });
+
+  it('rejects every single-underscore name as reserved by shape', () => {
+    // Future protocol events must stay non-breaking. Reserving the entire
+    // single-underscore prefix means the framework can add new ones later
+    // without colliding with user code.
+    expect(() => event('_my_custom', v.object({}))).toThrow(/reserved single-underscore prefix/);
+    expect(() => event('_anything', v.object({}))).toThrow(/reserved single-underscore prefix/);
+    expect(() => event('_abc-123', v.object({}))).toThrow(/reserved single-underscore prefix/);
   });
 
   it('lists every wire-protocol event the engine consumes or emits', () => {
