@@ -7,6 +7,7 @@ export {
   ChannelNotFound,
   ChannelNotSubscribed,
   InternalError,
+  InvalidScopeMarkers,
   NamespaceNotFound,
 } from './errors.ts';
 export type { ErrorDef, ErrorDefWithFactory } from './errors.ts';

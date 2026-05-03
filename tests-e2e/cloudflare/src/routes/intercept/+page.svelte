@@ -4,6 +4,7 @@
 	let username = $state('testuser');
 	let subscribed = $state(false);
 	let echoed = $state<string[]>([]);
+	let lastErrorCode = $state('');
 
 	function connect() {
 		if (ws) return;
@@ -15,6 +16,7 @@
 		);
 		ws.onopen = () => {
 			status = 'connected';
+			(window as unknown as { __ws?: WebSocket }).__ws = ws ?? undefined;
 		};
 		ws.onclose = () => {
 			status = 'disconnected';
@@ -25,6 +27,7 @@
 			const data = JSON.parse(ev.data);
 			if (data.event === '_subscribeOk') subscribed = true;
 			if (data.event === 'echoed') echoed = [...echoed, data.payload?.text ?? ''];
+			if (data.event === '_error') lastErrorCode = data.payload?.code ?? '';
 		};
 	}
 
@@ -60,3 +63,4 @@
 <span data-testid="status">{status}</span>
 <span data-testid="subscribed">{subscribed ? 'yes' : 'no'}</span>
 <span data-testid="echoed">{echoed.join(',')}</span>
+<span data-testid="last-error-code">{lastErrorCode}</span>

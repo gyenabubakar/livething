@@ -362,6 +362,26 @@ export const ChannelNotFound = error('channel-not-found');
 export const NamespaceNotFound = error('namespace-not-found');
 
 /**
+ * The error you get when an incoming frame carries more than one scope
+ * marker at once — for example both `_namespace` and `_channel`. wskit
+ * routes a frame to exactly one scope, so a frame that names two scopes
+ * is ambiguous and the server rejects it instead of silently picking
+ * one.
+ *
+ * @example
+ * ```ts
+ * try {
+ *   await client.namespace('admin').do('something');
+ * } catch (err) {
+ *   if (InvalidScopeMarkers.matches(err)) {
+ *     // a client-side bug attached two scope markers to the same frame
+ *   }
+ * }
+ * ```
+ */
+export const InvalidScopeMarkers = error('invalid-scope-markers');
+
+/**
  * Thrown when a client sends a message to a channel it isn't subscribed to,
  * or tries to unsubscribe from a channel it never joined.
  *

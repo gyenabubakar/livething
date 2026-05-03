@@ -3,6 +3,7 @@ import {
   Block,
   ChannelNotFound,
   ChannelNotSubscribed,
+  InvalidScopeMarkers,
   NamespaceNotFound,
   rethrowIfConfigError,
   WskitError,
@@ -185,6 +186,14 @@ export function resolveScope(
 ): EngineRuntimeTypes.ResolvedScope {
   if (!payload || typeof payload !== 'object') return {};
   const record = payload as Record<string, unknown>;
+
+  // A frame can route to one scope: top-level, namespace, or channel. A frame
+  // that names two scopes at once is ambiguous — silently picking one would
+  // let a sender bypass channel membership rules by stamping `_namespace`
+  // alongside `_channel`. Reject up front.
+  if (typeof record._namespace === 'string' && typeof record._channel === 'string') {
+    throw InvalidScopeMarkers();
+  }
 
   if (typeof record._namespace === 'string') {
     const namespace = compiled.namespaces.get(record._namespace);
@@ -377,7 +386,17 @@ export async function dispatchIncoming(
     }
   }
 
-  const scope = resolveScope(runtime.compiled, rawPayload);
+  let scope: EngineRuntimeTypes.ResolvedScope;
+  try {
+    scope = resolveScope(runtime.compiled, rawPayload);
+  } catch (error) {
+    // resolveScope can throw NamespaceNotFound / ChannelNotFound /
+    // InvalidScopeMarkers when the incoming routing markers are missing,
+    // unknown, or contradictory. Route those through the runtime-error
+    // path so the client gets a typed _error frame.
+    await runtime.handleRuntimeError(connection, error, event, routingFromPayload(rawPayload));
+    return;
+  }
   if (
     scope.channelName &&
     !ChannelPrimitive.hasChannelMembership(

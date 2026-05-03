@@ -107,4 +107,27 @@ test.describe('intercept', () => {
     await page.getByTestId('send-top-pre').click();
     await expect(page.getByTestId('echoed')).toContainText('top:top-pre-rewritten');
   });
+
+  test('a frame with both _namespace and _channel is rejected with invalid-scope-markers', async ({
+    page,
+  }, testInfo) => {
+    // Pre-fix the engine returned the namespace branch as soon as
+    // _namespace was present, silently ignoring _channel. A client could
+    // bypass channel-membership rules by stamping both markers on the
+    // same frame.
+    await openPage(page, `test-${testInfo.testId}`);
+    await page.evaluate(() => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      ws?.send(
+        JSON.stringify({
+          event: 'echo',
+          payload: { text: 'mixed', _namespace: 'ns', _channel: 'room' },
+        }),
+      );
+    });
+    await expect(page.getByTestId('last-error-code')).toHaveText('invalid-scope-markers');
+    // Connection still healthy: a normal ns frame still works after the rejection.
+    await page.getByTestId('send-ns-pre').click();
+    await expect(page.getByTestId('echoed')).toContainText('ns:ns-pre-rewritten');
+  });
 });

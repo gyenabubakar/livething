@@ -2,6 +2,7 @@
 import {
   ChannelNotFound,
   ChannelNotSubscribed,
+  InvalidScopeMarkers,
   NamespaceNotFound,
   ValidationFailed,
 } from '@wskit/core';
@@ -106,6 +107,7 @@ export class Engine {
     ValidationFailed.code,
     ChannelNotFound.code,
     ChannelNotSubscribed.code,
+    InvalidScopeMarkers.code,
     NamespaceNotFound.code,
   ]);
   /** Logger used by the engine and runtime modules. Adapters supply a custom logger via {@link Engine.setLogger}; otherwise the engine falls back to a console-backed default. */

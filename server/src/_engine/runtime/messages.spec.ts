@@ -221,6 +221,18 @@ describe('message runtime', () => {
     );
   });
 
+  it('resolveScope throws InvalidScopeMarkers when both _namespace and _channel are set', () => {
+    const compiled = {
+      namespaces: new Map([['admin', { name: 'admin' }]]),
+      channels: new Map([['private-room', { pattern: 'private-room' }]]),
+      channelFamilies: new Map(),
+    } as unknown as CompiledServer;
+
+    expect(() =>
+      resolveScope(compiled, { _namespace: 'admin', _channel: 'private-room' }),
+    ).toThrowError(/invalid-scope-markers/i);
+  });
+
   it('resolveScope throws ChannelNotFound when _channel targets an unregistered static channel', () => {
     const compiled = {
       namespaces: new Map(),

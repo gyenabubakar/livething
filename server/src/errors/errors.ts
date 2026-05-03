@@ -17,6 +17,7 @@ export {
   ChannelNotFound,
   ChannelNotSubscribed,
   InternalError,
+  InvalidScopeMarkers,
   NamespaceNotFound,
 } from '@wskit/core';
 export type { ErrorDef, ErrorDefWithFactory } from '@wskit/core';
