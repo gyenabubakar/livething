@@ -296,14 +296,25 @@ function validateNoReservedEventNames(compiled: EngineCompileTypes.CompiledServe
       outgoing: ReadonlyMap<string, unknown>;
       incoming: ReadonlyMap<string, unknown>;
       requests: ReadonlyMap<string, unknown>;
-      streams: ReadonlyMap<string, unknown>;
+      streams: ReadonlyMap<string, EngineCompileTypes.AnyGenerate>;
     },
     label: string,
   ): void {
     for (const event of scope.outgoing.keys()) check(event, `${label} outgoing`);
     for (const event of scope.incoming.keys()) check(event, `${label} incoming`);
     for (const event of scope.requests.keys()) check(event, `${label} request`);
-    for (const event of scope.streams.keys()) check(event, `${label} stream`);
+    for (const [streamEvent, generate] of scope.streams) {
+      check(streamEvent, `${label} stream`);
+      // A stream can also declare nudges — client-to-server events that drive
+      // the active generator. A nudge name that collides with a protocol event
+      // would buffer real protocol frames into the stream's nudge queue while
+      // the stream is active. Hand-rolled / `as any` nudges bypass the
+      // friendly check on `event(...)`, so the boot-time guard has to walk
+      // the actual nudge list too.
+      for (const nudge of generate.stream.nudges) {
+        check(nudge.event, `${label} stream '${streamEvent}' nudge`);
+      }
+    }
   }
 
   checkScope(compiled, 'top-level');

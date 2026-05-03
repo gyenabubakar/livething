@@ -301,6 +301,32 @@ describe('compile reserved-event-name guard', () => {
       /'_kicked' is a reserved protocol event name/,
     );
   });
+
+  it('refuses reserved names registered as a stream nudge (event() bypass)', async () => {
+    // A hand-rolled nudge declaration bypasses event() and lands on the
+    // stream primitive's nudges array. Without the boot guard a stream
+    // could claim '_replay' and swallow real replay frames while active.
+    const { withStreams } = await import('~/stream/with.ts');
+    const sneakyNudge = {
+      event: '_replay',
+      validator: undefined,
+    };
+    const startGo = event('go', (p: unknown) => p as Record<string, unknown>);
+    const base = withStreams(server('chat'));
+    const streamPrimitive = base.stream(startGo, (s) =>
+      s
+        .chunk((p: unknown) => p as { tick: number })
+        .nudge(sneakyNudge as never)
+        .generate(async function* () {
+          yield { tick: 1 };
+        }),
+    );
+    const def = base.use(streamPrimitive as never).build();
+
+    expect(() => compileHandlerDefinition(def)).toThrow(
+      /'_replay' is a reserved protocol event name.*stream 'go' nudge/,
+    );
+  });
 });
 
 describe('compile family-pattern vs static-name conflict guard', () => {
