@@ -64,4 +64,47 @@ describe('scheduled', () => {
       expect(build(60_000)).not.toThrow();
     });
   });
+
+  describe('.retry([...]) input validation', () => {
+    function handler() {}
+    function build(value: readonly number[]) {
+      return () => scheduled('tick', (t) => t.retry(value).run(handler));
+    }
+
+    it('rejects an empty array', () => {
+      expect(() => scheduled('tick', (t) => t.retry([]).run(handler))).toThrow(
+        /at least one entry/,
+      );
+    });
+
+    it('rejects zero entries', () => {
+      expect(build([0])).toThrow(/positive finite integer/);
+      expect(build([100, 0, 200])).toThrow(/positive finite integer/);
+    });
+
+    it('rejects negative entries', () => {
+      expect(build([-1])).toThrow(/positive finite integer/);
+      expect(build([100, -50])).toThrow(/positive finite integer/);
+    });
+
+    it('rejects fractional entries', () => {
+      expect(build([1.5])).toThrow(/positive finite integer/);
+    });
+
+    it('rejects NaN and Infinity entries', () => {
+      expect(build([Number.NaN])).toThrow(/positive finite integer/);
+      expect(build([Number.POSITIVE_INFINITY])).toThrow(/positive finite integer/);
+      expect(build([Number.NEGATIVE_INFINITY])).toThrow(/positive finite integer/);
+    });
+
+    it('accepts a non-empty array of positive integers', () => {
+      expect(build([100])).not.toThrow();
+      expect(build([50, 100, 200, 1_000])).not.toThrow();
+    });
+
+    it('still accepts boolean retry values', () => {
+      expect(() => scheduled('tick', (t) => t.retry(true).run(handler))).not.toThrow();
+      expect(() => scheduled('tick', (t) => t.retry(false).run(handler))).not.toThrow();
+    });
+  });
 });

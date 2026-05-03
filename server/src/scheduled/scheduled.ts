@@ -133,10 +133,31 @@ export class ScheduledBuilder<
     return this as unknown as this;
   }
 
-  /** Configure retry behaviour: default backoff, no retry, or custom backoff. */
+  /**
+   * Configure retry behaviour: default backoff, no retry, or custom backoff.
+   *
+   * When passing a custom backoff array, every entry is the delay in
+   * milliseconds before the next attempt. Each entry must be a positive
+   * finite integer. Zero, negative, fractional, NaN, and Infinity are
+   * rejected at registration — non-positive delays would re-fire the alarm
+   * immediately or in the past, and NaN delays would corrupt the next-run
+   * timestamp.
+   */
   retry(
     retry: ScheduledOptions['retry'],
   ): ScheduledBuilder<TTaskId, TCtx, TData, THasData, THasRun> {
+    if (Array.isArray(retry)) {
+      if (retry.length === 0) {
+        throw new Error('[wskit] .retry([...]) requires at least one entry.');
+      }
+      for (const entry of retry) {
+        if (!Number.isInteger(entry) || (entry as number) <= 0) {
+          throw new Error(
+            `[wskit] .retry([...]) requires positive finite integer milliseconds for every entry. Got ${String(entry)}.`,
+          );
+        }
+      }
+    }
     this._options = { ...this._options, retry };
     return this;
   }

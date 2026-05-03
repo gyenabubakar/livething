@@ -140,8 +140,8 @@ export const scheduledHandler = withScheduled(withLifecycle(server<Env>('schedul
     }),
   )
   .scheduled('empty-backoff-task', (t) =>
-    t.retry([]).run(() => {
-      throw new Error('always fails with empty backoff');
+    t.retry(false).run(() => {
+      throw new Error('always fails with no retry');
     }),
   )
   .scheduled('broadcast-task', (t) =>
