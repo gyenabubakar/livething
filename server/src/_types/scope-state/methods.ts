@@ -202,14 +202,19 @@ export interface AckMethods {
 /**
  * The wire metadata attached to every replay message.
  *
- * `seq`       — the sequence number for ordering on the client side
- * `messageId` — a unique ID for deduplication
- * `channel`   — optional channel scope the replay is pinned to
+ * `seq`           — the sequence number for ordering on the client side
+ * `messageId`     — a unique ID for deduplication
+ * `channel`       — concrete channel name when the replay is pinned to a channel
+ * `channelScope`  — family key for dynamic channels, `null` for static channels,
+ *                   omit/`null` for true top-level replays. Pass this back
+ *                   alongside `channel` so client-side family routing keeps
+ *                   working on the resent frame.
  */
 export interface ReplayWire {
   readonly seq: number;
   readonly messageId: string;
   readonly channel?: string;
+  readonly channelScope?: string | null;
 }
 
 /**

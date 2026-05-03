@@ -578,6 +578,76 @@ describe('custom replay', () => {
     expect(beforeSendCalls.length).toBe(countBefore);
   });
 
+  it('top-level onReplay forwards wire.channelScope into engine.sendReplay so family routing survives', async () => {
+    const protocolHandlers: Array<NonNullable<Parameters<EngineAccess['onProtocolMessage']>[1]>> =
+      [];
+    const sent: Array<Parameters<EngineAccess['sendReplay']>> = [];
+    const engine = {
+      // Top-level replayCustom — no channelKey.
+      getScopeInfo() {
+        return {};
+      },
+      getReplayClaimedChannelKeys() {
+        return new Set();
+      },
+      onInit() {},
+      onBeforeSend() {},
+      onProtocolMessage(
+        event: IncomingProtocolEvent,
+        handler: NonNullable<Parameters<EngineAccess['onProtocolMessage']>[1]>,
+      ) {
+        if (event === '_replay') protocolHandlers.push(handler);
+      },
+      sendReplay(...args: Parameters<EngineAccess['sendReplay']>) {
+        sent.push(args);
+      },
+    } as Pick<
+      EngineAccess,
+      | 'getScopeInfo'
+      | 'getReplayClaimedChannelKeys'
+      | 'onInit'
+      | 'onBeforeSend'
+      | 'onProtocolMessage'
+      | 'sendReplay'
+    > as EngineAccess;
+
+    handleReplay({
+      onReplay(ctx) {
+        // Dev persisted channelScope='rooms' alongside the row and now
+        // restores it on replay. The engine must forward it.
+        ctx.sendReplay(
+          'message',
+          { text: 'history' },
+          { seq: 7, messageId: 'm7', channel: 'room-1', channelScope: 'rooms' },
+        );
+      },
+    }).__setup?.(engine);
+
+    // Owner is a member of room-1 in the rooms family.
+    const member = {
+      id: 'owner',
+      sql: {},
+      kv: {},
+      env: {},
+      log: {},
+      platform: {},
+      waitUntil() {},
+      [ENGINE_SCOPE_META]: {},
+      [ENGINE_INTERNAL_CONNECTION]: {
+        channelMemberships: new Map([
+          [JSON.stringify(['rooms', 'room-1']), { channelName: 'room-1', channelScope: 'rooms' }],
+        ]),
+      },
+    };
+    await protocolHandlers[0]!(member, { since: 0, _channel: 'room-1', _channelScope: 'rooms' });
+
+    expect(sent).toHaveLength(1);
+    const [connectionId, channelName, channelScope] = sent[0]!;
+    expect(connectionId).toBe('owner');
+    expect(channelName).toBe('room-1');
+    expect(channelScope).toBe('rooms');
+  });
+
   it('strict-durability: onBeforeSend fires before descriptor.send', async () => {
     const calls: string[] = [];
     const onBeforeSendSpy = vi.fn(() => {

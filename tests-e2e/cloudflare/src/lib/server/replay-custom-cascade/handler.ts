@@ -1,4 +1,4 @@
-import { event, server } from '@wskit/server';
+import { event, scope, server } from '@wskit/server';
 import { withChannels } from '@wskit/server/channels';
 import { withDedup } from '@wskit/server/dedup';
 import { withLifecycle } from '@wskit/server/lifecycle';
@@ -36,8 +36,9 @@ export const replayCustomCascadeHandler = base
         );
       })
       .onReplay((ctx, since) => {
-        // Filter by channel when the replay request carries it.
+        // Filter by channel + channelScope when the replay request carries them.
         const requestedChannel = ctx.request.channel;
+        const requestedScope = ctx.request.channelScope;
         const rows = requestedChannel
           ? ctx.sql
               .exec<{
@@ -46,10 +47,13 @@ export const replayCustomCascadeHandler = base
                 seq: number;
                 message_id: string;
                 channel: string | null;
+                channel_scope: string | null;
               }>(
-                'SELECT event, payload, seq, message_id, channel FROM _cascade_replay WHERE seq > ? AND channel = ? ORDER BY seq ASC',
+                'SELECT event, payload, seq, message_id, channel, channel_scope FROM _cascade_replay WHERE seq > ? AND channel = ? AND ((channel_scope IS NULL AND ? IS NULL) OR channel_scope = ?) ORDER BY seq ASC',
                 since,
                 requestedChannel,
+                requestedScope,
+                requestedScope,
               )
               .toArray()
           : ctx.sql
@@ -59,8 +63,9 @@ export const replayCustomCascadeHandler = base
                 seq: number;
                 message_id: string;
                 channel: string | null;
+                channel_scope: string | null;
               }>(
-                'SELECT event, payload, seq, message_id, channel FROM _cascade_replay WHERE seq > ? AND channel IS NULL ORDER BY seq ASC',
+                'SELECT event, payload, seq, message_id, channel, channel_scope FROM _cascade_replay WHERE seq > ? AND channel IS NULL ORDER BY seq ASC',
                 since,
               )
               .toArray();
@@ -70,6 +75,7 @@ export const replayCustomCascadeHandler = base
             seq: row.seq,
             messageId: row.message_id,
             channel: row.channel ?? undefined,
+            channelScope: row.channel_scope ?? null,
           });
         }
       }),
@@ -89,6 +95,17 @@ export const replayCustomCascadeHandler = base
   })
   .use(
     base.channel('lobby', (c) =>
+      c.outgoing(Note).incoming(SendNote, (ctx, payload) => {
+        ctx.channel.send('note', { text: payload.text });
+        ctx.channel.broadcast('note', { text: payload.text });
+      }),
+    ),
+  )
+  // Dynamic family with the same handler shape. Family channels carry
+  // `_channelScope: 'rooms'` on every outgoing frame; replay frames must do
+  // the same so client routing can target the family channel handler.
+  .use(
+    base.channel(scope('rooms', /^room-.+$/), (c) =>
       c.outgoing(Note).incoming(SendNote, (ctx, payload) => {
         ctx.channel.send('note', { text: payload.text });
         ctx.channel.broadcast('note', { text: payload.text });

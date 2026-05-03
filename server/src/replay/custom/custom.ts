@@ -326,7 +326,14 @@ function createTopLevelReplayContext(
     waitUntil: baseCtx.waitUntil as (promise: Promise<unknown>) => void,
     request,
     sendReplay(event, payload, wire) {
-      engine.sendReplay(String(baseCtx.id), wire.channel ?? null, null, event, payload, wire);
+      engine.sendReplay(
+        String(baseCtx.id),
+        wire.channel ?? null,
+        wire.channelScope ?? null,
+        event,
+        payload,
+        wire,
+      );
     },
   };
 }

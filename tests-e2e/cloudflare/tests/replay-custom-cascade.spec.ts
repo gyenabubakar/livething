@@ -124,4 +124,133 @@ test.describe('replay-custom-cascade', () => {
       expect(n.payload._channel).toBe('lobby');
     }
   });
+
+  test('top-level custom replay forwards _channelScope on family-channel replay frames', async ({
+    page,
+  }, testInfo) => {
+    // Pre-fix the top-level onReplay context's sendReplay hardcoded
+    // channelScope=null. Replay frames went out with _channel='room-7' but
+    // no _channelScope='rooms', so the client's family-channel router could
+    // not route them.
+    const room = `cascade-fam-${testInfo.testId}`;
+    await page.goto(`/replay-custom-cascade?room=${room}`);
+
+    const handle = await page.evaluateHandle(
+      async ({ room }) => {
+        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+
+        function open(username: string): Promise<{
+          ws: WebSocket;
+          messages: { event: string; payload: Record<string, unknown> }[];
+        }> {
+          return new Promise((resolve, reject) => {
+            const ws = new WebSocket(
+              `${proto}//${location.host}/ws/replay-custom-cascade?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
+            );
+            const messages: { event: string; payload: Record<string, unknown> }[] = [];
+            ws.onmessage = (ev) => {
+              if (typeof ev.data !== 'string') return;
+              messages.push(JSON.parse(ev.data));
+            };
+            ws.onopen = () => resolve({ ws, messages });
+            ws.onerror = (e) => reject(e);
+          });
+        }
+
+        const first = await open('alice');
+        return { first };
+      },
+      { room },
+    );
+
+    async function send(name: 'first' | 'second', frame: unknown) {
+      await page.evaluate(
+        ({ h, name, frame }) =>
+          (h as unknown as Record<string, { ws: WebSocket }>)[name]!.ws.send(JSON.stringify(frame)),
+        { h: handle, name, frame },
+      );
+    }
+
+    async function messagesOf(
+      name: 'first' | 'second',
+    ): Promise<{ event: string; payload: Record<string, unknown> }[]> {
+      return page.evaluate(
+        ({ h, name }) =>
+          (
+            h as unknown as Record<
+              string,
+              { messages: { event: string; payload: Record<string, unknown> }[] }
+            >
+          )[name]!.messages.slice(),
+        { h: handle, name },
+      );
+    }
+
+    // Subscribe to family channel `room-7` and broadcast notes there.
+    await send('first', {
+      event: '_subscribe',
+      payload: { _channel: 'room-7', _channelScope: 'rooms' },
+    });
+    await expect
+      .poll(async () => (await messagesOf('first')).some((m) => m.event === '_subscribeOk'))
+      .toBe(true);
+
+    for (const text of ['fam-one', 'fam-two']) {
+      await send('first', {
+        event: 'send-note',
+        payload: { text, _channel: 'room-7', _channelScope: 'rooms' },
+      });
+    }
+    await expect
+      .poll(async () => (await messagesOf('first')).filter((m) => m.event === 'note').length >= 2)
+      .toBe(true);
+
+    // Open a second connection and ask for replay of `room-7` in family `rooms`.
+    await page.evaluate(
+      ({ h }) => (h as unknown as { first: { ws: WebSocket } }).first.ws.close(),
+      { h: handle },
+    );
+    await page.evaluate(
+      async ({ h, room }) => {
+        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const ws = await new Promise<WebSocket>((resolve, reject) => {
+          const w = new WebSocket(
+            `${proto}//${location.host}/ws/replay-custom-cascade?username=${encodeURIComponent('alice2')}&room=${encodeURIComponent(room)}`,
+          );
+          w.onopen = () => resolve(w);
+          w.onerror = (e) => reject(e);
+        });
+        const messages: { event: string; payload: Record<string, unknown> }[] = [];
+        ws.onmessage = (ev) => {
+          if (typeof ev.data !== 'string') return;
+          messages.push(JSON.parse(ev.data));
+        };
+        (h as unknown as Record<string, unknown>).second = { ws, messages };
+      },
+      { h: handle, room },
+    );
+    await send('second', {
+      event: '_subscribe',
+      payload: { _channel: 'room-7', _channelScope: 'rooms' },
+    });
+    await expect
+      .poll(async () => (await messagesOf('second')).some((m) => m.event === '_subscribeOk'))
+      .toBe(true);
+    await send('second', {
+      event: '_replay',
+      payload: { since: 0, _channel: 'room-7', _channelScope: 'rooms' },
+    });
+
+    await expect
+      .poll(async () => (await messagesOf('second')).filter((m) => m.event === 'note').length)
+      .toBe(2);
+
+    const notes = (await messagesOf('second')).filter((m) => m.event === 'note');
+    expect(notes.map((n) => n.payload.text)).toEqual(['fam-one', 'fam-two']);
+    // Every replayed note frame carries BOTH the channel and the family scope.
+    for (const n of notes) {
+      expect(n.payload._channel).toBe('room-7');
+      expect(n.payload._channelScope).toBe('rooms');
+    }
+  });
 });
