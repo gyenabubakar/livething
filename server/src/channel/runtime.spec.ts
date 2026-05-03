@@ -144,7 +144,10 @@ describe('channel runtime', () => {
     expect(
       [...second.channelMemberships.values()].some((m) => m.channelName === 'room:general'),
     ).toBe(true);
-    expect(second.tags.has('channel:room:general')).toBe(true);
+    // Subscribing must not auto-tag the connection. Tags are scope-blind by
+    // design (a tag is just a string in a Set), so an auto `channel:<name>`
+    // tag would collapse static-vs-family and family-vs-family distinctions.
+    expect(second.tags.has('channel:room:general')).toBe(false);
     expect(protocol).toEqual([
       {
         connectionId: 'conn_2',

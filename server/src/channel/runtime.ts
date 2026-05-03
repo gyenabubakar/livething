@@ -29,7 +29,7 @@ export function createChannelMembershipKey(
 
 /** Record that a connection has joined a channel. */
 export function addChannelMembership(
-  connection: Pick<RuntimeConnection, 'channelMemberships' | 'tags'>,
+  connection: Pick<RuntimeConnection, 'channelMemberships'>,
   channelName: string,
   channelScope: string | null,
 ): void {
@@ -37,7 +37,6 @@ export function addChannelMembership(
     channelName,
     channelScope,
   });
-  connection.tags.add(`channel:${channelName}`);
 }
 
 /** Check whether a connection is currently subscribed to a channel. */
@@ -51,22 +50,11 @@ export function hasChannelMembership(
 
 /** Remove a connection's subscription to a channel. */
 export function removeChannelMembership(
-  connection: Pick<RuntimeConnection, 'channelMemberships' | 'tags'>,
+  connection: Pick<RuntimeConnection, 'channelMemberships'>,
   channelName: string,
   channelScope: string | null,
 ): void {
   connection.channelMemberships.delete(createChannelMembershipKey(channelName, channelScope));
-
-  // Drop the channel:<name> tag only when no other scoped membership for the
-  // same concrete channel name remains — a connection can be in two scopes
-  // that share a name, and we keep the tag while either is alive.
-  const hasRemainingMembership = [...connection.channelMemberships.values()].some(
-    (membership) => membership.channelName === channelName,
-  );
-
-  if (!hasRemainingMembership) {
-    connection.tags.delete(`channel:${channelName}`);
-  }
 }
 
 /** Get all channel membership entries for a connection. */
