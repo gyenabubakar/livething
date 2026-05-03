@@ -1,4 +1,4 @@
-import { server } from '@wskit/server';
+import { scope, server } from '@wskit/server';
 import { withChannels } from '@wskit/server/channels';
 import { withDedup } from '@wskit/server/dedup';
 import { RejectUpgrade } from '@wskit/server/errors';
@@ -11,6 +11,7 @@ import {
   ChatMsg,
   Cursor,
   GetToken,
+  InjectFamilyReplay,
   RequestHistory,
   RequestRoomHistory,
   RoomMsg,
@@ -66,6 +67,25 @@ export const replayHandler = base
     // calling _replay later would otherwise receive someone else's token.
     ctx.respond({ token: `secret-for-${ctx.meta.username}` });
   })
+  .incoming(InjectFamilyReplay, (ctx) => {
+    // Top-level handler emits a replay frame addressed to a family channel.
+    // The built-in replay primitive must forward channelScope so the resent
+    // frame carries _channelScope on the wire and family routing survives.
+    ctx.sendReplay(
+      'room-msg',
+      { text: 'family-injected', from: 'system' },
+      { seq: 0, messageId: 'fam-manual-001', channel: 'fam-1', channelScope: 'fams' },
+    );
+  })
+  .use(
+    base.channel(scope('fams', /^fam-.+$/), (ch) =>
+      ch.outgoing(RoomMsg).incoming(SendRoomMsg, (ctx, payload) => {
+        const from = ctx.meta.username as string;
+        const msg = { text: payload.text, from };
+        ctx.channel.broadcast('room-msg', msg);
+      }),
+    ),
+  )
   .use(
     base.channel('replay-room', (ch) =>
       ch

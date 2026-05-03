@@ -218,6 +218,34 @@ test.describe('replay handler', () => {
     await waitForText(page, 'room-history-injected', 'true');
   });
 
+  test('top-level ctx.sendReplay forwards channelScope onto the wire (built-in replay)', async ({
+    page,
+  }) => {
+    // Pre-fix the built-in replay primitive's top-level sendReplay
+    // hardcoded channelScope=null. A handler that injects a family-scoped
+    // history frame (channel='fam-1', channelScope='fams') was producing
+    // a wire frame with _channel='fam-1' but no _channelScope='fams', so
+    // client-side family routing could not place it.
+    const frame = await page.evaluate(async () => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      if (!ws) throw new Error('socket not exposed');
+      const got: { event: string; payload: Record<string, unknown> }[] = [];
+      const original = ws.onmessage;
+      ws.onmessage = (ev) => {
+        if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
+        if (typeof original === 'function') original.call(ws, ev);
+      };
+      ws.send(JSON.stringify({ event: 'inject-family-replay', payload: {} }));
+      await new Promise((r) => setTimeout(r, 300));
+      ws.onmessage = original;
+      return got.find((m) => m.event === 'room-msg' && m.payload.text === 'family-injected');
+    });
+
+    expect(frame).toBeDefined();
+    expect(frame!.payload._channel).toBe('fam-1');
+    expect(frame!.payload._channelScope).toBe('fams');
+  });
+
   test('non-member channel replay request is silently denied (no rows replayed)', async ({
     browser,
   }, testInfo) => {

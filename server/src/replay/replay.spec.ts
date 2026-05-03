@@ -280,6 +280,57 @@ describe('replay', () => {
     expect(typeof ctx.sendReplay).toBe('function');
   });
 
+  it('top-level sendReplay forwards wire.channelScope into engine.sendReplay', () => {
+    const extenders: Array<NonNullable<Parameters<EngineAccess['extendContext']>[0]>> = [];
+    const sent: Parameters<EngineAccess['sendReplay']>[] = [];
+    const engine = {
+      getScopeInfo() {
+        return {};
+      },
+      extendContext(factory) {
+        extenders.push(factory);
+      },
+      setReplayEnabled() {},
+      getReplayClaimedChannelKeys() {
+        return new Set();
+      },
+      onBeforeSend() {},
+      onAfterSend() {},
+      onBoot() {},
+      onProtocolMessage() {},
+      sendReplay(...args: Parameters<EngineAccess['sendReplay']>) {
+        sent.push(args);
+      },
+    } as Pick<
+      EngineAccess,
+      | 'extendContext'
+      | 'getScopeInfo'
+      | 'onAfterSend'
+      | 'onBeforeSend'
+      | 'onBoot'
+      | 'onProtocolMessage'
+      | 'setReplayEnabled'
+      | 'getReplayClaimedChannelKeys'
+      | 'sendReplay'
+    > as EngineAccess;
+
+    replay().__setup?.(engine);
+
+    const ctx: Record<PropertyKey, unknown> = { id: 'c1', [ENGINE_SCOPE_META]: {} };
+    extenders[0]!(ctx);
+
+    (ctx.sendReplay as (event: string, payload: unknown, wire: unknown) => void)(
+      'message',
+      { text: 'hi' },
+      { seq: 7, messageId: 'm7', channel: 'room-1', channelScope: 'rooms' },
+    );
+
+    expect(sent).toHaveLength(1);
+    const [, channelName, channelScope] = sent[0]!;
+    expect(channelName).toBe('room-1');
+    expect(channelScope).toBe('rooms');
+  });
+
   it('adds channel sendReplay only for the matching channel scope', () => {
     const extenders: Array<NonNullable<Parameters<EngineAccess['extendContext']>[0]>> = [];
     const engine = {

@@ -175,7 +175,14 @@ class ReplayInstaller {
     if (scope.namespaceName || scope.channelName || !base.id) return {};
 
     base.sendReplay = (event: string, payload: unknown, wire: ReplayWire) => {
-      this.engine.sendReplay(base.id as string, wire.channel ?? null, null, event, payload, wire);
+      this.engine.sendReplay(
+        base.id as string,
+        wire.channel ?? null,
+        wire.channelScope ?? null,
+        event,
+        payload,
+        wire,
+      );
     };
 
     return {};

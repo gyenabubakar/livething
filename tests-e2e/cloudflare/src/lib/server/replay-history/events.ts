@@ -10,6 +10,10 @@ export const RoomMsg = event('room-msg', v.object({ text: v.string(), from: v.st
 export const SendRoomMsg = event('send-room-msg', v.object({ text: v.string() }));
 export const RequestHistory = event('request-history', v.object({}));
 export const RequestRoomHistory = event('request-room-history', v.object({}));
+// Top-level event that injects a family-scoped replay frame via
+// ctx.sendReplay(...) with channelScope set on wire. Used to pin that
+// the built-in replay forwards channelScope on top-level sends.
+export const InjectFamilyReplay = event('inject-family-replay', v.object({}));
 // A request-response. The handler replies with a private token via
 // ctx.respond(...). Used to pin that the response is NEVER stored in replay.
 export const GetToken = event('get-token', v.object({}));
