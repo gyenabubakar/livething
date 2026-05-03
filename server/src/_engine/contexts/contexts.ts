@@ -394,7 +394,7 @@ export function buildConnectionContext(
     [EngineContextTypes.ENGINE_SCOPE_META]: {
       namespaceName: scope?.namespace?.name,
       channelName: scope?.channelName,
-      channelScope: scope?.channelScope ?? scope?.channel?.key,
+      channelScope: scope?.channelScope,
     } satisfies EngineContextTypes.EngineScopeMeta,
     [EngineContextTypes.ENGINE_INTERNAL_CONNECTION]: connection,
     id: connection.id,

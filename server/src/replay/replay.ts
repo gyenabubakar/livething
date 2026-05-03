@@ -151,7 +151,12 @@ class ReplayInstaller {
     const scope = readReplayContextScope(base);
 
     if (this.channelKey) {
-      if (scope.channelScope !== this.channelKey || !base.id || !base.channel) return {};
+      // Channel-level replay. For families, channelKey is the family key and
+      // matches scope.channelScope. For static channels, channelKey is the
+      // channel name and matches scope.channelName (scope.channelScope is null).
+      const matches =
+        scope.channelScope === this.channelKey || scope.channelName === this.channelKey;
+      if (!matches || !base.id || !base.channel) return {};
 
       base.channel.sendReplay = (event: string, payload: unknown, wire: ReplayWire) => {
         this.engine.sendReplay(
