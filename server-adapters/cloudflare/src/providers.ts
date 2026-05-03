@@ -7,10 +7,6 @@ import type {
   TimerProvider,
 } from '@wskit/server/adapters';
 
-type SqlStorageWithTransaction = SqlStorage & {
-  transactionSync?<T>(closure: () => T): T;
-};
-
 function wrapCursor<TRow = unknown>(
   cursor: SqlStorageCursor<Record<string, SqlStorageValue>>,
 ): SqlResult<TRow> {
@@ -52,30 +48,29 @@ async function readFreshKvEntry(
  * Supports `exec()` for queries and `transaction()` for atomic operations.
  */
 export function createSql(state: DurableObjectState): SQLProvider {
-  const sql = state.storage.sql as SqlStorageWithTransaction;
   return {
     exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow> {
-      return wrapCursor<TRow>(sql.exec(query, ...params));
+      return wrapCursor<TRow>(state.storage.sql.exec(query, ...params));
     },
     transaction<T>(
       fn: (tx: { exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow> }) => T,
     ): T {
-      if (typeof sql.transactionSync !== 'function') {
+      if (typeof state.storage.transactionSync !== 'function') {
         // Refuse to silently downgrade `transaction(callback)` to plain
         // exec() calls — that breaks the documented all-or-nothing contract
         // and leaves writes from a partially-executed callback committed.
         // Throw before invoking the callback so the caller can react.
         throw new Error(
           '[wskit] this Cloudflare runtime does not support atomic transactions. ' +
-            'ctx.sql.transaction() requires sql.transactionSync(). Upgrade your ' +
+            'ctx.sql.transaction() requires storage.transactionSync(). Upgrade your ' +
             'Cloudflare Workers runtime, or in tests provide a mock storage that ' +
             'implements transactionSync.',
         );
       }
-      return sql.transactionSync(() =>
+      return state.storage.transactionSync(() =>
         fn({
           exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow> {
-            return wrapCursor<TRow>(sql.exec(query, ...params));
+            return wrapCursor<TRow>(state.storage.sql.exec(query, ...params));
           },
         }),
       );

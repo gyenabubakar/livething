@@ -131,14 +131,14 @@ describe('createSql.transaction', () => {
     expect(callback).not.toHaveBeenCalled();
   });
 
-  it('uses transactionSync when available', () => {
+  it('uses storage.transactionSync when available', () => {
     const transactionSync = vi.fn(<T>(closure: () => T) => closure());
     const state = {
       storage: {
         sql: {
           exec: vi.fn(() => fakeCursor()),
-          transactionSync,
         },
+        transactionSync,
       },
     } as unknown as DurableObjectState;
 

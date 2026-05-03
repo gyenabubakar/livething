@@ -143,8 +143,8 @@ describe('createSql', () => {
             one: () => null,
             raw: () => [][Symbol.iterator](),
           }),
-          transactionSync,
         },
+        transactionSync,
       },
     } as unknown as DurableObjectState;
     const sql = createSql(state);
