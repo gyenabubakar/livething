@@ -42,7 +42,9 @@ declare namespace Cloudflare {
       | 'ChannelScopeIsolationServer'
       | 'ChannelKeyCollisionServer'
       | 'ErrorHookIsolationServer'
-      | 'ReplayMembershipGateServer';
+      | 'ReplayMembershipGateServer'
+      | 'StaticVsFamilyIsolationServer'
+      | 'ReplayFamilyKeyEqualsNameServer';
   }
   interface Env {
     ASSETS: Fetcher;
@@ -71,6 +73,12 @@ declare namespace Cloudflare {
     >;
     REPLAY_MEMBERSHIP_GATE_SERVER: DurableObjectNamespace<
       import('./src/worker').ReplayMembershipGateServer
+    >;
+    STATIC_VS_FAMILY_ISOLATION_SERVER: DurableObjectNamespace<
+      import('./src/worker').StaticVsFamilyIsolationServer
+    >;
+    REPLAY_FAMILY_KEY_EQUALS_NAME_SERVER: DurableObjectNamespace<
+      import('./src/worker').ReplayFamilyKeyEqualsNameServer
     >;
     LIFECYCLE_HOOKS_SERVER: DurableObjectNamespace<import('./src/worker').LifecycleHooksServer>;
     NAMESPACE_SERVER: DurableObjectNamespace<import('./src/worker').NamespaceServer>;

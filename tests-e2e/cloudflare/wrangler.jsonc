@@ -49,6 +49,14 @@
       { "name": "CHANNEL_KEY_COLLISION_SERVER", "class_name": "ChannelKeyCollisionServer" },
       { "name": "ERROR_HOOK_ISOLATION_SERVER", "class_name": "ErrorHookIsolationServer" },
       { "name": "REPLAY_MEMBERSHIP_GATE_SERVER", "class_name": "ReplayMembershipGateServer" },
+      {
+        "name": "STATIC_VS_FAMILY_ISOLATION_SERVER",
+        "class_name": "StaticVsFamilyIsolationServer",
+      },
+      {
+        "name": "REPLAY_FAMILY_KEY_EQUALS_NAME_SERVER",
+        "class_name": "ReplayFamilyKeyEqualsNameServer",
+      },
       { "name": "LIFECYCLE_HOOKS_SERVER", "class_name": "LifecycleHooksServer" },
       { "name": "NAMESPACE_SERVER", "class_name": "NamespaceServer" },
       { "name": "INTERCEPT_SERVER", "class_name": "InterceptServer" },
@@ -151,6 +159,10 @@
     {
       "tag": "v14",
       "new_sqlite_classes": ["ReplayMembershipGateServer"],
+    },
+    {
+      "tag": "v15",
+      "new_sqlite_classes": ["StaticVsFamilyIsolationServer", "ReplayFamilyKeyEqualsNameServer"],
     },
   ],
 }
