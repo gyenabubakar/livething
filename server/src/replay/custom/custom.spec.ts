@@ -87,6 +87,82 @@ describe('custom replay', () => {
     expect(wireMessage.payload.text).toBe('hello');
   });
 
+  it('top-level before-send wire carries channel and channelScope for cascaded channel messages', () => {
+    const beforeSendHandlers: Array<NonNullable<Parameters<EngineAccess['onBeforeSend']>[0]>> = [];
+    const seenWires: Array<{ channel: unknown; channelScope: unknown }> = [];
+    const initHandlers: Array<(ctx: unknown) => void> = [];
+    const engine = {
+      getScopeInfo() {
+        return {};
+      },
+      getReplayClaimedChannelKeys() {
+        return new Set();
+      },
+      onInit(handler) {
+        initHandlers.push(handler as (ctx: unknown) => void);
+      },
+      onBeforeSend(handler) {
+        beforeSendHandlers.push(handler);
+      },
+      onProtocolMessage() {},
+    } as Pick<
+      EngineAccess,
+      | 'getScopeInfo'
+      | 'getReplayClaimedChannelKeys'
+      | 'onInit'
+      | 'onBeforeSend'
+      | 'onProtocolMessage'
+    > as EngineAccess;
+
+    handleReplay({
+      onBeforeSend(_ctx, message) {
+        seenWires.push({
+          channel: message.wire.channel,
+          channelScope: message.wire.channelScope,
+        });
+      },
+      onReplay() {},
+    }).__setup?.(engine);
+
+    for (const handler of initHandlers) {
+      handler({ sql: {}, kv: {}, env: {}, log: {}, platform: {} });
+    }
+
+    // Top-level message — neither channel nor channelScope on the payload.
+    beforeSendHandlers[0]!({
+      connectionId: 'c1',
+      event: 'message',
+      payload: { text: 'top', _seq: 1, _messageId: 'm1' },
+      meta: {},
+    });
+    // Cascaded static-channel message — channel set, channelScope absent.
+    beforeSendHandlers[0]!({
+      connectionId: 'c1',
+      event: 'message',
+      payload: { text: 'static', _seq: 2, _messageId: 'm2', _channel: 'lobby' },
+      meta: {},
+    });
+    // Cascaded family-channel message — both channel and channelScope set.
+    beforeSendHandlers[0]!({
+      connectionId: 'c1',
+      event: 'message',
+      payload: {
+        text: 'family',
+        _seq: 3,
+        _messageId: 'm3',
+        _channel: 'room:1',
+        _channelScope: 'rooms',
+      },
+      meta: {},
+    });
+
+    expect(seenWires).toEqual([
+      { channel: null, channelScope: null },
+      { channel: 'lobby', channelScope: null },
+      { channel: 'room:1', channelScope: 'rooms' },
+    ]);
+  });
+
   it('only observes channel messages for the matching channel scope', async () => {
     const beforeSendHandlers: Array<NonNullable<Parameters<EngineAccess['onBeforeSend']>[0]>> = [];
     const protocolHandlers: Array<NonNullable<Parameters<EngineAccess['onProtocolMessage']>[1]>> =

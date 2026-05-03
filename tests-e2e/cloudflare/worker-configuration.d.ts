@@ -43,6 +43,7 @@ declare namespace Cloudflare {
       | 'ChannelKeyCollisionServer'
       | 'ErrorHookIsolationServer'
       | 'ReplayMembershipGateServer'
+      | 'ReplayCustomCascadeServer'
       | 'StaticVsFamilyIsolationServer'
       | 'ReplayFamilyKeyEqualsNameServer';
   }
@@ -73,6 +74,9 @@ declare namespace Cloudflare {
     >;
     REPLAY_MEMBERSHIP_GATE_SERVER: DurableObjectNamespace<
       import('./src/worker').ReplayMembershipGateServer
+    >;
+    REPLAY_CUSTOM_CASCADE_SERVER: DurableObjectNamespace<
+      import('./src/worker').ReplayCustomCascadeServer
     >;
     STATIC_VS_FAMILY_ISOLATION_SERVER: DurableObjectNamespace<
       import('./src/worker').StaticVsFamilyIsolationServer

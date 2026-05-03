@@ -49,6 +49,7 @@
       { "name": "CHANNEL_KEY_COLLISION_SERVER", "class_name": "ChannelKeyCollisionServer" },
       { "name": "ERROR_HOOK_ISOLATION_SERVER", "class_name": "ErrorHookIsolationServer" },
       { "name": "REPLAY_MEMBERSHIP_GATE_SERVER", "class_name": "ReplayMembershipGateServer" },
+      { "name": "REPLAY_CUSTOM_CASCADE_SERVER", "class_name": "ReplayCustomCascadeServer" },
       {
         "name": "STATIC_VS_FAMILY_ISOLATION_SERVER",
         "class_name": "StaticVsFamilyIsolationServer",
@@ -163,6 +164,10 @@
     {
       "tag": "v15",
       "new_sqlite_classes": ["StaticVsFamilyIsolationServer", "ReplayFamilyKeyEqualsNameServer"],
+    },
+    {
+      "tag": "v16",
+      "new_sqlite_classes": ["ReplayCustomCascadeServer"],
     },
   ],
 }

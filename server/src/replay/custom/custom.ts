@@ -24,34 +24,45 @@ import type { Primitive } from '~/primitive.ts';
 export type CustomReplayScope = 'top' | 'channel';
 
 /**
- * Metadata attached to every outgoing message. Your `onBeforeSend` /
- * `onAfterSend` hooks receive this as `message.wire`. Use `seq` as a replay
- * cursor and `messageId` as a storage key.
+ * Metadata attached to every outgoing message a top-level `replayCustom()`
+ * primitive observes. Your `onBeforeSend` / `onAfterSend` hooks receive
+ * this as `message.wire`. Use `seq` as a replay cursor and `messageId` as
+ * a storage key.
+ *
+ * Top-level custom replay also observes channel-scoped messages by default
+ * (the cascade behavior). When a message originated inside a channel, the
+ * `channel` field is the concrete channel name; otherwise it is `null`.
+ * When the channel is a dynamic family, `channelScope` is the family key;
+ * otherwise it is `null`. Persist both alongside the row so a later
+ * `onReplay(...)` can filter accurately.
  */
 export interface TopLevelOutgoingWire {
   /** A monotonically increasing sequence number, unique per connection. */
   readonly seq: number;
   /** A unique ID for this message. */
   readonly messageId: string;
+  /**
+   * Concrete channel name when the message was sent inside a channel,
+   * `null` for true top-level messages. Use this together with
+   * `channelScope` as the storage key when persisting channel rows.
+   */
+  readonly channel: string | null;
+  /**
+   * Family key (matching `scope(key, pattern)`) for dynamic channels,
+   * `null` for static channels and for true top-level messages. Read this
+   * with a null-guard.
+   */
+  readonly channelScope: string | null;
 }
 
 /**
- * Wire metadata for messages sent inside a channel. Adds the channel name and
- * its scope marker to the top-level metadata.
- *
- * `channelScope` is the family key (matching `scope(key, pattern)`) when the
- * message was sent on a dynamic channel family, and `null` when it was sent
- * on a static channel (registered with a string name). Always check for
- * `null` before treating the value as a string.
+ * Wire metadata for messages observed by a channel-level `replayCustom()`
+ * primitive. The primitive only sees messages from its own channel scope,
+ * so `channel` is always populated.
  */
 export interface ChannelOutgoingWire extends TopLevelOutgoingWire {
-  /** The channel name the message was sent on. */
+  /** The channel name the message was sent on. Always present. */
   readonly channel: string;
-  /**
-   * Family key for dynamic channels, `null` for static channels. Read this
-   * with a null-guard — static-channel messages do not carry a family key.
-   */
-  readonly channelScope: string | null;
 }
 
 /**
@@ -119,8 +130,21 @@ interface BaseCustomReplayContext {
 /**
  * The context passed to `onReplay` at the top-level connection scope. Provides
  * `sendReplay()` for re-sending stored messages to the reconnecting client.
+ *
+ * `request.channel` is the concrete channel name when the client's `_replay`
+ * frame was scoped to a channel, otherwise `null`. `request.channelScope` is
+ * the family key for dynamic channels, `null` for static channels and for
+ * unscoped replay requests. Read both with null-guards. Use them to filter
+ * persisted rows when serving replay back.
  */
 export interface TopLevelReplayContext extends BaseCustomReplayContext {
+  /** Routing markers from the client's `_replay` frame. */
+  readonly request: {
+    /** Channel name from `_channel` on the request, or `null`. */
+    readonly channel: string | null;
+    /** Family key from `_channelScope` on the request, or `null`. */
+    readonly channelScope: string | null;
+  };
   /**
    * Send one previously stored message to the reconnecting client.
    *
@@ -223,15 +247,29 @@ function toTopLevelWireMessage(message: {
   event: string;
   payload: Record<string, unknown>;
 }): OutgoingWireMessage<'top'> {
-  return JSON.parse(
-    JSON.stringify({
-      event: message.event,
-      payload: Object.fromEntries(
-        Object.entries(message.payload).filter(([key]) => !key.startsWith('_')),
-      ),
-      wire: { seq: message.payload._seq, messageId: message.payload._messageId },
-    }),
-  ) as OutgoingWireMessage<'top'>;
+  const channel = typeof message.payload._channel === 'string' ? message.payload._channel : null;
+  const channelScope =
+    typeof message.payload._channelScope === 'string' ? message.payload._channelScope : null;
+  // JSON.stringify drops undefined values; encode + decode preserves the
+  // explicit nulls so consumers always see channel/channelScope keys.
+  const stringified = JSON.stringify({
+    event: message.event,
+    payload: Object.fromEntries(
+      Object.entries(message.payload).filter(([key]) => !key.startsWith('_')),
+    ),
+    wire: {
+      seq: message.payload._seq,
+      messageId: message.payload._messageId,
+      channel,
+      channelScope,
+    },
+  });
+  const parsed = JSON.parse(stringified) as OutgoingWireMessage<'top'> & {
+    wire: { channel: string | null; channelScope: string | null };
+  };
+  parsed.wire.channel = channel;
+  parsed.wire.channelScope = channelScope;
+  return parsed;
 }
 
 /**
@@ -275,6 +313,7 @@ function toChannelWireMessage(message: {
 function createTopLevelReplayContext(
   engine: EngineAccess,
   baseCtx: Record<PropertyKey, unknown>,
+  request: { channel: string | null; channelScope: string | null },
 ): TopLevelReplayContext {
   return {
     id: String(baseCtx.id),
@@ -285,6 +324,7 @@ function createTopLevelReplayContext(
     log: baseCtx.log as Logger,
     platform: baseCtx.platform,
     waitUntil: baseCtx.waitUntil as (promise: Promise<unknown>) => void,
+    request,
     sendReplay(event, payload, wire) {
       engine.sendReplay(String(baseCtx.id), wire.channel ?? null, null, event, payload, wire);
     },
@@ -442,8 +482,14 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
           return true;
         }
 
+        const requestChannel = typeof payload?._channel === 'string' ? payload._channel : null;
+        const requestChannelScope =
+          typeof payload?._channelScope === 'string' ? payload._channelScope : null;
         await opts.onReplay(
-          createTopLevelReplayContext(engine, baseCtx) as ReplayContext<CustomReplayScope>,
+          createTopLevelReplayContext(engine, baseCtx, {
+            channel: requestChannel,
+            channelScope: requestChannelScope,
+          }) as ReplayContext<CustomReplayScope>,
           Number(payload?.since ?? 0),
         );
         return true;

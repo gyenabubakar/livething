@@ -16,6 +16,7 @@ export { ChannelScopeIsolationServer } from './lib/server/channel-scope-isolatio
 export { ChannelKeyCollisionServer } from './lib/server/channel-key-collision/durable-object.ts';
 export { ErrorHookIsolationServer } from './lib/server/error-hook-isolation/durable-object.ts';
 export { ReplayMembershipGateServer } from './lib/server/replay-membership-gate/durable-object.ts';
+export { ReplayCustomCascadeServer } from './lib/server/replay-custom-cascade/durable-object.ts';
 export { StaticVsFamilyIsolationServer } from './lib/server/static-vs-family-isolation/durable-object.ts';
 export { ReplayFamilyKeyEqualsNameServer } from './lib/server/replay-family-key-equals-name/durable-object.ts';
 export { LifecycleHooksServer } from './lib/server/lifecycle-hooks/durable-object.ts';
@@ -51,6 +52,7 @@ const FEATURE_ROUTES: Record<string, keyof Env> = {
   '/ws/channel-key-collision': 'CHANNEL_KEY_COLLISION_SERVER',
   '/ws/error-hook-isolation': 'ERROR_HOOK_ISOLATION_SERVER',
   '/ws/replay-membership-gate': 'REPLAY_MEMBERSHIP_GATE_SERVER',
+  '/ws/replay-custom-cascade': 'REPLAY_CUSTOM_CASCADE_SERVER',
   '/ws/static-vs-family-isolation': 'STATIC_VS_FAMILY_ISOLATION_SERVER',
   '/ws/replay-family-key-equals-name': 'REPLAY_FAMILY_KEY_EQUALS_NAME_SERVER',
   '/ws/lifecycle-hooks': 'LIFECYCLE_HOOKS_SERVER',

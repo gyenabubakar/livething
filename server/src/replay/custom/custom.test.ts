@@ -12,10 +12,19 @@ const topLevelReplay = handleReplay({
     const _message: OutgoingWireMessage<'top'> = message;
     const _seq: number = message.wire.seq;
     const _messageId: string = message.wire.messageId;
-    void [_ctx, _message, _seq, _messageId];
-
-    // @ts-expect-error — top-level custom replay does not expose channel markers
-    message.wire.channel;
+    // Top-level custom replay observes channel-scoped messages too via the
+    // cascade. `channel` is null for true top-level messages, the concrete
+    // name when the message originated in a channel. `channelScope` is the
+    // family key for dynamic families and null for static channels.
+    const _channel: string | null = message.wire.channel;
+    const _channelScope: string | null = message.wire.channelScope;
+    // @ts-expect-error — channel may be null; calling string methods needs a guard
+    message.wire.channel.toUpperCase();
+    if (message.wire.channel !== null) {
+      const _afterGuard: string = message.wire.channel.toUpperCase();
+      void _afterGuard;
+    }
+    void [_ctx, _message, _seq, _messageId, _channel, _channelScope];
   },
   onReplay(ctx, since) {
     const _since: number = since;
