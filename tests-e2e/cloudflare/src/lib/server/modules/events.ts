@@ -47,11 +47,6 @@ export const LastState = event(
 export const GetShutdownCount = event('get-shutdown-count', v.object({}));
 export const ShutdownCount = event('shutdown-count', v.object({ count: v.number() }));
 
-export const DrizzleReady = event(
-  '__e2e:drizzle:drizzle-ready',
-  v.object({ tables: v.array(v.string()), hooked: v.optional(v.boolean()) }),
-);
-
 // Module onIncoming rewrite probe — client sends the "raw" event; the module
 // rewrites the payload before the handler sees it. The handler then echoes
 // whatever payload it observed so Playwright can assert the rewrite happened.

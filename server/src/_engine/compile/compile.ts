@@ -247,9 +247,25 @@ export function compileHandlerDefinition(
   visitCompiledPrimitives(compiled, handler.primitives);
   collectReplayClaimedScopes(handler.primitives, compiled.replayClaimedChannelKeys);
   validatePostInterceptHandlers(compiled);
-  validateNoReservedEventNames(compiled);
+  validateNoReservedEventNames(compiled, collectModuleEventNames(compiled));
   validateChannelFamilyPatternsDisjointFromStaticNames(compiled);
   return compiled;
+}
+
+/**
+ * Build the set of double-underscore outgoing event names the installed
+ * modules actually declared. Used by the reserved-name guard to allow
+ * those exact names through while still rejecting any user-declared
+ * double-underscore events.
+ */
+function collectModuleEventNames(compiled: EngineCompileTypes.CompiledServer): ReadonlySet<string> {
+  const names = new Set<string>();
+  for (const moduleInstance of compiled.modules) {
+    for (const eventName of Object.keys(moduleInstance.outgoing)) {
+      names.add(EngineCompileUtils.prefixedModuleEvent(moduleInstance.id, eventName));
+    }
+  }
+  return names;
 }
 
 /**
@@ -281,7 +297,10 @@ function validateChannelFamilyPatternsDisjointFromStaticNames(
  * where a developer hand-rolls an event-shaped object instead of calling
  * `event(name, schema)` — the runtime guard sees the same primitives.
  */
-function validateNoReservedEventNames(compiled: EngineCompileTypes.CompiledServer): void {
+function validateNoReservedEventNames(
+  compiled: EngineCompileTypes.CompiledServer,
+  declaredModuleEvents: ReadonlySet<string>,
+): void {
   function check(event: string, scopeLabel: string): void {
     if (RESERVED_EVENT_NAMES.has(event)) {
       throw new Error(
@@ -290,10 +309,23 @@ function validateNoReservedEventNames(compiled: EngineCompileTypes.CompiledServe
       );
     }
     // Catch hand-rolled / `as any` events that bypass the friendly check
-    // in `event(...)`. The single-underscore prefix is reserved for engine
-    // protocol events as a name-shape rule, so the framework can add new
-    // protocol events later without breaking user handlers.
-    if (event.startsWith('_') && !event.startsWith('__')) {
+    // in `event(...)`. The double-underscore prefix is reserved for module-
+    // owned outgoing events; allow only the names the modules themselves
+    // declared. Anything else with the prefix is a user-declared event
+    // that would silently fail at send time.
+    if (event.startsWith('__')) {
+      if (!declaredModuleEvents.has(event)) {
+        throw new Error(
+          `[wskit] '${event}' starts with a reserved double-underscore prefix (used by ${scopeLabel}). ` +
+            `That prefix is reserved for module-owned outgoing events — pick a different name.`,
+        );
+      }
+      return;
+    }
+    // The single-underscore prefix is reserved for engine protocol events
+    // as a name-shape rule, so the framework can add new protocol events
+    // later without breaking user handlers.
+    if (event.startsWith('_')) {
       throw new Error(
         `[wskit] '${event}' starts with a reserved single-underscore prefix (used by ${scopeLabel}). ` +
           `That prefix is reserved for engine protocol events — pick a different name.`,

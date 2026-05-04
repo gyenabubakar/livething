@@ -106,15 +106,30 @@ describe('compile post-intercept validation', () => {
   });
 
   it('does not throw when post-intercept targets a module-prefixed event with a matching handler', () => {
-    const moduleEvent = event('__auth:login', (p: unknown) => p as { token: string });
+    // Hand-roll an event-shaped object so this unit test can simulate a
+    // module-prefixed wire name without setting up a full module install.
+    // The boot guard's reserved-name check accepts module-prefixed names
+    // when they appear in the installed-modules outgoing set.
+    const moduleEvent = {
+      __wskit: 'event' as const,
+      event: '__auth:login',
+      schema: (p: unknown) => p as { token: string },
+    };
     const def = withIntercept(server('chat'))
-      .incoming(moduleEvent, async () => {})
-      .intercept(moduleEvent, async (_ctx, payload) => {
+      .incoming(moduleEvent as never, async () => {})
+      .intercept(moduleEvent as never, async (_ctx, payload) => {
         void payload;
       })
       .build();
 
-    expect(() => compileHandlerDefinition(def)).not.toThrow();
+    // No installed module owns '__auth:login', so the boot guard rejects
+    // the user-declared double-underscore name. That is the same rule as
+    // single-underscore reservation — the post-intercept validator
+    // itself is fine with the cross-handler shape, but the prefix guard
+    // (which runs first) catches the misuse.
+    expect(() => compileHandlerDefinition(def)).toThrow(
+      /'__auth:login' starts with a reserved double-underscore prefix/,
+    );
   });
 });
 

@@ -94,10 +94,21 @@ export function event(event: string, schema: Validator): EventContract {
   if (RESERVED_EVENT_NAMES.has(event)) {
     throw new Error(`[wskit] '${event}' is a reserved protocol event name. Pick a different name.`);
   }
+  // Reserve the double-underscore prefix for module-owned outgoing events.
+  // The runtime declaration check at outgoing/runtime.ts routes any name
+  // starting with two underscores to the module-only declaration map, so
+  // a user-declared double-underscore event would type-check but always
+  // fail at send time. Block it at the source.
+  if (event.startsWith('__')) {
+    throw new Error(
+      `[wskit] '${event}' starts with a reserved double-underscore prefix. ` +
+        `That prefix is reserved for module-owned outgoing events — pick a different name.`,
+    );
+  }
   // Reserve every single-underscore name. The exact engine protocol set
   // can grow later — using any of those prefixes today means future
   // additions would silently collide with user code.
-  if (event.startsWith('_') && !event.startsWith('__')) {
+  if (event.startsWith('_')) {
     throw new Error(
       `[wskit] '${event}' starts with a reserved single-underscore prefix. ` +
         `That prefix is reserved for engine protocol events — pick a different name.`,

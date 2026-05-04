@@ -14,8 +14,19 @@ describe('event() reserved-name guard', () => {
   it('accepts non-reserved names', () => {
     expect(() => event('send-message', v.object({ text: v.string() }))).not.toThrow();
     expect(() => event('typing', v.object({}))).not.toThrow();
-    // Module-owned events (`__module:event`) are allowed.
-    expect(() => event('__acme:flushed', v.object({}))).not.toThrow();
+    expect(() => event('chat-msg', v.object({}))).not.toThrow();
+  });
+
+  it('rejects every double-underscore name — the prefix is reserved for module wire frames', () => {
+    // Module authors construct outgoing events with bare names; the
+    // framework prefixes them onto the wire as `__module:event`. A
+    // user-declared double-underscore event would type-check but then
+    // route to the module-only declaration map at runtime and silently
+    // fail at send time — block at construction.
+    expect(() => event('__weird', v.object({}))).toThrow(/reserved double-underscore prefix/);
+    expect(() => event('__acme:flushed', v.object({}))).toThrow(
+      /reserved double-underscore prefix/,
+    );
   });
 
   it('rejects every single-underscore name as reserved by shape', () => {
