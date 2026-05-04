@@ -34,6 +34,7 @@ const FilteredTaskResult = event('filtered-task-result', v.object({ label: v.str
 const CancelNothing = event('cancel-nothing', v.object({}));
 const CancelNothingOk = event('cancel-nothing-ok', v.object({}));
 const TriggerInvalidCleanupData = event('trigger-invalid-cleanup-data', v.object({}));
+const TriggerInvalidScheduleTime = event('trigger-invalid-schedule-time', v.object({}));
 const ScheduleGuardError = event('schedule-guard-error', v.object({ message: v.string() }));
 
 const ScheduleSendToConn = event(
@@ -226,6 +227,15 @@ export const scheduledHandler = withScheduled(withLifecycle(server<Env>('schedul
         'cleanup',
         { time: Date.now() + 50, data: { nope: true } },
       );
+    } catch (error) {
+      ctx.send('schedule-guard-error', {
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  })
+  .incoming(TriggerInvalidScheduleTime, (ctx) => {
+    try {
+      ctx.schedule('cleanup', { time: Number.NaN });
     } catch (error) {
       ctx.send('schedule-guard-error', {
         message: error instanceof Error ? error.message : String(error),

@@ -90,6 +90,17 @@ test.describe('scheduled', () => {
     await expect(page.getByTestId('cleanup-fired')).toHaveText('yes');
   });
 
+  test('schedule entry rejects non-finite time and connection stays healthy', async ({
+    page,
+  }, testInfo) => {
+    await openPage(page, `test-${testInfo.testId}`);
+    await page.getByTestId('trigger-invalid-schedule-time').click();
+    await expect(page.getByTestId('schedule-guard-error')).toContainText('positive finite integer');
+    // Sanity: the bad call did not corrupt the queue. A real schedule still fires.
+    await page.getByTestId('schedule-cleanup-soon').click();
+    await expect(page.getByTestId('cleanup-fired')).toHaveText('yes');
+  });
+
   test('task-ctx sendToConnection: delivers to a live connection', async ({ page }, testInfo) => {
     await openPage(page, `test-${testInfo.testId}`);
     await page.getByTestId('who-am-i').click();

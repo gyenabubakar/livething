@@ -399,6 +399,12 @@ export function scheduleTaskRun(
   if (!task) {
     throw new Error(`[wskit] scheduled task "${taskId}" is not registered.`);
   }
+  if (!Number.isInteger(time) || time <= 0) {
+    throw new Error(
+      `[wskit] ctx.schedule("${taskId}", ...) requires a positive finite integer ` +
+        `wall-clock millisecond timestamp for "time". Got ${String(time)}.`,
+    );
+  }
   const id = runtime.generateId('task');
   let normalizedData = data;
 

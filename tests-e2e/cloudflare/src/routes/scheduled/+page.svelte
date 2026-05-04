@@ -131,6 +131,9 @@
 <button data-testid="trigger-invalid-cleanup-data" onclick={() => send('trigger-invalid-cleanup-data')}>
 	Trigger invalid cleanup data
 </button>
+<button data-testid="trigger-invalid-schedule-time" onclick={() => send('trigger-invalid-schedule-time')}>
+	Trigger invalid schedule time
+</button>
 <button data-testid="trigger-empty-backoff" onclick={() => send('trigger-empty-backoff')}>
 	Trigger empty backoff
 </button>

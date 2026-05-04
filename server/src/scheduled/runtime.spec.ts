@@ -245,6 +245,24 @@ describe('scheduled/runtime', () => {
     expect([...scheduledRuns.values()].map((r) => r.taskId)).not.toContain('typo-flush');
   });
 
+  it('rejects non-finite, non-integer, zero, and negative times', () => {
+    const { runtime, scheduledRuns } = createScheduledRuntime([{ taskId: 'flush' }]);
+
+    for (const bad of [
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+      0,
+      -1,
+      1.5,
+    ]) {
+      expect(() => scheduleTaskRun(runtime, 'flush', bad, undefined)).toThrow(
+        /requires a positive finite integer/,
+      );
+    }
+    expect([...scheduledRuns.values()]).toHaveLength(0);
+  });
+
   it('throws when required task data is omitted', () => {
     const { runtime } = createScheduledRuntime([
       {
