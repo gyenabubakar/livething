@@ -192,21 +192,36 @@ const CHANNEL_KEY = Symbol('channel');
  * base.channel(scope('rooms', /^room:.+$/), (ch) => ...)
  * ```
  */
-export function scope<TKey extends string>(key: TKey, pattern: RegExp): ScopeDeclaration<TKey> {
-  if (typeof key !== 'string' || key.trim() === '') {
+/**
+ * Validate a `ScopeDeclaration` (key + pattern). Used by `scope()` for the
+ * friendly call-site error and by `channel()` so a hand-rolled scope-shaped
+ * object cannot bypass the same check.
+ */
+function assertValidScopeDeclaration(declaration: ScopeDeclaration<string>, source: string): void {
+  if (typeof declaration.key !== 'string' || declaration.key.trim() === '') {
     throw new WskitConfigError(
-      `[wskit] scope() requires a non-empty key — got ${JSON.stringify(key)}.`,
+      `[wskit] ${source} requires a non-empty key — got ${JSON.stringify(declaration.key)}.`,
     );
   }
-  if (pattern.global || pattern.sticky) {
+  if (!(declaration.pattern instanceof RegExp)) {
     throw new WskitConfigError(
-      `scope("${key}", ...): regex flags "g" and "y" are not allowed because ` +
+      `[wskit] ${source} requires a RegExp pattern — got ${JSON.stringify(declaration.pattern)}.`,
+    );
+  }
+  if (declaration.pattern.global || declaration.pattern.sticky) {
+    throw new WskitConfigError(
+      `${source} ("${declaration.key}", ...): regex flags "g" and "y" are not allowed because ` +
         `they make RegExp.prototype.test stateful, which causes scope-pattern ` +
         `checks to alternate between match and no-match for the same input. ` +
         `Use the same pattern without the "g" or "y" flag.`,
     );
   }
-  return { key, pattern };
+}
+
+export function scope<TKey extends string>(key: TKey, pattern: RegExp): ScopeDeclaration<TKey> {
+  const declaration = { key, pattern };
+  assertValidScopeDeclaration(declaration, 'scope()');
+  return declaration;
 }
 
 /**
@@ -239,10 +254,14 @@ export function channel<
   const TPattern extends ChannelPattern,
   const TPrimitives extends readonly ChannelChild[],
 >(pattern: TPattern, ...primitives: TPrimitives): ChannelPrimitive<TPattern, TPrimitives> {
-  if (typeof pattern === 'string' && pattern.trim() === '') {
-    throw new WskitConfigError(
-      `[wskit] channel() requires a non-empty name — got ${JSON.stringify(pattern)}.`,
-    );
+  if (typeof pattern === 'string') {
+    if (pattern.trim() === '') {
+      throw new WskitConfigError(
+        `[wskit] channel() requires a non-empty name — got ${JSON.stringify(pattern)}.`,
+      );
+    }
+  } else {
+    assertValidScopeDeclaration(pattern, 'channel()');
   }
   return {
     __wskit: 'channel',

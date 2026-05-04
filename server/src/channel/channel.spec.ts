@@ -55,3 +55,27 @@ describe('scope() / channel() empty-key rejection', () => {
     expect(() => channel('   ')).toThrow(WskitConfigError);
   });
 });
+
+describe('channel() rejects raw scope-shaped objects that bypass scope()', () => {
+  it('rejects a hand-rolled object with the "g" flag', () => {
+    expect(() => channel({ key: 'rooms', pattern: /^room-.+$/g })).toThrow(WskitConfigError);
+  });
+
+  it('rejects a hand-rolled object with the "y" flag', () => {
+    expect(() => channel({ key: 'rooms', pattern: /^room-.+$/y })).toThrow(WskitConfigError);
+  });
+
+  it('rejects a hand-rolled object with an empty key', () => {
+    expect(() => channel({ key: '', pattern: /^room-.+$/ })).toThrow(WskitConfigError);
+  });
+
+  it('rejects a hand-rolled object whose pattern is not a RegExp', () => {
+    expect(() => channel({ key: 'rooms', pattern: 'not-a-regex' as unknown as RegExp })).toThrow(
+      WskitConfigError,
+    );
+  });
+
+  it('accepts a well-formed scope-shaped object', () => {
+    expect(() => channel({ key: 'rooms', pattern: /^room-.+$/ })).not.toThrow();
+  });
+});
