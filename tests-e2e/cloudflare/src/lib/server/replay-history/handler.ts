@@ -12,6 +12,7 @@ import {
   Cursor,
   GetToken,
   InjectFamilyReplay,
+  ReplayGuardError,
   RequestHistory,
   RequestRoomHistory,
   RoomMsg,
@@ -19,6 +20,7 @@ import {
   SendMsg,
   SendRoomMsg,
   TokenResponse,
+  TriggerBadReplay,
 } from './events.ts';
 
 const base = withChannels(
@@ -31,6 +33,7 @@ export const replayHandler = base
   .outgoing(ChatMsg)
   .outgoing(Cursor)
   .outgoing(RoomMsg)
+  .outgoing(ReplayGuardError)
   .replay((r) =>
     r.exclude('cursor').retention({ maxMessages: 100, maxAgeMs: 1_000 }).durability('strict'),
   )
@@ -66,6 +69,29 @@ export const replayHandler = base
     // Private 1:1 response. Replay must not persist this — a different client
     // calling _replay later would otherwise receive someone else's token.
     ctx.respond({ token: `secret-for-${ctx.meta.username}` });
+  })
+  .incoming(TriggerBadReplay, (ctx) => {
+    let undeclared = '';
+    let reservedField = '';
+    try {
+      (ctx.sendReplay as (e: string, p: unknown, w: unknown) => void)(
+        'not-declared-event',
+        { text: 'x', from: 'system' },
+        { seq: 0, messageId: 'bad-1' },
+      );
+    } catch (err) {
+      undeclared = err instanceof Error ? err.message : String(err);
+    }
+    try {
+      ctx.sendReplay(
+        'chat-msg',
+        { text: 'x', from: 'system', _evil: 'leaked' } as unknown as { text: string; from: string },
+        { seq: 0, messageId: 'bad-2' },
+      );
+    } catch (err) {
+      reservedField = err instanceof Error ? err.message : String(err);
+    }
+    ctx.send('replay-guard-error', { undeclared, reservedField });
   })
   .incoming(InjectFamilyReplay, (ctx) => {
     // Top-level handler emits a replay frame addressed to a family channel.

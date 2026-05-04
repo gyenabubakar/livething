@@ -159,6 +159,10 @@ class ReplayInstaller {
       if (!matches || !base.id || !base.channel) return {};
 
       base.channel.sendReplay = (event: string, payload: unknown, wire: ReplayWire) => {
+        this.engine.assertReplaySendContract(event, payload, {
+          channel: scope.channelName ?? undefined,
+          channelScope: scope.channelScope ?? null,
+        });
         this.engine.sendReplay(
           base.id as string,
           scope.channelName ?? null,
@@ -175,6 +179,10 @@ class ReplayInstaller {
     if (scope.namespaceName || scope.channelName || !base.id) return {};
 
     base.sendReplay = (event: string, payload: unknown, wire: ReplayWire) => {
+      this.engine.assertReplaySendContract(event, payload, {
+        channel: wire.channel,
+        channelScope: wire.channelScope,
+      });
       this.engine.sendReplay(
         base.id as string,
         wire.channel ?? null,

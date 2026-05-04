@@ -14,6 +14,7 @@ import * as EngineMessageRuntime from '~/_engine/runtime/messages.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import * as ErrorsPrimitive from '~/errors/runtime.ts';
 import * as HeartbeatPrimitive from '~/heartbeat/runtime.ts';
+import * as OutgoingRuntime from '~/outgoing/runtime.ts';
 import * as ScheduledPrimitive from '~/scheduled/runtime.ts';
 import { scheduled as createScheduled, SCHEDULED_RUNTIME_KEY } from '~/scheduled/scheduled.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
@@ -476,6 +477,15 @@ export class Engine {
         const connection = this.connections.get(connectionId);
         if (!connection) return;
         this.sendReplay(connection, channelName, channelScope, event, payload, wire);
+      },
+      assertReplaySendContract: (event, payload, routing) => {
+        OutgoingRuntime.assertPayloadRecord(payload);
+        OutgoingRuntime.assertNoReservedPayloadFields(payload);
+        if (!OutgoingRuntime.isDeclaredOutgoingEvent(this.compiled, event, routing)) {
+          throw new Error(
+            `[wskit] Outgoing event "${event}" was not declared in the active scope.`,
+          );
+        }
       },
       sendAck: (connectionId) => {
         const connection = this.connections.get(connectionId);

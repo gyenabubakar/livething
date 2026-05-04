@@ -18,3 +18,12 @@ export const InjectFamilyReplay = event('inject-family-replay', v.object({}));
 // ctx.respond(...). Used to pin that the response is NEVER stored in replay.
 export const GetToken = event('get-token', v.object({}));
 export const TokenResponse = v.object({ token: v.string() });
+
+// Triggers two failing ctx.sendReplay calls (undeclared event + reserved
+// _-prefixed payload field) and reports both error messages back to the
+// client. Pins that ctx.sendReplay enforces the same contract as ctx.send.
+export const TriggerBadReplay = event('trigger-bad-replay', v.object({}));
+export const ReplayGuardError = event(
+  'replay-guard-error',
+  v.object({ undeclared: v.string(), reservedField: v.string() }),
+);

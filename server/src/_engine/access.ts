@@ -315,6 +315,20 @@ export interface EngineAccess {
   ): void;
 
   /**
+   * Validate that a `ctx.sendReplay(...)` call satisfies the same contract
+   * as a normal `ctx.send(...)`: the payload is a plain object, no user
+   * payload key starts with `_`, and the event is declared in the routing
+   * scope. Used by the replay primitive to enforce the public-API contract
+   * before forwarding to `sendReplay`. The replay-from-storage path stays
+   * trusted because rows were validated when written.
+   */
+  assertReplaySendContract(
+    event: string,
+    payload: unknown,
+    routing: { channel?: string; channelScope?: string | null; namespace?: string } | undefined,
+  ): asserts payload is Record<string, unknown>;
+
+  /**
    * Send the current in-flight ack for one live connection, if there is one.
    *
    * `ack()` uses this so the primitive can own `ctx.ack()` without reaching

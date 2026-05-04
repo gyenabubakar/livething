@@ -50,7 +50,7 @@ function isDeclaredModuleEvent(compiled: CompiledServer, event: string): boolean
  * name fails so future protocol additions stay non-breaking. Everything
  * else must appear in the scope's outgoing or stream maps.
  */
-function isDeclaredOutgoingEvent(
+export function isDeclaredOutgoingEvent(
   compiled: EngineCompileTypes.CompiledServer,
   event: string,
   routing?: EngineRuntimeTypes.RoutingTarget,
@@ -77,14 +77,14 @@ function isDeclaredOutgoingEvent(
 // ───── Section: payload shape + reserved-key checks ─────
 
 /** Throw if the payload is not a plain object — arrays and primitives are rejected. */
-function assertPayloadRecord(payload: unknown): asserts payload is Record<string, unknown> {
+export function assertPayloadRecord(payload: unknown): asserts payload is Record<string, unknown> {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
     throw new Error('[wskit] Outgoing payload must be a plain object.');
   }
 }
 
 /** Throw if any payload key starts with `_` — those are reserved for the engine. */
-function assertNoReservedPayloadFields(payload: Record<string, unknown>): void {
+export function assertNoReservedPayloadFields(payload: Record<string, unknown>): void {
   for (const key of Object.keys(payload)) {
     if (key.startsWith('_')) {
       throw new Error(

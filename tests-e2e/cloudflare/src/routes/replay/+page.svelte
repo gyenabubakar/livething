@@ -11,6 +11,8 @@
 	let sinceValue = $state(0);
 	let cursorEvents = $state<string[]>([]);
 	let historyInjected = $state('');
+	let replayGuardUndeclared = $state('');
+	let replayGuardReservedField = $state('');
 
 	let roomSubscribed = $state('');
 	let roomMessages = $state<string[]>([]);
@@ -63,6 +65,9 @@
 				roomMessages = [...roomMessages, text].slice(-50);
 				if (replayRequested) roomReplayCount++;
 				if (payload.text === 'injected-room-history') roomHistoryInjected = 'true';
+			} else if (evt === 'replay-guard-error') {
+				replayGuardUndeclared = String(payload.undeclared ?? '');
+				replayGuardReservedField = String(payload.reservedField ?? '');
 			} else if (evt === '_subscribeOk') {
 				if (payload._channel === 'replay-room') roomSubscribed = 'subscribed';
 			}
@@ -111,6 +116,12 @@
 	function requestHistory() {
 		historyInjected = '';
 		send('request-history', {});
+	}
+
+	function triggerBadReplay() {
+		replayGuardUndeclared = '';
+		replayGuardReservedField = '';
+		send('trigger-bad-replay', {});
 	}
 
 	function requestRoomHistory() {
@@ -162,6 +173,9 @@
 		<h2>Programmatic sendReplay</h2>
 		<button data-testid="request-history-btn" onclick={requestHistory} disabled={status !== 'connected'}>Request History</button>
 		<div data-testid="history-injected">{historyInjected}</div>
+		<button data-testid="trigger-bad-replay-btn" onclick={triggerBadReplay} disabled={status !== 'connected'}>Trigger Bad Replay</button>
+		<div data-testid="replay-guard-undeclared">{replayGuardUndeclared}</div>
+		<div data-testid="replay-guard-reserved-field">{replayGuardReservedField}</div>
 	</section>
 
 	<section>

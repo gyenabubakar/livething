@@ -301,6 +301,7 @@ describe('replay', () => {
       sendReplay(...args: Parameters<EngineAccess['sendReplay']>) {
         sent.push(args);
       },
+      assertReplaySendContract() {},
     } as Pick<
       EngineAccess,
       | 'extendContext'
@@ -312,6 +313,7 @@ describe('replay', () => {
       | 'setReplayEnabled'
       | 'getReplayClaimedChannelKeys'
       | 'sendReplay'
+      | 'assertReplaySendContract'
     > as EngineAccess;
 
     replay().__setup?.(engine);
