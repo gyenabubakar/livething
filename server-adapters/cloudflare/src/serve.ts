@@ -234,6 +234,17 @@ const buildServe = defineServerAdapter<undefined, CloudflareDurableObjectClass>(
        */
       async shutdown(): Promise<void> {
         await this.ready;
+        // Under hibernation Cloudflare keeps sockets open across DO evictions.
+        // A new instance starts with an empty in-memory connection map, so a
+        // shutdown() RPC right after wake would skip every hibernated socket.
+        // Wake each one through the engine first so the shutdown path closes
+        // them and runs onDisconnect/cleanup. Wake is idempotent for sockets
+        // that were already live in this instance.
+        if (this.engine.usesHibernation()) {
+          for (const ws of this.ctx.getWebSockets()) {
+            this.engine.handleHibernationWake(ws);
+          }
+        }
         await this.engine.handleShutdown();
       }
     };

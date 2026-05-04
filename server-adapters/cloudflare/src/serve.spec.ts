@@ -279,6 +279,36 @@ describe('alarm() and shutdown() RPCs', () => {
     await instance.shutdown();
     expect(fake.calls.handleShutdown).toBe(1);
   });
+
+  it('shutdown() under hibernation wakes every Cloudflare-managed socket before draining', async () => {
+    // Pre-fix: under hibernation a fresh DO instance starts with an empty
+    // engine.connections map. shutdown() walked that map and skipped every
+    // hibernated socket, so a graceful drain right after wake left clients
+    // open. The adapter now enumerates state.getWebSockets() and registers
+    // each one with the engine before delegating.
+    const Cls = buildClass({ hibernation: true });
+    const sockA = { __id: 'a' } as unknown;
+    const sockB = { __id: 'b' } as unknown;
+    const state = makeFakeDOState({
+      getWebSockets: vi.fn(() => [sockA, sockB]),
+    });
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+
+    await instance.shutdown();
+    expect(fake.calls.handleHibernationWake).toEqual([sockA, sockB]);
+    expect(fake.calls.handleShutdown).toBe(1);
+  });
+
+  it('shutdown() without hibernation does not call getWebSockets', async () => {
+    const Cls = buildClass({ hibernation: false });
+    const state = makeFakeDOState();
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+
+    await instance.shutdown();
+    expect(state.getWebSockets).not.toHaveBeenCalled();
+    expect(fake.calls.handleHibernationWake).toEqual([]);
+    expect(fake.calls.handleShutdown).toBe(1);
+  });
 });
 
 describe('engine wiring in the constructor', () => {
