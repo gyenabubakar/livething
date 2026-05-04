@@ -20,6 +20,7 @@ const TriggerDefaultRetryTask = event('trigger-default-retry-task', v.object({})
 const DefaultRetryResult = event('default-retry-result', v.object({ attempts: v.number() }));
 
 const TriggerAlwaysFail = event('trigger-always-fail', v.object({}));
+const TriggerBigintThrow = event('trigger-bigint-throw', v.object({}));
 const QueryDeadLetter = event('query-dead-letter', v.object({}));
 const DeadLetterResult = event(
   'dead-letter-result',
@@ -120,6 +121,16 @@ export const scheduledHandler = withScheduled(withLifecycle(server<Env>('schedul
       throw new Error('permanent failure');
     }),
   )
+  .scheduled('bigint-throw-task', (t) =>
+    t.retry(false).run(() => {
+      // Reject with a non-Error value that JSON.stringify cannot serialize.
+      // Pre-fix the alarm handler crashed inside error serialization and
+      // the failed run vanished without a dead-letter row. The serializer
+      // now falls back to String(error), so the dead-letter row writes.
+      // eslint-disable-next-line @typescript-eslint/only-throw-error
+      throw 1n;
+    }),
+  )
   .scheduled('filtered-cleanup', (t) =>
     t
       .data(v.object({ label: v.string() }))
@@ -174,6 +185,9 @@ export const scheduledHandler = withScheduled(withLifecycle(server<Env>('schedul
   })
   .incoming(TriggerAlwaysFail, (ctx) => {
     ctx.schedule('always-fail-task', { time: Date.now() + 50 });
+  })
+  .incoming(TriggerBigintThrow, (ctx) => {
+    ctx.schedule('bigint-throw-task', { time: Date.now() + 50 });
   })
   .incoming(QueryDeadLetter, (ctx) => {
     const rows = ctx.sql

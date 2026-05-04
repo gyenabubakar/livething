@@ -117,6 +117,9 @@
 <button data-testid="trigger-always-fail" onclick={() => send('trigger-always-fail')}>
 	Trigger always-fail
 </button>
+<button data-testid="trigger-bigint-throw" onclick={() => send('trigger-bigint-throw')}>
+	Trigger bigint-throw
+</button>
 <button data-testid="query-dlq" onclick={() => send('query-dead-letter')}>Query DLQ</button>
 <button data-testid="schedule-filtered" onclick={() => send('schedule-filtered-tasks')}>
 	Schedule filtered (drop+keep)

@@ -636,4 +636,43 @@ describe('scheduled/runtime', () => {
     const restored = [...scheduledRuns.values()].find((r) => r.taskId === 'ser');
     expect(restored?.retry).toEqual([100, 200]);
   });
+
+  it('dead-letters a task whose rejected value cannot be JSON-stringified', async () => {
+    // A handler that throws a BigInt would have crashed the alarm path
+    // before — JSON.stringify(1n) throws TypeError. The run is already
+    // gone from the queue at that point, so the failed task would
+    // disappear with no dead-letter record.
+    const handler = vi
+      .fn<(_: unknown, __: unknown) => Promise<void>>()
+      // eslint-disable-next-line @typescript-eslint/only-throw-error
+      .mockImplementation(async () => {
+        throw 1n;
+      });
+    const { runtime, scheduledRuns, deadLetters } = createScheduledRuntime([
+      { taskId: 'bigint-thrower', handler, options: { retry: false } },
+    ]);
+    const now = vi.spyOn(Date, 'now');
+
+    scheduledRuns.set('run_1', {
+      id: 'run_1',
+      taskId: 'bigint-thrower',
+      time: 0,
+      data: undefined,
+      attempts: 0,
+      recurring: false,
+      retry: false,
+    });
+
+    now.mockReturnValue(50);
+    await expect(handleScheduledAlarm(runtime)).resolves.toBeUndefined();
+
+    // Run was removed from the queue and the dead-letter row exists.
+    expect(scheduledRuns.has('run_1')).toBe(false);
+    const dlq = deadLetters.get('run_1');
+    expect(dlq).toBeDefined();
+    expect(typeof dlq!.error.message).toBe('string');
+    // The fallback to String(error) for BigInt produces "1".
+    expect(dlq!.error.message).toBe('1');
+    now.mockRestore();
+  });
 });

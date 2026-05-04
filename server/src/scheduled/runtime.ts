@@ -111,9 +111,21 @@ function serializeError(error: unknown): ScheduledDeadLetter['error'] {
     };
   }
 
-  return {
-    message: typeof error === 'string' ? error : JSON.stringify(error),
-  };
+  if (typeof error === 'string') {
+    return { message: error };
+  }
+
+  // The dead-letter row is the safety net for a failed run. If the
+  // alarm handler aborts here the run is already gone from the queue
+  // and disappears with no record — so error serialization must be
+  // total. JSON.stringify throws on values it cannot serialize (BigInt,
+  // symbols, circular references); fall back to a plain string
+  // conversion in those cases.
+  try {
+    return { message: JSON.stringify(error) };
+  } catch {
+    return { message: String(error) };
+  }
 }
 
 function dataMatchesFilter(data: unknown, filter?: Record<string, unknown>): boolean {

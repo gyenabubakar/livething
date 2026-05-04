@@ -132,6 +132,21 @@ test.describe('scheduled', () => {
     }).toPass({ timeout: 10_000 });
   });
 
+  test('scheduled task that throws a non-Error (BigInt) still lands in the DLQ', async ({
+    page,
+  }, testInfo) => {
+    // Pre-fix the alarm handler crashed inside JSON.stringify(error) when
+    // the rejected value was a BigInt (or any other non-serializable value),
+    // and the failed run vanished without a dead-letter row. The error
+    // serializer now falls back to String(error), so the row writes.
+    await openPage(page, `test-${testInfo.testId}`);
+    await page.getByTestId('trigger-bigint-throw').click();
+    await expect(async () => {
+      await page.getByTestId('query-dlq').click();
+      await expect(page.getByTestId('dead-letter')).toContainText('bigint-throw-task');
+    }).toPass({ timeout: 10_000 });
+  });
+
   test('scheduled task: ctx.broadcast sends to all connections', async ({ page }, testInfo) => {
     const room = `test-${testInfo.testId}`;
     // Open two connections.
