@@ -107,6 +107,7 @@ function createRuntime() {
         });
       },
       async handleValidationError() {},
+      async handleRuntimeError() {},
     },
   };
 }
@@ -346,5 +347,76 @@ describe('channel runtime', () => {
     expect(
       [...connection.channelMemberships.values()].some((m) => m.channelName === 'room:general'),
     ).toBe(true);
+  });
+
+  it('sends _subscribeOk before running onSubscribe side effects', async () => {
+    const connection = createConnection('conn_1');
+    const { runtime, connections, protocol } = createRuntime();
+    connections.set(connection.id, connection);
+
+    let protocolCountDuringHook = -1;
+    const hook = vi.fn(async () => {
+      protocolCountDuringHook = protocol.length;
+    });
+
+    await subscribeConnection(
+      {
+        ...runtime,
+        subscribeHooks: new Map([['rooms', [hook]]]),
+      },
+      connection,
+      { _channel: 'room:general', _channelScope: 'rooms' },
+    );
+
+    expect(hook).toHaveBeenCalledTimes(1);
+    // _subscribeOk had already been sent before the side-effect hook ran.
+    expect(protocol[0]?.event).toBe('_subscribeOk');
+    expect(protocolCountDuringHook).toBeGreaterThanOrEqual(1);
+  });
+
+  it('routes a throwing onSubscribe through handleRuntimeError instead of escaping', async () => {
+    const connection = createConnection('conn_1');
+    const { runtime, connections, protocol } = createRuntime();
+    connections.set(connection.id, connection);
+
+    const seenRuntimeErrors: Array<{ event?: string; routing?: Record<string, unknown> }> = [];
+
+    await expect(
+      subscribeConnection(
+        {
+          ...runtime,
+          subscribeHooks: new Map([
+            [
+              'rooms',
+              [
+                async () => {
+                  throw new Error('side-effect sink down');
+                },
+              ],
+            ],
+          ]),
+          async handleRuntimeError(_conn, _error, event, routing) {
+            seenRuntimeErrors.push({ event, routing });
+          },
+        },
+        connection,
+        { _channel: 'room:general', _channelScope: 'rooms' },
+      ),
+    ).resolves.toBeUndefined();
+
+    // Subscription was committed — the throw is observational, not a gate.
+    expect(
+      [...connection.channelMemberships.values()].some((m) => m.channelName === 'room:general'),
+    ).toBe(true);
+    // The client received _subscribeOk before the throw fired.
+    expect(protocol.find((p) => p.event === '_subscribeOk')).toBeDefined();
+    // The runtime-error path was invoked with the channel routing markers
+    // so the client receives an _error frame addressed to this channel.
+    expect(seenRuntimeErrors).toHaveLength(1);
+    expect(seenRuntimeErrors[0]!.event).toBe('_subscribe');
+    expect(seenRuntimeErrors[0]!.routing).toEqual({
+      _channel: 'room:general',
+      _channelScope: 'rooms',
+    });
   });
 });

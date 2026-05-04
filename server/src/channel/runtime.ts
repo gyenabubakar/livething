@@ -136,6 +136,12 @@ interface ChannelRuntime {
     validationError: unknown,
     scope?: { channel?: CompiledChannel; channelName?: string; channelScope?: string | null },
   ): Promise<void>;
+  handleRuntimeError(
+    connection: RuntimeConnection,
+    error: unknown,
+    event?: string,
+    routing?: Record<string, unknown>,
+  ): Promise<void>;
 }
 
 interface ChannelScope {
@@ -263,10 +269,15 @@ export async function subscribeConnection(
   addChannelMembership(connection, scope.channelName, scope.channelScope);
   runtime.persistAttachment(connection);
 
-  for (const hook of runtime.subscribeHooks.get(scope.channel.key) ?? []) {
-    await hook(ctx);
-  }
-
+  // Confirm the subscribe and run the member-sync protocol BEFORE any
+  // user-provided onSubscribe side effects. The onBeforeSubscribe loop
+  // above is the gate that decides whether the client joins; once the
+  // gate has passed and membership is committed, the client must hear
+  // the confirmation regardless of whether a side-effect hook later
+  // throws. A throw inside onSubscribe is treated as observational and
+  // routed through the runtime-error path with the channel routing
+  // markers, so the client receives a separate _error frame addressed
+  // to the channel scope while the subscription itself stays valid.
   runtime.sendProtocolMessage(connection, '_subscribeOk', {
     _channel: scope.channelName,
     ...(scope.channelScope !== null ? { _channelScope: scope.channelScope } : {}),
@@ -291,6 +302,17 @@ export async function subscribeConnection(
     connection.id,
     scope.channelScope,
   );
+
+  for (const hook of runtime.subscribeHooks.get(scope.channel.key) ?? []) {
+    try {
+      await hook(ctx);
+    } catch (error) {
+      const routing: Record<string, unknown> = { _channel: scope.channelName };
+      if (scope.channelScope !== null) routing._channelScope = scope.channelScope;
+      await runtime.handleRuntimeError(connection, error, '_subscribe', routing);
+      return;
+    }
+  }
 }
 
 /**

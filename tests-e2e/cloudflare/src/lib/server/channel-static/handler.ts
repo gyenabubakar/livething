@@ -52,6 +52,13 @@ const roomChannel = base.channel('room', (ch) =>
       if (ctx.channel.name !== 'room') {
         throw new Error(`expected channel.name to be 'room', got ${ctx.channel.name}`);
       }
+      // A username gated to throw so the e2e suite can pin that
+      // onSubscribe is observational: _subscribeOk must already be sent
+      // and the throw must surface as a separate _error addressed to
+      // the channel scope. The subscription itself stays committed.
+      if (ctx.meta.username === 'subscribe-thrower') {
+        throw new Error('intentional onSubscribe throw');
+      }
       ctx.channel.broadcast('room-message', {
         text: `${ctx.meta.username} entered`,
         from: 'system',

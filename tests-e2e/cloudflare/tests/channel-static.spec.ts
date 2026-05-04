@@ -319,4 +319,47 @@ test.describe('channel-static', () => {
 
     await ctxObserver.close();
   });
+
+  test('throwing onSubscribe still confirms the subscribe; the throw becomes an observational _error scoped to the channel', async ({
+    browser,
+  }, testInfo) => {
+    // Pre-fix the onSubscribe hook ran between membership commit and the
+    // _subscribeOk send. A throw inside onSubscribe blocked _subscribeOk
+    // from reaching the client — the client treated the subscribe as a
+    // failure even though the server-side membership was committed, so
+    // server and client disagreed on state.
+    //
+    // After the fix _subscribeOk fires before onSubscribe, and the throw
+    // routes through the runtime-error path with channel routing markers,
+    // so the client receives both a successful subscribe confirmation
+    // AND a separate _error addressed to the channel scope.
+    const room = `test-${testInfo.testId}-onsubscribe-throw`;
+    const ctxThrower = await browser.newContext();
+    const ctxObserver = await browser.newContext();
+    const thrower = await ctxThrower.newPage();
+    const observer = await ctxObserver.newPage();
+
+    // 'subscribe-thrower' username triggers the throwing onSubscribe in
+    // the channel-static fixture.
+    await openPage(thrower, room, 'subscribe-thrower');
+    await openPage(observer, room, 'observer');
+
+    await thrower.getByTestId('subscribe-room').click();
+    // The subscribe was committed — _subscribeOk reached the client.
+    await expect(thrower.getByTestId('subscribe-ok-count')).toHaveText('1');
+    // The observational error reached the client with the channel code.
+    await expect(thrower.getByTestId('subscribe-error')).toHaveText('room:internal-error');
+
+    // Membership is real on the server: the observer subscribes and
+    // sends a message; the thrower (still in the channel) receives it.
+    await observer.getByTestId('subscribe-room').click();
+    await expect(observer.getByTestId('subscribe-ok-count')).toHaveText('1');
+    await observer.getByTestId('send-hello').click();
+    await expect(thrower.getByTestId('user-messages')).toContainText('observer:hello', {
+      timeout: 5_000,
+    });
+
+    await ctxThrower.close();
+    await ctxObserver.close();
+  });
 });

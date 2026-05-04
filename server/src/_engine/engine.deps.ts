@@ -164,6 +164,12 @@ export function channelRuntime(engine: Engine) {
       validationError: unknown,
       scope?: ResolvedScope,
     ) => engine.handleValidationError(connection, event, validationError, scope),
+    handleRuntimeError: (
+      connection: RuntimeConnection,
+      error: unknown,
+      event?: string,
+      routing?: Record<string, unknown>,
+    ) => engine.handleRuntimeError(connection, error, event, routing),
   };
 }
 

@@ -138,6 +138,12 @@ interface ChannelRuntime extends EngineRuntimeTypes.ConnectionMembersRuntime {
     validationError: unknown,
     scope?: EngineRuntimeTypes.ResolvedScope,
   ): Promise<void>;
+  handleRuntimeError(
+    connection: EngineRuntimeTypes.RuntimeConnection,
+    error: unknown,
+    event?: string,
+    routing?: Record<string, unknown>,
+  ): Promise<void>;
 }
 
 // ───── Section: incoming dedup ─────
