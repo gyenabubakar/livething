@@ -143,9 +143,16 @@ const buildServe = defineServerAdapter<undefined, CloudflareDurableObjectClass>(
         const descriptor = this.createConnectionDescriptor(server, result);
 
         // Hibernation is opt-in at the handler level via `.hibernation()`.
+        // Tags are intentionally NOT forwarded into Cloudflare's per-socket
+        // tag store. wskit already persists tags inside its hibernation
+        // attachment, so the runtime is the source of truth on wake. The
+        // tag store also caps each tag at 256 characters and the total at
+        // 10 tags, which does not match the wskit API contract — passing
+        // app tags through would crash the upgrade for any handler that
+        // returns more or longer tags from onUpgrade.
         const hibernating = this.engine.usesHibernation();
         if (hibernating) {
-          this.ctx.acceptWebSocket(server, [...(result.tags ?? [])]);
+          this.ctx.acceptWebSocket(server);
         } else {
           server.accept();
         }

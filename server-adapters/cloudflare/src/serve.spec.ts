@@ -118,7 +118,12 @@ describe('WskitDurableObject fetch / upgrade', () => {
     expect(fake.connectionHandle.handleError).toHaveBeenCalled();
   });
 
-  it('calls state.acceptWebSocket(ws, tags) in hibernation mode', async () => {
+  it('calls state.acceptWebSocket(ws) without forwarding handler tags into the cf tag store', async () => {
+    // wskit tags are persisted inside the hibernation attachment, so
+    // forwarding them into Cloudflare's per-socket tag store is redundant.
+    // The tag store also caps at 10 tags and 256 chars per tag, which does
+    // not match the wskit tag API — passing app tags through would crash
+    // the upgrade for any handler that returns more or longer tags.
     const Cls = buildClass({ hibernation: true });
     const state = makeFakeDOState();
     fake.stageUpgrade({ tags: ['room:lobby', 'tier:free'] });
@@ -130,7 +135,8 @@ describe('WskitDurableObject fetch / upgrade', () => {
     const [, server] = pairs[0]!;
     expect(state.acceptWebSocket).toHaveBeenCalledTimes(1);
     expect(state.acceptWebSocket.mock.calls[0]![0]).toBe(server);
-    expect(state.acceptWebSocket.mock.calls[0]![1]).toEqual(['room:lobby', 'tier:free']);
+    // No second argument: tags do not flow into Cloudflare's tag store.
+    expect(state.acceptWebSocket.mock.calls[0]!).toHaveLength(1);
     expect(server.accept).not.toHaveBeenCalled();
     // addEventListener path NOT used under hibernation
     expect(server.addEventListener).not.toHaveBeenCalled();
