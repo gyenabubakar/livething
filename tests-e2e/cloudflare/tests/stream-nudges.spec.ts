@@ -136,4 +136,33 @@ test.describe('stream-nudges', () => {
     await page.getByTestId('pause').click();
     await expect(page.getByTestId('stream-end')).toHaveText('yes');
   });
+
+  test('malformed nudge surfaces _error with code "validation-failed" and _streamId', async ({
+    page,
+  }, testInfo) => {
+    // The fixture uses a strict schema for the `pause` nudge, so any extra
+    // field in the payload fails validation. Pre-fix the engine swallowed
+    // the failure: hooks fired but the wire `_error` was never sent, so a
+    // client could not correlate the rejection to the right stream. The
+    // wire frame now reaches the client with `code: 'validation-failed'`
+    // and the original `_streamId` so the client routes it correctly.
+    await openPage(page, `test-${testInfo.testId}`);
+
+    await page.getByTestId('start-long').click();
+    await expect(async () => {
+      const id = (await page.getByTestId('stream-id').textContent()) ?? '';
+      expect(id.length).toBeGreaterThan(0);
+    }).toPass({ timeout: 3_000 });
+
+    const streamId = (await page.getByTestId('stream-id').textContent()) ?? '';
+
+    await page.getByTestId('malformed-pause').click();
+
+    await expect(page.getByTestId('last-error')).toHaveText('validation-failed');
+    await expect(page.getByTestId('last-error-stream-id')).toHaveText(streamId);
+
+    // Connection still healthy: a valid pause still ends the stream.
+    await page.getByTestId('pause').click();
+    await expect(page.getByTestId('stream-end')).toHaveText('yes');
+  });
 });

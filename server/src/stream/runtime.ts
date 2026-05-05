@@ -111,7 +111,7 @@ export async function cancelStream(
  * incoming routing should stop.
  */
 export async function bufferStreamNudge(
-  runtime: Pick<StreamRuntime, 'activeStreams' | 'handleValidationError'>,
+  runtime: Pick<StreamRuntime, 'activeStreams' | 'handleValidationError' | 'handleRuntimeError'>,
   connection: RuntimeConnection,
   event: string,
   payload: Record<string, unknown> | undefined,
@@ -137,6 +137,11 @@ export async function bufferStreamNudge(
   } catch (error) {
     rethrowIfConfigError(error);
     await runtime.handleValidationError(connection, event, error);
+    // Send the wire `_error` with `_streamId` routing so the client can
+    // route the failure to the right stream-error handler. Without this,
+    // a malformed nudge is silently dropped and the client never learns
+    // its frame was rejected.
+    await runtime.handleRuntimeError(connection, error, event, { _streamId: payload._streamId });
     // The frame matched an active stream and a registered nudge event —
     // it was meant for the stream. Treat it as handled (with error) so
     // the caller does not fall through to dispatchIncoming, which would

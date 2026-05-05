@@ -7,6 +7,7 @@
 	let streamEnd = $state(false);
 	let pauseTopLevelLeak = $state('');
 	let lastError = $state('');
+	let lastErrorStreamId = $state('');
 
 	function reset() {
 		lastStreamId = '';
@@ -14,6 +15,7 @@
 		streamEnd = false;
 		pauseTopLevelLeak = '';
 		lastError = '';
+		lastErrorStreamId = '';
 	}
 
 	function connect() {
@@ -50,6 +52,7 @@
 					break;
 				case '_error':
 					lastError = String(data.payload?.code ?? '');
+					lastErrorStreamId = String(data.payload?._streamId ?? '');
 					break;
 			}
 		};
@@ -101,3 +104,4 @@
 <span data-testid="stream-end">{streamEnd ? 'yes' : 'no'}</span>
 <span data-testid="pause-top-level-leak">{pauseTopLevelLeak}</span>
 <span data-testid="last-error">{lastError}</span>
+<span data-testid="last-error-stream-id">{lastErrorStreamId}</span>

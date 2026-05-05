@@ -501,6 +501,9 @@ describe('stream/runtime', () => {
     };
     runtime.activeStreams.set('stream_1', activeStream);
 
+    const handleRuntimeError = vi.fn();
+    runtime.handleRuntimeError = handleRuntimeError;
+
     const result = await bufferStreamNudge(
       runtime as Parameters<typeof bufferStreamNudge>[0],
       connection,
@@ -511,6 +514,12 @@ describe('stream/runtime', () => {
     expect(result).toBe(true);
     expect(handleValidationError).toHaveBeenCalledTimes(1);
     expect(handleValidationError).toHaveBeenCalledWith(connection, 'pause', expect.any(Error));
+    // The wire `_error` must reach the client with `_streamId` routing so the
+    // client can correlate the failure to the right stream-error handler.
+    expect(handleRuntimeError).toHaveBeenCalledTimes(1);
+    expect(handleRuntimeError).toHaveBeenCalledWith(connection, expect.any(Error), 'pause', {
+      _streamId: 'stream_1',
+    });
     expect(activeStream.nudges).toHaveLength(0);
   });
 
