@@ -102,6 +102,83 @@ describe('outgoing/runtime sendThroughPipeline', () => {
     );
   });
 
+  it('rejects a module that rewrites the value of a reserved key written by an engine hook', () => {
+    // Pre-fix the post-module check only compared key sets. A module that
+    // returned `{ ...payload, _seq: 1 }` kept the same keys and slipped
+    // through, sending a corrupt sequence number to the wire and into
+    // replay storage. The check now snapshots values too.
+    const runtime = createRuntime({
+      outgoingHooks: [
+        (message: { event: string; payload: unknown }) => ({
+          ...(message.payload as Record<string, unknown>),
+          _seq: 42,
+        }),
+      ],
+      moduleRuntimes: [
+        {
+          onOutgoing: (message: { event: string; payload: unknown }) => ({
+            ...(message.payload as Record<string, unknown>),
+            _seq: 1, // module tries to overwrite the engine-owned value
+          }),
+        } as unknown as OutgoingRuntime['moduleRuntimes'][number],
+      ],
+    });
+    const connection = createConnection();
+
+    expect(() => sendThroughPipeline(runtime, connection, undefined, 'foo', { a: 1 })).toThrow(
+      /reserved for the engine/,
+    );
+  });
+
+  it('rejects a module that drops a reserved key written by an engine hook', () => {
+    const runtime = createRuntime({
+      outgoingHooks: [
+        (message: { event: string; payload: unknown }) => ({
+          ...(message.payload as Record<string, unknown>),
+          _seq: 42,
+        }),
+      ],
+      moduleRuntimes: [
+        {
+          onOutgoing: (message: { event: string; payload: unknown }) => {
+            const next = { ...(message.payload as Record<string, unknown>) };
+            delete next._seq;
+            return next;
+          },
+        } as unknown as OutgoingRuntime['moduleRuntimes'][number],
+      ],
+    });
+    const connection = createConnection();
+
+    expect(() => sendThroughPipeline(runtime, connection, undefined, 'foo', { a: 1 })).toThrow(
+      /reserved for the engine/,
+    );
+  });
+
+  it('passes when a module returns the payload with reserved keys preserved unchanged', () => {
+    const runtime = createRuntime({
+      outgoingHooks: [
+        (message: { event: string; payload: unknown }) => ({
+          ...(message.payload as Record<string, unknown>),
+          _seq: 42,
+        }),
+      ],
+      moduleRuntimes: [
+        {
+          onOutgoing: (message: { event: string; payload: unknown }) => ({
+            ...(message.payload as Record<string, unknown>),
+            sentAt: 1,
+          }),
+        } as unknown as OutgoingRuntime['moduleRuntimes'][number],
+      ],
+    });
+    const connection = createConnection();
+
+    expect(() =>
+      sendThroughPipeline(runtime, connection, undefined, 'foo', { a: 1 }),
+    ).not.toThrow();
+  });
+
   it('passes a normal payload through cleanly', () => {
     const runtime = createRuntime();
     const connection = createConnection();

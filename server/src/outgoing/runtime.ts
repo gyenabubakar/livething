@@ -95,16 +95,27 @@ export function assertNoReservedPayloadFields(payload: Record<string, unknown>):
 }
 
 /**
- * Throw if the payload has new `_`-prefixed keys that were not present before
- * hooks ran. Hooks are allowed to add `_`-prefixed fields (e.g. `_seq`), but
- * user code and modules must not introduce new ones.
+ * Throw if any `_`-prefixed field on the payload differs from the snapshot
+ * captured before module hooks ran — added, removed, or value-changed.
+ * Engine `onOutgoing` hooks (sequence, dedup) write reserved fields like
+ * `_seq` and `_messageId` first; the snapshot is taken right after, then
+ * module hooks run. This check rejects any module attempt to mutate engine
+ * wire metadata, not just additions.
  */
-function assertNoNewReservedPayloadFields(
+function assertReservedPayloadFieldsUnchanged(
   payload: Record<string, unknown>,
-  allowedReservedFields: ReadonlySet<string>,
+  reservedSnapshot: ReadonlyMap<string, unknown>,
 ): void {
   for (const key of Object.keys(payload)) {
-    if (key.startsWith('_') && !allowedReservedFields.has(key)) {
+    if (!key.startsWith('_')) continue;
+    if (!reservedSnapshot.has(key) || !Object.is(payload[key], reservedSnapshot.get(key))) {
+      throw new Error(
+        '[wskit] Outgoing payload fields starting with "_" are reserved for the engine.',
+      );
+    }
+  }
+  for (const key of reservedSnapshot.keys()) {
+    if (!(key in payload)) {
       throw new Error(
         '[wskit] Outgoing payload fields starting with "_" are reserved for the engine.',
       );
@@ -131,9 +142,10 @@ function runOutgoingHooks(
   }
 
   assertPayloadRecord(current.payload);
-  const allowedReservedFields = new Set(
-    Object.keys(current.payload).filter((key) => key.startsWith('_')),
-  );
+  const reservedSnapshot = new Map<string, unknown>();
+  for (const [key, value] of Object.entries(current.payload)) {
+    if (key.startsWith('_')) reservedSnapshot.set(key, value);
+  }
 
   for (const moduleRuntime of moduleRuntimes) {
     if (!moduleRuntime.onOutgoing) continue;
@@ -142,9 +154,9 @@ function runOutgoingHooks(
   }
 
   assertPayloadRecord(current.payload);
-  assertNoNewReservedPayloadFields(current.payload, allowedReservedFields);
+  assertReservedPayloadFieldsUnchanged(current.payload, reservedSnapshot);
 
-  return { message: current, allowedReservedFields };
+  return { message: current, allowedReservedFields: new Set(reservedSnapshot.keys()) };
 }
 
 /** Attach reserved routing markers (`_namespace`, `_channel`, etc.) onto an outgoing payload. */
