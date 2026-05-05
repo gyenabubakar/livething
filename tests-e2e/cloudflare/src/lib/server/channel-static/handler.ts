@@ -71,7 +71,25 @@ const roomChannel = base.channel('room', (ch) =>
         from: 'system',
         kind: 'system',
       });
+      // A username gated to throw so the e2e suite can pin that an
+      // onUnsubscribe throw on close does NOT block: (1) the rest of
+      // this channel's leave tail (peers must still see _memberLeave
+      // for `room`), and (2) a different channel's leave for the same
+      // connection (peers in `room2` must still see _memberLeave).
+      if (ctx.meta.username === 'leave-thrower') {
+        throw new Error('intentional onUnsubscribe throw');
+      }
     }),
 );
 
-export const channelStaticHandler = base.use(roomChannel).build();
+const roomTwoChannel = base.channel('room2', (ch) =>
+  ch.outgoing(RoomMessage).incoming(SendMessage, (ctx, payload) => {
+    ctx.channel.broadcast('room-message', {
+      text: payload.text,
+      from: ctx.meta.username,
+      kind: 'user',
+    });
+  }),
+);
+
+export const channelStaticHandler = base.use(roomChannel).use(roomTwoChannel).build();

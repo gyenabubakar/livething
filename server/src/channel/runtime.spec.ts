@@ -419,4 +419,59 @@ describe('channel runtime', () => {
       _channelScope: 'rooms',
     });
   });
+
+  it('leaveChannel runs membership removal, persistAttachment, and _memberLeave broadcast even when an onUnsubscribe hook throws, then re-throws', async () => {
+    // Pre-fix a throwing onUnsubscribe rejected leaveChannel before the
+    // tail ran — peers never saw `_memberLeave`, the attachment stayed
+    // stale. The hook throw is now contained, the tail runs
+    // unconditionally, and the original error is re-thrown so kick
+    // callers still observe it.
+    const connection = createConnection('conn_1');
+    addChannelMembership(connection, 'room:general', 'rooms');
+
+    const { runtime, broadcasts } = createRuntime();
+    const persisted: string[] = [];
+    const logger = { error: vi.fn() };
+    const runtimeWithHook = {
+      ...runtime,
+      logger,
+      persistAttachment(c: ReturnType<typeof createConnection>) {
+        persisted.push(c.id);
+      },
+      unsubscribeHooks: new Map<string, readonly ((ctx: unknown) => Promise<void>)[]>([
+        [
+          'rooms',
+          [
+            async () => {
+              throw new Error('hook boom');
+            },
+          ],
+        ],
+      ]),
+    };
+
+    await expect(
+      leaveChannel(runtimeWithHook as never, connection, {
+        channel: { key: 'rooms' } as never,
+        channelName: 'room:general',
+        channelScope: 'rooms',
+      }),
+    ).rejects.toThrow(/hook boom/);
+
+    // Tail ran despite the hook throwing.
+    expect(
+      [...connection.channelMemberships.values()].some((m) => m.channelName === 'room:general'),
+    ).toBe(false);
+    expect(persisted).toEqual(['conn_1']);
+    expect(broadcasts).toEqual([
+      {
+        channelName: 'room:general',
+        event: '_memberLeave',
+        payload: { connectionId: 'conn_1' },
+        excludeConnectionId: 'conn_1',
+        channelScope: 'rooms',
+      },
+    ]);
+    expect(logger.error).toHaveBeenCalledTimes(1);
+  });
 });

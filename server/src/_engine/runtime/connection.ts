@@ -233,11 +233,24 @@ export async function handleConnectionClose(
       membership.channelName,
       membership.channelScope,
     );
-    await runtime.leaveChannel(connection, {
-      channel: resolved,
-      channelName: membership.channelName,
-      channelScope: membership.channelScope,
-    });
+    // leaveChannel already contains user-hook throws. This outer guard is
+    // defense-in-depth: any unexpected throw from broadcast or persist on
+    // one membership must not block later memberships from leaving and
+    // must not block heartbeat cleanup below.
+    try {
+      await runtime.leaveChannel(connection, {
+        channel: resolved,
+        channelName: membership.channelName,
+        channelScope: membership.channelScope,
+      });
+    } catch (error) {
+      runtime.logger?.error('[wskit] leaveChannel threw during close', {
+        connectionId: connection.id,
+        channel: membership.channelName,
+        channelScope: membership.channelScope,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   if (connection.heartbeatTimer !== undefined && runtime.timers) {

@@ -513,6 +513,70 @@ describe('connection runtime', () => {
     expect(logger.error.mock.calls[0]![0]).toMatch(/disconnect lifecycle hook threw/);
   });
 
+  it('handleConnectionClose continues to subsequent channels and heartbeat cleanup when one leaveChannel throws', async () => {
+    // Pre-fix a throwing leaveChannel (e.g. an onUnsubscribe hook that
+    // rejects) aborted the for-loop. Subsequent channel leaves and the
+    // heartbeat timer cleanup never ran. The close path now contains
+    // the throw per membership and proceeds.
+    const events: string[] = [];
+    const logger = { error: vi.fn(), warn: vi.fn(), info: vi.fn() };
+    const wsKey = Symbol('ws');
+    const heartbeatHandle = Symbol('heartbeat');
+    const clearTimeout = vi.fn();
+    const connection = {
+      id: 'c1',
+      wsKey,
+      descriptor: {
+        send() {},
+        sendBinary() {},
+        close() {},
+        bufferedAmount() {
+          return 0;
+        },
+      },
+      meta: {},
+      tags: new Set<string>(),
+      channelMemberships: new Map([
+        ['::one', { channelName: 'one' }],
+        ['::two', { channelName: 'two' }],
+      ]),
+      latency: null,
+      quality: 'good' as const,
+      heartbeatTimer: heartbeatHandle as unknown as number,
+    };
+    const runtime = {
+      compiled: {
+        channels: new Map(),
+        channelFamilies: new Map(),
+      } as never,
+      connections: new Map([[connection.id, connection]]) as never,
+      wsToConnectionId: new Map([[wsKey, connection.id]]) as never,
+      timers: { setTimeout: () => 0, clearTimeout } as never,
+      logger,
+      async cancelActiveStreamsForConnection() {
+        events.push('streams-cancelled');
+      },
+      buildConnectionContext: () => ({ id: connection.id }),
+      async runConnectionLifecycle() {
+        events.push('disconnect-hook');
+      },
+      async leaveChannel(_conn: unknown, scope: { channelName: string }) {
+        events.push(`leave:${scope.channelName}`);
+        if (scope.channelName === 'one') throw new Error('hook boom');
+      },
+    };
+
+    await expect(
+      handleConnectionClose(runtime as never, connection as never),
+    ).resolves.toBeUndefined();
+
+    // Both channels were attempted, heartbeat cleared, and the throw was logged.
+    expect(events).toEqual(['streams-cancelled', 'disconnect-hook', 'leave:one', 'leave:two']);
+    expect(clearTimeout).toHaveBeenCalledWith(heartbeatHandle);
+    expect(logger.error).toHaveBeenCalledTimes(1);
+    expect(logger.error.mock.calls[0]![0]).toMatch(/leaveChannel threw during close/);
+  });
+
   it('cancelActiveStreamsForConnection logs and continues when one stream cleanup throws', async () => {
     // A user-supplied generator can throw from its `finally` block when
     // generator.return() runs. Pre-fix that throw escaped the helper and

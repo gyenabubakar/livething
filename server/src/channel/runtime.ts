@@ -142,6 +142,7 @@ interface ChannelRuntime {
     event?: string,
     routing?: Record<string, unknown>,
   ): Promise<void>;
+  logger?: { error(message: string, fields?: Record<string, unknown>): void };
 }
 
 interface ChannelScope {
@@ -203,8 +204,27 @@ export async function leaveChannel(
 
   const ctx = runtime.buildConnectionContext(connection, scope);
 
+  // A user-supplied onUnsubscribe hook may throw. Run every hook so one
+  // throwing hook does not skip the others, capture the first failure,
+  // then unconditionally run the rest of the leave — membership removal,
+  // attachment persist, _kicked notification, and the _memberLeave
+  // broadcast. The captured error is re-thrown at the end so callers like
+  // kickChannelMembers still observe the rejection. The close path wraps
+  // its own leaveChannel calls so the re-throw does not block subsequent
+  // channels from leaving during socket close.
+  let firstHookError: unknown;
   for (const hook of runtime.unsubscribeHooks.get(scope.channel?.key ?? '') ?? []) {
-    await hook(ctx);
+    try {
+      await hook(ctx);
+    } catch (error) {
+      runtime.logger?.error('[wskit] onUnsubscribe hook threw', {
+        connectionId: connection.id,
+        channel: scope.channelName,
+        channelScope: scope.channelScope,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      if (firstHookError === undefined) firstHookError = error;
+    }
   }
 
   removeChannelMembership(connection, scope.channelName, scope.channelScope);
@@ -225,6 +245,8 @@ export async function leaveChannel(
     connection.id,
     scope.channelScope,
   );
+
+  if (firstHookError !== undefined) throw firstHookError;
 }
 
 /**

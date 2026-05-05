@@ -284,6 +284,45 @@ test.describe('channel-static', () => {
     await ctxA.close();
   });
 
+  test('peer still receives _memberLeave on a second channel when the first channel onUnsubscribe throws', async ({
+    browser,
+  }, testInfo) => {
+    // Pre-fix a throwing onUnsubscribe rejected leaveChannel for that
+    // channel, which aborted the for-loop in handleConnectionClose.
+    // Subsequent channel leaves never ran, so peers in OTHER channels
+    // the same connection was a member of never saw `_memberLeave`.
+    // The fix contains the throw per membership and continues.
+    const room = `test-${testInfo.testId}-throwing-unsubscribe`;
+    const ctxThrower = await browser.newContext();
+    const ctxObserver = await browser.newContext();
+    const thrower = await ctxThrower.newPage();
+    const observer = await ctxObserver.newPage();
+
+    // 'leave-thrower' triggers the throwing onUnsubscribe hook on `room`.
+    await openPage(thrower, room, 'leave-thrower');
+    await openPage(observer, room, 'observer');
+
+    // Thrower joins both `room` (throwing onUnsubscribe) and `room2`.
+    await thrower.getByTestId('subscribe-room').click();
+    await thrower.getByTestId('subscribe-room2').click();
+    await expect(thrower.getByTestId('subscribe-ok-count')).toHaveText('2');
+
+    // Observer joins ONLY `room2` so the test pins that the second
+    // channel's leave fan-out fired despite the first channel throwing.
+    await observer.getByTestId('subscribe-room2').click();
+    await expect(observer.getByTestId('subscribe-ok-count')).toHaveText('1');
+
+    await ctxThrower.close();
+
+    // Observer must receive _memberLeave for `room2` even though the
+    // first channel's onUnsubscribe threw.
+    await expect(observer.getByTestId('member-leaves')).toContainText('room2:', {
+      timeout: 15_000,
+    });
+
+    await ctxObserver.close();
+  });
+
   test('peer still receives _memberLeave when the leaver onDisconnect hook throws', async ({
     browser,
   }, testInfo) => {

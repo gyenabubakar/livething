@@ -170,6 +170,7 @@ export function channelRuntime(engine: Engine) {
       event?: string,
       routing?: Record<string, unknown>,
     ) => engine.handleRuntimeError(connection, error, event, routing),
+    logger: engine.getLogger(),
   };
 }
 

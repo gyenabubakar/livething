@@ -977,6 +977,7 @@ export class Engine {
         },
         runConnectionLifecycle: (kind, ctx) => this.runConnectionLifecycle(kind, ctx),
         leaveChannel: (targetConnection, scope) => this.leaveChannel(targetConnection, scope),
+        logger: this.logger,
       },
       connection,
     );

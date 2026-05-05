@@ -69,6 +69,9 @@
 	function subscribeRoom() {
 		send('_subscribe', { _channel: 'room' });
 	}
+	function subscribeRoomTwo() {
+		send('_subscribe', { _channel: 'room2' });
+	}
 	function subscribeBogus() {
 		send('_subscribe', { _channel: 'does-not-exist' });
 	}
@@ -94,6 +97,7 @@
 <button data-testid="connect" onclick={connect}>Connect</button>
 
 <button data-testid="subscribe-room" onclick={subscribeRoom}>Subscribe room</button>
+<button data-testid="subscribe-room2" onclick={subscribeRoomTwo}>Subscribe room2</button>
 <button data-testid="subscribe-bogus" onclick={subscribeBogus}>Subscribe bogus</button>
 <button data-testid="unsubscribe-room" onclick={unsubscribeRoom}>Unsubscribe room</button>
 <button data-testid="send-hello" onclick={() => sendRoom('hello')}>Send hello</button>
