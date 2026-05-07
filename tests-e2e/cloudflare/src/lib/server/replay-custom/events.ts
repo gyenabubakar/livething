@@ -16,3 +16,12 @@ export const RoomConfirmedCount = event(
   'room-confirmed-count',
   v.object({ total: v.number(), confirmed: v.number() }),
 );
+
+// Pin custom replay's ctx.sendReplay contract: try an undeclared event and
+// a reserved "_"-prefixed payload field from inside onReplay, catch each
+// throw, then surface both error messages to the client.
+export const QueryBadReplayLog = event('query-bad-replay-log', v.object({}));
+export const BadReplayLog = event(
+  'bad-replay-log',
+  v.object({ undeclared: v.string(), reservedField: v.string() }),
+);

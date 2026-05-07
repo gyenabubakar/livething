@@ -4,6 +4,7 @@ import { Engine } from '~/_engine/engine.ts';
 import { withChannels } from '~/channel/with.ts';
 import { withDedup } from '~/dedup/with.ts';
 import { event } from '~/event.ts';
+import { withReplayCustom } from '~/replay/custom/with.ts';
 import { withReplay } from '~/replay/with.ts';
 import { withSequence } from '~/sequence/with.ts';
 import { describe, expect, it, vi } from 'vitest';
@@ -162,6 +163,88 @@ describe('ctx.sendReplay public-API contract', () => {
 
     expect(captured).toEqual([
       { rejected: true, message: expect.stringMatching(/not declared in the active scope/) },
+    ]);
+  });
+
+  it('custom replay top-level ctx.sendReplay rejects an undeclared event', async () => {
+    const replayError: Array<{ rejected: boolean; message: string }> = [];
+
+    const def = withReplayCustom(withDedup(withSequence(server('app'))))
+      .sequence({ persist: true })
+      .dedup()
+      .replayCustom((r: any) =>
+        r.onReplay((ctx: any) => {
+          try {
+            ctx.sendReplay('not-declared', { ok: true }, { seq: 1, messageId: 'm1' });
+            replayError.push({ rejected: false, message: '' });
+          } catch (err) {
+            replayError.push({
+              rejected: true,
+              message: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }),
+      )
+      .outgoing(declared)
+      .build();
+
+    const engine = setupEngine(def);
+    await engine.initialize();
+    const handle = engine.accept(Symbol('ws'), {
+      send() {},
+      sendBinary() {},
+      close() {},
+      bufferedAmount() {
+        return 0;
+      },
+    });
+    await handle.handleMessage(JSON.stringify({ event: '_replay', payload: { since: 0 } }));
+
+    expect(replayError).toEqual([
+      { rejected: true, message: expect.stringMatching(/not declared in the active scope/) },
+    ]);
+  });
+
+  it('custom replay top-level ctx.sendReplay rejects user "_"-prefixed payload fields', async () => {
+    const replayError: Array<{ rejected: boolean; message: string }> = [];
+
+    const def = withReplayCustom(withDedup(withSequence(server('app'))))
+      .sequence({ persist: true })
+      .dedup()
+      .replayCustom((r: any) =>
+        r.onReplay((ctx: any) => {
+          try {
+            ctx.sendReplay(
+              'declared',
+              { text: 'hi', _evil: 'leaked' },
+              { seq: 1, messageId: 'm1' },
+            );
+            replayError.push({ rejected: false, message: '' });
+          } catch (err) {
+            replayError.push({
+              rejected: true,
+              message: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }),
+      )
+      .outgoing(declared)
+      .build();
+
+    const engine = setupEngine(def);
+    await engine.initialize();
+    const handle = engine.accept(Symbol('ws'), {
+      send() {},
+      sendBinary() {},
+      close() {},
+      bufferedAmount() {
+        return 0;
+      },
+    });
+    await handle.handleMessage(JSON.stringify({ event: '_replay', payload: { since: 0 } }));
+
+    expect(replayError).toEqual([
+      { rejected: true, message: expect.stringMatching(/reserved for the engine/) },
     ]);
   });
 });

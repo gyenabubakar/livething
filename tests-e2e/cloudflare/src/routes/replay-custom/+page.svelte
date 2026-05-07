@@ -14,6 +14,8 @@
 	let roomReplayCount = $state(0);
 	let roomConfirmedResult = $state('');
 	let roomSinceValue = $state(0);
+	let badReplayUndeclared = $state('');
+	let badReplayReservedField = $state('');
 
 	function connect() {
 		if (ws) return;
@@ -58,6 +60,9 @@
 				if (replayRequested) roomReplayCount++;
 			} else if (evt === 'room-confirmed-count') {
 				roomConfirmedResult = `total:${payload.total},confirmed:${payload.confirmed}`;
+			} else if (evt === 'bad-replay-log') {
+				badReplayUndeclared = String(payload.undeclared ?? '');
+				badReplayReservedField = String(payload.reservedField ?? '');
 			} else if (evt === '_subscribeOk') {
 				if (payload._channel === 'custom-room') roomSubscribed = 'subscribed';
 			}
@@ -102,6 +107,16 @@
 		roomConfirmedResult = '';
 		ws?.send(JSON.stringify({ event: 'get-room-confirmed-count', payload: { _channel: 'custom-room' } }));
 	}
+
+	function triggerBadReplay() {
+		badReplayUndeclared = '';
+		badReplayReservedField = '';
+		ws?.send(JSON.stringify({ event: '_replay', payload: { since: -42 } }));
+	}
+
+	function queryBadReplayLog() {
+		ws?.send(JSON.stringify({ event: 'query-bad-replay-log', payload: {} }));
+	}
 </script>
 
 <main>
@@ -142,6 +157,14 @@
 		<div data-testid="room-notes">{roomNotes.join(' | ')}</div>
 		<div data-testid="room-replay-count">{roomReplayCount}</div>
 		<div data-testid="room-confirmed-result">{roomConfirmedResult}</div>
+	</section>
+
+	<section>
+		<h2>Bad Replay Pin</h2>
+		<button data-testid="trigger-bad-replay-btn" onclick={triggerBadReplay} disabled={status !== 'connected'}>Trigger Bad Replay</button>
+		<button data-testid="query-bad-replay-btn" onclick={queryBadReplayLog} disabled={status !== 'connected'}>Query Bad Replay Log</button>
+		<div data-testid="bad-replay-undeclared">{badReplayUndeclared}</div>
+		<div data-testid="bad-replay-reserved-field">{badReplayReservedField}</div>
 	</section>
 </main>
 

@@ -9,10 +9,12 @@ import type { InferClient } from '@wskit/server';
 import {
   AddNote,
   AddRoomNote,
+  BadReplayLog,
   ConfirmedCount,
   GetConfirmedCount,
   GetRoomConfirmedCount,
   Note,
+  QueryBadReplayLog,
   RoomConfirmedCount,
   RoomNote,
 } from './events.ts';
@@ -26,6 +28,7 @@ const base = withChannels(
   .outgoing(ConfirmedCount)
   .outgoing(RoomNote)
   .outgoing(RoomConfirmedCount)
+  .outgoing(BadReplayLog)
   .onUpgrade((request) => {
     const url = new URL(request.url);
     const username = url.searchParams.get('username');
@@ -49,6 +52,38 @@ export const replayCustomHandler = base
         ctx.sql.exec('UPDATE _custom_replay SET confirmed = 1 WHERE seq = ?', msg.wire.seq);
       })
       .onReplay(async (ctx, since) => {
+        // Sentinel since=-42 triggers the contract-check pin: attempt one
+        // undeclared event and one reserved-field send, catch each throw,
+        // store the messages so an incoming handler can surface them.
+        if (since === -42) {
+          let undeclared = '';
+          let reservedField = '';
+          try {
+            ctx.sendReplay('not-declared-event', { ok: true }, { seq: 1, messageId: 'bad-1' });
+          } catch (err) {
+            undeclared = err instanceof Error ? err.message : String(err);
+          }
+          try {
+            ctx.sendReplay(
+              'note',
+              {
+                text: 'x',
+                author: 'system',
+                _evil: 'leaked',
+              } as unknown as { text: string; author: string },
+              { seq: 2, messageId: 'bad-2' },
+            );
+          } catch (err) {
+            reservedField = err instanceof Error ? err.message : String(err);
+          }
+          ctx.sql.exec(
+            'INSERT OR REPLACE INTO _bad_replay_log (id, undeclared, reserved_field) VALUES (1, ?, ?)',
+            undeclared,
+            reservedField,
+          );
+          return;
+        }
+
         const rows = ctx.sql
           .exec<{
             event: string;
@@ -81,6 +116,13 @@ export const replayCustomHandler = base
       )
     `);
     ctx.sql.exec(`
+      CREATE TABLE IF NOT EXISTS _bad_replay_log (
+        id INTEGER PRIMARY KEY,
+        undeclared TEXT NOT NULL DEFAULT '',
+        reserved_field TEXT NOT NULL DEFAULT ''
+      )
+    `);
+    ctx.sql.exec(`
       CREATE TABLE IF NOT EXISTS _custom_room_replay (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         event TEXT NOT NULL,
@@ -107,6 +149,19 @@ export const replayCustomHandler = base
   .incoming(AddNote, (ctx, payload) => {
     ctx.send('note', { text: payload.text, author: ctx.meta.username });
     ctx.broadcast('note', { text: payload.text, author: ctx.meta.username });
+  })
+  .incoming(QueryBadReplayLog, (ctx) => {
+    const rows = ctx.sql
+      .exec<{
+        undeclared: string;
+        reserved_field: string;
+      }>('SELECT undeclared, reserved_field FROM _bad_replay_log WHERE id = 1')
+      .toArray();
+    const row = rows[0];
+    ctx.send('bad-replay-log', {
+      undeclared: row?.undeclared ?? '',
+      reservedField: row?.reserved_field ?? '',
+    });
   })
   .incoming(GetConfirmedCount, (ctx) => {
     const rows = ctx.sql

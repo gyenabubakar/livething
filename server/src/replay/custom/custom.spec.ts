@@ -196,6 +196,7 @@ describe('custom replay', () => {
       sendReplay(...args: Parameters<EngineAccess['sendReplay']>) {
         sent.push(args);
       },
+      assertReplaySendContract() {},
     } as Pick<
       EngineAccess,
       | 'getScopeInfo'
@@ -204,6 +205,7 @@ describe('custom replay', () => {
       | 'onBeforeSend'
       | 'onProtocolMessage'
       | 'sendReplay'
+      | 'assertReplaySendContract'
     > as EngineAccess;
 
     handleReplay<'channel'>({
@@ -325,6 +327,7 @@ describe('custom replay', () => {
       sendReplay(...args: Parameters<EngineAccess['sendReplay']>) {
         sent.push(args);
       },
+      assertReplaySendContract() {},
     } as Pick<
       EngineAccess,
       | 'getScopeInfo'
@@ -333,6 +336,7 @@ describe('custom replay', () => {
       | 'onBeforeSend'
       | 'onProtocolMessage'
       | 'sendReplay'
+      | 'assertReplaySendContract'
     > as EngineAccess;
 
     handleReplay<'channel'>({
@@ -390,6 +394,7 @@ describe('custom replay', () => {
       sendReplay(...args: Parameters<EngineAccess['sendReplay']>) {
         sent.push(args);
       },
+      assertReplaySendContract() {},
     } as Pick<
       EngineAccess,
       | 'getScopeInfo'
@@ -398,6 +403,7 @@ describe('custom replay', () => {
       | 'onBeforeSend'
       | 'onProtocolMessage'
       | 'sendReplay'
+      | 'assertReplaySendContract'
     > as EngineAccess;
 
     handleReplay({
@@ -455,6 +461,7 @@ describe('custom replay', () => {
         if (event === '_replay') protocolHandlers.push(handler);
       },
       sendReplay() {},
+      assertReplaySendContract() {},
     } as Pick<
       EngineAccess,
       | 'getScopeInfo'
@@ -463,6 +470,7 @@ describe('custom replay', () => {
       | 'onBeforeSend'
       | 'onProtocolMessage'
       | 'sendReplay'
+      | 'assertReplaySendContract'
     > as EngineAccess;
 
     handleReplay<'channel'>({
@@ -538,6 +546,7 @@ describe('custom replay', () => {
       sendReplay(...args: Parameters<EngineAccess['sendReplay']>) {
         replaySent.push(args);
       },
+      assertReplaySendContract() {},
     } as unknown as EngineAccess;
 
     handleReplay({
@@ -601,6 +610,7 @@ describe('custom replay', () => {
       sendReplay(...args: Parameters<EngineAccess['sendReplay']>) {
         sent.push(args);
       },
+      assertReplaySendContract() {},
     } as Pick<
       EngineAccess,
       | 'getScopeInfo'
@@ -609,6 +619,7 @@ describe('custom replay', () => {
       | 'onBeforeSend'
       | 'onProtocolMessage'
       | 'sendReplay'
+      | 'assertReplaySendContract'
     > as EngineAccess;
 
     handleReplay({

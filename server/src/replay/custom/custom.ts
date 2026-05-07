@@ -326,6 +326,10 @@ function createTopLevelReplayContext(
     waitUntil: baseCtx.waitUntil as (promise: Promise<unknown>) => void,
     request,
     sendReplay(event, payload, wire) {
+      engine.assertReplaySendContract(event, payload, {
+        channel: wire.channel,
+        channelScope: wire.channelScope,
+      });
       engine.sendReplay(
         String(baseCtx.id),
         wire.channel ?? null,
@@ -359,6 +363,10 @@ function createChannelReplayContext(
     platform: baseCtx.platform,
     waitUntil: baseCtx.waitUntil as (promise: Promise<unknown>) => void,
     sendReplay(event, payload, wire) {
+      engine.assertReplaySendContract(event, payload, {
+        channel: channelName,
+        channelScope,
+      });
       engine.sendReplay(String(baseCtx.id), channelName, channelScope, event, payload, wire);
     },
   };
@@ -474,7 +482,7 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
           // Channel primitive scope: build the channel-shaped context.
           // Membership keys store the raw wire `_channelScope`; mirror that
           // here so the context's sendReplay routes through the right scope.
-          const wireChannelScope: string | null =
+          const wireChannelScope =
             typeof payload?._channelScope === 'string' ? payload._channelScope : null;
 
           await opts.onReplay(
