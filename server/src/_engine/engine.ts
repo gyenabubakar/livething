@@ -811,6 +811,7 @@ export class Engine {
           engine.alarmHandle = value;
         },
       },
+      logger: this.logger,
     });
   }
 

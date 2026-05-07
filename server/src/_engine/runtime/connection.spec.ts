@@ -410,6 +410,87 @@ describe('connection runtime', () => {
     expect(cleared).toEqual(['alarm-handle']);
   });
 
+  it('continues shutdown cleanup when a server onShutdown hook throws', async () => {
+    const closed: Array<{ code: number; reason: string }> = [];
+    const cancelled: string[] = [];
+    const cleared: unknown[] = [];
+    const errorLog: Array<{ message: string; fields?: Record<string, unknown> }> = [];
+
+    const connections = new Map([
+      [
+        'conn_1',
+        {
+          id: 'conn_1',
+          descriptor: {
+            close(code: number, reason: string) {
+              closed.push({ code, reason });
+            },
+          },
+        },
+      ],
+      [
+        'conn_2',
+        {
+          id: 'conn_2',
+          descriptor: {
+            close(code: number, reason: string) {
+              closed.push({ code, reason });
+            },
+          },
+        },
+      ],
+    ]) as Map<string, { id: string; descriptor: { close(code: number, reason: string): void } }>;
+
+    await handleShutdown({
+      connections: connections as never,
+      timers: {
+        setTimeout() {
+          return Symbol('timeout');
+        },
+        clearTimeout(handle: unknown) {
+          cleared.push(handle);
+        },
+      },
+      shutdownHooks: [
+        async () => {
+          throw new Error('boom from onShutdown');
+        },
+      ],
+      moduleRuntimes: [
+        {
+          async onShutdown() {
+            throw new Error('boom from module onShutdown');
+          },
+        },
+      ],
+      createShutdownContext() {
+        return { kind: 'shutdown-context' };
+      },
+      async cancelActiveStreamsForConnection(connectionId: string) {
+        cancelled.push(connectionId);
+      },
+      alarmState: { current: 'alarm-handle' },
+      logger: {
+        error(message: string, fields?: Record<string, unknown>) {
+          errorLog.push({ message, fields });
+        },
+      },
+    });
+
+    // Stream cancellation, socket close, and alarm clear all run despite throws.
+    expect(cancelled).toEqual(['conn_1', 'conn_2']);
+    expect(closed).toEqual([
+      { code: 1001, reason: 'Server shutting down' },
+      { code: 1001, reason: 'Server shutting down' },
+    ]);
+    expect(cleared).toEqual(['alarm-handle']);
+    // Both throws were logged.
+    expect(errorLog.map((e) => e.message)).toEqual([
+      '[wskit] shutdown hook threw',
+      '[wskit] module shutdown hook threw',
+    ]);
+  });
+
   it('restores activeConnectionState.current when an onConnect hook throws', async () => {
     const activeConnectionState: { current?: string } = { current: 'previous-conn' };
 

@@ -484,14 +484,31 @@ export async function handleShutdown(
     createShutdownContext(): unknown;
     cancelActiveStreamsForConnection(connectionId: string): Promise<void>;
     alarmState: { current: unknown | null };
+    logger?: { error(message: string, fields?: Record<string, unknown>): void };
   },
 ): Promise<void> {
+  // Shutdown is a best-effort drain: a throwing hook must not block
+  // stream cancellation, socket close, or alarm clear. Each hook runs
+  // inside its own try/catch with logging; cleanup below always runs.
   for (const hook of runtime.shutdownHooks) {
-    await hook(runtime.createShutdownContext());
+    try {
+      await hook(runtime.createShutdownContext());
+    } catch (error) {
+      runtime.logger?.error('[wskit] shutdown hook threw', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   for (const moduleRuntime of runtime.moduleRuntimes) {
-    if (moduleRuntime.onShutdown) await moduleRuntime.onShutdown();
+    if (!moduleRuntime.onShutdown) continue;
+    try {
+      await moduleRuntime.onShutdown();
+    } catch (error) {
+      runtime.logger?.error('[wskit] module shutdown hook threw', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   for (const connection of [...runtime.connections.values()]) {
