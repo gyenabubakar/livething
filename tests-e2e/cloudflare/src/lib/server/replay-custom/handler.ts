@@ -52,10 +52,13 @@ export const replayCustomHandler = base
         ctx.sql.exec('UPDATE _custom_replay SET confirmed = 1 WHERE seq = ?', msg.wire.seq);
       })
       .onReplay(async (ctx, since) => {
-        // Sentinel since=-42 triggers the contract-check pin: attempt one
-        // undeclared event and one reserved-field send, catch each throw,
-        // store the messages so an incoming handler can surface them.
-        if (since === -42) {
+        // Sentinel since=2147483647 (Number.MAX_SAFE_INTEGER would also work)
+        // triggers the contract-check pin: attempt one undeclared event and
+        // one reserved-field send, catch each throw, store the messages so
+        // an incoming handler can surface them. The protocol handler now
+        // rejects malformed since values, so the sentinel must itself be a
+        // valid non-negative integer.
+        if (since === 2_147_483_647) {
           let undeclared = '';
           let reservedField = '';
           try {

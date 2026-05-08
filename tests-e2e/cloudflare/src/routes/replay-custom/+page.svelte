@@ -111,7 +111,7 @@
 	function triggerBadReplay() {
 		badReplayUndeclared = '';
 		badReplayReservedField = '';
-		ws?.send(JSON.stringify({ event: '_replay', payload: { since: -42 } }));
+		ws?.send(JSON.stringify({ event: '_replay', payload: { since: 2_147_483_647 } }));
 	}
 
 	function queryBadReplayLog() {

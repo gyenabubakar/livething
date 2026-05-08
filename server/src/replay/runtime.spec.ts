@@ -1,3 +1,4 @@
+import { ValidationFailed } from '@wskit/core';
 import { createChannelMembershipKey } from '~/channel/runtime.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
@@ -12,6 +13,7 @@ import {
   pruneExpiredReplayRows,
   pruneReplayScopeRows,
   readReplayPayloadScope,
+  readReplaySinceCursor,
   shouldStoreReplayMessage,
   stripSnapshotMetadata,
 } from './runtime.ts';
@@ -569,5 +571,43 @@ describe('buildLoadReplayQuery', () => {
     expect(query.sql).toMatch(/channel IS NULL/);
     expect(query.sql).toMatch(/channelScope IS NULL/);
     expect(query.params).toEqual([0]);
+  });
+});
+
+describe('readReplaySinceCursor', () => {
+  it('returns 0 when since is missing', () => {
+    expect(readReplaySinceCursor(undefined)).toBe(0);
+    expect(readReplaySinceCursor({})).toBe(0);
+    expect(readReplaySinceCursor({ since: undefined })).toBe(0);
+    expect(readReplaySinceCursor({ since: null })).toBe(0);
+  });
+
+  it('returns the cursor when since is a non-negative integer', () => {
+    expect(readReplaySinceCursor({ since: 0 })).toBe(0);
+    expect(readReplaySinceCursor({ since: 42 })).toBe(42);
+  });
+
+  it('throws ValidationFailed for non-integer numbers', () => {
+    for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, 1.5, -1]) {
+      let captured: unknown;
+      try {
+        readReplaySinceCursor({ since: bad });
+      } catch (error) {
+        captured = error;
+      }
+      expect(ValidationFailed.matches(captured)).toBe(true);
+    }
+  });
+
+  it('throws ValidationFailed for non-numeric since', () => {
+    for (const bad of ['abc', '7', true, [], {}]) {
+      let captured: unknown;
+      try {
+        readReplaySinceCursor({ since: bad as unknown as number });
+      } catch (error) {
+        captured = error;
+      }
+      expect(ValidationFailed.matches(captured)).toBe(true);
+    }
   });
 });

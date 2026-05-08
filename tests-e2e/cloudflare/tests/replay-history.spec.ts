@@ -73,6 +73,35 @@ test.describe('replay handler', () => {
     expect(allGetTokenFrames).toHaveLength(1);
   });
 
+  test('malformed since on _replay surfaces _error with code "validation-failed"', async ({
+    page,
+  }) => {
+    // Pre-fix the protocol handler ran `Number(payload?.since ?? 0)` which
+    // happily turned a non-numeric "since" into NaN and bound that into the
+    // SQL query. NaN compares false against every row, so the client got
+    // zero rows back and no signal that its frame was malformed. The
+    // protocol handler now rejects anything that is not a non-negative
+    // integer with a typed validation error, surfaced on the wire as
+    // `_error { code: 'validation-failed' }`.
+    const errors = await page.evaluate(async () => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      if (!ws) throw new Error('socket not exposed');
+      const got: { event: string; payload: Record<string, unknown> }[] = [];
+      const original = ws.onmessage;
+      ws.onmessage = (ev) => {
+        if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
+        if (typeof original === 'function') original.call(ws, ev);
+      };
+      ws.send(JSON.stringify({ event: '_replay', payload: { since: 'abc' } }));
+      await new Promise((r) => setTimeout(r, 300));
+      ws.onmessage = original;
+      return got.filter((m) => m.event === '_error');
+    });
+
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0]!.payload.code).toBe('validation-failed');
+  });
+
   test('sequence numbers present', async ({ page }) => {
     await page.getByTestId('send-msg-btn').click();
     await waitForText(page, 'messages', /hello from replay/);

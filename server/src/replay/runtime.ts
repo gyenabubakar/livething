@@ -1,3 +1,4 @@
+import { ValidationFailed } from '@wskit/core';
 import { ENGINE_SCOPE_META } from '~/_engine/contexts/types.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import type { EngineScopeMeta } from '~/_engine/contexts/types.ts';
@@ -104,6 +105,30 @@ export function readReplayPayloadScope(payload: Record<string, unknown>): Replay
     channel: typeof payload._channel === 'string' ? payload._channel : null,
     channelScope: typeof payload._channelScope === 'string' ? payload._channelScope : null,
   };
+}
+
+/**
+ * Read and validate the `since` cursor on an incoming `_replay` request.
+ *
+ * Sequence numbers are positive monotonic integers, so a valid cursor is a
+ * non-negative integer. Anything else — undefined, fractional, negative,
+ * non-finite, or a non-number — surfaces a typed validation error to the
+ * client. Both built-in and custom replay run this check so a malformed
+ * `since` never silently degrades to "match nothing" or "match everything".
+ */
+export function readReplaySinceCursor(payload: Record<string, unknown> | undefined): number {
+  const raw = payload?.since;
+  if (raw === undefined || raw === null) return 0;
+  if (typeof raw === 'number' && Number.isInteger(raw) && raw >= 0) return raw;
+  throw ValidationFailed({
+    event: '_replay',
+    issues: [
+      {
+        message: 'since must be a non-negative integer',
+        path: ['since'],
+      },
+    ],
+  });
 }
 
 /**

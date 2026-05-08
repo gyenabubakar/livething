@@ -7,6 +7,7 @@ import {
   isChannelReplayAuthorized,
   matchesReplayScope,
   readReplayContextScope,
+  readReplaySinceCursor,
   shouldStoreReplayMessage,
 } from '~/replay/runtime.ts';
 import { sequence } from '~/sequence/sequence.ts';
@@ -478,6 +479,8 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
           return true;
         }
 
+        const since = readReplaySinceCursor(payload);
+
         if (channelKey && scope.channelName) {
           // Channel primitive scope: build the channel-shaped context.
           // Membership keys store the raw wire `_channelScope`; mirror that
@@ -492,7 +495,7 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
               scope.channelName,
               wireChannelScope,
             ) as ReplayContext<CustomReplayScope>,
-            Number(payload?.since ?? 0),
+            since,
           );
           return true;
         }
@@ -505,7 +508,7 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
             channel: requestChannel,
             channelScope: requestChannelScope,
           }) as ReplayContext<CustomReplayScope>,
-          Number(payload?.since ?? 0),
+          since,
         );
         return true;
       });

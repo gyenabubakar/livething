@@ -11,6 +11,7 @@ import {
   pruneReplayScopeRows,
   readReplayContextScope,
   readReplayPayloadScope,
+  readReplaySinceCursor,
   shouldStoreReplayMessage,
 } from '~/replay/runtime.ts';
 import { sequence } from '~/sequence/sequence.ts';
@@ -241,7 +242,7 @@ class ReplayInstaller {
       return true;
     }
 
-    const since = Number(payload?.since ?? 0);
+    const since = readReplaySinceCursor(payload);
     const { sql } = this.engine.requireStorage();
     const rows = loadReplayRows(sql, since, {
       channelName: scope.channelName,
