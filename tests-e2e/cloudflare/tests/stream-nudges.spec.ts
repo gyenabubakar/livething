@@ -137,6 +137,74 @@ test.describe('stream-nudges', () => {
     await expect(page.getByTestId('stream-end')).toHaveText('yes');
   });
 
+  test('frame with unknown _streamId does not fall through to a same-named top-level handler', async ({
+    page,
+  }, testInfo) => {
+    // The fixture registers BOTH a stream `pause` nudge AND a top-level
+    // .incoming(Pause, ...). Pre-fix bufferStreamNudge returned false for
+    // any frame whose `_streamId` did not match an active owned stream,
+    // and processTextMessage then fell through to dispatchIncoming and
+    // ran the top-level handler with the malformed payload. The contract
+    // is now: any frame carrying `_streamId` is claiming to belong to a
+    // stream — if that claim does not hold, the engine surfaces `_error`
+    // and refuses to fall through.
+    await openPage(page, `test-${testInfo.testId}`);
+
+    await page.evaluate(() => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      ws?.send(
+        JSON.stringify({
+          event: 'pause',
+          payload: { _streamId: 'fake-stream-id', leak: 'should-not-reach-handler' },
+        }),
+      );
+    });
+
+    // The top-level handler must not have fired.
+    await expect(page.getByTestId('last-error')).toHaveText('validation-failed');
+    await expect(page.getByTestId('last-error-stream-id')).toHaveText('fake-stream-id');
+    expect(await page.getByTestId('pause-top-level-leak').textContent()).toBe('');
+  });
+
+  test('frame with active _streamId but unregistered nudge event does not fall through', async ({
+    page,
+  }, testInfo) => {
+    // Same fixture: the active stream's nudges are `pause` and `speed-up`.
+    // We craft a frame with the active `_streamId` but `event: 'submit-form'`
+    // (not a registered nudge). Pre-fix this fell through to dispatchIncoming
+    // — there is no top-level submit-form handler in this fixture, so the
+    // attack surface there is "any same-named non-nudge top-level handler
+    // can be hit while the frame claims to be for a stream." Post-fix the
+    // engine refuses the frame as malformed regardless of whether a top-
+    // level handler matches.
+    await openPage(page, `test-${testInfo.testId}`);
+
+    await page.getByTestId('start-long').click();
+    await expect(async () => {
+      const id = (await page.getByTestId('stream-id').textContent()) ?? '';
+      expect(id.length).toBeGreaterThan(0);
+    }).toPass({ timeout: 3_000 });
+
+    const streamId = (await page.getByTestId('stream-id').textContent()) ?? '';
+
+    await page.evaluate((id) => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      ws?.send(
+        JSON.stringify({
+          event: 'submit-form',
+          payload: { _streamId: id, data: 'private' },
+        }),
+      );
+    }, streamId);
+
+    await expect(page.getByTestId('last-error')).toHaveText('validation-failed');
+    await expect(page.getByTestId('last-error-stream-id')).toHaveText(streamId);
+
+    // Sanity: a valid pause still ends the stream on the same connection.
+    await page.getByTestId('pause').click();
+    await expect(page.getByTestId('stream-end')).toHaveText('yes');
+  });
+
   test('malformed nudge surfaces _error with code "validation-failed" and _streamId', async ({
     page,
   }, testInfo) => {

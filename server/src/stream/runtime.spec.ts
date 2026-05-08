@@ -403,9 +403,15 @@ describe('stream/runtime', () => {
     expect(errMsg!.payload._streamId).toBe('stream_1');
   });
 
-  it('bufferStreamNudge returns false for an unknown _streamId', async () => {
+  it('bufferStreamNudge surfaces _error and returns true for an unknown _streamId', async () => {
+    // A frame carrying `_streamId` is claiming to belong to one specific
+    // stream. If the id is unknown, the frame is malformed — surface
+    // `_error` with `_streamId` routing and treat it as handled so it
+    // never falls through to a same-named top-level .incoming() handler.
     const { runtime } = createStreamRuntime();
     const connection = createConnection();
+    const handleRuntimeError = vi.fn();
+    runtime.handleRuntimeError = handleRuntimeError;
 
     const result = await bufferStreamNudge(
       runtime as Parameters<typeof bufferStreamNudge>[0],
@@ -414,12 +420,72 @@ describe('stream/runtime', () => {
       { _streamId: 'does-not-exist' },
     );
 
-    expect(result).toBe(false);
+    expect(result).toBe(true);
+    expect(handleRuntimeError).toHaveBeenCalledTimes(1);
+    expect(handleRuntimeError).toHaveBeenCalledWith(connection, expect.any(Error), 'nudge-event', {
+      _streamId: 'does-not-exist',
+    });
   });
 
-  it('bufferStreamNudge returns false for an unknown event name on an active stream', async () => {
+  it('bufferStreamNudge surfaces _error and returns true for a closed stream', async () => {
     const { runtime } = createStreamRuntime();
     const connection = createConnection();
+    const handleRuntimeError = vi.fn();
+    runtime.handleRuntimeError = handleRuntimeError;
+
+    const closed: ActiveStream = {
+      id: 'stream_1',
+      connectionId: connection.id,
+      generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
+      nudges: [],
+      nudgeValidators: new Map([['known-nudge', undefined]]),
+      closed: true,
+    };
+    runtime.activeStreams.set('stream_1', closed);
+
+    const result = await bufferStreamNudge(
+      runtime as Parameters<typeof bufferStreamNudge>[0],
+      connection,
+      'known-nudge',
+      { _streamId: 'stream_1' },
+    );
+
+    expect(result).toBe(true);
+    expect(handleRuntimeError).toHaveBeenCalledTimes(1);
+  });
+
+  it('bufferStreamNudge surfaces _error and returns true for a stream owned by a different connection', async () => {
+    const { runtime } = createStreamRuntime();
+    const owner = createConnection('owner');
+    const intruder = createConnection('intruder');
+    const handleRuntimeError = vi.fn();
+    runtime.handleRuntimeError = handleRuntimeError;
+
+    runtime.activeStreams.set('stream_1', {
+      id: 'stream_1',
+      connectionId: owner.id,
+      generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
+      nudges: [],
+      nudgeValidators: new Map([['known-nudge', undefined]]),
+      closed: false,
+    });
+
+    const result = await bufferStreamNudge(
+      runtime as Parameters<typeof bufferStreamNudge>[0],
+      intruder,
+      'known-nudge',
+      { _streamId: 'stream_1' },
+    );
+
+    expect(result).toBe(true);
+    expect(handleRuntimeError).toHaveBeenCalledTimes(1);
+  });
+
+  it('bufferStreamNudge surfaces _error and returns true for an unknown event name on an active stream', async () => {
+    const { runtime } = createStreamRuntime();
+    const connection = createConnection();
+    const handleRuntimeError = vi.fn();
+    runtime.handleRuntimeError = handleRuntimeError;
 
     const activeStream: ActiveStream = {
       id: 'stream_1',
@@ -438,8 +504,32 @@ describe('stream/runtime', () => {
       { _streamId: 'stream_1' },
     );
 
-    expect(result).toBe(false);
+    expect(result).toBe(true);
     expect(activeStream.nudges).toHaveLength(0);
+    expect(handleRuntimeError).toHaveBeenCalledTimes(1);
+    expect(handleRuntimeError).toHaveBeenCalledWith(
+      connection,
+      expect.any(Error),
+      'unknown-nudge',
+      { _streamId: 'stream_1' },
+    );
+  });
+
+  it('bufferStreamNudge returns false when the frame carries no _streamId at all', async () => {
+    // Frames without `_streamId` do not claim to belong to any stream.
+    // The stream layer steps aside and lets the engine route them as
+    // top-level events.
+    const { runtime } = createStreamRuntime();
+    const connection = createConnection();
+
+    const result = await bufferStreamNudge(
+      runtime as Parameters<typeof bufferStreamNudge>[0],
+      connection,
+      'plain-event',
+      { value: 'no-stream-id' },
+    );
+
+    expect(result).toBe(false);
   });
 
   it('bufferStreamNudge throws WskitConfigError without routing through handleValidationError when the nudge validator is async', async () => {

@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { InternalError, rethrowIfConfigError } from '@wskit/core';
+import { InternalError, rethrowIfConfigError, ValidationFailed } from '@wskit/core';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import type { AnyGenerate } from '~/_engine/compile/types.ts';
@@ -118,13 +118,46 @@ export async function bufferStreamNudge(
 ): Promise<boolean> {
   if (!payload || typeof payload._streamId !== 'string') return false;
 
-  const activeStream = runtime.activeStreams.get(payload._streamId);
+  const streamId = payload._streamId;
+  const activeStream = runtime.activeStreams.get(streamId);
+
+  // Frames carrying a `_streamId` are claiming to belong to one specific
+  // active stream owned by this connection. If that claim does not hold —
+  // unknown id, wrong owner, or already-closed stream — the frame is
+  // malformed. Surface `_error` with `_streamId` routing and treat the
+  // frame as handled so it never falls through to a same-named top-level
+  // .incoming() handler.
   if (!activeStream || activeStream.connectionId !== connection.id || activeStream.closed) {
-    return false;
+    const error = ValidationFailed({
+      event,
+      issues: [
+        {
+          message: `frame references unknown or inactive stream "${streamId}"`,
+          path: ['_streamId'],
+        },
+      ],
+    });
+    await runtime.handleRuntimeError(connection, error, event, { _streamId: streamId });
+    return true;
   }
 
   const validator = activeStream.nudgeValidators.get(event);
-  if (!activeStream.nudgeValidators.has(event)) return false;
+  // Stream is live and owned by this connection, but `event` is not
+  // registered as a nudge for it. Same reasoning: the frame was tagged
+  // for the stream — refuse to fall through to top-level dispatch.
+  if (!activeStream.nudgeValidators.has(event)) {
+    const error = ValidationFailed({
+      event,
+      issues: [
+        {
+          message: `event "${event}" is not a registered nudge for stream "${streamId}"`,
+          path: [],
+        },
+      ],
+    });
+    await runtime.handleRuntimeError(connection, error, event, { _streamId: streamId });
+    return true;
+  }
 
   const nudgePayload = { ...payload };
   delete nudgePayload._streamId;
@@ -141,7 +174,7 @@ export async function bufferStreamNudge(
     // route the failure to the right stream-error handler. Without this,
     // a malformed nudge is silently dropped and the client never learns
     // its frame was rejected.
-    await runtime.handleRuntimeError(connection, error, event, { _streamId: payload._streamId });
+    await runtime.handleRuntimeError(connection, error, event, { _streamId: streamId });
     // The frame matched an active stream and a registered nudge event —
     // it was meant for the stream. Treat it as handled (with error) so
     // the caller does not fall through to dispatchIncoming, which would
