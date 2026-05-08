@@ -13,6 +13,11 @@ describe('hibernation()', () => {
     expect(primitive.enabled).toBe(false);
   });
 
+  it('does not declare the hibernation requirement when disabled', () => {
+    const primitive = hibernation(false);
+    expect(primitive.__requires.hibernation).toBeUndefined();
+  });
+
   it('registers the hibernation setting during setup', () => {
     const primitive = hibernation(false);
     let enabled = true;

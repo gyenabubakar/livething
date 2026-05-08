@@ -36,7 +36,7 @@ export function hibernation(enabled = true): HibernationPrimitive {
     __kind: 'infrastructure',
     __identity: [HIBERNATION_KEY],
     __dependencies: [],
-    __requires: { hibernation: true },
+    __requires: enabled ? { hibernation: true } : {},
     enabled,
     __setup(engine) {
       engine.setHibernationEnabled(enabled);
