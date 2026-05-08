@@ -156,6 +156,12 @@ export function shouldStoreReplayMessage(
   // via _correlationId and replaying them would hand a different client the
   // original requester's response.
   if (typeof payload._correlationId === 'string') return false;
+  // Skip stream chunks. A stream chunk carries `_streamId` referencing one
+  // active stream on the original connection. Re-sending it on a fresh
+  // connection or a future reconnect would surface a phantom stream id the
+  // client does not know about. Issue #3 tracks proper stream replay across
+  // reconnect; until then, stream chunks are not replayable.
+  if (typeof payload._streamId === 'string') return false;
 
   const scope = readReplayPayloadScope(payload);
 

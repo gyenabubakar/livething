@@ -23,6 +23,12 @@ export const TokenResponse = v.object({ token: v.string() });
 // _-prefixed payload field) and reports both error messages back to the
 // client. Pins that ctx.sendReplay enforces the same contract as ctx.send.
 export const TriggerBadReplay = event('trigger-bad-replay', v.object({}));
+
+// Starts a one-chunk stream. The chunk frame carries `_streamId`. Pins
+// that built-in replay does not persist or resend stream chunks across
+// reconnects.
+export const StartTinyStream = event('start-tiny-stream', v.object({}));
+export const TinyChunk = v.object({ value: v.string() });
 export const ReplayGuardError = event(
   'replay-guard-error',
   v.object({ undeclared: v.string(), reservedField: v.string() }),

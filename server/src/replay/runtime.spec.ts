@@ -272,6 +272,34 @@ describe('replay/runtime', () => {
     expect(shouldStoreReplayMessage(undefined, 'message', { text: 'hi' }, new Set())).toBe(true);
   });
 
+  it('skips frames with _streamId — stream chunks reference an active stream and cannot be replayed', () => {
+    // Server-level replay.
+    expect(
+      shouldStoreReplayMessage(
+        undefined,
+        'token',
+        { word: 'hello', _streamId: 'stream_abc_1' },
+        new Set(),
+      ),
+    ).toBe(false);
+    // Channel-scoped replay.
+    expect(
+      shouldStoreReplayMessage(
+        'rooms',
+        'token',
+        {
+          word: 'hello',
+          _streamId: 'stream_abc_1',
+          _channel: 'room-1',
+          _channelScope: 'rooms',
+        },
+        new Set(),
+      ),
+    ).toBe(false);
+    // Sanity: the same payload without _streamId is captured.
+    expect(shouldStoreReplayMessage(undefined, 'token', { word: 'hello' }, new Set())).toBe(true);
+  });
+
   it('builds replay rows from final wire payloads and strips metadata for reducers', () => {
     const payload = {
       text: 'hello',

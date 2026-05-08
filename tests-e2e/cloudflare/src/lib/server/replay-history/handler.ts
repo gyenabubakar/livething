@@ -6,6 +6,7 @@ import { withLifecycle } from '@wskit/server/lifecycle';
 import { withReplay } from '@wskit/server/replay';
 import { withRequests } from '@wskit/server/requests';
 import { withSequence } from '@wskit/server/sequence';
+import { withStreams } from '@wskit/server/streams';
 import type { InferClient } from '@wskit/server';
 import {
   ChatMsg,
@@ -19,12 +20,22 @@ import {
   SendCursor,
   SendMsg,
   SendRoomMsg,
+  StartTinyStream,
+  TinyChunk,
   TokenResponse,
   TriggerBadReplay,
 } from './events.ts';
 
 const base = withChannels(
-  withRequests(withReplay(withLifecycle(withSequence(withDedup(server<Env>('replay-test')))))),
+  withStreams(
+    withRequests(withReplay(withLifecycle(withSequence(withDedup(server<Env>('replay-test')))))),
+  ),
+);
+
+const tinyStream = base.stream(StartTinyStream, (s) =>
+  s.chunk(TinyChunk).generate(async function* () {
+    yield { value: 'one' };
+  }),
 );
 
 export const replayHandler = base
@@ -103,6 +114,7 @@ export const replayHandler = base
       { seq: 0, messageId: 'fam-manual-001', channel: 'fam-1', channelScope: 'fams' },
     );
   })
+  .use(tinyStream)
   .use(
     base.channel(scope('fams', /^fam-.+$/), (ch) =>
       ch.outgoing(RoomMsg).incoming(SendRoomMsg, (ctx, payload) => {

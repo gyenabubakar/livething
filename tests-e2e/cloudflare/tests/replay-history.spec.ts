@@ -102,6 +102,41 @@ test.describe('replay handler', () => {
     expect(errors[0]!.payload.code).toBe('validation-failed');
   });
 
+  test('stream chunks are not persisted into replay and never resend on _replay', async ({
+    page,
+  }) => {
+    // Stream chunks carry `_streamId` so they reach an active stream on
+    // the original connection. Replay must not store them: a reconnecting
+    // client has no stream by that id, and Issue #3 tracks proper stream
+    // replay across reconnect. Pre-fix the persist filter only blocked
+    // `_correlationId`, so chunks slipped into `_wskit_replay` and came
+    // back on every later `_replay since: 0`.
+    const result = await page.evaluate(async () => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      if (!ws) throw new Error('socket not exposed');
+      const got: { event: string; payload: Record<string, unknown> }[] = [];
+      const original = ws.onmessage;
+      ws.onmessage = (ev) => {
+        if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
+        if (typeof original === 'function') original.call(ws, ev);
+      };
+      ws.send(JSON.stringify({ event: 'start-tiny-stream', payload: {} }));
+      await new Promise((r) => setTimeout(r, 300));
+      ws.send(JSON.stringify({ event: '_replay', payload: { since: 0 } }));
+      await new Promise((r) => setTimeout(r, 400));
+      ws.onmessage = original;
+      return got;
+    });
+
+    // The live chunk reached the original connection (sanity check). The
+    // chunk wire event carries the originating event name and a `_streamId`.
+    const liveChunks = result.filter(
+      (m) => m.event === 'start-tiny-stream' && typeof m.payload._streamId === 'string',
+    );
+    expect(liveChunks).toHaveLength(1);
+    expect(liveChunks[0]!.payload.value).toBe('one');
+  });
+
   test('sequence numbers present', async ({ page }) => {
     await page.getByTestId('send-msg-btn').click();
     await waitForText(page, 'messages', /hello from replay/);
