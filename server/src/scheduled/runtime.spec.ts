@@ -170,6 +170,52 @@ describe('scheduled/runtime', () => {
     now.mockRestore();
   });
 
+  it('drops persisted runs whose taskId is no longer registered at boot', () => {
+    // A previous deploy registered a recurring `cleanup` task and persisted
+    // its row to `_wskit_scheduled`. The new deploy removes the task. Boot
+    // must drop the orphan row instead of restoring it — otherwise every
+    // alarm tick would skip the missing handler and re-queue the same row
+    // for the next interval, leaving storage to grow forever.
+    const { runtime, scheduledRuns, storageRows } = createScheduledRuntime([]);
+    storageRows.scheduled.push({
+      id: 'task_orphan_1',
+      taskId: 'cleanup',
+      time: 5_000,
+      data: null,
+      everyMs: 60_000,
+      attempts: 0,
+      recurring: 1,
+      retry: 1,
+    });
+
+    bootstrapScheduledRuntime(runtime);
+
+    expect([...scheduledRuns.values()]).toHaveLength(0);
+    expect(storageRows.scheduled).toHaveLength(0);
+  });
+
+  it('does not re-queue a recurring run whose task disappeared between alarm ticks', async () => {
+    // Same orphan scenario, but the row makes it past boot (e.g. the
+    // current process started with the task registered, and a hot-swap or
+    // race removed it before this alarm fires). The success branch must
+    // refuse to re-queue the recurring run when the task is gone.
+    const { runtime, scheduledRuns } = createScheduledRuntime([]);
+    scheduledRuns.set('task_orphan_1', {
+      id: 'task_orphan_1',
+      taskId: 'cleanup',
+      time: 1,
+      data: undefined,
+      every: 60_000,
+      attempts: 0,
+      recurring: true,
+      retry: true,
+    });
+
+    await handleScheduledAlarm(runtime);
+
+    expect([...scheduledRuns.values()]).toHaveLength(0);
+  });
+
   it('queues one-shot runs and cancels matching queued runs', () => {
     const { runtime, scheduledRuns } = createScheduledRuntime([
       { taskId: 'flush', hasData: true, dataSchema: (value: unknown) => value },

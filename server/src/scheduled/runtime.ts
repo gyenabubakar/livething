@@ -247,10 +247,23 @@ export function bootstrapScheduledRuntime(runtime: ScheduledRuntimeAccess): void
   scheduledRuns.clear();
   deadLetters.clear();
 
+  // Drop rows whose taskId is no longer registered in the handler. A
+  // recurring task that gets removed in a redeploy would otherwise live
+  // forever: the row stays on disk, every alarm finds the task missing,
+  // skips the body, and the recurring branch re-queues the same row for
+  // the next interval. The orphan row never reaches a handler and never
+  // shrinks the table.
+  const knownTaskIds = new Set<string>();
+  for (const task of runtime.getScheduledTasks()) {
+    knownTaskIds.add(task.taskId);
+  }
+
   for (const row of storage.sql.exec<ScheduledRunRow>(SELECT_SCHEDULED_SQL).toArray()) {
+    const taskId = String(row.taskId);
+    if (!knownTaskIds.has(taskId)) continue;
     scheduledRuns.set(String(row.id), {
       id: String(row.id),
-      taskId: String(row.taskId),
+      taskId,
       time: Number(row.time),
       data: typeof row.data === 'string' && row.data.length > 0 ? JSON.parse(row.data) : undefined,
       every: row.everyMs == null ? undefined : Number(row.everyMs),
@@ -328,7 +341,10 @@ export async function handleScheduledAlarm(runtime: ScheduledRuntimeAccess): Pro
     if (!run) continue;
 
     if (result.status === 'fulfilled') {
-      if (run.recurring && run.every) {
+      // Drop the recurring re-queue when the task was removed from the
+      // handler between deploys. Without this guard the row keeps coming
+      // back on every alarm tick and storage never shrinks.
+      if (run.recurring && run.every && runtime.getScheduledTask(run.taskId)) {
         scheduledRuns.set(run.id, {
           ...run,
           time: now + run.every,
@@ -361,8 +377,12 @@ export async function handleScheduledAlarm(runtime: ScheduledRuntimeAccess): Pro
     });
 
     if (run.recurring && run.every) {
+      // Same orphan guard as the success branch: only re-queue when the
+      // task is still registered. A removed task should not leave a
+      // recurring run alive even after one of its attempts dead-letters.
       const task = runtime.getScheduledTask(run.taskId);
-      const data = task?.hasData
+      if (!task) continue;
+      const data = task.hasData
         ? validateValue(task.dataSchema, undefined, task.taskId)
         : undefined;
       const id = runtime.generateId('task');
