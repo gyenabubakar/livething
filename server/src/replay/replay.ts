@@ -2,6 +2,7 @@
 import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/types.ts';
 import { dedup } from '~/dedup/dedup.ts';
 import {
+  assertReplayScopeServable,
   ensureReplaySchema,
   isChannelReplayAuthorized,
   loadReplayRows,
@@ -231,6 +232,8 @@ class ReplayInstaller {
     if (!matchesReplayScope(this.channelKey, scope, this.engine.getReplayClaimedChannelKeys())) {
       return false;
     }
+
+    assertReplayScopeServable(this.channelKey, scope);
 
     const connection = (ctx as Record<PropertyKey, unknown>)[ENGINE_INTERNAL_CONNECTION] as
       | RuntimeConnection

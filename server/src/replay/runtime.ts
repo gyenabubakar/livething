@@ -108,6 +108,34 @@ export function readReplayPayloadScope(payload: Record<string, unknown>): Replay
 }
 
 /**
+ * Reject a `_replay` request whose `_namespace` lands on a top-level replay
+ * primitive that does not own namespace traffic.
+ *
+ * Namespace-scoped replay is not implemented yet (issue #8 tracks that work).
+ * Without this guard, a top-level `_replay` carrying `_namespace` reads the
+ * unscoped store under `WHERE namespace IS NULL`, returning either zero rows
+ * or — worse — top-level rows to a client that expected namespace history.
+ * Surface a typed validation error instead so the client learns the request
+ * cannot be served and the engine never silently mis-routes.
+ */
+export function assertReplayScopeServable(
+  channelKey: string | undefined,
+  scope: { namespaceName?: string },
+): void {
+  if (!channelKey && scope.namespaceName) {
+    throw ValidationFailed({
+      event: '_replay',
+      issues: [
+        {
+          message: `replay is not configured for namespace "${scope.namespaceName}"`,
+          path: ['_namespace'],
+        },
+      ],
+    });
+  }
+}
+
+/**
  * Read and validate the `since` cursor on an incoming `_replay` request.
  *
  * Sequence numbers are positive monotonic integers, so a valid cursor is a

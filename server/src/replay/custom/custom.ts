@@ -4,6 +4,7 @@
 import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/types.ts';
 import { dedup } from '~/dedup/dedup.ts';
 import {
+  assertReplayScopeServable,
   isChannelReplayAuthorized,
   matchesReplayScope,
   readReplayContextScope,
@@ -478,6 +479,8 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
         if (!isChannelReplayAuthorized(connection, scope, payload)) {
           return true;
         }
+
+        assertReplayScopeServable(channelKey, scope);
 
         const since = readReplaySinceCursor(payload);
 

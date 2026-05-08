@@ -3,6 +3,7 @@ import { withChannels } from '@wskit/server/channels';
 import { withDedup } from '@wskit/server/dedup';
 import { RejectUpgrade } from '@wskit/server/errors';
 import { withLifecycle } from '@wskit/server/lifecycle';
+import { withNamespaces } from '@wskit/server/namespaces';
 import { withReplay } from '@wskit/server/replay';
 import { withRequests } from '@wskit/server/requests';
 import { withSequence } from '@wskit/server/sequence';
@@ -27,8 +28,10 @@ import {
 } from './events.ts';
 
 const base = withChannels(
-  withStreams(
-    withRequests(withReplay(withLifecycle(withSequence(withDedup(server<Env>('replay-test')))))),
+  withNamespaces(
+    withStreams(
+      withRequests(withReplay(withLifecycle(withSequence(withDedup(server<Env>('replay-test')))))),
+    ),
   ),
 );
 
@@ -115,6 +118,7 @@ export const replayHandler = base
     );
   })
   .use(tinyStream)
+  .use(base.namespace('admin', (n) => n.outgoing(ChatMsg)))
   .use(
     base.channel(scope('fams', /^fam-.+$/), (ch) =>
       ch.outgoing(RoomMsg).incoming(SendRoomMsg, (ctx, payload) => {

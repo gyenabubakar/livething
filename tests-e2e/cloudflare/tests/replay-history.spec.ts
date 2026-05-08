@@ -137,6 +137,39 @@ test.describe('replay handler', () => {
     expect(liveChunks[0]!.payload.value).toBe('one');
   });
 
+  test('_replay with _namespace against top-level replay surfaces _error', async ({ page }) => {
+    // The fixture registers a namespace called "admin" but only declares
+    // top-level replay — namespace replay does not exist as a primitive
+    // (issue #8 tracks that work). Pre-fix the protocol handler accepted
+    // the request, dropped the namespace marker, and read the unscoped
+    // store. The client either got zero rows (when the namespace had its
+    // own traffic) or top-level rows mis-tagged as namespace history.
+    // Post-fix the handler rejects the request with a typed validation
+    // error so the client learns the request cannot be served.
+    const errors = await page.evaluate(async () => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      if (!ws) throw new Error('socket not exposed');
+      const got: { event: string; payload: Record<string, unknown> }[] = [];
+      const original = ws.onmessage;
+      ws.onmessage = (ev) => {
+        if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
+        if (typeof original === 'function') original.call(ws, ev);
+      };
+      ws.send(
+        JSON.stringify({
+          event: '_replay',
+          payload: { since: 0, _namespace: 'admin' },
+        }),
+      );
+      await new Promise((r) => setTimeout(r, 300));
+      ws.onmessage = original;
+      return got.filter((m) => m.event === '_error');
+    });
+
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0]!.payload.code).toBe('validation-failed');
+  });
+
   test('sequence numbers present', async ({ page }) => {
     await page.getByTestId('send-msg-btn').click();
     await waitForText(page, 'messages', /hello from replay/);
