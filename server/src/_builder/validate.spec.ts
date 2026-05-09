@@ -133,3 +133,77 @@ describe('validateBuild — scope-local dependency rules', () => {
     );
   });
 });
+
+function eventLeaf(tag: 'incoming' | 'request' | 'generate', event: string): AnyPrimitive {
+  return {
+    __wskit: tag,
+    __kind: 'handler' as const,
+    __identity: [Symbol(tag), event] as const,
+    __dependencies: [],
+    __requires: {},
+    event,
+  } as unknown as AnyPrimitive;
+}
+
+describe('validateBuild — cross-primitive event name collisions', () => {
+  it('rejects same name on incoming and request at top level', () => {
+    expect(() =>
+      validateBuild([eventLeaf('incoming', 'foo'), eventLeaf('request', 'foo')]),
+    ).toThrow(/Event name 'foo' is registered as both/);
+  });
+
+  it('rejects same name on incoming and stream at top level', () => {
+    expect(() =>
+      validateBuild([eventLeaf('incoming', 'foo'), eventLeaf('generate', 'foo')]),
+    ).toThrow(/Event name 'foo' is registered as both/);
+  });
+
+  it('rejects same name on request and stream at top level', () => {
+    expect(() =>
+      validateBuild([eventLeaf('request', 'foo'), eventLeaf('generate', 'foo')]),
+    ).toThrow(/Event name 'foo' is registered as both/);
+  });
+
+  it('rejects collision inside a namespace', () => {
+    expect(() =>
+      validateBuild([
+        nested('namespace', 'ns', [eventLeaf('incoming', 'foo'), eventLeaf('request', 'foo')]),
+      ]),
+    ).toThrow(/Event name 'foo' is registered as both/);
+  });
+
+  it('rejects collision inside a channel', () => {
+    expect(() =>
+      validateBuild([
+        nested('channel', 'room', [eventLeaf('incoming', 'foo'), eventLeaf('generate', 'foo')]),
+      ]),
+    ).toThrow(/Event name 'foo' is registered as both/);
+  });
+
+  it('rejects collision when one half is inside a group at the same scope', () => {
+    expect(() =>
+      validateBuild([
+        eventLeaf('incoming', 'foo'),
+        nested('group', undefined, [eventLeaf('request', 'foo')]),
+      ]),
+    ).toThrow(/Event name 'foo' is registered as both/);
+  });
+
+  it('allows the same name in different scopes (top-level vs channel)', () => {
+    expect(() =>
+      validateBuild([
+        eventLeaf('incoming', 'foo'),
+        nested('channel', 'room', [eventLeaf('request', 'foo')]),
+      ]),
+    ).not.toThrow();
+  });
+
+  it('allows the same name in two sibling channels', () => {
+    expect(() =>
+      validateBuild([
+        nested('channel', 'a', [eventLeaf('incoming', 'foo')]),
+        nested('channel', 'b', [eventLeaf('request', 'foo')]),
+      ]),
+    ).not.toThrow();
+  });
+});

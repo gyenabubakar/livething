@@ -126,21 +126,80 @@ function walkScope(primitives: readonly Primitive[], scopeRefs: ReadonlySet<symb
 }
 
 /**
+ * Walk a scope and refuse to build when the same wire event name is used by
+ * more than one of `incoming`, `request`, or `stream` in that scope.
+ *
+ * The per-primitive `validateUniqueIdentities` check above keys on each
+ * primitive's symbol, so two registrations with the same event name but
+ * different primitive kinds (e.g. `incoming('foo')` and `request('foo')`)
+ * pass it. At dispatch the engine looks up all three maps and picks
+ * `incoming ?? request ?? stream`, so the loser is unreachable and a
+ * client `request(...)` against a shadowed name hangs forever.
+ *
+ * Groups are expanded into their parent scope (same as the dependency check).
+ * Each channel and namespace gets its own scope walk.
+ */
+function validateNoCrossPrimitiveEventCollisions(primitives: readonly Primitive[]): void {
+  const seen = new Map<string, string>();
+
+  function recordOrThrow(event: string, kind: string): void {
+    const previous = seen.get(event);
+    if (previous && previous !== kind) {
+      throw new Error(
+        `[wskit] Event name '${event}' is registered as both '${previous}' and '${kind}' in the same scope. ` +
+          `An event name can only be used by one of incoming/request/stream within a scope — pick a different name.`,
+      );
+    }
+    seen.set(event, kind);
+  }
+
+  function collect(list: readonly Primitive[]): void {
+    for (const primitive of list) {
+      if (primitive.__wskit === 'incoming') {
+        recordOrThrow((primitive as Primitive & { event: string }).event, 'incoming');
+      } else if (primitive.__wskit === 'request') {
+        recordOrThrow((primitive as Primitive & { event: string }).event, 'request');
+      } else if (primitive.__wskit === 'generate') {
+        recordOrThrow((primitive as Primitive & { event: string }).event, 'stream');
+      } else if (primitive.__wskit === 'group') {
+        collect((primitive as NestedPrimitive).primitives);
+      }
+    }
+  }
+
+  collect(primitives);
+
+  function recurseIntoNestedScopes(list: readonly Primitive[]): void {
+    for (const primitive of list) {
+      if (primitive.__wskit === 'channel' || primitive.__wskit === 'namespace') {
+        validateNoCrossPrimitiveEventCollisions((primitive as NestedPrimitive).primitives);
+      } else if (primitive.__wskit === 'group') {
+        recurseIntoNestedScopes((primitive as NestedPrimitive).primitives);
+      }
+    }
+  }
+  recurseIntoNestedScopes(primitives);
+}
+
+/**
  * Run all build-time checks on a finalized list of primitives.
  *
  * Called automatically by `ServerBuilder.build()` before the `ServerDefinition`
  * is frozen. You should never need to call this directly.
  *
- * Performs two checks in order:
+ * Performs three checks in order:
  * 1. **Unique identities** — no primitive is registered twice in the same scope.
- * 2. **Satisfied dependencies** — every primitive's declared dependencies are
+ * 2. **Cross-primitive event names** — no event name is shared by more than
+ *    one of incoming/request/stream within a scope.
+ * 3. **Satisfied dependencies** — every primitive's declared dependencies are
  *    present somewhere in the tree.
  *
- * Both checks recurse into nested scopes (channels, namespaces, groups).
+ * All checks recurse into nested scopes (channels, namespaces, groups).
  *
  * @throws {Error} On the first violation found.
  */
 export function validateBuild(primitives: readonly Primitive[]): void {
   validateUniqueIdentities(primitives);
+  validateNoCrossPrimitiveEventCollisions(primitives);
   validateScopeDependencies(primitives, new Set());
 }

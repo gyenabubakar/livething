@@ -247,9 +247,62 @@ export function compileHandlerDefinition(
   visitCompiledPrimitives(compiled, handler.primitives);
   collectReplayClaimedScopes(handler.primitives, compiled.replayClaimedChannelKeys);
   validatePostInterceptHandlers(compiled);
+  validateNoCrossPrimitiveEventCollisions(compiled);
   validateNoReservedEventNames(compiled, collectModuleEventNames(compiled));
   validateChannelFamilyPatternsDisjointFromStaticNames(compiled);
   return compiled;
+}
+
+/**
+ * Refuse to boot when an event name is registered as more than one of
+ * `incoming` / `request` / `stream` within the same scope. The dispatcher
+ * picks the first match in that order, so the loser is unreachable —
+ * a client `request(...)` against a shadowed name hangs forever.
+ *
+ * The builder's `validateNoCrossPrimitiveEventCollisions` already catches
+ * this. The boot-time guard here covers the bypass case: hand-rolled
+ * primitives that go through `as any` and skip the builder.
+ */
+function validateNoCrossPrimitiveEventCollisions(
+  compiled: EngineCompileTypes.CompiledServer,
+): void {
+  function check(
+    scope: {
+      incoming: ReadonlyMap<string, unknown>;
+      requests: ReadonlyMap<string, unknown>;
+      streams: ReadonlyMap<string, unknown>;
+    },
+    label: string,
+  ): void {
+    const allNames = new Set<string>([
+      ...scope.incoming.keys(),
+      ...scope.requests.keys(),
+      ...scope.streams.keys(),
+    ]);
+    for (const event of allNames) {
+      const where: string[] = [];
+      if (scope.incoming.has(event)) where.push('incoming');
+      if (scope.requests.has(event)) where.push('request');
+      if (scope.streams.has(event)) where.push('stream');
+      if (where.length > 1) {
+        throw new Error(
+          `[wskit] Event name '${event}' is registered as both '${where[0]}' and '${where[1]}' in ${label}. ` +
+            `An event name can only be used by one of incoming/request/stream within a scope — pick a different name.`,
+        );
+      }
+    }
+  }
+
+  check(compiled, 'top-level');
+  for (const namespace of compiled.namespaces.values()) {
+    check(namespace, `namespace '${namespace.name}'`);
+  }
+  for (const channel of compiled.channels.values()) {
+    check(channel, `channel '${channel.key}'`);
+  }
+  for (const family of compiled.channelFamilies.values()) {
+    check(family, `channel family '${family.key}'`);
+  }
 }
 
 /**

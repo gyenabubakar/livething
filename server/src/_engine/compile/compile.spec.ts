@@ -408,3 +408,87 @@ describe('compile family-pattern vs static-name conflict guard', () => {
     expect(() => compileHandlerDefinition(def)).not.toThrow();
   });
 });
+
+describe('compile cross-primitive event collisions (bypass guard)', () => {
+  function fakeIncoming(eventName: string) {
+    return {
+      __wskit: 'incoming' as const,
+      __kind: 'handler' as const,
+      __identity: [Symbol('incoming'), eventName] as const,
+      __dependencies: [],
+      __requires: {},
+      event: eventName,
+      validator: (p: unknown) => p,
+      handler: async () => {},
+    };
+  }
+
+  function fakeRequest(eventName: string) {
+    return {
+      __wskit: 'request' as const,
+      __kind: 'handler' as const,
+      __identity: [Symbol('request'), eventName] as const,
+      __dependencies: [],
+      __requires: {},
+      event: eventName,
+      validator: (p: unknown) => p,
+      responseSchema: (p: unknown) => p,
+      handler: async () => {},
+    };
+  }
+
+  function fakeGenerate(eventName: string) {
+    return {
+      __wskit: 'generate' as const,
+      __kind: 'handler' as const,
+      __identity: [Symbol('generate'), eventName] as const,
+      __dependencies: [],
+      __requires: {},
+      event: eventName,
+      stream: {
+        __wskit: 'stream' as const,
+        __kind: 'handler' as const,
+        __identity: [Symbol('stream'), eventName] as const,
+        __dependencies: [],
+        __requires: {},
+        event: eventName,
+        validator: (p: unknown) => p,
+        nudges: [] as readonly never[],
+        broadcast: false,
+      },
+      generator: async function* () {},
+    };
+  }
+
+  it('throws on incoming/request collision at top-level', () => {
+    /* oxlint-disable @typescript-eslint/no-explicit-any */
+    const def = {
+      __wskit: 'server' as const,
+      primitives: [fakeIncoming('foo'), fakeRequest('foo')],
+    } as any;
+    expect(() => compileHandlerDefinition(def)).toThrow(
+      /Event name 'foo' is registered as both 'incoming' and 'request' in top-level/,
+    );
+  });
+
+  it('throws on incoming/stream collision at top-level', () => {
+    const def = {
+      __wskit: 'server' as const,
+      primitives: [fakeIncoming('foo'), fakeGenerate('foo')],
+    } as any;
+    expect(() => compileHandlerDefinition(def)).toThrow(
+      /Event name 'foo' is registered as both 'incoming' and 'stream' in top-level/,
+    );
+  });
+
+  it('throws on request/stream collision at top-level', () => {
+    const def = {
+      __wskit: 'server' as const,
+      primitives: [fakeRequest('foo'), fakeGenerate('foo')],
+    } as any;
+    expect(() => compileHandlerDefinition(def)).toThrow(
+      /Event name 'foo' is registered as both 'request' and 'stream' in top-level/,
+    );
+    /* oxlint-enable @typescript-eslint/no-explicit-any */
+  });
+});
