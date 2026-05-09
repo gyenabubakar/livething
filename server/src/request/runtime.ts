@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { ValidationFailed } from '@wskit/core';
 import { runWithScopedContext } from '~/intercept/runtime.ts';
 import type { ResolvedScope, RoutingTarget, RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { RequestPrimitive } from './request.ts';
@@ -23,10 +24,25 @@ interface RequestRuntime {
  * The client attaches this ID when sending a request so the engine can tag
  * the response with the same ID. The client then matches the response back
  * to the original `request()` Promise.
+ *
+ * The id must be a string. Anything else surfaces a typed validation error
+ * to the client so a buggy wrapper learns immediately instead of waiting on
+ * a Promise that can never resolve. A missing field is allowed and returns
+ * `undefined` — the response then goes out without a correlation tag.
  */
 export function readCorrelationId(payload: unknown): string | undefined {
   if (!payload || typeof payload !== 'object' || !('_correlationId' in payload)) return undefined;
-  return String((payload as Record<string, unknown>)._correlationId);
+  const value = (payload as Record<string, unknown>)._correlationId;
+  if (typeof value === 'string') return value;
+  throw ValidationFailed({
+    event: '_correlationId',
+    issues: [
+      {
+        message: '_correlationId must be a string',
+        path: ['_correlationId'],
+      },
+    ],
+  });
 }
 
 /**

@@ -17,6 +17,7 @@
 		);
 		ws.onopen = () => {
 			status = 'connected';
+			(window as unknown as { __ws?: WebSocket }).__ws = ws ?? undefined;
 		};
 		ws.onclose = () => {
 			status = 'disconnected';

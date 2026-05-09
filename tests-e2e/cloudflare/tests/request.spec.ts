@@ -81,6 +81,39 @@ test.describe('request', () => {
     expect(text).toContain('"code"');
   });
 
+  test('non-string _correlationId surfaces _error with code "validation-failed"', async ({
+    page,
+  }, testInfo) => {
+    // A buggy client wrapper might send `_correlationId` as an object or a
+    // number. The server rejects the frame with a typed validation error
+    // so the wrapper learns immediately, instead of the response sitting
+    // open until the wrapper's own timeout fires.
+    await openPage(page, `test-${testInfo.testId}`);
+
+    const errors = await page.evaluate(async () => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      if (!ws) throw new Error('socket not exposed');
+      const got: { event: string; payload: Record<string, unknown> }[] = [];
+      const original = ws.onmessage;
+      ws.onmessage = (ev) => {
+        if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
+        if (typeof original === 'function') original.call(ws, ev);
+      };
+      ws.send(
+        JSON.stringify({
+          event: 'get-time',
+          payload: { _correlationId: { reqId: 1 } },
+        }),
+      );
+      await new Promise((r) => setTimeout(r, 300));
+      ws.onmessage = original;
+      return got.filter((m) => m.event === '_error');
+    });
+
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0]!.payload.code).toBe('validation-failed');
+  });
+
   test('strict-object request schema accepts the payload despite injected _correlationId', async ({
     page,
   }, testInfo) => {

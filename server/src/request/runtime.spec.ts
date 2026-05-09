@@ -1,3 +1,4 @@
+import { ValidationFailed } from '@wskit/core';
 import { describe, expect, it, vi } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import { handleRequest, readCorrelationId } from './runtime.ts';
@@ -24,10 +25,27 @@ function createConnection(): RuntimeConnection {
 }
 
 describe('request/runtime', () => {
-  it('reads the request correlation id from the raw payload', () => {
-    expect(readCorrelationId({ _correlationId: 123 })).toBe('123');
+  it('returns the correlation id when it is a string', () => {
+    expect(readCorrelationId({ _correlationId: 'req-abc' })).toBe('req-abc');
+  });
+
+  it('returns undefined when the field is missing or the payload is not an object', () => {
     expect(readCorrelationId({})).toBeUndefined();
     expect(readCorrelationId(null)).toBeUndefined();
+    expect(readCorrelationId(undefined)).toBeUndefined();
+    expect(readCorrelationId('not-an-object')).toBeUndefined();
+  });
+
+  it('throws ValidationFailed when _correlationId is present but not a string', () => {
+    for (const bad of [123, { id: 1 }, [1, 2], null, true, false]) {
+      let captured: unknown;
+      try {
+        readCorrelationId({ _correlationId: bad });
+      } catch (error) {
+        captured = error;
+      }
+      expect(ValidationFailed.matches(captured)).toBe(true);
+    }
   });
 
   it('sends the request response with scope routing and correlation metadata', async () => {
