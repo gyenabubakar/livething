@@ -256,9 +256,13 @@ class ReplayInstaller {
 
     for (const row of rows) {
       const rowPayload = JSON.parse(row.payload) as Record<string, unknown>;
-      // Defense-in-depth: even if a stale store has 1:1 request responses
-      // from before the persist-side filter landed, never resend them.
+      // Defense-in-depth: rows carrying _correlationId or _streamId never
+      // belong in replay even if a fixture or test harness pre-seeded
+      // them via raw SQL. _correlationId is a private 1:1 response tag,
+      // and _streamId points at one specific running stream that the
+      // requesting connection does not own.
       if (typeof rowPayload._correlationId === 'string') continue;
+      if (typeof rowPayload._streamId === 'string') continue;
       this.engine.sendReplay(connectionId, row.channel, row.channelScope, row.event, rowPayload, {
         seq: row.seq,
         messageId: row.messageId,

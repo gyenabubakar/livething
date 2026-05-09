@@ -526,6 +526,153 @@ describe('replay', () => {
     ]);
   });
 
+  it('protocol resend skips rows whose payload carries _correlationId or _streamId', async () => {
+    // Defense-in-depth at the read site. Even when something writes
+    // rows directly into _wskit_replay (a fixture seeding history, a
+    // product test harness, a stale store from before the persist
+    // filter was introduced), the resend loop refuses to send any row
+    // whose payload carries _correlationId (private 1:1 response) or
+    // _streamId (one specific running stream the requester does not
+    // own).
+    const protocolHandlers: Array<NonNullable<Parameters<EngineAccess['onProtocolMessage']>[1]>> =
+      [];
+    const sent: Array<Parameters<EngineAccess['sendReplay']>> = [];
+    const rows = [
+      {
+        rowKey: 'row-clean',
+        messageId: 'msg-1',
+        seq: 1,
+        event: 'message',
+        payload: JSON.stringify({ text: 'clean-history', _seq: 1, _messageId: 'msg-1' }),
+        namespace: null,
+        channel: null,
+        channelScope: null,
+        snapshotKey: null,
+        createdAt: 1,
+      },
+      {
+        rowKey: 'row-corr',
+        messageId: 'msg-2',
+        seq: 2,
+        event: 'get-token',
+        payload: JSON.stringify({
+          token: 'SECRET',
+          _seq: 2,
+          _messageId: 'msg-2',
+          _correlationId: 'req-old',
+        }),
+        namespace: null,
+        channel: null,
+        channelScope: null,
+        snapshotKey: null,
+        createdAt: 2,
+      },
+      {
+        rowKey: 'row-stream',
+        messageId: 'msg-3',
+        seq: 3,
+        event: 'token',
+        payload: JSON.stringify({
+          word: 'hello',
+          _seq: 3,
+          _messageId: 'msg-3',
+          _streamId: 'stream_old_1',
+        }),
+        namespace: null,
+        channel: null,
+        channelScope: null,
+        snapshotKey: null,
+        createdAt: 3,
+      },
+    ];
+    const engine = {
+      getScopeInfo() {
+        return { channelKey: undefined };
+      },
+      extendContext() {},
+      setReplayEnabled() {},
+      getReplayClaimedChannelKeys() {
+        return new Set();
+      },
+      onBeforeSend() {},
+      onAfterSend() {},
+      onBoot() {},
+      requireStorage(): StorageProvider {
+        return {
+          sql: {
+            exec<TRow = unknown>() {
+              return {
+                toArray() {
+                  return rows as TRow[];
+                },
+                one() {
+                  return (rows[0] as TRow | undefined) ?? null;
+                },
+                raw() {
+                  return [];
+                },
+              };
+            },
+            transaction<T>(
+              fn: (tx: {
+                exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow>;
+              }) => T,
+            ) {
+              return fn(this);
+            },
+          },
+          kv: {
+            async get() {
+              return undefined;
+            },
+            async set() {},
+            async delete() {},
+            async list() {
+              return [];
+            },
+          },
+        };
+      },
+      sendReplay(...args: Parameters<EngineAccess['sendReplay']>) {
+        sent.push(args);
+      },
+      onProtocolMessage(
+        event: IncomingProtocolEvent,
+        handler: NonNullable<Parameters<EngineAccess['onProtocolMessage']>[1]>,
+      ) {
+        if (event === '_replay') protocolHandlers.push(handler);
+      },
+    } as unknown as Pick<
+      EngineAccess,
+      | 'extendContext'
+      | 'getScopeInfo'
+      | 'onAfterSend'
+      | 'onBeforeSend'
+      | 'onBoot'
+      | 'onProtocolMessage'
+      | 'requireStorage'
+      | 'setReplayEnabled'
+      | 'getReplayClaimedChannelKeys'
+      | 'sendReplay'
+    > as EngineAccess;
+
+    replay().__setup?.(engine);
+
+    const handler = protocolHandlers[0]!;
+    const ctx = {
+      id: 'c1',
+      [ENGINE_SCOPE_META]: {},
+      [ENGINE_INTERNAL_CONNECTION]: { channelMemberships: new Map() },
+    };
+
+    expect(await handler(ctx, { since: 0 })).toBe(true);
+
+    // Only the clean row reached sendReplay. The other two were skipped.
+    expect(sent).toHaveLength(1);
+    expect(sent[0]![3]).toBe('message');
+    expect(sent[0]![4]).toEqual({ text: 'clean-history', _seq: 1, _messageId: 'msg-1' });
+  });
+
   it('replay(false) returns a disabled primitive with no setup work', () => {
     const primitive = replay(false);
     expect(primitive.disabled).toBe(true);
