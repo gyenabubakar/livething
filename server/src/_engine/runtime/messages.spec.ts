@@ -965,6 +965,148 @@ describe('message runtime', () => {
     expect(event).toBe('_replay');
     expect(routing).toEqual({ _channel: 'admin', _channelScope: 'rooms' });
   });
+
+  it('drops non-string routing fields from a _subscribe error frame', async () => {
+    // A frame with non-string `_channel` and `_channelScope` must not
+    // carry those values onto the wire `_error`. The contract on the
+    // routing fields is "string only" — a number or an object would
+    // crash any client routing code that calls a string method on it.
+    const connection = createConnection('conn_1');
+    const handleRuntimeError = vi.fn();
+
+    const runtime = {
+      compiled: {
+        outgoing: new Map(),
+        incoming: new Map(),
+        requests: new Map(),
+        streams: new Map(),
+        preIntercepts: [],
+        postIntercepts: new Map(),
+        namespaces: new Map(),
+        channels: new Map(),
+        channelFamilies: new Map(),
+        scheduled: new Map(),
+        modules: [],
+        requires: {},
+        replayClaimedChannelKeys: new Set(),
+      },
+      connections: new Map([[connection.id, connection]]),
+      toConnectionInfo() {
+        return { id: connection.id };
+      },
+      activeStreams: new Map(),
+      protocolHandlers: new Map(),
+      incomingHooks: [],
+      moduleRuntimes: [],
+      errorHooks: [],
+      activityHooks: [],
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      requireTimers() {
+        return { setTimeout: () => undefined, clearTimeout() {} };
+      },
+      buildConnectionContext() {
+        return { id: connection.id };
+      },
+      sendProtocolMessage() {},
+      sendReplay() {},
+      persistAttachment() {},
+      setActiveConnectionId() {},
+      handleRuntimeError,
+      async handleValidationError() {},
+      async handleSubscribe() {
+        throw new Error('handleSubscribe-rejected');
+      },
+      async handleUnsubscribe() {},
+      waitUntil() {},
+      generateId() {
+        return 'id_1';
+      },
+    };
+
+    await processTextMessage(
+      runtime as unknown as Parameters<typeof processTextMessage>[0],
+      connection,
+      JSON.stringify({
+        event: '_subscribe',
+        payload: { _channel: 42, _channelScope: { evil: true }, _correlationId: 'req-1' },
+      }),
+    );
+
+    expect(handleRuntimeError).toHaveBeenCalledTimes(1);
+    const [, , event, routing] = handleRuntimeError.mock.calls[0]!;
+    expect(event).toBe('_subscribe');
+    // Only the string field survives; non-string fields are dropped.
+    expect(routing).toEqual({ _correlationId: 'req-1' });
+  });
+
+  it('drops non-string routing fields from an _unsubscribe error frame', async () => {
+    const connection = createConnection('conn_1');
+    const handleRuntimeError = vi.fn();
+
+    const runtime = {
+      compiled: {
+        outgoing: new Map(),
+        incoming: new Map(),
+        requests: new Map(),
+        streams: new Map(),
+        preIntercepts: [],
+        postIntercepts: new Map(),
+        namespaces: new Map(),
+        channels: new Map(),
+        channelFamilies: new Map(),
+        scheduled: new Map(),
+        modules: [],
+        requires: {},
+        replayClaimedChannelKeys: new Set(),
+      },
+      connections: new Map([[connection.id, connection]]),
+      toConnectionInfo() {
+        return { id: connection.id };
+      },
+      activeStreams: new Map(),
+      protocolHandlers: new Map(),
+      incomingHooks: [],
+      moduleRuntimes: [],
+      errorHooks: [],
+      activityHooks: [],
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      requireTimers() {
+        return { setTimeout: () => undefined, clearTimeout() {} };
+      },
+      buildConnectionContext() {
+        return { id: connection.id };
+      },
+      sendProtocolMessage() {},
+      sendReplay() {},
+      persistAttachment() {},
+      setActiveConnectionId() {},
+      handleRuntimeError,
+      async handleValidationError() {},
+      async handleSubscribe() {},
+      async handleUnsubscribe() {
+        throw new Error('handleUnsubscribe-rejected');
+      },
+      waitUntil() {},
+      generateId() {
+        return 'id_1';
+      },
+    };
+
+    await processTextMessage(
+      runtime as unknown as Parameters<typeof processTextMessage>[0],
+      connection,
+      JSON.stringify({
+        event: '_unsubscribe',
+        payload: { _channel: { id: 1 }, _channelScope: 99 },
+      }),
+    );
+
+    expect(handleRuntimeError).toHaveBeenCalledTimes(1);
+    const [, , event, routing] = handleRuntimeError.mock.calls[0]!;
+    expect(event).toBe('_unsubscribe');
+    // No string routing fields at all — routing is undefined.
+    expect(routing).toBeUndefined();
+  });
 });
 
 describe('getChannelMembers scope isolation', () => {

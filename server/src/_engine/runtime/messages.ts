@@ -698,17 +698,11 @@ export async function processTextMessage(
           parsed.payload as Record<string, unknown> | undefined,
         );
       } catch (error) {
-        const subscribePayload = parsed.payload as Record<string, unknown> | undefined;
-        const channel = subscribePayload?._channel;
-        const channelScope = subscribePayload?._channelScope;
-        const routing: Record<string, unknown> = {};
-        if (channel) routing._channel = channel;
-        if (channelScope) routing._channelScope = channelScope;
         await runtime.handleRuntimeError(
           connection,
           error,
           '_subscribe',
-          Object.keys(routing).length > 0 ? routing : undefined,
+          routingFromPayload(parsed.payload),
         );
       }
       return;
@@ -719,17 +713,11 @@ export async function processTextMessage(
           parsed.payload as Record<string, unknown> | undefined,
         );
       } catch (error) {
-        const unsubscribePayload = parsed.payload as Record<string, unknown> | undefined;
-        const channel = unsubscribePayload?._channel;
-        const channelScope = unsubscribePayload?._channelScope;
-        const routing: Record<string, unknown> = {};
-        if (channel) routing._channel = channel;
-        if (channelScope) routing._channelScope = channelScope;
         await runtime.handleRuntimeError(
           connection,
           error,
           '_unsubscribe',
-          Object.keys(routing).length > 0 ? routing : undefined,
+          routingFromPayload(parsed.payload),
         );
       }
       return;

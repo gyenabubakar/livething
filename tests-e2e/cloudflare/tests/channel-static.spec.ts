@@ -35,6 +35,42 @@ test.describe('channel-static', () => {
     );
   });
 
+  test('_subscribe with non-string _channel emits _error without forwarding the bad field', async ({
+    page,
+  }, testInfo) => {
+    // A buggy or hostile client might send `_channel: 42`. The error
+    // frame the server sends back must not carry that number on its
+    // routing fields — the wire contract on `_channel` is "string only".
+    await openPage(page, `test-${testInfo.testId}`);
+
+    const errors = await page.evaluate(async () => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      if (!ws) throw new Error('socket not exposed');
+      const got: { event: string; payload: Record<string, unknown> }[] = [];
+      const original = ws.onmessage;
+      ws.onmessage = (ev) => {
+        if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
+        if (typeof original === 'function') original.call(ws, ev);
+      };
+      ws.send(
+        JSON.stringify({
+          event: '_subscribe',
+          payload: { _channel: 42, _channelScope: { evil: true } },
+        }),
+      );
+      await new Promise((r) => setTimeout(r, 300));
+      ws.onmessage = original;
+      return got.filter((m) => m.event === '_error');
+    });
+
+    expect(errors.length).toBeGreaterThan(0);
+    const err = errors[0]!;
+    // The error reaches the client. Routing fields are stripped because
+    // the inputs were not strings.
+    expect(err.payload._channel).toBeUndefined();
+    expect(err.payload._channelScope).toBeUndefined();
+  });
+
   test('_unsubscribe when not subscribed emits _error channel-not-subscribed', async ({
     page,
   }, testInfo) => {
