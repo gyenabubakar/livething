@@ -110,14 +110,15 @@ export interface EngineAccess {
   onError(handler: (ctx: unknown, error: unknown, event?: string) => void | Promise<void>): void;
 
   /**
-   * Register an internal-primitive upgrade hook. Called once for each
-   * primitive that needs to inspect or contribute to the upgrade phase
-   * (e.g. attach a tenant tag from a request header).
+   * Register an internal-primitive upgrade hook. Each primitive's
+   * `__setup` may call this at most once — calling it twice from the
+   * same `__setup` throws (programming error in the primitive).
+   * Different primitives may each register their own hook; the engine
+   * runs them all and merges the results.
    *
-   * Multiple internal primitives may register hooks; their results are
-   * merged into a single decision. The user-facing builder hook
-   * registered via `setBuilderUpgradeHook` always runs last and its
-   * meta keys override any internal hook on conflict.
+   * The user-facing builder hook registered via
+   * `setBuilderUpgradeHook` always runs last and its meta keys
+   * override any internal hook on conflict.
    */
   onUpgrade(
     handler: (request: Request) =>

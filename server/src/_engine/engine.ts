@@ -369,6 +369,14 @@ export class Engine {
    * do not receive the full `Engine` instance directly.
    */
   private createEngineAccess(scope?: { channelKey?: string }): EngineAccessModule.EngineAccess {
+    // Per-primitive guard. Each primitive's __setup receives a fresh
+    // EngineAccess object, so this flag is local to one primitive's
+    // registration scope. A primitive that calls onUpgrade twice from
+    // the same __setup throws — that's a programming error in the
+    // primitive. Two different primitives each calling onUpgrade once
+    // remains fine; their hooks compose through the upgrade-phase
+    // merge (internal hooks first, builder hook last).
+    let onUpgradeCalled = false;
     return {
       installOnce: (key, install) => {
         if (this.installedFeatures.has(key)) return;
@@ -409,6 +417,12 @@ export class Engine {
         this.hooks.error.push(handler);
       },
       onUpgrade: (handler) => {
+        if (onUpgradeCalled) {
+          throw new Error(
+            '[wskit] A primitive may only register one onUpgrade hook in its __setup. Compose multiple upgrade-time concerns inside one handler.',
+          );
+        }
+        onUpgradeCalled = true;
         this.hooks.upgrade.push(handler);
       },
       setBuilderUpgradeHook: (handler) => {

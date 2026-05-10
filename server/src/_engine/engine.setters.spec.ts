@@ -116,6 +116,45 @@ describe('Engine.sendProtocolMessage — non-serializable payloads', () => {
   });
 });
 
+describe('Engine internal upgrade slot', () => {
+  it('throws when one primitive calls onUpgrade twice from the same __setup', () => {
+    // Per-primitive guard. Each primitive's __setup gets its own
+    // EngineAccess object, so the closure flag tracks "have I
+    // registered yet" within one primitive's setup scope.
+    const engine = makeEngine();
+    const access = (
+      engine as unknown as {
+        createEngineAccess(): { onUpgrade(h: () => unknown): void };
+      }
+    ).createEngineAccess();
+
+    access.onUpgrade(() => ({}));
+    expect(() => access.onUpgrade(() => ({}))).toThrow(/may only register one onUpgrade hook/);
+  });
+
+  it('lets two different primitives each register one onUpgrade hook', () => {
+    // Two fresh access objects (one per primitive). Each one tracks its
+    // own counter, so both can register without colliding.
+    const engine = makeEngine();
+    const accessA = (
+      engine as unknown as {
+        createEngineAccess(): { onUpgrade(h: () => unknown): void };
+      }
+    ).createEngineAccess();
+    const accessB = (
+      engine as unknown as {
+        createEngineAccess(): { onUpgrade(h: () => unknown): void };
+      }
+    ).createEngineAccess();
+
+    expect(() => accessA.onUpgrade(() => ({}))).not.toThrow();
+    expect(() => accessB.onUpgrade(() => ({}))).not.toThrow();
+
+    const hooks = (engine as unknown as { hooks: { upgrade: readonly unknown[] } }).hooks;
+    expect(hooks.upgrade).toHaveLength(2);
+  });
+});
+
 describe('Engine builder upgrade slot', () => {
   it('throws on the second setBuilderUpgradeHook registration', () => {
     // Defense-in-depth at the engine surface. The builder's
