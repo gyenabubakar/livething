@@ -356,6 +356,50 @@ describe('connection runtime', () => {
     expect(sent).toHaveLength(0);
   });
 
+  it('awaits handleConnectionClose for every connection before resolving', async () => {
+    // Pin F4: pre-fix the shutdown loop called descriptor.close and
+    // returned without awaiting the per-connection cleanup chain. The
+    // CF DO could be evicted before onDisconnect or _memberLeave
+    // fanned out. The fix awaits handleConnectionClose for each.
+    const order: string[] = [];
+    let resolveClose!: () => void;
+    const closeWait = new Promise<void>((r) => (resolveClose = r));
+
+    const connections = new Map([
+      [
+        'conn_slow',
+        {
+          id: 'conn_slow',
+          descriptor: { close() {} },
+        },
+      ],
+    ]) as Map<string, { id: string; descriptor: { close(): void } }>;
+
+    const shutdownPromise = handleShutdown({
+      connections: connections as never,
+      timers: { setTimeout: () => Symbol(), clearTimeout: () => undefined },
+      shutdownHooks: [],
+      moduleRuntimes: [],
+      createShutdownContext: () => ({}),
+      async cancelActiveStreamsForConnection() {},
+      async handleConnectionClose() {
+        order.push('close-start');
+        await closeWait;
+        order.push('close-end');
+      },
+      alarmState: { current: null },
+    });
+
+    // Give the microtasks a chance to enter handleConnectionClose.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(order).toEqual(['close-start']);
+
+    // Resolve close cleanup; shutdown should now finish.
+    resolveClose();
+    await shutdownPromise;
+    expect(order).toEqual(['close-start', 'close-end']);
+  });
+
   it('runs module onShutdown hooks during engine shutdown', async () => {
     const events: string[] = [];
     const closed: Array<{ code: number; reason: string }> = [];
@@ -402,10 +446,15 @@ describe('connection runtime', () => {
       async cancelActiveStreamsForConnection(connectionId: string) {
         events.push(`cancel:${connectionId}`);
       },
+      async handleConnectionClose(connection) {
+        events.push(`close:${connection.id}`);
+      },
       alarmState: { current: 'alarm-handle' },
     });
 
-    expect(events).toEqual(['server-shutdown', 'module-shutdown', 'cancel:conn_1']);
+    // handleConnectionClose is awaited per-connection so onDisconnect
+    // and channel cleanup land before shutdown returns.
+    expect(events).toEqual(['server-shutdown', 'module-shutdown', 'close:conn_1']);
     expect(closed).toEqual([{ code: 1001, reason: 'Server shutting down' }]);
     expect(cleared).toEqual(['alarm-handle']);
   });
@@ -466,8 +515,9 @@ describe('connection runtime', () => {
       createShutdownContext() {
         return { kind: 'shutdown-context' };
       },
-      async cancelActiveStreamsForConnection(connectionId: string) {
-        cancelled.push(connectionId);
+      async cancelActiveStreamsForConnection() {},
+      async handleConnectionClose(connection) {
+        cancelled.push(connection.id);
       },
       alarmState: { current: 'alarm-handle' },
       logger: {
@@ -477,8 +527,10 @@ describe('connection runtime', () => {
       },
     });
 
-    // Stream cancellation, socket close, and alarm clear all run despite throws.
-    expect(cancelled).toEqual(['conn_1', 'conn_2']);
+    // Per-connection close, socket close, and alarm clear all run despite throws.
+    // (Order between conn_1 and conn_2 close-callback invocations is not
+    // guaranteed because they run in parallel via Promise.all; check as a set.)
+    expect(new Set(cancelled)).toEqual(new Set(['conn_1', 'conn_2']));
     expect(closed).toEqual([
       { code: 1001, reason: 'Server shutting down' },
       { code: 1001, reason: 'Server shutting down' },
@@ -535,6 +587,48 @@ describe('connection runtime', () => {
     );
 
     expect(activeConnectionState.current).toBeUndefined();
+  });
+
+  it('handleConnectionClose is a no-op on a connection that was already cleaned up', async () => {
+    // Idempotency guard: handleShutdown drives close cleanup directly,
+    // then the adapter's natural webSocketClose callback may fire a
+    // second time for the same socket. Re-running the lifecycle would
+    // double-fire onDisconnect and rebroadcast _memberLeave to peers.
+    const events: string[] = [];
+    const wsKey = Symbol('ws');
+    const connection = {
+      id: 'c1',
+      wsKey,
+      descriptor: { send() {}, sendBinary() {}, close() {}, bufferedAmount: () => 0 },
+      meta: {},
+      tags: new Set<string>(),
+      channelMemberships: new Map(),
+      latency: null,
+      quality: 'good' as const,
+    };
+    // Connection is NOT in the connections map — simulating "already
+    // cleaned up by an earlier handleConnectionClose call".
+    const runtime = {
+      compiled: { channels: new Map(), channelFamilies: new Map() } as never,
+      connections: new Map() as never,
+      wsToConnectionId: new Map() as never,
+      timers: undefined,
+      async cancelActiveStreamsForConnection() {
+        events.push('cancel-streams');
+      },
+      buildConnectionContext: () => ({ id: connection.id }),
+      async runConnectionLifecycle() {
+        events.push('disconnect-hook');
+      },
+      async leaveChannel() {
+        events.push('leave-channel');
+      },
+    };
+
+    await handleConnectionClose(runtime as never, connection as never);
+
+    // Nothing ran — guard short-circuited at the top.
+    expect(events).toEqual([]);
   });
 
   it('handleConnectionClose continues channel-leave fan-out when a disconnect hook throws', async () => {

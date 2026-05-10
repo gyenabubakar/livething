@@ -2,6 +2,7 @@
 import {
   ChannelNotFound,
   ChannelNotSubscribed,
+  CloseCodes,
   InternalError,
   InvalidScopeMarkers,
   NamespaceNotFound,
@@ -832,6 +833,8 @@ export class Engine {
       cancelActiveStreamsForConnection: (connectionId) => {
         return this.cancelActiveStreamsForConnection(connectionId);
       },
+      handleConnectionClose: (connection) =>
+        this.handleConnectionClose(connection, CloseCodes.GOING_AWAY, 'Server shutting down'),
       alarmState: {
         get current() {
           return engine.alarmHandle;

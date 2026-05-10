@@ -206,6 +206,14 @@ export async function handleConnectionClose(
   },
   connection: EngineRuntimeTypes.RuntimeConnection,
 ): Promise<void> {
+  // Idempotency guard. handleShutdown drives this directly so the close
+  // cleanup completes before shutdown returns; the adapter's natural
+  // webSocketClose callback may then fire a second time for the same
+  // connection. Re-running the lifecycle would double-fire onDisconnect
+  // and rebroadcast _memberLeave to peers. Bail when the connection has
+  // already been removed from the live set.
+  if (!runtime.connections.has(connection.id)) return;
+
   await runtime.cancelActiveStreamsForConnection(connection.id);
 
   runtime.connections.delete(connection.id);
@@ -499,6 +507,7 @@ export async function handleShutdown(
     moduleRuntimes: readonly { onShutdown?: () => void | Promise<void> }[];
     createShutdownContext(): unknown;
     cancelActiveStreamsForConnection(connectionId: string): Promise<void>;
+    handleConnectionClose(connection: EngineRuntimeTypes.RuntimeConnection): Promise<void>;
     alarmState: { current: unknown | null };
     logger?: { error(message: string, fields?: Record<string, unknown>): void };
   },
@@ -527,13 +536,34 @@ export async function handleShutdown(
     }
   }
 
-  for (const connection of [...runtime.connections.values()]) {
-    await runtime.cancelActiveStreamsForConnection(connection.id);
-  }
+  // Snapshot the live set before closing — handleConnectionClose
+  // mutates the connections map, and the natural webSocketClose chain
+  // triggered by descriptor.close also enters this code path. Iterating
+  // a snapshot keeps the work deterministic.
+  const draining = [...runtime.connections.values()];
 
-  for (const connection of runtime.connections.values()) {
+  // Send the wire-level close frame first so clients see GOING_AWAY
+  // promptly, then drive the per-connection cleanup chain ourselves
+  // (onDisconnect hooks, _memberLeave broadcasts, channel leaves,
+  // heartbeat timer teardown). Awaiting the cleanup here is the whole
+  // point of the change: pre-fix the cleanup ran fire-and-forget on the
+  // adapter's webSocketClose callback and the DO could be evicted
+  // before any of it landed, leaving channel peers with ghost members.
+  for (const connection of draining) {
     connection.descriptor.close(CloseCodes.GOING_AWAY, 'Server shutting down');
   }
+  await Promise.all(
+    draining.map(async (connection) => {
+      try {
+        await runtime.handleConnectionClose(connection);
+      } catch (error) {
+        runtime.logger?.error('[wskit] handleConnectionClose threw during shutdown', {
+          connectionId: connection.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }),
+  );
 
   if (runtime.alarmState.current !== null && runtime.timers) {
     runtime.timers.clearTimeout(runtime.alarmState.current);
