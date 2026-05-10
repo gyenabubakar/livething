@@ -132,6 +132,46 @@ describe('handleUpgrade', () => {
     const result = await handleUpgrade({ upgradeHooks: [] }, new Request('https://example.com/'));
     expect(result).toEqual({});
   });
+
+  it('shallow-merges meta across hooks (later hooks override per-key)', async () => {
+    const result = await handleUpgrade(
+      {
+        upgradeHooks: [
+          async () => ({ meta: { userId: 'u_42', region: 'us' } }),
+          async () => ({ meta: { region: 'eu', tenant: 't_1' } }),
+        ],
+      },
+      new Request('https://example.com/'),
+    );
+
+    expect(result.meta).toEqual({ userId: 'u_42', region: 'eu', tenant: 't_1' });
+  });
+
+  it('unions tags across hooks', async () => {
+    const result = await handleUpgrade(
+      {
+        upgradeHooks: [
+          async () => ({ tags: ['authed', 'beta'] }),
+          async () => ({ tags: ['beta', 'eu-west'] }),
+        ],
+      },
+      new Request('https://example.com/'),
+    );
+
+    expect(new Set(result.tags ?? [])).toEqual(new Set(['authed', 'beta', 'eu-west']));
+  });
+
+  it('returns undefined meta and tags when no hook contributes either', async () => {
+    const result = await handleUpgrade(
+      {
+        upgradeHooks: [async () => ({}), async () => ({})],
+      },
+      new Request('https://example.com/'),
+    );
+
+    expect(result.meta).toBeUndefined();
+    expect(result.tags).toBeUndefined();
+  });
 });
 
 // -------------------------------------------------------------------
