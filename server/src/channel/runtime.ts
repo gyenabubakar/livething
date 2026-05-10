@@ -265,10 +265,6 @@ export async function subscribeConnection(
     throw ChannelNotFound();
   }
 
-  // Pass the scope so the _memberJoin syncs only include connections that
-  // joined this same scope, not connections in a different family that
-  // happen to use the same concrete channel name.
-  const existingMembers = getChannelMembersByScope(runtime, scope.channelName, scope.channelScope);
   const ctx = runtime.buildConnectionContext(connection, scope);
   const data = stripProtocolFields(payload);
 
@@ -288,8 +284,25 @@ export async function subscribeConnection(
     await hook.handler(ctx, validatedData);
   }
 
+  // Commit membership before snapshotting the existing member list. Two
+  // concurrent subscribes with an awaited onBeforeSubscribe hook would
+  // otherwise both snapshot empty (neither has committed yet), then
+  // both commit, and each connection sees an empty initial sync — A's
+  // view excludes B and B's view excludes A. Committing first means
+  // every newly subscribed connection sees the same membership view
+  // that was committed when its addChannelMembership ran.
   addChannelMembership(connection, scope.channelName, scope.channelScope);
   runtime.persistAttachment(connection);
+
+  // Pass the scope so the _memberJoin syncs only include connections
+  // that joined this same scope, not connections in a different family
+  // that happen to use the same concrete channel name. Filter self out
+  // so the client doesn't get a redundant _memberJoin for itself.
+  const existingMembers = getChannelMembersByScope(
+    runtime,
+    scope.channelName,
+    scope.channelScope,
+  ).filter((member) => member.id !== connection.id);
 
   // Confirm the subscribe and run the member-sync protocol BEFORE any
   // user-provided onSubscribe side effects. The onBeforeSubscribe loop

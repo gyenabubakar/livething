@@ -104,6 +104,13 @@ const roomChannel = base.channel(scope('room', /^room:.+$/), (ch) =>
         await new Promise((r) => setTimeout(r, 20));
         throw new Error('async-banned-user may not subscribe');
       }
+      // Slow but successful gate. Used by the concurrent-subscribe race
+      // test: two clients reach this hook at the same time, both await,
+      // then both commit. Pre-fix each snapshotted the empty member list
+      // before the await and missed the other in its initial sync.
+      if (ctx.meta.username.startsWith('slow-user')) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
     })
     .onSubscribe((ctx) => {
       ctx.channel.broadcast('room-message', {

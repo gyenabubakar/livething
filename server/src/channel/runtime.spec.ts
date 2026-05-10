@@ -349,6 +349,71 @@ describe('channel runtime', () => {
     ).toBe(true);
   });
 
+  it('two concurrent subscribes behind an awaited onBeforeSubscribe each see the other in the initial sync', async () => {
+    const connA = createConnection('conn_A', { who: 'a' });
+    const connB = createConnection('conn_B', { who: 'b' });
+    const { runtime, connections, protocol, broadcasts } = createRuntime();
+    connections.set(connA.id, connA);
+    connections.set(connB.id, connB);
+
+    // Awaited hook releases A first, then B. Both call subscribeConnection
+    // concurrently — pre-fix both snapshotted the empty member list before
+    // the await, so neither saw the other in its initial sync.
+    let resolveA!: () => void;
+    let resolveB!: () => void;
+    const aReady = new Promise<void>((r) => (resolveA = r));
+    const bReady = new Promise<void>((r) => (resolveB = r));
+
+    const hook = vi.fn(async (ctx: { id: string }) => {
+      if (ctx.id === 'conn_A') await aReady;
+      else await bReady;
+    });
+
+    const runtimeWithHook = {
+      ...runtime,
+      beforeSubscribeHooks: new Map([['rooms', [{ handler: hook, validator: undefined }]]]),
+    };
+
+    const subA = subscribeConnection(runtimeWithHook, connA, {
+      _channel: 'room:general',
+      _channelScope: 'rooms',
+    });
+    const subB = subscribeConnection(runtimeWithHook, connB, {
+      _channel: 'room:general',
+      _channelScope: 'rooms',
+    });
+
+    // Release A first so it commits, then B so it commits and snapshots A.
+    resolveA();
+    await subA;
+    resolveB();
+    await subB;
+
+    // Initial sync to A: empty (A committed first, no peers yet).
+    const aSyncs = protocol
+      .filter((m) => m.connectionId === 'conn_A' && m.event === '_memberJoin')
+      .map((m) => m.payload.connectionId);
+    expect(aSyncs).toEqual([]);
+
+    // Initial sync to B: includes A (committed before B snapshotted).
+    const bSyncs = protocol
+      .filter((m) => m.connectionId === 'conn_B' && m.event === '_memberJoin')
+      .map((m) => m.payload.connectionId);
+    expect(bSyncs).toEqual(['conn_A']);
+
+    // Broadcasts: A broadcast _memberJoin{A} (no recipients yet),
+    // B broadcast _memberJoin{B} (A receives via the broadcast path).
+    const broadcastJoiners = broadcasts
+      .filter((b) => b.event === '_memberJoin')
+      .map((b) => (b.payload as { connectionId: string }).connectionId);
+    expect(broadcastJoiners).toEqual(['conn_A', 'conn_B']);
+
+    // Self-filter: neither connection received a _memberJoin frame for
+    // its own connectionId via the initial sync path.
+    expect(aSyncs).not.toContain('conn_A');
+    expect(bSyncs).not.toContain('conn_B');
+  });
+
   it('sends _subscribeOk before running onSubscribe side effects', async () => {
     const connection = createConnection('conn_1');
     const { runtime, connections, protocol } = createRuntime();

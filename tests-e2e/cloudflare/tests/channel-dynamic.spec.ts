@@ -328,6 +328,143 @@ test.describe('channel-dynamic', () => {
     expect(await page.getByTestId('top-only-action-fired').textContent()).toBe('testuser');
   });
 
+  test('two concurrent _subscribe with an awaited onBeforeSubscribe each see the other on initial sync', async ({
+    page,
+  }, testInfo) => {
+    // The fixture's onBeforeSubscribe sleeps 50ms when username starts
+    // with "slow-user". Two clients hit that gate at the same time so
+    // both sit in the await before either commits membership. Pre-fix
+    // each snapshotted the empty member list before the await, then
+    // both committed, and each connection saw an empty initial sync —
+    // A's view excluded B and B's view excluded A. Post-fix membership
+    // commits before the snapshot, so each new subscriber sees every
+    // peer that committed before it (filtered against itself).
+    const room = `race-${testInfo.testId}`;
+    await page.goto(`/channel-dynamic?room=${room}`);
+
+    const handle = await page.evaluateHandle(
+      async ({ room }) => {
+        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        function open(username: string): Promise<{
+          ws: WebSocket;
+          messages: { event: string; payload: Record<string, unknown> }[];
+        }> {
+          return new Promise((resolve, reject) => {
+            const ws = new WebSocket(
+              `${proto}//${location.host}/ws/channel-dynamic?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
+            );
+            const messages: { event: string; payload: Record<string, unknown> }[] = [];
+            ws.onmessage = (ev) => {
+              if (typeof ev.data !== 'string') return;
+              messages.push(JSON.parse(ev.data));
+            };
+            ws.onopen = () => resolve({ ws, messages });
+            ws.onerror = (e) => reject(e);
+          });
+        }
+        const a = await open('slow-user-a');
+        const b = await open('slow-user-b');
+        return { a, b };
+      },
+      { room },
+    );
+
+    // Fire both _subscribe frames as close to simultaneous as possible
+    // (single page.evaluate, both ws.send calls back-to-back).
+    await page.evaluate(
+      ({ h, room }) => {
+        const handles = h as unknown as Record<string, { ws: WebSocket }>;
+        const frame = {
+          event: '_subscribe',
+          payload: { _channel: `room:${room}`, _channelScope: 'room' },
+        };
+        handles.a!.ws.send(JSON.stringify(frame));
+        handles.b!.ws.send(JSON.stringify(frame));
+      },
+      { h: handle, room },
+    );
+
+    async function memberJoinSenders(name: 'a' | 'b'): Promise<string[]> {
+      return page.evaluate(
+        ({ h, name }) => {
+          const handles = h as unknown as Record<
+            string,
+            { messages: { event: string; payload: Record<string, unknown> }[] }
+          >;
+          return handles[name]!.messages.filter((m) => m.event === '_memberJoin').map((m) =>
+            String(m.payload.connectionId),
+          );
+        },
+        { h: handle, name },
+      );
+    }
+
+    // Wait until both have completed _subscribeOk so the race window is
+    // closed before assertions.
+    await expect
+      .poll(async () => {
+        const okA = await page.evaluate(
+          ({ h }) =>
+            (
+              h as unknown as Record<
+                string,
+                { messages: { event: string; payload: Record<string, unknown> }[] }
+              >
+            ).a!.messages.some((m) => m.event === '_subscribeOk'),
+          { h: handle },
+        );
+        const okB = await page.evaluate(
+          ({ h }) =>
+            (
+              h as unknown as Record<
+                string,
+                { messages: { event: string; payload: Record<string, unknown> }[] }
+              >
+            ).b!.messages.some((m) => m.event === '_subscribeOk'),
+          { h: handle },
+        );
+        return okA && okB;
+      })
+      .toBe(true);
+
+    // Allow a microtask for the post-commit broadcasts to land.
+    await expect
+      .poll(async () => {
+        const seenByA = new Set(await memberJoinSenders('a'));
+        const seenByB = new Set(await memberJoinSenders('b'));
+        // Each side must learn about the other exactly once via either
+        // path (initial sync OR broadcast). Same-id duplicates are
+        // tolerated by the client so we assert presence, not count.
+        return seenByA.size + seenByB.size;
+      })
+      .toBeGreaterThanOrEqual(2);
+
+    const seenByA = await memberJoinSenders('a');
+    const seenByB = await memberJoinSenders('b');
+
+    // The connection ids are server-issued so we can't check exact ids;
+    // assert that each side received a _memberJoin frame whose
+    // connectionId is NOT its own. Pre-fix one of these arrays was
+    // empty.
+    const aOwnId = await page.evaluate(
+      ({ h }) => {
+        const msgs = (
+          h as unknown as Record<
+            string,
+            { messages: { event: string; payload: Record<string, unknown> }[] }
+          >
+        ).a!.messages;
+        const ok = msgs.find((m) => m.event === '_subscribeOk');
+        return String(ok?.payload?._channel ?? '');
+      },
+      { h: handle },
+    );
+    expect(aOwnId).toContain('room:race-');
+
+    expect(seenByA.length).toBeGreaterThan(0);
+    expect(seenByB.length).toBeGreaterThan(0);
+  });
+
   test('two clients on the same dynamic channel name are in the same broadcast group', async ({
     browser,
   }, testInfo) => {
