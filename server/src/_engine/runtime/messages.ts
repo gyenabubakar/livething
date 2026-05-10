@@ -386,11 +386,11 @@ export async function dispatchIncoming(
   rawPayload: unknown,
   attempt = 0,
 ): Promise<void> {
-  if (attempt === 0 && runtime.incomingDedupCap > 0) {
-    if (isDuplicateIncoming(connection, rawPayload, runtime.incomingDedupCap)) {
-      return;
-    }
-  }
+  // Dedup is handled at the top of `processTextMessage` so it covers
+  // incoming events, requests, and stream nudges with one budget.
+  // Defer retries re-enter this function directly with attempt > 0 and
+  // are intentionally not deduped — the engine is replaying its own
+  // queued work, not the client's resend.
 
   let scope: EngineRuntimeTypes.ResolvedScope;
   try {
@@ -684,6 +684,18 @@ export async function processTextMessage(
   // on those would throw and crash the adapter's message handler. Drop them.
   if (!parsed || typeof parsed !== 'object' || typeof parsed.event !== 'string') {
     runtime.logger.warn('Invalid message shape dropped');
+    return;
+  }
+
+  // Dedup at the gateway so every wire frame carrying `_messageId` shares
+  // one idempotency budget — incoming events, requests, and stream nudges.
+  // The Defer retry path re-enters `dispatchIncoming` directly without
+  // coming through here, so engine-internal retries naturally skip the
+  // check.
+  if (
+    runtime.incomingDedupCap > 0 &&
+    isDuplicateIncoming(connection, parsed.payload, runtime.incomingDedupCap)
+  ) {
     return;
   }
 

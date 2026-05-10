@@ -1,6 +1,15 @@
-import { dispatchIncoming } from '~/_engine/runtime/messages.ts';
+import { processTextMessage } from '~/_engine/runtime/messages.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
+
+async function send(
+  runtime: ReturnType<typeof makeRuntime>,
+  connection: RuntimeConnection,
+  event: string,
+  payload?: unknown,
+) {
+  await processTextMessage(runtime, connection, JSON.stringify({ event, payload }));
+}
 
 function makeConnection(id = 'c1'): RuntimeConnection {
   return {
@@ -33,6 +42,7 @@ function makeRuntime(cap: number) {
     activeStreams: new Map(),
     protocolHandlers: new Map(),
     incomingHooks: [incomingHook],
+    activityHooks: [],
     errorHooks: [],
     incomingDedupCap: cap,
     connections: new Map(),
@@ -50,7 +60,7 @@ function makeRuntime(cap: number) {
     async handleSubscribe() {},
     async handleUnsubscribe() {},
     incomingHook,
-  } as unknown as Parameters<typeof dispatchIncoming>[0] & {
+  } as unknown as Parameters<typeof processTextMessage>[0] & {
     incomingHook: ReturnType<typeof vi.fn>;
   };
 }
@@ -60,8 +70,8 @@ describe('incoming dedup', () => {
     const connection = makeConnection();
     const runtime = makeRuntime(16);
 
-    await dispatchIncoming(runtime, connection, 'echo', { _messageId: 'abc' });
-    await dispatchIncoming(runtime, connection, 'echo', { _messageId: 'abc' });
+    await send(runtime, connection, 'echo', { _messageId: 'abc' });
+    await send(runtime, connection, 'echo', { _messageId: 'abc' });
 
     expect(runtime.incomingHook).toHaveBeenCalledTimes(1);
   });
@@ -70,8 +80,8 @@ describe('incoming dedup', () => {
     const connection = makeConnection();
     const runtime = makeRuntime(16);
 
-    await dispatchIncoming(runtime, connection, 'echo', { text: 'hi' });
-    await dispatchIncoming(runtime, connection, 'echo', { text: 'hi' });
+    await send(runtime, connection, 'echo', { text: 'hi' });
+    await send(runtime, connection, 'echo', { text: 'hi' });
 
     expect(runtime.incomingHook).toHaveBeenCalledTimes(2);
   });
@@ -80,11 +90,11 @@ describe('incoming dedup', () => {
     const connection = makeConnection();
     const runtime = makeRuntime(2);
 
-    await dispatchIncoming(runtime, connection, 'echo', { _messageId: 'a' });
-    await dispatchIncoming(runtime, connection, 'echo', { _messageId: 'b' });
-    await dispatchIncoming(runtime, connection, 'echo', { _messageId: 'c' });
+    await send(runtime, connection, 'echo', { _messageId: 'a' });
+    await send(runtime, connection, 'echo', { _messageId: 'b' });
+    await send(runtime, connection, 'echo', { _messageId: 'c' });
     // 'a' was evicted by 'c', so resending 'a' should dispatch again
-    await dispatchIncoming(runtime, connection, 'echo', { _messageId: 'a' });
+    await send(runtime, connection, 'echo', { _messageId: 'a' });
 
     expect(runtime.incomingHook).toHaveBeenCalledTimes(4);
   });
@@ -93,10 +103,10 @@ describe('incoming dedup', () => {
     const connection = makeConnection();
     const runtime = makeRuntime(2);
 
-    await dispatchIncoming(runtime, connection, 'echo', { _messageId: 'a' });
-    await dispatchIncoming(runtime, connection, 'echo', { _messageId: 'b' });
+    await send(runtime, connection, 'echo', { _messageId: 'a' });
+    await send(runtime, connection, 'echo', { _messageId: 'b' });
     // 'b' is still in the window; resending must be dropped
-    await dispatchIncoming(runtime, connection, 'echo', { _messageId: 'b' });
+    await send(runtime, connection, 'echo', { _messageId: 'b' });
 
     expect(runtime.incomingHook).toHaveBeenCalledTimes(2);
   });
@@ -106,21 +116,8 @@ describe('incoming dedup', () => {
     const c2 = makeConnection('c2');
     const runtime = makeRuntime(16);
 
-    await dispatchIncoming(runtime, c1, 'echo', { _messageId: 'shared' });
-    await dispatchIncoming(runtime, c2, 'echo', { _messageId: 'shared' });
-
-    expect(runtime.incomingHook).toHaveBeenCalledTimes(2);
-  });
-
-  it('bypasses dedup check when attempt > 0 (re-dispatch path)', async () => {
-    const connection = makeConnection();
-    const runtime = makeRuntime(16);
-
-    await dispatchIncoming(runtime, connection, 'echo', { _messageId: 'retry-me' });
-    // Second call with attempt=0 — same id, should be dropped.
-    await dispatchIncoming(runtime, connection, 'echo', { _messageId: 'retry-me' }, 0);
-    // Third call with attempt=1 — dedup is skipped, should dispatch again.
-    await dispatchIncoming(runtime, connection, 'echo', { _messageId: 'retry-me' }, 1);
+    await send(runtime, c1, 'echo', { _messageId: 'shared' });
+    await send(runtime, c2, 'echo', { _messageId: 'shared' });
 
     expect(runtime.incomingHook).toHaveBeenCalledTimes(2);
   });
@@ -130,13 +127,13 @@ describe('incoming dedup', () => {
     // Cap of 256 mirrors the default set by the dedup() primitive.
     const runtime = makeRuntime(256);
 
-    await dispatchIncoming(runtime, connection, 'echo', { _messageId: 'first' });
+    await send(runtime, connection, 'echo', { _messageId: 'first' });
     // Fill the ring so 'first' is evicted.
     for (let i = 0; i < 256; i += 1) {
-      await dispatchIncoming(runtime, connection, 'echo', { _messageId: `id-${i}` });
+      await send(runtime, connection, 'echo', { _messageId: `id-${i}` });
     }
     // After 256 more entries, 'first' was evicted — resending it must dispatch again.
-    await dispatchIncoming(runtime, connection, 'echo', { _messageId: 'first' });
+    await send(runtime, connection, 'echo', { _messageId: 'first' });
 
     expect(runtime.incomingHook).toHaveBeenCalledTimes(1 + 256 + 1);
   });
@@ -145,10 +142,32 @@ describe('incoming dedup', () => {
     const connection = makeConnection();
     const runtime = makeRuntime(0);
 
-    await dispatchIncoming(runtime, connection, 'echo', { _messageId: 'abc' });
-    await dispatchIncoming(runtime, connection, 'echo', { _messageId: 'abc' });
+    await send(runtime, connection, 'echo', { _messageId: 'abc' });
+    await send(runtime, connection, 'echo', { _messageId: 'abc' });
 
     expect(runtime.incomingHook).toHaveBeenCalledTimes(2);
     expect(connection.seenIncomingIds).toBeUndefined();
+  });
+
+  it('drops duplicate stream nudge frames before they reach the active stream buffer', async () => {
+    const connection = makeConnection();
+    const runtime = makeRuntime(16);
+    // Set up a fake active stream so the nudge path can buffer.
+    const nudges: Array<{ event: string; payload: unknown }> = [];
+    runtime.activeStreams.set('s-1', {
+      id: 's-1',
+      connectionId: connection.id,
+      closed: false,
+      nudges,
+      nudgeValidators: new Map([
+        // Pass-through validator — the frame is valid as long as it parses.
+        ['speed-up', { '~standard': { validate: (v: unknown) => ({ value: v }) } }],
+      ]),
+    } as unknown as Parameters<typeof runtime.activeStreams.set>[1]);
+
+    await send(runtime, connection, 'speed-up', { _streamId: 's-1', _messageId: 'n-1', factor: 2 });
+    await send(runtime, connection, 'speed-up', { _streamId: 's-1', _messageId: 'n-1', factor: 2 });
+
+    expect(nudges).toHaveLength(1);
   });
 });

@@ -233,4 +233,59 @@ test.describe('stream-nudges', () => {
     await page.getByTestId('pause').click();
     await expect(page.getByTestId('stream-end')).toHaveText('yes');
   });
+
+  test('duplicate-_messageId nudge frames are coalesced before the active stream buffer', async ({
+    page,
+  }, testInfo) => {
+    // Pre-fix the dedup ring lived inside dispatchIncoming, so stream
+    // nudge frames (handled by bufferStreamNudge upstream) bypassed the
+    // check entirely. A flaky client that re-sent the same nudge frame
+    // pushed two entries onto activeStream.nudges and the generator saw
+    // the same nudge twice. The fix moves dedup to the top of
+    // processTextMessage so all frames with `_messageId` share one
+    // budget — incoming events, requests, and stream nudges.
+    await openPage(page, `test-${testInfo.testId}`);
+
+    await page.getByTestId('start-long').click();
+    await expect(async () => {
+      const id = (await page.getByTestId('stream-id').textContent()) ?? '';
+      expect(id.length).toBeGreaterThan(0);
+    }).toPass({ timeout: 3_000 });
+
+    const streamId = (await page.getByTestId('stream-id').textContent()) ?? '';
+
+    // Send two speed-up frames with the SAME _messageId, then end the
+    // stream with pause so the test has a deterministic stop signal.
+    await page.evaluate(
+      ({ streamId }) => {
+        const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+        if (!ws) throw new Error('no __ws on window');
+        ws.send(
+          JSON.stringify({
+            event: 'speed-up',
+            payload: { _streamId: streamId, _messageId: 'dup-id', factor: 2 },
+          }),
+        );
+        ws.send(
+          JSON.stringify({
+            event: 'speed-up',
+            payload: { _streamId: streamId, _messageId: 'dup-id', factor: 2 },
+          }),
+        );
+      },
+      { streamId },
+    );
+
+    await page.getByTestId('pause').click();
+    await expect(page.getByTestId('stream-end')).toHaveText('yes');
+
+    // Every nudge-saw event lists the events drained for one iteration,
+    // joined with '|' across iterations. Across the whole run the
+    // 'speed-up' event must appear at most once — the duplicate frame
+    // must have been dropped by the gateway dedup before reaching the
+    // active stream buffer. Pre-fix this would be 'speed-up,speed-up'.
+    const drained = (await page.getByTestId('nudge-saw-events').textContent()) ?? '';
+    const speedUpCount = drained.split(/[|,]/).filter((e) => e === 'speed-up').length;
+    expect(speedUpCount).toBe(1);
+  });
 });

@@ -1,4 +1,5 @@
 import { event, server } from '@wskit/server';
+import { withDedup } from '@wskit/server/dedup';
 import { withLifecycle } from '@wskit/server/lifecycle';
 import { withStreams } from '@wskit/server/streams';
 import * as v from 'valibot';
@@ -19,9 +20,17 @@ const SpeedUpNudge = event('speed-up', v.object({ factor: v.number() }));
 const PauseTopLevel = event('pause', v.object({ leak: v.optional(v.string()) }));
 const PauseTopLevelFired = event('pause-top-level-fired', v.object({ leak: v.string() }));
 
-const base = withStreams(withLifecycle(server<Env>('stream-nudges')))
+// Server reports how many nudges were drained per generator iteration.
+// Used by the dedup pin: duplicate-_messageId nudges must be coalesced
+// before they reach the active stream buffer, so the count is one even
+// if the client sent the frame twice.
+const NudgeSaw = event('nudge-saw', v.object({ events: v.array(v.string()) }));
+
+const base = withStreams(withLifecycle(withDedup(server<Env>('stream-nudges'))))
+  .dedup()
   .onUpgrade((request) => requireUsername(request))
   .outgoing(PauseTopLevelFired)
+  .outgoing(NudgeSaw)
   .incoming(PauseTopLevel, (ctx, payload) => {
     ctx.send('pause-top-level-fired', { leak: payload.leak ?? '<empty>' });
   });
@@ -36,6 +45,9 @@ const nudgeStream = base.stream(StartNudgeStream, (s) =>
       let delay = 50;
       for (const word of words) {
         const nudges = ctx.nudges(yield { token: word + ' ' });
+        if (nudges.length > 0) {
+          ctx.send('nudge-saw', { events: nudges.map((n) => n.event) });
+        }
         if (nudges.some((n) => n.event === 'pause')) return;
         const speedUp = nudges.find((n) => n.event === 'speed-up');
         if (speedUp && 'factor' in speedUp.payload) {

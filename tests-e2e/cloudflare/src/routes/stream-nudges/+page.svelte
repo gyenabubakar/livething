@@ -8,6 +8,7 @@
 	let pauseTopLevelLeak = $state('');
 	let lastError = $state('');
 	let lastErrorStreamId = $state('');
+	let nudgeSawEvents = $state('');
 
 	function reset() {
 		lastStreamId = '';
@@ -16,6 +17,7 @@
 		pauseTopLevelLeak = '';
 		lastError = '';
 		lastErrorStreamId = '';
+		nudgeSawEvents = '';
 	}
 
 	function connect() {
@@ -51,6 +53,12 @@
 				case 'pause-top-level-fired':
 					pauseTopLevelLeak = String(data.payload?.leak ?? '');
 					break;
+				case 'nudge-saw': {
+					const events = Array.isArray(data.payload?.events) ? data.payload.events : [];
+					// Append per iteration so the test can assert across multiple drains.
+					nudgeSawEvents += (nudgeSawEvents ? '|' : '') + events.join(',');
+					break;
+				}
 				case '_error':
 					lastError = String(data.payload?.code ?? '');
 					lastErrorStreamId = String(data.payload?._streamId ?? '');
@@ -106,3 +114,4 @@
 <span data-testid="pause-top-level-leak">{pauseTopLevelLeak}</span>
 <span data-testid="last-error">{lastError}</span>
 <span data-testid="last-error-stream-id">{lastErrorStreamId}</span>
+<span data-testid="nudge-saw-events">{nudgeSawEvents}</span>
