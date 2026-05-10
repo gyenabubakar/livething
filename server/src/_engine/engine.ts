@@ -70,6 +70,7 @@ function createRegisteredHooks(): EngineRuntimeTypes.RegisteredEngineHooks {
     shutdown: [],
     error: [],
     upgrade: [],
+    builderUpgrade: undefined,
     binary: [],
     validationError: [],
     alarm: [],
@@ -409,6 +410,14 @@ export class Engine {
       },
       onUpgrade: (handler) => {
         this.hooks.upgrade.push(handler);
+      },
+      setBuilderUpgradeHook: (handler) => {
+        if (this.hooks.builderUpgrade !== undefined) {
+          throw new Error(
+            '[wskit] The builder onUpgrade hook is already set. Compose multiple upgrade-time concerns inside one .onUpgrade(...) handler.',
+          );
+        }
+        this.hooks.builderUpgrade = handler;
       },
       onBinary: (handler) => {
         this.hooks.binary.push(handler);
@@ -814,6 +823,7 @@ export class Engine {
     return EngineConnectionRuntime.handleUpgrade(
       {
         upgradeHooks: this.hooks.upgrade,
+        builderUpgradeHook: this.hooks.builderUpgrade,
       },
       request,
     );

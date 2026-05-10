@@ -448,19 +448,47 @@ export async function handleUpgrade(
           meta?: Record<string, unknown>;
           tags?: readonly string[];
         }>)[];
+    builderUpgradeHook?:
+      | ((request: Request) =>
+          | { meta?: Record<string, unknown>; tags?: readonly string[] }
+          | Promise<{
+              meta?: Record<string, unknown>;
+              tags?: readonly string[];
+            }>)
+      | undefined;
   },
   request: Request,
 ): Promise<EngineAdapterTypes.UpgradeDecision> {
-  if (runtime.upgradeHooks.length === 0) {
+  if (runtime.upgradeHooks.length === 0 && !runtime.builderUpgradeHook) {
     return {};
   }
 
   try {
-    let result: { meta?: Record<string, unknown>; tags?: readonly string[] } = {};
-    for (const hook of runtime.upgradeHooks) {
-      result = await hook(request);
+    // Run internal-primitive hooks first, then the user-facing builder
+    // hook last. Each result's meta is shallow-merged into the running
+    // total; tags are unioned. Because the builder hook runs last, its
+    // meta keys override any internal hook on conflict — the user's
+    // code is the boss; internal primitives provide defaults.
+    let mergedMeta: Record<string, unknown> | undefined;
+    const mergedTags = new Set<string>();
+    function apply(result: { meta?: Record<string, unknown>; tags?: readonly string[] }): void {
+      if (result.meta) {
+        mergedMeta = mergedMeta ? { ...mergedMeta, ...result.meta } : { ...result.meta };
+      }
+      if (result.tags) {
+        for (const tag of result.tags) mergedTags.add(tag);
+      }
     }
-    return { meta: result.meta, tags: result.tags };
+    for (const hook of runtime.upgradeHooks) {
+      apply((await hook(request)) ?? {});
+    }
+    if (runtime.builderUpgradeHook) {
+      apply((await runtime.builderUpgradeHook(request)) ?? {});
+    }
+    return {
+      meta: mergedMeta,
+      tags: mergedTags.size > 0 ? [...mergedTags] : undefined,
+    };
   } catch (error) {
     if (
       error &&

@@ -290,7 +290,7 @@ export const onError = Object.assign(
  * ```
  */
 export const onUpgrade = Object.assign(
-  makeLifecycle('onUpgrade', ON_UPGRADE_KEY, (e, h) => e.onUpgrade(h)) as (
+  makeLifecycle('onUpgrade', ON_UPGRADE_KEY, (e, h) => e.setBuilderUpgradeHook(h)) as (
     handler: UpgradeHandler,
   ) => UpgradePrimitive,
   { __key: ON_UPGRADE_KEY },

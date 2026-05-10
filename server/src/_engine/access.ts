@@ -110,12 +110,31 @@ export interface EngineAccess {
   onError(handler: (ctx: unknown, error: unknown, event?: string) => void | Promise<void>): void;
 
   /**
-   * Decide whether an upgrade request should be accepted.
+   * Register an internal-primitive upgrade hook. Called once for each
+   * primitive that needs to inspect or contribute to the upgrade phase
+   * (e.g. attach a tenant tag from a request header).
    *
-   * Use this to attach tags or metadata, or to reject the upgrade earlier than
-   * normal connection setup.
+   * Multiple internal primitives may register hooks; their results are
+   * merged into a single decision. The user-facing builder hook
+   * registered via `setBuilderUpgradeHook` always runs last and its
+   * meta keys override any internal hook on conflict.
    */
   onUpgrade(
+    handler: (request: Request) =>
+      | { meta?: Record<string, unknown>; tags?: readonly string[] }
+      | Promise<{
+          meta?: Record<string, unknown>;
+          tags?: readonly string[];
+        }>,
+  ): void;
+
+  /**
+   * Register the user-facing builder upgrade hook. Throws if called more
+   * than once. The lifecycle primitive routes `.onUpgrade(...)` through
+   * this slot so the user's hook always wins on key conflict against
+   * any internal-primitive hooks registered via `onUpgrade(...)`.
+   */
+  setBuilderUpgradeHook(
     handler: (request: Request) =>
       | { meta?: Record<string, unknown>; tags?: readonly string[] }
       | Promise<{

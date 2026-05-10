@@ -100,13 +100,32 @@ export interface RegisteredEngineHooks {
   /** Observes unrecognized runtime errors before the client gets `_error`. */
   error: ((ctx: any, error: unknown, event?: string) => void | Promise<void>)[];
 
-  /** Runs before the WebSocket handshake — for auth and connection limiting. */
+  /**
+   * Internal-primitive upgrade hooks. Run before the user-facing builder
+   * hook so the user's hook always wins on meta key conflict. Tag results
+   * union across all hooks (no conflict possible).
+   */
   upgrade: ((request: Request) =>
     | { meta?: Record<string, unknown>; tags?: readonly string[] }
     | Promise<{
         meta?: Record<string, unknown>;
         tags?: readonly string[];
       }>)[];
+
+  /**
+   * The single user-facing `.onUpgrade(...)` hook from the builder.
+   * Runs last in the upgrade phase; its meta keys override any internal
+   * hook on conflict. The lifecycle primitive registers through
+   * `setBuilderUpgradeHook`, which throws if called twice.
+   */
+  builderUpgrade:
+    | ((request: Request) =>
+        | { meta?: Record<string, unknown>; tags?: readonly string[] }
+        | Promise<{
+            meta?: Record<string, unknown>;
+            tags?: readonly string[];
+          }>)
+    | undefined;
 
   /** Handles raw binary frames that bypass the JSON pipeline. */
   binary: ((ctx: any, data: ArrayBuffer) => void | Promise<void>)[];

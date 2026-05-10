@@ -116,6 +116,25 @@ describe('Engine.sendProtocolMessage — non-serializable payloads', () => {
   });
 });
 
+describe('Engine builder upgrade slot', () => {
+  it('throws on the second setBuilderUpgradeHook registration', () => {
+    // Defense-in-depth at the engine surface. The builder's
+    // duplicate-identity check already throws if the user calls
+    // `.onUpgrade(...)` twice on the builder; this guard covers any
+    // path that bypasses the builder (e.g. an internal primitive
+    // routing through setBuilderUpgradeHook).
+    const engine = makeEngine();
+    const access = (
+      engine as unknown as {
+        createEngineAccess(): { setBuilderUpgradeHook(h: () => unknown): void };
+      }
+    ).createEngineAccess();
+
+    access.setBuilderUpgradeHook(() => ({}));
+    expect(() => access.setBuilderUpgradeHook(() => ({}))).toThrow(/already set/);
+  });
+});
+
 describe('Engine.getCompiled', () => {
   it('returns the compiled handler definition built at construction', () => {
     const engine = makeEngine();

@@ -132,6 +132,66 @@ describe('handleUpgrade', () => {
     const result = await handleUpgrade({ upgradeHooks: [] }, new Request('https://example.com/'));
     expect(result).toEqual({});
   });
+
+  it('builder upgrade hook overrides internal hooks on meta key conflict', async () => {
+    const result = await handleUpgrade(
+      {
+        upgradeHooks: [
+          async () => ({ meta: { region: 'us', tenant: 't_internal' } }),
+          async () => ({ meta: { region: 'eu' } }),
+        ],
+        builderUpgradeHook: async () => ({
+          meta: { region: 'ap', user_id: 'u_42' },
+        }),
+      },
+      new Request('https://example.com/'),
+    );
+
+    // builder wins on `region` even though two internal hooks set it;
+    // builder also adds `user_id`; internal-only `tenant` survives.
+    expect(result.meta).toEqual({ region: 'ap', tenant: 't_internal', user_id: 'u_42' });
+  });
+
+  it('tags from internal hooks and the builder hook union together', async () => {
+    const result = await handleUpgrade(
+      {
+        upgradeHooks: [
+          async () => ({ tags: ['authed', 'beta'] }),
+          async () => ({ tags: ['beta', 'eu-west'] }),
+        ],
+        builderUpgradeHook: async () => ({ tags: ['user-tag'] }),
+      },
+      new Request('https://example.com/'),
+    );
+
+    expect(new Set(result.tags ?? [])).toEqual(new Set(['authed', 'beta', 'eu-west', 'user-tag']));
+  });
+
+  it('builder hook runs alone when no internal hooks are registered', async () => {
+    const result = await handleUpgrade(
+      {
+        upgradeHooks: [],
+        builderUpgradeHook: async () => ({ meta: { user_id: 'u_42' }, tags: ['authed'] }),
+      },
+      new Request('https://example.com/'),
+    );
+
+    expect(result.meta).toEqual({ user_id: 'u_42' });
+    expect(result.tags).toEqual(['authed']);
+  });
+
+  it('returns undefined meta and tags when no hook contributes either', async () => {
+    const result = await handleUpgrade(
+      {
+        upgradeHooks: [async () => ({})],
+        builderUpgradeHook: async () => ({}),
+      },
+      new Request('https://example.com/'),
+    );
+
+    expect(result.meta).toBeUndefined();
+    expect(result.tags).toBeUndefined();
+  });
 });
 
 // -------------------------------------------------------------------
