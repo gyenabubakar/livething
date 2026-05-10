@@ -107,4 +107,44 @@ describe('scheduled', () => {
       expect(() => scheduled('tick', (t) => t.retry(false).run(handler))).not.toThrow();
     });
   });
+
+  describe('.data() + .every() rejection', () => {
+    function handler() {}
+
+    it('rejects .every(...) called after .data(...)', () => {
+      expect(() =>
+        scheduled('cleanup', (t) => {
+          // The TS overload also blocks this; cast through unknown so the
+          // runtime guard can be exercised at the .every(...) call site.
+          const builderWithData = t.data(v.object({ batchSize: v.number() })) as unknown as {
+            every(ms: number): { run(h: typeof handler): unknown };
+          };
+          return builderWithData.every(60_000).run(handler) as never;
+        }),
+      ).toThrow(/cannot combine \.every\(\.\.\.\) with \.data\(\.\.\.\)/);
+    });
+
+    it('rejects .data(...) called after .every(...)', () => {
+      expect(() =>
+        scheduled('cleanup', (t) => {
+          // The TS overload disallows this combination; cast through
+          // unknown so the runtime guard can be exercised.
+          const builderWithEvery = t.every(60_000) as unknown as {
+            data(s: ReturnType<typeof v.object>): { run(h: typeof handler): unknown };
+          };
+          return builderWithEvery.data(v.object({ batchSize: v.number() })).run(handler) as never;
+        }),
+      ).toThrow(/cannot combine \.data\(\.\.\.\) with \.every\(\.\.\.\)/);
+    });
+
+    it('still accepts .data(...) without .every(...)', () => {
+      expect(() =>
+        scheduled('cleanup', (t) => t.data(v.object({ batchSize: v.number() })).run(handler)),
+      ).not.toThrow();
+    });
+
+    it('still accepts .every(...) without .data(...)', () => {
+      expect(() => scheduled('tick', (t) => t.every(60_000).run(handler))).not.toThrow();
+    });
+  });
 });

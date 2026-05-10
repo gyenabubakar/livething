@@ -101,10 +101,23 @@ export class ScheduledBuilder<
     this._taskId = taskId;
   }
 
-  /** Declare the payload schema required when the task is enqueued. */
+  /**
+   * Declare the payload schema required when the task is enqueued.
+   *
+   * Cannot be combined with `.every(...)`. A recurring task is auto-seeded
+   * by the engine and there is no caller to supply the payload, so a
+   * schema that requires fields would crash at boot. Define recurring
+   * tasks without `.data(...)` and read the inputs the task needs from
+   * persistent state instead.
+   */
   data<TNextData>(
     dataSchema: Validator<TNextData>,
   ): ScheduledBuilder<TTaskId, TCtx, TNextData, true, THasRun> {
+    if (this._options.every !== undefined) {
+      throw new Error(
+        `[wskit] scheduled("${this._taskId}") cannot combine .data(...) with .every(...). Recurring tasks have no caller to supply the payload.`,
+      );
+    }
     this._dataSchema = dataSchema as unknown as Validator<TData>;
     return this as unknown as ScheduledBuilder<TTaskId, TCtx, TNextData, true, THasRun>;
   }
@@ -127,6 +140,11 @@ export class ScheduledBuilder<
     if (!Number.isInteger(everyMs) || everyMs <= 0) {
       throw new Error(
         `[wskit] .every(ms) requires a positive finite integer (milliseconds). Got ${String(everyMs)}.`,
+      );
+    }
+    if (this._dataSchema !== undefined) {
+      throw new Error(
+        `[wskit] scheduled("${this._taskId}") cannot combine .every(...) with .data(...). Recurring tasks have no caller to supply the payload.`,
       );
     }
     this._options = { ...this._options, every: everyMs };
@@ -177,6 +195,15 @@ export class ScheduledBuilder<
   _build(
     this: ScheduledBuilder<TTaskId, TCtx, TData, THasData, true>,
   ): ScheduledPrimitive<TTaskId, TData, THasData, TCtx> {
+    // Defense-in-depth guard. The .data() and .every() entry points
+    // already throw when combined, but a primitive that bypasses the
+    // builder must not slip a recurring + dataSchema task into the
+    // engine. The recurring seed has no caller to supply a payload.
+    if (this._dataSchema !== undefined && this._options.every !== undefined) {
+      throw new Error(
+        `[wskit] scheduled("${this._taskId}") cannot combine .data(...) with .every(...). Recurring tasks have no caller to supply the payload.`,
+      );
+    }
     return {
       __wskit: 'scheduled',
       __kind: 'infrastructure',

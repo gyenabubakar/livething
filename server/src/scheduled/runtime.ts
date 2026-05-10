@@ -211,15 +211,15 @@ function ensureRecurringRuns(runtime: ScheduledRuntimeAccess): void {
     );
 
     if (!hasRecurringRun) {
-      const data = task.hasData
-        ? validateValue(task.dataSchema, undefined, task.taskId)
-        : undefined;
+      // Recurring tasks cannot declare .data(...) — the builder rejects
+      // the combination at registration. The seed therefore always has
+      // an undefined payload.
       const id = runtime.generateId('task');
       scheduledRuns.set(id, {
         id,
         taskId: task.taskId,
         time: now + every,
-        data,
+        data: undefined,
         every,
         attempts: 0,
         recurring: true,
@@ -382,15 +382,15 @@ export async function handleScheduledAlarm(runtime: ScheduledRuntimeAccess): Pro
       // recurring run alive even after one of its attempts dead-letters.
       const task = runtime.getScheduledTask(run.taskId);
       if (!task) continue;
-      const data = task.hasData
-        ? validateValue(task.dataSchema, undefined, task.taskId)
-        : undefined;
+      // Recurring tasks cannot declare .data(...) — the builder rejects
+      // the combination at registration. The re-queue always has an
+      // undefined payload.
       const id = runtime.generateId('task');
       scheduledRuns.set(id, {
         id,
         taskId: run.taskId,
         time: now + run.every,
-        data,
+        data: undefined,
         every: run.every,
         attempts: 0,
         recurring: true,
