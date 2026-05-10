@@ -2,11 +2,13 @@
 import {
   ChannelNotFound,
   ChannelNotSubscribed,
+  InternalError,
   InvalidScopeMarkers,
   NamespaceNotFound,
   ValidationFailed,
 } from '@wskit/core';
 import * as EngineCompile from '~/_engine/compile/compile.ts';
+import { PROTOCOL_PAYLOAD_FIELDS } from '~/_engine/compile/utils.ts';
 import * as EngineContexts from '~/_engine/contexts/contexts.ts';
 import * as EngineDeps from '~/_engine/engine.deps.ts';
 import * as EngineConnectionRuntime from '~/_engine/runtime/connection.ts';
@@ -660,6 +662,12 @@ export class Engine {
   /**
    * Send an internal protocol message without any outgoing validation or
    * decoration.
+   *
+   * Wraps `JSON.stringify` so a non-serializable payload field (BigInt,
+   * circular reference, function, symbol) cannot crash the dispatcher.
+   * On serialization failure, log and send a sanitized `_error` frame
+   * carrying just the routing markers so the client's request/stream
+   * correlation still resolves.
    * @internal
    */
   sendProtocolMessage(
@@ -667,7 +675,28 @@ export class Engine {
     event: string,
     payload: Record<string, unknown>,
   ): void {
-    connection.descriptor.send(JSON.stringify({ event, payload }));
+    let wire: string;
+    try {
+      wire = JSON.stringify({ event, payload });
+    } catch (error) {
+      this.logger.error('[wskit] Failed to serialize protocol frame; sending fallback _error', {
+        event,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      const fallbackPayload: Record<string, unknown> = { code: InternalError.code };
+      for (const key of PROTOCOL_PAYLOAD_FIELDS) {
+        if (key in payload) fallbackPayload[key] = payload[key];
+      }
+      try {
+        wire = JSON.stringify({ event: '_error', payload: fallbackPayload });
+      } catch (fallbackError) {
+        this.logger.error('[wskit] Fallback _error frame also failed to serialize; dropping', {
+          error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
+        });
+        return;
+      }
+    }
+    connection.descriptor.send(wire);
   }
 
   /**

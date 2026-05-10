@@ -50,6 +50,72 @@ describe('Engine.setLogger', () => {
   });
 });
 
+describe('Engine.sendProtocolMessage — non-serializable payloads', () => {
+  function fakeConnection() {
+    const sent: string[] = [];
+    return {
+      sent,
+      conn: {
+        descriptor: { send: (frame: string) => sent.push(frame) },
+      } as any,
+    };
+  }
+
+  it('sends a fallback _error frame when the payload contains a BigInt', () => {
+    const engine = makeEngine();
+    const error = vi.fn();
+    engine.setLogger({ info: () => {}, warn: () => {}, error });
+    const { sent, conn } = fakeConnection();
+
+    engine.sendProtocolMessage(conn, '_error', {
+      code: 'billing-failed',
+      detail: { amount: 1n },
+      _messageId: 'm-1',
+      _channel: 'room',
+    });
+
+    expect(sent).toHaveLength(1);
+    const parsed = JSON.parse(sent[0] as string);
+    expect(parsed.event).toBe('_error');
+    expect(parsed.payload.code).toBe('internal-error');
+    expect(parsed.payload._messageId).toBe('m-1');
+    expect(parsed.payload._channel).toBe('room');
+    expect('detail' in parsed.payload).toBe(false);
+    expect(error).toHaveBeenCalled();
+  });
+
+  it('sends a fallback _error when the payload has a circular reference', () => {
+    const engine = makeEngine();
+    engine.setLogger({ info: () => {}, warn: () => {}, error: () => {} });
+    const { sent, conn } = fakeConnection();
+    const circular: Record<string, unknown> = { code: 'oops' };
+    circular.self = circular;
+
+    engine.sendProtocolMessage(conn, '_error', {
+      code: 'oops',
+      detail: circular,
+      _streamId: 's-9',
+    });
+
+    expect(sent).toHaveLength(1);
+    const parsed = JSON.parse(sent[0] as string);
+    expect(parsed.payload.code).toBe('internal-error');
+    expect(parsed.payload._streamId).toBe('s-9');
+  });
+
+  it('does not throw out of the dispatcher when serialization fails', () => {
+    const engine = makeEngine();
+    engine.setLogger({ info: () => {}, warn: () => {}, error: () => {} });
+    const { conn } = fakeConnection();
+    expect(() =>
+      engine.sendProtocolMessage(conn, '_error', {
+        code: 'bad',
+        detail: { n: 1n },
+      }),
+    ).not.toThrow();
+  });
+});
+
 describe('Engine.getCompiled', () => {
   it('returns the compiled handler definition built at construction', () => {
     const engine = makeEngine();

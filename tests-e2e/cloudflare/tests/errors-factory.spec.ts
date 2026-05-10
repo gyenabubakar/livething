@@ -19,4 +19,16 @@ test.describe('errors-factory', () => {
     await expect(page.getByTestId('error-result')).toContainText('forbidden');
     await expect(page.getByTestId('error-result')).toContainText('Access denied');
   });
+
+  test('non-serializable error detail (BigInt) is not crashed; client gets internal-error', async ({
+    page,
+  }) => {
+    await page.getByTestId('trigger-bigint').click();
+    await expect(page.getByTestId('error-result')).toContainText('internal-error');
+
+    // Sanity: the connection is still alive after the failed serialization.
+    // A normal trigger right after must still deliver its error frame.
+    await page.getByTestId('trigger-not-found').click();
+    await expect(page.getByTestId('error-result')).toContainText('not-found');
+  });
 });

@@ -40,5 +40,6 @@
 <button data-testid="trigger-forbidden" onclick={() => send('trigger-forbidden')}>Trigger forbidden</button>
 <button data-testid="trigger-simple" onclick={() => send('trigger-simple')}>Trigger simple</button>
 <button data-testid="trigger-unregistered" onclick={() => send('trigger-unregistered')}>Trigger unregistered</button>
+<button data-testid="trigger-bigint" onclick={() => send('trigger-bigint')}>Trigger bigint</button>
 <span data-testid="status">{status}</span>
 <span data-testid="error-result">{errorResult}</span>
