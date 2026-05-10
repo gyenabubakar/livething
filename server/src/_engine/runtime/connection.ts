@@ -456,27 +456,11 @@ export async function handleUpgrade(
   }
 
   try {
-    // Merge across hooks instead of overwriting. The engine surface
-    // accepts a list of upgrade hooks; the lifecycle primitive
-    // de-duplicates calls from the public builder, but internal
-    // primitives can still register their own. Shallow-merge `meta`
-    // (later hooks override per-key) and union `tags` so a composition
-    // of hooks does not silently drop earlier results.
-    let mergedMeta: Record<string, unknown> | undefined;
-    const mergedTags = new Set<string>();
+    let result: { meta?: Record<string, unknown>; tags?: readonly string[] } = {};
     for (const hook of runtime.upgradeHooks) {
-      const result = (await hook(request)) ?? {};
-      if (result.meta) {
-        mergedMeta = mergedMeta ? { ...mergedMeta, ...result.meta } : { ...result.meta };
-      }
-      if (result.tags) {
-        for (const tag of result.tags) mergedTags.add(tag);
-      }
+      result = await hook(request);
     }
-    return {
-      meta: mergedMeta,
-      tags: mergedTags.size > 0 ? [...mergedTags] : undefined,
-    };
+    return { meta: result.meta, tags: result.tags };
   } catch (error) {
     if (
       error &&
