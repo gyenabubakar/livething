@@ -124,6 +124,7 @@ export function stripProtocolFields(payload: unknown): unknown {
   const source = payload as Record<string, unknown>;
   const cleaned: Record<string, unknown> = {};
   for (const key of Object.keys(source)) {
+    if (key === '__proto__') continue;
     if (PROTOCOL_PAYLOAD_FIELDS.has(key)) continue;
     cleaned[key] = source[key];
   }

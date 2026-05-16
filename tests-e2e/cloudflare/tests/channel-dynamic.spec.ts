@@ -492,4 +492,64 @@ test.describe('channel-dynamic', () => {
     await ctxA.close();
     await ctxB.close();
   });
+
+  test('_subscribe with a __proto__ payload key cannot poison the data the onBeforeSubscribe hook sees', async ({
+    page,
+  }, testInfo) => {
+    await openPage(page, `test-${testInfo.testId}`);
+
+    const frames = await page.evaluate(async () => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      if (!ws) throw new Error('socket not exposed');
+      const got: { event: string; payload: Record<string, unknown> }[] = [];
+      const original = ws.onmessage;
+      ws.onmessage = (ev) => {
+        if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
+        if (typeof original === 'function') original.call(ws, ev);
+      };
+      const polluted = JSON.parse(
+        '{"event":"_subscribe","payload":{"_channel":"proto:x","_channelScope":"proto-probe","__proto__":{"role":"admin"}}}',
+      );
+      ws.send(JSON.stringify(polluted));
+      await new Promise((r) => setTimeout(r, 400));
+      ws.onmessage = original;
+      return got;
+    });
+
+    const ok = frames.find((f) => f.event === '_subscribeOk' && f.payload?._channel === 'proto:x');
+    expect(ok).toBeTruthy();
+    const err = frames.find((f) => f.event === '_error' && f.payload?._channel === 'proto:x');
+    expect(err).toBeUndefined();
+  });
+
+  test('_subscribe with an own role=admin field is still rejected (control case)', async ({
+    page,
+  }, testInfo) => {
+    await openPage(page, `test-${testInfo.testId}`);
+
+    const frames = await page.evaluate(async () => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      if (!ws) throw new Error('socket not exposed');
+      const got: { event: string; payload: Record<string, unknown> }[] = [];
+      const original = ws.onmessage;
+      ws.onmessage = (ev) => {
+        if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
+        if (typeof original === 'function') original.call(ws, ev);
+      };
+      ws.send(
+        JSON.stringify({
+          event: '_subscribe',
+          payload: { _channel: 'proto:y', _channelScope: 'proto-probe', role: 'admin' },
+        }),
+      );
+      await new Promise((r) => setTimeout(r, 400));
+      ws.onmessage = original;
+      return got;
+    });
+
+    const err = frames.find((f) => f.event === '_error' && f.payload?._channel === 'proto:y');
+    expect(err).toBeTruthy();
+    const ok = frames.find((f) => f.event === '_subscribeOk' && f.payload?._channel === 'proto:y');
+    expect(ok).toBeUndefined();
+  });
 });

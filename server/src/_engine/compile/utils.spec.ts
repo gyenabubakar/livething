@@ -112,4 +112,16 @@ describe('stripProtocolFields', () => {
     expect(cleaned).not.toBe(original);
     expect(original._channel).toBe('foo');
   });
+
+  it('does not let an attacker poison the cleaned object via a __proto__ key', () => {
+    const malicious = JSON.parse('{"__proto__":{"role":"admin","isAdmin":true},"msg":"hi"}');
+    expect(Object.prototype.hasOwnProperty.call(malicious, '__proto__')).toBe(true);
+
+    const cleaned = stripProtocolFields(malicious) as Record<string, unknown>;
+
+    expect(Object.getPrototypeOf(cleaned)).toBe(Object.prototype);
+    expect((cleaned as { role?: string }).role).toBeUndefined();
+    expect((cleaned as { isAdmin?: boolean }).isAdmin).toBeUndefined();
+    expect(cleaned).toEqual({ msg: 'hi' });
+  });
 });

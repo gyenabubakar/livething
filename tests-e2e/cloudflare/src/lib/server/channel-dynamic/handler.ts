@@ -130,4 +130,13 @@ const roomChannel = base.channel(scope('room', /^room:.+$/), (ch) =>
     }),
 );
 
-export const channelDynamicHandler = base.use(roomChannel).build();
+const protoProbeChannel = base.channel(scope('proto-probe', /^proto:.+$/), (ch) =>
+  ch.onBeforeSubscribe((_ctx, data) => {
+    const d = data as { role?: unknown } | undefined;
+    if (d?.role === 'admin') {
+      throw new Error('admin role on subscribe payload is forbidden');
+    }
+  }),
+);
+
+export const channelDynamicHandler = base.use(roomChannel).use(protoProbeChannel).build();
