@@ -1,7 +1,8 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { InternalError, rethrowIfConfigError, ValidationFailed } from '@wskit/core';
+import { rethrowIfConfigError, ValidationFailed } from '@wskit/core';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
+import { DeferExhausted } from '~/errors/errors.ts';
 import type { AnyGenerate } from '~/_engine/compile/types.ts';
 import type { ActiveStream, ResolvedScope, RuntimeConnection } from '~/_engine/runtime/types.ts';
 
@@ -18,6 +19,7 @@ interface StreamRuntime {
   logger: {
     warn(message: string, data?: Record<string, unknown>): void;
   };
+  errorHooks: readonly ((ctx: unknown, error: unknown, event?: string) => void | Promise<void>)[];
   buildConnectionContext(
     connection: RuntimeConnection,
     scope?: ResolvedScope,
@@ -324,7 +326,11 @@ export async function runStream(
           streamId,
         },
       );
-      runtime.sendProtocolMessage(connection, '_error', { code: InternalError.code, ...routing });
+      const exhausted = DeferExhausted({ event, payload, retries: 0 });
+      for (const hook of runtime.errorHooks) {
+        await hook(runtime.buildConnectionContext(connection, scope), exhausted, event);
+      }
+      runtime.sendProtocolMessage(connection, '_error', { code: DeferExhausted.code, ...routing });
     } else {
       await runtime.handleRuntimeError(connection, streamError, event, routing);
     }

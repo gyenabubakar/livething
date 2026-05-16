@@ -92,4 +92,12 @@ test.describe('errors-control-flow', () => {
     await page.getByTestId('chat-always-defer').click();
     await expect(page.getByTestId('defer-exhausted')).toContainText('chat-always-defer:retries=');
   });
+
+  test('Defer thrown inside a stream fires onError and sends _error with code defer-exhausted', async ({
+    page,
+  }) => {
+    await page.getByTestId('start-defer-stream').click();
+    await expect(page.getByTestId('defer-exhausted')).toContainText('start-defer-stream:retries=0');
+    await expect(page.getByTestId('stream-error')).toContainText('defer-exhausted:');
+  });
 });

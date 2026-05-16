@@ -77,6 +77,11 @@ function createStreamRuntime() {
       setActiveConnectionId: vi.fn(),
       persistAttachment: vi.fn(),
       logger: { warn: vi.fn() },
+      errorHooks: [] as readonly ((
+        ctx: unknown,
+        error: unknown,
+        event?: string,
+      ) => void | Promise<void>)[],
       async handleRuntimeError() {},
       async handleValidationError() {},
     },
@@ -372,7 +377,7 @@ describe('stream/runtime', () => {
     expect(broadcasts).toHaveLength(0);
   });
 
-  it('Defer thrown from a stream handler logs a warning and sends _error directly, skipping onError hooks', async () => {
+  it('Defer thrown from a stream handler logs a warning, fires onError hooks, and sends _error with defer-exhausted code', async () => {
     const { runtime, protocolMessages } = createStreamRuntime();
     const connection = createConnection();
     const handleRuntimeError = vi.fn();
@@ -399,7 +404,7 @@ describe('stream/runtime', () => {
     expect((runtime.logger.warn as ReturnType<typeof vi.fn>).mock.calls[0]![0]).toMatch(/Defer/);
     const errMsg = protocolMessages.find((m) => m.event === '_error');
     expect(errMsg).toBeDefined();
-    expect(errMsg!.payload.code).toBe('internal-error');
+    expect(errMsg!.payload.code).toBe('defer-exhausted');
     expect(errMsg!.payload._streamId).toBe('stream_1');
   });
 
@@ -685,5 +690,49 @@ describe('stream/runtime', () => {
     expect(idsObservedFromBody).toEqual(['c1', 'c1']);
     // After the stream ends, the bracket has restored undefined.
     expect(activeId).toBeUndefined();
+  });
+
+  it('Defer thrown inside a stream fires onError hooks and sends an _error with code defer-exhausted', async () => {
+    const { runtime, protocolMessages } = createStreamRuntime();
+    const connection = createConnection();
+
+    const hookCalls: { error: unknown; event?: string }[] = [];
+    runtime.errorHooks = [
+      (_ctx, error, event) => {
+        hookCalls.push({ error, event });
+      },
+    ];
+
+    const stream = {
+      stream: { nudges: [], broadcast: false },
+      generator: async function* () {
+        throw {
+          __wskit: 'defer',
+          delay: 100,
+        };
+        yield { token: 'never' };
+      },
+    };
+
+    await runStream(
+      runtime as Parameters<typeof runStream>[0],
+      connection,
+      {},
+      'feed',
+      stream as never,
+      { seed: 1 },
+    );
+
+    expect(hookCalls).toHaveLength(1);
+    expect(hookCalls[0]!.event).toBe('feed');
+    const err = hookCalls[0]!.error as { code?: string; detail?: { retries?: number } };
+    expect(err.code).toBe('defer-exhausted');
+    expect(err.detail?.retries).toBe(0);
+
+    const wire = protocolMessages.find((m) => m.event === '_error');
+    expect(wire).toBeDefined();
+    expect(wire!.payload.code).toBe('defer-exhausted');
+    expect(wire!.payload._streamId).toBe('stream_1');
+    expect(wire!.payload.detail).toBeUndefined();
   });
 });

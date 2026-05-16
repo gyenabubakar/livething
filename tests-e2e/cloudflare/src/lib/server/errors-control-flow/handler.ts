@@ -10,6 +10,7 @@ import {
 } from '@wskit/server/errors';
 import { withIntercept } from '@wskit/server/intercept';
 import { withLifecycle } from '@wskit/server/lifecycle';
+import { withStreams } from '@wskit/server/streams';
 import * as v from 'valibot';
 import { requireUsername } from '../_shared/upgrade.ts';
 
@@ -35,8 +36,11 @@ const ForceDisconnect = event('force-disconnect', v.object({}));
 
 const ChatAlwaysDefer = event('chat-always-defer', v.object({}));
 
+const StartDeferStream = event('start-defer-stream', v.object({}));
+const StreamToken = v.object({ index: v.number() });
+
 const base = withChannels(
-  withIntercept(withErrors(withLifecycle(server<Env>('errors-control-flow')))),
+  withStreams(withIntercept(withErrors(withLifecycle(server<Env>('errors-control-flow'))))),
 )
   .outgoing(Echoed)
   .outgoing(BlockReply)
@@ -93,4 +97,11 @@ const chatChannel = base.channel('chat', (c) =>
   }),
 );
 
-export const errorsControlFlowHandler = base.use(chatChannel).build();
+const deferStream = base.stream(StartDeferStream, (s) =>
+  s.chunk(StreamToken).generate(async function* () {
+    throw Defer(25);
+    yield { index: 0 };
+  }),
+);
+
+export const errorsControlFlowHandler = base.use(chatChannel).use(deferStream).build();

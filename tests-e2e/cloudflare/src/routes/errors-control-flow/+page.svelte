@@ -8,6 +8,7 @@
 	let deferExhausted = $state('');
 	let validationError = $state('');
 	let chatSubscribed = $state(false);
+	let streamError = $state('');
 
 	function connect() {
 		if (ws) return;
@@ -46,6 +47,11 @@
 				case '_subscribeOk':
 					chatSubscribed = true;
 					break;
+				case '_error':
+					if (data.payload?._streamId) {
+						streamError = `${data.payload.code}:${data.payload._streamId}`;
+					}
+					break;
 			}
 		};
 	}
@@ -81,6 +87,9 @@
 >
 	Chat always defer
 </button>
+<button data-testid="start-defer-stream" onclick={() => send('start-defer-stream')}>
+	Start defer stream
+</button>
 
 <span data-testid="status">{status}</span>
 <span data-testid="echo-result">{echoResult}</span>
@@ -89,3 +98,4 @@
 <span data-testid="defer-exhausted">{deferExhausted}</span>
 <span data-testid="validation-error">{validationError}</span>
 <span data-testid="chat-subscribed">{chatSubscribed ? 'yes' : 'no'}</span>
+<span data-testid="stream-error">{streamError}</span>
