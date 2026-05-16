@@ -68,11 +68,12 @@ describe('createSql', () => {
     const { state } = fakeState();
     const sql = createSql(state as unknown as DurableObjectState);
 
-    const result = sql.exec('SELECT * FROM t WHERE id = ?', 1);
+    const arrayResult = sql.exec('SELECT * FROM t WHERE id = ?', 1);
     expect(state.storage.sql.exec).toHaveBeenCalledWith('SELECT * FROM t WHERE id = ?', 1);
-    expect(result.toArray()).toEqual([{ id: 1 }, { id: 2 }]);
-    const raw = result.raw();
-    expect(Array.isArray(raw)).toBe(true);
+    expect(arrayResult.toArray()).toEqual([{ id: 1 }, { id: 2 }]);
+
+    const rawResult = sql.exec('SELECT * FROM t WHERE id = ?', 1);
+    expect(Array.isArray(rawResult.raw())).toBe(true);
   });
 
   it('one() returns the row when the cursor has exactly one row', () => {

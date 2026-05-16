@@ -6,6 +6,7 @@
 	let oneCount = $state<number | null>(null);
 	let oneEmptyCount = $state<number | null>(null);
 	let rawRows = $state<string>('');
+	let reuseError = $state<string>('');
 
 	function connect() {
 		if (ws) return;
@@ -37,6 +38,9 @@
 			if (data.event === 'sql-raw-result') {
 				rawRows = JSON.stringify(data.payload?.rows ?? []);
 			}
+			if (data.event === 'sql-reuse-result') {
+				reuseError = data.payload?.error ?? '';
+			}
 		};
 	}
 
@@ -55,6 +59,9 @@
 	function sqlOneEmpty() {
 		ws?.send(JSON.stringify({ event: 'sql-one-empty-probe', payload: {} }));
 	}
+	function sqlReuse() {
+		ws?.send(JSON.stringify({ event: 'sql-reuse-probe', payload: {} }));
+	}
 </script>
 
 <h1>ctx-sql feature</h1>
@@ -68,9 +75,11 @@
 <button data-testid="sql-one" onclick={sqlOne}>SqlOne probe</button>
 <button data-testid="sql-one-empty" onclick={sqlOneEmpty}>SqlOne empty probe</button>
 <button data-testid="sql-raw" onclick={sqlRaw}>SqlRaw probe</button>
+<button data-testid="sql-reuse" onclick={sqlReuse}>SqlReuse probe</button>
 
 <span data-testid="status">{status}</span>
 <span data-testid="note-titles">{titles.join(',')}</span>
 <span data-testid="one-count">{oneCount ?? ''}</span>
 <span data-testid="one-empty-count">{oneEmptyCount ?? ''}</span>
 <span data-testid="raw-rows">{rawRows}</span>
+<span data-testid="reuse-error">{reuseError}</span>

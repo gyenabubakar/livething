@@ -92,6 +92,75 @@ describe('createKv', () => {
   });
 });
 
+describe('createSql.exec — one-shot result contract', () => {
+  function fakeCursor(rows: Record<string, unknown>[] = []) {
+    const iter = rows[Symbol.iterator]();
+    return {
+      toArray: () => {
+        const remaining: Record<string, unknown>[] = [];
+        for (let next = iter.next(); !next.done; next = iter.next()) {
+          remaining.push(next.value);
+        }
+        return remaining;
+      },
+      [Symbol.iterator]: () => iter,
+      raw: () => {
+        const remaining: unknown[][] = [];
+        for (let next = iter.next(); !next.done; next = iter.next()) {
+          remaining.push(Object.values(next.value));
+        }
+        return remaining;
+      },
+    };
+  }
+
+  function stateWithCursor(rows: Record<string, unknown>[]) {
+    return {
+      storage: {
+        sql: {
+          exec: vi.fn(() => fakeCursor(rows)),
+        },
+      },
+    } as unknown as DurableObjectState;
+  }
+
+  it('throws on a second method call against the same result', () => {
+    const sql = createSql(stateWithCursor([{ id: 1, name: 'a' }]));
+    const result = sql.exec('SELECT id, name FROM things');
+
+    expect(result.toArray()).toEqual([{ id: 1, name: 'a' }]);
+    expect(() => result.toArray()).toThrow(/already consumed by \.toArray\(\)/);
+    expect(() => result.one()).toThrow(/already consumed by \.toArray\(\)/);
+    expect(() => result.raw()).toThrow(/already consumed by \.toArray\(\)/);
+  });
+
+  it('reports the method that was used first when guarding the second call', () => {
+    const sql = createSql(stateWithCursor([]));
+    const result = sql.exec('SELECT 1');
+
+    result.one();
+    expect(() => result.toArray()).toThrow(/already consumed by \.one\(\)/);
+  });
+
+  it('lets a fresh exec() call run independently after a previous result was consumed', () => {
+    const state = stateWithCursor([{ id: 1 }]);
+    const sql = createSql(state);
+
+    sql.exec('SELECT id FROM things').one();
+    // A second exec() builds a fresh cursor wrapper — its methods are
+    // independent of the previous result's consumed state.
+    expect(() => sql.exec('SELECT id FROM things').toArray()).not.toThrow();
+  });
+
+  it('throws even when one() returned null (empty result still consumes)', () => {
+    const sql = createSql(stateWithCursor([]));
+    const result = sql.exec('SELECT id FROM things WHERE id = -1');
+
+    expect(result.one()).toBeNull();
+    expect(() => result.toArray()).toThrow(/already consumed by \.one\(\)/);
+  });
+});
+
 describe('createSql.transaction', () => {
   function fakeCursor(rows: Record<string, unknown>[] = []) {
     const iter = rows[Symbol.iterator]();

@@ -27,6 +27,9 @@ const SqlOneEmptyResult = event(
 const SqlRawProbe = event('sql-raw-probe', v.object({}));
 const SqlRawResult = event('sql-raw-result', v.object({ rows: v.array(v.array(v.unknown())) }));
 
+const SqlReuseProbe = event('sql-reuse-probe', v.object({}));
+const SqlReuseResult = event('sql-reuse-result', v.object({ error: v.string() }));
+
 function selectNotes(ctx: {
   sql: { exec: <TRow = unknown>(sql: string, ...params: unknown[]) => { toArray: () => TRow[] } };
 }) {
@@ -44,6 +47,7 @@ export const ctxSqlHandler = withLifecycle(server<Env>('ctx-sql'))
   .outgoing(SqlOneResult)
   .outgoing(SqlOneEmptyResult)
   .outgoing(SqlRawResult)
+  .outgoing(SqlReuseResult)
   .onInit((ctx) => {
     ctx.sql.exec(`
       CREATE TABLE IF NOT EXISTS notes (
@@ -68,6 +72,17 @@ export const ctxSqlHandler = withLifecycle(server<Env>('ctx-sql'))
   .incoming(SqlRawProbe, (ctx) => {
     const rows = ctx.sql.exec('SELECT id, title FROM notes ORDER BY id DESC').raw();
     ctx.send('sql-raw-result', { rows: rows as unknown[][] });
+  })
+  .incoming(SqlReuseProbe, (ctx) => {
+    const result = ctx.sql.exec<{ c: number }>('SELECT COUNT(*) AS c FROM notes');
+    result.one();
+    let error = '';
+    try {
+      result.toArray();
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    }
+    ctx.send('sql-reuse-result', { error });
   })
   .incoming(SqlOneEmptyProbe, (ctx) => {
     // Select a real column (not an aggregate) with a predicate that matches

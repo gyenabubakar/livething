@@ -46,6 +46,13 @@ test.describe('ctx-sql', () => {
     expect(titles).toBe('Test Note');
   });
 
+  test('SqlResult throws when a second method is called on the same result', async ({ page }) => {
+    await page.getByTestId('save-note').click();
+    await expect(page.getByTestId('note-titles')).toContainText('Test Note');
+    await page.getByTestId('sql-reuse').click();
+    await expect(page.getByTestId('reuse-error')).toContainText('already consumed by .one()');
+  });
+
   test('SqlResult.one returns null when no rows match', async ({ page }) => {
     // Seed with one row first so the page has a definitive signal that
     // events are round-tripping. Then fire the no-match probe and follow

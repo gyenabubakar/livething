@@ -10,9 +10,22 @@ import type {
 function wrapCursor<TRow = unknown>(
   cursor: SqlStorageCursor<Record<string, SqlStorageValue>>,
 ): SqlResult<TRow> {
+  let consumed: 'toArray' | 'one' | 'raw' | null = null;
+  function claim(method: 'toArray' | 'one' | 'raw'): void {
+    if (consumed) {
+      throw new Error(
+        `[wskit] sql.exec() result already consumed by .${consumed}(). Call exactly one of .toArray() / .one() / .raw() per exec(). Run the query again if you need both shapes.`,
+      );
+    }
+    consumed = method;
+  }
   return {
-    toArray: () => cursor.toArray() as TRow[],
+    toArray: () => {
+      claim('toArray');
+      return cursor.toArray() as TRow[];
+    },
     one: () => {
+      claim('one');
       const iter = cursor[Symbol.iterator]();
       const first = iter.next();
       if (first.done) return null;
@@ -24,7 +37,10 @@ function wrapCursor<TRow = unknown>(
       }
       return first.value as TRow;
     },
-    raw: () => [...cursor.raw()] as unknown[][],
+    raw: () => {
+      claim('raw');
+      return [...cursor.raw()] as unknown[][];
+    },
   };
 }
 
