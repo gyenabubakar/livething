@@ -182,7 +182,10 @@ const CHANNEL_KEY = Symbol('channel');
  *   `ctx.channels.members(key)` to list everyone subscribed to channels that
  *   match the pattern.
  * @param pattern Regex matched against the subscription path. Anchor it with
- *   `^` and `$` so it matches the full name.
+ *   `^` and `$` so it matches the full name. The pattern must run in linear
+ *   time on attacker-controlled input. `scope()` rejects nested unbounded
+ *   quantifiers like `(a+)+`, `(\w+)+`, `(a*)*` because such shapes let one
+ *   crafted subscription frame stall the runtime via regex backtracking.
  *
  * @example
  * ```ts
@@ -216,7 +219,23 @@ function assertValidScopeDeclaration(declaration: ScopeDeclaration<string>, sour
         `Use the same pattern without the "g" or "y" flag.`,
     );
   }
+  if (CATASTROPHIC_BACKTRACK_SHAPE.test(declaration.pattern.source)) {
+    throw new WskitConfigError(
+      `${source} ("${declaration.key}", ...): regex source /${declaration.pattern.source}/ ` +
+        `contains a nested unbounded quantifier (shapes like (...+)+, (...*)*, (...+)*, (...*)+). ` +
+        `Inputs that nearly match such a pattern force the regex engine into ` +
+        `exponential backtracking, which freezes the runtime per attempt. ` +
+        `Flatten the inner group, anchor it with a bounded quantifier, or split into ` +
+        `multiple linear-time patterns. See the scope() docs for guidance.`,
+    );
+  }
 }
+
+// Matches a group whose body contains an unbounded quantifier and which is
+// itself followed by an unbounded quantifier — (a+)+, (\w+)+, (a*)*, (a+|b)+
+// and similar shapes that send regex backtracking exponential on near-match
+// input.
+const CATASTROPHIC_BACKTRACK_SHAPE = /\([^)]*[+*][^)]*\)[+*]/;
 
 export function scope<TKey extends string>(key: TKey, pattern: RegExp): ScopeDeclaration<TKey> {
   const declaration = { key, pattern };

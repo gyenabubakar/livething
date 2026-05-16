@@ -38,6 +38,51 @@ describe('scope() regex flag validation', () => {
   });
 });
 
+describe('scope() catastrophic-backtracking guard', () => {
+  it('rejects (a+)+ shape', () => {
+    let thrown: unknown;
+    try {
+      scope('rooms', /^(a+)+b$/);
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(WskitConfigError);
+    expect((thrown as Error).message).toMatch(/nested unbounded quantifier/);
+  });
+
+  it('rejects (\\w+)+ shape', () => {
+    expect(() => scope('rooms', /^(\w+)+\d$/)).toThrow(WskitConfigError);
+  });
+
+  it('rejects (a*)* shape', () => {
+    expect(() => scope('rooms', /^(a*)*b$/)).toThrow(WskitConfigError);
+  });
+
+  it('rejects (a+)* shape', () => {
+    expect(() => scope('rooms', /^(a+)*b$/)).toThrow(WskitConfigError);
+  });
+
+  it('rejects (a*)+ shape', () => {
+    expect(() => scope('rooms', /^(a*)+b$/)).toThrow(WskitConfigError);
+  });
+
+  it('rejects (\\w+|x)+ shape', () => {
+    expect(() => scope('rooms', /^(\w+|x)+\d$/)).toThrow(WskitConfigError);
+  });
+
+  it('accepts a single bounded quantifier (a+)b', () => {
+    expect(() => scope('rooms', /^(a+)b$/)).not.toThrow();
+  });
+
+  it('accepts patterns where the inner group has a + but the outer is not + or *', () => {
+    expect(() => scope('rooms', /^(a+)?b$/)).not.toThrow();
+  });
+
+  it('accepts the documented family shape', () => {
+    expect(() => scope('rooms', /^room:[a-z0-9-]+$/)).not.toThrow();
+  });
+});
+
 describe('scope() / channel() empty-key rejection', () => {
   it('scope() throws when the key is the empty string', () => {
     expect(() => scope('', /^room-.+$/)).toThrow(WskitConfigError);
