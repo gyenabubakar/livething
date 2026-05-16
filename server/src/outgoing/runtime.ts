@@ -279,17 +279,31 @@ export function broadcastToConnections(
       connection.id === excludeConnectionId
     )
       continue;
-    sendThroughPipeline(
-      runtime,
-      connection,
-      {
-        namespace: options?.namespace,
-        channel: options?.channel,
-        channelScope: options?.channelScope,
-      },
-      event,
-      payload,
-    );
+    // One bad peer must not silently swallow the rest of the broadcast.
+    // descriptor.send throws InvalidStateError when the socket is in
+    // CLOSING before the engine has processed webSocketClose, and
+    // JSON.stringify throws on non-serializable payload fields. Either
+    // throw used to break the for loop and skip every later peer; log
+    // and continue so every healthy peer still receives the frame.
+    try {
+      sendThroughPipeline(
+        runtime,
+        connection,
+        {
+          namespace: options?.namespace,
+          channel: options?.channel,
+          channelScope: options?.channelScope,
+        },
+        event,
+        payload,
+      );
+    } catch (error) {
+      runtime.logger?.error('[wskit] broadcast send to one peer threw; continuing fanout', {
+        connectionId: connection.id,
+        event,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 }
 
@@ -323,12 +337,24 @@ export function broadcastToChannel(
   for (const connection of connections) {
     if (excludeConnectionId && (excludeSelf ?? true) && connection.id === excludeConnectionId)
       continue;
-    sendThroughPipeline(
-      runtime,
-      connection,
-      { channel: channelName, channelScope },
-      event,
-      payload,
-    );
+    // Same reasoning as broadcastToConnections: one peer's send failure
+    // must not silently drop the rest of the channel's fanout.
+    try {
+      sendThroughPipeline(
+        runtime,
+        connection,
+        { channel: channelName, channelScope },
+        event,
+        payload,
+      );
+    } catch (error) {
+      runtime.logger?.error('[wskit] channel broadcast send to one peer threw; continuing fanout', {
+        connectionId: connection.id,
+        channel: channelName,
+        channelScope,
+        event,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 }

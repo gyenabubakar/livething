@@ -11,6 +11,7 @@
 	let memberLeaves = $state<string[]>([]);
 	let channelStreamChunks = $state<number[]>([]);
 	let channelStreamEnd = $state(false);
+	let badBroadcastErrorCode = $state('');
 
 	function connect() {
 		if (ws) return;
@@ -37,6 +38,9 @@
 			}
 			if (data.event === '_error' && data.payload?._channel) {
 				subscribeError = `${data.payload._channel}:${data.payload.code}`;
+				if (data.payload._channel === 'room' && data.payload.code) {
+					badBroadcastErrorCode = String(data.payload.code);
+				}
 			}
 			if (data.event === '_memberJoin' && data.payload?._channel) {
 				memberJoins = [...memberJoins, `${data.payload._channel}:${data.payload.connectionId}`];
@@ -86,6 +90,10 @@
 		// Same send, but this button is used WITHOUT subscribing first.
 		send('send-message', { text, _channel: 'room' });
 	}
+	function triggerBadBroadcast() {
+		badBroadcastErrorCode = '';
+		send('trigger-bad-broadcast', { _channel: 'room' });
+	}
 	function startChannelStream(count: number) {
 		channelStreamChunks = [];
 		channelStreamEnd = false;
@@ -108,6 +116,9 @@
 <button data-testid="start-channel-stream-3" onclick={() => startChannelStream(3)}>
 	Start channel stream (3)
 </button>
+<button data-testid="trigger-bad-broadcast" onclick={triggerBadBroadcast}>
+	Trigger bad broadcast
+</button>
 
 <span data-testid="status">{status}</span>
 <span data-testid="subscribe-ok-count">{subscribeOkCount}</span>
@@ -119,3 +130,4 @@
 <span data-testid="member-leaves">{memberLeaves.join(' | ')}</span>
 <span data-testid="channel-stream-chunks">{channelStreamChunks.join(',')}</span>
 <span data-testid="channel-stream-end">{channelStreamEnd ? 'yes' : 'no'}</span>
+<span data-testid="bad-broadcast-error-code">{badBroadcastErrorCode}</span>

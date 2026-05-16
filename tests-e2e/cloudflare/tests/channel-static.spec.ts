@@ -437,4 +437,47 @@ test.describe('channel-static', () => {
     await ctxThrower.close();
     await ctxObserver.close();
   });
+
+  test('ctx.channel.broadcast survives a non-serializable payload and keeps the connection healthy', async ({
+    browser,
+  }, testInfo) => {
+    // Pre-fix the broadcast loop's JSON.stringify threw on the BigInt
+    // payload, the throw escaped the handler, and the engine routed an
+    // _error addressed to the channel back to the triggering connection.
+    // Every peer ordered after the failing serialize attempt also
+    // missed the frame. Post-fix the broadcast logs per-peer internally
+    // and returns normally — no _error reaches the triggering client
+    // and a follow-up valid broadcast still works on the same socket.
+    const room = `test-${testInfo.testId}-bad-broadcast`;
+    const ctxA = await browser.newContext();
+    const ctxB = await browser.newContext();
+    const a = await ctxA.newPage();
+    const b = await ctxB.newPage();
+    await openPage(a, room, 'alice');
+    await openPage(b, room, 'bob');
+
+    await a.getByTestId('subscribe-room').click();
+    await b.getByTestId('subscribe-room').click();
+    await expect(a.getByTestId('subscribe-ok-count')).toHaveText('1');
+    await expect(b.getByTestId('subscribe-ok-count')).toHaveText('1');
+
+    // Trigger the bad broadcast from alice. The handler calls
+    // ctx.channel.broadcast with a BigInt-bearing payload.
+    await a.getByTestId('trigger-bad-broadcast').click();
+
+    // The triggering client must NOT receive an _error for the channel —
+    // the broadcast contained the failure internally. Give the network
+    // a beat to confirm nothing came back, then assert empty.
+    await a.waitForTimeout(500);
+    await expect(a.getByTestId('bad-broadcast-error-code')).toHaveText('');
+
+    // Connection still healthy on both sides: a normal send-hello from
+    // alice still reaches bob. Pre-fix this could be affected because
+    // the prior throw might have left the handler in an unclean state.
+    await a.getByTestId('send-hello').click();
+    await expect(b.getByTestId('user-messages')).toContainText('alice:hello', { timeout: 5_000 });
+
+    await ctxA.close();
+    await ctxB.close();
+  });
 });

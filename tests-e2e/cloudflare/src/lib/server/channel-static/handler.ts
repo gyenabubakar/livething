@@ -12,6 +12,14 @@ const RoomMessage = event(
 const SendMessage = event('send-message', v.object({ text: v.string() }));
 const StartChannelStream = event('start-channel-stream', v.object({ count: v.number() }));
 const ChannelToken = v.object({ index: v.number() });
+// Triggers a ctx.channel.broadcast with a payload field that
+// JSON.stringify cannot encode (BigInt). Pre-fix the throw escaped the
+// broadcast loop and propagated out of the handler — the engine then
+// routed an _error back to the triggering connection. Post-fix the
+// broadcast logs internally and returns normally; no _error reaches
+// the triggering connection and a follow-up valid broadcast still
+// works on the same socket.
+const TriggerBadBroadcast = event('trigger-bad-broadcast', v.object({}));
 
 const base = withStreams(withChannels(withLifecycle(server<Env>('channel-static'))))
   .onUpgrade((request) => requireUsername(request))
@@ -33,6 +41,17 @@ const roomChannel = base.channel('room', (ch) =>
         from: ctx.meta.username,
         kind: 'user',
       });
+    })
+    .incoming(TriggerBadBroadcast, (ctx) => {
+      // Broadcast a payload that contains a BigInt. JSON.stringify will
+      // throw on it for every peer. The engine must log per-peer and
+      // never escape this handler.
+      ctx.channel.broadcast('room-message', {
+        text: 'bad',
+        from: ctx.meta.username,
+        kind: 'user',
+        reactions: 1n,
+      } as unknown as { text: string; from: string; kind: string });
     })
     .stream(StartChannelStream, (s) =>
       s.chunk(ChannelToken).generate(async function* (_ctx, payload) {

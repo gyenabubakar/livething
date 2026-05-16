@@ -1,4 +1,9 @@
-import { sendThroughPipeline } from '~/outgoing/runtime.ts';
+import { addChannelMembership } from '~/channel/runtime.ts';
+import {
+  broadcastToChannel,
+  broadcastToConnections,
+  sendThroughPipeline,
+} from '~/outgoing/runtime.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { OutgoingRuntime } from '~/outgoing/runtime.ts';
@@ -327,5 +332,148 @@ describe('outgoing/runtime sendThroughPipeline', () => {
     expect(() =>
       sendThroughPipeline(runtime, connection, { channel: 'general' }, 'chat-msg', { a: 1 }),
     ).not.toThrow();
+  });
+});
+
+describe('broadcastToConnections — fanout resilience', () => {
+  function peer(id: string, send: (frame: string) => void): RuntimeConnection {
+    return {
+      id,
+      wsKey: Symbol(id),
+      descriptor: {
+        send,
+        sendBinary() {},
+        close() {},
+        bufferedAmount() {
+          return 0;
+        },
+      },
+      meta: {},
+      tags: new Set<string>(),
+      channelMemberships: new Map(),
+      latency: null,
+      quality: 'good',
+    };
+  }
+
+  it('keeps delivering to remaining peers when one peer descriptor.send throws', () => {
+    const errorLogs: Array<{ message: string; data?: unknown }> = [];
+    const runtime = createRuntime({
+      logger: {
+        warn() {},
+        error(message: string, data?: unknown) {
+          errorLogs.push({ message, data });
+        },
+      },
+    });
+    const delivered: string[] = [];
+    const a = peer('A', (frame) => delivered.push(`A:${frame}`));
+    const b = peer('B', () => {
+      throw new Error('InvalidStateError: socket is CLOSING');
+    });
+    const c = peer('C', (frame) => delivered.push(`C:${frame}`));
+
+    expect(() => broadcastToConnections(runtime, [a, b, c], 'foo', { text: 'hi' })).not.toThrow();
+
+    expect(delivered).toHaveLength(2);
+    expect(delivered[0]).toContain('A:');
+    expect(delivered[1]).toContain('C:');
+    expect(errorLogs).toHaveLength(1);
+    expect((errorLogs[0]!.data as { connectionId: string }).connectionId).toBe('B');
+  });
+
+  it('keeps delivering when the payload itself fails JSON.stringify (BigInt)', () => {
+    // sendThroughPipeline runs JSON.stringify on the payload before
+    // calling descriptor.send. A BigInt makes that throw. Pre-fix the
+    // throw escaped the broadcast loop and every peer after the first
+    // was skipped — including the first, since the throw happened
+    // before send. Post-fix the broadcast logs once per attempted peer
+    // and the loop continues. (Every peer still misses the frame here
+    // because the payload itself is unserializable; the point is the
+    // loop doesn't crash the dispatcher.)
+    const errorLogs: Array<{ message: string; data?: unknown }> = [];
+    const runtime = createRuntime({
+      logger: {
+        warn() {},
+        error(message: string, data?: unknown) {
+          errorLogs.push({ message, data });
+        },
+      },
+    });
+    const a = peer('A', () => {});
+    const b = peer('B', () => {});
+
+    expect(() =>
+      broadcastToConnections(runtime, [a, b], 'foo', { count: 1n } as unknown as object),
+    ).not.toThrow();
+
+    // Both peers errored on stringify, both got logged, neither received.
+    expect(errorLogs).toHaveLength(2);
+  });
+});
+
+describe('broadcastToChannel — fanout resilience', () => {
+  function peer(id: string, send: (frame: string) => void): RuntimeConnection {
+    const conn: RuntimeConnection = {
+      id,
+      wsKey: Symbol(id),
+      descriptor: {
+        send,
+        sendBinary() {},
+        close() {},
+        bufferedAmount() {
+          return 0;
+        },
+      },
+      meta: {},
+      tags: new Set<string>(),
+      channelMemberships: new Map(),
+      latency: null,
+      quality: 'good',
+    };
+    addChannelMembership(conn, 'general', null);
+    return conn;
+  }
+
+  it('keeps delivering to remaining channel members when one peer throws', () => {
+    const errorLogs: Array<{ message: string; data?: unknown }> = [];
+    const a = peer('A', () => {});
+    const b = peer('B', () => {
+      throw new Error('InvalidStateError: socket is CLOSING');
+    });
+    const c = peer('C', () => {});
+    const connections = new Map<string, RuntimeConnection>([
+      [a.id, a],
+      [b.id, b],
+      [c.id, c],
+    ]);
+
+    const runtime = {
+      ...createRuntime({
+        compiled: {
+          outgoing: new Map([['msg', { event: 'msg' }]]),
+          streams: new Map(),
+          namespaces: new Map(),
+          channels: new Map([['general', { outgoing: new Map([['msg', { event: 'msg' }]]) }]]),
+          channelFamilies: new Map(),
+          modules: [],
+        } as unknown as OutgoingRuntime['compiled'],
+        logger: {
+          warn() {},
+          error(message: string, data?: unknown) {
+            errorLogs.push({ message, data });
+          },
+        },
+      }),
+      connections,
+    } as OutgoingRuntime & { connections: Map<string, RuntimeConnection> };
+
+    expect(() =>
+      broadcastToChannel(runtime as never, 'general', 'msg', { text: 'hi' }, undefined, null),
+    ).not.toThrow();
+
+    expect(errorLogs).toHaveLength(1);
+    expect((errorLogs[0]!.data as { connectionId: string }).connectionId).toBe('B');
+    expect((errorLogs[0]!.data as { channel: string }).channel).toBe('general');
   });
 });
