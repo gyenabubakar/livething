@@ -9,6 +9,7 @@ export {
   InternalError,
   InvalidScopeMarkers,
   NamespaceNotFound,
+  StreamAborted,
 } from './errors.ts';
 export type { ErrorDef, ErrorDefWithFactory } from './errors.ts';
 export {

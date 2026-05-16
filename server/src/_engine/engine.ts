@@ -6,6 +6,7 @@ import {
   InternalError,
   InvalidScopeMarkers,
   NamespaceNotFound,
+  StreamAborted,
   ValidationFailed,
 } from '@wskit/core';
 import * as EngineCompile from '~/_engine/compile/compile.ts';
@@ -114,6 +115,7 @@ export class Engine {
     ChannelNotSubscribed.code,
     InvalidScopeMarkers.code,
     NamespaceNotFound.code,
+    StreamAborted.code,
   ]);
   /** Logger used by the engine and runtime modules. Adapters supply a custom logger via {@link Engine.setLogger}; otherwise the engine falls back to a console-backed default. */
   private logger: PublicApi.Logger = {

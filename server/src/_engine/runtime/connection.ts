@@ -1,4 +1,4 @@
-import { CloseCodes, InternalError } from '@wskit/core';
+import { CloseCodes, StreamAborted } from '@wskit/core';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import * as HeartbeatPrimitive from '~/heartbeat/runtime.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
@@ -415,7 +415,7 @@ export function wakeHibernatedConnection(
     descriptor.send(
       JSON.stringify({
         event: '_error',
-        payload: { code: InternalError.code, _streamId: streamId },
+        payload: { code: StreamAborted.code, _streamId: streamId },
       }),
     );
   }

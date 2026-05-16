@@ -411,3 +411,24 @@ export const ChannelNotSubscribed = error('channel-not-subscribed');
  * ```
  */
 export const InternalError = error('internal-error');
+
+/**
+ * Sent to the client for each active stream that was lost when the server
+ * dropped its in-memory state — for example a Cloudflare Durable Object
+ * waking up from hibernation without preserved generators. The wire-level
+ * connection is still alive; only the in-flight streams are gone.
+ *
+ * Distinct from `InternalError` so a client SDK can fast-resume the affected
+ * streams (with backoff) instead of treating the signal as a server crash.
+ *
+ * @example
+ * ```ts
+ * ws.addEventListener('message', (ev) => {
+ *   const frame = JSON.parse(ev.data);
+ *   if (frame.event === '_error' && StreamAborted.matches(frame)) {
+ *     restartStream(frame.payload._streamId);
+ *   }
+ * });
+ * ```
+ */
+export const StreamAborted = error('stream-aborted');
