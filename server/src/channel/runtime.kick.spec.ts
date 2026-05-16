@@ -133,10 +133,13 @@ describe('channels.kick end-to-end', () => {
     ).toBe(false);
   });
 
-  it('propagates onUnsubscribe rejections to the kick caller', async () => {
+  it('logs every onUnsubscribe failure and never rejects the caller, even with multiple throwing members', async () => {
     const banned = createConnection('banned');
+    const alsoBanned = createConnection('also_banned');
     addChannelMembership(banned, 'room:general', null);
+    addChannelMembership(alsoBanned, 'room:general', null);
     banned.tags.add('troll');
+    alsoBanned.tags.add('troll');
 
     const generalChannel = {
       key: 'room:general',
@@ -150,8 +153,14 @@ describe('channels.kick end-to-end', () => {
       postIntercepts: new Map(),
     };
 
-    const connections = new Map([[banned.id, banned]]);
+    const connections = new Map([
+      [banned.id, banned],
+      [alsoBanned.id, alsoBanned],
+    ]);
 
+    const logged: { message: string; fields?: Record<string, unknown> }[] = [];
+
+    let hookCalls = 0;
     const runtime = {
       compiled: {
         channels: new Map([['room:general', generalChannel]]),
@@ -165,11 +174,17 @@ describe('channels.kick end-to-end', () => {
           'room:general',
           [
             async () => {
-              throw new Error('hook boom');
+              hookCalls += 1;
+              throw new Error(`hook boom ${hookCalls}`);
             },
           ],
         ],
       ]),
+      logger: {
+        error(message: string, fields?: Record<string, unknown>) {
+          logged.push({ message, fields });
+        },
+      },
       toConnectionInfo() {
         return {} as any;
       },
@@ -194,6 +209,14 @@ describe('channels.kick end-to-end', () => {
         'spam',
         null,
       ),
-    ).rejects.toThrow('hook boom');
+    ).resolves.toBeUndefined();
+
+    const kickErrors = logged.filter((l) => l.message.includes('leaveChannel threw during kick'));
+    expect(kickErrors).toHaveLength(2);
+    expect(new Set(kickErrors.map((l) => l.fields?.connectionId))).toEqual(
+      new Set(['banned', 'also_banned']),
+    );
+    expect(banned.channelMemberships.size).toBe(0);
+    expect(alsoBanned.channelMemberships.size).toBe(0);
   });
 });

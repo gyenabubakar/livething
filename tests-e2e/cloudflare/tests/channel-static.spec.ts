@@ -480,4 +480,126 @@ test.describe('channel-static', () => {
     await ctxA.close();
     await ctxB.close();
   });
+
+  test('kick across multiple throwing onUnsubscribe hooks resolves and the kicker sees kick-ack plus every _memberLeave', async ({
+    page,
+  }, testInfo) => {
+    const room = `kick-multi-throw-${testInfo.testId}`;
+    await page.goto(`/channel-static?room=${room}`);
+
+    const handle = await page.evaluateHandle(
+      async ({ room }) => {
+        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        function open(username: string): Promise<{
+          ws: WebSocket;
+          messages: { event: string; payload: Record<string, unknown> }[];
+        }> {
+          return new Promise((resolve, reject) => {
+            const ws = new WebSocket(
+              `${proto}//${location.host}/ws/channel-static?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
+            );
+            const messages: { event: string; payload: Record<string, unknown> }[] = [];
+            ws.onmessage = (ev) => {
+              if (typeof ev.data !== 'string') return;
+              messages.push(JSON.parse(ev.data));
+            };
+            ws.onopen = () => resolve({ ws, messages });
+            ws.onerror = (e) => reject(e);
+          });
+        }
+        const thrower_a = await open('leave-thrower-a');
+        const thrower_b = await open('leave-thrower-b');
+        const observer = await open('observer');
+        return { thrower_a, thrower_b, observer };
+      },
+      { room },
+    );
+
+    await page.evaluate(
+      ({ h }) => {
+        const handles = h as unknown as Record<string, { ws: WebSocket }>;
+        const subscribe = { event: '_subscribe', payload: { _channel: 'room' } };
+        handles.thrower_a!.ws.send(JSON.stringify(subscribe));
+        handles.thrower_b!.ws.send(JSON.stringify(subscribe));
+        handles.observer!.ws.send(JSON.stringify(subscribe));
+      },
+      { h: handle },
+    );
+
+    async function countEvents(name: 'thrower_a' | 'thrower_b' | 'observer', event: string) {
+      return page.evaluate(
+        ({ h, name, event }) => {
+          const handles = h as unknown as Record<
+            string,
+            { messages: { event: string; payload: Record<string, unknown> }[] }
+          >;
+          return handles[name]!.messages.filter((m) => m.event === event).length;
+        },
+        { h: handle, name, event },
+      );
+    }
+
+    await expect
+      .poll(
+        async () =>
+          (await countEvents('thrower_a', '_subscribeOk')) +
+          (await countEvents('thrower_b', '_subscribeOk')) +
+          (await countEvents('observer', '_subscribeOk')),
+      )
+      .toBe(3);
+
+    await page.evaluate(
+      ({ h }) => {
+        const handles = h as unknown as Record<string, { ws: WebSocket }>;
+        const tag = { event: 'tag-self', payload: { tag: 'troll' } };
+        handles.thrower_a!.ws.send(JSON.stringify(tag));
+        handles.thrower_b!.ws.send(JSON.stringify(tag));
+      },
+      { h: handle },
+    );
+
+    await expect
+      .poll(
+        async () =>
+          (await countEvents('thrower_a', 'tag-ack')) + (await countEvents('thrower_b', 'tag-ack')),
+      )
+      .toBe(2);
+
+    await page.evaluate(
+      ({ h }) => {
+        const handles = h as unknown as Record<string, { ws: WebSocket }>;
+        handles.observer!.ws.send(
+          JSON.stringify({ event: 'kick-by-tag', payload: { tag: 'troll', reason: 'spam' } }),
+        );
+      },
+      { h: handle },
+    );
+
+    await expect.poll(async () => countEvents('observer', 'kick-ack')).toBe(1);
+    await expect.poll(async () => countEvents('observer', '_memberLeave')).toBe(2);
+
+    const observerErrors = await page.evaluate(
+      ({ h }) => {
+        const handles = h as unknown as Record<
+          string,
+          { messages: { event: string; payload: Record<string, unknown> }[] }
+        >;
+        return handles.observer!.messages.filter(
+          (m) => m.event === '_error' && !m.payload?._channel,
+        ).length;
+      },
+      { h: handle },
+    );
+    expect(observerErrors).toBe(0);
+
+    await page.evaluate(
+      ({ h }) => {
+        const handles = h as unknown as Record<string, { ws: WebSocket }>;
+        handles.thrower_a!.ws.close();
+        handles.thrower_b!.ws.close();
+        handles.observer!.ws.close();
+      },
+      { h: handle },
+    );
+  });
 });

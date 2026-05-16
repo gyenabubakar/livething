@@ -20,8 +20,14 @@ const ChannelToken = v.object({ index: v.number() });
 // the triggering connection and a follow-up valid broadcast still
 // works on the same socket.
 const TriggerBadBroadcast = event('trigger-bad-broadcast', v.object({}));
+const TagSelf = event('tag-self', v.object({ tag: v.string() }));
+const TagAck = event('tag-ack', v.object({ tag: v.string() }));
+const KickByTag = event('kick-by-tag', v.object({ tag: v.string(), reason: v.string() }));
+const KickAck = event('kick-ack', v.object({ tag: v.string() }));
 
 const base = withStreams(withChannels(withLifecycle(server<Env>('channel-static'))))
+  .outgoing(TagAck)
+  .outgoing(KickAck)
   .onUpgrade((request) => requireUsername(request))
   // A disconnect hook that throws for one specific username — used to pin
   // that handleConnectionClose contains the throw so the rest of the
@@ -95,7 +101,7 @@ const roomChannel = base.channel('room', (ch) =>
       // this channel's leave tail (peers must still see _memberLeave
       // for `room`), and (2) a different channel's leave for the same
       // connection (peers in `room2` must still see _memberLeave).
-      if (ctx.meta.username === 'leave-thrower') {
+      if (ctx.meta.username.startsWith('leave-thrower')) {
         throw new Error('intentional onUnsubscribe throw');
       }
     }),
@@ -111,4 +117,15 @@ const roomTwoChannel = base.channel('room2', (ch) =>
   }),
 );
 
-export const channelStaticHandler = base.use(roomChannel).use(roomTwoChannel).build();
+export const channelStaticHandler = base
+  .use(roomChannel)
+  .use(roomTwoChannel)
+  .incoming(TagSelf, (ctx, payload) => {
+    ctx.tag(payload.tag);
+    ctx.send('tag-ack', { tag: payload.tag });
+  })
+  .incoming(KickByTag, async (ctx, payload) => {
+    await ctx.channels.get('room').kick(payload.tag, payload.reason);
+    ctx.send('kick-ack', { tag: payload.tag });
+  })
+  .build();

@@ -386,8 +386,9 @@ export async function unsubscribeConnection(
  * Scoped to the exact `channelName + channelScope` pair: kicks never cross
  * into a different channel family that happens to share a concrete name.
  *
- * Awaits every triggered `leaveChannel` so `onUnsubscribe` rejections
- * propagate to the caller and so the kick is observable as complete.
+ * Every triggered `leaveChannel` runs to completion. `onUnsubscribe` hook
+ * failures are logged through `runtime.logger` and do not cancel the rest
+ * of the kick — the same shape the engine uses during shutdown drain.
  */
 export async function kickChannelMembers(
   runtime: ChannelRuntime & {
@@ -417,15 +418,24 @@ export async function kickChannelMembers(
     );
 
     pending.push(
-      runtime.leaveChannel(
-        connection,
-        {
-          channel,
-          channelName: membership.channelName,
-          channelScope: membership.channelScope,
-        },
-        reason,
-      ),
+      runtime
+        .leaveChannel(
+          connection,
+          {
+            channel,
+            channelName: membership.channelName,
+            channelScope: membership.channelScope,
+          },
+          reason,
+        )
+        .catch((error) => {
+          runtime.logger?.error('[wskit] leaveChannel threw during kick', {
+            channelName: membership.channelName,
+            channelScope: membership.channelScope,
+            connectionId: connection.id,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }),
     );
   }
   await Promise.all(pending);
