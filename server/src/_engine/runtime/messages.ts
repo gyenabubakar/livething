@@ -691,9 +691,12 @@ export async function processTextMessage(
   // one idempotency budget — incoming events, requests, and stream nudges.
   // The Defer retry path re-enters `dispatchIncoming` directly without
   // coming through here, so engine-internal retries naturally skip the
-  // check.
+  // check. Protocol frames (`_subscribe`, `_unsubscribe`, `_streamCancel`,
+  // etc.) are excluded — a retried protocol frame must reach its handler
+  // even when the original was lost on the wire.
   if (
     runtime.incomingDedupCap > 0 &&
+    !EngineCompileUtils.isProtocolEvent(parsed.event) &&
     isDuplicateIncoming(connection, parsed.payload, runtime.incomingDedupCap)
   ) {
     return;

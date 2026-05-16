@@ -170,4 +170,32 @@ describe('incoming dedup', () => {
 
     expect(nudges).toHaveLength(1);
   });
+
+  it('does not dedup protocol frames such as _subscribe even when they carry _messageId', async () => {
+    const connection = makeConnection();
+    const runtime = makeRuntime(16);
+    const handleSubscribe = vi.fn(async () => {});
+    (runtime as unknown as { handleSubscribe: typeof handleSubscribe }).handleSubscribe =
+      handleSubscribe;
+
+    const frame = { _channel: 'room', _messageId: 'sub-1' };
+    await send(runtime, connection, '_subscribe', frame);
+    await send(runtime, connection, '_subscribe', frame);
+
+    expect(handleSubscribe).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not dedup _unsubscribe frames even when they carry _messageId', async () => {
+    const connection = makeConnection();
+    const runtime = makeRuntime(16);
+    const handleUnsubscribe = vi.fn(async () => {});
+    (runtime as unknown as { handleUnsubscribe: typeof handleUnsubscribe }).handleUnsubscribe =
+      handleUnsubscribe;
+
+    const frame = { _channel: 'room', _messageId: 'unsub-1' };
+    await send(runtime, connection, '_unsubscribe', frame);
+    await send(runtime, connection, '_unsubscribe', frame);
+
+    expect(handleUnsubscribe).toHaveBeenCalledTimes(2);
+  });
 });
