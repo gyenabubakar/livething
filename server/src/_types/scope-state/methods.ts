@@ -148,6 +148,30 @@ export interface QualityMethods {
 }
 
 /**
+ * Provides `ctx.closeCode` and `ctx.closeReason` — the WebSocket close
+ * metadata captured from the wire close frame. Both fields are only
+ * populated in `onDisconnect` handlers (and module `onDisconnect`).
+ * They are `undefined` everywhere else (`onConnect`, `incoming`,
+ * request handlers, stream generators, etc.).
+ */
+export interface CloseInfoMethods {
+  /**
+   * The WebSocket close code from the wire close frame. Common values:
+   * `1000` graceful close, `1001` server going-away during shutdown,
+   * `1006` abnormal close (network failure), `4xxx` application-defined
+   * (e.g. moderator kick). Only set inside `onDisconnect` handlers.
+   */
+  readonly closeCode?: number;
+
+  /**
+   * The WebSocket close reason string paired with `closeCode`. The
+   * empty string when the close did not carry a reason. Only set
+   * inside `onDisconnect` handlers.
+   */
+  readonly closeReason?: string;
+}
+
+/**
  * Provides `ctx.tags` — the current tag set for this connection.
  */
 export interface ConnectionTagsMethods {

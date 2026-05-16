@@ -10,6 +10,7 @@
 	let upgradeMeta = $state('');
 	let connectCount = $state('');
 	let asyncHookComplete = $state('');
+	let disconnectCloseEntries = $state<string[]>([]);
 
 	function connect() {
 		if (ws) return;
@@ -22,6 +23,7 @@
 		);
 		ws.onopen = () => {
 			status = 'connected';
+			(window as unknown as { __ws?: WebSocket }).__ws = ws ?? undefined;
 		};
 		ws.onclose = (ev) => {
 			closeCode = ev.code;
@@ -49,6 +51,12 @@
 			}
 			if (data.event === 'async-hook-complete') {
 				asyncHookComplete = data.payload?.complete ? 'yes' : 'no';
+			}
+			if (data.event === 'disconnect-close') {
+				disconnectCloseEntries = [
+					...disconnectCloseEntries,
+					`${data.payload?.username ?? ''}:${data.payload?.code ?? ''}:${data.payload?.reason ?? ''}`,
+				];
 			}
 		};
 	}
@@ -82,3 +90,4 @@
 <span data-testid="upgrade-meta">{upgradeMeta}</span>
 <span data-testid="connect-count">{connectCount}</span>
 <span data-testid="async-hook-complete">{asyncHookComplete}</span>
+<span data-testid="disconnect-close-entries">{disconnectCloseEntries.join(' | ')}</span>

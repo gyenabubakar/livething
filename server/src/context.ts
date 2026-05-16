@@ -423,6 +423,22 @@ export interface ConnectionContext<
   /** A simple health label derived from recent ping/pong measurements. */
   quality: 'excellent' | 'good' | 'degraded' | 'poor';
 
+  /**
+   * The WebSocket close code, present only in `onDisconnect` handlers
+   * (and module `onDisconnect`). Common values: `1000` graceful close,
+   * `1001` going-away during server shutdown, `1006` abnormal close
+   * (network failure), `4xxx` application-defined (e.g. moderator kick).
+   * Undefined in every other handler — `onConnect`, `incoming`, etc.
+   */
+  closeCode?: number;
+
+  /**
+   * The WebSocket close reason string, paired with `closeCode`. Present
+   * only in `onDisconnect` handlers (and module `onDisconnect`). The
+   * empty string when the close did not carry a reason.
+   */
+  closeReason?: string;
+
   // Scope-aware routing helpers
   /** Scoped send/broadcast when inside a namespace handler. */
   namespace?: ScopeSendApi;

@@ -205,6 +205,8 @@ export async function handleConnectionClose(
     logger?: { error(message: string, fields?: Record<string, unknown>): void };
   },
   connection: EngineRuntimeTypes.RuntimeConnection,
+  code: number,
+  reason: string,
 ): Promise<void> {
   // Idempotency guard. handleShutdown drives this directly so the close
   // cleanup completes before shutdown returns; the adapter's natural
@@ -219,7 +221,13 @@ export async function handleConnectionClose(
   runtime.connections.delete(connection.id);
   runtime.wsToConnectionId.delete(connection.wsKey);
 
+  // Inject the WebSocket close code and reason onto the disconnect ctx
+  // so user code can branch on graceful (1000) vs kick (4xxx) vs
+  // abnormal (1006). These fields are only set on the disconnect path —
+  // the connect ctx never carries them.
   const ctx = runtime.buildConnectionContext(connection);
+  ctx.closeCode = code;
+  ctx.closeReason = reason;
   try {
     // A user-supplied onDisconnect hook (or a module's onDisconnect) may
     // throw. Contain the throw so the rest of the close cleanup —

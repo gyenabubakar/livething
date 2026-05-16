@@ -1044,8 +1044,8 @@ export class Engine {
    */
   async handleConnectionClose(
     connection: RuntimeConnection,
-    _code: number,
-    _reason: string,
+    code: number,
+    reason: string,
   ): Promise<void> {
     return EngineConnectionRuntime.handleConnectionClose(
       {
@@ -1064,6 +1064,8 @@ export class Engine {
         logger: this.logger,
       },
       connection,
+      code,
+      reason,
     );
   }
 

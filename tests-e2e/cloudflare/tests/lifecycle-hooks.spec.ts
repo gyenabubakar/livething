@@ -185,4 +185,59 @@ test.describe('lifecycle-hooks', () => {
     await openPage(page, `test-${testInfo.testId}`, 'alice');
     await expect(page.getByTestId('async-hook-complete')).toHaveText('yes');
   });
+
+  test('onDisconnect ctx carries closeCode and closeReason from the wire close event', async ({
+    browser,
+  }, testInfo) => {
+    // Pin F3: the WebSocket close code and reason from the adapter
+    // (cf adapter forwards them on webSocketClose) thread through the
+    // engine and land on the onDisconnect ctx. Alice closes with a
+    // custom 4001/'kicked-by-admin' code; bob observes alice's leave
+    // through the disconnect-close broadcast and the payload carries
+    // the same code and reason — proving the values reached the
+    // onDisconnect hook on the server.
+    const room = `test-${testInfo.testId}-close-info`;
+    const ctxA = await browser.newContext();
+    const ctxB = await browser.newContext();
+    const a = await ctxA.newPage();
+    const b = await ctxB.newPage();
+    await openPage(a, room, 'alice');
+    await openPage(b, room, 'bob');
+
+    await a.evaluate(() => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      ws?.close(4001, 'kicked-by-admin');
+    });
+
+    await expect(b.getByTestId('disconnect-close-entries')).toContainText(
+      'alice:4001:kicked-by-admin',
+    );
+
+    await ctxA.close();
+    await ctxB.close();
+  });
+
+  test('onDisconnect ctx carries closeCode 1000 for an explicit graceful close', async ({
+    browser,
+  }, testInfo) => {
+    // Same path as the kick case but with an explicit 1000 close. The
+    // server must observe code 1000 and an empty reason.
+    const room = `test-${testInfo.testId}-graceful-close`;
+    const ctxA = await browser.newContext();
+    const ctxB = await browser.newContext();
+    const a = await ctxA.newPage();
+    const b = await ctxB.newPage();
+    await openPage(a, room, 'alice');
+    await openPage(b, room, 'bob');
+
+    await a.evaluate(() => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      ws?.close(1000, '');
+    });
+
+    await expect(b.getByTestId('disconnect-close-entries')).toContainText('alice:1000:');
+
+    await ctxA.close();
+    await ctxB.close();
+  });
 });

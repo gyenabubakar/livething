@@ -6,6 +6,13 @@ import { requireUsername } from '../_shared/upgrade.ts';
 
 const Connected = event('connected', v.object({ username: v.string() }));
 const Disconnected = event('disconnected', v.object({ username: v.string() }));
+// Broadcast the WebSocket close code and reason observed by
+// onDisconnect. Pins F3: the engine threads the close metadata from
+// the adapter into the disconnect ctx so user code can branch on it.
+const DisconnectClose = event(
+  'disconnect-close',
+  v.object({ username: v.string(), code: v.number(), reason: v.string() }),
+);
 const ValidationErrorFired = event('validation-error-fired', v.object({ event: v.string() }));
 const ErrorFired = event('error-fired', v.object({ message: v.string() }));
 const BadEvent = event('bad-event', v.object({ value: v.number() }));
@@ -17,6 +24,7 @@ const AsyncHookComplete = event('async-hook-complete', v.object({ complete: v.bo
 export const lifecycleHooksHandler = withErrors(withLifecycle(server<Env>('lifecycle-hooks')))
   .outgoing(Connected)
   .outgoing(Disconnected)
+  .outgoing(DisconnectClose)
   .outgoing(ValidationErrorFired)
   .outgoing(ErrorFired)
   .outgoing(UpgradeMeta)
@@ -31,6 +39,14 @@ export const lifecycleHooksHandler = withErrors(withLifecycle(server<Env>('lifec
   })
   .onDisconnect((ctx) => {
     ctx.broadcast('disconnected', { username: ctx.meta.username as string });
+    // Fan out the close metadata too. Peers receive the leaver's
+    // closeCode + closeReason so the e2e can assert each kind of
+    // close (graceful 1000, kick 4xxx) lands with the right values.
+    ctx.broadcast('disconnect-close', {
+      username: ctx.meta.username as string,
+      code: ctx.closeCode ?? -1,
+      reason: ctx.closeReason ?? '',
+    });
   })
   .onShutdown((ctx) => {
     ctx.broadcast('disconnected', { username: 'server-shutdown' });

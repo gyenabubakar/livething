@@ -589,6 +589,47 @@ describe('connection runtime', () => {
     expect(activeConnectionState.current).toBeUndefined();
   });
 
+  it('handleConnectionClose attaches closeCode and closeReason to the disconnect ctx', async () => {
+    // Pin F3: the close metadata from the adapter (webSocketClose passes
+    // real code and reason) flows through the engine and lands on the
+    // ctx the onDisconnect hook receives. Without this thread, user
+    // code cannot tell graceful (1000) from kick (4001) from abnormal
+    // (1006).
+    let observedCode: unknown;
+    let observedReason: unknown;
+    const connection = {
+      id: 'c1',
+      wsKey: Symbol('ws'),
+      descriptor: { send() {}, sendBinary() {}, close() {}, bufferedAmount: () => 0 },
+      meta: {},
+      tags: new Set<string>(),
+      channelMemberships: new Map(),
+      latency: null,
+      quality: 'good' as const,
+    };
+    const runtime = {
+      compiled: { channels: new Map(), channelFamilies: new Map() } as never,
+      connections: new Map([[connection.id, connection]]) as never,
+      wsToConnectionId: new Map() as never,
+      timers: undefined,
+      async cancelActiveStreamsForConnection() {},
+      buildConnectionContext: () => ({ id: connection.id }) as Record<PropertyKey, unknown>,
+      async runConnectionLifecycle(
+        _kind: 'connect' | 'disconnect',
+        ctx: Record<PropertyKey, unknown>,
+      ) {
+        observedCode = ctx.closeCode;
+        observedReason = ctx.closeReason;
+      },
+      async leaveChannel() {},
+    };
+
+    await handleConnectionClose(runtime as never, connection as never, 4001, 'kicked-by-admin');
+
+    expect(observedCode).toBe(4001);
+    expect(observedReason).toBe('kicked-by-admin');
+  });
+
   it('handleConnectionClose is a no-op on a connection that was already cleaned up', async () => {
     // Idempotency guard: handleShutdown drives close cleanup directly,
     // then the adapter's natural webSocketClose callback may fire a
@@ -625,7 +666,7 @@ describe('connection runtime', () => {
       },
     };
 
-    await handleConnectionClose(runtime as never, connection as never);
+    await handleConnectionClose(runtime as never, connection as never, 1000, 'normal');
 
     // Nothing ran — guard short-circuited at the top.
     expect(events).toEqual([]);
@@ -679,7 +720,7 @@ describe('connection runtime', () => {
     };
 
     await expect(
-      handleConnectionClose(runtime as never, connection as never),
+      handleConnectionClose(runtime as never, connection as never, 1000, 'normal'),
     ).resolves.toBeUndefined();
 
     // Channel-leave still ran despite the hook throwing.
@@ -742,7 +783,7 @@ describe('connection runtime', () => {
     };
 
     await expect(
-      handleConnectionClose(runtime as never, connection as never),
+      handleConnectionClose(runtime as never, connection as never, 1000, 'normal'),
     ).resolves.toBeUndefined();
 
     // Both channels were attempted, heartbeat cleared, and the throw was logged.

@@ -6,6 +6,7 @@ import type {
   BufferedAmountMethods,
   ChannelScopeMethods,
   ChannelsMethods,
+  CloseInfoMethods,
   ConnectionIdentityMethods,
   ConnectionMetaMethods,
   ConnectionTagsMethods,
@@ -156,6 +157,7 @@ export type HandlerCtxFromState<TState extends ScopeStateShape> = SendApi<TState
   ConnectionTagsMethods &
   TagMethods &
   UntagMethods &
+  CloseInfoMethods &
   AckApi<TState> &
   ReplayApi<TState> &
   ScheduleApi<TState> &
