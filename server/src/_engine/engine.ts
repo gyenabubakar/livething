@@ -749,7 +749,34 @@ export class Engine {
     if (resolvedChannel !== null) finalPayload._channel = resolvedChannel;
     if (channelScope !== null) finalPayload._channelScope = channelScope;
 
-    connection.descriptor.send(JSON.stringify({ event, payload: finalPayload }));
+    // Mirror the sendProtocolMessage hardening: a non-serializable user
+    // payload (BigInt, circular reference, function, symbol) must not
+    // crash the replay loop. On failure, log and emit a sanitized
+    // `_error` frame carrying just the routing markers so the client can
+    // correlate the row, then return so the caller's loop keeps
+    // iterating remaining rows.
+    let frame: string;
+    try {
+      frame = JSON.stringify({ event, payload: finalPayload });
+    } catch (error) {
+      this.logger.error('[wskit] Failed to serialize replay frame; sending fallback _error', {
+        event,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      const fallbackPayload: Record<string, unknown> = { code: InternalError.code };
+      for (const key of PROTOCOL_PAYLOAD_FIELDS) {
+        if (key in finalPayload) fallbackPayload[key] = finalPayload[key];
+      }
+      try {
+        frame = JSON.stringify({ event: '_error', payload: fallbackPayload });
+      } catch (fallbackError) {
+        this.logger.error('[wskit] Fallback _error frame also failed to serialize; dropping', {
+          error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
+        });
+        return;
+      }
+    }
+    connection.descriptor.send(frame);
   }
 
   /**

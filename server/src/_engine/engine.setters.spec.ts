@@ -116,6 +116,94 @@ describe('Engine.sendProtocolMessage — non-serializable payloads', () => {
   });
 });
 
+describe('Engine.sendReplay — non-serializable payloads', () => {
+  function fakeConnection() {
+    const sent: string[] = [];
+    return {
+      sent,
+      conn: {
+        descriptor: { send: (frame: string) => sent.push(frame) },
+      } as any,
+    };
+  }
+
+  it('sends a fallback _error frame when a replay row contains a BigInt', () => {
+    const engine = makeEngine();
+    const error = vi.fn();
+    engine.setLogger({ info: () => {}, warn: () => {}, error });
+    const { sent, conn } = fakeConnection();
+
+    engine.sendReplay(
+      conn,
+      'lobby',
+      null,
+      'chat-msg',
+      { text: 'hi', reactions: 7n },
+      {
+        seq: 42,
+        messageId: 'm-7',
+      },
+    );
+
+    expect(sent).toHaveLength(1);
+    const parsed = JSON.parse(sent[0] as string);
+    // The wire event flips to _error; routing markers from the row survive
+    // so the client can correlate the failure to the right channel and
+    // sequence number.
+    expect(parsed.event).toBe('_error');
+    expect(parsed.payload.code).toBe('internal-error');
+    expect(parsed.payload._channel).toBe('lobby');
+    expect(parsed.payload._seq).toBe(42);
+    expect(parsed.payload._messageId).toBe('m-7');
+    expect('reactions' in parsed.payload).toBe(false);
+    expect(error).toHaveBeenCalled();
+  });
+
+  it('does not throw out of the replay loop when serialization fails', () => {
+    const engine = makeEngine();
+    engine.setLogger({ info: () => {}, warn: () => {}, error: () => {} });
+    const { conn } = fakeConnection();
+    const circular: Record<string, unknown> = { text: 'hi' };
+    circular.self = circular;
+
+    expect(() =>
+      engine.sendReplay(conn, null, null, 'chat-msg', circular, {
+        seq: 1,
+        messageId: 'm-1',
+      }),
+    ).not.toThrow();
+  });
+
+  it('still sends the row normally when the payload is serializable', () => {
+    const engine = makeEngine();
+    engine.setLogger({ info: () => {}, warn: () => {}, error: () => {} });
+    const { sent, conn } = fakeConnection();
+
+    engine.sendReplay(
+      conn,
+      'lobby',
+      'rooms',
+      'chat-msg',
+      { text: 'ok' },
+      {
+        seq: 1,
+        messageId: 'm-1',
+      },
+    );
+
+    expect(sent).toHaveLength(1);
+    const parsed = JSON.parse(sent[0] as string);
+    expect(parsed.event).toBe('chat-msg');
+    expect(parsed.payload).toEqual({
+      text: 'ok',
+      _seq: 1,
+      _messageId: 'm-1',
+      _channel: 'lobby',
+      _channelScope: 'rooms',
+    });
+  });
+});
+
 describe('Engine internal upgrade slot', () => {
   it('throws when one primitive calls onUpgrade twice from the same __setup', () => {
     // Per-primitive guard. Each primitive's __setup gets its own

@@ -576,4 +576,28 @@ test.describe('replay handler', () => {
     await page.getByTestId('request-history-btn').click();
     await waitForText(page, 'history-injected', 'true');
   });
+
+  test('ctx.sendReplay with a non-serializable payload sends _error and keeps the loop running', async ({
+    page,
+  }) => {
+    // Pre-fix the BigInt payload threw inside JSON.stringify and the
+    // throw escaped the replay caller's loop. The client lost the
+    // failing row AND every row queued after it. Post-fix the engine
+    // logs and emits a sanitized _error frame keeping the routing
+    // markers, then returns so the caller's loop keeps iterating.
+    await page.getByTestId('trigger-bigint-replay-btn').click();
+
+    // The bad row is replaced by an _error carrying the original
+    // _messageId so the client can correlate the failure.
+    await waitForText(page, 'bigint-replay-error', 'internal-error');
+    await waitForText(page, 'bigint-replay-error-message-id', 'bigint-row-1');
+
+    // The follow-up row in the same handler must still arrive — the
+    // loop did not abort on the bad row.
+    await waitForText(page, 'after-bigint-row-delivered', 'true');
+
+    // Connection still healthy: a normal request-history call still works.
+    await page.getByTestId('request-history-btn').click();
+    await waitForText(page, 'history-injected', 'true');
+  });
 });

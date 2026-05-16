@@ -25,6 +25,7 @@ import {
   TinyChunk,
   TokenResponse,
   TriggerBadReplay,
+  TriggerBigIntReplay,
 } from './events.ts';
 
 const base = withChannels(
@@ -115,6 +116,28 @@ export const replayHandler = base
       'room-msg',
       { text: 'family-injected', from: 'system' },
       { seq: 0, messageId: 'fam-manual-001', channel: 'fam-1', channelScope: 'fams' },
+    );
+  })
+  .incoming(TriggerBigIntReplay, (ctx) => {
+    // Send a row whose payload carries a BigInt — JSON.stringify cannot
+    // encode this. The engine must log + emit a sanitized _error frame
+    // preserving _channel/_seq/_messageId, then a follow-up valid row
+    // must still reach the client.
+    ctx.sendReplay(
+      'chat-msg',
+      { text: 'bigint-row', from: 'system', reactions: 7n } as unknown as {
+        text: string;
+        from: string;
+      },
+      { seq: 1, messageId: 'bigint-row-1' },
+    );
+    // Sentinel: a normal, serializable row that must still land after
+    // the failed one. Pre-fix this never arrived because the throw broke
+    // the caller's loop.
+    ctx.sendReplay(
+      'chat-msg',
+      { text: 'after-bigint-row', from: 'system' },
+      { seq: 2, messageId: 'after-bigint-row' },
     );
   })
   .use(tinyStream)

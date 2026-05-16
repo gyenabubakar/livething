@@ -24,6 +24,14 @@ export const TokenResponse = v.object({ token: v.string() });
 // client. Pins that ctx.sendReplay enforces the same contract as ctx.send.
 export const TriggerBadReplay = event('trigger-bad-replay', v.object({}));
 
+// Triggers a ctx.sendReplay call whose payload carries a non-serializable
+// value (BigInt). Pre-fix JSON.stringify threw out of the replay path and
+// the client lost the row plus everything after it. Post-fix the row
+// flips to a sanitized _error with the routing markers preserved, the
+// rest of the replay loop continues, and a follow-up valid frame still
+// reaches the client.
+export const TriggerBigIntReplay = event('trigger-bigint-replay', v.object({}));
+
 // Starts a one-chunk stream. The chunk frame carries `_streamId`. Pins
 // that built-in replay does not persist or resend stream chunks across
 // reconnects.

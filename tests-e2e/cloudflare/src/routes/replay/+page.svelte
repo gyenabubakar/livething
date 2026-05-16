@@ -13,6 +13,9 @@
 	let historyInjected = $state('');
 	let replayGuardUndeclared = $state('');
 	let replayGuardReservedField = $state('');
+	let bigintReplayError = $state('');
+	let bigintReplayErrorMessageId = $state('');
+	let afterBigintRowDelivered = $state('');
 
 	let roomSubscribed = $state('');
 	let roomMessages = $state<string[]>([]);
@@ -58,6 +61,12 @@
 				messages = [...messages, text].slice(-50);
 				if (replayRequested) replayCount++;
 				if (payload.text === 'injected-history') historyInjected = 'true';
+				if (payload.text === 'after-bigint-row') afterBigintRowDelivered = 'true';
+			} else if (evt === '_error') {
+				if (payload._messageId === 'bigint-row-1') {
+					bigintReplayError = String(payload.code ?? '');
+					bigintReplayErrorMessageId = String(payload._messageId ?? '');
+				}
 			} else if (evt === 'cursor') {
 				cursorEvents = [...cursorEvents, `${payload.x},${payload.y}`].slice(-50);
 			} else if (evt === 'room-msg') {
@@ -124,6 +133,13 @@
 		send('trigger-bad-replay', {});
 	}
 
+	function triggerBigIntReplay() {
+		bigintReplayError = '';
+		bigintReplayErrorMessageId = '';
+		afterBigintRowDelivered = '';
+		send('trigger-bigint-replay', {});
+	}
+
 	function requestRoomHistory() {
 		roomHistoryInjected = '';
 		send('request-room-history', { _channel: 'replay-room' });
@@ -176,6 +192,10 @@
 		<button data-testid="trigger-bad-replay-btn" onclick={triggerBadReplay} disabled={status !== 'connected'}>Trigger Bad Replay</button>
 		<div data-testid="replay-guard-undeclared">{replayGuardUndeclared}</div>
 		<div data-testid="replay-guard-reserved-field">{replayGuardReservedField}</div>
+		<button data-testid="trigger-bigint-replay-btn" onclick={triggerBigIntReplay} disabled={status !== 'connected'}>Trigger BigInt Replay</button>
+		<div data-testid="bigint-replay-error">{bigintReplayError}</div>
+		<div data-testid="bigint-replay-error-message-id">{bigintReplayErrorMessageId}</div>
+		<div data-testid="after-bigint-row-delivered">{afterBigintRowDelivered}</div>
 	</section>
 
 	<section>
