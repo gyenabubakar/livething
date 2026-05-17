@@ -45,6 +45,11 @@ export interface ContextCommonDeps {
   logger: PublicApi.Logger;
   platform: unknown;
   waitUntilImpl: (promise: Promise<unknown>) => void;
+  /**
+   * The engine's instance id, or `undefined` when running single-instance.
+   * Read when building `ConnectionRef`s on `ConnectionInfo` or `ctx.self`.
+   */
+  instanceId: string | undefined;
   requireStorage(): PublicApi.StorageProvider;
   requireTimers(): PublicApi.TimerProvider;
   scheduleTask(taskId: string, time: number, data: unknown): void;
@@ -87,6 +92,16 @@ export interface ContextCommonDeps {
     tag: string,
     reason: string,
     channelScope: string | null,
+  ): Promise<void>;
+  /**
+   * Server-initiated channel subscribe. Invoked from `channelHandle.subscribe(ref)`.
+   * Resolves to a no-op when the target connection is already a member.
+   */
+  subscribeConnectionAsServer(
+    ref: PublicApi.ConnectionRef,
+    channelName: string,
+    channelScope: string | null,
+    payload: unknown,
   ): Promise<void>;
   resolveChannel(
     target: string | { family: string; name: string },

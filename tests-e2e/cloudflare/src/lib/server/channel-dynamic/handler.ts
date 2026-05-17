@@ -43,6 +43,15 @@ const ScopedErrorObserved = event(
   v.object({ channel: v.string(), scope: v.string(), event: v.string() }),
 );
 
+// Triggers server-initiated subscribe into a dynamic family channel via
+// channelHandle.subscribe(ctx.self). Used by the e2e suite to pin that the
+// frame carries `_channelScope` alongside the static `_channel` and the
+// new `source: 'server'` marker.
+const TriggerServerSubscribeDynamic = event(
+  'trigger-server-subscribe-dynamic',
+  v.object({ name: v.string() }),
+);
+
 const base = withChannels(withLifecycle(server<Env>('channel-dynamic')))
   .onUpgrade((request) => requireUsername(request))
   .outgoing(TopOnlyActionFired)
@@ -139,4 +148,10 @@ const protoProbeChannel = base.channel(scope('proto-probe', /^proto:.+$/), (ch) 
   }),
 );
 
-export const channelDynamicHandler = base.use(roomChannel).use(protoProbeChannel).build();
+export const channelDynamicHandler = base
+  .use(roomChannel)
+  .use(protoProbeChannel)
+  .incoming(TriggerServerSubscribeDynamic, async (ctx, payload) => {
+    await ctx.channels.get('room', payload.name).subscribe(ctx.self);
+  })
+  .build();

@@ -107,6 +107,15 @@ export class Engine {
   waitUntilImpl: (promise: Promise<unknown>) => void = () => {};
   private hasWaitUntil = false;
   private hibernationEnabled = false;
+  /**
+   * Stable id of this engine instance in a multi-instance cluster. `undefined`
+   * by default — every ConnectionRef built locally carries `undefined`, the
+   * subscribe path treats those as local, and the broker is not consulted.
+   * Adapters that run alongside a broker call `setInstanceId(...)` from their
+   * setup so refs start carrying real instance ids.
+   * @internal
+   */
+  private engineInstanceId: string | undefined;
   private replayEnabled = false;
   private sequencePersistent = false;
   /** @internal */
@@ -334,12 +343,14 @@ export class Engine {
           ? this.toConnectionInfo(connection)
           : {
               id: '',
+              identity: '',
               meta: {},
               tags: [],
               channels: [],
               latency: null,
               quality: 'good',
               bufferedAmount: 0,
+              ref: () => EngineContexts.buildConnectionRef('', '', this.engineInstanceId),
             };
       },
     };
@@ -790,7 +801,25 @@ export class Engine {
    * @internal
    */
   toConnectionInfo(connection: RuntimeConnection) {
-    return EngineContexts.toConnectionInfo(connection);
+    return EngineContexts.toConnectionInfo(connection, this.engineInstanceId);
+  }
+
+  /**
+   * Read the instance id this engine is running as. `undefined` in
+   * single-instance setups.
+   * @internal
+   */
+  get instanceId(): string | undefined {
+    return this.engineInstanceId;
+  }
+
+  /**
+   * Set the instance id the adapter computed for this engine. Used by the
+   * future broker integration to route cross-instance calls. Single-instance
+   * adapters never call this.
+   */
+  setInstanceId(id: string): void {
+    this.engineInstanceId = id;
   }
 
   /**
@@ -1288,6 +1317,25 @@ export class Engine {
     return EngineMessageRuntime.handleSubscribe(
       EngineDeps.channelRuntime(this),
       connection,
+      payload,
+    );
+  }
+
+  /**
+   * Server-initiated subscribe. Backs `channelHandle.subscribe(ref, payload?)`.
+   * @internal
+   */
+  async subscribeConnectionAsServer(
+    ref: PublicApi.ConnectionRef,
+    channelName: string,
+    channelScope: string | null,
+    payload: unknown,
+  ): Promise<void> {
+    return EngineMessageRuntime.subscribeFromServer(
+      { ...EngineDeps.channelRuntime(this), instanceId: this.engineInstanceId },
+      ref,
+      channelName,
+      channelScope,
       payload,
     );
   }

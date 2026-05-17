@@ -602,4 +602,168 @@ test.describe('channel-static', () => {
       { h: handle },
     );
   });
+
+  test('channelHandle.subscribe(ctx.self) commits the membership and sends _subscribeOk with source server', async ({
+    page,
+  }, testInfo) => {
+    // Pins the server-initiated subscribe path (issue #11). The handler
+    // runs ctx.channels.get('room2').subscribe(ctx.self) in response to a
+    // trigger event from the client. The client receives _subscribeOk for
+    // room2 carrying `source: 'server'` — the marker the client SDK uses
+    // to tell server-initiated subscribes apart from its own.
+    await openPage(page, `test-${testInfo.testId}`);
+
+    const captured = await page.evaluate(async () => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      if (!ws) throw new Error('socket not exposed');
+      const got: { event: string; payload: Record<string, unknown> }[] = [];
+      const original = ws.onmessage;
+      ws.onmessage = (ev) => {
+        if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
+        if (typeof original === 'function') original.call(ws, ev);
+      };
+      ws.send(JSON.stringify({ event: 'trigger-server-subscribe', payload: {} }));
+
+      // Wait until the _subscribeOk for room2 has arrived (or time out).
+      const deadline = Date.now() + 2000;
+      while (Date.now() < deadline) {
+        if (got.some((m) => m.event === '_subscribeOk' && m.payload?._channel === 'room2')) break;
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      return got;
+    });
+
+    const subscribeOk = captured.find(
+      (m) => m.event === '_subscribeOk' && m.payload?._channel === 'room2',
+    );
+    expect(subscribeOk).toBeDefined();
+    expect(subscribeOk!.payload.source).toBe('server');
+  });
+
+  test('a second channelHandle.subscribe for an already-subscribed connection is a no-op', async ({
+    page,
+  }, testInfo) => {
+    // Server-side subscribe semantics — calling subscribe on a connection
+    // that is already a member of the channel resolves immediately and
+    // does NOT emit a second _subscribeOk or another _memberJoin.
+    await openPage(page, `test-${testInfo.testId}`);
+
+    const counts = await page.evaluate(async () => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      if (!ws) throw new Error('socket not exposed');
+      const got: { event: string; payload: Record<string, unknown> }[] = [];
+      const original = ws.onmessage;
+      ws.onmessage = (ev) => {
+        if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
+        if (typeof original === 'function') original.call(ws, ev);
+      };
+      ws.send(JSON.stringify({ event: 'trigger-server-subscribe', payload: {} }));
+      ws.send(JSON.stringify({ event: 'trigger-server-subscribe', payload: {} }));
+
+      const deadline = Date.now() + 2000;
+      while (Date.now() < deadline) {
+        const okCount = got.filter(
+          (m) => m.event === '_subscribeOk' && m.payload?._channel === 'room2',
+        ).length;
+        if (okCount >= 1) await new Promise((r) => setTimeout(r, 200));
+        if (Date.now() >= deadline - 200) break;
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      return {
+        subscribeOks: got.filter(
+          (m) => m.event === '_subscribeOk' && m.payload?._channel === 'room2',
+        ).length,
+        memberJoins: got.filter((m) => m.event === '_memberJoin' && m.payload?._channel === 'room2')
+          .length,
+      };
+    });
+
+    expect(counts.subscribeOks).toBe(1);
+    // No prior member in room2 to sync, and the second trigger no-ops, so
+    // zero _memberJoin frames reach this connection for room2.
+    expect(counts.memberJoins).toBe(0);
+  });
+
+  test('a connection subscribed via channelHandle.subscribe receives subsequent room2 broadcasts', async ({
+    browser,
+  }, testInfo) => {
+    // The wire `_subscribeOk` confirms intent. This test confirms the real
+    // membership: a peer broadcasts into room2 and the server-side-subscribed
+    // connection receives the room-message. If the engine had stamped the
+    // _subscribeOk frame but skipped the addChannelMembership call, this
+    // test would fail.
+    const sharedRoom = `test-${testInfo.testId}`;
+    const ctxA = await browser.newContext();
+    const ctxB = await browser.newContext();
+    const pageA = await ctxA.newPage();
+    const pageB = await ctxB.newPage();
+
+    await openPage(pageA, sharedRoom, 'alice');
+    await openPage(pageB, sharedRoom, 'bob');
+
+    // alice triggers a server-side subscribe to room2.
+    await pageA.evaluate(() => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      ws?.send(JSON.stringify({ event: 'trigger-server-subscribe', payload: {} }));
+    });
+
+    // bob subscribes to room2 the normal way (client _subscribe), so he can
+    // send a broadcast into it.
+    await pageB.getByTestId('subscribe-room2').click();
+    await expect(pageB.getByTestId('subscribe-ok-count')).toHaveText('1');
+
+    // alice starts capturing frames before bob broadcasts.
+    const aliceCaptureSetup = pageA.evaluate(() => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      if (!ws) throw new Error('socket not exposed');
+      const captured: { event: string; payload: Record<string, unknown> }[] = [];
+      (window as unknown as { __capture?: typeof captured }).__capture = captured;
+      const original = ws.onmessage;
+      ws.onmessage = (ev) => {
+        if (typeof ev.data === 'string') captured.push(JSON.parse(ev.data));
+        if (typeof original === 'function') original.call(ws, ev);
+      };
+    });
+    await aliceCaptureSetup;
+
+    // bob broadcasts into room2. Routing fields live inside `payload` on
+    // the wire — the engine strips them before validating against the
+    // event schema.
+    await pageB.evaluate(() => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      ws?.send(
+        JSON.stringify({
+          event: 'send-message',
+          payload: { text: 'hello from bob', _channel: 'room2' },
+        }),
+      );
+    });
+
+    // alice's captured frames should include the broadcast.
+    const aliceGotMessage = await pageA.evaluate(async () => {
+      const deadline = Date.now() + 2000;
+      while (Date.now() < deadline) {
+        const captured =
+          (
+            window as unknown as {
+              __capture?: { event: string; payload: Record<string, unknown> }[];
+            }
+          ).__capture ?? [];
+        const hit = captured.find(
+          (m) =>
+            m.event === 'room-message' &&
+            m.payload?._channel === 'room2' &&
+            m.payload?.text === 'hello from bob',
+        );
+        if (hit) return true;
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      return false;
+    });
+
+    expect(aliceGotMessage).toBe(true);
+
+    await ctxA.close();
+    await ctxB.close();
+  });
 });

@@ -235,7 +235,11 @@ function buildMessagingApi(
 
 type ChannelHandleDeps = Pick<
   EngineContextTypes.BuildConnectionContextDeps,
-  'broadcastToChannel' | 'getChannelMembers' | 'kickChannelMembers' | 'sendThroughPipeline'
+  | 'broadcastToChannel'
+  | 'getChannelMembers'
+  | 'kickChannelMembers'
+  | 'sendThroughPipeline'
+  | 'subscribeConnectionAsServer'
 >;
 
 /**
@@ -270,6 +274,8 @@ export function buildChannelHandle(
       );
     },
     members: () => deps.getChannelMembers(scope.channelName, scope.channelScope),
+    subscribe: (ref, payload) =>
+      deps.subscribeConnectionAsServer(ref, scope.channelName, scope.channelScope, payload),
     kick: (tag: string, reason: string) =>
       deps.kickChannelMembers(scope.channelName, tag, reason, scope.channelScope),
   };
@@ -282,6 +288,7 @@ type ChannelsApiDeps = Pick<
   | 'kickChannelMembers'
   | 'resolveChannel'
   | 'sendThroughPipeline'
+  | 'subscribeConnectionAsServer'
 >;
 
 /** Build the `ctx.channels` helper surface — only `get(...)`. */
@@ -310,6 +317,7 @@ type ScopeExtrasDeps = Pick<
   | 'getChannelMembers'
   | 'kickChannelMembers'
   | 'sendThroughPipeline'
+  | 'subscribeConnectionAsServer'
 >;
 
 /** Attach scope-bound `ctx.namespace` / `ctx.channel` helpers when a scope is active. */
@@ -398,6 +406,8 @@ export function buildConnectionContext(
     } satisfies EngineContextTypes.EngineScopeMeta,
     [EngineContextTypes.ENGINE_INTERNAL_CONNECTION]: connection,
     id: connection.id,
+    identity: connection.identity,
+    self: buildConnectionRef(connection.id, connection.identity, deps.instanceId),
     meta: connection.meta,
     tags: [...connection.tags],
     tag: (label) => {
@@ -545,15 +555,37 @@ export function attachModuleApis(
  */
 export function toConnectionInfo(
   connection: EngineContextTypes.RuntimeConnection,
+  instanceId: string | undefined,
 ): EngineContextTypes.ConnectionInfo<Record<string, unknown>> {
   return {
     id: connection.id,
+    identity: connection.identity,
     meta: connection.meta,
     tags: [...connection.tags],
     channels: [...connection.channelMemberships.values()].map((m) => m.channelName),
     latency: connection.latency,
     quality: connection.quality,
     bufferedAmount: connection.descriptor.bufferedAmount(),
+    ref: () => buildConnectionRef(connection.id, connection.identity, instanceId),
+  };
+}
+
+/**
+ * Build a `ConnectionRef` for one connection. Captured by `ConnectionInfo.ref()`
+ * and used directly for `ctx.self`. `instanceId` carries the engine's instance
+ * id when one is configured — the broker (future) reads this field to decide
+ * whether the target lives locally or on another instance.
+ */
+export function buildConnectionRef(
+  connectionId: string,
+  identity: string,
+  instanceId: string | undefined,
+): PublicApi.ConnectionRef {
+  return {
+    __wskit: 'connection-ref',
+    id: connectionId,
+    instance: instanceId,
+    identity,
   };
 }
 

@@ -279,8 +279,9 @@ describe('module getState fallback', () => {
     const { engine } = setupEngine(def);
     await engine.initialize();
 
-    expect(captured).toEqual({
+    expect(captured).toMatchObject({
       id: '',
+      identity: '',
       meta: {},
       tags: [],
       channels: [],
@@ -288,6 +289,7 @@ describe('module getState fallback', () => {
       quality: 'good',
       bufferedAmount: 0,
     });
+    expect(typeof (captured as { ref: unknown }).ref).toBe('function');
   });
 });
 
@@ -377,9 +379,11 @@ describe('module sandbox boundary', () => {
       'bufferedAmount',
       'channels',
       'id',
+      'identity',
       'latency',
       'meta',
       'quality',
+      'ref',
       'tags',
     ]);
 

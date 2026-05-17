@@ -4,6 +4,7 @@ import {
   createChannelMembershipKey,
   leaveChannel,
   subscribeConnection,
+  subscribeConnectionAsServer,
   unsubscribeConnection,
 } from '~/channel/runtime.ts';
 import { describe, expect, it, vi } from 'vitest';
@@ -70,12 +71,19 @@ function createRuntime() {
       toConnectionInfo(connection: ReturnType<typeof createConnection>) {
         return {
           id: connection.id,
+          identity: connection.identity,
           meta: connection.meta,
           tags: [...connection.tags],
           channels: [...connection.channelMemberships.values()].map((m) => m.channelName),
           latency: connection.latency,
           quality: connection.quality,
           bufferedAmount: 0,
+          ref: () => ({
+            __wskit: 'connection-ref' as const,
+            id: connection.id,
+            instance: undefined,
+            identity: connection.identity,
+          }),
         };
       },
       buildConnectionContext(connection: ReturnType<typeof createConnection>, scope?: unknown) {
@@ -155,7 +163,7 @@ describe('channel runtime', () => {
       {
         connectionId: 'conn_2',
         event: '_subscribeOk',
-        payload: { _channel: 'room:general', _channelScope: 'rooms' },
+        payload: { _channel: 'room:general', _channelScope: 'rooms', source: 'client' },
       },
       {
         connectionId: 'conn_2',
@@ -540,5 +548,212 @@ describe('channel runtime', () => {
       },
     ]);
     expect(logger.error).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('subscribeConnectionAsServer', () => {
+  it('runs the gate, commits, and sends _subscribeOk with source server', async () => {
+    const { protocol, broadcasts, connections, runtime } = createRuntime();
+    const target = createConnection('target', { userId: 't' });
+    connections.set(target.id, target);
+
+    await subscribeConnectionAsServer(runtime, target, 'room:general', 'rooms', {
+      invitedBy: 'mod-1',
+    });
+
+    expect(target.channelMemberships.has(createChannelMembershipKey('room:general', 'rooms'))).toBe(
+      true,
+    );
+    expect(protocol).toEqual([
+      {
+        connectionId: 'target',
+        event: '_subscribeOk',
+        payload: { _channel: 'room:general', _channelScope: 'rooms', source: 'server' },
+      },
+    ]);
+    expect(broadcasts).toEqual([
+      {
+        channelName: 'room:general',
+        event: '_memberJoin',
+        payload: { connectionId: 'target', meta: { userId: 't' } },
+        excludeConnectionId: 'target',
+        channelScope: 'rooms',
+      },
+    ]);
+  });
+
+  it('runs onBeforeSubscribe with the supplied payload', async () => {
+    const { connections, runtime } = createRuntime();
+    const seen: unknown[] = [];
+    runtime.beforeSubscribeHooks = new Map([
+      [
+        'rooms',
+        [
+          {
+            handler: async (_ctx: unknown, data: unknown) => {
+              seen.push(data);
+            },
+          },
+        ],
+      ],
+    ]);
+    const target = createConnection('target', {});
+    connections.set(target.id, target);
+
+    await subscribeConnectionAsServer(runtime, target, 'room:general', 'rooms', { gate: 'pass' });
+
+    expect(seen).toEqual([{ gate: 'pass' }]);
+    expect(target.channelMemberships.has(createChannelMembershipKey('room:general', 'rooms'))).toBe(
+      true,
+    );
+  });
+
+  it('rejects when onBeforeSubscribe throws — connection stays out of the channel', async () => {
+    const { connections, runtime } = createRuntime();
+    runtime.beforeSubscribeHooks = new Map([
+      [
+        'rooms',
+        [
+          {
+            handler: async () => {
+              throw new Error('gate refused');
+            },
+          },
+        ],
+      ],
+    ]);
+    const target = createConnection('target', {});
+    connections.set(target.id, target);
+
+    await expect(
+      subscribeConnectionAsServer(runtime, target, 'room:general', 'rooms', undefined),
+    ).rejects.toThrow(/gate refused/);
+
+    expect(target.channelMemberships.size).toBe(0);
+  });
+
+  it('no-ops when the connection is already a member', async () => {
+    const { protocol, broadcasts, connections, runtime } = createRuntime();
+    const target = createConnection('target', {});
+    addChannelMembership(target, 'room:general', 'rooms');
+    connections.set(target.id, target);
+
+    await subscribeConnectionAsServer(runtime, target, 'room:general', 'rooms', undefined);
+
+    expect(protocol).toEqual([]);
+    expect(broadcasts).toEqual([]);
+  });
+
+  it('throws ChannelNotFound for an unknown channel scope', async () => {
+    const { connections, runtime } = createRuntime();
+    const target = createConnection('target', {});
+    connections.set(target.id, target);
+
+    await expect(
+      subscribeConnectionAsServer(runtime, target, 'mystery', 'no-such-family', undefined),
+    ).rejects.toThrow();
+  });
+
+  it('works for a static channel (channelScope null)', async () => {
+    const { protocol, connections, runtime } = createRuntime();
+    // Register a static channel — the runtime fixture only carries a family
+    // by default. Static and family channels resolve through different
+    // branches of resolveCompiledChannel, so both deserve a test.
+    runtime.compiled.channels.set('lobby', {
+      key: 'lobby',
+      kind: 'channel' as const,
+      pattern: 'lobby',
+      outgoing: new Map(),
+      incoming: new Map(),
+      requests: new Map(),
+      streams: new Map(),
+      preIntercepts: [],
+      postIntercepts: new Map(),
+    } as never);
+    const target = createConnection('target', {});
+    connections.set(target.id, target);
+
+    await subscribeConnectionAsServer(runtime, target, 'lobby', null, undefined);
+
+    expect(target.channelMemberships.has(createChannelMembershipKey('lobby', null))).toBe(true);
+    expect(protocol).toEqual([
+      {
+        connectionId: 'target',
+        event: '_subscribeOk',
+        payload: { _channel: 'lobby', source: 'server' },
+      },
+    ]);
+  });
+
+  it('works on a channel with no onBeforeSubscribe hook', async () => {
+    // The gate is optional. A channel without onBeforeSubscribe should
+    // accept the subscribe without complaint and commit the membership.
+    const { protocol, connections, runtime } = createRuntime();
+    const target = createConnection('target', {});
+    connections.set(target.id, target);
+
+    await subscribeConnectionAsServer(runtime, target, 'room:general', 'rooms', undefined);
+
+    expect(target.channelMemberships.has(createChannelMembershipKey('room:general', 'rooms'))).toBe(
+      true,
+    );
+    expect(protocol.some((p) => p.event === '_subscribeOk')).toBe(true);
+  });
+
+  it('sends _memberJoin syncs to the new subscriber for existing members', async () => {
+    const { protocol, connections, runtime } = createRuntime();
+    // Seed two existing members of room:general so the new subscriber
+    // receives one _memberJoin per existing peer.
+    const existingA = createConnection('existing-a', { who: 'a' });
+    const existingB = createConnection('existing-b', { who: 'b' });
+    addChannelMembership(existingA, 'room:general', 'rooms');
+    addChannelMembership(existingB, 'room:general', 'rooms');
+    connections.set(existingA.id, existingA);
+    connections.set(existingB.id, existingB);
+
+    const target = createConnection('target', {});
+    connections.set(target.id, target);
+
+    await subscribeConnectionAsServer(runtime, target, 'room:general', 'rooms', undefined);
+
+    const memberJoinsToTarget = protocol.filter(
+      (p) => p.connectionId === 'target' && p.event === '_memberJoin',
+    );
+    expect(memberJoinsToTarget.map((p) => p.payload.connectionId).sort()).toEqual([
+      'existing-a',
+      'existing-b',
+    ]);
+  });
+
+  it('runs onSubscribe after the subscribe is committed and the wire events have been sent', async () => {
+    const { protocol, connections, runtime } = createRuntime();
+    const order: string[] = [];
+    runtime.subscribeHooks = new Map([
+      [
+        'rooms',
+        [
+          async () => {
+            order.push('onSubscribe');
+          },
+        ],
+      ],
+    ]);
+    const originalSend = runtime.sendProtocolMessage;
+    runtime.sendProtocolMessage = (conn, event, payload) => {
+      order.push(`wire:${event}`);
+      originalSend(conn, event, payload);
+    };
+
+    const target = createConnection('target', {});
+    connections.set(target.id, target);
+
+    await subscribeConnectionAsServer(runtime, target, 'room:general', 'rooms', undefined);
+
+    // onSubscribe must run AFTER the _subscribeOk frame is on the wire.
+    expect(order[0]).toBe('wire:_subscribeOk');
+    expect(order[order.length - 1]).toBe('onSubscribe');
+    expect(protocol.some((p) => p.event === '_subscribeOk' && p.payload.source === 'server')).toBe(
+      true,
+    );
   });
 });

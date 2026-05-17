@@ -75,12 +75,19 @@ function baseDispatchRuntime(
     toConnectionInfo(connection: RuntimeConnection) {
       return {
         id: connection.id,
+        identity: connection.identity,
         meta: connection.meta,
         tags: [...connection.tags],
         channels: [...connection.channelMemberships.values()].map((m) => m.channelName),
         latency: connection.latency,
         quality: connection.quality,
         bufferedAmount: 0,
+        ref: () => ({
+          __wskit: 'connection-ref' as const,
+          id: connection.id,
+          instance: undefined,
+          identity: connection.identity,
+        }),
       };
     },
     broadcastToConnections() {},

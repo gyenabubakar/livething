@@ -24,6 +24,11 @@ const TagSelf = event('tag-self', v.object({ tag: v.string() }));
 const TagAck = event('tag-ack', v.object({ tag: v.string() }));
 const KickByTag = event('kick-by-tag', v.object({ tag: v.string(), reason: v.string() }));
 const KickAck = event('kick-ack', v.object({ tag: v.string() }));
+// Triggers a server-initiated subscribe of the current connection into the
+// 'room2' channel via channelHandle.subscribe(ctx.self). Used by the e2e
+// suite to pin that the wire frame carries `source: 'server'` and that the
+// connection is committed as a member without a client _subscribe frame.
+const TriggerServerSubscribe = event('trigger-server-subscribe', v.object({}));
 
 const base = withStreams(withChannels(withLifecycle(server<Env>('channel-static'))))
   .outgoing(TagAck)
@@ -127,5 +132,8 @@ export const channelStaticHandler = base
   .incoming(KickByTag, async (ctx, payload) => {
     await ctx.channels.get('room').kick(payload.tag, payload.reason);
     ctx.send('kick-ack', { tag: payload.tag });
+  })
+  .incoming(TriggerServerSubscribe, async (ctx) => {
+    await ctx.channels.get('room2').subscribe(ctx.self);
   })
   .build();

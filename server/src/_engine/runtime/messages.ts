@@ -341,6 +341,72 @@ export async function handleSubscribe(
 }
 
 /**
+ * Server-initiated `channelHandle.subscribe(ref)`. Looks the target connection
+ * up from the ref, refuses cross-instance refs until the broker exists, and
+ * delegates to the channel primitive's server-side subscribe path.
+ */
+export async function subscribeFromServer(
+  runtime: ChannelRuntime &
+    Pick<
+      OutgoingRuntime.OutgoingRuntime,
+      | 'afterSendHooks'
+      | 'beforeSendHooks'
+      | 'compiled'
+      | 'generateId'
+      | 'logger'
+      | 'moduleRuntimes'
+      | 'outgoingHooks'
+      | 'waitUntil'
+    > & { instanceId: string | undefined },
+  ref: { __wskit: 'connection-ref'; id: string; instance: string | undefined; identity: string },
+  channelName: string,
+  channelScope: string | null,
+  payload: unknown,
+): Promise<void> {
+  if (ref.instance !== runtime.instanceId) {
+    throw new Error(
+      `[wskit] channelHandle.subscribe(ref) targets instance "${ref.instance ?? 'undefined'}" but this engine is "${runtime.instanceId ?? 'undefined'}" — cross-instance routing requires a broker, which is not configured yet.`,
+    );
+  }
+
+  const target = runtime.connections.get(ref.id);
+  if (!target) {
+    throw new Error(
+      `[wskit] channelHandle.subscribe(ref) — no live connection with id "${ref.id}" on this instance.`,
+    );
+  }
+
+  await ChannelPrimitive.subscribeConnectionAsServer(
+    {
+      ...runtime,
+      broadcastToChannel: (
+        channelName2,
+        event,
+        nextPayload,
+        excludeConnectionId,
+        channelScope2,
+        excludeSelf,
+      ) => {
+        OutgoingRuntime.broadcastToChannel(
+          runtime,
+          channelName2,
+          event,
+          nextPayload,
+          excludeConnectionId,
+          channelScope2,
+          excludeSelf,
+        );
+      },
+      toConnectionInfo: (nextConnection) => runtime.toConnectionInfo(nextConnection),
+    },
+    target,
+    channelName,
+    channelScope,
+    payload,
+  );
+}
+
+/**
  * Handle the `_unsubscribe` protocol message for a channel.
  */
 export async function handleUnsubscribe(

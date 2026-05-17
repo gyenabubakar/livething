@@ -89,6 +89,16 @@ export interface ConnectionIdentityMethods {
    * this exact client again later (e.g. `ctx.sendToConnection(id, ...)`).
    */
   readonly id: ConnectionContext['id'];
+  /**
+   * Stable identity string from `onUpgrade` — the user-equivalent id.
+   * Same person across many connections shares the same identity.
+   */
+  readonly identity: ConnectionContext['identity'];
+  /**
+   * A `ConnectionRef` for the current connection. Pass it to engine methods
+   * that target a specific socket, e.g. `channel.subscribe(ctx.self)`.
+   */
+  readonly self: ConnectionContext['self'];
 }
 
 /**

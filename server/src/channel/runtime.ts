@@ -250,23 +250,23 @@ export async function leaveChannel(
 }
 
 /**
- * Subscribe one connection to a channel and emit the protocol events that
- * bring it into sync with the current member list.
+ * Run the gate + commit + notify flow that brings a connection into a channel.
+ * Shared by the client-initiated wire path (`_subscribe`) and the server-side
+ * `channelHandle.subscribe(ref)` primitive — both end up here once the channel
+ * scope is resolved and the subscribe payload is in hand.
+ *
+ * `source` is stamped on the outgoing `_subscribeOk` so the client SDK can tell
+ * whether the subscribe came from its own request (`'client'`) or from the
+ * server (`'server'`) without correlating against a pending Promise.
  */
-export async function subscribeConnection(
+async function runSubscribeFlow(
   runtime: ChannelRuntime,
   connection: RuntimeConnection,
-  payload: Record<string, unknown> | undefined,
+  scope: ResolvedChannelScope,
+  data: unknown,
+  source: 'client' | 'server',
 ): Promise<void> {
-  if (!payload) return;
-
-  const scope = resolveChannel(runtime, payload);
-  if (!scope) {
-    throw ChannelNotFound();
-  }
-
   const ctx = runtime.buildConnectionContext(connection, scope);
-  const data = stripProtocolFields(payload);
 
   for (const hook of runtime.beforeSubscribeHooks.get(scope.channel.key) ?? []) {
     let validatedData: unknown = data;
@@ -316,6 +316,7 @@ export async function subscribeConnection(
   runtime.sendProtocolMessage(connection, '_subscribeOk', {
     _channel: scope.channelName,
     ...(scope.channelScope !== null ? { _channelScope: scope.channelScope } : {}),
+    source,
   });
 
   for (const member of existingMembers) {
@@ -348,6 +349,59 @@ export async function subscribeConnection(
       return;
     }
   }
+}
+
+/**
+ * Subscribe one connection to a channel and emit the protocol events that
+ * bring it into sync with the current member list. Entry point for the
+ * client-initiated path — invoked when a `_subscribe` frame arrives.
+ */
+export async function subscribeConnection(
+  runtime: ChannelRuntime,
+  connection: RuntimeConnection,
+  payload: Record<string, unknown> | undefined,
+): Promise<void> {
+  if (!payload) return;
+
+  const scope = resolveChannel(runtime, payload);
+  if (!scope) {
+    throw ChannelNotFound();
+  }
+
+  const data = stripProtocolFields(payload);
+  await runSubscribeFlow(runtime, connection, scope, data, 'client');
+}
+
+/**
+ * Server-initiated subscribe. Invoked by `channelHandle.subscribe(ref, payload?)`
+ * to add a connection to a channel without a wire frame.
+ *
+ * Resolves to a no-op when the connection is already a member of the target
+ * channel scope — calling subscribe on an existing membership is treated as
+ * "make sure they are in", not as a re-subscribe. The wire-level no-op means
+ * no extra `_subscribeOk` and no extra `_memberJoin` reach the client.
+ */
+export async function subscribeConnectionAsServer(
+  runtime: ChannelRuntime,
+  connection: RuntimeConnection,
+  channelName: string,
+  channelScope: string | null,
+  payload: unknown,
+): Promise<void> {
+  const channel = resolveCompiledChannel(runtime.compiled, channelName, channelScope);
+  if (!channel || !matchesScopePattern(channel.pattern, channelName)) {
+    throw ChannelNotFound();
+  }
+
+  if (hasChannelMembership(connection, channelName, channelScope)) return;
+
+  await runSubscribeFlow(
+    runtime,
+    connection,
+    { channel, channelName, channelScope },
+    payload,
+    'server',
+  );
 }
 
 /**

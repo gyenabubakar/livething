@@ -55,6 +55,9 @@ export function commonDeps(engine: Engine): EngineContextTypes.ContextCommonDeps
     kickChannelMembers: (channelName, tag, reason, channelScope) => {
       return engine.kickChannelMembers(channelName, tag, reason, channelScope);
     },
+    subscribeConnectionAsServer: (ref, channelName, channelScope, payload) => {
+      return engine.subscribeConnectionAsServer(ref, channelName, channelScope, payload);
+    },
     resolveChannel: (target) => {
       const compiled = engine.getCompiled();
       if (typeof target === 'string') {
@@ -77,6 +80,7 @@ export function commonDeps(engine: Engine): EngineContextTypes.ContextCommonDeps
     toConnectionInfo: (connection) => engine.toConnectionInfo(connection),
     attachModuleApis: (ctx, connection) => engine.attachModuleApis(ctx, connection),
     contextExtenders: engine.hooks.contextExtenders,
+    instanceId: engine.instanceId,
   };
 }
 

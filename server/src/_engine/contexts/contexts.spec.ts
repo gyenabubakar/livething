@@ -68,12 +68,19 @@ function baseDeps(overrides: Partial<Parameters<typeof buildConnectionContext>[0
     persistAttachment: vi.fn(),
     toConnectionInfo: (c: RuntimeConnection) => ({
       id: c.id,
+      identity: c.identity,
       meta: c.meta,
       tags: [...c.tags],
       channels: [...c.channelMemberships.values()].map((m) => m.channelName),
       latency: c.latency,
       quality: c.quality,
       bufferedAmount: 0,
+      ref: () => ({
+        __wskit: 'connection-ref' as const,
+        id: c.id,
+        instance: undefined,
+        identity: c.identity,
+      }),
     }),
     attachModuleApis: vi.fn(),
     contextExtenders: [],
@@ -355,12 +362,19 @@ describe('ctx.channels.get(name).members()', () => {
     const connection = createConnection('c1');
     const memberInfo = {
       id: 'c2',
+      identity: 'c2',
       meta: {},
       tags: [],
       channels: [],
       latency: null,
       quality: 'good' as const,
       bufferedAmount: 0,
+      ref: () => ({
+        __wskit: 'connection-ref' as const,
+        id: 'c2',
+        instance: undefined,
+        identity: 'c2',
+      }),
     };
     const deps = baseDeps({
       connections: new Map([[connection.id, connection]]),
@@ -389,12 +403,19 @@ describe('ctx.channels.get(name).members()', () => {
     const connection = createConnection('c1');
     const memberInfo = {
       id: 'c2',
+      identity: 'c2',
       meta: {},
       tags: [],
       channels: [],
       latency: null,
       quality: 'good' as const,
       bufferedAmount: 0,
+      ref: () => ({
+        __wskit: 'connection-ref' as const,
+        id: 'c2',
+        instance: undefined,
+        identity: 'c2',
+      }),
     };
     const resolveChannel = vi.fn((target: any) =>
       typeof target === 'string'

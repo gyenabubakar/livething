@@ -552,4 +552,45 @@ test.describe('channel-dynamic', () => {
     const ok = frames.find((f) => f.event === '_subscribeOk' && f.payload?._channel === 'proto:y');
     expect(ok).toBeUndefined();
   });
+
+  test('channelHandle.subscribe on a dynamic family stamps _channelScope and source server', async ({
+    page,
+  }, testInfo) => {
+    // Pins the server-side subscribe path for the dynamic-channel family
+    // case. The wire frame must carry both `_channel: 'room:auto'` and
+    // `_channelScope: 'room'` so the client SDK can route to the right
+    // family handle, plus `source: 'server'` to mark it as unsolicited.
+    await openPage(page, `test-${testInfo.testId}`);
+
+    const frames = await page.evaluate(async () => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      if (!ws) throw new Error('socket not exposed');
+      const got: { event: string; payload: Record<string, unknown> }[] = [];
+      const original = ws.onmessage;
+      ws.onmessage = (ev) => {
+        if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
+        if (typeof original === 'function') original.call(ws, ev);
+      };
+      ws.send(
+        JSON.stringify({
+          event: 'trigger-server-subscribe-dynamic',
+          payload: { name: 'room:auto' },
+        }),
+      );
+      const deadline = Date.now() + 2000;
+      while (Date.now() < deadline) {
+        if (got.some((m) => m.event === '_subscribeOk' && m.payload?._channel === 'room:auto'))
+          break;
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      return got;
+    });
+
+    const ok = frames.find(
+      (f) => f.event === '_subscribeOk' && f.payload?._channel === 'room:auto',
+    );
+    expect(ok).toBeDefined();
+    expect(ok!.payload._channelScope).toBe('room');
+    expect(ok!.payload.source).toBe('server');
+  });
 });

@@ -1127,12 +1127,19 @@ describe('getChannelMembers scope isolation', () => {
       compiled: {} as CompiledServer,
       toConnectionInfo: (c: RuntimeConnection) => ({
         id: c.id,
+        identity: c.identity,
         meta: c.meta,
         tags: [...c.tags],
         channels: [...c.channelMemberships.values()].map((m) => m.channelName),
         latency: null,
         quality: 'good' as const,
         bufferedAmount: 0,
+        ref: () => ({
+          __wskit: 'connection-ref' as const,
+          id: c.id,
+          instance: undefined,
+          identity: c.identity,
+        }),
       }),
       sendThroughPipeline: () => true,
     };
@@ -1159,12 +1166,19 @@ describe('getChannelMembers scope isolation', () => {
       compiled: {} as CompiledServer,
       toConnectionInfo: (c: RuntimeConnection) => ({
         id: c.id,
+        identity: c.identity,
         meta: c.meta,
         tags: [...c.tags],
         channels: [...c.channelMemberships.values()].map((m) => m.channelName),
         latency: null,
         quality: 'good' as const,
         bufferedAmount: 0,
+        ref: () => ({
+          __wskit: 'connection-ref' as const,
+          id: c.id,
+          instance: undefined,
+          identity: c.identity,
+        }),
       }),
       sendThroughPipeline: () => true,
     };
