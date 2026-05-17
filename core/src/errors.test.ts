@@ -1,6 +1,14 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 
-import { Block, CloseCodes, error, ValidationFailed, WskitError } from '~/errors.ts';
+import {
+  Block,
+  CloseCodes,
+  error,
+  StreamAborted,
+  StreamAlreadyActive,
+  ValidationFailed,
+  WskitError,
+} from '~/errors.ts';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type { ErrorDef, ErrorDefWithFactory } from '~/errors.ts';
 
@@ -202,4 +210,46 @@ if (ValidationFailed.matches(maybeVf)) {
   const _md: { event: string; issues: Array<{ message: string; path?: Array<string | number> }> } =
     maybeVf.detail;
   void [_mc, _md];
+}
+
+// ===========================================================================
+// 11. StreamAborted — code-only built-in
+// ===========================================================================
+
+const _saCode: 'stream-aborted' = StreamAborted.code;
+void _saCode;
+
+const _saErr: WskitError<'stream-aborted', void> = StreamAborted();
+void _saErr;
+
+declare const maybeSa: unknown;
+if (StreamAborted.matches(maybeSa)) {
+  const _sac: 'stream-aborted' = maybeSa.code;
+  const _sad: void = maybeSa.detail;
+  void [_sac, _sad];
+}
+
+// ===========================================================================
+// 12. StreamAlreadyActive — built-in with parsed detail
+// ===========================================================================
+
+const _saaCode: 'stream-already-active' = StreamAlreadyActive.code;
+void _saaCode;
+
+const saaErr = StreamAlreadyActive({ event: 'start-tokens', _streamId: 'stream_1' });
+const _saaErrCode: 'stream-already-active' = saaErr.code;
+const _saaDetail: { event: string; _streamId: string } = saaErr.detail;
+void [_saaErrCode, _saaDetail];
+
+// @ts-expect-error — missing _streamId
+StreamAlreadyActive({ event: 'start-tokens' });
+
+// @ts-expect-error — missing event
+StreamAlreadyActive({ _streamId: 'stream_1' });
+
+declare const maybeSaa: unknown;
+if (StreamAlreadyActive.matches(maybeSaa)) {
+  const _saamc: 'stream-already-active' = maybeSaa.code;
+  const _saamd: { event: string; _streamId: string } = maybeSaa.detail;
+  void [_saamc, _saamd];
 }

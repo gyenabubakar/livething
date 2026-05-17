@@ -10,6 +10,7 @@ export {
   InvalidScopeMarkers,
   NamespaceNotFound,
   StreamAborted,
+  StreamAlreadyActive,
 } from './errors.ts';
 export type { ErrorDef, ErrorDefWithFactory } from './errors.ts';
 export {

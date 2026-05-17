@@ -432,3 +432,40 @@ export const InternalError = error('internal-error');
  * ```
  */
 export const StreamAborted = error('stream-aborted');
+
+/**
+ * Sent to the client when it asks to start a stream of an event that already
+ * has another stream of the same event running on the same connection. By
+ * default a connection can only have one active stream per event name —
+ * starting a second one is rejected with this code. The existing stream's
+ * `_streamId` is carried in `detail._streamId` so the client can decide
+ * whether to wait for it, cancel it, or surface the conflict to the user.
+ *
+ * Opt out per-stream with `.allowConcurrent()` on the stream builder if the
+ * use case genuinely needs parallel runs of the same event (e.g. fan-out
+ * searches).
+ *
+ * @example
+ * ```ts
+ * try {
+ *   await socket.stream('start-tokens', { prompt: 'hi' });
+ * } catch (err) {
+ *   if (StreamAlreadyActive.matches(err)) {
+ *     console.log('already running', err.detail._streamId);
+ *   }
+ * }
+ * ```
+ */
+export const StreamAlreadyActive = error('stream-already-active', (p: unknown) => {
+  if (typeof p !== 'object' || p === null) {
+    throw new Error('StreamAlreadyActive detail must be an object');
+  }
+  const obj = p as Record<string, unknown>;
+  if (typeof obj.event !== 'string') {
+    throw new Error('StreamAlreadyActive detail.event must be a string');
+  }
+  if (typeof obj._streamId !== 'string') {
+    throw new Error('StreamAlreadyActive detail._streamId must be a string');
+  }
+  return { event: obj.event, _streamId: obj._streamId };
+});

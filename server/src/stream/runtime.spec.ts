@@ -304,6 +304,7 @@ describe('stream/runtime', () => {
     activeStreams.set(streamId, {
       id: streamId,
       connectionId: owner.id,
+      event: 'owned-stream',
       generator,
       nudges: [],
       nudgeValidators: new Map(),
@@ -336,6 +337,7 @@ describe('stream/runtime', () => {
     activeStreams.set('stream_1', {
       id: 'stream_1',
       connectionId: owner.id,
+      event: 'finally-throws-stream',
       generator: generator as AsyncGenerator<unknown, void, unknown>,
       nudges: [],
       nudgeValidators: new Map(),
@@ -441,6 +443,7 @@ describe('stream/runtime', () => {
     const closed: ActiveStream = {
       id: 'stream_1',
       connectionId: connection.id,
+      event: 'closed-stream',
       generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
       nudges: [],
       nudgeValidators: new Map([['known-nudge', undefined]]),
@@ -495,6 +498,7 @@ describe('stream/runtime', () => {
     const activeStream: ActiveStream = {
       id: 'stream_1',
       connectionId: connection.id,
+      event: 'known-stream',
       generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
       nudges: [],
       nudgeValidators: new Map([['known-nudge', undefined]]),
@@ -546,6 +550,7 @@ describe('stream/runtime', () => {
     const activeStream: ActiveStream = {
       id: 'stream_1',
       connectionId: connection.id,
+      event: 'async-stream',
       generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
       nudges: [],
       nudgeValidators: new Map([['async-nudge', (v: unknown) => Promise.resolve(v)]]),
@@ -581,6 +586,7 @@ describe('stream/runtime', () => {
     const activeStream: ActiveStream = {
       id: 'stream_1',
       connectionId: connection.id,
+      event: 'pause-stream',
       generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
       nudges: [],
       nudgeValidators: new Map([
@@ -690,6 +696,164 @@ describe('stream/runtime', () => {
     expect(idsObservedFromBody).toEqual(['c1', 'c1']);
     // After the stream ends, the bracket has restored undefined.
     expect(activeId).toBeUndefined();
+  });
+
+  it('runStream rejects a second start of the same event on the same connection by default', async () => {
+    // Default per-connection per-event exclusivity. A client cannot run two
+    // streams of the same event on the same socket — the second start is
+    // rejected with `stream-already-active` carrying the existing stream id.
+    const { runtime, protocolMessages } = createStreamRuntime();
+    const connection = createConnection();
+
+    const existing: ActiveStream = {
+      id: 'existing_1',
+      connectionId: connection.id,
+      event: 'start-tokens',
+      generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
+      nudges: [],
+      nudgeValidators: new Map(),
+      closed: false,
+    };
+    runtime.activeStreams.set(existing.id, existing);
+    connection.activeStreamIds = new Set([existing.id]);
+
+    const stream = {
+      stream: { nudges: [], broadcast: false, allowConcurrent: false },
+      generator: async function* () {
+        yield { token: 'should-not-run' };
+      },
+    };
+
+    await expect(
+      runStream(
+        runtime as Parameters<typeof runStream>[0],
+        connection,
+        {},
+        'start-tokens',
+        stream as never,
+        {},
+      ),
+    ).rejects.toMatchObject({
+      code: 'stream-already-active',
+      detail: { event: 'start-tokens', _streamId: 'existing_1' },
+    });
+
+    // Existing stream is untouched, no second stream registered, and no
+    // `_streamOk` for a stream that never started.
+    expect(runtime.activeStreams.has('existing_1')).toBe(true);
+    expect(runtime.activeStreams.size).toBe(1);
+    expect(protocolMessages.find((m) => m.event === '_streamOk')).toBeUndefined();
+  });
+
+  it('runStream accepts a second start of a different event on the same connection', async () => {
+    const { runtime } = createStreamRuntime();
+    const connection = createConnection();
+
+    const existing: ActiveStream = {
+      id: 'existing_1',
+      connectionId: connection.id,
+      event: 'start-tokens',
+      generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
+      nudges: [],
+      nudgeValidators: new Map(),
+      closed: false,
+    };
+    runtime.activeStreams.set(existing.id, existing);
+    connection.activeStreamIds = new Set([existing.id]);
+
+    const stream = {
+      stream: { nudges: [], broadcast: false, allowConcurrent: false },
+      generator: async function* () {
+        yield { token: 'summary' };
+      },
+    };
+
+    await expect(
+      runStream(
+        runtime as Parameters<typeof runStream>[0],
+        connection,
+        {},
+        'start-summary',
+        stream as never,
+        {},
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it('runStream accepts a same-event start on a different connection', async () => {
+    const { runtime } = createStreamRuntime();
+    const owner = createConnection('owner');
+    const other = createConnection('other');
+
+    const existing: ActiveStream = {
+      id: 'existing_1',
+      connectionId: owner.id,
+      event: 'start-tokens',
+      generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
+      nudges: [],
+      nudgeValidators: new Map(),
+      closed: false,
+    };
+    runtime.activeStreams.set(existing.id, existing);
+    owner.activeStreamIds = new Set([existing.id]);
+
+    const stream = {
+      stream: { nudges: [], broadcast: false, allowConcurrent: false },
+      generator: async function* () {
+        yield { token: 'hello' };
+      },
+    };
+
+    await expect(
+      runStream(
+        runtime as Parameters<typeof runStream>[0],
+        other,
+        {},
+        'start-tokens',
+        stream as never,
+        {},
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it('runStream allows parallel same-event streams when allowConcurrent is set', async () => {
+    // With `.allowConcurrent()` the per-connection per-event check is skipped
+    // and both streams run with distinct ids.
+    const { runtime, protocolMessages } = createStreamRuntime();
+    const connection = createConnection();
+
+    const existing: ActiveStream = {
+      id: 'existing_1',
+      connectionId: connection.id,
+      event: 'start-tokens',
+      generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
+      nudges: [],
+      nudgeValidators: new Map(),
+      closed: false,
+    };
+    runtime.activeStreams.set(existing.id, existing);
+    connection.activeStreamIds = new Set([existing.id]);
+
+    const stream = {
+      stream: { nudges: [], broadcast: false, allowConcurrent: true },
+      generator: async function* () {
+        yield { token: 'hi' };
+      },
+    };
+
+    await runStream(
+      runtime as Parameters<typeof runStream>[0],
+      connection,
+      {},
+      'start-tokens',
+      stream as never,
+      {},
+    );
+
+    const streamOk = protocolMessages.find((m) => m.event === '_streamOk');
+    expect(streamOk).toBeDefined();
+    expect(streamOk!.payload._streamId).toBe('stream_1');
+    expect(runtime.activeStreams.has('existing_1')).toBe(true);
   });
 
   it('Defer thrown inside a stream fires onError hooks and sends an _error with code defer-exhausted', async () => {

@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { rethrowIfConfigError, ValidationFailed } from '@wskit/core';
+import { rethrowIfConfigError, StreamAlreadyActive, ValidationFailed } from '@wskit/core';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import { DeferExhausted } from '~/errors/errors.ts';
@@ -200,6 +200,23 @@ export async function runStream(
   stream: AnyGenerate,
   payload: unknown,
 ): Promise<void> {
+  // Per-connection per-event exclusivity. Default: one active stream of any
+  // given event per connection. Reject the second start with a typed error
+  // carrying the existing stream's id so the client can decide whether to
+  // wait, cancel, or surface the conflict. Opt out per stream with
+  // `.allowConcurrent()`.
+  if (!stream.stream.allowConcurrent) {
+    const existingIds = connection.activeStreamIds;
+    if (existingIds) {
+      for (const id of existingIds) {
+        const existing = runtime.activeStreams.get(id);
+        if (existing && !existing.closed && existing.event === event) {
+          throw StreamAlreadyActive({ event, _streamId: existing.id });
+        }
+      }
+    }
+  }
+
   const streamId = runtime.generateId('stream');
   runtime.sendProtocolMessage(connection, '_streamOk', {
     _streamId: streamId,
@@ -221,6 +238,7 @@ export async function runStream(
   const activeStream: ActiveStream = {
     id: streamId,
     connectionId: connection.id,
+    event,
     generator: iterator as AsyncGenerator<unknown, void, unknown>,
     nudges: [],
     nudgeValidators: new Map(

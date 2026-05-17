@@ -1,4 +1,17 @@
-import { Block, CloseCodes, error, ValidationFailed, WskitError } from '~/errors.ts';
+import {
+  Block,
+  ChannelNotFound,
+  ChannelNotSubscribed,
+  CloseCodes,
+  error,
+  InternalError,
+  InvalidScopeMarkers,
+  NamespaceNotFound,
+  StreamAborted,
+  StreamAlreadyActive,
+  ValidationFailed,
+  WskitError,
+} from '~/errors.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
@@ -369,5 +382,173 @@ describe('ValidationFailed parser — bad payload', () => {
         issues: [{ message: 'bad', path: [{}] }] as any,
       }),
     ).toThrow('issues[0].path[0] must be a string or number');
+  });
+});
+
+// ===========================================================================
+// Code-only built-in errors
+// ===========================================================================
+//
+// One block per built-in. Each asserts the wire code, that the factory builds
+// a WskitError with that code, and that `.matches()` accepts/rejects the
+// right shapes. These guards make silent renames visible in CI.
+
+describe.each([
+  { name: 'ChannelNotFound', def: ChannelNotFound, code: 'channel-not-found' as const },
+  {
+    name: 'ChannelNotSubscribed',
+    def: ChannelNotSubscribed,
+    code: 'channel-not-subscribed' as const,
+  },
+  { name: 'InternalError', def: InternalError, code: 'internal-error' as const },
+  { name: 'InvalidScopeMarkers', def: InvalidScopeMarkers, code: 'invalid-scope-markers' as const },
+  { name: 'NamespaceNotFound', def: NamespaceNotFound, code: 'namespace-not-found' as const },
+  { name: 'StreamAborted', def: StreamAborted, code: 'stream-aborted' as const },
+])('$name (code-only built-in)', ({ def, code }) => {
+  it('has the documented code', () => {
+    expect(def.code).toBe(code);
+  });
+
+  it('factory returns a WskitError with the right code and no detail', () => {
+    const err = def();
+    expect(err).toBeInstanceOf(WskitError);
+    expect(err.code).toBe(code);
+    expect(err.detail).toBeUndefined();
+  });
+
+  it('.matches() accepts the right code, rejects other codes', () => {
+    expect(def.matches(new WskitError(code, undefined))).toBe(true);
+    expect(def.matches(new WskitError('something-else', undefined))).toBe(false);
+  });
+
+  it('.matches() rejects non-WskitError values', () => {
+    expect(def.matches(new Error(code))).toBe(false);
+    expect(def.matches({ code })).toBe(false);
+    expect(def.matches(null)).toBe(false);
+    expect(def.matches(undefined)).toBe(false);
+  });
+});
+
+// ===========================================================================
+// StreamAlreadyActive
+// ===========================================================================
+
+describe('StreamAlreadyActive', () => {
+  it('has code stream-already-active', () => {
+    expect(StreamAlreadyActive.code).toBe('stream-already-active');
+  });
+
+  it('creates WskitError with event and _streamId', () => {
+    const err = StreamAlreadyActive({ event: 'start-tokens', _streamId: 'stream_42' });
+    expect(err).toBeInstanceOf(WskitError);
+    expect(err.code).toBe('stream-already-active');
+    expect(err.detail).toEqual({ event: 'start-tokens', _streamId: 'stream_42' });
+  });
+
+  it('.matches() returns true for a valid detail', () => {
+    const err = new WskitError('stream-already-active', {
+      event: 'start-tokens',
+      _streamId: 'stream_1',
+    });
+    expect(StreamAlreadyActive.matches(err)).toBe(true);
+  });
+
+  it('.matches() returns false for wrong code', () => {
+    const err = new WskitError('forbidden', { event: 'x', _streamId: 's' });
+    expect(StreamAlreadyActive.matches(err)).toBe(false);
+  });
+
+  it('.matches() returns false for matching code but invalid detail', () => {
+    const err = new WskitError('stream-already-active', { event: 'x' });
+    expect(StreamAlreadyActive.matches(err)).toBe(false);
+  });
+
+  it('.matches() returns false for non-WskitError', () => {
+    expect(StreamAlreadyActive.matches(new Error('stream-already-active'))).toBe(false);
+  });
+});
+
+describe('StreamAlreadyActive parser — bad payload', () => {
+  it('throws when detail is not an object', () => {
+    // oxlint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(() => StreamAlreadyActive('not-an-object' as any)).toThrow('must be an object');
+  });
+
+  it('throws when detail.event is not a string', () => {
+    expect(() =>
+      // oxlint-disable-next-line @typescript-eslint/no-explicit-any
+      StreamAlreadyActive({ _streamId: 'stream_1' } as any),
+    ).toThrow('detail.event must be a string');
+  });
+
+  it('throws when detail._streamId is not a string', () => {
+    expect(() =>
+      // oxlint-disable-next-line @typescript-eslint/no-explicit-any
+      StreamAlreadyActive({ event: 'start-tokens' } as any),
+    ).toThrow('detail._streamId must be a string');
+  });
+});
+
+// ===========================================================================
+// Throw → catch → narrow roundtrip
+// ===========================================================================
+//
+// The factory + .matches() pair is the actual path apps use: throw the
+// factory, catch with the unknown-typed error, narrow with .matches().
+// Tests above only exercised constructor-built instances.
+
+describe('factory throw + catch + .matches() roundtrip', () => {
+  it('code-only built-in', () => {
+    try {
+      throw ChannelNotFound();
+    } catch (err) {
+      expect(ChannelNotFound.matches(err)).toBe(true);
+      expect(NamespaceNotFound.matches(err)).toBe(false);
+    }
+  });
+
+  it('built-in with detail', () => {
+    try {
+      throw StreamAlreadyActive({ event: 'start-tokens', _streamId: 'stream_1' });
+    } catch (err) {
+      expect(StreamAlreadyActive.matches(err)).toBe(true);
+      if (StreamAlreadyActive.matches(err)) {
+        expect(err.detail.event).toBe('start-tokens');
+        expect(err.detail._streamId).toBe('stream_1');
+      }
+    }
+  });
+});
+
+// ===========================================================================
+// Built-in code registry
+// ===========================================================================
+//
+// One snapshot of every built-in error code wskit ships. A rename, a new
+// addition, or a deletion fails this test and forces the change to surface
+// in the diff. The map is the canonical list of wire codes the framework
+// claims; consumers (client SDK, dashboards, audit logs) can read it here.
+
+describe('built-in error codes', () => {
+  it('matches the documented set', () => {
+    expect({
+      ValidationFailed: ValidationFailed.code,
+      ChannelNotFound: ChannelNotFound.code,
+      ChannelNotSubscribed: ChannelNotSubscribed.code,
+      InternalError: InternalError.code,
+      InvalidScopeMarkers: InvalidScopeMarkers.code,
+      NamespaceNotFound: NamespaceNotFound.code,
+      StreamAborted: StreamAborted.code,
+      StreamAlreadyActive: StreamAlreadyActive.code,
+    }).toEqual({
+      ValidationFailed: 'validation-failed',
+      ChannelNotFound: 'channel-not-found',
+      ChannelNotSubscribed: 'channel-not-subscribed',
+      InternalError: 'internal-error',
+      InvalidScopeMarkers: 'invalid-scope-markers',
+      NamespaceNotFound: 'namespace-not-found',
+      StreamAborted: 'stream-aborted',
+      StreamAlreadyActive: 'stream-already-active',
+    });
   });
 });

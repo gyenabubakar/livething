@@ -222,6 +222,12 @@ export interface RuntimeConnection {
 export interface ActiveStream {
   id: string;
   connectionId: string;
+  /**
+   * The trigger event name that started this stream. Used to enforce
+   * per-connection per-event exclusivity (one active stream per event per
+   * connection by default) unless the stream opted in via `.allowConcurrent()`.
+   */
+  event: string;
   generator: AsyncGenerator<unknown, void, unknown>;
   nudges: { event: string; payload: unknown }[];
   nudgeValidators: Map<string, unknown>;

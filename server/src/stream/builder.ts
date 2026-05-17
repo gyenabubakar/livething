@@ -39,6 +39,8 @@ export class StreamBuilder<
   declare readonly _hasChunk: THasChunk;
   /** @internal Whether to fan the stream out to all connections. */
   _broadcast = false;
+  /** @internal Whether to allow more than one stream of this event per connection at once. */
+  _allowConcurrent = false;
   /** @internal Nudge declarations accumulated via `.nudge()`. */
   readonly _nudges: NudgeDeclaration[] = [];
 
@@ -59,6 +61,18 @@ export class StreamBuilder<
    */
   broadcast(): this {
     this._broadcast = true;
+    return this;
+  }
+
+  /**
+   * Allow more than one stream of this event from the same connection to run
+   * at the same time. By default, starting a second stream of the same event
+   * while one is already running on the connection is rejected with
+   * `stream-already-active` — use this when the use case genuinely needs
+   * parallel runs (e.g. fan-out searches).
+   */
+  allowConcurrent(): this {
+    this._allowConcurrent = true;
     return this;
   }
 
@@ -132,6 +146,7 @@ export class StreamBuilder<
     const streamPrimitive = createStream<TEvent, TPayload, TChunks, typeof this._nudges>(
       createStart(this._event, this._triggerSchema as (value: unknown) => TPayload, {
         broadcast: this._broadcast,
+        allowConcurrent: this._allowConcurrent,
       }),
       ...this._nudges,
     );

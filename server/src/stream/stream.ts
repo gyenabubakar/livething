@@ -168,6 +168,13 @@ export interface StreamStartDeclaration<TEvent extends string = string, TPayload
   readonly validator?: Validator<TPayload>;
   /** When `true`, stream chunks are sent to all connections, not just the trigger connection. */
   readonly broadcast?: boolean;
+  /**
+   * When `true`, the same client can run more than one stream of this event
+   * at the same time. Default is `false`: a second start of the same event
+   * on a connection that already has one running is rejected with
+   * `stream-already-active`.
+   */
+  readonly allowConcurrent?: boolean;
 }
 
 /**
@@ -192,6 +199,12 @@ export interface StreamPrimitive<
   readonly nudges: TNudges;
   /** Whether stream chunks are broadcast to all connections. */
   readonly broadcast: boolean;
+  /**
+   * Whether the same connection can run more than one stream of this event at
+   * the same time. Default `false` — a second start while one is running is
+   * rejected with `stream-already-active`.
+   */
+  readonly allowConcurrent: boolean;
 }
 
 /** Extracts the payload type from a `StreamPrimitive`. */
@@ -263,6 +276,7 @@ export function stream<
     validator: startDecl.validator,
     nudges,
     broadcast: startDecl.broadcast ?? false,
+    allowConcurrent: startDecl.allowConcurrent ?? false,
   };
 }
 
@@ -308,7 +322,7 @@ export function generate<TBaseCtx, TStream extends StreamPrimitive, TNext = any>
 export function start<TEvent extends string>(
   name: TEvent,
   validator?: undefined,
-  options?: { broadcast?: boolean },
+  options?: { broadcast?: boolean; allowConcurrent?: boolean },
 ): StreamStartDeclaration<TEvent, unknown>;
 /**
  * Create a `StreamStartDeclaration` — a plain object that captures the trigger
@@ -321,7 +335,7 @@ export function start<TEvent extends string>(
 export function start<TEvent extends string, TPayload>(
   name: TEvent,
   validator: (value: unknown) => TPayload,
-  options?: { broadcast?: boolean },
+  options?: { broadcast?: boolean; allowConcurrent?: boolean },
 ): StreamStartDeclaration<TEvent, TPayload>;
 /**
  * Create a `StreamStartDeclaration` — a plain object that captures the trigger
@@ -334,7 +348,7 @@ export function start<TEvent extends string, TPayload>(
 export function start<TEvent extends string, TSchema extends StandardSchemaV1>(
   name: TEvent,
   validator: TSchema,
-  options?: { broadcast?: boolean },
+  options?: { broadcast?: boolean; allowConcurrent?: boolean },
 ): StreamStartDeclaration<TEvent, StandardSchemaV1.InferOutput<TSchema>>;
 /**
  * Create a `StreamStartDeclaration` — a plain object that captures the trigger
@@ -347,9 +361,14 @@ export function start<TEvent extends string, TSchema extends StandardSchemaV1>(
 export function start(
   name: string,
   validator?: Validator,
-  options?: { broadcast?: boolean },
+  options?: { broadcast?: boolean; allowConcurrent?: boolean },
 ): StreamStartDeclaration {
-  return { event: name, validator, broadcast: options?.broadcast };
+  return {
+    event: name,
+    validator,
+    broadcast: options?.broadcast,
+    allowConcurrent: options?.allowConcurrent,
+  };
 }
 
 /** Symbol key used to reference the stream primitive in dependency declarations. */
