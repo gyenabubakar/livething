@@ -1,5 +1,6 @@
 import { event, server } from '@wskit/server';
 import { withLifecycle } from '@wskit/server/lifecycle';
+import { withTags } from '@wskit/server/tags';
 import * as v from 'valibot';
 import { requireUsername } from '../_shared/upgrade.ts';
 
@@ -18,11 +19,12 @@ const Message = event('message', v.object({ text: v.string(), from: v.string() }
 const WhoAmIResult = event('who-am-i-result', v.object({ connectionId: v.string() }));
 const DeliveryStatus = event('delivery-status', v.object({ delivered: v.boolean() }));
 
-export const ctxSendHandler = withLifecycle(server<Env>('ctx-send'))
+export const ctxSendHandler = withTags(withLifecycle(server<Env>('ctx-send')))
+  .tagGroups('ephemeral', ['user', 'label'])
   .outgoing(Message)
   .outgoing(WhoAmIResult)
   .outgoing(DeliveryStatus)
-  .onUpgrade((request) => requireUsername(request))
+  .onUpgrade((request, helpers) => requireUsername(request, helpers))
   .incoming(DoBroadcast, (ctx, payload) => {
     ctx.broadcast('message', { text: payload.text, from: ctx.meta.username });
   })
@@ -34,10 +36,18 @@ export const ctxSendHandler = withLifecycle(server<Env>('ctx-send'))
     );
   })
   .incoming(DoSendTo, (ctx, payload) => {
-    ctx.sendTo(payload.tag, 'message', { text: payload.text, from: ctx.meta.username });
+    // The test passes a username — match against the 'user' group set by
+    // requireUsername on upgrade.
+    ctx.tags
+      .ephemeral('user')
+      .ref(payload.tag)
+      .send('message', { text: payload.text, from: ctx.meta.username });
   })
   .incoming(DoSendToEmpty, (ctx, payload) => {
-    ctx.sendTo('', 'message', { text: payload.text, from: ctx.meta.username });
+    ctx.tags
+      .ephemeral('user')
+      .ref('')
+      .send('message', { text: payload.text, from: ctx.meta.username });
   })
   .incoming(DoSendToConnection, (ctx, payload) => {
     const delivered = ctx.sendToConnection(payload.connectionId, 'message', {

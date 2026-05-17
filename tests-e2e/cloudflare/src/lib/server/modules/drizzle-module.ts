@@ -19,7 +19,7 @@ export const DrizzleDenied = error(
 interface LastConnectionState {
   id: string;
   username: string | null;
-  tags: string[];
+  tags: { group: string; key: string }[];
 }
 
 export interface DrizzleApi {
@@ -90,7 +90,7 @@ export const Drizzle = defineModule({
         id: state.id,
         username:
           state.meta && typeof state.meta.username === 'string' ? state.meta.username : null,
-        tags: [...state.tags],
+        tags: state.tags.map((t) => ({ group: t.group, key: t.key })),
       };
       ctx.send('drizzle-ready', { tables: ['records'] });
     });

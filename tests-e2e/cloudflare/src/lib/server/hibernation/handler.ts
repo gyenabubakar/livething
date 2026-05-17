@@ -4,6 +4,7 @@ import { withHibernation } from '@wskit/server/hibernation';
 import { withInfrastructure } from '@wskit/server/infrastructure';
 import { withLifecycle } from '@wskit/server/lifecycle';
 import { withStreams } from '@wskit/server/streams';
+import { withTags } from '@wskit/server/tags';
 import * as v from 'valibot';
 import { requireUsername } from '../_shared/upgrade.ts';
 
@@ -26,15 +27,18 @@ const SlowChunk = v.object({ index: v.number() });
 const GetRoomMembers = event('get-room-members', v.object({}));
 const RoomMembersCount = event('room-members-count', v.object({ count: v.number() }));
 
-const base = withStreams(
-  withChannels(withHibernation(withInfrastructure(withLifecycle(server<Env>('hibernation'))))),
+const base = withTags(
+  withStreams(
+    withChannels(withHibernation(withInfrastructure(withLifecycle(server<Env>('hibernation'))))),
+  ),
 )
+  .tagGroups('ephemeral', ['user', 'label'])
   .hibernation()
   .outgoing(NotesList)
   .outgoing(TagResult)
   .outgoing(TaggedMessage)
   .outgoing(RoomMembersCount)
-  .onUpgrade((request) => requireUsername(request))
+  .onUpgrade((request, helpers) => requireUsername(request, helpers))
   .onInit((ctx) => {
     ctx.sql.exec(`
       CREATE TABLE IF NOT EXISTS notes (
@@ -81,13 +85,15 @@ export const hibernationHandler = base
     });
   })
   .incoming(TagSelf, (ctx, payload) => {
-    ctx.tag(payload.tag);
-    // ctx.tag() doesn't mutate ctx.tags in place; compose the new set.
-    const next = Array.from(new Set([...ctx.tags, payload.tag]));
-    ctx.send('tag-result', { tags: next });
+    ctx.tags.ephemeral('label').add(payload.tag);
+    ctx.send('tag-result', {
+      tags: ctx.tags
+        .list()
+        .map((t: { group: string; key: string; kind: string }) => `${t.group}:${t.key}`),
+    });
   })
   .incoming(SendToTag, (ctx, payload) => {
-    ctx.sendTo(payload.tag, 'tagged-message', {
+    ctx.tags.ephemeral('label').ref(payload.tag).send('tagged-message', {
       text: payload.text,
       from: ctx.meta.username,
     });

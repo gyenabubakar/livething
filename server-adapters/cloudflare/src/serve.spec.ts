@@ -74,7 +74,10 @@ describe('WskitDurableObject fetch / upgrade', () => {
   it('upgrades and returns 101 with client socket when accepted (standard mode)', async () => {
     const Cls = buildClass({ hibernation: false });
     const state = makeFakeDOState();
-    fake.stageUpgrade({ meta: { user: 'a' }, tags: ['t1'] });
+    function ref(kind: 'ephemeral', group: string, key: string) {
+      return { __wskit: 'tag-ref' as const, kind, group, key };
+    }
+    fake.stageUpgrade({ meta: { user: 'a' }, tags: [ref('ephemeral', 'role', 't1')] });
 
     const instance = new Cls(state as unknown as DurableObjectState, {});
     const res = await instance.fetch(upgradeRequest());
@@ -89,10 +92,12 @@ describe('WskitDurableObject fetch / upgrade', () => {
     expect(fake.calls.accept).toHaveLength(1);
     const desc = fake.calls.accept[0]!.descriptor as {
       meta: Record<string, unknown>;
-      tags: readonly string[];
+      tags: readonly { kind: string; group: string; key: string }[];
     };
     expect(desc.meta).toEqual({ user: 'a' });
-    expect(desc.tags).toEqual(['t1']);
+    expect(desc.tags).toEqual([
+      { __wskit: 'tag-ref', kind: 'ephemeral', group: 'role', key: 't1' },
+    ]);
   });
 
   it('wires addEventListener handlers that forward to the connection handle (standard mode)', async () => {
@@ -126,7 +131,12 @@ describe('WskitDurableObject fetch / upgrade', () => {
     // the upgrade for any handler that returns more or longer tags.
     const Cls = buildClass({ hibernation: true });
     const state = makeFakeDOState();
-    fake.stageUpgrade({ tags: ['room:lobby', 'tier:free'] });
+    fake.stageUpgrade({
+      tags: [
+        { __wskit: 'tag-ref' as const, kind: 'ephemeral' as const, group: 'room', key: 'lobby' },
+        { __wskit: 'tag-ref' as const, kind: 'ephemeral' as const, group: 'tier', key: 'free' },
+      ],
+    });
 
     const instance = new Cls(state as unknown as DurableObjectState, {});
     const res = await instance.fetch(upgradeRequest());

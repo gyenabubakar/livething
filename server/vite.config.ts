@@ -21,6 +21,7 @@ export default defineConfig({
         dedup: resolve(__dirname, 'src/dedup/index.ts'),
         hibernation: resolve(__dirname, 'src/hibernation/index.ts'),
         persistence: resolve(__dirname, 'src/persistence/index.ts'),
+        tags: resolve(__dirname, 'src/tags/index.ts'),
         errors: resolve(__dirname, 'src/errors/index.ts'),
         scheduled: resolve(__dirname, 'src/scheduled/index.ts'),
         request: resolve(__dirname, 'src/request/index.ts'),

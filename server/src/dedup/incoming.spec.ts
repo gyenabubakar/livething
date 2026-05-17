@@ -18,7 +18,7 @@ function makeConnection(id = 'c1'): RuntimeConnection {
     wsKey: {},
     descriptor: { send() {}, close() {} } as unknown as RuntimeConnection['descriptor'],
     meta: {},
-    tags: new Set(),
+    tags: { ephemeral: new Map<string, Set<string>>(), persistent: new Map<string, Set<string>>() },
     channelMemberships: new Map(),
     latency: null,
     quality: 'good',

@@ -3,6 +3,8 @@ import * as ChannelPrimitive from '~/channel/runtime.ts';
 import * as HeartbeatPrimitive from '~/heartbeat/runtime.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
+import type * as PublicApi from '~/context.ts';
+import type * as LifecycleTypes from '~/lifecycle/lifecycle.ts';
 import type * as ConnectionStore from './connection-store.ts';
 import type * as EngineRuntimeTypes from './types.ts';
 
@@ -349,13 +351,20 @@ export function acceptConnection(
   wsKey: unknown,
   descriptor: EngineAdapterTypes.ConnectionDescriptor,
 ): EngineAdapterTypes.ConnectionHandle {
+  const ephemeralTags = new Map<string, Set<string>>();
+  for (const ref of descriptor.tags ?? []) {
+    if (ref.kind !== 'ephemeral') continue;
+    const set = ephemeralTags.get(ref.group) ?? new Set<string>();
+    set.add(ref.key);
+    ephemeralTags.set(ref.group, set);
+  }
   const connection: EngineRuntimeTypes.RuntimeConnection = {
     id: runtime.generateId('conn'),
     identity: descriptor.identity,
     wsKey,
     descriptor,
     meta: descriptor.meta ?? {},
-    tags: new Set(descriptor.tags ?? []),
+    tags: { ephemeral: ephemeralTags, persistent: new Map() },
     channelMemberships: new Map(),
     latency: null,
     quality: 'good',
@@ -436,7 +445,18 @@ export function wakeHibernatedConnection(
   const id = row?.connection_id ?? attachmentId ?? runtime.generateId('conn');
   const identity = row?.identity ?? '';
   const meta = row?.meta ?? {};
-  const tags = row?.ephemeral_tags ?? [];
+  const ephemeralRefs: PublicApi.TagRef[] = (row?.ephemeral_tags ?? []).map((t) => ({
+    __wskit: 'tag-ref' as const,
+    kind: 'ephemeral' as const,
+    group: t.group,
+    key: t.key,
+  }));
+  const ephemeralMap = new Map<string, Set<string>>();
+  for (const t of row?.ephemeral_tags ?? []) {
+    const set = ephemeralMap.get(t.group) ?? new Set<string>();
+    set.add(t.key);
+    ephemeralMap.set(t.group, set);
+  }
   const channelMemberships = new Map<
     string,
     { channelName: string; channelScope: string | null }
@@ -456,7 +476,7 @@ export function wakeHibernatedConnection(
     bufferedAmount: () => 0,
     identity,
     meta,
-    tags: [...tags],
+    tags: ephemeralRefs,
   };
 
   for (const streamId of restoredStreamIds) {
@@ -474,7 +494,7 @@ export function wakeHibernatedConnection(
     wsKey,
     descriptor,
     meta,
-    tags: new Set(tags),
+    tags: { ephemeral: ephemeralMap, persistent: new Map() },
     channelMemberships,
     latency: null,
     quality: 'good',
@@ -504,21 +524,36 @@ export function wakeHibernatedConnection(
  */
 export async function handleUpgrade(
   runtime: {
-    upgradeHooks: readonly ((request: Request) =>
-      | { meta?: Record<string, unknown>; tags?: readonly string[] }
+    upgradeHooks: readonly ((
+      request: Request,
+      helpers: LifecycleTypes.UpgradeHelpers,
+    ) =>
+      | { meta?: Record<string, unknown>; tags?: readonly PublicApi.TagRef[] }
       | Promise<{
           meta?: Record<string, unknown>;
-          tags?: readonly string[];
+          tags?: readonly PublicApi.TagRef[];
         }>)[];
     builderUpgradeHook?:
-      | ((request: Request) =>
-          | { identity?: string; meta?: Record<string, unknown>; tags?: readonly string[] }
+      | ((
+          request: Request,
+          helpers: LifecycleTypes.UpgradeHelpers,
+        ) =>
+          | {
+              identity?: string;
+              meta?: Record<string, unknown>;
+              tags?: readonly PublicApi.TagRef[];
+            }
           | Promise<{
               identity?: string;
               meta?: Record<string, unknown>;
-              tags?: readonly string[];
+              tags?: readonly PublicApi.TagRef[];
             }>)
       | undefined;
+    /**
+     * Built once per engine. `withTags` populates the field; engines without
+     * `withTags` pass `undefined` and the helper bag is the empty object.
+     */
+    upgradeHelpers: LifecycleTypes.UpgradeHelpers;
   },
   request: Request,
 ): Promise<EngineAdapterTypes.UpgradeDecision> {
@@ -529,16 +564,14 @@ export async function handleUpgrade(
   try {
     // Run internal-primitive hooks first, then the user-facing builder
     // hook last. Each result's meta is shallow-merged into the running
-    // total; tags are unioned. Because the builder hook runs last, its
-    // meta keys override any internal hook on conflict — the user's
-    // code is the boss; internal primitives provide defaults.
+    // total; tags are concatenated (TagRef equality is by identity).
     let mergedMeta: Record<string, unknown> | undefined;
     let builderIdentity: string | undefined;
-    const mergedTags = new Set<string>();
+    const mergedTags: PublicApi.TagRef[] = [];
     function apply(result: {
       identity?: string;
       meta?: Record<string, unknown>;
-      tags?: readonly string[];
+      tags?: readonly PublicApi.TagRef[];
     }): void {
       if (result.identity !== undefined) {
         builderIdentity = result.identity;
@@ -547,19 +580,26 @@ export async function handleUpgrade(
         mergedMeta = mergedMeta ? { ...mergedMeta, ...result.meta } : { ...result.meta };
       }
       if (result.tags) {
-        for (const tag of result.tags) mergedTags.add(tag);
+        for (const ref of result.tags) {
+          if (ref.kind === 'persistent') {
+            throw new Error(
+              `[wskit] onUpgrade returned a persistent tag ref for group '${ref.group}'. Persistent tags must be added at runtime via ctx.tags.persistent('${ref.group}').add(...).`,
+            );
+          }
+          mergedTags.push(ref);
+        }
       }
     }
     for (const hook of runtime.upgradeHooks) {
-      apply((await hook(request)) ?? {});
+      apply((await hook(request, runtime.upgradeHelpers)) ?? {});
     }
     if (runtime.builderUpgradeHook) {
-      apply((await runtime.builderUpgradeHook(request)) ?? {});
+      apply((await runtime.builderUpgradeHook(request, runtime.upgradeHelpers)) ?? {});
     }
     return {
       identity: builderIdentity,
       meta: mergedMeta,
-      tags: mergedTags.size > 0 ? [...mergedTags] : undefined,
+      tags: mergedTags.length > 0 ? mergedTags : undefined,
     };
   } catch (error) {
     if (

@@ -22,7 +22,7 @@ function createConnection(id = 'conn_1'): RuntimeConnection {
       identity: id,
     },
     meta: {},
-    tags: new Set<string>(),
+    tags: { ephemeral: new Map<string, Set<string>>(), persistent: new Map<string, Set<string>>() },
     channelMemberships: new Map(),
     latency: null,
     quality: 'good',
@@ -77,7 +77,7 @@ function baseDispatchRuntime(
         id: connection.id,
         identity: connection.identity,
         meta: connection.meta,
-        tags: [...connection.tags],
+        tags: [],
         channels: [...connection.channelMemberships.values()].map((m) => m.channelName),
         latency: connection.latency,
         quality: connection.quality,
@@ -115,6 +115,7 @@ describe('handleUpgrade', () => {
             throw RejectUpgrade(4002, 'nope');
           },
         ],
+        upgradeHelpers: {},
       },
       new Request('https://example.com/'),
     );
@@ -130,6 +131,7 @@ describe('handleUpgrade', () => {
             throw new Error('boom');
           },
         ],
+        upgradeHelpers: {},
       },
       new Request('https://example.com/'),
     );
@@ -138,7 +140,10 @@ describe('handleUpgrade', () => {
   });
 
   it('returns empty decision when no hooks are registered', async () => {
-    const result = await handleUpgrade({ upgradeHooks: [] }, new Request('https://example.com/'));
+    const result = await handleUpgrade(
+      { upgradeHooks: [], upgradeHelpers: {} },
+      new Request('https://example.com/'),
+    );
     expect(result).toEqual({});
   });
 
@@ -152,6 +157,7 @@ describe('handleUpgrade', () => {
         builderUpgradeHook: async () => ({
           meta: { region: 'ap', user_id: 'u_42' },
         }),
+        upgradeHelpers: {},
       },
       new Request('https://example.com/'),
     );
@@ -162,31 +168,41 @@ describe('handleUpgrade', () => {
   });
 
   it('tags from internal hooks and the builder hook union together', async () => {
+    function ref(key: string) {
+      return { __wskit: 'tag-ref', kind: 'ephemeral', group: 'role', key } as const;
+    }
     const result = await handleUpgrade(
       {
         upgradeHooks: [
-          async () => ({ tags: ['authed', 'beta'] }),
-          async () => ({ tags: ['beta', 'eu-west'] }),
+          async () => ({ tags: [ref('authed'), ref('beta')] }),
+          async () => ({ tags: [ref('beta'), ref('eu-west')] }),
         ],
-        builderUpgradeHook: async () => ({ tags: ['user-tag'] }),
+        builderUpgradeHook: async () => ({ tags: [ref('user-tag')] }),
+        upgradeHelpers: {},
       },
       new Request('https://example.com/'),
     );
 
-    expect(new Set(result.tags ?? [])).toEqual(new Set(['authed', 'beta', 'eu-west', 'user-tag']));
+    expect(new Set((result.tags ?? []).map((r) => r.key))).toEqual(
+      new Set(['authed', 'beta', 'eu-west', 'user-tag']),
+    );
   });
 
   it('builder hook runs alone when no internal hooks are registered', async () => {
+    function ref(key: string) {
+      return { __wskit: 'tag-ref', kind: 'ephemeral', group: 'role', key } as const;
+    }
     const result = await handleUpgrade(
       {
         upgradeHooks: [],
-        builderUpgradeHook: async () => ({ meta: { user_id: 'u_42' }, tags: ['authed'] }),
+        builderUpgradeHook: async () => ({ meta: { user_id: 'u_42' }, tags: [ref('authed')] }),
+        upgradeHelpers: {},
       },
       new Request('https://example.com/'),
     );
 
     expect(result.meta).toEqual({ user_id: 'u_42' });
-    expect(result.tags).toEqual(['authed']);
+    expect((result.tags ?? []).map((r) => r.key)).toEqual(['authed']);
   });
 
   it('returns undefined meta and tags when no hook contributes either', async () => {
@@ -194,6 +210,7 @@ describe('handleUpgrade', () => {
       {
         upgradeHooks: [async () => ({})],
         builderUpgradeHook: async () => ({}),
+        upgradeHelpers: {},
       },
       new Request('https://example.com/'),
     );

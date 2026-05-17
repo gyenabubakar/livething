@@ -1,6 +1,7 @@
 import { event, server } from '@wskit/server';
 import { withChannels } from '@wskit/server/channels';
 import { withLifecycle } from '@wskit/server/lifecycle';
+import { withTags } from '@wskit/server/tags';
 import * as v from 'valibot';
 import { requireUsername } from '../_shared/upgrade.ts';
 
@@ -15,10 +16,11 @@ const KickInChannel = event(
 const RoomMessage = event('room-message', v.object({ text: v.string(), from: v.string() }));
 const SendRoomMessage = event('send-room-message', v.object({ text: v.string() }));
 
-const base = withChannels(withLifecycle(server<Env>('ctx-channels')))
+const base = withTags(withChannels(withLifecycle(server<Env>('ctx-channels'))))
+  .tagGroups('ephemeral', ['user'])
   .outgoing(MembersResult)
   .outgoing(MemberIdResult)
-  .onUpgrade((request) => requireUsername(request));
+  .onUpgrade((request, helpers) => requireUsername(request, helpers));
 
 const roomChannel = base.channel('room', (c) =>
   c.outgoing(RoomMessage).incoming(SendRoomMessage, (ctx, payload) => {
@@ -43,9 +45,13 @@ export const ctxChannelsHandler = base
   })
   .incoming(KickInChannel, async (ctx, payload) => {
     void payload.channel;
-    await ctx.channels.get('room').kick(payload.tag, payload.reason);
+    await ctx.channels
+      .get('room')
+      .kick(ctx.tags.ephemeral('user').ref(payload.tag), payload.reason);
   })
   .incoming(event('kick-nonmember', v.object({})), async (ctx) => {
-    await ctx.channels.get('room').kick('user3', 'Non-existent user');
+    await ctx.channels
+      .get('room')
+      .kick(ctx.tags.ephemeral('user').ref('user3'), 'Non-existent user');
   })
   .build();

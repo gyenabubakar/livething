@@ -9,10 +9,9 @@ import type {
   CloseInfoMethods,
   ConnectionIdentityMethods,
   ConnectionMetaMethods,
-  ConnectionTagsMethods,
+  ConnectionTagsApiMethods,
   EnvMethods,
   GenericScheduleMethods,
-  GenericSendToMethods,
   LatencyMethods,
   NamespaceScopeMethods,
   QualityMethods,
@@ -21,9 +20,6 @@ import type {
   RuntimeContextMethods,
   ScheduleMethods,
   SendMethods,
-  SendToMethods,
-  TagMethods,
-  UntagMethods,
 } from '~/_types/scope-state/methods.ts';
 import type { NudgeDeclaration, StreamNudgesApi } from '~/stream/stream.ts';
 
@@ -40,14 +36,6 @@ type SendApi<TOutgoing extends Record<string, any>> = keyof TOutgoing extends ne
   : SendMethods<TOutgoing>;
 
 /**
- * Use typed `sendTo` when outgoing events are known; fall back to the
- * untyped generic form so the method still exists in empty scopes.
- */
-type SendToApi<TOutgoing extends Record<string, any>> = keyof TOutgoing extends never
-  ? GenericSendToMethods
-  : SendToMethods<TOutgoing>;
-
-/**
  * Include `ctx.ack()` only in top-level scopes that registered `ack()`.
  *
  * `ack()` is not available inside namespace or channel scopes — those use
@@ -58,6 +46,13 @@ type AckApi<TState extends ScopeStateShape> = TState['kind'] extends 'top'
     ? AckMethods
     : {}
   : {};
+
+/**
+ * `ctx.tags` is always present on the type but optional in shape — the engine
+ * sets it only when `withTags` is registered. This keeps the conditional
+ * widening simple at the type level.
+ */
+type TagsApiSlice<_TState extends ScopeStateShape> = ConnectionTagsApiMethods;
 
 /**
  * Include `ctx.sendReplay(...)` only when replay is enabled in this scope.
@@ -148,15 +143,12 @@ type ChannelsApi<TState extends ScopeStateShape> = TState['kind'] extends 'chann
  * | `ScopeExtras` | `ctx.namespace.name` or `ctx.channel.name` based on kind |
  */
 export type HandlerCtxFromState<TState extends ScopeStateShape> = SendApi<TState['outgoing']> &
-  SendToApi<TState['outgoing']> &
   ConnectionIdentityMethods &
   ConnectionMetaMethods<TState['meta']> &
+  TagsApiSlice<TState> &
   BufferedAmountMethods &
   LatencyMethods &
   QualityMethods &
-  ConnectionTagsMethods &
-  TagMethods &
-  UntagMethods &
   CloseInfoMethods &
   AckApi<TState> &
   ReplayApi<TState> &
@@ -178,15 +170,12 @@ export type HandlerCtxFromState<TState extends ScopeStateShape> = SendApi<TState
  * time and are not expected to acknowledge individual messages.
  */
 export type StreamBaseCtxFromState<TState extends ScopeStateShape> = SendApi<TState['outgoing']> &
-  SendToApi<TState['outgoing']> &
   ConnectionIdentityMethods &
   ConnectionMetaMethods<TState['meta']> &
+  TagsApiSlice<TState> &
   BufferedAmountMethods &
   LatencyMethods &
   QualityMethods &
-  ConnectionTagsMethods &
-  TagMethods &
-  UntagMethods &
   ReplayApi<TState> &
   ChannelsApi<TState> &
   RuntimeContextMethods &

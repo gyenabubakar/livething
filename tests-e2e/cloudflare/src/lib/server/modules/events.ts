@@ -38,7 +38,7 @@ export const LastState = event(
       v.object({
         id: v.string(),
         username: v.nullable(v.string()),
-        tags: v.array(v.string()),
+        tags: v.array(v.object({ group: v.string(), key: v.string() })),
       }),
     ),
   }),

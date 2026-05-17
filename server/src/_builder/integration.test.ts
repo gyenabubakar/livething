@@ -371,7 +371,17 @@ describe('ctx.channels typing', () => {
       .incoming(sendMessage, async (ctx) => {
         ctx.channels.get('lobby').members();
         ctx.channels.get('vip').members();
-        await ctx.channels.get('lobby').kick('banned', 'reason');
+        await ctx.channels
+          .get('lobby')
+          .kick(
+            {
+              __wskit: 'tag-ref' as const,
+              kind: 'ephemeral' as const,
+              group: 'user',
+              key: 'banned',
+            },
+            'reason',
+          );
 
         // @ts-expect-error — 'nonexistent' is not a registered channel
         ctx.channels.get('nonexistent');

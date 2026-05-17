@@ -24,7 +24,7 @@ function createConnection(id: string): RuntimeConnection {
       identity: id,
     },
     meta: {},
-    tags: new Set<string>(),
+    tags: { ephemeral: new Map<string, Set<string>>(), persistent: new Map<string, Set<string>>() },
     channelMemberships: new Map(),
     latency: null,
     quality: 'good',
@@ -70,7 +70,7 @@ function baseDeps(overrides: Partial<Parameters<typeof buildConnectionContext>[0
       id: c.id,
       identity: c.identity,
       meta: c.meta,
-      tags: [...c.tags],
+      tags: [],
       channels: [...c.channelMemberships.values()].map((m) => m.channelName),
       latency: c.latency,
       quality: c.quality,
@@ -489,7 +489,7 @@ describe('persistAttachment', () => {
     const connection = createConnection('c1');
     connection.wsKey = Symbol('ws') as unknown as RuntimeConnection['wsKey'];
     connection.meta = { username: 'user1' };
-    connection.tags.add('vip');
+    connection.tags.ephemeral.set('role', new Set(['vip']));
     connection.channelMemberships.set('rooms::room:general', {
       channelName: 'room:general',
       channelScope: 'rooms',
@@ -502,7 +502,7 @@ describe('persistAttachment', () => {
     expect(persist).toHaveBeenCalledWith(connection.wsKey, {
       id: 'c1',
       meta: { username: 'user1' },
-      tags: ['vip'],
+      tags: [{ group: 'role', key: 'vip' }],
       channelMemberships: [{ channelName: 'room:general', channelScope: 'rooms' }],
       activeStreamIds: ['stream_1'],
     });

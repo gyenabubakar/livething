@@ -4,6 +4,7 @@ import { withDedup } from '@wskit/server/dedup';
 import { withLifecycle } from '@wskit/server/lifecycle';
 import { withReplay } from '@wskit/server/replay';
 import { withSequence } from '@wskit/server/sequence';
+import { withTags } from '@wskit/server/tags';
 import * as v from 'valibot';
 import { requireUsername } from '../_shared/upgrade.ts';
 
@@ -53,13 +54,16 @@ const PrivateSendDirect = event(
   v.object({ name: v.string(), text: v.string() }),
 );
 
-const base = withReplay(
-  withChannels(withSequence(withDedup(withLifecycle(server<Env>('channel-scope-isolation'))))),
+const base = withTags(
+  withReplay(
+    withChannels(withSequence(withDedup(withLifecycle(server<Env>('channel-scope-isolation'))))),
+  ),
 )
+  .tagGroups('ephemeral', ['user', 'label'])
   .sequence({ persist: true })
   .dedup()
   .replay((r) => r)
-  .onUpgrade((request) => requireUsername(request))
+  .onUpgrade((request, helpers) => requireUsername(request, helpers))
   .outgoing(PublicMembersResult)
   .outgoing(PrivateMembersResult)
   .outgoing(KickAcknowledged);
@@ -98,11 +102,15 @@ export const channelScopeIsolationHandler = base
     ctx.send('private-members-result', { name: payload.name, count: ids.length, ids });
   })
   .incoming(KickInPublic, async (ctx, payload) => {
-    await ctx.channels.get('publicRooms', payload.name).kick(payload.tag, payload.reason);
+    await ctx.channels
+      .get('publicRooms', payload.name)
+      .kick(ctx.tags.ephemeral('user').ref(payload.tag), payload.reason);
     ctx.send('kick-acknowledged', { where: 'publicRooms' });
   })
   .incoming(KickInPrivate, async (ctx, payload) => {
-    await ctx.channels.get('privateRooms', payload.name).kick(payload.tag, payload.reason);
+    await ctx.channels
+      .get('privateRooms', payload.name)
+      .kick(ctx.tags.ephemeral('user').ref(payload.tag), payload.reason);
     ctx.send('kick-acknowledged', { where: 'privateRooms' });
   })
   .incoming(PublicBroadcastFromTop, (ctx, payload) => {

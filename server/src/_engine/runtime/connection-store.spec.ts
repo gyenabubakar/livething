@@ -98,7 +98,13 @@ function fakeConnection(overrides: Partial<RuntimeConnection> = {}): RuntimeConn
       identity: 'user-1',
     },
     meta: { role: 'admin' },
-    tags: new Set(['role:admin', 'tier:free']),
+    tags: {
+      ephemeral: new Map<string, Set<string>>([
+        ['role', new Set(['admin'])],
+        ['tier', new Set(['free'])],
+      ]),
+      persistent: new Map<string, Set<string>>(),
+    },
     channelMemberships: new Map([
       ['room:a::rooms', { channelName: 'room:a', channelScope: 'rooms' }],
       ['lobby::', { channelName: 'lobby', channelScope: null }],
@@ -124,7 +130,10 @@ describe('connection-store', () => {
       connection_id: 'conn_1',
       identity: 'user-1',
       meta: { role: 'admin' },
-      ephemeral_tags: ['role:admin', 'tier:free'],
+      ephemeral_tags: [
+        { group: 'role', key: 'admin' },
+        { group: 'tier', key: 'free' },
+      ],
       ephemeral_memberships: [
         { channelName: 'room:a', channelScope: 'rooms' },
         { channelName: 'lobby', channelScope: null },
@@ -140,7 +149,10 @@ describe('connection-store', () => {
       connection_id: 'conn_1',
       identity: 'user-1',
       meta: { role: 'admin' },
-      ephemeral_tags: ['role:admin', 'tier:free'],
+      ephemeral_tags: [
+        { group: 'role', key: 'admin' },
+        { group: 'tier', key: 'free' },
+      ],
       ephemeral_memberships: [
         { channelName: 'room:a', channelScope: 'rooms' },
         { channelName: 'lobby', channelScope: null },
@@ -159,13 +171,16 @@ describe('connection-store', () => {
       sql,
       buildConnectionRow(
         fakeConnection({
-          tags: new Set(['role:guest']),
+          tags: {
+            ephemeral: new Map<string, Set<string>>([['role', new Set(['guest'])]]),
+            persistent: new Map<string, Set<string>>(),
+          },
           activeStreamIds: new Set(),
         }),
       ),
     );
     const row = readConnectionRow(sql, 'conn_1');
-    expect(row?.ephemeral_tags).toEqual(['role:guest']);
+    expect(row?.ephemeral_tags).toEqual([{ group: 'role', key: 'guest' }]);
     expect(row?.active_stream_ids).toEqual([]);
   });
 

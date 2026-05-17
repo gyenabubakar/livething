@@ -24,10 +24,12 @@ export type {
   ChannelsManager,
   ConnectionContext,
   ConnectionInfo,
+  ConnectionRef,
   InitContext,
   Logger,
   ReplayScopeSendApi,
   ScopeSendApi,
   ShutdownContext,
+  TagRef,
   TaskContext,
 } from './context.ts';

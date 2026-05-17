@@ -18,7 +18,7 @@ function createConnection(id = 'c1'): RuntimeConnection {
       identity: id,
     },
     meta: {},
-    tags: new Set(),
+    tags: { ephemeral: new Map<string, Set<string>>(), persistent: new Map<string, Set<string>>() },
     channelMemberships: new Map(),
     latency: null,
     quality: 'good',

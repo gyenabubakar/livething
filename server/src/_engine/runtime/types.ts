@@ -2,6 +2,8 @@
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as PublicApi from '~/context.ts';
+import type { TagRef } from '~/context.ts';
+import type * as LifecycleTypes from '~/lifecycle/lifecycle.ts';
 import type * as ValidationTypes from '~/types.ts';
 
 /**
@@ -105,11 +107,14 @@ export interface RegisteredEngineHooks {
    * hook so the user's hook always wins on meta key conflict. Tag results
    * union across all hooks (no conflict possible).
    */
-  upgrade: ((request: Request) =>
-    | { meta?: Record<string, unknown>; tags?: readonly string[] }
+  upgrade: ((
+    request: Request,
+    helpers: LifecycleTypes.UpgradeHelpers,
+  ) =>
+    | { meta?: Record<string, unknown>; tags?: readonly TagRef[] }
     | Promise<{
         meta?: Record<string, unknown>;
-        tags?: readonly string[];
+        tags?: readonly TagRef[];
       }>)[];
 
   /**
@@ -119,12 +124,15 @@ export interface RegisteredEngineHooks {
    * `setBuilderUpgradeHook`, which throws if called twice.
    */
   builderUpgrade:
-    | ((request: Request) =>
-        | { identity?: string; meta?: Record<string, unknown>; tags?: readonly string[] }
+    | ((
+        request: Request,
+        helpers: LifecycleTypes.UpgradeHelpers,
+      ) =>
+        | { identity?: string; meta?: Record<string, unknown>; tags?: readonly TagRef[] }
         | Promise<{
             identity?: string;
             meta?: Record<string, unknown>;
-            tags?: readonly string[];
+            tags?: readonly TagRef[];
           }>)
     | undefined;
 
@@ -183,7 +191,15 @@ export interface RuntimeConnection {
 
   // -- Channel state --
   /** Tags currently assigned to this connection (used for sendTo/getConnectionsByTag). */
-  tags: Set<string>;
+  /**
+   * Per-group tag storage. Outer key is the group name, inner Set is the
+   * keys held under that group. The `(kind, group)` split is enforced at
+   * the API surface via separate `ctx.tags.ephemeral()` and
+   * `ctx.tags.persistent()` group handles — at the connection level the
+   * same group name can appear under both kinds because the engine
+   * separates the two storage areas.
+   */
+  tags: { ephemeral: Map<string, Set<string>>; persistent: Map<string, Set<string>> };
   /**
    * Map of membership keys to channel details, with an explicit scope marker.
    *

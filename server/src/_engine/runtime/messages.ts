@@ -290,11 +290,11 @@ export function kickChannelMembers(
       ): Promise<void>;
     },
   channelName: string,
-  tag: string,
+  target: ChannelPrimitive.KickTarget,
   reason: string,
   channelScope: string | null,
 ): Promise<void> {
-  return ChannelPrimitive.kickChannelMembers(runtime, channelName, tag, reason, channelScope);
+  return ChannelPrimitive.kickChannelMembers(runtime, channelName, target, reason, channelScope);
 }
 
 /**

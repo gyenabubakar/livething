@@ -84,6 +84,9 @@ export function commonDeps(engine: Engine): EngineContextTypes.ContextCommonDeps
     attachModuleApis: (ctx, connection) => engine.attachModuleApis(ctx, connection),
     contextExtenders: engine.hooks.contextExtenders,
     instanceId: engine.instanceId,
+    usesTags: engine.usesTags(),
+    persistenceEnabled: engine.usesPersistence(),
+    isTagGroupDeclared: (kind, group) => engine.isTagGroupDeclared(kind, group),
   };
 }
 

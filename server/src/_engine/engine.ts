@@ -30,6 +30,7 @@ import type * as EngineAccessModule from '~/_engine/access.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as PublicApi from '~/context.ts';
+import type * as LifecycleTypes from '~/lifecycle/lifecycle.ts';
 import type * as DefineModule from '~/modules/define.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
 import type * as ScheduledPrimitiveTypes from '~/scheduled/types.ts';
@@ -135,6 +136,17 @@ export class Engine {
    * @internal
    */
   private readonly channelPersistenceOverrides = new Map<string, boolean>();
+  /**
+   * Declared tag groups, indexed by kind. Populated by `tagGroups()` primitive
+   * setup. The maps stay empty when `withTags` is not wrapped — every
+   * `ctx.tags.<kind>(group)` call validates against these sets.
+   * @internal
+   */
+  private readonly declaredTagGroups = {
+    ephemeral: new Set<string>(),
+    persistent: new Set<string>(),
+  };
+  private tagGroupsRegistered = { ephemeral: false, persistent: false };
   /** @internal */
   incomingDedupCap = 0;
   private readonly declaredErrorCodes = new Set<string>([
@@ -520,6 +532,21 @@ export class Engine {
       },
       setChannelPersistent: (channelKey, enabled) => {
         this.channelPersistenceOverrides.set(channelKey, enabled);
+      },
+      registerTagGroups: (kind, groups) => {
+        if (this.tagGroupsRegistered[kind]) {
+          throw new Error(
+            `[wskit] .tagGroups('${kind}', ...) declared more than once on this builder.`,
+          );
+        }
+        this.tagGroupsRegistered[kind] = true;
+        if (kind === 'persistent' && !this.persistenceEnabled) {
+          const sample = groups[0];
+          throw new Error(
+            `[wskit] persistent tag group '${sample}' requires withPersistence and a call to .enablePersistence(). Wrap your server with withPersistence(...) and call .enablePersistence() on the builder, or move '${sample}' to the 'ephemeral' kind.`,
+          );
+        }
+        for (const group of groups) this.declaredTagGroups[kind].add(group);
       },
       isDurableMembershipPairPersistent: (channelName, channelScope) =>
         this.isDurableMembershipPairPersistent(channelName, channelScope),
@@ -957,6 +984,34 @@ export class Engine {
   }
 
   /**
+   * Whether at least one tag group was registered via `tagGroups()`. Adapters
+   * and the context builder use this to decide whether to expose `ctx.tags`.
+   * @internal
+   */
+  usesTags(): boolean {
+    return this.tagGroupsRegistered.ephemeral || this.tagGroupsRegistered.persistent;
+  }
+
+  /**
+   * Whether the group is declared under the given kind. Thrown errors from
+   * the tag surface use this to point devs at `.tagGroups(...)` when they
+   * try to access an undeclared group.
+   * @internal
+   */
+  isTagGroupDeclared(kind: 'ephemeral' | 'persistent', group: string): boolean {
+    return this.declaredTagGroups[kind].has(group);
+  }
+
+  /**
+   * Read the declared groups of one kind. Order is insertion order. Used by
+   * tag fan-out paths and the boot-time cleanup helper.
+   * @internal
+   */
+  getDeclaredTagGroups(kind: 'ephemeral' | 'persistent'): ReadonlySet<string> {
+    return this.declaredTagGroups[kind];
+  }
+
+  /**
    * Check whether a `(channelName, channelScope)` pair from a durable row
    * still maps to a registered persistent channel in this engine. Used by
    * boot-time reconcile to spot orphaned rows from removed or
@@ -1180,9 +1235,46 @@ export class Engine {
       {
         upgradeHooks: this.hooks.upgrade,
         builderUpgradeHook: this.hooks.builderUpgrade,
+        upgradeHelpers: this.buildUpgradeHelpers(),
       },
       request,
     );
+  }
+
+  /**
+   * Build the helper bag passed as the second argument to every `onUpgrade`
+   * hook. `withTags` populates `tags`. Other wrappers can add more fields
+   * here by extending the helper interface.
+   *
+   * @internal
+   */
+  private buildUpgradeHelpers(): LifecycleTypes.UpgradeHelpers {
+    if (!this.usesTags()) return {};
+    const isDeclared = (kind: 'ephemeral' | 'persistent', group: string) =>
+      this.declaredTagGroups[kind].has(group);
+    function buildRefFactory(kind: 'ephemeral' | 'persistent') {
+      return (group: string) => {
+        if (!isDeclared(kind, group)) {
+          throw new Error(
+            `[wskit] tag group '${group}' is not declared under .tagGroups('${kind}', ...). Register it on the builder or check for a typo.`,
+          );
+        }
+        return {
+          ref: (key: string): PublicApi.TagRef => ({
+            __wskit: 'tag-ref',
+            kind,
+            group,
+            key,
+          }),
+        };
+      };
+    }
+    return {
+      tags: {
+        ephemeral: buildRefFactory('ephemeral'),
+        persistent: buildRefFactory('persistent'),
+      },
+    };
   }
 
   /**
@@ -1513,7 +1605,7 @@ export class Engine {
    */
   kickChannelMembers(
     channelName: string,
-    tag: string,
+    target: ChannelPrimitive.KickTarget,
     reason: string,
     channelScope: string | null,
   ): Promise<void> {
@@ -1525,7 +1617,7 @@ export class Engine {
         },
       },
       channelName,
-      tag,
+      target,
       reason,
       channelScope,
     );

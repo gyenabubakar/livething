@@ -1,6 +1,7 @@
 import { ChannelNotFound } from '@wskit/core';
 import * as EngineCompileUtils from '~/_engine/compile/utils.ts';
 import * as DefineModule from '~/modules/define.ts';
+import * as TagsRuntime from '~/tags/runtime.ts';
 import type * as PublicApi from '~/context.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
 import * as EngineContextTypes from './types.ts';
@@ -96,11 +97,6 @@ export function createShutdownContext(
     getConnections: () => {
       return [...deps.connections.values()].map((connection) => deps.toConnectionInfo(connection));
     },
-    getConnectionsByTag: (tag) => {
-      return [...deps.connections.values()]
-        .filter((connection) => connection.tags.has(tag))
-        .map((connection) => deps.toConnectionInfo(connection));
-    },
     env: deps.env,
     log: deps.logger,
     waitUntil: deps.waitUntilImpl,
@@ -125,13 +121,6 @@ export function createTaskContext(
     broadcast: (event, payload) => {
       deps.broadcastToConnections([...deps.connections.values()], event, payload, undefined);
     },
-    sendTo: (tag, event, payload) => {
-      for (const connection of deps.connections.values()) {
-        if (connection.tags.has(tag)) {
-          deps.sendThroughPipeline(connection, undefined, event, payload);
-        }
-      }
-    },
     sendToConnection: (connectionId, event, payload) => {
       const connection = deps.connections.get(connectionId);
       if (!connection) {
@@ -146,11 +135,6 @@ export function createTaskContext(
     },
     getConnections: () => {
       return [...deps.connections.values()].map((connection) => deps.toConnectionInfo(connection));
-    },
-    getConnectionsByTag: (tag) => {
-      return [...deps.connections.values()]
-        .filter((connection) => connection.tags.has(tag))
-        .map((connection) => deps.toConnectionInfo(connection));
     },
     connectionCount: deps.connections.size,
     schedule: (taskId, options) => {
@@ -187,7 +171,7 @@ function buildMessagingApi(
   deps: MessagingDeps,
 ): Pick<
   EngineContextTypes.ConnectionContext<Record<string, unknown>, Record<string, unknown>, unknown>,
-  'broadcast' | 'broadcastBinary' | 'close' | 'send' | 'sendBinary' | 'sendTo' | 'sendToConnection'
+  'broadcast' | 'broadcastBinary' | 'close' | 'send' | 'sendBinary' | 'sendToConnection'
 > {
   return {
     send: (event, payload) => deps.sendThroughPipeline(connection, undefined, event, payload),
@@ -199,13 +183,6 @@ function buildMessagingApi(
         options,
         connection.id,
       );
-    },
-    sendTo: (tag, event, payload) => {
-      for (const target of deps.connections.values()) {
-        if (target.tags.has(tag)) {
-          deps.sendThroughPipeline(target, undefined, event, payload);
-        }
-      }
     },
     sendToConnection: (connectionId, event, payload) => {
       const target = deps.connections.get(connectionId);
@@ -277,8 +254,8 @@ export function buildChannelHandle(
     members: () => deps.getChannelMembers(scope.channelName, scope.channelScope),
     subscribe: (ref, payload) =>
       deps.subscribeConnectionAsServer(ref, scope.channelName, scope.channelScope, payload),
-    kick: (tag: string, reason: string) =>
-      deps.kickChannelMembers(scope.channelName, tag, reason, scope.channelScope),
+    kick: (target, reason: string) =>
+      deps.kickChannelMembers(scope.channelName, target, reason, scope.channelScope),
     removeMember: (identity: string) =>
       deps.removeChannelMember(scope.channelName, scope.channelScope, identity),
   };
@@ -414,23 +391,9 @@ export function buildConnectionContext(
     identity: connection.identity,
     self: buildConnectionRef(connection.id, connection.identity, deps.instanceId),
     meta: connection.meta,
-    tags: [...connection.tags],
-    tag: (label) => {
-      connection.tags.add(label);
-      deps.persistAttachment(connection);
-    },
-    untag: (label) => {
-      connection.tags.delete(label);
-      deps.persistAttachment(connection);
-    },
     ...buildMessagingApi(connection, deps),
     getConnections: () => {
       return [...deps.connections.values()].map((target) => deps.toConnectionInfo(target));
-    },
-    getConnectionsByTag: (tag) => {
-      return [...deps.connections.values()]
-        .filter((target) => target.tags.has(tag))
-        .map((target) => deps.toConnectionInfo(target));
     },
     connectionCount: deps.connections.size,
     bufferedAmount: connection.descriptor.bufferedAmount(),
@@ -447,6 +410,23 @@ export function buildConnectionContext(
         void timers.setAlarm(time);
       }
     },
+    ...(deps.usesTags
+      ? {
+          tags: TagsRuntime.buildTagsApi(
+            {
+              connections: deps.connections,
+              isTagGroupDeclared: deps.isTagGroupDeclared,
+              toConnectionInfo: deps.toConnectionInfo,
+              sendThroughPipeline: (target, event, payload) =>
+                deps.sendThroughPipeline(target, undefined, event, payload),
+              persistAttachment: deps.persistAttachment,
+              persistenceEnabled: deps.persistenceEnabled,
+              requireStorage: deps.requireStorage,
+            },
+            connection,
+          ),
+        }
+      : {}),
     sql,
     kv,
     env: deps.env,
@@ -483,8 +463,6 @@ export function createModuleScopedContext(
     return EngineCompileUtils.prefixedModuleEvent(moduleId, event);
   }
 
-  // Proxy traps only the four send-like methods. Everything else (meta, sql,
-  // log, etc.) passes through to the underlying connection context unchanged.
   return new Proxy(ctx, {
     get(target, key, receiver) {
       switch (key) {
@@ -492,8 +470,6 @@ export function createModuleScopedContext(
           return wrapPrefixedSend(target, receiver, 'send', prefix, 'event-first');
         case 'broadcast':
           return wrapPrefixedSend(target, receiver, 'broadcast', prefix, 'event-first');
-        case 'sendTo':
-          return wrapPrefixedSend(target, receiver, 'sendTo', prefix, 'event-second');
         case 'sendToConnection':
           return wrapPrefixedSend(target, receiver, 'sendToConnection', prefix, 'event-second');
         default:
@@ -515,7 +491,7 @@ export function createModuleScopedContext(
 function wrapPrefixedSend(
   target: Record<PropertyKey, unknown>,
   receiver: unknown,
-  key: 'send' | 'broadcast' | 'sendTo' | 'sendToConnection',
+  key: 'send' | 'broadcast' | 'sendToConnection',
   prefix: (event: string) => string,
   position: 'event-first' | 'event-second',
 ): (...args: unknown[]) => unknown {
@@ -566,7 +542,7 @@ export function toConnectionInfo(
     id: connection.id,
     identity: connection.identity,
     meta: connection.meta,
-    tags: [...connection.tags],
+    tags: TagsRuntime.buildConnectionTagRefs(connection),
     channels: [...connection.channelMemberships.values()].map((m) => m.channelName),
     latency: connection.latency,
     quality: connection.quality,
@@ -606,10 +582,14 @@ export function persistAttachment(
     | undefined,
 ): void {
   if (!hibernationApi) return;
+  const ephemeralTagPairs: { group: string; key: string }[] = [];
+  for (const [group, keys] of connection.tags.ephemeral) {
+    for (const key of keys) ephemeralTagPairs.push({ group, key });
+  }
   hibernationApi.persist(connection.wsKey, {
     id: connection.id,
     meta: connection.meta,
-    tags: [...connection.tags],
+    tags: ephemeralTagPairs,
     channelMemberships: [...connection.channelMemberships.values()],
     activeStreamIds: [...(connection.activeStreamIds ?? [])],
   });

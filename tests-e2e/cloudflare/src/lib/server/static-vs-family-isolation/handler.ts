@@ -3,6 +3,7 @@ import { withChannels } from '@wskit/server/channels';
 import { withDedup } from '@wskit/server/dedup';
 import { withLifecycle } from '@wskit/server/lifecycle';
 import { withSequence } from '@wskit/server/sequence';
+import { withTags } from '@wskit/server/tags';
 import * as v from 'valibot';
 import { requireUsername } from '../_shared/upgrade.ts';
 
@@ -31,12 +32,13 @@ const KickFamily = event(
 );
 const KickAck = event('kick-ack', v.object({ where: v.string() }));
 
-const base = withChannels(
-  withSequence(withDedup(withLifecycle(server<Env>('static-vs-family-isolation')))),
+const base = withTags(
+  withChannels(withSequence(withDedup(withLifecycle(server<Env>('static-vs-family-isolation'))))),
 )
+  .tagGroups('ephemeral', ['user', 'label'])
   .sequence({ persist: true })
   .dedup()
-  .onUpgrade((request) => requireUsername(request))
+  .onUpgrade((request, helpers) => requireUsername(request, helpers))
   .outgoing(TagAck)
   .outgoing(ObserveResult)
   .outgoing(KickAck);
@@ -58,7 +60,7 @@ export const staticVsFamilyIsolationHandler = base
   .use(generalChannel)
   .use(roomsFamily)
   .incoming(TagSelf, (ctx, payload) => {
-    ctx.tag(payload.tag);
+    ctx.tags.ephemeral('label').add(payload.tag);
     ctx.send('tag-ack', { tag: payload.tag });
   })
   .incoming(ObserveStatic, (ctx, payload) => {
@@ -72,11 +74,15 @@ export const staticVsFamilyIsolationHandler = base
   })
   .incoming(KickStatic, async (ctx, payload) => {
     void payload.name;
-    await ctx.channels.get('general').kick(payload.tag, payload.reason);
+    await ctx.channels
+      .get('general')
+      .kick(ctx.tags.ephemeral('label').ref(payload.tag), payload.reason);
     ctx.send('kick-ack', { where: 'static' });
   })
   .incoming(KickFamily, async (ctx, payload) => {
-    await ctx.channels.get('rooms', payload.name).kick(payload.tag, payload.reason);
+    await ctx.channels
+      .get('rooms', payload.name)
+      .kick(ctx.tags.ephemeral('label').ref(payload.tag), payload.reason);
     ctx.send('kick-ack', { where: 'family' });
   })
   .build();

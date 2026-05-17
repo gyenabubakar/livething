@@ -11,6 +11,7 @@ import { withReplay } from '~/replay/with.ts';
 import { withRequests } from '~/request/with.ts';
 import { withScheduled } from '~/scheduled/with.ts';
 import { withStreams } from '~/stream/with.ts';
+import { withTags } from '~/tags/with.ts';
 
 /**
  * Create a batteries-included server builder with every feature pre-registered.
@@ -53,16 +54,18 @@ import { withStreams } from '~/stream/with.ts';
  * ```
  */
 export function server<TEnv extends object = Record<string, unknown>>(name: string) {
-  return withStreams(
-    withRequests(
-      withNamespaces(
-        withPersistence(
-          withChannels(
-            withReplayCustom(
-              withReplay(
-                withScheduled(
-                  withIntercept(
-                    withErrors(withLifecycle(withInfrastructure(createServer<TEnv>(name)))),
+  return withTags(
+    withStreams(
+      withRequests(
+        withNamespaces(
+          withPersistence(
+            withChannels(
+              withReplayCustom(
+                withReplay(
+                  withScheduled(
+                    withIntercept(
+                      withErrors(withLifecycle(withInfrastructure(createServer<TEnv>(name)))),
+                    ),
                   ),
                 ),
               ),

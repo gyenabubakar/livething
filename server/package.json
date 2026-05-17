@@ -50,6 +50,11 @@
       "types": "./dist/persistence/index.d.ts",
       "import": "./dist/persistence.js"
     },
+    "./tags": {
+      "wskit-dev": "./src/tags/index.ts",
+      "types": "./dist/tags/index.d.ts",
+      "import": "./dist/tags.js"
+    },
     "./errors": {
       "wskit-dev": "./src/errors/index.ts",
       "types": "./dist/errors/index.d.ts",

@@ -538,6 +538,28 @@ export async function unsubscribeConnection(
  * failures are logged through `runtime.logger` and do not cancel the rest
  * of the kick — the same shape the engine uses during shutdown drain.
  */
+/**
+ * Target accepted by `channelHandle.kick(...)` and engine-level kick. Resolves
+ * to a connection-matching predicate at runtime:
+ *
+ * - `ConnectionRef` — kick this exact socket.
+ * - `TagRef` — kick every socket holding this `(kind, group, key)` tag.
+ * - `{ __wskit: 'group-handle', kind, group }` — kick every socket with any
+ *   key under this `(kind, group)`.
+ */
+export type KickTarget =
+  | { __wskit: 'connection-ref'; id: string; instance: string | undefined; identity: string }
+  | { __wskit: 'tag-ref'; kind: 'ephemeral' | 'persistent'; group: string; key: string }
+  | { __wskit: 'group-handle'; kind: 'ephemeral' | 'persistent'; group: string };
+
+function matchesKickTarget(connection: RuntimeConnection, target: KickTarget): boolean {
+  if (target.__wskit === 'connection-ref') return connection.id === target.id;
+  if (target.__wskit === 'tag-ref') {
+    return connection.tags[target.kind].get(target.group)?.has(target.key) ?? false;
+  }
+  return (connection.tags[target.kind].get(target.group)?.size ?? 0) > 0;
+}
+
 export async function kickChannelMembers(
   runtime: ChannelRuntime & {
     leaveChannel(
@@ -547,14 +569,14 @@ export async function kickChannelMembers(
     ): Promise<void>;
   },
   channelName: string,
-  tag: string,
+  target: KickTarget,
   reason: string,
   channelScope: string | null,
 ): Promise<void> {
   const targetKey = createChannelMembershipKey(channelName, channelScope);
   const pending: Promise<void>[] = [];
   for (const connection of runtime.connections.values()) {
-    if (!connection.tags.has(tag)) continue;
+    if (!matchesKickTarget(connection, target)) continue;
 
     const membership = connection.channelMemberships.get(targetKey);
     if (!membership) continue;

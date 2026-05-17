@@ -26,6 +26,7 @@ import type { RequestPrimitive } from '~/request/request.ts';
 import type { ScheduledPrimitive } from '~/scheduled/scheduled.ts';
 import type { SequencePrimitive } from '~/sequence/sequence.ts';
 import type { GeneratePrimitive, NudgeDeclaration, StreamPrimitive } from '~/stream/stream.ts';
+import type { TagGroupsPrimitive } from '~/tags/tags.ts';
 
 // ---------------------------------------------------------------------------
 // Shorthand aliases — used throughout this file to keep lines manageable
@@ -97,6 +98,7 @@ export type FoldablePrimitive =
   | HeartbeatPrimitive
   | HibernationPrimitive
   | PersistencePrimitive
+  | TagGroupsPrimitive
   | SequencePrimitive
   | DedupPrimitive
   | AnyReplay
@@ -381,6 +383,7 @@ export type NextState<
       readonly outgoing: TState['outgoing'];
       readonly hasAck: true;
       readonly hasReplay: TState['hasReplay'];
+
       readonly contract: TState['contract'];
       readonly errors: TState['errors'];
       readonly meta: TState['meta'];
@@ -391,18 +394,13 @@ export type NextState<
       readonly scheduledTasks: TState['scheduledTasks'];
       readonly env: TState['env'];
     }
-  : // Branch 2: passive infrastructure — no ctx change
-    TPrimitive extends
-        | HeartbeatPrimitive
-        | HibernationPrimitive
-        | SequencePrimitive
-        | DedupPrimitive
-        | AnyCustomReplay
+  : TPrimitive extends TagGroupsPrimitive
     ? {
         readonly kind: TState['kind'];
         readonly outgoing: TState['outgoing'];
         readonly hasAck: TState['hasAck'];
         readonly hasReplay: TState['hasReplay'];
+
         readonly contract: TState['contract'];
         readonly errors: TState['errors'];
         readonly meta: TState['meta'];
@@ -413,13 +411,19 @@ export type NextState<
         readonly scheduledTasks: TState['scheduledTasks'];
         readonly env: TState['env'];
       }
-    : // Branch 3: scheduled(taskId) — accumulate task metadata for typed ctx.schedule()
-      TPrimitive extends ScheduledPrimitive<infer TTaskId, infer TData, infer THasData, any>
+    : // Branch 2: passive infrastructure — no ctx change
+      TPrimitive extends
+          | HeartbeatPrimitive
+          | HibernationPrimitive
+          | SequencePrimitive
+          | DedupPrimitive
+          | AnyCustomReplay
       ? {
           readonly kind: TState['kind'];
           readonly outgoing: TState['outgoing'];
           readonly hasAck: TState['hasAck'];
           readonly hasReplay: TState['hasReplay'];
+
           readonly contract: TState['contract'];
           readonly errors: TState['errors'];
           readonly meta: TState['meta'];
@@ -427,19 +431,17 @@ export type NextState<
           readonly staticChannelNames: TState['staticChannelNames'];
           readonly channelFamilyKeys: TState['channelFamilyKeys'];
           readonly channelOutgoingByKey: TState['channelOutgoingByKey'];
-          readonly scheduledTasks: MergeRecords<
-            TState['scheduledTasks'],
-            Record<TTaskId, ScheduledTaskDefinition<TData, THasData>>
-          >;
+          readonly scheduledTasks: TState['scheduledTasks'];
           readonly env: TState['env'];
         }
-      : // Branch 4: replay() — enable ctx.sendReplay()
-        TPrimitive extends AnyReplay
+      : // Branch 3: scheduled(taskId) — accumulate task metadata for typed ctx.schedule()
+        TPrimitive extends ScheduledPrimitive<infer TTaskId, infer TData, infer THasData, any>
         ? {
             readonly kind: TState['kind'];
             readonly outgoing: TState['outgoing'];
             readonly hasAck: TState['hasAck'];
-            readonly hasReplay: true;
+            readonly hasReplay: TState['hasReplay'];
+
             readonly contract: TState['contract'];
             readonly errors: TState['errors'];
             readonly meta: TState['meta'];
@@ -447,139 +449,167 @@ export type NextState<
             readonly staticChannelNames: TState['staticChannelNames'];
             readonly channelFamilyKeys: TState['channelFamilyKeys'];
             readonly channelOutgoingByKey: TState['channelOutgoingByKey'];
-            readonly scheduledTasks: TState['scheduledTasks'];
+            readonly scheduledTasks: MergeRecords<
+              TState['scheduledTasks'],
+              Record<TTaskId, ScheduledTaskDefinition<TData, THasData>>
+            >;
             readonly env: TState['env'];
           }
-        : // Branch 5: errors(...) — replace the error definition list
-          TPrimitive extends AnyErrors
-          ? TPrimitive extends ErrorsPrimitive<infer TDefs extends readonly AnyErrorDef[]>
-            ? {
-                readonly kind: TState['kind'];
-                readonly outgoing: TState['outgoing'];
-                readonly hasAck: TState['hasAck'];
-                readonly hasReplay: TState['hasReplay'];
-                readonly contract: TState['contract'];
-                readonly errors: TDefs;
-                readonly meta: TState['meta'];
-                readonly channelNames: TState['channelNames'];
-                readonly staticChannelNames: TState['staticChannelNames'];
-                readonly channelFamilyKeys: TState['channelFamilyKeys'];
-                readonly channelOutgoingByKey: TState['channelOutgoingByKey'];
-                readonly scheduledTasks: TState['scheduledTasks'];
-                readonly env: TState['env'];
-              }
-            : TState
-          : // Branch 6: outgoing(event) — add event to server→client send map and client contract
-            TPrimitive extends AnyOutgoing
-            ? {
-                readonly kind: TState['kind'];
-                readonly outgoing: MergeRecords<TState['outgoing'], OutgoingEntry<TPrimitive>>;
-                readonly hasAck: TState['hasAck'];
-                readonly hasReplay: TState['hasReplay'];
-                readonly contract: {
-                  incoming: MergeRecords<TState['contract']['incoming'], OutgoingEntry<TPrimitive>>;
-                  outgoing: TState['contract']['outgoing'];
-                  requests: TState['contract']['requests'];
-                  streams: TState['contract']['streams'];
-                  channels: TState['contract']['channels'];
-                  namespaces: TState['contract']['namespaces'];
-                };
-                readonly errors: TState['errors'];
-                readonly meta: TState['meta'];
-                readonly channelNames: TState['channelNames'];
-                readonly staticChannelNames: TState['staticChannelNames'];
-                readonly channelFamilyKeys: TState['channelFamilyKeys'];
-                readonly channelOutgoingByKey: TState['channelOutgoingByKey'];
-                readonly scheduledTasks: TState['scheduledTasks'];
-                readonly env: TState['env'];
-              }
-            : // Branch 7: incoming(event) — add to client→server contract (client sends it)
-              TPrimitive extends AnyIncoming
-              ? TPrimitive extends IncomingPrimitive<infer TEvent, infer TPayload, any>
-                ? {
-                    readonly kind: TState['kind'];
-                    readonly outgoing: TState['outgoing'];
-                    readonly hasAck: TState['hasAck'];
-                    readonly hasReplay: TState['hasReplay'];
-                    readonly contract: {
-                      incoming: TState['contract']['incoming'];
-                      outgoing: MergeRecords<
-                        TState['contract']['outgoing'],
-                        Record<TEvent, TPayload>
-                      >;
-                      requests: TState['contract']['requests'];
-                      streams: TState['contract']['streams'];
-                      channels: TState['contract']['channels'];
-                      namespaces: TState['contract']['namespaces'];
-                    };
-                    readonly errors: TState['errors'];
-                    readonly meta: TState['meta'];
-                    readonly channelNames: TState['channelNames'];
-                    readonly staticChannelNames: TState['staticChannelNames'];
-                    readonly channelFamilyKeys: TState['channelFamilyKeys'];
-                    readonly channelOutgoingByKey: TState['channelOutgoingByKey'];
-                    readonly scheduledTasks: TState['scheduledTasks'];
-                    readonly env: TState['env'];
-                  }
-                : TState
-              : // Branch 8: request(event) — add to contract.requests
-                TPrimitive extends AnyRequest
-                ? {
-                    readonly kind: TState['kind'];
-                    readonly outgoing: TState['outgoing'];
-                    readonly hasAck: TState['hasAck'];
-                    readonly hasReplay: TState['hasReplay'];
-                    readonly contract: {
-                      incoming: TState['contract']['incoming'];
-                      outgoing: TState['contract']['outgoing'];
-                      requests: MergeRecords<
-                        TState['contract']['requests'],
-                        RequestEntry<TPrimitive>
-                      >;
-                      streams: TState['contract']['streams'];
-                      channels: TState['contract']['channels'];
-                      namespaces: TState['contract']['namespaces'];
-                    };
-                    readonly errors: TState['errors'];
-                    readonly meta: TState['meta'];
-                    readonly channelNames: TState['channelNames'];
-                    readonly staticChannelNames: TState['staticChannelNames'];
-                    readonly channelFamilyKeys: TState['channelFamilyKeys'];
-                    readonly channelOutgoingByKey: TState['channelOutgoingByKey'];
-                    readonly scheduledTasks: TState['scheduledTasks'];
-                    readonly env: TState['env'];
-                  }
-                : // Branch 9: generate(stream) — add to contract.streams
-                  TPrimitive extends AnyGenerate
-                  ? TPrimitive extends GeneratePrimitive<infer TStream, any, any>
-                    ? {
-                        readonly kind: TState['kind'];
-                        readonly outgoing: TState['outgoing'];
-                        readonly hasAck: TState['hasAck'];
-                        readonly hasReplay: TState['hasReplay'];
-                        readonly contract: {
-                          incoming: TState['contract']['incoming'];
-                          outgoing: TState['contract']['outgoing'];
-                          requests: TState['contract']['requests'];
-                          streams: MergeRecords<
-                            TState['contract']['streams'],
-                            StreamEntry<TStream>
-                          >;
-                          channels: TState['contract']['channels'];
-                          namespaces: TState['contract']['namespaces'];
-                        };
-                        readonly errors: TState['errors'];
-                        readonly meta: TState['meta'];
-                        readonly channelNames: TState['channelNames'];
-                        readonly staticChannelNames: TState['staticChannelNames'];
-                        readonly channelFamilyKeys: TState['channelFamilyKeys'];
-                        readonly channelOutgoingByKey: TState['channelOutgoingByKey'];
-                        readonly scheduledTasks: TState['scheduledTasks'];
-                        readonly env: TState['env'];
-                      }
-                    : TState
-                  : // Fallback: unknown primitive — leave state unchanged
-                    TState;
+        : // Branch 4: replay() — enable ctx.sendReplay()
+          TPrimitive extends AnyReplay
+          ? {
+              readonly kind: TState['kind'];
+              readonly outgoing: TState['outgoing'];
+              readonly hasAck: TState['hasAck'];
+              readonly hasReplay: true;
+              readonly contract: TState['contract'];
+              readonly errors: TState['errors'];
+              readonly meta: TState['meta'];
+              readonly channelNames: TState['channelNames'];
+              readonly staticChannelNames: TState['staticChannelNames'];
+              readonly channelFamilyKeys: TState['channelFamilyKeys'];
+              readonly channelOutgoingByKey: TState['channelOutgoingByKey'];
+              readonly scheduledTasks: TState['scheduledTasks'];
+              readonly env: TState['env'];
+            }
+          : // Branch 5: errors(...) — replace the error definition list
+            TPrimitive extends AnyErrors
+            ? TPrimitive extends ErrorsPrimitive<infer TDefs extends readonly AnyErrorDef[]>
+              ? {
+                  readonly kind: TState['kind'];
+                  readonly outgoing: TState['outgoing'];
+                  readonly hasAck: TState['hasAck'];
+                  readonly hasReplay: TState['hasReplay'];
+
+                  readonly contract: TState['contract'];
+                  readonly errors: TDefs;
+                  readonly meta: TState['meta'];
+                  readonly channelNames: TState['channelNames'];
+                  readonly staticChannelNames: TState['staticChannelNames'];
+                  readonly channelFamilyKeys: TState['channelFamilyKeys'];
+                  readonly channelOutgoingByKey: TState['channelOutgoingByKey'];
+                  readonly scheduledTasks: TState['scheduledTasks'];
+                  readonly env: TState['env'];
+                }
+              : TState
+            : // Branch 6: outgoing(event) — add event to server→client send map and client contract
+              TPrimitive extends AnyOutgoing
+              ? {
+                  readonly kind: TState['kind'];
+                  readonly outgoing: MergeRecords<TState['outgoing'], OutgoingEntry<TPrimitive>>;
+                  readonly hasAck: TState['hasAck'];
+                  readonly hasReplay: TState['hasReplay'];
+
+                  readonly contract: {
+                    incoming: MergeRecords<
+                      TState['contract']['incoming'],
+                      OutgoingEntry<TPrimitive>
+                    >;
+                    outgoing: TState['contract']['outgoing'];
+                    requests: TState['contract']['requests'];
+                    streams: TState['contract']['streams'];
+                    channels: TState['contract']['channels'];
+                    namespaces: TState['contract']['namespaces'];
+                  };
+                  readonly errors: TState['errors'];
+                  readonly meta: TState['meta'];
+                  readonly channelNames: TState['channelNames'];
+                  readonly staticChannelNames: TState['staticChannelNames'];
+                  readonly channelFamilyKeys: TState['channelFamilyKeys'];
+                  readonly channelOutgoingByKey: TState['channelOutgoingByKey'];
+                  readonly scheduledTasks: TState['scheduledTasks'];
+                  readonly env: TState['env'];
+                }
+              : // Branch 7: incoming(event) — add to client→server contract (client sends it)
+                TPrimitive extends AnyIncoming
+                ? TPrimitive extends IncomingPrimitive<infer TEvent, infer TPayload, any>
+                  ? {
+                      readonly kind: TState['kind'];
+                      readonly outgoing: TState['outgoing'];
+                      readonly hasAck: TState['hasAck'];
+                      readonly hasReplay: TState['hasReplay'];
+
+                      readonly contract: {
+                        incoming: TState['contract']['incoming'];
+                        outgoing: MergeRecords<
+                          TState['contract']['outgoing'],
+                          Record<TEvent, TPayload>
+                        >;
+                        requests: TState['contract']['requests'];
+                        streams: TState['contract']['streams'];
+                        channels: TState['contract']['channels'];
+                        namespaces: TState['contract']['namespaces'];
+                      };
+                      readonly errors: TState['errors'];
+                      readonly meta: TState['meta'];
+                      readonly channelNames: TState['channelNames'];
+                      readonly staticChannelNames: TState['staticChannelNames'];
+                      readonly channelFamilyKeys: TState['channelFamilyKeys'];
+                      readonly channelOutgoingByKey: TState['channelOutgoingByKey'];
+                      readonly scheduledTasks: TState['scheduledTasks'];
+                      readonly env: TState['env'];
+                    }
+                  : TState
+                : // Branch 8: request(event) — add to contract.requests
+                  TPrimitive extends AnyRequest
+                  ? {
+                      readonly kind: TState['kind'];
+                      readonly outgoing: TState['outgoing'];
+                      readonly hasAck: TState['hasAck'];
+                      readonly hasReplay: TState['hasReplay'];
+
+                      readonly contract: {
+                        incoming: TState['contract']['incoming'];
+                        outgoing: TState['contract']['outgoing'];
+                        requests: MergeRecords<
+                          TState['contract']['requests'],
+                          RequestEntry<TPrimitive>
+                        >;
+                        streams: TState['contract']['streams'];
+                        channels: TState['contract']['channels'];
+                        namespaces: TState['contract']['namespaces'];
+                      };
+                      readonly errors: TState['errors'];
+                      readonly meta: TState['meta'];
+                      readonly channelNames: TState['channelNames'];
+                      readonly staticChannelNames: TState['staticChannelNames'];
+                      readonly channelFamilyKeys: TState['channelFamilyKeys'];
+                      readonly channelOutgoingByKey: TState['channelOutgoingByKey'];
+                      readonly scheduledTasks: TState['scheduledTasks'];
+                      readonly env: TState['env'];
+                    }
+                  : // Branch 9: generate(stream) — add to contract.streams
+                    TPrimitive extends AnyGenerate
+                    ? TPrimitive extends GeneratePrimitive<infer TStream, any, any>
+                      ? {
+                          readonly kind: TState['kind'];
+                          readonly outgoing: TState['outgoing'];
+                          readonly hasAck: TState['hasAck'];
+                          readonly hasReplay: TState['hasReplay'];
+
+                          readonly contract: {
+                            incoming: TState['contract']['incoming'];
+                            outgoing: TState['contract']['outgoing'];
+                            requests: TState['contract']['requests'];
+                            streams: MergeRecords<
+                              TState['contract']['streams'],
+                              StreamEntry<TStream>
+                            >;
+                            channels: TState['contract']['channels'];
+                            namespaces: TState['contract']['namespaces'];
+                          };
+                          readonly errors: TState['errors'];
+                          readonly meta: TState['meta'];
+                          readonly channelNames: TState['channelNames'];
+                          readonly staticChannelNames: TState['staticChannelNames'];
+                          readonly channelFamilyKeys: TState['channelFamilyKeys'];
+                          readonly channelOutgoingByKey: TState['channelOutgoingByKey'];
+                          readonly scheduledTasks: TState['scheduledTasks'];
+                          readonly env: TState['env'];
+                        }
+                      : TState
+                    : // Fallback: unknown primitive — leave state unchanged
+                      TState;
 
 // ---------------------------------------------------------------------------
 // FoldState

@@ -42,7 +42,17 @@ describe('ChannelHandle type tests', () => {
     base
       .use(base.channel(scope('publicRooms', /^room:.+$/), (ch) => ch.outgoing(RoomMessage)))
       .incoming(Send, async (ctx) => {
-        const result: Promise<void> = ctx.channels.get('publicRooms', 'room:1').kick('tag', 'r');
+        const result: Promise<void> = ctx.channels
+          .get('publicRooms', 'room:1')
+          .kick(
+            {
+              __wskit: 'tag-ref' as const,
+              kind: 'ephemeral' as const,
+              group: 'user',
+              key: 'troll',
+            },
+            'r',
+          );
         void result;
 
         // @ts-expect-error — family handle requires a concrete name
@@ -58,7 +68,15 @@ describe('ChannelHandle type tests', () => {
     base.use(
       base.channel('lobby', (ch) =>
         ch.outgoing(RoomMessage).incoming(Send, async (ctx) => {
-          const r: Promise<void> = ctx.channel.kick('tag', 'reason');
+          const r: Promise<void> = ctx.channel.kick(
+            {
+              __wskit: 'tag-ref' as const,
+              kind: 'ephemeral' as const,
+              group: 'user',
+              key: 'troll',
+            },
+            'reason',
+          );
           void r;
           ctx.channel.broadcast('room-message', { text: 'hi' });
           const members: ConnectionInfo[] = ctx.channel.members();

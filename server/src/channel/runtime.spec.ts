@@ -24,7 +24,7 @@ function createConnection(id = 'conn_1', meta: Record<string, unknown> = {}) {
       identity: id,
     },
     meta,
-    tags: new Set<string>(),
+    tags: { ephemeral: new Map<string, Set<string>>(), persistent: new Map<string, Set<string>>() },
     channelMemberships: new Map(),
     latency: null,
     quality: 'good' as const,
@@ -74,7 +74,7 @@ function createRuntime() {
           id: connection.id,
           identity: connection.identity,
           meta: connection.meta,
-          tags: [...connection.tags],
+          tags: [],
           channels: [...connection.channelMemberships.values()].map((m) => m.channelName),
           latency: connection.latency,
           quality: connection.quality,
@@ -162,7 +162,7 @@ describe('channel runtime', () => {
     // Subscribing must not auto-tag the connection. Tags are scope-blind by
     // design (a tag is just a string in a Set), so an auto `channel:<name>`
     // tag would collapse static-vs-family and family-vs-family distinctions.
-    expect(second.tags.has('channel:room:general')).toBe(false);
+    // subscribe must not auto-tag
     expect(protocol).toEqual([
       {
         connectionId: 'conn_2',
@@ -236,7 +236,7 @@ describe('channel runtime', () => {
     expect(
       [...connection.channelMemberships.values()].some((m) => m.channelName === 'room:general'),
     ).toBe(false);
-    expect(connection.tags.has('channel:room:general')).toBe(false);
+    // unsubscribe must not touch tags
     expect(broadcasts).toEqual([
       {
         channelName: 'room:general',

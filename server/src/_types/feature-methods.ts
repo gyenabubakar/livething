@@ -24,6 +24,7 @@ import type {
   ScopeDeclaration,
 } from '~/channel/channel.ts';
 import type { InitContext, ShutdownContext, TaskContext } from '~/context.ts';
+import type * as PublicApiTypes from '~/context.ts';
 import type { DedupPrimitive } from '~/dedup/dedup.ts';
 import type { ErrorDef } from '~/errors/errors.ts';
 import type { ErrorsPrimitive } from '~/errors/primitive.ts';
@@ -31,6 +32,7 @@ import type { EventContract } from '~/event.ts';
 import type { HeartbeatOptions, HeartbeatPrimitive } from '~/heartbeat/heartbeat.ts';
 import type { HibernationPrimitive } from '~/hibernation/hibernation.ts';
 import type { InterceptMessage } from '~/intercept/intercept.ts';
+import type * as LifecycleTypes from '~/lifecycle/lifecycle.ts';
 import type { NamespaceBuilder } from '~/namespace/builder.ts';
 import type { NamespaceChild, NamespacePrimitive } from '~/namespace/namespace.ts';
 import type { PersistencePrimitive } from '~/persistence/persistence.ts';
@@ -47,6 +49,7 @@ import type { ScheduledBuilder, ScheduledPrimitive } from '~/scheduled/scheduled
 import type { SequenceOptions, SequencePrimitive } from '~/sequence/sequence.ts';
 import type { StreamBuilder } from '~/stream/builder.ts';
 import type { NudgeDeclaration } from '~/stream/stream.ts';
+import type * as TagsTypes from '~/tags/tags.ts';
 import type { Validator } from '~/types.ts';
 
 export type { ChannelBuilder, NamespaceBuilder, ReplayBuilder, ReplayCustomBuilder, StreamBuilder };
@@ -337,6 +340,7 @@ type MethodFeatureMap = {
   sequence: 'sequence';
   hibernation: 'hibernation';
   enablePersistence: 'persistence';
+  tagGroups: 'tags';
   errors: 'errors';
   onInit: 'lifecycle';
   onConnect: 'lifecycle';
@@ -461,6 +465,25 @@ export interface PersistenceBuilderMethods<
   enablePersistence(): FullBuilder<NextState<TState, PersistencePrimitive>, TFeatures, Kind>;
 }
 
+/** Adds the `.tagGroups(kind, names)` method for declaring tag groups. */
+export interface TagsBuilderMethods<
+  TState extends ScopeStateShape,
+  TFeatures,
+  Kind extends BuilderKind,
+> {
+  /**
+   * Declare one kind of tag groups on the builder.
+   *
+   * Each call registers the groups for one kind. Calling the same kind twice
+   * throws (the engine deduplicates by `(kind, name)`). Names matching
+   * `/^__.+__$/` are reserved for the framework.
+   */
+  tagGroups(
+    kind: 'ephemeral' | 'persistent',
+    groups: readonly string[],
+  ): FullBuilder<NextState<TState, TagsTypes.TagGroupsPrimitive>, TFeatures, Kind>;
+}
+
 /** Registers typed runtime error factories. */
 export interface ErrorBuilderMethods<
   TState extends ScopeStateShape,
@@ -525,11 +548,15 @@ export interface LifecycleBuilderMethods<
    * `tags` to attach searchable labels to the connection at upgrade time.
    */
   onUpgrade<TMeta extends Record<string, unknown> = Record<string, unknown>>(
-    handler: (request: Request) =>
-      | { meta?: TMeta; tags?: readonly string[] }
+    handler: (
+      request: Request,
+      helpers: LifecycleTypes.UpgradeHelpers,
+    ) =>
+      | { identity?: string; meta?: TMeta; tags?: readonly PublicApiTypes.TagRef[] }
       | Promise<{
+          identity?: string;
           meta?: TMeta;
-          tags?: readonly string[];
+          tags?: readonly PublicApiTypes.TagRef[];
         }>,
   ): FullBuilder<StateWithMeta<TState, TMeta>, TFeatures, Kind>;
 
@@ -819,50 +846,54 @@ type MethodType<
             ? Kind extends 'server'
               ? PersistenceBuilderMethods<TState, TFeatures, 'server'>['enablePersistence']
               : never
-            : M extends 'errors'
-              ? ErrorBuilderMethods<TState, TFeatures, Kind>['errors']
-              : M extends keyof LifecycleBuilderMethods<TState, TFeatures, Kind>
-                ? LifecycleBuilderMethods<TState, TFeatures, Kind>[M]
-                : M extends 'intercept'
-                  ? InterceptBuilderMethods<
-                      BuilderResult<TState, TFeatures, Kind>,
-                      TState
-                    >['intercept']
-                  : M extends 'scheduled'
-                    ? ScheduledBuilderMethods<TState, TFeatures, Kind>['scheduled']
-                    : M extends 'channel'
-                      ? ChannelBuilderMethods<TState, TFeatures>['channel']
-                      : M extends 'namespace'
-                        ? NamespaceBuilderMethods<TState, TFeatures>['namespace']
-                        : M extends 'request'
-                          ? RequestBuilderMethods<TState, TFeatures, Kind>['request']
-                          : M extends 'stream'
-                            ? Kind extends 'server'
-                              ? StreamBuilderMethods<TState, TFeatures, 'server'>['stream']
-                              : never
-                            : M extends 'replay'
+            : M extends 'tagGroups'
+              ? Kind extends 'server'
+                ? TagsBuilderMethods<TState, TFeatures, 'server'>['tagGroups']
+                : never
+              : M extends 'errors'
+                ? ErrorBuilderMethods<TState, TFeatures, Kind>['errors']
+                : M extends keyof LifecycleBuilderMethods<TState, TFeatures, Kind>
+                  ? LifecycleBuilderMethods<TState, TFeatures, Kind>[M]
+                  : M extends 'intercept'
+                    ? InterceptBuilderMethods<
+                        BuilderResult<TState, TFeatures, Kind>,
+                        TState
+                      >['intercept']
+                    : M extends 'scheduled'
+                      ? ScheduledBuilderMethods<TState, TFeatures, Kind>['scheduled']
+                      : M extends 'channel'
+                        ? ChannelBuilderMethods<TState, TFeatures>['channel']
+                        : M extends 'namespace'
+                          ? NamespaceBuilderMethods<TState, TFeatures>['namespace']
+                          : M extends 'request'
+                            ? RequestBuilderMethods<TState, TFeatures, Kind>['request']
+                            : M extends 'stream'
                               ? Kind extends 'server'
-                                ? ReplayBuilderMethods<
-                                    BuilderResult<
-                                      NextState<TState, ReplayPrimitive>,
-                                      TFeatures,
-                                      'server'
-                                    >,
-                                    TState
-                                  >['replay']
+                                ? StreamBuilderMethods<TState, TFeatures, 'server'>['stream']
                                 : never
-                              : M extends 'replayCustom'
+                              : M extends 'replay'
                                 ? Kind extends 'server'
-                                  ? ReplayCustomBuilderMethods<
+                                  ? ReplayBuilderMethods<
                                       BuilderResult<
-                                        NextState<TState, CustomReplayPrimitive<'top'>>,
+                                        NextState<TState, ReplayPrimitive>,
                                         TFeatures,
                                         'server'
                                       >,
                                       TState
-                                    >['replayCustom']
+                                    >['replay']
                                   : never
-                                : never;
+                                : M extends 'replayCustom'
+                                  ? Kind extends 'server'
+                                    ? ReplayCustomBuilderMethods<
+                                        BuilderResult<
+                                          NextState<TState, CustomReplayPrimitive<'top'>>,
+                                          TFeatures,
+                                          'server'
+                                        >,
+                                        TState
+                                      >['replayCustom']
+                                    : never
+                                  : never;
 
 /**
  * Feature methods available on server and group builders.

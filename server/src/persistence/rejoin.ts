@@ -1,4 +1,5 @@
 import { deleteMembership, listMembershipsByIdentity } from '~/persistence/storage.ts';
+import { listTagsByIdentity } from '~/tags/storage.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type { SQLProvider } from '~/context.ts';
 
@@ -62,6 +63,15 @@ export async function autoRejoinIdentity(
   connection: EngineRuntimeTypes.RuntimeConnection,
 ): Promise<void> {
   if (!connection.identity) return;
+
+  // Restore persistent tags first — channel auto-rejoin's onBeforeSubscribe
+  // can read them via `ctx.tags.persistent(...)`.
+  const tagRows = listTagsByIdentity(runtime.sql, connection.identity);
+  for (const tag of tagRows) {
+    const set = connection.tags.persistent.get(tag.group) ?? new Set<string>();
+    set.add(tag.key);
+    connection.tags.persistent.set(tag.group, set);
+  }
 
   const rows = listMembershipsByIdentity(runtime.sql, connection.identity);
   if (rows.length === 0) return;

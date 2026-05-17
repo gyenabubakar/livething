@@ -22,6 +22,7 @@
  */
 
 import type { EngineAccess } from '~/_engine/access.ts';
+import type * as PublicApiTypes from '~/context.ts';
 import type { Primitive } from '~/primitive.ts';
 
 /**
@@ -43,11 +44,13 @@ export interface UpgradeResult {
    */
   readonly meta?: Record<string, unknown>;
   /**
-   * Labels to attach to this connection. Use them to group connections and
-   * later fan out a message to the group with `ctx.sendTo(tag, ...)` or
-   * enumerate them with `ctx.getConnectionsByTag(tag)`.
+   * Tag refs to attach to this connection. Build them with the helper passed
+   * as the second argument to `onUpgrade`:
+   * `tags: [tags.ephemeral('role').ref('admin')]`. Refs in the ephemeral kind
+   * are accepted; refs in the persistent kind must be set at runtime via
+   * `ctx.tags.persistent(group).add(key)` and are rejected here.
    */
-  readonly tags?: readonly string[];
+  readonly tags?: readonly PublicApiTypes.TagRef[];
 }
 
 /**
@@ -92,7 +95,28 @@ export type ErrorHandler<TCtx = any> = (
  * Return `{ meta }` to accept and populate `ctx.meta`, or throw
  * `RejectUpgrade(code, reason)` to reject.
  */
-export type UpgradeHandler = (request: Request) => UpgradeResult | Promise<UpgradeResult>;
+/**
+ * Helper bag passed as the second argument to `onUpgrade`. Wrappers populate
+ * the fields they own — `withTags` adds `tags`, future wrappers may add more.
+ * Always an object (possibly empty) so handlers can safely destructure.
+ */
+export interface UpgradeHelpers {
+  /**
+   * Tag-ref builders, present when `withTags` is wrapped. Returns a partial
+   * group handle whose only method is `.ref(key)` — `add` / `remove` /
+   * `has` and fan-out reads need a live connection ctx and are not
+   * available during the upgrade phase.
+   */
+  readonly tags?: {
+    ephemeral(group: string): { ref(key: string): PublicApiTypes.TagRef };
+    persistent(group: string): { ref(key: string): PublicApiTypes.TagRef };
+  };
+}
+
+export type UpgradeHandler = (
+  request: Request,
+  helpers: UpgradeHelpers,
+) => UpgradeResult | Promise<UpgradeResult>;
 
 /**
  * Callback for `.onBinary()` — handles raw binary WebSocket frames that

@@ -2,6 +2,7 @@ import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as ContextApi from '~/context.ts';
 import type * as ErrorsPrimitive from '~/errors/errors.ts';
+import type * as LifecycleTypes from '~/lifecycle/lifecycle.ts';
 import type * as ScheduledPrimitive from '~/scheduled/types.ts';
 import type * as ValidationTypes from '~/types.ts';
 
@@ -121,11 +122,14 @@ export interface EngineAccess {
    * override any internal hook on conflict.
    */
   onUpgrade(
-    handler: (request: Request) =>
-      | { meta?: Record<string, unknown>; tags?: readonly string[] }
+    handler: (
+      request: Request,
+      helpers: LifecycleTypes.UpgradeHelpers,
+    ) =>
+      | { meta?: Record<string, unknown>; tags?: readonly ContextApi.TagRef[] }
       | Promise<{
           meta?: Record<string, unknown>;
-          tags?: readonly string[];
+          tags?: readonly ContextApi.TagRef[];
         }>,
   ): void;
 
@@ -136,12 +140,15 @@ export interface EngineAccess {
    * any internal-primitive hooks registered via `onUpgrade(...)`.
    */
   setBuilderUpgradeHook(
-    handler: (request: Request) =>
-      | { identity?: string; meta?: Record<string, unknown>; tags?: readonly string[] }
+    handler: (
+      request: Request,
+      helpers: LifecycleTypes.UpgradeHelpers,
+    ) =>
+      | { identity?: string; meta?: Record<string, unknown>; tags?: readonly ContextApi.TagRef[] }
       | Promise<{
           identity?: string;
           meta?: Record<string, unknown>;
-          tags?: readonly string[];
+          tags?: readonly ContextApi.TagRef[];
         }>,
   ): void;
 
@@ -277,6 +284,15 @@ export interface EngineAccess {
    * @internal
    */
   setPersistenceEnabled(enabled: boolean): void;
+
+  /**
+   * Register a set of declared tag groups of one kind. Used by the
+   * `tagGroups()` primitive from `withTags`. Throws if a `(kind, name)` is
+   * declared twice on the same builder.
+   *
+   * @internal
+   */
+  registerTagGroups(kind: 'ephemeral' | 'persistent', groups: readonly string[]): void;
 
   /**
    * Record a per-channel `.persistent(enabled)` override. The engine reads

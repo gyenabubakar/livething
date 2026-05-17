@@ -175,7 +175,7 @@ export interface Logger {
  * @example
  * ```ts
  * // Subscribe every member of "team-eng" to a new room
- * const members = ctx.getConnectionsByTag('team:eng');
+ * const members = ctx.tags.ephemeral('team').ref('eng').connections();
  * const room = ctx.channels.get('eng-room');
  * for (const m of members) {
  *   await room.subscribe(m.ref());
@@ -202,11 +202,30 @@ export interface ConnectionRef {
 }
 
 /**
+ * Address for a group of connections matching a single `(kind, group, key)`
+ * tuple. Built via `ctx.tags.<kind>(group).ref(key)` or by reading
+ * `ConnectionInfo.tags`. Pass it to fan-out APIs like `channelHandle.kick`.
+ *
+ * Different from `ConnectionRef`, which addresses one specific socket.
+ * `TagRef` is a label, not an identity — many connections can match it.
+ */
+export interface TagRef {
+  /** Brand tag so the type cannot be confused with a plain object. */
+  readonly __wskit: 'tag-ref';
+  /** Which kind of group the tag belongs to. */
+  readonly kind: 'ephemeral' | 'persistent';
+  /** Group name as declared on the builder. */
+  readonly group: string;
+  /** Key inside the group. Any non-empty string the dev chose. */
+  readonly key: string;
+}
+
+/**
  * A read-only snapshot of one live connection at a point in time.
  *
- * Returned by `ctx.getConnections()`, `ctx.getConnectionsByTag()`, and
- * `ctx.channels.members()`. The snapshot does not update — fetch it again
- * if you need fresh data.
+ * Returned by `ctx.getConnections()`, `channelHandle.members()`, and the
+ * tag-group reads on `ctx.tags`. The snapshot does not update — fetch it
+ * again if you need fresh data.
  *
  * `Meta` matches the shape of the metadata you set during the upgrade step.
  */
@@ -221,8 +240,12 @@ export interface ConnectionInfo<Meta = Record<string, unknown>> {
   readonly identity: string;
   /** Key-value metadata set during the upgrade step (e.g. userId, role). */
   readonly meta: Meta;
-  /** Tags attached to this connection via `ctx.tag()`. */
-  readonly tags: readonly string[];
+  /**
+   * Tag refs currently attached to this connection. Each ref carries the
+   * `(kind, group, key)` triple declared via the `withTags` wrapper. Empty
+   * when `withTags` is not registered.
+   */
+  readonly tags: readonly TagRef[];
   /** Channel names this connection is currently subscribed to. */
   readonly channels: readonly string[];
   /** Round-trip latency in milliseconds, measured by ping/pong. `null` if not yet measured. */
@@ -352,14 +375,29 @@ export interface ChannelHandle<
    */
   subscribe(ref: ConnectionRef, payload?: unknown): Promise<void>;
   /**
-   * Remove every connection that has the given tag from this exact channel
-   * scope, sending each kicked connection a `_kicked` frame with the reason and
-   * notifying remaining subscribers via `_memberLeave`.
+   * Remove connections from this exact channel scope. The `target` decides
+   * which connections leave:
    *
-   * Awaits all `onUnsubscribe` hook completions; rejections from those hooks
-   * propagate to the caller.
+   * - `ConnectionRef` — kick that one socket.
+   * - `TagRef` — kick every socket holding the given `(kind, group, key)`.
+   * - `GroupHandle` (returned by `ctx.tags.ephemeral(...)` / `.persistent(...)`)
+   *   — kick every socket with any key under the group.
+   *
+   * Sends `_kicked` to each removed socket, fires `onUnsubscribe`, and
+   * broadcasts `_memberLeave` / `_memberOffline` to remaining members.
+   * Awaits every hook completion; rejections propagate to the caller.
    */
-  kick(tag: string, reason: string): Promise<void>;
+  kick(
+    target:
+      | ConnectionRef
+      | TagRef
+      | {
+          readonly __wskit: 'group-handle';
+          readonly kind: 'ephemeral' | 'persistent';
+          readonly group: string;
+        },
+    reason: string,
+  ): Promise<void>;
   /**
    * Remove every live connection of the given identity from this channel
    * AND drop the durable membership row so the user is NOT auto-rejoined
@@ -434,9 +472,9 @@ export interface ChannelsManager<
  * ```
  *
  * Mental model, grouped by purpose:
- * - **identity** — `id`, `meta`, `tags`, `tag`, `untag`
- * - **messaging** — `send`, `broadcast`, `sendTo`, `sendToConnection`,
- *   `sendBinary`, `broadcastBinary`
+ * - **identity** — `id`, `identity`, `self`, `meta`, `tags` (from `withTags`)
+ * - **messaging** — `send`, `broadcast`, `sendToConnection`, `sendBinary`,
+ *   `broadcastBinary`
  * - **scope helpers** — `namespace`, `channel`, `channels`
  * - **durability / platform** — `schedule`, `cancelScheduled`, `sql`, `kv`,
  *   `env`, `log`, `platform`, `waitUntil`
@@ -467,15 +505,6 @@ export interface ConnectionContext<
   /** Metadata attached during the upgrade step (e.g. user ID, session token). */
   meta: Meta;
 
-  /** Tags currently attached to this connection. */
-  tags: readonly string[];
-
-  /** Attach a tag to this connection so it can be targeted as a group later. */
-  tag(label: string): void;
-
-  /** Remove a tag from this connection. */
-  untag(label: string): void;
-
   // Message delivery
   /** Send an event to the current connection only. Returns `false` if the send buffer is full. */
   send(event: string, payload: unknown): boolean;
@@ -490,9 +519,6 @@ export interface ConnectionContext<
    * boundary.
    */
   broadcast(event: string, payload: unknown, options?: BroadcastOptions): void;
-
-  /** Send an event to every connection that currently has the given tag. */
-  sendTo(tag: string, event: string, payload: unknown): void;
 
   /** Send an event to one specific connection by its ID. Returns `false` if the connection is gone. */
   sendToConnection(connectionId: string, event: string, payload: unknown): boolean;
@@ -509,9 +535,6 @@ export interface ConnectionContext<
   // Connection snapshots
   /** Get a snapshot of every live connection at this moment. */
   getConnections(): ConnectionInfo<Meta>[];
-
-  /** Get every connection that currently has the given tag. */
-  getConnectionsByTag(tag: string): ConnectionInfo<Meta>[];
 
   /** The total number of live connections right now. */
   connectionCount: number;
@@ -654,9 +677,6 @@ export interface ShutdownContext<
   /** Get a snapshot of every live connection. */
   getConnections(): ConnectionInfo<Meta>[];
 
-  /** Get every connection that currently has the given tag. */
-  getConnectionsByTag(tag: string): ConnectionInfo<Meta>[];
-
   // Platform services
   /** Environment variables provided by the hosting platform (e.g. Cloudflare bindings). */
   env: Env;
@@ -701,18 +721,12 @@ export interface TaskContext<
    */
   broadcast(event: string, payload: unknown): void;
 
-  /** Send an event to every connection that has the given tag. */
-  sendTo(tag: string, event: string, payload: unknown): void;
-
   /** Send an event to one specific connection by ID. Returns false if the connection doesn't exist. */
   sendToConnection(connectionId: string, event: string, payload: unknown): boolean;
 
   // Connection snapshots
   /** Get a snapshot of every live connection. */
   getConnections(): ConnectionInfo<Meta>[];
-
-  /** Get every connection that currently has the given tag. */
-  getConnectionsByTag(tag: string): ConnectionInfo<Meta>[];
 
   /** The total number of live WebSocket connections right now. */
   connectionCount: number;

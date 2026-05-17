@@ -64,6 +64,7 @@ declare namespace Cloudflare {
     CHANNEL_STATIC_SERVER: DurableObjectNamespace<import('./src/worker').ChannelStaticServer>;
     CHANNEL_DYNAMIC_SERVER: DurableObjectNamespace<import('./src/worker').ChannelDynamicServer>;
     PERSISTENCE_SERVER: DurableObjectNamespace<import('./src/worker').PersistenceServer>;
+    TYPED_TAGS_SERVER: DurableObjectNamespace<import('./src/worker').TypedTagsServer>;
     CHANNEL_SCOPE_ISOLATION_SERVER: DurableObjectNamespace<
       import('./src/worker').ChannelScopeIsolationServer
     >;

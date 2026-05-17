@@ -1,6 +1,7 @@
 import { event, server } from '@wskit/server';
 import { withLifecycle } from '@wskit/server/lifecycle';
 import { withScheduled } from '@wskit/server/scheduled';
+import { withTags } from '@wskit/server/tags';
 import * as v from 'valibot';
 import { requireUsername } from '../_shared/upgrade.ts';
 
@@ -73,7 +74,8 @@ const ScheduleUnknownTaskResult = event(
 let flakyAttempts = 0;
 let defaultRetryAttempts = 0;
 
-export const scheduledHandler = withScheduled(withLifecycle(server<Env>('scheduled')))
+export const scheduledHandler = withTags(withScheduled(withLifecycle(server<Env>('scheduled'))))
+  .tagGroups('ephemeral', ['user', 'role'])
   .outgoing(CleanupDone)
   .outgoing(CleanupCancelled)
   .outgoing(HeartbeatTick)
@@ -90,7 +92,7 @@ export const scheduledHandler = withScheduled(withLifecycle(server<Env>('schedul
   .outgoing(SendToTagResult)
   .outgoing(CancelNonexistentOk)
   .outgoing(ScheduleUnknownTaskResult)
-  .onUpgrade((request) => requireUsername(request))
+  .onUpgrade((request, helpers) => requireUsername(request, helpers))
   .scheduled('cleanup', (t) =>
     t.run((ctx) => {
       ctx.broadcast('cleanup-done', { at: Date.now() });
@@ -163,7 +165,15 @@ export const scheduledHandler = withScheduled(withLifecycle(server<Env>('schedul
   )
   .scheduled('send-to-tag-task', (t) =>
     t.run((ctx) => {
-      ctx.sendTo('vip', 'send-to-tag-result', { text: 'tagged-from-task' });
+      // Task context doesn't expose ctx.tags. To fan out to tagged
+      // connections, walk getConnections() and filter by the ref.
+      for (const conn of ctx.getConnections()) {
+        if (
+          conn.tags.some((r) => r.kind === 'ephemeral' && r.group === 'role' && r.key === 'vip')
+        ) {
+          ctx.sendToConnection(conn.id, 'send-to-tag-result', { text: 'tagged-from-task' });
+        }
+      }
     }),
   )
   .incoming(ScheduleCleanup, (ctx, payload) => {
@@ -261,7 +271,7 @@ export const scheduledHandler = withScheduled(withLifecycle(server<Env>('schedul
     ctx.schedule('send-to-tag-task', { time: Date.now() + 50 });
   })
   .incoming(TagVip, (ctx) => {
-    ctx.tag('vip');
+    ctx.tags.ephemeral('role').add('vip');
   })
   .incoming(CancelNonexistent, (ctx) => {
     // Cast to bypass the type guard: test that cancelling an unknown id at runtime is a no-op.

@@ -89,7 +89,10 @@ export interface ContextCommonDeps {
   ): ConnectionInfo<Record<string, unknown>>[];
   kickChannelMembers(
     channelName: string,
-    tag: string,
+    target:
+      | PublicApi.ConnectionRef
+      | PublicApi.TagRef
+      | { __wskit: 'group-handle'; kind: 'ephemeral' | 'persistent'; group: string },
     reason: string,
     channelScope: string | null,
   ): Promise<void>;
@@ -138,6 +141,21 @@ export interface ContextCommonDeps {
     connection?: EngineRuntimeTypes.RuntimeConnection,
   ): void;
   contextExtenders?: readonly ((ctx: unknown) => Record<string, unknown>)[];
+  /**
+   * Whether at least one tag group was declared via `.tagGroups(...)`. When
+   * `false`, `ctx.tags` is omitted from every connection context.
+   */
+  usesTags: boolean;
+  /**
+   * Whether the engine flipped persistence on via `.enablePersistence()`.
+   * Persistent tag writes are no-ops when this is `false`.
+   */
+  persistenceEnabled: boolean;
+  /**
+   * Check whether a given `(kind, group)` is declared on this engine. The tag
+   * runtime throws when a handler accesses an undeclared group.
+   */
+  isTagGroupDeclared(kind: 'ephemeral' | 'persistent', group: string): boolean;
 }
 
 /**

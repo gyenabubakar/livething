@@ -37,11 +37,21 @@ const DELETE_ALL_CONNECTIONS_SQL = 'DELETE FROM _wskit_connections';
  * The shape persisted into the `_wskit_connections` row. The engine writes one
  * row per live connection and reads it back on hibernation wake.
  */
+/**
+ * One row of the ephemeral-tag JSON column. Each entry is one
+ * `(group, key)` pair the connection currently holds in the ephemeral
+ * storage area.
+ */
+export interface StoredEphemeralTag {
+  group: string;
+  key: string;
+}
+
 export interface StoredConnectionRow {
   connection_id: string;
   identity: string;
   meta: Record<string, unknown>;
-  ephemeral_tags: readonly string[];
+  ephemeral_tags: readonly StoredEphemeralTag[];
   ephemeral_memberships: readonly { channelName: string; channelScope: string | null }[];
   active_stream_ids: readonly string[];
 }
@@ -69,11 +79,15 @@ export function ensureConnectionSchema(sql: Pick<SQLProvider, 'exec'>): void {
  * the connect, wake, and per-state-change write paths all agree on the shape.
  */
 export function buildConnectionRow(connection: RuntimeConnection): StoredConnectionRow {
+  const ephemeral_tags: StoredEphemeralTag[] = [];
+  for (const [group, keys] of connection.tags.ephemeral) {
+    for (const key of keys) ephemeral_tags.push({ group, key });
+  }
   return {
     connection_id: connection.id,
     identity: connection.identity,
     meta: connection.meta,
-    ephemeral_tags: [...connection.tags],
+    ephemeral_tags,
     ephemeral_memberships: [...connection.channelMemberships.values()],
     active_stream_ids: [...(connection.activeStreamIds ?? [])],
   };
@@ -109,7 +123,7 @@ export function readConnectionRow(
     connection_id: raw.connection_id,
     identity: raw.identity,
     meta: parseObject(raw.meta),
-    ephemeral_tags: parseStringArray(raw.ephemeral_tags),
+    ephemeral_tags: parseEphemeralTagArray(raw.ephemeral_tags),
     ephemeral_memberships: parseMembershipArray(raw.ephemeral_memberships),
     active_stream_ids: parseStringArray(raw.active_stream_ids),
   };
@@ -167,6 +181,21 @@ function parseStringArray(raw: string): readonly string[] {
     // fall through
   }
   return [];
+}
+
+function parseEphemeralTagArray(raw: string): readonly StoredEphemeralTag[] {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.flatMap((entry) => {
+      if (!entry || typeof entry !== 'object') return [];
+      const record = entry as Record<string, unknown>;
+      if (typeof record.group !== 'string' || typeof record.key !== 'string') return [];
+      return [{ group: record.group, key: record.key }];
+    });
+  } catch {
+    return [];
+  }
 }
 
 function parseMembershipArray(

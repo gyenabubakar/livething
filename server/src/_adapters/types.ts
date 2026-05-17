@@ -1,4 +1,5 @@
 import type * as EngineModule from '~/_engine/engine.ts';
+import type { TagRef } from '~/context.ts';
 
 /**
  * The low-level send/close callbacks an adapter provides for each WebSocket.
@@ -18,7 +19,7 @@ export interface ConnectionDescriptor {
    */
   identity: string;
   meta?: Record<string, unknown>;
-  tags?: readonly string[];
+  tags?: readonly TagRef[];
 }
 
 /**
@@ -49,7 +50,7 @@ export interface UpgradeDecision {
    */
   identity?: string;
   meta?: Record<string, unknown>;
-  tags?: readonly string[];
+  tags?: readonly TagRef[];
 }
 
 /**

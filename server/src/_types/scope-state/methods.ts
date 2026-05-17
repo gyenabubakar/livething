@@ -6,6 +6,7 @@ import type {
   ChannelsManager,
   ConnectionContext,
 } from '~/context.ts';
+import type * as TagsTypes from '~/tags/types.ts';
 
 // ---------------------------------------------------------------------------
 // Typed send / broadcast methods
@@ -45,37 +46,6 @@ export interface SendMethods<TOutgoing extends Record<string, any>> {
     payload: TOutgoing[TEvent],
     options?: BroadcastOptions,
   ): void;
-}
-
-/**
- * Type-safe `sendTo` method for a handler ctx.
- *
- * Only events declared with `outgoing()` in the same scope are accepted.
- */
-export interface SendToMethods<TOutgoing extends Record<string, any>> {
-  /**
-   * Send an event to every connection that currently has the given tag.
-   *
-   * Only events declared with `outgoing()` in the same scope are allowed.
-   */
-  sendTo<TEvent extends keyof TOutgoing & string>(
-    tag: string,
-    event: TEvent,
-    payload: TOutgoing[TEvent],
-  ): void;
-}
-
-/**
- * Untyped fallback `sendTo` for scopes that have no `outgoing()` declared.
- *
- * When no outgoing events are known, `sendTo` still exists but accepts any
- * string for the event name and `unknown` for the payload.
- */
-export interface GenericSendToMethods {
-  /**
-   * Send an event to every connection that currently has the given tag.
-   */
-  sendTo(tag: string, event: string, payload: unknown): void;
 }
 
 /**
@@ -182,42 +152,14 @@ export interface CloseInfoMethods {
 }
 
 /**
- * Provides `ctx.tags` — the current tag set for this connection.
+ * Provides `ctx.tags` — the typed tag API from `withTags`.
+ *
+ * Only intersected onto the handler ctx when at least one tag group has
+ * been declared via `.tagGroups(...)`. Without that, `ctx.tags` is not on
+ * the type and accessing it is a TypeScript error.
  */
-export interface ConnectionTagsMethods {
-  /**
-   * The current tags attached to this connection.
-   *
-   * Tags let you group connections and send events to all of them at once
-   * with `ctx.sendTo(tag, event, payload)`.
-   */
-  readonly tags: ConnectionContext['tags'];
-}
-
-/**
- * Provides `ctx.tag(label)` — attach a tag to this connection.
- */
-export interface TagMethods {
-  /**
-   * Attach a tag to the current connection.
-   *
-   * Tags let you target groups of related connections later with
-   * `ctx.sendTo(tag, event, payload)`.
-   */
-  tag(label: string): ReturnType<ConnectionContext['tag']>;
-}
-
-/**
- * Provides `ctx.untag(label)` — remove a tag from this connection.
- */
-export interface UntagMethods {
-  /**
-   * Remove a tag from the current connection.
-   *
-   * Call this when the connection should no longer be part of a group you
-   * are targeting with `sendTo`.
-   */
-  untag(label: string): ReturnType<ConnectionContext['untag']>;
+export interface ConnectionTagsApiMethods {
+  readonly tags: TagsTypes.TagsApi<string, string>;
 }
 
 /**
@@ -380,9 +322,6 @@ export interface RuntimeContextMethods {
 
   /** Get a point-in-time snapshot of every live connection. */
   getConnections: ConnectionContext['getConnections'];
-
-  /** Get a point-in-time snapshot of live connections that have the given tag. */
-  getConnectionsByTag: ConnectionContext['getConnectionsByTag'];
 
   /** The current number of live WebSocket connections. */
   readonly connectionCount: ConnectionContext['connectionCount'];

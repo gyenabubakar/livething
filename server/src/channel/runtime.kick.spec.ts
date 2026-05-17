@@ -17,7 +17,7 @@ function createConnection(id: string) {
       identity: id,
     },
     meta: {},
-    tags: new Set<string>(),
+    tags: { ephemeral: new Map<string, Set<string>>(), persistent: new Map<string, Set<string>>() },
     channelMemberships: new Map(),
     latency: null,
     quality: 'good' as const,
@@ -33,8 +33,8 @@ describe('channels.kick end-to-end', () => {
     addChannelMembership(kept, 'room:general', null);
     addChannelMembership(banned, 'room:general', null);
     addChannelMembership(alsoBanned, 'room:general', null);
-    banned.tags.add('troll');
-    alsoBanned.tags.add('troll');
+    banned.tags.ephemeral.set('user', new Set(['troll']));
+    alsoBanned.tags.ephemeral.set('user', new Set(['troll']));
 
     const protocol: { connectionId: string; event: string; payload: any }[] = [];
     const broadcasts: {
@@ -71,12 +71,13 @@ describe('channels.kick end-to-end', () => {
       beforeSubscribeHooks: new Map(),
       subscribeHooks: new Map(),
       unsubscribeHooks: new Map(),
+      sessionEndHooks: new Map(),
       toConnectionInfo(c: ReturnType<typeof createConnection>) {
         return {
           id: c.id,
           identity: c.identity,
           meta: c.meta,
-          tags: [...c.tags],
+          tags: [],
           channels: [...c.channelMemberships.values()].map((m) => m.channelName),
           latency: null,
           quality: 'good' as const,
@@ -117,7 +118,7 @@ describe('channels.kick end-to-end', () => {
           leaveChannel(runtime as any, connection, scope, kickedReason),
       } as any,
       'room:general',
-      'troll',
+      { __wskit: 'tag-ref' as const, kind: 'ephemeral' as const, group: 'user', key: 'troll' },
       'spam',
       null,
     );
@@ -150,8 +151,8 @@ describe('channels.kick end-to-end', () => {
     const alsoBanned = createConnection('also_banned');
     addChannelMembership(banned, 'room:general', null);
     addChannelMembership(alsoBanned, 'room:general', null);
-    banned.tags.add('troll');
-    alsoBanned.tags.add('troll');
+    banned.tags.ephemeral.set('user', new Set(['troll']));
+    alsoBanned.tags.ephemeral.set('user', new Set(['troll']));
 
     const generalChannel = {
       key: 'room:general',
@@ -192,6 +193,7 @@ describe('channels.kick end-to-end', () => {
           ],
         ],
       ]),
+      sessionEndHooks: new Map(),
       logger: {
         error(message: string, fields?: Record<string, unknown>) {
           logged.push({ message, fields });
@@ -220,7 +222,7 @@ describe('channels.kick end-to-end', () => {
             leaveChannel(runtime as any, connection, scope, kickedReason),
         } as any,
         'room:general',
-        'troll',
+        { __wskit: 'tag-ref' as const, kind: 'ephemeral' as const, group: 'user', key: 'troll' },
         'spam',
         null,
       ),

@@ -2,6 +2,7 @@ import { event, server } from '@wskit/server';
 import { withChannels } from '@wskit/server/channels';
 import { withLifecycle } from '@wskit/server/lifecycle';
 import { withStreams } from '@wskit/server/streams';
+import { withTags } from '@wskit/server/tags';
 import * as v from 'valibot';
 import { requireUsername } from '../_shared/upgrade.ts';
 
@@ -30,10 +31,11 @@ const KickAck = event('kick-ack', v.object({ tag: v.string() }));
 // connection is committed as a member without a client _subscribe frame.
 const TriggerServerSubscribe = event('trigger-server-subscribe', v.object({}));
 
-const base = withStreams(withChannels(withLifecycle(server<Env>('channel-static'))))
+const base = withTags(withStreams(withChannels(withLifecycle(server<Env>('channel-static')))))
+  .tagGroups('ephemeral', ['user', 'label'])
   .outgoing(TagAck)
   .outgoing(KickAck)
-  .onUpgrade((request) => requireUsername(request))
+  .onUpgrade((request, helpers) => requireUsername(request, helpers))
   // A disconnect hook that throws for one specific username — used to pin
   // that handleConnectionClose contains the throw so the rest of the
   // close cleanup (channel leaves, _memberLeave fan-out) still runs.
@@ -126,11 +128,13 @@ export const channelStaticHandler = base
   .use(roomChannel)
   .use(roomTwoChannel)
   .incoming(TagSelf, (ctx, payload) => {
-    ctx.tag(payload.tag);
+    ctx.tags.ephemeral('label').add(payload.tag);
     ctx.send('tag-ack', { tag: payload.tag });
   })
   .incoming(KickByTag, async (ctx, payload) => {
-    await ctx.channels.get('room').kick(payload.tag, payload.reason);
+    await ctx.channels
+      .get('room')
+      .kick(ctx.tags.ephemeral('label').ref(payload.tag), payload.reason);
     ctx.send('kick-ack', { tag: payload.tag });
   })
   .incoming(TriggerServerSubscribe, async (ctx) => {

@@ -55,6 +55,9 @@ function inMemorySql(): SQLProvider {
       );
     }
     if (q.startsWith('DELETE FROM _wskit_tags')) return result<TRow>([]);
+    if (q.startsWith('SELECT group_name, key, added_at FROM _wskit_tags')) {
+      return result<TRow>([]);
+    }
     throw new Error(`unrecognized SQL: ${q}`);
   }
   return { exec } as unknown as SQLProvider;
