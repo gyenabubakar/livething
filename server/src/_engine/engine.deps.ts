@@ -55,6 +55,9 @@ export function commonDeps(engine: Engine): EngineContextTypes.ContextCommonDeps
     kickChannelMembers: (channelName, tag, reason, channelScope) => {
       return engine.kickChannelMembers(channelName, tag, reason, channelScope);
     },
+    removeChannelMember: (channelName, channelScope, identity) => {
+      return engine.removeChannelMember(channelName, channelScope, identity);
+    },
     subscribeConnectionAsServer: (ref, channelName, channelScope, payload) => {
       return engine.subscribeConnectionAsServer(ref, channelName, channelScope, payload);
     },
@@ -135,6 +138,7 @@ export function channelRuntime(engine: Engine) {
     beforeSubscribeHooks: engine.hooks.beforeSubscribe,
     subscribeHooks: engine.hooks.subscribe,
     unsubscribeHooks: engine.hooks.unsubscribe,
+    sessionEndHooks: engine.hooks.sessionEnd,
     broadcastToChannel: (
       channelName: string,
       event: string,
@@ -174,6 +178,11 @@ export function channelRuntime(engine: Engine) {
       event?: string,
       routing?: Record<string, unknown>,
     ) => engine.handleRuntimeError(connection, error, event, routing),
+    isChannelPersistent: (channelKey: string) => engine.isChannelPersistent(channelKey),
+    persistMembership: (identity: string, channelName: string, channelScope: string | null) =>
+      engine.persistMembership(identity, channelName, channelScope),
+    deleteDurableMembership: (identity: string, channelName: string, channelScope: string | null) =>
+      engine.deleteDurableMembership(identity, channelName, channelScope),
     logger: engine.getLogger(),
   };
 }
@@ -277,5 +286,14 @@ export function connectionRuntime(engine: Engine) {
     handleRuntimeError: (connection: RuntimeConnection, error: unknown, event?: string) => {
       return engine.handleRuntimeError(connection, error, event);
     },
+    // Wire auto-rejoin only when persistence is on. Without this guard the
+    // connect path would add a microtask even on persistence-off engines
+    // and shift `runConnectionLifecycle('connect')`'s timing.
+    ...(engine.usesPersistence()
+      ? {
+          autoRejoinIdentity: (connection: RuntimeConnection) =>
+            engine.autoRejoinIdentity(connection),
+        }
+      : {}),
   };
 }

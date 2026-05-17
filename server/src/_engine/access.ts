@@ -200,6 +200,12 @@ export interface EngineAccess {
   onUnsubscribe(handler: (ctx: unknown) => void | Promise<void>): void;
 
   /**
+   * Register an `onSessionEnd` hook. Fires whenever this connection's view of
+   * the channel ends — true leave OR plain disconnect.
+   */
+  onSessionEnd(handler: (ctx: unknown) => void | Promise<void>): void;
+
+  /**
    * Read the scope information for the primitive currently being installed.
    *
    * Top-level primitives get an empty object. Channel-scoped primitives get
@@ -262,6 +268,38 @@ export interface EngineAccess {
    * @internal
    */
   setSequencePersistent(enabled: boolean): void;
+
+  /**
+   * Tell the engine the `withPersistence` wrapper called `.enablePersistence()`.
+   * The engine then creates the identity-keyed durable tables at boot and
+   * starts writing channel memberships and persistent tags across reconnects.
+   *
+   * @internal
+   */
+  setPersistenceEnabled(enabled: boolean): void;
+
+  /**
+   * Record a per-channel `.persistent(enabled)` override. The engine reads
+   * this back at runtime via `isChannelPersistent(channelKey)` to decide
+   * whether to write a durable membership row on subscribe.
+   *
+   * @internal
+   */
+  setChannelPersistent(channelKey: string, enabled: boolean): void;
+
+  /**
+   * Check whether a durable-row `(channel_name, channel_scope)` pair still
+   * maps to a registered persistent channel. Used by boot-time reconcile.
+   * @internal
+   */
+  isDurableMembershipPairPersistent(channelName: string, channelScope: string | null): boolean;
+
+  /**
+   * Read the engine's logger. Used by primitives that emit boot-time or
+   * one-off status messages (e.g. persistence cleanup row counts).
+   * @internal
+   */
+  getLogger?(): { info?(message: string, data?: unknown): void } | undefined;
 
   /**
    * Turn on server-side deduplication of incoming messages.

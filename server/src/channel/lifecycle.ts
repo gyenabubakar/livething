@@ -10,10 +10,25 @@ import type { Validator } from '~/types.ts';
 export type SubscribeHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
 
 /**
- * Handler called when a client unsubscribes from a channel, or when the
- * connection drops while the client is still subscribed.
+ * Handler called only on a TRUE leave — when the client sends `_unsubscribe`,
+ * is kicked, or is removed via `removeMember(identity)`. The user has left
+ * the group; for persistent channels the durable membership row has been
+ * deleted. NOT fired on plain disconnect of a persistent channel — that case
+ * fires `onSessionEnd` instead.
+ *
+ * On ephemeral channels (no `.enablePersistence()` or `.persistent(false)`)
+ * disconnect IS a true leave, so this hook fires together with
+ * `onSessionEnd` for every leave path.
  */
 export type UnsubscribeHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
+
+/**
+ * Handler called whenever this specific connection's view of the channel
+ * ends — true leave OR plain disconnect. Use this for cleaning up
+ * per-session resources, decrementing an "online member" counter, or
+ * anything tied to the live socket rather than group membership.
+ */
+export type SessionEndHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
 
 /**
  * Handler called before a client's subscription is confirmed. Throw to reject
@@ -49,9 +64,15 @@ export interface UnsubscribePrimitive<TCtx = any> extends Primitive<'onUnsubscri
   readonly handler: UnsubscribeHandler<TCtx>;
 }
 
+/** Primitive type produced by `onSessionEnd()`. */
+export interface SessionEndPrimitive<TCtx = any> extends Primitive<'onSessionEnd'> {
+  readonly handler: SessionEndHandler<TCtx>;
+}
+
 const ON_BEFORE_SUBSCRIBE_KEY = Symbol('onBeforeSubscribe');
 const ON_SUBSCRIBE_KEY = Symbol('onSubscribe');
 const ON_UNSUBSCRIBE_KEY = Symbol('onUnsubscribe');
+const ON_SESSION_END_KEY = Symbol('onSessionEnd');
 
 /**
  * Creates an `onBeforeSubscribe` lifecycle primitive for a channel. The handler
@@ -149,9 +170,31 @@ export function onUnsubscribe<TCtx>(handler: UnsubscribeHandler<TCtx>): Unsubscr
   };
 }
 
+/**
+ * Creates an `onSessionEnd` lifecycle primitive for a channel. The handler
+ * runs whenever this connection's view of the channel ends — a true leave
+ * (`_unsubscribe`, kick, `removeMember`) OR a plain disconnect. Use this
+ * for per-session cleanup or for counting active connections.
+ */
+export function onSessionEnd<TCtx>(handler: SessionEndHandler<TCtx>): SessionEndPrimitive<TCtx> {
+  return {
+    __wskit: 'onSessionEnd',
+    __kind: 'lifecycle',
+    __identity: [ON_SESSION_END_KEY],
+    __dependencies: [],
+    __requires: {},
+    handler,
+    __setup(engine: EngineAccess) {
+      engine.onSessionEnd(handler as SessionEndHandler);
+    },
+  };
+}
+
 /** Symbol key used to reference `onBeforeSubscribe` in dependency declarations. */
 onBeforeSubscribe.__key = ON_BEFORE_SUBSCRIBE_KEY;
 /** Symbol key used to reference `onSubscribe` in dependency declarations. */
 onSubscribe.__key = ON_SUBSCRIBE_KEY;
 /** Symbol key used to reference `onUnsubscribe` in dependency declarations. */
 onUnsubscribe.__key = ON_UNSUBSCRIBE_KEY;
+/** Symbol key used to reference `onSessionEnd` in dependency declarations. */
+onSessionEnd.__key = ON_SESSION_END_KEY;

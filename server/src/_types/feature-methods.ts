@@ -33,6 +33,7 @@ import type { HibernationPrimitive } from '~/hibernation/hibernation.ts';
 import type { InterceptMessage } from '~/intercept/intercept.ts';
 import type { NamespaceBuilder } from '~/namespace/builder.ts';
 import type { NamespaceChild, NamespacePrimitive } from '~/namespace/namespace.ts';
+import type { PersistencePrimitive } from '~/persistence/persistence.ts';
 // ─── Feature applicator ────────────────────────────────────
 
 import type { Primitive } from '~/primitive.ts';
@@ -335,6 +336,7 @@ type MethodFeatureMap = {
   heartbeat: 'heartbeat';
   sequence: 'sequence';
   hibernation: 'hibernation';
+  enablePersistence: 'persistence';
   errors: 'errors';
   onInit: 'lifecycle';
   onConnect: 'lifecycle';
@@ -441,6 +443,22 @@ export interface HibernationBuilderMethods<
   hibernation(
     enabled?: boolean,
   ): FullBuilder<NextState<TState, HibernationPrimitive>, TFeatures, Kind>;
+}
+
+/** Adds per-user durable state — identity-keyed channel memberships and persistent tags. */
+export interface PersistenceBuilderMethods<
+  TState extends ScopeStateShape,
+  TFeatures,
+  Kind extends BuilderKind,
+> {
+  /**
+   * Activate per-user durable state.
+   *
+   * When called, the engine creates the identity-keyed tables at boot and
+   * starts writing channel memberships across reconnects. Without this call,
+   * the wrapper has no runtime effect — channels behave like IRC rooms.
+   */
+  enablePersistence(): FullBuilder<NextState<TState, PersistencePrimitive>, TFeatures, Kind>;
 }
 
 /** Registers typed runtime error factories. */
@@ -797,50 +815,54 @@ type MethodType<
           ? Kind extends 'server'
             ? HibernationBuilderMethods<TState, TFeatures, 'server'>['hibernation']
             : never
-          : M extends 'errors'
-            ? ErrorBuilderMethods<TState, TFeatures, Kind>['errors']
-            : M extends keyof LifecycleBuilderMethods<TState, TFeatures, Kind>
-              ? LifecycleBuilderMethods<TState, TFeatures, Kind>[M]
-              : M extends 'intercept'
-                ? InterceptBuilderMethods<
-                    BuilderResult<TState, TFeatures, Kind>,
-                    TState
-                  >['intercept']
-                : M extends 'scheduled'
-                  ? ScheduledBuilderMethods<TState, TFeatures, Kind>['scheduled']
-                  : M extends 'channel'
-                    ? ChannelBuilderMethods<TState, TFeatures>['channel']
-                    : M extends 'namespace'
-                      ? NamespaceBuilderMethods<TState, TFeatures>['namespace']
-                      : M extends 'request'
-                        ? RequestBuilderMethods<TState, TFeatures, Kind>['request']
-                        : M extends 'stream'
-                          ? Kind extends 'server'
-                            ? StreamBuilderMethods<TState, TFeatures, 'server'>['stream']
-                            : never
-                          : M extends 'replay'
+          : M extends 'enablePersistence'
+            ? Kind extends 'server'
+              ? PersistenceBuilderMethods<TState, TFeatures, 'server'>['enablePersistence']
+              : never
+            : M extends 'errors'
+              ? ErrorBuilderMethods<TState, TFeatures, Kind>['errors']
+              : M extends keyof LifecycleBuilderMethods<TState, TFeatures, Kind>
+                ? LifecycleBuilderMethods<TState, TFeatures, Kind>[M]
+                : M extends 'intercept'
+                  ? InterceptBuilderMethods<
+                      BuilderResult<TState, TFeatures, Kind>,
+                      TState
+                    >['intercept']
+                  : M extends 'scheduled'
+                    ? ScheduledBuilderMethods<TState, TFeatures, Kind>['scheduled']
+                    : M extends 'channel'
+                      ? ChannelBuilderMethods<TState, TFeatures>['channel']
+                      : M extends 'namespace'
+                        ? NamespaceBuilderMethods<TState, TFeatures>['namespace']
+                        : M extends 'request'
+                          ? RequestBuilderMethods<TState, TFeatures, Kind>['request']
+                          : M extends 'stream'
                             ? Kind extends 'server'
-                              ? ReplayBuilderMethods<
-                                  BuilderResult<
-                                    NextState<TState, ReplayPrimitive>,
-                                    TFeatures,
-                                    'server'
-                                  >,
-                                  TState
-                                >['replay']
+                              ? StreamBuilderMethods<TState, TFeatures, 'server'>['stream']
                               : never
-                            : M extends 'replayCustom'
+                            : M extends 'replay'
                               ? Kind extends 'server'
-                                ? ReplayCustomBuilderMethods<
+                                ? ReplayBuilderMethods<
                                     BuilderResult<
-                                      NextState<TState, CustomReplayPrimitive<'top'>>,
+                                      NextState<TState, ReplayPrimitive>,
                                       TFeatures,
                                       'server'
                                     >,
                                     TState
-                                  >['replayCustom']
+                                  >['replay']
                                 : never
-                              : never;
+                              : M extends 'replayCustom'
+                                ? Kind extends 'server'
+                                  ? ReplayCustomBuilderMethods<
+                                      BuilderResult<
+                                        NextState<TState, CustomReplayPrimitive<'top'>>,
+                                        TFeatures,
+                                        'server'
+                                      >,
+                                      TState
+                                    >['replayCustom']
+                                  : never
+                                : never;
 
 /**
  * Feature methods available on server and group builders.
@@ -1070,6 +1092,7 @@ type ChannelMethodFeatureMap = {
   stream: 'streams';
   replay: 'replay';
   replayCustom: 'replayCustom';
+  persistent: 'persistence';
 };
 
 type ActiveChannelMethodKeys<TFeatures> = {
@@ -1113,4 +1136,32 @@ type ChannelMethodType<
               >,
               TState
             >['replayCustom']
-          : never;
+          : M extends 'persistent'
+            ? ChannelPersistenceBuilderMethods<
+                TParentState,
+                TState,
+                TPattern,
+                TFeatures
+              >['persistent']
+            : never;
+
+/** Per-channel persistence opt-out for `withPersistence`-enabled servers. */
+export interface ChannelPersistenceBuilderMethods<
+  TParentState extends ScopeStateShape,
+  TState extends ScopeStateShape,
+  TPattern extends ChannelPattern,
+  TFeatures,
+> {
+  /**
+   * Opt this channel out of (or back into) durable persistence.
+   *
+   * Only meaningful when the server called `.enablePersistence()`. On a
+   * persistence-enabled server every channel persists by default; call
+   * `.persistent(false)` to mark this channel ephemeral (IRC-style — members
+   * are lost on disconnect, no durable row is written).
+   *
+   * For dynamic channel families the marker applies to every channel in the
+   * family.
+   */
+  persistent(enabled: boolean): ChannelBuilderFull<TParentState, TState, TPattern, TFeatures>;
+}

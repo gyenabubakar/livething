@@ -12,6 +12,7 @@ export { StreamNudgesServer } from './lib/server/stream-nudges/durable-object.ts
 export { StreamBroadcastServer } from './lib/server/stream-broadcast/durable-object.ts';
 export { ChannelStaticServer } from './lib/server/channel-static/durable-object.ts';
 export { ChannelDynamicServer } from './lib/server/channel-dynamic/durable-object.ts';
+export { PersistenceServer } from './lib/server/persistence/durable-object.ts';
 export { ChannelScopeIsolationServer } from './lib/server/channel-scope-isolation/durable-object.ts';
 export { ChannelKeyCollisionServer } from './lib/server/channel-key-collision/durable-object.ts';
 export { ErrorHookIsolationServer } from './lib/server/error-hook-isolation/durable-object.ts';
@@ -48,6 +49,7 @@ const FEATURE_ROUTES: Record<string, keyof Env> = {
   '/ws/stream-broadcast': 'STREAM_BROADCAST_SERVER',
   '/ws/channel-static': 'CHANNEL_STATIC_SERVER',
   '/ws/channel-dynamic': 'CHANNEL_DYNAMIC_SERVER',
+  '/ws/persistence': 'PERSISTENCE_SERVER',
   '/ws/channel-scope-isolation': 'CHANNEL_SCOPE_ISOLATION_SERVER',
   '/ws/channel-key-collision': 'CHANNEL_KEY_COLLISION_SERVER',
   '/ws/error-hook-isolation': 'ERROR_HOOK_ISOLATION_SERVER',

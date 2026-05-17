@@ -45,6 +45,11 @@
       "types": "./dist/hibernation/index.d.ts",
       "import": "./dist/hibernation.js"
     },
+    "./persistence": {
+      "wskit-dev": "./src/persistence/index.ts",
+      "types": "./dist/persistence/index.d.ts",
+      "import": "./dist/persistence.js"
+    },
     "./errors": {
       "wskit-dev": "./src/errors/index.ts",
       "types": "./dist/errors/index.d.ts",

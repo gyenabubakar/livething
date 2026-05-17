@@ -114,6 +114,7 @@ interface ChannelRuntime extends EngineRuntimeTypes.ConnectionMembersRuntime {
   >;
   subscribeHooks: ReadonlyMap<string, readonly ((ctx: any) => void | Promise<void>)[]>;
   unsubscribeHooks: ReadonlyMap<string, readonly ((ctx: any) => void | Promise<void>)[]>;
+  sessionEndHooks: ReadonlyMap<string, readonly ((ctx: any) => void | Promise<void>)[]>;
   buildConnectionContext(
     connection: EngineRuntimeTypes.RuntimeConnection,
     scope?: EngineRuntimeTypes.ResolvedScope,
@@ -144,6 +145,9 @@ interface ChannelRuntime extends EngineRuntimeTypes.ConnectionMembersRuntime {
     event?: string,
     routing?: Record<string, unknown>,
   ): Promise<void>;
+  isChannelPersistent(channelKey: string): boolean;
+  persistMembership(identity: string, channelName: string, channelScope: string | null): void;
+  deleteDurableMembership(identity: string, channelName: string, channelScope: string | null): void;
 }
 
 // ───── Section: incoming dedup ─────
@@ -362,6 +366,7 @@ export async function subscribeFromServer(
   channelName: string,
   channelScope: string | null,
   payload: unknown,
+  rejoining = false,
 ): Promise<void> {
   if (ref.instance !== runtime.instanceId) {
     throw new Error(
@@ -403,6 +408,7 @@ export async function subscribeFromServer(
     channelName,
     channelScope,
     payload,
+    rejoining,
   );
 }
 

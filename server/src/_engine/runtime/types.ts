@@ -149,6 +149,12 @@ export interface RegisteredEngineHooks {
 
   /** Runs after a channel unsubscription completes, keyed by channel key. */
   unsubscribe: Map<string, ((ctx: any) => void | Promise<void>)[]>;
+
+  /**
+   * Runs whenever this connection's view of a channel ends — true leave OR
+   * plain disconnect. Keyed by channel key. Use for per-session cleanup.
+   */
+  sessionEnd: Map<string, ((ctx: any) => void | Promise<void>)[]>;
 }
 
 /**

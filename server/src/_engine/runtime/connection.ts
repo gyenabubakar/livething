@@ -65,6 +65,12 @@ interface ConnectionRuntime {
     error: unknown,
     event?: string,
   ): Promise<void>;
+  /**
+   * Re-subscribe a fresh connection to every persistent channel its identity
+   * was in. Present when `withPersistence` is wired; called from
+   * `acceptConnection` between the initial row write and `onConnect`.
+   */
+  autoRejoinIdentity?(connection: EngineRuntimeTypes.RuntimeConnection): Promise<void>;
 }
 
 /** Wrap a `RuntimeConnection` into the `ConnectionHandle` callbacks the adapter uses. */
@@ -214,6 +220,8 @@ export async function handleConnectionClose(
         channelName: string;
         channelScope: string | null;
       },
+      kickedReason?: string,
+      disconnect?: boolean,
     ): Promise<void>;
     logger?: { error(message: string, fields?: Record<string, unknown>): void };
   },
@@ -268,11 +276,18 @@ export async function handleConnectionClose(
     // one membership must not block later memberships from leaving and
     // must not block heartbeat cleanup below.
     try {
-      await runtime.leaveChannel(connection, {
-        channel: resolved,
-        channelName: membership.channelName,
-        channelScope: membership.channelScope,
-      });
+      await runtime.leaveChannel(
+        connection,
+        {
+          channel: resolved,
+          channelName: membership.channelName,
+          channelScope: membership.channelScope,
+        },
+        undefined,
+        // disconnect: socket-close path. Persistent channels keep their
+        // durable rows so the user is auto-rejoined on next connect.
+        true,
+      );
     } catch (error) {
       runtime.logger?.error('[wskit] leaveChannel threw during close', {
         connectionId: connection.id,
@@ -361,8 +376,19 @@ export function acceptConnection(
 
   const ctx = runtime.buildConnectionContext(connection);
   // lifecycleReady swallows handler errors into handleRuntimeError; if handleRuntimeError itself throws, the rejection is unhandled — acceptable because that path is fatal anyway.
-  connection.lifecycleReady = runtime
-    .runConnectionLifecycle('connect', ctx)
+  //
+  // Auto-rejoin runs before onConnect so handlers see the connection
+  // already back in its persistent channels. The branch keeps the
+  // original synchronous start of `runConnectionLifecycle` for engines
+  // without persistence — adding a `.then()` chain unconditionally would
+  // shift onConnect's timing by a microtask and break existing tests.
+  const lifecyclePromise = runtime.autoRejoinIdentity
+    ? runtime
+        .autoRejoinIdentity(connection)
+        .then(() => runtime.runConnectionLifecycle('connect', ctx))
+    : runtime.runConnectionLifecycle('connect', ctx);
+
+  connection.lifecycleReady = lifecyclePromise
     .catch((error) => runtime.handleRuntimeError(connection, error, undefined))
     .finally(() => {
       // Flush the buffered state once, even if onConnect threw — the

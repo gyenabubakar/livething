@@ -360,6 +360,24 @@ export interface ChannelHandle<
    * propagate to the caller.
    */
   kick(tag: string, reason: string): Promise<void>;
+  /**
+   * Remove every live connection of the given identity from this channel
+   * AND drop the durable membership row so the user is NOT auto-rejoined
+   * on next reconnect. Use this to revoke a user's group membership in
+   * response to an external event (auth provider webhook, admin action,
+   * etc.).
+   *
+   * Fires the channel's `onUnsubscribe` hook for every affected connection
+   * (true leave semantics) followed by `onSessionEnd` for each. Broadcasts
+   * `_memberLeave` then `_memberOffline` to remaining members.
+   *
+   * No-op when persistence is disabled — the durable row never existed,
+   * so use `kick(tag, reason)` to drop sockets in that case.
+   *
+   * No-op when no live connection has the given identity and no durable
+   * row exists. Otherwise, removes whichever pieces are present.
+   */
+  removeMember(identity: string): Promise<void>;
 }
 
 /**

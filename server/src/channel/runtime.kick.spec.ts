@@ -105,6 +105,9 @@ describe('channels.kick end-to-end', () => {
         broadcasts.push({ channelName, event, payload, excludeConnectionId });
       },
       async handleValidationError() {},
+      isChannelPersistent: () => false,
+      persistMembership() {},
+      deleteDurableMembership() {},
     };
 
     await kickChannelMembers(
@@ -204,6 +207,9 @@ describe('channels.kick end-to-end', () => {
       sendProtocolMessage() {},
       broadcastToChannel() {},
       async handleValidationError() {},
+      isChannelPersistent: () => false,
+      persistMembership() {},
+      deleteDurableMembership() {},
     };
 
     await expect(

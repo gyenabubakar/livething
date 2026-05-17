@@ -21,6 +21,8 @@ import * as ChannelPrimitive from '~/channel/runtime.ts';
 import * as ErrorsPrimitive from '~/errors/runtime.ts';
 import * as HeartbeatPrimitive from '~/heartbeat/runtime.ts';
 import * as OutgoingRuntime from '~/outgoing/runtime.ts';
+import { autoRejoinIdentity as runAutoRejoin } from '~/persistence/rejoin.ts';
+import * as PersistenceStorage from '~/persistence/storage.ts';
 import * as ScheduledPrimitive from '~/scheduled/runtime.ts';
 import { scheduled as createScheduled, SCHEDULED_RUNTIME_KEY } from '~/scheduled/scheduled.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
@@ -80,6 +82,7 @@ function createRegisteredHooks(): EngineRuntimeTypes.RegisteredEngineHooks {
     beforeSubscribe: new Map(),
     subscribe: new Map(),
     unsubscribe: new Map(),
+    sessionEnd: new Map(),
   };
 }
 
@@ -118,6 +121,20 @@ export class Engine {
   private engineInstanceId: string | undefined;
   private replayEnabled = false;
   private sequencePersistent = false;
+  /**
+   * Whether the `withPersistence` wrapper called `.enablePersistence()`. When
+   * true, the engine creates the identity-keyed durable tables at boot and
+   * starts writing channel memberships across reconnects.
+   * @internal
+   */
+  private persistenceEnabled = false;
+  /**
+   * Per-channel-key overrides recorded by the `.persistent(value)` marker.
+   * Absent entries inherit the server default (always persistent when
+   * `persistenceEnabled` is true). Explicit `false` opts a channel out.
+   * @internal
+   */
+  private readonly channelPersistenceOverrides = new Map<string, boolean>();
   /** @internal */
   incomingDedupCap = 0;
   private readonly declaredErrorCodes = new Set<string>([
@@ -366,7 +383,7 @@ export class Engine {
     hooks: Map<string, T[]>,
     channelKey: string | undefined,
     hook: T,
-    hookName: 'onBeforeSubscribe' | 'onSubscribe' | 'onUnsubscribe',
+    hookName: 'onBeforeSubscribe' | 'onSubscribe' | 'onUnsubscribe' | 'onSessionEnd',
   ): void {
     if (!channelKey) {
       throw new Error(`[wskit] ${hookName}() can only be registered inside channel(...).`);
@@ -477,6 +494,9 @@ export class Engine {
       onUnsubscribe: (handler) => {
         this.pushChannelHook(this.hooks.unsubscribe, scope?.channelKey, handler, 'onUnsubscribe');
       },
+      onSessionEnd: (handler) => {
+        this.pushChannelHook(this.hooks.sessionEnd, scope?.channelKey, handler, 'onSessionEnd');
+      },
       getScopeInfo: () => ({
         channelKey: scope?.channelKey,
       }),
@@ -495,6 +515,15 @@ export class Engine {
       setSequencePersistent: (enabled) => {
         this.sequencePersistent = enabled;
       },
+      setPersistenceEnabled: (enabled) => {
+        this.persistenceEnabled = enabled;
+      },
+      setChannelPersistent: (channelKey, enabled) => {
+        this.channelPersistenceOverrides.set(channelKey, enabled);
+      },
+      isDurableMembershipPairPersistent: (channelName, channelScope) =>
+        this.isDurableMembershipPairPersistent(channelName, channelScope),
+      getLogger: () => this.logger,
       enableIncomingDedup: (cap) => {
         if (!Number.isFinite(cap) || cap <= 0) return;
         this.incomingDedupCap = Math.max(this.incomingDedupCap, Math.floor(cap));
@@ -904,6 +933,217 @@ export class Engine {
   }
 
   /**
+   * Whether the handler called `.enablePersistence()`. When `true`, the engine
+   * creates the identity-keyed durable tables at boot and starts writing
+   * channel memberships across reconnects.
+   *
+   * @internal
+   */
+  usesPersistence(): boolean {
+    return this.persistenceEnabled;
+  }
+
+  /**
+   * Whether a specific channel should write durable memberships. Returns
+   * `false` when persistence is disabled at the server level OR the channel
+   * called `.persistent(false)`. Returns `true` when persistence is on at the
+   * server level and the channel didn't opt out.
+   *
+   * @internal
+   */
+  isChannelPersistent(channelKey: string): boolean {
+    if (!this.persistenceEnabled) return false;
+    return this.channelPersistenceOverrides.get(channelKey) !== false;
+  }
+
+  /**
+   * Check whether a `(channelName, channelScope)` pair from a durable row
+   * still maps to a registered persistent channel in this engine. Used by
+   * boot-time reconcile to spot orphaned rows from removed or
+   * `.persistent(false)`-flipped channels.
+   * @internal
+   */
+  isDurableMembershipPairPersistent(channelName: string, channelScope: string | null): boolean {
+    if (!this.persistenceEnabled) return false;
+    // Static channel: scope is null and the channel is registered by name.
+    if (channelScope === null) {
+      const channel = this.compiled.channels.get(channelName);
+      return channel ? this.isChannelPersistent(channel.key) : false;
+    }
+    // Dynamic family: scope is the family key.
+    const family = this.compiled.channelFamilies.get(channelScope);
+    return family ? this.isChannelPersistent(family.key) : false;
+  }
+
+  /**
+   * Write a durable channel-membership row for the given identity. The caller
+   * is responsible for first checking `isChannelPersistent(...)` — the engine
+   * still gates on `persistenceEnabled` defensively so a stale caller can't
+   * write rows on a persistence-disabled server.
+   *
+   * @internal
+   */
+  persistMembership(identity: string, channelName: string, channelScope: string | null): void {
+    if (!this.persistenceEnabled) return;
+    const storage = this.requireStorage();
+    PersistenceStorage.insertMembership(storage.sql, identity, channelName, channelScope);
+  }
+
+  /**
+   * Delete a durable channel-membership row. Called on a true leave (client
+   * `_unsubscribe`, `removeMember`, kick) of a persistent channel.
+   *
+   * @internal
+   */
+  deleteDurableMembership(
+    identity: string,
+    channelName: string,
+    channelScope: string | null,
+  ): void {
+    if (!this.persistenceEnabled) return;
+    const storage = this.requireStorage();
+    PersistenceStorage.deleteMembership(storage.sql, identity, channelName, channelScope);
+  }
+
+  /**
+   * Remove every live connection of `identity` from one channel scope AND
+   * drop the durable membership row. True-leave semantics: `onUnsubscribe`
+   * fires, `_memberLeave`/`_memberOffline` broadcast to remaining peers,
+   * the durable row is gone so the user will NOT be auto-rejoined on next
+   * reconnect.
+   *
+   * No-op when no live connection matches and persistence is disabled.
+   * @internal
+   */
+  async removeChannelMember(
+    channelName: string,
+    channelScope: string | null,
+    identity: string,
+  ): Promise<void> {
+    if (this.persistenceEnabled) {
+      const storage = this.requireStorage();
+      PersistenceStorage.deleteMembership(storage.sql, identity, channelName, channelScope);
+    }
+
+    const membershipKey = ChannelPrimitive.createChannelMembershipKey(channelName, channelScope);
+    const resolved = ChannelPrimitive.resolveCompiledChannel(
+      this.compiled,
+      channelName,
+      channelScope,
+    );
+
+    const targets: RuntimeConnection[] = [];
+    for (const connection of this.connections.values()) {
+      if (connection.identity !== identity) continue;
+      if (!connection.channelMemberships.has(membershipKey)) continue;
+      targets.push(connection);
+    }
+
+    for (const connection of targets) {
+      try {
+        await this.leaveChannel(connection, {
+          channel: resolved,
+          channelName,
+          channelScope,
+        });
+      } catch (error) {
+        this.logger.error('[wskit] removeChannelMember leaveChannel threw', {
+          identity,
+          channel: channelName,
+          channelScope,
+          connectionId: connection.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  }
+
+  /**
+   * Drop every persistent membership and persistent tag for the given
+   * identity, then close every live socket of that identity. The wskit
+   * equivalent of "this user is gone, wipe them everywhere". Backs the
+   * future `admin().purgeIdentity()` surface.
+   * @internal
+   */
+  async purgeIdentity(identity: string): Promise<void> {
+    // Collect `(channelName, channelScope)` pairs from both live sockets
+    // and durable rows before any removal, so the walk below has a stable
+    // list. Keys are JSON-encoded tuples so any character a dev might put
+    // in a channel name survives the pack/unpack round-trip.
+    const channelKeys = new Set<string>();
+
+    for (const connection of this.connections.values()) {
+      if (connection.identity !== identity) continue;
+      for (const membership of connection.channelMemberships.values()) {
+        channelKeys.add(JSON.stringify([membership.channelName, membership.channelScope]));
+      }
+    }
+
+    if (this.persistenceEnabled) {
+      const storage = this.requireStorage();
+      const rows = PersistenceStorage.listMembershipsByIdentity(storage.sql, identity);
+      for (const row of rows) {
+        channelKeys.add(JSON.stringify([row.channelName, row.channelScope]));
+      }
+    }
+
+    for (const key of channelKeys) {
+      const [channelName, channelScope] = JSON.parse(key) as [string, string | null];
+      await this.removeChannelMember(channelName, channelScope, identity);
+    }
+
+    if (this.persistenceEnabled) {
+      const storage = this.requireStorage();
+      PersistenceStorage.purgeMembershipsByIdentity(storage.sql, identity);
+      PersistenceStorage.purgeTagsByIdentity(storage.sql, identity);
+    }
+  }
+
+  /**
+   * Restore every durable channel membership the identity had before. Called
+   * from `acceptConnection` between the initial connection-row write and
+   * `onConnect`. No-op when persistence is disabled or the identity has no
+   * stored rows.
+   *
+   * @internal
+   */
+  async autoRejoinIdentity(connection: RuntimeConnection): Promise<void> {
+    if (!this.persistenceEnabled) return;
+    const storage = this.requireStorage();
+    await runAutoRejoin(
+      {
+        sql: storage.sql,
+        subscribeConnectionAsServer: async (
+          target,
+          channelName,
+          channelScope,
+          payload,
+          rejoining,
+        ) => {
+          const ref: PublicApi.ConnectionRef = {
+            __wskit: 'connection-ref',
+            id: target.id,
+            instance: this.engineInstanceId,
+            identity: target.identity,
+          };
+          return EngineMessageRuntime.subscribeFromServer(
+            { ...EngineDeps.channelRuntime(this), instanceId: this.engineInstanceId },
+            ref,
+            channelName,
+            channelScope,
+            payload,
+            rejoining,
+          );
+        },
+        sendProtocolMessage: (target, event, payload) =>
+          this.sendProtocolMessage(target, event, payload),
+        logger: this.logger,
+      },
+      connection,
+    );
+  }
+
+  /**
    * Read the adapter's hibernation API.
    *
    * Adapters that support hibernation provide `persist` + `restore`. The
@@ -1135,7 +1375,8 @@ export class Engine {
           return this.buildConnectionContext(targetConnection, scope);
         },
         runConnectionLifecycle: (kind, ctx) => this.runConnectionLifecycle(kind, ctx),
-        leaveChannel: (targetConnection, scope) => this.leaveChannel(targetConnection, scope),
+        leaveChannel: (targetConnection, scope, kickedReason, disconnect) =>
+          this.leaveChannel(targetConnection, scope, kickedReason, disconnect),
         logger: this.logger,
       },
       connection,
@@ -1297,12 +1538,14 @@ export class Engine {
     connection: RuntimeConnection,
     scope: { channel?: CompiledChannel; channelName: string; channelScope: string | null },
     kickedReason?: string,
+    disconnect?: boolean,
   ): Promise<void> {
     return EngineMessageRuntime.leaveChannel(
       EngineDeps.channelRuntime(this),
       connection,
       scope,
       kickedReason,
+      disconnect,
     );
   }
 

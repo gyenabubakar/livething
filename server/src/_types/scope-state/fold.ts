@@ -19,6 +19,7 @@ import type { HibernationPrimitive } from '~/hibernation/hibernation.ts';
 import type { IncomingPrimitive } from '~/incoming/incoming.ts';
 import type { InterceptPrimitive } from '~/intercept/intercept.ts';
 import type { OutgoingPrimitive } from '~/outgoing/outgoing.ts';
+import type { PersistencePrimitive } from '~/persistence/persistence.ts';
 import type { CustomReplayPrimitive } from '~/replay/custom/custom.ts';
 import type { ReplayPrimitive } from '~/replay/replay.ts';
 import type { RequestPrimitive } from '~/request/request.ts';
@@ -95,6 +96,7 @@ export type FoldablePrimitive =
   | AckPrimitive
   | HeartbeatPrimitive
   | HibernationPrimitive
+  | PersistencePrimitive
   | SequencePrimitive
   | DedupPrimitive
   | AnyReplay

@@ -68,6 +68,7 @@ function createRuntime() {
       beforeSubscribeHooks: new Map(),
       subscribeHooks: new Map(),
       unsubscribeHooks: new Map(),
+      sessionEndHooks: new Map(),
       toConnectionInfo(connection: ReturnType<typeof createConnection>) {
         return {
           id: connection.id,
@@ -118,6 +119,9 @@ function createRuntime() {
       },
       async handleValidationError() {},
       async handleRuntimeError() {},
+      isChannelPersistent: () => false,
+      persistMembership: () => {},
+      deleteDurableMembership: () => {},
     },
   };
 }
@@ -175,11 +179,30 @@ describe('channel runtime', () => {
           meta: { userId: 'a' },
         },
       },
+      {
+        connectionId: 'conn_2',
+        event: '_memberOnline',
+        payload: {
+          _channel: 'room:general',
+          _channelScope: 'rooms',
+          connectionId: 'conn_1',
+        },
+      },
     ]);
     expect(broadcasts).toEqual([
       {
         channelName: 'room:general',
         event: '_memberJoin',
+        payload: {
+          connectionId: 'conn_2',
+          meta: { userId: 'b' },
+        },
+        excludeConnectionId: 'conn_2',
+        channelScope: 'rooms',
+      },
+      {
+        channelName: 'room:general',
+        event: '_memberOnline',
         payload: {
           connectionId: 'conn_2',
           meta: { userId: 'b' },
@@ -218,6 +241,13 @@ describe('channel runtime', () => {
       {
         channelName: 'room:general',
         event: '_memberLeave',
+        payload: { connectionId: 'conn_1' },
+        excludeConnectionId: 'conn_1',
+        channelScope: 'rooms',
+      },
+      {
+        channelName: 'room:general',
+        event: '_memberOffline',
         payload: { connectionId: 'conn_1' },
         excludeConnectionId: 'conn_1',
         channelScope: 'rooms',
@@ -263,6 +293,13 @@ describe('channel runtime', () => {
       {
         channelName: 'room:general',
         event: '_memberLeave',
+        payload: { connectionId: 'conn_1' },
+        excludeConnectionId: 'conn_1',
+        channelScope: 'rooms',
+      },
+      {
+        channelName: 'room:general',
+        event: '_memberOffline',
         payload: { connectionId: 'conn_1' },
         excludeConnectionId: 'conn_1',
         channelScope: 'rooms',
@@ -546,6 +583,13 @@ describe('channel runtime', () => {
         excludeConnectionId: 'conn_1',
         channelScope: 'rooms',
       },
+      {
+        channelName: 'room:general',
+        event: '_memberOffline',
+        payload: { connectionId: 'conn_1' },
+        excludeConnectionId: 'conn_1',
+        channelScope: 'rooms',
+      },
     ]);
     expect(logger.error).toHaveBeenCalledTimes(1);
   });
@@ -575,6 +619,13 @@ describe('subscribeConnectionAsServer', () => {
       {
         channelName: 'room:general',
         event: '_memberJoin',
+        payload: { connectionId: 'target', meta: { userId: 't' } },
+        excludeConnectionId: 'target',
+        channelScope: 'rooms',
+      },
+      {
+        channelName: 'room:general',
+        event: '_memberOnline',
         payload: { connectionId: 'target', meta: { userId: 't' } },
         excludeConnectionId: 'target',
         channelScope: 'rooms',

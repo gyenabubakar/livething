@@ -45,6 +45,7 @@
       { "name": "STREAM_BROADCAST_SERVER", "class_name": "StreamBroadcastServer" },
       { "name": "CHANNEL_STATIC_SERVER", "class_name": "ChannelStaticServer" },
       { "name": "CHANNEL_DYNAMIC_SERVER", "class_name": "ChannelDynamicServer" },
+      { "name": "PERSISTENCE_SERVER", "class_name": "PersistenceServer" },
       { "name": "CHANNEL_SCOPE_ISOLATION_SERVER", "class_name": "ChannelScopeIsolationServer" },
       { "name": "CHANNEL_KEY_COLLISION_SERVER", "class_name": "ChannelKeyCollisionServer" },
       { "name": "ERROR_HOOK_ISOLATION_SERVER", "class_name": "ErrorHookIsolationServer" },
@@ -83,31 +84,14 @@
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["WebSocketServer"],
-    },
-    {
-      "tag": "v2",
-      "new_sqlite_classes": ["ReplayServer", "ModulesServer"],
-    },
-    {
-      "tag": "v3",
-      "new_sqlite_classes": ["ReplayCustomServer"],
-    },
-    {
-      "tag": "v4",
-      "new_sqlite_classes": ["ReplaySnapshotServer"],
-    },
-    {
-      "tag": "v5",
-      "new_sqlite_classes": ["RejectHttpServer"],
-    },
-    {
-      "tag": "v6",
-      "new_sqlite_classes": ["AckServer", "BinaryServer"],
-    },
-    {
-      "tag": "v7",
       "new_sqlite_classes": [
+        "ReplayServer",
+        "ReplayCustomServer",
+        "ReplaySnapshotServer",
+        "ModulesServer",
+        "RejectHttpServer",
+        "AckServer",
+        "BinaryServer",
         "IncomingServer",
         "RequestServer",
         "StreamBasicServer",
@@ -115,6 +99,13 @@
         "StreamBroadcastServer",
         "ChannelStaticServer",
         "ChannelDynamicServer",
+        "ChannelScopeIsolationServer",
+        "ChannelKeyCollisionServer",
+        "ErrorHookIsolationServer",
+        "ReplayMembershipGateServer",
+        "ReplayCustomCascadeServer",
+        "StaticVsFamilyIsolationServer",
+        "ReplayFamilyKeyEqualsNameServer",
         "LifecycleHooksServer",
         "NamespaceServer",
         "InterceptServer",
@@ -131,43 +122,12 @@
         "CtxTagsServer",
         "CtxQualityServer",
         "CtxMetaServer",
+        "HeartbeatServer",
+        "ProtocolPingsServer",
+        "FullImportServer",
+        "MultifileServer",
+        "PersistenceServer",
       ],
-    },
-    {
-      "tag": "v8",
-      "new_sqlite_classes": ["HeartbeatServer", "ProtocolPingsServer"],
-    },
-    {
-      "tag": "v9",
-      "deleted_classes": ["WebSocketServer"],
-    },
-    {
-      "tag": "v10",
-      "new_sqlite_classes": ["FullImportServer", "MultifileServer"],
-    },
-    {
-      "tag": "v11",
-      "new_sqlite_classes": ["ChannelScopeIsolationServer"],
-    },
-    {
-      "tag": "v12",
-      "new_sqlite_classes": ["ChannelKeyCollisionServer"],
-    },
-    {
-      "tag": "v13",
-      "new_sqlite_classes": ["ErrorHookIsolationServer"],
-    },
-    {
-      "tag": "v14",
-      "new_sqlite_classes": ["ReplayMembershipGateServer"],
-    },
-    {
-      "tag": "v15",
-      "new_sqlite_classes": ["StaticVsFamilyIsolationServer", "ReplayFamilyKeyEqualsNameServer"],
-    },
-    {
-      "tag": "v16",
-      "new_sqlite_classes": ["ReplayCustomCascadeServer"],
     },
   ],
 }

@@ -21,6 +21,8 @@ export const RESERVED_EVENT_NAMES: ReadonlySet<string> = new Set([
   '_kicked',
   '_memberJoin',
   '_memberLeave',
+  '_memberOnline',
+  '_memberOffline',
   '_streamOk',
   '_streamEnd',
   '_streamCancel',

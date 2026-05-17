@@ -53,6 +53,8 @@ describe('event() reserved-name guard', () => {
         '_kicked',
         '_memberJoin',
         '_memberLeave',
+        '_memberOnline',
+        '_memberOffline',
         '_streamOk',
         '_streamEnd',
         '_streamCancel',

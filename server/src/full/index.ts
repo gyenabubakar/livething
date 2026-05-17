@@ -5,6 +5,7 @@ import { withInfrastructure } from '~/infrastructure/index.ts';
 import { withIntercept } from '~/intercept/with.ts';
 import { withLifecycle } from '~/lifecycle/with.ts';
 import { withNamespaces } from '~/namespace/with.ts';
+import { withPersistence } from '~/persistence/with.ts';
 import { withReplayCustom } from '~/replay/custom/with.ts';
 import { withReplay } from '~/replay/with.ts';
 import { withRequests } from '~/request/with.ts';
@@ -55,12 +56,14 @@ export function server<TEnv extends object = Record<string, unknown>>(name: stri
   return withStreams(
     withRequests(
       withNamespaces(
-        withChannels(
-          withReplayCustom(
-            withReplay(
-              withScheduled(
-                withIntercept(
-                  withErrors(withLifecycle(withInfrastructure(createServer<TEnv>(name)))),
+        withPersistence(
+          withChannels(
+            withReplayCustom(
+              withReplay(
+                withScheduled(
+                  withIntercept(
+                    withErrors(withLifecycle(withInfrastructure(createServer<TEnv>(name)))),
+                  ),
                 ),
               ),
             ),

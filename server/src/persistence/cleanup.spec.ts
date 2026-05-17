@@ -1,0 +1,110 @@
+import { reconcilePersistenceOnBoot } from '~/persistence/cleanup.ts';
+import {
+  ensurePersistenceSchema,
+  insertMembership,
+  listMembershipsByIdentity,
+} from '~/persistence/storage.ts';
+import { describe, expect, it } from 'vitest';
+import type { SQLProvider, SqlResult } from '~/context.ts';
+
+function inMemorySql(): SQLProvider {
+  type Row = { identity: string; channel_name: string; channel_scope: string; joined_at: number };
+  const rows = new Map<string, Row>();
+  function key(r: { identity: string; channel_name: string; channel_scope: string }) {
+    return `${r.identity}|${r.channel_name}|${r.channel_scope}`;
+  }
+  function result<T>(items: T[]): SqlResult<T> {
+    return {
+      toArray: () => items.slice(),
+      one: () => (items.length === 0 ? null : items[0]!),
+      raw: () => items.map((it) => Object.values(it as Record<string, unknown>)),
+    };
+  }
+  function exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow> {
+    const q = query.trim().replace(/\s+/g, ' ');
+    if (q.startsWith('CREATE')) return result<TRow>([]);
+    if (q.startsWith('INSERT OR REPLACE INTO _wskit_channel_memberships')) {
+      const [identity, channel_name, channel_scope, joined_at] = params as [
+        string,
+        string,
+        string,
+        number,
+      ];
+      const row = { identity, channel_name, channel_scope, joined_at };
+      rows.set(key(row), row);
+      return result<TRow>([]);
+    }
+    if (
+      q.startsWith(
+        'DELETE FROM _wskit_channel_memberships WHERE channel_name = ? AND channel_scope = ?',
+      )
+    ) {
+      const [channel_name, channel_scope] = params as [string, string];
+      for (const [k, row] of rows) {
+        if (row.channel_name === channel_name && row.channel_scope === channel_scope) {
+          rows.delete(k);
+        }
+      }
+      return result<TRow>([]);
+    }
+    if (q.startsWith('SELECT DISTINCT channel_name, channel_scope')) {
+      const seen = new Set<string>();
+      const out: { channel_name: string; channel_scope: string }[] = [];
+      for (const row of rows.values()) {
+        const k = `${row.channel_name}|${row.channel_scope}`;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        out.push({ channel_name: row.channel_name, channel_scope: row.channel_scope });
+      }
+      return result<TRow>(out as unknown as TRow[]);
+    }
+    if (q.startsWith('SELECT channel_name, channel_scope, joined_at')) {
+      const [identity] = params as [string];
+      return result<TRow>(
+        [...rows.values()].filter((r) => r.identity === identity) as unknown as TRow[],
+      );
+    }
+    throw new Error(`unrecognized SQL: ${q}`);
+  }
+  return { exec } as unknown as SQLProvider;
+}
+
+describe('reconcilePersistenceOnBoot', () => {
+  it('drops rows for channels that no longer match a persistent channel', () => {
+    const sql = inMemorySql();
+    ensurePersistenceSchema(sql);
+    insertMembership(sql, 'u-1', 'team-eng', null);
+    insertMembership(sql, 'u-2', 'team-eng', null);
+    insertMembership(sql, 'u-1', 'archived-room', null);
+
+    const dropped = reconcilePersistenceOnBoot(sql, (name) => name === 'team-eng');
+    expect(dropped).toBe(1);
+    expect(
+      listMembershipsByIdentity(sql, 'u-1')
+        .map((r) => r.channelName)
+        .sort(),
+    ).toEqual(['team-eng']);
+    expect(
+      listMembershipsByIdentity(sql, 'u-2')
+        .map((r) => r.channelName)
+        .sort(),
+    ).toEqual(['team-eng']);
+  });
+
+  it('keeps rows for dynamic families that are still persistent', () => {
+    const sql = inMemorySql();
+    ensurePersistenceSchema(sql);
+    insertMembership(sql, 'u-1', 'room:abc', 'rooms');
+    insertMembership(sql, 'u-1', 'room:xyz', 'rooms');
+
+    const dropped = reconcilePersistenceOnBoot(sql, (_name, scope) => scope === 'rooms');
+    expect(dropped).toBe(0);
+    expect(listMembershipsByIdentity(sql, 'u-1')).toHaveLength(2);
+  });
+
+  it('returns 0 when the table is empty', () => {
+    const sql = inMemorySql();
+    ensurePersistenceSchema(sql);
+    expect(reconcilePersistenceOnBoot(sql, () => true)).toBe(0);
+  });
+});

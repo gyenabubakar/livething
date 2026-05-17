@@ -94,6 +94,16 @@ export interface ContextCommonDeps {
     channelScope: string | null,
   ): Promise<void>;
   /**
+   * Remove every live connection of the given identity from one channel
+   * scope AND drop the durable membership row. True-leave semantics —
+   * `onUnsubscribe` fires, `_memberLeave`/`_memberOffline` broadcast.
+   */
+  removeChannelMember(
+    channelName: string,
+    channelScope: string | null,
+    identity: string,
+  ): Promise<void>;
+  /**
    * Server-initiated channel subscribe. Invoked from `channelHandle.subscribe(ref)`.
    * Resolves to a no-op when the target connection is already a member.
    */

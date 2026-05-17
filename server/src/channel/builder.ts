@@ -3,6 +3,7 @@
 import { channel as createChannel } from '~/channel/channel.ts';
 import {
   onBeforeSubscribe as createOnBeforeSubscribe,
+  onSessionEnd as createOnSessionEnd,
   onSubscribe as createOnSubscribe,
   onUnsubscribe as createOnUnsubscribe,
 } from '~/channel/lifecycle.ts';
@@ -226,9 +227,24 @@ export class ChannelBuilder<
     return this;
   }
 
-  /** Run code after a client leaves the channel. */
+  /**
+   * Run code only on a TRUE leave — `_unsubscribe`, kick, or `removeMember`.
+   * The user has left the group; for persistent channels the durable row has
+   * been deleted. NOT fired on plain disconnect of a persistent channel —
+   * use `onSessionEnd` for that.
+   */
   onUnsubscribe(handler: (ctx: HandlerCtxFromState<TState>) => void | Promise<void>): this {
     this._primitives.push(createOnUnsubscribe(handler as any) as unknown as Primitive);
+    return this;
+  }
+
+  /**
+   * Run code whenever this connection's view of the channel ends — true
+   * leave OR plain disconnect. Use for per-session cleanup or for tracking
+   * the count of active connections (not group membership).
+   */
+  onSessionEnd(handler: (ctx: HandlerCtxFromState<TState>) => void | Promise<void>): this {
+    this._primitives.push(createOnSessionEnd(handler as any) as unknown as Primitive);
     return this;
   }
 

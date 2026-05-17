@@ -238,6 +238,7 @@ type ChannelHandleDeps = Pick<
   | 'broadcastToChannel'
   | 'getChannelMembers'
   | 'kickChannelMembers'
+  | 'removeChannelMember'
   | 'sendThroughPipeline'
   | 'subscribeConnectionAsServer'
 >;
@@ -278,6 +279,8 @@ export function buildChannelHandle(
       deps.subscribeConnectionAsServer(ref, scope.channelName, scope.channelScope, payload),
     kick: (tag: string, reason: string) =>
       deps.kickChannelMembers(scope.channelName, tag, reason, scope.channelScope),
+    removeMember: (identity: string) =>
+      deps.removeChannelMember(scope.channelName, scope.channelScope, identity),
   };
 }
 
@@ -286,6 +289,7 @@ type ChannelsApiDeps = Pick<
   | 'broadcastToChannel'
   | 'getChannelMembers'
   | 'kickChannelMembers'
+  | 'removeChannelMember'
   | 'resolveChannel'
   | 'sendThroughPipeline'
   | 'subscribeConnectionAsServer'
@@ -316,6 +320,7 @@ type ScopeExtrasDeps = Pick<
   | 'connections'
   | 'getChannelMembers'
   | 'kickChannelMembers'
+  | 'removeChannelMember'
   | 'sendThroughPipeline'
   | 'subscribeConnectionAsServer'
 >;
