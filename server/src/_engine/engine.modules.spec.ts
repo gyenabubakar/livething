@@ -101,6 +101,7 @@ describe('module onIncoming wiring', () => {
       bufferedAmount() {
         return 0;
       },
+      identity: 'modules-test',
     });
     await handle.handleMessage(JSON.stringify({ event: 'hit', payload: { id: 7 } }));
 
@@ -148,6 +149,7 @@ describe('module onOutgoing wiring', () => {
       bufferedAmount() {
         return 0;
       },
+      identity: 'modules-test',
     });
     await handle.handleMessage(JSON.stringify({ event: 'go', payload: {} }));
 
@@ -223,6 +225,7 @@ describe('C8: module onIncoming runs before top-level pre-intercept', () => {
       bufferedAmount() {
         return 0;
       },
+      identity: 'modules-test',
     });
     await handle.handleMessage(JSON.stringify({ event: 'hit', payload: { id: 42 } }));
 
@@ -365,6 +368,7 @@ describe('module sandbox boundary', () => {
       bufferedAmount() {
         return 0;
       },
+      identity: 'modules-test',
     });
 
     expect(snapshot).not.toBeNull();
@@ -501,6 +505,7 @@ describe('replay durability branching', () => {
       bufferedAmount() {
         return 0;
       },
+      identity: 'modules-test',
     });
 
     await handle.handleMessage(JSON.stringify({ event: 'send-msg', payload: { text: 'hi' } }));
@@ -550,6 +555,7 @@ describe('replay durability branching', () => {
       },
       sendBinary() {},
       close() {},
+      identity: 'modules-test',
       bufferedAmount() {
         return 0;
       },

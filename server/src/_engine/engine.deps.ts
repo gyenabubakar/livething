@@ -253,6 +253,8 @@ export function connectionRuntime(engine: Engine) {
     generateId: (prefix?: string) => engine.generateId(prefix),
     persistAttachment: (connection: RuntimeConnection) => engine.persistAttachment(connection),
     restoreAttachment: (wsKey: unknown) => engine.getHibernationApi()?.restore(wsKey),
+    readConnectionState: (connectionId: string) => engine.readConnectionState(connectionId),
+    deleteConnectionState: (connectionId: string) => engine.deleteConnectionState(connectionId),
     buildConnectionContext: (connection: RuntimeConnection, scope?: ResolvedScope) => {
       return engine.buildConnectionContext(connection, scope);
     },

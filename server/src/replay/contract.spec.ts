@@ -68,6 +68,7 @@ describe('ctx.sendReplay public-API contract', () => {
       bufferedAmount() {
         return 0;
       },
+      identity: 'replay-test',
     });
     await handle.handleMessage(JSON.stringify({ event: 'go', payload: {} }));
 
@@ -106,6 +107,7 @@ describe('ctx.sendReplay public-API contract', () => {
       bufferedAmount() {
         return 0;
       },
+      identity: 'replay-test',
     });
     await handle.handleMessage(JSON.stringify({ event: 'go', payload: {} }));
 
@@ -153,6 +155,7 @@ describe('ctx.sendReplay public-API contract', () => {
       bufferedAmount() {
         return 0;
       },
+      identity: 'replay-test',
     });
     await handle.handleMessage(
       JSON.stringify({ event: '_subscribe', payload: { _channel: 'lobby' } }),
@@ -197,6 +200,7 @@ describe('ctx.sendReplay public-API contract', () => {
       bufferedAmount() {
         return 0;
       },
+      identity: 'replay-test',
     });
     await handle.handleMessage(JSON.stringify({ event: '_replay', payload: { since: 0 } }));
 
@@ -240,6 +244,7 @@ describe('ctx.sendReplay public-API contract', () => {
       bufferedAmount() {
         return 0;
       },
+      identity: 'replay-test',
     });
     await handle.handleMessage(JSON.stringify({ event: '_replay', payload: { since: 0 } }));
 

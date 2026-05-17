@@ -1,3 +1,4 @@
+import { ensureConnectionSchema } from '~/_engine/runtime/connection-store.ts';
 import type { Primitive } from '~/primitive.ts';
 
 /** The primitive type tag for the hibernation feature. */
@@ -36,10 +37,14 @@ export function hibernation(enabled = true): HibernationPrimitive {
     __kind: 'infrastructure',
     __identity: [HIBERNATION_KEY],
     __dependencies: [],
-    __requires: enabled ? { hibernation: true } : {},
+    __requires: enabled ? { hibernation: true, storage: true } : {},
     enabled,
     __setup(engine) {
       engine.setHibernationEnabled(enabled);
+      if (!enabled) return;
+      engine.onBoot(() => {
+        ensureConnectionSchema(engine.requireStorage().sql);
+      });
     },
   };
 }

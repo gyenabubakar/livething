@@ -11,6 +11,7 @@ import type { OutgoingRuntime } from '~/outgoing/runtime.ts';
 function createConnection(id = 'c1'): RuntimeConnection {
   return {
     id,
+    identity: id,
     wsKey: Symbol(id),
     descriptor: {
       send: vi.fn(),
@@ -19,6 +20,7 @@ function createConnection(id = 'c1'): RuntimeConnection {
       bufferedAmount() {
         return 0;
       },
+      identity: id,
     },
     meta: {},
     tags: new Set<string>(),
@@ -339,6 +341,7 @@ describe('broadcastToConnections — fanout resilience', () => {
   function peer(id: string, send: (frame: string) => void): RuntimeConnection {
     return {
       id,
+      identity: id,
       wsKey: Symbol(id),
       descriptor: {
         send,
@@ -347,6 +350,7 @@ describe('broadcastToConnections — fanout resilience', () => {
         bufferedAmount() {
           return 0;
         },
+        identity: id,
       },
       meta: {},
       tags: new Set<string>(),
@@ -416,6 +420,7 @@ describe('broadcastToChannel — fanout resilience', () => {
   function peer(id: string, send: (frame: string) => void): RuntimeConnection {
     const conn: RuntimeConnection = {
       id,
+      identity: id,
       wsKey: Symbol(id),
       descriptor: {
         send,
@@ -424,6 +429,7 @@ describe('broadcastToChannel — fanout resilience', () => {
         bufferedAmount() {
           return 0;
         },
+        identity: id,
       },
       meta: {},
       tags: new Set<string>(),

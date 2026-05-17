@@ -11,6 +11,12 @@ export interface ConnectionDescriptor {
   sendBinary(data: ArrayBuffer | ArrayBufferView): void;
   close(code?: number, reason?: string): void;
   bufferedAmount(): number;
+  /**
+   * Stable string identifying the user-equivalent entity for this socket.
+   * Forwarded from the `onUpgrade` result. Required because the descriptor is
+   * only built for an accepted upgrade — by that point identity is known.
+   */
+  identity: string;
   meta?: Record<string, unknown>;
   tags?: readonly string[];
 }
@@ -36,6 +42,12 @@ export interface UpgradeDecision {
   reject?: boolean;
   code?: number;
   reason?: string;
+  /**
+   * Stable string identifying the user-equivalent entity behind this socket.
+   * Set when `reject` is falsy — every accepted upgrade carries it. Omitted
+   * on reject decisions because there is no connection to attach it to.
+   */
+  identity?: string;
   meta?: Record<string, unknown>;
   tags?: readonly string[];
 }

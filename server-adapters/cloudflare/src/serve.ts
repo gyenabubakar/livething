@@ -73,6 +73,23 @@ const buildServe = defineServerAdapter<undefined, CloudflareDurableObjectClass>(
 
         this.ready = ctx.blockConcurrencyWhile(async () => {
           await this.engine.initialize();
+          // Boot-time reconcile. With hibernation on, Cloudflare may hand
+          // back sockets that survived the eviction — collect their ids
+          // from each socket's tiny attachment so the engine keeps those
+          // rows and drops any orphans. Hibernation off: the engine
+          // short-circuits and the empty set is a no-op.
+          const surviving = new Set<string>();
+          if (this.engine.usesHibernation()) {
+            for (const ws of this.ctx.getWebSockets()) {
+              const attachment = (ws as WebSocket).deserializeAttachment() as {
+                id?: string;
+              } | null;
+              if (attachment && typeof attachment.id === 'string') {
+                surviving.add(attachment.id);
+              }
+            }
+          }
+          this.engine.reconcileConnections(surviving);
         });
       }
 
@@ -98,11 +115,15 @@ const buildServe = defineServerAdapter<undefined, CloudflareDurableObjectClass>(
         socket: WebSocket,
         result: Awaited<ReturnType<Engine['handleUpgrade']>>,
       ) {
+        // identity is always present on an accepted upgrade — onUpgrade
+        // requires it on the return type. The fallback to '' keeps this
+        // path defensive against an adapter that forgot to forward it.
         return {
           send: (data: string) => socket.send(data),
           sendBinary: (data: ArrayBuffer | ArrayBufferView) => socket.send(data),
           close: (code?: number, reason?: string) => socket.close(code, reason),
           bufferedAmount: () => 0,
+          identity: result.identity ?? '',
           meta: result.meta ?? {},
           tags: result.tags ?? [],
         };

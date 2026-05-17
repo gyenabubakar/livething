@@ -3,6 +3,7 @@ import * as ChannelPrimitive from '~/channel/runtime.ts';
 import * as HeartbeatPrimitive from '~/heartbeat/runtime.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
+import type * as ConnectionStore from './connection-store.ts';
 import type * as EngineRuntimeTypes from './types.ts';
 
 /**
@@ -27,11 +28,20 @@ interface ConnectionRuntime {
   generateId(prefix?: string): string;
   persistAttachment(connection: EngineRuntimeTypes.RuntimeConnection): void;
   /**
-   * Adapter-provided snapshot restore. Returns the value the adapter most
-   * recently passed to `persist(wsKey, snapshot)`, or `undefined` if there is
-   * nothing to restore. Adapters without hibernation support omit this field.
+   * Adapter-provided snapshot restore. Returns the tiny correlation payload
+   * the engine wrote on the last persist (`{ id }`), or `undefined` when the
+   * platform has no record of this socket. Adapters without hibernation
+   * support omit this field.
    */
   restoreAttachment?(wsKey: unknown): unknown;
+  /**
+   * Read the persisted connection row matching the id read from the
+   * attachment. `null` when there is no row (e.g. boot-time reconcile already
+   * pruned it). Present only for hibernating engines.
+   */
+  readConnectionState?(connectionId: string): ConnectionStore.StoredConnectionRow | null;
+  /** Delete the persisted connection row at real disconnect. */
+  deleteConnectionState?(connectionId: string): void;
   buildConnectionContext(
     connection: EngineRuntimeTypes.RuntimeConnection,
     scope?: EngineRuntimeTypes.ResolvedScope,
@@ -184,7 +194,10 @@ export async function cancelActiveStreamsForConnection(
  * channel leaves.
  */
 export async function handleConnectionClose(
-  runtime: Pick<ConnectionRuntime, 'compiled' | 'connections' | 'wsToConnectionId' | 'timers'> & {
+  runtime: Pick<
+    ConnectionRuntime,
+    'compiled' | 'connections' | 'wsToConnectionId' | 'timers' | 'deleteConnectionState'
+  > & {
     cancelActiveStreamsForConnection(connectionId: string): Promise<void>;
     buildConnectionContext(
       connection: EngineRuntimeTypes.RuntimeConnection,
@@ -220,6 +233,7 @@ export async function handleConnectionClose(
 
   runtime.connections.delete(connection.id);
   runtime.wsToConnectionId.delete(connection.wsKey);
+  runtime.deleteConnectionState?.(connection.id);
 
   // Inject the WebSocket close code and reason onto the disconnect ctx
   // so user code can branch on graceful (1000) vs kick (4xxx) vs
@@ -322,6 +336,7 @@ export function acceptConnection(
 ): EngineAdapterTypes.ConnectionHandle {
   const connection: EngineRuntimeTypes.RuntimeConnection = {
     id: runtime.generateId('conn'),
+    identity: descriptor.identity,
     wsKey,
     descriptor,
     meta: descriptor.meta ?? {},
@@ -333,7 +348,12 @@ export function acceptConnection(
 
   runtime.connections.set(connection.id, connection);
   runtime.wsToConnectionId.set(wsKey, connection.id);
+  // Initial write goes through without the gate so the row exists from the
+  // moment the connection is live. Then the gate is set so onConnect state
+  // changes (channel subscribes, ephemeral tag adds, etc.) batch into one
+  // flush after the hook resolves.
   runtime.persistAttachment(connection);
+  connection.pendingWrites = { active: true };
 
   if (runtime.timers) {
     HeartbeatPrimitive.scheduleConnectionPing(runtime.timers, connection);
@@ -343,40 +363,18 @@ export function acceptConnection(
   // lifecycleReady swallows handler errors into handleRuntimeError; if handleRuntimeError itself throws, the rejection is unhandled — acceptable because that path is fatal anyway.
   connection.lifecycleReady = runtime
     .runConnectionLifecycle('connect', ctx)
-    .catch((error) => runtime.handleRuntimeError(connection, error, undefined));
+    .catch((error) => runtime.handleRuntimeError(connection, error, undefined))
+    .finally(() => {
+      // Flush the buffered state once, even if onConnect threw — the
+      // current in-memory state is what the row should reflect.
+      if (connection.pendingWrites) {
+        connection.pendingWrites.active = false;
+        connection.pendingWrites = undefined;
+      }
+      runtime.persistAttachment(connection);
+    });
 
   return createHandle(runtime, connection);
-}
-
-function restoreChannelMemberships(
-  restored: Record<string, unknown>,
-): Map<string, { channelName: string; channelScope: string | null }> {
-  const memberships = new Map<string, { channelName: string; channelScope: string | null }>();
-
-  if (Array.isArray(restored.channelMemberships)) {
-    for (const membership of restored.channelMemberships) {
-      if (!membership || typeof membership !== 'object') continue;
-
-      const channelName =
-        typeof (membership as { channelName?: unknown }).channelName === 'string'
-          ? (membership as { channelName: string }).channelName
-          : undefined;
-
-      if (!channelName) continue;
-
-      const channelScope: string | null =
-        typeof (membership as { channelScope?: unknown }).channelScope === 'string'
-          ? (membership as { channelScope: string }).channelScope
-          : null;
-
-      memberships.set(ChannelPrimitive.createChannelMembershipKey(channelName, channelScope), {
-        channelName,
-        channelScope,
-      });
-    }
-  }
-
-  return memberships;
 }
 
 /**
@@ -393,22 +391,46 @@ export function wakeHibernatedConnection(
   }
 
   const wsLike = wsKey as HibernatableWebSocket;
+  // The attachment now carries a tiny correlation payload — just the
+  // connection id — so the engine can find the full state row in SQL. Falls
+  // back to a generated id when there is nothing to read (defensive: a
+  // missing attachment means the row is gone too, so this socket becomes a
+  // fresh connection with empty state instead of crashing on wake).
   const attachment = runtime.restoreAttachment ? runtime.restoreAttachment(wsKey) : undefined;
-  const restored =
-    attachment && typeof attachment === 'object' ? (attachment as Record<string, unknown>) : {};
-  const channelMemberships = restoreChannelMemberships(restored);
+  const attachmentId =
+    attachment &&
+    typeof attachment === 'object' &&
+    typeof (attachment as { id?: unknown }).id === 'string'
+      ? (attachment as { id: string }).id
+      : undefined;
 
-  const restoredStreamIds = Array.isArray(restored.activeStreamIds)
-    ? (restored.activeStreamIds as string[])
-    : [];
+  const row =
+    attachmentId && runtime.readConnectionState ? runtime.readConnectionState(attachmentId) : null;
+
+  const id = row?.connection_id ?? attachmentId ?? runtime.generateId('conn');
+  const identity = row?.identity ?? '';
+  const meta = row?.meta ?? {};
+  const tags = row?.ephemeral_tags ?? [];
+  const channelMemberships = new Map<
+    string,
+    { channelName: string; channelScope: string | null }
+  >();
+  for (const membership of row?.ephemeral_memberships ?? []) {
+    channelMemberships.set(
+      ChannelPrimitive.createChannelMembershipKey(membership.channelName, membership.channelScope),
+      { channelName: membership.channelName, channelScope: membership.channelScope },
+    );
+  }
+  const restoredStreamIds = row?.active_stream_ids ?? [];
 
   const descriptor: EngineAdapterTypes.ConnectionDescriptor = {
     send: (data) => wsLike.send?.(data),
     sendBinary: (data) => wsLike.send?.(data),
     close: (code, reason) => wsLike.close?.(code, reason),
     bufferedAmount: () => 0,
-    meta: (restored.meta as Record<string, unknown>) ?? {},
-    tags: (restored.tags as string[]) ?? [],
+    identity,
+    meta,
+    tags: [...tags],
   };
 
   for (const streamId of restoredStreamIds) {
@@ -421,11 +443,12 @@ export function wakeHibernatedConnection(
   }
 
   const connection: EngineRuntimeTypes.RuntimeConnection = {
-    id: typeof restored.id === 'string' ? restored.id : runtime.generateId('conn'),
+    id,
+    identity,
     wsKey,
     descriptor,
-    meta: (restored.meta as Record<string, unknown>) ?? {},
-    tags: new Set((restored.tags as string[]) ?? []),
+    meta,
+    tags: new Set(tags),
     channelMemberships,
     latency: null,
     quality: 'good',
@@ -433,7 +456,12 @@ export function wakeHibernatedConnection(
 
   runtime.connections.set(connection.id, connection);
   runtime.wsToConnectionId.set(wsKey, connection.id);
-  runtime.persistAttachment(connection);
+  // Re-persist so the row reflects the cleared active_stream_ids (the wake
+  // path drained them above) and the attachment carries the correct id
+  // even if it was missing before.
+  if (restoredStreamIds.length > 0) {
+    runtime.persistAttachment(connection);
+  }
 
   if (runtime.timers) {
     HeartbeatPrimitive.scheduleConnectionPing(runtime.timers, connection);
@@ -458,8 +486,9 @@ export async function handleUpgrade(
         }>)[];
     builderUpgradeHook?:
       | ((request: Request) =>
-          | { meta?: Record<string, unknown>; tags?: readonly string[] }
+          | { identity?: string; meta?: Record<string, unknown>; tags?: readonly string[] }
           | Promise<{
+              identity?: string;
               meta?: Record<string, unknown>;
               tags?: readonly string[];
             }>)
@@ -478,8 +507,16 @@ export async function handleUpgrade(
     // meta keys override any internal hook on conflict — the user's
     // code is the boss; internal primitives provide defaults.
     let mergedMeta: Record<string, unknown> | undefined;
+    let builderIdentity: string | undefined;
     const mergedTags = new Set<string>();
-    function apply(result: { meta?: Record<string, unknown>; tags?: readonly string[] }): void {
+    function apply(result: {
+      identity?: string;
+      meta?: Record<string, unknown>;
+      tags?: readonly string[];
+    }): void {
+      if (result.identity !== undefined) {
+        builderIdentity = result.identity;
+      }
       if (result.meta) {
         mergedMeta = mergedMeta ? { ...mergedMeta, ...result.meta } : { ...result.meta };
       }
@@ -494,6 +531,7 @@ export async function handleUpgrade(
       apply((await runtime.builderUpgradeHook(request)) ?? {});
     }
     return {
+      identity: builderIdentity,
       meta: mergedMeta,
       tags: mergedTags.size > 0 ? [...mergedTags] : undefined,
     };

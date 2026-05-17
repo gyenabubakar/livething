@@ -7,12 +7,14 @@ import {
   InvalidScopeMarkers,
   NamespaceNotFound,
   StreamAborted,
+  StreamAlreadyActive,
   ValidationFailed,
 } from '@wskit/core';
 import * as EngineCompile from '~/_engine/compile/compile.ts';
 import { PROTOCOL_PAYLOAD_FIELDS } from '~/_engine/compile/utils.ts';
 import * as EngineContexts from '~/_engine/contexts/contexts.ts';
 import * as EngineDeps from '~/_engine/engine.deps.ts';
+import * as ConnectionStore from '~/_engine/runtime/connection-store.ts';
 import * as EngineConnectionRuntime from '~/_engine/runtime/connection.ts';
 import * as EngineMessageRuntime from '~/_engine/runtime/messages.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
@@ -116,6 +118,7 @@ export class Engine {
     InvalidScopeMarkers.code,
     NamespaceNotFound.code,
     StreamAborted.code,
+    StreamAlreadyActive.code,
   ]);
   /** Logger used by the engine and runtime modules. Adapters supply a custom logger via {@link Engine.setLogger}; otherwise the engine falls back to a console-backed default. */
   private logger: PublicApi.Logger = {
@@ -791,11 +794,52 @@ export class Engine {
   }
 
   /**
-   * Ask the adapter to serialize connection attachment data when supported.
+   * Write the current connection state to engine storage and, if the adapter
+   * supports hibernation, also write a tiny attachment carrying the id so the
+   * wake path can look the row up. Skipped while the connection is inside
+   * the accept window — `onConnect` mutations buffer and flush once at the
+   * end so a handler that joins ten channels writes one row, not ten.
    * @internal
    */
   persistAttachment(connection: RuntimeConnection): void {
-    EngineContexts.persistAttachment(connection, this.options.hibernation);
+    if (connection.pendingWrites?.active) return;
+    if (!this.hibernationEnabled) return;
+    ConnectionStore.writeConnectionRow(
+      this.requireStorage().sql,
+      ConnectionStore.buildConnectionRow(connection),
+    );
+    this.options.hibernation?.persist(connection.wsKey, { id: connection.id });
+  }
+
+  /**
+   * Read one persisted connection row by id, or `null` when it no longer
+   * exists. Used by the hibernation wake path to rebuild in-memory state.
+   * @internal
+   */
+  readConnectionState(connectionId: string): ConnectionStore.StoredConnectionRow | null {
+    if (!this.hibernationEnabled) return null;
+    return ConnectionStore.readConnectionRow(this.requireStorage().sql, connectionId);
+  }
+
+  /**
+   * Delete the persisted row for one connection. Called from the disconnect
+   * path after disconnect hooks run.
+   * @internal
+   */
+  deleteConnectionState(connectionId: string): void {
+    if (!this.hibernationEnabled) return;
+    ConnectionStore.deleteConnectionRow(this.requireStorage().sql, connectionId);
+  }
+
+  /**
+   * Boot-time cleanup. Delete every persisted connection row whose id is not
+   * in the surviving set. Adapters call this after engine init with the ids
+   * of sockets the platform still holds (zero ids = wipe everything).
+   * @internal
+   */
+  reconcileConnections(surviving: ReadonlySet<string>): void {
+    if (!this.hibernationEnabled) return;
+    ConnectionStore.reconcileConnectionRows(this.requireStorage().sql, surviving);
   }
 
   /**

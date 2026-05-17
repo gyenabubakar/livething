@@ -7,6 +7,7 @@ import type { RequestPrimitive } from './request.ts';
 function createConnection(): RuntimeConnection {
   return {
     id: 'c1',
+    identity: 'c1',
     wsKey: 'ws1',
     descriptor: {
       send() {},
@@ -15,6 +16,7 @@ function createConnection(): RuntimeConnection {
       bufferedAmount() {
         return 0;
       },
+      identity: 'c1',
     },
     meta: {},
     tags: new Set(),

@@ -59,7 +59,7 @@ export const replayHandler = base
     const url = new URL(request.url);
     const username = url.searchParams.get('username');
     if (!username) throw RejectUpgrade(4001, 'Missing username');
-    return { meta: { username } };
+    return { identity: username, meta: { username } };
   })
   .incoming(SendMsg, (ctx, payload) => {
     const msg = { text: payload.text, from: ctx.meta.username };

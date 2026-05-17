@@ -11,6 +11,7 @@ import { describe, expect, it, vi } from 'vitest';
 function createConnection(id = 'conn_1', meta: Record<string, unknown> = {}) {
   return {
     id,
+    identity: id,
     wsKey: Symbol(id),
     descriptor: {
       send() {},
@@ -19,6 +20,7 @@ function createConnection(id = 'conn_1', meta: Record<string, unknown> = {}) {
       bufferedAmount() {
         return 0;
       },
+      identity: id,
     },
     meta,
     tags: new Set<string>(),

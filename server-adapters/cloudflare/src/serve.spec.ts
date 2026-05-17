@@ -287,8 +287,12 @@ describe('alarm() and shutdown() RPCs', () => {
     // open. The adapter now enumerates state.getWebSockets() and registers
     // each one with the engine before delegating.
     const Cls = buildClass({ hibernation: true });
-    const sockA = { __id: 'a' } as unknown;
-    const sockB = { __id: 'b' } as unknown;
+    // Boot-time reconcile reads each socket's attachment to collect ids of
+    // sockets that survived the eviction. Stub it on the mocks so the loop
+    // runs cleanly; this test cares about the shutdown wake path, not the
+    // reconcile content.
+    const sockA = { __id: 'a', deserializeAttachment: () => null } as unknown;
+    const sockB = { __id: 'b', deserializeAttachment: () => null } as unknown;
     const state = makeFakeDOState({
       getWebSockets: vi.fn(() => [sockA, sockB]),
     });

@@ -12,6 +12,7 @@ import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 function createConnection(id: string): RuntimeConnection {
   return {
     id,
+    identity: id,
     wsKey: Symbol(id),
     descriptor: {
       send: vi.fn(),
@@ -20,6 +21,7 @@ function createConnection(id: string): RuntimeConnection {
       bufferedAmount() {
         return 0;
       },
+      identity: id,
     },
     meta: {},
     tags: new Set<string>(),

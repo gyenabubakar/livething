@@ -722,6 +722,7 @@ describe('custom replay', () => {
       bufferedAmount() {
         return 0;
       },
+      identity: 'replay-custom-test',
     });
 
     await handle.handleMessage(JSON.stringify({ event: 'send-msg', payload: { text: 'hi' } }));

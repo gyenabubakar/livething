@@ -137,8 +137,9 @@ export interface EngineAccess {
    */
   setBuilderUpgradeHook(
     handler: (request: Request) =>
-      | { meta?: Record<string, unknown>; tags?: readonly string[] }
+      | { identity?: string; meta?: Record<string, unknown>; tags?: readonly string[] }
       | Promise<{
+          identity?: string;
           meta?: Record<string, unknown>;
           tags?: readonly string[];
         }>,

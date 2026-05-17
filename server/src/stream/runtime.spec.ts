@@ -6,6 +6,7 @@ import { bufferStreamNudge, cancelStream, runStream } from './runtime.ts';
 function createConnection(id = 'c1'): RuntimeConnection {
   return {
     id,
+    identity: id,
     wsKey: Symbol(id),
     descriptor: {
       send: vi.fn(),
@@ -14,6 +15,7 @@ function createConnection(id = 'c1'): RuntimeConnection {
       bufferedAmount() {
         return 0;
       },
+      identity: id,
     },
     meta: {},
     tags: new Set(),

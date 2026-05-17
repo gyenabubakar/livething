@@ -120,8 +120,9 @@ export interface RegisteredEngineHooks {
    */
   builderUpgrade:
     | ((request: Request) =>
-        | { meta?: Record<string, unknown>; tags?: readonly string[] }
+        | { identity?: string; meta?: Record<string, unknown>; tags?: readonly string[] }
         | Promise<{
+            identity?: string;
             meta?: Record<string, unknown>;
             tags?: readonly string[];
           }>)
@@ -160,6 +161,13 @@ export interface RuntimeConnection {
   // -- Identity --
   /** Unique connection ID assigned by the engine. */
   id: string;
+  /**
+   * Stable string identifying the user-equivalent entity behind this socket.
+   * Returned from `onUpgrade` and reused as the row key for any per-user
+   * durable state. Required even when no persistence wrapper is active so
+   * the engine can index live connections by identity in storage and logs.
+   */
+  identity: string;
   /** Opaque key the adapter uses to identify the underlying WebSocket. */
   wsKey: unknown;
   /** Low-level send/close callbacks provided by the adapter. */
@@ -211,6 +219,13 @@ export interface RuntimeConnection {
    * on wake. Lazy-initialized when the first stream starts.
    */
   activeStreamIds?: Set<string>;
+  /**
+   * While set and `active`, the engine is inside the connection-accept window
+   * (initial row already inserted, `onConnect` running). Per-state-change row
+   * writes are skipped so a single flush at the end of the hook commits the
+   * full state in one statement. Cleared after the flush.
+   */
+  pendingWrites?: { active: boolean };
 }
 
 /**

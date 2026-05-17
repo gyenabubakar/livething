@@ -76,6 +76,7 @@ describe('connection runtime', () => {
         bufferedAmount() {
           return 0;
         },
+        identity: 'lifecycle-test',
       },
     );
 
@@ -147,6 +148,7 @@ describe('connection runtime', () => {
         bufferedAmount() {
           return 0;
         },
+        identity: 'lifecycle-test',
       },
     );
 
@@ -227,6 +229,7 @@ describe('connection runtime', () => {
         bufferedAmount() {
           return 0;
         },
+        identity: 'lifecycle-test',
       },
     );
 
@@ -277,12 +280,14 @@ describe('connection runtime', () => {
           return 'conn_1';
         },
         persistAttachment() {},
-        restoreAttachment: () => ({
-          id: 'conn_1',
+        restoreAttachment: () => ({ id: 'conn_1' }),
+        readConnectionState: () => ({
+          connection_id: 'conn_1',
+          identity: 'conn_1',
           meta: {},
-          tags: [],
-          channelMemberships: [],
-          activeStreamIds: ['stream_1', 'stream_2'],
+          ephemeral_tags: [],
+          ephemeral_memberships: [],
+          active_stream_ids: ['stream_1', 'stream_2'],
         }),
         buildConnectionContext(connection) {
           return { id: connection.id };
@@ -600,7 +605,14 @@ describe('connection runtime', () => {
     const connection = {
       id: 'c1',
       wsKey: Symbol('ws'),
-      descriptor: { send() {}, sendBinary() {}, close() {}, bufferedAmount: () => 0 },
+      descriptor: {
+        send() {},
+        sendBinary() {},
+        close() {},
+        bufferedAmount: () => 0,
+        identity: 'c1',
+      },
+      identity: 'c1',
       meta: {},
       tags: new Set<string>(),
       channelMemberships: new Map(),
@@ -640,7 +652,14 @@ describe('connection runtime', () => {
     const connection = {
       id: 'c1',
       wsKey,
-      descriptor: { send() {}, sendBinary() {}, close() {}, bufferedAmount: () => 0 },
+      descriptor: {
+        send() {},
+        sendBinary() {},
+        close() {},
+        bufferedAmount: () => 0,
+        identity: 'c1',
+      },
+      identity: 'c1',
       meta: {},
       tags: new Set<string>(),
       channelMemberships: new Map(),
@@ -682,6 +701,7 @@ describe('connection runtime', () => {
     const wsKey = Symbol('ws');
     const connection = {
       id: 'c1',
+      identity: 'c1',
       wsKey,
       descriptor: {
         send() {},
@@ -690,6 +710,7 @@ describe('connection runtime', () => {
         bufferedAmount() {
           return 0;
         },
+        identity: 'c1',
       },
       meta: {},
       tags: new Set<string>(),
@@ -741,6 +762,7 @@ describe('connection runtime', () => {
     const clearTimeout = vi.fn();
     const connection = {
       id: 'c1',
+      identity: 'c1',
       wsKey,
       descriptor: {
         send() {},
@@ -749,6 +771,7 @@ describe('connection runtime', () => {
         bufferedAmount() {
           return 0;
         },
+        identity: 'c1',
       },
       meta: {},
       tags: new Set<string>(),
@@ -853,6 +876,7 @@ describe('connection runtime', () => {
     function makeConnection(id = 'conn_1') {
       return {
         id,
+        identity: id,
         wsKey: Symbol(id),
         descriptor: {
           send: vi.fn(),
@@ -861,6 +885,7 @@ describe('connection runtime', () => {
           bufferedAmount() {
             return 0;
           },
+          identity: id,
         },
         meta: {},
         tags: new Set<string>(),

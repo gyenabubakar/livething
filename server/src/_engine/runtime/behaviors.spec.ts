@@ -10,6 +10,7 @@ import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 function createConnection(id = 'conn_1'): RuntimeConnection {
   return {
     id,
+    identity: id,
     wsKey: Symbol(id),
     descriptor: {
       send: vi.fn(),
@@ -18,6 +19,7 @@ function createConnection(id = 'conn_1'): RuntimeConnection {
       bufferedAmount() {
         return 0;
       },
+      identity: id,
     },
     meta: {},
     tags: new Set<string>(),
@@ -500,8 +502,8 @@ describe('processTextMessage protocol branches', () => {
 // -------------------------------------------------------------------
 // wakeHibernatedConnection → restoreChannelMemberships branches
 // -------------------------------------------------------------------
-describe('restoreChannelMemberships via wakeHibernatedConnection', () => {
-  function makeRuntime(snapshot: unknown) {
+describe('wakeHibernatedConnection — channel memberships restore', () => {
+  function makeRuntime(id: string, row: Record<string, unknown> | null) {
     return {
       compiled: baseCompiled() as any,
       timers: undefined,
@@ -509,7 +511,8 @@ describe('restoreChannelMemberships via wakeHibernatedConnection', () => {
       wsToConnectionId: new Map(),
       generateId: () => 'conn_new',
       persistAttachment() {},
-      restoreAttachment: () => snapshot,
+      restoreAttachment: () => ({ id }),
+      readConnectionState: () => row,
       buildConnectionContext(c: RuntimeConnection) {
         return { id: c.id };
       },
@@ -521,15 +524,17 @@ describe('restoreChannelMemberships via wakeHibernatedConnection', () => {
     };
   }
 
-  it('restores from the channelMemberships array when present', () => {
-    const runtime = makeRuntime({
-      id: 'hib_1',
+  it('restores memberships from the persisted connection row', () => {
+    const runtime = makeRuntime('hib_1', {
+      connection_id: 'hib_1',
+      identity: 'hib_1',
       meta: {},
-      tags: [],
-      channelMemberships: [
+      ephemeral_tags: [],
+      ephemeral_memberships: [
         { channelName: 'room:a', channelScope: 'rooms' },
-        { channelName: 'room:b' },
+        { channelName: 'room:b', channelScope: null },
       ],
+      active_stream_ids: [],
     });
     const wsKey = { send() {}, close() {} };
 
@@ -546,17 +551,15 @@ describe('restoreChannelMemberships via wakeHibernatedConnection', () => {
     );
   });
 
-  it('does not restore channel memberships when the attachment omits channelMemberships', () => {
-    const runtime = makeRuntime({
-      id: 'hib_2',
-      meta: {},
-      tags: [],
-      channels: ['lobby:1', 'lobby:2'],
-    });
+  it('starts with no memberships when there is no row for the socket', () => {
+    const runtime = makeRuntime('hib_2', null);
     const wsKey = { send() {}, close() {} };
 
     wakeHibernatedConnection(runtime as any, wsKey);
 
+    // No id in attachment means the wake path generates a fresh id rather
+    // than using the missing-row id. The connection still lands in the map
+    // under the generated id with no memberships.
     const connection = runtime.connections.get('hib_2');
     expect(connection).toBeDefined();
     expect(connection!.channelMemberships.size).toBe(0);

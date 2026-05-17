@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 function createConnection(id: string) {
   return {
     id,
+    identity: id,
     wsKey: Symbol(id),
     descriptor: {
       send() {},
@@ -13,6 +14,7 @@ function createConnection(id: string) {
       bufferedAmount() {
         return 0;
       },
+      identity: id,
     },
     meta: {},
     tags: new Set<string>(),

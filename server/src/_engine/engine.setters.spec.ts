@@ -282,5 +282,56 @@ describe('Engine.getCompiled', () => {
     expect(declared.has('channel-not-found')).toBe(true);
     expect(declared.has('channel-not-subscribed')).toBe(true);
     expect(declared.has('namespace-not-found')).toBe(true);
+    expect(declared.has('stream-aborted')).toBe(true);
+    expect(declared.has('stream-already-active')).toBe(true);
+  });
+});
+
+describe('Engine connection-state methods', () => {
+  // Non-hibernating engines keep connection state in-memory only. All of the
+  // SQL helpers short-circuit so a handler without `.hibernation()` never
+  // pays for storage it does not need.
+  it('persistAttachment is a no-op when hibernation is not enabled', () => {
+    const engine = makeEngine();
+    const execCalls: string[] = [];
+    engine.setStorage({
+      sql: {
+        exec(query: string) {
+          execCalls.push(query);
+          return { toArray: () => [], one: () => null, raw: () => [] };
+        },
+        transaction: ((fn: any) => fn({ exec: () => ({}) })) as never,
+      },
+      kv: {} as never,
+    });
+
+    const fakeConnection = { id: 'c1', wsKey: Symbol('ws') } as never;
+    engine.persistAttachment(fakeConnection);
+
+    expect(execCalls).toEqual([]);
+  });
+
+  it('reconcileConnections is a no-op when hibernation is not enabled', () => {
+    const engine = makeEngine();
+    let called = false;
+    engine.setStorage({
+      sql: {
+        exec() {
+          called = true;
+          return { toArray: () => [], one: () => null, raw: () => [] };
+        },
+        transaction: ((fn: any) => fn({ exec: () => ({}) })) as never,
+      },
+      kv: {} as never,
+    });
+
+    engine.reconcileConnections(new Set(['c1', 'c2']));
+
+    expect(called).toBe(false);
+  });
+
+  it('readConnectionState returns null when hibernation is not enabled', () => {
+    const engine = makeEngine();
+    expect(engine.readConnectionState('whatever')).toBeNull();
   });
 });
