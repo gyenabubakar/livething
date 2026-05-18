@@ -1,164 +1,17 @@
-import { ChannelNotFound } from '@wskit/core';
-import * as EngineCompileUtils from '~/_engine/compile/utils.ts';
-import * as DefineModule from '~/modules/define.ts';
+import { buildChannelsApi, buildChannelScopeExtra } from '~/channel/context.ts';
+import { buildNamespaceScopeExtra } from '~/namespace/context.ts';
 import * as TagsRuntime from '~/tags/runtime.ts';
 import type * as PublicApi from '~/context.ts';
-import type * as PrimitiveCore from '~/primitive.ts';
+import { createLazyStorageView } from './lazy-storage.ts';
 import * as EngineContextTypes from './types.ts';
 
-/**
- * Build a `sql`/`kv` view that defers `requireStorage()` until a method is
- * actually invoked. Hooks and tasks that never touch storage stay valid on
- * adapters that do not provide it; hooks that do reach for `ctx.sql.exec(...)`
- * or `ctx.kv.get(...)` still get the adapter's "storage not provided" error
- * at the call site.
- */
-function createLazyStorageView(requireStorage: () => PublicApi.StorageProvider): {
-  sql: PublicApi.SQLProvider;
-  kv: PublicApi.KVProvider;
-} {
-  const sql: PublicApi.SQLProvider = {
-    exec(query, ...params) {
-      return requireStorage().sql.exec(query, ...params);
-    },
-    transaction(fn) {
-      return requireStorage().sql.transaction(fn);
-    },
-  };
-  const kv: PublicApi.KVProvider = {
-    async get(key) {
-      return requireStorage().kv.get(key);
-    },
-    async set(key, value, options) {
-      return requireStorage().kv.set(key, value, options);
-    },
-    async delete(key) {
-      return requireStorage().kv.delete(key);
-    },
-    async list(prefix) {
-      return requireStorage().kv.list(prefix);
-    },
-  };
-  return { sql, kv };
-}
-
-/**
- * Build the context passed to the `onInit` lifecycle hook.
- */
-export function createInitContext(
-  deps: Pick<
-    EngineContextTypes.CreateTaskContextDeps,
-    'env' | 'logger' | 'platform' | 'requireStorage'
-  >,
-): EngineContextTypes.InitContext<Record<string, unknown>, unknown> {
-  const { sql, kv } = createLazyStorageView(deps.requireStorage);
-  return {
-    sql,
-    kv,
-    env: deps.env,
-    log: deps.logger,
-    platform: deps.platform,
-  };
-}
-
-/**
- * Build the context passed to the shutdown hook.
- */
-export function createShutdownContext(
-  deps: EngineContextTypes.CreateTaskContextDeps,
-): EngineContextTypes.ShutdownContext<Record<string, unknown>, Record<string, unknown>, unknown> {
-  const { sql, kv } = createLazyStorageView(deps.requireStorage);
-  function cancelScheduled(taskId: string, filter?: Record<string, unknown>): void {
-    const result = deps.cancelScheduled(taskId, filter);
-    if (result.removed === 0) {
-      deps.logger.error('[wskit] cancelScheduled matched no runs', {
-        taskId,
-        filter,
-        taskExists: result.taskExists,
-      });
-    }
-  }
-  return {
-    closeAll: (code, reason) => {
-      for (const connection of deps.connections.values()) {
-        connection.descriptor.close(code, reason);
-      }
-    },
-    broadcast: (event, payload) => {
-      deps.broadcastToConnections([...deps.connections.values()], event, payload, undefined);
-    },
-    sql,
-    kv,
-    schedule: (taskId, options) => {
-      deps.scheduleTask(taskId, options.time, options.data);
-    },
-    cancelScheduled,
-    connectionCount: deps.connections.size,
-    getConnections: () => {
-      return [...deps.connections.values()].map((connection) => deps.toConnectionInfo(connection));
-    },
-    env: deps.env,
-    log: deps.logger,
-    waitUntil: deps.waitUntilImpl,
-    platform: deps.platform,
-  };
-}
-
-/**
- * Build the context passed to scheduled tasks and module-owned scheduled work.
- */
-export function createTaskContext(
-  deps: EngineContextTypes.CreateTaskContextDeps,
-): EngineContextTypes.TaskContext<Record<string, unknown>, Record<string, unknown>, unknown> {
-  const { sql, kv } = createLazyStorageView(deps.requireStorage);
-  const ctx: EngineContextTypes.TaskContext<
-    Record<string, unknown>,
-    Record<string, unknown>,
-    unknown
-  > = {
-    sql,
-    kv,
-    broadcast: (event, payload) => {
-      deps.broadcastToConnections([...deps.connections.values()], event, payload, undefined);
-    },
-    sendToConnection: (connectionId, event, payload) => {
-      const connection = deps.connections.get(connectionId);
-      if (!connection) {
-        deps.logger.error('[wskit] sendToConnection target not found', {
-          connectionId,
-          event,
-        });
-        return false;
-      }
-      deps.sendThroughPipeline(connection, undefined, event, payload);
-      return true;
-    },
-    getConnections: () => {
-      return [...deps.connections.values()].map((connection) => deps.toConnectionInfo(connection));
-    },
-    connectionCount: deps.connections.size,
-    schedule: (taskId, options) => {
-      deps.scheduleTask(taskId, options.time, options.data);
-    },
-    cancelScheduled: (taskId, filter) => {
-      const result = deps.cancelScheduled(taskId, filter);
-      if (result.removed === 0) {
-        deps.logger.error('[wskit] cancelScheduled matched no runs', {
-          taskId,
-          filter,
-          taskExists: result.taskExists,
-        });
-      }
-    },
-    env: deps.env,
-    log: deps.logger,
-    waitUntil: deps.waitUntilImpl,
-    platform: deps.platform,
-  };
-
-  deps.attachModuleApis(ctx as unknown as Record<PropertyKey, unknown>, undefined);
-  return ctx;
-}
+// Re-exports — per-kind context code now lives next to its primitive, but
+// engine internals still import these names from this file's old paths.
+export { createInitContext, createShutdownContext } from '~/lifecycle/context.ts';
+export { createTaskContext } from '~/scheduled/context.ts';
+export { buildChannelHandle } from '~/channel/context.ts';
+export { attachModuleApis, createModuleScopedContext } from '~/modules/context.ts';
+export { persistAttachment } from '~/persistence/context.ts';
 
 type MessagingDeps = Pick<
   EngineContextTypes.BuildConnectionContextDeps,
@@ -208,143 +61,6 @@ function buildMessagingApi(
     },
     close: (code, reason) => connection.descriptor.close(code, reason),
   };
-}
-
-type ChannelHandleDeps = Pick<
-  EngineContextTypes.BuildConnectionContextDeps,
-  | 'broadcastToChannel'
-  | 'getChannelMembers'
-  | 'kickChannelMembers'
-  | 'removeChannelMember'
-  | 'sendThroughPipeline'
-  | 'subscribeConnectionAsServer'
->;
-
-/**
- * Build a `ChannelHandle` bound to the given resolved scope. Used both by
- * `ctx.channel` (in-channel handlers) and `ctx.channels.get(...)` (anywhere).
- *
- * @internal
- */
-export function buildChannelHandle(
-  connection: EngineContextTypes.RuntimeConnection,
-  scope: { channelName: string; channelScope: string | null },
-  deps: ChannelHandleDeps,
-): PublicApi.ChannelHandle {
-  return {
-    name: scope.channelName,
-    scope: scope.channelScope,
-    send: (event: string, payload: unknown) =>
-      deps.sendThroughPipeline(
-        connection,
-        { channel: scope.channelName, channelScope: scope.channelScope },
-        event,
-        payload,
-      ),
-    broadcast: (event: string, payload: unknown, options?: { excludeSelf?: boolean }) => {
-      deps.broadcastToChannel(
-        scope.channelName,
-        event,
-        payload,
-        connection.id,
-        scope.channelScope,
-        options?.excludeSelf,
-      );
-    },
-    members: () => deps.getChannelMembers(scope.channelName, scope.channelScope),
-    subscribe: (ref, payload) =>
-      deps.subscribeConnectionAsServer(ref, scope.channelName, scope.channelScope, payload),
-    kick: (target, reason: string) =>
-      deps.kickChannelMembers(scope.channelName, target, reason, scope.channelScope),
-    removeMember: (identity: string) =>
-      deps.removeChannelMember(scope.channelName, scope.channelScope, identity),
-  };
-}
-
-type ChannelsApiDeps = Pick<
-  EngineContextTypes.BuildConnectionContextDeps,
-  | 'broadcastToChannel'
-  | 'getChannelMembers'
-  | 'kickChannelMembers'
-  | 'removeChannelMember'
-  | 'resolveChannel'
-  | 'sendThroughPipeline'
-  | 'subscribeConnectionAsServer'
->;
-
-/** Build the `ctx.channels` helper surface — only `get(...)`. */
-function buildChannelsApi(
-  connection: EngineContextTypes.RuntimeConnection,
-  deps: ChannelsApiDeps,
-): { get(...args: unknown[]): PublicApi.ChannelHandle } {
-  return {
-    get(...args: unknown[]) {
-      const target =
-        args.length >= 2
-          ? { family: args[0] as string, name: args[1] as string }
-          : (args[0] as string);
-      const resolved = deps.resolveChannel(target);
-      if (!resolved) throw ChannelNotFound();
-      return buildChannelHandle(connection, resolved, deps);
-    },
-  };
-}
-
-type ScopeExtrasDeps = Pick<
-  EngineContextTypes.BuildConnectionContextDeps,
-  | 'broadcastToChannel'
-  | 'broadcastToConnections'
-  | 'connections'
-  | 'getChannelMembers'
-  | 'kickChannelMembers'
-  | 'removeChannelMember'
-  | 'sendThroughPipeline'
-  | 'subscribeConnectionAsServer'
->;
-
-/** Attach scope-bound `ctx.namespace` / `ctx.channel` helpers when a scope is active. */
-function buildScopeExtras(
-  connection: EngineContextTypes.RuntimeConnection,
-  scope:
-    | {
-        namespace?: EngineContextTypes.CompiledNamespace;
-        channel?: EngineContextTypes.CompiledChannel;
-        channelName?: string;
-        channelScope?: string | null;
-      }
-    | undefined,
-  deps: ScopeExtrasDeps,
-): { namespace?: unknown; channel?: unknown } {
-  const extras: { namespace?: unknown; channel?: unknown } = {};
-
-  if (scope?.namespace) {
-    const namespace = scope.namespace;
-    extras.namespace = {
-      name: namespace.name,
-      send: (event: string, payload: unknown) => {
-        return deps.sendThroughPipeline(connection, { namespace: namespace.name }, event, payload);
-      },
-      broadcast: (event: string, payload: unknown, options?: { excludeSelf?: boolean }) => {
-        deps.broadcastToConnections(
-          [...deps.connections.values()],
-          event,
-          payload,
-          { namespace: namespace.name, excludeSelf: options?.excludeSelf },
-          connection.id,
-        );
-      },
-    };
-  }
-
-  if (scope?.channel) {
-    const channel = scope.channel;
-    const channelName =
-      scope.channelName ?? (typeof channel.pattern === 'string' ? channel.pattern : '');
-    const channelScope = scope.channelScope ?? null;
-    extras.channel = buildChannelHandle(connection, { channelName, channelScope }, deps);
-  }
-
-  return extras;
 }
 
 /**
@@ -427,6 +143,8 @@ export function buildConnectionContext(
           ),
         }
       : {}),
+    ...buildNamespaceScopeExtra(connection, scope, deps),
+    ...buildChannelScopeExtra(connection, scope, deps),
     sql,
     kv,
     env: deps.env,
@@ -435,100 +153,16 @@ export function buildConnectionContext(
     platform: deps.platform,
   };
 
-  const scopeExtras = buildScopeExtras(connection, scope, deps);
-  if (scopeExtras.namespace) base.namespace = scopeExtras.namespace as typeof base.namespace;
-  if (scopeExtras.channel) base.channel = scopeExtras.channel as typeof base.channel;
-
+  // User extension hook — extenders see the assembled ctx and return a
+  // partial that gets merged in.
   for (const extend of deps.contextExtenders ?? []) {
     Object.assign(base, extend(base));
   }
 
+  // Adds a hidden non-enumerable module API map via defineProperty. Runs
+  // last because spread can't preserve non-enumerable properties.
   deps.attachModuleApis(base, connection);
   return base;
-}
-
-/**
- * Wrap a context so module event helpers automatically prefix their event names.
- *
- * Modules declare outgoing events with short names (e.g. `'flushed'`), but on
- * the wire they become `'__acme:analytics:flushed'`. This Proxy intercepts
- * `send`, `broadcast`, `sendTo`, and `sendToConnection` and prepends the
- * module's ID before delegating to the real context method.
- */
-export function createModuleScopedContext(
-  moduleId: string,
-  ctx: Record<PropertyKey, unknown>,
-): Record<PropertyKey, unknown> {
-  function prefix(event: string): string {
-    return EngineCompileUtils.prefixedModuleEvent(moduleId, event);
-  }
-
-  return new Proxy(ctx, {
-    get(target, key, receiver) {
-      switch (key) {
-        case 'send':
-          return wrapPrefixedSend(target, receiver, 'send', prefix, 'event-first');
-        case 'broadcast':
-          return wrapPrefixedSend(target, receiver, 'broadcast', prefix, 'event-first');
-        case 'sendToConnection':
-          return wrapPrefixedSend(target, receiver, 'sendToConnection', prefix, 'event-second');
-        default:
-          return Reflect.get(target, key, receiver);
-      }
-    },
-  });
-}
-
-/**
- * Build a wrapper around one of the four send-like methods on a connection
- * context. The wrapper rewrites the `event` argument through `prefix` and
- * forwards every other argument unchanged.
- *
- * `position` says which positional arg holds the event name:
- *   - `event-first`  → `(event, payload, ...rest)` (e.g. `send`, `broadcast`)
- *   - `event-second` → `(target, event, payload)` (e.g. `sendTo`, `sendToConnection`)
- */
-function wrapPrefixedSend(
-  target: Record<PropertyKey, unknown>,
-  receiver: unknown,
-  key: 'send' | 'broadcast' | 'sendToConnection',
-  prefix: (event: string) => string,
-  position: 'event-first' | 'event-second',
-): (...args: unknown[]) => unknown {
-  const original = Reflect.get(target, key, receiver) as (...args: unknown[]) => unknown;
-  if (position === 'event-first') {
-    return (event: unknown, ...rest: unknown[]) => original(prefix(event as string), ...rest);
-  }
-  return (first: unknown, event: unknown, ...rest: unknown[]) =>
-    original(first, prefix(event as string), ...rest);
-}
-
-/**
- * Attach module API objects to the hidden module API map on a context.
- */
-export function attachModuleApis(
-  moduleRuntimes: readonly EngineContextTypes.ModuleRuntime[],
-  ctx: Record<PropertyKey, unknown>,
-  connection?: EngineContextTypes.RuntimeConnection,
-): void {
-  const apiMap: Record<PropertyKey, unknown> = {};
-
-  for (const runtime of moduleRuntimes) {
-    const moduleCtx = createModuleScopedContext(runtime.instance.id, ctx);
-    const api = runtime.contextFactory(moduleCtx);
-    apiMap[(runtime.instance as PrimitiveCore.Primitive).__identity[0]] = api;
-
-    if (connection) {
-      apiMap[runtime.instance.id] = api;
-    }
-  }
-
-  Object.defineProperty(ctx, DefineModule.MODULE_API_MAP, {
-    configurable: true,
-    enumerable: false,
-    value: apiMap,
-    writable: false,
-  });
 }
 
 /**
@@ -568,29 +202,4 @@ export function buildConnectionRef(
     instance: instanceId,
     identity,
   };
-}
-
-/**
- * Persist connection state through the adapter's hibernation API so it
- * survives platform-level eviction. Adapters that don't support hibernation
- * simply pass `undefined` and the call no-ops.
- */
-export function persistAttachment(
-  connection: EngineContextTypes.RuntimeConnection,
-  hibernationApi:
-    | { persist(wsKey: unknown, snapshot: unknown): void; restore(wsKey: unknown): unknown }
-    | undefined,
-): void {
-  if (!hibernationApi) return;
-  const ephemeralTagPairs: { group: string; key: string }[] = [];
-  for (const [group, keys] of connection.tags.ephemeral) {
-    for (const key of keys) ephemeralTagPairs.push({ group, key });
-  }
-  hibernationApi.persist(connection.wsKey, {
-    id: connection.id,
-    meta: connection.meta,
-    tags: ephemeralTagPairs,
-    channelMemberships: [...connection.channelMemberships.values()],
-    activeStreamIds: [...(connection.activeStreamIds ?? [])],
-  });
 }

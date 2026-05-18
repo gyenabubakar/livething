@@ -1,0 +1,58 @@
+import { createLazyStorageView } from '~/_engine/contexts/lazy-storage.ts';
+import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
+
+/**
+ * Build the context passed to scheduled tasks and module-owned scheduled work.
+ */
+export function createTaskContext(
+  deps: EngineContextTypes.CreateTaskContextDeps,
+): EngineContextTypes.TaskContext<Record<string, unknown>, Record<string, unknown>, unknown> {
+  const { sql, kv } = createLazyStorageView(deps.requireStorage);
+  const ctx: EngineContextTypes.TaskContext<
+    Record<string, unknown>,
+    Record<string, unknown>,
+    unknown
+  > = {
+    sql,
+    kv,
+    broadcast: (event, payload) => {
+      deps.broadcastToConnections([...deps.connections.values()], event, payload, undefined);
+    },
+    sendToConnection: (connectionId, event, payload) => {
+      const connection = deps.connections.get(connectionId);
+      if (!connection) {
+        deps.logger.error('[wskit] sendToConnection target not found', {
+          connectionId,
+          event,
+        });
+        return false;
+      }
+      deps.sendThroughPipeline(connection, undefined, event, payload);
+      return true;
+    },
+    getConnections: () => {
+      return [...deps.connections.values()].map((connection) => deps.toConnectionInfo(connection));
+    },
+    connectionCount: deps.connections.size,
+    schedule: (taskId, options) => {
+      deps.scheduleTask(taskId, options.time, options.data);
+    },
+    cancelScheduled: (taskId, filter) => {
+      const result = deps.cancelScheduled(taskId, filter);
+      if (result.removed === 0) {
+        deps.logger.error('[wskit] cancelScheduled matched no runs', {
+          taskId,
+          filter,
+          taskExists: result.taskExists,
+        });
+      }
+    },
+    env: deps.env,
+    log: deps.logger,
+    waitUntil: deps.waitUntilImpl,
+    platform: deps.platform,
+  };
+
+  deps.attachModuleApis(ctx as unknown as Record<PropertyKey, unknown>, undefined);
+  return ctx;
+}
