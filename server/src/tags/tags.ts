@@ -40,14 +40,12 @@ function validateGroupNames(kind: TagKind, names: readonly string[]): void {
 }
 
 /**
- * Declares one kind of tag groups on a server builder. Used by the
- * `.tagGroups(kind, names)` method `withTags` adds — most apps register
- * groups through that builder method rather than calling this primitive
- * directly.
+ * Declares one kind of tag groups. Registered via `tagGroups:` on the
+ * contract config — most apps don't call this primitive directly.
  *
- * Same-kind, same-name declarations on one builder throw via the primitive
- * identity check. Cross-kind same-name declarations are allowed —
- * `ephemeral 'role'` and `persistent 'role'` are independent groups.
+ * Same-kind, same-name declarations throw at boot. Cross-kind same-name
+ * declarations are allowed — `ephemeral 'role'` and `persistent 'role'` are
+ * independent groups.
  *
  * @internal
  */

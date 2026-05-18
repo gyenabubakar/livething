@@ -51,31 +51,10 @@ export interface NamespacePrimitive<
 const NAMESPACE_KEY = Symbol('namespace');
 
 /**
- * Creates a namespace primitive. Groups a set of events under a shared name
- * prefix so you can organize a server into logical sections (e.g. `chat`,
- * `presence`, `editor`) without opening multiple connections.
- *
- * Events declared inside a namespace are sent and received with the prefix
- * included (e.g. `chat/message`, `chat/typing`).
- *
- * In practice you rarely call `namespace()` directly. Use it through the
- * builder: `server('name').namespace('chat', (ns) => ...)` — that method calls
- * this factory internally and gives you a sub-builder scoped to the namespace.
- *
- * @param pattern    The namespace name / event prefix.
- * @param primitives The outgoing events, handlers, and interceptors for this namespace.
- *
- * @example
- * ```ts
- * // Builder form (typical):
- * base.namespace('chat', (ns) =>
- *   ns.outgoing(NewMessage).incoming(SendMessage, (ctx, p) => ctx.broadcast('new-message', p)),
- * );
- *
- * // Direct factory form (rare — for sharing namespace definitions):
- * const chat = namespace('chat', outgoing('new-message'));
- * base.use(chat);
- * ```
+ * Internal primitive factory. The user-facing `namespace()` for declaring a
+ * namespace in a contract lives at `~/namespace/definition.ts`. This factory
+ * is called by the implementer's compile step to wrap a namespace's compiled
+ * child primitives.
  */
 export function namespace<
   const TPattern extends string,

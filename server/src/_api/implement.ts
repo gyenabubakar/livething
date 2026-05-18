@@ -1,10 +1,9 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 
 /**
- * `implement(contract)` returns an `Implementer` that collects handler
- * registrations against the contract's declared events. `.build()` walks the
- * contract, pairs declarations with handlers, and returns a `ServerDefinition`
- * the engine can run as-is.
+ * Implementation half of the wskit contract/implement API. `implement(contract)`
+ * returns an `Implementer` where you bind handlers, then call `.build()` to
+ * produce a `ServerDefinition` the adapter can serve.
  */
 
 import { error as coreErrorFactory } from '@wskit/core';
@@ -676,13 +675,7 @@ export class Implementer<C extends Contract> {
     });
   }
 
-  /**
-   * Walk a definitions list and call into each primitive's compile function.
-   * Channels and namespaces get a back-reference to this method so they can
-   * recurse into their own child definitions.
-   *
-   * @internal
-   */
+  /** @internal */
   private _buildDefinitions(
     definitions: readonly Definition[],
     handlers: HandlerMaps,

@@ -11,15 +11,9 @@ export interface RespondMethod<TResponse = unknown> {
 }
 
 /**
- * The function signature for a request–response handler.
- *
- * Unlike an `IncomingHandler` (which is fire-and-forget), a `RequestHandler`
- * receives `ctx.respond()` to explicitly send the response back to the client.
- * This keeps the sending model consistent across the library — all data going
- * to the client goes through an explicit send call.
- *
- * @param ctx      The handler context with `respond()` for sending the reply.
- * @param payload  The validated inbound payload.
+ * Handler function for a request/response pair. Receives `ctx.respond(value)`
+ * to send the reply. You can also return the value directly — the implementer
+ * accepts both forms.
  */
 export type RequestHandler<TCtx = any, TPayload = unknown, TResponse = unknown> = (
   ctx: TCtx & RespondMethod<TResponse>,
@@ -27,9 +21,9 @@ export type RequestHandler<TCtx = any, TPayload = unknown, TResponse = unknown> 
 ) => void | Promise<void>;
 
 /**
- * The primitive type produced by `request()`. Carries the event name, handler,
- * and optional validator so the engine can dispatch, validate, call the handler,
- * and send back the response via `ctx.respond()`.
+ * Primitive produced by `request()`. Carries the event name, handler, and
+ * optional validator so the engine can dispatch, validate, call the handler,
+ * and send back the response.
  */
 export interface RequestPrimitive<
   TEvent extends string = string,
@@ -62,34 +56,10 @@ export interface RequestPrimitive<
 const REQUEST_KEY = Symbol('request');
 
 /**
- * Creates a request–response handler primitive. The engine calls `handler`
- * when the client sends an event whose name matches `event`. The handler
- * uses `ctx.respond(value)` to send the response back to the client.
- *
- * In practice you rarely call `request()` directly. Use it through the builder
- * via `.request(eventContract, responseSchema, handler)`. The response schema
- * is recorded on the primitive for type inference and future introspection,
- * not enforced at runtime.
- *
- * @param event   The event name to respond to.
- * @param handler The function that handles the request.
- * @param options.validator Optional schema validator for the inbound payload.
- * @param options.responseSchema Optional response schema kept on the
- *   primitive for type inference and runtime introspection. Not enforced.
- *
- * @example
- * ```ts
- * import { server, event } from '@wskit/server';
- * import * as v from 'valibot';
- *
- * const GetUser = event('get-user', v.object({ id: v.string() }));
- * const UserResponse = v.object({ name: v.string() });
- *
- * server('chat').request(GetUser, UserResponse, async (ctx, payload) => {
- *   const user = await db.findUser(payload.id);
- *   ctx.respond(user);
- * });
- * ```
+ * Internal primitive factory. The user-facing `request()` for declaring a
+ * request/response pair in a contract lives at `~/request/definition.ts`.
+ * This factory is called by the implementer's compile step to bind a
+ * registered handler to a `RequestDef`.
  */
 export function request<TEvent extends string, TPayload, TResponse, TCtx = any>(
   event: TEvent,

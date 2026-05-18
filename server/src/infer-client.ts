@@ -100,12 +100,9 @@ type BuiltInErrorUnion =
  * ws.send('send-message', { text: 'hello' }); // fully typed
  * ```
  *
- * The contract records the outgoing/incoming/request/stream/channel/error
- * shapes. `.build()` carries those onto the `ServerDefinition`. `InferClient`
- * reads them back out and flips them into the client's perspective.
- *
- * `InferClient` simply reads that stored contract back out and turns it into
- * the client type.
+ * The contract records all event/request/stream/channel/error shapes.
+ * `.build()` stores them on the `ServerDefinition`. `InferClient` reads
+ * them back and flips them into the client's perspective.
  */
 export type InferClient<TServer extends ServerDefinition> = SimplifyDeep<{
   incoming: ContractOf<TServer>['incoming'];

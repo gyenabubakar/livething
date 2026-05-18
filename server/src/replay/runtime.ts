@@ -52,9 +52,9 @@ export function ensureReplaySchema(sql: {
  *
  * Channel replay handles only its own concrete channel or channel-family key.
  * Server-level replay handles every scope EXCEPT those claimed by another
- * replay primitive — channels that registered their own `.replay(...)` or
- * opted out via `.replay(false)`. That cascade behavior is what lets a single
- * top-level `withReplay` capture and serve replay for every unclaimed channel.
+ * replay primitive — channels that set their own `replay: true` or opted out
+ * via `replay: false`. That cascade behavior lets the top-level replay capture
+ * and serve every unclaimed channel.
  */
 export function matchesReplayScope(
   channelKey: string | undefined,

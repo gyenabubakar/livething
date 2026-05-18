@@ -72,10 +72,10 @@ export { error } from '@wskit/core';
  *
  * @example
  * ```ts
- * contract<Env>('chat', {
+ * contract<Env>('chat')({
  *   meta: t<{ username: string }>(),
  *   definitions: [...],
- * })
+ * });
  * ```
  */
 export function t<T>(): TypeMarker<T> {

@@ -174,9 +174,8 @@ export function deleteMembershipsByChannel(
 // ── Tags ───────────────────────────────────────────────────────────────────
 
 /**
- * Delete every tag row for one identity. Used by `purgeIdentity`. The table
- * may be empty until `withTags` ships persistent groups — the call is still
- * safe (no rows match → no-op).
+ * Delete every persistent tag row for one identity. Used by `purgeIdentity`.
+ * Safe to call even when no rows exist for the identity.
  */
 export function purgeTagsByIdentity(sql: Pick<SQLProvider, 'exec'>, identity: string): void {
   sql.exec(DELETE_TAGS_BY_IDENTITY_SQL, identity);

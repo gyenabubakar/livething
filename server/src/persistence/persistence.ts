@@ -9,26 +9,22 @@ export interface PersistencePrimitive extends Primitive<'persistence'> {}
 const PERSISTENCE_KEY = Symbol('persistence');
 
 /**
- * Activates per-user durable state. When registered on a server builder, the
- * engine creates the identity-keyed tables at boot and starts writing channel
- * memberships (and, when `withTags` ships persistent groups, persistent tags)
- * across reconnects. Channels persist by default; opt out per-channel with
- * `.persistent(false)` on the channel sub-builder.
+ * Activates per-user durable state. At boot the engine creates the
+ * identity-keyed tables and starts writing channel memberships across
+ * reconnects. Channels persist by default; set `persistent: false` inside
+ * a channel sub-builder to opt out per channel.
  *
- * Most apps will activate this through `.enablePersistence()` on a
- * `withPersistence`-wrapped builder rather than registering this primitive
- * directly.
+ * Enable this via `persistence: true` on the contract config instead of
+ * calling this primitive directly.
  *
  * @example
  * ```ts
- * import { server } from '@wskit/server';
- * import { withChannels } from '@wskit/server/channels';
- * import { withPersistence } from '@wskit/server/persistence';
- *
- * withPersistence(withChannels(server('chat')))
- *   .enablePersistence()
- *   .channel('team-eng', (c) => c)
- *   .build();
+ * const chat = contract<Env>('chat')({
+ *   persistence: true,
+ *   definitions: [
+ *     channel('team-eng', { definitions: [...] }),
+ *   ],
+ * });
  * ```
  */
 export function persistence(): PersistencePrimitive {

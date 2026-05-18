@@ -227,25 +227,10 @@ export class ScheduledBuilder<
 }
 
 /**
- * Register a scheduled task with the fluent scheduled builder.
- *
- * @example
- * ```ts
- * server('chat').scheduled('cleanup', (t) =>
- *   t.retry(false).run((ctx) => {
- *     ctx.broadcast('cleanup-done', { at: Date.now() });
- *   }),
- * );
- *
- * server('chat').scheduled('send-to-conn', (t) =>
- *   t
- *     .data(v.object({ connectionId: v.string(), text: v.string() }))
- *     .retry([50, 100])
- *     .run((ctx, data) => {
- *       ctx.sendToConnection(data.connectionId, 'message', { text: data.text });
- *     }),
- * );
- * ```
+ * Internal factory that builds the scheduled-task primitive from a fluent
+ * builder callback. Called by the implementer's `.build()` when compiling
+ * a `ScheduledDef`. Most apps interact with scheduled tasks through the
+ * contract's `definitions` array and `implement(contract).scheduled(id, handler)`.
  */
 export function scheduled<
   TTaskId extends string,

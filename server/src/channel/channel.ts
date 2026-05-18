@@ -42,25 +42,27 @@ type ChannelStatePrimitive =
   | AnyGenerate;
 
 /**
- * A named dynamic channel pattern used in `scope()`.
- * Groups many matching subscription paths under one channel family.
+ * A named dynamic channel pattern used in `scope()`. Groups many matching
+ * subscription paths under one channel family.
  *
  * @example
  * ```ts
- * import { server, scope } from '@wskit/server';
- * import { withChannels } from '@wskit/server/channels';
+ * import { contract, implement, channel, scope } from '@wskit/server';
  *
  * // Declare a channel family that matches `room:<anything>` subscriptions.
- * // The `key` ('rooms') is the family name you use in handlers.
- * withChannels(server('app')).channel(scope('rooms', /^room:.+$/), (ch) =>
- *   ch.onSubscribe((ctx) => {
- *     // Inside a handler, the family key is on ctx.channel.scope and the
- *     // matched channel name is on ctx.channel.name.
- *     console.log(ctx.channel.scope); // → 'rooms'
- *     console.log(ctx.channel.name);  // → e.g. 'room:alpha-42' (the actual match)
+ * // The `key` ('rooms') is the family name used in handlers.
+ * const app = contract<Env>('app')({
+ *   definitions: [
+ *     channel(scope('rooms', /^room:.+$/), {
+ *       definitions: [],
+ *     }),
+ *   ],
+ * });
  *
- *     // List every connection subscribed to any channel in this family:
- *     const members = ctx.channels.members('rooms');
+ * implement(app).channel('rooms', (ch) =>
+ *   ch.onSubscribe((ctx) => {
+ *     // ctx.channel.scope is the family key ('rooms')
+ *     // ctx.channel.name is the matched path (e.g. 'room:alpha-42')
  *   }),
  * );
  * ```
@@ -111,30 +113,34 @@ export interface ChannelPrimitive<
 const CHANNEL_KEY = Symbol('channel');
 
 /**
- * Create a `ScopeDeclaration` for a dynamic channel name. A dynamic channel
+ * Create a `ScopeDeclaration` for a dynamic channel family. A dynamic channel
  * matches many subscription paths against one regex and groups them under a
- * single scope identifier.
+ * single family key.
  *
- * The builder's `.channel(scope('rooms', /^room:.+$/))` call creates a channel
+ * Pass the result as the first argument to `channel(...)` inside `definitions`.
+ * `channel(scope('rooms', /^room:.+$/), { definitions: [...] })` creates a
  * family that matches subscriptions like `room:general`, `room:alpha-42`, etc.
- * The full matched string is available at `ctx.channel.name` — slice or
- * re-match it yourself if you need a parameter out of the path.
+ * The full matched string is available at `ctx.channel.name`; the family key
+ * is at `ctx.channel.scope`. Slice the name yourself if you need a sub-path.
  *
- * @param key     Identifier for this channel family. Pass it to
- *   `ctx.channels.members(key)` to list everyone subscribed to channels that
- *   match the pattern.
- * @param pattern Regex matched against the subscription path. Anchor it with
- *   `^` and `$` so it matches the full name. The pattern must run in linear
- *   time on attacker-controlled input. `scope()` rejects nested unbounded
- *   quantifiers like `(a+)+`, `(\w+)+`, `(a*)*` because such shapes let one
- *   crafted subscription frame stall the runtime via regex backtracking.
+ * @param key     Family identifier. Passed to `implement(c).channel(key, ch => ...)`
+ *   and used in `ctx.channels.get(key, name)` lookups.
+ * @param pattern Regex matched against the subscription path. Anchor with `^`
+ *   and `$` so it matches the full name. `scope()` rejects nested unbounded
+ *   quantifiers like `(a+)+` and `(\w+)+` that could freeze the runtime on
+ *   near-miss input via regex backtracking.
  *
  * @example
  * ```ts
- * // Match any room:* subscription. Inside the handler:
- * // ctx.channel.name === 'room:alpha-42'
- * // const roomId = ctx.channel.name.slice('room:'.length);
- * base.channel(scope('rooms', /^room:.+$/), (ch) => ...)
+ * import { contract, channel, scope } from '@wskit/server';
+ *
+ * const app = contract<Env>('app')({
+ *   definitions: [
+ *     channel(scope('rooms', /^room:.+$/), { definitions: [] }),
+ *   ],
+ * });
+ * // ctx.channel.name → 'room:alpha-42'
+ * // ctx.channel.scope → 'rooms'
  * ```
  */
 /**
@@ -186,30 +192,13 @@ export function scope<TKey extends string>(key: TKey, pattern: RegExp): ScopeDec
 }
 
 /**
- * Creates a channel primitive. Packages a pattern and a set of child
- * primitives into a single scope primitive that the engine registers as a
- * named pub/sub channel inside a handler.
+ * Internal primitive factory. The user-facing `channel()` for declaring a
+ * channel in a contract lives at `~/channel/definition.ts`. This factory is
+ * called by the implementer's compile step to wrap a channel's compiled
+ * child primitives.
  *
- * In practice you rarely call `channel()` directly. Use it through the builder:
- * `server('name').channel('notifications', (ch) => ...)` — that method calls
- * this factory internally and gives you a sub-builder scoped to the channel.
- *
- * @param pattern    A string (static channel name) or a `ScopeDeclaration`
- *   produced by {@link scope} for dynamic channels matching many paths.
- * @param primitives The outgoing events, handlers, lifecycle hooks, etc. that
- *   define the channel's behaviour.
- *
- * @example
- * ```ts
- * // Builder form (typical):
- * base.channel('notifications', (ch) =>
- *   ch.outgoing(Notify).incoming(Ping, (ctx) => ctx.channel.broadcast('notify', {})),
- * );
- *
- * // Direct factory form (rare — for sharing channel definitions):
- * const notifications = channel('notifications', outgoing('notify'));
- * base.use(notifications);
- * ```
+ * @param pattern A string (static channel name) or a `ScopeDeclaration` from
+ *   `scope()` for dynamic families that match many subscription paths.
  */
 export function channel<
   const TPattern extends ChannelPattern,

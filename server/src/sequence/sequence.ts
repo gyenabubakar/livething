@@ -27,18 +27,11 @@ export interface SequenceOptions {
 const SEQUENCE_KEY = Symbol('sequence');
 
 /**
- * Tags every outgoing message with a monotonically increasing number so
- * clients can detect gaps (missed messages) and request a replay of the
- * messages they didn't receive.
+ * Stamps every outgoing message with a monotonically increasing number so
+ * clients can detect gaps and request a replay of what they missed.
  *
- * @example
- * ```ts
- * import { server } from '@wskit/server';
- * import { withSequence } from '@wskit/server/sequence';
- *
- * withSequence(server('chat')).sequence();
- * withSequence(server('chat')).sequence({ persist: true }); // survives server restarts
- * ```
+ * Enable this via `sequence: true` (or `sequence: { persist: true }`) on the
+ * contract config instead of calling this primitive directly.
  */
 export function sequence(options?: SequenceOptions): SequencePrimitive {
   const persist = options?.persist ?? false;

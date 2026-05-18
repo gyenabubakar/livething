@@ -19,21 +19,14 @@ export interface HeartbeatPrimitive extends Primitive<'heartbeat'> {
 const HEARTBEAT_KEY = Symbol('heartbeat');
 
 /**
- * Creates the heartbeat primitive. When registered, this primitive arms an idle
- * timer for each connection. The timer resets whenever the connection sends a
- * message (any event counts). If the timer expires — meaning the connection has
- * been silent for longer than `options.timeout` milliseconds — the engine closes
- * the connection.
+ * Arms an idle timer per connection. The timer resets on every inbound
+ * message. When it expires — meaning the connection has been silent for
+ * longer than `options.timeout` milliseconds — the engine closes the socket.
+ *
+ * Enable this via `heartbeat: true` (or `heartbeat: { timeoutMs }`) on the
+ * contract config instead of calling this primitive directly.
  *
  * Requires the `timers` platform capability.
- *
- * @example
- * ```ts
- * import { server } from '@wskit/server';
- * import { withHeartbeat } from '@wskit/server/heartbeat';
- *
- * withHeartbeat(server('chat')).heartbeat({ timeout: 30_000 }); // close after 30 s of silence
- * ```
  */
 export function heartbeat(options: HeartbeatOptions): HeartbeatPrimitive {
   return {

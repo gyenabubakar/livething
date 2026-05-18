@@ -17,21 +17,14 @@ const DEDUP_DEFAULT_INCOMING_CAP = 256;
 /**
  * Deduplicates messages in both directions:
  *
- * - **Outgoing** — every server-to-client message is stamped with a unique id
- *   so clients can detect and drop duplicates from replays or reconnects.
- * - **Incoming** — duplicate sends from a client are silently dropped before
- *   handlers run, protecting them from client-side retries on a flaky socket.
+ * - **Outgoing** — every server-to-client message gets a unique id so clients
+ *   can drop duplicates from replays or reconnects.
+ * - **Incoming** — duplicate sends from a client are dropped before handlers
+ *   run, protecting against client-side retries on a flaky socket. Clients
+ *   opt in by attaching a stable id; sends without an id always go through.
  *
- * Clients opt in to incoming dedup by attaching a stable id to retried sends.
- * Sends without an id are always dispatched.
- *
- * @example
- * ```ts
- * import { server } from '@wskit/server';
- * import { withDedup } from '@wskit/server/dedup';
- *
- * withDedup(server('chat')).dedup();
- * ```
+ * Enable this via `dedup: true` on the contract config instead of calling
+ * this primitive directly.
  */
 export function dedup(): DedupPrimitive {
   return {

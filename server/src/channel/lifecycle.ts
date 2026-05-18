@@ -84,19 +84,15 @@ const ON_SESSION_END_KEY = Symbol('onSessionEnd');
  *
  * @example
  * ```ts
- * import { server } from '@wskit/server';
- * import { withChannels } from '@wskit/server/channels';
  * import { Block, error } from '@wskit/server/errors';
  *
  * const Forbidden = error('forbidden');
  *
- * withChannels(server('chat'))
- *   .channel('private-room', (ch) =>
- *     ch.onBeforeSubscribe(async (ctx, data) => {
- *       if (!ctx.meta.roles.includes('member')) throw Block(Forbidden());
- *     }),
- *   )
- *   .build();
+ * implement(chat).channel('private-room', (ch) =>
+ *   ch.onBeforeSubscribe(async (ctx, data) => {
+ *     if (!ctx.meta.roles.includes('member')) throw Block(Forbidden());
+ *   }),
+ * );
  * ```
  */
 export function onBeforeSubscribe<TCtx, TData = unknown>(
@@ -123,17 +119,12 @@ export function onBeforeSubscribe<TCtx, TData = unknown>(
  *
  * @example
  * ```ts
- * import { server } from '@wskit/server';
- * import { withChannels } from '@wskit/server/channels';
- *
- * withChannels(server('chat'))
- *   .channel('notifications', (ch) =>
- *     ch.onSubscribe(async (ctx) => {
- *       const items = await db.getUnread(ctx.meta.userId);
- *       ctx.send('notifications', items);
- *     }),
- *   )
- *   .build();
+ * implement(chat).channel('notifications', (ch) =>
+ *   ch.onSubscribe(async (ctx) => {
+ *     const items = await db.getUnread(ctx.meta.userId);
+ *     ctx.channel.send('notifications', items);
+ *   }),
+ * );
  * ```
  */
 export function onSubscribe<TCtx>(handler: SubscribeHandler<TCtx>): SubscribePrimitive<TCtx> {

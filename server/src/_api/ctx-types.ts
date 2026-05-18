@@ -32,8 +32,8 @@ interface TypedSendApi<TOutgoing> {
   send<E extends keyof TOutgoing & string>(event: E, payload: TOutgoing[E]): boolean;
   /**
    * Send an event to every other connection on this server. By default the
-   * current connection does not receive it; set `excludeSelf: false` to
-   * include yourself.
+   * calling connection is excluded; pass `excludeSelf: false` to include it
+   * in the fan-out.
    */
   broadcast<E extends keyof TOutgoing & string>(
     event: E,

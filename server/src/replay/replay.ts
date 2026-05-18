@@ -48,13 +48,13 @@ const REPLAY_KEY = Symbol('replay');
  * asks for replay automatically on reconnect, and no extra work is needed
  * from your handlers.
  *
- * **Cascade behavior.** A server-level `.replay(...)` captures every outgoing
+ * **Cascade behavior.** A server-level `replay: true` captures every outgoing
  * message, including channel-scoped traffic. To use a different replay
- * strategy for a specific channel, call `.replay(...)` inside that channel's
- * sub-builder — server-level skips channels that claim their own replay. To
- * opt a specific channel out of replay entirely, call `.replay(false)` inside
- * it; messages on that channel are not stored or replayed by either the
- * server-level or channel-level replay.
+ * strategy for one channel, add `replay: true` inside that channel's
+ * `definitions` — the server-level replay then skips that channel. To opt a
+ * specific channel out of replay entirely, add `replay: false` inside its
+ * `definitions`; messages on that channel are not stored or replayed by
+ * either the server-level or channel-level replay.
  *
  * Handlers also get `ctx.sendReplay()` for manually replaying a stored
  * message (e.g. in response to a "load older history" request).
@@ -62,14 +62,15 @@ const REPLAY_KEY = Symbol('replay');
  * `sequence` and `dedup` are enabled automatically if you haven't already
  * registered them. Requires the `storage` platform capability.
  *
+ * Enable this via `replay: true` (or `replay: { retention: { maxAgeMs } }`)
+ * on the contract config instead of calling this primitive directly.
+ *
  * @example
  * ```ts
- * import { server } from '@wskit/server';
- * import { withReplay } from '@wskit/server/replay';
- *
- * withReplay(server('chat'))
- *   .replay((rb) => rb.retention({ maxAgeMs: 7 * 24 * 60 * 60 * 1000 }))
- *   .build();
+ * const chat = contract<Env>('chat')({
+ *   replay: { retention: { maxAgeMs: 7 * 24 * 60 * 60 * 1000 } },
+ *   definitions: [...],
+ * });
  * ```
  */
 export function replay(options?: ReplayOptions | false): ReplayPrimitive {

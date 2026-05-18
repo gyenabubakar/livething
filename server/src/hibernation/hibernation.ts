@@ -11,25 +11,15 @@ export interface HibernationPrimitive extends Primitive<'hibernation'> {
 const HIBERNATION_KEY = Symbol('hibernation');
 
 /**
- * Creates the hibernation primitive. When registered and `enabled` is `true`,
- * this primitive tells the engine to opt the handler into the platform's
- * WebSocket hibernation support.
+ * Opts the server into the platform's WebSocket hibernation support. When
+ * enabled, the worker process can pause between messages and wake only when
+ * a new frame arrives — saving CPU and memory for mostly-idle connections.
  *
- * On platforms that support hibernation (e.g. Cloudflare Durable Objects), the
- * worker process can be paused between messages and woken up only when a new
- * message arrives. This saves CPU and memory cost for connections that are
- * mostly idle. Without this primitive, the connection is kept alive in memory
- * at all times.
+ * Enable this via `hibernation: true` on the contract config instead of
+ * calling this primitive directly.
  *
- * Requires the `hibernation` platform capability.
- *
- * @example
- * ```ts
- * import { server } from '@wskit/server';
- * import { withHibernation } from '@wskit/server/hibernation';
- *
- * withHibernation(server('chat')).hibernation(); // opt in with default enabled = true
- * ```
+ * Requires the `hibernation` platform capability (e.g. Cloudflare Durable
+ * Objects).
  */
 export function hibernation(enabled = true): HibernationPrimitive {
   return {

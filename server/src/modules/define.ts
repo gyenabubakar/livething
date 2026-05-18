@@ -207,8 +207,11 @@ function isModuleId(value: string): boolean {
  *   },
  * });
  *
- * // Mount onto a server builder:
- * server('app').use(analytics({ trackingId: '...' }));
+ * // Mount onto a contract:
+ * const app = contract<Env>('app')({
+ *   modules: [analytics({ trackingId: '...' })],
+ *   definitions: [...],
+ * });
  *
  * // In handlers:
  * const tracker = analytics.use(ctx);

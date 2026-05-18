@@ -55,12 +55,9 @@ export interface GroupHandle<Meta = Record<string, unknown>> {
 }
 
 /**
- * The surface attached to `ctx.tags` when `withTags` is wrapped. Two methods
- * — one per kind — return a typed group handle.
- *
- * Type narrowing is provided by the builder via the `TGroups` parameter so
- * `ephemeral(name)` only accepts groups declared under `'ephemeral'`, and
- * the same for `persistent(name)`.
+ * The surface attached to `ctx.tags`. Two methods — one per kind — return a
+ * typed group handle. `ephemeral(name)` only accepts group names declared
+ * under `tagGroups.ephemeral` on the contract; likewise for `persistent`.
  */
 export interface TagsApi<
   TEphemeralGroups extends string = string,

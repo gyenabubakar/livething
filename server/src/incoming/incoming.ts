@@ -2,21 +2,15 @@
 import type { Primitive } from '~/primitive.ts';
 import type { Validator } from '~/types.ts';
 
-/**
- * The function signature for an incoming event handler.
- *
- * @param ctx     The handler context for the current connection.
- * @param payload The validated inbound payload.
- */
+/** Handler function for a client→server event. */
 export type IncomingHandler<TCtx = any, TPayload = unknown> = (
   ctx: TCtx,
   payload: TPayload,
 ) => void | Promise<void>;
 
 /**
- * The primitive type produced by `incoming()`. Carries the event name, handler,
- * and optional validator so the engine can dispatch and validate messages at
- * runtime, and so the type generator can add the event to the client's event map.
+ * Primitive produced by `incoming()`. Carries the event name, handler, and
+ * optional validator so the engine can dispatch and validate messages.
  */
 export interface IncomingPrimitive<
   TEvent extends string = string,
@@ -39,31 +33,10 @@ export interface IncomingPrimitive<
 const INCOMING_KEY = Symbol('incoming');
 
 /**
- * Creates an incoming event handler primitive. The engine calls `handler` every
- * time the client sends an event whose name matches `event`.
- *
- * If `options.validator` is provided, the engine validates the raw payload first.
- * A validation failure triggers `onValidationError` and the handler is not called.
- *
- * In practice you rarely call `incoming()` directly. Use it through the builder:
- * `server('name').incoming(myContract, handler)` — that method calls this
- * factory internally.
- *
- * @param event   The event name to listen for.
- * @param handler The function to call with the validated payload.
- * @param options.validator Optional schema validator for the payload.
- *
- * @example
- * ```ts
- * import { server, event } from '@wskit/server';
- * import * as v from 'valibot';
- *
- * const SendMessage = event('send-message', v.object({ text: v.string() }));
- *
- * server('chat').incoming(SendMessage, async (ctx, payload) => {
- *   await saveMessage(payload.text);
- * });
- * ```
+ * Internal primitive factory. The user-facing `incoming()` for declaring a
+ * client→server event in a contract lives at `~/incoming/definition.ts`.
+ * This factory is called by the implementer's compile step to bind a
+ * registered handler to an `IncomingDef`.
  */
 export function incoming<TEvent extends string, TPayload, TCtx = any>(
   event: TEvent,

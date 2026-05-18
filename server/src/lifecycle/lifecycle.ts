@@ -53,36 +53,21 @@ export interface UpgradeResult {
   readonly tags?: readonly PublicApiTypes.TagRef[];
 }
 
-/**
- * Callback for `.onInit()` — runs once during `engine.initialize()`, before
- * any connections are accepted. Receives `InitContext` (storage, env, log).
- */
+/** Handler type for `implement(contract).onInit(...)`. */
 export type InitHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
 
-/**
- * Callback for `.onConnect()` — runs after a WebSocket connection is accepted.
- * Receives full `ConnectionContext`.
- */
+/** Handler type for `implement(contract).onConnect(...)`. */
 export type ConnectHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
 
-/**
- * Callback for `.onDisconnect()` — runs after a connection closes. Receives
- * full `ConnectionContext` for last-moment cleanup.
- */
+/** Handler type for `implement(contract).onDisconnect(...)`. */
 export type DisconnectHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
 
-/**
- * Callback for `.onShutdown()` — runs during graceful engine shutdown.
- * Receives `ShutdownContext` (broadcast, storage, connection info — but no
- * per-connection `send`).
- */
+/** Handler type for `implement(contract).onShutdown(...)`. */
 export type ShutdownHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
 
 /**
- * Callback for `.onError()` — observes unrecognized runtime errors. Does not
- * suppress the `{ code: 'internal-error' }` response sent to the client.
- *
- * `event` is the incoming event name that triggered the error, when known.
+ * Handler type for `implement(contract).onError(...)`. The `event` argument is
+ * the incoming event name that caused the error, when known.
  */
 export type ErrorHandler<TCtx = any> = (
   ctx: TCtx,
@@ -91,21 +76,15 @@ export type ErrorHandler<TCtx = any> = (
 ) => void | Promise<void>;
 
 /**
- * Callback for `.onUpgrade()` — runs before the WebSocket handshake completes.
- * Return `{ meta }` to accept and populate `ctx.meta`, or throw
- * `RejectUpgrade(code, reason)` to reject.
- */
-/**
- * Helper bag passed as the second argument to `onUpgrade`. Wrappers populate
- * the fields they own — `withTags` adds `tags`, future wrappers may add more.
- * Always an object (possibly empty) so handlers can safely destructure.
+ * Second argument to `onUpgrade`. When tag groups are declared on the
+ * contract, `helpers.tags` lets you attach initial tag refs to the connection
+ * before it opens. Always an object (possibly empty) — safe to destructure.
  */
 export interface UpgradeHelpers {
   /**
-   * Tag-ref builders, present when `withTags` is wrapped. Returns a partial
+   * Tag-ref builders available during the upgrade phase. Returns a partial
    * group handle whose only method is `.ref(key)` — `add` / `remove` /
-   * `has` and fan-out reads need a live connection ctx and are not
-   * available during the upgrade phase.
+   * `has` and fan-out reads need a live connection and are not available here.
    */
   readonly tags?: {
     ephemeral(group: string): { ref(key: string): PublicApiTypes.TagRef };
@@ -118,17 +97,10 @@ export type UpgradeHandler = (
   helpers: UpgradeHelpers,
 ) => UpgradeResult | Promise<UpgradeResult>;
 
-/**
- * Callback for `.onBinary()` — handles raw binary WebSocket frames that
- * bypass the JSON pipeline entirely.
- */
+/** Handler type for `implement(contract).onBinary(...)`. */
 export type BinaryHandler<TCtx = any> = (ctx: TCtx, data: ArrayBuffer) => void | Promise<void>;
 
-/**
- * Callback for `.onValidationError()` — fires when an incoming payload fails
- * schema validation. By default the engine sends `ValidationFailed` to the
- * client; this hook lets you observe or log the failure.
- */
+/** Handler type for `implement(contract).onValidationError(...)`. */
 export type ValidationErrorHandler<TCtx = any> = (
   ctx: TCtx,
   event: string,
@@ -184,16 +156,7 @@ const ON_UPGRADE_KEY = Symbol('onUpgrade');
 const ON_BINARY_KEY = Symbol('onBinary');
 const ON_VALIDATION_ERROR_KEY = Symbol('onValidationError');
 
-/**
- * Creates a lifecycle primitive factory. All eight lifecycle events have the
- * same structure — a tag, a key, and a `setup` that forwards the handler to
- * the engine — so this helper produces each one from three arguments instead
- * of writing eight separate factory functions.
- *
- * @param tag     The `__wskit` discriminator stored on the primitive.
- * @param key     Symbol used for singleton identity.
- * @param setupFn How the engine registers the handler (e.g. `e.onConnect(h)`).
- */
+/** @internal */
 function makeLifecycle<TTag extends string>(
   tag: TTag,
   key: symbol,
@@ -212,15 +175,8 @@ function makeLifecycle<TTag extends string>(
 }
 
 /**
- * Creates an `onInit` lifecycle primitive. The handler is called once when the
- * server starts, before any WebSocket connection is accepted.
- *
- * @example
- * ```ts
- * server('chat').onInit(async (ctx) => {
- *   await db.migrate();
- * });
- * ```
+ * Creates an `onInit` lifecycle primitive. Prefer `implement(contract).onInit(...)`
+ * — this factory is used internally by the implementer.
  */
 export const onInit = Object.assign(
   makeLifecycle('onInit', ON_INIT_KEY, (e, h) => e.onInit(h)) as <TCtx>(
@@ -230,15 +186,8 @@ export const onInit = Object.assign(
 );
 
 /**
- * Creates an `onConnect` lifecycle primitive. The handler is called each time
- * a client establishes a WebSocket connection.
- *
- * @example
- * ```ts
- * server('chat').onConnect((ctx) => {
- *   console.log('client connected', ctx.id);
- * });
- * ```
+ * Creates an `onConnect` lifecycle primitive. Prefer `implement(contract).onConnect(...)`
+ * — this factory is used internally by the implementer.
  */
 export const onConnect = Object.assign(
   makeLifecycle('onConnect', ON_CONNECT_KEY, (e, h) => e.onConnect(h)) as <TCtx>(
@@ -248,15 +197,8 @@ export const onConnect = Object.assign(
 );
 
 /**
- * Creates an `onDisconnect` lifecycle primitive. The handler is called each
- * time a client disconnects, whether cleanly or due to a network error.
- *
- * @example
- * ```ts
- * server('chat').onDisconnect((ctx) => {
- *   console.log('client left', ctx.id);
- * });
- * ```
+ * Creates an `onDisconnect` lifecycle primitive. Prefer `implement(contract).onDisconnect(...)`
+ * — this factory is used internally by the implementer.
  */
 export const onDisconnect = Object.assign(
   makeLifecycle('onDisconnect', ON_DISCONNECT_KEY, (e, h) => e.onDisconnect(h)) as <TCtx>(
@@ -266,16 +208,8 @@ export const onDisconnect = Object.assign(
 );
 
 /**
- * Creates an `onShutdown` lifecycle primitive. The handler is called when the
- * server begins shutting down. Use this for cleanup such as flushing queues
- * or closing database connections.
- *
- * @example
- * ```ts
- * server('chat').onShutdown(async (ctx) => {
- *   await queue.flush();
- * });
- * ```
+ * Creates an `onShutdown` lifecycle primitive. Prefer `implement(contract).onShutdown(...)`
+ * — this factory is used internally by the implementer.
  */
 export const onShutdown = Object.assign(
   makeLifecycle('onShutdown', ON_SHUTDOWN_KEY, (e, h) => e.onShutdown(h)) as <TCtx>(
@@ -285,17 +219,8 @@ export const onShutdown = Object.assign(
 );
 
 /**
- * Creates an `onError` lifecycle primitive. The handler is called when an
- * error is not caught by any other handler. Receives the handler context, the
- * error value, and — when the error occurred inside a named event handler —
- * the event name.
- *
- * @example
- * ```ts
- * server('chat').onError((ctx, error, event) => {
- *   logger.error({ id: ctx.id, event }, String(error));
- * });
- * ```
+ * Creates an `onError` lifecycle primitive. Prefer `implement(contract).onError(...)`
+ * — this factory is used internally by the implementer.
  */
 export const onError = Object.assign(
   makeLifecycle('onError', ON_ERROR_KEY, (e, h) => e.onError(h)) as <TCtx>(
@@ -305,20 +230,8 @@ export const onError = Object.assign(
 );
 
 /**
- * Creates an `onUpgrade` lifecycle primitive. The handler is called when a
- * client sends the HTTP upgrade request to open a WebSocket connection.
- *
- * Return `{ meta, tags }` to attach metadata and routing tags to the
- * connection, or throw `RejectUpgrade(code, reason)` to reject it.
- *
- * @example
- * ```ts
- * server('chat').onUpgrade(async (req) => {
- *   const user = await auth.verify(req.headers.get('authorization'));
- *   if (!user) throw RejectUpgrade(4001, 'Unauthorized');
- *   return { meta: { userId: user.id } };
- * });
- * ```
+ * Creates an `onUpgrade` lifecycle primitive. Prefer `implement(contract).onUpgrade(...)`
+ * — this factory is used internally by the implementer.
  */
 export const onUpgrade = Object.assign(
   makeLifecycle('onUpgrade', ON_UPGRADE_KEY, (e, h) => e.setBuilderUpgradeHook(h)) as (
@@ -328,16 +241,8 @@ export const onUpgrade = Object.assign(
 );
 
 /**
- * Creates an `onBinary` lifecycle primitive. The handler is called when the
- * client sends a raw binary WebSocket frame. The `data` is the raw `ArrayBuffer`
- * — wskit does not parse it.
- *
- * @example
- * ```ts
- * server('uploads').onBinary((ctx, data) => {
- *   saveChunk(ctx.id, new Uint8Array(data));
- * });
- * ```
+ * Creates an `onBinary` lifecycle primitive. Prefer `implement(contract).onBinary(...)`
+ * — this factory is used internally by the implementer.
  */
 export const onBinary = Object.assign(
   makeLifecycle('onBinary', ON_BINARY_KEY, (e, h) => e.onBinary(h)) as <TCtx>(
@@ -347,16 +252,8 @@ export const onBinary = Object.assign(
 );
 
 /**
- * Creates an `onValidationError` lifecycle primitive. The handler is called
- * when an incoming message fails schema validation. Receives the handler
- * context, the event name, and the raw validation error from the schema library.
- *
- * @example
- * ```ts
- * server('chat').onValidationError((ctx, event, err) => {
- *   logger.warn({ id: ctx.id, event }, 'bad payload', err);
- * });
- * ```
+ * Creates an `onValidationError` lifecycle primitive. Prefer `implement(contract).onValidationError(...)`
+ * — this factory is used internally by the implementer.
  */
 export const onValidationError = Object.assign(
   makeLifecycle('onValidationError', ON_VALIDATION_ERROR_KEY, (e, h) => e.onValidationError(h)) as <

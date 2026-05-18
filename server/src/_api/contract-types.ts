@@ -1,13 +1,9 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 
 /**
- * Derives the structured `Contract` shape from a tuple of `Definition` items.
- * Each section (`incoming`, `outgoing`, `requests`, `streams`, `scheduled`,
- * `channels`, `namespaces`) is a record keyed by definition name.
- *
- * Groups are an implementation-side organisational tool, NOT contract items.
- * They mount via `.use(group)` on `implement(contract)`, not into the
- * contract's `definitions` array.
+ * Derives the structured `Contract` shape from a `definitions` tuple. Each
+ * section (`incoming`, `outgoing`, `requests`, `streams`, `scheduled`,
+ * `channels`, `namespaces`) becomes a record keyed by definition name.
  */
 
 import type { ScopeDeclaration } from '~/channel/channel.ts';
