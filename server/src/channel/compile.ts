@@ -6,11 +6,24 @@ import {
   onSubscribe,
   onUnsubscribe,
 } from '~/channel/lifecycle.ts';
+import { matchesScopePattern } from '~/channel/runtime.ts';
+import { addPostIntercept } from '~/intercept/compile.ts';
 import { intercept as interceptFactory } from '~/intercept/intercept.ts';
 import { persistentMarker } from '~/persistence/channel-marker.ts';
 import { handleReplay as customReplayFactory } from '~/replay/custom/custom.ts';
 import { replay as replayFactory } from '~/replay/replay.ts';
 import type { BuildDefinitionsFn, HandlerMaps } from '~/_api/handler-maps.ts';
+import type {
+  AnyGenerate,
+  AnyIncoming,
+  AnyOutgoing,
+  AnyPostIntercept,
+  AnyPreIntercept,
+  AnyRequest,
+  ChannelPrimitiveType,
+  CompiledChannel,
+  CompiledServer,
+} from '~/_engine/compile/types.ts';
 import type { ScopeDeclaration } from '~/channel/channel.ts';
 import type { ChannelDef } from '~/channel/definition.ts';
 import type { ChannelImplement } from '~/channel/implement.ts';
@@ -91,4 +104,71 @@ export function compileChannelDef(
           (def.pattern as ScopeDeclaration).pattern,
         );
   return channelFactory(pattern as any, ...(childPrimitives as any[]));
+}
+
+// Engine-side: walk a built channel primitive and sort its children into the
+// per-event lookup maps the runtime needs.
+export function compileChannelPrimitive(primitive: ChannelPrimitiveType): CompiledChannel {
+  const key = typeof primitive.pattern === 'string' ? primitive.pattern : primitive.pattern.key;
+  const scope: CompiledChannel = {
+    kind: 'channel',
+    key,
+    pattern: primitive.pattern,
+    outgoing: new Map(),
+    incoming: new Map(),
+    requests: new Map(),
+    streams: new Map(),
+    preIntercepts: [],
+    postIntercepts: new Map(),
+  };
+
+  for (const child of primitive.primitives) {
+    switch (child.__wskit) {
+      case 'outgoing':
+        scope.outgoing.set((child as AnyOutgoing).event, child as AnyOutgoing);
+        break;
+      case 'incoming':
+        scope.incoming.set((child as AnyIncoming).event, child as AnyIncoming);
+        break;
+      case 'request':
+        scope.requests.set((child as AnyRequest).event, child as AnyRequest);
+        break;
+      case 'generate':
+        scope.streams.set((child as AnyGenerate).event, child as AnyGenerate);
+        break;
+      case 'intercept': {
+        const intercept = child as AnyPreIntercept | AnyPostIntercept;
+        if (intercept.mode === 'pre') {
+          scope.preIntercepts.push(intercept);
+        } else {
+          addPostIntercept(intercept.event, intercept, scope.postIntercepts);
+        }
+        break;
+      }
+    }
+  }
+
+  return scope;
+}
+
+/**
+ * Refuse to boot when a channel family pattern matches a static channel name.
+ * The two would route the same wire `_channel` value to different compiled
+ * definitions depending on which side the lookup hit first. Surface the
+ * conflict at boot time to keep runtime behaviour unambiguous.
+ */
+export function validateChannelFamilyPatternsDisjointFromStaticNames(
+  compiled: CompiledServer,
+): void {
+  for (const [familyKey, family] of compiled.channelFamilies) {
+    for (const staticName of compiled.channels.keys()) {
+      if (matchesScopePattern(family.pattern, staticName)) {
+        throw new Error(
+          `[wskit] Channel family '${familyKey}' has a pattern that matches the static ` +
+            `channel name '${staticName}'. Static channel names and family patterns must be ` +
+            `disjoint — narrow the family pattern or rename the static channel.`,
+        );
+      }
+    }
+  }
 }

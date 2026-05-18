@@ -1,7 +1,18 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { addPostIntercept } from '~/intercept/compile.ts';
 import { intercept as interceptFactory } from '~/intercept/intercept.ts';
 import { namespace as namespaceFactory } from '~/namespace/namespace.ts';
 import type { BuildDefinitionsFn, HandlerMaps } from '~/_api/handler-maps.ts';
+import type {
+  AnyGenerate,
+  AnyIncoming,
+  AnyOutgoing,
+  AnyPostIntercept,
+  AnyPreIntercept,
+  AnyRequest,
+  CompiledNamespace,
+  NamespacePrimitiveType,
+} from '~/_engine/compile/types.ts';
 import type { NamespaceDef } from '~/namespace/definition.ts';
 import type { NamespaceImplement } from '~/namespace/implement.ts';
 import type { Primitive } from '~/primitive.ts';
@@ -32,4 +43,47 @@ export function compileNamespaceDef(
     }
   }
   return namespaceFactory(def.name, ...(childPrimitives as any[]));
+}
+
+// Engine-side: walk a built namespace primitive and sort its children into
+// the per-event lookup maps the runtime needs.
+export function compileNamespacePrimitive(primitive: NamespacePrimitiveType): CompiledNamespace {
+  const scope: CompiledNamespace = {
+    kind: 'namespace',
+    name: primitive.pattern,
+    outgoing: new Map(),
+    incoming: new Map(),
+    requests: new Map(),
+    streams: new Map(),
+    preIntercepts: [],
+    postIntercepts: new Map(),
+  };
+
+  for (const child of primitive.primitives) {
+    switch (child.__wskit) {
+      case 'outgoing':
+        scope.outgoing.set((child as AnyOutgoing).event, child as AnyOutgoing);
+        break;
+      case 'incoming':
+        scope.incoming.set((child as AnyIncoming).event, child as AnyIncoming);
+        break;
+      case 'request':
+        scope.requests.set((child as AnyRequest).event, child as AnyRequest);
+        break;
+      case 'generate':
+        scope.streams.set((child as AnyGenerate).event, child as AnyGenerate);
+        break;
+      case 'intercept': {
+        const intercept = child as AnyPreIntercept | AnyPostIntercept;
+        if (intercept.mode === 'pre') {
+          scope.preIntercepts.push(intercept);
+        } else {
+          addPostIntercept(intercept.event, intercept, scope.postIntercepts);
+        }
+        break;
+      }
+    }
+  }
+
+  return scope;
 }

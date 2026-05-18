@@ -1,129 +1,20 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import * as ChannelPrimitive from '~/channel/runtime.ts';
-import { RESERVED_EVENT_NAMES } from './utils.ts';
+import {
+  compileChannelPrimitive,
+  validateChannelFamilyPatternsDisjointFromStaticNames,
+} from '~/channel/compile.ts';
+import { addPostIntercept } from '~/intercept/compile.ts';
+import { compileNamespacePrimitive } from '~/namespace/compile.ts';
+import { collectReplayClaimedScopes } from '~/replay/compile.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
 import type * as DefineServer from '~/server-definition.ts';
+import { RESERVED_EVENT_NAMES } from './utils.ts';
 import * as EngineCompileUtils from './utils.ts';
 import type * as EngineCompileTypes from './types.ts';
 
-/**
- * Append a post-intercept to the per-event intercept list.
- */
-function addPostIntercept(
-  event: string,
-  primitive: EngineCompileTypes.AnyPostIntercept,
-  map: Map<string, EngineCompileTypes.AnyPostIntercept[]>,
-): void {
-  const existing = map.get(event) ?? [];
-  existing.push(primitive);
-  map.set(event, existing);
-}
-
-/**
- * Compile a namespace block into fast lookup maps.
- */
-function compileNamespace(
-  primitive: EngineCompileTypes.NamespacePrimitiveType,
-): EngineCompileTypes.CompiledNamespace {
-  const scope: EngineCompileTypes.CompiledNamespace = {
-    kind: 'namespace',
-    name: primitive.pattern,
-    outgoing: new Map(),
-    incoming: new Map(),
-    requests: new Map(),
-    streams: new Map(),
-    preIntercepts: [],
-    postIntercepts: new Map(),
-  };
-
-  for (const child of primitive.primitives) {
-    switch (child.__wskit) {
-      case 'outgoing':
-        scope.outgoing.set(child.event, child as EngineCompileTypes.AnyOutgoing);
-        break;
-      case 'incoming':
-        scope.incoming.set(child.event, child as EngineCompileTypes.AnyIncoming);
-        break;
-      case 'request':
-        scope.requests.set(child.event, child as EngineCompileTypes.AnyRequest);
-        break;
-      case 'generate':
-        scope.streams.set(child.event, child as EngineCompileTypes.AnyGenerate);
-        break;
-      case 'intercept': {
-        const intercept = child as
-          | EngineCompileTypes.AnyPreIntercept
-          | EngineCompileTypes.AnyPostIntercept;
-
-        if (intercept.mode === 'pre') {
-          scope.preIntercepts.push(intercept);
-        } else {
-          addPostIntercept(intercept.event, intercept, scope.postIntercepts);
-        }
-
-        break;
-      }
-    }
-  }
-
-  return scope;
-}
-
-/**
- * Compile a channel or channel-family block into fast lookup maps.
- */
-function compileChannel(
-  primitive: EngineCompileTypes.ChannelPrimitiveType,
-): EngineCompileTypes.CompiledChannel {
-  const key = typeof primitive.pattern === 'string' ? primitive.pattern : primitive.pattern.key;
-  const scope: EngineCompileTypes.CompiledChannel = {
-    kind: 'channel',
-    key,
-    pattern: primitive.pattern,
-    outgoing: new Map(),
-    incoming: new Map(),
-    requests: new Map(),
-    streams: new Map(),
-    preIntercepts: [],
-    postIntercepts: new Map(),
-  };
-
-  for (const child of primitive.primitives) {
-    switch (child.__wskit) {
-      case 'outgoing':
-        scope.outgoing.set(child.event, child as EngineCompileTypes.AnyOutgoing);
-        break;
-      case 'incoming':
-        scope.incoming.set(child.event, child as EngineCompileTypes.AnyIncoming);
-        break;
-      case 'request':
-        scope.requests.set(child.event, child as EngineCompileTypes.AnyRequest);
-        break;
-      case 'generate':
-        scope.streams.set(child.event, child as EngineCompileTypes.AnyGenerate);
-        break;
-      case 'intercept': {
-        const intercept = child as
-          | EngineCompileTypes.AnyPreIntercept
-          | EngineCompileTypes.AnyPostIntercept;
-
-        if (intercept.mode === 'pre') {
-          scope.preIntercepts.push(intercept);
-        } else {
-          addPostIntercept(intercept.event, intercept, scope.postIntercepts);
-        }
-
-        break;
-      }
-    }
-  }
-
-  return scope;
-}
-
-/**
- * Walk the declarative primitive tree and fill the compiled runtime shape.
- */
+// Walk the declarative primitive tree and fill the compiled runtime shape.
+// Per-kind work lives next to the primitive (channel/compile.ts,
+// namespace/compile.ts, intercept/compile.ts); this function dispatches.
 function visitCompiledPrimitives(
   compiled: EngineCompileTypes.CompiledServer,
   primitives: readonly PrimitiveCore.Primitive[],
@@ -191,12 +82,12 @@ function visitCompiledPrimitives(
     }
 
     if (EngineCompileUtils.isNamespacePrimitive(primitive)) {
-      compiled.namespaces.set(primitive.pattern, compileNamespace(primitive));
+      compiled.namespaces.set(primitive.pattern, compileNamespacePrimitive(primitive));
       continue;
     }
 
     if (EngineCompileUtils.isChannelPrimitive(primitive)) {
-      const compiledChannel = compileChannel(primitive);
+      const compiledChannel = compileChannelPrimitive(primitive);
 
       if (typeof primitive.pattern === 'string') {
         if (compiled.channelFamilies.has(primitive.pattern)) {
@@ -305,12 +196,10 @@ function validateNoCrossPrimitiveEventCollisions(
   }
 }
 
-/**
- * Build the set of double-underscore outgoing event names the installed
- * modules actually declared. Used by the reserved-name guard to allow
- * those exact names through while still rejecting any user-declared
- * double-underscore events.
- */
+// Build the set of double-underscore outgoing event names the installed
+// modules actually declared. Used by the reserved-name guard to allow those
+// exact names through while still rejecting any user-declared double-
+// underscore events.
 function collectModuleEventNames(compiled: EngineCompileTypes.CompiledServer): ReadonlySet<string> {
   const names = new Set<string>();
   for (const moduleInstance of compiled.modules) {
@@ -319,29 +208,6 @@ function collectModuleEventNames(compiled: EngineCompileTypes.CompiledServer): R
     }
   }
   return names;
-}
-
-/**
- * Refuse to boot when any registered channel family's pattern matches a
- * registered static channel name. The two would route the same wire
- * `_channel` value to different compiled definitions depending on which side
- * the lookup hit first; surfacing the conflict at boot time keeps the runtime
- * behavior unambiguous.
- */
-function validateChannelFamilyPatternsDisjointFromStaticNames(
-  compiled: EngineCompileTypes.CompiledServer,
-): void {
-  for (const [familyKey, family] of compiled.channelFamilies) {
-    for (const staticName of compiled.channels.keys()) {
-      if (ChannelPrimitive.matchesScopePattern(family.pattern, staticName)) {
-        throw new Error(
-          `[wskit] Channel family '${familyKey}' has a pattern that matches the static ` +
-            `channel name '${staticName}'. Static channel names and family patterns must be ` +
-            `disjoint — narrow the family pattern or rename the static channel.`,
-        );
-      }
-    }
-  }
 }
 
 /**
@@ -401,11 +267,11 @@ function validateNoReservedEventNames(
     for (const [streamEvent, generate] of scope.streams) {
       check(streamEvent, `${label} stream`);
       // A stream can also declare nudges — client-to-server events that drive
-      // the active generator. A nudge name that collides with a protocol event
-      // would buffer real protocol frames into the stream's nudge queue while
-      // the stream is active. Hand-rolled / `as any` nudges bypass the
-      // friendly check on `event(...)`, so the boot-time guard has to walk
-      // the actual nudge list too.
+      // the active generator. A nudge name that collides with a protocol
+      // event would buffer real protocol frames into the stream's nudge
+      // queue while the stream is active. Hand-rolled / `as any` nudges
+      // bypass the friendly check on `event(...)`, so the boot-time guard
+      // has to walk the actual nudge list too.
       for (const nudge of generate.stream.nudges) {
         check(nudge.event, `${label} stream '${streamEvent}' nudge`);
       }
@@ -425,61 +291,10 @@ function validateNoReservedEventNames(
 }
 
 /**
- * Walk the primitive tree and record every channel key that has its own
- * `.replay(...)` (configured or `replay(false)` disabled). Server-level replay
- * uses the resulting set to skip channels that opted out of cascade.
- *
- * Groups merge into the parent scope, so we descend into them with the parent
- * channel key. Namespaces don't currently support replay; we still descend in
- * case future code adds it.
- */
-function collectReplayClaimedScopes(
-  primitives: readonly PrimitiveCore.Primitive[],
-  out: Set<string>,
-  parentChannelKey?: string,
-): void {
-  for (const primitive of primitives) {
-    if (primitive.__wskit === 'replay' || primitive.__wskit === 'replayCustom') {
-      if (parentChannelKey) out.add(parentChannelKey);
-      continue;
-    }
-
-    if (primitive.__wskit === 'group') {
-      const group = primitive as PrimitiveCore.Primitive & {
-        primitives: readonly PrimitiveCore.Primitive[];
-      };
-      collectReplayClaimedScopes(group.primitives, out, parentChannelKey);
-      continue;
-    }
-
-    if (primitive.__wskit === 'channel') {
-      const channelPrimitive = primitive as PrimitiveCore.Primitive & {
-        pattern: string | { key: string };
-        primitives: readonly PrimitiveCore.Primitive[];
-      };
-      const channelKey =
-        typeof channelPrimitive.pattern === 'string'
-          ? channelPrimitive.pattern
-          : channelPrimitive.pattern.key;
-      collectReplayClaimedScopes(channelPrimitive.primitives, out, channelKey);
-      continue;
-    }
-
-    if (primitive.__wskit === 'namespace') {
-      const namespacePrimitive = primitive as PrimitiveCore.Primitive & {
-        primitives: readonly PrimitiveCore.Primitive[];
-      };
-      collectReplayClaimedScopes(namespacePrimitive.primitives, out, parentChannelKey);
-      continue;
-    }
-  }
-}
-
-/**
- * Check that every post-intercept has a matching `incoming`/`request`/`stream`
- * handler in the same scope. Orphan post-intercepts are never fired at runtime
- * because the dispatcher returns early when no handler matches, so this failure
- * must surface at boot instead of silently doing nothing.
+ * Check that every post-intercept has a matching `incoming` / `request` /
+ * `stream` handler in the same scope. Orphan post-intercepts are never fired
+ * at runtime because the dispatcher returns early when no handler matches,
+ * so this failure must surface at boot instead of silently doing nothing.
  */
 interface HandlerScope {
   incoming: ReadonlyMap<string, unknown>;
