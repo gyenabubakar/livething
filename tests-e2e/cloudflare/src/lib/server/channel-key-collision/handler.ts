@@ -1,49 +1,55 @@
-import { event, scope, server } from '@wskit/server';
-import { withChannels } from '@wskit/server/channels';
-import { withLifecycle } from '@wskit/server/lifecycle';
+import { channel, contract, implement, incoming, outgoing, scope, t } from '@wskit/server';
 import * as v from 'valibot';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const Hello = event('hello', v.object({ family: v.string(), name: v.string(), text: v.string() }));
-const BroadcastA = event('broadcast-a', v.object({ name: v.string(), text: v.string() }));
-const BroadcastB = event('broadcast-b', v.object({ name: v.string(), text: v.string() }));
-const MembersA = event('members-a', v.object({ name: v.string() }));
-const MembersB = event('members-b', v.object({ name: v.string() }));
-const MembersResult = event(
-  'members-result',
-  v.object({ family: v.string(), name: v.string(), count: v.number() }),
-);
+const HelloPayload = v.object({ family: v.string(), name: v.string(), text: v.string() });
+const BroadcastAPayload = v.object({ name: v.string(), text: v.string() });
+const BroadcastBPayload = v.object({ name: v.string(), text: v.string() });
+const MembersAPayload = v.object({ name: v.string() });
+const MembersBPayload = v.object({ name: v.string() });
+const MembersResultPayload = v.object({
+  family: v.string(),
+  name: v.string(),
+  count: v.number(),
+});
 
-const base = withChannels(withLifecycle(server<Env>('channel-key-collision')))
+export const channelKeyCollisionContract = contract<Env>('channel-key-collision')({
+  meta: t<{ username: string }>(),
+  definitions: [
+    incoming('broadcast-a', BroadcastAPayload),
+    incoming('broadcast-b', BroadcastBPayload),
+    incoming('members-a', MembersAPayload),
+    incoming('members-b', MembersBPayload),
+
+    outgoing('members-result', MembersResultPayload),
+
+    channel(scope('rooms', /^private::.+$/), {
+      definitions: [outgoing('hello', HelloPayload)],
+    }),
+    channel(scope('rooms::private', /^.+$/), {
+      definitions: [outgoing('hello', HelloPayload)],
+    }),
+  ],
+});
+
+export const channelKeyCollisionHandler = implement(channelKeyCollisionContract)
   .onUpgrade((request) => requireUsername(request))
-  .outgoing(MembersResult);
 
-// Family A — key 'rooms', accepts names like 'private::lobby'.
-const familyA = base.channel(scope('rooms', /^private::.+$/), (c) => c.outgoing(Hello));
-
-// Family B — key 'rooms::private', accepts any name (e.g. 'lobby'). Under the
-// old `${scope}::${name}` join, family A + 'private::lobby' collided with
-// family B + 'lobby' (both produced 'rooms::private::lobby').
-const familyB = base.channel(scope('rooms::private', /^.+$/), (c) => c.outgoing(Hello));
-
-export const channelKeyCollisionHandler = base
-  .use(familyA)
-  .use(familyB)
-  .incoming(BroadcastA, (ctx, payload) => {
+  .on('broadcast-a', (ctx, payload) => {
     ctx.channels.get('rooms', payload.name).broadcast('hello', {
       family: 'rooms',
       name: payload.name,
       text: payload.text,
     });
   })
-  .incoming(BroadcastB, (ctx, payload) => {
+  .on('broadcast-b', (ctx, payload) => {
     ctx.channels.get('rooms::private', payload.name).broadcast('hello', {
       family: 'rooms::private',
       name: payload.name,
       text: payload.text,
     });
   })
-  .incoming(MembersA, (ctx, payload) => {
+  .on('members-a', (ctx, payload) => {
     const handle = ctx.channels.get('rooms', payload.name);
     ctx.send('members-result', {
       family: 'rooms',
@@ -51,7 +57,7 @@ export const channelKeyCollisionHandler = base
       count: handle.members().length,
     });
   })
-  .incoming(MembersB, (ctx, payload) => {
+  .on('members-b', (ctx, payload) => {
     const handle = ctx.channels.get('rooms::private', payload.name);
     ctx.send('members-result', {
       family: 'rooms::private',
@@ -59,4 +65,5 @@ export const channelKeyCollisionHandler = base
       count: handle.members().length,
     });
   })
+
   .build();

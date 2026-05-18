@@ -1,15 +1,8 @@
-import { event, server } from '@wskit/server';
-import { error, withErrors, WskitError } from '@wskit/server/errors';
-import { withLifecycle } from '@wskit/server/lifecycle';
+import { contract, error, implement, incoming, t } from '@wskit/server';
+import { WskitError } from '@wskit/server/errors';
 import * as v from 'valibot';
 import { Forbidden, NotFound } from '../_shared/errors.ts';
 import { requireUsername } from '../_shared/upgrade.ts';
-
-const TriggerNotFound = event('trigger-not-found', v.object({}));
-const TriggerForbidden = event('trigger-forbidden', v.object({}));
-const TriggerSimple = event('trigger-simple', v.object({}));
-const TriggerUnregistered = event('trigger-unregistered', v.object({}));
-const TriggerBigInt = event('trigger-bigint', v.object({}));
 
 const SimpleError = error('simple-error');
 const Unregistered = error('unregistered', v.object({ msg: v.string() }));
@@ -19,22 +12,33 @@ const Unregistered = error('unregistered', v.object({ msg: v.string() }));
 // connection silently lose the response.
 const BigIntDetail = error('bigint-detail');
 
-export const errorsFactoryHandler = withErrors(withLifecycle(server<Env>('errors-factory')))
-  .errors(NotFound, Forbidden, SimpleError, BigIntDetail)
+export const errorsFactoryContract = contract<Env>('errors-factory')({
+  meta: t<{ username: string }>(),
+  errors: [NotFound, Forbidden, SimpleError, BigIntDetail],
+  definitions: [
+    incoming('trigger-not-found', v.object({})),
+    incoming('trigger-forbidden', v.object({})),
+    incoming('trigger-simple', v.object({})),
+    incoming('trigger-unregistered', v.object({})),
+    incoming('trigger-bigint', v.object({})),
+  ],
+});
+
+export const errorsFactoryHandler = implement(errorsFactoryContract)
   .onUpgrade((request) => requireUsername(request))
-  .incoming(TriggerNotFound, () => {
+  .on('trigger-not-found', () => {
     throw NotFound({ id: 'test-123' });
   })
-  .incoming(TriggerForbidden, () => {
+  .on('trigger-forbidden', () => {
     throw Forbidden({ reason: 'Access denied' });
   })
-  .incoming(TriggerSimple, () => {
+  .on('trigger-simple', () => {
     throw SimpleError;
   })
-  .incoming(TriggerUnregistered, () => {
+  .on('trigger-unregistered', () => {
     throw Unregistered({ msg: 'this error is not registered' });
   })
-  .incoming(TriggerBigInt, () => {
+  .on('trigger-bigint', () => {
     // Build a WskitError whose detail is non-serializable. The engine
     // must not let JSON.stringify crash the dispatcher.
     throw new WskitError('bigint-detail', { amount: 1n });

@@ -1,13 +1,18 @@
-// `base` is the shared starting builder. Other files import it to attach
-// scoped primitives (channels, namespaces, etc.) and the top-level handler
-// imports it to add flat handlers and call .build(). The .use() compose
-// pattern fans out from here.
-import { server } from '@wskit/server';
-import { withChannels } from '@wskit/server/channels';
-import { withLifecycle } from '@wskit/server/lifecycle';
-import { requireUsername } from '../_shared/upgrade.ts';
-import { Notification } from './events.ts';
+// The shared contract. Other files import it to attach handler groups, and
+// the top-level handler imports it to add inline lifecycle handlers and call
+// `.build()`. The split contract + implement composition fans out from here.
+import { channel, contract, incoming, outgoing, t } from '@wskit/server';
+import { NotificationPayload, RoomMessagePayload, SendRoomMessagePayload } from './events.ts';
 
-export const base = withChannels(withLifecycle(server<Env>('multifile')))
-  .outgoing(Notification)
-  .onUpgrade((request) => requireUsername(request));
+export const multifileContract = contract<Env>('multifile')({
+  meta: t<{ username: string }>(),
+  definitions: [
+    outgoing('notification', NotificationPayload),
+    channel('lobby', {
+      definitions: [
+        outgoing('room-message', RoomMessagePayload),
+        incoming('send-room-message', SendRoomMessagePayload),
+      ],
+    }),
+  ],
+});

@@ -1,21 +1,25 @@
-import { event, server } from '@wskit/server';
-import { withLifecycle } from '@wskit/server/lifecycle';
+import { contract, implement, incoming, outgoing, t } from '@wskit/server';
 import * as v from 'valibot';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const KvSet = event(
-  'kv-set',
-  v.object({ key: v.string(), value: v.string(), ttlMs: v.optional(v.number()) }),
-);
-const KvGet = event('kv-get', v.object({ key: v.string() }));
-const KvDelete = event('kv-delete', v.object({ key: v.string() }));
-const KvSetGet = event('kv-set-get', v.object({ key: v.string(), value: v.string() }));
-const KvResult = event('kv-result', v.object({ key: v.string(), value: v.nullable(v.string()) }));
+export const ctxKvContract = contract<Env>('ctx-kv')({
+  meta: t<{ username: string }>(),
+  definitions: [
+    incoming(
+      'kv-set',
+      v.object({ key: v.string(), value: v.string(), ttlMs: v.optional(v.number()) }),
+    ),
+    incoming('kv-get', v.object({ key: v.string() })),
+    incoming('kv-delete', v.object({ key: v.string() })),
+    incoming('kv-set-get', v.object({ key: v.string(), value: v.string() })),
 
-export const ctxKvHandler = withLifecycle(server<Env>('ctx-kv'))
-  .outgoing(KvResult)
+    outgoing('kv-result', v.object({ key: v.string(), value: v.nullable(v.string()) })),
+  ],
+});
+
+export const ctxKvHandler = implement(ctxKvContract)
   .onUpgrade((request) => requireUsername(request))
-  .incoming(KvSet, async (ctx, payload) => {
+  .on('kv-set', async (ctx, payload) => {
     await ctx.kv.set(
       payload.key,
       payload.value,
@@ -23,16 +27,16 @@ export const ctxKvHandler = withLifecycle(server<Env>('ctx-kv'))
     );
     ctx.send('kv-result', { key: payload.key, value: payload.value });
   })
-  .incoming(KvGet, async (ctx, payload) => {
+  .on('kv-get', async (ctx, payload) => {
     const raw = await ctx.kv.get(payload.key);
     const value = (raw ?? null) as string | null;
     ctx.send('kv-result', { key: payload.key, value });
   })
-  .incoming(KvDelete, async (ctx, payload) => {
+  .on('kv-delete', async (ctx, payload) => {
     await ctx.kv.delete(payload.key);
     ctx.send('kv-result', { key: payload.key, value: null });
   })
-  .incoming(KvSetGet, async (ctx, payload) => {
+  .on('kv-set-get', async (ctx, payload) => {
     await ctx.kv.set(payload.key, payload.value);
     const value = (await ctx.kv.get(payload.key)) as string | null;
     ctx.send('kv-result', { key: payload.key, value });

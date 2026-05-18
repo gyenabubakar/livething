@@ -1,17 +1,16 @@
-import { event, server } from '@wskit/server';
-import { withLifecycle } from '@wskit/server/lifecycle';
-import { withSequence } from '@wskit/server/sequence';
+import { contract, implement, incoming, outgoing, t } from '@wskit/server';
 import * as v from 'valibot';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const Tick = event('tick', v.object({}));
-const Tock = event('tock', v.object({}));
+export const sequenceContract = contract<Env>('sequence')({
+  sequence: true,
+  meta: t<{ username: string }>(),
+  definitions: [incoming('tick', v.object({})), outgoing('tock', v.object({}))],
+});
 
-export const sequenceHandler = withSequence(withLifecycle(server<Env>('sequence')))
-  .sequence()
-  .outgoing(Tock)
+export const sequenceHandler = implement(sequenceContract)
   .onUpgrade((request) => requireUsername(request))
-  .incoming(Tick, (ctx) => {
+  .on('tick', (ctx) => {
     ctx.send('tock', {});
   })
   .build();

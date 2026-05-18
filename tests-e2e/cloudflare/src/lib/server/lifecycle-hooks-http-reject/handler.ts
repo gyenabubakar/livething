@@ -1,8 +1,11 @@
-import { server } from '@wskit/server';
+import { contract, implement } from '@wskit/server';
 import { RejectUpgrade } from '@wskit/server/errors';
-import { withLifecycle } from '@wskit/server/lifecycle';
 
-export const rejectHttpHandler = withLifecycle(server<Env>('reject-http-test'))
+export const rejectHttpContract = contract<Env>('reject-http-test')({
+  definitions: [],
+});
+
+export const rejectHttpHandler = implement(rejectHttpContract)
   .onUpgrade(() => {
     throw RejectUpgrade(403, 'Forbidden HTTP upgrade');
   })

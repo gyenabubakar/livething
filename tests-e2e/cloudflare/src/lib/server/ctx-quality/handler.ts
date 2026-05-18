@@ -1,22 +1,25 @@
-import { event, server } from '@wskit/server';
-import { withLifecycle } from '@wskit/server/lifecycle';
+import { contract, implement, incoming, outgoing, t } from '@wskit/server';
 import * as v from 'valibot';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const GetQuality = event('get-quality', v.object({}));
-const QualityResult = event(
-  'quality-result',
-  v.object({
-    quality: v.string(),
-    latency: v.union([v.number(), v.null()]),
-    bufferedAmount: v.number(),
-  }),
-);
+export const ctxQualityContract = contract<Env>('ctx-quality')({
+  meta: t<{ username: string }>(),
+  definitions: [
+    incoming('get-quality', v.object({})),
+    outgoing(
+      'quality-result',
+      v.object({
+        quality: v.string(),
+        latency: v.union([v.number(), v.null()]),
+        bufferedAmount: v.number(),
+      }),
+    ),
+  ],
+});
 
-export const ctxQualityHandler = withLifecycle(server<Env>('ctx-quality'))
-  .outgoing(QualityResult)
+export const ctxQualityHandler = implement(ctxQualityContract)
   .onUpgrade((request) => requireUsername(request))
-  .incoming(GetQuality, (ctx) => {
+  .on('get-quality', (ctx) => {
     ctx.send('quality-result', {
       quality: ctx.quality,
       latency: ctx.latency,

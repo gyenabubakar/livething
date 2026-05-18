@@ -1,30 +1,35 @@
-// Coverage: `@wskit/server/full` exposes every feature method on the builder
-// without manual `with*` wrappers. The chain below uses .ack(), .outgoing(),
-// .incoming(), .request(), .onUpgrade(), and .onConnect() — methods that come
-// from five different feature subpaths. If any of them isn't reachable through
-// the full export, this handler stops type-checking.
-import { event } from '@wskit/server';
-import { server } from '@wskit/server/full';
+// Coverage: the new contract+implement API exposes every feature from
+// `@wskit/server` directly — no manual `with*` wrappers, no `/full` subpath
+// needed. The chain below uses ack, outgoing, incoming, request, onUpgrade,
+// and onConnect — methods that previously lived behind five different feature
+// subpaths. If any of them isn't reachable, this handler stops type-checking.
+import { contract, implement, incoming, outgoing, request, t } from '@wskit/server';
 import * as v from 'valibot';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const Greeting = event('greeting', v.object({ text: v.string() }));
-const SayHi = event('say-hi', v.object({ name: v.string() }));
-const TimeCheck = event('time-check', v.object({ ts: v.number() }));
-const TimeCheckResponse = v.object({ ts: v.number(), serverTs: v.number() });
+export const fullImportContract = contract<Env>('full-import')({
+  ack: true,
+  meta: t<{ username: string }>(),
+  definitions: [
+    outgoing('greeting', v.object({ text: v.string() })),
+    incoming('say-hi', v.object({ name: v.string() })),
+    request('time-check', {
+      payload: v.object({ ts: v.number() }),
+      response: v.object({ ts: v.number(), serverTs: v.number() }),
+    }),
+  ],
+});
 
-export const fullImportHandler = server<Env>('full-import')
-  .ack()
-  .outgoing(Greeting)
+export const fullImportHandler = implement(fullImportContract)
   .onUpgrade((request) => requireUsername(request))
   .onConnect((ctx) => {
     ctx.send('greeting', { text: `welcome ${ctx.meta.username}` });
   })
-  .incoming(SayHi, (ctx, payload) => {
+  .on('say-hi', (ctx, payload) => {
     ctx.send('greeting', { text: `hi ${payload.name}` });
     ctx.ack();
   })
-  .request(TimeCheck, TimeCheckResponse, (ctx, payload) => {
-    ctx.respond({ ts: payload.ts, serverTs: 1 });
+  .request('time-check', (_ctx, payload) => {
+    return { ts: payload.ts, serverTs: 1 };
   })
   .build();

@@ -313,7 +313,7 @@ export interface ReplayScopeSendApi extends ScopeSendApi {
   sendReplay?(
     event: string,
     payload: unknown,
-    wire: { seq: number; messageId: string; channel?: string },
+    wire: { seq: number; messageId: string; channel?: string; channelScope?: string | null },
   ): void;
 }
 

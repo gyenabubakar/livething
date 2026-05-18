@@ -1,137 +1,151 @@
-import { event, scope, server } from '@wskit/server';
-import { withChannels } from '@wskit/server/channels';
-import { withDedup } from '@wskit/server/dedup';
-import { withLifecycle } from '@wskit/server/lifecycle';
-import { withReplay } from '@wskit/server/replay';
-import { withSequence } from '@wskit/server/sequence';
-import { withTags } from '@wskit/server/tags';
+import { channel, contract, implement, incoming, outgoing, scope, t } from '@wskit/server';
 import * as v from 'valibot';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const RoomMessage = event(
-  'room-message',
-  v.object({ family: v.string(), name: v.string(), text: v.string() }),
-);
-const PrivateMessage = event(
-  'private-message',
-  v.object({ family: v.string(), name: v.string(), text: v.string() }),
-);
+const RoomMessagePayload = v.object({
+  family: v.string(),
+  name: v.string(),
+  text: v.string(),
+});
+const PrivateMessagePayload = v.object({
+  family: v.string(),
+  name: v.string(),
+  text: v.string(),
+});
 
-const SendInPublic = event('send-in-public', v.object({ name: v.string(), text: v.string() }));
-const SendInPrivate = event('send-in-private', v.object({ name: v.string(), text: v.string() }));
+const SendInPublicPayload = v.object({ name: v.string(), text: v.string() });
+const SendInPrivatePayload = v.object({ name: v.string(), text: v.string() });
 
-const PublicMembers = event('public-members', v.object({ name: v.string() }));
-const PublicMembersResult = event(
-  'public-members-result',
-  v.object({ name: v.string(), count: v.number(), ids: v.array(v.string()) }),
-);
-const PrivateMembers = event('private-members', v.object({ name: v.string() }));
-const PrivateMembersResult = event(
-  'private-members-result',
-  v.object({ name: v.string(), count: v.number(), ids: v.array(v.string()) }),
-);
+const PublicMembersPayload = v.object({ name: v.string() });
+const PublicMembersResultPayload = v.object({
+  name: v.string(),
+  count: v.number(),
+  ids: v.array(v.string()),
+});
+const PrivateMembersPayload = v.object({ name: v.string() });
+const PrivateMembersResultPayload = v.object({
+  name: v.string(),
+  count: v.number(),
+  ids: v.array(v.string()),
+});
 
-const KickInPublic = event(
-  'kick-in-public',
-  v.object({ name: v.string(), tag: v.string(), reason: v.string() }),
-);
-const KickInPrivate = event(
-  'kick-in-private',
-  v.object({ name: v.string(), tag: v.string(), reason: v.string() }),
-);
-const KickAcknowledged = event('kick-acknowledged', v.object({ where: v.string() }));
+const KickInPublicPayload = v.object({
+  name: v.string(),
+  tag: v.string(),
+  reason: v.string(),
+});
+const KickInPrivatePayload = v.object({
+  name: v.string(),
+  tag: v.string(),
+  reason: v.string(),
+});
+const KickAcknowledgedPayload = v.object({ where: v.string() });
 
-const PublicBroadcastFromTop = event(
-  'public-broadcast-from-top',
-  v.object({ name: v.string(), text: v.string() }),
-);
-const PublicSendDirect = event(
-  'public-send-direct',
-  v.object({ name: v.string(), text: v.string() }),
-);
-const PrivateSendDirect = event(
-  'private-send-direct',
-  v.object({ name: v.string(), text: v.string() }),
-);
+const PublicBroadcastFromTopPayload = v.object({ name: v.string(), text: v.string() });
+const PublicSendDirectPayload = v.object({ name: v.string(), text: v.string() });
+const PrivateSendDirectPayload = v.object({ name: v.string(), text: v.string() });
 
-const base = withTags(
-  withReplay(
-    withChannels(withSequence(withDedup(withLifecycle(server<Env>('channel-scope-isolation'))))),
-  ),
-)
-  .tagGroups('ephemeral', ['user', 'label'])
-  .sequence({ persist: true })
-  .dedup()
-  .replay((r) => r)
+export const channelScopeIsolationContract = contract<Env>('channel-scope-isolation')({
+  dedup: true,
+  sequence: { persist: true },
+  replay: true,
+  meta: t<{ username: string }>(),
+  tagGroups: {
+    ephemeral: ['user', 'label'],
+  },
+  definitions: [
+    incoming('public-members', PublicMembersPayload),
+    incoming('private-members', PrivateMembersPayload),
+    incoming('kick-in-public', KickInPublicPayload),
+    incoming('kick-in-private', KickInPrivatePayload),
+    incoming('public-broadcast-from-top', PublicBroadcastFromTopPayload),
+    incoming('public-send-direct', PublicSendDirectPayload),
+    incoming('private-send-direct', PrivateSendDirectPayload),
+
+    outgoing('public-members-result', PublicMembersResultPayload),
+    outgoing('private-members-result', PrivateMembersResultPayload),
+    outgoing('kick-acknowledged', KickAcknowledgedPayload),
+
+    channel(scope('publicRooms', /^room:.+$/), {
+      definitions: [
+        incoming('send-in-public', SendInPublicPayload),
+        outgoing('room-message', RoomMessagePayload),
+      ],
+    }),
+    channel(scope('privateRooms', /^room:.+$/), {
+      definitions: [
+        incoming('send-in-private', SendInPrivatePayload),
+        outgoing('private-message', PrivateMessagePayload),
+      ],
+    }),
+  ],
+});
+
+export const channelScopeIsolationHandler = implement(channelScopeIsolationContract)
   .onUpgrade((request, helpers) => requireUsername(request, helpers))
-  .outgoing(PublicMembersResult)
-  .outgoing(PrivateMembersResult)
-  .outgoing(KickAcknowledged);
 
-const publicRooms = base.channel(scope('publicRooms', /^room:.+$/), (c) =>
-  c.outgoing(RoomMessage).incoming(SendInPublic, (ctx, payload) => {
-    ctx.channel.broadcast('room-message', {
-      family: 'publicRooms',
-      name: payload.name,
-      text: payload.text,
-    });
-  }),
-);
-
-const privateRooms = base.channel(scope('privateRooms', /^room:.+$/), (c) =>
-  c.outgoing(PrivateMessage).incoming(SendInPrivate, (ctx, payload) => {
-    ctx.channel.broadcast('private-message', {
-      family: 'privateRooms',
-      name: payload.name,
-      text: payload.text,
-    });
-  }),
-);
-
-export const channelScopeIsolationHandler = base
-  .use(publicRooms)
-  .use(privateRooms)
-  .incoming(PublicMembers, (ctx, payload) => {
+  .on('public-members', (ctx, payload) => {
     const handle = ctx.channels.get('publicRooms', payload.name);
     const ids = handle.members().map((m) => m.id);
     ctx.send('public-members-result', { name: payload.name, count: ids.length, ids });
   })
-  .incoming(PrivateMembers, (ctx, payload) => {
+  .on('private-members', (ctx, payload) => {
     const handle = ctx.channels.get('privateRooms', payload.name);
     const ids = handle.members().map((m) => m.id);
     ctx.send('private-members-result', { name: payload.name, count: ids.length, ids });
   })
-  .incoming(KickInPublic, async (ctx, payload) => {
+  .on('kick-in-public', async (ctx, payload) => {
     await ctx.channels
       .get('publicRooms', payload.name)
       .kick(ctx.tags.ephemeral('user').ref(payload.tag), payload.reason);
     ctx.send('kick-acknowledged', { where: 'publicRooms' });
   })
-  .incoming(KickInPrivate, async (ctx, payload) => {
+  .on('kick-in-private', async (ctx, payload) => {
     await ctx.channels
       .get('privateRooms', payload.name)
       .kick(ctx.tags.ephemeral('user').ref(payload.tag), payload.reason);
     ctx.send('kick-acknowledged', { where: 'privateRooms' });
   })
-  .incoming(PublicBroadcastFromTop, (ctx, payload) => {
+  .on('public-broadcast-from-top', (ctx, payload) => {
     ctx.channels.get('publicRooms', payload.name).broadcast('room-message', {
       family: 'publicRooms',
       name: payload.name,
       text: payload.text,
     });
   })
-  .incoming(PublicSendDirect, (ctx, payload) => {
+  .on('public-send-direct', (ctx, payload) => {
     ctx.channels.get('publicRooms', payload.name).send('room-message', {
       family: 'publicRooms',
       name: payload.name,
       text: payload.text,
     });
   })
-  .incoming(PrivateSendDirect, (ctx, payload) => {
+  .on('private-send-direct', (ctx, payload) => {
     ctx.channels.get('privateRooms', payload.name).send('private-message', {
       family: 'privateRooms',
       name: payload.name,
       text: payload.text,
     });
   })
+
+  .channel('publicRooms', (ch) =>
+    ch.on('send-in-public', (ctx, payload) => {
+      ctx.channel.broadcast('room-message', {
+        family: 'publicRooms',
+        name: payload.name,
+        text: payload.text,
+      });
+    }),
+  )
+
+  .channel('privateRooms', (ch) =>
+    ch.on('send-in-private', (ctx, payload) => {
+      ctx.channel.broadcast('private-message', {
+        family: 'privateRooms',
+        name: payload.name,
+        text: payload.text,
+      });
+    }),
+  )
+
   .build();

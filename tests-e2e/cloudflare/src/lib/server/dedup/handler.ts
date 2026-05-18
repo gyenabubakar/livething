@@ -1,21 +1,22 @@
-import { event, server } from '@wskit/server';
-import { withChannels } from '@wskit/server/channels';
-import { withDedup } from '@wskit/server/dedup';
-import { withLifecycle } from '@wskit/server/lifecycle';
+import { channel, contract, implement, incoming, outgoing, t } from '@wskit/server';
 import * as v from 'valibot';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const DoEcho = event('do-echo', v.object({ text: v.string() }));
-const Echoed = event('echoed', v.object({ text: v.string() }));
+export const dedupContract = contract<Env>('dedup')({
+  dedup: true,
+  meta: t<{ username: string }>(),
+  definitions: [
+    incoming('do-echo', v.object({ text: v.string() })),
+    outgoing('echoed', v.object({ text: v.string() })),
 
-const base = withChannels(withDedup(withLifecycle(server<Env>('dedup'))))
-  .dedup()
-  .outgoing(Echoed)
+    channel('room', { definitions: [] }),
+  ],
+});
+
+export const dedupHandler = implement(dedupContract)
   .onUpgrade((request) => requireUsername(request))
-  .incoming(DoEcho, (ctx, payload) => {
+  .on('do-echo', (ctx, payload) => {
     ctx.send('echoed', { text: payload.text });
-  });
-
-const roomChannel = base.channel('room', (ch) => ch);
-
-export const dedupHandler = base.use(roomChannel).build();
+  })
+  .channel('room', (ch) => ch)
+  .build();

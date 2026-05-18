@@ -1,21 +1,21 @@
-import { event, server } from '@wskit/server';
-import { withLifecycle } from '@wskit/server/lifecycle';
+import { contract, implement, incoming, outgoing, t } from '@wskit/server';
 import * as v from 'valibot';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const BinaryMeta = event('binary-meta', v.object({ size: v.number(), username: v.string() }));
-const BinaryHookErrorObserved = event(
-  'binary-hook-error-observed',
-  v.object({ message: v.string() }),
-);
-const BroadcastAll = event('broadcast-all', v.object({ size: v.number() }));
-const BroadcastExcludeSelf = event('broadcast-exclude-self', v.object({ size: v.number() }));
-const SendSelfBinary = event('send-self-binary', v.object({ size: v.number() }));
+export const binaryContract = contract<Env>('binary')({
+  binary: true,
+  meta: t<{ username: string }>(),
+  definitions: [
+    incoming('broadcast-all', v.object({ size: v.number() })),
+    incoming('broadcast-exclude-self', v.object({ size: v.number() })),
+    incoming('send-self-binary', v.object({ size: v.number() })),
+    outgoing('binary-meta', v.object({ size: v.number(), username: v.string() })),
+    outgoing('binary-hook-error-observed', v.object({ message: v.string() })),
+  ],
+});
 
-export const binaryHandler = withLifecycle(server<Env>('binary'))
-  .outgoing(BinaryMeta)
-  .outgoing(BinaryHookErrorObserved)
-  .onUpgrade((request) => requireUsername(request))
+export const binaryHandler = implement(binaryContract)
+  .onUpgrade((req) => requireUsername(req))
   .onBinary((ctx, bytes) => {
     const view = new Uint8Array(bytes);
     if (view[0] === 0xfe) {
@@ -28,13 +28,13 @@ export const binaryHandler = withLifecycle(server<Env>('binary'))
     const message = error instanceof Error ? error.message : String(error);
     ctx.send('binary-hook-error-observed', { message });
   })
-  .incoming(BroadcastAll, (ctx, payload) => {
+  .on('broadcast-all', (ctx, payload) => {
     ctx.broadcastBinary(new Uint8Array(payload.size).buffer);
   })
-  .incoming(BroadcastExcludeSelf, (ctx, payload) => {
+  .on('broadcast-exclude-self', (ctx, payload) => {
     ctx.broadcastBinary(new Uint8Array(payload.size).buffer, { excludeSelf: true });
   })
-  .incoming(SendSelfBinary, (ctx, payload) => {
+  .on('send-self-binary', (ctx, payload) => {
     ctx.sendBinary(new Uint8Array(payload.size).buffer);
   })
   .build();

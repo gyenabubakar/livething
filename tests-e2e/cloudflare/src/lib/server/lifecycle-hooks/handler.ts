@@ -1,49 +1,45 @@
-import { event, server } from '@wskit/server';
-import { withErrors } from '@wskit/server/errors';
-import { withLifecycle } from '@wskit/server/lifecycle';
+import { contract, implement, incoming, outgoing, t } from '@wskit/server';
 import * as v from 'valibot';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const Connected = event('connected', v.object({ username: v.string() }));
-const Disconnected = event('disconnected', v.object({ username: v.string() }));
-// Broadcast the WebSocket close code and reason observed by
-// onDisconnect. Pins F3: the engine threads the close metadata from
-// the adapter into the disconnect ctx so user code can branch on it.
-const DisconnectClose = event(
-  'disconnect-close',
-  v.object({ username: v.string(), code: v.number(), reason: v.string() }),
-);
-const ValidationErrorFired = event('validation-error-fired', v.object({ event: v.string() }));
-const ErrorFired = event('error-fired', v.object({ message: v.string() }));
-const BadEvent = event('bad-event', v.object({ value: v.number() }));
-const TriggerError = event('trigger-error', v.object({}));
-const UpgradeMeta = event('upgrade-meta', v.object({ username: v.string() }));
-const ConnectCount = event('connect-count', v.object({ count: v.number() }));
-const AsyncHookComplete = event('async-hook-complete', v.object({ complete: v.boolean() }));
+export const lifecycleHooksContract = contract<Env>('lifecycle-hooks')({
+  meta: t<{ username: string }>(),
+  definitions: [
+    outgoing('connected', v.object({ username: v.string() })),
+    outgoing('disconnected', v.object({ username: v.string() })),
+    // Broadcast the WebSocket close code and reason observed by
+    // onDisconnect. Pins F3: the engine threads the close metadata from
+    // the adapter into the disconnect ctx so user code can branch on it.
+    outgoing(
+      'disconnect-close',
+      v.object({ username: v.string(), code: v.number(), reason: v.string() }),
+    ),
+    outgoing('validation-error-fired', v.object({ event: v.string() })),
+    outgoing('error-fired', v.object({ message: v.string() })),
+    outgoing('upgrade-meta', v.object({ username: v.string() })),
+    outgoing('connect-count', v.object({ count: v.number() })),
+    outgoing('async-hook-complete', v.object({ complete: v.boolean() })),
 
-export const lifecycleHooksHandler = withErrors(withLifecycle(server<Env>('lifecycle-hooks')))
-  .outgoing(Connected)
-  .outgoing(Disconnected)
-  .outgoing(DisconnectClose)
-  .outgoing(ValidationErrorFired)
-  .outgoing(ErrorFired)
-  .outgoing(UpgradeMeta)
-  .outgoing(ConnectCount)
-  .outgoing(AsyncHookComplete)
+    incoming('bad-event', v.object({ value: v.number() })),
+    incoming('trigger-error', v.object({})),
+  ],
+});
+
+export const lifecycleHooksHandler = implement(lifecycleHooksContract)
   .onUpgrade((request) => requireUsername(request))
   .onConnect((ctx) => {
-    ctx.send('connected', { username: ctx.meta.username as string });
-    ctx.send('upgrade-meta', { username: ctx.meta.username as string });
+    ctx.send('connected', { username: ctx.meta.username });
+    ctx.send('upgrade-meta', { username: ctx.meta.username });
     ctx.send('connect-count', { count: 2 });
     ctx.send('async-hook-complete', { complete: true });
   })
   .onDisconnect((ctx) => {
-    ctx.broadcast('disconnected', { username: ctx.meta.username as string });
+    ctx.broadcast('disconnected', { username: ctx.meta.username });
     // Fan out the close metadata too. Peers receive the leaver's
     // closeCode + closeReason so the e2e can assert each kind of
     // close (graceful 1000, kick 4xxx) lands with the right values.
     ctx.broadcast('disconnect-close', {
-      username: ctx.meta.username as string,
+      username: ctx.meta.username,
       code: ctx.closeCode ?? -1,
       reason: ctx.closeReason ?? '',
     });
@@ -57,10 +53,10 @@ export const lifecycleHooksHandler = withErrors(withLifecycle(server<Env>('lifec
   .onValidationError((ctx, evt) => {
     ctx.send('validation-error-fired', { event: evt });
   })
-  .incoming(BadEvent, (_ctx, payload) => {
+  .on('bad-event', (_ctx, payload) => {
     void payload.value;
   })
-  .incoming(TriggerError, () => {
+  .on('trigger-error', () => {
     throw new Error('test-error');
   })
   .build();

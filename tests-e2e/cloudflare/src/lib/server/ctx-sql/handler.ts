@@ -1,34 +1,6 @@
-import { event, server } from '@wskit/server';
-import { withLifecycle } from '@wskit/server/lifecycle';
+import { contract, implement, incoming, outgoing, t } from '@wskit/server';
 import * as v from 'valibot';
 import { requireUsername } from '../_shared/upgrade.ts';
-
-const SaveNote = event('save-note', v.object({ title: v.string(), body: v.string() }));
-const GetNotes = event('get-notes', v.object({}));
-const NotesList = event(
-  'notes-list',
-  v.object({
-    notes: v.array(v.object({ id: v.number(), title: v.string(), body: v.string() })),
-  }),
-);
-
-const SqlOneProbe = event('sql-one-probe', v.object({}));
-const SqlOneResult = event(
-  'sql-one-result',
-  v.object({ row: v.nullable(v.object({ c: v.number() })) }),
-);
-
-const SqlOneEmptyProbe = event('sql-one-empty-probe', v.object({}));
-const SqlOneEmptyResult = event(
-  'sql-one-empty-result',
-  v.object({ row: v.nullable(v.object({ c: v.number() })) }),
-);
-
-const SqlRawProbe = event('sql-raw-probe', v.object({}));
-const SqlRawResult = event('sql-raw-result', v.object({ rows: v.array(v.array(v.unknown())) }));
-
-const SqlReuseProbe = event('sql-reuse-probe', v.object({}));
-const SqlReuseResult = event('sql-reuse-result', v.object({ error: v.string() }));
 
 function selectNotes(ctx: {
   sql: { exec: <TRow = unknown>(sql: string, ...params: unknown[]) => { toArray: () => TRow[] } };
@@ -42,12 +14,30 @@ function selectNotes(ctx: {
     .toArray();
 }
 
-export const ctxSqlHandler = withLifecycle(server<Env>('ctx-sql'))
-  .outgoing(NotesList)
-  .outgoing(SqlOneResult)
-  .outgoing(SqlOneEmptyResult)
-  .outgoing(SqlRawResult)
-  .outgoing(SqlReuseResult)
+export const ctxSqlContract = contract<Env>('ctx-sql')({
+  meta: t<{ username: string }>(),
+  definitions: [
+    incoming('save-note', v.object({ title: v.string(), body: v.string() })),
+    incoming('get-notes', v.object({})),
+    incoming('sql-one-probe', v.object({})),
+    incoming('sql-one-empty-probe', v.object({})),
+    incoming('sql-raw-probe', v.object({})),
+    incoming('sql-reuse-probe', v.object({})),
+
+    outgoing(
+      'notes-list',
+      v.object({
+        notes: v.array(v.object({ id: v.number(), title: v.string(), body: v.string() })),
+      }),
+    ),
+    outgoing('sql-one-result', v.object({ row: v.nullable(v.object({ c: v.number() })) })),
+    outgoing('sql-one-empty-result', v.object({ row: v.nullable(v.object({ c: v.number() })) })),
+    outgoing('sql-raw-result', v.object({ rows: v.array(v.array(v.unknown())) })),
+    outgoing('sql-reuse-result', v.object({ error: v.string() })),
+  ],
+});
+
+export const ctxSqlHandler = implement(ctxSqlContract)
   .onInit((ctx) => {
     ctx.sql.exec(`
       CREATE TABLE IF NOT EXISTS notes (
@@ -58,22 +48,22 @@ export const ctxSqlHandler = withLifecycle(server<Env>('ctx-sql'))
     `);
   })
   .onUpgrade((request) => requireUsername(request))
-  .incoming(SaveNote, (ctx, payload) => {
+  .on('save-note', (ctx, payload) => {
     ctx.sql.exec('INSERT INTO notes (title, body) VALUES (?, ?)', payload.title, payload.body);
     ctx.send('notes-list', { notes: selectNotes(ctx) });
   })
-  .incoming(GetNotes, (ctx) => {
+  .on('get-notes', (ctx) => {
     ctx.send('notes-list', { notes: selectNotes(ctx) });
   })
-  .incoming(SqlOneProbe, (ctx) => {
+  .on('sql-one-probe', (ctx) => {
     const row = ctx.sql.exec<{ c: number }>('SELECT COUNT(*) AS c FROM notes').one();
     ctx.send('sql-one-result', { row: row ? { c: Number(row.c) } : null });
   })
-  .incoming(SqlRawProbe, (ctx) => {
+  .on('sql-raw-probe', (ctx) => {
     const rows = ctx.sql.exec('SELECT id, title FROM notes ORDER BY id DESC').raw();
     ctx.send('sql-raw-result', { rows: rows as unknown[][] });
   })
-  .incoming(SqlReuseProbe, (ctx) => {
+  .on('sql-reuse-probe', (ctx) => {
     const result = ctx.sql.exec<{ c: number }>('SELECT COUNT(*) AS c FROM notes');
     result.one();
     let error = '';
@@ -84,10 +74,7 @@ export const ctxSqlHandler = withLifecycle(server<Env>('ctx-sql'))
     }
     ctx.send('sql-reuse-result', { error });
   })
-  .incoming(SqlOneEmptyProbe, (ctx) => {
-    // Select a real column (not an aggregate) with a predicate that matches
-    // no rows. Aggregates like COUNT(*) always return one row even on empty
-    // result sets, which would defeat the point of this probe.
+  .on('sql-one-empty-probe', (ctx) => {
     const row = ctx.sql.exec<{ c: number }>('SELECT id AS c FROM notes WHERE id = -999').one();
     ctx.send('sql-one-empty-result', { row: row ? { c: Number(row.c) } : null });
   })

@@ -1,43 +1,55 @@
-import { event, server } from '@wskit/server';
-import { withChannels } from '@wskit/server/channels';
-import { withHibernation } from '@wskit/server/hibernation';
-import { withInfrastructure } from '@wskit/server/infrastructure';
-import { withLifecycle } from '@wskit/server/lifecycle';
-import { withStreams } from '@wskit/server/streams';
-import { withTags } from '@wskit/server/tags';
+import { channel, contract, implement, incoming, outgoing, stream, t } from '@wskit/server';
 import * as v from 'valibot';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const BroadcastToRoom = event('broadcast-to-room', v.object({ text: v.string() }));
-const RoomMessage = event('room-message', v.object({ text: v.string() }));
-const SaveNote = event('save-note', v.object({ title: v.string(), body: v.string() }));
-const GetNotes = event('get-notes', v.object({}));
-const NotesList = event(
-  'notes-list',
-  v.object({ notes: v.array(v.object({ title: v.string(), body: v.string() })) }),
-);
-const TagSelf = event('tag-self', v.object({ tag: v.string() }));
-const TagResult = event('tag-result', v.object({ tags: v.array(v.string()) }));
-const SendToTag = event('send-to-tag', v.object({ tag: v.string(), text: v.string() }));
-const TaggedMessage = event('tagged-message', v.object({ text: v.string(), from: v.string() }));
+const BroadcastToRoomPayload = v.object({ text: v.string() });
+const RoomMessagePayload = v.object({ text: v.string() });
+const SaveNotePayload = v.object({ title: v.string(), body: v.string() });
+const GetNotesPayload = v.object({});
+const NotesListPayload = v.object({
+  notes: v.array(v.object({ title: v.string(), body: v.string() })),
+});
+const TagSelfPayload = v.object({ tag: v.string() });
+const TagResultPayload = v.object({ tags: v.array(v.string()) });
+const SendToTagPayload = v.object({ tag: v.string(), text: v.string() });
+const TaggedMessagePayload = v.object({ text: v.string(), from: v.string() });
 
-const StartSlowStream = event('start-slow-stream', v.object({}));
+const StartSlowStreamPayload = v.object({});
 const SlowChunk = v.object({ index: v.number() });
 
-const GetRoomMembers = event('get-room-members', v.object({}));
-const RoomMembersCount = event('room-members-count', v.object({ count: v.number() }));
+const GetRoomMembersPayload = v.object({});
+const RoomMembersCountPayload = v.object({ count: v.number() });
 
-const base = withTags(
-  withStreams(
-    withChannels(withHibernation(withInfrastructure(withLifecycle(server<Env>('hibernation'))))),
-  ),
-)
-  .tagGroups('ephemeral', ['user', 'label'])
-  .hibernation()
-  .outgoing(NotesList)
-  .outgoing(TagResult)
-  .outgoing(TaggedMessage)
-  .outgoing(RoomMembersCount)
+export const hibernationContract = contract<Env>('hibernation')({
+  hibernation: true,
+  meta: t<{ username: string }>(),
+  tagGroups: {
+    ephemeral: ['user', 'label'],
+  },
+  definitions: [
+    incoming('save-note', SaveNotePayload),
+    incoming('get-notes', GetNotesPayload),
+    incoming('tag-self', TagSelfPayload),
+    incoming('send-to-tag', SendToTagPayload),
+    incoming('get-room-members', GetRoomMembersPayload),
+
+    outgoing('notes-list', NotesListPayload),
+    outgoing('tag-result', TagResultPayload),
+    outgoing('tagged-message', TaggedMessagePayload),
+    outgoing('room-members-count', RoomMembersCountPayload),
+
+    stream('start-slow-stream', { payload: StartSlowStreamPayload, chunk: SlowChunk }),
+
+    channel('room', {
+      definitions: [
+        outgoing('room-message', RoomMessagePayload),
+        incoming('broadcast-to-room', BroadcastToRoomPayload),
+      ],
+    }),
+  ],
+});
+
+export const hibernationHandler = implement(hibernationContract)
   .onUpgrade((request, helpers) => requireUsername(request, helpers))
   .onInit((ctx) => {
     ctx.sql.exec(`
@@ -48,28 +60,9 @@ const base = withTags(
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
-  });
+  })
 
-const roomChannel = base.channel('room', (c) =>
-  c.outgoing(RoomMessage).incoming(BroadcastToRoom, (ctx, payload) => {
-    ctx.channel.broadcast('room-message', { text: payload.text });
-  }),
-);
-
-const slowStream = base.stream(StartSlowStream, (s) =>
-  s.chunk(SlowChunk).generate(async function* () {
-    for (let i = 0; i < 10; i++) {
-      yield { index: i };
-      // Long gap so the DO can hibernate between yields.
-      await new Promise((r) => setTimeout(r, 2_000));
-    }
-  }),
-);
-
-export const hibernationHandler = base
-  .use(slowStream)
-  .use(roomChannel)
-  .incoming(SaveNote, (ctx, payload) => {
+  .on('save-note', (ctx, payload) => {
     ctx.sql.exec('INSERT INTO notes (title, body) VALUES (?, ?)', payload.title, payload.body);
     ctx.send('notes-list', {
       notes: ctx.sql
@@ -77,14 +70,14 @@ export const hibernationHandler = base
         .toArray(),
     });
   })
-  .incoming(GetNotes, (ctx) => {
+  .on('get-notes', (ctx) => {
     ctx.send('notes-list', {
       notes: ctx.sql
         .exec<{ title: string; body: string }>('SELECT title, body FROM notes')
         .toArray(),
     });
   })
-  .incoming(TagSelf, (ctx, payload) => {
+  .on('tag-self', (ctx, payload) => {
     ctx.tags.ephemeral('label').add(payload.tag);
     ctx.send('tag-result', {
       tags: ctx.tags
@@ -92,13 +85,27 @@ export const hibernationHandler = base
         .map((t: { group: string; key: string; kind: string }) => `${t.group}:${t.key}`),
     });
   })
-  .incoming(SendToTag, (ctx, payload) => {
+  .on('send-to-tag', (ctx, payload) => {
     ctx.tags.ephemeral('label').ref(payload.tag).send('tagged-message', {
       text: payload.text,
       from: ctx.meta.username,
     });
   })
-  .incoming(GetRoomMembers, (ctx) => {
+  .on('get-room-members', (ctx) => {
     ctx.send('room-members-count', { count: ctx.channels.get('room').members().length });
   })
+
+  .stream('start-slow-stream', async function* () {
+    for (let i = 0; i < 10; i++) {
+      yield { index: i };
+      await new Promise((r) => setTimeout(r, 2_000));
+    }
+  })
+
+  .channel('room', (ch) =>
+    ch.on('broadcast-to-room', (ctx, payload) => {
+      ctx.channel.broadcast('room-message', { text: payload.text });
+    }),
+  )
+
   .build();

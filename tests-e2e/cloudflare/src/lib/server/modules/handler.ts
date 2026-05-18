@@ -1,8 +1,5 @@
-import { event, server } from '@wskit/server';
+import { contract, implement, incoming, outgoing, stream, t } from '@wskit/server';
 import { RejectUpgrade } from '@wskit/server/errors';
-import { withLifecycle } from '@wskit/server/lifecycle';
-import { withScheduled } from '@wskit/server/scheduled';
-import { withStreams } from '@wskit/server/streams';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { Drizzle, DrizzleDenied } from './drizzle-module.ts';
@@ -47,155 +44,163 @@ import {
   VacuumDone,
 } from './events.ts';
 
-// Stream + module event used to pin the bug where the engine cleared
-// activeConnectionId before the generator body advanced. The stream's
-// generator body calls `Drizzle.use(ctx).getCurrentConnectionId()` (which
-// returns `hooks.getState()?.id`) on each yield, so each chunk carries the
-// id the engine had set at iterator.next() time.
-const StreamConnectionId = event('stream-connection-id', v.object({ count: v.number() }));
+const StreamConnectionIdPayload = v.object({ count: v.number() });
+const StreamConnectionIdChunk = v.object({ id: v.string() });
 
-// Stream whose `finally` block throws on cancel (connection close drives
-// `generator.return()` which fires the finally). Used to pin that the rest
-// of connection-close cleanup — including the module's onDisconnect hook —
-// still runs even when stream teardown blows up.
-const StreamThrowOnCancel = event('stream-throw-on-cancel', v.object({}));
+const StreamThrowOnCancelPayload = v.object({});
+const StreamThrowOnCancelChunk = v.object({ tick: v.number() });
 
-const baseModules = withStreams(withScheduled(withLifecycle(server<Env>('modules-test'))));
+export const modulesContract = contract<Env>('modules-test')({
+  meta: t<{ username: string }>(),
+  definitions: [
+    incoming(InsertRecord.event, InsertRecord.schema),
+    incoming(GetAllRecords.event, GetAllRecords.schema),
+    incoming(GetRecord.event, GetRecord.schema),
+    incoming(DeleteRecord.event, DeleteRecord.schema),
+    incoming(GetRecordCount.event, GetRecordCount.schema),
+    incoming(GetMessageCount.event, GetMessageCount.schema),
+    incoming(TriggerVacuum.event, TriggerVacuum.schema),
+    incoming(GetOutgoingCount.event, GetOutgoingCount.schema),
+    incoming(GetDisconnectCount.event, GetDisconnectCount.schema),
+    incoming(GetGeneratedId.event, GetGeneratedId.schema),
+    incoming(GetLastState.event, GetLastState.schema),
+    incoming(GetShutdownCount.event, GetShutdownCount.schema),
+    incoming(ModuleRewriteProbe.event, ModuleRewriteProbe.schema),
+    incoming(TriggerModuleEvery.event, TriggerModuleEvery.schema),
+    incoming(TriggerModuleFlaky.event, TriggerModuleFlaky.schema),
+    incoming(TriggerModuleAlwaysFail.event, TriggerModuleAlwaysFail.schema),
+    incoming(TriggerModuleQueryDlq.event, TriggerModuleQueryDlq.schema),
+    incoming(TriggerModuleDenied.event, TriggerModuleDenied.schema),
+    incoming(TriggerModuleError.event, TriggerModuleError.schema),
+    incoming(TriggerModuleTaskWithData.event, TriggerModuleTaskWithData.schema),
 
-const streamConnectionIdPrimitive = baseModules.stream(StreamConnectionId, (s) =>
-  s.chunk(v.object({ id: v.string() })).generate(async function* (ctx, payload) {
-    const db = Drizzle.use(ctx);
-    for (let i = 0; i < payload.count; i++) {
-      // Each chunk carries the id observed via hooks.getState() at this
-      // point in the generator body. If the engine cleared the active id
-      // before iterator.next(), the id would be empty.
-      yield { id: db.getCurrentConnectionId() ?? '' };
-      await new Promise((r) => setTimeout(r, 5));
-    }
-  }),
-);
+    outgoing(RecordInserted.event, RecordInserted.schema),
+    outgoing(RecordList.event, RecordList.schema),
+    outgoing(SingleRecord.event, SingleRecord.schema),
+    outgoing(RecordDeleted.event, RecordDeleted.schema),
+    outgoing(RecordCount.event, RecordCount.schema),
+    outgoing(MessageCount.event, MessageCount.schema),
+    outgoing(VacuumDone.event, VacuumDone.schema),
+    outgoing(OutgoingCount.event, OutgoingCount.schema),
+    outgoing(DisconnectCount.event, DisconnectCount.schema),
+    outgoing(GeneratedId.event, GeneratedId.schema),
+    outgoing(LastState.event, LastState.schema),
+    outgoing(ShutdownCount.event, ShutdownCount.schema),
+    outgoing(ModuleRewriteResult.event, ModuleRewriteResult.schema),
+    outgoing(ModuleEveryTick.event, ModuleEveryTick.schema),
+    outgoing(ModuleFlakyResult.event, ModuleFlakyResult.schema),
+    outgoing(ModuleDlqResult.event, ModuleDlqResult.schema),
+    outgoing(ErrorResult.event, ErrorResult.schema),
+    outgoing(ModuleTaskDataResult.event, ModuleTaskDataResult.schema),
 
-const streamThrowOnCancelPrimitive = baseModules.stream(StreamThrowOnCancel, (s) =>
-  s.chunk(v.object({ tick: v.number() })).generate(async function* () {
-    try {
-      let i = 0;
-      while (true) {
-        yield { tick: i++ };
-        await new Promise((r) => setTimeout(r, 50));
-      }
-    } finally {
-      // Throwing from `finally` simulates a real-world cleanup failure
-      // (e.g. an external service the generator was holding open is
-      // unreachable). The engine must catch and continue connection
-      // cleanup despite this.
-      // oxlint-disable-next-line no-unsafe-finally
-      throw new Error('e2e: stream finally threw');
-    }
-  }),
-);
+    stream('stream-connection-id', {
+      payload: StreamConnectionIdPayload,
+      chunk: StreamConnectionIdChunk,
+    }),
+    stream('stream-throw-on-cancel', {
+      payload: StreamThrowOnCancelPayload,
+      chunk: StreamThrowOnCancelChunk,
+    }),
+  ],
+});
 
-export const modulesHandler = baseModules
-  .outgoing(RecordInserted)
-  .outgoing(RecordList)
-  .outgoing(SingleRecord)
-  .outgoing(RecordDeleted)
-  .outgoing(RecordCount)
-  .outgoing(MessageCount)
-  .outgoing(VacuumDone)
-  .outgoing(OutgoingCount)
-  .outgoing(DisconnectCount)
-  .outgoing(GeneratedId)
-  .outgoing(LastState)
-  .outgoing(ShutdownCount)
-  .outgoing(ModuleRewriteResult)
-  .outgoing(ModuleEveryTick)
-  .outgoing(ModuleFlakyResult)
-  .outgoing(ModuleDlqResult)
-  .outgoing(ErrorResult)
-  .outgoing(ModuleTaskDataResult)
-  .use(Drizzle({ migrate: true }))
+export const modulesHandler = implement(modulesContract)
+  .module(Drizzle({ migrate: true }))
   .onUpgrade((request) => {
     const url = new URL(request.url);
     const username = url.searchParams.get('username');
     if (!username) throw RejectUpgrade(4001, 'Missing username');
-    return { meta: { username } };
+    return { identity: username, meta: { username } };
   })
   .onConnect((ctx) => {
     ctx.log.info('Module handler: client connected', { id: ctx.id });
   })
-  .incoming(InsertRecord, (ctx, payload) => {
+  .on('insert-record', (ctx, payload) => {
     const db = Drizzle.use(ctx);
     const row = db.insert({ name: payload.name, value: payload.value });
     ctx.send('record-inserted', { id: row.id });
   })
-  .incoming(GetAllRecords, (ctx) => {
+  .on('get-all-records', (ctx) => {
     const db = Drizzle.use(ctx);
     ctx.send('record-list', { records: db.findAll() });
   })
-  .incoming(GetRecord, (ctx, payload) => {
+  .on('get-record', (ctx, payload) => {
     const db = Drizzle.use(ctx);
     ctx.send('single-record', { record: db.findById(payload.id) ?? null });
   })
-  .incoming(DeleteRecord, (ctx, payload) => {
+  .on('delete-record', (ctx, payload) => {
     const db = Drizzle.use(ctx);
     ctx.send('record-deleted', { success: db.deleteById(payload.id) });
   })
-  .incoming(GetRecordCount, (ctx) => {
+  .on('get-record-count', (ctx) => {
     const db = Drizzle.use(ctx);
     ctx.send('record-count', { count: db.count() });
   })
-  .incoming(GetMessageCount, (ctx) => {
+  .on('get-message-count', (ctx) => {
     const db = Drizzle.use(ctx);
     ctx.send('message-count', { count: db.getMessageCount() });
   })
-  .incoming(TriggerVacuum, (ctx) => {
-    ctx.schedule('__e2e:drizzle:drizzle-vacuum', { time: Date.now() + 200 });
+  .on('trigger-vacuum', (ctx) => {
+    (ctx.schedule as (id: string, opts: { time: number; data?: unknown }) => void)(
+      '__e2e:drizzle:drizzle-vacuum',
+      { time: Date.now() + 200 },
+    );
   })
-  .incoming(GetOutgoingCount, (ctx) => {
+  .on('get-outgoing-count', (ctx) => {
     const db = Drizzle.use(ctx);
     ctx.send('outgoing-count', { count: db.getOutgoingCount() });
   })
-  .incoming(GetDisconnectCount, (ctx) => {
+  .on('get-disconnect-count', (ctx) => {
     const db = Drizzle.use(ctx);
     ctx.send('disconnect-count', { count: db.getDisconnectCount() });
   })
-  .incoming(GetGeneratedId, (ctx) => {
+  .on('get-generated-id', (ctx) => {
     const db = Drizzle.use(ctx);
     ctx.send('generated-id', { value: db.getLastGeneratedId() });
   })
-  .incoming(GetLastState, (ctx) => {
+  .on('get-last-state', (ctx) => {
     const db = Drizzle.use(ctx);
     ctx.send('last-state', { state: db.getLastState() });
   })
-  .incoming(GetShutdownCount, (ctx) => {
+  .on('get-shutdown-count', (ctx) => {
     const db = Drizzle.use(ctx);
     ctx.send('shutdown-count', { count: db.getShutdownCount() });
   })
-  .incoming(ModuleRewriteProbe, (ctx, payload) => {
-    // payload is whatever the module's onIncoming returned — the handler
-    // echoes it so Playwright can confirm the rewrite fired.
+  .on('module-rewrite-probe', (ctx, payload) => {
     const observed = payload as unknown as { text: string; rewritten?: boolean };
     ctx.send('module-rewrite-result', {
       text: observed.text,
       rewritten: observed.rewritten,
     });
   })
-  .incoming(TriggerModuleEvery, (ctx) => {
-    ctx.schedule('__e2e:drizzle:drizzle-every-tick', { time: Date.now() + 100 });
+  .on('trigger-module-every', (ctx) => {
+    (ctx.schedule as (id: string, opts: { time: number; data?: unknown }) => void)(
+      '__e2e:drizzle:drizzle-every-tick',
+      { time: Date.now() + 100 },
+    );
   })
-  .incoming(TriggerModuleFlaky, (ctx) => {
-    ctx.schedule('__e2e:drizzle:drizzle-flaky', { time: Date.now() + 100 });
+  .on('trigger-module-flaky', (ctx) => {
+    (ctx.schedule as (id: string, opts: { time: number; data?: unknown }) => void)(
+      '__e2e:drizzle:drizzle-flaky',
+      { time: Date.now() + 100 },
+    );
   })
-  .incoming(TriggerModuleAlwaysFail, (ctx) => {
-    ctx.schedule('__e2e:drizzle:drizzle-module-always-fail', { time: Date.now() + 100 });
+  .on('trigger-module-always-fail', (ctx) => {
+    (ctx.schedule as (id: string, opts: { time: number; data?: unknown }) => void)(
+      '__e2e:drizzle:drizzle-module-always-fail',
+      { time: Date.now() + 100 },
+    );
   })
-  .incoming(TriggerModuleQueryDlq, (ctx) => {
-    ctx.schedule('__e2e:drizzle:drizzle-query-dlq', { time: Date.now() + 100 });
+  .on('trigger-module-query-dlq', (ctx) => {
+    (ctx.schedule as (id: string, opts: { time: number; data?: unknown }) => void)(
+      '__e2e:drizzle:drizzle-query-dlq',
+      { time: Date.now() + 100 },
+    );
   })
-  .incoming(TriggerModuleDenied, () => {
+  .on('trigger-module-denied', () => {
     throw DrizzleDenied({ reason: 'test denial', op: 'insert' });
   })
-  .incoming(TriggerModuleError, (ctx) => {
+  .on('trigger-module-error', (ctx) => {
     try {
       throw DrizzleDenied({ reason: 'test denial', op: 'insert' });
     } catch (err: unknown) {
@@ -207,14 +212,34 @@ export const modulesHandler = baseModules
       });
     }
   })
-  .incoming(TriggerModuleTaskWithData, (ctx) => {
-    ctx.schedule('__e2e:drizzle:drizzle-task-with-data', {
-      time: Date.now() + 100,
-      data: { value: 'test-data' },
-    });
+  .on('trigger-module-task-with-data', (ctx) => {
+    (ctx.schedule as (id: string, opts: { time: number; data?: unknown }) => void)(
+      '__e2e:drizzle:drizzle-task-with-data',
+      {
+        time: Date.now() + 100,
+        data: { value: 'test-data' },
+      },
+    );
   })
-  .use(streamConnectionIdPrimitive)
-  .use(streamThrowOnCancelPrimitive)
+  .stream('stream-connection-id', async function* (ctx, payload) {
+    const db = Drizzle.use(ctx);
+    for (let i = 0; i < payload.count; i++) {
+      yield { id: db.getCurrentConnectionId() ?? '' };
+      await new Promise((r) => setTimeout(r, 5));
+    }
+  })
+  .stream('stream-throw-on-cancel', async function* () {
+    try {
+      let i = 0;
+      while (true) {
+        yield { tick: i++ };
+        await new Promise((r) => setTimeout(r, 50));
+      }
+    } finally {
+      // oxlint-disable-next-line no-unsafe-finally
+      throw new Error('e2e: stream finally threw');
+    }
+  })
   .build();
 
 export type ModulesClient = InferClient<typeof modulesHandler>;

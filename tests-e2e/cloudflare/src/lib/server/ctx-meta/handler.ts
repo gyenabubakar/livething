@@ -1,33 +1,31 @@
-import { event, server } from '@wskit/server';
-import { withChannels } from '@wskit/server/channels';
-import { withLifecycle } from '@wskit/server/lifecycle';
+import { contract, implement, incoming, outgoing, t } from '@wskit/server';
 import * as v from 'valibot';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const WhoAmI = event('who-am-i', v.object({}));
-const WhoAmIResult = event('who-am-i-result', v.object({ username: v.string() }));
-const ListMembers = event('list-members', v.object({}));
-const MembersListResult = event('members-list-result', v.object({ members: v.array(v.string()) }));
-const BroadcastIdentity = event('broadcast-identity', v.object({}));
-const BroadcastIdentityReceived = event(
-  'broadcast-identity-received',
-  v.object({ from: v.string() }),
-);
+export const ctxMetaContract = contract<Env>('ctx-meta')({
+  meta: t<{ username: string }>(),
+  definitions: [
+    incoming('who-am-i', v.object({})),
+    incoming('list-members', v.object({})),
+    incoming('broadcast-identity', v.object({})),
 
-export const ctxMetaHandler = withChannels(withLifecycle(server<Env>('ctx-meta')))
-  .outgoing(WhoAmIResult)
-  .outgoing(MembersListResult)
-  .outgoing(BroadcastIdentityReceived)
+    outgoing('who-am-i-result', v.object({ username: v.string() })),
+    outgoing('members-list-result', v.object({ members: v.array(v.string()) })),
+    outgoing('broadcast-identity-received', v.object({ from: v.string() })),
+  ],
+});
+
+export const ctxMetaHandler = implement(ctxMetaContract)
   .onUpgrade((request) => requireUsername(request))
-  .incoming(WhoAmI, (ctx) => {
+  .on('who-am-i', (ctx) => {
     ctx.send('who-am-i-result', { username: ctx.meta.username });
   })
-  .incoming(ListMembers, (ctx) => {
+  .on('list-members', (ctx) => {
     const peers = ctx.getConnections();
     const usernames = peers.map((p) => (p.meta.username as string) ?? 'unknown');
     ctx.send('members-list-result', { members: usernames });
   })
-  .incoming(BroadcastIdentity, (ctx) => {
-    ctx.broadcast('broadcast-identity-received', { from: ctx.meta.username as string });
+  .on('broadcast-identity', (ctx) => {
+    ctx.broadcast('broadcast-identity-received', { from: ctx.meta.username });
   })
   .build();

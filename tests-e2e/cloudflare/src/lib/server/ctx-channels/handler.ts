@@ -1,57 +1,62 @@
-import { event, server } from '@wskit/server';
-import { withChannels } from '@wskit/server/channels';
-import { withLifecycle } from '@wskit/server/lifecycle';
-import { withTags } from '@wskit/server/tags';
+import { channel, contract, implement, incoming, outgoing, t } from '@wskit/server';
 import * as v from 'valibot';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const GetMembers = event('get-members', v.object({ channel: v.string() }));
-const MembersResult = event('members-result', v.object({ channel: v.string(), count: v.number() }));
-const GetMemberId = event('get-member-id', v.object({ channel: v.string() }));
-const MemberIdResult = event('member-id-result', v.object({ id: v.string() }));
-const KickInChannel = event(
-  'kick-in-channel',
-  v.object({ channel: v.string(), tag: v.string(), reason: v.string() }),
-);
-const RoomMessage = event('room-message', v.object({ text: v.string(), from: v.string() }));
-const SendRoomMessage = event('send-room-message', v.object({ text: v.string() }));
+export const ctxChannelsContract = contract<Env>('ctx-channels')({
+  meta: t<{ username: string }>(),
+  tagGroups: {
+    ephemeral: ['user'],
+  },
+  definitions: [
+    incoming('get-members', v.object({ channel: v.string() })),
+    incoming('get-member-id', v.object({ channel: v.string() })),
+    incoming(
+      'kick-in-channel',
+      v.object({ channel: v.string(), tag: v.string(), reason: v.string() }),
+    ),
+    incoming('kick-nonmember', v.object({})),
 
-const base = withTags(withChannels(withLifecycle(server<Env>('ctx-channels'))))
-  .tagGroups('ephemeral', ['user'])
-  .outgoing(MembersResult)
-  .outgoing(MemberIdResult)
-  .onUpgrade((request, helpers) => requireUsername(request, helpers));
+    outgoing('members-result', v.object({ channel: v.string(), count: v.number() })),
+    outgoing('member-id-result', v.object({ id: v.string() })),
 
-const roomChannel = base.channel('room', (c) =>
-  c.outgoing(RoomMessage).incoming(SendRoomMessage, (ctx, payload) => {
-    ctx.channel.broadcast('room-message', { text: payload.text, from: ctx.meta.username });
-  }),
-);
+    channel('room', {
+      definitions: [
+        incoming('send-room-message', v.object({ text: v.string() })),
+        outgoing('room-message', v.object({ text: v.string(), from: v.string() })),
+      ],
+    }),
+  ],
+});
 
-export const ctxChannelsHandler = base
-  .use(roomChannel)
-  .incoming(GetMembers, (ctx, payload) => {
+export const ctxChannelsHandler = implement(ctxChannelsContract)
+  .onUpgrade((request, helpers) => requireUsername(request, helpers))
+  .on('get-members', (ctx, payload) => {
     void payload;
     ctx.send('members-result', {
       channel: 'room',
       count: ctx.channels.get('room').members().length,
     });
   })
-  .incoming(GetMemberId, (ctx, payload) => {
+  .on('get-member-id', (ctx, payload) => {
     void payload;
     const members = ctx.channels.get('room').members();
     const first = members[0];
     ctx.send('member-id-result', { id: first ? first.id : '' });
   })
-  .incoming(KickInChannel, async (ctx, payload) => {
+  .on('kick-in-channel', async (ctx, payload) => {
     void payload.channel;
     await ctx.channels
       .get('room')
       .kick(ctx.tags.ephemeral('user').ref(payload.tag), payload.reason);
   })
-  .incoming(event('kick-nonmember', v.object({})), async (ctx) => {
+  .on('kick-nonmember', async (ctx) => {
     await ctx.channels
       .get('room')
       .kick(ctx.tags.ephemeral('user').ref('user3'), 'Non-existent user');
   })
+  .channel('room', (ch) =>
+    ch.on('send-room-message', (ctx, payload) => {
+      ctx.channel.broadcast('room-message', { text: payload.text, from: ctx.meta.username });
+    }),
+  )
   .build();

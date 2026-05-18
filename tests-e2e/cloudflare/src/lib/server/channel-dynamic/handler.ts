@@ -1,65 +1,55 @@
-import { event, scope, server } from '@wskit/server';
-import { withChannels } from '@wskit/server/channels';
+import { channel, contract, implement, incoming, outgoing, scope, t } from '@wskit/server';
 import { ValidationFailed } from '@wskit/server/errors';
-import { withLifecycle } from '@wskit/server/lifecycle';
 import * as v from 'valibot';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const RoomMessage = event(
-  'room-message',
-  v.object({
-    channel: v.string(),
-    text: v.string(),
-    from: v.string(),
-    kind: v.string(),
-  }),
-);
-const SendMessage = event('send-message', v.object({ text: v.string() }));
-const EchoName = event('echo-name', v.object({}));
-const NameResult = event('name-result', v.object({ name: v.string(), suffix: v.string() }));
+const RoomMessagePayload = v.object({
+  channel: v.string(),
+  text: v.string(),
+  from: v.string(),
+  kind: v.string(),
+});
+const SendMessagePayload = v.object({ text: v.string() });
+const NameResultPayload = v.object({ name: v.string(), suffix: v.string() });
 
-// Top-level event with a handler. Used to verify scope isolation: a client
-// inside the `room` channel scope sending this event with `_channel: 'room:1'`
-// must NOT reach the top-level handler. Pre-fix the dispatcher fell through
-// to top-level handlers when the scoped lookup missed.
-const TopOnlyAction = event('top-only-action', v.object({}));
-const TopOnlyActionFired = event('top-only-action-fired', v.object({ from: v.string() }));
+const TopOnlyActionFiredPayload = v.object({ from: v.string() });
+const ValidationObservedPayload = v.object({ channel: v.string(), event: v.string() });
+const ScopedErrorObservedPayload = v.object({
+  channel: v.string(),
+  scope: v.string(),
+  event: v.string(),
+});
+const TriggerServerSubscribeDynamicPayload = v.object({ name: v.string() });
 
-// Channel-scoped handler that performs a custom semantic check and manually
-// throws ValidationFailed. Used to pin that onValidationError sees ctx.channel
-// for manually-thrown failures (not just schema-failed payloads).
-const TriggerManualValidation = event('trigger-manual-validation', v.object({}));
-const ValidationObserved = event(
-  'validation-observed',
-  v.object({ channel: v.string(), event: v.string() }),
-);
+export const channelDynamicContract = contract<Env>('channel-dynamic')({
+  meta: t<{ username: string }>(),
+  definitions: [
+    incoming('top-only-action', v.object({})),
+    incoming('trigger-server-subscribe-dynamic', TriggerServerSubscribeDynamicPayload),
 
-// Channel-scoped handler that throws an unrecognized error. Used to pin that
-// onError sees ctx.channel for runtime errors that bubble out of a scoped
-// handler — not just a top-level ctx.
-const TriggerScopedError = event('trigger-scoped-error', v.object({}));
-const ScopedErrorObserved = event(
-  'scoped-error-observed',
-  v.object({ channel: v.string(), scope: v.string(), event: v.string() }),
-);
+    outgoing('top-only-action-fired', TopOnlyActionFiredPayload),
+    outgoing('validation-observed', ValidationObservedPayload),
+    outgoing('scoped-error-observed', ScopedErrorObservedPayload),
 
-// Triggers server-initiated subscribe into a dynamic family channel via
-// channelHandle.subscribe(ctx.self). Used by the e2e suite to pin that the
-// frame carries `_channelScope` alongside the static `_channel` and the
-// new `source: 'server'` marker.
-const TriggerServerSubscribeDynamic = event(
-  'trigger-server-subscribe-dynamic',
-  v.object({ name: v.string() }),
-);
+    channel(scope('room', /^room:.+$/), {
+      definitions: [
+        incoming('send-message', SendMessagePayload),
+        incoming('echo-name', v.object({})),
+        incoming('trigger-manual-validation', v.object({})),
+        incoming('trigger-scoped-error', v.object({})),
+        outgoing('room-message', RoomMessagePayload),
+        outgoing('name-result', NameResultPayload),
+      ],
+    }),
 
-const base = withChannels(withLifecycle(server<Env>('channel-dynamic')))
+    channel(scope('proto-probe', /^proto:.+$/), {
+      definitions: [],
+    }),
+  ],
+});
+
+export const channelDynamicHandler = implement(channelDynamicContract)
   .onUpgrade((request) => requireUsername(request))
-  .outgoing(TopOnlyActionFired)
-  .outgoing(ValidationObserved)
-  .outgoing(ScopedErrorObserved)
-  .incoming(TopOnlyAction, (ctx) => {
-    ctx.send('top-only-action-fired', { from: ctx.meta.username });
-  })
   .onError((ctx, _error, eventName) => {
     const c = ctx as unknown as { channel?: { name?: string; scope?: string | null } };
     ctx.send('scoped-error-observed', {
@@ -69,89 +59,81 @@ const base = withChannels(withLifecycle(server<Env>('channel-dynamic')))
     });
   })
   .onValidationError((ctx, eventName) => {
-    // The hook reports the scope it observed back to the connection.
-    // For a manually-thrown ValidationFailed inside the room channel,
-    // ctx.channel must be set; pre-fix it was undefined.
     const c = ctx as unknown as { channel?: { name?: string } };
     ctx.send('validation-observed', {
       channel: c.channel?.name ?? '<top-level>',
       event: eventName,
     });
-  });
+  })
 
-const roomChannel = base.channel(scope('room', /^room:.+$/), (ch) =>
-  ch
-    .outgoing(RoomMessage)
-    .outgoing(NameResult)
-    .incoming(SendMessage, (ctx, payload) => {
-      ctx.channel.broadcast('room-message', {
-        channel: ctx.channel.name,
-        text: payload.text,
-        from: ctx.meta.username,
-        kind: 'user',
-      });
-    })
-    .incoming(EchoName, (ctx) => {
-      const name = ctx.channel.name;
-      const suffix = name.slice(name.indexOf(':') + 1);
-      ctx.channel.send('name-result', { name, suffix });
-    })
-    .incoming(TriggerManualValidation, () => {
-      throw ValidationFailed({
-        event: 'trigger-manual-validation',
-        issues: [{ message: 'manual semantic check failed' }],
-      });
-    })
-    .incoming(TriggerScopedError, () => {
-      throw new Error('scoped runtime error');
-    })
-    .onBeforeSubscribe(async (ctx) => {
-      if (ctx.meta.username === 'banned-user') {
-        throw new Error('banned-user may not subscribe');
-      }
-      if (ctx.meta.username === 'async-banned-user') {
-        await new Promise((r) => setTimeout(r, 20));
-        throw new Error('async-banned-user may not subscribe');
-      }
-      // Slow but successful gate. Used by the concurrent-subscribe race
-      // test: two clients reach this hook at the same time, both await,
-      // then both commit. Pre-fix each snapshotted the empty member list
-      // before the await and missed the other in its initial sync.
-      if (ctx.meta.username.startsWith('slow-user')) {
-        await new Promise((r) => setTimeout(r, 50));
-      }
-    })
-    .onSubscribe((ctx) => {
-      ctx.channel.broadcast('room-message', {
-        channel: ctx.channel.name,
-        text: `${ctx.meta.username} entered`,
-        from: 'system',
-        kind: 'system',
-      });
-    })
-    .onUnsubscribe((ctx) => {
-      ctx.channel.broadcast('room-message', {
-        channel: ctx.channel.name,
-        text: `${ctx.meta.username} left`,
-        from: 'system',
-        kind: 'system',
-      });
-    }),
-);
-
-const protoProbeChannel = base.channel(scope('proto-probe', /^proto:.+$/), (ch) =>
-  ch.onBeforeSubscribe((_ctx, data) => {
-    const d = data as { role?: unknown } | undefined;
-    if (d?.role === 'admin') {
-      throw new Error('admin role on subscribe payload is forbidden');
-    }
-  }),
-);
-
-export const channelDynamicHandler = base
-  .use(roomChannel)
-  .use(protoProbeChannel)
-  .incoming(TriggerServerSubscribeDynamic, async (ctx, payload) => {
+  .on('top-only-action', (ctx) => {
+    ctx.send('top-only-action-fired', { from: ctx.meta.username });
+  })
+  .on('trigger-server-subscribe-dynamic', async (ctx, payload) => {
     await ctx.channels.get('room', payload.name).subscribe(ctx.self);
   })
+
+  .channel('room', (ch) =>
+    ch
+      .onBeforeSubscribe(async (ctx) => {
+        if (ctx.meta.username === 'banned-user') {
+          throw new Error('banned-user may not subscribe');
+        }
+        if (ctx.meta.username === 'async-banned-user') {
+          await new Promise((r) => setTimeout(r, 20));
+          throw new Error('async-banned-user may not subscribe');
+        }
+        if (ctx.meta.username.startsWith('slow-user')) {
+          await new Promise((r) => setTimeout(r, 50));
+        }
+      })
+      .onSubscribe((ctx) => {
+        ctx.channel.broadcast('room-message', {
+          channel: ctx.channel.name,
+          text: `${ctx.meta.username} entered`,
+          from: 'system',
+          kind: 'system',
+        });
+      })
+      .onUnsubscribe((ctx) => {
+        ctx.channel.broadcast('room-message', {
+          channel: ctx.channel.name,
+          text: `${ctx.meta.username} left`,
+          from: 'system',
+          kind: 'system',
+        });
+      })
+      .on('send-message', (ctx, payload) => {
+        ctx.channel.broadcast('room-message', {
+          channel: ctx.channel.name,
+          text: payload.text,
+          from: ctx.meta.username,
+          kind: 'user',
+        });
+      })
+      .on('echo-name', (ctx) => {
+        const name = ctx.channel.name;
+        const suffix = name.slice(name.indexOf(':') + 1);
+        ctx.channel.send('name-result', { name, suffix });
+      })
+      .on('trigger-manual-validation', () => {
+        throw ValidationFailed({
+          event: 'trigger-manual-validation',
+          issues: [{ message: 'manual semantic check failed' }],
+        });
+      })
+      .on('trigger-scoped-error', () => {
+        throw new Error('scoped runtime error');
+      }),
+  )
+
+  .channel('proto-probe', (ch) =>
+    ch.onBeforeSubscribe((_ctx, data) => {
+      const d = data as { role?: unknown } | undefined;
+      if (d?.role === 'admin') {
+        throw new Error('admin role on subscribe payload is forbidden');
+      }
+    }),
+  )
+
   .build();

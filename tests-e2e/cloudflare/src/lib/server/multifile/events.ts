@@ -1,8 +1,8 @@
-// Shared event contracts. Imported by both setup.ts and rooms.ts so the
-// channel scope and the top-level scope agree on payload shapes.
-import { event } from '@wskit/server';
+// Shared payload schemas. Imported by setup.ts (for the contract) and rooms.ts
+// (for the channel handler group) so the channel scope and the top-level scope
+// agree on payload shapes.
 import * as v from 'valibot';
 
-export const RoomMessage = event('room-message', v.object({ text: v.string(), from: v.string() }));
-export const SendRoomMessage = event('send-room-message', v.object({ text: v.string() }));
-export const Notification = event('notification', v.object({ title: v.string() }));
+export const RoomMessagePayload = v.object({ text: v.string(), from: v.string() });
+export const SendRoomMessagePayload = v.object({ text: v.string() });
+export const NotificationPayload = v.object({ title: v.string() });

@@ -1,78 +1,77 @@
-import { event, server } from '@wskit/server';
-import { withChannels } from '@wskit/server/channels';
+import { channel, contract, implement, incoming, namespace, outgoing, t } from '@wskit/server';
 import { Block } from '@wskit/server/errors';
-import { withIntercept } from '@wskit/server/intercept';
-import { withLifecycle } from '@wskit/server/lifecycle';
-import { withNamespaces } from '@wskit/server/namespaces';
 import * as v from 'valibot';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const Echo = event('echo', v.object({ text: v.string() }));
-const Echoed = event('echoed', v.object({ text: v.string() }));
+const EchoPayload = v.object({ text: v.string() });
+const EchoedPayload = v.object({ text: v.string() });
 
-const base = withChannels(withNamespaces(withIntercept(withLifecycle(server<Env>('intercept')))))
-  .outgoing(Echoed)
+export const interceptContract = contract<Env>('intercept')({
+  meta: t<{ username: string }>(),
+  definitions: [
+    incoming('echo', EchoPayload),
+    outgoing('echoed', EchoedPayload),
+
+    namespace('ns', {
+      definitions: [incoming('echo', EchoPayload), outgoing('echoed', EchoedPayload)],
+    }),
+
+    channel('room', {
+      definitions: [incoming('echo', EchoPayload), outgoing('echoed', EchoedPayload)],
+    }),
+  ],
+});
+
+export const interceptHandler = implement(interceptContract)
   .onUpgrade((request) => requireUsername(request))
-  // Top-level pre-intercept: runs before validation. wskit allows at most ONE
-  // pre-intercept per scope — all text-based rewrites are dispatched here.
   .intercept((_ctx, message) => {
     if (message.event === 'echo' && message.payload && typeof message.payload === 'object') {
       const text = (message.payload as { text?: string }).text;
       if (text === 'top-pre') return { text: 'top-pre-rewritten' };
-      if (text === 'top-passthrough') return; // void → pass through unchanged
+      if (text === 'top-passthrough') return;
     }
-    // void return — pass payload through unchanged. The event name is
-    // locked from the dispatcher; pre-intercepts cannot rewrite it.
   })
-  // Top-level post-intercept: typed, runs after validation on `echo` only.
-  // wskit allows at most ONE post-intercept per event per scope — all Echo
-  // rewrites + Block branch are dispatched here.
-  .intercept(Echo, (_ctx, payload) => {
+  .intercept('echo', (_ctx, payload) => {
     if (payload.text === 'top-post') return { text: 'top-post-rewritten' };
     if (payload.text === 'top-post-passthrough') return undefined;
     if (payload.text === 'top-post-block') throw Block;
     return payload;
   })
-  .incoming(Echo, (ctx, payload) => {
+  .on('echo', (ctx, payload) => {
     ctx.send('echoed', { text: `top:${payload.text}` });
-  });
-
-const nsIntercept = base.namespace('ns', (n) =>
-  n
-    .outgoing(Echoed)
-    .intercept((_ctx, message) => {
-      if (message.event === 'echo' && message.payload && typeof message.payload === 'object') {
-        const text = (message.payload as { text?: string }).text;
-        if (text === 'ns-pre') return { text: 'ns-pre-rewritten' };
-        if (text === 'ns-pre-block') throw Block;
-      }
-    })
-    .intercept(Echo, (_ctx, payload) => {
-      if (payload.text === 'ns-post') return { text: 'ns-post-rewritten' };
-      return payload;
-    })
-    .incoming(Echo, (ctx, payload) => {
-      ctx.namespace.send('echoed', { text: `ns:${payload.text}` });
-    }),
-);
-
-const chIntercept = base.channel('room', (c) =>
-  c
-    .outgoing(Echoed)
-    .intercept((_ctx, message) => {
-      if (message.event === 'echo' && message.payload && typeof message.payload === 'object') {
-        const text = (message.payload as { text?: string }).text;
-        if (text === 'ch-pre') return { text: 'ch-pre-rewritten' };
-        if (text === 'ch-pre-block') throw Block;
-      }
-    })
-    .intercept(Echo, (_ctx, payload) => {
-      if (payload.text === 'ch-post') return { text: 'ch-post-rewritten' };
-      return payload;
-    })
-    .incoming(Echo, (ctx, payload) => {
-      ctx.channel.send('echoed', { text: `ch:${payload.text}` });
-    }),
-);
-
-export const interceptHandler = base.use(nsIntercept).use(chIntercept).build();
+  })
+  .namespace('ns', (ns) =>
+    ns
+      .intercept((_ctx, message) => {
+        if (message.event === 'echo' && message.payload && typeof message.payload === 'object') {
+          const text = (message.payload as { text?: string }).text;
+          if (text === 'ns-pre') return { text: 'ns-pre-rewritten' };
+          if (text === 'ns-pre-block') throw Block;
+        }
+      })
+      .intercept('echo', (_ctx, payload) => {
+        if (payload.text === 'ns-post') return { text: 'ns-post-rewritten' };
+        return payload;
+      })
+      .on('echo', (ctx, payload) => {
+        ctx.namespace.send('echoed', { text: `ns:${payload.text}` });
+      }),
+  )
+  .channel('room', (ch) =>
+    ch
+      .intercept((_ctx, message) => {
+        if (message.event === 'echo' && message.payload && typeof message.payload === 'object') {
+          const text = (message.payload as { text?: string }).text;
+          if (text === 'ch-pre') return { text: 'ch-pre-rewritten' };
+          if (text === 'ch-pre-block') throw Block;
+        }
+      })
+      .intercept('echo', (_ctx, payload) => {
+        if (payload.text === 'ch-post') return { text: 'ch-post-rewritten' };
+        return payload;
+      })
+      .on('echo', (ctx, payload) => {
+        ctx.channel.send('echoed', { text: `ch:${payload.text}` });
+      }),
+  )
+  .build();

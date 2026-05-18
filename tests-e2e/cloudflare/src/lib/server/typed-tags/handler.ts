@@ -1,103 +1,92 @@
-import { event, server } from '@wskit/server';
-import { withChannels } from '@wskit/server/channels';
-import { withLifecycle } from '@wskit/server/lifecycle';
-import { withPersistence } from '@wskit/server/persistence';
-import { withTags } from '@wskit/server/tags';
+import { channel, contract, implement, incoming, outgoing, t } from '@wskit/server';
 import * as v from 'valibot';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const AddTag = event(
-  'add-tag',
-  v.object({
-    kind: v.picklist(['ephemeral', 'persistent']),
-    group: v.string(),
-    key: v.string(),
-  }),
-);
-const RemoveTag = event(
-  'remove-tag',
-  v.object({
-    kind: v.picklist(['ephemeral', 'persistent']),
-    group: v.string(),
-    key: v.string(),
-  }),
-);
-const ListMyTags = event('list-my-tags', v.object({}));
-const FanOutToTag = event(
-  'fan-out-to-tag',
-  v.object({ group: v.string(), key: v.string(), text: v.string() }),
-);
-const CountByTag = event('count-by-tag', v.object({ group: v.string(), key: v.string() }));
-const KickByTag = event(
-  'kick-by-tag',
-  v.object({ group: v.string(), key: v.string(), reason: v.string() }),
-);
+const TagPayload = v.object({
+  kind: v.picklist(['ephemeral', 'persistent']),
+  group: v.string(),
+  key: v.string(),
+});
 
-const TagsList = event(
-  'tags-list',
-  v.object({ tags: v.array(v.object({ kind: v.string(), group: v.string(), key: v.string() })) }),
-);
-const FanOutEcho = event('fan-out-echo', v.object({ text: v.string(), from: v.string() }));
-const CountResult = event('count-result', v.object({ count: v.number() }));
+const FanOutPayload = v.object({ group: v.string(), key: v.string(), text: v.string() });
+const CountByPayload = v.object({ group: v.string(), key: v.string() });
+const KickByPayload = v.object({ group: v.string(), key: v.string(), reason: v.string() });
 
-const RoomMessage = event('room-message', v.object({ text: v.string(), from: v.string() }));
-const SendInRoom = event('send-in-room', v.object({ text: v.string() }));
+const TagsListPayload = v.object({
+  tags: v.array(v.object({ kind: v.string(), group: v.string(), key: v.string() })),
+});
+const FanOutEchoPayload = v.object({ text: v.string(), from: v.string() });
+const CountResultPayload = v.object({ count: v.number() });
+const RoomMessagePayload = v.object({ text: v.string(), from: v.string() });
+const SendInRoomPayload = v.object({ text: v.string() });
 
-const base = withTags(withPersistence(withChannels(withLifecycle(server<Env>('typed-tags')))))
-  .enablePersistence()
-  .tagGroups('ephemeral', ['user', 'role'])
-  .tagGroups('persistent', ['favorite'])
-  .outgoing(TagsList)
-  .outgoing(FanOutEcho)
-  .outgoing(CountResult)
-  .onUpgrade((request, helpers) => requireUsername(request, helpers));
+export const typedTagsContract = contract<Env>('typed-tags')({
+  persistence: true,
+  meta: t<{ username: string }>(),
+  tagGroups: {
+    ephemeral: ['user', 'role'],
+    persistent: ['favorite'],
+  },
+  definitions: [
+    incoming('add-tag', TagPayload),
+    incoming('remove-tag', TagPayload),
+    incoming('list-my-tags', v.object({})),
+    incoming('fan-out-to-tag', FanOutPayload),
+    incoming('count-by-tag', CountByPayload),
+    incoming('kick-by-tag', KickByPayload),
 
-const room = base.channel('room', (c) =>
-  c.outgoing(RoomMessage).incoming(SendInRoom, (ctx, payload) => {
-    ctx.channel.broadcast('room-message', { text: payload.text, from: ctx.meta.username });
-  }),
-);
+    outgoing('tags-list', TagsListPayload),
+    outgoing('fan-out-echo', FanOutEchoPayload),
+    outgoing('count-result', CountResultPayload),
 
-export const typedTagsHandler = base
-  .use(room)
-  .incoming(AddTag, (ctx, payload) => {
-    if (payload.kind === 'ephemeral') {
-      ctx.tags.ephemeral(payload.group).add(payload.key);
-    } else {
-      ctx.tags.persistent(payload.group).add(payload.key);
-    }
+    channel('room', {
+      definitions: [
+        incoming('send-in-room', SendInRoomPayload),
+        outgoing('room-message', RoomMessagePayload),
+      ],
+    }),
+  ],
+});
+
+export const typedTagsHandler = implement(typedTagsContract)
+  .onUpgrade((request, helpers) => requireUsername(request, helpers))
+
+  .on('add-tag', (ctx, payload) => {
+    if (payload.kind === 'ephemeral') ctx.tags.ephemeral(payload.group).add(payload.key);
+    else ctx.tags.persistent(payload.group).add(payload.key);
   })
-  .incoming(RemoveTag, (ctx, payload) => {
-    if (payload.kind === 'ephemeral') {
-      ctx.tags.ephemeral(payload.group).remove(payload.key);
-    } else {
-      ctx.tags.persistent(payload.group).remove(payload.key);
-    }
+  .on('remove-tag', (ctx, payload) => {
+    if (payload.kind === 'ephemeral') ctx.tags.ephemeral(payload.group).remove(payload.key);
+    else ctx.tags.persistent(payload.group).remove(payload.key);
   })
-  .incoming(ListMyTags, (ctx) => {
+  .on('list-my-tags', (ctx) => {
     ctx.send('tags-list', {
-      tags: ctx.tags
-        .list()
-        .map((t: { group: string; key: string; kind: string }) => ({
-          kind: t.kind,
-          group: t.group,
-          key: t.key,
-        })),
+      tags: ctx.tags.list().map((t) => ({ kind: t.kind, group: t.group, key: t.key })),
     });
   })
-  .incoming(FanOutToTag, (ctx, payload) => {
+  .on('fan-out-to-tag', (ctx, payload) => {
     ctx.tags
       .ephemeral(payload.group)
       .ref(payload.key)
       .send('fan-out-echo', { text: payload.text, from: ctx.meta.username });
   })
-  .incoming(CountByTag, (ctx, payload) => {
+  .on('count-by-tag', (ctx, payload) => {
     const count = ctx.tags.ephemeral(payload.group).ref(payload.key).count();
     ctx.send('count-result', { count });
   })
-  .incoming(KickByTag, async (ctx, payload) => {
+  .on('kick-by-tag', async (ctx, payload) => {
     await ctx.channels
       .get('room')
       .kick(ctx.tags.ephemeral(payload.group).ref(payload.key), payload.reason);
   })
+
+  .channel('room', (ch) =>
+    ch.on('send-in-room', (ctx, payload) => {
+      ctx.channel.broadcast('room-message', {
+        text: payload.text,
+        from: ctx.meta.username,
+      });
+    }),
+  )
+
   .build();

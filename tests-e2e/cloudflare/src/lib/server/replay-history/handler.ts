@@ -1,13 +1,16 @@
-import { scope, server } from '@wskit/server';
-import { withChannels } from '@wskit/server/channels';
-import { withDedup } from '@wskit/server/dedup';
+import {
+  channel,
+  contract,
+  implement,
+  incoming,
+  namespace,
+  outgoing,
+  request,
+  scope,
+  stream,
+  t,
+} from '@wskit/server';
 import { RejectUpgrade } from '@wskit/server/errors';
-import { withLifecycle } from '@wskit/server/lifecycle';
-import { withNamespaces } from '@wskit/server/namespaces';
-import { withReplay } from '@wskit/server/replay';
-import { withRequests } from '@wskit/server/requests';
-import { withSequence } from '@wskit/server/sequence';
-import { withStreams } from '@wskit/server/streams';
 import type { InferClient } from '@wskit/server';
 import {
   ChatMsg,
@@ -28,30 +31,55 @@ import {
   TriggerBigIntReplay,
 } from './events.ts';
 
-const base = withChannels(
-  withNamespaces(
-    withStreams(
-      withRequests(withReplay(withLifecycle(withSequence(withDedup(server<Env>('replay-test')))))),
-    ),
-  ),
-);
+export const replayContract = contract<Env>('replay-test')({
+  sequence: { persist: true },
+  dedup: true,
+  replay: {
+    exclude: ['cursor'],
+    retention: { maxMessages: 100, maxAgeMs: 1_000 },
+    durability: 'strict',
+  },
+  meta: t<{ username: string }>(),
+  errors: [],
+  definitions: [
+    incoming(SendMsg.event, SendMsg.schema),
+    incoming(SendCursor.event, SendCursor.schema),
+    incoming(RequestHistory.event, RequestHistory.schema),
+    incoming(TriggerBadReplay.event, TriggerBadReplay.schema),
+    incoming(InjectFamilyReplay.event, InjectFamilyReplay.schema),
+    incoming(TriggerBigIntReplay.event, TriggerBigIntReplay.schema),
 
-const tinyStream = base.stream(StartTinyStream, (s) =>
-  s.chunk(TinyChunk).generate(async function* () {
-    yield { value: 'one' };
-  }),
-);
+    outgoing(ChatMsg.event, ChatMsg.schema),
+    outgoing(Cursor.event, Cursor.schema),
+    outgoing(RoomMsg.event, RoomMsg.schema),
+    outgoing(ReplayGuardError.event, ReplayGuardError.schema),
 
-export const replayHandler = base
-  .sequence({ persist: true })
-  .dedup()
-  .outgoing(ChatMsg)
-  .outgoing(Cursor)
-  .outgoing(RoomMsg)
-  .outgoing(ReplayGuardError)
-  .replay((r) =>
-    r.exclude('cursor').retention({ maxMessages: 100, maxAgeMs: 1_000 }).durability('strict'),
-  )
+    request(GetToken.event, { payload: GetToken.schema, response: TokenResponse }),
+    stream(StartTinyStream.event, { payload: StartTinyStream.schema, chunk: TinyChunk }),
+
+    namespace('admin', {
+      definitions: [outgoing(ChatMsg.event, ChatMsg.schema)],
+    }),
+
+    channel('replay-room', {
+      replay: true,
+      definitions: [
+        outgoing(RoomMsg.event, RoomMsg.schema),
+        incoming(SendRoomMsg.event, SendRoomMsg.schema),
+        incoming(RequestRoomHistory.event, RequestRoomHistory.schema),
+      ],
+    }),
+
+    channel(scope('fams', /^fam-.+$/), {
+      definitions: [
+        outgoing(RoomMsg.event, RoomMsg.schema),
+        incoming(SendRoomMsg.event, SendRoomMsg.schema),
+      ],
+    }),
+  ],
+});
+
+export const replayHandler = implement(replayContract)
   .onError((_ctx, error, event) => {
     console.error(`[replay] error in ${event}:`, error);
   })
@@ -61,31 +89,26 @@ export const replayHandler = base
     if (!username) throw RejectUpgrade(4001, 'Missing username');
     return { identity: username, meta: { username } };
   })
-  .incoming(SendMsg, (ctx, payload) => {
+  .on('send-msg', (ctx, payload) => {
     const msg = { text: payload.text, from: ctx.meta.username };
     ctx.send('chat-msg', msg);
     ctx.broadcast('chat-msg', msg);
   })
-  .incoming(SendCursor, (ctx, payload) => {
+  .on('send-cursor', (ctx, payload) => {
     ctx.send('cursor', { x: payload.x, y: payload.y });
     ctx.broadcast('cursor', { x: payload.x, y: payload.y });
   })
-  .incoming(RequestHistory, (ctx) => {
+  .on('request-history', (ctx) => {
     ctx.sendReplay(
       'chat-msg',
       { text: 'injected-history', from: 'system' },
-      {
-        seq: 0,
-        messageId: 'manual-001',
-      },
+      { seq: 0, messageId: 'manual-001' },
     );
   })
-  .request(GetToken, TokenResponse, (ctx) => {
-    // Private 1:1 response. Replay must not persist this — a different client
-    // calling _replay later would otherwise receive someone else's token.
-    ctx.respond({ token: `secret-for-${ctx.meta.username}` });
+  .request('get-token', (ctx) => {
+    return { token: `secret-for-${ctx.meta.username}` };
   })
-  .incoming(TriggerBadReplay, (ctx) => {
+  .on('trigger-bad-replay', (ctx) => {
     let undeclared = '';
     let reservedField = '';
     try {
@@ -108,21 +131,14 @@ export const replayHandler = base
     }
     ctx.send('replay-guard-error', { undeclared, reservedField });
   })
-  .incoming(InjectFamilyReplay, (ctx) => {
-    // Top-level handler emits a replay frame addressed to a family channel.
-    // The built-in replay primitive must forward channelScope so the resent
-    // frame carries _channelScope on the wire and family routing survives.
+  .on('inject-family-replay', (ctx) => {
     ctx.sendReplay(
       'room-msg',
       { text: 'family-injected', from: 'system' },
       { seq: 0, messageId: 'fam-manual-001', channel: 'fam-1', channelScope: 'fams' },
     );
   })
-  .incoming(TriggerBigIntReplay, (ctx) => {
-    // Send a row whose payload carries a BigInt — JSON.stringify cannot
-    // encode this. The engine must log + emit a sanitized _error frame
-    // preserving _channel/_seq/_messageId, then a follow-up valid row
-    // must still reach the client.
+  .on('trigger-bigint-replay', (ctx) => {
     ctx.sendReplay(
       'chat-msg',
       { text: 'bigint-row', from: 'system', reactions: 7n } as unknown as {
@@ -131,45 +147,37 @@ export const replayHandler = base
       },
       { seq: 1, messageId: 'bigint-row-1' },
     );
-    // Sentinel: a normal, serializable row that must still land after
-    // the failed one. Pre-fix this never arrived because the throw broke
-    // the caller's loop.
     ctx.sendReplay(
       'chat-msg',
       { text: 'after-bigint-row', from: 'system' },
       { seq: 2, messageId: 'after-bigint-row' },
     );
   })
-  .use(tinyStream)
-  .use(base.namespace('admin', (n) => n.outgoing(ChatMsg)))
-  .use(
-    base.channel(scope('fams', /^fam-.+$/), (ch) =>
-      ch.outgoing(RoomMsg).incoming(SendRoomMsg, (ctx, payload) => {
-        const from = ctx.meta.username as string;
+  .stream('start-tiny-stream', async function* () {
+    yield { value: 'one' };
+  })
+  .channel('replay-room', (ch) =>
+    ch
+      .on('send-room-msg', (ctx, payload) => {
+        const from = ctx.meta.username;
         const msg = { text: payload.text, from };
+        ctx.channel.send('room-msg', msg);
         ctx.channel.broadcast('room-msg', msg);
+      })
+      .on('request-room-history', (ctx) => {
+        ctx.channel.sendReplay!(
+          'room-msg',
+          { text: 'injected-room-history', from: 'system' },
+          { seq: 0, messageId: 'room-manual-001' },
+        );
       }),
-    ),
   )
-  .use(
-    base.channel('replay-room', (ch) =>
-      ch
-        .outgoing(RoomMsg)
-        .replay((r) => r)
-        .incoming(SendRoomMsg, (ctx, payload) => {
-          const from = ctx.meta.username as string;
-          const msg = { text: payload.text, from };
-          ctx.channel.send('room-msg', msg);
-          ctx.channel.broadcast('room-msg', msg);
-        })
-        .incoming(RequestRoomHistory, (ctx) => {
-          ctx.channel.sendReplay(
-            'room-msg',
-            { text: 'injected-room-history', from: 'system' },
-            { seq: 0, messageId: 'room-manual-001' },
-          );
-        }),
-    ),
+  .channel('fams', (ch) =>
+    ch.on('send-room-msg', (ctx, payload) => {
+      const from = ctx.meta.username;
+      const msg = { text: payload.text, from };
+      ctx.channel.broadcast('room-msg', msg);
+    }),
   )
   .build();
 
