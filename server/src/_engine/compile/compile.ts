@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import * as ChannelPrimitive from '~/channel/runtime.ts';
-import { RESERVED_EVENT_NAMES } from '~/event.ts';
+import { RESERVED_EVENT_NAMES } from './utils.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
 import type * as DefineServer from '~/server-definition.ts';
 import * as EngineCompileUtils from './utils.ts';

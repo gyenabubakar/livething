@@ -1,86 +1,70 @@
-import { event } from '@wskit/server';
 import * as v from 'valibot';
 
-export const InsertRecord = event(
-  'insert-record',
-  v.object({ name: v.string(), value: v.string() }),
-);
-export const GetAllRecords = event('get-all-records', v.object({}));
-export const GetRecord = event('get-record', v.object({ id: v.number() }));
-export const DeleteRecord = event('delete-record', v.object({ id: v.number() }));
-export const GetRecordCount = event('get-record-count', v.object({}));
+export const InsertRecord = v.object({ name: v.string(), value: v.string() });
+export const GetAllRecords = v.object({});
+export const GetRecord = v.object({ id: v.number() });
+export const DeleteRecord = v.object({ id: v.number() });
+export const GetRecordCount = v.object({});
 
-export const RecordInserted = event('record-inserted', v.object({ id: v.number() }));
-export const RecordList = event('record-list', v.object({ records: v.array(v.unknown()) }));
-export const SingleRecord = event('single-record', v.object({ record: v.unknown() }));
-export const RecordDeleted = event('record-deleted', v.object({ success: v.boolean() }));
-export const RecordCount = event('record-count', v.object({ count: v.number() }));
+export const RecordInserted = v.object({ id: v.number() });
+export const RecordList = v.object({ records: v.array(v.unknown()) });
+export const SingleRecord = v.object({ record: v.unknown() });
+export const RecordDeleted = v.object({ success: v.boolean() });
+export const RecordCount = v.object({ count: v.number() });
 
-export const GetMessageCount = event('get-message-count', v.object({}));
-export const MessageCount = event('message-count', v.object({ count: v.number() }));
+export const GetMessageCount = v.object({});
+export const MessageCount = v.object({ count: v.number() });
 
-export const TriggerVacuum = event('trigger-vacuum', v.object({}));
-export const VacuumDone = event('drizzle-vacuum-done', v.object({ timestamp: v.number() }));
-export const GetOutgoingCount = event('get-outgoing-count', v.object({}));
-export const OutgoingCount = event('outgoing-count', v.object({ count: v.number() }));
+export const TriggerVacuum = v.object({});
+export const VacuumDone = v.object({ timestamp: v.number() });
+export const GetOutgoingCount = v.object({});
+export const OutgoingCount = v.object({ count: v.number() });
 
-export const GetDisconnectCount = event('get-disconnect-count', v.object({}));
-export const DisconnectCount = event('disconnect-count', v.object({ count: v.number() }));
+export const GetDisconnectCount = v.object({});
+export const DisconnectCount = v.object({ count: v.number() });
 
-export const GetGeneratedId = event('get-generated-id', v.object({}));
-export const GeneratedId = event('generated-id', v.object({ value: v.nullable(v.string()) }));
+export const GetGeneratedId = v.object({});
+export const GeneratedId = v.object({ value: v.nullable(v.string()) });
 
-export const GetLastState = event('get-last-state', v.object({}));
-export const LastState = event(
-  'last-state',
-  v.object({
-    state: v.nullable(
-      v.object({
-        id: v.string(),
-        username: v.nullable(v.string()),
-        tags: v.array(v.object({ group: v.string(), key: v.string() })),
-      }),
-    ),
-  }),
-);
+export const GetLastState = v.object({});
+export const LastState = v.object({
+  state: v.nullable(
+    v.object({
+      id: v.string(),
+      username: v.nullable(v.string()),
+      tags: v.array(v.object({ group: v.string(), key: v.string() })),
+    }),
+  ),
+});
 
-export const GetShutdownCount = event('get-shutdown-count', v.object({}));
-export const ShutdownCount = event('shutdown-count', v.object({ count: v.number() }));
+export const GetShutdownCount = v.object({});
+export const ShutdownCount = v.object({ count: v.number() });
 
-// Module onIncoming rewrite probe — client sends the "raw" event; the module
-// rewrites the payload before the handler sees it. The handler then echoes
-// whatever payload it observed so Playwright can assert the rewrite happened.
-export const ModuleRewriteProbe = event(
-  'module-rewrite-probe',
-  v.object({ text: v.string(), rewritten: v.optional(v.boolean()) }),
-);
-export const ModuleRewriteResult = event(
-  'module-rewrite-result',
-  v.object({ text: v.string(), rewritten: v.optional(v.boolean()) }),
-);
+export const ModuleRewriteProbe = v.object({
+  text: v.string(),
+  rewritten: v.optional(v.boolean()),
+});
+export const ModuleRewriteResult = v.object({
+  text: v.string(),
+  rewritten: v.optional(v.boolean()),
+});
 
-// Module scheduled task coverage (every / retry / DLQ)
-export const TriggerModuleEvery = event('trigger-module-every', v.object({}));
-export const ModuleEveryTick = event('module-every-tick', v.object({ count: v.number() }));
-export const TriggerModuleFlaky = event('trigger-module-flaky', v.object({}));
-export const ModuleFlakyResult = event('module-flaky-result', v.object({ attempts: v.number() }));
-export const TriggerModuleAlwaysFail = event('trigger-module-always-fail', v.object({}));
-export const TriggerModuleQueryDlq = event('trigger-module-query-dlq', v.object({}));
-export const ModuleDlqResult = event(
-  'module-dlq-result',
-  v.object({ taskId: v.string(), attempts: v.number(), error: v.string() }),
-);
+export const TriggerModuleEvery = v.object({});
+export const ModuleEveryTick = v.object({ count: v.number() });
+export const TriggerModuleFlaky = v.object({});
+export const ModuleFlakyResult = v.object({ attempts: v.number() });
+export const TriggerModuleAlwaysFail = v.object({});
+export const TriggerModuleQueryDlq = v.object({});
+export const ModuleDlqResult = v.object({
+  taskId: v.string(),
+  attempts: v.number(),
+  error: v.string(),
+});
 
-export const TriggerModuleDenied = event('trigger-module-denied', v.object({}));
+export const TriggerModuleDenied = v.object({});
 
-export const TriggerModuleError = event('trigger-module-error', v.object({}));
-export const ErrorResult = event(
-  'error-result',
-  v.object({ code: v.string(), message: v.string() }),
-);
+export const TriggerModuleError = v.object({});
+export const ErrorResult = v.object({ code: v.string(), message: v.string() });
 
-export const TriggerModuleTaskWithData = event('trigger-module-task-with-data', v.object({}));
-export const ModuleTaskDataResult = event(
-  'module-task-data-result',
-  v.object({ result: v.string() }),
-);
+export const TriggerModuleTaskWithData = v.object({});
+export const ModuleTaskDataResult = v.object({ result: v.string() });

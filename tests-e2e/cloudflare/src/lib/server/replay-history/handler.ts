@@ -42,39 +42,36 @@ export const replayContract = contract<Env>('replay-test')({
   meta: t<{ username: string }>(),
   errors: [],
   definitions: [
-    incoming(SendMsg.event, SendMsg.schema),
-    incoming(SendCursor.event, SendCursor.schema),
-    incoming(RequestHistory.event, RequestHistory.schema),
-    incoming(TriggerBadReplay.event, TriggerBadReplay.schema),
-    incoming(InjectFamilyReplay.event, InjectFamilyReplay.schema),
-    incoming(TriggerBigIntReplay.event, TriggerBigIntReplay.schema),
+    incoming('send-msg', SendMsg),
+    incoming('send-cursor', SendCursor),
+    incoming('request-history', RequestHistory),
+    incoming('trigger-bad-replay', TriggerBadReplay),
+    incoming('inject-family-replay', InjectFamilyReplay),
+    incoming('trigger-bigint-replay', TriggerBigIntReplay),
 
-    outgoing(ChatMsg.event, ChatMsg.schema),
-    outgoing(Cursor.event, Cursor.schema),
-    outgoing(RoomMsg.event, RoomMsg.schema),
-    outgoing(ReplayGuardError.event, ReplayGuardError.schema),
+    outgoing('chat-msg', ChatMsg),
+    outgoing('cursor', Cursor),
+    outgoing('room-msg', RoomMsg),
+    outgoing('replay-guard-error', ReplayGuardError),
 
-    request(GetToken.event, { payload: GetToken.schema, response: TokenResponse }),
-    stream(StartTinyStream.event, { payload: StartTinyStream.schema, chunk: TinyChunk }),
+    request('get-token', { payload: GetToken, response: TokenResponse }),
+    stream('start-tiny-stream', { payload: StartTinyStream, chunk: TinyChunk }),
 
     namespace('admin', {
-      definitions: [outgoing(ChatMsg.event, ChatMsg.schema)],
+      definitions: [outgoing('chat-msg', ChatMsg)],
     }),
 
     channel('replay-room', {
       replay: true,
       definitions: [
-        outgoing(RoomMsg.event, RoomMsg.schema),
-        incoming(SendRoomMsg.event, SendRoomMsg.schema),
-        incoming(RequestRoomHistory.event, RequestRoomHistory.schema),
+        outgoing('room-msg', RoomMsg),
+        incoming('send-room-msg', SendRoomMsg),
+        incoming('request-room-history', RequestRoomHistory),
       ],
     }),
 
     channel(scope('fams', /^fam-.+$/), {
-      definitions: [
-        outgoing(RoomMsg.event, RoomMsg.schema),
-        incoming(SendRoomMsg.event, SendRoomMsg.schema),
-      ],
+      definitions: [outgoing('room-msg', RoomMsg), incoming('send-room-msg', SendRoomMsg)],
     }),
   ],
 });

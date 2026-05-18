@@ -29,8 +29,6 @@ export type {
   TagsApi,
 } from './_api/index.ts';
 
-export { event } from './event.ts';
-export type { EventContract } from './event.ts';
 export type { Validator } from './types.ts';
 
 export type { ScopeDeclaration } from './channel/channel.ts';

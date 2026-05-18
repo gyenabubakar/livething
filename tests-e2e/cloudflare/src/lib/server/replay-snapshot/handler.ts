@@ -41,13 +41,13 @@ export const replaySnapshotContract = contract<Env>('replay-snapshot-test')({
   },
   meta: t<{ username: string }>(),
   definitions: [
-    incoming(UpdateDoc.event, UpdateDoc.schema),
-    incoming(DeleteDoc.event, DeleteDoc.schema),
-    incoming(IncrementCounter.event, IncrementCounter.schema),
+    incoming('update-doc', UpdateDoc),
+    incoming('delete-doc', DeleteDoc),
+    incoming('increment-counter', IncrementCounter),
 
-    outgoing(DocSnapshot.event, DocSnapshot.schema),
-    outgoing(DocDeleted.event, DocDeleted.schema),
-    outgoing(CounterSnapshot.event, CounterSnapshot.schema),
+    outgoing('doc-snapshot', DocSnapshot),
+    outgoing('doc-deleted', DocDeleted),
+    outgoing('counter-snapshot', CounterSnapshot),
 
     channel('snapshot-room', {
       replay: {
@@ -55,8 +55,8 @@ export const replaySnapshotContract = contract<Env>('replay-snapshot-test')({
         snapshotKey: (_event: string, payload: Record<string, unknown>) => String(payload.docId),
       },
       definitions: [
-        outgoing(RoomDocSnapshot.event, RoomDocSnapshot.schema),
-        incoming(RoomUpdateDoc.event, RoomUpdateDoc.schema),
+        outgoing('room-doc-snapshot', RoomDocSnapshot),
+        incoming('update-room-doc', RoomUpdateDoc),
       ],
     }),
   ],

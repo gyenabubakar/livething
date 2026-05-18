@@ -107,20 +107,20 @@ export const replayCustomContract = contract<Env>('replay-custom-test')({
   dedup: true,
   meta: t<{ username: string }>(),
   definitions: [
-    incoming(AddNote.event, AddNote.schema),
-    incoming(QueryBadReplayLog.event, QueryBadReplayLog.schema),
-    incoming(GetConfirmedCount.event, GetConfirmedCount.schema),
+    incoming('add-note', AddNote),
+    incoming('query-bad-replay-log', QueryBadReplayLog),
+    incoming('get-confirmed-count', GetConfirmedCount),
 
-    outgoing(Note.event, Note.schema),
-    outgoing(ConfirmedCount.event, ConfirmedCount.schema),
-    outgoing(BadReplayLog.event, BadReplayLog.schema),
+    outgoing('note', Note),
+    outgoing('confirmed-count', ConfirmedCount),
+    outgoing('bad-replay-log', BadReplayLog),
 
     channel('custom-room', {
       definitions: [
-        outgoing(RoomNote.event, RoomNote.schema),
-        outgoing(RoomConfirmedCount.event, RoomConfirmedCount.schema),
-        incoming(AddRoomNote.event, AddRoomNote.schema),
-        incoming(GetRoomConfirmedCount.event, GetRoomConfirmedCount.schema),
+        outgoing('room-note', RoomNote),
+        outgoing('room-confirmed-count', RoomConfirmedCount),
+        incoming('add-room-note', AddRoomNote),
+        incoming('get-room-confirmed-count', GetRoomConfirmedCount),
       ],
     }),
   ],

@@ -8,6 +8,11 @@
  * `implement(contract)` later pairs handlers to these by name.
  */
 
+// ---------------------------------------------------------------------------
+// Reserved name helpers
+// ---------------------------------------------------------------------------
+
+import { RESERVED_EVENT_NAMES } from '~/_engine/compile/utils.ts';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type { ScopeDeclaration } from '~/channel/channel.ts';
 import type { Validator } from '~/types.ts';
@@ -308,29 +313,6 @@ export { error } from '@wskit/core';
 export function t<T>(): TypeMarker<T> {
   return { __wskit_t: 't' };
 }
-
-// ---------------------------------------------------------------------------
-// Reserved name helpers
-// ---------------------------------------------------------------------------
-
-const RESERVED_EVENT_NAMES: ReadonlySet<string> = new Set([
-  'ping',
-  'pong',
-  '_ack',
-  '_error',
-  '_replay',
-  '_subscribe',
-  '_subscribeOk',
-  '_unsubscribe',
-  '_kicked',
-  '_memberJoin',
-  '_memberLeave',
-  '_memberOnline',
-  '_memberOffline',
-  '_streamOk',
-  '_streamEnd',
-  '_streamCancel',
-]);
 
 function assertNonReservedEventName(name: string, factory: string): void {
   if (RESERVED_EVENT_NAMES.has(name)) {

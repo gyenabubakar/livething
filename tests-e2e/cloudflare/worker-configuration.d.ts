@@ -37,7 +37,6 @@ declare namespace Cloudflare {
       | 'CtxMetaServer'
       | 'HeartbeatServer'
       | 'ProtocolPingsServer'
-      | 'FullImportServer'
       | 'MultifileServer'
       | 'ChannelScopeIsolationServer'
       | 'ChannelKeyCollisionServer'
@@ -106,7 +105,6 @@ declare namespace Cloudflare {
     CTX_META_SERVER: DurableObjectNamespace<import('./src/worker').CtxMetaServer>;
     HEARTBEAT_SERVER: DurableObjectNamespace<import('./src/worker').HeartbeatServer>;
     PROTOCOL_PINGS_SERVER: DurableObjectNamespace<import('./src/worker').ProtocolPingsServer>;
-    FULL_IMPORT_SERVER: DurableObjectNamespace<import('./src/worker').FullImportServer>;
     MULTIFILE_SERVER: DurableObjectNamespace<import('./src/worker').MultifileServer>;
   }
 }
