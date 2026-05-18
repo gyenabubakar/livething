@@ -34,6 +34,29 @@ export const RESERVED_EVENT_NAMES: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Throw at declaration time if a user-defined event name clashes with a
+ * reserved protocol name or with one of the reserved underscore prefixes.
+ * Called by every definition factory that accepts a wire event name.
+ */
+export function assertNonReservedEventName(name: string, factory: string): void {
+  if (RESERVED_EVENT_NAMES.has(name)) {
+    throw new Error(
+      `[wskit] '${name}' is a reserved protocol event name. Pick a different name for ${factory}().`,
+    );
+  }
+  if (name.startsWith('__')) {
+    throw new Error(
+      `[wskit] '${name}' starts with the reserved double-underscore prefix. That prefix is reserved for module-owned events.`,
+    );
+  }
+  if (name.startsWith('_')) {
+    throw new Error(
+      `[wskit] '${name}' starts with the reserved single-underscore prefix. That prefix is reserved for engine protocol events.`,
+    );
+  }
+}
+
+/**
  * Narrow a primitive to a namespace block.
  */
 export function isNamespacePrimitive(
