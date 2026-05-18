@@ -14,7 +14,6 @@ export {
   scope,
   stream,
   t,
-  use,
 } from './_api/index.ts';
 export type {
   ChannelContract,

@@ -58,7 +58,7 @@ import type {
 import type { Primitive } from '~/primitive.ts';
 import type { CustomReplayOptions } from '~/replay/custom/custom.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
-import type { Contract, ContractConfig, Group } from './contract-types.ts';
+import type { Contract, ContractConfig } from './contract-types.ts';
 import type { ChannelCtx, Ctx, NamespaceCtx } from './ctx-types.ts';
 import type {
   ChannelDef,
@@ -70,7 +70,6 @@ import type {
   RequestDef,
   ScheduledDef,
   StreamDef,
-  UseDef,
 } from './definitions.ts';
 
 // ---------------------------------------------------------------------------
@@ -948,18 +947,6 @@ export class Implementer<C extends Contract> {
             }
           }
           out.push(namespaceFactory(d.name, ...(childPrimitives as any[])));
-          break;
-        }
-        case 'use': {
-          // Groups already merged their handlers into this._bag.* during .use(g) call.
-          // The contract-level `use()` just splats the group's items here for declarations.
-          const d = def as UseDef<Group>;
-          const g = d.group as Group;
-          // Group's contract carries `definitions` if we set it. For now this is a no-op
-          // since group is implementation-side only (per user's directive).
-          // We still need to surface any declaration items the group might have carried.
-          // Future: contract-level groups would extend this.
-          void g;
           break;
         }
         default: {

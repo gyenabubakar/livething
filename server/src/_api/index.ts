@@ -14,7 +14,6 @@ export {
   scheduled,
   stream,
   t,
-  use,
 } from './definitions.ts';
 export { scope } from '~/channel/channel.ts';
 export {
@@ -38,7 +37,6 @@ export type {
   ScheduledDef,
   StreamDef,
   TypeMarker,
-  UseDef,
 } from './definitions.ts';
 export type {
   ChannelContract,

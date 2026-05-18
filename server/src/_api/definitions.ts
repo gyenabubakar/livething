@@ -94,11 +94,6 @@ export interface ErrorContractDef<TCode extends string = string, TDetail = unkno
   readonly schema?: Validator<TDetail>;
 }
 
-export interface UseDef<TGroup = unknown> {
-  readonly _: 'use';
-  readonly group: TGroup;
-}
-
 /**
  * Marker carrying a phantom type so `meta: t<{ username: string }>()` flows the
  * type into the contract without any runtime cost.
@@ -115,8 +110,7 @@ export type Definition =
   | StreamDef<string, any, any, readonly NudgeDef<string, any>[]>
   | ScheduledDef<string, any>
   | ChannelDef<string | ScopeDeclaration<string>, readonly Definition[]>
-  | NamespaceDef<string, readonly Definition[]>
-  | UseDef<any>;
+  | NamespaceDef<string, readonly Definition[]>;
 
 // ---------------------------------------------------------------------------
 // Factory functions
@@ -299,15 +293,6 @@ export function namespace<TName extends string, const TDefinitions extends reado
 // the `errors: [...]` array on the contract config. We treat it as both an error
 // declaration and a throwable.
 export { error } from '@wskit/core';
-
-/**
- * Mount a reusable group's declarations into the contract. The handlers for
- * a group are registered via `implement(...).use(group)` on the implementation
- * side.
- */
-export function use<TGroup>(group: TGroup): UseDef<TGroup> {
-  return { _: 'use', group };
-}
 
 /**
  * Type-only carrier used for declaring `meta` shape in contract config.

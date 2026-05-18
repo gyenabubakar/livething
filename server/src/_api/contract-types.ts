@@ -5,8 +5,9 @@
  * Each section (`incoming`, `outgoing`, `requests`, `streams`, `scheduled`,
  * `channels`, `namespaces`) is a record keyed by definition name.
  *
- * `use(group)` flattens the group's contract into this one. Groups are themselves
- * `Contract`-shaped, so the merge is a straight intersection.
+ * Groups are an implementation-side organisational tool, NOT contract items.
+ * They mount via `.use(group)` on `implement(contract)`, not into the
+ * contract's `definitions` array.
  */
 
 import type { ScopeDeclaration } from '~/channel/channel.ts';
@@ -21,7 +22,6 @@ import type {
   ScheduledDef,
   StreamDef,
   TypeMarker,
-  UseDef,
 } from './definitions.ts';
 
 // ---------------------------------------------------------------------------
@@ -34,29 +34,13 @@ type MergeUnion<U> = (U extends any ? (k: U) => void : never) extends (k: infer 
 
 type ExtractIncoming<TDefs extends readonly Definition[]> = MergeUnion<
   {
-    [K in keyof TDefs]: TDefs[K] extends IncomingDef<infer N, infer P>
-      ? Record<N, P>
-      : TDefs[K] extends UseDef<infer G>
-        ? G extends Group<infer C>
-          ? C extends { incoming: infer I }
-            ? I
-            : {}
-          : {}
-        : {};
+    [K in keyof TDefs]: TDefs[K] extends IncomingDef<infer N, infer P> ? Record<N, P> : {};
   }[number]
 >;
 
 type ExtractOutgoing<TDefs extends readonly Definition[]> = MergeUnion<
   {
-    [K in keyof TDefs]: TDefs[K] extends OutgoingDef<infer N, infer P>
-      ? Record<N, P>
-      : TDefs[K] extends UseDef<infer G>
-        ? G extends Group<infer C>
-          ? C extends { outgoing: infer O }
-            ? O
-            : {}
-          : {}
-        : {};
+    [K in keyof TDefs]: TDefs[K] extends OutgoingDef<infer N, infer P> ? Record<N, P> : {};
   }[number]
 >;
 
@@ -64,13 +48,7 @@ type ExtractRequests<TDefs extends readonly Definition[]> = MergeUnion<
   {
     [K in keyof TDefs]: TDefs[K] extends RequestDef<infer N, infer P, infer R>
       ? Record<N, { payload: P; response: R }>
-      : TDefs[K] extends UseDef<infer G>
-        ? G extends Group<infer C>
-          ? C extends { requests: infer Req }
-            ? Req
-            : {}
-          : {}
-        : {};
+      : {};
   }[number]
 >;
 
@@ -84,27 +62,13 @@ type ExtractStreams<TDefs extends readonly Definition[]> = MergeUnion<
   {
     [K in keyof TDefs]: TDefs[K] extends StreamDef<infer N, infer P, infer C, infer Nu>
       ? Record<N, { payload: P; chunk: C; nudges: NudgesMap<Nu>; broadcast: boolean }>
-      : TDefs[K] extends UseDef<infer G>
-        ? G extends Group<infer Ctr>
-          ? Ctr extends { streams: infer S }
-            ? S
-            : {}
-          : {}
-        : {};
+      : {};
   }[number]
 >;
 
 type ExtractScheduled<TDefs extends readonly Definition[]> = MergeUnion<
   {
-    [K in keyof TDefs]: TDefs[K] extends ScheduledDef<infer I, infer D>
-      ? Record<I, D>
-      : TDefs[K] extends UseDef<infer G>
-        ? G extends Group<infer C>
-          ? C extends { scheduled: infer S }
-            ? S
-            : {}
-          : {}
-        : {};
+    [K in keyof TDefs]: TDefs[K] extends ScheduledDef<infer I, infer D> ? Record<I, D> : {};
   }[number]
 >;
 
@@ -118,13 +82,7 @@ type ExtractChannels<TDefs extends readonly Definition[]> = MergeUnion<
   {
     [K in keyof TDefs]: TDefs[K] extends ChannelDef<infer Pat, infer Defs>
       ? Record<ChannelKeyFromPattern<Pat>, ChannelContract<Defs>>
-      : TDefs[K] extends UseDef<infer G>
-        ? G extends Group<infer C>
-          ? C extends { channels: infer Ch }
-            ? Ch
-            : {}
-          : {}
-        : {};
+      : {};
   }[number]
 >;
 
@@ -132,13 +90,7 @@ type ExtractNamespaces<TDefs extends readonly Definition[]> = MergeUnion<
   {
     [K in keyof TDefs]: TDefs[K] extends NamespaceDef<infer N, infer Defs>
       ? Record<N, NamespaceContract<Defs>>
-      : TDefs[K] extends UseDef<infer G>
-        ? G extends Group<infer C>
-          ? C extends { namespaces: infer Ns }
-            ? Ns
-            : {}
-          : {}
-        : {};
+      : {};
   }[number]
 >;
 
@@ -159,16 +111,6 @@ export interface NamespaceContract<TDefs extends readonly Definition[] = readonl
   readonly requests: ExtractRequests<TDefs>;
   readonly streams: ExtractStreams<TDefs>;
   readonly channels: ExtractChannels<TDefs>;
-}
-
-// ---------------------------------------------------------------------------
-// Group shape
-// ---------------------------------------------------------------------------
-
-export interface Group<TContract = unknown> {
-  readonly __wskit_group: true;
-  readonly contract: TContract;
-  readonly registrations: unknown;
 }
 
 // ---------------------------------------------------------------------------
