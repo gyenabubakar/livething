@@ -25,52 +25,25 @@ import type {
 } from './definitions.ts';
 
 // ---------------------------------------------------------------------------
-// Per-definition contract slot extractors
+// Single-pass categorizer
+//
+// One tail-recursive walk over the definitions tuple builds a record of all
+// per-kind slots in a single instantiation. Previously each slot was its own
+// mapped-type-over-tuple walk plus a contravariant MergeUnion collapse — seven
+// walks per contract level, repeating for every nested channel/namespace.
+// The accumulator pattern below does the same job in one pass; TS memoizes
+// `Categorize<D>` so downstream slot lookups (`Contract['incoming']`, etc.)
+// are O(1) indexes into the cached record.
 // ---------------------------------------------------------------------------
 
-type MergeUnion<U> = (U extends any ? (k: U) => void : never) extends (k: infer I) => void
-  ? I
-  : never;
-
-type ExtractIncoming<TDefs extends readonly Definition[]> = MergeUnion<
-  {
-    [K in keyof TDefs]: TDefs[K] extends IncomingDef<infer N, infer P> ? Record<N, P> : {};
-  }[number]
->;
-
-type ExtractOutgoing<TDefs extends readonly Definition[]> = MergeUnion<
-  {
-    [K in keyof TDefs]: TDefs[K] extends OutgoingDef<infer N, infer P> ? Record<N, P> : {};
-  }[number]
->;
-
-type ExtractRequests<TDefs extends readonly Definition[]> = MergeUnion<
-  {
-    [K in keyof TDefs]: TDefs[K] extends RequestDef<infer N, infer P, infer R>
-      ? Record<N, { payload: P; response: R }>
-      : {};
-  }[number]
->;
-
-type NudgesMap<TNudges extends readonly NudgeDef<string, any>[]> = MergeUnion<
-  {
-    [K in keyof TNudges]: TNudges[K] extends NudgeDef<infer N, infer P> ? Record<N, P> : never;
-  }[number]
->;
-
-type ExtractStreams<TDefs extends readonly Definition[]> = MergeUnion<
-  {
-    [K in keyof TDefs]: TDefs[K] extends StreamDef<infer N, infer P, infer C, infer Nu>
-      ? Record<N, { payload: P; chunk: C; nudges: NudgesMap<Nu>; broadcast: boolean }>
-      : {};
-  }[number]
->;
-
-type ExtractScheduled<TDefs extends readonly Definition[]> = MergeUnion<
-  {
-    [K in keyof TDefs]: TDefs[K] extends ScheduledDef<infer I, infer D> ? Record<I, D> : {};
-  }[number]
->;
+type NudgesMap<TNudges extends readonly NudgeDef<string, any>[]> = {
+  [K in TNudges[number] as K extends NudgeDef<infer N, any> ? N : never]: K extends NudgeDef<
+    any,
+    infer P
+  >
+    ? P
+    : never;
+};
 
 type ChannelKeyFromPattern<P> = P extends string
   ? P
@@ -78,39 +51,64 @@ type ChannelKeyFromPattern<P> = P extends string
     ? K
     : never;
 
-type ExtractChannels<TDefs extends readonly Definition[]> = MergeUnion<
-  {
-    [K in keyof TDefs]: TDefs[K] extends ChannelDef<infer Pat, infer Defs>
-      ? Record<ChannelKeyFromPattern<Pat>, ChannelContract<Defs>>
-      : {};
-  }[number]
->;
+interface EmptyCats {
+  readonly incoming: {};
+  readonly outgoing: {};
+  readonly requests: {};
+  readonly streams: {};
+  readonly scheduled: {};
+  readonly channels: {};
+  readonly namespaces: {};
+}
 
-type ExtractNamespaces<TDefs extends readonly Definition[]> = MergeUnion<
-  {
-    [K in keyof TDefs]: TDefs[K] extends NamespaceDef<infer N, infer Defs>
-      ? Record<N, NamespaceContract<Defs>>
-      : {};
-  }[number]
->;
+type AddOne<Acc, D> =
+  D extends IncomingDef<infer N, infer P>
+    ? Acc & { readonly incoming: Record<N, P> }
+    : D extends OutgoingDef<infer N, infer P>
+      ? Acc & { readonly outgoing: Record<N, P> }
+      : D extends RequestDef<infer N, infer P, infer R>
+        ? Acc & { readonly requests: Record<N, { payload: P; response: R }> }
+        : D extends StreamDef<infer N, infer P, infer C, infer Nu>
+          ? Acc & {
+              readonly streams: Record<
+                N,
+                { payload: P; chunk: C; nudges: NudgesMap<Nu>; broadcast: boolean }
+              >;
+            }
+          : D extends ScheduledDef<infer I, infer Dt>
+            ? Acc & { readonly scheduled: Record<I, Dt> }
+            : D extends ChannelDef<infer Pat, infer Defs>
+              ? Acc & {
+                  readonly channels: Record<ChannelKeyFromPattern<Pat>, ChannelContract<Defs>>;
+                }
+              : D extends NamespaceDef<infer N, infer Defs>
+                ? Acc & { readonly namespaces: Record<N, NamespaceContract<Defs>> }
+                : Acc;
+
+type Categorize<TDefs extends readonly Definition[], Acc = EmptyCats> = TDefs extends readonly [
+  infer Head,
+  ...infer Tail extends readonly Definition[],
+]
+  ? Categorize<Tail, AddOne<Acc, Head>>
+  : Acc;
 
 // ---------------------------------------------------------------------------
 // Sub-contracts
 // ---------------------------------------------------------------------------
 
 export interface ChannelContract<TDefs extends readonly Definition[] = readonly Definition[]> {
-  readonly incoming: ExtractIncoming<TDefs>;
-  readonly outgoing: ExtractOutgoing<TDefs>;
-  readonly requests: ExtractRequests<TDefs>;
-  readonly streams: ExtractStreams<TDefs>;
+  readonly incoming: Categorize<TDefs>['incoming'];
+  readonly outgoing: Categorize<TDefs>['outgoing'];
+  readonly requests: Categorize<TDefs>['requests'];
+  readonly streams: Categorize<TDefs>['streams'];
 }
 
 export interface NamespaceContract<TDefs extends readonly Definition[] = readonly Definition[]> {
-  readonly incoming: ExtractIncoming<TDefs>;
-  readonly outgoing: ExtractOutgoing<TDefs>;
-  readonly requests: ExtractRequests<TDefs>;
-  readonly streams: ExtractStreams<TDefs>;
-  readonly channels: ExtractChannels<TDefs>;
+  readonly incoming: Categorize<TDefs>['incoming'];
+  readonly outgoing: Categorize<TDefs>['outgoing'];
+  readonly requests: Categorize<TDefs>['requests'];
+  readonly streams: Categorize<TDefs>['streams'];
+  readonly channels: Categorize<TDefs>['channels'];
 }
 
 // ---------------------------------------------------------------------------
@@ -229,13 +227,13 @@ export interface Contract<TConfig = unknown, TEnv = unknown> {
   readonly __config: TConfig;
   readonly name: string;
 
-  readonly incoming: ExtractIncoming<DefinitionsFromConfig<TConfig>>;
-  readonly outgoing: ExtractOutgoing<DefinitionsFromConfig<TConfig>>;
-  readonly requests: ExtractRequests<DefinitionsFromConfig<TConfig>>;
-  readonly streams: ExtractStreams<DefinitionsFromConfig<TConfig>>;
-  readonly channels: ExtractChannels<DefinitionsFromConfig<TConfig>>;
-  readonly namespaces: ExtractNamespaces<DefinitionsFromConfig<TConfig>>;
-  readonly scheduled: ExtractScheduled<DefinitionsFromConfig<TConfig>>;
+  readonly incoming: Categorize<DefinitionsFromConfig<TConfig>>['incoming'];
+  readonly outgoing: Categorize<DefinitionsFromConfig<TConfig>>['outgoing'];
+  readonly requests: Categorize<DefinitionsFromConfig<TConfig>>['requests'];
+  readonly streams: Categorize<DefinitionsFromConfig<TConfig>>['streams'];
+  readonly channels: Categorize<DefinitionsFromConfig<TConfig>>['channels'];
+  readonly namespaces: Categorize<DefinitionsFromConfig<TConfig>>['namespaces'];
+  readonly scheduled: Categorize<DefinitionsFromConfig<TConfig>>['scheduled'];
   readonly errors: ErrorMapFromConfig<TConfig>;
   readonly features: FeatureFromConfig<TConfig>;
   readonly meta: MetaFromConfig<TConfig>;
