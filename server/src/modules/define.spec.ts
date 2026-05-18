@@ -32,7 +32,6 @@ describe('defineModule', () => {
     expect(instance.args).toEqual({ sampleRate: 1 });
     expect(instance.outgoing).toEqual({ flushed: expect.anything() });
     expect(instance.errors).toBe(errorsPrimitive);
-    expect(instance.__dependencies).toEqual([dependency]);
     expect(instance.__requires).toEqual({ storage: true, timers: true });
     expect(instance.setupModule).toBe(setup);
   });

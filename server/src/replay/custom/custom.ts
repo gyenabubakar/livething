@@ -2,7 +2,6 @@
 /* oxlint-disable eslint-plugin-import(no-cycle) */
 
 import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/types.ts';
-import { dedup } from '~/dedup/dedup.ts';
 import {
   assertReplayScopeServable,
   isChannelReplayAuthorized,
@@ -11,12 +10,11 @@ import {
   readReplaySinceCursor,
   shouldStoreReplayMessage,
 } from '~/replay/runtime.ts';
-import { sequence } from '~/sequence/sequence.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
-import type { ReplayWire } from '~/_types/scope-state';
 import type { KVProvider, Logger, SQLProvider } from '~/context.ts';
 import type { Primitive } from '~/primitive.ts';
+import type { ReplayWire } from '../wire.ts';
 
 /**
  * Discriminates the scope a `CustomReplayPrimitive` or its context operates in.
@@ -393,7 +391,6 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
     __wskit: 'replayCustom',
     __kind: 'infrastructure',
     __identity: [CUSTOM_REPLAY_KEY],
-    __dependencies: [sequence, dedup],
     __requires: {},
     options,
     __setup(engine: EngineAccess) {

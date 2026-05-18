@@ -1,4 +1,3 @@
-export { withReplayCustom } from './with.ts';
 export type {
   CustomReplayScope,
   TopLevelOutgoingWire,

@@ -1,10 +1,4 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import type {
-  HandlerCtxFromState,
-  NoOutgoing,
-  ScopeState,
-  StreamBaseCtxFromState,
-} from '~/_types/scope-state';
 import type { IncomingPrimitive } from '~/incoming/incoming.ts';
 import type { PostInterceptPrimitive, PreInterceptPrimitive } from '~/intercept/intercept.ts';
 import type { OutgoingPrimitive } from '~/outgoing/outgoing.ts';
@@ -36,41 +30,6 @@ export type NamespaceChild =
   | AnyIncoming
   | AnyRequest
   | AnyGenerate;
-
-/**
- * The `ctx` type available inside a namespace handler. Provides access to
- * `ctx.send` (the namespace's declared outgoing events).
- */
-export type NamespaceHandlerContext<TOutgoing extends Record<string, any> = NoOutgoing> =
-  HandlerCtxFromState<
-    ScopeState<
-      'namespace',
-      TOutgoing,
-      false,
-      false,
-      { incoming: {}; outgoing: {}; requests: {}; streams: {}; channels: {}; namespaces: {} },
-      readonly [],
-      Record<string, unknown>,
-      never
-    >
-  >;
-
-/**
- * The `ctx` type available inside a namespace stream generator.
- */
-export type NamespaceStreamHandlerContext<TOutgoing extends Record<string, any> = NoOutgoing> =
-  StreamBaseCtxFromState<
-    ScopeState<
-      'namespace',
-      TOutgoing,
-      false,
-      false,
-      { incoming: {}; outgoing: {}; requests: {}; streams: {}; channels: {}; namespaces: {} },
-      readonly [],
-      Record<string, unknown>,
-      never
-    >
-  >;
 
 /**
  * The TypeScript type returned by `namespace()`. Holds the namespace name and
@@ -126,7 +85,6 @@ export function namespace<
     __wskit: 'namespace',
     __kind: 'scope',
     __identity: [NAMESPACE_KEY, pattern],
-    __dependencies: [],
     __requires: {},
     pattern,
     primitives: Object.freeze([...primitives]) as unknown as TPrimitives,

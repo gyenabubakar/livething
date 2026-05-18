@@ -11,17 +11,6 @@ export const replayMembershipGateContract = contract<Env>('replay-membership-gat
   sequence: { persist: true },
   dedup: true,
   meta: t<{ username: string }>(),
-  replay: {
-    custom: {
-      onReplay: (ctx: any) => {
-        ctx.sendReplay(
-          'secret',
-          { text: 'top-secret-history' },
-          { seq: 1, messageId: 'm1', channel: 'private' },
-        );
-      },
-    },
-  },
   definitions: [
     incoming('send-beacon', SendBeacon),
     outgoing('top-beacon', TopBeacon),
@@ -33,6 +22,15 @@ export const replayMembershipGateContract = contract<Env>('replay-membership-gat
 });
 
 export const replayMembershipGateHandler = implement(replayMembershipGateContract)
+  .customReplay({
+    onReplay: (ctx) => {
+      ctx.sendReplay(
+        'secret',
+        { text: 'top-secret-history' },
+        { seq: 1, messageId: 'm1', channel: 'private' },
+      );
+    },
+  })
   .onUpgrade((request) => requireUsername(request))
   .on('send-beacon', (ctx, payload) => {
     ctx.send('top-beacon', { text: payload.text });

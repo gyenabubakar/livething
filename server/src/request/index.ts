@@ -1,1 +1,2 @@
-export { withRequests } from './with.ts';
+// Internal primitive — consumed by `request(...)` definition factory.
+export {};

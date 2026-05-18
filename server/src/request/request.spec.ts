@@ -56,7 +56,6 @@ describe('request', () => {
 
   it('has empty dependencies and requires', () => {
     const p = request('test', async () => {});
-    expect(p.__dependencies).toEqual([]);
     expect(p.__requires).toEqual({});
   });
 

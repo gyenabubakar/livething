@@ -60,7 +60,6 @@ export const replayCustomCascadeContract = contract<Env>('replay-custom-cascade'
   sequence: { persist: true },
   dedup: true,
   meta: t<{ username: string }>(),
-  replay: { custom: cascadeReplayCustom },
   definitions: [
     channel('lobby', {
       definitions: [outgoing('note', Note), incoming('send-note', SendNote)],
@@ -72,6 +71,7 @@ export const replayCustomCascadeContract = contract<Env>('replay-custom-cascade'
 });
 
 export const replayCustomCascadeHandler = implement(replayCustomCascadeContract)
+  .customReplay(cascadeReplayCustom)
   .onUpgrade((request) => requireUsername(request))
   .onInit((ctx) => {
     ctx.sql.exec(`

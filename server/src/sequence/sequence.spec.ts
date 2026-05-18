@@ -143,7 +143,6 @@ describe('sequence', () => {
 
   it('instances have empty dependencies and requires', () => {
     const p = sequence();
-    expect(p.__dependencies).toEqual([]);
     expect(p.__requires).toEqual({});
   });
 

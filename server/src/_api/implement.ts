@@ -56,6 +56,7 @@ import type {
   ValidationErrorHandler,
 } from '~/lifecycle/lifecycle.ts';
 import type { Primitive } from '~/primitive.ts';
+import type { CustomReplayOptions } from '~/replay/custom/custom.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
 import type { Contract, ContractConfig, Group } from './contract-types.ts';
 import type { ChannelCtx, Ctx, NamespaceCtx } from './ctx-types.ts';
@@ -120,6 +121,7 @@ interface ChannelHandlerBag {
   onSessionEndHandler?: (ctx: any) => void | Promise<void>;
   preIntercept?: (ctx: any, message: { event: string; payload: unknown }) => any;
   postIntercepts: Map<string, (ctx: any, payload: any) => any>;
+  customReplayHooks?: CustomReplayOptions<'channel'>;
 }
 
 export class ChannelImplement<C extends Contract, ChC = any> {
@@ -210,6 +212,16 @@ export class ChannelImplement<C extends Contract, ChC = any> {
     } else {
       this._bag.preIntercept = arg1;
     }
+    return this;
+  }
+
+  /**
+   * Register a custom replay strategy scoped to this channel. The hooks own
+   * their own storage and resend logic; pass an `onReplay` plus any of
+   * `onBeforeSend` / `onAfterSend`.
+   */
+  customReplay(hooks: CustomReplayOptions<'channel'>): this {
+    this._bag.customReplayHooks = hooks;
     return this;
   }
 }
@@ -418,9 +430,9 @@ interface ImplementerBag {
   scheduledHandlers: Map<string, (ctx: any, data: any) => void | Promise<void>>;
   channelImpls: Map<string, ChannelImplement<any, any>>;
   namespaceImpls: Map<string, NamespaceImplement<any, any>>;
-  modules: Primitive[];
   preIntercept?: (ctx: any, msg: { event: string; payload: unknown }) => any;
   postIntercepts: Map<string, (ctx: any, payload: unknown) => any>;
+  customReplayHooks?: CustomReplayOptions<'top'>;
   lifecycle: {
     onUpgrade?: UpgradeHandler;
     onInit?: InitHandler;
@@ -450,7 +462,6 @@ export class Implementer<C extends Contract> {
     scheduledHandlers: new Map(),
     channelImpls: new Map(),
     namespaceImpls: new Map(),
-    modules: [],
     postIntercepts: new Map(),
     lifecycle: {},
   };
@@ -601,14 +612,17 @@ export class Implementer<C extends Contract> {
     return this;
   }
 
-  // ─────────────────── modules ───────────────────
+  // ─────────────────── custom replay ───────────────────
 
   /**
-   * Mount a runtime module (e.g. a Drizzle binding) onto the implementation.
-   * Modules are independent of the contract and add runtime capabilities only.
+   * Register a top-level custom replay strategy. The hooks own their own
+   * storage and resend logic; pass an `onReplay` plus any of `onBeforeSend`
+   * / `onAfterSend`.
+   *
+   * `ctx` and `msg` inside the hooks are typed against the contract.
    */
-  module(mod: Primitive): this {
-    this._bag.modules.push(mod);
+  customReplay(hooks: CustomReplayOptions<'top'>): this {
+    this._bag.customReplayHooks = hooks;
     return this;
   }
 
@@ -620,6 +634,20 @@ export class Implementer<C extends Contract> {
   build(): ServerDefinition<readonly Primitive[], any> {
     const primitives: Primitive[] = [];
     const config = this._contract.__config as ContractConfig;
+
+    // ── Boot-time validation: handler registered for a feature that's off ──
+    if (this._bag.lifecycle.onBinary && !config.binary) {
+      throw new Error(
+        '[wskit] onBinary handler registered but `binary: true` is not set on the contract. ' +
+          'Add `binary: true` to your contract config, or remove the onBinary handler.',
+      );
+    }
+    if (this._bag.customReplayHooks && config.replay !== undefined) {
+      throw new Error(
+        '[wskit] .customReplay(...) is registered alongside `replay:` on the contract. ' +
+          'Use one or the other — built-in replay (contract config) or custom replay (.customReplay()).',
+      );
+    }
 
     // ── Feature primitives ──────────────────────────────────────────────────
     if (config.persistence) primitives.push(persistenceFactory());
@@ -637,18 +665,19 @@ export class Implementer<C extends Contract> {
     }
     if (config.dedup) primitives.push(dedupFactory());
     if (config.ack) primitives.push(ackFactory());
-    if (config.replay) {
-      if (typeof config.replay === 'object' && 'impl' in config.replay) {
-        primitives.push(customReplayFactory((config.replay as any).impl));
-      } else if (typeof config.replay === 'object' && 'custom' in config.replay) {
-        primitives.push(customReplayFactory((config.replay as any).custom));
-      } else if (config.replay === true) {
+    if (config.replay !== undefined) {
+      if (config.replay === true) {
         primitives.push(replayFactory());
-      } else if ((config.replay as any) === false) {
+      } else if (config.replay === false) {
         primitives.push(replayFactory(false));
       } else {
         primitives.push(replayFactory(config.replay as any));
       }
+    }
+    // Custom replay hooks registered via .customReplay() — separate from
+    // contract.replay so the hooks can be fully typed against the contract.
+    if (this._bag.customReplayHooks) {
+      primitives.push(customReplayFactory(this._bag.customReplayHooks as any));
     }
 
     // ── Tag groups ───────────────────────────────────────────────────────────
@@ -669,6 +698,16 @@ export class Implementer<C extends Contract> {
       );
       if (errorDefs.length > 0) {
         primitives.push(errorsFactory(...(errorDefs as [any, ...any[]])));
+      }
+    }
+
+    // ── Modules (from contract.modules) ─────────────────────────────────────
+    // Modules are pushed BEFORE lifecycle and definitions so their hooks
+    // register first and run before user handlers (matches legacy order
+    // where `.use(MyModule(...))` was called early on the builder chain).
+    if (config.modules && config.modules.length > 0) {
+      for (const mod of config.modules) {
+        primitives.push(mod as Primitive);
       }
     }
 
@@ -701,9 +740,6 @@ export class Implementer<C extends Contract> {
         namespaceImpls: this._bag.namespaceImpls,
       }),
     );
-
-    // ── Modules ──────────────────────────────────────────────────────────────
-    primitives.push(...this._bag.modules);
 
     return Object.freeze({
       __wskit: 'server' as const,
@@ -826,29 +862,22 @@ export class Implementer<C extends Contract> {
             childPrimitives.push(persistentMarker(d.persistent));
           }
 
-          // Replay config — channel-scoped
+          // Replay config — channel-scoped (built-in replay only). Custom
+          // replay for a channel scope is registered on the channel sub-
+          // implementer's .customReplay() and folded in below.
           if (d.replay !== undefined) {
             if (d.replay === false) {
               childPrimitives.push(replayFactory(false));
             } else if (d.replay === true) {
               childPrimitives.push(replayFactory());
-            } else if (
-              typeof d.replay === 'object' &&
-              d.replay !== null &&
-              'impl' in (d.replay as Record<string, unknown>)
-            ) {
-              childPrimitives.push(customReplayFactory((d.replay as { impl: any }).impl as any));
-            } else if (
-              typeof d.replay === 'object' &&
-              d.replay !== null &&
-              'custom' in (d.replay as Record<string, unknown>)
-            ) {
-              childPrimitives.push(
-                customReplayFactory((d.replay as { custom: any }).custom as any),
-              );
             } else {
               childPrimitives.push(replayFactory(d.replay as any));
             }
+          }
+
+          // Channel-scoped custom replay registered via ch.customReplay(...).
+          if (impl?._bag.customReplayHooks) {
+            childPrimitives.push(customReplayFactory(impl._bag.customReplayHooks as any));
           }
 
           // Walk child definitions, pairing handlers from the channel impl

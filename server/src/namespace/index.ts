@@ -1,2 +1,3 @@
-export { withNamespaces } from './with.ts';
-export type { NamespaceHandlerContext, NamespaceStreamHandlerContext } from './namespace.ts';
+// The namespace primitive is consumed internally by the new API's
+// `namespace(...)` definition factory; users do not import directly here.
+export {};

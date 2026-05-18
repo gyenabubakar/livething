@@ -1,5 +1,4 @@
-import { defineModule } from '@wskit/server';
-import { error, errors } from '@wskit/server/errors';
+import { error, module, outgoing, scheduled } from '@wskit/server';
 import { count, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/durable-sqlite';
 import * as v from 'valibot';
@@ -8,8 +7,6 @@ import type { DrizzleSqliteDODatabase } from 'drizzle-orm/durable-sqlite';
 import * as schema from './schema.ts';
 import { moduleMeta, records } from './schema.ts';
 import type { InsertRecord } from './schema.ts';
-
-const DRIZZLE_KEY = Symbol('e2e:drizzle');
 
 export const DrizzleDenied = error(
   'e2e-drizzle/denied',
@@ -34,25 +31,25 @@ export interface DrizzleApi {
   getLastGeneratedId(): string | null;
   getLastState(): LastConnectionState | null;
   getShutdownCount(): number;
-  /**
-   * Read `hooks.getState()` lazily — at API-call time, not at module-setup
-   * or onConnect time. Used by the streams-active-connection-id e2e test
-   * to verify the engine keeps the active connection id set across
-   * stream iterator advances.
-   */
   getCurrentConnectionId(): string | null;
 }
 
-export const Drizzle = defineModule({
-  id: 'e2e:drizzle',
-  key: DRIZZLE_KEY,
-  requires: { storage: true },
-  outgoing: {
-    'drizzle-ready': v.object({ tables: v.array(v.string()) }),
-  },
-  errors: errors(DrizzleDenied),
+const taskDataSchema = v.object({ value: v.string() });
 
-  setup(args: { migrate: boolean }, hooks): () => DrizzleApi {
+export const Drizzle = module<{ migrate: boolean }>('e2e:drizzle')({
+  requires: { storage: true },
+  definitions: [
+    outgoing('drizzle-ready', v.object({ tables: v.array(v.string()) })),
+    DrizzleDenied,
+    scheduled('drizzle-vacuum'),
+    scheduled('drizzle-every-tick', { every: 500 }),
+    scheduled('drizzle-flaky', { retry: [50, 100, 200] }),
+    scheduled('drizzle-module-always-fail', { retry: [50, 100] }),
+    scheduled('drizzle-query-dlq'),
+    scheduled('drizzle-task-with-data', { data: taskDataSchema }),
+  ],
+
+  setup(args, hooks): () => DrizzleApi {
     let db: DrizzleSqliteDODatabase<typeof schema>;
     let messageCount = 0;
     let outgoingCount = 0;
@@ -187,10 +184,6 @@ export const Drizzle = defineModule({
         }
       }),
     );
-
-    const taskDataSchema = v.object({
-      value: v.string(),
-    });
 
     hooks.scheduled('drizzle-task-with-data', (t) =>
       t.data(taskDataSchema).run(async (ctx, data) => {

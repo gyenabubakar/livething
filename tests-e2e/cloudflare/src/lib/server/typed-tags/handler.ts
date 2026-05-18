@@ -52,12 +52,14 @@ export const typedTagsHandler = implement(typedTagsContract)
   .onUpgrade((request, helpers) => requireUsername(request, helpers))
 
   .on('add-tag', (ctx, payload) => {
-    if (payload.kind === 'ephemeral') ctx.tags.ephemeral(payload.group).add(payload.key);
-    else ctx.tags.persistent(payload.group).add(payload.key);
+    if (payload.kind === 'ephemeral')
+      ctx.tags.ephemeral(payload.group as 'user' | 'role').add(payload.key);
+    else ctx.tags.persistent(payload.group as 'favorite').add(payload.key);
   })
   .on('remove-tag', (ctx, payload) => {
-    if (payload.kind === 'ephemeral') ctx.tags.ephemeral(payload.group).remove(payload.key);
-    else ctx.tags.persistent(payload.group).remove(payload.key);
+    if (payload.kind === 'ephemeral')
+      ctx.tags.ephemeral(payload.group as 'user' | 'role').remove(payload.key);
+    else ctx.tags.persistent(payload.group as 'favorite').remove(payload.key);
   })
   .on('list-my-tags', (ctx) => {
     ctx.send('tags-list', {
@@ -66,18 +68,21 @@ export const typedTagsHandler = implement(typedTagsContract)
   })
   .on('fan-out-to-tag', (ctx, payload) => {
     ctx.tags
-      .ephemeral(payload.group)
+      .ephemeral(payload.group as 'user' | 'role')
       .ref(payload.key)
       .send('fan-out-echo', { text: payload.text, from: ctx.meta.username });
   })
   .on('count-by-tag', (ctx, payload) => {
-    const count = ctx.tags.ephemeral(payload.group).ref(payload.key).count();
+    const count = ctx.tags
+      .ephemeral(payload.group as 'user' | 'role')
+      .ref(payload.key)
+      .count();
     ctx.send('count-result', { count });
   })
   .on('kick-by-tag', async (ctx, payload) => {
     await ctx.channels
       .get('room')
-      .kick(ctx.tags.ephemeral(payload.group).ref(payload.key), payload.reason);
+      .kick(ctx.tags.ephemeral(payload.group as 'user' | 'role').ref(payload.key), payload.reason);
   })
 
   .channel('room', (ch) =>

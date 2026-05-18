@@ -33,7 +33,6 @@ describe('intercept', () => {
 
   it('instances have empty dependencies and requires', () => {
     const p = intercept(async () => {});
-    expect(p.__dependencies).toEqual([]);
     expect(p.__requires).toEqual({});
   });
 });

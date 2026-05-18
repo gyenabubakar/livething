@@ -11,7 +11,6 @@ describe('incoming', () => {
     expect(primitive.__kind).toBe('handler');
     expect(primitive.__identity[1]).toBe('send-message');
     expect(primitive.handler).toBe(handler);
-    expect(primitive.__dependencies).toEqual([]);
     expect(primitive.__requires).toEqual({});
   });
 

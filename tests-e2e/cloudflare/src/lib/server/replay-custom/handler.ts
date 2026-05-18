@@ -106,7 +106,6 @@ export const replayCustomContract = contract<Env>('replay-custom-test')({
   sequence: { persist: true },
   dedup: true,
   meta: t<{ username: string }>(),
-  replay: { custom: topReplayCustom },
   definitions: [
     incoming(AddNote.event, AddNote.schema),
     incoming(QueryBadReplayLog.event, QueryBadReplayLog.schema),
@@ -117,7 +116,6 @@ export const replayCustomContract = contract<Env>('replay-custom-test')({
     outgoing(BadReplayLog.event, BadReplayLog.schema),
 
     channel('custom-room', {
-      replay: { custom: roomReplayCustom },
       definitions: [
         outgoing(RoomNote.event, RoomNote.schema),
         outgoing(RoomConfirmedCount.event, RoomConfirmedCount.schema),
@@ -129,6 +127,7 @@ export const replayCustomContract = contract<Env>('replay-custom-test')({
 });
 
 export const replayCustomHandler = implement(replayCustomContract)
+  .customReplay(topReplayCustom)
   .onUpgrade((request) => {
     const url = new URL(request.url);
     const username = url.searchParams.get('username');
@@ -206,6 +205,7 @@ export const replayCustomHandler = implement(replayCustomContract)
   })
   .channel('custom-room', (ch) =>
     ch
+      .customReplay(roomReplayCustom)
       .on('add-room-note', (ctx, payload) => {
         ctx.channel.send('room-note', { text: payload.text, author: ctx.meta.username });
         ctx.channel.broadcast('room-note', { text: payload.text, author: ctx.meta.username });

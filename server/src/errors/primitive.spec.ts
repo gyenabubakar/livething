@@ -31,7 +31,6 @@ describe('errors', () => {
 
   it('instances have empty dependencies and requires', () => {
     const p = errors(Forbidden);
-    expect(p.__dependencies).toEqual([]);
     expect(p.__requires).toEqual({});
   });
 

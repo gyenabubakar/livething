@@ -40,7 +40,6 @@ export function heartbeat(options: HeartbeatOptions): HeartbeatPrimitive {
     __wskit: 'heartbeat',
     __kind: 'infrastructure',
     __identity: [HEARTBEAT_KEY],
-    __dependencies: [],
     __requires: { timers: true },
     timeout: options.timeout,
     __setup(engine) {

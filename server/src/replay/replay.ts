@@ -1,6 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/types.ts';
-import { dedup } from '~/dedup/dedup.ts';
 import {
   assertReplayScopeServable,
   ensureReplaySchema,
@@ -15,12 +14,11 @@ import {
   readReplaySinceCursor,
   shouldStoreReplayMessage,
 } from '~/replay/runtime.ts';
-import { sequence } from '~/sequence/sequence.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
-import type { ReplayWire } from '~/_types/scope-state';
 import type { Primitive } from '~/primitive.ts';
 import type { ReplayOptions } from '~/replay/types.ts';
+import type { ReplayWire } from './wire.ts';
 
 /** The primitive type produced by `replay()`. */
 export interface ReplayPrimitive extends Primitive<'replay'> {
@@ -80,7 +78,6 @@ export function replay(options?: ReplayOptions | false): ReplayPrimitive {
       __wskit: 'replay',
       __kind: 'infrastructure',
       __identity: [REPLAY_KEY],
-      __dependencies: [],
       __requires: {},
       options: {},
       disabled: true,
@@ -93,7 +90,6 @@ export function replay(options?: ReplayOptions | false): ReplayPrimitive {
     __wskit: 'replay',
     __kind: 'infrastructure',
     __identity: [REPLAY_KEY],
-    __dependencies: [sequence, dedup],
     __requires: { storage: true },
     options: opts,
     __setup(engine) {

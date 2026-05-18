@@ -105,11 +105,6 @@
       "types": "./dist/lifecycle/index.d.ts",
       "import": "./dist/lifecycle.js"
     },
-    "./infrastructure": {
-      "wskit-dev": "./src/infrastructure/index.ts",
-      "types": "./dist/infrastructure/index.d.ts",
-      "import": "./dist/infrastructure.js"
-    },
     "./full": {
       "wskit-dev": "./src/full/index.ts",
       "types": "./dist/full/index.d.ts",

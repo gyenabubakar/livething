@@ -18,7 +18,6 @@ describe('ack', () => {
 
   it('instances have empty dependencies and requires', () => {
     const p = ack();
-    expect(p.__dependencies).toEqual([]);
     expect(p.__requires).toEqual({});
   });
 

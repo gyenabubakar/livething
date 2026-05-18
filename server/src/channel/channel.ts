@@ -1,12 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { WskitConfigError } from '@wskit/core';
 import type {
-  HandlerCtxFromState,
-  NoOutgoing,
-  ScopeState,
-  StreamBaseCtxFromState,
-} from '~/_types/scope-state';
-import type {
   BeforeSubscribePrimitive,
   SubscribePrimitive,
   UnsubscribePrimitive,
@@ -96,58 +90,6 @@ export type ChannelLifecycleChild =
 
 /** All primitive types accepted as children of a channel. */
 export type ChannelChild = ChannelStatePrimitive | ChannelLifecycleChild;
-
-/**
- * The `ctx` type available inside a channel handler. Provides access to
- * `ctx.send` (the channel's declared outgoing events) and optionally
- * `ctx.ack()` and `ctx.sendReplay()` if those primitives are registered.
- */
-export type ChannelHandlerContext<
-  TOutgoing extends Record<string, any> = NoOutgoing,
-  THasAck extends boolean = false,
-  THasReplay extends boolean = false,
-> = HandlerCtxFromState<
-  ScopeState<
-    'channel',
-    TOutgoing,
-    THasAck,
-    THasReplay,
-    { incoming: {}; outgoing: {}; requests: {}; streams: {}; channels: {}; namespaces: {} },
-    readonly [],
-    Record<string, unknown>,
-    never,
-    {},
-    Record<string, unknown>,
-    never,
-    never,
-    {}
-  >
->;
-
-/**
- * The `ctx` type available inside a channel stream generator. Same as
- * `ChannelHandlerContext` but without the ack flag (streams cannot ack).
- */
-export type ChannelStreamHandlerContext<
-  TOutgoing extends Record<string, any> = NoOutgoing,
-  THasReplay extends boolean = false,
-> = StreamBaseCtxFromState<
-  ScopeState<
-    'channel',
-    TOutgoing,
-    false,
-    THasReplay,
-    { incoming: {}; outgoing: {}; requests: {}; streams: {}; channels: {}; namespaces: {} },
-    readonly [],
-    Record<string, unknown>,
-    never,
-    {},
-    Record<string, unknown>,
-    never,
-    never,
-    {}
-  >
->;
 
 /**
  * The TypeScript type returned by `channel()`. Holds the channel pattern and
@@ -286,7 +228,6 @@ export function channel<
     __wskit: 'channel',
     __kind: 'scope',
     __identity: [CHANNEL_KEY, typeof pattern === 'string' ? pattern : pattern.key],
-    __dependencies: [],
     __requires: {},
     pattern,
     primitives: Object.freeze([...primitives]) as unknown as TPrimitives,

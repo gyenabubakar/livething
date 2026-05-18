@@ -107,7 +107,6 @@ export function onBeforeSubscribe<TCtx, TData = unknown>(
     __wskit: 'onBeforeSubscribe',
     __kind: 'lifecycle',
     __identity: [ON_BEFORE_SUBSCRIBE_KEY],
-    __dependencies: [],
     __requires: {},
     handler,
     validator: options?.validator,
@@ -142,7 +141,6 @@ export function onSubscribe<TCtx>(handler: SubscribeHandler<TCtx>): SubscribePri
     __wskit: 'onSubscribe',
     __kind: 'lifecycle',
     __identity: [ON_SUBSCRIBE_KEY],
-    __dependencies: [],
     __requires: {},
     handler,
     __setup(engine: EngineAccess) {
@@ -161,7 +159,6 @@ export function onUnsubscribe<TCtx>(handler: UnsubscribeHandler<TCtx>): Unsubscr
     __wskit: 'onUnsubscribe',
     __kind: 'lifecycle',
     __identity: [ON_UNSUBSCRIBE_KEY],
-    __dependencies: [],
     __requires: {},
     handler,
     __setup(engine: EngineAccess) {
@@ -181,7 +178,6 @@ export function onSessionEnd<TCtx>(handler: SessionEndHandler<TCtx>): SessionEnd
     __wskit: 'onSessionEnd',
     __kind: 'lifecycle',
     __identity: [ON_SESSION_END_KEY],
-    __dependencies: [],
     __requires: {},
     handler,
     __setup(engine: EngineAccess) {

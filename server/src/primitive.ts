@@ -37,23 +37,11 @@ export interface RequiresManifest {
   hibernation?: boolean;
 }
 
-// ---------------------------------------------------------------------------
-// Dependency references
-// ---------------------------------------------------------------------------
-
 /**
- * A reference to a primitive factory, used to declare that another primitive
- * must be registered alongside this one. List the factories you depend on in
- * `dependencies` — if any are missing when `.build()` runs, it throws
- * immediately with a clear error.
+ * Lightweight marker used by factories that need a stable symbol-typed
+ * identity. Kept as a separate type for module() factory typing.
  *
- * Dependencies are assertions only — they do not change how primitives are
- * configured.
- *
- * ```ts
- * // "This module requires both ack and replay to be registered":
- * dependencies: [ack, replay]
- * ```
+ * @internal
  */
 export interface PrimitiveRef {
   readonly __key: symbol;
@@ -86,7 +74,6 @@ export interface Primitive<Tag extends string = string> {
   readonly __wskit: Tag;
   readonly __kind: PrimitiveKind;
   readonly __identity: PrimitiveIdentity;
-  readonly __dependencies: readonly PrimitiveRef[];
   readonly __requires: RequiresManifest;
 
   /** @internal */
@@ -121,8 +108,6 @@ export interface PrimitiveConfig<
    * server handler is allowed.
    */
   readonly registrationId?: (...args: TArgs) => string;
-
-  readonly dependencies?: readonly PrimitiveRef[];
 
   /**
    * Either a static manifest or a function that computes the manifest from
@@ -208,7 +193,6 @@ export function definePrimitive<
       __wskit: config.tag,
       __kind: config.kind,
       __identity: identity,
-      __dependencies: config.dependencies ?? [],
       __requires: requires,
       __setup: config.setup ? (engine: EngineAccess) => config.setup!(engine, data) : undefined,
       ...data,

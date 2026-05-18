@@ -244,7 +244,6 @@ export function defineModule<
     tag: 'module' as const,
     key: config.key,
     kind: 'module' as const,
-    dependencies: config.dependencies,
     requires: config.requires,
     create(args: TArgs) {
       return {

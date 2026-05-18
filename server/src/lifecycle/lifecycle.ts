@@ -203,7 +203,6 @@ function makeLifecycle<TTag extends string>(
     __wskit: tag,
     __kind: 'lifecycle' as const,
     __identity: [key] as const,
-    __dependencies: [] as const,
     __requires: {},
     handler,
     __setup(engine: EngineAccess) {

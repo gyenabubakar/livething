@@ -36,7 +36,6 @@ export function hibernation(enabled = true): HibernationPrimitive {
     __wskit: 'hibernation',
     __kind: 'infrastructure',
     __identity: [HIBERNATION_KEY],
-    __dependencies: [],
     __requires: enabled ? { hibernation: true, storage: true } : {},
     enabled,
     __setup(engine) {

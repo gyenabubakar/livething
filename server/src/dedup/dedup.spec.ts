@@ -56,7 +56,6 @@ describe('dedup', () => {
 
   it('instances have empty dependencies and requires', () => {
     const p = dedup();
-    expect(p.__dependencies).toEqual([]);
     expect(p.__requires).toEqual({});
   });
 

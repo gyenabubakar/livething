@@ -18,7 +18,6 @@ describe('heartbeat', () => {
 
   it('instances have empty dependencies and timer requirement', () => {
     const p = heartbeat({ timeout: 30_000 });
-    expect(p.__dependencies).toEqual([]);
     expect(p.__requires).toEqual({ timers: true });
   });
 

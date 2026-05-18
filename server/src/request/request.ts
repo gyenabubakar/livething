@@ -100,7 +100,6 @@ export function request<TEvent extends string, TPayload, TResponse, TCtx = any>(
     __wskit: 'request',
     __kind: 'handler',
     __identity: [REQUEST_KEY, event],
-    __dependencies: [],
     __requires: {},
     event,
     handler,

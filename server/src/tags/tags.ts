@@ -61,7 +61,6 @@ export function tagGroups<TKind extends TagKind>(
     __wskit: 'tag-groups',
     __kind: 'infrastructure',
     __identity: [key],
-    __dependencies: [],
     __requires: kind === 'persistent' ? { storage: true } : {},
     kind,
     groups,

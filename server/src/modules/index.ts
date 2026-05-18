@@ -1,4 +1,5 @@
-export { defineModule } from './define.ts';
+export { defineModule, module } from './module.ts';
+export type { ModuleDependency } from './module.ts';
 export type {
   ModuleConfig,
   ModuleContextFactory,

@@ -33,7 +33,6 @@ export function ack(): AckPrimitive {
     __wskit: 'ack',
     __kind: 'infrastructure',
     __identity: [ACK_KEY],
-    __dependencies: [],
     __requires: {},
     __setup(engine) {
       engine.extendContext((ctx) => {

@@ -38,7 +38,6 @@ export function dedup(): DedupPrimitive {
     __wskit: 'dedup',
     __kind: 'infrastructure',
     __identity: [DEDUP_KEY],
-    __dependencies: [],
     __requires: {},
     __setup(engine) {
       engine.installOnce(DEDUP_KEY, () => {

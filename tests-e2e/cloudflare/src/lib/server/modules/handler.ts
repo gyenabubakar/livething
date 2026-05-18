@@ -52,6 +52,7 @@ const StreamThrowOnCancelChunk = v.object({ tick: v.number() });
 
 export const modulesContract = contract<Env>('modules-test')({
   meta: t<{ username: string }>(),
+  modules: [Drizzle({ migrate: true })],
   definitions: [
     incoming(InsertRecord.event, InsertRecord.schema),
     incoming(GetAllRecords.event, GetAllRecords.schema),
@@ -105,7 +106,6 @@ export const modulesContract = contract<Env>('modules-test')({
 });
 
 export const modulesHandler = implement(modulesContract)
-  .module(Drizzle({ migrate: true }))
   .onUpgrade((request) => {
     const url = new URL(request.url);
     const username = url.searchParams.get('username');

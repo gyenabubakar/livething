@@ -47,7 +47,6 @@ export function sequence(options?: SequenceOptions): SequencePrimitive {
     __wskit: 'sequence',
     __kind: 'infrastructure',
     __identity: [SEQUENCE_KEY],
-    __dependencies: [],
     __requires: persist ? { storage: true } : {},
     persist,
     __setup(engine) {

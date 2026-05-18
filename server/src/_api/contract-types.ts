@@ -175,20 +175,6 @@ export interface Group<TContract = unknown> {
 // ContractConfig — the shape passed to contract()
 // ---------------------------------------------------------------------------
 
-export interface CustomReplaySpec {
-  readonly __wskit_custom_replay: true;
-  readonly impl: unknown;
-}
-
-/**
- * Inline custom replay spec — pass `{ custom: { onBeforeSend?, onAfterSend?, onReplay } }`
- * under a contract or channel's `replay:` config to register a custom replay strategy
- * without a separate factory call.
- */
-export interface InlineCustomReplaySpec {
-  readonly custom: unknown;
-}
-
 export interface HeartbeatOptions {
   readonly intervalMs?: number;
   readonly timeoutMs?: number;
@@ -201,14 +187,12 @@ export interface HeartbeatOptions {
  * - `false` — explicitly opt out (used inside a channel to skip cascade).
  * - An options object — built-in replay with the given retention / exclude /
  *   snapshot configuration. Mirrors the `ReplayOptions` shape from the engine.
- * - `{ custom: ... }` — use a custom replay strategy that owns its own storage
- *   and `onReplay` resend logic.
+ *
+ * Custom replay strategies (those with their own storage + `onReplay`) are
+ * registered on the implementation side via `.customReplay(...)` on the
+ * implementer (top-level) or on a channel sub-implementer.
  */
-export type ReplayConfig =
-  | boolean
-  | ReplayOptionsConfig
-  | CustomReplaySpec
-  | InlineCustomReplaySpec;
+export type ReplayConfig = boolean | ReplayOptionsConfig;
 
 export interface ReplayOptionsConfig {
   readonly type?: 'history' | 'snapshot';
@@ -238,6 +222,13 @@ export interface ContractConfig {
     readonly persistent?: readonly string[];
   };
   readonly errors?: readonly any[];
+  /**
+   * Module instances mounted onto this server. Each entry is the result of
+   * calling a module factory — `Drizzle({ migrate: true })` etc. The module
+   * registers its own events, scheduled tasks, and errors at boot. The
+   * module API is accessed inside handlers via `<Module>.use(ctx)`.
+   */
+  readonly modules?: readonly any[];
   readonly definitions: readonly Definition[];
 }
 
@@ -247,11 +238,7 @@ export interface ContractConfig {
 
 type FeatureFromConfig<TConfig> =
   | (TConfig extends { ack: true } ? 'ack' : never)
-  | (TConfig extends {
-      replay: true | CustomReplaySpec | InlineCustomReplaySpec | ReplayOptionsConfig;
-    }
-      ? 'replay'
-      : never)
+  | (TConfig extends { replay: true | ReplayOptionsConfig } ? 'replay' : never)
   | (TConfig extends { persistence: true } ? 'persistence' : never)
   | (TConfig extends { sequence: true | { persist?: boolean } } ? 'sequence' : never)
   | (TConfig extends { dedup: true | { cap?: number } } ? 'dedup' : never)

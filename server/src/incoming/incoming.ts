@@ -74,7 +74,6 @@ export function incoming<TEvent extends string, TPayload, TCtx = any>(
     __wskit: 'incoming',
     __kind: 'handler',
     __identity: [INCOMING_KEY, event],
-    __dependencies: [],
     __requires: {},
     event,
     handler,

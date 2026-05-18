@@ -32,7 +32,6 @@ export default defineConfig({
         replay: resolve(__dirname, 'src/replay/index.ts'),
         'replay/custom': resolve(__dirname, 'src/replay/custom/index.ts'),
         lifecycle: resolve(__dirname, 'src/lifecycle/index.ts'),
-        infrastructure: resolve(__dirname, 'src/infrastructure/index.ts'),
         full: resolve(__dirname, 'src/full/index.ts'),
       },
       formats: ['es'],

@@ -36,7 +36,6 @@ export function persistence(): PersistencePrimitive {
     __wskit: 'persistence',
     __kind: 'infrastructure',
     __identity: [PERSISTENCE_KEY],
-    __dependencies: [],
     __requires: { storage: true },
     __setup(engine) {
       engine.setPersistenceEnabled(true);

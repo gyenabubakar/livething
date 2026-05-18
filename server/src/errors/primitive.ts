@@ -53,7 +53,6 @@ export function errors<const TDefs extends readonly [AnyErrorDef, ...AnyErrorDef
     __wskit: 'errors',
     __kind: 'contract',
     __identity: [ERRORS_KEY],
-    __dependencies: [],
     __requires: {},
     defs,
     __setup(engine) {

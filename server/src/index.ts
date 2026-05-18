@@ -30,22 +30,21 @@ export type {
   TagsApi,
 } from './_api/index.ts';
 
-// Legacy builder (kept for compatibility during migration)
-export { server } from './_builder/index.ts';
 export { event } from './event.ts';
 export type { EventContract } from './event.ts';
 export type { Validator } from './types.ts';
 
 export type { ScopeDeclaration } from './channel/channel.ts';
 
-export { defineModule } from './modules/define.ts';
+export { defineModule, module } from './modules/index.ts';
 export type {
   ModuleConfig,
   ModuleContextFactory,
+  ModuleDependency,
   ModuleFactory,
   ModuleHooks,
   ModuleInstance,
-} from './modules/define.ts';
+} from './modules/index.ts';
 
 export type { InferClient } from './infer-client.ts';
 

@@ -55,7 +55,6 @@ export function outgoing<TEvent extends string, TPayload = unknown>(
     __wskit: 'outgoing',
     __kind: 'contract',
     __identity: [OUTGOING_KEY, event],
-    __dependencies: [],
     __requires: {},
     event,
   };

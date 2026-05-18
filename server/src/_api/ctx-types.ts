@@ -1,10 +1,14 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 
 /**
- * Derive the typed `ctx` shape from a `Contract`. The result is intersected
- * with the broad `ConnectionContext` superset so unused fields are still
- * available at runtime — but the typed slots (`send`, `broadcast`, `tags`,
- * `channels.get`, `schedule`, `meta`) are narrowed from the contract.
+ * Derive the typed `ctx` shape from a `Contract`.
+ *
+ * Every feature-gated method (`ack`, `sendReplay`, `sendBinary`, `broadcastBinary`,
+ * `channel.sendReplay`) is always present on the type. At runtime, calling one
+ * of these methods when the contract did not enable the matching feature
+ * throws a clear error. Where the misuse is statically detectable from the
+ * contract — e.g. registering an `onBinary` handler without `binary: true` —
+ * `implement(...).build()` rejects it at boot.
  */
 
 import type {
@@ -61,11 +65,13 @@ export interface TagRefHandle extends TagRef {
   count(): number;
 }
 
-// Use the `& {}` trick so explicit literal types in autocomplete still suggest
-// declared group names while still accepting any runtime string.
-export interface TagsApi<TEphemeral = string, TPersistent = string> {
-  ephemeral(group: TEphemeral | (string & {})): GroupHandle;
-  persistent(group: TPersistent | (string & {})): GroupHandle;
+/**
+ * Typed tag groups. Group names are strictly the ones declared on the
+ * contract — passing an undeclared name is a type error and a runtime throw.
+ */
+export interface TagsApi<TEphemeral extends string = never, TPersistent extends string = never> {
+  ephemeral(group: TEphemeral): GroupHandle;
+  persistent(group: TPersistent): GroupHandle;
   /** Snapshot of every tag currently attached to this connection. */
   list(): readonly { kind: 'ephemeral' | 'persistent'; group: string; key: string }[];
 }
@@ -101,16 +107,8 @@ interface ScheduleApi<TScheduled> {
       ? { time: number; data?: TScheduled[I] }
       : { time: number; data: TScheduled[I] },
   ): void;
-  // Accept arbitrary string task IDs at runtime (e.g. module-owned tasks
-  // prefixed with `__`). The contract-keyed overload above gives precise
-  // typing for declared tasks.
-  schedule(taskId: string, options: { time: number; data?: unknown }): void;
   cancelScheduled<I extends keyof TScheduled & string>(
     taskId: I,
-    filter?: Record<string, unknown>,
-  ): { cancelledRunIds: string[]; taskExists: boolean };
-  cancelScheduled(
-    taskId: string,
     filter?: Record<string, unknown>,
   ): { cancelledRunIds: string[]; taskExists: boolean };
 }
@@ -119,29 +117,11 @@ interface ScheduleApi<TScheduled> {
 // Top-level Ctx derivation
 // ---------------------------------------------------------------------------
 
-type FeatureCtx<C extends Contract> = ('ack' extends C['features'] ? { ack(): void } : {}) &
-  ('replay' extends C['features']
-    ? {
-        sendReplay(
-          event: keyof C['outgoing'] & string,
-          payload: unknown,
-          wire: { seq: number; messageId: string; channel?: string; channelScope?: string | null },
-        ): void;
-      }
-    : {}) &
-  ('binary' extends C['features']
-    ? {
-        sendBinary(data: ArrayBuffer | ArrayBufferView): boolean;
-        broadcastBinary(
-          data: ArrayBuffer | ArrayBufferView,
-          options?: { excludeSelf?: boolean },
-        ): void;
-      }
-    : {});
-
 /**
  * The `ctx` object passed to handlers registered via
- * `implement(contract).on(...)`. Derives every typed slot from the contract.
+ * `implement(contract).on(...)`. Every method is always on the type. Calling
+ * a feature method when the contract did not enable that feature throws at
+ * runtime with a clear message.
  */
 export type Ctx<C extends Contract> = {
   readonly id: string;
@@ -168,13 +148,26 @@ export type Ctx<C extends Contract> = {
   readonly log: Logger;
   waitUntil(promise: Promise<unknown>): void;
   setAlarm(time: number): void;
+
+  // Always-on feature surface. Runtime throws if the feature was not enabled.
+  ack(): void;
+  sendReplay(
+    event: keyof C['outgoing'] & string,
+    payload: unknown,
+    wire: { seq: number; messageId: string; channel?: string; channelScope?: string | null },
+  ): void;
+  sendBinary(data: ArrayBuffer | ArrayBufferView): boolean;
+  broadcastBinary(data: ArrayBuffer | ArrayBufferView, options?: { excludeSelf?: boolean }): void;
 } & TypedSendApi<C['outgoing']> &
   ScheduleApi<C['scheduled']> & {
     readonly channels: keyof C['channels'] extends never
       ? ChannelsManager<string, string, Record<string, Record<string, unknown>>, C['meta']>
       : TypedChannelsManager<C['channels'], C['meta']>;
-    readonly tags: TagsApi<C['tagGroups']['ephemeral'], C['tagGroups']['persistent']>;
-  } & FeatureCtx<C>;
+    readonly tags: TagsApi<
+      C['tagGroups']['ephemeral'] extends string ? C['tagGroups']['ephemeral'] : never,
+      C['tagGroups']['persistent'] extends string ? C['tagGroups']['persistent'] : never
+    >;
+  };
 
 // ---------------------------------------------------------------------------
 // Channel-scoped ctx
@@ -199,7 +192,7 @@ export type ChannelCtx<TChannelContract, C extends Contract> = Omit<Ctx<C>, 'cha
     subscribe(ref: ConnectionRef, payload?: unknown): Promise<void>;
     kick(target: ConnectionRef | TagRef | GroupHandle, reason: string): Promise<void>;
     removeMember(identity: string): Promise<void>;
-    sendReplay?(
+    sendReplay(
       event: keyof ChannelOutgoingOf<TChannelContract> & string,
       payload: unknown,
       wire: { seq: number; messageId: string; channel?: string; channelScope?: string | null },

@@ -26,7 +26,6 @@ export function persistentMarker(enabled: boolean): PersistentMarkerPrimitive {
     __wskit: 'persistent-marker',
     __kind: 'infrastructure',
     __identity: [PERSISTENT_MARKER_KEY],
-    __dependencies: [],
     __requires: {},
     enabled,
     __setup(engine) {

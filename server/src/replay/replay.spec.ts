@@ -1,9 +1,7 @@
 import { ENGINE_INTERNAL_CONNECTION, ENGINE_SCOPE_META } from '~/_engine/contexts/types.ts';
 import { createChannelMembershipKey } from '~/channel/runtime.ts';
-import { dedup } from '~/dedup/dedup.ts';
 import { replay } from '~/replay/replay.ts';
 import { persistReplayMessage } from '~/replay/runtime.ts';
-import { sequence } from '~/sequence/sequence.ts';
 import { describe, expect, it } from 'vitest';
 import type { EngineAccess } from '~/_engine/access.ts';
 import type { IncomingProtocolEvent } from '~/_engine/runtime/types.ts';
@@ -110,7 +108,6 @@ describe('replay', () => {
 
   it('declares dependencies and requires', () => {
     const p = replay();
-    expect(p.__dependencies).toEqual([sequence, dedup]);
     expect(p.__requires).toEqual({ storage: true });
   });
 
@@ -677,7 +674,6 @@ describe('replay', () => {
     const primitive = replay(false);
     expect(primitive.disabled).toBe(true);
     expect(primitive.options).toEqual({});
-    expect(primitive.__dependencies).toEqual([]);
     expect(primitive.__requires).toEqual({});
     // The disabled primitive intentionally has no __setup so nothing wires
     // hooks for this scope. Its only purpose is to mark the scope as claimed
