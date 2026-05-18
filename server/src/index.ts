@@ -36,15 +36,15 @@ export type { Validator } from './types.ts';
 
 export type { ScopeDeclaration } from './channel/channel.ts';
 
-export { defineModule, module } from './modules/index.ts';
+export { defineModule, module } from './modules/module.ts';
 export type {
-  ModuleConfig,
   ModuleContextFactory,
   ModuleDependency,
   ModuleFactory,
   ModuleHooks,
   ModuleInstance,
-} from './modules/index.ts';
+} from './modules/module.ts';
+export type { ModuleConfig } from './modules/module.ts';
 
 export type { InferClient } from './infer-client.ts';
 

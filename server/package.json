@@ -15,100 +15,10 @@
       "types": "./dist/_adapters/index.d.ts",
       "import": "./dist/_adapters/index.js"
     },
-    "./modules": {
-      "wskit-dev": "./src/modules/index.ts",
-      "types": "./dist/modules/index.d.ts",
-      "import": "./dist/modules.js"
-    },
-    "./ack": {
-      "wskit-dev": "./src/ack/index.ts",
-      "types": "./dist/ack/index.d.ts",
-      "import": "./dist/ack.js"
-    },
-    "./heartbeat": {
-      "wskit-dev": "./src/heartbeat/index.ts",
-      "types": "./dist/heartbeat/index.d.ts",
-      "import": "./dist/heartbeat.js"
-    },
-    "./sequence": {
-      "wskit-dev": "./src/sequence/index.ts",
-      "types": "./dist/sequence/index.d.ts",
-      "import": "./dist/sequence.js"
-    },
-    "./dedup": {
-      "wskit-dev": "./src/dedup/index.ts",
-      "types": "./dist/dedup/index.d.ts",
-      "import": "./dist/dedup.js"
-    },
-    "./hibernation": {
-      "wskit-dev": "./src/hibernation/index.ts",
-      "types": "./dist/hibernation/index.d.ts",
-      "import": "./dist/hibernation.js"
-    },
-    "./persistence": {
-      "wskit-dev": "./src/persistence/index.ts",
-      "types": "./dist/persistence/index.d.ts",
-      "import": "./dist/persistence.js"
-    },
-    "./tags": {
-      "wskit-dev": "./src/tags/index.ts",
-      "types": "./dist/tags/index.d.ts",
-      "import": "./dist/tags.js"
-    },
     "./errors": {
       "wskit-dev": "./src/errors/index.ts",
       "types": "./dist/errors/index.d.ts",
       "import": "./dist/errors.js"
-    },
-    "./scheduled": {
-      "wskit-dev": "./src/scheduled/index.ts",
-      "types": "./dist/scheduled/index.d.ts",
-      "import": "./dist/scheduled.js"
-    },
-    "./requests": {
-      "wskit-dev": "./src/request/index.ts",
-      "types": "./dist/request/index.d.ts",
-      "import": "./dist/request.js"
-    },
-    "./intercept": {
-      "wskit-dev": "./src/intercept/index.ts",
-      "types": "./dist/intercept/index.d.ts",
-      "import": "./dist/intercept.js"
-    },
-    "./channels": {
-      "wskit-dev": "./src/channel/index.ts",
-      "types": "./dist/channel/index.d.ts",
-      "import": "./dist/channel.js"
-    },
-    "./namespaces": {
-      "wskit-dev": "./src/namespace/index.ts",
-      "types": "./dist/namespace/index.d.ts",
-      "import": "./dist/namespace.js"
-    },
-    "./streams": {
-      "wskit-dev": "./src/stream/index.ts",
-      "types": "./dist/stream/index.d.ts",
-      "import": "./dist/stream.js"
-    },
-    "./replay": {
-      "wskit-dev": "./src/replay/index.ts",
-      "types": "./dist/replay/index.d.ts",
-      "import": "./dist/replay.js"
-    },
-    "./replay/custom": {
-      "wskit-dev": "./src/replay/custom/index.ts",
-      "types": "./dist/replay/custom/index.d.ts",
-      "import": "./dist/replay/custom.js"
-    },
-    "./lifecycle": {
-      "wskit-dev": "./src/lifecycle/index.ts",
-      "types": "./dist/lifecycle/index.d.ts",
-      "import": "./dist/lifecycle.js"
-    },
-    "./full": {
-      "wskit-dev": "./src/full/index.ts",
-      "types": "./dist/full/index.d.ts",
-      "import": "./dist/full.js"
     }
   },
   "publishConfig": {

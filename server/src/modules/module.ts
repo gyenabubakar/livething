@@ -158,16 +158,13 @@ export function module<TArgs = void>(id: string) {
 }
 
 /**
- * Re-export `defineModule` for now during the migration so any code that
- * still imports it keeps working. New code should use `module()` above.
- *
- * @deprecated Use `module(id)({...})` from `@wskit/server` instead.
+ * `defineModule` is the lower-level factory `module()` wraps. Kept exported
+ * because the engine still references its types internally.
  */
 export { defineModule } from '~/modules/define.ts';
-
-/**
- * Definition factories that pass through to the contract API — re-exported
- * here so module authors can declare module-owned `outgoing`, `scheduled`,
- * and `error` items using the same factories as a contract.
- */
-export { outgoing, scheduled, error } from '~/_api/definitions.ts';
+export type {
+  ModuleContextFactory,
+  ModuleFactory,
+  ModuleHooks,
+  ModuleInstance,
+} from '~/modules/define.ts';
