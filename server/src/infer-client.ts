@@ -79,14 +79,17 @@ type BuiltInErrorUnion =
  *
  * ```ts
  * import * as v from 'valibot';
- * import { event, server } from '@wskit/server';
+ * import { contract, implement, incoming, outgoing } from '@wskit/server';
  *
  * // server.ts
- * const myServer = server('chat')
- *   .outgoing(event('chat-message', v.object({ text: v.string() })))
- *   .incoming(event('send-message', v.object({ text: v.string() })), (ctx, payload) => {
- *     ctx.send('chat-message', payload);
- *   })
+ * const chat = contract<Env>('chat')({
+ *   definitions: [
+ *     outgoing('chat-message', v.object({ text: v.string() })),
+ *     incoming('send-message', v.object({ text: v.string() })),
+ *   ],
+ * });
+ * const myServer = implement(chat)
+ *   .on('send-message', (ctx, payload) => ctx.send('chat-message', payload))
  *   .build();
  *
  * export type MyClient = InferClient<typeof myServer>;
@@ -97,10 +100,9 @@ type BuiltInErrorUnion =
  * ws.send('send-message', { text: 'hello' }); // fully typed
  * ```
  *
- * As you add events, requests, streams, channels, and namespaces to the
- * builder, TypeScript keeps track of that contract in the builder's type
- * state. When you call `.build()`, that type information is carried along
- * with the resulting `ServerDefinition`.
+ * The contract records the outgoing/incoming/request/stream/channel/error
+ * shapes. `.build()` carries those onto the `ServerDefinition`. `InferClient`
+ * reads them back out and flips them into the client's perspective.
  *
  * `InferClient` simply reads that stored contract back out and turns it into
  * the client type.

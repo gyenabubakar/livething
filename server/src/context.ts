@@ -242,8 +242,8 @@ export interface ConnectionInfo<Meta = Record<string, unknown>> {
   readonly meta: Meta;
   /**
    * Tag refs currently attached to this connection. Each ref carries the
-   * `(kind, group, key)` triple declared via the `withTags` wrapper. Empty
-   * when `withTags` is not registered.
+   * `(kind, group, key)` triple from the contract's `tagGroups` declaration.
+   * Empty when the contract declares no tag groups.
    */
   readonly tags: readonly TagRef[];
   /** Channel names this connection is currently subscribed to. */
@@ -462,17 +462,15 @@ export interface ChannelsManager<
  *
  * @example
  * ```ts
- * server('chat')
- *   .outgoing(Message)
- *   .incoming(Send, (ctx, payload) => {
- *     const delivered: boolean = ctx.send('message', { text: payload.text });
- *     ctx.broadcast('message', { text: payload.text });
- *     if (!delivered) ctx.log.warn('send buffer full', { id: ctx.id });
- *   });
+ * implement(chat).on('send', (ctx, payload) => {
+ *   const delivered: boolean = ctx.send('message', { text: payload.text });
+ *   ctx.broadcast('message', { text: payload.text });
+ *   if (!delivered) ctx.log.warn('send buffer full', { id: ctx.id });
+ * });
  * ```
  *
  * Mental model, grouped by purpose:
- * - **identity** — `id`, `identity`, `self`, `meta`, `tags` (from `withTags`)
+ * - **identity** — `id`, `identity`, `self`, `meta`, `tags` (when `tagGroups` is set on the contract)
  * - **messaging** — `send`, `broadcast`, `sendToConnection`, `sendBinary`,
  *   `broadcastBinary`
  * - **scope helpers** — `namespace`, `channel`, `channels`
