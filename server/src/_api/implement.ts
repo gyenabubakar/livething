@@ -9,18 +9,13 @@
 
 import { error as coreErrorFactory } from '@wskit/core';
 import { ack as ackFactory } from '~/ack/ack.ts';
-import { channel as channelFactory, scope as scopeFactory } from '~/channel/channel.ts';
-import {
-  onBeforeSubscribe,
-  onSessionEnd as onSessionEndFactory,
-  onSubscribe,
-  onUnsubscribe,
-} from '~/channel/lifecycle.ts';
+import { compileChannelDef } from '~/channel/compile.ts';
+import { ChannelImplement } from '~/channel/implement.ts';
 import { dedup as dedupFactory } from '~/dedup/dedup.ts';
 import { errors as errorsFactory } from '~/errors/primitive.ts';
 import { heartbeat as heartbeatFactory } from '~/heartbeat/heartbeat.ts';
 import { hibernation as hibernationFactory } from '~/hibernation/hibernation.ts';
-import { incoming as incomingFactory } from '~/incoming/incoming.ts';
+import { compileIncomingDef } from '~/incoming/compile.ts';
 import { intercept as interceptFactory } from '~/intercept/intercept.ts';
 import {
   onBinary,
@@ -32,18 +27,17 @@ import {
   onUpgrade,
   onValidationError,
 } from '~/lifecycle/lifecycle.ts';
-import { namespace as namespaceFactory } from '~/namespace/namespace.ts';
-import { outgoing as outgoingFactory } from '~/outgoing/outgoing.ts';
-import { persistentMarker } from '~/persistence/channel-marker.ts';
+import { compileNamespaceDef } from '~/namespace/compile.ts';
+import { NamespaceImplement } from '~/namespace/implement.ts';
+import { compileOutgoingDef } from '~/outgoing/compile.ts';
 import { persistence as persistenceFactory } from '~/persistence/persistence.ts';
 import { handleReplay as customReplayFactory } from '~/replay/custom/custom.ts';
 import { replay as replayFactory } from '~/replay/replay.ts';
-import { request as requestFactory } from '~/request/request.ts';
-import { scheduled as scheduledFactory } from '~/scheduled/scheduled.ts';
+import { compileRequestDef } from '~/request/compile.ts';
+import { compileScheduledDef } from '~/scheduled/compile.ts';
 import { sequence as sequenceFactory } from '~/sequence/sequence.ts';
-import { generate as generateFactory, stream as streamFactory } from '~/stream/stream.ts';
+import { compileStreamDef } from '~/stream/compile.ts';
 import { tagGroups as tagGroupsFactory } from '~/tags/tags.ts';
-import type { ScopeDeclaration } from '~/channel/channel.ts';
 import type {
   BinaryHandler,
   ConnectHandler,
@@ -59,18 +53,23 @@ import type { Primitive } from '~/primitive.ts';
 import type { CustomReplayOptions } from '~/replay/custom/custom.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
 import type { Contract, ContractConfig } from './contract-types.ts';
-import type { ChannelCtx, Ctx, NamespaceCtx } from './ctx-types.ts';
+import type { Ctx } from './ctx-types.ts';
 import type {
   ChannelDef,
   Definition,
   IncomingDef,
   NamespaceDef,
-  NudgeDef,
   OutgoingDef,
   RequestDef,
   ScheduledDef,
   StreamDef,
 } from './definitions.ts';
+import type { HandlerMaps } from './handler-maps.ts';
+
+// Re-export the sub-implementer classes from their new homes so external
+// import paths (`@wskit/server`) keep working.
+export { ChannelImplement } from '~/channel/implement.ts';
+export { NamespaceImplement } from '~/namespace/implement.ts';
 
 // ---------------------------------------------------------------------------
 // Type-level handler signatures
@@ -105,212 +104,6 @@ type ScheduledHandlerFor<C extends Contract, I extends keyof C['scheduled']> = (
   ctx: any,
   data: C['scheduled'][I],
 ) => void | Promise<void>;
-
-// ---------------------------------------------------------------------------
-// Channel sub-implementer
-// ---------------------------------------------------------------------------
-
-interface ChannelHandlerBag {
-  incomingHandlers: Map<string, (ctx: any, payload: any) => void | Promise<void>>;
-  requestHandlers: Map<string, (ctx: any, payload: any) => any>;
-  streamGenerators: Map<string, (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>>;
-  onBeforeSubscribeHandler?: (ctx: any, data?: any) => void | Promise<void>;
-  onSubscribeHandler?: (ctx: any) => void | Promise<void>;
-  onUnsubscribeHandler?: (ctx: any) => void | Promise<void>;
-  onSessionEndHandler?: (ctx: any) => void | Promise<void>;
-  preIntercept?: (ctx: any, message: { event: string; payload: unknown }) => any;
-  postIntercepts: Map<string, (ctx: any, payload: any) => any>;
-  customReplayHooks?: CustomReplayOptions<'channel'>;
-}
-
-export class ChannelImplement<C extends Contract, ChC = any> {
-  /** @internal */
-  readonly _bag: ChannelHandlerBag = {
-    incomingHandlers: new Map(),
-    requestHandlers: new Map(),
-    streamGenerators: new Map(),
-    postIntercepts: new Map(),
-  };
-
-  on<E extends keyof FieldOf<ChC, 'incoming'> & string>(
-    event: E,
-    handler: (
-      ctx: ChannelCtx<ChC, C>,
-      payload: FieldOf<ChC, 'incoming'>[E],
-    ) => void | Promise<void>,
-  ): this {
-    this._bag.incomingHandlers.set(event, handler as any);
-    return this;
-  }
-
-  request<E extends keyof FieldOf<ChC, 'requests'> & string>(
-    event: E,
-    handler: (
-      ctx: ChannelCtx<ChC, C> & {
-        respond(value: FieldOf<ChC, 'requests'>[E] extends { response: infer R } ? R : void): void;
-      },
-      payload: FieldOf<ChC, 'requests'>[E] extends { payload: infer P } ? P : never,
-    ) =>
-      | (FieldOf<ChC, 'requests'>[E] extends { response: infer R } ? R : void)
-      | void
-      | Promise<(FieldOf<ChC, 'requests'>[E] extends { response: infer R } ? R : void) | void>,
-  ): this {
-    this._bag.requestHandlers.set(event, handler as any);
-    return this;
-  }
-
-  stream<E extends keyof FieldOf<ChC, 'streams'> & string>(
-    event: E,
-    generator: (
-      ctx: ChannelCtx<ChC, C> & {
-        nudges(v: unknown): readonly { event: string; payload: unknown }[];
-      },
-      payload: FieldOf<ChC, 'streams'>[E] extends { payload: infer P } ? P : never,
-    ) => AsyncGenerator<
-      FieldOf<ChC, 'streams'>[E] extends { chunk: infer Ch } ? Ch : unknown,
-      void,
-      unknown
-    >,
-  ): this {
-    this._bag.streamGenerators.set(event, generator as any);
-    return this;
-  }
-
-  onBeforeSubscribe(
-    handler: (ctx: ChannelCtx<ChC, C>, data?: unknown) => void | Promise<void>,
-  ): this {
-    this._bag.onBeforeSubscribeHandler = handler as any;
-    return this;
-  }
-
-  onSubscribe(handler: (ctx: ChannelCtx<ChC, C>) => void | Promise<void>): this {
-    this._bag.onSubscribeHandler = handler as any;
-    return this;
-  }
-
-  onUnsubscribe(handler: (ctx: ChannelCtx<ChC, C>) => void | Promise<void>): this {
-    this._bag.onUnsubscribeHandler = handler as any;
-    return this;
-  }
-
-  onSessionEnd(handler: (ctx: ChannelCtx<ChC, C>) => void | Promise<void>): this {
-    this._bag.onSessionEndHandler = handler as any;
-    return this;
-  }
-
-  intercept(
-    handler: (ctx: ChannelCtx<ChC, C>, message: { event: string; payload: unknown }) => any,
-  ): this;
-  intercept<E extends keyof FieldOf<ChC, 'incoming'> & string>(
-    event: E,
-    handler: (ctx: ChannelCtx<ChC, C>, payload: FieldOf<ChC, 'incoming'>[E]) => any,
-  ): this;
-  intercept(arg1: any, arg2?: any): this {
-    if (typeof arg1 === 'string') {
-      this._bag.postIntercepts.set(arg1, arg2);
-    } else {
-      this._bag.preIntercept = arg1;
-    }
-    return this;
-  }
-
-  /**
-   * Register a custom replay strategy scoped to this channel. The hooks own
-   * their own storage and resend logic; pass an `onReplay` plus any of
-   * `onBeforeSend` / `onAfterSend`.
-   */
-  customReplay(hooks: CustomReplayOptions<'channel'>): this {
-    this._bag.customReplayHooks = hooks;
-    return this;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Namespace sub-implementer
-// ---------------------------------------------------------------------------
-
-interface NamespaceHandlerBag {
-  incomingHandlers: Map<string, (ctx: any, payload: any) => void | Promise<void>>;
-  requestHandlers: Map<string, (ctx: any, payload: any) => any>;
-  streamGenerators: Map<string, (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>>;
-  channelImpls: Map<string, ChannelImplement<any, any>>;
-  preIntercept?: (ctx: any, message: { event: string; payload: unknown }) => any;
-  postIntercepts: Map<string, (ctx: any, payload: any) => any>;
-}
-
-export class NamespaceImplement<C extends Contract, NsC = any> {
-  /** @internal */
-  readonly _bag: NamespaceHandlerBag = {
-    incomingHandlers: new Map(),
-    requestHandlers: new Map(),
-    streamGenerators: new Map(),
-    channelImpls: new Map(),
-    postIntercepts: new Map(),
-  };
-
-  on<E extends keyof FieldOf<NsC, 'incoming'> & string>(
-    event: E,
-    handler: (
-      ctx: NamespaceCtx<NsC, C>,
-      payload: FieldOf<NsC, 'incoming'>[E],
-    ) => void | Promise<void>,
-  ): this {
-    this._bag.incomingHandlers.set(event, handler as any);
-    return this;
-  }
-
-  request<E extends keyof FieldOf<NsC, 'requests'> & string>(
-    event: E,
-    handler: (
-      ctx: NamespaceCtx<NsC, C> & {
-        respond(value: FieldOf<NsC, 'requests'>[E] extends { response: infer R } ? R : void): void;
-      },
-      payload: FieldOf<NsC, 'requests'>[E] extends { payload: infer P } ? P : never,
-    ) =>
-      | (FieldOf<NsC, 'requests'>[E] extends { response: infer R } ? R : void)
-      | void
-      | Promise<(FieldOf<NsC, 'requests'>[E] extends { response: infer R } ? R : void) | void>,
-  ): this {
-    this._bag.requestHandlers.set(event, handler as any);
-    return this;
-  }
-
-  stream<E extends keyof FieldOf<NsC, 'streams'> & string>(
-    event: E,
-    generator: (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>,
-  ): this {
-    this._bag.streamGenerators.set(event, generator as any);
-    return this;
-  }
-
-  channel<N extends keyof FieldOf<NsC, 'channels'> & string>(
-    name: N,
-    fn: (ch: ChannelImplement<C, FieldOf<NsC, 'channels'>[N]>) => unknown,
-  ): this {
-    const impl = new ChannelImplement<C, FieldOf<NsC, 'channels'>[N]>();
-    fn(impl);
-    this._bag.channelImpls.set(name, impl);
-    return this;
-  }
-
-  intercept(
-    handler: (ctx: NamespaceCtx<NsC, C>, message: { event: string; payload: unknown }) => any,
-  ): this;
-  intercept<E extends keyof FieldOf<NsC, 'incoming'> & string>(
-    event: E,
-    handler: (ctx: NamespaceCtx<NsC, C>, payload: FieldOf<NsC, 'incoming'>[E]) => any,
-  ): this;
-  intercept(arg1: any, arg2?: any): this {
-    if (typeof arg1 === 'string') {
-      this._bag.postIntercepts.set(arg1, arg2);
-    } else {
-      this._bag.preIntercept = arg1;
-    }
-    return this;
-  }
-}
-
-type FieldOf<T, K extends string> = T extends Record<K, infer V> ? V : Record<string, any>;
 
 // ---------------------------------------------------------------------------
 // Group (implementation-side organisational unit)
@@ -614,11 +407,10 @@ export class Implementer<C extends Contract> {
   // ─────────────────── custom replay ───────────────────
 
   /**
-   * Register a top-level custom replay strategy. The hooks own their own
-   * storage and resend logic; pass an `onReplay` plus any of `onBeforeSend`
-   * / `onAfterSend`.
-   *
-   * `ctx` and `msg` inside the hooks are typed against the contract.
+   * Plug in your own replay logic at the top level. You provide an `onReplay`
+   * (and optionally `onBeforeSend` / `onAfterSend`); your code owns where the
+   * data lives and how it's resent. `ctx` and `msg` inside the hooks are typed
+   * against the contract.
    */
   customReplay(hooks: CustomReplayOptions<'top'>): this {
     this._bag.customReplayHooks = hooks;
@@ -634,7 +426,8 @@ export class Implementer<C extends Contract> {
     const primitives: Primitive[] = [];
     const config = this._contract.__config as ContractConfig;
 
-    // ── Boot-time validation: handler registered for a feature that's off ──
+    // Catch handlers attached for features that aren't switched on. Easy to
+    // mess up and silently never fire, so we fail loud at build time.
     if (this._bag.lifecycle.onBinary && !config.binary) {
       throw new Error(
         '[wskit] onBinary handler registered but `binary: true` is not set on the contract. ' +
@@ -673,7 +466,7 @@ export class Implementer<C extends Contract> {
         primitives.push(replayFactory(config.replay as any));
       }
     }
-    // Custom replay hooks registered via .customReplay() — separate from
+    // Custom replay goes through .customReplay() and is kept separate from
     // contract.replay so the hooks can be fully typed against the contract.
     if (this._bag.customReplayHooks) {
       primitives.push(customReplayFactory(this._bag.customReplayHooks as any));
@@ -689,9 +482,9 @@ export class Implementer<C extends Contract> {
 
     // ── Errors ───────────────────────────────────────────────────────────────
     if (config.errors && config.errors.length > 0) {
-      // Each entry is either an already-built ErrorDefWithFactory from the
-      // core `error()` factory (typeof function) or a plain ErrorContractDef
-      // shape from our own contract-style declaration (has `_: 'error'`).
+      // Each entry is either a built ErrorDefWithFactory from the core
+      // `error()` factory (a function) or a plain ErrorContractDef shape
+      // from contract-style declaration (has `_: 'error'`).
       const errorDefs = config.errors.map((e: any) =>
         typeof e === 'function' ? e : makeRuntimeErrorDef(e.code, e.schema),
       );
@@ -700,10 +493,10 @@ export class Implementer<C extends Contract> {
       }
     }
 
-    // ── Modules (from contract.modules) ─────────────────────────────────────
-    // Modules are pushed BEFORE lifecycle and definitions so their hooks
-    // register first and run before user handlers (matches legacy order
-    // where `.use(MyModule(...))` was called early on the builder chain).
+    // ── Modules ──────────────────────────────────────────────────────────────
+    // Modules go in BEFORE lifecycle and definitions so their hooks register
+    // first and run before user handlers (matches legacy `.use(MyModule())`
+    // order on the old builder chain).
     if (config.modules && config.modules.length > 0) {
       for (const mod of config.modules) {
         primitives.push(mod as Primitive);
@@ -747,208 +540,42 @@ export class Implementer<C extends Contract> {
   }
 
   /**
-   * Walk a definitions tuple and emit the primitives that match each one,
-   * pairing event names with handlers from the given handler maps.
+   * Walk a definitions list and call into each primitive's compile function.
+   * Channels and namespaces get a back-reference to this method so they can
+   * recurse into their own child definitions.
    *
    * @internal
    */
   private _buildDefinitions(
     definitions: readonly Definition[],
-    handlers: {
-      incomingHandlers: Map<string, (ctx: any, payload: any) => any>;
-      requestHandlers: Map<string, (ctx: any, payload: any) => any>;
-      streamGenerators: Map<string, (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>>;
-      scheduledHandlers: Map<string, (ctx: any, data: any) => any>;
-      channelImpls: Map<string, ChannelImplement<any, any>>;
-      namespaceImpls: Map<string, NamespaceImplement<any, any>>;
-    },
+    handlers: HandlerMaps,
   ): Primitive[] {
     const out: Primitive[] = [];
+    const recurse = this._buildDefinitions.bind(this);
 
     for (const def of definitions) {
       switch (def._) {
-        case 'incoming': {
-          const d = def as IncomingDef;
-          const handler = handlers.incomingHandlers.get(d.name);
-          if (!handler) {
-            throw new Error(
-              `[wskit] No handler registered for incoming('${d.name}'). Call implement(c).on('${d.name}', ...).`,
-            );
-          }
-          out.push(
-            incomingFactory(d.name, handler as any, d.schema ? { validator: d.schema } : undefined),
-          );
+        case 'incoming':
+          out.push(compileIncomingDef(def as IncomingDef, handlers.incomingHandlers));
           break;
-        }
-        case 'outgoing': {
-          const d = def as OutgoingDef;
-          out.push(outgoingFactory(d.name));
+        case 'outgoing':
+          out.push(compileOutgoingDef(def as OutgoingDef));
           break;
-        }
-        case 'request': {
-          const d = def as RequestDef;
-          const handler = handlers.requestHandlers.get(d.name);
-          if (!handler) {
-            throw new Error(
-              `[wskit] No handler registered for request('${d.name}'). Call implement(c).request('${d.name}', ...).`,
-            );
-          }
-          // Adapt the handler to use ctx.respond — the existing request runtime
-          // expects the handler to call ctx.respond(value) rather than return.
-          async function adapted(ctx: any, payload: any): Promise<void> {
-            const result = await (handler as any)(ctx, payload);
-            if (result !== undefined) ctx.respond(result);
-          }
-          out.push(
-            requestFactory(d.name, adapted, {
-              validator: d.payload,
-              responseSchema: d.response,
-            }),
-          );
+        case 'request':
+          out.push(compileRequestDef(def as RequestDef, handlers.requestHandlers));
           break;
-        }
-        case 'stream': {
-          const d = def as StreamDef;
-          const generator = handlers.streamGenerators.get(d.name);
-          if (!generator) {
-            throw new Error(
-              `[wskit] No generator registered for stream('${d.name}'). Call implement(c).stream('${d.name}', ...).`,
-            );
-          }
-          const streamPrim = streamFactory(
-            {
-              event: d.name,
-              validator: d.payload,
-              broadcast: d.broadcast,
-              allowConcurrent: d.allowConcurrent,
-            },
-            ...d.nudges.map((n: NudgeDef) => ({ event: n.name, validator: n.schema })),
-          );
-          out.push(streamPrim);
-          out.push(generateFactory(streamPrim, generator as any));
+        case 'stream':
+          out.push(...compileStreamDef(def as StreamDef, handlers.streamGenerators));
           break;
-        }
-        case 'scheduled': {
-          const d = def as ScheduledDef;
-          const handler = handlers.scheduledHandlers.get(d.id);
-          if (!handler) {
-            throw new Error(
-              `[wskit] No handler registered for scheduled('${d.id}'). Call implement(c).scheduled('${d.id}', ...).`,
-            );
-          }
-          out.push(
-            scheduledFactory(d.id, (b) => {
-              let bb: any = b;
-              if (d.data) bb = bb.data(d.data);
-              if (d.retry !== undefined) bb = bb.retry(d.retry);
-              if (d.every !== undefined) bb = bb.every(d.every);
-              return bb.run(handler);
-            }),
-          );
+        case 'scheduled':
+          out.push(compileScheduledDef(def as ScheduledDef, handlers.scheduledHandlers));
           break;
-        }
-        case 'channel': {
-          const d = def as ChannelDef;
-          const patternKey =
-            typeof d.pattern === 'string' ? d.pattern : (d.pattern as ScopeDeclaration).key;
-          const impl = handlers.channelImpls.get(patternKey);
-          // Channels without handlers are allowed — declaration-only is valid.
-
-          const childPrimitives: Primitive[] = [];
-
-          // Persistence marker
-          if (d.persistent !== undefined) {
-            childPrimitives.push(persistentMarker(d.persistent));
-          }
-
-          // Replay config — channel-scoped (built-in replay only). Custom
-          // replay for a channel scope is registered on the channel sub-
-          // implementer's .customReplay() and folded in below.
-          if (d.replay !== undefined) {
-            if (d.replay === false) {
-              childPrimitives.push(replayFactory(false));
-            } else if (d.replay === true) {
-              childPrimitives.push(replayFactory());
-            } else {
-              childPrimitives.push(replayFactory(d.replay as any));
-            }
-          }
-
-          // Channel-scoped custom replay registered via ch.customReplay(...).
-          if (impl?._bag.customReplayHooks) {
-            childPrimitives.push(customReplayFactory(impl._bag.customReplayHooks as any));
-          }
-
-          // Walk child definitions, pairing handlers from the channel impl
-          const childHandlers = {
-            incomingHandlers: impl?._bag.incomingHandlers ?? new Map(),
-            requestHandlers: impl?._bag.requestHandlers ?? new Map(),
-            streamGenerators: impl?._bag.streamGenerators ?? new Map(),
-            scheduledHandlers: new Map(),
-            channelImpls: new Map(),
-            namespaceImpls: new Map(),
-          };
-          childPrimitives.push(...this._buildDefinitions(d.definitions, childHandlers));
-
-          // Channel intercepts
-          if (impl?._bag.preIntercept) {
-            childPrimitives.push(interceptFactory(impl._bag.preIntercept));
-          }
-          if (impl) {
-            for (const [event, handler] of impl._bag.postIntercepts) {
-              childPrimitives.push(interceptFactory(event, handler));
-            }
-          }
-
-          // Channel lifecycle hooks
-          if (impl?._bag.onBeforeSubscribeHandler) {
-            childPrimitives.push(onBeforeSubscribe(impl._bag.onBeforeSubscribeHandler));
-          }
-          if (impl?._bag.onSubscribeHandler) {
-            childPrimitives.push(onSubscribe(impl._bag.onSubscribeHandler));
-          }
-          if (impl?._bag.onUnsubscribeHandler) {
-            childPrimitives.push(onUnsubscribe(impl._bag.onUnsubscribeHandler));
-          }
-          if (impl?._bag.onSessionEndHandler) {
-            childPrimitives.push(onSessionEndFactory(impl._bag.onSessionEndHandler));
-          }
-
-          // Channel pattern can be a string or a ScopeDeclaration
-          const pattern =
-            typeof d.pattern === 'string'
-              ? d.pattern
-              : scopeFactory(
-                  (d.pattern as ScopeDeclaration).key,
-                  (d.pattern as ScopeDeclaration).pattern,
-                );
-          out.push(channelFactory(pattern as any, ...(childPrimitives as any[])));
+        case 'channel':
+          out.push(compileChannelDef(def as ChannelDef, handlers.channelImpls, recurse));
           break;
-        }
-        case 'namespace': {
-          const d = def as NamespaceDef;
-          const impl = handlers.namespaceImpls.get(d.name);
-
-          const childHandlers = {
-            incomingHandlers: impl?._bag.incomingHandlers ?? new Map(),
-            requestHandlers: impl?._bag.requestHandlers ?? new Map(),
-            streamGenerators: impl?._bag.streamGenerators ?? new Map(),
-            scheduledHandlers: new Map(),
-            channelImpls: impl?._bag.channelImpls ?? new Map(),
-            namespaceImpls: new Map(),
-          };
-          const childPrimitives = this._buildDefinitions(d.definitions, childHandlers);
-          if (impl?._bag.preIntercept) {
-            childPrimitives.unshift(interceptFactory(impl._bag.preIntercept));
-          }
-          if (impl) {
-            for (const [event, handler] of impl._bag.postIntercepts) {
-              childPrimitives.push(interceptFactory(event, handler));
-            }
-          }
-          out.push(namespaceFactory(d.name, ...(childPrimitives as any[])));
+        case 'namespace':
+          out.push(compileNamespaceDef(def as NamespaceDef, handlers.namespaceImpls, recurse));
           break;
-        }
         default: {
           // exhaustiveness check
           const _unreachable: never = def;
@@ -973,11 +600,8 @@ export function implement<C extends Contract>(contract: C): Implementer<C> {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Build a runtime ErrorDef compatible with the existing `errors()` primitive.
- * The new API uses plain `error(code, schema?)` while the engine wants the
- * existing error-definition shape with a callable factory.
- */
+// The new API uses plain `error(code, schema?)` but the engine's `errors()`
+// primitive wants an ErrorDef with a callable factory. Wrap as needed.
 function makeRuntimeErrorDef(code: string, schema?: any) {
   return schema ? coreErrorFactory(code, schema) : coreErrorFactory(code);
 }
