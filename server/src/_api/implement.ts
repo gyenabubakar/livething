@@ -118,6 +118,11 @@ interface GroupRegistrations {
   namespaces: Map<string, NamespaceImplement<any, any>>;
 }
 
+/**
+ * Collects handlers that can be mounted into an `Implementer` later. Created
+ * by `group(contract, ...)`. Lets you split your handlers across files
+ * without changing the contract.
+ */
 export class GroupBuilder<C extends Contract> {
   /** @internal */
   readonly _reg: GroupRegistrations = {
@@ -129,11 +134,13 @@ export class GroupBuilder<C extends Contract> {
     namespaces: new Map(),
   };
 
+  /** Attach a handler for one client→server event declared on the contract. */
   on<E extends keyof C['incoming'] & string>(event: E, handler: IncomingHandlerFor<C, E>): this {
     this._reg.incoming.set(event, handler as any);
     return this;
   }
 
+  /** Attach a handler for one request/response pair. Return a value or call `ctx.respond(...)`. */
   request<E extends keyof C['requests'] & string>(
     event: E,
     handler: RequestHandlerFor<C, E>,
@@ -142,6 +149,7 @@ export class GroupBuilder<C extends Contract> {
     return this;
   }
 
+  /** Attach the generator that produces chunks for one server-pushed stream. */
   stream<E extends keyof C['streams'] & string>(
     event: E,
     generator: StreamGeneratorFor<C, E>,
@@ -150,6 +158,7 @@ export class GroupBuilder<C extends Contract> {
     return this;
   }
 
+  /** Attach the body that runs each time a scheduled task fires. */
   scheduled<I extends keyof C['scheduled'] & string>(
     id: I,
     handler: ScheduledHandlerFor<C, I>,
@@ -158,6 +167,7 @@ export class GroupBuilder<C extends Contract> {
     return this;
   }
 
+  /** Wire up handlers for one channel declared on the contract. */
   channel<N extends keyof C['channels'] & string>(
     name: N,
     fn: (ch: ChannelImplement<C, C['channels'][N]>) => unknown,
@@ -168,6 +178,7 @@ export class GroupBuilder<C extends Contract> {
     return this;
   }
 
+  /** Wire up handlers for one namespace declared on the contract. */
   namespace<N extends keyof C['namespaces'] & string>(
     name: N,
     fn: (ns: NamespaceImplement<C, C['namespaces'][N]>) => unknown,
@@ -264,11 +275,34 @@ export class Implementer<C extends Contract> {
 
   // ─────────────────── handler binding ───────────────────
 
+  /**
+   * Attach a handler for one client→server event declared on the contract.
+   * Runs each time the client sends that event. The payload is already
+   * validated against the schema you put in the contract.
+   *
+   * @example
+   * ```ts
+   * implement(chat).on('send-msg', (ctx, payload) => {
+   *   ctx.broadcast('msg', { text: payload.text, from: ctx.identity });
+   * });
+   * ```
+   */
   on<E extends keyof C['incoming'] & string>(event: E, handler: IncomingHandlerFor<C, E>): this {
     this._bag.incomingHandlers.set(event, handler as any);
     return this;
   }
 
+  /**
+   * Attach a handler for one request/response pair. The client awaits the
+   * response. Either return the response value or call `ctx.respond(value)`.
+   *
+   * @example
+   * ```ts
+   * implement(chat).request('get-history', (ctx, { since }) => {
+   *   return db.findMessagesSince(since);
+   * });
+   * ```
+   */
   request<E extends keyof C['requests'] & string>(
     event: E,
     handler: RequestHandlerFor<C, E>,
@@ -277,6 +311,20 @@ export class Implementer<C extends Contract> {
     return this;
   }
 
+  /**
+   * Attach the generator that produces chunks for one server-pushed stream.
+   * The client receives every value you `yield`; the stream ends when the
+   * generator returns or throws.
+   *
+   * @example
+   * ```ts
+   * implement(chat).stream('typing-feed', async function* (ctx) {
+   *   for await (const event of typingEvents()) {
+   *     yield event;
+   *   }
+   * });
+   * ```
+   */
   stream<E extends keyof C['streams'] & string>(
     event: E,
     generator: StreamGeneratorFor<C, E>,
@@ -285,6 +333,17 @@ export class Implementer<C extends Contract> {
     return this;
   }
 
+  /**
+   * Attach the body that runs each time a scheduled task fires. Bind a
+   * handler for every `scheduled(...)` declaration on the contract.
+   *
+   * @example
+   * ```ts
+   * implement(chat).scheduled('purge-stale', async (ctx, data) => {
+   *   await db.purgeOlderThan(data.cutoff);
+   * });
+   * ```
+   */
   scheduled<I extends keyof C['scheduled'] & string>(
     id: I,
     handler: ScheduledHandlerFor<C, I>,
@@ -293,6 +352,19 @@ export class Implementer<C extends Contract> {
     return this;
   }
 
+  /**
+   * Wire up handlers for one channel declared on the contract. The callback
+   * gets a channel sub-builder where you attach handlers, lifecycle hooks,
+   * and intercepts that only apply inside that channel.
+   *
+   * @example
+   * ```ts
+   * implement(chat).channel('room', ch =>
+   *   ch.on('send', (ctx, p) => ctx.channel.broadcast('msg', p))
+   *     .onSubscribe(ctx => ctx.channel.broadcast('joined', { id: ctx.id }))
+   * );
+   * ```
+   */
   channel<N extends keyof C['channels'] & string>(
     name: N,
     fn: (ch: ChannelImplement<C, C['channels'][N]>) => unknown,
@@ -303,6 +375,18 @@ export class Implementer<C extends Contract> {
     return this;
   }
 
+  /**
+   * Wire up handlers for one namespace declared on the contract. The callback
+   * gets a namespace sub-builder where you attach handlers and intercepts
+   * that only apply inside that namespace.
+   *
+   * @example
+   * ```ts
+   * implement(chat).namespace('admin', ns =>
+   *   ns.on('kick', (ctx, p) => ctx.kick(p.userId))
+   * );
+   * ```
+   */
   namespace<N extends keyof C['namespaces'] & string>(
     name: N,
     fn: (ns: NamespaceImplement<C, C['namespaces'][N]>) => unknown,
@@ -314,8 +398,8 @@ export class Implementer<C extends Contract> {
   }
 
   /**
-   * Mount a group's handlers into this implementation. Groups are defined with
-   * `group(contract, ...)` and let you split handler code across files.
+   * Mount a group's handlers into this implementation. Groups are defined
+   * with `group(contract, ...)` and let you split handler code across files.
    */
   use(g: GroupBuilder<C>): this {
     for (const [event, handler] of g._reg.incoming) {
@@ -341,6 +425,21 @@ export class Implementer<C extends Contract> {
 
   // ─────────────────── lifecycle ───────────────────
 
+  /**
+   * Runs on the WebSocket upgrade request, before the connection opens. Use
+   * it for auth and to set the connection's identity and meta. Return a
+   * rejection from `RejectUpgrade(code, reason)` to refuse the upgrade.
+   *
+   * @example
+   * ```ts
+   * implement(chat).onUpgrade((request) => {
+   *   const token = new URL(request.url).searchParams.get('token');
+   *   const user = verifyToken(token);
+   *   if (!user) throw RejectUpgrade(4001, 'invalid token');
+   *   return { identity: user.id, meta: { username: user.name } };
+   * });
+   * ```
+   */
   onUpgrade(
     handler: (
       request: Request,
@@ -351,31 +450,50 @@ export class Implementer<C extends Contract> {
     return this;
   }
 
+  /**
+   * Runs once when the server instance starts. Use it for one-time setup like
+   * running migrations or warming a cache. `ctx` here has no connection — it
+   * carries `env`, `sql`, `kv`, `log`, `platform`.
+   */
   onInit(handler: (ctx: any) => void | Promise<void>): this {
     this._bag.lifecycle.onInit = handler as InitHandler;
     return this;
   }
 
+  /** Runs each time a client opens a WebSocket connection, after `onUpgrade` succeeds. */
   onConnect(handler: (ctx: Ctx<C>) => void | Promise<void>): this {
     this._bag.lifecycle.onConnect = handler as ConnectHandler;
     return this;
   }
 
+  /** Runs each time a client connection closes, for any reason. */
   onDisconnect(handler: (ctx: Ctx<C>) => void | Promise<void>): this {
     this._bag.lifecycle.onDisconnect = handler as DisconnectHandler;
     return this;
   }
 
+  /** Runs once when the server instance is shutting down. Closes/flushes side effects here. */
   onShutdown(handler: (ctx: any) => void | Promise<void>): this {
     this._bag.lifecycle.onShutdown = handler as ShutdownHandler;
     return this;
   }
 
+  /**
+   * Catches any error thrown by an event handler that the runtime didn't
+   * already turn into a client `_error` frame. Use it for logging and
+   * server-side reporting. The third argument is the event name when the
+   * error came from an event handler.
+   */
   onError(handler: (ctx: any, error: unknown, event?: string) => void | Promise<void>): this {
     this._bag.lifecycle.onError = handler as ErrorHandler;
     return this;
   }
 
+  /**
+   * Runs when an incoming payload fails its schema validation. Use it for
+   * logging or auditing — the runtime already sends the client a
+   * `validation-failed` `_error` frame, so handlers see nothing.
+   */
   onValidationError(
     handler: (ctx: any, event: string, validationError: unknown) => void | Promise<void>,
   ): this {
@@ -383,6 +501,10 @@ export class Implementer<C extends Contract> {
     return this;
   }
 
+  /**
+   * Handle raw binary frames the client sends. Requires `binary: true` on the
+   * contract. Build-time check rejects this method if the flag is off.
+   */
   onBinary(handler: (ctx: Ctx<C>, data: ArrayBuffer) => void | Promise<void>): this {
     this._bag.lifecycle.onBinary = handler as BinaryHandler;
     return this;
@@ -390,6 +512,21 @@ export class Implementer<C extends Contract> {
 
   // ─────────────────── intercept ───────────────────
 
+  /**
+   * Attach a middleware-style hook that runs on incoming events.
+   *
+   * - `intercept(handler)` — runs BEFORE schema validation on every event.
+   *   Use it for things like rate limiting or auth checks. Throw to bail.
+   * - `intercept(event, handler)` — runs AFTER validation, BEFORE the event's
+   *   own handler. Scoped to one event.
+   *
+   * @example
+   * ```ts
+   * implement(chat)
+   *   .intercept((ctx, msg) => { if (isBanned(ctx.identity)) throw Disconnect(...); })
+   *   .intercept('send-msg', (ctx, payload) => { audit(payload); });
+   * ```
+   */
   intercept(handler: (ctx: any, message: { event: string; payload: unknown }) => any): this;
   intercept<E extends keyof C['incoming'] & string>(
     event: E,

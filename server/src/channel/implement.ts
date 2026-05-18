@@ -35,6 +35,11 @@ export class ChannelImplement<C extends Contract, ChC = any> {
     postIntercepts: new Map(),
   };
 
+  /**
+   * Attach a handler for one client→server event declared on this channel.
+   * Runs each time a subscribed client sends that event into the channel.
+   * `ctx.channel.send` / `.broadcast` are scoped to this channel.
+   */
   on<E extends keyof FieldOf<ChC, 'incoming'> & string>(
     event: E,
     handler: (
@@ -46,6 +51,10 @@ export class ChannelImplement<C extends Contract, ChC = any> {
     return this;
   }
 
+  /**
+   * Attach a request/response handler scoped to this channel. Return a value
+   * or call `ctx.respond(value)`.
+   */
   request<E extends keyof FieldOf<ChC, 'requests'> & string>(
     event: E,
     handler: (
@@ -62,6 +71,7 @@ export class ChannelImplement<C extends Contract, ChC = any> {
     return this;
   }
 
+  /** Attach the generator for a server-pushed stream scoped to this channel. */
   stream<E extends keyof FieldOf<ChC, 'streams'> & string>(
     event: E,
     generator: (
@@ -79,6 +89,12 @@ export class ChannelImplement<C extends Contract, ChC = any> {
     return this;
   }
 
+  /**
+   * Runs BEFORE a client subscribes to this channel. Throw to reject the
+   * subscribe — the client gets an `_error` frame. Use it for auth or
+   * capacity checks. The optional `data` is whatever the client sent in
+   * its `_subscribe` payload.
+   */
   onBeforeSubscribe(
     handler: (ctx: ChannelCtx<ChC, C>, data?: unknown) => void | Promise<void>,
   ): this {
@@ -86,21 +102,36 @@ export class ChannelImplement<C extends Contract, ChC = any> {
     return this;
   }
 
+  /** Runs after a client successfully subscribes to this channel. */
   onSubscribe(handler: (ctx: ChannelCtx<ChC, C>) => void | Promise<void>): this {
     this._bag.onSubscribeHandler = handler as any;
     return this;
   }
 
+  /** Runs when a client explicitly unsubscribes from this channel. */
   onUnsubscribe(handler: (ctx: ChannelCtx<ChC, C>) => void | Promise<void>): this {
     this._bag.onUnsubscribeHandler = handler as any;
     return this;
   }
 
+  /**
+   * Runs when a client's session in this channel ends — either via explicit
+   * unsubscribe or because the underlying connection closed. Useful when you
+   * want one cleanup hook regardless of how the session ended.
+   */
   onSessionEnd(handler: (ctx: ChannelCtx<ChC, C>) => void | Promise<void>): this {
     this._bag.onSessionEndHandler = handler as any;
     return this;
   }
 
+  /**
+   * Middleware-style hook scoped to this channel.
+   *
+   * - `intercept(handler)` — runs BEFORE schema validation on every event in
+   *   this channel. Throw to bail.
+   * - `intercept(event, handler)` — runs AFTER validation, BEFORE the event
+   *   handler. Scoped to one event in this channel.
+   */
   intercept(
     handler: (ctx: ChannelCtx<ChC, C>, message: { event: string; payload: unknown }) => any,
   ): this;

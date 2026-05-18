@@ -29,6 +29,11 @@ export class NamespaceImplement<C extends Contract, NsC = any> {
     postIntercepts: new Map(),
   };
 
+  /**
+   * Attach a handler for one client→server event declared on this namespace.
+   * Runs each time a client sends that event with the namespace marker.
+   * `ctx.namespace.send` / `.broadcast` are scoped to this namespace.
+   */
   on<E extends keyof FieldOf<NsC, 'incoming'> & string>(
     event: E,
     handler: (
@@ -40,6 +45,10 @@ export class NamespaceImplement<C extends Contract, NsC = any> {
     return this;
   }
 
+  /**
+   * Attach a request/response handler scoped to this namespace. Return a
+   * value or call `ctx.respond(value)`.
+   */
   request<E extends keyof FieldOf<NsC, 'requests'> & string>(
     event: E,
     handler: (
@@ -56,6 +65,7 @@ export class NamespaceImplement<C extends Contract, NsC = any> {
     return this;
   }
 
+  /** Attach the generator for a server-pushed stream scoped to this namespace. */
   stream<E extends keyof FieldOf<NsC, 'streams'> & string>(
     event: E,
     generator: (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>,
@@ -64,6 +74,10 @@ export class NamespaceImplement<C extends Contract, NsC = any> {
     return this;
   }
 
+  /**
+   * Wire up handlers for a channel that's nested inside this namespace.
+   * The callback gets a channel sub-builder.
+   */
   channel<N extends keyof FieldOf<NsC, 'channels'> & string>(
     name: N,
     fn: (ch: ChannelImplement<C, FieldOf<NsC, 'channels'>[N]>) => unknown,
@@ -74,6 +88,14 @@ export class NamespaceImplement<C extends Contract, NsC = any> {
     return this;
   }
 
+  /**
+   * Middleware-style hook scoped to this namespace.
+   *
+   * - `intercept(handler)` — runs BEFORE schema validation on every event in
+   *   this namespace. Throw to bail.
+   * - `intercept(event, handler)` — runs AFTER validation, BEFORE the event
+   *   handler. Scoped to one event in this namespace.
+   */
   intercept(
     handler: (ctx: NamespaceCtx<NsC, C>, message: { event: string; payload: unknown }) => any,
   ): this;

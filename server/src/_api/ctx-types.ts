@@ -56,6 +56,11 @@ export interface GroupHandle {
   ref(key: string): TagRefHandle;
 }
 
+/**
+ * Handle to one specific tag — a `(group, key)` pair such as `("user", "u1")`.
+ * Built via `ctx.tags.ephemeral(group).ref(key)` or `.persistent(group).ref(key)`.
+ * Lets you send to or count every connection currently holding that tag.
+ */
 export interface TagRefHandle extends TagRef {
   /** Send an event to every connection holding this tag. */
   send(event: string, payload: unknown): void;
@@ -175,6 +180,12 @@ export type Ctx<C extends Contract> = {
 
 type ChannelOutgoingOf<T> = T extends { outgoing: infer O } ? O : Record<string, unknown>;
 
+/**
+ * The `ctx` your channel handlers receive. Same as the top-level `Ctx<C>`,
+ * but `ctx.channel.send` and `.broadcast` are typed against this channel's
+ * own outgoing events, and `ctx.channel.subscribe` / `.kick` / `.members`
+ * operate on this channel's membership.
+ */
 export type ChannelCtx<TChannelContract, C extends Contract> = Omit<Ctx<C>, 'channel'> & {
   readonly channel: {
     readonly name: string;
@@ -204,6 +215,11 @@ export type ChannelCtx<TChannelContract, C extends Contract> = Omit<Ctx<C>, 'cha
 // Namespace-scoped ctx
 // ---------------------------------------------------------------------------
 
+/**
+ * The `ctx` your namespace handlers receive. Same as the top-level `Ctx<C>`,
+ * but `ctx.namespace.send` and `.broadcast` are typed against this namespace's
+ * own outgoing events and only reach clients in this namespace.
+ */
 export type NamespaceCtx<TNamespaceContract, C extends Contract> = Omit<Ctx<C>, 'namespace'> & {
   readonly namespace: {
     readonly name: string;
