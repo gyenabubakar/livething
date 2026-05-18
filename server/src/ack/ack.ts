@@ -8,24 +8,27 @@ export interface AckPrimitive extends Primitive<'ack'> {}
 const ACK_KEY = Symbol('ack');
 
 /**
- * Enables `ctx.ack()` inside your top-level `incoming` handlers. Call
- * `ctx.ack()` to confirm a message was received and processed — the client's
- * `send.withAck()` promise resolves when the ack arrives.
+ * Internal factory for the ack primitive. Enable ack on a contract by setting
+ * `ack: true` in the contract config; the implementer compiles that flag into
+ * this primitive and the engine extends every top-level connection context
+ * with `ctx.ack()`. Namespace and channel contexts do not receive `ctx.ack()`.
  *
- * Only available at the top-level connection scope; namespace and channel
- * handlers do not receive `ctx.ack()`.
+ * Calling `ctx.ack()` confirms a message was received and processed; the
+ * client's `send.withAck()` promise resolves when the ack frame arrives.
  *
  * @example
  * ```ts
- * import { server } from '@wskit/server';
- * import { withAck } from '@wskit/server/ack';
+ * import { contract, incoming, implement } from '@wskit/server';
  *
- * withAck(server('chat'))
- *   .ack()
- *   .incoming(sendMessage, async (ctx, payload) => {
- *     await saveMessage(payload);
- *     ctx.ack();
- *   });
+ * const c = contract<Env>('chat')({
+ *   ack: true,
+ *   definitions: [incoming('send-message', SendMessage)],
+ * });
+ *
+ * implement(c).on('send-message', async (ctx, payload) => {
+ *   await saveMessage(payload);
+ *   ctx.ack();
+ * });
  * ```
  */
 export function ack(): AckPrimitive {

@@ -6,45 +6,48 @@ import type { Primitive } from '~/primitive.ts';
  * point of view.
  *
  * Each field is a record mapping event names to payload types (or richer
- * shapes for requests and streams). `InferClient<typeof myServer>` reads this
+ * shapes for requests and streams). `InferClient<typeof myHandler>` reads this
  * to produce the typed client SDK. Adapters (server-cloudflare, server-bun,
  * etc.) also consume it so the handler and its adapter agree on one contract.
  *
- * **The naming is client-oriented, which is the opposite of what the server
- * builder uses.** The table below is the one thing most users get wrong:
+ * **The naming is client-oriented, which flips against the contract config.**
+ * The table below is the one thing most readers get wrong:
  *
- * | Server builder call | ServerContract field | Meaning for the client    |
- * | ------------------- | -------------------- | ------------------------- |
- * | `.outgoing(Msg)`    | `incoming`           | events the client receives|
- * | `.incoming(Msg)`    | `outgoing`           | events the client sends   |
- * | `.request(Req)`     | `requests`           | req/response pairs        |
- * | `.stream(Stm)`      | `streams`            | server-sent streams       |
- * | `.errors(...)`      | `errors`             | typed server errors       |
- * | `.channel('x', …)`  | `channels`           | per-channel sub-contracts |
- * | `.namespace('y', …)`| `namespaces`         | per-namespace sub-contracts|
+ * | Contract definition  | ServerContract field | Meaning for the client    |
+ * | -------------------- | -------------------- | ------------------------- |
+ * | `outgoing('msg', …)` | `incoming`           | events the client receives|
+ * | `incoming('msg', …)` | `outgoing`           | events the client sends   |
+ * | `request('r', …)`    | `requests`           | req/response pairs        |
+ * | `stream('s', …)`     | `streams`            | server-sent streams       |
+ * | `errors: [...]`      | `errors`             | typed server errors       |
+ * | `channel('x', …)`    | `channels`           | per-channel sub-contracts |
+ * | `namespace('y', …)`  | `namespaces`         | per-namespace sub-contracts|
  *
  * @example
  * ```ts
- * // Server side
- * const chat = server('chat').outgoing(Message).incoming(Send).build();
+ * import { contract, incoming, outgoing, implement } from '@wskit/server';
  *
- * // Client side — ctx comes from the server perspective, client sees the flip
+ * const chatContract = contract<Env>('chat')({
+ *   definitions: [outgoing('message', Message), incoming('send', Send)],
+ * });
+ * const chat = implement(chatContract).on('send', ...).build();
+ *
  * type ChatClient = InferClient<typeof chat>;
  * // ChatClient.incoming.message   ← server-sent events
  * // ChatClient.outgoing.send      ← client-sent events
  * ```
  */
 export interface ServerContract {
-  /** Events the **client** receives — declared on the server with `.outgoing(...)`. */
+  /** Events the **client** receives — declared on the server with `outgoing(...)`. */
   readonly incoming: Record<string, any>;
 
-  /** Events the **client** sends — declared on the server with `.incoming(...)`. */
+  /** Events the **client** sends — declared on the server with `incoming(...)`. */
   readonly outgoing: Record<string, any>;
 
-  /** Request/response pairs the client can invoke (`.request(...)` on the server). */
+  /** Request/response pairs the client can invoke (declared with `request(...)`). */
   readonly requests: Record<string, any>;
 
-  /** Server-sent streams the client subscribes to (`.stream(...)` on the server). */
+  /** Server-sent streams the client subscribes to (declared with `stream(...)`). */
   readonly streams: Record<string, any>;
 
   /** Named, typed server errors the client can catch. */
@@ -60,8 +63,8 @@ export interface ServerContract {
 /**
  * The finalized blueprint for a wskit server.
  *
- * You get a `ServerDefinition` by calling `.build()` at the end of a
- * `server(name)` builder chain. It is an immutable, frozen object that holds
+ * You get a `ServerDefinition` by calling `.build()` at the end of an
+ * `implement(contract)` chain. It is an immutable, frozen object that holds
  * all registered primitives plus the contract type that `InferClient` uses to
  * generate the client-side API.
  *

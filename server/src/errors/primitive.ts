@@ -24,23 +24,25 @@ export interface ErrorsPrimitive<
 const ERRORS_KEY = Symbol('errors');
 
 /**
- * Declares the typed errors your handler can throw. Clients see these codes
- * in their generated types via `InferClient`, so they can match on specific
- * errors with `.matches()` in a type-safe way.
- *
- * Define errors with the `error()` helper and register them once on the
- * builder. You rarely call `errors()` directly — use `.errors(NotFound, ...)`
- * on the builder instead.
+ * Internal primitive factory. The user-facing way to register typed errors is
+ * the contract's `errors: [...]` array; the implementer compiles that list
+ * into this primitive so the engine can recognise each declared error code at
+ * runtime and `InferClient` can surface them to the client SDK.
  *
  * @param defs One or more error definitions. At least one is required.
  *
  * @example
  * ```ts
- * import { error } from '@wskit/server/errors';
+ * import { contract, error, implement, incoming } from '@wskit/server';
  *
  * const NotFound = error('not-found', (p: { id: string }) => p);
  *
- * server('chat').errors(NotFound).incoming(getUser, async (ctx, payload) => {
+ * const c = contract<Env>('users')({
+ *   errors: [NotFound],
+ *   definitions: [incoming('get-user', GetUser)],
+ * });
+ *
+ * implement(c).on('get-user', async (ctx, payload) => {
  *   const user = await db.find(payload.id);
  *   if (!user) throw NotFound({ id: payload.id });
  * });
