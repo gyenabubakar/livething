@@ -96,20 +96,15 @@ type Categorize<TDefs extends readonly Definition[], Acc = EmptyCats> = TDefs ex
 // Sub-contracts
 // ---------------------------------------------------------------------------
 
-export interface ChannelContract<TDefs extends readonly Definition[] = readonly Definition[]> {
-  readonly incoming: Categorize<TDefs>['incoming'];
-  readonly outgoing: Categorize<TDefs>['outgoing'];
-  readonly requests: Categorize<TDefs>['requests'];
-  readonly streams: Categorize<TDefs>['streams'];
-}
+export type ChannelContract<TDefs extends readonly Definition[] = readonly Definition[]> = Pick<
+  Categorize<TDefs>,
+  'incoming' | 'outgoing' | 'requests' | 'streams'
+>;
 
-export interface NamespaceContract<TDefs extends readonly Definition[] = readonly Definition[]> {
-  readonly incoming: Categorize<TDefs>['incoming'];
-  readonly outgoing: Categorize<TDefs>['outgoing'];
-  readonly requests: Categorize<TDefs>['requests'];
-  readonly streams: Categorize<TDefs>['streams'];
-  readonly channels: Categorize<TDefs>['channels'];
-}
+export type NamespaceContract<TDefs extends readonly Definition[] = readonly Definition[]> = Pick<
+  Categorize<TDefs>,
+  'incoming' | 'outgoing' | 'requests' | 'streams' | 'channels'
+>;
 
 // ---------------------------------------------------------------------------
 // ContractConfig — the shape passed to contract()
@@ -222,18 +217,20 @@ type DefinitionsFromConfig<TConfig> = TConfig extends { definitions: infer D }
 // Contract — the final type produced by contract()
 // ---------------------------------------------------------------------------
 
+type ContractCats<TConfig> = Categorize<DefinitionsFromConfig<TConfig>>;
+
 export interface Contract<TConfig = unknown, TEnv = unknown> {
   readonly __wskit_contract: true;
   readonly __config: TConfig;
   readonly name: string;
 
-  readonly incoming: Categorize<DefinitionsFromConfig<TConfig>>['incoming'];
-  readonly outgoing: Categorize<DefinitionsFromConfig<TConfig>>['outgoing'];
-  readonly requests: Categorize<DefinitionsFromConfig<TConfig>>['requests'];
-  readonly streams: Categorize<DefinitionsFromConfig<TConfig>>['streams'];
-  readonly channels: Categorize<DefinitionsFromConfig<TConfig>>['channels'];
-  readonly namespaces: Categorize<DefinitionsFromConfig<TConfig>>['namespaces'];
-  readonly scheduled: Categorize<DefinitionsFromConfig<TConfig>>['scheduled'];
+  readonly incoming: ContractCats<TConfig>['incoming'];
+  readonly outgoing: ContractCats<TConfig>['outgoing'];
+  readonly requests: ContractCats<TConfig>['requests'];
+  readonly streams: ContractCats<TConfig>['streams'];
+  readonly channels: ContractCats<TConfig>['channels'];
+  readonly namespaces: ContractCats<TConfig>['namespaces'];
+  readonly scheduled: ContractCats<TConfig>['scheduled'];
   readonly errors: ErrorMapFromConfig<TConfig>;
   readonly features: FeatureFromConfig<TConfig>;
   readonly meta: MetaFromConfig<TConfig>;
