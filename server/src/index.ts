@@ -29,6 +29,8 @@ export type {
   TagsApi,
 } from './_api/index.ts';
 
+export type { RateLimitConfig } from './rate-limit/rate-limit.ts';
+
 export type { Validator } from './types.ts';
 
 export type { ScopeDeclaration } from './channel/channel.ts';

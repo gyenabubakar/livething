@@ -1,6 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import type { Contract } from '~/_api/contract-types.ts';
 import type { ChannelCtx } from '~/_api/ctx-types.ts';
+import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
 import type { CustomReplayOptions } from '~/replay/custom/custom.ts';
 
 // Reads one slot (incoming / requests / streams / etc.) off a sub-contract
@@ -18,6 +19,7 @@ export interface ChannelHandlerBag {
   onSessionEndHandler?: (ctx: any) => void | Promise<void>;
   preIntercept?: (ctx: any, message: { event: string; payload: unknown }) => any;
   postIntercepts: Map<string, (ctx: any, payload: any) => any>;
+  rateLimitOverrides: Map<string, RateLimitConfig>;
   customReplayHooks?: CustomReplayOptions<'channel'>;
 }
 
@@ -33,6 +35,7 @@ export class ChannelImplement<C extends Contract, ChC = any> {
     requestHandlers: new Map(),
     streamGenerators: new Map(),
     postIntercepts: new Map(),
+    rateLimitOverrides: new Map(),
   };
 
   /**
@@ -145,6 +148,33 @@ export class ChannelImplement<C extends Contract, ChC = any> {
     } else {
       this._bag.preIntercept = arg1;
     }
+    return this;
+  }
+
+  /**
+   * Override the resolved rate-limit rule for one event inside this channel.
+   *
+   * The override sits below the cascade — channel `rateLimit:`, then namespace,
+   * then contract — and applies only to this one event. Missing fields fall
+   * back to the channel's resolved rule.
+   *
+   * @example
+   * ```ts
+   * implement(chat).channel('rooms', (ch) => ch
+   *   .rateLimit('send', { enabled: true, max: 10 })
+   *   .on('send', (ctx, p) => ctx.channel.broadcast('msg', p))
+   * );
+   * ```
+   */
+  rateLimit<
+    E extends (
+      | keyof FieldOf<ChC, 'incoming'>
+      | keyof FieldOf<ChC, 'requests'>
+      | keyof FieldOf<ChC, 'streams'>
+    ) &
+      string,
+  >(event: E, config: RateLimitConfig): this {
+    this._bag.rateLimitOverrides.set(event, config);
     return this;
   }
 

@@ -1,6 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import type { Definition } from '~/_api/definitions.ts';
 import type { ScopeDeclaration } from '~/channel/channel.ts';
+import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
 
 /**
  * Contract-side declaration of a channel — a pub/sub group with its own
@@ -15,7 +16,15 @@ export interface ChannelDef<
   readonly pattern: TPattern;
   readonly persistent?: boolean;
   readonly replay?: unknown;
+  readonly rateLimit?: RateLimitConfig;
   readonly definitions: TDefinitions;
+}
+
+interface ChannelConfig<TDefinitions extends readonly Definition[]> {
+  persistent?: boolean;
+  replay?: unknown;
+  rateLimit?: RateLimitConfig;
+  definitions: TDefinitions;
 }
 
 /**
@@ -24,21 +33,22 @@ export interface ChannelDef<
  */
 export function channel<TPattern extends string, const TDefinitions extends readonly Definition[]>(
   pattern: TPattern,
-  config: { persistent?: boolean; replay?: unknown; definitions: TDefinitions },
+  config: ChannelConfig<TDefinitions>,
 ): ChannelDef<TPattern, TDefinitions>;
 export function channel<TKey extends string, const TDefinitions extends readonly Definition[]>(
   pattern: ScopeDeclaration<TKey>,
-  config: { persistent?: boolean; replay?: unknown; definitions: TDefinitions },
+  config: ChannelConfig<TDefinitions>,
 ): ChannelDef<ScopeDeclaration<TKey>, TDefinitions>;
 export function channel(
   pattern: string | ScopeDeclaration<string>,
-  config: { persistent?: boolean; replay?: unknown; definitions: readonly Definition[] },
+  config: ChannelConfig<readonly Definition[]>,
 ): ChannelDef {
   return {
     _: 'channel',
     pattern,
     persistent: config.persistent,
     replay: config.replay,
+    rateLimit: config.rateLimit,
     definitions: config.definitions,
   };
 }

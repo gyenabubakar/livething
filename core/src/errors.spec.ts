@@ -7,6 +7,7 @@ import {
   InternalError,
   InvalidScopeMarkers,
   NamespaceNotFound,
+  RateLimited,
   StreamAborted,
   StreamAlreadyActive,
   ValidationFailed,
@@ -486,6 +487,61 @@ describe('StreamAlreadyActive parser — bad payload', () => {
       // oxlint-disable-next-line @typescript-eslint/no-explicit-any
       StreamAlreadyActive({ event: 'start-tokens' } as any),
     ).toThrow('detail._streamId must be a string');
+  });
+});
+
+// ===========================================================================
+// RateLimited
+// ===========================================================================
+
+describe('RateLimited', () => {
+  it('has code rate-limited', () => {
+    expect(RateLimited.code).toBe('rate-limited');
+  });
+
+  it('creates WskitError with retryAfter', () => {
+    const err = RateLimited({ retryAfter: 5 });
+    expect(err).toBeInstanceOf(WskitError);
+    expect(err.code).toBe('rate-limited');
+    expect(err.detail).toEqual({ retryAfter: 5 });
+  });
+
+  it('.matches() returns true for a valid detail', () => {
+    const err = new WskitError('rate-limited', { retryAfter: 2 });
+    expect(RateLimited.matches(err)).toBe(true);
+  });
+
+  it('.matches() returns false for wrong code', () => {
+    const err = new WskitError('forbidden', { retryAfter: 2 });
+    expect(RateLimited.matches(err)).toBe(false);
+  });
+
+  it('.matches() returns false for matching code but invalid detail', () => {
+    const err = new WskitError('rate-limited', { retryAfter: 'soon' });
+    expect(RateLimited.matches(err)).toBe(false);
+  });
+
+  it('.matches() returns false for non-WskitError', () => {
+    expect(RateLimited.matches(new Error('rate-limited'))).toBe(false);
+  });
+});
+
+describe('RateLimited parser — bad payload', () => {
+  it('throws when detail is not an object', () => {
+    // oxlint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(() => RateLimited('nope' as any)).toThrow('must be an object');
+  });
+
+  it('throws when retryAfter is missing or non-numeric', () => {
+    // oxlint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(() => RateLimited({} as any)).toThrow('retryAfter');
+    // oxlint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(() => RateLimited({ retryAfter: 'soon' } as any)).toThrow('retryAfter');
+  });
+
+  it('throws when retryAfter is negative or non-finite', () => {
+    expect(() => RateLimited({ retryAfter: -1 })).toThrow('retryAfter');
+    expect(() => RateLimited({ retryAfter: Number.POSITIVE_INFINITY })).toThrow('retryAfter');
   });
 });
 

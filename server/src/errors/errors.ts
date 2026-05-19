@@ -19,6 +19,7 @@ export {
   InternalError,
   InvalidScopeMarkers,
   NamespaceNotFound,
+  RateLimited,
   StreamAlreadyActive,
 } from '@wskit/core';
 export type { ErrorDef, ErrorDefWithFactory } from '@wskit/core';

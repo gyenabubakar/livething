@@ -79,6 +79,7 @@
       { "name": "HEARTBEAT_SERVER", "class_name": "HeartbeatServer" },
       { "name": "PROTOCOL_PINGS_SERVER", "class_name": "ProtocolPingsServer" },
       { "name": "MULTIFILE_SERVER", "class_name": "MultifileServer" },
+      { "name": "RATE_LIMIT_SERVER", "class_name": "RateLimitServer" },
     ],
   },
   "migrations": [
@@ -127,6 +128,7 @@
         "MultifileServer",
         "PersistenceServer",
         "TypedTagsServer",
+        "RateLimitServer",
       ],
     },
   ],

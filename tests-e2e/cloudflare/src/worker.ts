@@ -40,6 +40,7 @@ export { CtxMetaServer } from './lib/server/ctx-meta/durable-object.ts';
 export { HeartbeatServer } from './lib/server/heartbeat/durable-object.ts';
 export { ProtocolPingsServer } from './lib/server/protocol-pings/durable-object.ts';
 export { MultifileServer } from './lib/server/multifile/durable-object.ts';
+export { RateLimitServer } from './lib/server/rate-limit/durable-object.ts';
 
 const FEATURE_ROUTES: Record<string, keyof Env> = {
   '/ws/incoming': 'INCOMING_SERVER',
@@ -77,6 +78,7 @@ const FEATURE_ROUTES: Record<string, keyof Env> = {
   '/ws/heartbeat': 'HEARTBEAT_SERVER',
   '/ws/protocol-pings': 'PROTOCOL_PINGS_SERVER',
   '/ws/multifile': 'MULTIFILE_SERVER',
+  '/ws/rate-limit': 'RATE_LIMIT_SERVER',
 };
 
 export default {

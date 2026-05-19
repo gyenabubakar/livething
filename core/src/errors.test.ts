@@ -4,6 +4,7 @@ import {
   Block,
   CloseCodes,
   error,
+  RateLimited,
   StreamAborted,
   StreamAlreadyActive,
   ValidationFailed,
@@ -252,4 +253,29 @@ if (StreamAlreadyActive.matches(maybeSaa)) {
   const _saamc: 'stream-already-active' = maybeSaa.code;
   const _saamd: { event: string; _streamId: string } = maybeSaa.detail;
   void [_saamc, _saamd];
+}
+
+// ===========================================================================
+// 13. RateLimited — built-in with parsed detail
+// ===========================================================================
+
+const _rlCode: 'rate-limited' = RateLimited.code;
+void _rlCode;
+
+const rlErr = RateLimited({ retryAfter: 5 });
+const _rlErrCode: 'rate-limited' = rlErr.code;
+const _rlDetail: { retryAfter: number } = rlErr.detail;
+void [_rlErrCode, _rlDetail];
+
+// @ts-expect-error — missing retryAfter
+RateLimited({});
+
+// @ts-expect-error — wrong shape
+RateLimited({ retryAfter: 'soon' });
+
+declare const maybeRl: unknown;
+if (RateLimited.matches(maybeRl)) {
+  const _rlmc: 'rate-limited' = maybeRl.code;
+  const _rlmd: { retryAfter: number } = maybeRl.detail;
+  void [_rlmc, _rlmd];
 }

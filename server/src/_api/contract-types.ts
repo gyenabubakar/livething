@@ -7,6 +7,7 @@
  */
 
 import type { ScopeDeclaration } from '~/channel/channel.ts';
+import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
 import type {
   ChannelDef,
   Definition,
@@ -146,6 +147,12 @@ export interface ContractConfig {
   readonly hibernation?: boolean;
   readonly heartbeat?: boolean | HeartbeatOptions;
   readonly binary?: boolean;
+  /**
+   * Top-level rate-limit rule. Applies to every event in every scope unless a
+   * channel, namespace, or per-handler override replaces it. `{ enabled: false }`
+   * here means "no enforcement anywhere by default" — children can still opt in.
+   */
+  readonly rateLimit?: RateLimitConfig;
 
   readonly meta?: TypeMarker<any>;
   readonly tagGroups?: {

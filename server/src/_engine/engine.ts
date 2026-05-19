@@ -6,6 +6,7 @@ import {
   InternalError,
   InvalidScopeMarkers,
   NamespaceNotFound,
+  RateLimited,
   StreamAborted,
   StreamAlreadyActive,
   ValidationFailed,
@@ -155,6 +156,7 @@ export class Engine {
     ChannelNotSubscribed.code,
     InvalidScopeMarkers.code,
     NamespaceNotFound.code,
+    RateLimited.code,
     StreamAborted.code,
     StreamAlreadyActive.code,
   ]);

@@ -3,6 +3,7 @@ import { ChannelImplement } from '~/channel/implement.ts';
 import type { Contract } from '~/_api/contract-types.ts';
 import type { NamespaceCtx } from '~/_api/ctx-types.ts';
 import type { FieldOf } from '~/channel/implement.ts';
+import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
 
 // Everything a namespace sub-implementer collects, ready to be compiled.
 export interface NamespaceHandlerBag {
@@ -12,6 +13,7 @@ export interface NamespaceHandlerBag {
   channelImpls: Map<string, ChannelImplement<any, any>>;
   preIntercept?: (ctx: any, message: { event: string; payload: unknown }) => any;
   postIntercepts: Map<string, (ctx: any, payload: any) => any>;
+  rateLimitOverrides: Map<string, RateLimitConfig>;
 }
 
 /**
@@ -27,6 +29,7 @@ export class NamespaceImplement<C extends Contract, NsC = any> {
     streamGenerators: new Map(),
     channelImpls: new Map(),
     postIntercepts: new Map(),
+    rateLimitOverrides: new Map(),
   };
 
   /**
@@ -109,6 +112,22 @@ export class NamespaceImplement<C extends Contract, NsC = any> {
     } else {
       this._bag.preIntercept = arg1;
     }
+    return this;
+  }
+
+  /**
+   * Override the resolved rate-limit rule for one event inside this namespace.
+   * Missing fields fall back to the namespace's resolved rule.
+   */
+  rateLimit<
+    E extends (
+      | keyof FieldOf<NsC, 'incoming'>
+      | keyof FieldOf<NsC, 'requests'>
+      | keyof FieldOf<NsC, 'streams'>
+    ) &
+      string,
+  >(event: E, config: RateLimitConfig): this {
+    this._bag.rateLimitOverrides.set(event, config);
     return this;
   }
 }

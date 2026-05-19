@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import type { Definition } from '~/_api/definitions.ts';
+import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
 
 /**
  * Contract-side declaration of a namespace — a grouping of events under a
@@ -11,6 +12,7 @@ export interface NamespaceDef<
 > {
   readonly _: 'namespace';
   readonly name: TName;
+  readonly rateLimit?: RateLimitConfig;
   readonly definitions: TDefinitions;
 }
 
@@ -19,7 +21,12 @@ export interface NamespaceDef<
  */
 export function namespace<TName extends string, const TDefinitions extends readonly Definition[]>(
   name: TName,
-  config: { definitions: TDefinitions },
+  config: { rateLimit?: RateLimitConfig; definitions: TDefinitions },
 ): NamespaceDef<TName, TDefinitions> {
-  return { _: 'namespace', name, definitions: config.definitions };
+  return {
+    _: 'namespace',
+    name,
+    rateLimit: config.rateLimit,
+    definitions: config.definitions,
+  };
 }

@@ -456,6 +456,40 @@ export const StreamAborted = error('stream-aborted');
  * }
  * ```
  */
+/**
+ * Sent to the client when an incoming frame is rejected because the connection
+ * is sending faster than the configured rate-limit cap for the scope the frame
+ * landed in. The handler does not run; the validator does not run. The client
+ * can read `detail.retryAfter` (seconds until the next slot opens) and back off.
+ *
+ * If a connection blows past the cap by a large factor the framework may close
+ * the socket with `CloseCodes.RATE_LIMITED` (4005) instead — that is a separate
+ * decision from this per-frame rejection.
+ *
+ * @example
+ * ```ts
+ * socket.on('_error', (err) => {
+ *   if (RateLimited.matches(err)) {
+ *     setTimeout(retry, err.detail.retryAfter * 1000);
+ *   }
+ * });
+ * ```
+ */
+export const RateLimited = error('rate-limited', (p: unknown) => {
+  if (typeof p !== 'object' || p === null) {
+    throw new Error('RateLimited detail must be an object');
+  }
+  const obj = p as Record<string, unknown>;
+  if (
+    typeof obj.retryAfter !== 'number' ||
+    !Number.isFinite(obj.retryAfter) ||
+    obj.retryAfter < 0
+  ) {
+    throw new Error('RateLimited detail.retryAfter must be a non-negative finite number');
+  }
+  return { retryAfter: obj.retryAfter };
+});
+
 export const StreamAlreadyActive = error('stream-already-active', (p: unknown) => {
   if (typeof p !== 'object' || p === null) {
     throw new Error('StreamAlreadyActive detail must be an object');

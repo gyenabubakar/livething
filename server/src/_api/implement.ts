@@ -30,6 +30,8 @@ import { compileNamespaceDef } from '~/namespace/compile.ts';
 import { NamespaceImplement } from '~/namespace/implement.ts';
 import { compileOutgoingDef } from '~/outgoing/compile.ts';
 import { persistence as persistenceFactory } from '~/persistence/persistence.ts';
+import { resolvePlan as resolveRateLimitPlan } from '~/rate-limit/plan.ts';
+import { rateLimit as rateLimitFactory } from '~/rate-limit/rate-limit.ts';
 import { handleReplay as customReplayFactory } from '~/replay/custom/custom.ts';
 import { replay as replayFactory } from '~/replay/replay.ts';
 import { compileRequestDef } from '~/request/compile.ts';
@@ -49,6 +51,7 @@ import type {
   ValidationErrorHandler,
 } from '~/lifecycle/lifecycle.ts';
 import type { Primitive } from '~/primitive.ts';
+import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
 import type { CustomReplayOptions } from '~/replay/custom/custom.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
 import type { Contract, ContractConfig } from './contract-types.ts';
@@ -115,6 +118,7 @@ interface GroupRegistrations {
   scheduled: Map<string, (ctx: any, data: any) => void | Promise<void>>;
   channels: Map<string, ChannelImplement<any, any>>;
   namespaces: Map<string, NamespaceImplement<any, any>>;
+  rateLimitOverrides: Map<string, RateLimitConfig>;
 }
 
 /**
@@ -131,6 +135,7 @@ export class GroupBuilder<C extends Contract> {
     scheduled: new Map(),
     channels: new Map(),
     namespaces: new Map(),
+    rateLimitOverrides: new Map(),
   };
 
   /** Attach a handler for one client→server event declared on the contract. */
@@ -187,6 +192,18 @@ export class GroupBuilder<C extends Contract> {
     this._reg.namespaces.set(name, impl);
     return this;
   }
+
+  /**
+   * Override the resolved rate-limit rule for one top-level event from inside
+   * a group. Same shape as `Implementer.rateLimit(...)`.
+   */
+  rateLimit<E extends (keyof C['incoming'] | keyof C['requests'] | keyof C['streams']) & string>(
+    event: E,
+    config: RateLimitConfig,
+  ): this {
+    this._reg.rateLimitOverrides.set(event, config);
+    return this;
+  }
 }
 
 /**
@@ -234,6 +251,7 @@ interface ImplementerBag {
   namespaceImpls: Map<string, NamespaceImplement<any, any>>;
   preIntercept?: (ctx: any, msg: { event: string; payload: unknown }) => any;
   postIntercepts: Map<string, (ctx: any, payload: unknown) => any>;
+  rateLimitOverrides: Map<string, RateLimitConfig>;
   customReplayHooks?: CustomReplayOptions<'top'>;
   lifecycle: {
     onUpgrade?: UpgradeHandler;
@@ -265,6 +283,7 @@ export class Implementer<C extends Contract> {
     channelImpls: new Map(),
     namespaceImpls: new Map(),
     postIntercepts: new Map(),
+    rateLimitOverrides: new Map(),
     lifecycle: {},
   };
 
@@ -419,6 +438,9 @@ export class Implementer<C extends Contract> {
     for (const [name, impl] of g._reg.namespaces) {
       this._bag.namespaceImpls.set(name, impl);
     }
+    for (const [event, cfg] of g._reg.rateLimitOverrides) {
+      this._bag.rateLimitOverrides.set(event, cfg);
+    }
     return this;
   }
 
@@ -540,6 +562,31 @@ export class Implementer<C extends Contract> {
     return this;
   }
 
+  // ─────────────────── per-handler rate limit ───────────────────
+
+  /**
+   * Override the resolved rate-limit rule for one top-level event. Missing
+   * fields fall back to the top-level resolved rule (contract `rateLimit:`).
+   *
+   * Use this when one event needs a tighter or looser cap than the rest of
+   * its scope — for example a token-stream endpoint inside an otherwise
+   * generous AI namespace.
+   *
+   * @example
+   * ```ts
+   * implement(chat)
+   *   .rateLimit('expensive-op', { enabled: true, max: 5 })
+   *   .on('expensive-op', (ctx, p) => { ... });
+   * ```
+   */
+  rateLimit<E extends (keyof C['incoming'] | keyof C['requests'] | keyof C['streams']) & string>(
+    event: E,
+    config: RateLimitConfig,
+  ): this {
+    this._bag.rateLimitOverrides.set(event, config);
+    return this;
+  }
+
   // ─────────────────── custom replay ───────────────────
 
   /**
@@ -607,6 +654,32 @@ export class Implementer<C extends Contract> {
     if (this._bag.customReplayHooks) {
       primitives.push(customReplayFactory(this._bag.customReplayHooks as any));
     }
+
+    // ── Rate limit ───────────────────────────────────────────────────────────
+    // Collect per-handler overrides from every impl level keyed by scope key.
+    const overrides = new Map<string, Map<string, RateLimitConfig>>();
+    if (this._bag.rateLimitOverrides.size > 0) {
+      overrides.set('top', new Map(this._bag.rateLimitOverrides));
+    }
+    for (const [name, impl] of this._bag.channelImpls) {
+      if (impl._bag.rateLimitOverrides.size === 0) continue;
+      overrides.set(`channel:${name}`, new Map(impl._bag.rateLimitOverrides));
+    }
+    for (const [nsName, nsImpl] of this._bag.namespaceImpls) {
+      if (nsImpl._bag.rateLimitOverrides.size > 0) {
+        overrides.set(`ns:${nsName}`, new Map(nsImpl._bag.rateLimitOverrides));
+      }
+      for (const [chName, chImpl] of nsImpl._bag.channelImpls) {
+        if (chImpl._bag.rateLimitOverrides.size === 0) continue;
+        overrides.set(`ns:${nsName}:channel:${chName}`, new Map(chImpl._bag.rateLimitOverrides));
+      }
+    }
+    const rateLimitPlan = resolveRateLimitPlan({
+      contractRateLimit: config.rateLimit,
+      definitions: config.definitions,
+      overrides,
+    });
+    if (rateLimitPlan) primitives.push(rateLimitFactory(rateLimitPlan));
 
     // ── Tag groups ───────────────────────────────────────────────────────────
     if (config.tagGroups?.ephemeral && config.tagGroups.ephemeral.length > 0) {

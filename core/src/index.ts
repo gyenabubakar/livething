@@ -9,6 +9,7 @@ export {
   InternalError,
   InvalidScopeMarkers,
   NamespaceNotFound,
+  RateLimited,
   StreamAborted,
   StreamAlreadyActive,
 } from './errors.ts';
