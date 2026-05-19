@@ -19,7 +19,12 @@ import {
   StreamAlreadyActive,
   StreamIdCollision,
 } from '@wskit/core';
-import type { ActiveStream, ResolvedScope, RuntimeConnection } from '~/_engine/runtime/types.ts';
+import type {
+  ActiveStream,
+  ResolvedScope,
+  RoutingTarget,
+  RuntimeConnection,
+} from '~/_engine/runtime/types.ts';
 import { isCursorChunk, makeCursorChunk } from './definition.ts';
 import * as Storage from './storage.ts';
 import type { DurableStreamKind } from './storage.ts';
@@ -41,7 +46,7 @@ export interface DurableStreamRuntime {
   ): void;
   sendThroughPipeline(
     connection: RuntimeConnection,
-    scope: ResolvedScope,
+    routing: RoutingTarget | undefined,
     event: string,
     payload: unknown,
   ): boolean;
@@ -160,6 +165,23 @@ export async function resumeDurableStream(
     runtime.sendProtocolMessage(connection, '_error', {
       code: StreamAborted.code,
       detail: { reason: 'not-found' as const },
+      _streamId: streamId,
+    });
+    return;
+  }
+
+  // If the previous socket's close handling is still in flight (the old
+  // generator hasn't finished tearing down), wait briefly for it to settle
+  // so we don't double-run the generator. The await yields the event loop;
+  // the old generator's `finally` will run and clear activeStreams.
+  for (let i = 0; runtime.activeStreams.has(streamId) && i < 20; i += 1) {
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  if (runtime.activeStreams.has(streamId)) {
+    // Still busy — refuse rather than spawn a second generator.
+    runtime.sendProtocolMessage(connection, '_error', {
+      code: StreamAborted.code,
+      detail: { reason: 'aborted' as const },
       _streamId: streamId,
     });
     return;
@@ -362,17 +384,26 @@ async function runGenerator(
         Storage.updateLastSeq(runtime.sql, identity, streamId, seq, now);
       }
 
-      const wirePayload =
-        typeof chunkValue === 'object' && chunkValue !== null
+      const wirePayload: Record<string, unknown> =
+        typeof chunkValue === 'object' && chunkValue !== null && !Array.isArray(chunkValue)
           ? { ...(chunkValue as Record<string, unknown>) }
-          : ({ value: chunkValue } as Record<string, unknown>);
-      wirePayload._streamId = streamId;
-      wirePayload._seq = seq;
+          : { value: chunkValue };
 
-      // Always go through the engine pipeline so dedup, replay, etc. see the
-      // outgoing chunk. The wire serializer reads scope routing from the
-      // pipeline path.
-      runtime.sendThroughPipeline(connection, scope, def.event, wirePayload);
+      // Routing markers (`_streamId`, `_seq`) are added by the pipeline's
+      // injectRoutingMarkers. The payload itself is pure user data so the
+      // engine's reserved-field check passes.
+      runtime.sendThroughPipeline(
+        connection,
+        {
+          namespace: scope.namespace?.name,
+          channel: scope.channelName,
+          channelScope: scope.channelScope,
+          streamId,
+          seq,
+        },
+        def.event,
+        wirePayload,
+      );
     }
 
     if (activeStream.closed) {

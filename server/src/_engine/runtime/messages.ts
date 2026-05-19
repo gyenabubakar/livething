@@ -898,13 +898,18 @@ export async function processTextMessage(
     }
   }
 
+  // A frame whose event name matches a registered stream trigger is a
+  // start frame, even when it carries `_streamId` (dev-supplied id for
+  // durable resume). Don't let nudge buffering claim it.
+  const isStreamTrigger = runtime.compiled.streams.has(parsed.event);
   if (
-    await StreamPrimitive.bufferStreamNudge(
+    !isStreamTrigger &&
+    (await StreamPrimitive.bufferStreamNudge(
       runtime,
       connection,
       parsed.event,
       parsed.payload as Record<string, unknown> | undefined,
-    )
+    ))
   ) {
     return;
   }

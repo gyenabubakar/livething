@@ -172,6 +172,7 @@ function injectRoutingMarkers(
   }
   if (routing?.correlationId) finalPayload._correlationId = routing.correlationId;
   if (routing?.streamId) finalPayload._streamId = routing.streamId;
+  if (typeof routing?.seq === 'number') finalPayload._seq = routing.seq;
   return finalPayload;
 }
 

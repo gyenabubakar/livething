@@ -306,6 +306,12 @@ export interface RoutingTarget {
   channelScope?: string | null;
   correlationId?: string;
   streamId?: string;
+  /**
+   * Sequence number to stamp on the outgoing payload as `_seq`. Used by
+   * durable streams to give resume a stable cursor; plain streams rely on
+   * the `sequence` primitive to inject this via onOutgoing instead.
+   */
+  seq?: number;
 }
 
 /**
