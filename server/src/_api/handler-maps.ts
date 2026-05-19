@@ -14,6 +14,14 @@ export interface HandlerMaps {
     string,
     (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>
   >;
+  readonly resumableStreamGenerators: Map<
+    string,
+    (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>
+  >;
+  readonly recordedStreamGenerators: Map<
+    string,
+    (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>
+  >;
   readonly scheduledHandlers: Map<string, (ctx: any, data: any) => void | Promise<void>>;
   readonly channelImpls: Map<string, ChannelImplement<any, any>>;
   readonly namespaceImpls: Map<string, NamespaceImplement<any, any>>;

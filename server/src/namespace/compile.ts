@@ -28,6 +28,11 @@ export function compileNamespaceDef(
     incomingHandlers: impl?._bag.incomingHandlers ?? new Map(),
     requestHandlers: impl?._bag.requestHandlers ?? new Map(),
     streamGenerators: impl?._bag.streamGenerators ?? new Map(),
+    // Durable streams are top-level only in v1; namespace-scoped declarations
+    // are rejected at build time by assertDurableStreamsTopLevelOnly, so
+    // these stay empty.
+    resumableStreamGenerators: new Map(),
+    recordedStreamGenerators: new Map(),
     scheduledHandlers: new Map(),
     channelImpls: impl?._bag.channelImpls ?? new Map(),
     namespaceImpls: new Map(),

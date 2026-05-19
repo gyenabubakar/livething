@@ -200,6 +200,7 @@ export function dispatchRuntime(engine: Engine) {
     ...memberRuntime(engine),
     logger: engine.getLogger(),
     activeStreams: engine.activeStreams,
+    sql: engine.storageOrUndefined()?.sql,
     protocolHandlers: engine.hooks.protocol,
     incomingHooks: engine.hooks.incoming,
     errorHooks: engine.hooks.error,

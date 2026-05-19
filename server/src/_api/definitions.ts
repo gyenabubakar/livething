@@ -11,6 +11,7 @@
 
 import type { ScopeDeclaration } from '~/channel/channel.ts';
 import type { ChannelDef } from '~/channel/definition.ts';
+import type { RecordedStreamDef, ResumableStreamDef } from '~/durable-stream/definition.ts';
 import type { ErrorContractDef } from '~/errors/definition.ts';
 import type { IncomingDef } from '~/incoming/definition.ts';
 import type { NamespaceDef } from '~/namespace/definition.ts';
@@ -26,12 +27,15 @@ export type {
   NamespaceDef,
   NudgeDef,
   OutgoingDef,
+  RecordedStreamDef,
   RequestDef,
+  ResumableStreamDef,
   ScheduledDef,
   StreamDef,
 };
 
 export { channel } from '~/channel/definition.ts';
+export { recordedStream, resumableStream } from '~/durable-stream/definition.ts';
 export { incoming } from '~/incoming/definition.ts';
 export { namespace } from '~/namespace/definition.ts';
 export { outgoing } from '~/outgoing/definition.ts';
@@ -57,6 +61,8 @@ export type Definition =
   | OutgoingDef<string, any>
   | RequestDef<string, any, any>
   | StreamDef<string, any, any, readonly NudgeDef<string, any>[]>
+  | ResumableStreamDef<string, any, any, any, readonly NudgeDef<string, any>[]>
+  | RecordedStreamDef<string, any, any, readonly NudgeDef<string, any>[]>
   | ScheduledDef<string, any>
   | ChannelDef<string | ScopeDeclaration<string>, readonly Definition[]>
   | NamespaceDef<string, readonly Definition[]>;

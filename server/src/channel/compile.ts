@@ -67,6 +67,11 @@ export function compileChannelDef(
     incomingHandlers: impl?._bag.incomingHandlers ?? new Map(),
     requestHandlers: impl?._bag.requestHandlers ?? new Map(),
     streamGenerators: impl?._bag.streamGenerators ?? new Map(),
+    // Durable streams are top-level only in v1; channel-scoped declarations
+    // are rejected at build time by assertDurableStreamsTopLevelOnly, so
+    // these stay empty.
+    resumableStreamGenerators: new Map(),
+    recordedStreamGenerators: new Map(),
     scheduledHandlers: new Map(),
     channelImpls: new Map(),
     namespaceImpls: new Map(),

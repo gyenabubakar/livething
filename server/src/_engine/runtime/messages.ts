@@ -10,6 +10,8 @@ import {
 } from '@wskit/core';
 import * as EngineCompileUtils from '~/_engine/compile/utils.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
+import * as DurableStreamRuntime from '~/durable-stream/runtime.ts';
+import { ensureDurableStreamSchema } from '~/durable-stream/storage.ts';
 import * as ErrorsPrimitive from '~/errors/errors.ts';
 import * as HeartbeatPrimitive from '~/heartbeat/runtime.ts';
 import * as InterceptPrimitive from '~/intercept/runtime.ts';
@@ -41,6 +43,14 @@ export const broadcastToChannel = OutgoingRuntime.broadcastToChannel;
 interface DispatchRuntime
   extends OutgoingRuntime.OutgoingRuntime, EngineRuntimeTypes.ConnectionMembersRuntime {
   activeStreams: Map<string, EngineRuntimeTypes.ActiveStream>;
+  /**
+   * SQLite handle from the adapter. Optional at the dispatch type level
+   * because not every adapter configures storage; the durable-stream runtime
+   * asserts presence when it routes a durable stream.
+   */
+  sql?: {
+    exec(query: string, ...params: unknown[]): { toArray(): Record<string, unknown>[] };
+  };
   protocolHandlers: ReadonlyMap<
     EngineRuntimeTypes.IncomingProtocolEvent,
     readonly ((
@@ -631,15 +641,42 @@ export async function dispatchIncoming(
     }
 
     if (stream) {
-      await StreamPrimitive.runStream(
-        runtime,
-        connection,
-        scope,
-        event,
-        stream,
-        postPayload,
-        message.payload,
-      );
+      if (stream.stream.durable) {
+        if (!runtime.sql) {
+          throw new Error(
+            '[wskit] durable stream "' +
+              stream.event +
+              '" requires storage; the adapter did not call engine.setStorage(...).',
+          );
+        }
+        ensureDurableStreamSchema(runtime.sql);
+        await DurableStreamRuntime.runDurableStream(
+          runtime as unknown as DurableStreamRuntime.DurableStreamRuntime,
+          connection,
+          scope,
+          {
+            event: stream.event,
+            kind: stream.stream.durable.kind,
+            generator: stream.generator as any,
+            allowConcurrent: stream.stream.allowConcurrent,
+            maxChunks: stream.stream.durable.maxChunks,
+            maxAgeMs: stream.stream.durable.maxAgeMs,
+            retentionAfterEndMs: stream.stream.durable.retentionAfterEndMs,
+          },
+          postPayload,
+          message.payload,
+        );
+      } else {
+        await StreamPrimitive.runStream(
+          runtime,
+          connection,
+          scope,
+          event,
+          stream,
+          postPayload,
+          message.payload,
+        );
+      }
     }
   } catch (error) {
     await handleDispatchError(runtime, connection, event, rawPayload, scope, error, attempt);
@@ -823,6 +860,42 @@ export async function processTextMessage(
         parsed.payload as Record<string, unknown> | undefined,
       );
       return;
+    case '_resume': {
+      const payload = parsed.payload as { _streamId?: unknown; since?: unknown } | undefined;
+      const streamId = typeof payload?._streamId === 'string' ? payload._streamId : null;
+      const since = typeof payload?.since === 'number' ? payload.since : 0;
+      if (!streamId) return;
+      if (!runtime.sql) {
+        runtime.sendProtocolMessage(connection, '_error', {
+          code: 'stream-aborted',
+          detail: { reason: 'not-found' as const },
+          _streamId: streamId,
+        });
+        return;
+      }
+      ensureDurableStreamSchema(runtime.sql);
+      await DurableStreamRuntime.resumeDurableStream(
+        runtime as unknown as DurableStreamRuntime.DurableStreamRuntime,
+        connection,
+        {},
+        (event) => {
+          const compiled = runtime.compiled.streams.get(event);
+          if (!compiled || !compiled.stream.durable) return undefined;
+          return {
+            event: compiled.event,
+            kind: compiled.stream.durable.kind,
+            generator: compiled.generator as any,
+            allowConcurrent: compiled.stream.allowConcurrent,
+            maxChunks: compiled.stream.durable.maxChunks,
+            maxAgeMs: compiled.stream.durable.maxAgeMs,
+            retentionAfterEndMs: compiled.stream.durable.retentionAfterEndMs,
+          };
+        },
+        streamId,
+        since,
+      );
+      return;
+    }
   }
 
   if (

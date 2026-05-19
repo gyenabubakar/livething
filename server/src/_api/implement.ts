@@ -11,6 +11,7 @@ import { ack as ackFactory } from '~/ack/ack.ts';
 import { compileChannelDef } from '~/channel/compile.ts';
 import { ChannelImplement } from '~/channel/implement.ts';
 import { dedup as dedupFactory } from '~/dedup/dedup.ts';
+import { compileRecordedStreamDef, compileResumableStreamDef } from '~/durable-stream/compile.ts';
 import { errors as errorsFactory } from '~/errors/primitive.ts';
 import { heartbeat as heartbeatFactory } from '~/heartbeat/heartbeat.ts';
 import { hibernation as hibernationFactory } from '~/hibernation/hibernation.ts';
@@ -62,7 +63,9 @@ import type {
   IncomingDef,
   NamespaceDef,
   OutgoingDef,
+  RecordedStreamDef,
   RequestDef,
+  ResumableStreamDef,
   ScheduledDef,
   StreamDef,
 } from './definitions.ts';
@@ -246,6 +249,14 @@ interface ImplementerBag {
   incomingHandlers: Map<string, (ctx: any, payload: any) => void | Promise<void>>;
   requestHandlers: Map<string, (ctx: any, payload: any) => any>;
   streamGenerators: Map<string, (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>>;
+  resumableStreamGenerators: Map<
+    string,
+    (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>
+  >;
+  recordedStreamGenerators: Map<
+    string,
+    (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>
+  >;
   scheduledHandlers: Map<string, (ctx: any, data: any) => void | Promise<void>>;
   channelImpls: Map<string, ChannelImplement<any, any>>;
   namespaceImpls: Map<string, NamespaceImplement<any, any>>;
@@ -279,6 +290,8 @@ export class Implementer<C extends Contract> {
     incomingHandlers: new Map(),
     requestHandlers: new Map(),
     streamGenerators: new Map(),
+    resumableStreamGenerators: new Map(),
+    recordedStreamGenerators: new Map(),
     scheduledHandlers: new Map(),
     channelImpls: new Map(),
     namespaceImpls: new Map(),
@@ -348,6 +361,61 @@ export class Implementer<C extends Contract> {
     generator: StreamGeneratorFor<C, E>,
   ): this {
     this._bag.streamGenerators.set(event, generator as any);
+    return this;
+  }
+
+  /**
+   * Attach the generator for a server-pushed stream that survives client
+   * disconnects by re-running with a saved cursor. The generator receives
+   * `ctx.stream.cursor` (the last cursor value, or `null` on first run) and
+   * `ctx.stream.attempt` (1 first, 2+ on resume). Use
+   * `ctx.stream.withCursor(chunk, cursor)` to yield a chunk with the cursor
+   * the framework should persist.
+   *
+   * Requires `persistence: true` on the contract.
+   *
+   * @example
+   * ```ts
+   * implement(files).resumableStream('list-files', async function* (ctx, p) {
+   *   const startAfter = (ctx.stream.cursor as { name: string } | null)?.name ?? null;
+   *   for await (const file of db.listFilesAfter(p.folder, startAfter)) {
+   *     yield ctx.stream.withCursor({ name: file.name }, { name: file.name });
+   *   }
+   * });
+   * ```
+   */
+  resumableStream<E extends keyof C['resumableStreams'] & string>(
+    event: E,
+    generator: (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>,
+  ): this {
+    this._bag.resumableStreamGenerators.set(event, generator);
+    return this;
+  }
+
+  /**
+   * Attach the generator for a server-pushed stream whose chunks are buffered
+   * in storage as they emit. On reconnect the framework replays the chunks
+   * the client missed; the generator itself does not re-run by default. Best
+   * for non-resumable sources (LLM tokens, third-party APIs).
+   *
+   * If the buffer hits its cap the framework throws `StreamAborted` with
+   * `reason: 'buffer-full'` into the generator's `yield`. Wrap the yield in
+   * try/catch to handle it.
+   *
+   * Requires `persistence: true` on the contract.
+   *
+   * @example
+   * ```ts
+   * implement(ai).recordedStream('ask-ai', async function* (ctx, p) {
+   *   for await (const token of llm.tokens(p.prompt)) yield { token };
+   * });
+   * ```
+   */
+  recordedStream<E extends keyof C['recordedStreams'] & string>(
+    event: E,
+    generator: (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>,
+  ): this {
+    this._bag.recordedStreamGenerators.set(event, generator);
     return this;
   }
 
@@ -623,6 +691,13 @@ export class Implementer<C extends Contract> {
           'Use one or the other — built-in replay (contract config) or custom replay (.customReplay()).',
       );
     }
+    if (hasDurableStreamDef(config.definitions) && !config.persistence) {
+      throw new Error(
+        '[wskit] resumableStream / recordedStream require `persistence: true` on the contract. ' +
+          'Add `persistence: true` to the contract config.',
+      );
+    }
+    assertDurableStreamsTopLevelOnly(config.definitions);
 
     // ── Feature primitives ──────────────────────────────────────────────────
     if (config.persistence) primitives.push(persistenceFactory());
@@ -736,6 +811,8 @@ export class Implementer<C extends Contract> {
         incomingHandlers: this._bag.incomingHandlers,
         requestHandlers: this._bag.requestHandlers,
         streamGenerators: this._bag.streamGenerators,
+        resumableStreamGenerators: this._bag.resumableStreamGenerators,
+        recordedStreamGenerators: this._bag.recordedStreamGenerators,
         scheduledHandlers: this._bag.scheduledHandlers,
         channelImpls: this._bag.channelImpls,
         namespaceImpls: this._bag.namespaceImpls,
@@ -770,6 +847,19 @@ export class Implementer<C extends Contract> {
         case 'stream':
           out.push(...compileStreamDef(def as StreamDef, handlers.streamGenerators));
           break;
+        case 'resumable-stream':
+          out.push(
+            compileResumableStreamDef(
+              def as ResumableStreamDef,
+              handlers.resumableStreamGenerators,
+            ),
+          );
+          break;
+        case 'recorded-stream':
+          out.push(
+            compileRecordedStreamDef(def as RecordedStreamDef, handlers.recordedStreamGenerators),
+          );
+          break;
         case 'scheduled':
           out.push(compileScheduledDef(def as ScheduledDef, handlers.scheduledHandlers));
           break;
@@ -802,6 +892,38 @@ export function implement<C extends Contract>(contract: C): Implementer<C> {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+function hasDurableStreamDef(defs: readonly Definition[]): boolean {
+  for (const def of defs) {
+    if (def._ === 'resumable-stream' || def._ === 'recorded-stream') return true;
+    if (def._ === 'channel' && hasDurableStreamDef((def as ChannelDef).definitions)) return true;
+    if (def._ === 'namespace' && hasDurableStreamDef((def as NamespaceDef).definitions))
+      return true;
+  }
+  return false;
+}
+
+function assertDurableStreamsTopLevelOnly(defs: readonly Definition[], parentScope?: string): void {
+  for (const def of defs) {
+    if ((def._ === 'resumable-stream' || def._ === 'recorded-stream') && parentScope) {
+      throw new Error(
+        `[wskit] ${def._ === 'resumable-stream' ? 'resumableStream' : 'recordedStream'} "${
+          (def as { name: string }).name
+        }" is declared inside ${parentScope}. Durable streams are top-level only in v1. ` +
+          'Move the declaration out of the channel/namespace, or open a follow-up issue if you need it scoped.',
+      );
+    }
+    if (def._ === 'channel') {
+      const ch = def as ChannelDef;
+      const key = typeof ch.pattern === 'string' ? ch.pattern : ch.pattern.key;
+      assertDurableStreamsTopLevelOnly(ch.definitions, `channel "${key}"`);
+    }
+    if (def._ === 'namespace') {
+      const ns = def as NamespaceDef;
+      assertDurableStreamsTopLevelOnly(ns.definitions, `namespace "${ns.name}"`);
+    }
+  }
+}
 
 // The new API uses plain `error(code, schema?)` but the engine's `errors()`
 // primitive wants an ErrorDef with a callable factory. Wrap as needed.

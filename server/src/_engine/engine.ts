@@ -275,6 +275,18 @@ export class Engine {
    * Read storage or fail with an adapter-specific setup error.
    * @internal
    */
+  /**
+   * Like `requireStorage` but returns `undefined` rather than throwing when
+   * the adapter did not configure storage. Used by code paths that can
+   * gracefully degrade (durable-stream dispatch surfaces a typed error to
+   * the client; the engine itself does not need storage to dispatch).
+   *
+   * @internal
+   */
+  storageOrUndefined(): PublicApi.StorageProvider | undefined {
+    return this.storage;
+  }
+
   requireStorage(): PublicApi.StorageProvider {
     if (!this.storage) {
       throw new Error(`[wskit] storage not provided by adapter "${this.options.adapterId}".`);

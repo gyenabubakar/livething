@@ -15,7 +15,9 @@ import type {
   NamespaceDef,
   NudgeDef,
   OutgoingDef,
+  RecordedStreamDef,
   RequestDef,
+  ResumableStreamDef,
   ScheduledDef,
   StreamDef,
   TypeMarker,
@@ -53,6 +55,8 @@ interface EmptyCats {
   readonly outgoing: {};
   readonly requests: {};
   readonly streams: {};
+  readonly resumableStreams: {};
+  readonly recordedStreams: {};
   readonly scheduled: {};
   readonly channels: {};
   readonly namespaces: {};
@@ -72,15 +76,29 @@ type AddOne<Acc, D> =
                 { payload: P; chunk: C; nudges: NudgesMap<Nu>; broadcast: boolean }
               >;
             }
-          : D extends ScheduledDef<infer I, infer Dt>
-            ? Acc & { readonly scheduled: Record<I, Dt> }
-            : D extends ChannelDef<infer Pat, infer Defs>
+          : D extends ResumableStreamDef<infer N, infer P, infer C, infer Cu, infer Nu>
+            ? Acc & {
+                readonly resumableStreams: Record<
+                  N,
+                  { payload: P; chunk: C; cursor: Cu; nudges: NudgesMap<Nu> }
+                >;
+              }
+            : D extends RecordedStreamDef<infer N, infer P, infer C, infer Nu>
               ? Acc & {
-                  readonly channels: Record<ChannelKeyFromPattern<Pat>, ChannelContract<Defs>>;
+                  readonly recordedStreams: Record<
+                    N,
+                    { payload: P; chunk: C; nudges: NudgesMap<Nu> }
+                  >;
                 }
-              : D extends NamespaceDef<infer N, infer Defs>
-                ? Acc & { readonly namespaces: Record<N, NamespaceContract<Defs>> }
-                : Acc;
+              : D extends ScheduledDef<infer I, infer Dt>
+                ? Acc & { readonly scheduled: Record<I, Dt> }
+                : D extends ChannelDef<infer Pat, infer Defs>
+                  ? Acc & {
+                      readonly channels: Record<ChannelKeyFromPattern<Pat>, ChannelContract<Defs>>;
+                    }
+                  : D extends NamespaceDef<infer N, infer Defs>
+                    ? Acc & { readonly namespaces: Record<N, NamespaceContract<Defs>> }
+                    : Acc;
 
 type Categorize<TDefs extends readonly Definition[], Acc = EmptyCats> = TDefs extends readonly [
   infer Head,
@@ -231,6 +249,8 @@ export interface Contract<TConfig = unknown, TEnv = unknown> {
   readonly outgoing: ContractCats<TConfig>['outgoing'];
   readonly requests: ContractCats<TConfig>['requests'];
   readonly streams: ContractCats<TConfig>['streams'];
+  readonly resumableStreams: ContractCats<TConfig>['resumableStreams'];
+  readonly recordedStreams: ContractCats<TConfig>['recordedStreams'];
   readonly channels: ContractCats<TConfig>['channels'];
   readonly namespaces: ContractCats<TConfig>['namespaces'];
   readonly scheduled: ContractCats<TConfig>['scheduled'];

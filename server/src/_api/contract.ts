@@ -46,6 +46,8 @@ export function contract<TEnv extends object = Record<string, unknown>>(
       outgoing: undefined as any,
       requests: undefined as any,
       streams: undefined as any,
+      resumableStreams: undefined as any,
+      recordedStreams: undefined as any,
       channels: undefined as any,
       namespaces: undefined as any,
       scheduled: undefined as any,

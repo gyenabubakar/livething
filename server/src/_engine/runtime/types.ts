@@ -42,7 +42,8 @@ export type IncomingProtocolEvent =
   | '_subscribe'
   | '_unsubscribe'
   | '_streamCancel'
-  | '_replay';
+  | '_replay'
+  | '_resume';
 
 /**
  * All hook registries the engine fills during primitive setup.

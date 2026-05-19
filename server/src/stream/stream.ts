@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import type { StandardSchemaV1 } from '@standard-schema/spec';
+import type { DurableStreamConfig } from '~/durable-stream/durable-stream.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { Validator } from '~/types.ts';
 
@@ -175,6 +176,12 @@ export interface StreamStartDeclaration<TEvent extends string = string, TPayload
    * `stream-already-active`.
    */
   readonly allowConcurrent?: boolean;
+  /**
+   * Populated by `resumableStream()` / `recordedStream()` compilation. The
+   * engine reads it at dispatch time to route through the durable-stream
+   * runtime instead of the plain stream runtime.
+   */
+  readonly durable?: DurableStreamConfig;
 }
 
 /**
@@ -205,6 +212,12 @@ export interface StreamPrimitive<
    * rejected with `stream-already-active`.
    */
   readonly allowConcurrent: boolean;
+  /**
+   * When set, the engine routes this stream through the durable-stream
+   * runtime (cursor save / chunk buffer / `_resume` handling) instead of the
+   * plain runtime. Populated by `resumableStream()` and `recordedStream()`.
+   */
+  readonly durable?: DurableStreamConfig;
 }
 
 /** Extracts the payload type from a `StreamPrimitive`. */
@@ -270,12 +283,13 @@ export function stream<
     __wskit: 'stream',
     __kind: 'handler',
     __identity: [STREAM_KEY, startDecl.event],
-    __requires: {},
+    __requires: startDecl.durable ? { storage: true, timers: true } : {},
     event: startDecl.event,
     validator: startDecl.validator,
     nudges,
     broadcast: startDecl.broadcast ?? false,
     allowConcurrent: startDecl.allowConcurrent ?? false,
+    durable: startDecl.durable,
   };
 }
 
