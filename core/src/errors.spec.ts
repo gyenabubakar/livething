@@ -10,6 +10,7 @@ import {
   RateLimited,
   StreamAborted,
   StreamAlreadyActive,
+  StreamIdCollision,
   ValidationFailed,
   WskitError,
 } from '~/errors.ts';
@@ -404,7 +405,7 @@ describe.each([
   { name: 'InternalError', def: InternalError, code: 'internal-error' as const },
   { name: 'InvalidScopeMarkers', def: InvalidScopeMarkers, code: 'invalid-scope-markers' as const },
   { name: 'NamespaceNotFound', def: NamespaceNotFound, code: 'namespace-not-found' as const },
-  { name: 'StreamAborted', def: StreamAborted, code: 'stream-aborted' as const },
+  { name: 'StreamIdCollision', def: StreamIdCollision, code: 'stream-id-collision' as const },
 ])('$name (code-only built-in)', ({ def, code }) => {
   it('has the documented code', () => {
     expect(def.code).toBe(code);
@@ -487,6 +488,67 @@ describe('StreamAlreadyActive parser — bad payload', () => {
       // oxlint-disable-next-line @typescript-eslint/no-explicit-any
       StreamAlreadyActive({ event: 'start-tokens' } as any),
     ).toThrow('detail._streamId must be a string');
+  });
+});
+
+// ===========================================================================
+// StreamAborted
+// ===========================================================================
+
+describe('StreamAborted', () => {
+  const reasons = [
+    'cancelled',
+    'buffer-full',
+    'expired',
+    'not-found',
+    'hibernation-wake',
+    'aborted',
+  ] as const;
+
+  it('has code stream-aborted', () => {
+    expect(StreamAborted.code).toBe('stream-aborted');
+  });
+
+  it.each(reasons)('factory accepts reason %s', (reason) => {
+    const err = StreamAborted({ reason });
+    expect(err).toBeInstanceOf(WskitError);
+    expect(err.code).toBe('stream-aborted');
+    expect(err.detail).toEqual({ reason });
+  });
+
+  it('.matches() returns true for a valid detail', () => {
+    const err = new WskitError('stream-aborted', { reason: 'cancelled' });
+    expect(StreamAborted.matches(err)).toBe(true);
+  });
+
+  it('.matches() returns false for wrong code', () => {
+    expect(StreamAborted.matches(new WskitError('forbidden', { reason: 'cancelled' }))).toBe(false);
+  });
+
+  it('.matches() returns false for matching code but invalid detail', () => {
+    expect(StreamAborted.matches(new WskitError('stream-aborted', { reason: 'nope' }))).toBe(false);
+    expect(StreamAborted.matches(new WskitError('stream-aborted', undefined))).toBe(false);
+  });
+
+  it('.matches() returns false for non-WskitError', () => {
+    expect(StreamAborted.matches(new Error('stream-aborted'))).toBe(false);
+  });
+});
+
+describe('StreamAborted parser — bad payload', () => {
+  it('throws when detail is not an object', () => {
+    // oxlint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(() => StreamAborted('not-an-object' as any)).toThrow('must be an object');
+  });
+
+  it('throws when detail.reason is not a known value', () => {
+    // oxlint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(() => StreamAborted({ reason: 'unknown' } as any)).toThrow('reason');
+  });
+
+  it('throws when detail.reason is missing', () => {
+    // oxlint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(() => StreamAborted({} as any)).toThrow('reason');
   });
 });
 
@@ -596,6 +658,7 @@ describe('built-in error codes', () => {
       NamespaceNotFound: NamespaceNotFound.code,
       StreamAborted: StreamAborted.code,
       StreamAlreadyActive: StreamAlreadyActive.code,
+      StreamIdCollision: StreamIdCollision.code,
     }).toEqual({
       ValidationFailed: 'validation-failed',
       ChannelNotFound: 'channel-not-found',
@@ -605,6 +668,7 @@ describe('built-in error codes', () => {
       NamespaceNotFound: 'namespace-not-found',
       StreamAborted: 'stream-aborted',
       StreamAlreadyActive: 'stream-already-active',
+      StreamIdCollision: 'stream-id-collision',
     });
   });
 });

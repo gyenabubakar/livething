@@ -7,6 +7,7 @@ import {
   RateLimited,
   StreamAborted,
   StreamAlreadyActive,
+  StreamIdCollision,
   ValidationFailed,
   WskitError,
 } from '~/errors.ts';
@@ -214,19 +215,35 @@ if (ValidationFailed.matches(maybeVf)) {
 }
 
 // ===========================================================================
-// 11. StreamAborted — code-only built-in
+// 11. StreamAborted — built-in with parsed detail
 // ===========================================================================
 
 const _saCode: 'stream-aborted' = StreamAborted.code;
 void _saCode;
 
-const _saErr: WskitError<'stream-aborted', void> = StreamAborted();
-void _saErr;
+type StreamAbortedReason =
+  | 'cancelled'
+  | 'buffer-full'
+  | 'expired'
+  | 'not-found'
+  | 'hibernation-wake'
+  | 'aborted';
+
+const saErr = StreamAborted({ reason: 'hibernation-wake' });
+const _saErrCode: 'stream-aborted' = saErr.code;
+const _saDetail: { reason: StreamAbortedReason } = saErr.detail;
+void [_saErrCode, _saDetail];
+
+// @ts-expect-error — missing reason
+StreamAborted({});
+
+// @ts-expect-error — unknown reason value (only literal union allowed)
+StreamAborted({ reason: 'unknown' });
 
 declare const maybeSa: unknown;
 if (StreamAborted.matches(maybeSa)) {
   const _sac: 'stream-aborted' = maybeSa.code;
-  const _sad: void = maybeSa.detail;
+  const _sad: { reason: StreamAbortedReason } = maybeSa.detail;
   void [_sac, _sad];
 }
 
@@ -256,7 +273,24 @@ if (StreamAlreadyActive.matches(maybeSaa)) {
 }
 
 // ===========================================================================
-// 13. RateLimited — built-in with parsed detail
+// 13. StreamIdCollision — code-only built-in
+// ===========================================================================
+
+const _sicCode: 'stream-id-collision' = StreamIdCollision.code;
+void _sicCode;
+
+const _sicErr: WskitError<'stream-id-collision', void> = StreamIdCollision();
+void _sicErr;
+
+declare const maybeSic: unknown;
+if (StreamIdCollision.matches(maybeSic)) {
+  const _sicc: 'stream-id-collision' = maybeSic.code;
+  const _sicd: void = maybeSic.detail;
+  void [_sicc, _sicd];
+}
+
+// ===========================================================================
+// 14. RateLimited — built-in with parsed detail
 // ===========================================================================
 
 const _rlCode: 'rate-limited' = RateLimited.code;

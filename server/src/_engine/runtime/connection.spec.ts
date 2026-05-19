@@ -304,11 +304,19 @@ describe('connection runtime', () => {
     expect(sent).toHaveLength(2);
     expect(JSON.parse(sent[0]!)).toEqual({
       event: '_error',
-      payload: { code: 'stream-aborted', _streamId: 'stream_1' },
+      payload: {
+        code: 'stream-aborted',
+        detail: { reason: 'hibernation-wake' },
+        _streamId: 'stream_1',
+      },
     });
     expect(JSON.parse(sent[1]!)).toEqual({
       event: '_error',
-      payload: { code: 'stream-aborted', _streamId: 'stream_2' },
+      payload: {
+        code: 'stream-aborted',
+        detail: { reason: 'hibernation-wake' },
+        _streamId: 'stream_2',
+      },
     });
   });
 

@@ -20,7 +20,9 @@ export {
   InvalidScopeMarkers,
   NamespaceNotFound,
   RateLimited,
+  StreamAborted,
   StreamAlreadyActive,
+  StreamIdCollision,
 } from '@wskit/core';
 export type { ErrorDef, ErrorDefWithFactory } from '@wskit/core';
 

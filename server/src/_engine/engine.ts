@@ -9,6 +9,7 @@ import {
   RateLimited,
   StreamAborted,
   StreamAlreadyActive,
+  StreamIdCollision,
   ValidationFailed,
 } from '@wskit/core';
 import * as EngineCompile from '~/_engine/compile/compile.ts';
@@ -159,6 +160,7 @@ export class Engine {
     RateLimited.code,
     StreamAborted.code,
     StreamAlreadyActive.code,
+    StreamIdCollision.code,
   ]);
   /** Logger used by the engine and runtime modules. Adapters supply a custom logger via {@link Engine.setLogger}; otherwise the engine falls back to a console-backed default. */
   private logger: PublicApi.Logger = {

@@ -413,25 +413,89 @@ export const ChannelNotSubscribed = error('channel-not-subscribed');
 export const InternalError = error('internal-error');
 
 /**
- * Sent to the client for each active stream that was lost when the server
- * dropped its in-memory state — for example a Cloudflare Durable Object
- * waking up from hibernation without preserved generators. The wire-level
- * connection is still alive; only the in-flight streams are gone.
+ * Sent to the client when an in-flight stream terminates for a server-side
+ * reason the client should react to. `detail.reason` describes why:
+ *
+ * - `'cancelled'` — the stream was cancelled (by `_streamCancel` or server-side teardown).
+ * - `'buffer-full'` — a durable (recorded) stream's chunk buffer hit its cap.
+ *   The framework throws this into the generator's `yield` so handler code can
+ *   catch and decide; if uncaught it surfaces on the wire.
+ * - `'expired'` — a suspended durable stream aged out of its retention window before the client returned.
+ * - `'not-found'` — a `_resume` request named a stream id the server doesn't recognise.
+ * - `'hibernation-wake'` — a non-durable stream was lost because the server
+ *   dropped in-memory state (e.g. Cloudflare Durable Object waking from
+ *   hibernation). The wire-level connection is still alive; only the
+ *   in-flight stream is gone.
+ * - `'aborted'` — catch-all when the framework had to tear the stream down
+ *   for an internal reason that does not match any of the above.
  *
  * Distinct from `InternalError` so a client SDK can fast-resume the affected
  * streams (with backoff) instead of treating the signal as a server crash.
  *
  * @example
  * ```ts
- * ws.addEventListener('message', (ev) => {
- *   const frame = JSON.parse(ev.data);
- *   if (frame.event === '_error' && StreamAborted.matches(frame)) {
- *     restartStream(frame.payload._streamId);
+ * try {
+ *   for await (const chunk of stream) { ... }
+ * } catch (err) {
+ *   if (StreamAborted.matches(err)) {
+ *     if (err.detail.reason === 'hibernation-wake') restartStream();
+ *     else if (err.detail.reason === 'buffer-full')  showSlowDownToast();
  *   }
- * });
+ * }
  * ```
  */
-export const StreamAborted = error('stream-aborted');
+export type StreamAbortedReason =
+  | 'cancelled'
+  | 'buffer-full'
+  | 'expired'
+  | 'not-found'
+  | 'hibernation-wake'
+  | 'aborted';
+
+const STREAM_ABORTED_REASONS: readonly StreamAbortedReason[] = [
+  'cancelled',
+  'buffer-full',
+  'expired',
+  'not-found',
+  'hibernation-wake',
+  'aborted',
+];
+
+export const StreamAborted = error('stream-aborted', (p: unknown) => {
+  if (typeof p !== 'object' || p === null) {
+    throw new Error('StreamAborted detail must be an object');
+  }
+  const obj = p as Record<string, unknown>;
+  const reason = obj.reason;
+  if (
+    typeof reason !== 'string' ||
+    !(STREAM_ABORTED_REASONS as readonly string[]).includes(reason)
+  ) {
+    throw new Error(
+      'StreamAborted detail.reason must be one of: cancelled, buffer-full, expired, not-found, hibernation-wake, aborted',
+    );
+  }
+  return { reason: reason as StreamAbortedReason };
+});
+
+/**
+ * Sent to the client when a stream trigger frame carries a dev-supplied
+ * `_streamId` that is already in use by another active stream for the same
+ * connection identity. The client must pick a different id or wait for the
+ * existing stream to end.
+ *
+ * @example
+ * ```ts
+ * try {
+ *   await socket.stream('start-tokens', { prompt }, { streamId: convoId });
+ * } catch (err) {
+ *   if (StreamIdCollision.matches(err)) {
+ *     showError('This conversation already has an active stream.');
+ *   }
+ * }
+ * ```
+ */
+export const StreamIdCollision = error('stream-id-collision');
 
 /**
  * Sent to the client when it asks to start a stream of an event that already

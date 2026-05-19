@@ -483,7 +483,11 @@ export function wakeHibernatedConnection(
     descriptor.send(
       JSON.stringify({
         event: '_error',
-        payload: { code: StreamAborted.code, _streamId: streamId },
+        payload: {
+          code: StreamAborted.code,
+          detail: { reason: 'hibernation-wake' as const },
+          _streamId: streamId,
+        },
       }),
     );
   }

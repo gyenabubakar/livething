@@ -12,8 +12,9 @@ export {
   RateLimited,
   StreamAborted,
   StreamAlreadyActive,
+  StreamIdCollision,
 } from './errors.ts';
-export type { ErrorDef, ErrorDefWithFactory } from './errors.ts';
+export type { ErrorDef, ErrorDefWithFactory, StreamAbortedReason } from './errors.ts';
 export {
   WskitConfigError,
   isWskitConfigError,
