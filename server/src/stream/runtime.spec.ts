@@ -901,4 +901,89 @@ describe('stream/runtime', () => {
     expect(wire!.payload._streamId).toBe('stream_1');
     expect(wire!.payload.detail).toBeUndefined();
   });
+
+  it('adopts a client-supplied _streamId from the raw trigger payload', async () => {
+    const { runtime, protocolMessages } = createStreamRuntime();
+    const connection = createConnection();
+
+    const stream = {
+      stream: { nudges: [], broadcast: false },
+      generator: async function* () {
+        yield { token: 'hi' };
+      },
+    };
+
+    await runStream(
+      runtime as Parameters<typeof runStream>[0],
+      connection,
+      {},
+      'feed',
+      stream as never,
+      {},
+      { _streamId: 'conv-42' },
+    );
+
+    const streamOk = protocolMessages.find((m) => m.event === '_streamOk');
+    expect(streamOk!.payload._streamId).toBe('conv-42');
+
+    const streamEnd = protocolMessages.find((m) => m.event === '_streamEnd');
+    expect(streamEnd!.payload._streamId).toBe('conv-42');
+  });
+
+  it('falls back to a generated _streamId when the supplied id is malformed', async () => {
+    const { runtime, protocolMessages } = createStreamRuntime();
+    const connection = createConnection();
+
+    const stream = {
+      stream: { nudges: [], broadcast: false },
+      generator: async function* () {
+        yield { token: 'hi' };
+      },
+    };
+
+    for (const bad of [{ _streamId: 123 }, { _streamId: '' }, { _streamId: 'x'.repeat(300) }]) {
+      protocolMessages.length = 0;
+      runtime.activeStreams.clear();
+      connection.activeStreamIds = undefined;
+
+      await runStream(
+        runtime as Parameters<typeof runStream>[0],
+        connection,
+        {},
+        'feed',
+        stream as never,
+        {},
+        bad,
+      );
+
+      const streamOk = protocolMessages.find((m) => m.event === '_streamOk');
+      expect(streamOk!.payload._streamId).toBe('stream_1');
+    }
+  });
+
+  it('throws StreamIdCollision when the supplied _streamId is already in use', async () => {
+    const { runtime } = createStreamRuntime();
+    const connection = createConnection();
+
+    runtime.activeStreams.set('conv-42', { id: 'conv-42', closed: false } as ActiveStream);
+
+    const stream = {
+      stream: { nudges: [], broadcast: false, allowConcurrent: true },
+      generator: async function* () {
+        yield { token: 'hi' };
+      },
+    };
+
+    await expect(
+      runStream(
+        runtime as Parameters<typeof runStream>[0],
+        connection,
+        {},
+        'feed',
+        stream as never,
+        {},
+        { _streamId: 'conv-42' },
+      ),
+    ).rejects.toMatchObject({ code: 'stream-id-collision' });
+  });
 });

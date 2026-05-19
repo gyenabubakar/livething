@@ -1,5 +1,10 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { rethrowIfConfigError, StreamAlreadyActive, ValidationFailed } from '@wskit/core';
+import {
+  rethrowIfConfigError,
+  StreamAlreadyActive,
+  StreamIdCollision,
+  ValidationFailed,
+} from '@wskit/core';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import { DeferExhausted } from '~/errors/errors.ts';
@@ -67,6 +72,20 @@ interface StreamRuntime {
   ): void;
   connections: Map<string, RuntimeConnection>;
   persistAttachment(connection: RuntimeConnection): void;
+}
+
+/**
+ * Extract a client-supplied `_streamId` from the raw incoming payload. Accepts
+ * only non-empty strings under 256 chars to keep the id reasonable for SQL
+ * indexing and logging. Anything else (missing, wrong type, too long) is
+ * treated as "no id supplied" and the runtime generates one.
+ */
+function readSuppliedStreamId(rawPayload: unknown): string | undefined {
+  if (!rawPayload || typeof rawPayload !== 'object' || Array.isArray(rawPayload)) return undefined;
+  const value = (rawPayload as Record<string, unknown>)._streamId;
+  if (typeof value !== 'string') return undefined;
+  if (value.length === 0 || value.length > 256) return undefined;
+  return value;
 }
 
 /**
@@ -199,6 +218,7 @@ export async function runStream(
   event: string,
   stream: AnyGenerate,
   payload: unknown,
+  rawPayload?: unknown,
 ): Promise<void> {
   // Per-connection per-event exclusivity. Default: one active stream of any
   // given event per connection. Reject the second start with a typed error
@@ -217,7 +237,20 @@ export async function runStream(
     }
   }
 
-  const streamId = runtime.generateId('stream');
+  // Adopt a client-supplied `_streamId` when present on the trigger frame.
+  // Devs use this to tie a stream to a domain id (conversation, document,
+  // etc.) so resume across reconnects is trivial. Validate format and
+  // reject collisions with another active stream on the same connection.
+  let streamId: string;
+  const suppliedId = readSuppliedStreamId(rawPayload);
+  if (suppliedId !== undefined) {
+    if (runtime.activeStreams.has(suppliedId)) {
+      throw StreamIdCollision();
+    }
+    streamId = suppliedId;
+  } else {
+    streamId = runtime.generateId('stream');
+  }
   runtime.sendProtocolMessage(connection, '_streamOk', {
     _streamId: streamId,
     ...(scope.namespace?.name ? { _namespace: scope.namespace.name } : {}),

@@ -631,7 +631,15 @@ export async function dispatchIncoming(
     }
 
     if (stream) {
-      await StreamPrimitive.runStream(runtime, connection, scope, event, stream, postPayload);
+      await StreamPrimitive.runStream(
+        runtime,
+        connection,
+        scope,
+        event,
+        stream,
+        postPayload,
+        message.payload,
+      );
     }
   } catch (error) {
     await handleDispatchError(runtime, connection, event, rawPayload, scope, error, attempt);
