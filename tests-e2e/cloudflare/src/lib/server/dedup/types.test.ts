@@ -7,8 +7,6 @@ describe('dedup client inference', () => {
     expectTypeOf<DedupClient>().toHaveProperty('outgoing');
     expectTypeOf<DedupClient>().toHaveProperty('requests');
     expectTypeOf<DedupClient>().toHaveProperty('streams');
-    expectTypeOf<DedupClient>().toHaveProperty('resumableStreams');
-    expectTypeOf<DedupClient>().toHaveProperty('recordedStreams');
     expectTypeOf<DedupClient>().toHaveProperty('namespaces');
     expectTypeOf<DedupClient>().toHaveProperty('channels');
   });

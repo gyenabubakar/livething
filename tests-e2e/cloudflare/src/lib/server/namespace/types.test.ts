@@ -7,8 +7,6 @@ describe('namespace client inference', () => {
     expectTypeOf<NamespaceClient>().toHaveProperty('outgoing');
     expectTypeOf<NamespaceClient>().toHaveProperty('requests');
     expectTypeOf<NamespaceClient>().toHaveProperty('streams');
-    expectTypeOf<NamespaceClient>().toHaveProperty('resumableStreams');
-    expectTypeOf<NamespaceClient>().toHaveProperty('recordedStreams');
     expectTypeOf<NamespaceClient>().toHaveProperty('namespaces');
     expectTypeOf<NamespaceClient>().toHaveProperty('channels');
   });

@@ -7,8 +7,6 @@ describe('static-vs-family-isolation client inference', () => {
     expectTypeOf<StaticVsFamilyIsolationClient>().toHaveProperty('outgoing');
     expectTypeOf<StaticVsFamilyIsolationClient>().toHaveProperty('requests');
     expectTypeOf<StaticVsFamilyIsolationClient>().toHaveProperty('streams');
-    expectTypeOf<StaticVsFamilyIsolationClient>().toHaveProperty('resumableStreams');
-    expectTypeOf<StaticVsFamilyIsolationClient>().toHaveProperty('recordedStreams');
     expectTypeOf<StaticVsFamilyIsolationClient>().toHaveProperty('namespaces');
     expectTypeOf<StaticVsFamilyIsolationClient>().toHaveProperty('channels');
   });

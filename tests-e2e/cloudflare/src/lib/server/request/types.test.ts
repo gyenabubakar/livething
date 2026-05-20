@@ -7,8 +7,6 @@ describe('request client inference', () => {
     expectTypeOf<RequestClient>().toHaveProperty('outgoing');
     expectTypeOf<RequestClient>().toHaveProperty('requests');
     expectTypeOf<RequestClient>().toHaveProperty('streams');
-    expectTypeOf<RequestClient>().toHaveProperty('resumableStreams');
-    expectTypeOf<RequestClient>().toHaveProperty('recordedStreams');
     expectTypeOf<RequestClient>().toHaveProperty('namespaces');
     expectTypeOf<RequestClient>().toHaveProperty('channels');
   });

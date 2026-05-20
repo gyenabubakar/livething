@@ -7,8 +7,6 @@ describe('lifecycle-hooks client inference', () => {
     expectTypeOf<LifecycleHooksClient>().toHaveProperty('outgoing');
     expectTypeOf<LifecycleHooksClient>().toHaveProperty('requests');
     expectTypeOf<LifecycleHooksClient>().toHaveProperty('streams');
-    expectTypeOf<LifecycleHooksClient>().toHaveProperty('resumableStreams');
-    expectTypeOf<LifecycleHooksClient>().toHaveProperty('recordedStreams');
     expectTypeOf<LifecycleHooksClient>().toHaveProperty('namespaces');
     expectTypeOf<LifecycleHooksClient>().toHaveProperty('channels');
   });

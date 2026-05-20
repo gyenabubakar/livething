@@ -7,8 +7,6 @@ describe('channel-dynamic client inference', () => {
     expectTypeOf<ChannelDynamicClient>().toHaveProperty('outgoing');
     expectTypeOf<ChannelDynamicClient>().toHaveProperty('requests');
     expectTypeOf<ChannelDynamicClient>().toHaveProperty('streams');
-    expectTypeOf<ChannelDynamicClient>().toHaveProperty('resumableStreams');
-    expectTypeOf<ChannelDynamicClient>().toHaveProperty('recordedStreams');
     expectTypeOf<ChannelDynamicClient>().toHaveProperty('namespaces');
     expectTypeOf<ChannelDynamicClient>().toHaveProperty('channels');
   });

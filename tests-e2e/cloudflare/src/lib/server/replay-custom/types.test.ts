@@ -7,8 +7,6 @@ describe('replay-custom client inference', () => {
     expectTypeOf<ReplayCustomClient>().toHaveProperty('outgoing');
     expectTypeOf<ReplayCustomClient>().toHaveProperty('requests');
     expectTypeOf<ReplayCustomClient>().toHaveProperty('streams');
-    expectTypeOf<ReplayCustomClient>().toHaveProperty('resumableStreams');
-    expectTypeOf<ReplayCustomClient>().toHaveProperty('recordedStreams');
     expectTypeOf<ReplayCustomClient>().toHaveProperty('namespaces');
     expectTypeOf<ReplayCustomClient>().toHaveProperty('channels');
   });

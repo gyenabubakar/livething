@@ -7,8 +7,6 @@ describe('ctx-meta client inference', () => {
     expectTypeOf<CtxMetaClient>().toHaveProperty('outgoing');
     expectTypeOf<CtxMetaClient>().toHaveProperty('requests');
     expectTypeOf<CtxMetaClient>().toHaveProperty('streams');
-    expectTypeOf<CtxMetaClient>().toHaveProperty('resumableStreams');
-    expectTypeOf<CtxMetaClient>().toHaveProperty('recordedStreams');
     expectTypeOf<CtxMetaClient>().toHaveProperty('namespaces');
     expectTypeOf<CtxMetaClient>().toHaveProperty('channels');
   });

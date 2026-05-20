@@ -7,8 +7,6 @@ describe('ctx-quality client inference', () => {
     expectTypeOf<CtxQualityClient>().toHaveProperty('outgoing');
     expectTypeOf<CtxQualityClient>().toHaveProperty('requests');
     expectTypeOf<CtxQualityClient>().toHaveProperty('streams');
-    expectTypeOf<CtxQualityClient>().toHaveProperty('resumableStreams');
-    expectTypeOf<CtxQualityClient>().toHaveProperty('recordedStreams');
     expectTypeOf<CtxQualityClient>().toHaveProperty('namespaces');
     expectTypeOf<CtxQualityClient>().toHaveProperty('channels');
   });

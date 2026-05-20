@@ -7,8 +7,6 @@ describe('protocol-pings client inference', () => {
     expectTypeOf<ProtocolPingsClient>().toHaveProperty('outgoing');
     expectTypeOf<ProtocolPingsClient>().toHaveProperty('requests');
     expectTypeOf<ProtocolPingsClient>().toHaveProperty('streams');
-    expectTypeOf<ProtocolPingsClient>().toHaveProperty('resumableStreams');
-    expectTypeOf<ProtocolPingsClient>().toHaveProperty('recordedStreams');
     expectTypeOf<ProtocolPingsClient>().toHaveProperty('namespaces');
     expectTypeOf<ProtocolPingsClient>().toHaveProperty('channels');
   });

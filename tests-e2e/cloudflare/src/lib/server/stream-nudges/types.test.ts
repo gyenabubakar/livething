@@ -7,8 +7,6 @@ describe('stream-nudges client inference', () => {
     expectTypeOf<StreamNudgesClient>().toHaveProperty('outgoing');
     expectTypeOf<StreamNudgesClient>().toHaveProperty('requests');
     expectTypeOf<StreamNudgesClient>().toHaveProperty('streams');
-    expectTypeOf<StreamNudgesClient>().toHaveProperty('resumableStreams');
-    expectTypeOf<StreamNudgesClient>().toHaveProperty('recordedStreams');
     expectTypeOf<StreamNudgesClient>().toHaveProperty('namespaces');
     expectTypeOf<StreamNudgesClient>().toHaveProperty('channels');
   });

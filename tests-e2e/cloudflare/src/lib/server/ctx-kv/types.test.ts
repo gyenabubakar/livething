@@ -7,8 +7,6 @@ describe('ctx-kv client inference', () => {
     expectTypeOf<CtxKvClient>().toHaveProperty('outgoing');
     expectTypeOf<CtxKvClient>().toHaveProperty('requests');
     expectTypeOf<CtxKvClient>().toHaveProperty('streams');
-    expectTypeOf<CtxKvClient>().toHaveProperty('resumableStreams');
-    expectTypeOf<CtxKvClient>().toHaveProperty('recordedStreams');
     expectTypeOf<CtxKvClient>().toHaveProperty('namespaces');
     expectTypeOf<CtxKvClient>().toHaveProperty('channels');
   });

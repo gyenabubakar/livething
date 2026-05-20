@@ -7,8 +7,6 @@ describe('hibernation client inference', () => {
     expectTypeOf<HibernationClient>().toHaveProperty('outgoing');
     expectTypeOf<HibernationClient>().toHaveProperty('requests');
     expectTypeOf<HibernationClient>().toHaveProperty('streams');
-    expectTypeOf<HibernationClient>().toHaveProperty('resumableStreams');
-    expectTypeOf<HibernationClient>().toHaveProperty('recordedStreams');
     expectTypeOf<HibernationClient>().toHaveProperty('namespaces');
     expectTypeOf<HibernationClient>().toHaveProperty('channels');
   });

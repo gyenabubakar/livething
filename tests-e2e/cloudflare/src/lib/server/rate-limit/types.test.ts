@@ -7,8 +7,6 @@ describe('rate-limit client inference', () => {
     expectTypeOf<RateLimitClient>().toHaveProperty('outgoing');
     expectTypeOf<RateLimitClient>().toHaveProperty('requests');
     expectTypeOf<RateLimitClient>().toHaveProperty('streams');
-    expectTypeOf<RateLimitClient>().toHaveProperty('resumableStreams');
-    expectTypeOf<RateLimitClient>().toHaveProperty('recordedStreams');
     expectTypeOf<RateLimitClient>().toHaveProperty('namespaces');
     expectTypeOf<RateLimitClient>().toHaveProperty('channels');
   });

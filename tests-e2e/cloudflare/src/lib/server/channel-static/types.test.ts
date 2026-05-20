@@ -7,8 +7,6 @@ describe('channel-static client inference', () => {
     expectTypeOf<ChannelStaticClient>().toHaveProperty('outgoing');
     expectTypeOf<ChannelStaticClient>().toHaveProperty('requests');
     expectTypeOf<ChannelStaticClient>().toHaveProperty('streams');
-    expectTypeOf<ChannelStaticClient>().toHaveProperty('resumableStreams');
-    expectTypeOf<ChannelStaticClient>().toHaveProperty('recordedStreams');
     expectTypeOf<ChannelStaticClient>().toHaveProperty('namespaces');
     expectTypeOf<ChannelStaticClient>().toHaveProperty('channels');
   });

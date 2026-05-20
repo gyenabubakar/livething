@@ -7,8 +7,6 @@ describe('channel-scope-isolation client inference', () => {
     expectTypeOf<ChannelScopeIsolationClient>().toHaveProperty('outgoing');
     expectTypeOf<ChannelScopeIsolationClient>().toHaveProperty('requests');
     expectTypeOf<ChannelScopeIsolationClient>().toHaveProperty('streams');
-    expectTypeOf<ChannelScopeIsolationClient>().toHaveProperty('resumableStreams');
-    expectTypeOf<ChannelScopeIsolationClient>().toHaveProperty('recordedStreams');
     expectTypeOf<ChannelScopeIsolationClient>().toHaveProperty('namespaces');
     expectTypeOf<ChannelScopeIsolationClient>().toHaveProperty('channels');
   });

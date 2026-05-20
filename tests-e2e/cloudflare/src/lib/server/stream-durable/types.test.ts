@@ -7,24 +7,22 @@ describe('stream-durable client inference', () => {
     expectTypeOf<StreamDurableClient>().toHaveProperty('outgoing');
     expectTypeOf<StreamDurableClient>().toHaveProperty('requests');
     expectTypeOf<StreamDurableClient>().toHaveProperty('streams');
-    expectTypeOf<StreamDurableClient>().toHaveProperty('resumableStreams');
-    expectTypeOf<StreamDurableClient>().toHaveProperty('recordedStreams');
     expectTypeOf<StreamDurableClient>().toHaveProperty('namespaces');
     expectTypeOf<StreamDurableClient>().toHaveProperty('channels');
   });
 
-  it('lists every declared durable stream by event name', () => {
-    expectTypeOf<StreamDurableClient['recordedStreams']>().toHaveProperty('count-tokens');
-    expectTypeOf<StreamDurableClient['recordedStreams']>().toHaveProperty('buffer-full-demo');
-    expectTypeOf<StreamDurableClient['resumableStreams']>().toHaveProperty('paginate');
-    expectTypeOf<StreamDurableClient['resumableStreams']>().toHaveProperty('attempt-stream');
+  it('every server-pushed stream surfaces under the single streams slot', () => {
+    // Plain stream, resumableStream, recordedStream all collapse into one
+    // client-facing slot. The client SDK does not care which durability
+    // mechanism the server picked.
+    expectTypeOf<StreamDurableClient['streams']>().toHaveProperty('count-tokens');
+    expectTypeOf<StreamDurableClient['streams']>().toHaveProperty('buffer-full-demo');
+    expectTypeOf<StreamDurableClient['streams']>().toHaveProperty('paginate');
+    expectTypeOf<StreamDurableClient['streams']>().toHaveProperty('attempt-stream');
   });
 
   it('each entry carries the contract slots a client SDK reads', () => {
-    expectTypeOf<StreamDurableClient['recordedStreams']['count-tokens']>().toHaveProperty(
-      'payload',
-    );
-    expectTypeOf<StreamDurableClient['recordedStreams']['count-tokens']>().toHaveProperty('chunk');
-    expectTypeOf<StreamDurableClient['resumableStreams']['paginate']>().toHaveProperty('cursor');
+    expectTypeOf<StreamDurableClient['streams']['count-tokens']>().toHaveProperty('payload');
+    expectTypeOf<StreamDurableClient['streams']['count-tokens']>().toHaveProperty('chunk');
   });
 });

@@ -7,8 +7,6 @@ describe('stream-broadcast client inference', () => {
     expectTypeOf<StreamBroadcastClient>().toHaveProperty('outgoing');
     expectTypeOf<StreamBroadcastClient>().toHaveProperty('requests');
     expectTypeOf<StreamBroadcastClient>().toHaveProperty('streams');
-    expectTypeOf<StreamBroadcastClient>().toHaveProperty('resumableStreams');
-    expectTypeOf<StreamBroadcastClient>().toHaveProperty('recordedStreams');
     expectTypeOf<StreamBroadcastClient>().toHaveProperty('namespaces');
     expectTypeOf<StreamBroadcastClient>().toHaveProperty('channels');
   });

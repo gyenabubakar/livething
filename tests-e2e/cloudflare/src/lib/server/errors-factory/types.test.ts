@@ -7,8 +7,6 @@ describe('errors-factory client inference', () => {
     expectTypeOf<ErrorsFactoryClient>().toHaveProperty('outgoing');
     expectTypeOf<ErrorsFactoryClient>().toHaveProperty('requests');
     expectTypeOf<ErrorsFactoryClient>().toHaveProperty('streams');
-    expectTypeOf<ErrorsFactoryClient>().toHaveProperty('resumableStreams');
-    expectTypeOf<ErrorsFactoryClient>().toHaveProperty('recordedStreams');
     expectTypeOf<ErrorsFactoryClient>().toHaveProperty('namespaces');
     expectTypeOf<ErrorsFactoryClient>().toHaveProperty('channels');
   });

@@ -7,8 +7,6 @@ describe('modules client inference', () => {
     expectTypeOf<ModulesClient>().toHaveProperty('outgoing');
     expectTypeOf<ModulesClient>().toHaveProperty('requests');
     expectTypeOf<ModulesClient>().toHaveProperty('streams');
-    expectTypeOf<ModulesClient>().toHaveProperty('resumableStreams');
-    expectTypeOf<ModulesClient>().toHaveProperty('recordedStreams');
     expectTypeOf<ModulesClient>().toHaveProperty('namespaces');
     expectTypeOf<ModulesClient>().toHaveProperty('channels');
   });

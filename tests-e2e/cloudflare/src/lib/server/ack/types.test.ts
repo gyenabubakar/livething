@@ -7,8 +7,6 @@ describe('ack client inference', () => {
     expectTypeOf<AckClient>().toHaveProperty('outgoing');
     expectTypeOf<AckClient>().toHaveProperty('requests');
     expectTypeOf<AckClient>().toHaveProperty('streams');
-    expectTypeOf<AckClient>().toHaveProperty('resumableStreams');
-    expectTypeOf<AckClient>().toHaveProperty('recordedStreams');
     expectTypeOf<AckClient>().toHaveProperty('namespaces');
     expectTypeOf<AckClient>().toHaveProperty('channels');
   });

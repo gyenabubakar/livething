@@ -7,8 +7,6 @@ describe('scheduled client inference', () => {
     expectTypeOf<ScheduledClient>().toHaveProperty('outgoing');
     expectTypeOf<ScheduledClient>().toHaveProperty('requests');
     expectTypeOf<ScheduledClient>().toHaveProperty('streams');
-    expectTypeOf<ScheduledClient>().toHaveProperty('resumableStreams');
-    expectTypeOf<ScheduledClient>().toHaveProperty('recordedStreams');
     expectTypeOf<ScheduledClient>().toHaveProperty('namespaces');
     expectTypeOf<ScheduledClient>().toHaveProperty('channels');
   });

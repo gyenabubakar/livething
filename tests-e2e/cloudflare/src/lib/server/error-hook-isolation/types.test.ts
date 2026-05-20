@@ -7,8 +7,6 @@ describe('error-hook-isolation client inference', () => {
     expectTypeOf<ErrorHookIsolationClient>().toHaveProperty('outgoing');
     expectTypeOf<ErrorHookIsolationClient>().toHaveProperty('requests');
     expectTypeOf<ErrorHookIsolationClient>().toHaveProperty('streams');
-    expectTypeOf<ErrorHookIsolationClient>().toHaveProperty('resumableStreams');
-    expectTypeOf<ErrorHookIsolationClient>().toHaveProperty('recordedStreams');
     expectTypeOf<ErrorHookIsolationClient>().toHaveProperty('namespaces');
     expectTypeOf<ErrorHookIsolationClient>().toHaveProperty('channels');
   });

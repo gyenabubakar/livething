@@ -7,8 +7,6 @@ describe('heartbeat client inference', () => {
     expectTypeOf<HeartbeatClient>().toHaveProperty('outgoing');
     expectTypeOf<HeartbeatClient>().toHaveProperty('requests');
     expectTypeOf<HeartbeatClient>().toHaveProperty('streams');
-    expectTypeOf<HeartbeatClient>().toHaveProperty('resumableStreams');
-    expectTypeOf<HeartbeatClient>().toHaveProperty('recordedStreams');
     expectTypeOf<HeartbeatClient>().toHaveProperty('namespaces');
     expectTypeOf<HeartbeatClient>().toHaveProperty('channels');
   });

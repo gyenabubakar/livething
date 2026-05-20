@@ -7,8 +7,6 @@ describe('replay-history client inference', () => {
     expectTypeOf<ReplayClient>().toHaveProperty('outgoing');
     expectTypeOf<ReplayClient>().toHaveProperty('requests');
     expectTypeOf<ReplayClient>().toHaveProperty('streams');
-    expectTypeOf<ReplayClient>().toHaveProperty('resumableStreams');
-    expectTypeOf<ReplayClient>().toHaveProperty('recordedStreams');
     expectTypeOf<ReplayClient>().toHaveProperty('namespaces');
     expectTypeOf<ReplayClient>().toHaveProperty('channels');
   });

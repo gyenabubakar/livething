@@ -7,8 +7,6 @@ describe('binary client inference', () => {
     expectTypeOf<BinaryClient>().toHaveProperty('outgoing');
     expectTypeOf<BinaryClient>().toHaveProperty('requests');
     expectTypeOf<BinaryClient>().toHaveProperty('streams');
-    expectTypeOf<BinaryClient>().toHaveProperty('resumableStreams');
-    expectTypeOf<BinaryClient>().toHaveProperty('recordedStreams');
     expectTypeOf<BinaryClient>().toHaveProperty('namespaces');
     expectTypeOf<BinaryClient>().toHaveProperty('channels');
   });

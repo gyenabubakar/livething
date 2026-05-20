@@ -7,8 +7,6 @@ describe('replay-custom-cascade client inference', () => {
     expectTypeOf<ReplayCustomCascadeClient>().toHaveProperty('outgoing');
     expectTypeOf<ReplayCustomCascadeClient>().toHaveProperty('requests');
     expectTypeOf<ReplayCustomCascadeClient>().toHaveProperty('streams');
-    expectTypeOf<ReplayCustomCascadeClient>().toHaveProperty('resumableStreams');
-    expectTypeOf<ReplayCustomCascadeClient>().toHaveProperty('recordedStreams');
     expectTypeOf<ReplayCustomCascadeClient>().toHaveProperty('namespaces');
     expectTypeOf<ReplayCustomCascadeClient>().toHaveProperty('channels');
   });

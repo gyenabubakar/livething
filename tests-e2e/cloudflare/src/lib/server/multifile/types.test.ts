@@ -7,8 +7,6 @@ describe('multifile client inference', () => {
     expectTypeOf<MultifileClient>().toHaveProperty('outgoing');
     expectTypeOf<MultifileClient>().toHaveProperty('requests');
     expectTypeOf<MultifileClient>().toHaveProperty('streams');
-    expectTypeOf<MultifileClient>().toHaveProperty('resumableStreams');
-    expectTypeOf<MultifileClient>().toHaveProperty('recordedStreams');
     expectTypeOf<MultifileClient>().toHaveProperty('namespaces');
     expectTypeOf<MultifileClient>().toHaveProperty('channels');
   });

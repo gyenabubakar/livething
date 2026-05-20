@@ -7,8 +7,6 @@ describe('typed-tags client inference', () => {
     expectTypeOf<TypedTagsClient>().toHaveProperty('outgoing');
     expectTypeOf<TypedTagsClient>().toHaveProperty('requests');
     expectTypeOf<TypedTagsClient>().toHaveProperty('streams');
-    expectTypeOf<TypedTagsClient>().toHaveProperty('resumableStreams');
-    expectTypeOf<TypedTagsClient>().toHaveProperty('recordedStreams');
     expectTypeOf<TypedTagsClient>().toHaveProperty('namespaces');
     expectTypeOf<TypedTagsClient>().toHaveProperty('channels');
   });

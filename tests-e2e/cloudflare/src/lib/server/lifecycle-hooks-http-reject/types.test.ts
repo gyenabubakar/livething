@@ -7,8 +7,6 @@ describe('lifecycle-hooks-http-reject client inference', () => {
     expectTypeOf<LifecycleHooksHttpRejectClient>().toHaveProperty('outgoing');
     expectTypeOf<LifecycleHooksHttpRejectClient>().toHaveProperty('requests');
     expectTypeOf<LifecycleHooksHttpRejectClient>().toHaveProperty('streams');
-    expectTypeOf<LifecycleHooksHttpRejectClient>().toHaveProperty('resumableStreams');
-    expectTypeOf<LifecycleHooksHttpRejectClient>().toHaveProperty('recordedStreams');
     expectTypeOf<LifecycleHooksHttpRejectClient>().toHaveProperty('namespaces');
     expectTypeOf<LifecycleHooksHttpRejectClient>().toHaveProperty('channels');
   });

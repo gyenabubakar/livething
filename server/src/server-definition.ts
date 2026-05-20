@@ -13,15 +13,21 @@ import type { Primitive } from '~/primitive.ts';
  * **The naming is client-oriented, which flips against the contract config.**
  * The table below is the one thing most readers get wrong:
  *
- * | Contract definition  | ServerContract field | Meaning for the client    |
- * | -------------------- | -------------------- | ------------------------- |
- * | `outgoing('msg', …)` | `incoming`           | events the client receives|
- * | `incoming('msg', …)` | `outgoing`           | events the client sends   |
- * | `request('r', …)`    | `requests`           | req/response pairs        |
- * | `stream('s', …)`     | `streams`            | server-sent streams       |
- * | `errors: [...]`      | `errors`             | typed server errors       |
- * | `channel('x', …)`    | `channels`           | per-channel sub-contracts |
- * | `namespace('y', …)`  | `namespaces`         | per-namespace sub-contracts|
+ * | Contract definition         | ServerContract field | Meaning for the client    |
+ * | --------------------------- | -------------------- | ------------------------- |
+ * | `outgoing('msg', …)`        | `incoming`           | events the client receives|
+ * | `incoming('msg', …)`        | `outgoing`           | events the client sends   |
+ * | `request('r', …)`           | `requests`           | req/response pairs        |
+ * | `stream('s', …)`            | `streams`            | server-sent streams       |
+ * | `resumableStream('s', …)`   | `streams`            | server-sent streams       |
+ * | `recordedStream('s', …)`    | `streams`            | server-sent streams       |
+ * | `errors: [...]`             | `errors`             | typed server errors       |
+ * | `channel('x', …)`           | `channels`           | per-channel sub-contracts |
+ * | `namespace('y', …)`         | `namespaces`         | per-namespace sub-contracts|
+ *
+ * `resumableStream` and `recordedStream` collapse into the same client
+ * `streams` slot as plain `stream` — the durability mechanism is a server
+ * concern and does not change the client's wire surface.
  *
  * @example
  * ```ts
@@ -47,20 +53,14 @@ export interface ServerContract {
   /** Request/response pairs the client can invoke (declared with `request(...)`). */
   readonly requests: Record<string, any>;
 
-  /** Server-sent streams the client subscribes to (declared with `stream(...)`). */
+  /**
+   * Server-sent streams the client subscribes to. From the client's
+   * perspective every server-pushed stream lives here regardless of
+   * whether the server declared it with `stream(...)`, `resumableStream(...)`,
+   * or `recordedStream(...)` — the durability mechanism is a server-side
+   * concern.
+   */
   readonly streams: Record<string, any>;
-
-  /**
-   * Server-sent streams that survive client disconnect via a saved cursor
-   * (declared with `resumableStream(...)`).
-   */
-  readonly resumableStreams: Record<string, any>;
-
-  /**
-   * Server-sent streams whose chunks are buffered in storage and replayed
-   * on reconnect (declared with `recordedStream(...)`).
-   */
-  readonly recordedStreams: Record<string, any>;
 
   /** Named, typed server errors the client can catch. */
   readonly errors: Record<string, any>;

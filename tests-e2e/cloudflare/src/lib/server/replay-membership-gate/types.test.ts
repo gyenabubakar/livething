@@ -7,8 +7,6 @@ describe('replay-membership-gate client inference', () => {
     expectTypeOf<ReplayMembershipGateClient>().toHaveProperty('outgoing');
     expectTypeOf<ReplayMembershipGateClient>().toHaveProperty('requests');
     expectTypeOf<ReplayMembershipGateClient>().toHaveProperty('streams');
-    expectTypeOf<ReplayMembershipGateClient>().toHaveProperty('resumableStreams');
-    expectTypeOf<ReplayMembershipGateClient>().toHaveProperty('recordedStreams');
     expectTypeOf<ReplayMembershipGateClient>().toHaveProperty('namespaces');
     expectTypeOf<ReplayMembershipGateClient>().toHaveProperty('channels');
   });

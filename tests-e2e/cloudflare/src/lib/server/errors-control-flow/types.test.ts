@@ -7,8 +7,6 @@ describe('errors-control-flow client inference', () => {
     expectTypeOf<ErrorsControlFlowClient>().toHaveProperty('outgoing');
     expectTypeOf<ErrorsControlFlowClient>().toHaveProperty('requests');
     expectTypeOf<ErrorsControlFlowClient>().toHaveProperty('streams');
-    expectTypeOf<ErrorsControlFlowClient>().toHaveProperty('resumableStreams');
-    expectTypeOf<ErrorsControlFlowClient>().toHaveProperty('recordedStreams');
     expectTypeOf<ErrorsControlFlowClient>().toHaveProperty('namespaces');
     expectTypeOf<ErrorsControlFlowClient>().toHaveProperty('channels');
   });

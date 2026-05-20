@@ -7,8 +7,6 @@ describe('channel-key-collision client inference', () => {
     expectTypeOf<ChannelKeyCollisionClient>().toHaveProperty('outgoing');
     expectTypeOf<ChannelKeyCollisionClient>().toHaveProperty('requests');
     expectTypeOf<ChannelKeyCollisionClient>().toHaveProperty('streams');
-    expectTypeOf<ChannelKeyCollisionClient>().toHaveProperty('resumableStreams');
-    expectTypeOf<ChannelKeyCollisionClient>().toHaveProperty('recordedStreams');
     expectTypeOf<ChannelKeyCollisionClient>().toHaveProperty('namespaces');
     expectTypeOf<ChannelKeyCollisionClient>().toHaveProperty('channels');
   });

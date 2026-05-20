@@ -7,8 +7,6 @@ describe('persistence client inference', () => {
     expectTypeOf<PersistenceClient>().toHaveProperty('outgoing');
     expectTypeOf<PersistenceClient>().toHaveProperty('requests');
     expectTypeOf<PersistenceClient>().toHaveProperty('streams');
-    expectTypeOf<PersistenceClient>().toHaveProperty('resumableStreams');
-    expectTypeOf<PersistenceClient>().toHaveProperty('recordedStreams');
     expectTypeOf<PersistenceClient>().toHaveProperty('namespaces');
     expectTypeOf<PersistenceClient>().toHaveProperty('channels');
   });

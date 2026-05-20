@@ -7,8 +7,6 @@ describe('ctx-channels client inference', () => {
     expectTypeOf<CtxChannelsClient>().toHaveProperty('outgoing');
     expectTypeOf<CtxChannelsClient>().toHaveProperty('requests');
     expectTypeOf<CtxChannelsClient>().toHaveProperty('streams');
-    expectTypeOf<CtxChannelsClient>().toHaveProperty('resumableStreams');
-    expectTypeOf<CtxChannelsClient>().toHaveProperty('recordedStreams');
     expectTypeOf<CtxChannelsClient>().toHaveProperty('namespaces');
     expectTypeOf<CtxChannelsClient>().toHaveProperty('channels');
   });

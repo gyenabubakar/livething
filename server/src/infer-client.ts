@@ -108,9 +108,13 @@ export type InferClient<TServer extends ServerDefinition> = SimplifyDeep<{
   incoming: ContractOf<TServer>['incoming'];
   outgoing: ContractOf<TServer>['outgoing'];
   requests: ContractOf<TServer>['requests'];
+  /**
+   * Every server-pushed stream the client can subscribe to. Plain `stream(...)`,
+   * `resumableStream(...)`, and `recordedStream(...)` all show up under this
+   * single slot — to the client they look identical on the wire. The choice of
+   * primitive is a server-side concern.
+   */
   streams: ContractOf<TServer>['streams'];
-  resumableStreams: ContractOf<TServer>['resumableStreams'];
-  recordedStreams: ContractOf<TServer>['recordedStreams'];
   namespaces: ContractOf<TServer>['namespaces'];
   channels: ContractOf<TServer>['channels'];
   /** Built-in engine errors (e.g. `validation-failed`) merged with developer-defined errors. */

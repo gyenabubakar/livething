@@ -7,8 +7,6 @@ describe('ctx-sql client inference', () => {
     expectTypeOf<CtxSqlClient>().toHaveProperty('outgoing');
     expectTypeOf<CtxSqlClient>().toHaveProperty('requests');
     expectTypeOf<CtxSqlClient>().toHaveProperty('streams');
-    expectTypeOf<CtxSqlClient>().toHaveProperty('resumableStreams');
-    expectTypeOf<CtxSqlClient>().toHaveProperty('recordedStreams');
     expectTypeOf<CtxSqlClient>().toHaveProperty('namespaces');
     expectTypeOf<CtxSqlClient>().toHaveProperty('channels');
   });

@@ -7,8 +7,6 @@ describe('intercept client inference', () => {
     expectTypeOf<InterceptClient>().toHaveProperty('outgoing');
     expectTypeOf<InterceptClient>().toHaveProperty('requests');
     expectTypeOf<InterceptClient>().toHaveProperty('streams');
-    expectTypeOf<InterceptClient>().toHaveProperty('resumableStreams');
-    expectTypeOf<InterceptClient>().toHaveProperty('recordedStreams');
     expectTypeOf<InterceptClient>().toHaveProperty('namespaces');
     expectTypeOf<InterceptClient>().toHaveProperty('channels');
   });
