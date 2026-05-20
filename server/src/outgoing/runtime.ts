@@ -112,7 +112,7 @@ function runOutgoingHooks(
 ): { event: string; payload: unknown } {
   let current = message;
 
-  // Hook return value replaces the payload only — the event is already bound.
+  // A hook return value replaces the payload only, never the event.
   for (const hook of outgoingHooks) {
     const next = hook(current);
     if (next !== undefined) current = { event: current.event, payload: next };
@@ -148,8 +148,7 @@ function buildWskit(
 
 /**
  * Run the sequence/dedup stampers and merge their output into `__wskit`. A
- * value already set from routing wins — a durable stream's own `seq` is not
- * overwritten by the global sequence counter.
+ * value already set from routing wins, so a durable stream's own `seq` stays.
  */
 function applyWskitStampers(
   stampers: OutgoingRuntime['wskitStampHooks'],
@@ -275,12 +274,7 @@ export function broadcastToConnections(
       connection.id === excludeConnectionId
     )
       continue;
-    // One bad peer must not silently swallow the rest of the broadcast.
-    // descriptor.send throws InvalidStateError when the socket is in
-    // CLOSING before the engine has processed webSocketClose, and
-    // JSON.stringify throws on non-serializable payload fields. Either
-    // throw used to break the for loop and skip every later peer; log
-    // and continue so every healthy peer still receives the frame.
+    // One bad peer must not stop the rest of the broadcast — log and continue.
     try {
       sendThroughPipeline(
         runtime,
@@ -334,8 +328,7 @@ export function broadcastToChannel(
   for (const connection of connections) {
     if (excludeConnectionId && (excludeSelf ?? true) && connection.id === excludeConnectionId)
       continue;
-    // Same reasoning as broadcastToConnections: one peer's send failure
-    // must not silently drop the rest of the channel's fanout.
+    // One bad peer must not stop the rest of the fanout — log and continue.
     try {
       sendThroughPipeline(
         runtime,

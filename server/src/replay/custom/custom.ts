@@ -427,15 +427,13 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
         const baseCtx = ctx as Record<PropertyKey, unknown>;
         const scope = readReplayContextScope(baseCtx);
 
-        // Only handle the replay request if it matches this primitive's scope
-        // (top-level vs. the correct channel).
+        // Only handle the request if it matches this primitive's scope.
         if (!matchesReplayScope(channelKey, scope, engine.getReplayClaimedChannelKeys())) {
           return false;
         }
 
         const connection = baseCtx[ENGINE_INTERNAL_CONNECTION] as RuntimeConnection | undefined;
-        // Channel-scoped replay requests must verify membership. Otherwise any
-        // connected client could harvest a channel's history with one frame.
+        // Channel replay needs a membership check, or anyone could read its history.
         if (!isChannelReplayAuthorized(connection, scope, frame.__wskit)) {
           return true;
         }

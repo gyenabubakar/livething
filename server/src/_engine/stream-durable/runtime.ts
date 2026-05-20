@@ -127,7 +127,7 @@ function ensureUniqueStreamId(
   storageIdentity: string,
 ): void {
   if (runtime.activeStreams.has(streamId)) throw StreamIdCollision();
-  // Cross-socket collision: same storage identity, same id, different connection.
+  // Same stream id already active under this storage identity on another socket.
   const row = Storage.readStream(runtime.sql, storageIdentity, streamId);
   if (row && row.status === 'active') throw StreamIdCollision();
 }
@@ -142,9 +142,7 @@ export async function runDurableStream(
   wskit: Protocol.WskitProtocol | undefined,
 ): Promise<void> {
   const creatorIdentity = connection.identity ?? connection.id;
-  // For broadcast streams the storage row is keyed by a synthetic scope key
-  // so every subscriber resolves the same row. The real creator goes into
-  // creator_identity for cancel ownership checks.
+  // Broadcast streams key the row by scope so every subscriber finds the same row.
   const storageIdentity = def.broadcast ? computeBroadcastScopeKey(scope) : creatorIdentity;
 
   assertNoConcurrentStream(runtime, connection, def.event, def.allowConcurrent);
@@ -189,9 +187,8 @@ export async function runDurableStream(
 
 /**
  * Look up the durable-stream row for a `__resumeStream__` frame. Tries the
- * resuming connection's real identity first (single-subscriber streams) and
- * then the broadcast scope key derived from the frame's routing markers
- * (broadcast streams). Returns null when nothing matches.
+ * connection's own identity first, then the broadcast scope key. Returns null
+ * when nothing matches.
  */
 export function findResumeRow(
   runtime: DurableStreamRuntime,
@@ -286,20 +283,14 @@ export async function resumeDurableStream(
   const { def, scope } = resolved;
 
   const realIdentity = realIdentityForGuard;
-  // Peer-subscriber on a broadcast stream: replay buffered chunks since
-  // `lastKnownSeq` and return. Subscribers never re-invoke the generator; only
-  // the creator can do that (handled below).
+  // A subscriber (not the creator) on a broadcast stream — never re-runs the generator.
   const isPeerSubscriber =
     row.broadcast && row.creatorIdentity !== null && row.creatorIdentity !== realIdentity;
 
-  // Scope routing for every frame the resume path emits, so late frames look
-  // the same as live ones.
   const scopeMarkers = rowWskit(row);
 
-  // Creator-side adopt path for a keep-running stream whose generator is still
-  // alive after the owning client dropped. Swap the wire target to the new
-  // connection, replay buffered chunks, and return — future yields land on the
-  // adopted connection.
+  // Creator reconnects to a keep-running stream still alive after the drop:
+  // point it at the new connection and replay buffered chunks.
   if (!isPeerSubscriber && row.status === 'active') {
     const live = runtime.activeStreams.get(streamId);
     if (live && live.detached) {
@@ -329,9 +320,7 @@ export async function resumeDurableStream(
     }
   }
 
-  // Non-peer resume: a stale in-memory entry may still be parked in an `await`;
-  // nudge it to close but don't block. The finally guard in runGenerator stops
-  // it from clobbering the new entry when it eventually drains.
+  // Close any stale in-memory entry for this stream, but don't wait on it.
   if (!isPeerSubscriber) {
     const existing = runtime.activeStreams.get(streamId);
     if (existing) {
@@ -371,14 +360,11 @@ export async function resumeDurableStream(
     return;
   }
 
-  // Broadcast peer-subscriber resume: caught up from the buffer; live future
-  // chunks arrive via broadcastToConnections. Don't end or restart.
+  // Subscriber caught up from the buffer; future chunks come via the broadcast.
   if (isPeerSubscriber) return;
 
   if (row.kind === 'recorded') {
-    // Recorded streams have no cursor to resume from — the generator runs once
-    // end-to-end. The creator's resume after a drop is terminal: replay the
-    // buffer, mark the row ended, signal __streamEnd__.
+    // Recorded streams have no cursor — they can't resume, so end the stream.
     Storage.markEnded(runtime.sql, storageIdentity, streamId, Date.now());
     runtime.sendProtocolMessage(
       connection,
@@ -499,8 +485,7 @@ async function runGenerator(
 
       // Persist before wire so a send failure can't leave durable state ahead.
       const now = Date.now();
-      // Broadcast streams (both kinds) record every chunk so late joiners and
-      // reconnecting subscribers can catch up from the buffer.
+      // Broadcast streams record every chunk so late joiners can catch up.
       const recordsChunks = def.kind === 'recorded' || def.broadcast === true;
       if (recordsChunks) {
         Storage.appendChunk(runtime.sql, {
@@ -554,8 +539,7 @@ async function runGenerator(
               candidate.identity ?? candidate.id,
             ),
         });
-        // The outgoing pipeline puts streamId + seq into __wskit from the
-        // routing markers — pass the bare chunk as the payload.
+        // The pipeline adds streamId + seq to __wskit from the routing markers.
         for (const target of targets) {
           runtime.sendThroughPipeline(
             target,
@@ -572,10 +556,8 @@ async function runGenerator(
         }
       }
 
-      // For keep-running streams, `activeStream.connection` may have been
-      // swapped to a fresh connection on resume; for detached streams with no
-      // client yet attached, skip the creator-side wire send (the chunk is
-      // already in the buffer for a later resume).
+      // Detached stream has no client attached — skip the wire send, the chunk
+      // is already buffered for a later resume.
       const wireTarget = activeStream.connection ?? connection;
       if (!activeStream.detached) {
         runtime.sendThroughPipeline(
@@ -599,8 +581,7 @@ async function runGenerator(
     }
 
     if (activeStream.closed) {
-      // Disconnect with cancel-but-buffer. The cancel path already deleted the
-      // row; only suspend if it's still active.
+      // Only suspend if still active — a cancel would have deleted the row.
       const row = Storage.readStream(runtime.sql, identity, streamId);
       if (row && row.status === 'active') {
         Storage.markSuspended(runtime.sql, identity, streamId, Date.now());
@@ -616,8 +597,7 @@ async function runGenerator(
       { ...scopeWskit(scope), streamId, seq },
     );
     if (def.broadcast) {
-      // Tell every peer subscriber the source generator finished. They'd
-      // otherwise only learn on their next resume attempt.
+      // Tell every subscriber the source generator finished.
       const peerTargets = resolveBroadcastTargets({
         runtime,
         excludeConnectionId: connection.id,
@@ -641,7 +621,7 @@ async function runGenerator(
     Storage.markEnded(runtime.sql, identity, streamId, Date.now());
   } finally {
     activeStream.closed = true;
-    // Don't clobber a slot taken over by a resume run.
+    // Don't remove a slot a resume run has already taken over.
     if (runtime.activeStreams.get(streamId) === activeStream) {
       runtime.activeStreams.delete(streamId);
     }
@@ -675,8 +655,7 @@ export async function cancelDurableStream(
   if (!row) return;
 
   if (row.broadcast && row.creatorIdentity && row.creatorIdentity !== realIdentity) {
-    // Non-creator cancel of a broadcast stream — drop this identity from future
-    // fanout; the source keeps running for everyone else.
+    // A non-creator cancel only unsubscribes them; the stream keeps running.
     Storage.markUnsubscribed(runtime.sql, row.identity, streamId, realIdentity, Date.now());
     return;
   }

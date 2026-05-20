@@ -115,10 +115,8 @@ export async function cancelStream(
   activeStream.closed = true;
 
   try {
-    // A user-supplied generator may throw from its `finally` block when
-    // generator.return() runs the cleanup. Log and contain it — the throw
-    // would otherwise escape the WS message callback as an unhandled
-    // adapter error.
+    // The generator's cleanup (`finally`) may throw. Contain it so the throw
+    // doesn't escape the WS callback as an unhandled adapter error.
     await activeStream.generator.return(undefined);
   } catch (error) {
     runtime.logger?.error('[wskit] stream cleanup threw on __streamCancel__', {
@@ -149,11 +147,9 @@ export async function bufferStreamNudge(
 
   const activeStream = runtime.activeStreams.get(streamId);
 
-  // Frames carrying a `streamId` are claiming to belong to one specific active
-  // stream owned by this connection. If that claim does not hold — unknown id,
-  // wrong owner, or already-closed stream — the frame is malformed. Surface
-  // `__error__` with `streamId` routing and treat the frame as handled so it
-  // never falls through to a same-named top-level `.incoming()` handler.
+  // A `streamId` frame must match a live stream owned by this connection. If
+  // not, it is bad — send `__error__` and mark it handled so it never falls
+  // through to a same-named top-level `.incoming()` handler.
   if (!activeStream || activeStream.connectionId !== connection.id || activeStream.closed) {
     const error = ValidationFailed({
       event,
@@ -169,9 +165,8 @@ export async function bufferStreamNudge(
   }
 
   const validator = activeStream.nudgeValidators.get(event);
-  // Stream is live and owned by this connection, but `event` is not registered
-  // as a nudge for it. Same reasoning: the frame was tagged for the stream —
-  // refuse to fall through to top-level dispatch.
+  // The stream is live, but `event` is not a registered nudge for it. Treat as
+  // handled so it does not fall through to top-level dispatch.
   if (!activeStream.nudgeValidators.has(event)) {
     const error = ValidationFailed({
       event,
@@ -194,12 +189,9 @@ export async function bufferStreamNudge(
   } catch (error) {
     rethrowIfConfigError(error);
     await runtime.handleValidationError(connection, event, error);
-    // Send the wire `__error__` with `streamId` routing so the client can
-    // route the failure to the right stream-error handler.
+    // Send `__error__` with `streamId` routing so the client hits the right
+    // stream-error handler. Mark handled so it does not fall through.
     await runtime.handleRuntimeError(connection, error, event, { streamId });
-    // The frame matched an active stream and a registered nudge event — it was
-    // meant for the stream. Treat it as handled (with error) so the caller
-    // does not fall through to dispatchIncoming.
     return true;
   }
 
@@ -219,14 +211,11 @@ export async function runStream(
   payload: unknown,
   wskit?: Protocol.WskitProtocol,
 ): Promise<void> {
-  // Per-connection per-event exclusivity. Default: one active stream of any
-  // given event per connection. Opt out per stream with `.allowConcurrent()`.
+  // One active stream per event per connection, unless `.allowConcurrent()`.
   assertNoConcurrentStream(runtime, connection, event, stream.stream.allowConcurrent);
 
-  // Adopt a client-supplied `streamId` when present on the trigger frame.
-  // Devs use this to tie a stream to a domain id (conversation, document,
-  // etc.) so resume across reconnects is trivial. Validate format and reject
-  // collisions with another active stream on the same connection.
+  // Use the client's `streamId` if it sent one. Reject collisions with another
+  // active stream on this connection.
   let streamId: string;
   const suppliedId = readSuppliedStreamId(wskit);
   if (suppliedId !== undefined) {
@@ -265,9 +254,8 @@ export async function runStream(
 
     while (!activeStream.closed) {
       // Set the active connection id around each advance so module APIs the
-      // generator calls before its first internal await (e.g. hooks.getState())
-      // see the stream owner's connection. Restore afterwards so unrelated
-      // operations don't observe a stale id.
+      // generator calls (e.g. hooks.getState()) see the stream owner. Restore
+      // after so unrelated work doesn't see a stale id.
       runtime.setActiveConnectionId(connection.id);
       let result: IteratorResult<unknown>;
       try {
@@ -278,10 +266,8 @@ export async function runStream(
       if (result.done) break;
 
       if (stream.stream.broadcast) {
-        // Channel-scoped streams broadcast to channel members only — the chunk
-        // carries `channel` in the wire envelope, and a non-member has no
-        // business receiving it. Top-level and namespace-scoped streams
-        // broadcast to every connection (no membership concept).
+        // A channel-scoped stream broadcasts to channel members only. Top-level
+        // and namespace streams broadcast to every connection.
         const targets = scope.channelName
           ? [...runtime.connections.values()].filter((target) =>
               ChannelPrimitive.hasChannelMembership(

@@ -228,10 +228,8 @@ export async function leaveChannel(
   connection: RuntimeConnection,
   scope: ChannelScope,
   kickedReason?: string,
-  // Pass `disconnect: true` from the socket-close path. On a persistent
-  // channel this keeps the durable row, skips `onUnsubscribe`, and emits
-  // only `__memberOffline__`. Ephemeral channels treat any close as a true
-  // leave because no durable row exists.
+  // `disconnect: true` is the socket-close path. On a persistent channel it
+  // keeps the durable row and skips `onUnsubscribe`.
   disconnect?: boolean,
 ): Promise<void> {
   if (!hasChannelMembership(connection, scope.channelName, scope.channelScope)) return;
@@ -239,14 +237,12 @@ export async function leaveChannel(
   const ctx = runtime.buildConnectionContext(connection, scope);
   const channelKey = scope.channel?.key ?? '';
   const isPersistent = scope.channel ? runtime.isChannelPersistent(scope.channel.key) : false;
-  // Plain disconnect on a persistent channel ends the session only. Every
-  // other path (unsubscribe, kick, removeMember, ephemeral disconnect)
-  // changes group membership too.
+  // A disconnect on a persistent channel only ends the session. Every other
+  // path also changes group membership.
   const isTrueLeave = !disconnect || !isPersistent;
 
-  // Capture the first hook throw and re-throw at the end so the rest of
-  // the leave (membership removal, broadcasts, session-end hooks) still
-  // runs. Callers like kick/unsubscribe still see the rejection.
+  // Hold the first hook throw and re-throw at the end so the rest of the leave
+  // still runs. Callers still see the rejection.
   let firstHookError: unknown;
   if (isTrueLeave) {
     for (const hook of runtime.unsubscribeHooks.get(channelKey) ?? []) {
@@ -280,8 +276,8 @@ export async function leaveChannel(
     );
   }
 
-  // Order: __memberLeave__ first, __memberOffline__ second — peers update the
-  // members list before reacting to the presence change.
+  // Order: __memberLeave__ before __memberOffline__ — peers update the member
+  // list before reacting to the presence change.
   if (isTrueLeave) {
     runtime.broadcastToChannel(
       scope.channelName,
@@ -333,10 +329,8 @@ async function runSubscribeFlow(
   scope: ResolvedChannelScope,
   data: unknown,
   source: 'client' | 'server',
-  // Pass `rejoining: true` when restoring a fresh socket's session for an
-  // identity that's already a group member. Suppresses the `__memberJoin__`
-  // peer broadcast (membership didn't change) while still firing
-  // `__memberOnline__` for presence.
+  // `rejoining: true` restores a fresh socket for an identity that is already a
+  // member. Skips the `__memberJoin__` broadcast but still fires `__memberOnline__`.
   rejoining = false,
 ): Promise<void> {
   const ctx = runtime.buildConnectionContext(connection, scope);
@@ -357,13 +351,8 @@ async function runSubscribeFlow(
     await hook.handler(ctx, validatedData);
   }
 
-  // Commit membership before snapshotting the existing member list. Two
-  // concurrent subscribes with an awaited onBeforeSubscribe hook would
-  // otherwise both snapshot empty (neither has committed yet), then
-  // both commit, and each connection sees an empty initial sync — A's
-  // view excludes B and B's view excludes A. Committing first means
-  // every newly subscribed connection sees the same membership view
-  // that was committed when its addChannelMembership ran.
+  // Commit membership before snapshotting the member list. Otherwise two
+  // concurrent subscribes both snapshot empty and miss each other.
   addChannelMembership(connection, scope.channelName, scope.channelScope);
   runtime.persistAttachment(connection);
 
@@ -371,30 +360,20 @@ async function runSubscribeFlow(
     runtime.persistMembership(connection.identity, scope.channelName, scope.channelScope);
   }
 
-  // Pass the scope so the __memberJoin__ syncs only include connections
-  // that joined this same scope, not connections in a different family
-  // that happen to use the same concrete channel name. Filter self out
-  // so the client doesn't get a redundant __memberJoin__ for itself.
+  // Scope keeps the sync to members of this exact scope. Filter self out.
   const existingMembers = getChannelMembersByScope(
     runtime,
     scope.channelName,
     scope.channelScope,
   ).filter((member) => member.id !== connection.id);
 
-  // Confirm the subscribe and run the member-sync protocol BEFORE any
-  // user-provided onSubscribe side effects. The onBeforeSubscribe loop
-  // above is the gate that decides whether the client joins; once the
-  // gate has passed and membership is committed, the client must hear
-  // the confirmation regardless of whether a side-effect hook later
-  // throws. A throw inside onSubscribe is treated as observational and
-  // routed through the runtime-error path with the channel routing
-  // markers, so the client receives a separate __error__ frame addressed
-  // to the channel scope while the subscription itself stays valid.
+  // Confirm the subscribe before any onSubscribe side effects. Once the gate
+  // passed and membership is committed, the client must hear the confirmation
+  // even if a later onSubscribe hook throws.
   runtime.sendProtocolMessage(connection, '__subscribeOk__', { source }, channelWskit(scope));
 
-  // Send one __memberJoin__ + one __memberOnline__ per existing peer so the
-  // new socket has both the group-membership view and the live-presence view
-  // in one round-trip.
+  // Send __memberJoin__ + __memberOnline__ per existing peer so the new socket
+  // gets both the membership view and the presence view.
   for (const member of existingMembers) {
     runtime.sendProtocolMessage(
       connection,
@@ -410,9 +389,8 @@ async function runSubscribeFlow(
     );
   }
 
-  // Order: __memberJoin__ first (group changed), then __memberOnline__
-  // (presence changed). Auto-rejoin skips __memberJoin__ because the user
-  // was already a member.
+  // Order: __memberJoin__ (group changed) before __memberOnline__ (presence).
+  // Rejoin skips __memberJoin__ — the user was already a member.
   if (!rejoining) {
     runtime.broadcastToChannel(
       scope.channelName,

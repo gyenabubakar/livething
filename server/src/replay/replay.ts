@@ -239,8 +239,7 @@ class ReplayInstaller {
       | RuntimeConnection
       | undefined;
     if (!isChannelReplayAuthorized(connection, scope, frame.__wskit)) {
-      // A non-member asking for channel replay gets no rows and no error
-      // frame — the server should not confirm a channel exists to non-members.
+      // No rows and no error — don't reveal the channel to a non-member.
       return true;
     }
 

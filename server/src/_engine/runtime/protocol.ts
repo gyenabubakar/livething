@@ -45,8 +45,7 @@ const NoPayload = v.strictObject({});
 
 export const SubscribeFrame = v.object({
   event: v.literal('__subscribe__'),
-  // Subscribe-time data the client passes to `onBeforeSubscribe` — kept loose
-  // here; the channel's `onBeforeSubscribe` validator is what type-checks it.
+  // Loose here — the channel's `onBeforeSubscribe` validator type-checks it.
   payload: v.optional(v.unknown()),
   __wskit: v.strictObject(RequiredChannelScope),
 });
@@ -66,8 +65,7 @@ export const ReplayFrame = v.object({
 export const StreamCancelFrame = v.object({
   event: v.literal('__streamCancel__'),
   payload: NoPayload,
-  // Scope markers let the engine find a broadcast durable stream's row, which
-  // is keyed by scope rather than by the cancelling connection's identity.
+  // Scope markers let the engine find a broadcast stream's scope-keyed row.
   __wskit: v.strictObject({ ...OptionalScope, streamId: v.string() }),
 });
 
@@ -103,8 +101,7 @@ export const StreamOkFrame = v.object({
 export const StreamEndFrame = v.object({
   event: v.literal('__streamEnd__'),
   payload: NoPayload,
-  // `seq` is the stream's final sequence number — it lets the client check it
-  // did not miss the last chunk before the stream ended.
+  // `seq` is the final sequence number, so the client can check for missed chunks.
   __wskit: v.strictObject({
     ...OptionalScope,
     streamId: v.string(),

@@ -247,10 +247,7 @@ export function resolveScope(
 ): EngineRuntimeTypes.ResolvedScope {
   if (!wskit) return {};
 
-  // A frame routes to one scope: top-level, namespace, or channel. A frame
-  // that names two scopes at once is ambiguous — silently picking one would
-  // let a sender bypass channel membership rules by stamping `namespace`
-  // alongside `channel`. Reject up front.
+  // A frame names one scope only. Two at once would let a sender bypass channel rules.
   if (wskit.namespace !== undefined && wskit.channel !== undefined) {
     throw InvalidScopeMarkers();
   }
@@ -539,20 +536,14 @@ export async function dispatchIncoming(
   wskit: Protocol.WskitProtocol | undefined,
   attempt = 0,
 ): Promise<void> {
-  // Dedup is handled at the top of `processTextMessage` so it covers
-  // incoming events, requests, and stream nudges with one budget.
-  // Defer retries re-enter this function directly with attempt > 0 and
-  // are intentionally not deduped — the engine is replaying its own
-  // queued work, not the client's resend.
+  // Dedup runs in `processTextMessage`. Defer retries re-enter here directly
+  // and skip dedup — that is the engine replaying its own work, not a resend.
 
   let scope: EngineRuntimeTypes.ResolvedScope;
   try {
     scope = resolveScope(runtime.compiled, wskit);
   } catch (error) {
-    // resolveScope can throw NamespaceNotFound / ChannelNotFound /
-    // InvalidScopeMarkers when the routing markers are missing, unknown, or
-    // contradictory. Route those through the runtime-error path so the
-    // client gets a typed `__error__` frame.
+    // Bad routing markers — send the client a typed `__error__` frame.
     await runtime.handleRuntimeError(connection, error, event, routingFromWskit(wskit));
     return;
   }
@@ -571,12 +562,7 @@ export async function dispatchIncoming(
     return;
   }
 
-  // Scope isolation: when the frame claims a channel or namespace scope, only
-  // handlers declared inside that scope are reachable. Falling back to
-  // top-level handlers from inside a scope would let a channel member fire
-  // any top-level event by tagging it with `channel: '...'`, breaking scope
-  // contracts (and potentially leaking admin-only top-level events to
-  // channel-subscribed clients).
+  // A scoped frame can only reach handlers declared in that scope — never top-level ones.
   const scoped = scope.channel ?? scope.namespace;
   const incoming = scoped ? scoped.incoming.get(event) : runtime.compiled.incoming.get(event);
   const request = scoped ? scoped.requests.get(event) : runtime.compiled.requests.get(event);
@@ -591,11 +577,7 @@ export async function dispatchIncoming(
   let message = { event, payload };
 
   try {
-    // Hook return value is treated as the new payload only — routing was
-    // resolved above (incoming/request/stream lookup). Whatever a hook
-    // returns becomes message.payload verbatim, even if the returned object
-    // happens to have its own event/payload fields. The event name is
-    // locked from the moment the message hit the dispatcher.
+    // A hook's return value becomes the new payload only. The event name is locked.
     for (const hook of runtime.incomingHooks) {
       const next = hook(message);
       if (next !== undefined) message = { event: message.event, payload: next };
@@ -638,8 +620,6 @@ export async function dispatchIncoming(
     const primitive = incoming ?? request ?? stream ?? resumableStream ?? recordedStream;
     if (!primitive) return;
 
-    // `message.payload` is already pure user data — framework metadata lives
-    // in `__wskit`, so there is nothing to strip before validation.
     let payloadValue: unknown;
     try {
       payloadValue = EngineCompileUtils.validateValue(
@@ -649,16 +629,11 @@ export async function dispatchIncoming(
       );
     } catch (error) {
       rethrowIfConfigError(error);
-      // validateValue is the only producer of validation errors in this path.
-      // Route them fully here (validation hook + error hook) and stop dispatch.
-      // Don't rethrow — the outer catch's WskitError 'validation-failed' branch
-      // would call handleValidationError again and double-fire user hooks.
-      // Manual `throw ValidationFailed(...)` from a handler still routes through
-      // the outer catch since it escapes after this try/catch returns.
+      // Route the validation error fully here and stop. Rethrowing would make
+      // the outer catch fire the user hooks a second time.
       await runtime.handleValidationError(connection, event, error, scope);
-      // Preserve protocol routing markers (especially `correlationId`) so a
-      // request whose payload fails the schema settles via the client
-      // request-response plugin instead of hanging until timeout.
+      // Keep routing markers (`correlationId`) so a bad-payload request settles
+      // on the client instead of hanging until timeout.
       await runtime.handleRuntimeError(connection, error, event, routingFromWskit(wskit));
       return;
     }
@@ -674,8 +649,7 @@ export async function dispatchIncoming(
       payloadValue,
     );
 
-    // Stash the ack correlation id (if any) so `ctx.ack()` inside the handler
-    // knows which client-side Promise to resolve.
+    // Stash the ack id so `ctx.ack()` knows which client Promise to resolve.
     connection.activeAckId = wskit?.ackId;
 
     if (incoming) {
@@ -770,9 +744,7 @@ async function handleDispatchError(
   if (error === Block) return;
 
   if (error instanceof WskitError && error.code === 'validation-failed') {
-    // Pass `scope` so onValidationError hooks see the same channel/namespace
-    // ctx for manually-thrown ValidationFailed as they do for schema
-    // failures (which already pass scope at the inner catch).
+    // Pass `scope` so onValidationError hooks get the right channel/namespace ctx.
     await runtime.handleValidationError(connection, event, error, scope);
     await runtime.handleRuntimeError(connection, error, event, routingFromWskit(wskit));
     return;
@@ -790,8 +762,8 @@ async function handleDispatchError(
     return;
   }
 
-  // Defer — re-enqueue the message after a delay. After 3 retries the engine
-  // gives up and fires a DeferExhausted error instead.
+  // Defer — re-queue the message after a delay. After 3 retries, give up and
+  // fire DeferExhausted instead.
   if (error && typeof error === 'object' && (error as { __wskit?: string }).__wskit === 'defer') {
     if (attempt >= 3) {
       const exhausted = ErrorsPrimitive.DeferExhausted({
@@ -799,7 +771,7 @@ async function handleDispatchError(
         payload,
         retries: attempt,
       });
-      // Fire onError hooks only — DeferExhausted is a server-side signal and must not reach the client.
+      // Fire onError hooks only — DeferExhausted must not reach the client.
       for (const hook of runtime.errorHooks) {
         await hook(runtime.buildConnectionContext(connection), exhausted, event);
       }
@@ -813,18 +785,14 @@ async function handleDispatchError(
     return;
   }
 
-  // Preserve protocol routing markers from the frame's `__wskit` on the error
-  // frame. Most importantly `correlationId`: without it a thrown request
-  // handler error reaches the client uncorrelated, so the request-response
-  // plugin can't settle the pending request and it hangs until timeout.
+  // Keep routing markers (`correlationId`) so a thrown request error settles
+  // on the client instead of hanging until timeout.
   await runtime.handleRuntimeError(connection, error, event, routingFromWskit(wskit));
 }
 
-// Locate a compiled durable-stream def for a stored row, restoring the same
-// scope (top-level / namespace / channel) the row was started in. Returns
-// undefined when the def has gone away (e.g. server redeployed without it),
-// the scope no longer exists, or the resuming connection is not a member of
-// the channel the stream was started in.
+// Find the compiled durable-stream def for a stored row, in the scope the row
+// was started in. Returns undefined if the def or scope is gone, or the
+// resuming connection is not a member of the stream's channel.
 function resolveDurableDefForRow(
   runtime: DispatchRuntime,
   connection: RuntimeConnection,
@@ -920,8 +888,7 @@ async function handleResumeStream(
   }
   ensureDurableStreamSchema(runtime.sql);
 
-  // The frame may carry namespace / channel / channelScope so the resume hits
-  // a broadcast scope-key row when the user wasn't the original creator.
+  // Routing markers let a non-creator resume a broadcast stream by its scope key.
   let resumeScope: EngineRuntimeTypes.ResolvedScope = {};
   try {
     resumeScope = resolveScope(runtime.compiled, frame.__wskit);
@@ -971,8 +938,8 @@ async function dispatchProtocolFrame(
       case '__streamCancel__': {
         await StreamPrimitive.cancelStream(runtime, connection, frame.__wskit.streamId);
         if (runtime.sql) {
-          // A broadcast durable stream's row is keyed by its scope, so the
-          // cancel frame's routing markers are needed to find it.
+          // A broadcast stream's row is keyed by scope, so we need the cancel
+          // frame's routing markers to find it.
           let cancelScope: EngineRuntimeTypes.ResolvedScope = {};
           try {
             cancelScope = resolveScope(runtime.compiled, frame.__wskit);
@@ -1045,9 +1012,7 @@ export async function processTextMessage(
     return;
   }
 
-  // JSON.parse accepts more than plain objects — `null`, `123`, `"text"`,
-  // `[]`, `{}`-without-event all parse successfully. Drop anything that is not
-  // a plain object with a string `event`.
+  // Drop anything that is not a plain object with a string `event`.
   if (
     !parsed ||
     typeof parsed !== 'object' ||
@@ -1061,15 +1026,13 @@ export async function processTextMessage(
   const event = (parsed as { event: string }).event;
 
   // A JSON `{ event: 'ping' }` frame answers with a JSON `{ event: 'pong' }`.
-  // (Raw text `ping`/`pong` are handled above.)
   if (event === 'ping') {
     connection.descriptor.send(JSON.stringify({ event: 'pong' }));
     return;
   }
 
-  // Protocol frames are parsed against the protocol variant and routed by the
-  // dispatcher. They are excluded from dedup and nudge buffering — a retried
-  // protocol frame must reach its handler even when the original was lost.
+  // Protocol frames skip dedup and nudge buffering — a retried one must still
+  // reach its handler.
   if (Protocol.isProtocolEventName(event)) {
     await dispatchProtocolFrame(runtime, connection, parsed);
     return;
@@ -1085,10 +1048,7 @@ export async function processTextMessage(
   }
   const wskit = frame.__wskit;
 
-  // Dedup at the gateway so every wire frame carrying `messageId` shares one
-  // idempotency budget — incoming events, requests, and stream nudges. The
-  // Defer retry path re-enters `dispatchIncoming` directly, so engine-internal
-  // retries naturally skip the check.
+  // Dedup here so every frame with a `messageId` shares one idempotency budget.
   if (
     runtime.incomingDedupCap > 0 &&
     isDuplicateIncoming(connection, wskit, runtime.incomingDedupCap)
@@ -1096,10 +1056,8 @@ export async function processTextMessage(
     return;
   }
 
-  // Stream trigger frames must skip nudge buffering even when they carry a
-  // streamId. The check walks the scope the frame is targeting so a channel-
-  // or namespace-scoped durable stream trigger isn't misrouted into the nudge
-  // buffer.
+  // A stream trigger frame skips nudge buffering even with a streamId. Walk the
+  // target scope so a scoped durable trigger isn't misrouted into the buffer.
   let triggerScope: EngineRuntimeTypes.ResolvedScope = {};
   try {
     triggerScope = resolveScope(runtime.compiled, wskit);
