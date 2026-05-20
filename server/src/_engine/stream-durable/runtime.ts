@@ -1,12 +1,12 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 
+import { rethrowIfConfigError, StreamAborted, StreamIdCollision } from '@wskit/core';
 import {
-  rethrowIfConfigError,
-  StreamAborted,
-  StreamAlreadyActive,
-  StreamIdCollision,
-} from '@wskit/core';
-import * as ChannelPrimitive from '~/channel/runtime.ts';
+  assertNoConcurrentStream,
+  buildActiveStream,
+  installCtxNudges,
+  resolveBroadcastTargets,
+} from '~/_engine/stream-common/active-stream.ts';
 import type {
   ActiveStream,
   ResolvedScope,
@@ -114,18 +114,7 @@ export async function runDurableStream(
   // creator_identity for cancel ownership checks.
   const storageIdentity = def.broadcast ? computeBroadcastScopeKey(scope) : creatorIdentity;
 
-  // Concurrency check for same-event on same connection.
-  if (!def.allowConcurrent) {
-    const existingIds = connection.activeStreamIds;
-    if (existingIds) {
-      for (const id of existingIds) {
-        const existing = runtime.activeStreams.get(id);
-        if (existing && !existing.closed && existing.event === def.event) {
-          throw StreamAlreadyActive({ event: def.event, _streamId: existing.id });
-        }
-      }
-    }
-  }
+  assertNoConcurrentStream(runtime, connection, def.event, def.allowConcurrent);
 
   const supplied = readSuppliedStreamId(rawPayload);
   const streamId = supplied ?? runtime.generateId('dstream');
@@ -353,32 +342,23 @@ async function runGenerator(
   initialCursor: unknown,
   attempt: number,
 ): Promise<void> {
-  const ctx = runtime.buildConnectionContext(connection, scope) as Record<string, unknown>;
+  const ctx = runtime.buildConnectionContext(connection, scope) as Record<PropertyKey, unknown>;
   ctx.stream = {
     id: streamId,
     cursor: initialCursor,
     attempt,
     withCursor: (chunk: unknown, cursor: unknown) => makeCursorChunk(chunk, cursor),
   };
-  // Mirrors plain stream's ctx.nudges() helper: dev passes whatever value the
-  // generator's `yield` resolved to and gets the buffered nudge array back.
-  ctx.nudges = (value: unknown) => (Array.isArray(value) ? value : []);
+  installCtxNudges(ctx);
 
-  const iterator = def.generator(ctx, payload);
-  const nudgeValidators = new Map<string, unknown>();
-  for (const nudge of def.nudges ?? []) {
-    nudgeValidators.set(nudge.event, nudge.validator);
-  }
-  const nudgeBuffer: { event: string; payload: unknown }[] = [];
-  const activeStream: ActiveStream = {
-    id: streamId,
-    connectionId: connection.id,
+  const iterator = def.generator(ctx, payload) as AsyncGenerator<unknown, void, unknown>;
+  const { active: activeStream, nudgeBuffer } = buildActiveStream({
+    streamId,
     event: def.event,
-    generator: iterator as AsyncGenerator<unknown, void, unknown>,
-    nudges: nudgeBuffer,
-    nudgeValidators,
-    closed: false,
-  };
+    connection,
+    generator: iterator,
+    nudges: def.nudges ?? [],
+  });
 
   runtime.activeStreams.set(streamId, activeStream);
   if (!connection.activeStreamIds) connection.activeStreamIds = new Set();
@@ -451,30 +431,18 @@ async function runGenerator(
           : { value: chunkValue };
 
       if (def.broadcast) {
-        // Fan out to every other connection in scope minus identities that
-        // unsubscribed from this stream. Channel-scoped streams go to channel
-        // members only; namespace and top-level go to every connection. The
-        // creator gets the chunk via sendThroughPipeline below.
-        const targets: RuntimeConnection[] = [];
-        for (const candidate of runtime.connections.values()) {
-          if (candidate.id === connection.id) continue;
-          if (scope.channelName) {
-            if (
-              !ChannelPrimitive.hasChannelMembership(
-                candidate,
-                scope.channelName,
-                scope.channelScope ?? null,
-              )
-            ) {
-              continue;
-            }
-          }
-          const candidateIdentity = candidate.identity ?? candidate.id;
-          if (Storage.isUnsubscribed(runtime.sql, identity, streamId, candidateIdentity)) {
-            continue;
-          }
-          targets.push(candidate);
-        }
+        const targets = resolveBroadcastTargets({
+          runtime,
+          excludeConnectionId: connection.id,
+          scope,
+          extraFilter: (candidate) =>
+            !Storage.isUnsubscribed(
+              runtime.sql,
+              identity,
+              streamId,
+              candidate.identity ?? candidate.id,
+            ),
+        });
         runtime.broadcastToConnections(
           targets,
           def.event,

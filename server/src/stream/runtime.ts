@@ -1,11 +1,11 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import {
-  rethrowIfConfigError,
-  StreamAlreadyActive,
-  StreamIdCollision,
-  ValidationFailed,
-} from '@wskit/core';
+import { rethrowIfConfigError, StreamIdCollision, ValidationFailed } from '@wskit/core';
 import { validateValue } from '~/_engine/compile/utils.ts';
+import {
+  assertNoConcurrentStream,
+  buildActiveStream,
+  installCtxNudges,
+} from '~/_engine/stream-common/active-stream.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import { DeferExhausted } from '~/errors/errors.ts';
 import type { AnyGenerate } from '~/_engine/compile/types.ts';
@@ -221,21 +221,8 @@ export async function runStream(
   rawPayload?: unknown,
 ): Promise<void> {
   // Per-connection per-event exclusivity. Default: one active stream of any
-  // given event per connection. Reject the second start with a typed error
-  // carrying the existing stream's id so the client can decide whether to
-  // wait, cancel, or surface the conflict. Opt out per stream with
-  // `.allowConcurrent()`.
-  if (!stream.stream.allowConcurrent) {
-    const existingIds = connection.activeStreamIds;
-    if (existingIds) {
-      for (const id of existingIds) {
-        const existing = runtime.activeStreams.get(id);
-        if (existing && !existing.closed && existing.event === event) {
-          throw StreamAlreadyActive({ event, _streamId: existing.id });
-        }
-      }
-    }
-  }
+  // given event per connection. Opt out per stream with `.allowConcurrent()`.
+  assertNoConcurrentStream(runtime, connection, event, stream.stream.allowConcurrent);
 
   // Adopt a client-supplied `_streamId` when present on the trigger frame.
   // Devs use this to tie a stream to a domain id (conversation, document,
@@ -258,27 +245,21 @@ export async function runStream(
     ...(scope.channelScope ? { _channelScope: scope.channelScope } : {}),
   });
 
-  const ctx = runtime.buildConnectionContext(connection, scope) as Record<string, unknown>;
-  ctx.nudges = (value: unknown) => (Array.isArray(value) ? value : []);
+  const ctx = runtime.buildConnectionContext(connection, scope) as Record<PropertyKey, unknown>;
+  installCtxNudges(ctx);
 
-  // Construct the iterator. The generator body does not run yet — calling an
-  // async generator function only returns the iterator; the body advances on
-  // each `iterator.next()` call below. Bracketing the connection id around
-  // construction would clear it before the body could ever observe it, so
-  // the bracket lives around each `iterator.next()` instead.
-  const iterator = stream.generator(ctx, payload);
+  const iterator = stream.generator(ctx, payload) as AsyncGenerator<unknown, void, unknown>;
 
-  const activeStream: ActiveStream = {
-    id: streamId,
-    connectionId: connection.id,
+  const { active: activeStream } = buildActiveStream({
+    streamId,
     event,
-    generator: iterator as AsyncGenerator<unknown, void, unknown>,
-    nudges: [],
-    nudgeValidators: new Map(
-      stream.stream.nudges.map((declaration) => [declaration.event, declaration.validator]),
-    ),
-    closed: false,
-  };
+    connection,
+    generator: iterator,
+    nudges: stream.stream.nudges.map((declaration) => ({
+      event: declaration.event,
+      validator: declaration.validator,
+    })),
+  });
 
   runtime.activeStreams.set(streamId, activeStream);
   if (!connection.activeStreamIds) connection.activeStreamIds = new Set();
