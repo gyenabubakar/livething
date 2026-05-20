@@ -5,6 +5,7 @@ import {
   resolveScope,
 } from '~/_engine/runtime/messages.ts';
 import { createChannelMembershipKey } from '~/channel/runtime.ts';
+import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import type { CompiledServer } from '~/_engine/compile/types.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
@@ -420,7 +421,7 @@ describe('message runtime', () => {
             {
               event: 'do-thing',
               handler,
-              validator: (value: unknown) => Promise.resolve(value),
+              validator: v.objectAsync({}),
             },
           ],
         ]),
@@ -673,7 +674,6 @@ describe('message runtime', () => {
     // routing fix (commit 8789c0a) didn't touch this branch — schema
     // failures still went out uncorrelated. Same hang-until-timeout
     // symptom on the client request-response plugin.
-    const v = await import('valibot');
     const handleRuntimeError = vi.fn();
     const connection = createConnection('conn_1');
 

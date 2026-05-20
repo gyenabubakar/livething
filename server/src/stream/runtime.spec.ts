@@ -1,4 +1,5 @@
 import { createChannelMembershipKey } from '~/channel/runtime.ts';
+import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import type { ActiveStream, RuntimeConnection } from '~/_engine/runtime/types.ts';
 import { bufferStreamNudge, cancelStream, runStream } from './runtime.ts';
@@ -566,7 +567,7 @@ describe('stream/runtime', () => {
       event: 'async-stream',
       generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
       nudges: [],
-      nudgeValidators: new Map([['async-nudge', (v: unknown) => Promise.resolve(v)]]),
+      nudgeValidators: new Map([['async-nudge', v.objectAsync({})]]),
       closed: false,
     };
     runtime.activeStreams.set('stream_1', activeStream);
@@ -603,15 +604,8 @@ describe('stream/runtime', () => {
       event: 'pause-stream',
       generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
       nudges: [],
-      nudgeValidators: new Map([
-        [
-          'pause',
-          (value: unknown) => {
-            if ((value as { bad?: boolean }).bad) throw new Error('schema rejects bad=true');
-            return value;
-          },
-        ],
-      ]),
+      // Schema rejects any payload where `bad` is not literally false.
+      nudgeValidators: new Map([['pause', v.object({ bad: v.literal(false) })]]),
       closed: false,
     };
     runtime.activeStreams.set('stream_1', activeStream);

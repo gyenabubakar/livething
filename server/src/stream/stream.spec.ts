@@ -3,15 +3,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { generate, nudge, start, stream } from './stream.ts';
 
 describe('stream primitives', () => {
-  it('creates start declarations from parse functions and standard schema validators', () => {
-    const parseStart = start('ai', (value: unknown) => value as { prompt: string }, {
-      broadcast: true,
-    });
+  it('creates start declarations with and without a schema validator', () => {
+    const plainStart = start('ai', undefined, { broadcast: true });
     const schemaStart = start('ai', v.object({ prompt: v.string() }));
 
-    expect(parseStart).toEqual({
+    expect(plainStart).toEqual({
       event: 'ai',
-      validator: expect.any(Function),
+      validator: undefined,
       broadcast: true,
     });
     expect(schemaStart.event).toBe('ai');
@@ -20,15 +18,16 @@ describe('stream primitives', () => {
 
   it('creates nudge declarations with and without validators', () => {
     const plain = nudge('cancel');
-    const parsed = nudge('add-context', (value: unknown) => value as { text: string });
+    const parsed = nudge('add-context', v.object({ text: v.string() }));
 
     expect(plain).toEqual({ event: 'cancel', validator: undefined });
-    expect(parsed).toEqual({ event: 'add-context', validator: expect.any(Function) });
+    expect(parsed.event).toBe('add-context');
+    expect(parsed.validator).toBeDefined();
   });
 
   it('creates paired stream and generate primitives keyed by the trigger event', () => {
     const streamDecl = stream(
-      start('ai', (value: unknown) => value as { prompt: string }, { broadcast: true }),
+      start('ai', v.object({ prompt: v.string() }), { broadcast: true }),
       nudge('cancel'),
     );
     const generator = vi.fn(async function* () {

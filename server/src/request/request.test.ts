@@ -47,27 +47,6 @@ const _noValType: RequestPrimitive<'get-presence', unknown, unknown> = noValidat
 void _noValType;
 
 // ===========================================================================
-// 4. With parse function — payload inferred from validator
-// ===========================================================================
-
-const withParse = request(
-  'get-history',
-  async (_ctx, payload) => {
-    const _limit: number = payload.limit;
-    void _limit;
-  },
-  {
-    validator: (p: unknown) => {
-      const obj = p as Record<string, unknown>;
-      if (typeof obj.limit !== 'number') throw new Error('limit required');
-      return { limit: obj.limit };
-    },
-  },
-);
-
-const _parseType: RequestPrimitive<'get-history', { limit: number }, unknown> = withParse;
-void _parseType;
-
 // ===========================================================================
 // 5. With StandardSchema — payload inferred from schema
 // ===========================================================================

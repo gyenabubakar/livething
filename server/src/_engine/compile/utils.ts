@@ -66,17 +66,11 @@ function isStandardSchema(v: unknown): v is StandardSchemaV1 {
 }
 
 /**
- * Run a validator or standard-schema object and normalize the result.
- *
- * This lets the engine accept plain validator functions and schema libraries
- * that expose the Standard Schema interface.
+ * Validate a value against a Standard Schema and return the parsed result.
+ * A missing validator passes the value through unchanged.
  */
 export function validateValue(validator: unknown, value: unknown, event = 'unknown'): unknown {
   if (!validator) return value;
-
-  if (typeof validator === 'function') {
-    return assertSyncResult(validator(value), event);
-  }
 
   if (isStandardSchema(validator)) {
     const result = assertSyncResult(validator['~standard'].validate(value), event);

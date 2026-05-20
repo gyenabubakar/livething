@@ -7,6 +7,7 @@ import {
   subscribeConnectionAsServer,
   unsubscribeConnection,
 } from '~/channel/runtime.ts';
+import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 
 function createConnection(id = 'conn_1', meta: Record<string, unknown> = {}) {
@@ -347,7 +348,7 @@ describe('channel runtime', () => {
           ...runtime,
           handleValidationError,
           beforeSubscribeHooks: new Map([
-            ['rooms', [{ handler: hook, validator: (v: unknown) => Promise.resolve(v) }]],
+            ['rooms', [{ handler: hook, validator: v.objectAsync({}) }]],
           ]),
         },
         connection,

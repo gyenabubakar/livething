@@ -52,15 +52,6 @@ describe('validateValue — StandardSchema duck-type detection', () => {
     });
   });
 
-  describe('plain validator function', () => {
-    it('calls the function and returns its result', () => {
-      function validator(val: unknown) {
-        return { coerced: String(val) };
-      }
-      expect(validateValue(validator, 42, 'test-event')).toEqual({ coerced: '42' });
-    });
-  });
-
   describe('no validator', () => {
     it('passes value through unchanged when validator is undefined', () => {
       expect(validateValue(undefined, { raw: true }, 'test-event')).toEqual({ raw: true });

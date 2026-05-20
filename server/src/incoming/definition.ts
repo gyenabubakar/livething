@@ -30,10 +30,6 @@ export interface IncomingDef<TName extends string = string, TPayload = unknown> 
  * ```
  */
 export function incoming<TName extends string>(name: TName): IncomingDef<TName, unknown>;
-export function incoming<TName extends string, TPayload>(
-  name: TName,
-  schema: (value: unknown) => TPayload,
-): IncomingDef<TName, TPayload>;
 export function incoming<TName extends string, TSchema extends StandardSchemaV1>(
   name: TName,
   schema: TSchema,

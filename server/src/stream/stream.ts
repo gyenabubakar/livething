@@ -56,29 +56,6 @@ export function nudge<TEvent extends string>(event: TEvent): NudgeDeclaration<TE
  * const speedUp = nudge('speed-up', v.object({ factor: v.number() }));
  * ```
  */
-export function nudge<TEvent extends string, TPayload>(
-  event: TEvent,
-  validator: (value: unknown) => TPayload,
-): NudgeDeclaration<TEvent, TPayload>;
-/**
- * Declare a nudge event for a stream. A nudge is a message the client can send
- * while the stream is active to influence its output (e.g. "pause", "filter by
- * category").
- *
- * The generator receives nudges as the value of each `yield` expression via
- * the `TNext` type parameter.
- *
- * @param event     The event name the client sends to nudge.
- * @param validator Optional schema validator for the nudge payload.
- *
- * @example
- * ```ts
- * import * as v from 'valibot';
- *
- * const pause = nudge('pause');
- * const speedUp = nudge('speed-up', v.object({ factor: v.number() }));
- * ```
- */
 export function nudge<TEvent extends string, TSchema extends StandardSchemaV1>(
   event: TEvent,
   validator: TSchema,
@@ -322,19 +299,6 @@ export function start<TEvent extends string>(
   validator?: undefined,
   options?: { broadcast?: boolean; allowConcurrent?: boolean },
 ): StreamStartDeclaration<TEvent, unknown>;
-/**
- * Create a `StreamStartDeclaration` — a plain object that captures the trigger
- * event name, an optional payload validator, and the broadcast flag.
- *
- * This is a convenience factory used by `StreamBuilder` internally. You do not
- * need to call it when using the builder API — it is exposed for advanced use
- * cases where you build streams from lower-level primitives.
- */
-export function start<TEvent extends string, TPayload>(
-  name: TEvent,
-  validator: (value: unknown) => TPayload,
-  options?: { broadcast?: boolean; allowConcurrent?: boolean },
-): StreamStartDeclaration<TEvent, TPayload>;
 /**
  * Create a `StreamStartDeclaration` — a plain object that captures the trigger
  * event name, an optional payload validator, and the broadcast flag.

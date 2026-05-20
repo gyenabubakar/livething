@@ -18,10 +18,6 @@ export interface OutgoingDef<TName extends string = string, TPayload = unknown> 
  * payload type flow into `InferClient` so the generated client SDK is typed.
  */
 export function outgoing<TName extends string>(name: TName): OutgoingDef<TName, unknown>;
-export function outgoing<TName extends string, TPayload>(
-  name: TName,
-  schema: (value: unknown) => TPayload,
-): OutgoingDef<TName, TPayload>;
 export function outgoing<TName extends string, TSchema extends StandardSchemaV1>(
   name: TName,
   schema: TSchema,

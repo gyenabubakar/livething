@@ -39,10 +39,6 @@ export interface StreamDef<
  * stream as the value of `yield`. Use inside a `stream(...)` definition.
  */
 export function nudge<TName extends string>(name: TName): NudgeDef<TName, unknown>;
-export function nudge<TName extends string, TPayload>(
-  name: TName,
-  schema: (value: unknown) => TPayload,
-): NudgeDef<TName, TPayload>;
 export function nudge<TName extends string, TSchema extends StandardSchemaV1>(
   name: TName,
   schema: TSchema,

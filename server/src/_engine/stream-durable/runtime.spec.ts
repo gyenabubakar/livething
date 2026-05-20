@@ -1,6 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { StreamAborted } from '@wskit/core';
 import * as ConnectionLifecycle from '~/_engine/runtime/connection.ts';
+import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import type { ActiveStream, RuntimeConnection } from '~/_engine/runtime/types.ts';
 import { cancelDurableStream, resumeDurableStream, runDurableStream } from './runtime.ts';
@@ -713,11 +714,8 @@ describe('durable stream runtime', () => {
     Storage.updateCursor(sql, 'u1', 's-bad', JSON.stringify({ idx: 'oops' }), 4, Date.now());
     Storage.markSuspended(sql, 'u1', 's-bad', Date.now());
 
-    function cursorValidator(raw: unknown): { idx: number } {
-      const obj = raw as Record<string, unknown>;
-      if (typeof obj.idx !== 'number') throw new Error('idx must be a number');
-      return { idx: obj.idx };
-    }
+    // Schema rejects the stored cursor because `idx` is a string.
+    const cursorValidator = v.object({ idx: v.number() });
 
     const generatorSpy = vi.fn(async function* () {
       yield { i: 1 };

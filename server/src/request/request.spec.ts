@@ -30,14 +30,6 @@ describe('request', () => {
     expect(p.validator).toBeUndefined();
   });
 
-  it('stores a parse function validator', () => {
-    function validate(p: unknown) {
-      return p as { limit: number };
-    }
-    const p = request('get-history', async () => {}, { validator: validate });
-    expect(p.validator).toBe(validate);
-  });
-
   it('stores a valibot schema', () => {
     const schema = v.object({ limit: v.number() });
     const p = request(

@@ -6,15 +6,13 @@ import type { StandardSchemaV1 } from '@standard-schema/spec';
 // ---------------------------------------------------------------------------
 
 /**
- * A validator for an incoming message payload.
+ * A validator for an incoming message payload — any Standard Schema (valibot,
+ * zod, arktype, or any other compliant library).
  *
- * Accepted everywhere wskit expects validation — `incoming`, `request`,
- * `stream`, `nudge`, `onBeforeSubscribe`.
+ * Accepted everywhere wskit expects validation: `incoming`, `request`,
+ * `stream`, `nudge`, `onBeforeSubscribe`. TypeScript infers the payload type
+ * from the schema, so your handler is typed automatically.
  *
- * TypeScript infers the payload type from whichever form you use, so your
- * handler will be automatically typed.
- *
- * **Form 1 — StandardSchema** (any compliant library: valibot, zod, arktype):
  * ```ts
  * import * as v from 'valibot';
  *
@@ -24,20 +22,5 @@ import type { StandardSchemaV1 } from '@standard-schema/spec';
  *   { validator: v.object({ text: v.string() }) },
  * );
  * ```
- *
- * **Form 2 — parse function** (return the parsed value or throw):
- * ```ts
- * incoming(
- *   'send-message',
- *   (ctx, payload) => { /* payload is { text: string } *\/ },
- *   {
- *     validator: (raw) => {
- *       const obj = raw as Record<string, unknown>;
- *       if (typeof obj.text !== 'string') throw new Error('text required');
- *       return { text: obj.text };
- *     },
- *   },
- * );
- * ```
  */
-export type Validator<T = any> = StandardSchemaV1<unknown, T> | ((value: unknown) => T);
+export type Validator<T = any> = StandardSchemaV1<unknown, T>;
