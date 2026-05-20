@@ -26,7 +26,7 @@
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
 			const data = JSON.parse(ev.data);
-			const seq = data?.payload?._seq;
+			const seq = data?.__wskit?.seq;
 			if (typeof seq === 'number') lastSeq = seq;
 		};
 	}

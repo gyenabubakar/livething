@@ -26,17 +26,21 @@
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
 			const data = JSON.parse(ev.data);
-			if (data.event === '_subscribeOk') subscribed = true;
-			const id = data.payload?._correlationId as string | undefined;
+			if (data.event === '__subscribeOk__') subscribed = true;
+			const id = data.__wskit?.correlationId as string | undefined;
 			if (id) {
 				responses = { ...responses, [id]: JSON.stringify(data.payload ?? {}) };
 			}
 		};
 	}
 
-	function request(event: string, payload: Record<string, unknown> = {}) {
+	function request(
+		event: string,
+		payload: Record<string, unknown> = {},
+		wskit: Record<string, unknown> = {},
+	) {
 		const id = `req-${++correlationCounter}`;
-		ws?.send(JSON.stringify({ event, payload: { ...payload, _correlationId: id } }));
+		ws?.send(JSON.stringify({ event, payload, __wskit: { ...wskit, correlationId: id } }));
 		return id;
 	}
 
@@ -44,13 +48,13 @@
 		return request('get-time');
 	}
 	function getNsInfo() {
-		return request('get-ns-info', { _namespace: 'ns' });
+		return request('get-ns-info', {}, { namespace: 'ns' });
 	}
 	function getChannelInfo() {
-		return request('get-channel-info', { _channel: 'room' });
+		return request('get-channel-info', {}, { channel: 'room' });
 	}
 	function subscribeRoom() {
-		ws?.send(JSON.stringify({ event: '_subscribe', payload: { _channel: 'room' } }));
+		ws?.send(JSON.stringify({ event: '__subscribe__', payload: {}, __wskit: { channel: 'room' } }));
 	}
 	function noResponse() {
 		return request('no-response');
@@ -66,8 +70,8 @@
 	}
 	function malformedStrictEcho() {
 		// Wrong type for the strict-echo schema (`id` must be a string). The
-		// server emits a validation `_error`; the test asserts it carries
-		// `_correlationId` so the request settles instead of hanging.
+		// server emits a validation `__error__`; the test asserts it carries
+		// the correlation id so the request settles instead of hanging.
 		return request('strict-echo', { id: 42 } as unknown as Record<string, unknown>);
 	}
 

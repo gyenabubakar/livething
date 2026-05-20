@@ -17,13 +17,21 @@ test.describe('channel-key-collision', () => {
 
         function open(username: string): Promise<{
           ws: WebSocket;
-          messages: { event: string; payload: Record<string, unknown> }[];
+          messages: {
+            event: string;
+            payload: Record<string, unknown>;
+            __wskit?: Record<string, unknown>;
+          }[];
         }> {
           return new Promise((resolve, reject) => {
             const ws = new WebSocket(
               `${proto}//${location.host}/ws/channel-key-collision?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
             );
-            const messages: { event: string; payload: Record<string, unknown> }[] = [];
+            const messages: {
+              event: string;
+              payload: Record<string, unknown>;
+              __wskit?: Record<string, unknown>;
+            }[] = [];
             ws.onmessage = (ev) => {
               if (typeof ev.data !== 'string') return;
               messages.push(JSON.parse(ev.data));
@@ -52,13 +60,21 @@ test.describe('channel-key-collision', () => {
 
     async function messages(
       name: 'memberA' | 'memberB' | 'admin',
-    ): Promise<{ event: string; payload: Record<string, unknown> }[]> {
+    ): Promise<
+      { event: string; payload: Record<string, unknown>; __wskit?: Record<string, unknown> }[]
+    > {
       return page.evaluate(
         ({ h, name }) =>
           (
             h as unknown as Record<
               string,
-              { messages: { event: string; payload: Record<string, unknown> }[] }
+              {
+                messages: {
+                  event: string;
+                  payload: Record<string, unknown>;
+                  __wskit?: Record<string, unknown>;
+                }[];
+              }
             >
           )[name]!.messages.slice(),
         { h: handle, name },
@@ -67,21 +83,23 @@ test.describe('channel-key-collision', () => {
 
     // memberA subscribes to family 'rooms' on name 'private::lobby'.
     await send('memberA', {
-      event: '_subscribe',
-      payload: { _channel: 'private::lobby', _channelScope: 'rooms' },
+      event: '__subscribe__',
+      payload: {},
+      __wskit: { channel: 'private::lobby', channelScope: 'rooms' },
     });
     // memberB subscribes to family 'rooms::private' on name 'lobby'.
     await send('memberB', {
-      event: '_subscribe',
-      payload: { _channel: 'lobby', _channelScope: 'rooms::private' },
+      event: '__subscribe__',
+      payload: {},
+      __wskit: { channel: 'lobby', channelScope: 'rooms::private' },
     });
 
-    // Wait for both _subscribeOk acks.
+    // Wait for both __subscribeOk__ acks.
     await expect
-      .poll(async () => (await messages('memberA')).some((m) => m.event === '_subscribeOk'))
+      .poll(async () => (await messages('memberA')).some((m) => m.event === '__subscribeOk__'))
       .toBe(true);
     await expect
-      .poll(async () => (await messages('memberB')).some((m) => m.event === '_subscribeOk'))
+      .poll(async () => (await messages('memberB')).some((m) => m.event === '__subscribeOk__'))
       .toBe(true);
 
     // members() count for each family is exactly 1 — no key collision.

@@ -41,46 +41,50 @@
 				attemptValue = data.payload.attempt;
 			} else if (data.event === 'buffer-full-demo' && typeof data.payload?.n === 'number') {
 				bufferChunkCount += 1;
-			} else if (data.event === '_streamEnd') {
+			} else if (data.event === '__streamEnd__') {
 				streamEndCount += 1;
-			} else if (data.event === '_error') {
+			} else if (data.event === '__error__') {
 				lastErrorCode = data.payload?.code ?? null;
 				lastErrorReason = data.payload?.detail?.reason ?? null;
-				lastErrorStreamId = data.payload?._streamId ?? null;
+				lastErrorStreamId = data.__wskit?.streamId ?? null;
 			}
 		};
 	}
 
-	function send(event: string, payload: Record<string, unknown>) {
-		ws?.send(JSON.stringify({ event, payload }));
+	function send(
+		event: string,
+		payload: Record<string, unknown>,
+		__wskit?: Record<string, unknown>,
+	) {
+		ws?.send(JSON.stringify({ event, payload, __wskit }));
 	}
 
 	function startCountTokens() {
 		tokenChunks = [];
 		streamEndCount = 0;
-		send('count-tokens', { _streamId: streamIdInput });
+		send('count-tokens', {}, { streamId: streamIdInput });
 	}
 
 	function startPaginate() {
 		paginateRows = [];
 		streamEndCount = 0;
-		send('paginate', { _streamId: streamIdInput });
+		send('paginate', {}, { streamId: streamIdInput });
 	}
 
 	function startAttemptStream() {
 		attemptValue = null;
 		streamEndCount = 0;
-		send('attempt-stream', { _streamId: streamIdInput });
+		send('attempt-stream', {}, { streamId: streamIdInput });
 	}
 
 	function startBufferFullDemo() {
 		bufferChunkCount = 0;
 		streamEndCount = 0;
-		send('buffer-full-demo', { _streamId: streamIdInput });
+		send('buffer-full-demo', {}, { streamId: streamIdInput });
 	}
 
 	function sendCancel() {
-		send('_streamCancel', { _streamId: streamIdInput });
+		send('__streamCancel__', {}, { streamId: streamIdInput });
 	}
 
 	function dropSocket() {
@@ -97,7 +101,7 @@
 	}
 
 	function sendResume() {
-		send('_resumeStream', { _streamId: streamIdInput, since: Number(sinceInput) || 0 });
+		send('__resumeStream__', { lastKnownSeq: Number(sinceInput) || 0 }, { streamId: streamIdInput });
 	}
 </script>
 

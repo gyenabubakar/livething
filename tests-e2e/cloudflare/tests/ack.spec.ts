@@ -9,7 +9,7 @@ test.describe('ack', () => {
     await expect(page.getByTestId('status')).toHaveText('connected');
   });
 
-  test('handler that completes successfully emits _ack with the caller-provided _ackId', async ({
+  test('handler that completes successfully emits __ack__ with the caller-provided ackId', async ({
     page,
   }) => {
     await page.getByTestId('send-ok').click();
@@ -22,7 +22,7 @@ test.describe('ack', () => {
     await page.getByTestId('send-ok').click();
     await expect(page.getByTestId('ack-ids')).toContainText('ack-ok');
 
-    // Throwing handler never calls ctx.ack(); no _ack frame should arrive.
+    // Throwing handler never calls ctx.ack(); no __ack__ frame should arrive.
     await page.getByTestId('send-throw').click();
 
     // Positive signal: follow the throw with a second successful send. Once
@@ -32,7 +32,7 @@ test.describe('ack', () => {
     await expect(page.getByTestId('ack-ids')).toContainText('ack-ok-2');
     await expect(page.getByTestId('ack-ids')).not.toContainText('ack-throw');
   });
-  test('multiple acks in sequence each carry their own _ackId', async ({ page }) => {
+  test('multiple acks in sequence each carry their own ackId', async ({ page }) => {
     await page.getByTestId('send-ok').click();
     await expect(page.getByTestId('ack-ids')).toContainText('ack-ok');
 
@@ -44,8 +44,8 @@ test.describe('ack', () => {
     expect(ackIds).toContain('ack-ok');
     expect(ackIds).toContain('ack-ok-2');
   });
-  test('message without _ackId does not emit _ack', async ({ page }) => {
-    // Send a message with no _ackId field at all. Add a driver button for this.
+  test('message without ackId does not emit __ack__', async ({ page }) => {
+    // Send a message with no ackId field at all. Add a driver button for this.
     await page.getByTestId('send-no-ack-id').click();
 
     // Follow with a known ack to prove the wire is still healthy and the

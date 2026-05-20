@@ -36,7 +36,7 @@
 	}
 
 	function sendReplayNoOp() {
-		ws?.send(JSON.stringify({ event: '_replay', payload: { since: 0 } }));
+		ws?.send(JSON.stringify({ event: '__replay__', payload: { lastKnownSeq: 0 }, __wskit: {} }));
 	}
 
 	function sendBad() {

@@ -1,7 +1,11 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
-type Frame = { event: string; payload: Record<string, unknown> };
+type Frame = {
+  event: string;
+  payload: Record<string, unknown>;
+  __wskit?: Record<string, unknown>;
+};
 
 async function setupClient(page: Page, username: string, room: string) {
   await page.goto(`/static-vs-family-isolation?room=${room}`);
@@ -37,11 +41,15 @@ async function frames(page: Page): Promise<Frame[]> {
 }
 
 async function subscribeStatic(page: Page, name: string) {
-  await send(page, { event: '_subscribe', payload: { _channel: name } });
+  await send(page, { event: '__subscribe__', payload: {}, __wskit: { channel: name } });
 }
 
 async function subscribeFamily(page: Page, scopeKey: string, name: string) {
-  await send(page, { event: '_subscribe', payload: { _channel: name, _channelScope: scopeKey } });
+  await send(page, {
+    event: '__subscribe__',
+    payload: {},
+    __wskit: { channel: name, channelScope: scopeKey },
+  });
 }
 
 async function waitForFrame(page: Page, predicate: (f: Frame) => boolean) {
@@ -72,8 +80,8 @@ test.describe('static-vs-family-isolation', () => {
     await subscribeStatic(a, 'general');
     await subscribeFamily(b, 'rooms', 'room:1');
 
-    await waitForFrame(a, (f) => f.event === '_subscribeOk');
-    await waitForFrame(b, (f) => f.event === '_subscribeOk');
+    await waitForFrame(a, (f) => f.event === '__subscribeOk__');
+    await waitForFrame(b, (f) => f.event === '__subscribeOk__');
 
     await send(c, { event: 'observe-static', payload: { name: 'general' } });
     await waitForFrame(
@@ -134,8 +142,8 @@ test.describe('static-vs-family-isolation', () => {
 
     await subscribeStatic(a, 'general');
     await subscribeFamily(b, 'rooms', 'room:1');
-    await waitForFrame(a, (f) => f.event === '_subscribeOk');
-    await waitForFrame(b, (f) => f.event === '_subscribeOk');
+    await waitForFrame(a, (f) => f.event === '__subscribeOk__');
+    await waitForFrame(b, (f) => f.event === '__subscribeOk__');
 
     // Kick on the static channel by the shared tag.
     await send(c, {
@@ -144,18 +152,19 @@ test.describe('static-vs-family-isolation', () => {
     });
     await waitForFrame(c, (f) => f.event === 'kick-ack' && f.payload.where === 'static');
 
-    // A receives _kicked for general.
-    await waitForFrame(a, (f) => f.event === '_kicked' && f.payload._channel === 'general');
+    // A receives __kicked__ for general.
+    await waitForFrame(a, (f) => f.event === '__kicked__' && f.__wskit?.channel === 'general');
 
-    // Wait a beat to let any stray _kicked land for B.
+    // Wait a beat to let any stray __kicked__ land for B.
     await b.waitForTimeout(300);
     const bFrames = await frames(b);
-    expect(bFrames.some((f) => f.event === '_kicked')).toBe(false);
+    expect(bFrames.some((f) => f.event === '__kicked__')).toBe(false);
 
     // B's connection is still alive: send-in-room round-trips a broadcast back.
     await send(b, {
       event: 'send-in-room',
-      payload: { name: 'room:1', text: 'still-here', _channel: 'room:1', _channelScope: 'rooms' },
+      payload: { name: 'room:1', text: 'still-here' },
+      __wskit: { channel: 'room:1', channelScope: 'rooms' },
     });
     await waitForFrame(
       b,
@@ -207,8 +216,8 @@ test.describe('static-vs-family-isolation', () => {
 
     await subscribeStatic(a, 'general');
     await subscribeFamily(b, 'rooms', 'room:1');
-    await waitForFrame(a, (f) => f.event === '_subscribeOk');
-    await waitForFrame(b, (f) => f.event === '_subscribeOk');
+    await waitForFrame(a, (f) => f.event === '__subscribeOk__');
+    await waitForFrame(b, (f) => f.event === '__subscribeOk__');
 
     await send(c, {
       event: 'kick-family',
@@ -220,20 +229,21 @@ test.describe('static-vs-family-isolation', () => {
     await waitForFrame(
       b,
       (f) =>
-        f.event === '_kicked' &&
-        f.payload._channel === 'room:1' &&
-        f.payload._channelScope === 'rooms',
+        f.event === '__kicked__' &&
+        f.__wskit?.channel === 'room:1' &&
+        f.__wskit?.channelScope === 'rooms',
     );
 
     // A is untouched.
     await a.waitForTimeout(300);
     const aFrames = await frames(a);
-    expect(aFrames.some((f) => f.event === '_kicked')).toBe(false);
+    expect(aFrames.some((f) => f.event === '__kicked__')).toBe(false);
 
     // A is still alive: send-in-general round-trips.
     await send(a, {
       event: 'send-in-general',
-      payload: { text: 'static-alive', _channel: 'general' },
+      payload: { text: 'static-alive' },
+      __wskit: { channel: 'general' },
     });
     await waitForFrame(
       a,

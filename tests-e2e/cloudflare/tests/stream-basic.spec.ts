@@ -50,7 +50,7 @@ test.describe('stream-basic', () => {
     expect(afterCount - snapCount).toBe(0);
   });
 
-  test('_streamCancel from a different connection is ignored', async ({ browser }, testInfo) => {
+  test('__streamCancel__ from a different connection is ignored', async ({ browser }, testInfo) => {
     const room = `test-${testInfo.testId}`;
     const ctxA = await browser.newContext();
     const ctxB = await browser.newContext();
@@ -70,7 +70,9 @@ test.describe('stream-basic', () => {
     // must ignore this — alice's stream should continue.
     await b.evaluate((sid) => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
-      ws?.send(JSON.stringify({ event: '_streamCancel', payload: { _streamId: sid } }));
+      ws?.send(
+        JSON.stringify({ event: '__streamCancel__', payload: {}, __wskit: { streamId: sid } }),
+      );
     }, aliceStreamId);
 
     // Alice's stream should complete normally despite the foreign cancel.

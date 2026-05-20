@@ -17,10 +17,14 @@ test.describe('stream-durable scoped (channel + namespace)', () => {
     const streamId = 'paginate-1';
 
     const a = await connect(page, WS_PATH, 'alice', room);
-    await send(page, a, { event: '_subscribe', payload: { _channel: 'rooms' } });
-    await waitForFrame(page, a, (f) => f.event === '_subscribeOk');
+    await send(page, a, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
+    await waitForFrame(page, a, (f) => f.event === '__subscribeOk__');
 
-    await send(page, a, { event: 'paginate', payload: { _channel: 'rooms', _streamId: streamId } });
+    await send(page, a, {
+      event: 'paginate',
+      payload: {},
+      __wskit: { channel: 'rooms', streamId },
+    });
 
     await page.waitForFunction(
       ([sid]) =>
@@ -36,35 +40,36 @@ test.describe('stream-durable scoped (channel + namespace)', () => {
     const b = await connect(page, WS_PATH, 'alice', room);
 
     // Persistence auto-rejoins alice's prior channel membership on the new
-    // socket — the server-emitted _subscribeOk carries source: 'server'. If
+    // socket — the server-emitted __subscribeOk__ carries source: 'server'. If
     // this assertion ever fails, the rest of the test would only fail with
     // a misleading not-found error, so verify it directly first.
     const rejoin = await waitForFrame(
       page,
       b,
-      (f) => f.event === '_subscribeOk' && f.payload._channel === 'rooms',
+      (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'rooms',
     );
     expect(rejoin.payload.source).toBe('server');
 
     await send(page, b, {
-      event: '_resumeStream',
-      payload: { _channel: 'rooms', _streamId: streamId, since: 0 },
+      event: '__resumeStream__',
+      payload: { lastKnownSeq: 0 },
+      __wskit: { channel: 'rooms', streamId },
     });
 
     await waitForFrame(
       page,
       b,
       (f) =>
-        f.event === '_streamEnd' &&
-        f.payload._streamId === streamId &&
-        f.payload._channel === 'rooms',
+        f.event === '__streamEnd__' &&
+        f.__wskit?.streamId === streamId &&
+        f.__wskit?.channel === 'rooms',
     );
 
     const firstSocketRows = (await frames(page, a))
-      .filter((f) => f.event === 'paginate' && f.payload._channel === 'rooms')
+      .filter((f) => f.event === 'paginate' && f.__wskit?.channel === 'rooms')
       .map((f) => f.payload.row as number);
     const secondSocketRows = (await frames(page, b))
-      .filter((f) => f.event === 'paginate' && f.payload._channel === 'rooms')
+      .filter((f) => f.event === 'paginate' && f.__wskit?.channel === 'rooms')
       .map((f) => f.payload.row as number);
     const combined = new Set([...firstSocketRows, ...secondSocketRows]);
     expect([...combined].sort((x, y) => x - y)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
@@ -77,17 +82,21 @@ test.describe('stream-durable scoped (channel + namespace)', () => {
     const streamId = 'history-1';
 
     const a = await connect(page, WS_PATH, 'alice', room);
-    await send(page, a, { event: '_subscribe', payload: { _channel: 'rooms' } });
-    await waitForFrame(page, a, (f) => f.event === '_subscribeOk');
+    await send(page, a, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
+    await waitForFrame(page, a, (f) => f.event === '__subscribeOk__');
 
-    await send(page, a, { event: 'history', payload: { _channel: 'rooms', _streamId: streamId } });
+    await send(page, a, {
+      event: 'history',
+      payload: {},
+      __wskit: { channel: 'rooms', streamId },
+    });
     await waitForFrame(
       page,
       a,
       (f) =>
-        f.event === '_streamEnd' &&
-        f.payload._streamId === streamId &&
-        f.payload._channel === 'rooms',
+        f.event === '__streamEnd__' &&
+        f.__wskit?.streamId === streamId &&
+        f.__wskit?.channel === 'rooms',
     );
 
     await closeSocket(page, a);
@@ -95,21 +104,22 @@ test.describe('stream-durable scoped (channel + namespace)', () => {
 
     const b = await connect(page, WS_PATH, 'alice', room);
     await send(page, b, {
-      event: '_resumeStream',
-      payload: { _channel: 'rooms', _streamId: streamId, since: 2 },
+      event: '__resumeStream__',
+      payload: { lastKnownSeq: 2 },
+      __wskit: { channel: 'rooms', streamId },
     });
 
     await waitForFrame(
       page,
       b,
       (f) =>
-        f.event === '_streamEnd' &&
-        f.payload._streamId === streamId &&
-        f.payload._channel === 'rooms',
+        f.event === '__streamEnd__' &&
+        f.__wskit?.streamId === streamId &&
+        f.__wskit?.channel === 'rooms',
     );
 
     const replayed = (await frames(page, b))
-      .filter((f) => f.event === 'history' && f.payload._channel === 'rooms')
+      .filter((f) => f.event === 'history' && f.__wskit?.channel === 'rooms')
       .map((f) => f.payload.idx as number);
     expect(replayed).toEqual([3, 4, 5]);
   });
@@ -123,12 +133,13 @@ test.describe('stream-durable scoped (channel + namespace)', () => {
     const a = await connect(page, WS_PATH, 'alice', room);
     await send(page, a, {
       event: 'logs',
-      payload: { _namespace: 'v1', _streamId: streamId },
+      payload: {},
+      __wskit: { namespace: 'v1', streamId },
     });
     await waitForFrame(
       page,
       a,
-      (f) => f.event === '_streamEnd' && f.payload._streamId === streamId,
+      (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
     );
 
     await closeSocket(page, a);
@@ -136,18 +147,19 @@ test.describe('stream-durable scoped (channel + namespace)', () => {
 
     const b = await connect(page, WS_PATH, 'alice', room);
     await send(page, b, {
-      event: '_resumeStream',
-      payload: { _namespace: 'v1', _streamId: streamId, since: 0 },
+      event: '__resumeStream__',
+      payload: { lastKnownSeq: 0 },
+      __wskit: { namespace: 'v1', streamId },
     });
 
     await waitForFrame(
       page,
       b,
-      (f) => f.event === '_streamEnd' && f.payload._streamId === streamId,
+      (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
     );
 
     const lines = (await frames(page, b))
-      .filter((f) => f.event === 'logs' && f.payload._namespace === 'v1')
+      .filter((f) => f.event === 'logs' && f.__wskit?.namespace === 'v1')
       .map((f) => f.payload.line as string);
     expect(lines).toEqual(['line-1', 'line-2', 'line-3', 'line-4', 'line-5']);
   });
@@ -170,11 +182,12 @@ test.describe('stream-durable scoped (channel + namespace)', () => {
       await installRig(pageB);
 
       const a = await connect(pageA, WS_PATH, 'alice', room);
-      await send(pageA, a, { event: '_subscribe', payload: { _channel: 'rooms' } });
-      await waitForFrame(pageA, a, (f) => f.event === '_subscribeOk');
+      await send(pageA, a, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
+      await waitForFrame(pageA, a, (f) => f.event === '__subscribeOk__');
       await send(pageA, a, {
         event: 'paginate',
-        payload: { _channel: 'rooms', _streamId: streamId },
+        payload: {},
+        __wskit: { channel: 'rooms', streamId },
       });
       await waitForFrame(
         pageA,
@@ -184,11 +197,12 @@ test.describe('stream-durable scoped (channel + namespace)', () => {
 
       const b = await connect(pageB, WS_PATH, 'bob', room);
       await send(pageB, b, {
-        event: '_resumeStream',
-        payload: { _channel: 'rooms', _streamId: streamId, since: 0 },
+        event: '__resumeStream__',
+        payload: { lastKnownSeq: 0 },
+        __wskit: { channel: 'rooms', streamId },
       });
 
-      const err = await waitForFrame(pageB, b, (f) => f.event === '_error');
+      const err = await waitForFrame(pageB, b, (f) => f.event === '__error__');
       expect(err.payload.code).toBe('stream-aborted');
       expect((err.payload.detail as { reason: string }).reason).toBe('not-found');
     } finally {
@@ -204,12 +218,13 @@ test.describe('stream-durable scoped (channel + namespace)', () => {
     const streamId = 'paused-1';
 
     const a = await connect(page, WS_PATH, 'alice', room);
-    await send(page, a, { event: '_subscribe', payload: { _channel: 'rooms' } });
-    await waitForFrame(page, a, (f) => f.event === '_subscribeOk');
+    await send(page, a, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
+    await waitForFrame(page, a, (f) => f.event === '__subscribeOk__');
 
     await send(page, a, {
       event: 'paused-feed',
-      payload: { _channel: 'rooms', _streamId: streamId },
+      payload: {},
+      __wskit: { channel: 'rooms', streamId },
     });
 
     await page.waitForFunction(
@@ -226,16 +241,17 @@ test.describe('stream-durable scoped (channel + namespace)', () => {
 
     await send(page, a, {
       event: 'pause',
-      payload: { _channel: 'rooms', _streamId: streamId, at: Date.now() },
+      payload: { at: Date.now() },
+      __wskit: { channel: 'rooms', streamId },
     });
 
     await waitForFrame(
       page,
       a,
       (f) =>
-        f.event === '_streamEnd' &&
-        f.payload._streamId === streamId &&
-        f.payload._channel === 'rooms',
+        f.event === '__streamEnd__' &&
+        f.__wskit?.streamId === streamId &&
+        f.__wskit?.channel === 'rooms',
     );
 
     await page.waitForTimeout(500);

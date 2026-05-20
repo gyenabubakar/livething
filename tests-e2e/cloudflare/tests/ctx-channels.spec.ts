@@ -15,7 +15,7 @@ test.describe('ctx-channels', () => {
     await expect(page.getByTestId('members-result')).toHaveText('room:1');
   });
 
-  test('ctx.channels.kick delivers _kicked to the target with the given reason', async ({
+  test('ctx.channels.kick delivers __kicked__ to the target with the given reason', async ({
     browser,
   }, testInfo) => {
     const room = `test-${testInfo.testId}`;

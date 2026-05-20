@@ -23,8 +23,8 @@
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
 			const data = JSON.parse(ev.data);
-			if (data.event === '_ack') {
-				const id = data.payload?._ackId;
+			if (data.event === '__ack__') {
+				const id = data.__wskit?.ackId;
 				if (id) ackIds = [...ackIds, id];
 			}
 			if (data.event === 'ack-check-ok') ackCheckOk = true;
@@ -32,11 +32,11 @@
 	}
 
 	function sendAckCheck(ackId: string) {
-		ws?.send(JSON.stringify({ event: 'ack-check', payload: { _ackId: ackId } }));
+		ws?.send(JSON.stringify({ event: 'ack-check', payload: {}, __wskit: { ackId } }));
 	}
 
 	function sendThrow(ackId: string) {
-		ws?.send(JSON.stringify({ event: 'throw-me', payload: { _ackId: ackId } }));
+		ws?.send(JSON.stringify({ event: 'throw-me', payload: {}, __wskit: { ackId } }));
 	}
 
 	function sendNoAckId() {

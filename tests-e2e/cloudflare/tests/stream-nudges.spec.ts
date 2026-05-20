@@ -155,7 +155,8 @@ test.describe('stream-nudges', () => {
       ws?.send(
         JSON.stringify({
           event: 'pause',
-          payload: { _streamId: 'fake-stream-id', leak: 'should-not-reach-handler' },
+          payload: { leak: 'should-not-reach-handler' },
+          __wskit: { streamId: 'fake-stream-id' },
         }),
       );
     });
@@ -192,7 +193,8 @@ test.describe('stream-nudges', () => {
       ws?.send(
         JSON.stringify({
           event: 'submit-form',
-          payload: { _streamId: id, data: 'private' },
+          payload: { data: 'private' },
+          __wskit: { streamId: id },
         }),
       );
     }, streamId);
@@ -263,13 +265,15 @@ test.describe('stream-nudges', () => {
         ws.send(
           JSON.stringify({
             event: 'speed-up',
-            payload: { _streamId: streamId, _messageId: 'dup-id', factor: 2 },
+            payload: { factor: 2 },
+            __wskit: { streamId, messageId: 'dup-id' },
           }),
         );
         ws.send(
           JSON.stringify({
             event: 'speed-up',
-            payload: { _streamId: streamId, _messageId: 'dup-id', factor: 2 },
+            payload: { factor: 2 },
+            __wskit: { streamId, messageId: 'dup-id' },
           }),
         );
       },

@@ -20,12 +20,12 @@ test.describe('stream-nudges matrix', () => {
     const room = `snm-${testInfo.testId}`;
     await openRig(page);
     const a = await connect(page, WS_PATH, 'alice', room);
-    await send(page, a, { event: '_subscribe', payload: { _channel: 'rooms' } });
-    await waitForFrame(page, a, (f) => f.event === '_subscribeOk');
+    await send(page, a, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
+    await waitForFrame(page, a, (f) => f.event === '__subscribeOk__');
 
-    await send(page, a, { event: 'channel-tokens', payload: { _channel: 'rooms' } });
-    const ok = await waitForFrame(page, a, (f) => f.event === '_streamOk');
-    const streamId = ok.payload._streamId as string;
+    await send(page, a, { event: 'channel-tokens', payload: {}, __wskit: { channel: 'rooms' } });
+    const ok = await waitForFrame(page, a, (f) => f.event === '__streamOk__');
+    const streamId = ok.__wskit?.streamId as string;
     await page.waitForFunction(
       ([sid]) =>
         (window.__wskitFrames!(sid as string) ?? []).filter(
@@ -36,12 +36,13 @@ test.describe('stream-nudges matrix', () => {
 
     await send(page, a, {
       event: 'stop',
-      payload: { _channel: 'rooms', _streamId: streamId },
+      payload: {},
+      __wskit: { channel: 'rooms', streamId },
     });
     await waitForFrame(
       page,
       a,
-      (f) => f.event === '_streamEnd' && f.payload._streamId === streamId,
+      (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
     );
 
     const tokens = await countChunks(page, a, 'channel-tokens');
@@ -56,9 +57,9 @@ test.describe('stream-nudges matrix', () => {
     await openRig(page);
     const a = await connect(page, WS_PATH, 'alice', room);
 
-    await send(page, a, { event: 'ns-tokens', payload: { _namespace: 'v1' } });
-    const ok = await waitForFrame(page, a, (f) => f.event === '_streamOk');
-    const streamId = ok.payload._streamId as string;
+    await send(page, a, { event: 'ns-tokens', payload: {}, __wskit: { namespace: 'v1' } });
+    const ok = await waitForFrame(page, a, (f) => f.event === '__streamOk__');
+    const streamId = ok.__wskit?.streamId as string;
     await page.waitForFunction(
       ([sid]) =>
         (window.__wskitFrames!(sid as string) ?? []).filter(
@@ -69,12 +70,13 @@ test.describe('stream-nudges matrix', () => {
 
     await send(page, a, {
       event: 'stop',
-      payload: { _namespace: 'v1', _streamId: streamId },
+      payload: {},
+      __wskit: { namespace: 'v1', streamId },
     });
     await waitForFrame(
       page,
       a,
-      (f) => f.event === '_streamEnd' && f.payload._streamId === streamId,
+      (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
     );
 
     const tokens = await countChunks(page, a, 'ns-tokens');
@@ -88,15 +90,16 @@ test.describe('stream-nudges matrix', () => {
     const room = `snm-${testInfo.testId}`;
     await openRig(page);
     const a = await connect(page, WS_PATH, 'alice', room);
-    await send(page, a, { event: '_subscribe', payload: { _channel: 'rooms' } });
-    await waitForFrame(page, a, (f) => f.event === '_subscribeOk');
+    await send(page, a, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
+    await waitForFrame(page, a, (f) => f.event === '__subscribeOk__');
 
     const streamId = 'history-nudged-1';
     await send(page, a, {
       event: 'history-nudged',
-      payload: { _channel: 'rooms', _streamId: streamId },
+      payload: {},
+      __wskit: { channel: 'rooms', streamId },
     });
-    await waitForFrame(page, a, (f) => f.event === '_streamOk');
+    await waitForFrame(page, a, (f) => f.event === '__streamOk__');
     await page.waitForFunction(
       ([sid]) =>
         (window.__wskitFrames!(sid as string) ?? []).filter(
@@ -107,12 +110,13 @@ test.describe('stream-nudges matrix', () => {
 
     await send(page, a, {
       event: 'stop',
-      payload: { _channel: 'rooms', _streamId: streamId },
+      payload: {},
+      __wskit: { channel: 'rooms', streamId },
     });
     await waitForFrame(
       page,
       a,
-      (f) => f.event === '_streamEnd' && f.payload._streamId === streamId,
+      (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
     );
 
     const chunks = await countChunks(page, a, 'history-nudged');
@@ -130,9 +134,10 @@ test.describe('stream-nudges matrix', () => {
     const streamId = 'audit-nudged-1';
     await send(page, a, {
       event: 'audit-nudged',
-      payload: { _namespace: 'v1', _streamId: streamId },
+      payload: {},
+      __wskit: { namespace: 'v1', streamId },
     });
-    await waitForFrame(page, a, (f) => f.event === '_streamOk');
+    await waitForFrame(page, a, (f) => f.event === '__streamOk__');
     await page.waitForFunction(
       ([sid]) =>
         (window.__wskitFrames!(sid as string) ?? []).filter(
@@ -143,12 +148,13 @@ test.describe('stream-nudges matrix', () => {
 
     await send(page, a, {
       event: 'stop',
-      payload: { _namespace: 'v1', _streamId: streamId },
+      payload: {},
+      __wskit: { namespace: 'v1', streamId },
     });
     await waitForFrame(
       page,
       a,
-      (f) => f.event === '_streamEnd' && f.payload._streamId === streamId,
+      (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
     );
 
     const chunks = await countChunks(page, a, 'audit-nudged');

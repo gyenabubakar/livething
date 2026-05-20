@@ -22,7 +22,7 @@
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
 			const data = JSON.parse(ev.data);
-			if (data.event === '_error') {
+			if (data.event === '__error__') {
 				errorResult = `${data.payload?.code ?? ''}:${JSON.stringify(data.payload?.detail ?? {})}`;
 			}
 		};

@@ -35,23 +35,23 @@ test.describe('channel-dynamic', () => {
     await expect(page.getByTestId('subscribe-error')).toHaveText('admin:channel-not-found');
   });
 
-  test('top-level events tagged with _channel do not fall back to top-level handlers', async ({
+  test('top-level events tagged with a channel do not fall back to top-level handlers', async ({
     page,
   }, testInfo) => {
-    // Scope isolation: a client sending `top-only-action` with `_channel`
-    // claims the event happens inside that channel scope. The channel
+    // Scope isolation: a client sending `top-only-action` with a channel
+    // marker claims the event happens inside that channel scope. The channel
     // scope does NOT register `top-only-action`, so the engine must drop
     // the message rather than fall through to the top-level handler.
     await openPage(page, `test-${testInfo.testId}`);
 
-    // Sanity check: top-level dispatch (no `_channel`) DOES fire the handler.
+    // Sanity check: top-level dispatch (no channel marker) DOES fire the handler.
     await page.evaluate(() => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       ws?.send(JSON.stringify({ event: 'top-only-action', payload: {} }));
     });
     await expect(page.getByTestId('top-only-action-fired')).toHaveText('testuser');
 
-    // Now send the same event with `_channel: 'room:general'`. With scope
+    // Now send the same event with `channel: 'room:general'`. With scope
     // isolation, the channel-scoped lookup misses and the message is
     // silently dropped — the `top-only-action-fired` value must NOT change
     // from the previous run.
@@ -60,7 +60,8 @@ test.describe('channel-dynamic', () => {
       ws?.send(
         JSON.stringify({
           event: 'top-only-action',
-          payload: { _channel: 'room:general', _channelScope: 'room' },
+          payload: {},
+          __wskit: { channel: 'room:general', channelScope: 'room' },
         }),
       );
     });
@@ -87,18 +88,19 @@ test.describe('channel-dynamic', () => {
     // throw escape the WS message callback.
     await openPage(page, `test-${testInfo.testId}`);
 
-    // Send a bogus _replay with regex-failing channel under a known scope.
+    // Send a bogus __replay__ with regex-failing channel under a known scope.
     await page.evaluate(() => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       ws?.send(
         JSON.stringify({
-          event: '_replay',
-          payload: { _channel: 'admin', _channelScope: 'room', since: 0 },
+          event: '__replay__',
+          payload: { lastKnownSeq: 0 },
+          __wskit: { channel: 'admin', channelScope: 'room' },
         }),
       );
     });
 
-    // Server emits _error with the routing markers preserved.
+    // Server emits __error__ with the routing markers preserved.
     await expect(page.getByTestId('subscribe-error')).toHaveText('admin:channel-not-found');
     await expect(page.getByTestId('subscribe-error-scope')).toHaveText('room');
 
@@ -252,7 +254,8 @@ test.describe('channel-dynamic', () => {
       ws?.send(
         JSON.stringify({
           event: 'trigger-manual-validation',
-          payload: { _channel: 'room:general', _channelScope: 'room' },
+          payload: {},
+          __wskit: { channel: 'room:general', channelScope: 'room' },
         }),
       );
     });
@@ -279,7 +282,8 @@ test.describe('channel-dynamic', () => {
       ws?.send(
         JSON.stringify({
           event: 'trigger-scoped-error',
-          payload: { _channel: 'room:general', _channelScope: 'room' },
+          payload: {},
+          __wskit: { channel: 'room:general', channelScope: 'room' },
         }),
       );
     });
@@ -292,10 +296,10 @@ test.describe('channel-dynamic', () => {
     );
   });
 
-  test('regular events tagged with an unknown _namespace do not fall back to top-level handlers', async ({
+  test('regular events tagged with an unknown namespace do not fall back to top-level handlers', async ({
     page,
   }, testInfo) => {
-    // A client tagging `top-only-action` with `_namespace: 'typo'` claims
+    // A client tagging `top-only-action` with `namespace: 'typo'` claims
     // the event happens inside a namespace scope. The namespace doesn't
     // exist — the engine must reject the message rather than fall through
     // to the top-level handler.
@@ -309,14 +313,15 @@ test.describe('channel-dynamic', () => {
     await expect(page.getByTestId('top-only-action-fired')).toHaveText('testuser');
 
     // Now claim an unknown namespace. Pre-fix this fell back to the
-    // top-level handler. Post-fix the engine emits a `_error` with code
+    // top-level handler. Post-fix the engine emits a `__error__` with code
     // `namespace-not-found` and the top-level handler does not fire again.
     await page.evaluate(() => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       ws?.send(
         JSON.stringify({
           event: 'top-only-action',
-          payload: { _namespace: 'typo' },
+          payload: {},
+          __wskit: { namespace: 'typo' },
         }),
       );
     });
@@ -347,13 +352,21 @@ test.describe('channel-dynamic', () => {
         const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
         function open(username: string): Promise<{
           ws: WebSocket;
-          messages: { event: string; payload: Record<string, unknown> }[];
+          messages: {
+            event: string;
+            payload: Record<string, unknown>;
+            __wskit?: Record<string, unknown>;
+          }[];
         }> {
           return new Promise((resolve, reject) => {
             const ws = new WebSocket(
               `${proto}//${location.host}/ws/channel-dynamic?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
             );
-            const messages: { event: string; payload: Record<string, unknown> }[] = [];
+            const messages: {
+              event: string;
+              payload: Record<string, unknown>;
+              __wskit?: Record<string, unknown>;
+            }[] = [];
             ws.onmessage = (ev) => {
               if (typeof ev.data !== 'string') return;
               messages.push(JSON.parse(ev.data));
@@ -375,8 +388,9 @@ test.describe('channel-dynamic', () => {
       ({ h, room }) => {
         const handles = h as unknown as Record<string, { ws: WebSocket }>;
         const frame = {
-          event: '_subscribe',
-          payload: { _channel: `room:${room}`, _channelScope: 'room' },
+          event: '__subscribe__',
+          payload: {},
+          __wskit: { channel: `room:${room}`, channelScope: 'room' },
         };
         handles.a!.ws.send(JSON.stringify(frame));
         handles.b!.ws.send(JSON.stringify(frame));
@@ -389,9 +403,15 @@ test.describe('channel-dynamic', () => {
         ({ h, name }) => {
           const handles = h as unknown as Record<
             string,
-            { messages: { event: string; payload: Record<string, unknown> }[] }
+            {
+              messages: {
+                event: string;
+                payload: Record<string, unknown>;
+                __wskit?: Record<string, unknown>;
+              }[];
+            }
           >;
-          return handles[name]!.messages.filter((m) => m.event === '_memberJoin').map((m) =>
+          return handles[name]!.messages.filter((m) => m.event === '__memberJoin__').map((m) =>
             String(m.payload.connectionId),
           );
         },
@@ -408,9 +428,15 @@ test.describe('channel-dynamic', () => {
             (
               h as unknown as Record<
                 string,
-                { messages: { event: string; payload: Record<string, unknown> }[] }
+                {
+                  messages: {
+                    event: string;
+                    payload: Record<string, unknown>;
+                    __wskit?: Record<string, unknown>;
+                  }[];
+                }
               >
-            ).a!.messages.some((m) => m.event === '_subscribeOk'),
+            ).a!.messages.some((m) => m.event === '__subscribeOk__'),
           { h: handle },
         );
         const okB = await page.evaluate(
@@ -418,9 +444,15 @@ test.describe('channel-dynamic', () => {
             (
               h as unknown as Record<
                 string,
-                { messages: { event: string; payload: Record<string, unknown> }[] }
+                {
+                  messages: {
+                    event: string;
+                    payload: Record<string, unknown>;
+                    __wskit?: Record<string, unknown>;
+                  }[];
+                }
               >
-            ).b!.messages.some((m) => m.event === '_subscribeOk'),
+            ).b!.messages.some((m) => m.event === '__subscribeOk__'),
           { h: handle },
         );
         return okA && okB;
@@ -451,11 +483,17 @@ test.describe('channel-dynamic', () => {
         const msgs = (
           h as unknown as Record<
             string,
-            { messages: { event: string; payload: Record<string, unknown> }[] }
+            {
+              messages: {
+                event: string;
+                payload: Record<string, unknown>;
+                __wskit?: Record<string, unknown>;
+              }[];
+            }
           >
         ).a!.messages;
-        const ok = msgs.find((m) => m.event === '_subscribeOk');
-        return String(ok?.payload?._channel ?? '');
+        const ok = msgs.find((m) => m.event === '__subscribeOk__');
+        return String(ok?.__wskit?.channel ?? '');
       },
       { h: handle },
     );
@@ -493,7 +531,7 @@ test.describe('channel-dynamic', () => {
     await ctxB.close();
   });
 
-  test('_subscribe with a __proto__ payload key cannot poison the data the onBeforeSubscribe hook sees', async ({
+  test('__subscribe__ with a __proto__ payload key cannot poison the data the onBeforeSubscribe hook sees', async ({
     page,
   }, testInfo) => {
     await openPage(page, `test-${testInfo.testId}`);
@@ -501,14 +539,18 @@ test.describe('channel-dynamic', () => {
     const frames = await page.evaluate(async () => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       if (!ws) throw new Error('socket not exposed');
-      const got: { event: string; payload: Record<string, unknown> }[] = [];
+      const got: {
+        event: string;
+        payload: Record<string, unknown>;
+        __wskit?: Record<string, unknown>;
+      }[] = [];
       const original = ws.onmessage;
       ws.onmessage = (ev) => {
         if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
         if (typeof original === 'function') original.call(ws, ev);
       };
       const polluted = JSON.parse(
-        '{"event":"_subscribe","payload":{"_channel":"proto:x","_channelScope":"proto-probe","__proto__":{"role":"admin"}}}',
+        '{"event":"__subscribe__","payload":{"__proto__":{"role":"admin"}},"__wskit":{"channel":"proto:x","channelScope":"proto-probe"}}',
       );
       ws.send(JSON.stringify(polluted));
       await new Promise((r) => setTimeout(r, 400));
@@ -516,13 +558,15 @@ test.describe('channel-dynamic', () => {
       return got;
     });
 
-    const ok = frames.find((f) => f.event === '_subscribeOk' && f.payload?._channel === 'proto:x');
+    const ok = frames.find(
+      (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'proto:x',
+    );
     expect(ok).toBeTruthy();
-    const err = frames.find((f) => f.event === '_error' && f.payload?._channel === 'proto:x');
+    const err = frames.find((f) => f.event === '__error__' && f.__wskit?.channel === 'proto:x');
     expect(err).toBeUndefined();
   });
 
-  test('_subscribe with an own role=admin field is still rejected (control case)', async ({
+  test('__subscribe__ with an own role=admin field is still rejected (control case)', async ({
     page,
   }, testInfo) => {
     await openPage(page, `test-${testInfo.testId}`);
@@ -530,7 +574,11 @@ test.describe('channel-dynamic', () => {
     const frames = await page.evaluate(async () => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       if (!ws) throw new Error('socket not exposed');
-      const got: { event: string; payload: Record<string, unknown> }[] = [];
+      const got: {
+        event: string;
+        payload: Record<string, unknown>;
+        __wskit?: Record<string, unknown>;
+      }[] = [];
       const original = ws.onmessage;
       ws.onmessage = (ev) => {
         if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
@@ -538,8 +586,9 @@ test.describe('channel-dynamic', () => {
       };
       ws.send(
         JSON.stringify({
-          event: '_subscribe',
-          payload: { _channel: 'proto:y', _channelScope: 'proto-probe', role: 'admin' },
+          event: '__subscribe__',
+          payload: { role: 'admin' },
+          __wskit: { channel: 'proto:y', channelScope: 'proto-probe' },
         }),
       );
       await new Promise((r) => setTimeout(r, 400));
@@ -547,25 +596,31 @@ test.describe('channel-dynamic', () => {
       return got;
     });
 
-    const err = frames.find((f) => f.event === '_error' && f.payload?._channel === 'proto:y');
+    const err = frames.find((f) => f.event === '__error__' && f.__wskit?.channel === 'proto:y');
     expect(err).toBeTruthy();
-    const ok = frames.find((f) => f.event === '_subscribeOk' && f.payload?._channel === 'proto:y');
+    const ok = frames.find(
+      (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'proto:y',
+    );
     expect(ok).toBeUndefined();
   });
 
-  test('channelHandle.subscribe on a dynamic family stamps _channelScope and source server', async ({
+  test('channelHandle.subscribe on a dynamic family stamps channelScope and source server', async ({
     page,
   }, testInfo) => {
     // Pins the server-side subscribe path for the dynamic-channel family
-    // case. The wire frame must carry both `_channel: 'room:auto'` and
-    // `_channelScope: 'room'` so the client SDK can route to the right
+    // case. The wire frame must carry both `channel: 'room:auto'` and
+    // `channelScope: 'room'` so the client SDK can route to the right
     // family handle, plus `source: 'server'` to mark it as unsolicited.
     await openPage(page, `test-${testInfo.testId}`);
 
     const frames = await page.evaluate(async () => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       if (!ws) throw new Error('socket not exposed');
-      const got: { event: string; payload: Record<string, unknown> }[] = [];
+      const got: {
+        event: string;
+        payload: Record<string, unknown>;
+        __wskit?: Record<string, unknown>;
+      }[] = [];
       const original = ws.onmessage;
       ws.onmessage = (ev) => {
         if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
@@ -579,7 +634,7 @@ test.describe('channel-dynamic', () => {
       );
       const deadline = Date.now() + 2000;
       while (Date.now() < deadline) {
-        if (got.some((m) => m.event === '_subscribeOk' && m.payload?._channel === 'room:auto'))
+        if (got.some((m) => m.event === '__subscribeOk__' && m.__wskit?.channel === 'room:auto'))
           break;
         await new Promise((r) => setTimeout(r, 20));
       }
@@ -587,10 +642,10 @@ test.describe('channel-dynamic', () => {
     });
 
     const ok = frames.find(
-      (f) => f.event === '_subscribeOk' && f.payload?._channel === 'room:auto',
+      (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'room:auto',
     );
     expect(ok).toBeDefined();
-    expect(ok!.payload._channelScope).toBe('room');
+    expect(ok!.__wskit?.channelScope).toBe('room');
     expect(ok!.payload.source).toBe('server');
   });
 });

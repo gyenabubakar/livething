@@ -10,7 +10,7 @@ async function tickAndReadSeq(page: Page, prev: number): Promise<number> {
 }
 
 test.describe('sequence', () => {
-  test('outgoing frames carry an incrementing _seq number', async ({ page }, testInfo) => {
+  test('outgoing frames carry an incrementing seq number', async ({ page }, testInfo) => {
     const room = `test-${testInfo.testId}`;
     await page.goto(`/sequence?room=${room}`);
     await page.getByTestId('connect').click();

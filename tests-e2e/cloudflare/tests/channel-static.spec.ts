@@ -35,18 +35,22 @@ test.describe('channel-static', () => {
     );
   });
 
-  test('_subscribe with non-string _channel emits _error without forwarding the bad field', async ({
+  test('__subscribe__ with non-string channel emits __error__ without forwarding the bad field', async ({
     page,
   }, testInfo) => {
-    // A buggy or hostile client might send `_channel: 42`. The error
+    // A buggy or hostile client might send `channel: 42`. The error
     // frame the server sends back must not carry that number on its
-    // routing fields — the wire contract on `_channel` is "string only".
+    // routing fields — the wire contract on `channel` is "string only".
     await openPage(page, `test-${testInfo.testId}`);
 
     const errors = await page.evaluate(async () => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       if (!ws) throw new Error('socket not exposed');
-      const got: { event: string; payload: Record<string, unknown> }[] = [];
+      const got: {
+        event: string;
+        payload: Record<string, unknown>;
+        __wskit?: Record<string, unknown>;
+      }[] = [];
       const original = ws.onmessage;
       ws.onmessage = (ev) => {
         if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
@@ -54,21 +58,22 @@ test.describe('channel-static', () => {
       };
       ws.send(
         JSON.stringify({
-          event: '_subscribe',
-          payload: { _channel: 42, _channelScope: { evil: true } },
+          event: '__subscribe__',
+          payload: {},
+          __wskit: { channel: 42, channelScope: { evil: true } },
         }),
       );
       await new Promise((r) => setTimeout(r, 300));
       ws.onmessage = original;
-      return got.filter((m) => m.event === '_error');
+      return got.filter((m) => m.event === '__error__');
     });
 
     expect(errors.length).toBeGreaterThan(0);
     const err = errors[0]!;
     // The error reaches the client. Routing fields are stripped because
     // the inputs were not strings.
-    expect(err.payload._channel).toBeUndefined();
-    expect(err.payload._channelScope).toBeUndefined();
+    expect(err.__wskit?.channel).toBeUndefined();
+    expect(err.__wskit?.channelScope).toBeUndefined();
   });
 
   test('_unsubscribe when not subscribed emits _error channel-not-subscribed', async ({
@@ -492,13 +497,21 @@ test.describe('channel-static', () => {
         const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
         function open(username: string): Promise<{
           ws: WebSocket;
-          messages: { event: string; payload: Record<string, unknown> }[];
+          messages: {
+            event: string;
+            payload: Record<string, unknown>;
+            __wskit?: Record<string, unknown>;
+          }[];
         }> {
           return new Promise((resolve, reject) => {
             const ws = new WebSocket(
               `${proto}//${location.host}/ws/channel-static?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
             );
-            const messages: { event: string; payload: Record<string, unknown> }[] = [];
+            const messages: {
+              event: string;
+              payload: Record<string, unknown>;
+              __wskit?: Record<string, unknown>;
+            }[] = [];
             ws.onmessage = (ev) => {
               if (typeof ev.data !== 'string') return;
               messages.push(JSON.parse(ev.data));
@@ -518,7 +531,7 @@ test.describe('channel-static', () => {
     await page.evaluate(
       ({ h }) => {
         const handles = h as unknown as Record<string, { ws: WebSocket }>;
-        const subscribe = { event: '_subscribe', payload: { _channel: 'room' } };
+        const subscribe = { event: '__subscribe__', payload: {}, __wskit: { channel: 'room' } };
         handles.thrower_a!.ws.send(JSON.stringify(subscribe));
         handles.thrower_b!.ws.send(JSON.stringify(subscribe));
         handles.observer!.ws.send(JSON.stringify(subscribe));
@@ -531,7 +544,13 @@ test.describe('channel-static', () => {
         ({ h, name, event }) => {
           const handles = h as unknown as Record<
             string,
-            { messages: { event: string; payload: Record<string, unknown> }[] }
+            {
+              messages: {
+                event: string;
+                payload: Record<string, unknown>;
+                __wskit?: Record<string, unknown>;
+              }[];
+            }
           >;
           return handles[name]!.messages.filter((m) => m.event === event).length;
         },
@@ -542,9 +561,9 @@ test.describe('channel-static', () => {
     await expect
       .poll(
         async () =>
-          (await countEvents('thrower_a', '_subscribeOk')) +
-          (await countEvents('thrower_b', '_subscribeOk')) +
-          (await countEvents('observer', '_subscribeOk')),
+          (await countEvents('thrower_a', '__subscribeOk__')) +
+          (await countEvents('thrower_b', '__subscribeOk__')) +
+          (await countEvents('observer', '__subscribeOk__')),
       )
       .toBe(3);
 
@@ -576,16 +595,22 @@ test.describe('channel-static', () => {
     );
 
     await expect.poll(async () => countEvents('observer', 'kick-ack')).toBe(1);
-    await expect.poll(async () => countEvents('observer', '_memberLeave')).toBe(2);
+    await expect.poll(async () => countEvents('observer', '__memberLeave__')).toBe(2);
 
     const observerErrors = await page.evaluate(
       ({ h }) => {
         const handles = h as unknown as Record<
           string,
-          { messages: { event: string; payload: Record<string, unknown> }[] }
+          {
+            messages: {
+              event: string;
+              payload: Record<string, unknown>;
+              __wskit?: Record<string, unknown>;
+            }[];
+          }
         >;
         return handles.observer!.messages.filter(
-          (m) => m.event === '_error' && !m.payload?._channel,
+          (m) => m.event === '__error__' && !m.__wskit?.channel,
         ).length;
       },
       { h: handle },
@@ -616,7 +641,11 @@ test.describe('channel-static', () => {
     const captured = await page.evaluate(async () => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       if (!ws) throw new Error('socket not exposed');
-      const got: { event: string; payload: Record<string, unknown> }[] = [];
+      const got: {
+        event: string;
+        payload: Record<string, unknown>;
+        __wskit?: Record<string, unknown>;
+      }[] = [];
       const original = ws.onmessage;
       ws.onmessage = (ev) => {
         if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
@@ -624,17 +653,17 @@ test.describe('channel-static', () => {
       };
       ws.send(JSON.stringify({ event: 'trigger-server-subscribe', payload: {} }));
 
-      // Wait until the _subscribeOk for room2 has arrived (or time out).
+      // Wait until the __subscribeOk__ for room2 has arrived (or time out).
       const deadline = Date.now() + 2000;
       while (Date.now() < deadline) {
-        if (got.some((m) => m.event === '_subscribeOk' && m.payload?._channel === 'room2')) break;
+        if (got.some((m) => m.event === '__subscribeOk__' && m.__wskit?.channel === 'room2')) break;
         await new Promise((r) => setTimeout(r, 20));
       }
       return got;
     });
 
     const subscribeOk = captured.find(
-      (m) => m.event === '_subscribeOk' && m.payload?._channel === 'room2',
+      (m) => m.event === '__subscribeOk__' && m.__wskit?.channel === 'room2',
     );
     expect(subscribeOk).toBeDefined();
     expect(subscribeOk!.payload.source).toBe('server');
@@ -651,7 +680,11 @@ test.describe('channel-static', () => {
     const counts = await page.evaluate(async () => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       if (!ws) throw new Error('socket not exposed');
-      const got: { event: string; payload: Record<string, unknown> }[] = [];
+      const got: {
+        event: string;
+        payload: Record<string, unknown>;
+        __wskit?: Record<string, unknown>;
+      }[] = [];
       const original = ws.onmessage;
       ws.onmessage = (ev) => {
         if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
@@ -663,7 +696,7 @@ test.describe('channel-static', () => {
       const deadline = Date.now() + 2000;
       while (Date.now() < deadline) {
         const okCount = got.filter(
-          (m) => m.event === '_subscribeOk' && m.payload?._channel === 'room2',
+          (m) => m.event === '__subscribeOk__' && m.__wskit?.channel === 'room2',
         ).length;
         if (okCount >= 1) await new Promise((r) => setTimeout(r, 200));
         if (Date.now() >= deadline - 200) break;
@@ -671,10 +704,11 @@ test.describe('channel-static', () => {
       }
       return {
         subscribeOks: got.filter(
-          (m) => m.event === '_subscribeOk' && m.payload?._channel === 'room2',
+          (m) => m.event === '__subscribeOk__' && m.__wskit?.channel === 'room2',
         ).length,
-        memberJoins: got.filter((m) => m.event === '_memberJoin' && m.payload?._channel === 'room2')
-          .length,
+        memberJoins: got.filter(
+          (m) => m.event === '__memberJoin__' && m.__wskit?.channel === 'room2',
+        ).length,
       };
     });
 
@@ -716,7 +750,11 @@ test.describe('channel-static', () => {
     const aliceCaptureSetup = pageA.evaluate(() => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       if (!ws) throw new Error('socket not exposed');
-      const captured: { event: string; payload: Record<string, unknown> }[] = [];
+      const captured: {
+        event: string;
+        payload: Record<string, unknown>;
+        __wskit?: Record<string, unknown>;
+      }[] = [];
       (window as unknown as { __capture?: typeof captured }).__capture = captured;
       const original = ws.onmessage;
       ws.onmessage = (ev) => {
@@ -726,15 +764,15 @@ test.describe('channel-static', () => {
     });
     await aliceCaptureSetup;
 
-    // bob broadcasts into room2. Routing fields live inside `payload` on
-    // the wire — the engine strips them before validating against the
-    // event schema.
+    // bob broadcasts into room2. Routing markers live in `__wskit`; the
+    // engine routes on them and `payload` carries only the event data.
     await pageB.evaluate(() => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       ws?.send(
         JSON.stringify({
           event: 'send-message',
-          payload: { text: 'hello from bob', _channel: 'room2' },
+          payload: { text: 'hello from bob' },
+          __wskit: { channel: 'room2' },
         }),
       );
     });
@@ -746,13 +784,17 @@ test.describe('channel-static', () => {
         const captured =
           (
             window as unknown as {
-              __capture?: { event: string; payload: Record<string, unknown> }[];
+              __capture?: {
+                event: string;
+                payload: Record<string, unknown>;
+                __wskit?: Record<string, unknown>;
+              }[];
             }
           ).__capture ?? [];
         const hit = captured.find(
           (m) =>
             m.event === 'room-message' &&
-            m.payload?._channel === 'room2' &&
+            m.__wskit?.channel === 'room2' &&
             m.payload?.text === 'hello from bob',
         );
         if (hit) return true;

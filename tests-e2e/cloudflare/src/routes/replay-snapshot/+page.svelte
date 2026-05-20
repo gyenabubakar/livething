@@ -43,10 +43,11 @@
 			const msg = JSON.parse(event.data as string) as {
 				event: string;
 				payload: Record<string, unknown>;
+				__wskit?: Record<string, unknown>;
 			};
-			const { event: evt, payload } = msg;
+			const { event: evt, payload, __wskit } = msg;
 
-			if (payload?._seq) lastSeq = payload._seq as number;
+			if (__wskit?.seq) lastSeq = __wskit.seq as number;
 
 			if (evt === 'doc-snapshot') {
 				const entry = `${payload.docId}:${payload.title}`;
@@ -66,8 +67,8 @@
 					roomReplayCount++;
 					roomSnapshots = [...roomSnapshots, entry];
 				}
-			} else if (evt === '_subscribeOk') {
-				if (payload._channel === 'snapshot-room') roomSubscribed = 'subscribed';
+			} else if (evt === '__subscribeOk__') {
+				if (__wskit?.channel === 'snapshot-room') roomSubscribed = 'subscribed';
 			}
 		};
 	}
@@ -76,8 +77,12 @@
 		ws?.close();
 	}
 
-	function send(event: string, payload: Record<string, unknown>) {
-		ws?.send(JSON.stringify({ event, payload }));
+	function send(
+		event: string,
+		payload: Record<string, unknown>,
+		__wskit?: Record<string, unknown>,
+	) {
+		ws?.send(JSON.stringify(__wskit ? { event, payload, __wskit } : { event, payload }));
 	}
 
 	function updateDoc(docId: string, title: string) {
@@ -98,7 +103,7 @@
 		replayCount = 0;
 		snapshots = [];
 		replayRequested = true;
-		ws?.send(JSON.stringify({ event: '_replay', payload: { since: 0 } }));
+		ws?.send(JSON.stringify({ event: '__replay__', payload: { lastKnownSeq: 0 }, __wskit: {} }));
 	}
 
 	function incrementCounter(key: string, amount: number) {
@@ -109,7 +114,7 @@
 		counterReplayCount = 0;
 		counterSnapshots = [];
 		replayRequested = true;
-		ws?.send(JSON.stringify({ event: '_replay', payload: { since: 0 } }));
+		ws?.send(JSON.stringify({ event: '__replay__', payload: { lastKnownSeq: 0 }, __wskit: {} }));
 	}
 
 	function testMaxAge() {
@@ -118,18 +123,24 @@
 	}
 
 	function joinRoom() {
-		send('_subscribe', { _channel: 'snapshot-room' });
+		send('__subscribe__', {}, { channel: 'snapshot-room' });
 	}
 
 	function updateRoomDoc(docId: string, title: string) {
-		send('update-room-doc', { docId, title, _channel: 'snapshot-room' });
+		send('update-room-doc', { docId, title }, { channel: 'snapshot-room' });
 	}
 
 	function requestRoomReplay() {
 		roomReplayCount = 0;
 		roomSnapshots = [];
 		replayRequested = true;
-		ws?.send(JSON.stringify({ event: '_replay', payload: { since: 0, _channel: 'snapshot-room' } }));
+		ws?.send(
+			JSON.stringify({
+				event: '__replay__',
+				payload: { lastKnownSeq: 0 },
+				__wskit: { channel: 'snapshot-room' },
+			}),
+		);
 	}
 </script>
 

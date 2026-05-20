@@ -44,20 +44,24 @@
 				case 'validation-error-fired':
 					validationError = `validation-error:${data.payload?.event}`;
 					break;
-				case '_subscribeOk':
+				case '__subscribeOk__':
 					chatSubscribed = true;
 					break;
-				case '_error':
-					if (data.payload?._streamId) {
-						streamError = `${data.payload.code}:${data.payload._streamId}`;
+				case '__error__':
+					if (data.__wskit?.streamId) {
+						streamError = `${data.payload.code}:${data.__wskit.streamId}`;
 					}
 					break;
 			}
 		};
 	}
 
-	function send(event: string, payload: Record<string, unknown> = {}) {
-		ws?.send(JSON.stringify({ event, payload }));
+	function send(
+		event: string,
+		payload: Record<string, unknown> = {},
+		__wskit?: Record<string, unknown>,
+	) {
+		ws?.send(JSON.stringify(__wskit ? { event, payload, __wskit } : { event, payload }));
 	}
 </script>
 
@@ -78,12 +82,15 @@
 <button data-testid="disconnect-intercept" onclick={() => send('disconnect-intercept')}>
 	Disconnect from intercept
 </button>
-<button data-testid="subscribe-chat" onclick={() => send('_subscribe', { _channel: 'chat' })}>
+<button
+	data-testid="subscribe-chat"
+	onclick={() => send('__subscribe__', {}, { channel: 'chat' })}
+>
 	Subscribe chat
 </button>
 <button
 	data-testid="chat-always-defer"
-	onclick={() => send('chat-always-defer', { _channel: 'chat' })}
+	onclick={() => send('chat-always-defer', {}, { channel: 'chat' })}
 >
 	Chat always defer
 </button>

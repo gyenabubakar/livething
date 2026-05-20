@@ -9,7 +9,6 @@
 	let memberLeaves = $state<string[]>([]);
 	let publicMessages = $state<string[]>([]);
 	let privateMessages = $state<string[]>([]);
-	let replayMessages = $state<string[]>([]);
 
 	function connect() {
 		if (ws) return;
@@ -39,16 +38,16 @@
 			if (data.event === 'kick-acknowledged') {
 				kickAck = data.payload.where;
 			}
-			if (data.event === '_kicked') {
+			if (data.event === '__kicked__') {
 				kicked = [
 					...kicked,
-					`${data.payload._channelScope ?? 'static'}:${data.payload._channel}:${data.payload.reason ?? ''}`,
+					`${data.__wskit?.channelScope ?? 'static'}:${data.__wskit?.channel}:${data.payload.reason ?? ''}`,
 				];
 			}
-			if (data.event === '_memberLeave') {
+			if (data.event === '__memberLeave__') {
 				memberLeaves = [
 					...memberLeaves,
-					`${data.payload._channelScope ?? 'static'}:${data.payload._channel ?? ''}:${data.payload.connectionId ?? ''}`,
+					`${data.__wskit?.channelScope ?? 'static'}:${data.__wskit?.channel ?? ''}:${data.payload.connectionId ?? ''}`,
 				];
 			}
 			if (data.event === 'room-message') {
@@ -56,12 +55,6 @@
 					...publicMessages,
 					`${data.payload.family}:${data.payload.name}:${data.payload.text}`,
 				];
-				if (data.payload?._replay) {
-					replayMessages = [
-						...replayMessages,
-						`${data.payload.family}:${data.payload.name}:${data.payload.text}`,
-					];
-				}
 			}
 			if (data.event === 'private-message') {
 				privateMessages = [
@@ -82,13 +75,23 @@
 
 <button
 	data-testid="sub-public"
-	onclick={() => send({ event: '_subscribe', payload: { _channel: 'room:1', _channelScope: 'publicRooms' } })}
+	onclick={() =>
+		send({
+			event: '__subscribe__',
+			payload: {},
+			__wskit: { channel: 'room:1', channelScope: 'publicRooms' },
+		})}
 >
 	Subscribe public room:1
 </button>
 <button
 	data-testid="sub-private"
-	onclick={() => send({ event: '_subscribe', payload: { _channel: 'room:1', _channelScope: 'privateRooms' } })}
+	onclick={() =>
+		send({
+			event: '__subscribe__',
+			payload: {},
+			__wskit: { channel: 'room:1', channelScope: 'privateRooms' },
+		})}
 >
 	Subscribe private room:1
 </button>
@@ -151,8 +154,9 @@
 	data-testid="replay-from-zero"
 	onclick={() =>
 		send({
-			event: '_replay',
-			payload: { since: 0, _channel: 'room:1', _channelScope: 'publicRooms' },
+			event: '__replay__',
+			payload: { lastKnownSeq: 0 },
+			__wskit: { channel: 'room:1', channelScope: 'publicRooms' },
 		})}
 >
 	Replay since 0
@@ -166,4 +170,3 @@
 <span data-testid="member-leaves">{memberLeaves.join(',')}</span>
 <span data-testid="public-messages">{publicMessages.join(',')}</span>
 <span data-testid="private-messages">{privateMessages.join(',')}</span>
-<span data-testid="replay-messages">{replayMessages.join(',')}</span>

@@ -33,11 +33,11 @@
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
 			const data = JSON.parse(ev.data);
-			if (data.event === '_subscribeOk' && data.payload?._channelScope === 'rooms') {
+			if (data.event === '__subscribeOk__' && data.__wskit?.channelScope === 'rooms') {
 				roomSubscribed = true;
 			}
-			if (data.event === '_streamEnd') {
-				if (data.payload?._channelScope === 'rooms') roomStreamEnd = true;
+			if (data.event === '__streamEnd__') {
+				if (data.__wskit?.channelScope === 'rooms') roomStreamEnd = true;
 				else streamEnd = true;
 			}
 			if (data.event === 'start-broadcast' && typeof data.payload?.index === 'number') {
@@ -45,8 +45,8 @@
 			}
 			if (data.event === 'start-room-broadcast' && typeof data.payload?.index === 'number') {
 				roomIndices = [...roomIndices, data.payload.index];
-				if (typeof data.payload?._channelScope === 'string') {
-					roomScopeSeen = data.payload._channelScope;
+				if (typeof data.__wskit?.channelScope === 'string') {
+					roomScopeSeen = data.__wskit.channelScope;
 				}
 			}
 		};
@@ -61,8 +61,9 @@
 	function joinRoom() {
 		ws?.send(
 			JSON.stringify({
-				event: '_subscribe',
-				payload: { _channel: 'room:42', _channelScope: 'rooms' },
+				event: '__subscribe__',
+				payload: {},
+				__wskit: { channel: 'room:42', channelScope: 'rooms' },
 			}),
 		);
 	}
@@ -74,7 +75,8 @@
 		ws?.send(
 			JSON.stringify({
 				event: 'start-room-broadcast',
-				payload: { count, _channel: 'room:42', _channelScope: 'rooms' },
+				payload: { count },
+				__wskit: { channel: 'room:42', channelScope: 'rooms' },
 			}),
 		);
 	}

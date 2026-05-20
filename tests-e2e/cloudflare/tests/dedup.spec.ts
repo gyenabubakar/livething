@@ -8,7 +8,7 @@ test.describe('dedup', () => {
     await expect(page.getByTestId('status')).toHaveText('connected');
   });
 
-  test('outgoing messages have unique _messageId', async ({ page }) => {
+  test('outgoing messages have unique messageId', async ({ page }) => {
     await page.getByTestId('echo-plain').click();
     await expect(page.getByTestId('count-plain')).toHaveText('1');
     await page.getByTestId('echo-plain').click();
@@ -20,7 +20,7 @@ test.describe('dedup', () => {
     expect(new Set(idList).size).toBe(idList.length);
   });
 
-  test('incoming frames with a repeated _messageId run the handler once', async ({ page }) => {
+  test('incoming frames with a repeated messageId run the handler once', async ({ page }) => {
     await page.getByTestId('echo-dup-id').click();
     await expect(page.getByTestId('count-dup-hi')).toHaveText('1');
 
@@ -34,18 +34,18 @@ test.describe('dedup', () => {
     await expect(page.getByTestId('count-dup-hi')).toHaveText('1');
   });
 
-  test('incoming frames without a _messageId are always dispatched', async ({ page }) => {
+  test('incoming frames without a messageId are always dispatched', async ({ page }) => {
     await page.getByTestId('echo-no-id').click();
     await expect(page.getByTestId('count-no-id')).toHaveText('1');
 
-    // No _messageId — at-least-once semantics, handler runs again.
+    // No messageId — at-least-once semantics, handler runs again.
     await page.getByTestId('echo-no-id').click();
     await expect(page.getByTestId('count-no-id')).toHaveText('2');
   });
 
-  test('protocol frames (_subscribe) are not deduplicated even when they carry _messageId', async ({
-    page,
-  }) => {
+  test('protocol frames (__subscribe__) are not deduplicated', async ({ page }) => {
+    // Gateway dedup only runs on user-event frames; protocol frames bypass it.
+    // Two identical __subscribe__ frames must each get their own __subscribeOk__.
     const subscribeOkCount = await page.evaluate(async () => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       if (!ws) throw new Error('socket not exposed');
@@ -54,13 +54,14 @@ test.describe('dedup', () => {
       ws.onmessage = (ev) => {
         if (typeof ev.data === 'string') {
           const frame = JSON.parse(ev.data);
-          if (frame.event === '_subscribeOk' && frame.payload?._channel === 'room') acks += 1;
+          if (frame.event === '__subscribeOk__' && frame.__wskit?.channel === 'room') acks += 1;
         }
         if (typeof original === 'function') original.call(ws, ev);
       };
       const frame = {
-        event: '_subscribe',
-        payload: { _channel: 'room', _messageId: 'sub-fixed-1' },
+        event: '__subscribe__',
+        payload: {},
+        __wskit: { channel: 'room' },
       };
       ws.send(JSON.stringify(frame));
       ws.send(JSON.stringify(frame));
@@ -72,8 +73,8 @@ test.describe('dedup', () => {
     expect(subscribeOkCount).toBe(2);
   });
 
-  test('incoming _messageId dedup is per-scope, shared across event types', async ({ page }) => {
-    // Verify that the same _messageId in different event types is deduplicated
+  test('incoming messageId dedup is per-scope, shared across event types', async ({ page }) => {
+    // Verify that the same messageId in different event types is deduplicated
     // from a single shared cache per connection, not per-event-type caches.
     // The dedup handler uses only 'do-echo' events, but the dedup cache itself
     // is connection-wide and frame-arrival-order-based.

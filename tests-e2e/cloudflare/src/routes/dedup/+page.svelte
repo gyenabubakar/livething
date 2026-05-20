@@ -31,16 +31,16 @@
 			if (data.event === 'echoed') {
 				const text = data.payload?.text ?? '';
 				echoCountByText = { ...echoCountByText, [text]: (echoCountByText[text] ?? 0) + 1 };
-				const id = data.payload?._messageId;
+				const id = data.__wskit?.messageId;
 				if (typeof id === 'string') outgoingIds = [...outgoingIds, id];
 			}
 		};
 	}
 
 	function sendEcho(text: string, messageId?: string) {
-		const payload: Record<string, unknown> = { text };
-		if (messageId) payload._messageId = messageId;
-		ws?.send(JSON.stringify({ event: 'do-echo', payload }));
+		const frame: Record<string, unknown> = { event: 'do-echo', payload: { text } };
+		if (messageId) frame.__wskit = { messageId };
+		ws?.send(JSON.stringify(frame));
 	}
 </script>
 

@@ -41,18 +41,18 @@
 			if (typeof ev.data !== 'string') return;
 			const data = JSON.parse(ev.data);
 			switch (data.event) {
-				case '_streamOk':
+				case '__streamOk__':
 					streamOkReceived = true;
-					if (data.payload?._streamId) lastStreamId = data.payload._streamId;
+					if (data.__wskit?.streamId) lastStreamId = data.__wskit.streamId;
 					break;
-				case '_streamEnd':
+				case '__streamEnd__':
 					streamEnd = true;
 					break;
-				case '_streamCancelOk':
+				case '__streamCancelOk__':
 					cancelOkReceived = true;
 					break;
-				case '_error':
-					if (data.payload?._streamId) {
+				case '__error__':
+					if (data.__wskit?.streamId) {
 						streamError = `stream-error:${data.payload.code}`;
 					}
 					break;
@@ -97,7 +97,9 @@
 		ws?.send(JSON.stringify({ event: 'start-empty', payload: {} }));
 	}
 	function cancelStream() {
-		ws?.send(JSON.stringify({ event: '_streamCancel', payload: { _streamId: lastStreamId } }));
+		ws?.send(
+			JSON.stringify({ event: '__streamCancel__', payload: {}, __wskit: { streamId: lastStreamId } }),
+		);
 	}
 </script>
 

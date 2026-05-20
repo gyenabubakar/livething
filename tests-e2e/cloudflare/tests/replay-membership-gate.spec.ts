@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 test.describe('replay-membership-gate', () => {
-  test('a non-member crafting a channel-scoped _replay receives no rows; their connection stays healthy for top-level traffic', async ({
+  test('a non-member crafting a channel-scoped __replay__ receives no rows; their connection stays healthy for top-level traffic', async ({
     page,
   }, testInfo) => {
     const room = `gate-${testInfo.testId}`;
@@ -59,14 +59,18 @@ test.describe('replay-membership-gate', () => {
       );
     }
 
-    // Member subscribes to the private channel — _subscribeOk arrives.
-    await send('member', { event: '_subscribe', payload: { _channel: 'private' } });
+    // Member subscribes to the private channel — __subscribeOk__ arrives.
+    await send('member', { event: '__subscribe__', payload: {}, __wskit: { channel: 'private' } });
     await expect
-      .poll(async () => (await messages('member')).some((m) => m.event === '_subscribeOk'))
+      .poll(async () => (await messages('member')).some((m) => m.event === '__subscribeOk__'))
       .toBe(true);
 
     // Member asks for a channel replay — they're a member, the row arrives.
-    await send('member', { event: '_replay', payload: { since: 0, _channel: 'private' } });
+    await send('member', {
+      event: '__replay__',
+      payload: { lastKnownSeq: 0 },
+      __wskit: { channel: 'private' },
+    });
     await expect
       .poll(async () =>
         (await messages('member')).some(
@@ -75,10 +79,14 @@ test.describe('replay-membership-gate', () => {
       )
       .toBe(true);
 
-    // Snooper never subscribed. They craft the same _replay frame with the
+    // Snooper never subscribed. They craft the same __replay__ frame with the
     // private channel name on it. Pre-fix this returned the secret row;
-    // post-fix the server silently acks (no row, no _error).
-    await send('snooper', { event: '_replay', payload: { since: 0, _channel: 'private' } });
+    // post-fix the server silently acks (no row, no __error__).
+    await send('snooper', {
+      event: '__replay__',
+      payload: { lastKnownSeq: 0 },
+      __wskit: { channel: 'private' },
+    });
     // Wait a beat to let any leaked frames arrive.
     await page.waitForTimeout(500);
 

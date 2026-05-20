@@ -26,15 +26,15 @@
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
 			const data = JSON.parse(ev.data);
-			if (data.event === '_subscribeOk') subscribed = true;
+			if (data.event === '__subscribeOk__') subscribed = true;
 			if (data.event === 'members-result') {
 				membersResult = `${data.payload.channel}:${data.payload.count}`;
 			}
 			if (data.event === 'member-id-result') {
 				memberIdResult = data.payload?.id ?? '';
 			}
-			if (data.event === '_kicked') {
-				kickedResult = `kicked:${data.payload._channel}:${data.payload.reason ?? ''}`;
+			if (data.event === '__kicked__') {
+				kickedResult = `kicked:${data.__wskit?.channel}:${data.payload.reason ?? ''}`;
 			}
 			if (data.event === 'room-message') {
 				roomMessages = [...roomMessages, `${data.payload.from}:${data.payload.text}`];
@@ -43,7 +43,7 @@
 	}
 
 	function subscribeRoom() {
-		ws?.send(JSON.stringify({ event: '_subscribe', payload: { _channel: 'room' } }));
+		ws?.send(JSON.stringify({ event: '__subscribe__', payload: {}, __wskit: { channel: 'room' } }));
 	}
 	function getMembers() {
 		ws?.send(JSON.stringify({ event: 'get-members', payload: { channel: 'room' } }));
@@ -60,7 +60,9 @@
 		ws?.send(JSON.stringify({ event: 'kick-nonmember', payload: {} }));
 	}
 	function sendRoom(text: string) {
-		ws?.send(JSON.stringify({ event: 'send-room-message', payload: { text, _channel: 'room' } }));
+		ws?.send(
+			JSON.stringify({ event: 'send-room-message', payload: { text }, __wskit: { channel: 'room' } }),
+		);
 	}
 </script>
 

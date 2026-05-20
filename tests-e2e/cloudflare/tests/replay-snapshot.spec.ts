@@ -95,12 +95,16 @@ test.describe('replay-snapshot handler', () => {
     const secondSeq = Number(await page.getByTestId('last-seq').textContent());
     expect(secondSeq).toBeGreaterThan(firstSeq);
 
-    // Request _replay since=firstSeq-1 (between original creation and merge).
-    // The merged row should come back with seq=N2 and total=8 — proving merging
-    // updates the snapshot's seq to the latest message's seq.
+    // Request __replay__ lastKnownSeq=firstSeq-1 (between original creation and
+    // merge). The merged row should come back with seq=N2 and total=8 — proving
+    // merging updates the snapshot's seq to the latest message's seq.
     const replayed = await page.evaluate(async (since) => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws!;
-      const collected: { event: string; payload: Record<string, unknown> }[] = [];
+      const collected: {
+        event: string;
+        payload: Record<string, unknown>;
+        __wskit?: Record<string, unknown>;
+      }[] = [];
       const original = ws.onmessage;
       ws.onmessage = (ev) => {
         if (typeof ev.data === 'string' && ev.data !== 'pong') {
@@ -108,6 +112,7 @@ test.describe('replay-snapshot handler', () => {
             const parsed = JSON.parse(ev.data) as {
               event: string;
               payload: Record<string, unknown>;
+              __wskit?: Record<string, unknown>;
             };
             collected.push(parsed);
           } catch {
@@ -116,7 +121,9 @@ test.describe('replay-snapshot handler', () => {
         }
         if (typeof original === 'function') original.call(ws, ev);
       };
-      ws.send(JSON.stringify({ event: '_replay', payload: { since } }));
+      ws.send(
+        JSON.stringify({ event: '__replay__', payload: { lastKnownSeq: since }, __wskit: {} }),
+      );
       await new Promise((r) => setTimeout(r, 1500));
       return collected.filter((m) => m.event === 'counter-snapshot');
     }, firstSeq - 1);
@@ -124,7 +131,7 @@ test.describe('replay-snapshot handler', () => {
     expect(replayed).toHaveLength(1);
     const merged = replayed[0]!;
     expect(merged.payload.total).toBe(8);
-    expect(merged.payload._seq).toBe(secondSeq);
+    expect(merged.__wskit?.seq).toBe(secondSeq);
   });
 
   test('reduce can delete a snapshot key', async ({ page }) => {

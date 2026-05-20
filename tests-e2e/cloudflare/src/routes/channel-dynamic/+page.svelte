@@ -48,12 +48,12 @@
 			if (data.event === 'scoped-error-observed') {
 				scopedErrorObserved = `${data.payload?.channel ?? ''}|${data.payload?.scope ?? ''}|${data.payload?.event ?? ''}`;
 			}
-			if (data.event === '_subscribeOk') {
-				subscribeOk = [...subscribeOk, data.payload?._channel ?? ''];
+			if (data.event === '__subscribeOk__') {
+				subscribeOk = [...subscribeOk, data.__wskit?.channel ?? ''];
 			}
-			if (data.event === '_error' && data.payload?._channel) {
-				subscribeError = `${data.payload._channel}:${data.payload.code}`;
-				subscribeErrorScope = data.payload._channelScope ?? '';
+			if (data.event === '__error__' && data.__wskit?.channel) {
+				subscribeError = `${data.__wskit.channel}:${data.payload.code}`;
+				subscribeErrorScope = data.__wskit.channelScope ?? '';
 			}
 			if (data.event === 'name-result') {
 				nameResult = `${data.payload.name}|${data.payload.suffix}`;
@@ -69,24 +69,28 @@
 		};
 	}
 
-	function send(event: string, payload: Record<string, unknown> = {}) {
-		ws?.send(JSON.stringify({ event, payload }));
+	function send(
+		event: string,
+		payload: Record<string, unknown> = {},
+		__wskit?: Record<string, unknown>,
+	) {
+		ws?.send(JSON.stringify(__wskit ? { event, payload, __wskit } : { event, payload }));
 	}
 	function subscribe(channel: string) {
-		send('_subscribe', { _channel: channel, _channelScope: 'room' });
+		send('__subscribe__', {}, { channel, channelScope: 'room' });
 	}
 	function subscribeNoScope(channel: string) {
-		// Missing _channelScope — should emit _error channel-not-found.
-		send('_subscribe', { _channel: channel });
+		// Missing channelScope — should emit __error__ channel-not-found.
+		send('__subscribe__', {}, { channel });
 	}
 	function subscribeUnknownScope(channel: string, scopeName: string) {
-		send('_subscribe', { _channel: channel, _channelScope: scopeName });
+		send('__subscribe__', {}, { channel, channelScope: scopeName });
 	}
 	function echoName(channel: string) {
-		send('echo-name', { _channel: channel, _channelScope: 'room' });
+		send('echo-name', {}, { channel, channelScope: 'room' });
 	}
 	function sendTo(channel: string, text: string) {
-		send('send-message', { text, _channel: channel, _channelScope: 'room' });
+		send('send-message', { text }, { channel, channelScope: 'room' });
 	}
 </script>
 

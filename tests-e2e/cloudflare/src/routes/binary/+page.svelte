@@ -38,7 +38,7 @@
 				receivedSizes = [...receivedSizes, data.payload?.size];
 				metaUsername = data.payload?.username ?? '';
 			}
-			if (data.event === '_error') {
+			if (data.event === '__error__') {
 				lastErrorCode = data.payload?.code ?? '';
 			}
 			if (data.event === 'binary-hook-error-observed') {

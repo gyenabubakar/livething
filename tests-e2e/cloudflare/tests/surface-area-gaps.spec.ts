@@ -17,15 +17,16 @@ test.describe('surface-area gaps', () => {
 
     await send(page, a, {
       event: 'get-ns-info',
-      payload: { _namespace: 'ns', _correlationId: 'corr-1' },
+      payload: {},
+      __wskit: { namespace: 'ns', correlationId: 'corr-1' },
     });
 
     const reply = await waitForFrame(
       page,
       a,
-      (f) => f.event === 'get-ns-info' && f.payload._correlationId === 'corr-1',
+      (f) => f.event === 'get-ns-info' && f.__wskit?.correlationId === 'corr-1',
     );
-    expect(reply.payload._namespace).toBe('ns');
+    expect(reply.__wskit?.namespace).toBe('ns');
     expect(reply.payload.namespace).toBe('ns');
   });
 
@@ -49,26 +50,26 @@ test.describe('surface-area gaps', () => {
     await send(page, a, { event: 'tick', payload: {} });
     await page.waitForTimeout(150);
     const topErrors = (await frames(page, a)).filter(
-      (f) => f.event === '_error' && f.payload.code === 'rate-limited',
+      (f) => f.event === '__error__' && f.payload.code === 'rate-limited',
     );
     expect(topErrors.length).toBeGreaterThanOrEqual(1);
 
     // Layer 2 — namespace cap (strict namespace max=2, tighter than contract).
     // The namespace bucket is independent of the top-level bucket.
     for (let i = 0; i < 2; i += 1) {
-      await send(page, a, { event: 'strict-ping', payload: { _namespace: 'strict' } });
+      await send(page, a, { event: 'strict-ping', payload: {}, __wskit: { namespace: 'strict' } });
     }
     await page.waitForFunction(
       ([sid]) =>
         (window.__wskitFrames!(sid as string) ?? []).filter(
-          (f) => f.event === 'strict-pong' && f.payload._namespace === 'strict',
+          (f) => f.event === 'strict-pong' && f.__wskit?.namespace === 'strict',
         ).length >= 2,
       [a],
     );
-    await send(page, a, { event: 'strict-ping', payload: { _namespace: 'strict' } });
+    await send(page, a, { event: 'strict-ping', payload: {}, __wskit: { namespace: 'strict' } });
     await page.waitForTimeout(150);
     const allErrors = (await frames(page, a)).filter(
-      (f) => f.event === '_error' && f.payload.code === 'rate-limited',
+      (f) => f.event === '__error__' && f.payload.code === 'rate-limited',
     );
     expect(allErrors.length).toBeGreaterThanOrEqual(2);
 
@@ -78,18 +79,20 @@ test.describe('surface-area gaps', () => {
     // also has a per-handler override on 'chatter' (max=1), so a second
     // 'chatter' is rejected at layer 4.
     await send(page, a, {
-      event: '_subscribe',
-      payload: { _channel: 'rooms' },
+      event: '__subscribe__',
+      payload: {},
+      __wskit: { channel: 'rooms' },
     });
-    await waitForFrame(page, a, (f) => f.event === '_subscribeOk');
+    await waitForFrame(page, a, (f) => f.event === '__subscribeOk__');
     await send(page, a, {
       event: 'chatter',
-      payload: { _channel: 'rooms', text: 'hi' },
+      payload: { text: 'hi' },
+      __wskit: { channel: 'rooms' },
     });
     await page.waitForFunction(
       ([sid]) =>
         (window.__wskitFrames!(sid as string) ?? []).filter(
-          (f) => f.event === 'chatter-broadcast' && f.payload._channel === 'rooms',
+          (f) => f.event === 'chatter-broadcast' && f.__wskit?.channel === 'rooms',
         ).length >= 1,
       [a],
     );
@@ -97,11 +100,12 @@ test.describe('surface-area gaps', () => {
     // Layer 4 — per-handler override (chatter max=1) — second chatter rejected.
     await send(page, a, {
       event: 'chatter',
-      payload: { _channel: 'rooms', text: 'hi2' },
+      payload: { text: 'hi2' },
+      __wskit: { channel: 'rooms' },
     });
     await page.waitForTimeout(150);
     const chatErrors = (await frames(page, a)).filter(
-      (f) => f.event === '_error' && f.payload.code === 'rate-limited',
+      (f) => f.event === '__error__' && f.payload.code === 'rate-limited',
     );
     expect(chatErrors.length).toBeGreaterThanOrEqual(3);
   });
@@ -114,19 +118,24 @@ test.describe('surface-area gaps', () => {
     await installRig(page);
     const a = await connect(page, '/ws/replay-custom', 'alice', room);
 
-    await send(page, a, { event: '_subscribe', payload: { _channel: 'custom-room' } });
-    await waitForFrame(page, a, (f) => f.event === '_subscribeOk');
+    await send(page, a, {
+      event: '__subscribe__',
+      payload: {},
+      __wskit: { channel: 'custom-room' },
+    });
+    await waitForFrame(page, a, (f) => f.event === '__subscribeOk__');
 
     // Trigger one logged outgoing (room-note via add-room-note) so the
     // replay log has at least one row to look at.
     await send(page, a, {
       event: 'add-room-note',
-      payload: { _channel: 'custom-room', text: 'before-stream' },
+      payload: { text: 'before-stream' },
+      __wskit: { channel: 'custom-room' },
     });
     await waitForFrame(
       page,
       a,
-      (f) => f.event === 'room-note' && f.payload._channel === 'custom-room',
+      (f) => f.event === 'room-note' && f.__wskit?.channel === 'custom-room',
     );
 
     // Trigger the channel-scoped stream — it emits chunks via the outgoing
@@ -134,18 +143,20 @@ test.describe('surface-area gaps', () => {
     // (replay is for `outgoing(...)` only).
     await send(page, a, {
       event: 'room-stream',
-      payload: { _channel: 'custom-room', count: 3 },
+      payload: { count: 3 },
+      __wskit: { channel: 'custom-room' },
     });
-    await waitForFrame(page, a, (f) => f.event === '_streamEnd');
+    await waitForFrame(page, a, (f) => f.event === '__streamEnd__');
 
     await send(page, a, {
       event: 'query-room-replay-events',
-      payload: { _channel: 'custom-room' },
+      payload: {},
+      __wskit: { channel: 'custom-room' },
     });
     const logged = await waitForFrame(
       page,
       a,
-      (f) => f.event === 'room-replay-events' && f.payload._channel === 'custom-room',
+      (f) => f.event === 'room-replay-events' && f.__wskit?.channel === 'custom-room',
     );
     const events = logged.payload.events as string[];
     expect(events).toContain('room-note');
@@ -162,17 +173,18 @@ test.describe('surface-area gaps', () => {
 
     await send(page, a, {
       event: 'intercepted-stream',
-      payload: { _namespace: 'ns', text: 'hello' },
+      payload: { text: 'hello' },
+      __wskit: { namespace: 'ns' },
     });
-    const ok = await waitForFrame(page, a, (f) => f.event === '_streamOk');
-    const streamId = ok.payload._streamId as string;
+    const ok = await waitForFrame(page, a, (f) => f.event === '__streamOk__');
+    const streamId = ok.__wskit?.streamId as string;
 
     const chunk = await waitForFrame(
       page,
       a,
       (f) =>
         f.event === 'intercepted-stream' &&
-        f.payload._streamId === streamId &&
+        f.__wskit?.streamId === streamId &&
         typeof f.payload?.text === 'string',
     );
     // The namespace's post-intercept appends `-rewritten` to payload.text

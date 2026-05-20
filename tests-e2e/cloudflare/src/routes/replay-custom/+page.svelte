@@ -45,10 +45,11 @@
 			const msg = JSON.parse(event.data as string) as {
 				event: string;
 				payload: Record<string, unknown>;
+				__wskit?: Record<string, unknown>;
 			};
-			const { event: evt, payload } = msg;
+			const { event: evt, payload, __wskit } = msg;
 
-			if (payload?._seq) lastSeq = payload._seq as number;
+			if (__wskit?.seq) lastSeq = __wskit.seq as number;
 
 			if (evt === 'note') {
 				notes = [...notes, `${payload.author}: ${payload.text}`].slice(-50);
@@ -63,8 +64,8 @@
 			} else if (evt === 'bad-replay-log') {
 				badReplayUndeclared = String(payload.undeclared ?? '');
 				badReplayReservedField = String(payload.reservedField ?? '');
-			} else if (evt === '_subscribeOk') {
-				if (payload._channel === 'custom-room') roomSubscribed = 'subscribed';
+			} else if (evt === '__subscribeOk__') {
+				if (__wskit?.channel === 'custom-room') roomSubscribed = 'subscribed';
 			}
 		};
 	}
@@ -80,7 +81,9 @@
 	function requestReplay() {
 		replayCount = 0;
 		replayRequested = true;
-		ws?.send(JSON.stringify({ event: '_replay', payload: { since: sinceValue } }));
+		ws?.send(
+			JSON.stringify({ event: '__replay__', payload: { lastKnownSeq: sinceValue }, __wskit: {} }),
+		);
 	}
 
 	function getConfirmedCount() {
@@ -88,30 +91,50 @@
 	}
 
 	function joinRoom() {
-		ws?.send(JSON.stringify({ event: '_subscribe', payload: { _channel: 'custom-room' } }));
+		ws?.send(
+			JSON.stringify({ event: '__subscribe__', payload: {}, __wskit: { channel: 'custom-room' } }),
+		);
 	}
 
 	function addRoomNote(text: string) {
-		ws?.send(JSON.stringify({ event: 'add-room-note', payload: { text, _channel: 'custom-room' } }));
+		ws?.send(
+			JSON.stringify({
+				event: 'add-room-note',
+				payload: { text },
+				__wskit: { channel: 'custom-room' },
+			}),
+		);
 	}
 
 	function requestRoomReplay() {
 		roomReplayCount = 0;
 		replayRequested = true;
 		ws?.send(
-			JSON.stringify({ event: '_replay', payload: { since: roomSinceValue, _channel: 'custom-room' } }),
+			JSON.stringify({
+				event: '__replay__',
+				payload: { lastKnownSeq: roomSinceValue },
+				__wskit: { channel: 'custom-room' },
+			}),
 		);
 	}
 
 	function getRoomConfirmedCount() {
 		roomConfirmedResult = '';
-		ws?.send(JSON.stringify({ event: 'get-room-confirmed-count', payload: { _channel: 'custom-room' } }));
+		ws?.send(
+			JSON.stringify({
+				event: 'get-room-confirmed-count',
+				payload: {},
+				__wskit: { channel: 'custom-room' },
+			}),
+		);
 	}
 
 	function triggerBadReplay() {
 		badReplayUndeclared = '';
 		badReplayReservedField = '';
-		ws?.send(JSON.stringify({ event: '_replay', payload: { since: 2_147_483_647 } }));
+		ws?.send(
+			JSON.stringify({ event: '__replay__', payload: { lastKnownSeq: 2_147_483_647 }, __wskit: {} }),
+		);
 	}
 
 	function queryBadReplayLog() {

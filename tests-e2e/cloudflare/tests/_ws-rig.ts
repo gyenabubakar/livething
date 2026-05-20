@@ -7,7 +7,11 @@ import type { Page } from '@playwright/test';
  * then talks to one or more sockets by id.
  */
 
-export type WireFrame = { event: string; payload: Record<string, unknown> };
+export type WireFrame = {
+  event: string;
+  payload: Record<string, unknown>;
+  __wskit?: Record<string, unknown>;
+};
 
 interface RigWindow {
   __wskitConnect?: (

@@ -1,7 +1,11 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
-type WireFrame = { event: string; payload: Record<string, unknown> };
+type WireFrame = {
+  event: string;
+  payload: Record<string, unknown>;
+  __wskit?: Record<string, unknown>;
+};
 
 declare global {
   interface Window {
@@ -102,46 +106,55 @@ test.describe('persistence', () => {
 
     // Alice opens, subscribes to archive-room, then disconnects.
     const alice1 = await connect(page, 'alice', room);
-    await send(page, alice1, { event: '_subscribe', payload: { _channel: 'archive-room' } });
-    await waitForFrame(page, alice1, (f) => f.event === '_subscribeOk');
+    await send(page, alice1, {
+      event: '__subscribe__',
+      payload: {},
+      __wskit: { channel: 'archive-room' },
+    });
+    await waitForFrame(page, alice1, (f) => f.event === '__subscribeOk__');
     await close(page, alice1);
     await page.waitForTimeout(150);
 
     // Bob is now in the channel as a witness.
     const bob = await connect(page, 'bob', room);
-    await send(page, bob, { event: '_subscribe', payload: { _channel: 'archive-room' } });
-    await waitForFrame(page, bob, (f) => f.event === '_subscribeOk');
+    await send(page, bob, {
+      event: '__subscribe__',
+      payload: {},
+      __wskit: { channel: 'archive-room' },
+    });
+    await waitForFrame(page, bob, (f) => f.event === '__subscribeOk__');
 
     // Alice reconnects — engine auto-rejoins her into archive-room.
     const alice2 = await connect(page, 'alice', room);
 
-    // Bob must see _memberOnline (Alice's new socket) but NOT _memberJoin —
+    // Bob must see __memberOnline__ (Alice's new socket) but NOT __memberJoin__ —
     // Alice was already a member of the group, only her presence changed.
     const onlineFrame = await waitForFrame(
       page,
       bob,
-      (f) => f.event === '_memberOnline' && f.payload._channel === 'archive-room',
+      (f) => f.event === '__memberOnline__' && f.__wskit?.channel === 'archive-room',
     );
-    expect(onlineFrame.payload._channel).toBe('archive-room');
+    expect(onlineFrame.__wskit?.channel).toBe('archive-room');
 
     const bobFrames = await frames(page, bob);
-    // Bob may have seen ONE _memberJoin (his own initial sync from
-    // existing members). What matters: there is NOT a _memberJoin frame
-    // specifically for Alice's new socket. The _memberOnline frame for
-    // Alice should not be preceded by a matching _memberJoin.
+    // Bob may have seen ONE __memberJoin__ (his own initial sync from
+    // existing members). What matters: there is NOT a __memberJoin__ frame
+    // specifically for Alice's new socket. The __memberOnline__ frame for
+    // Alice should not be preceded by a matching __memberJoin__.
     const memberJoinIdx = bobFrames.findIndex(
       (f) =>
-        f.event === '_memberJoin' &&
-        f.payload._channel === 'archive-room' &&
+        f.event === '__memberJoin__' &&
+        f.__wskit?.channel === 'archive-room' &&
         f.payload.connectionId === onlineFrame.payload.connectionId,
     );
     expect(memberJoinIdx).toBe(-1);
 
-    // Alice's new socket should NOT need to send _subscribe — broadcasts
+    // Alice's new socket should NOT need to send __subscribe__ — broadcasts
     // to archive-room still reach her.
     await send(page, bob, {
       event: 'send-message',
-      payload: { text: 'hello rejoined alice', _channel: 'archive-room' },
+      payload: { text: 'hello rejoined alice' },
+      __wskit: { channel: 'archive-room' },
     });
     const echoToAlice = await waitForFrame(
       page,
@@ -158,10 +171,11 @@ test.describe('persistence', () => {
 
     const alice1 = await connect(page, 'alice', room);
     await send(page, alice1, {
-      event: '_subscribe',
-      payload: { _channel: 'typing-indicator' },
+      event: '__subscribe__',
+      payload: {},
+      __wskit: { channel: 'typing-indicator' },
     });
-    await waitForFrame(page, alice1, (f) => f.event === '_subscribeOk');
+    await waitForFrame(page, alice1, (f) => f.event === '__subscribeOk__');
     await close(page, alice1);
     await page.waitForTimeout(150);
 
@@ -169,12 +183,10 @@ test.describe('persistence', () => {
     // Give the engine a moment to do whatever it would do on connect.
     await page.waitForTimeout(300);
     const alice2Frames = await frames(page, alice2);
-    // No _subscribeOk for typing-indicator should appear because the
+    // No __subscribeOk__ for typing-indicator should appear because the
     // channel is opt-out persistent.
     const rejoined = alice2Frames.find(
-      (f) =>
-        f.event === '_subscribeOk' &&
-        (f.payload._channel === 'typing-indicator' || f.payload.channel === 'typing-indicator'),
+      (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'typing-indicator',
     );
     expect(rejoined).toBeUndefined();
   });
@@ -185,8 +197,12 @@ test.describe('persistence', () => {
     const room = `persist-removemember-${testInfo.testId}`;
 
     const alice1 = await connect(page, 'alice', room);
-    await send(page, alice1, { event: '_subscribe', payload: { _channel: 'archive-room' } });
-    await waitForFrame(page, alice1, (f) => f.event === '_subscribeOk');
+    await send(page, alice1, {
+      event: '__subscribe__',
+      payload: {},
+      __wskit: { channel: 'archive-room' },
+    });
+    await waitForFrame(page, alice1, (f) => f.event === '__subscribeOk__');
 
     const admin = await connect(page, 'admin', room);
     await send(page, admin, {
@@ -208,7 +224,7 @@ test.describe('persistence', () => {
     await page.waitForTimeout(300);
     const alice2Frames = await frames(page, alice2);
     const rejoinedSubscribeOk = alice2Frames.find(
-      (f) => f.event === '_subscribeOk' && f.payload._channel === 'archive-room',
+      (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'archive-room',
     );
     expect(rejoinedSubscribeOk).toBeUndefined();
   });
@@ -219,12 +235,20 @@ test.describe('persistence', () => {
     const room = `persist-disconnect-${testInfo.testId}`;
 
     const alice1 = await connect(page, 'alice', room);
-    await send(page, alice1, { event: '_subscribe', payload: { _channel: 'archive-room' } });
-    await waitForFrame(page, alice1, (f) => f.event === '_subscribeOk');
+    await send(page, alice1, {
+      event: '__subscribe__',
+      payload: {},
+      __wskit: { channel: 'archive-room' },
+    });
+    await waitForFrame(page, alice1, (f) => f.event === '__subscribeOk__');
 
     const bob = await connect(page, 'bob', room);
-    await send(page, bob, { event: '_subscribe', payload: { _channel: 'archive-room' } });
-    await waitForFrame(page, bob, (f) => f.event === '_subscribeOk');
+    await send(page, bob, {
+      event: '__subscribe__',
+      payload: {},
+      __wskit: { channel: 'archive-room' },
+    });
+    await waitForFrame(page, bob, (f) => f.event === '__subscribeOk__');
 
     // Bob clears his frame log mark by capturing length before close.
     const beforeLen = (await frames(page, bob)).length;
@@ -234,12 +258,12 @@ test.describe('persistence', () => {
 
     const after = (await frames(page, bob)).slice(beforeLen);
     const offline = after.find(
-      (f) => f.event === '_memberOffline' && f.payload._channel === 'archive-room',
+      (f) => f.event === '__memberOffline__' && f.__wskit?.channel === 'archive-room',
     );
     expect(offline).toBeTruthy();
 
     const leave = after.find(
-      (f) => f.event === '_memberLeave' && f.payload._channel === 'archive-room',
+      (f) => f.event === '__memberLeave__' && f.__wskit?.channel === 'archive-room',
     );
     expect(leave).toBeUndefined();
   });

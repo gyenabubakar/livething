@@ -40,12 +40,13 @@ test.describe('group full surface', () => {
 
     await send(page, a, {
       event: 'lookup',
-      payload: { id: 'abc', _correlationId: 'c1' },
+      payload: { id: 'abc' },
+      __wskit: { correlationId: 'c1' },
     });
     const res = await waitForFrame(
       page,
       a,
-      (f) => f.event === 'lookup' && f.payload?._correlationId === 'c1',
+      (f) => f.event === 'lookup' && f.__wskit?.correlationId === 'c1',
     );
     expect(res.payload.found).toBe(true);
     expect(res.payload.hit).toBe('abc');
@@ -56,11 +57,11 @@ test.describe('group full surface', () => {
     const a = await connect(page, WS_PATH, 'alice', room);
     await waitForFrame(page, a, (f) => f.event === 'welcome');
 
-    await send(page, a, { event: 'feed', payload: { _streamId: 'feed-1' } });
+    await send(page, a, { event: 'feed', payload: {}, __wskit: { streamId: 'feed-1' } });
     await waitForFrame(
       page,
       a,
-      (f) => f.event === '_streamEnd' && f.payload._streamId === 'feed-1',
+      (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === 'feed-1',
     );
     const chunks = (await frames(page, a))
       .filter((f) => f.event === 'feed' && typeof f.payload.idx === 'number')
@@ -73,15 +74,23 @@ test.describe('group full surface', () => {
     const a = await connect(page, WS_PATH, 'alice', room);
     await waitForFrame(page, a, (f) => f.event === 'welcome');
 
-    await send(page, a, { event: 'paginate', payload: { _streamId: 'p-1' } });
-    await waitForFrame(page, a, (f) => f.event === '_streamEnd' && f.payload._streamId === 'p-1');
+    await send(page, a, { event: 'paginate', payload: {}, __wskit: { streamId: 'p-1' } });
+    await waitForFrame(
+      page,
+      a,
+      (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === 'p-1',
+    );
     const rows = (await frames(page, a))
       .filter((f) => f.event === 'paginate' && typeof f.payload.row === 'number')
       .map((f) => f.payload.row as number);
     expect(rows).toEqual([1, 2, 3, 4, 5]);
 
-    await send(page, a, { event: 'tokens', payload: { _streamId: 't-1' } });
-    await waitForFrame(page, a, (f) => f.event === '_streamEnd' && f.payload._streamId === 't-1');
+    await send(page, a, { event: 'tokens', payload: {}, __wskit: { streamId: 't-1' } });
+    await waitForFrame(
+      page,
+      a,
+      (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === 't-1',
+    );
     const toks = (await frames(page, a))
       .filter((f) => f.event === 'tokens' && typeof f.payload.token === 'string')
       .map((f) => f.payload.token as string);
@@ -115,12 +124,13 @@ test.describe('group full surface', () => {
     const room = `gfs-ch-${testInfo.testId}`;
     const a = await connect(page, WS_PATH, 'alice', room);
     await waitForFrame(page, a, (f) => f.event === 'welcome');
-    await send(page, a, { event: '_subscribe', payload: { _channel: 'rooms' } });
-    await waitForFrame(page, a, (f) => f.event === '_subscribeOk');
+    await send(page, a, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
+    await waitForFrame(page, a, (f) => f.event === '__subscribeOk__');
 
     await send(page, a, {
       event: 'send-msg',
-      payload: { text: 'hello room', _channel: 'rooms' },
+      payload: { text: 'hello room' },
+      __wskit: { channel: 'rooms' },
     });
     const msg = await waitForFrame(
       page,
@@ -135,7 +145,7 @@ test.describe('group full surface', () => {
     const a = await connect(page, WS_PATH, 'alice', room);
     await waitForFrame(page, a, (f) => f.event === 'welcome');
 
-    await send(page, a, { event: 'v1-ping', payload: { _namespace: 'v1' } });
+    await send(page, a, { event: 'v1-ping', payload: {}, __wskit: { namespace: 'v1' } });
     await waitForFrame(page, a, (f) => f.event === 'v1-pong');
   });
 
@@ -178,7 +188,7 @@ test.describe('group full surface', () => {
 
     await send(page, a, { event: 'chat', payload: { text: 'one' } });
     await send(page, a, { event: 'chat', payload: { text: 'two' } });
-    const err = await waitForFrame(page, a, (f) => f.event === '_error');
+    const err = await waitForFrame(page, a, (f) => f.event === '__error__');
     expect(err.payload.code).toBe('rate-limited');
   });
 
@@ -196,7 +206,7 @@ test.describe('group full surface', () => {
 
     const b = await connect(page, WS_PATH, 'bob', room);
     await waitForFrame(page, b, (f) => f.event === 'welcome');
-    await send(page, b, { event: '_replay', payload: { since: 0 } });
+    await send(page, b, { event: '__replay__', payload: { lastKnownSeq: 0 }, __wskit: {} });
 
     await waitForFrame(
       page,

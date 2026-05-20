@@ -108,11 +108,11 @@ test.describe('intercept', () => {
     await expect(page.getByTestId('echoed')).toContainText('top:top-pre-rewritten');
   });
 
-  test('a frame with both _namespace and _channel is rejected with invalid-scope-markers', async ({
+  test('a frame with both namespace and channel is rejected with invalid-scope-markers', async ({
     page,
   }, testInfo) => {
     // Pre-fix the engine returned the namespace branch as soon as
-    // _namespace was present, silently ignoring _channel. A client could
+    // `namespace` was present, silently ignoring `channel`. A client could
     // bypass channel-membership rules by stamping both markers on the
     // same frame.
     await openPage(page, `test-${testInfo.testId}`);
@@ -121,7 +121,8 @@ test.describe('intercept', () => {
       ws?.send(
         JSON.stringify({
           event: 'echo',
-          payload: { text: 'mixed', _namespace: 'ns', _channel: 'room' },
+          payload: { text: 'mixed' },
+          __wskit: { namespace: 'ns', channel: 'room' },
         }),
       );
     });

@@ -48,8 +48,9 @@
 	data-testid="sub-a"
 	onclick={() =>
 		send({
-			event: '_subscribe',
-			payload: { _channel: 'private::lobby', _channelScope: 'rooms' },
+			event: '__subscribe__',
+			payload: {},
+			__wskit: { channel: 'private::lobby', channelScope: 'rooms' },
 		})}
 >
 	Subscribe family A (rooms / private::lobby)
@@ -58,8 +59,9 @@
 	data-testid="sub-b"
 	onclick={() =>
 		send({
-			event: '_subscribe',
-			payload: { _channel: 'lobby', _channelScope: 'rooms::private' },
+			event: '__subscribe__',
+			payload: {},
+			__wskit: { channel: 'lobby', channelScope: 'rooms::private' },
 		})}
 >
 	Subscribe family B (rooms::private / lobby)

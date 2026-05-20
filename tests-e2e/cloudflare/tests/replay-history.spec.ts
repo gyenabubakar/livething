@@ -19,18 +19,22 @@ test.describe('replay handler', () => {
     await waitForText(page, 'messages', /testuser: hello from replay/);
   });
 
-  test('private request responses are not stored or resent on _replay', async ({ page }) => {
+  test('private request responses are not stored or resent on __replay__', async ({ page }) => {
     // Pre-fix the replay store persisted any outgoing frame including
-    // ctx.respond(...) responses (which carry _correlationId). A different
-    // client could later send _replay { since: 0 } and receive somebody
-    // else's request response.
+    // ctx.respond(...) responses (which carry a correlationId). A different
+    // client could later send __replay__ { lastKnownSeq: 0 } and receive
+    // somebody else's request response.
     //
     // Send a request, receive the response, then ask for replay since 0
-    // and assert nothing comes back with a _correlationId field.
+    // and assert nothing comes back with a correlationId field.
     const result = await page.evaluate(async () => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       if (!ws) throw new Error('socket not exposed');
-      const got: { event: string; payload: Record<string, unknown> }[] = [];
+      const got: {
+        event: string;
+        payload: Record<string, unknown>;
+        __wskit?: Record<string, unknown>;
+      }[] = [];
       const original = ws.onmessage;
       ws.onmessage = (ev) => {
         if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
@@ -40,12 +44,13 @@ test.describe('replay handler', () => {
       ws.send(
         JSON.stringify({
           event: 'get-token',
-          payload: { _correlationId: 'req-test-1' },
+          payload: {},
+          __wskit: { correlationId: 'req-test-1' },
         }),
       );
       await new Promise((r) => setTimeout(r, 200));
       // Ask for full replay history.
-      ws.send(JSON.stringify({ event: '_replay', payload: { since: 0 } }));
+      ws.send(JSON.stringify({ event: '__replay__', payload: { lastKnownSeq: 0 }, __wskit: {} }));
       await new Promise((r) => setTimeout(r, 400));
       ws.onmessage = original;
       return got;
@@ -53,17 +58,17 @@ test.describe('replay handler', () => {
 
     // The response itself was delivered to the original requester.
     const directResponse = result.find(
-      (m) => m.event === 'get-token' && m.payload._correlationId === 'req-test-1',
+      (m) => m.event === 'get-token' && m.__wskit?.correlationId === 'req-test-1',
     );
     expect(directResponse).toBeDefined();
     expect(directResponse!.payload.token).toBe('secret-for-testuser');
 
-    // No replayed frame should carry a _correlationId.
+    // No replayed frame should carry a correlationId.
     const replayedWithCorrelationId = result.filter(
       (m) =>
         m.event === 'get-token' &&
-        typeof m.payload._correlationId === 'string' &&
-        m.payload._correlationId !== 'req-test-1',
+        typeof m.__wskit?.correlationId === 'string' &&
+        m.__wskit.correlationId !== 'req-test-1',
     );
     expect(replayedWithCorrelationId).toEqual([]);
 
@@ -73,16 +78,16 @@ test.describe('replay handler', () => {
     expect(allGetTokenFrames).toHaveLength(1);
   });
 
-  test('malformed since on _replay surfaces _error with code "validation-failed"', async ({
+  test('malformed lastKnownSeq on __replay__ surfaces __error__ with code "validation-failed"', async ({
     page,
   }) => {
     // Pre-fix the protocol handler ran `Number(payload?.since ?? 0)` which
-    // happily turned a non-numeric "since" into NaN and bound that into the
+    // happily turned a non-numeric cursor into NaN and bound that into the
     // SQL query. NaN compares false against every row, so the client got
     // zero rows back and no signal that its frame was malformed. The
     // protocol handler now rejects anything that is not a non-negative
     // integer with a typed validation error, surfaced on the wire as
-    // `_error { code: 'validation-failed' }`.
+    // `__error__ { code: 'validation-failed' }`.
     const errors = await page.evaluate(async () => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       if (!ws) throw new Error('socket not exposed');
@@ -92,29 +97,35 @@ test.describe('replay handler', () => {
         if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
         if (typeof original === 'function') original.call(ws, ev);
       };
-      ws.send(JSON.stringify({ event: '_replay', payload: { since: 'abc' } }));
+      ws.send(
+        JSON.stringify({ event: '__replay__', payload: { lastKnownSeq: 'abc' }, __wskit: {} }),
+      );
       await new Promise((r) => setTimeout(r, 300));
       ws.onmessage = original;
-      return got.filter((m) => m.event === '_error');
+      return got.filter((m) => m.event === '__error__');
     });
 
     expect(errors.length).toBeGreaterThan(0);
     expect(errors[0]!.payload.code).toBe('validation-failed');
   });
 
-  test('stream chunks are not persisted into replay and never resend on _replay', async ({
+  test('stream chunks are not persisted into replay and never resend on __replay__', async ({
     page,
   }) => {
-    // Stream chunks carry `_streamId` so they reach an active stream on
+    // Stream chunks carry `streamId` so they reach an active stream on
     // the original connection. Replay must not store them: a reconnecting
     // client has no stream by that id, and Issue #3 tracks proper stream
     // replay across reconnect. Pre-fix the persist filter only blocked
-    // `_correlationId`, so chunks slipped into `_wskit_replay` and came
-    // back on every later `_replay since: 0`.
+    // `correlationId`, so chunks slipped into `_wskit_replay` and came
+    // back on every later `__replay__ lastKnownSeq: 0`.
     const result = await page.evaluate(async () => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       if (!ws) throw new Error('socket not exposed');
-      const got: { event: string; payload: Record<string, unknown> }[] = [];
+      const got: {
+        event: string;
+        payload: Record<string, unknown>;
+        __wskit?: Record<string, unknown>;
+      }[] = [];
       const original = ws.onmessage;
       ws.onmessage = (ev) => {
         if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
@@ -122,22 +133,24 @@ test.describe('replay handler', () => {
       };
       ws.send(JSON.stringify({ event: 'start-tiny-stream', payload: {} }));
       await new Promise((r) => setTimeout(r, 300));
-      ws.send(JSON.stringify({ event: '_replay', payload: { since: 0 } }));
+      ws.send(JSON.stringify({ event: '__replay__', payload: { lastKnownSeq: 0 }, __wskit: {} }));
       await new Promise((r) => setTimeout(r, 400));
       ws.onmessage = original;
       return got;
     });
 
     // The live chunk reached the original connection (sanity check). The
-    // chunk wire event carries the originating event name and a `_streamId`.
+    // chunk wire event carries the originating event name and a `streamId`.
     const liveChunks = result.filter(
-      (m) => m.event === 'start-tiny-stream' && typeof m.payload._streamId === 'string',
+      (m) => m.event === 'start-tiny-stream' && typeof m.__wskit?.streamId === 'string',
     );
     expect(liveChunks).toHaveLength(1);
     expect(liveChunks[0]!.payload.value).toBe('one');
   });
 
-  test('_replay with _namespace against top-level replay surfaces _error', async ({ page }) => {
+  test('__replay__ with a namespace against top-level replay surfaces __error__', async ({
+    page,
+  }) => {
     // The fixture registers a namespace called "admin" but only declares
     // top-level replay — namespace replay does not exist as a primitive
     // (issue #8 tracks that work). Pre-fix the protocol handler accepted
@@ -157,13 +170,14 @@ test.describe('replay handler', () => {
       };
       ws.send(
         JSON.stringify({
-          event: '_replay',
-          payload: { since: 0, _namespace: 'admin' },
+          event: '__replay__',
+          payload: { lastKnownSeq: 0 },
+          __wskit: { namespace: 'admin' },
         }),
       );
       await new Promise((r) => setTimeout(r, 300));
       ws.onmessage = original;
-      return got.filter((m) => m.event === '_error');
+      return got.filter((m) => m.event === '__error__');
     });
 
     expect(errors.length).toBeGreaterThan(0);
@@ -246,13 +260,15 @@ test.describe('replay handler', () => {
       ws?.send(
         JSON.stringify({
           event: 'send-room-msg',
-          payload: { text: 'room-old-1', _channel: 'replay-room' },
+          payload: { text: 'room-old-1' },
+          __wskit: { channel: 'replay-room' },
         }),
       );
       ws?.send(
         JSON.stringify({
           event: 'send-room-msg',
-          payload: { text: 'room-old-2', _channel: 'replay-room' },
+          payload: { text: 'room-old-2' },
+          __wskit: { channel: 'replay-room' },
         }),
       );
     });
@@ -265,13 +281,15 @@ test.describe('replay handler', () => {
       ws?.send(
         JSON.stringify({
           event: 'send-room-msg',
-          payload: { text: 'room-new-1', _channel: 'replay-room' },
+          payload: { text: 'room-new-1' },
+          __wskit: { channel: 'replay-room' },
         }),
       );
       ws?.send(
         JSON.stringify({
           event: 'send-room-msg',
-          payload: { text: 'room-new-2', _channel: 'replay-room' },
+          payload: { text: 'room-new-2' },
+          __wskit: { channel: 'replay-room' },
         }),
       );
     });
@@ -288,8 +306,9 @@ test.describe('replay handler', () => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       ws?.send(
         JSON.stringify({
-          event: '_replay',
-          payload: { since, _channel: 'replay-room' },
+          event: '__replay__',
+          payload: { lastKnownSeq: since },
+          __wskit: { channel: 'replay-room' },
         }),
       );
     }, seqBefore);
@@ -321,12 +340,16 @@ test.describe('replay handler', () => {
     // Pre-fix the built-in replay primitive's top-level sendReplay
     // hardcoded channelScope=null. A handler that injects a family-scoped
     // history frame (channel='fam-1', channelScope='fams') was producing
-    // a wire frame with _channel='fam-1' but no _channelScope='fams', so
+    // a wire frame with channel='fam-1' but no channelScope='fams', so
     // client-side family routing could not place it.
     const frame = await page.evaluate(async () => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       if (!ws) throw new Error('socket not exposed');
-      const got: { event: string; payload: Record<string, unknown> }[] = [];
+      const got: {
+        event: string;
+        payload: Record<string, unknown>;
+        __wskit?: Record<string, unknown>;
+      }[] = [];
       const original = ws.onmessage;
       ws.onmessage = (ev) => {
         if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
@@ -339,8 +362,8 @@ test.describe('replay handler', () => {
     });
 
     expect(frame).toBeDefined();
-    expect(frame!.payload._channel).toBe('fam-1');
-    expect(frame!.payload._channelScope).toBe('fams');
+    expect(frame!.__wskit?.channel).toBe('fam-1');
+    expect(frame!.__wskit?.channelScope).toBe('fams');
   });
 
   test('non-member channel replay request is silently denied (no rows replayed)', async ({
@@ -577,18 +600,18 @@ test.describe('replay handler', () => {
     await waitForText(page, 'history-injected', 'true');
   });
 
-  test('ctx.sendReplay with a non-serializable payload sends _error and keeps the loop running', async ({
+  test('ctx.sendReplay with a non-serializable payload sends __error__ and keeps the loop running', async ({
     page,
   }) => {
     // Pre-fix the BigInt payload threw inside JSON.stringify and the
     // throw escaped the replay caller's loop. The client lost the
     // failing row AND every row queued after it. Post-fix the engine
-    // logs and emits a sanitized _error frame keeping the routing
+    // logs and emits a sanitized __error__ frame keeping the routing
     // markers, then returns so the caller's loop keeps iterating.
     await page.getByTestId('trigger-bigint-replay-btn').click();
 
-    // The bad row is replaced by an _error carrying the original
-    // _messageId so the client can correlate the failure.
+    // The bad row is replaced by an __error__ carrying the original
+    // messageId so the client can correlate the failure.
     await waitForText(page, 'bigint-replay-error', 'internal-error');
     await waitForText(page, 'bigint-replay-error-message-id', 'bigint-row-1');
 

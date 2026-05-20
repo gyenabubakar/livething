@@ -48,11 +48,11 @@ test.describe('custom replay handler', () => {
     }).toPass({ timeout: 5_000 });
   });
 
-  test('channel _replay request hits the channel handler, not the server-level handler', async ({
+  test('channel __replay__ request hits the channel handler, not the server-level handler', async ({
     page,
   }) => {
     // Cascade contract: when a channel has its own `.replayCustom()`, the
-    // server-level replayCustom must NOT also handle channel-scoped _replay
+    // server-level replayCustom must NOT also handle channel-scoped __replay__
     // requests. Pre-fix the channel primitive's `__wskit` tag did not match
     // the compile-step claim collector's expectation, so the channel never
     // marked itself as claimed and the server-level handler ran first,
@@ -68,7 +68,7 @@ test.describe('custom replay handler', () => {
     await page.getByTestId('room-note-btn').click();
     await waitForText(page, 'room-notes', /channel replay note/);
 
-    // Trigger a channel-scoped _replay. Only the channel handler should run.
+    // Trigger a channel-scoped __replay__. Only the channel handler should run.
     await page.getByTestId('room-replay-btn').click();
 
     // Channel rows arrived (channel handler did fire).
@@ -150,7 +150,8 @@ test.describe('custom replay handler', () => {
       ws?.send(
         JSON.stringify({
           event: 'add-room-note',
-          payload: { text: 'room-old', _channel: 'custom-room' },
+          payload: { text: 'room-old' },
+          __wskit: { channel: 'custom-room' },
         }),
       );
     });
@@ -162,7 +163,8 @@ test.describe('custom replay handler', () => {
       ws?.send(
         JSON.stringify({
           event: 'add-room-note',
-          payload: { text: 'room-new', _channel: 'custom-room' },
+          payload: { text: 'room-new' },
+          __wskit: { channel: 'custom-room' },
         }),
       );
     });
@@ -193,7 +195,7 @@ test.describe('custom replay handler', () => {
     // user "_"-prefixed payload field from inside onReplay and asserts both
     // throws reach the client.
     await page.getByTestId('trigger-bad-replay-btn').click();
-    // Settle the _replay round-trip before querying the log.
+    // Settle the __replay__ round-trip before querying the log.
     await page.waitForTimeout(200);
     await page.getByTestId('query-bad-replay-btn').click();
     await expect(page.getByTestId('bad-replay-undeclared')).toContainText(

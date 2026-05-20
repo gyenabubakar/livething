@@ -1,7 +1,11 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
-type Frame = { event: string; payload: Record<string, unknown> };
+type Frame = {
+  event: string;
+  payload: Record<string, unknown>;
+  __wskit?: Record<string, unknown>;
+};
 
 async function setupClient(page: Page, username: string, room: string) {
   await page.goto(`/replay-family-key-equals-name?room=${room}`);
@@ -61,11 +65,12 @@ test.describe('replay-family-key-equals-name', () => {
 
     // Subscribe to family member 'rooms' (the only name the pattern accepts).
     await send(page, {
-      event: '_subscribe',
-      payload: { _channel: 'rooms', _channelScope: 'rooms' },
+      event: '__subscribe__',
+      payload: {},
+      __wskit: { channel: 'rooms', channelScope: 'rooms' },
     });
     await expect
-      .poll(async () => (await frames(page)).some((f) => f.event === '_subscribeOk'), {
+      .poll(async () => (await frames(page)).some((f) => f.event === '__subscribeOk__'), {
         timeout: 5_000,
       })
       .toBe(true);
@@ -73,22 +78,23 @@ test.describe('replay-family-key-equals-name', () => {
     // Broadcast 3 messages.
     await send(page, {
       event: 'send-batch',
-      payload: { count: 3, _channel: 'rooms', _channelScope: 'rooms' },
+      payload: { count: 3 },
+      __wskit: { channel: 'rooms', channelScope: 'rooms' },
     });
     await expect
       .poll(
         async () =>
           (await frames(page)).filter(
-            (f) => f.event === 'room-message' && f.payload._channel === 'rooms',
+            (f) => f.event === 'room-message' && f.__wskit?.channel === 'rooms',
           ).length,
         { timeout: 5_000 },
       )
       .toBe(3);
 
     const liveRoomMsgs = (await frames(page)).filter(
-      (f) => f.event === 'room-message' && f.payload._channel === 'rooms',
+      (f) => f.event === 'room-message' && f.__wskit?.channel === 'rooms',
     );
-    const liveSeqs = liveRoomMsgs.map((f) => f.payload._seq as number);
+    const liveSeqs = liveRoomMsgs.map((f) => f.__wskit?.seq as number);
     expect(liveSeqs.length).toBe(3);
     expect(liveSeqs.every((s) => typeof s === 'number' && s > 0)).toBe(true);
     const lastSeq = Math.max(...liveSeqs);
@@ -102,11 +108,12 @@ test.describe('replay-family-key-equals-name', () => {
 
     // Re-subscribe.
     await send(page, {
-      event: '_subscribe',
-      payload: { _channel: 'rooms', _channelScope: 'rooms' },
+      event: '__subscribe__',
+      payload: {},
+      __wskit: { channel: 'rooms', channelScope: 'rooms' },
     });
     await expect
-      .poll(async () => (await frames(page)).some((f) => f.event === '_subscribeOk'), {
+      .poll(async () => (await frames(page)).some((f) => f.event === '__subscribeOk__'), {
         timeout: 5_000,
       })
       .toBe(true);
@@ -115,8 +122,9 @@ test.describe('replay-family-key-equals-name', () => {
     // because the family key equals the concrete subscribed name. The fix
     // queries the family-scope rows and returns all 3.
     await send(page, {
-      event: '_replay',
-      payload: { since: 0, _channel: 'rooms', _channelScope: 'rooms' },
+      event: '__replay__',
+      payload: { lastKnownSeq: 0 },
+      __wskit: { channel: 'rooms', channelScope: 'rooms' },
     });
     await expect
       .poll(
@@ -124,8 +132,8 @@ test.describe('replay-family-key-equals-name', () => {
           (await frames(page)).filter(
             (f) =>
               f.event === 'room-message' &&
-              f.payload._channel === 'rooms' &&
-              f.payload._channelScope === 'rooms',
+              f.__wskit?.channel === 'rooms' &&
+              f.__wskit?.channelScope === 'rooms',
           ).length,
         { timeout: 5_000 },
       )
@@ -134,25 +142,26 @@ test.describe('replay-family-key-equals-name', () => {
     const replayed = (await frames(page)).filter(
       (f) =>
         f.event === 'room-message' &&
-        f.payload._channel === 'rooms' &&
-        f.payload._channelScope === 'rooms',
+        f.__wskit?.channel === 'rooms' &&
+        f.__wskit?.channelScope === 'rooms',
     );
     expect(replayed.map((f) => f.payload.text).sort()).toEqual(['msg-0', 'msg-1', 'msg-2']);
-    expect(replayed.map((f) => f.payload._seq as number).sort((a, b) => a - b)).toEqual(
+    expect(replayed.map((f) => f.__wskit?.seq as number).sort((a, b) => a - b)).toEqual(
       liveSeqs.slice().sort((a, b) => a - b),
     );
 
     // Negative case: replay since the latest seq returns no rows.
     await send(page, {
-      event: '_replay',
-      payload: { since: lastSeq, _channel: 'rooms', _channelScope: 'rooms' },
+      event: '__replay__',
+      payload: { lastKnownSeq: lastSeq },
+      __wskit: { channel: 'rooms', channelScope: 'rooms' },
     });
     await page.waitForTimeout(500);
     const after = (await frames(page)).filter(
       (f) =>
         f.event === 'room-message' &&
-        f.payload._channel === 'rooms' &&
-        f.payload._channelScope === 'rooms',
+        f.__wskit?.channel === 'rooms' &&
+        f.__wskit?.channelScope === 'rooms',
     );
     // Still exactly the 3 from the previous since:0 replay — no new rows.
     expect(after.length).toBe(3);

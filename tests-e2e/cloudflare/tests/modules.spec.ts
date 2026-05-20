@@ -165,7 +165,7 @@ test.describe('modules handler', () => {
         ws.onmessage = (ev) => {
           if (typeof ev.data !== 'string') return;
           const parsed = JSON.parse(ev.data) as Msg;
-          if (parsed.event === '_error' && (parsed.payload as { code?: string }).code) {
+          if (parsed.event === '__error__' && (parsed.payload as { code?: string }).code) {
             resolve(parsed);
             ws.close();
           }
@@ -201,13 +201,13 @@ test.describe('modules handler', () => {
     await waitForText(page, 'shutdown-count', 'shutdowns: 1');
   });
 
-  test('_streamCancel survives a generator finally throw — websocket stays alive', async ({
+  test('__streamCancel__ survives a generator finally throw — websocket stays alive', async ({
     page,
   }, testInfo) => {
     // The connection-close path catches per-stream cleanup throws (commit
-    // 168c1b9). The explicit _streamCancel path was a separate code path
-    // that didn't catch — the throw escaped processTextMessage into the
-    // adapter WS callback. The fix mirrors the connection-close catch.
+    // 168c1b9). The explicit __streamCancel__ path was a separate code
+    // path that didn't catch — the throw escaped processTextMessage into
+    // the adapter WS callback. The fix mirrors the connection-close catch.
     await page.goto(`/modules?room=test-${testInfo.testId}-streamcancel`);
     await page.getByTestId('connect-btn').click();
     await waitForText(page, 'status', 'connected');
@@ -229,7 +229,9 @@ test.describe('modules handler', () => {
 
     await page.evaluate((id) => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
-      ws?.send(JSON.stringify({ event: '_streamCancel', payload: { _streamId: id } }));
+      ws?.send(
+        JSON.stringify({ event: '__streamCancel__', payload: {}, __wskit: { streamId: id } }),
+      );
     }, streamId);
 
     // The websocket must still be healthy. A normal request still works.

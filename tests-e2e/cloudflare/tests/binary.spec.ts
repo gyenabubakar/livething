@@ -104,7 +104,7 @@ test.describe('binary', () => {
     await expect(page.getByTestId('received-sizes')).toContainText('5,5');
   });
 
-  test('a thrown onBinary hook routes through _error and onError instead of escaping', async ({
+  test('a thrown onBinary hook routes through __error__ and onError instead of escaping', async ({
     page,
   }, testInfo) => {
     const room = `test-${testInfo.testId}`;
@@ -120,7 +120,7 @@ test.describe('binary', () => {
       ws.send(buf);
     });
 
-    // Client receives _error → handler routed the throw through handleRuntimeError.
+    // Client receives __error__ → handler routed the throw through handleRuntimeError.
     await expect(page.getByTestId('last-error-code')).toHaveText('internal-error');
     // onError lifecycle hook also fires with the original message.
     await expect(page.getByTestId('observed-error-message')).toHaveText('poison binary frame');

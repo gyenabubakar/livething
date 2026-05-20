@@ -16,7 +16,7 @@
 	let subscribedInherit = $state(false);
 	let subscribedRooms = $state(false);
 
-	// _correlationId tracking — we record per-id resolution as 'ok' / 'rate-limited' / other.
+	// correlationId tracking — we record per-id resolution as 'ok' / 'rate-limited' / other.
 	let echoOutcomes = $state<Record<string, string>>({});
 	let echoCounter = 0;
 
@@ -39,23 +39,23 @@
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
 			const data = JSON.parse(ev.data);
-			const cid = data.payload?._correlationId as string | undefined;
+			const cid = data.__wskit?.correlationId as string | undefined;
 			if (data.event === 'tock') tockCount += 1;
 			else if (data.event === 'expensive-done') expensiveDoneCount += 1;
 			else if (data.event === 'msg') {
-				if (data.payload?._channel === 'inherit-room') inheritMsgCount += 1;
-				else if (data.payload?._channel === 'no-limit') noLimitMsgCount += 1;
+				if (data.__wskit?.channel === 'inherit-room') inheritMsgCount += 1;
+				else if (data.__wskit?.channel === 'no-limit') noLimitMsgCount += 1;
 			} else if (data.event === 'chatter-broadcast') chatterMsgCount += 1;
 			else if (data.event === 'strict-pong') strictPongCount += 1;
 			else if (data.event === 'fast-pong') fastPongCount += 1;
 			else if (data.event === 'echo-req' && cid) {
 				echoOutcomes = { ...echoOutcomes, [cid]: 'ok' };
-			} else if (data.event === '_subscribeOk') {
-				const ch = data.payload?._channel;
+			} else if (data.event === '__subscribeOk__') {
+				const ch = data.__wskit?.channel;
 				if (ch === 'no-limit') subscribedNoLimit = true;
 				else if (ch === 'inherit-room') subscribedInherit = true;
 				else if (ch === 'rooms') subscribedRooms = true;
-			} else if (data.event === '_error') {
+			} else if (data.event === '__error__') {
 				lastErrorCode = data.payload?.code ?? null;
 				if (data.payload?.code === 'rate-limited') {
 					rateLimitedCount += 1;
@@ -68,12 +68,18 @@
 		};
 	}
 
-	function send(event: string, payload: Record<string, unknown> = {}) {
-		ws?.send(JSON.stringify({ event, payload }));
+	function send(
+		event: string,
+		payload: Record<string, unknown> = {},
+		wskit?: Record<string, unknown>,
+	) {
+		ws?.send(JSON.stringify(wskit ? { event, payload, __wskit: wskit } : { event, payload }));
 	}
 
 	function subscribe(channelName: string) {
-		ws?.send(JSON.stringify({ event: '_subscribe', payload: { _channel: channelName } }));
+		ws?.send(
+			JSON.stringify({ event: '__subscribe__', payload: {}, __wskit: { channel: channelName } }),
+		);
 	}
 
 	function sendEchoReq(text: string) {
@@ -81,7 +87,8 @@
 		ws?.send(
 			JSON.stringify({
 				event: 'echo-req',
-				payload: { text, _correlationId: id },
+				payload: { text },
+				__wskit: { correlationId: id },
 			}),
 		);
 		return id;
@@ -94,12 +101,12 @@
 
 <button data-testid="tick" onclick={() => send('tick')}>Tick</button>
 <button data-testid="expensive" onclick={() => send('expensive')}>Expensive</button>
-<button data-testid="strict-ping" onclick={() => send('strict-ping', { _namespace: 'strict' })}>
+<button data-testid="strict-ping" onclick={() => send('strict-ping', {}, { namespace: 'strict' })}>
 	Strict ping
 </button>
 <button
 	data-testid="fast-ping"
-	onclick={() => send('fast-ping', { _namespace: 'fast-refill' })}
+	onclick={() => send('fast-ping', {}, { namespace: 'fast-refill' })}
 >
 	Fast ping
 </button>
@@ -115,19 +122,19 @@
 </button>
 <button
 	data-testid="send-no-limit"
-	onclick={() => send('send', { text: 'hi', _channel: 'no-limit' })}
+	onclick={() => send('send', { text: 'hi' }, { channel: 'no-limit' })}
 >
 	Send in no-limit
 </button>
 <button
 	data-testid="send-inherit"
-	onclick={() => send('send', { text: 'hi', _channel: 'inherit-room' })}
+	onclick={() => send('send', { text: 'hi' }, { channel: 'inherit-room' })}
 >
 	Send in inherit
 </button>
 <button
 	data-testid="send-chatter"
-	onclick={() => send('chatter', { text: 'hi', _channel: 'rooms' })}
+	onclick={() => send('chatter', { text: 'hi' }, { channel: 'rooms' })}
 >
 	Send chatter
 </button>

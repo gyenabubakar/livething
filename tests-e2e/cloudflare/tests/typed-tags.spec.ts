@@ -1,7 +1,11 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
-type WireFrame = { event: string; payload: Record<string, unknown> };
+type WireFrame = {
+  event: string;
+  payload: Record<string, unknown>;
+  __wskit?: Record<string, unknown>;
+};
 
 declare global {
   interface Window {
@@ -174,10 +178,10 @@ test.describe('typed tags', () => {
     const alice = await connect(page, 'alice', room);
     const bob = await connect(page, 'bob', room);
 
-    await send(page, alice, { event: '_subscribe', payload: { _channel: 'room' } });
-    await send(page, bob, { event: '_subscribe', payload: { _channel: 'room' } });
-    await waitForFrame(page, alice, (f) => f.event === '_subscribeOk');
-    await waitForFrame(page, bob, (f) => f.event === '_subscribeOk');
+    await send(page, alice, { event: '__subscribe__', payload: {}, __wskit: { channel: 'room' } });
+    await send(page, bob, { event: '__subscribe__', payload: {}, __wskit: { channel: 'room' } });
+    await waitForFrame(page, alice, (f) => f.event === '__subscribeOk__');
+    await waitForFrame(page, bob, (f) => f.event === '__subscribeOk__');
 
     await send(page, alice, {
       event: 'add-tag',
@@ -191,10 +195,10 @@ test.describe('typed tags', () => {
       payload: { group: 'role', key: 'troll', reason: 'spam' },
     });
 
-    await waitForFrame(page, alice, (f) => f.event === '_kicked');
+    await waitForFrame(page, alice, (f) => f.event === '__kicked__');
     await page.waitForTimeout(200);
     const bobFrames = await frames(page, bob);
-    const bobKicked = bobFrames.find((f) => f.event === '_kicked');
+    const bobKicked = bobFrames.find((f) => f.event === '__kicked__');
     expect(bobKicked).toBeUndefined();
   });
 });

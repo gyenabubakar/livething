@@ -31,8 +31,8 @@
 			if (data.event === 'start-ns-stream' && typeof data.payload?.index === 'number') {
 				nsStreamChunks = [...nsStreamChunks, data.payload.index];
 			}
-			if (data.event === '_streamEnd') nsStreamEnd = true;
-			const id = data.payload?._correlationId as string | undefined;
+			if (data.event === '__streamEnd__') nsStreamEnd = true;
+			const id = data.__wskit?.correlationId as string | undefined;
 			if (id) {
 				const payload = data.payload ?? {};
 				responses = { ...responses, [id]: JSON.stringify(payload) };
@@ -44,18 +44,20 @@
 	}
 
 	function sendNs(text: string) {
-		ws?.send(JSON.stringify({ event: 'send-ns', payload: { text, _namespace: 'ns' } }));
+		ws?.send(JSON.stringify({ event: 'send-ns', payload: { text }, __wskit: { namespace: 'ns' } }));
 	}
 
 	function broadcastNs(text: string) {
-		ws?.send(JSON.stringify({ event: 'broadcast-ns', payload: { text, _namespace: 'ns' } }));
+		ws?.send(
+			JSON.stringify({ event: 'broadcast-ns', payload: { text }, __wskit: { namespace: 'ns' } }),
+		);
 	}
 
 	function startNsStream(count: number) {
 		nsStreamChunks = [];
 		nsStreamEnd = false;
 		ws?.send(
-			JSON.stringify({ event: 'start-ns-stream', payload: { count, _namespace: 'ns' } }),
+			JSON.stringify({ event: 'start-ns-stream', payload: { count }, __wskit: { namespace: 'ns' } }),
 		);
 	}
 
@@ -64,7 +66,8 @@
 		ws?.send(
 			JSON.stringify({
 				event: 'get-ns-info',
-				payload: { _correlationId: id, _namespace: 'ns' },
+				payload: {},
+				__wskit: { correlationId: id, namespace: 'ns' },
 			}),
 		);
 	}

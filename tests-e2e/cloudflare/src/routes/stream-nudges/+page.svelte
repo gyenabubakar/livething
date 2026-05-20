@@ -41,10 +41,10 @@
 			if (typeof ev.data !== 'string') return;
 			const data = JSON.parse(ev.data);
 			switch (data.event) {
-				case '_streamOk':
-					if (data.payload?._streamId) lastStreamId = data.payload._streamId;
+				case '__streamOk__':
+					if (data.__wskit?.streamId) lastStreamId = data.__wskit.streamId;
 					break;
-				case '_streamEnd':
+				case '__streamEnd__':
 					streamEnd = true;
 					break;
 				case 'start-nudge-stream':
@@ -59,9 +59,9 @@
 					nudgeSawEvents += (nudgeSawEvents ? '|' : '') + events.join(',');
 					break;
 				}
-				case '_error':
+				case '__error__':
 					lastError = String(data.payload?.code ?? '');
-					lastErrorStreamId = String(data.payload?._streamId ?? '');
+					lastErrorStreamId = String(data.__wskit?.streamId ?? '');
 					break;
 			}
 		};
@@ -72,23 +72,26 @@
 		ws?.send(JSON.stringify({ event: 'start-nudge-stream', payload: { prompt } }));
 	}
 	function pause() {
-		ws?.send(JSON.stringify({ event: 'pause', payload: { _streamId: lastStreamId } }));
+		ws?.send(JSON.stringify({ event: 'pause', payload: {}, __wskit: { streamId: lastStreamId } }));
 	}
 	function pauseMultiple(count: number) {
 		for (let i = 0; i < count; i++) {
-			ws?.send(JSON.stringify({ event: 'pause', payload: { _streamId: lastStreamId } }));
+			ws?.send(
+				JSON.stringify({ event: 'pause', payload: {}, __wskit: { streamId: lastStreamId } }),
+			);
 		}
 	}
 	function speedUp(factor: number) {
 		ws?.send(
-			JSON.stringify({ event: 'speed-up', payload: { factor, _streamId: lastStreamId } }),
+			JSON.stringify({ event: 'speed-up', payload: { factor }, __wskit: { streamId: lastStreamId } }),
 		);
 	}
 	function malformedPause() {
 		ws?.send(
 			JSON.stringify({
 				event: 'pause',
-				payload: { _streamId: lastStreamId, leak: 'should-not-reach-handler' },
+				payload: { leak: 'should-not-reach-handler' },
+				__wskit: { streamId: lastStreamId },
 			}),
 		);
 	}

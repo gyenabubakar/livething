@@ -25,20 +25,23 @@
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
 			const data = JSON.parse(ev.data);
-			if (data.event === '_subscribeOk') subscribed = true;
+			if (data.event === '__subscribeOk__') subscribed = true;
 			if (data.event === 'echoed') echoed = [...echoed, data.payload?.text ?? ''];
-			if (data.event === '_error') lastErrorCode = data.payload?.code ?? '';
+			if (data.event === '__error__') lastErrorCode = data.payload?.code ?? '';
 		};
 	}
 
 	function send(text: string, scope?: 'ns' | 'room') {
 		const payload: Record<string, unknown> = { text };
-		if (scope === 'ns') payload._namespace = 'ns';
-		if (scope === 'room') payload._channel = 'room';
-		ws?.send(JSON.stringify({ event: 'echo', payload }));
+		let wskit: Record<string, unknown> | undefined;
+		if (scope === 'ns') wskit = { namespace: 'ns' };
+		if (scope === 'room') wskit = { channel: 'room' };
+		ws?.send(
+			JSON.stringify(wskit ? { event: 'echo', payload, __wskit: wskit } : { event: 'echo', payload }),
+		);
 	}
 	function subscribeRoom() {
-		ws?.send(JSON.stringify({ event: '_subscribe', payload: { _channel: 'room' } }));
+		ws?.send(JSON.stringify({ event: '__subscribe__', payload: {}, __wskit: { channel: 'room' } }));
 	}
 </script>
 

@@ -21,17 +21,19 @@ test.describe('stream-cancel matrix', () => {
     const a = await connect(page, '/ws/stream-broadcast', 'alice', room);
 
     await send(page, a, {
-      event: '_subscribe',
-      payload: { _channel: channelKey, _channelScope: 'rooms' },
+      event: '__subscribe__',
+      payload: {},
+      __wskit: { channel: channelKey, channelScope: 'rooms' },
     });
-    await waitForFrame(page, a, (f) => f.event === '_subscribeOk');
+    await waitForFrame(page, a, (f) => f.event === '__subscribeOk__');
 
     await send(page, a, {
       event: 'start-room-stream',
-      payload: { _channel: channelKey, _channelScope: 'rooms', count: 20 },
+      payload: { count: 20 },
+      __wskit: { channel: channelKey, channelScope: 'rooms' },
     });
-    const ok = await waitForFrame(page, a, (f) => f.event === '_streamOk');
-    const streamId = ok.payload._streamId as string;
+    const ok = await waitForFrame(page, a, (f) => f.event === '__streamOk__');
+    const streamId = ok.__wskit?.streamId as string;
     await page.waitForFunction(
       ([sid]) =>
         (window.__wskitFrames!(sid as string) ?? []).filter((f) => f.event === 'start-room-stream')
@@ -40,8 +42,9 @@ test.describe('stream-cancel matrix', () => {
     );
 
     await send(page, a, {
-      event: '_streamCancel',
-      payload: { _channel: channelKey, _channelScope: 'rooms', _streamId: streamId },
+      event: '__streamCancel__',
+      payload: {},
+      __wskit: { streamId },
     });
     await page.waitForTimeout(400);
     const snapshot = await chunkCount(page, a, 'start-room-stream');
@@ -49,9 +52,9 @@ test.describe('stream-cancel matrix', () => {
     const after = await chunkCount(page, a, 'start-room-stream');
     expect(after - snapshot).toBe(0);
     expect(after).toBeLessThan(20);
-    // Plain stream cancel does not send _streamEnd.
+    // Plain stream cancel does not send __streamEnd__.
     const ended = (await frames(page, a)).some(
-      (f) => f.event === '_streamEnd' && f.payload._streamId === streamId,
+      (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
     );
     expect(ended).toBe(false);
   });
@@ -65,10 +68,11 @@ test.describe('stream-cancel matrix', () => {
 
     await send(page, a, {
       event: 'start-ns-stream',
-      payload: { _namespace: 'ns', count: 20 },
+      payload: { count: 20 },
+      __wskit: { namespace: 'ns' },
     });
-    const ok = await waitForFrame(page, a, (f) => f.event === '_streamOk');
-    const streamId = ok.payload._streamId as string;
+    const ok = await waitForFrame(page, a, (f) => f.event === '__streamOk__');
+    const streamId = ok.__wskit?.streamId as string;
     await page.waitForFunction(
       ([sid]) =>
         (window.__wskitFrames!(sid as string) ?? []).filter((f) => f.event === 'start-ns-stream')
@@ -77,8 +81,9 @@ test.describe('stream-cancel matrix', () => {
     );
 
     await send(page, a, {
-      event: '_streamCancel',
-      payload: { _namespace: 'ns', _streamId: streamId },
+      event: '__streamCancel__',
+      payload: {},
+      __wskit: { streamId },
     });
     await page.waitForTimeout(400);
     const snapshot = await chunkCount(page, a, 'start-ns-stream');
@@ -87,7 +92,7 @@ test.describe('stream-cancel matrix', () => {
     expect(after - snapshot).toBe(0);
     expect(after).toBeLessThan(20);
     const ended = (await frames(page, a)).some(
-      (f) => f.event === '_streamEnd' && f.payload._streamId === streamId,
+      (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
     );
     expect(ended).toBe(false);
   });
@@ -98,15 +103,16 @@ test.describe('stream-cancel matrix', () => {
     const room = `scm-${testInfo.testId}`;
     await pageWithRig(page, '/stream-durable-scoped');
     const a = await connect(page, '/ws/stream-durable-scoped', 'alice', room);
-    await send(page, a, { event: '_subscribe', payload: { _channel: 'rooms' } });
-    await waitForFrame(page, a, (f) => f.event === '_subscribeOk');
+    await send(page, a, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
+    await waitForFrame(page, a, (f) => f.event === '__subscribeOk__');
 
     const streamId = 'history-cancel-1';
     await send(page, a, {
       event: 'history',
-      payload: { _channel: 'rooms', _streamId: streamId },
+      payload: {},
+      __wskit: { channel: 'rooms', streamId },
     });
-    await waitForFrame(page, a, (f) => f.event === '_streamOk');
+    await waitForFrame(page, a, (f) => f.event === '__streamOk__');
     await page.waitForFunction(
       ([sid]) =>
         (window.__wskitFrames!(sid as string) ?? []).filter(
@@ -116,16 +122,18 @@ test.describe('stream-cancel matrix', () => {
     );
 
     await send(page, a, {
-      event: '_streamCancel',
-      payload: { _channel: 'rooms', _streamId: streamId },
+      event: '__streamCancel__',
+      payload: {},
+      __wskit: { streamId },
     });
     await page.waitForTimeout(500);
 
     await send(page, a, {
-      event: '_resumeStream',
-      payload: { _channel: 'rooms', _streamId: streamId, since: 0 },
+      event: '__resumeStream__',
+      payload: { lastKnownSeq: 0 },
+      __wskit: { channel: 'rooms', streamId },
     });
-    const err = await waitForFrame(page, a, (f) => f.event === '_error');
+    const err = await waitForFrame(page, a, (f) => f.event === '__error__');
     expect(err.payload.code).toBe('stream-aborted');
     expect((err.payload.detail as { reason: string }).reason).toBe('not-found');
   });
@@ -140,9 +148,10 @@ test.describe('stream-cancel matrix', () => {
     const streamId = 'logs-cancel-1';
     await send(page, a, {
       event: 'logs',
-      payload: { _namespace: 'v1', _streamId: streamId },
+      payload: {},
+      __wskit: { namespace: 'v1', streamId },
     });
-    await waitForFrame(page, a, (f) => f.event === '_streamOk');
+    await waitForFrame(page, a, (f) => f.event === '__streamOk__');
     await page.waitForFunction(
       ([sid]) =>
         (window.__wskitFrames!(sid as string) ?? []).filter(
@@ -152,16 +161,18 @@ test.describe('stream-cancel matrix', () => {
     );
 
     await send(page, a, {
-      event: '_streamCancel',
-      payload: { _namespace: 'v1', _streamId: streamId },
+      event: '__streamCancel__',
+      payload: {},
+      __wskit: { streamId },
     });
     await page.waitForTimeout(500);
 
     await send(page, a, {
-      event: '_resumeStream',
-      payload: { _namespace: 'v1', _streamId: streamId, since: 0 },
+      event: '__resumeStream__',
+      payload: { lastKnownSeq: 0 },
+      __wskit: { namespace: 'v1', streamId },
     });
-    const err = await waitForFrame(page, a, (f) => f.event === '_error');
+    const err = await waitForFrame(page, a, (f) => f.event === '__error__');
     expect(err.payload.code).toBe('stream-aborted');
     expect((err.payload.detail as { reason: string }).reason).toBe('not-found');
   });
@@ -172,15 +183,16 @@ test.describe('stream-cancel matrix', () => {
     const room = `scm-${testInfo.testId}`;
     await pageWithRig(page, '/stream-durable-scoped');
     const a = await connect(page, '/ws/stream-durable-scoped', 'alice', room);
-    await send(page, a, { event: '_subscribe', payload: { _channel: 'rooms' } });
-    await waitForFrame(page, a, (f) => f.event === '_subscribeOk');
+    await send(page, a, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
+    await waitForFrame(page, a, (f) => f.event === '__subscribeOk__');
 
     const streamId = 'paginate-cancel-1';
     await send(page, a, {
       event: 'paginate',
-      payload: { _channel: 'rooms', _streamId: streamId },
+      payload: {},
+      __wskit: { channel: 'rooms', streamId },
     });
-    await waitForFrame(page, a, (f) => f.event === '_streamOk');
+    await waitForFrame(page, a, (f) => f.event === '__streamOk__');
     await page.waitForFunction(
       ([sid]) =>
         (window.__wskitFrames!(sid as string) ?? []).filter(
@@ -190,16 +202,18 @@ test.describe('stream-cancel matrix', () => {
     );
 
     await send(page, a, {
-      event: '_streamCancel',
-      payload: { _channel: 'rooms', _streamId: streamId },
+      event: '__streamCancel__',
+      payload: {},
+      __wskit: { streamId },
     });
     await page.waitForTimeout(500);
 
     await send(page, a, {
-      event: '_resumeStream',
-      payload: { _channel: 'rooms', _streamId: streamId, since: 0 },
+      event: '__resumeStream__',
+      payload: { lastKnownSeq: 0 },
+      __wskit: { channel: 'rooms', streamId },
     });
-    const err = await waitForFrame(page, a, (f) => f.event === '_error');
+    const err = await waitForFrame(page, a, (f) => f.event === '__error__');
     expect(err.payload.code).toBe('stream-aborted');
     expect((err.payload.detail as { reason: string }).reason).toBe('not-found');
   });
@@ -214,9 +228,10 @@ test.describe('stream-cancel matrix', () => {
     const streamId = 'audit-cancel-1';
     await send(page, a, {
       event: 'audit-export',
-      payload: { _namespace: 'v1', _streamId: streamId },
+      payload: {},
+      __wskit: { namespace: 'v1', streamId },
     });
-    await waitForFrame(page, a, (f) => f.event === '_streamOk');
+    await waitForFrame(page, a, (f) => f.event === '__streamOk__');
     await page.waitForFunction(
       ([sid]) =>
         (window.__wskitFrames!(sid as string) ?? []).filter(
@@ -226,16 +241,18 @@ test.describe('stream-cancel matrix', () => {
     );
 
     await send(page, a, {
-      event: '_streamCancel',
-      payload: { _namespace: 'v1', _streamId: streamId },
+      event: '__streamCancel__',
+      payload: {},
+      __wskit: { streamId },
     });
     await page.waitForTimeout(500);
 
     await send(page, a, {
-      event: '_resumeStream',
-      payload: { _namespace: 'v1', _streamId: streamId, since: 0 },
+      event: '__resumeStream__',
+      payload: { lastKnownSeq: 0 },
+      __wskit: { namespace: 'v1', streamId },
     });
-    const err = await waitForFrame(page, a, (f) => f.event === '_error');
+    const err = await waitForFrame(page, a, (f) => f.event === '__error__');
     expect(err.payload.code).toBe('stream-aborted');
     expect((err.payload.detail as { reason: string }).reason).toBe('not-found');
   });

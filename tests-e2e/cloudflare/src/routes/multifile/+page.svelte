@@ -28,7 +28,7 @@
 			if (data.event === 'notification') {
 				notifications = [...notifications, data.payload?.title ?? ''];
 			}
-			if (data.event === '_subscribeOk') subscribed = true;
+			if (data.event === '__subscribeOk__') subscribed = true;
 			if (data.event === 'room-message') {
 				const text = data.payload?.text ?? '';
 				const from = data.payload?.from ?? '';
@@ -38,14 +38,15 @@
 	}
 
 	function subscribe() {
-		ws?.send(JSON.stringify({ event: '_subscribe', payload: { _channel: 'lobby' } }));
+		ws?.send(JSON.stringify({ event: '__subscribe__', payload: {}, __wskit: { channel: 'lobby' } }));
 	}
 
 	function sendRoomMessage(text: string) {
 		ws?.send(
 			JSON.stringify({
 				event: 'send-room-message',
-				payload: { text, _channel: 'lobby' },
+				payload: { text },
+				__wskit: { channel: 'lobby' },
 			}),
 		);
 	}

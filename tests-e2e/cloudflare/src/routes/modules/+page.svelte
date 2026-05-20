@@ -57,6 +57,7 @@
 			const msg = JSON.parse(event.data as string) as {
 				event: string;
 				payload: Record<string, unknown>;
+				__wskit?: Record<string, unknown>;
 			};
 			const { event: evt, payload } = msg;
 			messageLog = [...messageLog, `${evt}: ${JSON.stringify(payload)}`].slice(-50);
@@ -131,8 +132,8 @@
 						streamThrowChunks++;
 					}
 					break;
-				case '_streamOk':
-					if (typeof payload?._streamId === 'string') streamThrowId = payload._streamId;
+				case '__streamOk__':
+					if (typeof msg.__wskit?.streamId === 'string') streamThrowId = msg.__wskit.streamId;
 					break;
 			}
 		};

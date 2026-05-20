@@ -32,29 +32,29 @@
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
 			const data = JSON.parse(ev.data);
-			if (data.event === '_subscribeOk') {
+			if (data.event === '__subscribeOk__') {
 				subscribeOkCount += 1;
-				subscribeOkChannels = [...subscribeOkChannels, data.payload?._channel ?? ''];
+				subscribeOkChannels = [...subscribeOkChannels, data.__wskit?.channel ?? ''];
 			}
-			if (data.event === '_error' && data.payload?._channel) {
-				subscribeError = `${data.payload._channel}:${data.payload.code}`;
-				if (data.payload._channel === 'room' && data.payload.code) {
+			if (data.event === '__error__' && data.__wskit?.channel) {
+				subscribeError = `${data.__wskit.channel}:${data.payload.code}`;
+				if (data.__wskit.channel === 'room' && data.payload.code) {
 					badBroadcastErrorCode = String(data.payload.code);
 				}
 			}
-			if (data.event === '_memberJoin' && data.payload?._channel) {
-				memberJoins = [...memberJoins, `${data.payload._channel}:${data.payload.connectionId}`];
+			if (data.event === '__memberJoin__' && data.__wskit?.channel) {
+				memberJoins = [...memberJoins, `${data.__wskit.channel}:${data.payload.connectionId}`];
 			}
-			if (data.event === '_memberLeave' && data.payload?._channel) {
+			if (data.event === '__memberLeave__' && data.__wskit?.channel) {
 				memberLeaves = [
 					...memberLeaves,
-					`${data.payload._channel}:${data.payload.connectionId}`,
+					`${data.__wskit.channel}:${data.payload.connectionId}`,
 				];
 			}
 			if (data.event === 'start-channel-stream' && typeof data.payload?.index === 'number') {
 				channelStreamChunks = [...channelStreamChunks, data.payload.index];
 			}
-			if (data.event === '_streamEnd' && data.payload?._channel === 'room') {
+			if (data.event === '__streamEnd__' && data.__wskit?.channel === 'room') {
 				channelStreamEnd = true;
 			}
 			if (data.event === 'room-message') {
@@ -68,36 +68,40 @@
 		};
 	}
 
-	function send(event: string, payload: Record<string, unknown> = {}) {
-		ws?.send(JSON.stringify({ event, payload }));
+	function send(
+		event: string,
+		payload: Record<string, unknown> = {},
+		__wskit?: Record<string, unknown>,
+	) {
+		ws?.send(JSON.stringify(__wskit ? { event, payload, __wskit } : { event, payload }));
 	}
 	function subscribeRoom() {
-		send('_subscribe', { _channel: 'room' });
+		send('__subscribe__', {}, { channel: 'room' });
 	}
 	function subscribeRoomTwo() {
-		send('_subscribe', { _channel: 'room2' });
+		send('__subscribe__', {}, { channel: 'room2' });
 	}
 	function subscribeBogus() {
-		send('_subscribe', { _channel: 'does-not-exist' });
+		send('__subscribe__', {}, { channel: 'does-not-exist' });
 	}
 	function unsubscribeRoom() {
-		send('_unsubscribe', { _channel: 'room' });
+		send('__unsubscribe__', {}, { channel: 'room' });
 	}
 	function sendRoom(text: string) {
-		send('send-message', { text, _channel: 'room' });
+		send('send-message', { text }, { channel: 'room' });
 	}
 	function publishWithoutSub(text: string) {
 		// Same send, but this button is used WITHOUT subscribing first.
-		send('send-message', { text, _channel: 'room' });
+		send('send-message', { text }, { channel: 'room' });
 	}
 	function triggerBadBroadcast() {
 		badBroadcastErrorCode = '';
-		send('trigger-bad-broadcast', { _channel: 'room' });
+		send('trigger-bad-broadcast', {}, { channel: 'room' });
 	}
 	function startChannelStream(count: number) {
 		channelStreamChunks = [];
 		channelStreamEnd = false;
-		send('start-channel-stream', { count, _channel: 'room' });
+		send('start-channel-stream', { count }, { channel: 'room' });
 	}
 </script>
 

@@ -32,22 +32,22 @@
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
 			const data = JSON.parse(ev.data);
-			if (data.event === '_subscribeOk') subscribed = true;
+			if (data.event === '__subscribeOk__') subscribed = true;
 			if (data.event === 'room-message') roomMessages = [...roomMessages, data.payload.text];
 			if (data.event === 'notes-list') savedNotes = data.payload.notes;
 			if (data.event === 'tag-result') tags = data.payload.tags;
 			if (data.event === 'tagged-message') {
 				taggedMessages = [...taggedMessages, `${data.payload.from}:${data.payload.text}`];
 			}
-			if (data.event === '_streamOk' && data.payload?._streamId) {
-				slowStreamId = data.payload._streamId;
+			if (data.event === '__streamOk__' && data.__wskit?.streamId) {
+				slowStreamId = data.__wskit.streamId;
 				slowStreamOk = true;
 			}
 			if (data.event === 'start-slow-stream' && typeof data.payload?.index === 'number') {
 				slowStreamChunks = [...slowStreamChunks, data.payload.index];
 			}
-			if (data.event === '_error' && data.payload?._streamId) {
-				slowStreamError = `${data.payload.code}:${data.payload._streamId}`;
+			if (data.event === '__error__' && data.__wskit?.streamId) {
+				slowStreamError = `${data.payload.code}:${data.__wskit.streamId}`;
 			}
 			if (data.event === 'room-members-count') {
 				roomMembersCount = data.payload.count;
@@ -56,12 +56,12 @@
 	}
 
 	function subscribeRoom() {
-		ws?.send(JSON.stringify({ event: '_subscribe', payload: { _channel: 'room' } }));
+		ws?.send(JSON.stringify({ event: '__subscribe__', payload: {}, __wskit: { channel: 'room' } }));
 	}
 
 	function broadcastRoom(text: string) {
 		ws?.send(
-			JSON.stringify({ event: 'broadcast-to-room', payload: { text, _channel: 'room' } }),
+			JSON.stringify({ event: 'broadcast-to-room', payload: { text }, __wskit: { channel: 'room' } }),
 		);
 	}
 

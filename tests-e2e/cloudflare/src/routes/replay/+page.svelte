@@ -51,10 +51,11 @@
 			const msg = JSON.parse(event.data as string) as {
 				event: string;
 				payload: Record<string, unknown>;
+				__wskit?: Record<string, unknown>;
 			};
-			const { event: evt, payload } = msg;
+			const { event: evt, payload, __wskit } = msg;
 
-			if (payload?._seq) lastSeq = payload._seq as number;
+			if (__wskit?.seq) lastSeq = __wskit.seq as number;
 
 			if (evt === 'chat-msg') {
 				const text = `${payload.from}: ${payload.text}`;
@@ -62,10 +63,10 @@
 				if (replayRequested) replayCount++;
 				if (payload.text === 'injected-history') historyInjected = 'true';
 				if (payload.text === 'after-bigint-row') afterBigintRowDelivered = 'true';
-			} else if (evt === '_error') {
-				if (payload._messageId === 'bigint-row-1') {
+			} else if (evt === '__error__') {
+				if (__wskit?.messageId === 'bigint-row-1') {
 					bigintReplayError = String(payload.code ?? '');
-					bigintReplayErrorMessageId = String(payload._messageId ?? '');
+					bigintReplayErrorMessageId = String(__wskit?.messageId ?? '');
 				}
 			} else if (evt === 'cursor') {
 				cursorEvents = [...cursorEvents, `${payload.x},${payload.y}`].slice(-50);
@@ -77,8 +78,8 @@
 			} else if (evt === 'replay-guard-error') {
 				replayGuardUndeclared = String(payload.undeclared ?? '');
 				replayGuardReservedField = String(payload.reservedField ?? '');
-			} else if (evt === '_subscribeOk') {
-				if (payload._channel === 'replay-room') roomSubscribed = 'subscribed';
+			} else if (evt === '__subscribeOk__') {
+				if (__wskit?.channel === 'replay-room') roomSubscribed = 'subscribed';
 			}
 		};
 	}
@@ -89,8 +90,12 @@
 		status = 'disconnected';
 	}
 
-	function send(event: string, payload: Record<string, unknown>) {
-		ws?.send(JSON.stringify({ event, payload }));
+	function send(
+		event: string,
+		payload: Record<string, unknown>,
+		__wskit?: Record<string, unknown>,
+	) {
+		ws?.send(JSON.stringify(__wskit ? { event, payload, __wskit } : { event, payload }));
 	}
 
 	function sendMsg(text: string) {
@@ -105,21 +110,29 @@
 		replayCount = 0;
 		roomReplayCount = 0;
 		replayRequested = true;
-		ws?.send(JSON.stringify({ event: '_replay', payload: { since: sinceValue } }));
+		ws?.send(
+			JSON.stringify({ event: '__replay__', payload: { lastKnownSeq: sinceValue }, __wskit: {} }),
+		);
 	}
 
 	function joinRoom() {
-		send('_subscribe', { _channel: 'replay-room' });
+		send('__subscribe__', {}, { channel: 'replay-room' });
 	}
 
 	function sendRoomMsg(text: string) {
-		send('send-room-msg', { text, _channel: 'replay-room' });
+		send('send-room-msg', { text }, { channel: 'replay-room' });
 	}
 
 	function requestRoomReplay() {
 		roomReplayCount = 0;
 		replayRequested = true;
-		ws?.send(JSON.stringify({ event: '_replay', payload: { since: 0, _channel: 'replay-room' } }));
+		ws?.send(
+			JSON.stringify({
+				event: '__replay__',
+				payload: { lastKnownSeq: 0 },
+				__wskit: { channel: 'replay-room' },
+			}),
+		);
 	}
 
 	function requestHistory() {
@@ -142,7 +155,7 @@
 
 	function requestRoomHistory() {
 		roomHistoryInjected = '';
-		send('request-room-history', { _channel: 'replay-room' });
+		send('request-room-history', {}, { channel: 'replay-room' });
 	}
 </script>
 
