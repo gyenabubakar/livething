@@ -18,8 +18,10 @@ export interface ResumableStreamGeneratePrimitive extends Primitive<'resumable-s
   readonly validator?: Validator<unknown>;
   readonly generator: (ctx: any, payload: any) => AsyncGenerator<unknown, void, unknown>;
   readonly allowConcurrent: boolean;
+  readonly broadcast: boolean;
   readonly onDisconnect: OnDisconnect;
   readonly nudges: readonly DurableNudgeDeclaration[];
+  readonly maxChunks: number;
   readonly maxAgeMs: number;
   readonly retentionAfterEndMs: number;
 }
@@ -29,8 +31,10 @@ export interface BuildResumableStreamGenerateInput {
   validator?: Validator<unknown>;
   generator: (ctx: any, payload: any) => AsyncGenerator<unknown, void, unknown>;
   allowConcurrent?: boolean;
+  broadcast?: boolean;
   onDisconnect?: OnDisconnect;
   nudges?: readonly DurableNudgeDeclaration[];
+  maxChunks: number;
   maxAgeMs: number;
   retentionAfterEndMs: number;
 }
@@ -47,8 +51,10 @@ export function resumableGenerateFactory(
     validator: input.validator,
     generator: input.generator,
     allowConcurrent: input.allowConcurrent ?? false,
+    broadcast: input.broadcast ?? false,
     onDisconnect: input.onDisconnect ?? 'cancel-but-buffer',
     nudges: input.nudges ?? [],
+    maxChunks: input.maxChunks,
     maxAgeMs: input.maxAgeMs,
     retentionAfterEndMs: input.retentionAfterEndMs,
   };

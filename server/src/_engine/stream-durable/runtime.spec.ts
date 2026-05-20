@@ -760,4 +760,100 @@ describe('durable stream runtime', () => {
     // still running on the creator's connection in a real run).
     expect(protocolMessages.find((m) => m.event === '_streamEnd')).toBeUndefined();
   });
+
+  it('broadcast resumableStream — chunks land in buffer + cursor advances on each yield', async () => {
+    const sql = makeSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime } = createRuntime(sql);
+    const creator = createConnection('c-creator', 'u-creator');
+    runtime.connections.set(creator.id, creator);
+
+    await runDurableStream(
+      runtime as never,
+      creator,
+      {},
+      baseDef({
+        kind: 'resumable',
+        broadcast: true,
+        maxChunks: 10,
+        generator: async function* (ctx: any) {
+          for (let i = 1; i <= 3; i += 1) {
+            yield ctx.stream.withCursor({ i }, { idx: i });
+          }
+        },
+      }),
+      {},
+      undefined,
+    );
+
+    // Row exists under broadcast scope key.
+    const row = Storage.readStream(sql, '__bcast:top__', 'gen-1')!;
+    expect(row).not.toBeNull();
+    expect(row.broadcast).toBe(true);
+    expect(JSON.parse(row.cursor!)).toEqual({ idx: 3 });
+    // Chunks recorded under the same scope key for late-joiner catch-up.
+    expect(Storage.readChunksSince(sql, '__bcast:top__', 'gen-1', 0)).toHaveLength(3);
+  });
+
+  it('broadcast resumableStream — peer-subscriber resume replays from buffer, no generator re-run', async () => {
+    const sql = makeSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime, protocolMessages, pipelineSends } = createRuntime(sql);
+    const peer = createConnection('c-peer', 'u-peer');
+
+    Storage.insertStream(sql, {
+      identity: '__bcast:top__',
+      streamId: 's-b',
+      event: 'e',
+      payload: '{}',
+      kind: 'resumable',
+      now: Date.now(),
+      broadcast: true,
+      creatorIdentity: 'u-creator',
+      maxChunks: 10,
+    });
+    Storage.appendChunk(sql, {
+      identity: '__bcast:top__',
+      streamId: 's-b',
+      seq: 1,
+      messageId: null,
+      payload: JSON.stringify({ i: 1 }),
+      now: Date.now(),
+    });
+    Storage.appendChunk(sql, {
+      identity: '__bcast:top__',
+      streamId: 's-b',
+      seq: 2,
+      messageId: null,
+      payload: JSON.stringify({ i: 2 }),
+      now: Date.now(),
+    });
+
+    const row = Storage.readStream(sql, '__bcast:top__', 's-b');
+
+    await resumeDurableStream(
+      runtime as never,
+      peer,
+      () => ({
+        scope: {},
+        def: baseDef({
+          kind: 'resumable',
+          broadcast: true,
+          generator: async function* () {
+            yield { unreachable: true };
+            throw new Error('should not be invoked for peer subscriber');
+          },
+        }),
+      }),
+      row,
+      's-b',
+      0,
+    );
+
+    const replayed = protocolMessages.filter((m) => m.event === 'e');
+    expect(replayed.map((m) => m.payload._seq)).toEqual([1, 2]);
+    // Peer never reaches the generator — no pipeline sends, no _streamEnd.
+    expect(pipelineSends.filter((p) => p.event === 'e')).toHaveLength(0);
+    expect(protocolMessages.find((m) => m.event === '_streamEnd')).toBeUndefined();
+  });
 });

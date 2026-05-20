@@ -219,7 +219,14 @@ export async function resumeDurableStream(
   }
   const { def, scope } = resolved;
 
-  if (row.kind === 'recorded') {
+  const realIdentity = connection.identity ?? connection.id;
+  // Peer-subscriber on a broadcast stream: replay buffered chunks since
+  // `since` and return. Subscribers never re-invoke the generator; only the
+  // creator can do that (handled below).
+  const isPeerSubscriber =
+    row.broadcast && row.creatorIdentity !== null && row.creatorIdentity !== realIdentity;
+
+  if (row.kind === 'recorded' || isPeerSubscriber) {
     const chunks = Storage.readChunksSince(runtime.sql, storageIdentity, streamId, since);
     for (const chunk of chunks) {
       const parsed = JSON.parse(chunk.payload);
@@ -241,10 +248,12 @@ export async function resumeDurableStream(
     return;
   }
 
+  // Broadcast peer-subscriber resume: caught up from the buffer; live future
+  // chunks arrive via broadcastToConnections. Don't end or restart.
+  if (isPeerSubscriber) return;
+
   if (row.kind === 'recorded') {
-    // Broadcast recorded: if the generator is still running on the creator's
-    // connection, just leave it. The resuming subscriber received the missed
-    // chunks above and will get future chunks via live broadcast.
+    // Single-subscriber recorded: caught up; mark ended.
     if (row.broadcast) return;
     Storage.markEnded(runtime.sql, storageIdentity, streamId, Date.now());
     runtime.sendProtocolMessage(connection, '_streamEnd', {
@@ -384,7 +393,10 @@ async function runGenerator(
 
       // Persist before wire so a send failure can't leave durable state ahead.
       const now = Date.now();
-      if (def.kind === 'recorded') {
+      // Broadcast streams (both kinds) record every chunk so late joiners
+      // and reconnecting subscribers can catch up from the buffer.
+      const recordsChunks = def.kind === 'recorded' || def.broadcast === true;
+      if (recordsChunks) {
         Storage.appendChunk(runtime.sql, {
           identity,
           streamId,
@@ -406,8 +418,9 @@ async function runGenerator(
             break;
           }
         }
-        Storage.updateLastSeq(runtime.sql, identity, streamId, seq, now);
-      } else if (def.kind === 'resumable' && cursorValue !== undefined) {
+      }
+
+      if (def.kind === 'resumable' && cursorValue !== undefined) {
         Storage.updateCursor(
           runtime.sql,
           identity,

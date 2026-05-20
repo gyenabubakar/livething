@@ -12,6 +12,19 @@ interface CommonResumableConfig {
   maxAgeMs?: number;
   /** How long an ended stream is kept after `_streamEnd` so a quick reconnect can still resume. Default: 30 seconds. */
   retentionAfterEndMs?: number;
+  /**
+   * One generator, many subscribers. The creator runs the cursor-driven
+   * generator once; every chunk is buffered, fanned out to scope members
+   * (channel / namespace / top-level), and the cursor is saved for crash
+   * recovery. Subscribers catch up from the buffer on resume — they do not
+   * re-invoke the generator. Default: false.
+   */
+  broadcast?: boolean;
+  /**
+   * Hard cap on chunks kept in the broadcast buffer. Only meaningful when
+   * `broadcast: true`. Default: 500.
+   */
+  maxChunks?: number;
 }
 
 /**
@@ -35,6 +48,8 @@ export interface ResumableStreamDef<
   readonly chunk?: Validator<TChunk>;
   readonly nudges: TNudges;
   readonly allowConcurrent: boolean;
+  readonly broadcast: boolean;
+  readonly maxChunks: number;
   readonly __cursorPhantom?: TCursor;
 }
 
@@ -80,8 +95,10 @@ export function resumableStream<
     chunk: config?.chunk,
     nudges: (config?.nudges ?? []) as TNudges,
     allowConcurrent: config?.allowConcurrent ?? false,
+    broadcast: config?.broadcast ?? false,
     onDisconnect: config?.onDisconnect ?? 'cancel-but-buffer',
     maxAgeMs: config?.maxAgeMs ?? 5 * 60_000,
     retentionAfterEndMs: config?.retentionAfterEndMs ?? 30_000,
+    maxChunks: config?.maxChunks ?? 500,
   };
 }
