@@ -1,14 +1,8 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 /**
- * Storage layer for durable streams.
- *
- * Two tables, keyed by `(identity, stream_id)`:
- *
- * - `_wskit_streams` — one row per stream. Tracks status, cursor (for
- *   resumable streams), config snapshots, retention timers.
- * - `_wskit_stream_chunks` — N rows per stream, one per chunk. Used by
- *   recorded streams; resumable streams never write here. ON DELETE CASCADE
- *   from `_wskit_streams` so cancelling/sweeping the metadata clears chunks.
+ * Storage layer for durable streams. Two tables keyed by
+ * `(identity, stream_id)`: `_wskit_streams` (one row per stream) and
+ * `_wskit_stream_chunks` (recorded streams only, ON DELETE CASCADE).
  */
 
 const CREATE_STREAMS_TABLE_SQL = `
@@ -89,8 +83,7 @@ interface SqlExec {
 
 /** Create the durable stream tables and indexes if they do not yet exist. */
 export function ensureDurableStreamSchema(sql: SqlExec): void {
-  // Enable FK enforcement so cascade delete actually clears chunks when a
-  // stream row is removed (cancel / sweep paths rely on this).
+  // FK enforcement on — cascade delete clears chunks on row removal.
   sql.exec('PRAGMA foreign_keys = ON');
   sql.exec(CREATE_STREAMS_TABLE_SQL);
   sql.exec(CREATE_STREAMS_STATUS_INDEX_SQL);

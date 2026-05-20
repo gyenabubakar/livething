@@ -706,11 +706,6 @@ export class Implementer<C extends Contract> {
     // ── Feature primitives ──────────────────────────────────────────────────
     if (config.persistence) primitives.push(persistenceFactory());
 
-    // ── Durable-stream sweep ────────────────────────────────────────────────
-    // When any resumable or recorded stream is declared, register a built-in
-    // recurring task that deletes suspended rows past `maxAgeMs` and ended
-    // rows past `retentionAfterEndMs`. Lives on the existing `scheduled`
-    // machinery so retries, dead-letter, and adapter alarm wiring all apply.
     if (hasDurableStreamDef(config.definitions)) {
       primitives.push(
         scheduledFactory('_wskit:stream-durable-sweep', (b) =>

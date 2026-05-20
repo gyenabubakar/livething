@@ -1,9 +1,4 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-/**
- * Compile a `recordedStream(...)` definition into one runtime primitive
- * (`'recorded-stream-generate'`).
- */
-
 import type { Primitive } from '~/primitive.ts';
 import { recordedGenerateFactory } from './stream-recorded.ts';
 import type { RecordedStreamDef } from './definition.ts';

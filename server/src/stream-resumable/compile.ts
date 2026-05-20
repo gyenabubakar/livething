@@ -1,11 +1,4 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-/**
- * Compile a `resumableStream(...)` definition into one runtime primitive
- * (`'resumable-stream-generate'`). The implementer collects generator
- * handlers in a map keyed by event name; we look up the handler here and
- * bind it to the primitive.
- */
-
 import type { Primitive } from '~/primitive.ts';
 import { resumableGenerateFactory } from './stream-resumable.ts';
 import type { ResumableStreamDef } from './definition.ts';

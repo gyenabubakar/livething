@@ -855,13 +855,23 @@ export async function processTextMessage(
         );
       }
       return;
-    case '_streamCancel':
+    case '_streamCancel': {
       await StreamPrimitive.cancelStream(
         runtime,
         connection,
         parsed.payload as Record<string, unknown> | undefined,
       );
+      // Durable streams also need the SQL row + buffered chunks cleared.
+      const cancelPayload = parsed.payload as { _streamId?: unknown } | undefined;
+      if (typeof cancelPayload?._streamId === 'string' && runtime.sql) {
+        await DurableStreamRuntime.cancelDurableStream(
+          runtime as unknown as DurableStreamRuntime.DurableStreamRuntime,
+          connection,
+          cancelPayload._streamId,
+        );
+      }
       return;
+    }
     case '_resume': {
       const payload = parsed.payload as { _streamId?: unknown; since?: unknown } | undefined;
       const streamId = typeof payload?._streamId === 'string' ? payload._streamId : null;
@@ -913,9 +923,7 @@ export async function processTextMessage(
     }
   }
 
-  // A frame whose event name matches a registered stream trigger is a
-  // start frame, even when it carries `_streamId` (dev-supplied id for
-  // durable resume). Don't let nudge buffering claim it.
+  // Stream trigger frames must skip nudge buffering even when they carry _streamId.
   const isStreamTrigger =
     runtime.compiled.streams.has(parsed.event) ||
     runtime.compiled.resumableStreams.has(parsed.event) ||

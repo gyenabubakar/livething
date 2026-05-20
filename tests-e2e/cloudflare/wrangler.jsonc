@@ -80,7 +80,7 @@
       { "name": "PROTOCOL_PINGS_SERVER", "class_name": "ProtocolPingsServer" },
       { "name": "MULTIFILE_SERVER", "class_name": "MultifileServer" },
       { "name": "RATE_LIMIT_SERVER", "class_name": "RateLimitServer" },
-      { "name": "DURABLE_STREAM_SERVER", "class_name": "DurableStreamServer" },
+      { "name": "STREAM_DURABLE_SERVER", "class_name": "StreamDurableServer" },
     ],
   },
   "migrations": [
@@ -130,7 +130,7 @@
         "PersistenceServer",
         "TypedTagsServer",
         "RateLimitServer",
-        "DurableStreamServer",
+        "StreamDurableServer",
       ],
     },
   ],

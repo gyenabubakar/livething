@@ -1,11 +1,4 @@
-/**
- * Cursor marker used by the resumable stream runtime.
- *
- * A user generator yields chunks paired with a cursor via
- * `ctx.stream.withCursor(chunk, cursor)`. That helper wraps the chunk in
- * `CursorChunk`, which the runtime unwraps before sending to the wire and
- * persists the cursor so a future resume can pick up from there.
- */
+/** Marker wrapper for `ctx.stream.withCursor(chunk, cursor)` yields. */
 
 export const CURSOR_MARK = Symbol('wskit:cursor');
 

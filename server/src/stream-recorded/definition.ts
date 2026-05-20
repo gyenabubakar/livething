@@ -1,12 +1,4 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-/**
- * Contract-side declaration for `recordedStream(...)`. The framework writes
- * every emitted chunk to durable storage as it's sent. On reconnect, the
- * client can resume from a sequence number and the server replays the
- * chunks it missed. Best for non-resumable sources (LLM tokens,
- * third-party APIs).
- */
-
 import { assertNonReservedEventName } from '~/_engine/compile/utils.ts';
 import type { OnDisconnect } from '~/_engine/stream-durable/types.ts';
 import type { NudgeDef } from '~/stream/definition.ts';

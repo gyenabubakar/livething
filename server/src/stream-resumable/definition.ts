@@ -1,10 +1,4 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-/**
- * Contract-side declaration for `resumableStream(...)`. The definition is
- * what shows up in `contract({ definitions: [...] })`. The implementer then
- * binds a handler via `implement(c).resumableStream(name, async function*())`.
- */
-
 import { assertNonReservedEventName } from '~/_engine/compile/utils.ts';
 import type { OnDisconnect } from '~/_engine/stream-durable/types.ts';
 import type { NudgeDef } from '~/stream/definition.ts';

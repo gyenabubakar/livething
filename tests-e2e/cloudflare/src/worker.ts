@@ -41,7 +41,7 @@ export { HeartbeatServer } from './lib/server/heartbeat/durable-object.ts';
 export { ProtocolPingsServer } from './lib/server/protocol-pings/durable-object.ts';
 export { MultifileServer } from './lib/server/multifile/durable-object.ts';
 export { RateLimitServer } from './lib/server/rate-limit/durable-object.ts';
-export { DurableStreamServer } from './lib/server/durable-stream/durable-object.ts';
+export { StreamDurableServer } from './lib/server/stream-durable/durable-object.ts';
 
 const FEATURE_ROUTES: Record<string, keyof Env> = {
   '/ws/incoming': 'INCOMING_SERVER',
@@ -80,7 +80,7 @@ const FEATURE_ROUTES: Record<string, keyof Env> = {
   '/ws/protocol-pings': 'PROTOCOL_PINGS_SERVER',
   '/ws/multifile': 'MULTIFILE_SERVER',
   '/ws/rate-limit': 'RATE_LIMIT_SERVER',
-  '/ws/durable-stream': 'DURABLE_STREAM_SERVER',
+  '/ws/stream-durable': 'STREAM_DURABLE_SERVER',
 };
 
 export default {

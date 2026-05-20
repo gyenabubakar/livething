@@ -2,18 +2,18 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
 async function goConnect(page: Page, room: string, streamId: string, username = 'ds-user') {
-  await page.goto(`/durable-stream?room=${room}`);
+  await page.goto(`/stream-durable?room=${room}`);
   await page.getByTestId('username').fill(username);
   await page.getByTestId('stream-id').fill(streamId);
   await page.getByTestId('connect').click();
   await expect(page.getByTestId('status')).toHaveText('connected');
 }
 
-test.describe('durable-stream', () => {
+test.describe('stream-durable', () => {
   test('recorded stream: chunks buffered in storage replay on resume', async ({
     page,
   }, testInfo) => {
-    const room = `dst-${testInfo.testId}`;
+    const room = `sdb-${testInfo.testId}`;
     const streamId = 'conv-1';
     await goConnect(page, room, streamId);
 
@@ -45,7 +45,7 @@ test.describe('durable-stream', () => {
   test('resumable stream: generator re-runs from saved cursor on resume', async ({
     page,
   }, testInfo) => {
-    const room = `dst-${testInfo.testId}`;
+    const room = `sdb-${testInfo.testId}`;
     const streamId = 'pages-1';
     await goConnect(page, room, streamId);
 
@@ -75,7 +75,7 @@ test.describe('durable-stream', () => {
   test('resume of an unknown stream id surfaces stream-aborted not-found', async ({
     page,
   }, testInfo) => {
-    const room = `dst-${testInfo.testId}`;
+    const room = `sdb-${testInfo.testId}`;
     await goConnect(page, room, 'does-not-exist');
 
     await page.getByTestId('send-resume').click();
@@ -87,5 +87,63 @@ test.describe('durable-stream', () => {
     await expect
       .poll(() => page.getByTestId('last-error-stream-id').textContent())
       .toBe('does-not-exist');
+  });
+
+  test('ctx.stream.attempt — 1 on first run, 2 after resume', async ({ page }, testInfo) => {
+    const room = `sdb-${testInfo.testId}`;
+    const streamId = 'attempt-1';
+    await goConnect(page, room, streamId);
+
+    await page.getByTestId('start-attempt').click();
+    await expect.poll(() => page.getByTestId('attempt-value').textContent()).toBe('1');
+
+    // Generator is parked in an await on the server. Drop the socket so the
+    // stream goes `suspended`, then reconnect and resume — attempt becomes 2.
+    await page.getByTestId('drop-socket').click();
+    await expect(page.getByTestId('status')).toHaveText('disconnected');
+    await page.getByTestId('connect').click();
+    await expect(page.getByTestId('status')).toHaveText('connected');
+    await page.getByTestId('send-resume').click();
+
+    await expect.poll(() => page.getByTestId('attempt-value').textContent()).toBe('2');
+  });
+
+  test('buffer-full path — handler catches StreamAborted and the stream ends cleanly', async ({
+    page,
+  }, testInfo) => {
+    const room = `sdb-${testInfo.testId}`;
+    const streamId = 'bf-1';
+    await goConnect(page, room, streamId);
+
+    await page.getByTestId('start-buffer-full').click();
+
+    // Cap is maxChunks=2; the handler catches buffer-full and returns. The
+    // page receives _streamEnd, no _error frame.
+    await expect.poll(() => page.getByTestId('stream-end-count').textContent()).toBe('1');
+    await expect.poll(() => page.getByTestId('last-error-code').textContent()).toBe('');
+  });
+
+  test('cancel deletes the durable row — subsequent resume returns not-found', async ({
+    page,
+  }, testInfo) => {
+    const room = `sdb-${testInfo.testId}`;
+    const streamId = 'cancel-1';
+    await goConnect(page, room, streamId);
+
+    await page.getByTestId('start-paginate').click();
+    await expect
+      .poll(async () => Number(await page.getByTestId('paginate-row-count').textContent()))
+      .toBeGreaterThanOrEqual(2);
+
+    await page.getByTestId('send-cancel').click();
+
+    // Give the server a beat to process cancel + delete the row.
+    await page.waitForTimeout(800);
+    await page.getByTestId('send-resume').click();
+
+    await expect
+      .poll(() => page.getByTestId('last-error-code').textContent())
+      .toBe('stream-aborted');
+    await expect.poll(() => page.getByTestId('last-error-reason').textContent()).toBe('not-found');
   });
 });

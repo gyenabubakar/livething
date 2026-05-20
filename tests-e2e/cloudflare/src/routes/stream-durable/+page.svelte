@@ -11,13 +11,15 @@
 	let lastErrorStreamId = $state<string | null>(null);
 	let streamEndCount = $state(0);
 	let allMsgCount = $state(0);
+	let attemptValue = $state<number | null>(null);
+	let bufferChunkCount = $state(0);
 
 	function connect() {
 		status = 'connecting';
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const room = new URL(location.href).searchParams.get('room') ?? 'default';
 		const sock = new WebSocket(
-			`${protocol}//${location.host}/ws/durable-stream?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
+			`${protocol}//${location.host}/ws/stream-durable?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
 		sock.onopen = () => {
 			ws = sock;
@@ -35,6 +37,10 @@
 				tokenChunks = [...tokenChunks, data.payload.idx];
 			} else if (data.event === 'paginate' && typeof data.payload?.row === 'number') {
 				paginateRows = [...paginateRows, data.payload.row];
+			} else if (data.event === 'attempt-stream' && typeof data.payload?.attempt === 'number') {
+				attemptValue = data.payload.attempt;
+			} else if (data.event === 'buffer-full-demo' && typeof data.payload?.n === 'number') {
+				bufferChunkCount += 1;
 			} else if (data.event === '_streamEnd') {
 				streamEndCount += 1;
 			} else if (data.event === '_error') {
@@ -61,6 +67,22 @@
 		send('paginate', { _streamId: streamIdInput });
 	}
 
+	function startAttemptStream() {
+		attemptValue = null;
+		streamEndCount = 0;
+		send('attempt-stream', { _streamId: streamIdInput });
+	}
+
+	function startBufferFullDemo() {
+		bufferChunkCount = 0;
+		streamEndCount = 0;
+		send('buffer-full-demo', { _streamId: streamIdInput });
+	}
+
+	function sendCancel() {
+		send('_streamCancel', { _streamId: streamIdInput });
+	}
+
 	function dropSocket() {
 		const sock = ws;
 		ws = null;
@@ -79,15 +101,18 @@
 	}
 </script>
 
-<h1>durable-stream feature</h1>
+<h1>stream-durable feature</h1>
 <input data-testid="username" bind:value={username} />
 <input data-testid="stream-id" bind:value={streamIdInput} />
 <input data-testid="since" bind:value={sinceInput} />
 <button data-testid="connect" onclick={connect}>Connect</button>
 <button data-testid="start-count-tokens" onclick={startCountTokens}>Start count-tokens</button>
 <button data-testid="start-paginate" onclick={startPaginate}>Start paginate</button>
+<button data-testid="start-attempt" onclick={startAttemptStream}>Start attempt-stream</button>
+<button data-testid="start-buffer-full" onclick={startBufferFullDemo}>Start buffer-full-demo</button>
 <button data-testid="drop-socket" onclick={dropSocket}>Drop socket</button>
 <button data-testid="send-resume" onclick={sendResume}>Send resume</button>
+<button data-testid="send-cancel" onclick={sendCancel}>Cancel stream</button>
 
 <span data-testid="status">{status}</span>
 <span data-testid="token-chunks">{tokenChunks.join(',')}</span>
@@ -99,3 +124,5 @@
 <span data-testid="last-error-reason">{lastErrorReason ?? ''}</span>
 <span data-testid="last-error-stream-id">{lastErrorStreamId ?? ''}</span>
 <span data-testid="all-msg-count">{allMsgCount}</span>
+<span data-testid="attempt-value">{attemptValue ?? ''}</span>
+<span data-testid="buffer-chunk-count">{bufferChunkCount}</span>

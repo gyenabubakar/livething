@@ -1,16 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 /**
- * Runtime for durable streams (resumable + recorded).
- *
- * Layout mirrors `~/stream/runtime.ts`. We deliberately do not extend that
- * file — durable streams have their own bookkeeping (cursor save, chunk
- * append, status transitions) that does not apply to plain streams.
- *
- * v1 scope:
- * - Top-level only. Channel/namespace durable streams are a follow-up.
- * - `onDisconnect: 'cancel-but-buffer'` always (no keep-running).
- * - No broadcast on durable streams.
- * - No nudges on durable streams (declared field tolerated, runtime ignores).
+ * Runtime for durable streams (resumable + recorded). Top-level only in v1;
+ * no broadcast, no nudges.
  */
 
 import {
@@ -88,16 +79,12 @@ function ensureUniqueStreamId(
   streamId: string,
 ): void {
   if (runtime.activeStreams.has(streamId)) throw StreamIdCollision();
-  // Storage-side check guards against id collisions across sockets of the
-  // same identity (e.g. user opens the same conversation on two devices).
+  // Cross-socket collision: same identity, same id, different connection.
   const row = Storage.readStream(runtime.sql, connection.identity ?? connection.id, streamId);
   if (row && row.status === 'active') throw StreamIdCollision();
 }
 
-/**
- * Start a fresh durable stream. Walks the generator, persists chunks /
- * cursor as they appear, and tears down cleanly on completion or error.
- */
+/** Start a fresh durable stream from a client trigger frame. */
 export async function runDurableStream(
   runtime: DurableStreamRuntime,
   connection: RuntimeConnection,
@@ -143,14 +130,7 @@ export async function runDurableStream(
   await runGenerator(runtime, connection, scope, def, payload, streamId, identity, null, 1);
 }
 
-/**
- * Resume a previously-suspended (or ended) durable stream on a fresh socket.
- * For recorded streams, replays buffered chunks since `since`. For resumable
- * streams, replays any new chunks (none — see note) then re-invokes the
- * generator with the saved cursor; new chunks emit live.
- *
- * Note: resumable streams do not buffer; replay does nothing for them.
- */
+/** Handle a client `_resume` frame for a suspended or ended durable stream. */
 export async function resumeDurableStream(
   runtime: DurableStreamRuntime,
   connection: RuntimeConnection,
@@ -170,21 +150,17 @@ export async function resumeDurableStream(
     return;
   }
 
-  // If the previous socket's close handling is still in flight (the old
-  // generator hasn't finished tearing down), wait briefly for it to settle
-  // so we don't double-run the generator. The await yields the event loop;
-  // the old generator's `finally` will run and clear activeStreams.
-  for (let i = 0; runtime.activeStreams.has(streamId) && i < 20; i += 1) {
-    await new Promise((r) => setTimeout(r, 25));
-  }
-  if (runtime.activeStreams.has(streamId)) {
-    // Still busy — refuse rather than spawn a second generator.
-    runtime.sendProtocolMessage(connection, '_error', {
-      code: StreamAborted.code,
-      detail: { reason: 'aborted' as const },
-      _streamId: streamId,
-    });
-    return;
+  // A stale in-memory entry may still be parked in an `await`; nudge it to
+  // close but don't block. The finally guard below stops it from clobbering
+  // the new entry when it eventually drains.
+  const existing = runtime.activeStreams.get(streamId);
+  if (existing) {
+    existing.closed = true;
+    try {
+      void existing.generator.return(undefined);
+    } catch {
+      /* drains in its own finally */
+    }
   }
 
   const def = resolveDef(row.event);
@@ -197,7 +173,6 @@ export async function resumeDurableStream(
     return;
   }
 
-  // Replay any buffered chunks the client missed (recorded streams only).
   if (row.kind === 'recorded') {
     const chunks = Storage.readChunksSince(runtime.sql, identity, streamId, since);
     for (const chunk of chunks) {
@@ -220,10 +195,6 @@ export async function resumeDurableStream(
     return;
   }
 
-  // status === 'active' or 'suspended' — re-invoke the generator for resumable
-  // streams, with the saved cursor. For recorded streams whose generator
-  // already ended on disconnect, we have nothing live to continue; the buffer
-  // replay above is the whole story, so signal end.
   if (row.kind === 'recorded') {
     Storage.markEnded(runtime.sql, identity, streamId, Date.now());
     runtime.sendProtocolMessage(connection, '_streamEnd', {
@@ -233,12 +204,10 @@ export async function resumeDurableStream(
     return;
   }
 
-  // resumable — re-run the generator with the saved cursor.
   const cursor = row.cursor ? JSON.parse(row.cursor) : null;
   const payload = JSON.parse(row.payload);
   runtime.sendProtocolMessage(connection, '_streamOk', { _streamId: streamId });
 
-  // Bump status back to active for the re-run.
   runtime.sql.exec(
     "UPDATE _wskit_streams SET status = 'active', last_activity_at = ? WHERE identity = ? AND stream_id = ?",
     Date.now(),
@@ -249,12 +218,7 @@ export async function resumeDurableStream(
   await runGenerator(runtime, connection, scope, def, payload, streamId, identity, cursor, 2);
 }
 
-/**
- * Mark every active durable stream owned by `connection` as suspended.
- * Called from the engine's disconnect path before `cancelActiveStreamsForConnection`
- * tears the in-memory generators down. Once persistence has the suspended
- * row, the client can come back later and resume.
- */
+/** Mark every active durable stream owned by `connection` as suspended. */
 export function markStreamsSuspendedForConnection(
   runtime: { sql: DurableStreamRuntime['sql']; activeStreams: Map<string, ActiveStream> },
   connection: RuntimeConnection,
@@ -267,13 +231,7 @@ export function markStreamsSuspendedForConnection(
   }
 }
 
-/**
- * Sweep job. Runs periodically and deletes:
- * - suspended streams that have aged past their `max_age_ms`,
- * - ended streams whose retention window has elapsed.
- *
- * Returns the number of rows deleted (useful in tests).
- */
+/** Delete suspended rows past `maxAgeMs` and ended rows past `retentionAfterEndMs`. */
 export function sweepDurableStreams(runtime: { sql: DurableStreamRuntime['sql'] }): number {
   const now = Date.now();
   let deleted = 0;
@@ -287,10 +245,6 @@ export function sweepDurableStreams(runtime: { sql: DurableStreamRuntime['sql'] 
   }
   return deleted;
 }
-
-// ---------------------------------------------------------------------------
-// Internals
-// ---------------------------------------------------------------------------
 
 async function runGenerator(
   runtime: DurableStreamRuntime,
@@ -342,8 +296,7 @@ async function runGenerator(
       seq += 1;
       const { chunkValue, cursorValue } = unwrapYield(result.value);
 
-      // Buffer + cursor persistence happens BEFORE the wire send so a wire
-      // failure cannot leave the durable side ahead of the client view.
+      // Persist before wire so a send failure can't leave durable state ahead.
       const now = Date.now();
       if (def.kind === 'recorded') {
         Storage.appendChunk(runtime.sql, {
@@ -354,12 +307,10 @@ async function runGenerator(
           payload: JSON.stringify(chunkValue ?? null),
           now,
         });
-        // Trim oldest chunks if we crossed the cap.
         if (def.maxChunks) {
           const count = Storage.countChunks(runtime.sql, identity, streamId);
           if (count > def.maxChunks) {
             Storage.trimOldestChunks(runtime.sql, identity, streamId, def.maxChunks);
-            // Throw into the generator so the dev can catch and react.
             try {
               await iterator.throw(StreamAborted({ reason: 'buffer-full' }));
             } catch (err) {
@@ -380,7 +331,6 @@ async function runGenerator(
           now,
         );
       } else {
-        // Resumable yield without cursor — still bump last_seq for housekeeping.
         Storage.updateLastSeq(runtime.sql, identity, streamId, seq, now);
       }
 
@@ -389,9 +339,6 @@ async function runGenerator(
           ? { ...(chunkValue as Record<string, unknown>) }
           : { value: chunkValue };
 
-      // Routing markers (`_streamId`, `_seq`) are added by the pipeline's
-      // injectRoutingMarkers. The payload itself is pure user data so the
-      // engine's reserved-field check passes.
       runtime.sendThroughPipeline(
         connection,
         {
@@ -407,10 +354,8 @@ async function runGenerator(
     }
 
     if (activeStream.closed) {
-      // Closed externally (disconnect cancel-but-buffer, or explicit cancel).
-      // For an explicit cancel, cancelDurableStream has already deleted the
-      // row + chunks. For a disconnect, the row is still 'active'; mark it
-      // 'suspended' so resume can pick up where we stopped.
+      // Disconnect with cancel-but-buffer. Cancel path already deleted the
+      // row; only suspend if it's still active.
       const row = Storage.readStream(runtime.sql, identity, streamId);
       if (row && row.status === 'active') {
         Storage.markSuspended(runtime.sql, identity, streamId, Date.now());
@@ -418,10 +363,6 @@ async function runGenerator(
       return;
     }
 
-    // Generator returned cleanly. Mark ended, fire _streamEnd, schedule sweep
-    // via retention. We do not delete immediately — the client may still be
-    // listening and might disconnect briefly between the last chunk and a
-    // resume call.
     Storage.markEnded(runtime.sql, identity, streamId, Date.now());
     runtime.sendProtocolMessage(connection, '_streamEnd', {
       _streamId: streamId,
@@ -430,12 +371,13 @@ async function runGenerator(
   } catch (error) {
     rethrowIfConfigError(error);
     await runtime.handleRuntimeError(connection, error, def.event, { _streamId: streamId });
-    // On error, hand control to the engine's runtime-error path. We still
-    // mark the row ended so the sweeper reaps it after retention.
     Storage.markEnded(runtime.sql, identity, streamId, Date.now());
   } finally {
     activeStream.closed = true;
-    runtime.activeStreams.delete(streamId);
+    // Don't clobber a slot taken over by a resume run.
+    if (runtime.activeStreams.get(streamId) === activeStream) {
+      runtime.activeStreams.delete(streamId);
+    }
     connection.activeStreamIds?.delete(streamId);
     runtime.persistAttachment(connection);
   }
@@ -446,10 +388,7 @@ function unwrapYield(value: unknown): { chunkValue: unknown; cursorValue: unknow
   return { chunkValue: value, cursorValue: undefined };
 }
 
-/**
- * Cancel a durable stream — synchronous delete of the row + chunks.
- * Mirrors the plain `cancelStream` but also clears storage.
- */
+/** Cancel a durable stream: stop the generator and delete the row + chunks. */
 export async function cancelDurableStream(
   runtime: DurableStreamRuntime,
   connection: RuntimeConnection,
