@@ -64,9 +64,13 @@ const CREATE_STREAM_UNSUBSCRIBED_TABLE_SQL = `
   )
 `;
 
+/** Which durable-stream primitive owns the row. */
 export type DurableStreamKind = 'resumable' | 'recorded';
+
+/** Lifecycle state of a durable stream row. */
 export type DurableStreamStatus = 'active' | 'suspended' | 'ended';
 
+/** One row from `_wskit_streams`, decoded into typed fields. */
 export interface DurableStreamRow {
   identity: string;
   streamId: string;
@@ -89,6 +93,7 @@ export interface DurableStreamRow {
   retentionAfterEndMs: number | null;
 }
 
+/** One row from `_wskit_stream_chunks`, decoded into typed fields. */
 export interface DurableStreamChunkRow {
   identity: string;
   streamId: string;
@@ -142,6 +147,7 @@ function rowToStream(row: Record<string, unknown>): DurableStreamRow {
   };
 }
 
+/** Inputs accepted by `insertStream`. */
 export interface InsertStreamInput {
   identity: string;
   streamId: string;
@@ -207,6 +213,7 @@ function isUniqueConstraintError(err: unknown): boolean {
   );
 }
 
+/** Read the row for one (identity, streamId), or `null` when no row matches. */
 export function readStream(
   sql: SqlExec,
   identity: string,
@@ -222,6 +229,7 @@ export function readStream(
   return rows.length > 0 ? rowToStream(rows[0]!) : null;
 }
 
+/** Persist the latest cursor + last_seq + activity timestamp for a resumable stream. */
 export function updateCursor(
   sql: SqlExec,
   identity: string,
@@ -240,6 +248,7 @@ export function updateCursor(
   );
 }
 
+/** Persist the latest last_seq + activity timestamp. Used when no cursor is yielded. */
 export function updateLastSeq(
   sql: SqlExec,
   identity: string,
@@ -256,6 +265,7 @@ export function updateLastSeq(
   );
 }
 
+/** Move an active row to suspended so the sweep can age it out after `maxAgeMs`. */
 export function markSuspended(sql: SqlExec, identity: string, streamId: string, now: number): void {
   sql.exec(
     `UPDATE _wskit_streams SET status = 'suspended', last_activity_at = ?
@@ -266,6 +276,7 @@ export function markSuspended(sql: SqlExec, identity: string, streamId: string, 
   );
 }
 
+/** Mark a row ended and stamp `ended_at` so the retention window starts ticking. */
 export function markEnded(sql: SqlExec, identity: string, streamId: string, now: number): void {
   sql.exec(
     `UPDATE _wskit_streams SET status = 'ended', ended_at = ?, last_activity_at = ?
@@ -277,10 +288,12 @@ export function markEnded(sql: SqlExec, identity: string, streamId: string, now:
   );
 }
 
+/** Delete the row and its chunks (ON DELETE CASCADE clears `_wskit_stream_chunks`). */
 export function deleteStream(sql: SqlExec, identity: string, streamId: string): void {
   sql.exec('DELETE FROM _wskit_streams WHERE identity = ? AND stream_id = ?', identity, streamId);
 }
 
+/** Inputs accepted by `appendChunk`. */
 export interface AppendChunkInput {
   identity: string;
   streamId: string;
@@ -290,6 +303,7 @@ export interface AppendChunkInput {
   now: number;
 }
 
+/** Append one chunk to the buffer for replay on resume. */
 export function appendChunk(sql: SqlExec, input: AppendChunkInput): void {
   sql.exec(
     `INSERT INTO _wskit_stream_chunks (identity, stream_id, seq, message_id, payload, emitted_at)
@@ -303,6 +317,7 @@ export function appendChunk(sql: SqlExec, input: AppendChunkInput): void {
   );
 }
 
+/** Read chunks with `seq > since`, ordered ascending. Used by resume to replay the tail. */
 export function readChunksSince(
   sql: SqlExec,
   identity: string,
@@ -329,6 +344,7 @@ export function readChunksSince(
   }));
 }
 
+/** Count chunks currently buffered for one stream. Used to enforce `maxChunks`. */
 export function countChunks(sql: SqlExec, identity: string, streamId: string): number {
   const rows = sql
     .exec(
@@ -340,6 +356,7 @@ export function countChunks(sql: SqlExec, identity: string, streamId: string): n
   return Number(rows[0]?.n ?? 0);
 }
 
+/** Delete the oldest chunks so only `keepNewest` remain. No-op if already within cap. */
 export function trimOldestChunks(
   sql: SqlExec,
   identity: string,
@@ -403,7 +420,7 @@ export function isUnsubscribed(
   return rows.length > 0;
 }
 
-/** Returned identifiers point at rows the caller can DELETE. */
+/** Identifier pair returned by sweep queries, ready to pass to `deleteStream`. */
 export interface SweepCandidate {
   identity: string;
   streamId: string;

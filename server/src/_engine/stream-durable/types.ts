@@ -32,6 +32,10 @@ export function computeBroadcastScopeKey(scope: ResolvedScope): string {
  */
 export type OnDisconnect = 'cancel-but-buffer' | 'keep-running';
 
+/**
+ * Engine-side config for one durable stream definition. Built by the compile
+ * step from the contract-level `ResumableStreamDef` / `RecordedStreamDef`.
+ */
 export interface DurableStreamConfig {
   readonly kind: DurableStreamKind;
   readonly onDisconnect: OnDisconnect;

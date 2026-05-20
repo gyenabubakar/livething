@@ -61,7 +61,7 @@ export interface DurableStreamRuntime {
   ): Promise<void>;
 }
 
-/** One declared nudge on a durable stream — wire event name + payload validator. */
+/** Engine-side snapshot of one nudge declaration: wire event + optional validator. */
 export interface DurableNudge {
   readonly event: string;
   readonly validator?: unknown;

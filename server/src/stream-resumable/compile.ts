@@ -8,6 +8,11 @@ type ResumableHandlers = Map<
   (ctx: any, payload: any) => AsyncGenerator<unknown, void, unknown>
 >;
 
+/**
+ * Pair a `ResumableStreamDef` with the generator registered on the
+ * implementer and produce the runtime primitive the engine mounts. Throws
+ * when no generator was registered for the stream's name.
+ */
 export function compileResumableStreamDef(
   def: ResumableStreamDef,
   handlers: ResumableHandlers,

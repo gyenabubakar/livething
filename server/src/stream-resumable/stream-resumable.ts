@@ -12,7 +12,11 @@ export interface DurableNudgeDeclaration {
   readonly validator?: Validator<unknown>;
 }
 
-/** Compiled resumable-stream primitive — paired with the generator handler. */
+/**
+ * Compiled resumable-stream primitive — the contract declaration plus the
+ * generator function, ready for the engine to mount. Produced by
+ * `compileResumableStreamDef`. Library users do not touch this directly.
+ */
 export interface ResumableStreamGeneratePrimitive extends Primitive<'resumable-stream-generate'> {
   readonly event: string;
   readonly validator?: Validator<unknown>;
@@ -26,6 +30,7 @@ export interface ResumableStreamGeneratePrimitive extends Primitive<'resumable-s
   readonly retentionAfterEndMs: number;
 }
 
+/** Inputs accepted by `resumableGenerateFactory`. */
 export interface BuildResumableStreamGenerateInput {
   event: string;
   validator?: Validator<unknown>;
@@ -39,6 +44,7 @@ export interface BuildResumableStreamGenerateInput {
   retentionAfterEndMs: number;
 }
 
+/** Build the runtime primitive used by the engine to mount one resumable stream. */
 export function resumableGenerateFactory(
   input: BuildResumableStreamGenerateInput,
 ): ResumableStreamGeneratePrimitive {

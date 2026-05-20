@@ -15,10 +15,7 @@ export interface NudgeBinding {
   readonly validator?: unknown;
 }
 
-/**
- * Build an `ActiveStream` and register it on the runtime + connection. Returns
- * the entry plus the buffer the caller drains between yields.
- */
+/** Inputs accepted by `buildActiveStream`. */
 export interface BuildActiveStreamInput {
   streamId: string;
   event: string;
@@ -27,11 +24,18 @@ export interface BuildActiveStreamInput {
   nudges: readonly NudgeBinding[];
 }
 
+/** Return value from `buildActiveStream`. */
 export interface ActiveStreamHandle {
   active: ActiveStream;
   nudgeBuffer: { event: string; payload: unknown }[];
 }
 
+/**
+ * Build an `ActiveStream` shared by the plain-stream and durable-stream
+ * runtimes. The runtime registers `active` on its `activeStreams` map; the
+ * generator loop drains `nudgeBuffer` between yields to feed each
+ * `iterator.next(value)` call.
+ */
 export function buildActiveStream(input: BuildActiveStreamInput): ActiveStreamHandle {
   const nudgeBuffer: { event: string; payload: unknown }[] = [];
   const nudgeValidators = new Map<string, unknown>();
@@ -81,15 +85,7 @@ export function assertNoConcurrentStream(
   }
 }
 
-/**
- * Walk every connection on the runtime and return the ones that should
- * receive a broadcast chunk. Channel-scoped streams require channel
- * membership; namespace and top-level fan out to every connection (minus
- * the creator).
- *
- * Pass `extraFilter` to drop subscribers selectively (e.g. identities that
- * unsubscribed from a broadcast stream).
- */
+/** Inputs accepted by `resolveBroadcastTargets`. */
 export interface BroadcastTargetInput {
   runtime: { connections: ReadonlyMap<string, RuntimeConnection> };
   excludeConnectionId: string;
@@ -97,6 +93,13 @@ export interface BroadcastTargetInput {
   extraFilter?: (candidate: RuntimeConnection) => boolean;
 }
 
+/**
+ * Walk every connection on the runtime and return the ones that should
+ * receive a broadcast chunk. Channel-scoped streams require channel
+ * membership; namespace and top-level fan out to every connection minus the
+ * creator. Pass `extraFilter` to drop subscribers selectively (e.g.
+ * identities that unsubscribed from a broadcast stream).
+ */
 export function resolveBroadcastTargets(input: BroadcastTargetInput): RuntimeConnection[] {
   const targets: RuntimeConnection[] = [];
   for (const candidate of input.runtime.connections.values()) {

@@ -13,22 +13,28 @@ interface CommonRecordedConfig {
   /** How long an ended stream is kept after `_streamEnd` so a quick reconnect can still get the tail. Default: 30 seconds. */
   retentionAfterEndMs?: number;
   /**
-   * One generator, many subscribers. Chunks fan out to channel members (when
-   * declared inside `channel(...)`), to all connections in the namespace (when
-   * inside `namespace(...)`), or to every connection (top-level). Late joiners
-   * and reconnects catch up from the recorded buffer. Default: false.
+   * One generator, many subscribers. The creator runs the generator once;
+   * every chunk lands in the buffer and fans out to scope members. Late
+   * joiners and reconnects catch up from the recorded buffer.
+   *
+   * Scope is decided by where you declare the stream:
+   * - Top-level — fans out to every connection on the handler.
+   * - Inside `namespace(...)` — fans out to every connection in that namespace.
+   * - Inside `channel(...)` — fans out to every connection subscribed to the channel.
+   *
+   * A non-creator that sends `_streamCancel` is unsubscribed from future
+   * chunks for that stream id (its later resume returns `StreamAborted` with
+   * `reason: 'unsubscribed'`). The stream itself keeps running for everyone
+   * else. A cancel from the creator identity tears the whole stream down.
+   *
+   * Default: false.
    */
   broadcast?: boolean;
 }
 
 /**
- * Contract-side declaration of a server-pushed stream that buffers every
- * emitted chunk in storage. On reconnect the framework replays the chunks
- * the client missed. The generator itself does NOT re-run on resume.
- *
- * If the buffer hits `maxChunks` the framework throws `StreamAborted` with
- * `reason: 'buffer-full'` into the generator's `yield`. Wrap the yield in
- * `try/catch` to handle it.
+ * Contract-side declaration produced by `recordedStream()`. Pass it into a
+ * contract's `definitions: [...]` array.
  */
 export interface RecordedStreamDef<
   TName extends string = string,
@@ -62,9 +68,53 @@ interface RecordedStreamConfig<
 
 /**
  * Declare a server-pushed stream whose chunks are buffered in storage so a
- * reconnecting client can replay what it missed.
+ * reconnecting client can replay what it missed. Unlike `resumableStream`,
+ * the generator does NOT re-run on resume — the client just receives the
+ * chunks it missed from the buffer. Best for non-resumable sources (LLM
+ * tokens, third-party APIs).
+ *
+ * If the buffer hits `maxChunks` the framework throws `StreamAborted` with
+ * `reason: 'buffer-full'` into the generator's `yield`. Wrap the yield in
+ * `try/catch` if you want to handle it gracefully.
+ *
+ * Nudges declared here behave exactly like nudges on a plain `stream(...)`
+ * and survive a resume.
  *
  * Requires `persistence: true` on the contract. Build throws otherwise.
+ *
+ * @example
+ * ```ts
+ * import { contract, recordedStream, t } from '@wskit/server';
+ * import { StreamAborted } from '@wskit/server/errors';
+ * import * as v from 'valibot';
+ *
+ * const TokenChunk = v.object({ idx: v.number() });
+ *
+ * const myContract = contract<Env>('ai')({
+ *   persistence: true,
+ *   definitions: [
+ *     recordedStream('count-tokens', {
+ *       payload: v.object({}),
+ *       chunk: TokenChunk,
+ *       maxChunks: 100,
+ *       maxAgeMs: 60_000,
+ *       retentionAfterEndMs: 30_000,
+ *     }),
+ *   ],
+ * });
+ *
+ * // In the handler:
+ * implement(myContract).recordedStream('count-tokens', async function* () {
+ *   for (let i = 1; i <= 5; i += 1) {
+ *     try {
+ *       yield { idx: i };
+ *     } catch (err) {
+ *       if (StreamAborted.matches(err) && err.detail.reason === 'buffer-full') return;
+ *       throw err;
+ *     }
+ *   }
+ * });
+ * ```
  */
 export function recordedStream<
   TName extends string,

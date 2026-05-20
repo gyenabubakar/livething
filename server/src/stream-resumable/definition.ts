@@ -14,10 +14,21 @@ interface CommonResumableConfig {
   retentionAfterEndMs?: number;
   /**
    * One generator, many subscribers. The creator runs the cursor-driven
-   * generator once; every chunk is buffered, fanned out to scope members
-   * (channel / namespace / top-level), and the cursor is saved for crash
-   * recovery. Subscribers catch up from the buffer on resume — they do not
-   * re-invoke the generator. Default: false.
+   * generator once; every chunk is buffered, fanned out to scope members,
+   * and the cursor is saved for crash recovery. Subscribers catch up from
+   * the buffer on resume — they do not re-invoke the generator.
+   *
+   * Scope is decided by where you declare the stream:
+   * - Top-level — fans out to every connection on the handler.
+   * - Inside `namespace(...)` — fans out to every connection in that namespace.
+   * - Inside `channel(...)` — fans out to every connection subscribed to the channel.
+   *
+   * A non-creator that sends `_streamCancel` is unsubscribed from future
+   * chunks for that stream id (its later resume returns `StreamAborted` with
+   * `reason: 'unsubscribed'`). The stream itself keeps running for everyone
+   * else. A cancel from the creator identity tears the whole stream down.
+   *
+   * Default: false.
    */
   broadcast?: boolean;
   /**
@@ -28,12 +39,8 @@ interface CommonResumableConfig {
 }
 
 /**
- * Contract-side declaration of a server-pushed stream that re-runs its
- * generator with a saved cursor on resume. Produced by `resumableStream()`.
- *
- * Inside the generator, `ctx.stream.cursor` holds the last cursor value
- * (`null` on first run). `ctx.stream.withCursor(chunk, cursor)` is the yield
- * helper that records each cursor as chunks are emitted.
+ * Contract-side declaration produced by `resumableStream()`. Pass it into
+ * a contract's `definitions: [...]` array.
  */
 export interface ResumableStreamDef<
   TName extends string = string,
@@ -75,7 +82,48 @@ interface ResumableStreamConfig<
  * Declare a server-pushed stream that survives client disconnects by
  * re-running the generator from a saved cursor on resume.
  *
+ * Inside the generator, `ctx.stream.cursor` holds the cursor you last
+ * recorded (`null` on first run). `ctx.stream.attempt` is `1` on the first
+ * run and increments on every resume. Yield chunks via
+ * `ctx.stream.withCursor(chunk, cursor)` so the framework persists the
+ * cursor alongside the chunk — on reconnect the generator restarts and
+ * `ctx.stream.cursor` is set to that recorded value.
+ *
+ * Nudges declared here behave exactly like nudges on a plain `stream(...)`:
+ * the client pushes a typed message into the running generator and the
+ * generator reads them via `ctx.nudges(yield ...)`. Buffered nudges survive
+ * a resume so a paused durable stream stays paused after reconnect.
+ *
  * Requires `persistence: true` on the contract. Build throws otherwise.
+ *
+ * @example
+ * ```ts
+ * import { contract, recordedStream, resumableStream, t } from '@wskit/server';
+ * import * as v from 'valibot';
+ *
+ * const PaginatePayload = v.object({});
+ * const RowChunk = v.object({ row: v.number() });
+ *
+ * const myContract = contract<Env>('files')({
+ *   persistence: true,
+ *   definitions: [
+ *     resumableStream('paginate', {
+ *       payload: PaginatePayload,
+ *       chunk: RowChunk,
+ *       maxAgeMs: 60_000,
+ *       retentionAfterEndMs: 30_000,
+ *     }),
+ *   ],
+ * });
+ *
+ * // In the handler:
+ * implement(myContract).resumableStream('paginate', async function* (ctx) {
+ *   const startAt = (ctx.stream.cursor as { idx: number } | null)?.idx ?? 0;
+ *   for (let i = startAt + 1; i <= 10; i += 1) {
+ *     yield ctx.stream.withCursor({ row: i }, { idx: i });
+ *   }
+ * });
+ * ```
  */
 export function resumableStream<
   TName extends string,
