@@ -173,7 +173,7 @@ export async function cancelActiveStreamsForConnection(
         connectionId: string;
         generator: AsyncGenerator<unknown, void, unknown>;
         closed: boolean;
-        onDisconnect?: 'cancel-but-buffer' | 'keep-running';
+        onDisconnect?: EngineRuntimeTypes.OnDisconnect;
         detached?: boolean;
       }
     >;

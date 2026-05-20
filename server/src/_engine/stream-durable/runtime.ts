@@ -10,6 +10,7 @@ import {
 } from '~/_engine/stream-common/active-stream.ts';
 import type {
   ActiveStream,
+  OnDisconnect,
   ResolvedScope,
   RoutingTarget,
   RuntimeConnection,
@@ -82,7 +83,7 @@ export interface DurableStreamRuntimeDef {
   /** Validator for the saved cursor (resumable streams only). */
   readonly cursor?: unknown;
   /** Disconnect policy — drives whether the generator survives the drop. */
-  readonly onDisconnect?: 'cancel-but-buffer' | 'keep-running';
+  readonly onDisconnect?: OnDisconnect;
 }
 
 function readSuppliedStreamId(rawPayload: unknown): string | undefined {

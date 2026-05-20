@@ -7,7 +7,12 @@
 
 import { StreamAlreadyActive } from '@wskit/core';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
-import type { ActiveStream, ResolvedScope, RuntimeConnection } from '~/_engine/runtime/types.ts';
+import type {
+  ActiveStream,
+  OnDisconnect,
+  ResolvedScope,
+  RuntimeConnection,
+} from '~/_engine/runtime/types.ts';
 
 /** Validator handle used to type-narrow a registered nudge. */
 export interface NudgeBinding {
@@ -26,7 +31,7 @@ export interface BuildActiveStreamInput {
    * Disconnect policy for durable streams. Optional — defaults to
    * `'cancel-but-buffer'` (and non-durable streams leave it undefined).
    */
-  onDisconnect?: 'cancel-but-buffer' | 'keep-running';
+  onDisconnect?: OnDisconnect;
 }
 
 /** Return value from `buildActiveStream`. */

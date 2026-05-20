@@ -257,6 +257,17 @@ export interface RuntimeConnection {
  * This tracks the live generator, any queued nudges, and whether the stream
  * has been closed.
  */
+/**
+ * What the framework does to a durable stream's generator when the owning
+ * connection drops.
+ *
+ * - `'cancel-but-buffer'` (default) — stop the generator; keep the cursor /
+ *   buffered chunks for resume.
+ * - `'keep-running'` — leave the generator producing into storage with no
+ *   client attached. Server resources stay open until it ends on its own.
+ */
+export type OnDisconnect = 'cancel-but-buffer' | 'keep-running';
+
 export interface ActiveStream {
   id: string;
   connectionId: string;
@@ -275,7 +286,7 @@ export interface ActiveStream {
    * `'keep-running'`. Drives whether `cancelActiveStreamsForConnection` calls
    * `generator.return()` on the owning connection's close.
    */
-  onDisconnect?: 'cancel-but-buffer' | 'keep-running';
+  onDisconnect?: OnDisconnect;
   /**
    * True when the owning connection has dropped on a `keep-running` stream and
    * the generator is still producing into storage with no client attached. The

@@ -1,9 +1,9 @@
 /** Shared engine-side types for the durable stream runtime. */
 
-import type { ResolvedScope } from '~/_engine/runtime/types.ts';
+import type { OnDisconnect, ResolvedScope } from '~/_engine/runtime/types.ts';
 import type { DurableStreamKind } from './storage.ts';
 
-export type { DurableStreamKind };
+export type { DurableStreamKind, OnDisconnect };
 
 /**
  * Synthetic key used as the storage row's `identity` column for broadcast
@@ -20,17 +20,6 @@ export function computeBroadcastScopeKey(scope: ResolvedScope): string {
   if (scope.namespace) return `__bcast:ns:${scope.namespace.name}__`;
   return '__bcast:top__';
 }
-
-/**
- * What the framework does to a durable stream's generator when the owning
- * connection drops.
- *
- * - `'cancel-but-buffer'` (default) — stop the generator; keep the cursor /
- *   buffered chunks for resume.
- * - `'keep-running'` — leave the generator producing into storage with no
- *   client attached. Server resources stay open until it ends on its own.
- */
-export type OnDisconnect = 'cancel-but-buffer' | 'keep-running';
 
 /**
  * Engine-side config for one durable stream definition. Built by the compile
