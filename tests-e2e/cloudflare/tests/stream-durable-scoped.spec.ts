@@ -34,6 +34,18 @@ test.describe('stream-durable scoped (channel + namespace)', () => {
     await page.waitForTimeout(150);
 
     const b = await connect(page, WS_PATH, 'alice', room);
+
+    // Persistence auto-rejoins alice's prior channel membership on the new
+    // socket — the server-emitted _subscribeOk carries source: 'server'. If
+    // this assertion ever fails, the rest of the test would only fail with
+    // a misleading not-found error, so verify it directly first.
+    const rejoin = await waitForFrame(
+      page,
+      b,
+      (f) => f.event === '_subscribeOk' && f.payload._channel === 'rooms',
+    );
+    expect(rejoin.payload.source).toBe('server');
+
     await send(page, b, {
       event: '_resumeStream',
       payload: { _channel: 'rooms', _streamId: streamId, since: 0 },

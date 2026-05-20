@@ -196,13 +196,23 @@ test.describe('stream-durable broadcast (channel scope)', () => {
       expect(bTokensAfter - bTokensBefore).toBeLessThanOrEqual(1);
       expect(bTokensAfter).toBeLessThan(5);
 
+      // Both the peer AND the creator see not-found — the row is gone for
+      // everyone, not just unsubscribed for one peer.
       await send(pageB, b, {
         event: '_resumeStream',
         payload: { _channel: 'rooms', _streamId: streamId, since: 0 },
       });
-      const err = await waitForFrame(pageB, b, (f) => f.event === '_error');
-      expect(err.payload.code).toBe('stream-aborted');
-      expect((err.payload.detail as { reason: string }).reason).toBe('not-found');
+      const errB = await waitForFrame(pageB, b, (f) => f.event === '_error');
+      expect(errB.payload.code).toBe('stream-aborted');
+      expect((errB.payload.detail as { reason: string }).reason).toBe('not-found');
+
+      await send(pageA, a, {
+        event: '_resumeStream',
+        payload: { _channel: 'rooms', _streamId: streamId, since: 0 },
+      });
+      const errA = await waitForFrame(pageA, a, (f) => f.event === '_error');
+      expect(errA.payload.code).toBe('stream-aborted');
+      expect((errA.payload.detail as { reason: string }).reason).toBe('not-found');
     } finally {
       await ctxA.close();
       await ctxB.close();
