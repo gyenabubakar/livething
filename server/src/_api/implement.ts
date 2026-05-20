@@ -7,6 +7,8 @@
  */
 
 import { error as coreErrorFactory } from '@wskit/core';
+import { sweepDurableStreams } from '~/_engine/stream-durable/runtime.ts';
+import { ensureDurableStreamSchema } from '~/_engine/stream-durable/storage.ts';
 import { ack as ackFactory } from '~/ack/ack.ts';
 import { compileChannelDef } from '~/channel/compile.ts';
 import { ChannelImplement } from '~/channel/implement.ts';
@@ -36,6 +38,7 @@ import { handleReplay as customReplayFactory } from '~/replay/custom/custom.ts';
 import { replay as replayFactory } from '~/replay/replay.ts';
 import { compileRequestDef } from '~/request/compile.ts';
 import { compileScheduledDef } from '~/scheduled/compile.ts';
+import { scheduled as scheduledFactory } from '~/scheduled/scheduled.ts';
 import { sequence as sequenceFactory } from '~/sequence/sequence.ts';
 import { compileRecordedStreamDef } from '~/stream-recorded/compile.ts';
 import { compileResumableStreamDef } from '~/stream-resumable/compile.ts';
@@ -702,6 +705,23 @@ export class Implementer<C extends Contract> {
 
     // ── Feature primitives ──────────────────────────────────────────────────
     if (config.persistence) primitives.push(persistenceFactory());
+
+    // ── Durable-stream sweep ────────────────────────────────────────────────
+    // When any resumable or recorded stream is declared, register a built-in
+    // recurring task that deletes suspended rows past `maxAgeMs` and ended
+    // rows past `retentionAfterEndMs`. Lives on the existing `scheduled`
+    // machinery so retries, dead-letter, and adapter alarm wiring all apply.
+    if (hasDurableStreamDef(config.definitions)) {
+      primitives.push(
+        scheduledFactory('_wskit:stream-durable-sweep', (b) =>
+          b.every(60_000).run((ctx: { sql: Parameters<typeof sweepDurableStreams>[0]['sql'] }) => {
+            ensureDurableStreamSchema(ctx.sql);
+            sweepDurableStreams({ sql: ctx.sql });
+          }),
+        ),
+      );
+    }
+
     if (config.hibernation) primitives.push(hibernationFactory(true));
     if (config.heartbeat) {
       const opts =
