@@ -1,4 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { StreamIdCollision } from '@wskit/core';
+
 /**
  * Storage layer for durable streams. Two tables keyed by
  * `(identity, stream_id)`: `_wskit_streams` (one row per stream) and
@@ -157,26 +159,51 @@ export interface InsertStreamInput {
   retentionAfterEndMs?: number;
 }
 
+/**
+ * Throwing wrapper around the raw INSERT. The in-memory pre-insert collision
+ * check upstream covers the common case, but a concurrent insert race on the
+ * same (identity, stream_id) hits the SQLite PRIMARY KEY constraint instead.
+ * Surface that as `StreamIdCollision` so the dispatcher's catch turns it into
+ * a typed _error frame.
+ */
 export function insertStream(sql: SqlExec, input: InsertStreamInput): void {
-  sql.exec(
-    `INSERT INTO _wskit_streams
-     (identity, stream_id, event, payload, kind, status, last_seq, namespace, channel_key, channel_scope, broadcast, creator_identity, started_at, last_activity_at, max_chunks, max_age_ms, retention_after_end_ms)
-     VALUES (?, ?, ?, ?, ?, 'active', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    input.identity,
-    input.streamId,
-    input.event,
-    input.payload,
-    input.kind,
-    input.namespace ?? null,
-    input.channelKey ?? null,
-    input.channelScope ?? null,
-    input.broadcast ? 1 : 0,
-    input.creatorIdentity ?? null,
-    input.now,
-    input.now,
-    input.maxChunks ?? null,
-    input.maxAgeMs ?? null,
-    input.retentionAfterEndMs ?? null,
+  try {
+    sql.exec(
+      `INSERT INTO _wskit_streams
+       (identity, stream_id, event, payload, kind, status, last_seq, namespace, channel_key, channel_scope, broadcast, creator_identity, started_at, last_activity_at, max_chunks, max_age_ms, retention_after_end_ms)
+       VALUES (?, ?, ?, ?, ?, 'active', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      input.identity,
+      input.streamId,
+      input.event,
+      input.payload,
+      input.kind,
+      input.namespace ?? null,
+      input.channelKey ?? null,
+      input.channelScope ?? null,
+      input.broadcast ? 1 : 0,
+      input.creatorIdentity ?? null,
+      input.now,
+      input.now,
+      input.maxChunks ?? null,
+      input.maxAgeMs ?? null,
+      input.retentionAfterEndMs ?? null,
+    );
+  } catch (err) {
+    if (isUniqueConstraintError(err)) {
+      throw StreamIdCollision();
+    }
+    throw err;
+  }
+}
+
+function isUniqueConstraintError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const msg = (err as { message?: unknown }).message;
+  if (typeof msg !== 'string') return false;
+  return (
+    msg.includes('UNIQUE constraint') ||
+    msg.includes('PRIMARY KEY') ||
+    msg.includes('constraint failed')
   );
 }
 

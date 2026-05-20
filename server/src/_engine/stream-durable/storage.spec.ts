@@ -7,18 +7,30 @@ import * as Storage from './storage.ts';
 function memorySql() {
   const streams = new Map<string, Record<string, unknown>>();
   const chunks = new Map<string, Record<string, unknown>>();
+  const unsubscribed = new Set<string>();
+  let raiseConstraint = false;
   function key(parts: unknown[]): string {
     return parts.join('|');
+  }
+
+  function setConstraintMode(on: boolean): void {
+    raiseConstraint = on;
   }
 
   return {
     streams,
     chunks,
+    setConstraintMode,
     exec(query: string, ...params: unknown[]): { toArray(): Record<string, unknown>[] } {
       const q = query.trim();
       if (q.startsWith('PRAGMA') || q.startsWith('CREATE')) return { toArray: () => [] };
 
       if (q.startsWith('INSERT INTO _wskit_streams')) {
+        if (raiseConstraint) {
+          throw new Error(
+            'UNIQUE constraint failed: _wskit_streams.identity, _wskit_streams.stream_id',
+          );
+        }
         const [
           identity,
           streamId,
@@ -178,6 +190,19 @@ function memorySql() {
         return { toArray: () => out };
       }
 
+      if (q.startsWith('INSERT OR IGNORE INTO _wskit_stream_unsubscribed')) {
+        const [identity, streamId, subscriberIdentity] = params;
+        unsubscribed.add(key([identity, streamId, subscriberIdentity]));
+        return { toArray: () => [] };
+      }
+      if (q.startsWith('SELECT 1 AS hit FROM _wskit_stream_unsubscribed')) {
+        const [identity, streamId, subscriberIdentity] = params;
+        return {
+          toArray: () =>
+            unsubscribed.has(key([identity, streamId, subscriberIdentity])) ? [{ hit: 1 }] : [],
+        };
+      }
+
       return { toArray: () => [] };
     },
   };
@@ -316,5 +341,39 @@ describe('durable-stream/storage', () => {
     Storage.markEnded(sql, 'u-1', 's-1', 1_000);
     expect(Storage.findExpiredEnded(sql, 2_999)).toEqual([]);
     expect(Storage.findExpiredEnded(sql, 3_001)).toEqual([{ identity: 'u-1', streamId: 's-1' }]);
+  });
+
+  it('insertStream turns a UNIQUE constraint error into StreamIdCollision', () => {
+    sql.setConstraintMode(true);
+    expect(() =>
+      Storage.insertStream(sql, {
+        identity: 'u-1',
+        streamId: 's-1',
+        event: 'e',
+        payload: '{}',
+        kind: 'recorded',
+        now: 1_000,
+      }),
+    ).toThrow(/stream-id-collision/);
+  });
+
+  it('markUnsubscribed + isUnsubscribed round-trip', () => {
+    Storage.insertStream(sql, {
+      identity: '__bcast:top__',
+      streamId: 's-1',
+      event: 'e',
+      payload: '{}',
+      kind: 'recorded',
+      now: 1_000,
+      broadcast: true,
+      creatorIdentity: 'u-creator',
+    });
+    expect(Storage.isUnsubscribed(sql, '__bcast:top__', 's-1', 'u-peer')).toBe(false);
+    Storage.markUnsubscribed(sql, '__bcast:top__', 's-1', 'u-peer', 2_000);
+    expect(Storage.isUnsubscribed(sql, '__bcast:top__', 's-1', 'u-peer')).toBe(true);
+    // Idempotent — INSERT OR IGNORE means a repeat is a no-op, not an error.
+    expect(() =>
+      Storage.markUnsubscribed(sql, '__bcast:top__', 's-1', 'u-peer', 3_000),
+    ).not.toThrow();
   });
 });
