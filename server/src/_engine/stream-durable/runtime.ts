@@ -138,7 +138,15 @@ export async function runDurableStream(
     retentionAfterEndMs: def.retentionAfterEndMs,
   });
 
-  runtime.sendProtocolMessage(connection, '_streamOk', { _streamId: streamId });
+  const startScopeMarkers: Record<string, unknown> = {};
+  if (scope.namespace?.name) startScopeMarkers._namespace = scope.namespace.name;
+  if (scope.channelName) startScopeMarkers._channel = scope.channelName;
+  if (scope.channelScope) startScopeMarkers._channelScope = scope.channelScope;
+
+  runtime.sendProtocolMessage(connection, '_streamOk', {
+    ...startScopeMarkers,
+    _streamId: streamId,
+  });
 
   await runGenerator(runtime, connection, scope, def, payload, streamId, storageIdentity, null, 1);
 }
@@ -196,19 +204,6 @@ export async function resumeDurableStream(
     return;
   }
 
-  // A stale in-memory entry may still be parked in an `await`; nudge it to
-  // close but don't block. The finally guard below stops it from clobbering
-  // the new entry when it eventually drains.
-  const existing = runtime.activeStreams.get(streamId);
-  if (existing) {
-    existing.closed = true;
-    try {
-      void existing.generator.return(undefined);
-    } catch {
-      /* drains in its own finally */
-    }
-  }
-
   const resolved = resolveDef(row);
   if (!resolved) {
     runtime.sendProtocolMessage(connection, '_error', {
@@ -227,12 +222,38 @@ export async function resumeDurableStream(
   const isPeerSubscriber =
     row.broadcast && row.creatorIdentity !== null && row.creatorIdentity !== realIdentity;
 
+  // Non-peer resume: a stale in-memory entry may still be parked in an
+  // `await`; nudge it to close but don't block. The finally guard below
+  // stops it from clobbering the new entry when it eventually drains. Skip
+  // for peer-subscriber resumes on broadcast streams — the creator's
+  // generator must stay running.
+  if (!isPeerSubscriber) {
+    const existing = runtime.activeStreams.get(streamId);
+    if (existing) {
+      existing.closed = true;
+      try {
+        void existing.generator.return(undefined);
+      } catch {
+        /* drains in its own finally */
+      }
+    }
+  }
+
+  // Scope markers attached to every wire frame the resume path emits, so
+  // late frames look identical to live ones (client filters by _channel /
+  // _namespace expect them either way).
+  const scopeMarkers: Record<string, unknown> = {};
+  if (row.namespace) scopeMarkers._namespace = row.namespace;
+  if (row.channelKey) scopeMarkers._channel = row.channelKey;
+  if (row.channelScope) scopeMarkers._channelScope = row.channelScope;
+
   if (row.kind === 'recorded' || isPeerSubscriber) {
     const chunks = Storage.readChunksSince(runtime.sql, storageIdentity, streamId, since);
     for (const chunk of chunks) {
       const parsed = JSON.parse(chunk.payload);
       const wirePayload: Record<string, unknown> = {
         ...(typeof parsed === 'object' && parsed !== null ? parsed : {}),
+        ...scopeMarkers,
         _streamId: streamId,
         _seq: chunk.seq,
       };
@@ -243,6 +264,7 @@ export async function resumeDurableStream(
 
   if (row.status === 'ended') {
     runtime.sendProtocolMessage(connection, '_streamEnd', {
+      ...scopeMarkers,
       _streamId: streamId,
       _seq: row.lastSeq,
     });
@@ -261,6 +283,7 @@ export async function resumeDurableStream(
     // hits the ended branch above and gets _streamEnd too.
     Storage.markEnded(runtime.sql, storageIdentity, streamId, Date.now());
     runtime.sendProtocolMessage(connection, '_streamEnd', {
+      ...scopeMarkers,
       _streamId: streamId,
       _seq: row.lastSeq,
     });
@@ -269,7 +292,7 @@ export async function resumeDurableStream(
 
   const cursor = row.cursor ? JSON.parse(row.cursor) : null;
   const payload = JSON.parse(row.payload);
-  runtime.sendProtocolMessage(connection, '_streamOk', { _streamId: streamId });
+  runtime.sendProtocolMessage(connection, '_streamOk', { ...scopeMarkers, _streamId: streamId });
 
   runtime.sql.exec(
     "UPDATE _wskit_streams SET status = 'active', last_activity_at = ? WHERE identity = ? AND stream_id = ?",
@@ -418,17 +441,23 @@ async function runGenerator(
               candidate.identity ?? candidate.id,
             ),
         });
-        runtime.broadcastToConnections(
-          targets,
-          def.event,
-          { ...wirePayload, _streamId: streamId, _seq: seq },
-          {
-            namespace: scope.namespace?.name,
-            channel: scope.channelName,
-            channelScope: scope.channelScope,
-          },
-          connection.id,
-        );
+        // The outgoing pipeline injects streamId + seq as routing markers
+        // and refuses payloads that already carry them — pass the bare chunk
+        // here and route the reserved fields via the options bag.
+        for (const target of targets) {
+          runtime.sendThroughPipeline(
+            target,
+            {
+              namespace: scope.namespace?.name,
+              channel: scope.channelName,
+              channelScope: scope.channelScope,
+              streamId,
+              seq,
+            },
+            def.event,
+            wirePayload,
+          );
+        }
       }
 
       runtime.sendThroughPipeline(
@@ -465,13 +494,16 @@ async function runGenerator(
 
     Storage.markEnded(runtime.sql, identity, streamId, Date.now());
     runtime.sendProtocolMessage(connection, '_streamEnd', {
+      ...(scope.namespace?.name ? { _namespace: scope.namespace.name } : {}),
+      ...(scope.channelName ? { _channel: scope.channelName } : {}),
+      ...(scope.channelScope ? { _channelScope: scope.channelScope } : {}),
       _streamId: streamId,
       _seq: seq,
     });
     if (def.broadcast) {
       // Tell every peer subscriber the source generator finished. They'd
       // otherwise only learn on their next resume attempt.
-      const targets = resolveBroadcastTargets({
+      const peerTargets = resolveBroadcastTargets({
         runtime,
         excludeConnectionId: connection.id,
         scope,
@@ -483,17 +515,16 @@ async function runGenerator(
             candidate.identity ?? candidate.id,
           ),
       });
-      runtime.broadcastToConnections(
-        targets,
-        '_streamEnd',
-        { _streamId: streamId, _seq: seq },
-        {
-          namespace: scope.namespace?.name,
-          channel: scope.channelName,
-          channelScope: scope.channelScope,
-        },
-        connection.id,
-      );
+      const endPayload: Record<string, unknown> = {
+        ...(scope.namespace?.name ? { _namespace: scope.namespace.name } : {}),
+        ...(scope.channelName ? { _channel: scope.channelName } : {}),
+        ...(scope.channelScope ? { _channelScope: scope.channelScope } : {}),
+        _streamId: streamId,
+        _seq: seq,
+      };
+      for (const target of peerTargets) {
+        runtime.sendProtocolMessage(target, '_streamEnd', endPayload);
+      }
     }
   } catch (error) {
     rethrowIfConfigError(error);

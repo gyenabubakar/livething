@@ -1003,11 +1003,24 @@ export async function processTextMessage(
     }
   }
 
-  // Stream trigger frames must skip nudge buffering even when they carry _streamId.
-  const isStreamTrigger =
-    runtime.compiled.streams.has(parsed.event) ||
-    runtime.compiled.resumableStreams.has(parsed.event) ||
-    runtime.compiled.recordedStreams.has(parsed.event);
+  // Stream trigger frames must skip nudge buffering even when they carry
+  // _streamId. The check walks the scope the frame is targeting so a
+  // channel- or namespace-scoped durable stream trigger isn't misrouted
+  // into the nudge buffer.
+  let triggerScope: EngineRuntimeTypes.ResolvedScope = {};
+  try {
+    triggerScope = resolveScope(runtime.compiled, parsed.payload);
+  } catch {
+    /* malformed routing — fall back to top-level maps */
+  }
+  const triggerScoped = triggerScope.channel ?? triggerScope.namespace;
+  const isStreamTrigger = triggerScoped
+    ? triggerScoped.streams.has(parsed.event) ||
+      triggerScoped.resumableStreams.has(parsed.event) ||
+      triggerScoped.recordedStreams.has(parsed.event)
+    : runtime.compiled.streams.has(parsed.event) ||
+      runtime.compiled.resumableStreams.has(parsed.event) ||
+      runtime.compiled.recordedStreams.has(parsed.event);
   if (
     !isStreamTrigger &&
     (await StreamPrimitive.bufferStreamNudge(

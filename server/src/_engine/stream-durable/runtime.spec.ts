@@ -685,7 +685,7 @@ describe('durable stream runtime', () => {
   it('broadcast recordedStream — row keyed by scope, chunks fan out to peers', async () => {
     const sql = makeSql();
     Storage.ensureDurableStreamSchema(sql);
-    const { runtime, broadcasts } = createRuntime(sql);
+    const { runtime, pipelineSends, protocolMessages } = createRuntime(sql);
     const creator = createConnection('c-creator', 'u-creator');
     const peer = createConnection('c-peer', 'u-peer');
     runtime.connections.set(creator.id, creator);
@@ -716,15 +716,14 @@ describe('durable stream runtime', () => {
     expect(row!.broadcast).toBe(true);
     expect(row!.creatorIdentity).toBe('u-creator');
 
-    // Both chunks were fanned out to the peer, plus a closing _streamEnd
-    // when the generator finished. Creator gets its own copies through
-    // sendThroughPipeline, not this broadcast list.
-    const chunkBroadcasts = broadcasts.filter((b) => b.event === 'e');
-    const endBroadcasts = broadcasts.filter((b) => b.event === '_streamEnd');
-    expect(chunkBroadcasts).toHaveLength(2);
-    expect(chunkBroadcasts[0]!.targets.map((t) => t.id)).toEqual(['c-peer']);
-    expect(endBroadcasts).toHaveLength(1);
-    expect(endBroadcasts[0]!.targets.map((t) => t.id)).toEqual(['c-peer']);
+    // Both chunks were sent to the peer via the outgoing pipeline (same as
+    // the creator's own copies — broadcastToConnections is no longer used
+    // for the chunk fan-out because reserved-field markers must ride the
+    // routing arg, not the payload). One pipeline send per chunk per
+    // recipient: 2 chunks × 2 recipients = 4 sends.
+    expect(pipelineSends.filter((p) => p.event === 'e')).toHaveLength(4);
+    // The closing _streamEnd is sent via sendProtocolMessage to each peer.
+    expect(protocolMessages.filter((m) => m.event === '_streamEnd')).toHaveLength(2);
   });
 
   it('broadcast recordedStream — late joiner resume replays from the scope-keyed buffer', async () => {

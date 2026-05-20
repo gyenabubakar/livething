@@ -60,7 +60,12 @@ export function isDeclaredOutgoingEvent(
 
   if (routing?.namespace) {
     const namespace = compiled.namespaces.get(routing.namespace);
-    return (namespace?.outgoing.has(event) ?? false) || (namespace?.streams.has(event) ?? false);
+    return (
+      (namespace?.outgoing.has(event) ?? false) ||
+      (namespace?.streams.has(event) ?? false) ||
+      (namespace?.resumableStreams.has(event) ?? false) ||
+      (namespace?.recordedStreams.has(event) ?? false)
+    );
   }
 
   if (routing?.channel) {
@@ -68,7 +73,12 @@ export function isDeclaredOutgoingEvent(
       routing.channelScope === null || routing.channelScope === undefined
         ? compiled.channels.get(routing.channel)
         : compiled.channelFamilies.get(routing.channelScope);
-    return (channel?.outgoing.has(event) ?? false) || (channel?.streams.has(event) ?? false);
+    return (
+      (channel?.outgoing.has(event) ?? false) ||
+      (channel?.streams.has(event) ?? false) ||
+      (channel?.resumableStreams.has(event) ?? false) ||
+      (channel?.recordedStreams.has(event) ?? false)
+    );
   }
 
   return (
