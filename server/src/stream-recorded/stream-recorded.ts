@@ -1,6 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import type { OnDisconnect } from '~/_engine/stream-durable/types.ts';
 import type { Primitive } from '~/primitive.ts';
+import type { DurableNudgeDeclaration } from '~/stream-resumable/stream-resumable.ts';
 import type { Validator } from '~/types.ts';
 
 const RECORDED_STREAM_KEY = Symbol('recorded-stream');
@@ -13,6 +14,7 @@ export interface RecordedStreamGeneratePrimitive extends Primitive<'recorded-str
   readonly generator: (ctx: any, payload: any) => AsyncGenerator<unknown, void, unknown>;
   readonly allowConcurrent: boolean;
   readonly onDisconnect: OnDisconnect;
+  readonly nudges: readonly DurableNudgeDeclaration[];
   readonly maxChunks: number;
   readonly maxAgeMs: number;
   readonly retentionAfterEndMs: number;
@@ -24,6 +26,7 @@ export interface BuildRecordedStreamGenerateInput {
   generator: (ctx: any, payload: any) => AsyncGenerator<unknown, void, unknown>;
   allowConcurrent?: boolean;
   onDisconnect?: OnDisconnect;
+  nudges?: readonly DurableNudgeDeclaration[];
   maxChunks: number;
   maxAgeMs: number;
   retentionAfterEndMs: number;
@@ -42,6 +45,7 @@ export function recordedGenerateFactory(
     generator: input.generator,
     allowConcurrent: input.allowConcurrent ?? false,
     onDisconnect: input.onDisconnect ?? 'cancel-but-buffer',
+    nudges: input.nudges ?? [],
     maxChunks: input.maxChunks,
     maxAgeMs: input.maxAgeMs,
     retentionAfterEndMs: input.retentionAfterEndMs,

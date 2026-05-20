@@ -24,6 +24,7 @@ export function compileResumableStreamDef(
     generator,
     allowConcurrent: def.allowConcurrent,
     onDisconnect: def.onDisconnect ?? 'cancel-but-buffer',
+    nudges: def.nudges.map((n) => ({ event: n.name, validator: n.schema })),
     maxAgeMs: def.maxAgeMs ?? 5 * 60_000,
     retentionAfterEndMs: def.retentionAfterEndMs ?? 30_000,
   });

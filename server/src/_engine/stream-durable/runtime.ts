@@ -51,12 +51,19 @@ export interface DurableStreamRuntime {
   ): Promise<void>;
 }
 
+/** One declared nudge on a durable stream — wire event name + payload validator. */
+export interface DurableNudge {
+  readonly event: string;
+  readonly validator?: unknown;
+}
+
 /** Snapshot of one durable stream definition relevant to the runtime. */
 export interface DurableStreamRuntimeDef {
   readonly event: string;
   readonly kind: DurableStreamKind;
   readonly generator: (ctx: any, payload: any) => AsyncGenerator<unknown, void, unknown>;
   readonly allowConcurrent: boolean;
+  readonly nudges?: readonly DurableNudge[];
   readonly maxChunks?: number;
   readonly maxAgeMs?: number;
   readonly retentionAfterEndMs?: number;
@@ -265,15 +272,23 @@ async function runGenerator(
     attempt,
     withCursor: (chunk: unknown, cursor: unknown) => makeCursorChunk(chunk, cursor),
   };
+  // Mirrors plain stream's ctx.nudges() helper: dev passes whatever value the
+  // generator's `yield` resolved to and gets the buffered nudge array back.
+  ctx.nudges = (value: unknown) => (Array.isArray(value) ? value : []);
 
   const iterator = def.generator(ctx, payload);
+  const nudgeValidators = new Map<string, unknown>();
+  for (const nudge of def.nudges ?? []) {
+    nudgeValidators.set(nudge.event, nudge.validator);
+  }
+  const nudgeBuffer: { event: string; payload: unknown }[] = [];
   const activeStream: ActiveStream = {
     id: streamId,
     connectionId: connection.id,
     event: def.event,
     generator: iterator as AsyncGenerator<unknown, void, unknown>,
-    nudges: [],
-    nudgeValidators: new Map(),
+    nudges: nudgeBuffer,
+    nudgeValidators,
     closed: false,
   };
 
@@ -282,13 +297,16 @@ async function runGenerator(
   connection.activeStreamIds.add(streamId);
   runtime.persistAttachment(connection);
 
+  const hasNudges = (def.nudges?.length ?? 0) > 0;
+  let nextInput: unknown = hasNudges ? [] : undefined;
+
   let seq = 0;
   try {
     while (!activeStream.closed) {
       runtime.setActiveConnectionId(connection.id);
       let result: IteratorResult<unknown>;
       try {
-        result = await iterator.next();
+        result = await iterator.next(nextInput);
       } finally {
         runtime.setActiveConnectionId(undefined);
       }
@@ -352,6 +370,14 @@ async function runGenerator(
         def.event,
         wirePayload,
       );
+
+      // Drain buffered nudges into the next iterator.next() input and clear
+      // the queue. Mirrors plain stream's loop tail so dev code calling
+      // `ctx.nudges(value)` sees the same shape on every yield.
+      if (hasNudges) {
+        nextInput = [...nudgeBuffer];
+        nudgeBuffer.length = 0;
+      }
     }
 
     if (activeStream.closed) {

@@ -556,4 +556,94 @@ describe('durable stream runtime', () => {
 
     expect((pipelineSends[0]!.payload as { attempt: number }).attempt).toBe(2);
   });
+
+  it('nudges — populates nudgeValidators on the active stream', async () => {
+    const sql = makeSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime } = createRuntime(sql);
+    const connection = createConnection();
+
+    // A gate that holds the generator open so the assertion can run while
+    // the stream is mid-flight.
+    function noop(): void {}
+    let release: () => void = noop;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    const run = runDurableStream(
+      runtime as never,
+      connection,
+      {},
+      baseDef({
+        kind: 'recorded',
+        nudges: [
+          { event: 'pause', validator: undefined },
+          { event: 'speed', validator: undefined },
+        ],
+        generator: async function* () {
+          yield { i: 1 };
+          await gate;
+        },
+      }),
+      {},
+      undefined,
+    );
+
+    // Yield to the runtime so the first chunk emits and the active row
+    // settles before the assertion.
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(runtime.activeStreams.size).toBe(1);
+    const active = [...runtime.activeStreams.values()][0]!;
+    expect(active.nudgeValidators.has('pause')).toBe(true);
+    expect(active.nudgeValidators.has('speed')).toBe(true);
+
+    release();
+    await run;
+  });
+
+  it('nudges — buffered nudges land in the generator on the next yield', async () => {
+    const sql = makeSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime } = createRuntime(sql);
+    const connection = createConnection();
+
+    function noop(): void {}
+    let release: () => void = noop;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let seen: { event: string; payload: unknown }[] = [];
+
+    const run = runDurableStream(
+      runtime as never,
+      connection,
+      {},
+      baseDef({
+        kind: 'recorded',
+        nudges: [{ event: 'pause', validator: undefined }],
+        generator: async function* (ctx: any) {
+          yield { i: 1 };
+          await gate;
+          const value = yield { i: 2 };
+          seen = ctx.nudges(value);
+        },
+      }),
+      {},
+      undefined,
+    );
+
+    // Wait until the generator is parked in `await gate` — first chunk has
+    // emitted and iter.next() is in flight waiting for the gate to release.
+    await new Promise((r) => setTimeout(r, 10));
+
+    const active = [...runtime.activeStreams.values()][0]!;
+    active.nudges.push({ event: 'pause', payload: undefined });
+
+    release();
+    await run;
+
+    expect(seen.some((n) => n.event === 'pause')).toBe(true);
+  });
 });

@@ -303,10 +303,20 @@ function validateNoReservedEventNames(
       }
     }
     if (scope.resumableStreams) {
-      for (const event of scope.resumableStreams.keys()) check(event, `${label} resumableStream`);
+      for (const [streamEvent, primitive] of scope.resumableStreams) {
+        check(streamEvent, `${label} resumableStream`);
+        for (const nudge of primitive.nudges) {
+          check(nudge.event, `${label} resumableStream '${streamEvent}' nudge`);
+        }
+      }
     }
     if (scope.recordedStreams) {
-      for (const event of scope.recordedStreams.keys()) check(event, `${label} recordedStream`);
+      for (const [streamEvent, primitive] of scope.recordedStreams) {
+        check(streamEvent, `${label} recordedStream`);
+        for (const nudge of primitive.nudges) {
+          check(nudge.event, `${label} recordedStream '${streamEvent}' nudge`);
+        }
+      }
     }
   }
 

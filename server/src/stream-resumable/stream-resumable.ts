@@ -6,6 +6,12 @@ import type { Validator } from '~/types.ts';
 const RESUMABLE_STREAM_KEY = Symbol('resumable-stream');
 const RESUMABLE_STREAM_GENERATE_KEY = Symbol('resumable-stream-generate');
 
+/** One declared nudge on a durable stream — wire event name + payload validator. */
+export interface DurableNudgeDeclaration {
+  readonly event: string;
+  readonly validator?: Validator<unknown>;
+}
+
 /** Compiled resumable-stream primitive — paired with the generator handler. */
 export interface ResumableStreamGeneratePrimitive extends Primitive<'resumable-stream-generate'> {
   readonly event: string;
@@ -13,6 +19,7 @@ export interface ResumableStreamGeneratePrimitive extends Primitive<'resumable-s
   readonly generator: (ctx: any, payload: any) => AsyncGenerator<unknown, void, unknown>;
   readonly allowConcurrent: boolean;
   readonly onDisconnect: OnDisconnect;
+  readonly nudges: readonly DurableNudgeDeclaration[];
   readonly maxAgeMs: number;
   readonly retentionAfterEndMs: number;
 }
@@ -23,6 +30,7 @@ export interface BuildResumableStreamGenerateInput {
   generator: (ctx: any, payload: any) => AsyncGenerator<unknown, void, unknown>;
   allowConcurrent?: boolean;
   onDisconnect?: OnDisconnect;
+  nudges?: readonly DurableNudgeDeclaration[];
   maxAgeMs: number;
   retentionAfterEndMs: number;
 }
@@ -40,6 +48,7 @@ export function resumableGenerateFactory(
     generator: input.generator,
     allowConcurrent: input.allowConcurrent ?? false,
     onDisconnect: input.onDisconnect ?? 'cancel-but-buffer',
+    nudges: input.nudges ?? [],
     maxAgeMs: input.maxAgeMs,
     retentionAfterEndMs: input.retentionAfterEndMs,
   };
