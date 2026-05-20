@@ -31,6 +31,8 @@ function makeSql() {
           namespace,
           channelKey,
           channelScope,
+          broadcast,
+          creatorIdentity,
           startedAt,
           lastActivityAt,
           maxChunks,
@@ -49,6 +51,8 @@ function makeSql() {
           namespace,
           channel_key: channelKey,
           channel_scope: channelScope,
+          broadcast,
+          creator_identity: creatorIdentity,
           started_at: startedAt,
           last_activity_at: lastActivityAt,
           ended_at: null,
@@ -203,9 +207,15 @@ function createRuntime(sqlInstance: ReturnType<typeof makeSql>) {
   const pipelineSends: { event: string; payload: unknown; routing: unknown }[] = [];
   let nextStreamId = 0;
 
+  const broadcasts: {
+    targets: readonly RuntimeConnection[];
+    event: string;
+    payload: unknown;
+  }[] = [];
   const runtime = {
     sql: sqlInstance,
     activeStreams: new Map<string, ActiveStream>(),
+    connections: new Map<string, RuntimeConnection>(),
     generateId: () => `gen-${++nextStreamId}`,
     buildConnectionContext: () => ({ id: 'ctx', nudges: () => [] }),
     sendProtocolMessage: (
@@ -224,6 +234,13 @@ function createRuntime(sqlInstance: ReturnType<typeof makeSql>) {
       pipelineSends.push({ event, payload, routing });
       return true;
     },
+    broadcastToConnections: (
+      targets: readonly RuntimeConnection[],
+      event: string,
+      payload: unknown,
+    ) => {
+      broadcasts.push({ targets, event, payload });
+    },
     setActiveConnectionId: vi.fn(),
     persistAttachment: vi.fn(),
     logger: { warn: vi.fn() },
@@ -235,7 +252,7 @@ function createRuntime(sqlInstance: ReturnType<typeof makeSql>) {
     handleRuntimeError: vi.fn(async () => {}),
   };
 
-  return { runtime, protocolMessages, pipelineSends };
+  return { runtime, protocolMessages, pipelineSends, broadcasts };
 }
 
 function baseDef(overrides: Partial<DurableStreamRuntimeDef> = {}): DurableStreamRuntimeDef {
@@ -346,7 +363,7 @@ describe('durable stream runtime', () => {
       now: Date.now(),
     });
 
-    await cancelDurableStream(runtime as never, connection, 's-1');
+    await cancelDurableStream(runtime as never, connection, 's-1', {});
 
     expect(Storage.readStream(sql, 'u1', 's-1')).toBeNull();
     expect(Storage.readChunksSince(sql, 'u1', 's-1', 0)).toEqual([]);
@@ -358,7 +375,7 @@ describe('durable stream runtime', () => {
     const { runtime, protocolMessages } = createRuntime(sql);
     const connection = createConnection();
 
-    await resumeDurableStream(runtime as never, connection, () => undefined, 'missing', 0);
+    await resumeDurableStream(runtime as never, connection, () => undefined, null, 'missing', 0);
 
     const err = protocolMessages.find((m) => m.event === '_error');
     expect(err?.payload.code).toBe('stream-aborted');
@@ -403,6 +420,7 @@ describe('durable stream runtime', () => {
           },
         }),
       }),
+      Storage.readStream(sql, 'u1', 'busy'),
       'busy',
       0,
     );
@@ -447,6 +465,7 @@ describe('durable stream runtime', () => {
       runtime as never,
       connection,
       () => ({ scope: {}, def: baseDef({ kind: 'recorded' }) }),
+      Storage.readStream(sql, 'u1', 's-replay'),
       's-replay',
       2,
     );
@@ -489,6 +508,7 @@ describe('durable stream runtime', () => {
           },
         }),
       }),
+      Storage.readStream(sql, 'u1', 's-cursor'),
       's-cursor',
       4,
     );
@@ -550,6 +570,7 @@ describe('durable stream runtime', () => {
           },
         }),
       }),
+      Storage.readStream(sql, 'u1', 'a'),
       'a',
       0,
     );
@@ -645,5 +666,98 @@ describe('durable stream runtime', () => {
     await run;
 
     expect(seen.some((n) => n.event === 'pause')).toBe(true);
+  });
+
+  it('broadcast recordedStream — row keyed by scope, chunks fan out to peers', async () => {
+    const sql = makeSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime, broadcasts } = createRuntime(sql);
+    const creator = createConnection('c-creator', 'u-creator');
+    const peer = createConnection('c-peer', 'u-peer');
+    runtime.connections.set(creator.id, creator);
+    runtime.connections.set(peer.id, peer);
+
+    await runDurableStream(
+      runtime as never,
+      creator,
+      {},
+      baseDef({
+        kind: 'recorded',
+        broadcast: true,
+        maxChunks: 10,
+        generator: async function* () {
+          yield { i: 1 };
+          yield { i: 2 };
+        },
+      }),
+      {},
+      undefined,
+    );
+
+    // Row is keyed by broadcast scope key (top-level here), not the
+    // creator's identity.
+    expect(Storage.readStream(sql, 'u-creator', 'gen-1')).toBeNull();
+    const row = Storage.readStream(sql, '__bcast:top__', 'gen-1');
+    expect(row).not.toBeNull();
+    expect(row!.broadcast).toBe(true);
+    expect(row!.creatorIdentity).toBe('u-creator');
+
+    // Both chunks were fanned out to the peer (and only the peer — creator
+    // gets its own copy through sendThroughPipeline).
+    expect(broadcasts).toHaveLength(2);
+    expect(broadcasts[0]!.targets.map((t) => t.id)).toEqual(['c-peer']);
+  });
+
+  it('broadcast recordedStream — late joiner resume replays from the scope-keyed buffer', async () => {
+    const sql = makeSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime, protocolMessages } = createRuntime(sql);
+    const peer = createConnection('c-peer', 'u-peer');
+
+    // Seed a broadcast row + chunks under the scope key.
+    Storage.insertStream(sql, {
+      identity: '__bcast:top__',
+      streamId: 'b-1',
+      event: 'e',
+      payload: '{}',
+      kind: 'recorded',
+      now: Date.now(),
+      broadcast: true,
+      creatorIdentity: 'u-creator',
+      maxChunks: 10,
+    });
+    for (let seq = 1; seq <= 3; seq += 1) {
+      Storage.appendChunk(sql, {
+        identity: '__bcast:top__',
+        streamId: 'b-1',
+        seq,
+        messageId: null,
+        payload: JSON.stringify({ i: seq }),
+        now: Date.now(),
+      });
+    }
+    Storage.updateLastSeq(sql, '__bcast:top__', 'b-1', 3, Date.now());
+
+    const row =
+      (
+        runtime as unknown as {
+          sql: typeof sql;
+        }
+      ).sql && Storage.readStream(sql, '__bcast:top__', 'b-1');
+
+    await resumeDurableStream(
+      runtime as never,
+      peer,
+      () => ({ scope: {}, def: baseDef({ kind: 'recorded', broadcast: true }) }),
+      row,
+      'b-1',
+      1,
+    );
+
+    const replayed = protocolMessages.filter((m) => m.event === 'e');
+    expect(replayed.map((m) => m.payload._seq)).toEqual([2, 3]);
+    // Active broadcast — no _streamEnd from the resumer (the generator is
+    // still running on the creator's connection in a real run).
+    expect(protocolMessages.find((m) => m.event === '_streamEnd')).toBeUndefined();
   });
 });

@@ -23,6 +23,7 @@ export function compileRecordedStreamDef(
     validator: def.payload,
     generator,
     allowConcurrent: def.allowConcurrent,
+    broadcast: def.broadcast,
     onDisconnect: def.onDisconnect ?? 'cancel-but-buffer',
     nudges: def.nudges.map((n) => ({ event: n.name, validator: n.schema })),
     maxChunks: def.maxChunks,

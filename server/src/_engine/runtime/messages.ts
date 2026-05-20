@@ -676,6 +676,7 @@ export async function dispatchIncoming(
           kind: resumableStream ? 'resumable' : 'recorded',
           generator: durable.generator,
           allowConcurrent: durable.allowConcurrent,
+          broadcast: recordedStream?.broadcast ?? false,
           nudges: durable.nudges,
           maxChunks: recordedStream?.maxChunks,
           maxAgeMs: durable.maxAgeMs,
@@ -834,6 +835,7 @@ function resolveDurableDefForRow(
         kind: 'recorded',
         generator: recorded.generator,
         allowConcurrent: recorded.allowConcurrent,
+        broadcast: recorded.broadcast,
         nudges: recorded.nudges,
         maxChunks: recorded.maxChunks,
         maxAgeMs: recorded.maxAgeMs,
@@ -940,13 +942,19 @@ export async function processTextMessage(
         connection,
         parsed.payload as Record<string, unknown> | undefined,
       );
-      // Durable streams also need the SQL row + buffered chunks cleared.
       const cancelPayload = parsed.payload as { _streamId?: unknown } | undefined;
       if (typeof cancelPayload?._streamId === 'string' && runtime.sql) {
+        let cancelScope: EngineRuntimeTypes.ResolvedScope = {};
+        try {
+          cancelScope = resolveScope(runtime.compiled, parsed.payload);
+        } catch {
+          /* malformed routing — fall back to top-level lookup */
+        }
         await DurableStreamRuntime.cancelDurableStream(
           runtime as unknown as DurableStreamRuntime.DurableStreamRuntime,
           connection,
           cancelPayload._streamId,
+          cancelScope,
         );
       }
       return;
@@ -965,10 +973,27 @@ export async function processTextMessage(
         return;
       }
       ensureDurableStreamSchema(runtime.sql);
-      await DurableStreamRuntime.resumeDurableStream(
-        runtime as unknown as DurableStreamRuntime.DurableStreamRuntime,
+      // The frame may carry _namespace / _channel / _channelScope so the
+      // resume hits a broadcast scope-key row when the user wasn't the
+      // original creator.
+      let resumeScope: EngineRuntimeTypes.ResolvedScope = {};
+      try {
+        resumeScope = resolveScope(runtime.compiled, parsed.payload);
+      } catch {
+        /* malformed routing markers — fall back to top-level lookup */
+      }
+      const durableRuntime = runtime as unknown as DurableStreamRuntime.DurableStreamRuntime;
+      const row = DurableStreamRuntime.findResumeRow(
+        durableRuntime,
         connection,
-        (row) => resolveDurableDefForRow(runtime, connection, row),
+        resumeScope,
+        streamId,
+      );
+      await DurableStreamRuntime.resumeDurableStream(
+        durableRuntime,
+        connection,
+        (matched) => resolveDurableDefForRow(runtime, connection, matched),
+        row,
         streamId,
         since,
       );

@@ -13,6 +13,7 @@ export interface RecordedStreamGeneratePrimitive extends Primitive<'recorded-str
   readonly validator?: Validator<unknown>;
   readonly generator: (ctx: any, payload: any) => AsyncGenerator<unknown, void, unknown>;
   readonly allowConcurrent: boolean;
+  readonly broadcast: boolean;
   readonly onDisconnect: OnDisconnect;
   readonly nudges: readonly DurableNudgeDeclaration[];
   readonly maxChunks: number;
@@ -25,6 +26,7 @@ export interface BuildRecordedStreamGenerateInput {
   validator?: Validator<unknown>;
   generator: (ctx: any, payload: any) => AsyncGenerator<unknown, void, unknown>;
   allowConcurrent?: boolean;
+  broadcast?: boolean;
   onDisconnect?: OnDisconnect;
   nudges?: readonly DurableNudgeDeclaration[];
   maxChunks: number;
@@ -44,6 +46,7 @@ export function recordedGenerateFactory(
     validator: input.validator,
     generator: input.generator,
     allowConcurrent: input.allowConcurrent ?? false,
+    broadcast: input.broadcast ?? false,
     onDisconnect: input.onDisconnect ?? 'cancel-but-buffer',
     nudges: input.nudges ?? [],
     maxChunks: input.maxChunks,

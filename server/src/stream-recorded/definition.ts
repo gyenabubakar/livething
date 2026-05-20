@@ -12,6 +12,13 @@ interface CommonRecordedConfig {
   maxAgeMs?: number;
   /** How long an ended stream is kept after `_streamEnd` so a quick reconnect can still get the tail. Default: 30 seconds. */
   retentionAfterEndMs?: number;
+  /**
+   * One generator, many subscribers. Chunks fan out to channel members (when
+   * declared inside `channel(...)`), to all connections in the namespace (when
+   * inside `namespace(...)`), or to every connection (top-level). Late joiners
+   * and reconnects catch up from the recorded buffer. Default: false.
+   */
+  broadcast?: boolean;
 }
 
 /**
@@ -35,6 +42,7 @@ export interface RecordedStreamDef<
   readonly chunk?: Validator<TChunk>;
   readonly nudges: TNudges;
   readonly allowConcurrent: boolean;
+  readonly broadcast: boolean;
   /** Maximum chunks kept in the buffer. Default: 500. */
   readonly maxChunks: number;
 }
@@ -75,6 +83,7 @@ export function recordedStream<
     chunk: config?.chunk,
     nudges: (config?.nudges ?? []) as TNudges,
     allowConcurrent: config?.allowConcurrent ?? false,
+    broadcast: config?.broadcast ?? false,
     onDisconnect: config?.onDisconnect ?? 'cancel-but-buffer',
     maxAgeMs: config?.maxAgeMs ?? 5 * 60_000,
     retentionAfterEndMs: config?.retentionAfterEndMs ?? 30_000,

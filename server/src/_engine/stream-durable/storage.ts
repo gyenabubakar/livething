@@ -18,6 +18,8 @@ const CREATE_STREAMS_TABLE_SQL = `
     namespace                 TEXT,
     channel_key               TEXT,
     channel_scope             TEXT,
+    broadcast                 INTEGER NOT NULL DEFAULT 0,
+    creator_identity          TEXT,
     started_at                INTEGER NOT NULL,
     last_activity_at          INTEGER NOT NULL,
     ended_at                  INTEGER,
@@ -61,6 +63,8 @@ export interface DurableStreamRow {
   namespace: string | null;
   channelKey: string | null;
   channelScope: string | null;
+  broadcast: boolean;
+  creatorIdentity: string | null;
   startedAt: number;
   lastActivityAt: number;
   endedAt: number | null;
@@ -109,6 +113,8 @@ function rowToStream(row: Record<string, unknown>): DurableStreamRow {
     namespace: (row.namespace as string | null) ?? null,
     channelKey: (row.channel_key as string | null) ?? null,
     channelScope: (row.channel_scope as string | null) ?? null,
+    broadcast: Number(row.broadcast ?? 0) === 1,
+    creatorIdentity: (row.creator_identity as string | null) ?? null,
     startedAt: Number(row.started_at ?? 0),
     lastActivityAt: Number(row.last_activity_at ?? 0),
     endedAt: row.ended_at == null ? null : Number(row.ended_at),
@@ -129,6 +135,8 @@ export interface InsertStreamInput {
   namespace?: string | null;
   channelKey?: string | null;
   channelScope?: string | null;
+  broadcast?: boolean;
+  creatorIdentity?: string | null;
   maxChunks?: number;
   maxAgeMs?: number;
   retentionAfterEndMs?: number;
@@ -137,8 +145,8 @@ export interface InsertStreamInput {
 export function insertStream(sql: SqlExec, input: InsertStreamInput): void {
   sql.exec(
     `INSERT INTO _wskit_streams
-     (identity, stream_id, event, payload, kind, status, last_seq, namespace, channel_key, channel_scope, started_at, last_activity_at, max_chunks, max_age_ms, retention_after_end_ms)
-     VALUES (?, ?, ?, ?, ?, 'active', 0, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     (identity, stream_id, event, payload, kind, status, last_seq, namespace, channel_key, channel_scope, broadcast, creator_identity, started_at, last_activity_at, max_chunks, max_age_ms, retention_after_end_ms)
+     VALUES (?, ?, ?, ?, ?, 'active', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     input.identity,
     input.streamId,
     input.event,
@@ -147,6 +155,8 @@ export function insertStream(sql: SqlExec, input: InsertStreamInput): void {
     input.namespace ?? null,
     input.channelKey ?? null,
     input.channelScope ?? null,
+    input.broadcast ? 1 : 0,
+    input.creatorIdentity ?? null,
     input.now,
     input.now,
     input.maxChunks ?? null,
