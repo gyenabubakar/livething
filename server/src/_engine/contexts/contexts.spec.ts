@@ -337,6 +337,8 @@ describe('ctx.channel.send', () => {
         incoming: new Map(),
         requests: new Map(),
         streams: new Map(),
+        resumableStreams: new Map(),
+        recordedStreams: new Map(),
         preIntercepts: [],
         postIntercepts: new Map(),
       } as any,

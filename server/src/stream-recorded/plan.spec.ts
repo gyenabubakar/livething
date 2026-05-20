@@ -4,27 +4,9 @@ import { implement } from '~/_api/implement.ts';
 import { channel } from '~/channel/definition.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
-import { recordedStream, resumableStream } from './definition.ts';
+import { recordedStream } from './definition.ts';
 
-describe('durable-stream build-time validation', () => {
-  it('throws when resumableStream is declared without persistence: true', () => {
-    const c = contract<Record<string, unknown>>('app')({
-      definitions: [
-        resumableStream('feed', {
-          payload: v.object({}),
-          chunk: v.object({ idx: v.number() }),
-        }),
-      ],
-    });
-    expect(() =>
-      implement(c)
-        .resumableStream('feed', async function* () {
-          yield { idx: 1 };
-        })
-        .build(),
-    ).toThrow(/persistence: true/);
-  });
-
+describe('recordedStream build-time validation', () => {
   it('throws when recordedStream is declared without persistence: true', () => {
     const c = contract<Record<string, unknown>>('app')({
       definitions: [
@@ -43,7 +25,7 @@ describe('durable-stream build-time validation', () => {
     ).toThrow(/persistence: true/);
   });
 
-  it('throws when a durable stream is declared inside a channel (top-level only in v1)', () => {
+  it('throws when declared inside a channel (top-level only in v1)', () => {
     const c = contract<Record<string, unknown>>('app')({
       persistence: true,
       definitions: [
@@ -79,16 +61,16 @@ describe('durable-stream build-time validation', () => {
     ).not.toThrow();
   });
 
-  it('throws at build when a durable stream declaration has no handler', () => {
+  it('throws at build when a recordedStream declaration has no handler', () => {
     const c = contract<Record<string, unknown>>('app')({
       persistence: true,
       definitions: [
-        resumableStream('feed', {
+        recordedStream('tokens', {
           payload: v.object({}),
-          chunk: v.object({ idx: v.number() }),
+          chunk: v.object({ token: v.string() }),
         }),
       ],
     });
-    expect(() => implement(c).build()).toThrow(/No generator registered for resumableStream/);
+    expect(() => implement(c).build()).toThrow(/No generator registered for recordedStream/);
   });
 });

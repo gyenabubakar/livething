@@ -35,6 +35,8 @@ function createRuntime(overrides: Partial<OutgoingRuntime> = {}): OutgoingRuntim
     compiled: {
       outgoing: new Map([['foo', { event: 'foo' }]]),
       streams: new Map(),
+      resumableStreams: new Map(),
+      recordedStreams: new Map(),
       namespaces: new Map(),
       channels: new Map(),
       channelFamilies: new Map(),
@@ -230,12 +232,16 @@ describe('outgoing/runtime sendThroughPipeline', () => {
       compiled: {
         outgoing: new Map(),
         streams: new Map(),
+        resumableStreams: new Map(),
+        recordedStreams: new Map(),
         namespaces: new Map([
           [
             'admin',
             {
               outgoing: new Map([['ns-event', { event: 'ns-event' }]]),
               streams: new Map(),
+              resumableStreams: new Map(),
+              recordedStreams: new Map(),
             },
           ],
         ]),
@@ -256,6 +262,8 @@ describe('outgoing/runtime sendThroughPipeline', () => {
       compiled: {
         outgoing: new Map(),
         streams: new Map(),
+        resumableStreams: new Map(),
+        recordedStreams: new Map(),
         namespaces: new Map(),
         channels: new Map(),
         channelFamilies: new Map([
@@ -264,6 +272,8 @@ describe('outgoing/runtime sendThroughPipeline', () => {
             {
               outgoing: new Map([['room-event', { event: 'room-event' }]]),
               streams: new Map(),
+              resumableStreams: new Map(),
+              recordedStreams: new Map(),
             },
           ],
         ]),
@@ -288,12 +298,16 @@ describe('outgoing/runtime sendThroughPipeline', () => {
       compiled: {
         outgoing: new Map(),
         streams: new Map(),
+        resumableStreams: new Map(),
+        recordedStreams: new Map(),
         namespaces: new Map([
           [
             'admin',
             {
               outgoing: new Map([['ns-event', { event: 'ns-event' }]]),
               streams: new Map(),
+              resumableStreams: new Map(),
+              recordedStreams: new Map(),
             },
           ],
         ]),
@@ -315,6 +329,8 @@ describe('outgoing/runtime sendThroughPipeline', () => {
       compiled: {
         outgoing: new Map(),
         streams: new Map(),
+        resumableStreams: new Map(),
+        recordedStreams: new Map(),
         namespaces: new Map(),
         channels: new Map([
           [
@@ -322,6 +338,8 @@ describe('outgoing/runtime sendThroughPipeline', () => {
             {
               outgoing: new Map([['chat-msg', { event: 'chat-msg' }]]),
               streams: new Map(),
+              resumableStreams: new Map(),
+              recordedStreams: new Map(),
             },
           ],
         ]),
@@ -465,6 +483,8 @@ describe('broadcastToChannel — fanout resilience', () => {
         compiled: {
           outgoing: new Map([['msg', { event: 'msg' }]]),
           streams: new Map(),
+          resumableStreams: new Map(),
+          recordedStreams: new Map(),
           namespaces: new Map(),
           channels: new Map([['general', { outgoing: new Map([['msg', { event: 'msg' }]]) }]]),
           channelFamilies: new Map(),

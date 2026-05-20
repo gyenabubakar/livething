@@ -52,6 +52,8 @@ describe('channels.kick end-to-end', () => {
       incoming: new Map(),
       requests: new Map(),
       streams: new Map(),
+      resumableStreams: new Map(),
+      recordedStreams: new Map(),
       preIntercepts: [],
       postIntercepts: new Map(),
     };
@@ -162,6 +164,8 @@ describe('channels.kick end-to-end', () => {
       incoming: new Map(),
       requests: new Map(),
       streams: new Map(),
+      resumableStreams: new Map(),
+      recordedStreams: new Map(),
       preIntercepts: [],
       postIntercepts: new Map(),
     };

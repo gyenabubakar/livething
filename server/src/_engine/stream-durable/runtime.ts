@@ -25,9 +25,9 @@ import type {
   RoutingTarget,
   RuntimeConnection,
 } from '~/_engine/runtime/types.ts';
-import { isCursorChunk, makeCursorChunk } from './definition.ts';
+import { isCursorChunk, makeCursorChunk } from './cursor.ts';
 import * as Storage from './storage.ts';
-import type { DurableStreamKind } from './storage.ts';
+import type { DurableStreamKind } from './types.ts';
 
 /** Minimal slice of the engine the durable runtime needs to do its job. */
 export interface DurableStreamRuntime {

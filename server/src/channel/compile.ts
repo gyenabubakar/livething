@@ -138,7 +138,7 @@ export function compileChannelPrimitive(primitive: ChannelPrimitiveType): Compil
       case 'request':
         scope.requests.set((child as AnyRequest).event, child as AnyRequest);
         break;
-      case 'generate':
+      case 'stream-generate':
         scope.streams.set((child as AnyGenerate).event, child as AnyGenerate);
         break;
       case 'intercept': {

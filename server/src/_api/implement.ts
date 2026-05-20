@@ -11,7 +11,6 @@ import { ack as ackFactory } from '~/ack/ack.ts';
 import { compileChannelDef } from '~/channel/compile.ts';
 import { ChannelImplement } from '~/channel/implement.ts';
 import { dedup as dedupFactory } from '~/dedup/dedup.ts';
-import { compileRecordedStreamDef, compileResumableStreamDef } from '~/durable-stream/compile.ts';
 import { errors as errorsFactory } from '~/errors/primitive.ts';
 import { heartbeat as heartbeatFactory } from '~/heartbeat/heartbeat.ts';
 import { hibernation as hibernationFactory } from '~/hibernation/hibernation.ts';
@@ -38,6 +37,8 @@ import { replay as replayFactory } from '~/replay/replay.ts';
 import { compileRequestDef } from '~/request/compile.ts';
 import { compileScheduledDef } from '~/scheduled/compile.ts';
 import { sequence as sequenceFactory } from '~/sequence/sequence.ts';
+import { compileRecordedStreamDef } from '~/stream-recorded/compile.ts';
+import { compileResumableStreamDef } from '~/stream-resumable/compile.ts';
 import { compileStreamDef } from '~/stream/compile.ts';
 import { tagGroups as tagGroupsFactory } from '~/tags/tags.ts';
 import type {
@@ -845,7 +846,7 @@ export class Implementer<C extends Contract> {
           out.push(compileRequestDef(def as RequestDef, handlers.requestHandlers));
           break;
         case 'stream':
-          out.push(...compileStreamDef(def as StreamDef, handlers.streamGenerators));
+          out.push(compileStreamDef(def as StreamDef, handlers.streamGenerators));
           break;
         case 'resumable-stream':
           out.push(

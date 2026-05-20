@@ -71,7 +71,12 @@ export function isDeclaredOutgoingEvent(
     return (channel?.outgoing.has(event) ?? false) || (channel?.streams.has(event) ?? false);
   }
 
-  return compiled.outgoing.has(event) || compiled.streams.has(event);
+  return (
+    compiled.outgoing.has(event) ||
+    compiled.streams.has(event) ||
+    compiled.resumableStreams.has(event) ||
+    compiled.recordedStreams.has(event)
+  );
 }
 
 // ───── Section: payload shape + reserved-key checks ─────

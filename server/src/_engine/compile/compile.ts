@@ -53,10 +53,24 @@ function visitCompiledPrimitives(
         );
         continue;
 
-      case 'generate':
+      case 'stream-generate':
         compiled.streams.set(
           (primitive as EngineCompileTypes.AnyGenerate).event,
           primitive as EngineCompileTypes.AnyGenerate,
+        );
+        continue;
+
+      case 'resumable-stream-generate':
+        compiled.resumableStreams.set(
+          (primitive as EngineCompileTypes.AnyResumableStream).event,
+          primitive as EngineCompileTypes.AnyResumableStream,
+        );
+        continue;
+
+      case 'recorded-stream-generate':
+        compiled.recordedStreams.set(
+          (primitive as EngineCompileTypes.AnyRecordedStream).event,
+          primitive as EngineCompileTypes.AnyRecordedStream,
         );
         continue;
 
@@ -124,6 +138,8 @@ export function compileHandlerDefinition(
     incoming: new Map(),
     requests: new Map(),
     streams: new Map(),
+    resumableStreams: new Map(),
+    recordedStreams: new Map(),
     preIntercepts: [],
     postIntercepts: new Map(),
     namespaces: new Map(),

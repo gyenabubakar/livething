@@ -40,7 +40,7 @@ describe('stream primitives', () => {
     expect(streamDecl.__identity[1]).toBe('ai');
     expect(streamDecl.broadcast).toBe(true);
     expect(streamDecl.nudges).toHaveLength(1);
-    expect(generateDecl.__wskit).toBe('generate');
+    expect(generateDecl.__wskit).toBe('stream-generate');
     expect(generateDecl.__identity[1]).toBe('ai');
     expect(generateDecl.stream).toBe(streamDecl);
     expect(generateDecl.generator).toBe(generator);

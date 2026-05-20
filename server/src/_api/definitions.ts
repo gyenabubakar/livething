@@ -11,13 +11,14 @@
 
 import type { ScopeDeclaration } from '~/channel/channel.ts';
 import type { ChannelDef } from '~/channel/definition.ts';
-import type { RecordedStreamDef, ResumableStreamDef } from '~/durable-stream/definition.ts';
 import type { ErrorContractDef } from '~/errors/definition.ts';
 import type { IncomingDef } from '~/incoming/definition.ts';
 import type { NamespaceDef } from '~/namespace/definition.ts';
 import type { OutgoingDef } from '~/outgoing/definition.ts';
 import type { RequestDef } from '~/request/definition.ts';
 import type { ScheduledDef } from '~/scheduled/definition.ts';
+import type { RecordedStreamDef } from '~/stream-recorded/definition.ts';
+import type { ResumableStreamDef } from '~/stream-resumable/definition.ts';
 import type { NudgeDef, StreamDef } from '~/stream/definition.ts';
 
 export type {
@@ -35,7 +36,8 @@ export type {
 };
 
 export { channel } from '~/channel/definition.ts';
-export { recordedStream, resumableStream } from '~/durable-stream/definition.ts';
+export { recordedStream } from '~/stream-recorded/definition.ts';
+export { resumableStream } from '~/stream-resumable/definition.ts';
 export { incoming } from '~/incoming/definition.ts';
 export { namespace } from '~/namespace/definition.ts';
 export { outgoing } from '~/outgoing/definition.ts';

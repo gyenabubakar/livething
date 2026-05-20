@@ -33,6 +33,8 @@ function makeRuntime(cap: number) {
       outgoing: new Map(),
       requests: new Map(),
       streams: new Map(),
+      resumableStreams: new Map(),
+      recordedStreams: new Map(),
       namespaces: new Map(),
       channels: new Map(),
       channelFamilies: new Map(),

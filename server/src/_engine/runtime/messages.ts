@@ -9,9 +9,9 @@ import {
   WskitError,
 } from '@wskit/core';
 import * as EngineCompileUtils from '~/_engine/compile/utils.ts';
+import * as DurableStreamRuntime from '~/_engine/stream-durable/runtime.ts';
+import { ensureDurableStreamSchema } from '~/_engine/stream-durable/storage.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
-import * as DurableStreamRuntime from '~/durable-stream/runtime.ts';
-import { ensureDurableStreamSchema } from '~/durable-stream/storage.ts';
 import * as ErrorsPrimitive from '~/errors/errors.ts';
 import * as HeartbeatPrimitive from '~/heartbeat/runtime.ts';
 import * as InterceptPrimitive from '~/intercept/runtime.ts';
@@ -512,6 +512,9 @@ export async function dispatchIncoming(
   const incoming = scoped ? scoped.incoming.get(event) : runtime.compiled.incoming.get(event);
   const request = scoped ? scoped.requests.get(event) : runtime.compiled.requests.get(event);
   const stream = scoped ? scoped.streams.get(event) : runtime.compiled.streams.get(event);
+  // Durable streams are top-level only in v1; no scoped lookup.
+  const resumableStream = scoped ? undefined : runtime.compiled.resumableStreams.get(event);
+  const recordedStream = scoped ? undefined : runtime.compiled.recordedStreams.get(event);
 
   let message = { event, payload: rawPayload };
 
@@ -560,7 +563,7 @@ export async function dispatchIncoming(
       );
     }
 
-    const primitive = incoming ?? request ?? stream;
+    const primitive = incoming ?? request ?? stream ?? resumableStream ?? recordedStream;
     if (!primitive) return;
 
     const appPayload = EngineCompileUtils.stripProtocolFields(message.payload);
@@ -641,42 +644,41 @@ export async function dispatchIncoming(
     }
 
     if (stream) {
-      if (stream.stream.durable) {
-        if (!runtime.sql) {
-          throw new Error(
-            '[wskit] durable stream "' +
-              stream.event +
-              '" requires storage; the adapter did not call engine.setStorage(...).',
-          );
-        }
-        ensureDurableStreamSchema(runtime.sql);
-        await DurableStreamRuntime.runDurableStream(
-          runtime as unknown as DurableStreamRuntime.DurableStreamRuntime,
-          connection,
-          scope,
-          {
-            event: stream.event,
-            kind: stream.stream.durable.kind,
-            generator: stream.generator as any,
-            allowConcurrent: stream.stream.allowConcurrent,
-            maxChunks: stream.stream.durable.maxChunks,
-            maxAgeMs: stream.stream.durable.maxAgeMs,
-            retentionAfterEndMs: stream.stream.durable.retentionAfterEndMs,
-          },
-          postPayload,
-          message.payload,
-        );
-      } else {
-        await StreamPrimitive.runStream(
-          runtime,
-          connection,
-          scope,
-          event,
-          stream,
-          postPayload,
-          message.payload,
+      await StreamPrimitive.runStream(
+        runtime,
+        connection,
+        scope,
+        event,
+        stream,
+        postPayload,
+        message.payload,
+      );
+    } else if (resumableStream || recordedStream) {
+      const durable = resumableStream ?? recordedStream!;
+      if (!runtime.sql) {
+        throw new Error(
+          '[wskit] durable stream "' +
+            durable.event +
+            '" requires storage; the adapter did not call engine.setStorage(...).',
         );
       }
+      ensureDurableStreamSchema(runtime.sql);
+      await DurableStreamRuntime.runDurableStream(
+        runtime as unknown as DurableStreamRuntime.DurableStreamRuntime,
+        connection,
+        scope,
+        {
+          event: durable.event,
+          kind: resumableStream ? 'resumable' : 'recorded',
+          generator: durable.generator,
+          allowConcurrent: durable.allowConcurrent,
+          maxChunks: recordedStream?.maxChunks,
+          maxAgeMs: durable.maxAgeMs,
+          retentionAfterEndMs: durable.retentionAfterEndMs,
+        },
+        postPayload,
+        message.payload,
+      );
     }
   } catch (error) {
     await handleDispatchError(runtime, connection, event, rawPayload, scope, error, attempt);
@@ -879,17 +881,30 @@ export async function processTextMessage(
         connection,
         {},
         (event) => {
-          const compiled = runtime.compiled.streams.get(event);
-          if (!compiled || !compiled.stream.durable) return undefined;
-          return {
-            event: compiled.event,
-            kind: compiled.stream.durable.kind,
-            generator: compiled.generator as any,
-            allowConcurrent: compiled.stream.allowConcurrent,
-            maxChunks: compiled.stream.durable.maxChunks,
-            maxAgeMs: compiled.stream.durable.maxAgeMs,
-            retentionAfterEndMs: compiled.stream.durable.retentionAfterEndMs,
-          };
+          const resumable = runtime.compiled.resumableStreams.get(event);
+          if (resumable) {
+            return {
+              event: resumable.event,
+              kind: 'resumable' as const,
+              generator: resumable.generator,
+              allowConcurrent: resumable.allowConcurrent,
+              maxAgeMs: resumable.maxAgeMs,
+              retentionAfterEndMs: resumable.retentionAfterEndMs,
+            };
+          }
+          const recorded = runtime.compiled.recordedStreams.get(event);
+          if (recorded) {
+            return {
+              event: recorded.event,
+              kind: 'recorded' as const,
+              generator: recorded.generator,
+              allowConcurrent: recorded.allowConcurrent,
+              maxChunks: recorded.maxChunks,
+              maxAgeMs: recorded.maxAgeMs,
+              retentionAfterEndMs: recorded.retentionAfterEndMs,
+            };
+          }
+          return undefined;
         },
         streamId,
         since,
@@ -901,7 +916,10 @@ export async function processTextMessage(
   // A frame whose event name matches a registered stream trigger is a
   // start frame, even when it carries `_streamId` (dev-supplied id for
   // durable resume). Don't let nudge buffering claim it.
-  const isStreamTrigger = runtime.compiled.streams.has(parsed.event);
+  const isStreamTrigger =
+    runtime.compiled.streams.has(parsed.event) ||
+    runtime.compiled.resumableStreams.has(parsed.event) ||
+    runtime.compiled.recordedStreams.has(parsed.event);
   if (
     !isStreamTrigger &&
     (await StreamPrimitive.bufferStreamNudge(
