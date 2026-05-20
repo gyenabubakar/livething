@@ -1,5 +1,6 @@
 import { channel, contract, implement, incoming, outgoing, t } from '@wskit/server';
 import * as v from 'valibot';
+import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const Secret = v.object({ text: v.string() });
@@ -41,3 +42,5 @@ export const replayMembershipGateHandler = implement(replayMembershipGateContrac
     }),
   )
   .build();
+
+export type ReplayMembershipGateClient = InferClient<typeof replayMembershipGateHandler>;

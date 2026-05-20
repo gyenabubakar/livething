@@ -1,5 +1,6 @@
 import { contract, implement, incoming, outgoing, t } from '@wskit/server';
 import * as v from 'valibot';
+import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 function selectNotes(ctx: {
@@ -79,3 +80,5 @@ export const ctxSqlHandler = implement(ctxSqlContract)
     ctx.send('sql-one-empty-result', { row: row ? { c: Number(row.c) } : null });
   })
   .build();
+
+export type CtxSqlClient = InferClient<typeof ctxSqlHandler>;

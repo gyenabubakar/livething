@@ -1,5 +1,6 @@
 import { contract, implement, incoming, outgoing, t } from '@wskit/server';
 import * as v from 'valibot';
+import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 function serializeTags(tags: readonly { group: string; key: string }[]): string {
@@ -49,3 +50,5 @@ export const ctxTagsHandler = implement(ctxTagsContract)
     ctx.send('connections-by-tag-result', { tag: payload.tag, count: seen.size });
   })
   .build();
+
+export type CtxTagsClient = InferClient<typeof ctxTagsHandler>;

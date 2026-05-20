@@ -4,6 +4,7 @@
 // didn't survive the file boundary, either the channel wouldn't dispatch or
 // this file would stop type-checking.
 import { implement } from '@wskit/server';
+import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 import { rooms } from './rooms.ts';
 import { multifileContract } from './setup.ts';
@@ -15,3 +16,5 @@ export const multifileHandler = implement(multifileContract)
     ctx.send('notification', { title: `welcome ${ctx.meta.username}` });
   })
   .build();
+
+export type MultifileClient = InferClient<typeof multifileHandler>;

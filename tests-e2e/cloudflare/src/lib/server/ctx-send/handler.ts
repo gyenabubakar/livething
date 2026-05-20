@@ -1,5 +1,6 @@
 import { contract, implement, incoming, outgoing, t } from '@wskit/server';
 import * as v from 'valibot';
+import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 export const ctxSendContract = contract<Env>('ctx-send')({
@@ -60,3 +61,5 @@ export const ctxSendHandler = implement(ctxSendContract)
     ctx.close(4010, 'server-close');
   })
   .build();
+
+export type CtxSendClient = InferClient<typeof ctxSendHandler>;

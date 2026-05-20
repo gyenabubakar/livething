@@ -1,5 +1,6 @@
 import { channel, contract, implement, incoming, outgoing, t } from '@wskit/server';
 import * as v from 'valibot';
+import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const RoomMessagePayload = v.object({ text: v.string(), from: v.string() });
@@ -60,3 +61,5 @@ export const persistenceHandler = implement(persistenceContract)
   )
 
   .build();
+
+export type PersistenceClient = InferClient<typeof persistenceHandler>;

@@ -1,5 +1,6 @@
 import { channel, contract, implement, incoming, outgoing, t } from '@wskit/server';
 import * as v from 'valibot';
+import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const TagPayload = v.object({
@@ -95,3 +96,5 @@ export const typedTagsHandler = implement(typedTagsContract)
   )
 
   .build();
+
+export type TypedTagsClient = InferClient<typeof typedTagsHandler>;

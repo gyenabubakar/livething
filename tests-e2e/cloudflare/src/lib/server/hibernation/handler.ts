@@ -1,5 +1,6 @@
 import { channel, contract, implement, incoming, outgoing, stream, t } from '@wskit/server';
 import * as v from 'valibot';
+import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const BroadcastToRoomPayload = v.object({ text: v.string() });
@@ -109,3 +110,5 @@ export const hibernationHandler = implement(hibernationContract)
   )
 
   .build();
+
+export type HibernationClient = InferClient<typeof hibernationHandler>;

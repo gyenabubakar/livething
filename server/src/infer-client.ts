@@ -109,6 +109,8 @@ export type InferClient<TServer extends ServerDefinition> = SimplifyDeep<{
   outgoing: ContractOf<TServer>['outgoing'];
   requests: ContractOf<TServer>['requests'];
   streams: ContractOf<TServer>['streams'];
+  resumableStreams: ContractOf<TServer>['resumableStreams'];
+  recordedStreams: ContractOf<TServer>['recordedStreams'];
   namespaces: ContractOf<TServer>['namespaces'];
   channels: ContractOf<TServer>['channels'];
   /** Built-in engine errors (e.g. `validation-failed`) merged with developer-defined errors. */

@@ -1,5 +1,6 @@
 import { channel, contract, implement, namespace, request, t } from '@wskit/server';
 import * as v from 'valibot';
+import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const TimeResponseSchema = v.object({ now: v.string() });
@@ -66,3 +67,5 @@ export const requestHandler = implement(requestContract)
     }),
   )
   .build();
+
+export type RequestClient = InferClient<typeof requestHandler>;

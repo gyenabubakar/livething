@@ -1,5 +1,6 @@
 import { contract, implement, request, t } from '@wskit/server';
 import * as v from 'valibot';
+import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 export const errorHookIsolationContract = contract<Env>('error-hook-isolation')({
@@ -26,3 +27,5 @@ export const errorHookIsolationHandler = implement(errorHookIsolationContract)
     throw new Error('handler boom');
   })
   .build();
+
+export type ErrorHookIsolationClient = InferClient<typeof errorHookIsolationHandler>;

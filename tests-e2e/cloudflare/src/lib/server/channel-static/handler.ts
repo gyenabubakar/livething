@@ -1,5 +1,6 @@
 import { channel, contract, implement, incoming, outgoing, stream, t } from '@wskit/server';
 import * as v from 'valibot';
+import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const RoomMessagePayload = v.object({
@@ -135,3 +136,5 @@ export const channelStaticHandler = implement(channelStaticContract)
   )
 
   .build();
+
+export type ChannelStaticClient = InferClient<typeof channelStaticHandler>;

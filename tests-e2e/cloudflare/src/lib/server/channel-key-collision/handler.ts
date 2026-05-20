@@ -1,5 +1,6 @@
 import { channel, contract, implement, incoming, outgoing, scope, t } from '@wskit/server';
 import * as v from 'valibot';
+import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const HelloPayload = v.object({ family: v.string(), name: v.string(), text: v.string() });
@@ -67,3 +68,5 @@ export const channelKeyCollisionHandler = implement(channelKeyCollisionContract)
   })
 
   .build();
+
+export type ChannelKeyCollisionClient = InferClient<typeof channelKeyCollisionHandler>;

@@ -1,5 +1,6 @@
 import { contract, implement, incoming, outgoing, t } from '@wskit/server';
 import * as v from 'valibot';
+import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 export const incomingContract = contract<Env>('incoming')({
@@ -26,3 +27,5 @@ export const incomingHandler = implement(incomingContract)
     ctx.send('async-done', { message: 'async-done' });
   })
   .build();
+
+export type IncomingClient = InferClient<typeof incomingHandler>;

@@ -1,5 +1,6 @@
 import { contract, implement, incoming, outgoing, t } from '@wskit/server';
 import * as v from 'valibot';
+import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 export const sequenceContract = contract<Env>('sequence')({
@@ -14,3 +15,5 @@ export const sequenceHandler = implement(sequenceContract)
     ctx.send('tock', {});
   })
   .build();
+
+export type SequenceClient = InferClient<typeof sequenceHandler>;

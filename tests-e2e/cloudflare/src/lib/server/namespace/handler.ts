@@ -1,5 +1,6 @@
 import { contract, implement, incoming, namespace, outgoing, request, stream } from '@wskit/server';
 import * as v from 'valibot';
+import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const NsMessagePayload = v.object({ text: v.string() });
@@ -45,3 +46,5 @@ export const namespaceHandler = implement(namespaceContract)
       }),
   )
   .build();
+
+export type NamespaceClient = InferClient<typeof namespaceHandler>;

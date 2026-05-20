@@ -1,6 +1,7 @@
 import { channel, contract, implement, incoming, namespace, outgoing, t } from '@wskit/server';
 import { Block } from '@wskit/server/errors';
 import * as v from 'valibot';
+import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const EchoPayload = v.object({ text: v.string() });
@@ -75,3 +76,5 @@ export const interceptHandler = implement(interceptContract)
       }),
   )
   .build();
+
+export type InterceptClient = InferClient<typeof interceptHandler>;

@@ -1,5 +1,6 @@
 import { channel, contract, implement, scope, stream, t } from '@wskit/server';
 import * as v from 'valibot';
+import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const BroadcastChunkSchema = v.object({ index: v.number() });
@@ -42,3 +43,5 @@ export const streamBroadcastHandler = implement(streamBroadcastContract)
     }),
   )
   .build();
+
+export type StreamBroadcastClient = InferClient<typeof streamBroadcastHandler>;

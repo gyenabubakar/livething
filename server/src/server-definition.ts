@@ -50,6 +50,18 @@ export interface ServerContract {
   /** Server-sent streams the client subscribes to (declared with `stream(...)`). */
   readonly streams: Record<string, any>;
 
+  /**
+   * Server-sent streams that survive client disconnect via a saved cursor
+   * (declared with `resumableStream(...)`).
+   */
+  readonly resumableStreams: Record<string, any>;
+
+  /**
+   * Server-sent streams whose chunks are buffered in storage and replayed
+   * on reconnect (declared with `recordedStream(...)`).
+   */
+  readonly recordedStreams: Record<string, any>;
+
   /** Named, typed server errors the client can catch. */
   readonly errors: Record<string, any>;
 

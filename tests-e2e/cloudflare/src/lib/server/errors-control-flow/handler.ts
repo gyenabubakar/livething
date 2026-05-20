@@ -1,6 +1,7 @@
 import { channel, contract, implement, incoming, outgoing, stream, t } from '@wskit/server';
 import { Block, Defer, DeferExhausted, Disconnect, ValidationFailed } from '@wskit/server/errors';
 import * as v from 'valibot';
+import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const StreamToken = v.object({ index: v.number() });
@@ -86,3 +87,5 @@ export const errorsControlFlowHandler = implement(errorsControlFlowContract)
     }),
   )
   .build();
+
+export type ErrorsControlFlowClient = InferClient<typeof errorsControlFlowHandler>;

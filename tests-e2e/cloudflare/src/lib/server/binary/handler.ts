@@ -1,5 +1,6 @@
 import { contract, implement, incoming, outgoing, t } from '@wskit/server';
 import * as v from 'valibot';
+import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 export const binaryContract = contract<Env>('binary')({
@@ -38,3 +39,5 @@ export const binaryHandler = implement(binaryContract)
     ctx.sendBinary(new Uint8Array(payload.size).buffer);
   })
   .build();
+
+export type BinaryClient = InferClient<typeof binaryHandler>;

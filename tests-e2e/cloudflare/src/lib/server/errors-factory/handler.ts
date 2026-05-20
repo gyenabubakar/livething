@@ -1,6 +1,7 @@
 import { contract, error, implement, incoming, t } from '@wskit/server';
 import { WskitError } from '@wskit/server/errors';
 import * as v from 'valibot';
+import type { InferClient } from '@wskit/server';
 import { Forbidden, NotFound } from '../_shared/errors.ts';
 import { requireUsername } from '../_shared/upgrade.ts';
 
@@ -44,3 +45,5 @@ export const errorsFactoryHandler = implement(errorsFactoryContract)
     throw new WskitError('bigint-detail', { amount: 1n });
   })
   .build();
+
+export type ErrorsFactoryClient = InferClient<typeof errorsFactoryHandler>;

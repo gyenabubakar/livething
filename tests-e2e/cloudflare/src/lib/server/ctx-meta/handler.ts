@@ -1,5 +1,6 @@
 import { contract, implement, incoming, outgoing, t } from '@wskit/server';
 import * as v from 'valibot';
+import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 export const ctxMetaContract = contract<Env>('ctx-meta')({
@@ -29,3 +30,5 @@ export const ctxMetaHandler = implement(ctxMetaContract)
     ctx.broadcast('broadcast-identity-received', { from: ctx.meta.username });
   })
   .build();
+
+export type CtxMetaClient = InferClient<typeof ctxMetaHandler>;

@@ -1,6 +1,7 @@
 import { contract, implement, recordedStream, resumableStream, t } from '@wskit/server';
 import { StreamAborted } from '@wskit/server/errors';
 import * as v from 'valibot';
+import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const CountTokensPayload = v.object({});
@@ -85,3 +86,5 @@ export const streamDurableHandler = implement(streamDurableContract)
   })
 
   .build();
+
+export type StreamDurableClient = InferClient<typeof streamDurableHandler>;

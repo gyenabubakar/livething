@@ -1,5 +1,6 @@
 import { contract, implement, incoming, outgoing, t } from '@wskit/server';
 import * as v from 'valibot';
+import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 export const ctxKvContract = contract<Env>('ctx-kv')({
@@ -42,3 +43,5 @@ export const ctxKvHandler = implement(ctxKvContract)
     ctx.send('kv-result', { key: payload.key, value });
   })
   .build();
+
+export type CtxKvClient = InferClient<typeof ctxKvHandler>;

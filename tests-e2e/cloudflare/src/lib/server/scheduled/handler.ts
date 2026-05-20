@@ -1,5 +1,6 @@
 import { contract, implement, incoming, outgoing, scheduled, t } from '@wskit/server';
 import * as v from 'valibot';
+import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 let flakyAttempts = 0;
@@ -259,3 +260,5 @@ export const scheduledHandler = implement(scheduledContract)
     ctx.send('schedule-unknown-task-result', { rejected, message });
   })
   .build();
+
+export type ScheduledClient = InferClient<typeof scheduledHandler>;

@@ -1,5 +1,6 @@
 import { contract, implement, incoming, outgoing, t } from '@wskit/server';
 import * as v from 'valibot';
+import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 export const lifecycleHooksContract = contract<Env>('lifecycle-hooks')({
@@ -60,3 +61,5 @@ export const lifecycleHooksHandler = implement(lifecycleHooksContract)
     throw new Error('test-error');
   })
   .build();
+
+export type LifecycleHooksClient = InferClient<typeof lifecycleHooksHandler>;

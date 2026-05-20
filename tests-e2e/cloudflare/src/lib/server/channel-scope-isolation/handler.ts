@@ -1,5 +1,6 @@
 import { channel, contract, implement, incoming, outgoing, scope, t } from '@wskit/server';
 import * as v from 'valibot';
+import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const RoomMessagePayload = v.object({
@@ -149,3 +150,5 @@ export const channelScopeIsolationHandler = implement(channelScopeIsolationContr
   )
 
   .build();
+
+export type ChannelScopeIsolationClient = InferClient<typeof channelScopeIsolationHandler>;
