@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Browser, BrowserContext, Page } from '@playwright/test';
-import { connect, frames, installRig, send, waitForFrame } from './_ws-rig.ts';
+import { closeSocket, connect, frames, installRig, send, waitForFrame } from './_ws-rig.ts';
 import type { WireFrame } from './_ws-rig.ts';
 
 const WS_PATH = '/ws/stream-durable-broadcast';
@@ -274,6 +274,68 @@ test.describe('stream-durable broadcast (channel scope)', () => {
       const err = await waitForFrame(pageB, b, (f) => f.event === '_error');
       expect(err.payload.code).toBe('stream-aborted');
       expect((err.payload.detail as { reason: string }).reason).toBe('unsubscribed');
+    } finally {
+      await ctxA.close();
+      await ctxB.close();
+    }
+  });
+});
+
+test.describe('stream-durable broadcast (namespace scope)', () => {
+  test('namespace-scoped recordedStream fans out to every connection, peer reconnect replays from buffer', async ({
+    browser,
+  }, testInfo) => {
+    const room = `sdbn-${testInfo.testId}`;
+    const streamId = 'news-1';
+    const { ctxA, ctxB, pageA, pageB } = await newPair(browser);
+    try {
+      const a = await connect(pageA, WS_PATH, 'alice', room);
+      const b = await connect(pageB, WS_PATH, 'bob', room);
+
+      await send(pageA, a, {
+        event: 'news',
+        payload: { _namespace: 'v1', _streamId: streamId },
+      });
+
+      await waitForFrame(
+        pageA,
+        a,
+        (f) => f.event === '_streamEnd' && f.payload._streamId === streamId,
+      );
+      await waitForFrame(
+        pageB,
+        b,
+        (f) => f.event === '_streamEnd' && f.payload._streamId === streamId,
+      );
+
+      const headlinesA = (await frames(pageA, a))
+        .filter((f) => f.event === 'news' && f.payload._namespace === 'v1')
+        .map((f) => f.payload.headline as string);
+      const headlinesB = (await frames(pageB, b))
+        .filter((f) => f.event === 'news' && f.payload._namespace === 'v1')
+        .map((f) => f.payload.headline as string);
+      expect(headlinesA).toEqual(['n1', 'n2', 'n3', 'n4', 'n5']);
+      expect(headlinesB).toEqual(['n1', 'n2', 'n3', 'n4', 'n5']);
+
+      // Bob drops, reconnects, resumes via the namespace marker. The row is
+      // keyed by the namespace broadcast scope key, not by bob's identity,
+      // so the resume has to carry _namespace.
+      await closeSocket(pageB, b);
+      await pageB.waitForTimeout(150);
+      const b2 = await connect(pageB, WS_PATH, 'bob', room);
+      await send(pageB, b2, {
+        event: '_resumeStream',
+        payload: { _namespace: 'v1', _streamId: streamId, since: 0 },
+      });
+      await waitForFrame(
+        pageB,
+        b2,
+        (f) => f.event === '_streamEnd' && f.payload._streamId === streamId,
+      );
+      const replayed = (await frames(pageB, b2))
+        .filter((f) => f.event === 'news' && f.payload._namespace === 'v1')
+        .map((f) => f.payload.headline as string);
+      expect(replayed).toEqual(['n1', 'n2', 'n3', 'n4', 'n5']);
     } finally {
       await ctxA.close();
       await ctxB.close();

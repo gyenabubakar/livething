@@ -1,4 +1,12 @@
-import { channel, contract, implement, recordedStream, resumableStream, t } from '@wskit/server';
+import {
+  channel,
+  contract,
+  implement,
+  namespace,
+  recordedStream,
+  resumableStream,
+  t,
+} from '@wskit/server';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
@@ -6,6 +14,7 @@ import { requireUsername } from '../_shared/upgrade.ts';
 const Empty = v.object({});
 const TokenChunk = v.object({ token: v.string() });
 const RowChunk = v.object({ row: v.number() });
+const HeadlineChunk = v.object({ headline: v.string() });
 
 export const streamDurableBroadcastContract = contract<Env>('stream-durable-broadcast')({
   persistence: true,
@@ -24,6 +33,18 @@ export const streamDurableBroadcastContract = contract<Env>('stream-durable-broa
         resumableStream('paginate', {
           payload: Empty,
           chunk: RowChunk,
+          broadcast: true,
+          maxChunks: 100,
+          maxAgeMs: 60_000,
+          retentionAfterEndMs: 30_000,
+        }),
+      ],
+    }),
+    namespace('v1', {
+      definitions: [
+        recordedStream('news', {
+          payload: Empty,
+          chunk: HeadlineChunk,
           broadcast: true,
           maxChunks: 100,
           maxAgeMs: 60_000,
@@ -52,6 +73,15 @@ export const streamDurableBroadcastHandler = implement(streamDurableBroadcastCon
           await new Promise((r) => setTimeout(r, 250));
         }
       }),
+  )
+
+  .namespace('v1', (ns) =>
+    ns.recordedStream('news', async function* () {
+      for (let i = 1; i <= 5; i += 1) {
+        yield { headline: `n${i}` };
+        await new Promise((r) => setTimeout(r, 250));
+      }
+    }),
   )
 
   .build();
