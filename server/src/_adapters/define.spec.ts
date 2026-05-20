@@ -26,9 +26,7 @@ describe('defineServerAdapter', () => {
     expect(typeof createEngine).toBe('function');
 
     const engine = createEngine();
-    expect(engine).toMatchObject({
-      options: { adapterId: 'test', hibernation: noopHibernation },
-    });
+    expect(engine.core.options).toEqual({ adapterId: 'test', hibernation: noopHibernation });
   });
 
   it('passes the adapter hibernation API straight through to engine options', () => {
@@ -44,7 +42,7 @@ describe('defineServerAdapter', () => {
     });
 
     serve({ __wskit: 'server', primitives: [] } as unknown as ServerDefinition, {} as never);
-    expect(capturedFactory!()).toMatchObject({ options: { hibernation: api } });
+    expect(capturedFactory!().core.options.hibernation).toBe(api);
   });
 
   it('omits hibernation in engine options when the adapter does not provide one', () => {
@@ -59,9 +57,7 @@ describe('defineServerAdapter', () => {
 
     serve({ __wskit: 'server', primitives: [] } as unknown as ServerDefinition, {} as never);
     const engine = capturedFactory!();
-    expect((engine as unknown as { options: { hibernation?: unknown } }).options.hibernation).toBe(
-      undefined,
-    );
+    expect(engine.core.options.hibernation).toBe(undefined);
   });
 
   it('factory creates independent engine instances', () => {

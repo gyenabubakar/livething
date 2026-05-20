@@ -1,8 +1,15 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import * as EngineContexts from '~/_engine/contexts/contexts.ts';
+import * as EngineConnectionRuntime from '~/_engine/runtime/connection.ts';
+import * as EngineErrorRuntime from '~/_engine/runtime/error.ts';
+import * as EngineHibernation from '~/_engine/runtime/hibernation.ts';
 import * as EngineMessageRuntime from '~/_engine/runtime/messages.ts';
+import { sendProtocolMessage, sendReplay } from '~/_engine/runtime/wire.ts';
+import * as Scheduling from '~/_engine/scheduling.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
+import * as MembershipPersistence from '~/persistence/membership.ts';
 import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
-import type { Engine } from '~/_engine/engine.ts';
+import type { EngineCore } from '~/_engine/core.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as PublicApi from '~/context.ts';
 
@@ -10,28 +17,85 @@ type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
 type ResolvedScope = EngineRuntimeTypes.ResolvedScope;
 type RoutingTarget = EngineRuntimeTypes.RoutingTarget;
 type BroadcastOptions = PublicApi.BroadcastOptions;
+type CompiledChannel = EngineRuntimeTypes.ResolvedScope['channel'];
 
-// ─────── Section: common deps ───────
+// ─────── shared helpers ───────
 
-/**
- * Build the dependency bag shared by init, shutdown, task, and connection
- * context construction.
- */
-export function commonDeps(engine: Engine): EngineContextTypes.ContextCommonDeps {
+/** Bound `leaveChannel` closure used by persistence and identity ops. */
+function buildLeaveChannel(core: EngineCore) {
+  return (
+    connection: RuntimeConnection,
+    scope: { channel?: CompiledChannel; channelName: string; channelScope: string | null },
+    kickedReason?: string,
+    disconnect?: boolean,
+  ) =>
+    EngineMessageRuntime.leaveChannel(
+      channelRuntime(core),
+      connection,
+      scope,
+      kickedReason,
+      disconnect,
+    );
+}
+
+/** Closure that builds a live-connection context. Used by error + dispatch helpers. */
+function buildConnectionContext(core: EngineCore) {
+  return (connection: RuntimeConnection, scope?: ResolvedScope) => {
+    return EngineContexts.buildConnectionContext(
+      {
+        compiled: core.compiled,
+        connections: core.connections,
+        ...commonDeps(core),
+      },
+      connection,
+      scope,
+    );
+  };
+}
+
+/** Factory for the task context passed to scheduled handlers. */
+function buildTaskContextFactory(core: EngineCore): () => unknown {
+  return () =>
+    EngineContexts.createTaskContext({
+      connections: core.connections,
+      ...commonDeps(core),
+    });
+}
+
+// ─────── common deps ───────
+
+/** Shared dep bag for init, shutdown, task, and connection context builders. */
+export function commonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps {
+  const createTaskContext = buildTaskContextFactory(core);
   return {
-    env: engine.env,
-    logger: engine.getLogger(),
-    platform: engine.platform,
-    waitUntilImpl: engine.waitUntilImpl,
-    requireStorage: () => engine.requireStorage(),
-    requireTimers: () => engine.requireTimers(),
-    scheduleTask: (taskId, time, data) => engine.scheduleTask(taskId, time, data),
-    cancelScheduled: (taskId, filter) => engine.cancelScheduled(taskId, filter),
+    env: core.env,
+    logger: core.logger,
+    platform: core.platform,
+    waitUntilImpl: core.waitUntilImpl,
+    requireStorage: () => core.requireStorage(),
+    requireTimers: () => core.requireTimers(),
+    scheduleTask: (taskId, time, data) =>
+      Scheduling.scheduleTask(core, createTaskContext, taskId, time, data),
+    cancelScheduled: (taskId, filter) =>
+      Scheduling.cancelScheduled(core, createTaskContext, taskId, filter),
     broadcastToConnections: (connections, event, payload, options, excludeConnectionId) => {
-      engine.broadcastToConnections(connections, event, payload, options, excludeConnectionId);
+      EngineMessageRuntime.broadcastToConnections(
+        outgoingRuntime(core),
+        connections,
+        event,
+        payload,
+        options,
+        excludeConnectionId,
+      );
     },
     sendThroughPipeline: (connection, routing, event, payload) => {
-      return engine.sendThroughPipeline(connection, routing, event, payload);
+      return EngineMessageRuntime.sendThroughPipeline(
+        outgoingRuntime(core),
+        connection,
+        routing,
+        event,
+        payload,
+      );
     },
     broadcastToChannel: (
       channelName,
@@ -41,7 +105,8 @@ export function commonDeps(engine: Engine): EngineContextTypes.ContextCommonDeps
       channelScope,
       excludeSelf,
     ) => {
-      engine.broadcastToChannel(
+      EngineMessageRuntime.broadcastToChannel(
+        memberRuntime(core),
         channelName,
         event,
         payload,
@@ -51,97 +116,120 @@ export function commonDeps(engine: Engine): EngineContextTypes.ContextCommonDeps
       );
     },
     getChannelMembers: (channelName, channelScope) =>
-      engine.getChannelMembers(channelName, channelScope),
-    kickChannelMembers: (channelName, tag, reason, channelScope) => {
-      return engine.kickChannelMembers(channelName, tag, reason, channelScope);
+      EngineMessageRuntime.getChannelMembers(memberRuntime(core), channelName, channelScope),
+    kickChannelMembers: (channelName, target, reason, channelScope) => {
+      return EngineMessageRuntime.kickChannelMembers(
+        {
+          ...channelRuntime(core),
+          leaveChannel: buildLeaveChannel(core),
+        },
+        channelName,
+        target,
+        reason,
+        channelScope,
+      );
     },
     removeChannelMember: (channelName, channelScope, identity) => {
-      return engine.removeChannelMember(channelName, channelScope, identity);
+      return MembershipPersistence.removeChannelMember(
+        core,
+        buildLeaveChannel(core),
+        channelName,
+        channelScope,
+        identity,
+      );
     },
     subscribeConnectionAsServer: (ref, channelName, channelScope, payload) => {
-      return engine.subscribeConnectionAsServer(ref, channelName, channelScope, payload);
+      return EngineMessageRuntime.subscribeFromServer(
+        { ...channelRuntime(core), instanceId: core.engineInstanceId },
+        ref,
+        channelName,
+        channelScope,
+        payload,
+      );
     },
     resolveChannel: (target) => {
-      const compiled = engine.getCompiled();
       if (typeof target === 'string') {
-        const compiledChannel = compiled.channels.get(target);
+        const compiledChannel = core.compiled.channels.get(target);
         if (!compiledChannel) return undefined;
         return { channelName: target, channelScope: null };
       }
-      const family = compiled.channelFamilies.get(target.family);
+      const family = core.compiled.channelFamilies.get(target.family);
       if (!family) return undefined;
       if (!ChannelPrimitive.matchesScopePattern(family.pattern, target.name)) return undefined;
       return { channelName: target.name, channelScope: target.family };
     },
     sendReplay: (connection, channelName, channelScope, event, payload, wire) => {
-      engine.sendReplay(connection, channelName, channelScope, event, payload, wire);
+      sendReplay(core, connection, channelName, channelScope, event, payload, wire);
     },
     sendProtocolMessage: (connection, event, payload) => {
-      engine.sendProtocolMessage(connection, event, payload);
+      sendProtocolMessage(core, connection, event, payload);
     },
-    persistAttachment: (connection) => engine.persistAttachment(connection),
-    toConnectionInfo: (connection) => engine.toConnectionInfo(connection),
-    attachModuleApis: (ctx, connection) => engine.attachModuleApis(ctx, connection),
-    contextExtenders: engine.hooks.contextExtenders,
-    instanceId: engine.instanceId,
-    usesTags: engine.usesTags(),
-    persistenceEnabled: engine.usesPersistence(),
-    isTagGroupDeclared: (kind, group) => engine.isTagGroupDeclared(kind, group),
+    persistAttachment: (connection) => EngineHibernation.persistAttachment(core, connection),
+    toConnectionInfo: (connection) =>
+      EngineContexts.toConnectionInfo(connection, core.engineInstanceId),
+    attachModuleApis: (ctx, connection) =>
+      EngineContexts.attachModuleApis(core.moduleRuntimes, ctx, connection),
+    contextExtenders: core.hooks.contextExtenders,
+    instanceId: core.engineInstanceId,
+    usesTags: core.usesTags(),
+    persistenceEnabled: core.persistenceEnabled,
+    isTagGroupDeclared: (kind, group) => core.isTagGroupDeclared(kind, group),
   };
 }
 
-// ─────── Section: outgoing runtime bag ───────
+// ─────── outgoing runtime bag ───────
 
-/**
- * Build the dependency bag used by helpers that only care about outgoing
- * message processing.
- */
-export function outgoingRuntime(engine: Engine) {
+/** Dep bag for helpers that only touch outgoing messages. */
+export function outgoingRuntime(core: EngineCore) {
   return {
-    compiled: engine.getCompiled(),
-    moduleRuntimes: engine.moduleRuntimes,
-    outgoingHooks: engine.hooks.outgoing,
-    beforeSendHooks: engine.hooks.beforeSend,
-    afterSendHooks: engine.hooks.afterSend,
-    waitUntil: (promise: Promise<unknown>) => engine.waitUntilImpl(promise),
-    logger: engine.getLogger(),
-    generateId: (prefix?: string) => engine.generateId(prefix),
-    activityHooks: engine.hooks.activity,
+    compiled: core.compiled,
+    moduleRuntimes: core.moduleRuntimes,
+    outgoingHooks: core.hooks.outgoing,
+    beforeSendHooks: core.hooks.beforeSend,
+    afterSendHooks: core.hooks.afterSend,
+    waitUntil: (promise: Promise<unknown>) => core.waitUntilImpl(promise),
+    logger: core.logger,
+    generateId: (prefix?: string) => core.generateId(prefix),
+    activityHooks: core.hooks.activity,
   };
 }
 
-// ─────── Section: member runtime bag ───────
+// ─────── member runtime bag ───────
 
-/**
- * Build the dependency bag used by helpers that also need live connection and
- * channel membership data.
- */
-export function memberRuntime(engine: Engine) {
+/** Dep bag for helpers that also need live connections and membership data. */
+export function memberRuntime(core: EngineCore) {
   return {
-    ...outgoingRuntime(engine),
-    connections: engine.connections,
-    toConnectionInfo: (connection: RuntimeConnection) => engine.toConnectionInfo(connection),
+    ...outgoingRuntime(core),
+    connections: core.connections,
+    toConnectionInfo: (connection: RuntimeConnection) =>
+      EngineContexts.toConnectionInfo(connection, core.engineInstanceId),
     sendThroughPipeline: (
       connection: RuntimeConnection,
       routing: RoutingTarget | undefined,
       event: string,
       payload: unknown,
-    ) => engine.sendThroughPipeline(connection, routing, event, payload),
+    ) =>
+      EngineMessageRuntime.sendThroughPipeline(
+        outgoingRuntime(core),
+        connection,
+        routing,
+        event,
+        payload,
+      ),
   };
 }
 
-// ─────── Section: channel runtime bag ───────
+// ─────── channel runtime bag ───────
 
-/**
- * Build the dependency bag used by channel subscribe and unsubscribe helpers.
- */
-export function channelRuntime(engine: Engine) {
+/** Dep bag for channel subscribe/unsubscribe helpers. */
+export function channelRuntime(core: EngineCore) {
+  const buildCtx = buildConnectionContext(core);
   return {
-    ...memberRuntime(engine),
-    beforeSubscribeHooks: engine.hooks.beforeSubscribe,
-    subscribeHooks: engine.hooks.subscribe,
-    unsubscribeHooks: engine.hooks.unsubscribe,
-    sessionEndHooks: engine.hooks.sessionEnd,
+    ...memberRuntime(core),
+    beforeSubscribeHooks: core.hooks.beforeSubscribe,
+    subscribeHooks: core.hooks.subscribe,
+    unsubscribeHooks: core.hooks.unsubscribe,
+    sessionEndHooks: core.hooks.sessionEnd,
     broadcastToChannel: (
       channelName: string,
       event: string,
@@ -151,7 +239,7 @@ export function channelRuntime(engine: Engine) {
       excludeSelf?: boolean,
     ) => {
       EngineMessageRuntime.broadcastToChannel(
-        dispatchRuntime(engine),
+        dispatchRuntime(core),
         channelName,
         event,
         payload,
@@ -160,60 +248,64 @@ export function channelRuntime(engine: Engine) {
         excludeSelf,
       );
     },
-    buildConnectionContext: (connection: RuntimeConnection, scope?: ResolvedScope) => {
-      return engine.buildConnectionContext(connection, scope);
-    },
-    persistAttachment: (connection: RuntimeConnection) => engine.persistAttachment(connection),
+    buildConnectionContext: buildCtx,
+    persistAttachment: (connection: RuntimeConnection) =>
+      EngineHibernation.persistAttachment(core, connection),
     sendProtocolMessage: (
       connection: RuntimeConnection,
       event: string,
       payload: Record<string, unknown>,
-    ) => engine.sendProtocolMessage(connection, event, payload),
+    ) => sendProtocolMessage(core, connection, event, payload),
     handleValidationError: (
       connection: RuntimeConnection,
       event: string,
       validationError: unknown,
       scope?: ResolvedScope,
-    ) => engine.handleValidationError(connection, event, validationError, scope),
+    ) =>
+      EngineErrorRuntime.handleValidationError(
+        core,
+        buildCtx,
+        connection,
+        event,
+        validationError,
+        scope,
+      ),
     handleRuntimeError: (
       connection: RuntimeConnection,
       error: unknown,
       event?: string,
       routing?: Record<string, unknown>,
-    ) => engine.handleRuntimeError(connection, error, event, routing),
-    isChannelPersistent: (channelKey: string) => engine.isChannelPersistent(channelKey),
+    ) => EngineErrorRuntime.handleRuntimeError(core, buildCtx, connection, error, event, routing),
+    isChannelPersistent: (channelKey: string) => core.isChannelPersistent(channelKey),
     persistMembership: (identity: string, channelName: string, channelScope: string | null) =>
-      engine.persistMembership(identity, channelName, channelScope),
+      MembershipPersistence.persistMembership(core, identity, channelName, channelScope),
     deleteDurableMembership: (identity: string, channelName: string, channelScope: string | null) =>
-      engine.deleteDurableMembership(identity, channelName, channelScope),
-    logger: engine.getLogger(),
+      MembershipPersistence.deleteDurableMembership(core, identity, channelName, channelScope),
+    logger: core.logger,
   };
 }
 
-// ─────── Section: dispatch runtime bag ───────
+// ─────── dispatch runtime bag ───────
 
-/**
- * Build the dependency bag used by inbound text-message dispatch.
- */
-export function dispatchRuntime(engine: Engine) {
+/** Dep bag for inbound text-message dispatch. */
+export function dispatchRuntime(core: EngineCore) {
+  const buildCtx = buildConnectionContext(core);
   return {
-    ...memberRuntime(engine),
-    logger: engine.getLogger(),
-    activeStreams: engine.activeStreams,
-    sql: engine.storageOrUndefined()?.sql,
-    protocolHandlers: engine.hooks.protocol,
-    incomingHooks: engine.hooks.incoming,
-    errorHooks: engine.hooks.error,
-    incomingDedupCap: engine.incomingDedupCap,
-    requireTimers: () => engine.requireTimers(),
-    buildConnectionContext: (connection: RuntimeConnection, scope?: ResolvedScope) => {
-      return engine.buildConnectionContext(connection, scope);
-    },
+    ...memberRuntime(core),
+    logger: core.logger,
+    activeStreams: core.activeStreams,
+    sql: core.storageOrUndefined()?.sql,
+    protocolHandlers: core.hooks.protocol,
+    incomingHooks: core.hooks.incoming,
+    errorHooks: core.hooks.error,
+    incomingDedupCap: core.incomingDedupCap,
+    requireTimers: () => core.requireTimers(),
+    buildConnectionContext: buildCtx,
     sendProtocolMessage: (
       connection: RuntimeConnection,
       event: string,
       payload: Record<string, unknown>,
-    ) => engine.sendProtocolMessage(connection, event, payload),
+    ) => sendProtocolMessage(core, connection, event, payload),
     sendReplay: (
       connection: RuntimeConnection,
       channelName: string | null,
@@ -221,83 +313,203 @@ export function dispatchRuntime(engine: Engine) {
       event: string,
       payload: unknown,
       wire: { seq: number; messageId: string; channel?: string },
-    ) => engine.sendReplay(connection, channelName, channelScope, event, payload, wire),
-    persistAttachment: (connection: RuntimeConnection) => engine.persistAttachment(connection),
+    ) => sendReplay(core, connection, channelName, channelScope, event, payload, wire),
+    persistAttachment: (connection: RuntimeConnection) =>
+      EngineHibernation.persistAttachment(core, connection),
     setActiveConnectionId: (value?: string) => {
-      engine.activeConnectionId = value;
+      core.activeConnectionId = value;
     },
     handleRuntimeError: (
       connection: RuntimeConnection,
       error: unknown,
       event?: string,
       routing?: Record<string, unknown>,
-    ) => engine.handleRuntimeError(connection, error, event, routing),
+    ) => EngineErrorRuntime.handleRuntimeError(core, buildCtx, connection, error, event, routing),
     handleValidationError: (
       connection: RuntimeConnection,
       event: string,
       validationError: unknown,
       scope?: ResolvedScope,
-    ) => engine.handleValidationError(connection, event, validationError, scope),
+    ) =>
+      EngineErrorRuntime.handleValidationError(
+        core,
+        buildCtx,
+        connection,
+        event,
+        validationError,
+        scope,
+      ),
     broadcastToConnections: (
       connections: readonly RuntimeConnection[],
       event: string,
       payload: unknown,
       options?: BroadcastOptions & { namespace?: string },
       excludeConnectionId?: string,
-    ) => engine.broadcastToConnections(connections, event, payload, options, excludeConnectionId),
+    ) =>
+      EngineMessageRuntime.broadcastToConnections(
+        outgoingRuntime(core),
+        connections,
+        event,
+        payload,
+        options,
+        excludeConnectionId,
+      ),
     handleSubscribe: (
       connection: RuntimeConnection,
       payload: Record<string, unknown> | undefined,
-    ) => engine.handleSubscribe(connection, payload),
+    ) => EngineMessageRuntime.handleSubscribe(channelRuntime(core), connection, payload),
     handleUnsubscribe: (
       connection: RuntimeConnection,
       payload: Record<string, unknown> | undefined,
-    ) => engine.handleUnsubscribe(connection, payload),
+    ) =>
+      EngineMessageRuntime.handleUnsubscribe(
+        {
+          ...channelRuntime(core),
+          leaveChannel: buildLeaveChannel(core),
+        },
+        connection,
+        payload,
+      ),
   };
 }
 
-// ─────── Section: connection runtime bag ───────
+// ─────── connection runtime bag ───────
 
-/**
- * Build the dependency bag used by connection accept, wake, and close logic.
- */
-export function connectionRuntime(engine: Engine) {
+/** Dep bag for connection accept, wake, and close logic. */
+export function connectionRuntime(core: EngineCore) {
+  const buildCtx = buildConnectionContext(core);
   return {
-    compiled: engine.getCompiled(),
-    timers: engine.timers,
-    connections: engine.connections,
-    wsToConnectionId: engine.wsToConnectionId,
-    generateId: (prefix?: string) => engine.generateId(prefix),
-    persistAttachment: (connection: RuntimeConnection) => engine.persistAttachment(connection),
-    restoreAttachment: (wsKey: unknown) => engine.getHibernationApi()?.restore(wsKey),
-    readConnectionState: (connectionId: string) => engine.readConnectionState(connectionId),
-    deleteConnectionState: (connectionId: string) => engine.deleteConnectionState(connectionId),
-    buildConnectionContext: (connection: RuntimeConnection, scope?: ResolvedScope) => {
-      return engine.buildConnectionContext(connection, scope);
-    },
+    compiled: core.compiled,
+    timers: core.timers,
+    connections: core.connections,
+    wsToConnectionId: core.wsToConnectionId,
+    generateId: (prefix?: string) => core.generateId(prefix),
+    persistAttachment: (connection: RuntimeConnection) =>
+      EngineHibernation.persistAttachment(core, connection),
+    restoreAttachment: (wsKey: unknown) => core.options.hibernation?.restore(wsKey),
+    readConnectionState: (connectionId: string) =>
+      EngineHibernation.readConnectionState(core, connectionId),
+    deleteConnectionState: (connectionId: string) =>
+      EngineHibernation.deleteConnectionState(core, connectionId),
+    buildConnectionContext: buildCtx,
     runConnectionLifecycle: (kind: 'connect' | 'disconnect', ctx: Record<PropertyKey, unknown>) => {
-      return engine.runConnectionLifecycle(kind, ctx);
+      return runConnectionLifecycle(core, kind, ctx);
     },
-    processTextMessage: (connection: RuntimeConnection, data: string) => {
-      return engine.processTextMessage(connection, data);
-    },
-    handleBinaryMessage: (connection: RuntimeConnection, data: ArrayBuffer) => {
-      return engine.handleBinaryMessage(connection, data);
-    },
-    handleConnectionClose: (connection: RuntimeConnection, code: number, reason: string) => {
-      return engine.handleConnectionClose(connection, code, reason);
-    },
-    handleRuntimeError: (connection: RuntimeConnection, error: unknown, event?: string) => {
-      return engine.handleRuntimeError(connection, error, event);
-    },
-    // Wire auto-rejoin only when persistence is on. Without this guard the
-    // connect path would add a microtask even on persistence-off engines
-    // and shift `runConnectionLifecycle('connect')`'s timing.
-    ...(engine.usesPersistence()
+    processTextMessage: (connection: RuntimeConnection, data: string) =>
+      EngineMessageRuntime.processTextMessage(dispatchRuntime(core), connection, data),
+    handleBinaryMessage: (connection: RuntimeConnection, data: ArrayBuffer) =>
+      handleBinaryMessage(core, connection, data),
+    handleConnectionClose: (connection: RuntimeConnection, code: number, reason: string) =>
+      handleConnectionClose(core, connection, code, reason),
+    handleRuntimeError: (connection: RuntimeConnection, error: unknown, event?: string) =>
+      EngineErrorRuntime.handleRuntimeError(core, buildCtx, connection, error, event),
+    // Only wire auto-rejoin when persistence is on. Otherwise the connect path
+    // adds a microtask and shifts `runConnectionLifecycle('connect')` timing.
+    ...(core.persistenceEnabled
       ? {
           autoRejoinIdentity: (connection: RuntimeConnection) =>
-            engine.autoRejoinIdentity(connection),
+            MembershipPersistence.autoRejoinIdentity(
+              core,
+              (ref, channelName, channelScope, payload, rejoining) =>
+                EngineMessageRuntime.subscribeFromServer(
+                  { ...channelRuntime(core), instanceId: core.engineInstanceId },
+                  ref,
+                  channelName,
+                  channelScope,
+                  payload,
+                  rejoining,
+                ),
+              connection,
+            ),
         }
       : {}),
   };
+}
+
+// ─────── helpers exposed to the facade ───────
+
+/** Callbacks needed by `createEngineAccess` and `initialize`. */
+export function engineAccessDeps(core: EngineCore) {
+  const createTaskContext = buildTaskContextFactory(core);
+  return {
+    ensureScheduledRuntime: () => Scheduling.ensureScheduledRuntime(core, createTaskContext),
+    createTaskContext,
+    rescheduleAlarm: () => Scheduling.rescheduleAlarm(core),
+  };
+}
+
+/** Run connect/disconnect lifecycle hooks for the handler and every module. */
+export function runConnectionLifecycle(
+  core: EngineCore,
+  kind: 'connect' | 'disconnect',
+  ctx: Record<PropertyKey, unknown>,
+): Promise<void> {
+  return EngineConnectionRuntime.runConnectionLifecycle(
+    {
+      moduleRuntimes: core.moduleRuntimes,
+      activeConnectionState: {
+        get current() {
+          return core.activeConnectionId;
+        },
+        set current(value: string | undefined) {
+          core.activeConnectionId = value;
+        },
+      },
+      connectHooks: core.hooks.connect,
+      disconnectHooks: core.hooks.disconnect,
+      createModuleScopedContext: (moduleId, targetCtx) =>
+        EngineContexts.createModuleScopedContext(moduleId, targetCtx),
+    },
+    kind,
+    ctx,
+  );
+}
+
+/** Close one connection fully: cancel streams, fire disconnect, leave channels. */
+export function handleConnectionClose(
+  core: EngineCore,
+  connection: RuntimeConnection,
+  code: number,
+  reason: string,
+): Promise<void> {
+  return EngineConnectionRuntime.handleConnectionClose(
+    {
+      compiled: core.compiled,
+      connections: core.connections,
+      wsToConnectionId: core.wsToConnectionId,
+      timers: core.timers,
+      cancelActiveStreamsForConnection: (connectionId) =>
+        EngineConnectionRuntime.cancelActiveStreamsForConnection(
+          { activeStreams: core.activeStreams },
+          connectionId,
+        ),
+      buildConnectionContext: buildConnectionContext(core),
+      runConnectionLifecycle: (kind, ctx) => runConnectionLifecycle(core, kind, ctx),
+      leaveChannel: buildLeaveChannel(core),
+      logger: core.logger,
+    },
+    connection,
+    code,
+    reason,
+  );
+}
+
+/** Route one binary frame into the optional binary lifecycle hook. */
+export function handleBinaryMessage(
+  core: EngineCore,
+  connection: RuntimeConnection,
+  data: ArrayBuffer,
+): Promise<void> {
+  const buildCtx = buildConnectionContext(core);
+  return EngineConnectionRuntime.handleBinaryMessage(
+    {
+      buildConnectionContext: buildCtx,
+      handleRuntimeError: (targetConnection, error, event) =>
+        EngineErrorRuntime.handleRuntimeError(core, buildCtx, targetConnection, error, event),
+      activityHooks: core.hooks.activity,
+      binaryHooks: core.hooks.binary,
+    },
+    connection,
+    data,
+  );
 }

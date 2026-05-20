@@ -1,0 +1,99 @@
+/* oxlint-disable @typescript-eslint/no-explicit-any */
+import * as EngineContexts from '~/_engine/contexts/contexts.ts';
+import { installPrimitiveHooks } from '~/_engine/registry/install.ts';
+import { createModuleHooks } from '~/_engine/registry/module-hooks.ts';
+import type { EngineCore } from '~/_engine/core.ts';
+import type { EngineAccessDeps } from '~/_engine/registry/engine-access.ts';
+import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
+
+type ModuleRuntime = EngineRuntimeTypes.ModuleRuntime;
+
+/** Throw if the adapter is missing something the handler said it needs. */
+function validateRequires(core: EngineCore): void {
+  const requires = core.compiled.requires;
+  if (requires.storage && !core.storage) {
+    throw new Error(
+      `[wskit] Handler requires storage, but adapter "${core.options.adapterId}" did not provide it.`,
+    );
+  }
+  if (requires.timers && !core.timers) {
+    throw new Error(
+      `[wskit] Handler requires timers, but adapter "${core.options.adapterId}" did not provide it.`,
+    );
+  }
+  if (requires.hibernation && !core.options.hibernation) {
+    throw new Error(
+      `[wskit] Handler requires hibernation, but adapter "${core.options.adapterId}" does not support it.`,
+    );
+  }
+}
+
+/** Throw if the adapter is missing engine-internal guarantees the primitives need. */
+function validateEngineRequirements(core: EngineCore): void {
+  if (!core.hasWaitUntil) {
+    throw new Error(`[wskit] Adapter "${core.options.adapterId}" did not provide waitUntil.`);
+  }
+
+  if (core.replayEnabled && !core.sequencePersistent) {
+    throw new Error('[wskit] replay() requires sequence({ persist: true }) for durable replay.');
+  }
+}
+
+/**
+ * One-time startup. Validate capabilities, install primitives and modules,
+ * then run boot hooks and init hooks.
+ */
+export async function initialize(core: EngineCore, accessDeps: EngineAccessDeps): Promise<void> {
+  if (core.initialized) return;
+  validateRequires(core);
+  installPrimitiveHooks(core, accessDeps);
+  if (core.compiled.scheduled.size > 0) {
+    accessDeps.ensureScheduledRuntime();
+  }
+  validateEngineRequirements(core);
+
+  for (const moduleInstance of core.compiled.modules) {
+    const runtime: ModuleRuntime = {
+      instance: moduleInstance,
+      contextFactory: () => ({}),
+    };
+    runtime.contextFactory = moduleInstance.setupModule(
+      moduleInstance.args,
+      createModuleHooks(core, runtime, accessDeps.ensureScheduledRuntime),
+    );
+    core.moduleRuntimes.push(runtime);
+  }
+
+  for (const hook of core.hooks.boot) {
+    await hook();
+  }
+
+  const initCtx = EngineContexts.createInitContext({
+    env: core.env,
+    logger: core.logger,
+    platform: core.platform,
+    requireStorage: () => core.requireStorage(),
+  });
+  for (const hook of core.hooks.init) {
+    await hook(initCtx);
+  }
+  for (const runtime of core.moduleRuntimes) {
+    if (runtime.onInit) {
+      await runtime.onInit(
+        EngineContexts.createModuleScopedContext(
+          runtime.instance.id,
+          initCtx as unknown as Record<PropertyKey, unknown>,
+        ),
+      );
+    }
+  }
+  core.initialized = true;
+}
+
+/** Adapter alarm entry. Runs `initialize` first, then walks alarm hooks. */
+export async function handleAlarm(core: EngineCore, accessDeps: EngineAccessDeps): Promise<void> {
+  await initialize(core, accessDeps);
+  for (const hook of core.hooks.alarm) {
+    await hook();
+  }
+}
