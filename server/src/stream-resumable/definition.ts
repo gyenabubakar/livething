@@ -53,11 +53,11 @@ export interface ResumableStreamDef<
   readonly name: TName;
   readonly payload?: Validator<TPayload>;
   readonly chunk?: Validator<TChunk>;
+  readonly cursor?: Validator<TCursor>;
   readonly nudges: TNudges;
   readonly allowConcurrent: boolean;
   readonly broadcast: boolean;
   readonly maxChunks: number;
-  readonly __cursorPhantom?: TCursor;
 }
 
 interface ResumableStreamConfig<
@@ -71,11 +71,14 @@ interface ResumableStreamConfig<
   nudges?: TNudges;
   allowConcurrent?: boolean;
   /**
-   * Phantom marker that pins the cursor type. Not required — TS infers
-   * `unknown` if omitted. Use when you want stronger typing on
-   * `ctx.stream.cursor`.
+   * Validator for the cursor value. The framework parses every cursor it
+   * restores from storage through this validator before handing it to the
+   * generator on resume — if the stored value no longer matches the shape
+   * (older deploy, tampered row), the resuming client gets
+   * `StreamAborted({ reason: 'cursor-invalid' })`. Omit it and `TCursor`
+   * stays `unknown` and no runtime check runs.
    */
-  cursor?: () => TCursor;
+  cursor?: Validator<TCursor>;
 }
 
 /**
@@ -96,6 +99,11 @@ interface ResumableStreamConfig<
  *
  * Requires `persistence: true` on the contract. Build throws otherwise.
  *
+ * Pass a `cursor` validator to pin the cursor type and have the framework
+ * runtime-check every cursor it restores from storage. A stored cursor that
+ * fails the validator surfaces on the wire as
+ * `StreamAborted({ reason: 'cursor-invalid' })` on the resuming client.
+ *
  * @example
  * ```ts
  * import { contract, resumableStream } from '@wskit/server';
@@ -103,6 +111,7 @@ interface ResumableStreamConfig<
  *
  * const PaginatePayload = v.object({});
  * const RowChunk = v.object({ row: v.number() });
+ * const PaginateCursor = v.object({ idx: v.number() });
  *
  * const myContract = contract<Env>('files')({
  *   persistence: true,
@@ -110,6 +119,7 @@ interface ResumableStreamConfig<
  *     resumableStream('paginate', {
  *       payload: PaginatePayload,
  *       chunk: RowChunk,
+ *       cursor: PaginateCursor,
  *       maxAgeMs: 60_000,
  *       retentionAfterEndMs: 30_000,
  *     }),
@@ -141,6 +151,7 @@ export function resumableStream<
     name,
     payload: config?.payload,
     chunk: config?.chunk,
+    cursor: config?.cursor,
     nudges: (config?.nudges ?? []) as TNudges,
     allowConcurrent: config?.allowConcurrent ?? false,
     broadcast: config?.broadcast ?? false,

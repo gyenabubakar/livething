@@ -429,6 +429,10 @@ export const InternalError = error('internal-error');
  * - `'unsubscribed'` — the client previously sent `_streamCancel` on this
  *   broadcast stream's id, so the server has stopped fanning chunks to that
  *   identity. The stream itself stays running for everyone else.
+ * - `'cursor-invalid'` — on resume, the stored cursor failed the validator
+ *   declared on the `resumableStream`. The row stays in place; the resuming
+ *   client gets this signal so it can pick a recovery strategy (drop the
+ *   stream, start fresh, surface the bug).
  * - `'aborted'` — catch-all when the framework had to tear the stream down
  *   for an internal reason that does not match any of the above.
  *
@@ -454,6 +458,7 @@ export type StreamAbortedReason =
   | 'not-found'
   | 'hibernation-wake'
   | 'unsubscribed'
+  | 'cursor-invalid'
   | 'aborted';
 
 const STREAM_ABORTED_REASONS: readonly StreamAbortedReason[] = [
@@ -463,6 +468,7 @@ const STREAM_ABORTED_REASONS: readonly StreamAbortedReason[] = [
   'not-found',
   'hibernation-wake',
   'unsubscribed',
+  'cursor-invalid',
   'aborted',
 ];
 

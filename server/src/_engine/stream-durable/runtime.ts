@@ -1,6 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 
 import { rethrowIfConfigError, StreamAborted, StreamIdCollision } from '@wskit/core';
+import { validateValue } from '~/_engine/compile/utils.ts';
 import {
   assertNoConcurrentStream,
   buildActiveStream,
@@ -78,6 +79,8 @@ export interface DurableStreamRuntimeDef {
   readonly maxChunks?: number;
   readonly maxAgeMs?: number;
   readonly retentionAfterEndMs?: number;
+  /** Validator for the saved cursor (resumable streams only). */
+  readonly cursor?: unknown;
 }
 
 function readSuppliedStreamId(rawPayload: unknown): string | undefined {
@@ -290,7 +293,21 @@ export async function resumeDurableStream(
     return;
   }
 
-  const cursor = row.cursor ? JSON.parse(row.cursor) : null;
+  let cursor: unknown = null;
+  if (row.cursor) {
+    const raw = JSON.parse(row.cursor);
+    try {
+      cursor = def.cursor ? validateValue(def.cursor, raw, '_resumeStream') : raw;
+    } catch {
+      runtime.sendProtocolMessage(connection, '_error', {
+        ...scopeMarkers,
+        code: StreamAborted.code,
+        detail: { reason: 'cursor-invalid' as const },
+        _streamId: streamId,
+      });
+      return;
+    }
+  }
   const payload = JSON.parse(row.payload);
   runtime.sendProtocolMessage(connection, '_streamOk', { ...scopeMarkers, _streamId: streamId });
 

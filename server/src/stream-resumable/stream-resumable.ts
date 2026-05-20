@@ -20,6 +20,7 @@ export interface DurableNudgeDeclaration {
 export interface ResumableStreamGeneratePrimitive extends Primitive<'resumable-stream-generate'> {
   readonly event: string;
   readonly validator?: Validator<unknown>;
+  readonly cursor?: Validator<unknown>;
   readonly generator: (ctx: any, payload: any) => AsyncGenerator<unknown, void, unknown>;
   readonly allowConcurrent: boolean;
   readonly broadcast: boolean;
@@ -34,6 +35,7 @@ export interface ResumableStreamGeneratePrimitive extends Primitive<'resumable-s
 export interface BuildResumableStreamGenerateInput {
   event: string;
   validator?: Validator<unknown>;
+  cursor?: Validator<unknown>;
   generator: (ctx: any, payload: any) => AsyncGenerator<unknown, void, unknown>;
   allowConcurrent?: boolean;
   broadcast?: boolean;
@@ -55,6 +57,7 @@ export function resumableGenerateFactory(
     __requires: { storage: true, timers: true },
     event: input.event,
     validator: input.validator,
+    cursor: input.cursor,
     generator: input.generator,
     allowConcurrent: input.allowConcurrent ?? false,
     broadcast: input.broadcast ?? false,

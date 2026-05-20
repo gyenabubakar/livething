@@ -26,6 +26,7 @@ export function compileResumableStreamDef(
   return resumableGenerateFactory({
     event: def.name,
     validator: def.payload,
+    cursor: def.cursor,
     generator,
     allowConcurrent: def.allowConcurrent,
     broadcast: def.broadcast,

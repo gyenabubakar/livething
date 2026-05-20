@@ -533,6 +533,107 @@ describe('durable stream runtime', () => {
     expect(sent[1]).toMatchObject({ i: 6 });
   });
 
+  it('resumeDurableStream — saved cursor passes the def.cursor validator and reaches the generator', async () => {
+    const sql = makeSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime, pipelineSends } = createRuntime(sql);
+    const connection = createConnection();
+
+    Storage.insertStream(sql, {
+      identity: 'u1',
+      streamId: 's-valid',
+      event: 'e',
+      payload: '{}',
+      kind: 'resumable',
+      now: Date.now(),
+    });
+    Storage.updateCursor(sql, 'u1', 's-valid', JSON.stringify({ idx: 7 }), 7, Date.now());
+    Storage.markSuspended(sql, 'u1', 's-valid', Date.now());
+
+    function cursorValidator(raw: unknown): { idx: number } {
+      const obj = raw as Record<string, unknown>;
+      if (typeof obj.idx !== 'number') throw new Error('idx must be a number');
+      return { idx: obj.idx };
+    }
+
+    await resumeDurableStream(
+      runtime as never,
+      connection,
+      () => ({
+        scope: {},
+        def: baseDef({
+          kind: 'resumable',
+          cursor: cursorValidator,
+          generator: async function* (ctx: any) {
+            const startAt = (ctx.stream.cursor as { idx: number } | null)?.idx ?? 0;
+            yield ctx.stream.withCursor({ i: startAt + 1 }, { idx: startAt + 1 });
+          },
+        }),
+      }),
+      Storage.readStream(sql, 'u1', 's-valid'),
+      's-valid',
+      7,
+    );
+
+    const sent = pipelineSends.filter((m) => m.event === 'e').map((m) => m.payload);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ i: 8 });
+  });
+
+  it('resumeDurableStream — cursor that fails the validator surfaces stream-aborted cursor-invalid', async () => {
+    const sql = makeSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime, protocolMessages, pipelineSends } = createRuntime(sql);
+    const connection = createConnection();
+
+    Storage.insertStream(sql, {
+      identity: 'u1',
+      streamId: 's-bad',
+      event: 'e',
+      payload: '{}',
+      kind: 'resumable',
+      now: Date.now(),
+    });
+    // Stamp a cursor shape the validator will reject (idx is a string).
+    Storage.updateCursor(sql, 'u1', 's-bad', JSON.stringify({ idx: 'oops' }), 4, Date.now());
+    Storage.markSuspended(sql, 'u1', 's-bad', Date.now());
+
+    function cursorValidator(raw: unknown): { idx: number } {
+      const obj = raw as Record<string, unknown>;
+      if (typeof obj.idx !== 'number') throw new Error('idx must be a number');
+      return { idx: obj.idx };
+    }
+
+    const generatorSpy = vi.fn(async function* () {
+      yield { i: 1 };
+    });
+
+    await resumeDurableStream(
+      runtime as never,
+      connection,
+      () => ({
+        scope: {},
+        def: baseDef({
+          kind: 'resumable',
+          cursor: cursorValidator,
+          generator: generatorSpy as never,
+        }),
+      }),
+      Storage.readStream(sql, 'u1', 's-bad'),
+      's-bad',
+      4,
+    );
+
+    const err = protocolMessages.find((m) => m.event === '_error');
+    expect(err?.payload.code).toBe('stream-aborted');
+    expect((err?.payload.detail as { reason: string } | undefined)?.reason).toBe('cursor-invalid');
+    expect(err?.payload._streamId).toBe('s-bad');
+    // Generator never ran, no chunks went out, no _streamOk frame either.
+    expect(generatorSpy).not.toHaveBeenCalled();
+    expect(pipelineSends).toHaveLength(0);
+    expect(protocolMessages.find((m) => m.event === '_streamOk')).toBeUndefined();
+  });
+
   it('ctx.stream.attempt — is 1 on first run', async () => {
     const sql = makeSql();
     Storage.ensureDurableStreamSchema(sql);

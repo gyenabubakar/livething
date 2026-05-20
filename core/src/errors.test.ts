@@ -228,6 +228,7 @@ type StreamAbortedReason =
   | 'not-found'
   | 'hibernation-wake'
   | 'unsubscribed'
+  | 'cursor-invalid'
   | 'aborted';
 
 const saErr = StreamAborted({ reason: 'hibernation-wake' });

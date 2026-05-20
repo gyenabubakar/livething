@@ -503,6 +503,7 @@ describe('StreamAborted', () => {
     'not-found',
     'hibernation-wake',
     'unsubscribed',
+    'cursor-invalid',
     'aborted',
   ] as const;
 

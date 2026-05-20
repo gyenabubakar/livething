@@ -681,6 +681,7 @@ export async function dispatchIncoming(
           maxChunks: recordedStream?.maxChunks ?? resumableStream?.maxChunks,
           maxAgeMs: durable.maxAgeMs,
           retentionAfterEndMs: durable.retentionAfterEndMs,
+          cursor: resumableStream?.cursor,
         },
         postPayload,
         message.payload,
@@ -826,6 +827,7 @@ function resolveDurableDefForRow(
         maxChunks: resumable.maxChunks,
         maxAgeMs: resumable.maxAgeMs,
         retentionAfterEndMs: resumable.retentionAfterEndMs,
+        cursor: resumable.cursor,
       },
     };
   }
