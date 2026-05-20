@@ -53,23 +53,18 @@ describe('resolvePlan — cascade', () => {
     expect(nsRule?.id).not.toBe(plan!.scopeRules.get('top')?.id);
   });
 
-  it('disable at a child scope nulls that scope and stops cascade', () => {
+  it('disable at a child scope nulls that scope', () => {
     const plan = resolvePlan({
       contractRateLimit: { enabled: true, max: 60 },
       definitions: [
         namespace('public', {
           rateLimit: { enabled: false },
-          definitions: [
-            channel('lobby', {
-              definitions: [incoming('msg', v.object({}))],
-            }),
-          ],
+          definitions: [incoming('msg', v.object({}))],
         }),
       ],
       overrides: emptyOverrides,
     });
     expect(plan!.scopeRules.get('ns:public')).toBeNull();
-    expect(plan!.scopeRules.get('ns:public:channel:lobby')).toBeNull();
   });
 
   it('child can re-enable inside a disabled parent', () => {
@@ -139,35 +134,6 @@ describe('resolvePlan — cascade', () => {
       overrides: emptyOverrides,
     });
     expect(plan!.scopeRules.get('channel:lobby')?.max).toBe(10);
-  });
-
-  it('cascades three levels: contract → namespace → nested channel', () => {
-    const plan = resolvePlan({
-      contractRateLimit: { enabled: true, windowMs: 60_000, max: 60 },
-      definitions: [
-        namespace('admin', {
-          rateLimit: { enabled: true, max: 30 },
-          definitions: [
-            channel('audit', {
-              rateLimit: { enabled: true, max: 10 },
-              definitions: [],
-            }),
-          ],
-        }),
-      ],
-      overrides: emptyOverrides,
-    });
-    const top = plan!.scopeRules.get('top')!;
-    const ns = plan!.scopeRules.get('ns:admin')!;
-    const ch = plan!.scopeRules.get('ns:admin:channel:audit')!;
-    expect(top.max).toBe(60);
-    expect(ns.max).toBe(30);
-    expect(ch.max).toBe(10);
-    // windowMs cascades down — neither ns nor ch redeclared it.
-    expect(ns.windowMs).toBe(60_000);
-    expect(ch.windowMs).toBe(60_000);
-    // Each scope has its own rule id → its own bucket.
-    expect(new Set([top.id, ns.id, ch.id]).size).toBe(3);
   });
 
   it('per-event override under a channel scope merges against the channel rule', () => {

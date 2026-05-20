@@ -1004,10 +1004,6 @@ export class Implementer<C extends Contract> {
       if (nsImpl._bag.rateLimitOverrides.size > 0) {
         overrides.set(`ns:${nsName}`, new Map(nsImpl._bag.rateLimitOverrides));
       }
-      for (const [chName, chImpl] of nsImpl._bag.channelImpls) {
-        if (chImpl._bag.rateLimitOverrides.size === 0) continue;
-        overrides.set(`ns:${nsName}:channel:${chName}`, new Map(chImpl._bag.rateLimitOverrides));
-      }
     }
     const rateLimitPlan = resolveRateLimitPlan({
       contractRateLimit: config.rateLimit,

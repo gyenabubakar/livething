@@ -24,6 +24,32 @@ export function compileNamespaceDef(
   namespaceImpls: Map<string, NamespaceImplement<any, any>>,
   buildDefinitions: BuildDefinitionsFn,
 ): Primitive {
+  // Channels and nested namespaces are forbidden inside a namespace. The
+  // TypeScript signatures already reject them, but a hand-rolled or `as any`
+  // contract could slip one in; catch that at build time with a clear error.
+  for (const child of def.definitions as readonly {
+    _?: string;
+    name?: string;
+    pattern?: unknown;
+  }[]) {
+    if (child?._ === 'channel') {
+      const channelLabel =
+        typeof child.pattern === 'string'
+          ? child.pattern
+          : ((child.pattern as { name?: string } | undefined)?.name ?? '<unknown>');
+      throw new Error(
+        `[wskit] namespace '${def.name}' contains channel '${channelLabel}'. ` +
+          `Channels cannot be declared inside namespaces — move the channel to the contract's top-level definitions.`,
+      );
+    }
+    if (child?._ === 'namespace') {
+      throw new Error(
+        `[wskit] namespace '${def.name}' contains namespace '${child.name ?? '<unknown>'}'. ` +
+          `Namespaces cannot be nested — declare both at the contract's top level.`,
+      );
+    }
+  }
+
   const impl = namespaceImpls.get(def.name);
 
   const childHandlers: HandlerMaps = {
@@ -33,7 +59,7 @@ export function compileNamespaceDef(
     resumableStreamGenerators: impl?._bag.resumableStreamGenerators ?? new Map(),
     recordedStreamGenerators: impl?._bag.recordedStreamGenerators ?? new Map(),
     scheduledHandlers: new Map(),
-    channelImpls: impl?._bag.channelImpls ?? new Map(),
+    channelImpls: new Map(),
     namespaceImpls: new Map(),
   };
   const childPrimitives = buildDefinitions(def.definitions, childHandlers);

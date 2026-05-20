@@ -67,7 +67,21 @@ export type Definition =
   | RecordedStreamDef<string, any, any, readonly NudgeDef<string, any>[]>
   | ScheduledDef<string, any>
   | ChannelDef<string | ScopeDeclaration<string>, readonly Definition[]>
-  | NamespaceDef<string, readonly Definition[]>;
+  | NamespaceDef<string, readonly NamespaceDefinition[]>;
+
+/**
+ * The subset of `Definition` allowed inside a `namespace(...)` block.
+ * Excludes `ChannelDef` and `NamespaceDef` — channels and namespaces must be
+ * declared at the top level of a contract.
+ */
+export type NamespaceDefinition =
+  | IncomingDef<string, any>
+  | OutgoingDef<string, any>
+  | RequestDef<string, any, any>
+  | StreamDef<string, any, any, readonly NudgeDef<string, any>[]>
+  | ResumableStreamDef<string, any, any, any, readonly NudgeDef<string, any>[]>
+  | RecordedStreamDef<string, any, any, readonly NudgeDef<string, any>[]>
+  | ScheduledDef<string, any>;
 
 // Re-export the runtime error factory from core. It returns an `ErrorDefWithFactory`
 // that is callable (e.g. `throw NotFound({ id: 'x' })`) and can be passed into

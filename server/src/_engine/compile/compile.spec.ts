@@ -196,3 +196,33 @@ describe('boot-time cross-primitive collision guard', () => {
     ).not.toThrow();
   });
 });
+
+describe('namespace cannot contain a channel or another namespace', () => {
+  it('build throws when a channel is declared inside a namespace via `as any`', () => {
+    const sneakyContract = contract<Record<string, unknown>>('app')({
+      definitions: [
+        namespace('admin', {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          definitions: [channel('audit', { definitions: [] }) as any],
+        }),
+      ],
+    });
+    expect(() => compileHandlerDefinition(implement(sneakyContract).build())).toThrow(
+      /namespace 'admin' contains channel 'audit'/,
+    );
+  });
+
+  it('build throws when a namespace is nested inside another namespace via `as any`', () => {
+    const sneakyContract = contract<Record<string, unknown>>('app')({
+      definitions: [
+        namespace('outer', {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          definitions: [namespace('inner', { definitions: [] }) as any],
+        }),
+      ],
+    });
+    expect(() => compileHandlerDefinition(implement(sneakyContract).build())).toThrow(
+      /namespace 'outer' contains namespace 'inner'/,
+    );
+  });
+});

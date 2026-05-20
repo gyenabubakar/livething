@@ -118,13 +118,7 @@ export type ChannelContract<TDefs extends readonly Definition[] = readonly Defin
 
 export type NamespaceContract<TDefs extends readonly Definition[] = readonly Definition[]> = Pick<
   Categorize<TDefs>,
-  | 'incoming'
-  | 'outgoing'
-  | 'requests'
-  | 'streams'
-  | 'resumableStreams'
-  | 'recordedStreams'
-  | 'channels'
+  'incoming' | 'outgoing' | 'requests' | 'streams' | 'resumableStreams' | 'recordedStreams'
 >;
 
 // ---------------------------------------------------------------------------

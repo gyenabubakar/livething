@@ -29,15 +29,6 @@ test.describe('surface-area gaps', () => {
     expect(reply.payload.namespace).toBe('ns');
   });
 
-  // namespace('x', ns => ns.channel('y', ...)) compiles at the API level
-  // (NamespaceDef accepts ChannelDef in its definitions; NamespaceImplement
-  // exposes .channel(...)) but the compile step does not preserve nested
-  // channels inside CompiledNamespace, and scope resolution rejects frames
-  // that carry both _namespace and _channel as InvalidScopeMarkers. End-to-end
-  // support is a real feature gap, not a small inline fix. Un-skip when nested
-  // channels are wired through the compile + wire-routing paths.
-  test.skip('channel nested inside a namespace — subscribe + incoming + scoped send round-trip', async () => {});
-
   test('rateLimit cascade — contract → namespace → channel → per-handler override all observable in one contract', async ({
     page,
   }, testInfo) => {

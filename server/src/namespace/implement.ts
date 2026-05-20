@@ -1,6 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { setOnce } from '~/_api/handler-maps.ts';
-import { ChannelImplement } from '~/channel/implement.ts';
 import type { Contract } from '~/_api/contract-types.ts';
 import type { NamespaceCtx } from '~/_api/ctx-types.ts';
 import type { FieldOf } from '~/channel/implement.ts';
@@ -19,7 +18,6 @@ export interface NamespaceHandlerBag {
     string,
     (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>
   >;
-  channelImpls: Map<string, ChannelImplement<any, any>>;
   preIntercept?: (ctx: any, message: { event: string; payload: unknown }) => any;
   postIntercepts: Map<string, (ctx: any, payload: any) => any>;
   rateLimitOverrides: Map<string, RateLimitConfig>;
@@ -27,8 +25,7 @@ export interface NamespaceHandlerBag {
 
 /**
  * The builder you get inside `implement(c).namespace(name, ns => ...)`. Use
- * it to attach handlers, intercepts, and nested channel builders that only
- * apply inside this namespace.
+ * it to attach handlers and intercepts that apply only inside this namespace.
  */
 export class NamespaceImplement<C extends Contract, NsC = any> {
   /** @internal */
@@ -38,7 +35,6 @@ export class NamespaceImplement<C extends Contract, NsC = any> {
     streamGenerators: new Map(),
     resumableStreamGenerators: new Map(),
     recordedStreamGenerators: new Map(),
-    channelImpls: new Map(),
     postIntercepts: new Map(),
     rateLimitOverrides: new Map(),
   };
@@ -115,20 +111,6 @@ export class NamespaceImplement<C extends Contract, NsC = any> {
       'recordedStream',
       'this namespace',
     );
-    return this;
-  }
-
-  /**
-   * Wire up handlers for a channel that's nested inside this namespace.
-   * The callback gets a channel sub-builder.
-   */
-  channel<N extends keyof FieldOf<NsC, 'channels'> & string>(
-    name: N,
-    fn: (ch: ChannelImplement<C, FieldOf<NsC, 'channels'>[N]>) => unknown,
-  ): this {
-    const impl = new ChannelImplement<C, FieldOf<NsC, 'channels'>[N]>();
-    fn(impl);
-    setOnce(this._bag.channelImpls, name, impl, 'channel', 'this namespace');
     return this;
   }
 
