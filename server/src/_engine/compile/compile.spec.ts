@@ -1,6 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { contract } from '~/_api/contract.ts';
 import { implement } from '~/_api/implement.ts';
+import { scope } from '~/channel/channel.ts';
 import { channel } from '~/channel/definition.ts';
 import { incoming } from '~/incoming/definition.ts';
 import { namespace } from '~/namespace/definition.ts';
@@ -135,6 +136,37 @@ describe('boot-time cross-primitive collision guard', () => {
       ),
     ).toThrow(
       /Event name 'feed' is registered as both 'resumableStream' and 'recordedStream' in namespace 'v1'/,
+    );
+  });
+
+  it('rejects the collision inside a channel-family scope', () => {
+    const c = contract<Record<string, unknown>>('app')({
+      persistence: true,
+      definitions: [
+        channel(scope('rooms', /^room:.+$/), {
+          definitions: [
+            stream('feed', { payload: v.object({}), chunk: v.object({}) }),
+            resumableStream('feed', { payload: v.object({}), chunk: v.object({}) }),
+          ],
+        }),
+      ],
+    });
+    expect(() =>
+      compileHandlerDefinition(
+        implement(c)
+          .channel('rooms', (ch) =>
+            ch
+              .stream('feed', async function* () {
+                yield {};
+              })
+              .resumableStream('feed', async function* () {
+                yield {};
+              }),
+          )
+          .build(),
+      ),
+    ).toThrow(
+      /Event name 'feed' is registered as both 'stream' and 'resumableStream' in channel family 'rooms'/,
     );
   });
 

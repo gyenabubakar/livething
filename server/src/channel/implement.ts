@@ -136,18 +136,33 @@ export class ChannelImplement<C extends Contract, ChC = any> {
   onBeforeSubscribe(
     handler: (ctx: ChannelCtx<ChC, C>, data?: unknown) => void | Promise<void>,
   ): this {
+    if (this._bag.onBeforeSubscribeHandler) {
+      throw new Error(
+        '[wskit] Duplicate .onBeforeSubscribe() on this channel. Only one hook can be attached.',
+      );
+    }
     this._bag.onBeforeSubscribeHandler = handler as any;
     return this;
   }
 
   /** Runs after a client successfully subscribes to this channel. */
   onSubscribe(handler: (ctx: ChannelCtx<ChC, C>) => void | Promise<void>): this {
+    if (this._bag.onSubscribeHandler) {
+      throw new Error(
+        '[wskit] Duplicate .onSubscribe() on this channel. Only one hook can be attached.',
+      );
+    }
     this._bag.onSubscribeHandler = handler as any;
     return this;
   }
 
   /** Runs when a client explicitly unsubscribes from this channel. */
   onUnsubscribe(handler: (ctx: ChannelCtx<ChC, C>) => void | Promise<void>): this {
+    if (this._bag.onUnsubscribeHandler) {
+      throw new Error(
+        '[wskit] Duplicate .onUnsubscribe() on this channel. Only one hook can be attached.',
+      );
+    }
     this._bag.onUnsubscribeHandler = handler as any;
     return this;
   }
@@ -158,6 +173,11 @@ export class ChannelImplement<C extends Contract, ChC = any> {
    * want one cleanup hook regardless of how the session ended.
    */
   onSessionEnd(handler: (ctx: ChannelCtx<ChC, C>) => void | Promise<void>): this {
+    if (this._bag.onSessionEndHandler) {
+      throw new Error(
+        '[wskit] Duplicate .onSessionEnd() on this channel. Only one hook can be attached.',
+      );
+    }
     this._bag.onSessionEndHandler = handler as any;
     return this;
   }
@@ -224,6 +244,11 @@ export class ChannelImplement<C extends Contract, ChC = any> {
    * data lives and how it's resent.
    */
   customReplay(hooks: CustomReplayOptions<'channel'>): this {
+    if (this._bag.customReplayHooks) {
+      throw new Error(
+        '[wskit] Duplicate .customReplay() on this channel. Only one custom-replay strategy can be attached.',
+      );
+    }
     this._bag.customReplayHooks = hooks;
     return this;
   }

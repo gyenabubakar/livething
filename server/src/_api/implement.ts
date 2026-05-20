@@ -292,42 +292,42 @@ export class GroupBuilder<C extends Contract> {
       helpers: Parameters<UpgradeHandler>[1],
     ) => UpgradeResult | Promise<UpgradeResult>,
   ): this {
-    assertLifecycleOnce(this._reg.lifecycle, 'onUpgrade');
+    assertLifecycleOnce(this._reg.lifecycle, 'onUpgrade', 'this group');
     this._reg.lifecycle.onUpgrade = handler as UpgradeHandler;
     return this;
   }
 
   /** Attach the server-init hook. Same surface as `Implementer.onInit`. */
   onInit(handler: (ctx: any) => void | Promise<void>): this {
-    assertLifecycleOnce(this._reg.lifecycle, 'onInit');
+    assertLifecycleOnce(this._reg.lifecycle, 'onInit', 'this group');
     this._reg.lifecycle.onInit = handler as InitHandler;
     return this;
   }
 
   /** Attach the per-connection connect hook. Same surface as `Implementer.onConnect`. */
   onConnect(handler: (ctx: Ctx<C>) => void | Promise<void>): this {
-    assertLifecycleOnce(this._reg.lifecycle, 'onConnect');
+    assertLifecycleOnce(this._reg.lifecycle, 'onConnect', 'this group');
     this._reg.lifecycle.onConnect = handler as ConnectHandler;
     return this;
   }
 
   /** Attach the per-connection disconnect hook. Same surface as `Implementer.onDisconnect`. */
   onDisconnect(handler: (ctx: Ctx<C>) => void | Promise<void>): this {
-    assertLifecycleOnce(this._reg.lifecycle, 'onDisconnect');
+    assertLifecycleOnce(this._reg.lifecycle, 'onDisconnect', 'this group');
     this._reg.lifecycle.onDisconnect = handler as DisconnectHandler;
     return this;
   }
 
   /** Attach the server-shutdown hook. Same surface as `Implementer.onShutdown`. */
   onShutdown(handler: (ctx: any) => void | Promise<void>): this {
-    assertLifecycleOnce(this._reg.lifecycle, 'onShutdown');
+    assertLifecycleOnce(this._reg.lifecycle, 'onShutdown', 'this group');
     this._reg.lifecycle.onShutdown = handler as ShutdownHandler;
     return this;
   }
 
   /** Attach the unhandled-error hook. Same surface as `Implementer.onError`. */
   onError(handler: (ctx: Ctx<C>, error: unknown, event?: string) => void | Promise<void>): this {
-    assertLifecycleOnce(this._reg.lifecycle, 'onError');
+    assertLifecycleOnce(this._reg.lifecycle, 'onError', 'this group');
     this._reg.lifecycle.onError = handler as ErrorHandler;
     return this;
   }
@@ -336,14 +336,14 @@ export class GroupBuilder<C extends Contract> {
   onValidationError(
     handler: (ctx: Ctx<C>, event: string, error: unknown) => void | Promise<void>,
   ): this {
-    assertLifecycleOnce(this._reg.lifecycle, 'onValidationError');
+    assertLifecycleOnce(this._reg.lifecycle, 'onValidationError', 'this group');
     this._reg.lifecycle.onValidationError = handler as ValidationErrorHandler;
     return this;
   }
 
   /** Attach the binary-frame hook. Same surface as `Implementer.onBinary`. */
   onBinary(handler: (ctx: Ctx<C>, data: ArrayBuffer | Uint8Array) => void | Promise<void>): this {
-    assertLifecycleOnce(this._reg.lifecycle, 'onBinary');
+    assertLifecycleOnce(this._reg.lifecycle, 'onBinary', 'this group');
     this._reg.lifecycle.onBinary = handler as BinaryHandler;
     return this;
   }
@@ -372,21 +372,24 @@ function mergeLifecycleHook(
   target[hook] = incoming as any;
 }
 
+type LifecycleHookName =
+  | 'onUpgrade'
+  | 'onInit'
+  | 'onConnect'
+  | 'onDisconnect'
+  | 'onShutdown'
+  | 'onError'
+  | 'onValidationError'
+  | 'onBinary';
+
 function assertLifecycleOnce(
-  lifecycle: GroupRegistrations['lifecycle'],
-  hook:
-    | 'onUpgrade'
-    | 'onInit'
-    | 'onConnect'
-    | 'onDisconnect'
-    | 'onShutdown'
-    | 'onError'
-    | 'onValidationError'
-    | 'onBinary',
+  lifecycle: Partial<Record<LifecycleHookName, unknown>>,
+  hook: LifecycleHookName,
+  where: string,
 ): void {
   if (lifecycle[hook]) {
     throw new Error(
-      `[wskit] Duplicate .${hook}() on this group. Only one ${hook} hook can be attached.`,
+      `[wskit] Duplicate .${hook}() on ${where}. Only one ${hook} hook can be attached.`,
     );
   }
 }
@@ -763,6 +766,7 @@ export class Implementer<C extends Contract> {
       helpers: Parameters<UpgradeHandler>[1],
     ) => UpgradeResult | Promise<UpgradeResult>,
   ): this {
+    assertLifecycleOnce(this._bag.lifecycle, 'onUpgrade', 'the implementer');
     this._bag.lifecycle.onUpgrade = handler as UpgradeHandler;
     return this;
   }
@@ -773,24 +777,28 @@ export class Implementer<C extends Contract> {
    * carries `env`, `sql`, `kv`, `log`, `platform`.
    */
   onInit(handler: (ctx: any) => void | Promise<void>): this {
+    assertLifecycleOnce(this._bag.lifecycle, 'onInit', 'the implementer');
     this._bag.lifecycle.onInit = handler as InitHandler;
     return this;
   }
 
   /** Runs each time a client opens a WebSocket connection, after `onUpgrade` succeeds. */
   onConnect(handler: (ctx: Ctx<C>) => void | Promise<void>): this {
+    assertLifecycleOnce(this._bag.lifecycle, 'onConnect', 'the implementer');
     this._bag.lifecycle.onConnect = handler as ConnectHandler;
     return this;
   }
 
   /** Runs each time a client connection closes, for any reason. */
   onDisconnect(handler: (ctx: Ctx<C>) => void | Promise<void>): this {
+    assertLifecycleOnce(this._bag.lifecycle, 'onDisconnect', 'the implementer');
     this._bag.lifecycle.onDisconnect = handler as DisconnectHandler;
     return this;
   }
 
   /** Runs once when the server instance is shutting down. Closes/flushes side effects here. */
   onShutdown(handler: (ctx: any) => void | Promise<void>): this {
+    assertLifecycleOnce(this._bag.lifecycle, 'onShutdown', 'the implementer');
     this._bag.lifecycle.onShutdown = handler as ShutdownHandler;
     return this;
   }
@@ -802,6 +810,7 @@ export class Implementer<C extends Contract> {
    * error came from an event handler.
    */
   onError(handler: (ctx: any, error: unknown, event?: string) => void | Promise<void>): this {
+    assertLifecycleOnce(this._bag.lifecycle, 'onError', 'the implementer');
     this._bag.lifecycle.onError = handler as ErrorHandler;
     return this;
   }
@@ -814,6 +823,7 @@ export class Implementer<C extends Contract> {
   onValidationError(
     handler: (ctx: any, event: string, validationError: unknown) => void | Promise<void>,
   ): this {
+    assertLifecycleOnce(this._bag.lifecycle, 'onValidationError', 'the implementer');
     this._bag.lifecycle.onValidationError = handler as ValidationErrorHandler;
     return this;
   }
@@ -823,6 +833,7 @@ export class Implementer<C extends Contract> {
    * contract. Build-time check rejects this method if the flag is off.
    */
   onBinary(handler: (ctx: Ctx<C>, data: ArrayBuffer) => void | Promise<void>): this {
+    assertLifecycleOnce(this._bag.lifecycle, 'onBinary', 'the implementer');
     this._bag.lifecycle.onBinary = handler as BinaryHandler;
     return this;
   }
@@ -897,6 +908,11 @@ export class Implementer<C extends Contract> {
    * against the contract.
    */
   customReplay(hooks: CustomReplayOptions<'top'>): this {
+    if (this._bag.customReplayHooks) {
+      throw new Error(
+        '[wskit] Duplicate .customReplay() on the implementer. Only one custom-replay strategy can be attached.',
+      );
+    }
     this._bag.customReplayHooks = hooks;
     return this;
   }

@@ -221,6 +221,49 @@ describe('GroupBuilder — full method surface', () => {
     ).toThrow(/Duplicate \.customReplay\(\) from a group/);
   });
 
+  it('rejects a second .onUpgrade on the implementer', () => {
+    const c = makeContract();
+    expect(() =>
+      implement(c)
+        .onUpgrade(() => ({ identity: 'a' }))
+        .onUpgrade(() => ({ identity: 'a' })),
+    ).toThrow(/Duplicate .onUpgrade\(\) on the implementer/);
+  });
+
+  it('rejects a second .onConnect on the implementer', () => {
+    const c = makeContract();
+    expect(() =>
+      implement(c)
+        .onConnect(() => {})
+        .onConnect(() => {}),
+    ).toThrow(/Duplicate .onConnect\(\) on the implementer/);
+  });
+
+  it('rejects a second .customReplay on the implementer', () => {
+    const c = makeContract();
+    expect(() =>
+      implement(c)
+        .customReplay({ onReplay: () => {} })
+        .customReplay({ onReplay: () => {} }),
+    ).toThrow(/Duplicate .customReplay\(\) on the implementer/);
+  });
+
+  it('rejects a second .onSubscribe on a channel sub-builder', () => {
+    const c = makeContract();
+    expect(() =>
+      implement(c).channel('rooms', (ch) => ch.onSubscribe(() => {}).onSubscribe(() => {})),
+    ).toThrow(/Duplicate .onSubscribe\(\) on this channel/);
+  });
+
+  it('rejects a second .customReplay on a channel sub-builder', () => {
+    const c = makeContract();
+    expect(() =>
+      implement(c).channel('rooms', (ch) =>
+        ch.customReplay({ onReplay: () => {} }).customReplay({ onReplay: () => {} }),
+      ),
+    ).toThrow(/Duplicate .customReplay\(\) on this channel/);
+  });
+
   it('rejects a second .onUpgrade inside one group', () => {
     const c = makeContract();
     expect(() =>
