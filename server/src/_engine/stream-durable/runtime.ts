@@ -151,7 +151,18 @@ export async function runDurableStream(
     _streamId: streamId,
   });
 
-  await runGenerator(runtime, connection, scope, def, payload, streamId, storageIdentity, null, 1);
+  await runGenerator(
+    runtime,
+    connection,
+    scope,
+    def,
+    payload,
+    streamId,
+    storageIdentity,
+    null,
+    1,
+    0,
+  );
 }
 
 /**
@@ -186,6 +197,41 @@ export async function resumeDurableStream(
 ): Promise<void> {
   if (!row) {
     runtime.sendProtocolMessage(connection, '_error', {
+      code: StreamAborted.code,
+      detail: { reason: 'not-found' as const },
+      _streamId: streamId,
+    });
+    return;
+  }
+
+  const nowAtResume = Date.now();
+  if (
+    row.status === 'suspended' &&
+    row.maxAgeMs != null &&
+    row.lastActivityAt + row.maxAgeMs < nowAtResume
+  ) {
+    Storage.deleteStream(runtime.sql, row.identity, streamId);
+    runtime.sendProtocolMessage(connection, '_error', {
+      ...(row.namespace ? { _namespace: row.namespace } : {}),
+      ...(row.channelKey ? { _channel: row.channelKey } : {}),
+      ...(row.channelScope ? { _channelScope: row.channelScope } : {}),
+      code: StreamAborted.code,
+      detail: { reason: 'expired' as const },
+      _streamId: streamId,
+    });
+    return;
+  }
+  if (
+    row.status === 'ended' &&
+    row.endedAt != null &&
+    row.retentionAfterEndMs != null &&
+    row.endedAt + row.retentionAfterEndMs < nowAtResume
+  ) {
+    Storage.deleteStream(runtime.sql, row.identity, streamId);
+    runtime.sendProtocolMessage(connection, '_error', {
+      ...(row.namespace ? { _namespace: row.namespace } : {}),
+      ...(row.channelKey ? { _channel: row.channelKey } : {}),
+      ...(row.channelScope ? { _channelScope: row.channelScope } : {}),
       code: StreamAborted.code,
       detail: { reason: 'not-found' as const },
       _streamId: streamId,
@@ -328,6 +374,7 @@ export async function resumeDurableStream(
     storageIdentity,
     cursor,
     2,
+    row.lastSeq,
   );
 }
 
@@ -356,6 +403,7 @@ async function runGenerator(
   identity: string,
   initialCursor: unknown,
   attempt: number,
+  startSeq: number,
 ): Promise<void> {
   const ctx = runtime.buildConnectionContext(connection, scope) as Record<PropertyKey, unknown>;
   ctx.stream = {
@@ -383,7 +431,7 @@ async function runGenerator(
   const hasNudges = (def.nudges?.length ?? 0) > 0;
   let nextInput: unknown = hasNudges ? [] : undefined;
 
-  let seq = 0;
+  let seq = startSeq;
   try {
     while (!activeStream.closed) {
       runtime.setActiveConnectionId(connection.id);

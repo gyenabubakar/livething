@@ -533,6 +533,115 @@ describe('durable stream runtime', () => {
     expect(sent[1]).toMatchObject({ i: 6 });
   });
 
+  it('resumeDurableStream — resumed run continues _seq from row.lastSeq, not from 1', async () => {
+    const sql = makeSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime, pipelineSends } = createRuntime(sql);
+    const connection = createConnection();
+
+    Storage.insertStream(sql, {
+      identity: 'u1',
+      streamId: 's-seq',
+      event: 'e',
+      payload: '{}',
+      kind: 'resumable',
+      now: Date.now(),
+    });
+    Storage.updateCursor(sql, 'u1', 's-seq', JSON.stringify({ idx: 3 }), 3, Date.now());
+    Storage.markSuspended(sql, 'u1', 's-seq', Date.now());
+
+    await resumeDurableStream(
+      runtime as never,
+      connection,
+      () => ({
+        scope: {},
+        def: baseDef({
+          kind: 'resumable',
+          generator: async function* (ctx: any) {
+            const startAt = (ctx.stream.cursor as { idx: number } | null)?.idx ?? 0;
+            for (let i = startAt + 1; i <= 5; i += 1) {
+              yield ctx.stream.withCursor({ i }, { idx: i });
+            }
+          },
+        }),
+      }),
+      Storage.readStream(sql, 'u1', 's-seq'),
+      's-seq',
+      3,
+    );
+
+    const seqs = pipelineSends
+      .filter((m) => m.event === 'e')
+      .map((m) => (m.routing as { seq: number }).seq);
+    expect(seqs).toEqual([4, 5]);
+  });
+
+  it('resumeDurableStream — suspended row past maxAgeMs surfaces stream-aborted expired and deletes the row', async () => {
+    const sql = makeSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime, protocolMessages } = createRuntime(sql);
+    const connection = createConnection();
+
+    const longAgo = Date.now() - 60_000;
+    Storage.insertStream(sql, {
+      identity: 'u1',
+      streamId: 's-old',
+      event: 'e',
+      payload: '{}',
+      kind: 'resumable',
+      now: longAgo,
+      maxAgeMs: 1_000,
+    });
+    Storage.markSuspended(sql, 'u1', 's-old', longAgo);
+
+    await resumeDurableStream(
+      runtime as never,
+      connection,
+      () => ({ scope: {}, def: baseDef({ kind: 'resumable' }) }),
+      Storage.readStream(sql, 'u1', 's-old'),
+      's-old',
+      0,
+    );
+
+    const err = protocolMessages.find((m) => m.event === '_error');
+    expect(err?.payload.code).toBe('stream-aborted');
+    expect((err?.payload.detail as { reason: string } | undefined)?.reason).toBe('expired');
+    expect(Storage.readStream(sql, 'u1', 's-old')).toBeNull();
+  });
+
+  it('resumeDurableStream — ended row past retentionAfterEndMs surfaces stream-aborted not-found and deletes the row', async () => {
+    const sql = makeSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime, protocolMessages } = createRuntime(sql);
+    const connection = createConnection();
+
+    const longAgo = Date.now() - 60_000;
+    Storage.insertStream(sql, {
+      identity: 'u1',
+      streamId: 's-ended-old',
+      event: 'e',
+      payload: '{}',
+      kind: 'recorded',
+      now: longAgo,
+      retentionAfterEndMs: 500,
+    });
+    Storage.markEnded(sql, 'u1', 's-ended-old', longAgo);
+
+    await resumeDurableStream(
+      runtime as never,
+      connection,
+      () => ({ scope: {}, def: baseDef({ kind: 'recorded' }) }),
+      Storage.readStream(sql, 'u1', 's-ended-old'),
+      's-ended-old',
+      0,
+    );
+
+    const err = protocolMessages.find((m) => m.event === '_error');
+    expect(err?.payload.code).toBe('stream-aborted');
+    expect((err?.payload.detail as { reason: string } | undefined)?.reason).toBe('not-found');
+    expect(Storage.readStream(sql, 'u1', 's-ended-old')).toBeNull();
+  });
+
   it('resumeDurableStream — saved cursor passes the def.cursor validator and reaches the generator', async () => {
     const sql = makeSql();
     Storage.ensureDurableStreamSchema(sql);

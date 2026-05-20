@@ -21,6 +21,10 @@ export const streamBroadcastContract = contract<Env>('stream-broadcast')({
           chunk: RoomBroadcastChunkSchema,
           broadcast: true,
         }),
+        stream('start-room-stream', {
+          payload: v.object({ count: v.number() }),
+          chunk: RoomBroadcastChunkSchema,
+        }),
       ],
     }),
   ],
@@ -35,12 +39,19 @@ export const streamBroadcastHandler = implement(streamBroadcastContract)
     }
   })
   .channel('rooms', (ch) =>
-    ch.stream('start-room-broadcast', async function* (_ctx, payload) {
-      for (let i = 0; i < payload.count; i++) {
-        yield { index: i };
-        await new Promise((r) => setTimeout(r, 10));
-      }
-    }),
+    ch
+      .stream('start-room-broadcast', async function* (_ctx, payload) {
+        for (let i = 0; i < payload.count; i++) {
+          yield { index: i };
+          await new Promise((r) => setTimeout(r, 10));
+        }
+      })
+      .stream('start-room-stream', async function* (_ctx, payload) {
+        for (let i = 0; i < payload.count; i++) {
+          yield { index: i };
+          await new Promise((r) => setTimeout(r, 100));
+        }
+      }),
   )
   .build();
 

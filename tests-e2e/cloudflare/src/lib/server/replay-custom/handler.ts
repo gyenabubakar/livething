@@ -1,4 +1,4 @@
-import { channel, contract, implement, incoming, outgoing, t } from '@wskit/server';
+import { channel, contract, implement, incoming, outgoing, stream, t } from '@wskit/server';
 import { RejectUpgrade } from '@wskit/server/errors';
 import type { InferClient } from '@wskit/server';
 import {
@@ -10,8 +10,12 @@ import {
   GetRoomConfirmedCount,
   Note,
   QueryBadReplayLog,
+  QueryRoomReplayEvents,
   RoomConfirmedCount,
   RoomNote,
+  RoomReplayEvents,
+  RoomStreamChunk,
+  RoomStreamPayload,
 } from './events.ts';
 
 export const replayCustomContract = contract<Env>('replay-custom-test')({
@@ -31,8 +35,11 @@ export const replayCustomContract = contract<Env>('replay-custom-test')({
       definitions: [
         outgoing('room-note', RoomNote),
         outgoing('room-confirmed-count', RoomConfirmedCount),
+        outgoing('room-replay-events', RoomReplayEvents),
         incoming('add-room-note', AddRoomNote),
         incoming('get-room-confirmed-count', GetRoomConfirmedCount),
+        incoming('query-room-replay-events', QueryRoomReplayEvents),
+        stream('room-stream', { payload: RoomStreamPayload, chunk: RoomStreamChunk }),
       ],
     }),
   ],
@@ -214,6 +221,17 @@ export const replayCustomHandler = implement(replayCustomContract)
       .on('add-room-note', (ctx, payload) => {
         ctx.channel.send('room-note', { text: payload.text, author: ctx.meta.username });
         ctx.channel.broadcast('room-note', { text: payload.text, author: ctx.meta.username });
+      })
+      .on('query-room-replay-events', (ctx) => {
+        const rows = ctx.sql
+          .exec<{ event: string }>('SELECT DISTINCT event FROM _custom_room_replay')
+          .toArray();
+        ctx.channel.send('room-replay-events', { events: rows.map((r) => r.event) });
+      })
+      .stream('room-stream', async function* (_ctx, payload) {
+        for (let i = 0; i < payload.count; i += 1) {
+          yield { token: `tok-${i}` };
+        }
       })
       .on('get-room-confirmed-count', (ctx) => {
         const rows = ctx.sql

@@ -15,6 +15,7 @@ const Empty = v.object({});
 const TokenChunk = v.object({ token: v.string() });
 const RowChunk = v.object({ row: v.number() });
 const HeadlineChunk = v.object({ headline: v.string() });
+const AttemptChunk = v.object({ attempt: v.number() });
 
 export const streamDurableBroadcastContract = contract<Env>('stream-durable-broadcast')({
   persistence: true,
@@ -33,6 +34,14 @@ export const streamDurableBroadcastContract = contract<Env>('stream-durable-broa
         resumableStream('paginate', {
           payload: Empty,
           chunk: RowChunk,
+          broadcast: true,
+          maxChunks: 100,
+          maxAgeMs: 60_000,
+          retentionAfterEndMs: 30_000,
+        }),
+        resumableStream('attempt-broadcast', {
+          payload: Empty,
+          chunk: AttemptChunk,
           broadcast: true,
           maxChunks: 100,
           maxAgeMs: 60_000,
@@ -72,6 +81,10 @@ export const streamDurableBroadcastHandler = implement(streamDurableBroadcastCon
           yield ctx.stream.withCursor({ row: i }, { idx: i });
           await new Promise((r) => setTimeout(r, 250));
         }
+      })
+      .resumableStream('attempt-broadcast', async function* (ctx) {
+        yield ctx.stream.withCursor({ attempt: ctx.stream.attempt }, { idx: 1 });
+        await new Promise((r) => setTimeout(r, 60_000));
       }),
   )
 
