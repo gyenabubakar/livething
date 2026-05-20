@@ -113,12 +113,18 @@ type Categorize<TDefs extends readonly Definition[], Acc = EmptyCats> = TDefs ex
 
 export type ChannelContract<TDefs extends readonly Definition[] = readonly Definition[]> = Pick<
   Categorize<TDefs>,
-  'incoming' | 'outgoing' | 'requests' | 'streams'
+  'incoming' | 'outgoing' | 'requests' | 'streams' | 'resumableStreams' | 'recordedStreams'
 >;
 
 export type NamespaceContract<TDefs extends readonly Definition[] = readonly Definition[]> = Pick<
   Categorize<TDefs>,
-  'incoming' | 'outgoing' | 'requests' | 'streams' | 'channels'
+  | 'incoming'
+  | 'outgoing'
+  | 'requests'
+  | 'streams'
+  | 'resumableStreams'
+  | 'recordedStreams'
+  | 'channels'
 >;
 
 // ---------------------------------------------------------------------------

@@ -4,6 +4,8 @@ import type { PostInterceptPrimitive, PreInterceptPrimitive } from '~/intercept/
 import type { OutgoingPrimitive } from '~/outgoing/outgoing.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { RequestPrimitive } from '~/request/request.ts';
+import type { RecordedStreamGeneratePrimitive } from '~/stream-recorded/stream-recorded.ts';
+import type { ResumableStreamGeneratePrimitive } from '~/stream-resumable/stream-resumable.ts';
 import type { GeneratePrimitive, NudgeDeclaration, StreamPrimitive } from '~/stream/stream.ts';
 
 // Internal aliases that keep the union types below readable.
@@ -29,7 +31,9 @@ export type NamespaceChild =
   | AnyPostIntercept
   | AnyIncoming
   | AnyRequest
-  | AnyGenerate;
+  | AnyGenerate
+  | ResumableStreamGeneratePrimitive
+  | RecordedStreamGeneratePrimitive;
 
 /**
  * The TypeScript type returned by `namespace()`. Holds the namespace name and

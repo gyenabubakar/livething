@@ -2,6 +2,7 @@
 import { contract } from '~/_api/contract.ts';
 import { implement } from '~/_api/implement.ts';
 import { channel } from '~/channel/definition.ts';
+import { namespace } from '~/namespace/definition.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import { recordedStream } from './definition.ts';
@@ -25,7 +26,7 @@ describe('recordedStream build-time validation', () => {
     ).toThrow(/persistence: true/);
   });
 
-  it('throws when declared inside a channel (top-level only in v1)', () => {
+  it('builds when declared inside a channel', () => {
     const c = contract<Record<string, unknown>>('app')({
       persistence: true,
       definitions: [
@@ -39,7 +40,40 @@ describe('recordedStream build-time validation', () => {
         }),
       ],
     });
-    expect(() => implement(c).build()).toThrow(/top-level only/);
+    expect(() =>
+      implement(c)
+        .channel('rooms', (ch) =>
+          ch.recordedStream('tokens', async function* () {
+            yield { token: 'hi' };
+          }),
+        )
+        .build(),
+    ).not.toThrow();
+  });
+
+  it('builds when declared inside a namespace', () => {
+    const c = contract<Record<string, unknown>>('app')({
+      persistence: true,
+      definitions: [
+        namespace('v1', {
+          definitions: [
+            recordedStream('tokens', {
+              payload: v.object({}),
+              chunk: v.object({ token: v.string() }),
+            }),
+          ],
+        }),
+      ],
+    });
+    expect(() =>
+      implement(c)
+        .namespace('v1', (ns) =>
+          ns.recordedStream('tokens', async function* () {
+            yield { token: 'hi' };
+          }),
+        )
+        .build(),
+    ).not.toThrow();
   });
 
   it('builds when persistence is enabled and the stream is top-level', () => {

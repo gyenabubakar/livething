@@ -66,6 +66,8 @@ export interface CompiledNamespace {
   incoming: Map<string, AnyIncoming>;
   requests: Map<string, AnyRequest>;
   streams: Map<string, AnyGenerate>;
+  resumableStreams: Map<string, AnyResumableStream>;
+  recordedStreams: Map<string, AnyRecordedStream>;
   preIntercepts: AnyPreIntercept[];
   postIntercepts: Map<string, AnyPostIntercept[]>;
 }
@@ -81,6 +83,8 @@ export interface CompiledChannel {
   incoming: Map<string, AnyIncoming>;
   requests: Map<string, AnyRequest>;
   streams: Map<string, AnyGenerate>;
+  resumableStreams: Map<string, AnyResumableStream>;
+  recordedStreams: Map<string, AnyRecordedStream>;
   preIntercepts: AnyPreIntercept[];
   postIntercepts: Map<string, AnyPostIntercept[]>;
 }

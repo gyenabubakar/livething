@@ -15,6 +15,9 @@ const CREATE_STREAMS_TABLE_SQL = `
     status                    TEXT NOT NULL DEFAULT 'active',
     cursor                    TEXT,
     last_seq                  INTEGER NOT NULL DEFAULT 0,
+    namespace                 TEXT,
+    channel_key               TEXT,
+    channel_scope             TEXT,
     started_at                INTEGER NOT NULL,
     last_activity_at          INTEGER NOT NULL,
     ended_at                  INTEGER,
@@ -55,6 +58,9 @@ export interface DurableStreamRow {
   status: DurableStreamStatus;
   cursor: string | null;
   lastSeq: number;
+  namespace: string | null;
+  channelKey: string | null;
+  channelScope: string | null;
   startedAt: number;
   lastActivityAt: number;
   endedAt: number | null;
@@ -100,6 +106,9 @@ function rowToStream(row: Record<string, unknown>): DurableStreamRow {
     status: row.status as DurableStreamStatus,
     cursor: (row.cursor as string | null) ?? null,
     lastSeq: Number(row.last_seq ?? 0),
+    namespace: (row.namespace as string | null) ?? null,
+    channelKey: (row.channel_key as string | null) ?? null,
+    channelScope: (row.channel_scope as string | null) ?? null,
     startedAt: Number(row.started_at ?? 0),
     lastActivityAt: Number(row.last_activity_at ?? 0),
     endedAt: row.ended_at == null ? null : Number(row.ended_at),
@@ -117,6 +126,9 @@ export interface InsertStreamInput {
   payload: string;
   kind: DurableStreamKind;
   now: number;
+  namespace?: string | null;
+  channelKey?: string | null;
+  channelScope?: string | null;
   maxChunks?: number;
   maxAgeMs?: number;
   retentionAfterEndMs?: number;
@@ -125,13 +137,16 @@ export interface InsertStreamInput {
 export function insertStream(sql: SqlExec, input: InsertStreamInput): void {
   sql.exec(
     `INSERT INTO _wskit_streams
-     (identity, stream_id, event, payload, kind, status, last_seq, started_at, last_activity_at, max_chunks, max_age_ms, retention_after_end_ms)
-     VALUES (?, ?, ?, ?, ?, 'active', 0, ?, ?, ?, ?, ?)`,
+     (identity, stream_id, event, payload, kind, status, last_seq, namespace, channel_key, channel_scope, started_at, last_activity_at, max_chunks, max_age_ms, retention_after_end_ms)
+     VALUES (?, ?, ?, ?, ?, 'active', 0, ?, ?, ?, ?, ?, ?, ?, ?)`,
     input.identity,
     input.streamId,
     input.event,
     input.payload,
     input.kind,
+    input.namespace ?? null,
+    input.channelKey ?? null,
+    input.channelScope ?? null,
     input.now,
     input.now,
     input.maxChunks ?? null,

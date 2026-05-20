@@ -13,6 +13,14 @@ export interface ChannelHandlerBag {
   incomingHandlers: Map<string, (ctx: any, payload: any) => void | Promise<void>>;
   requestHandlers: Map<string, (ctx: any, payload: any) => any>;
   streamGenerators: Map<string, (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>>;
+  resumableStreamGenerators: Map<
+    string,
+    (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>
+  >;
+  recordedStreamGenerators: Map<
+    string,
+    (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>
+  >;
   onBeforeSubscribeHandler?: (ctx: any, data?: any) => void | Promise<void>;
   onSubscribeHandler?: (ctx: any) => void | Promise<void>;
   onUnsubscribeHandler?: (ctx: any) => void | Promise<void>;
@@ -34,6 +42,8 @@ export class ChannelImplement<C extends Contract, ChC = any> {
     incomingHandlers: new Map(),
     requestHandlers: new Map(),
     streamGenerators: new Map(),
+    resumableStreamGenerators: new Map(),
+    recordedStreamGenerators: new Map(),
     postIntercepts: new Map(),
     rateLimitOverrides: new Map(),
   };
@@ -89,6 +99,24 @@ export class ChannelImplement<C extends Contract, ChC = any> {
     >,
   ): this {
     this._bag.streamGenerators.set(event, generator as any);
+    return this;
+  }
+
+  /** Attach the generator for a resumable stream scoped to this channel. */
+  resumableStream<E extends keyof FieldOf<ChC, 'resumableStreams'> & string>(
+    event: E,
+    generator: (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>,
+  ): this {
+    this._bag.resumableStreamGenerators.set(event, generator);
+    return this;
+  }
+
+  /** Attach the generator for a recorded stream scoped to this channel. */
+  recordedStream<E extends keyof FieldOf<ChC, 'recordedStreams'> & string>(
+    event: E,
+    generator: (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>,
+  ): this {
+    this._bag.recordedStreamGenerators.set(event, generator);
     return this;
   }
 

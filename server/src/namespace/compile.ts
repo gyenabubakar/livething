@@ -9,7 +9,9 @@ import type {
   AnyOutgoing,
   AnyPostIntercept,
   AnyPreIntercept,
+  AnyRecordedStream,
   AnyRequest,
+  AnyResumableStream,
   CompiledNamespace,
   NamespacePrimitiveType,
 } from '~/_engine/compile/types.ts';
@@ -28,9 +30,8 @@ export function compileNamespaceDef(
     incomingHandlers: impl?._bag.incomingHandlers ?? new Map(),
     requestHandlers: impl?._bag.requestHandlers ?? new Map(),
     streamGenerators: impl?._bag.streamGenerators ?? new Map(),
-    // Durable streams are top-level only — rejected at build time.
-    resumableStreamGenerators: new Map(),
-    recordedStreamGenerators: new Map(),
+    resumableStreamGenerators: impl?._bag.resumableStreamGenerators ?? new Map(),
+    recordedStreamGenerators: impl?._bag.recordedStreamGenerators ?? new Map(),
     scheduledHandlers: new Map(),
     channelImpls: impl?._bag.channelImpls ?? new Map(),
     namespaceImpls: new Map(),
@@ -58,6 +59,8 @@ export function compileNamespacePrimitive(primitive: NamespacePrimitiveType): Co
     incoming: new Map(),
     requests: new Map(),
     streams: new Map(),
+    resumableStreams: new Map(),
+    recordedStreams: new Map(),
     preIntercepts: [],
     postIntercepts: new Map(),
   };
@@ -75,6 +78,15 @@ export function compileNamespacePrimitive(primitive: NamespacePrimitiveType): Co
         break;
       case 'stream-generate':
         scope.streams.set((child as AnyGenerate).event, child as AnyGenerate);
+        break;
+      case 'resumable-stream-generate':
+        scope.resumableStreams.set(
+          (child as AnyResumableStream).event,
+          child as AnyResumableStream,
+        );
+        break;
+      case 'recorded-stream-generate':
+        scope.recordedStreams.set((child as AnyRecordedStream).event, child as AnyRecordedStream);
         break;
       case 'intercept': {
         const intercept = child as AnyPreIntercept | AnyPostIntercept;

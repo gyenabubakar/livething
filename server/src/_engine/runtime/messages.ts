@@ -19,6 +19,7 @@ import * as OutgoingRuntime from '~/outgoing/runtime.ts';
 import * as RequestPrimitive from '~/request/runtime.ts';
 import * as StreamPrimitive from '~/stream/runtime.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
+import type * as DurableStreamStorage from '~/_engine/stream-durable/storage.ts';
 import type * as PublicApi from '~/context.ts';
 import type * as EngineRuntimeTypes from './types.ts';
 
@@ -512,9 +513,12 @@ export async function dispatchIncoming(
   const incoming = scoped ? scoped.incoming.get(event) : runtime.compiled.incoming.get(event);
   const request = scoped ? scoped.requests.get(event) : runtime.compiled.requests.get(event);
   const stream = scoped ? scoped.streams.get(event) : runtime.compiled.streams.get(event);
-  // Durable streams are top-level only in v1; no scoped lookup.
-  const resumableStream = scoped ? undefined : runtime.compiled.resumableStreams.get(event);
-  const recordedStream = scoped ? undefined : runtime.compiled.recordedStreams.get(event);
+  const resumableStream = scoped
+    ? scoped.resumableStreams.get(event)
+    : runtime.compiled.resumableStreams.get(event);
+  const recordedStream = scoped
+    ? scoped.recordedStreams.get(event)
+    : runtime.compiled.recordedStreams.get(event);
 
   let message = { event, payload: rawPayload };
 
@@ -765,6 +769,78 @@ function routingFromPayload(rawPayload: unknown): Record<string, unknown> | unde
   return Object.keys(routing).length > 0 ? routing : undefined;
 }
 
+// Locate a compiled durable-stream def for a stored row, restoring the same
+// scope (top-level / namespace / channel) the row was started in. Returns
+// undefined when the def has gone away (e.g. server redeployed without it),
+// the scope no longer exists, or the resuming connection is not a member of
+// the channel the stream was started in.
+function resolveDurableDefForRow(
+  runtime: DispatchRuntime,
+  connection: RuntimeConnection,
+  row: DurableStreamStorage.DurableStreamRow,
+):
+  | {
+      def: DurableStreamRuntime.DurableStreamRuntimeDef;
+      scope: EngineRuntimeTypes.ResolvedScope;
+    }
+  | undefined {
+  let scope: EngineRuntimeTypes.ResolvedScope = {};
+  let resumable: EngineCompileTypes.AnyResumableStream | undefined;
+  let recorded: EngineCompileTypes.AnyRecordedStream | undefined;
+
+  if (row.channelKey) {
+    const channel =
+      row.channelScope !== null
+        ? runtime.compiled.channelFamilies.get(row.channelScope)
+        : runtime.compiled.channels.get(row.channelKey);
+    if (!channel) return undefined;
+    if (!ChannelPrimitive.hasChannelMembership(connection, row.channelKey, row.channelScope)) {
+      return undefined;
+    }
+    scope = { channel, channelName: row.channelKey, channelScope: row.channelScope };
+    resumable = channel.resumableStreams.get(row.event);
+    recorded = channel.recordedStreams.get(row.event);
+  } else if (row.namespace) {
+    const namespace = runtime.compiled.namespaces.get(row.namespace);
+    if (!namespace) return undefined;
+    scope = { namespace };
+    resumable = namespace.resumableStreams.get(row.event);
+    recorded = namespace.recordedStreams.get(row.event);
+  } else {
+    resumable = runtime.compiled.resumableStreams.get(row.event);
+    recorded = runtime.compiled.recordedStreams.get(row.event);
+  }
+
+  if (resumable) {
+    return {
+      scope,
+      def: {
+        event: resumable.event,
+        kind: 'resumable',
+        generator: resumable.generator,
+        allowConcurrent: resumable.allowConcurrent,
+        maxAgeMs: resumable.maxAgeMs,
+        retentionAfterEndMs: resumable.retentionAfterEndMs,
+      },
+    };
+  }
+  if (recorded) {
+    return {
+      scope,
+      def: {
+        event: recorded.event,
+        kind: 'recorded',
+        generator: recorded.generator,
+        allowConcurrent: recorded.allowConcurrent,
+        maxChunks: recorded.maxChunks,
+        maxAgeMs: recorded.maxAgeMs,
+        retentionAfterEndMs: recorded.retentionAfterEndMs,
+      },
+    };
+  }
+  return undefined;
+}
+
 /**
  * Parse one websocket text frame and route protocol messages or app events.
  */
@@ -889,33 +965,7 @@ export async function processTextMessage(
       await DurableStreamRuntime.resumeDurableStream(
         runtime as unknown as DurableStreamRuntime.DurableStreamRuntime,
         connection,
-        {},
-        (event) => {
-          const resumable = runtime.compiled.resumableStreams.get(event);
-          if (resumable) {
-            return {
-              event: resumable.event,
-              kind: 'resumable' as const,
-              generator: resumable.generator,
-              allowConcurrent: resumable.allowConcurrent,
-              maxAgeMs: resumable.maxAgeMs,
-              retentionAfterEndMs: resumable.retentionAfterEndMs,
-            };
-          }
-          const recorded = runtime.compiled.recordedStreams.get(event);
-          if (recorded) {
-            return {
-              event: recorded.event,
-              kind: 'recorded' as const,
-              generator: recorded.generator,
-              allowConcurrent: recorded.allowConcurrent,
-              maxChunks: recorded.maxChunks,
-              maxAgeMs: recorded.maxAgeMs,
-              retentionAfterEndMs: recorded.retentionAfterEndMs,
-            };
-          }
-          return undefined;
-        },
+        (row) => resolveDurableDefForRow(runtime, connection, row),
         streamId,
         since,
       );

@@ -2,6 +2,7 @@
 import { contract } from '~/_api/contract.ts';
 import { implement } from '~/_api/implement.ts';
 import { channel } from '~/channel/definition.ts';
+import { namespace } from '~/namespace/definition.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import { resumableStream } from './definition.ts';
@@ -25,23 +26,6 @@ describe('resumableStream build-time validation', () => {
     ).toThrow(/persistence: true/);
   });
 
-  it('throws when declared inside a channel (top-level only in v1)', () => {
-    const c = contract<Record<string, unknown>>('app')({
-      persistence: true,
-      definitions: [
-        channel('rooms', {
-          definitions: [
-            resumableStream('feed', {
-              payload: v.object({}),
-              chunk: v.object({ idx: v.number() }),
-            }),
-          ],
-        }),
-      ],
-    });
-    expect(() => implement(c).build()).toThrow(/top-level only/);
-  });
-
   it('builds when persistence is enabled and the stream is top-level', () => {
     const c = contract<Record<string, unknown>>('app')({
       persistence: true,
@@ -57,6 +41,56 @@ describe('resumableStream build-time validation', () => {
         .resumableStream('feed', async function* () {
           yield { idx: 1 };
         })
+        .build(),
+    ).not.toThrow();
+  });
+
+  it('builds when declared inside a channel', () => {
+    const c = contract<Record<string, unknown>>('app')({
+      persistence: true,
+      definitions: [
+        channel('rooms', {
+          definitions: [
+            resumableStream('feed', {
+              payload: v.object({}),
+              chunk: v.object({ idx: v.number() }),
+            }),
+          ],
+        }),
+      ],
+    });
+    expect(() =>
+      implement(c)
+        .channel('rooms', (ch) =>
+          ch.resumableStream('feed', async function* () {
+            yield { idx: 1 };
+          }),
+        )
+        .build(),
+    ).not.toThrow();
+  });
+
+  it('builds when declared inside a namespace', () => {
+    const c = contract<Record<string, unknown>>('app')({
+      persistence: true,
+      definitions: [
+        namespace('v1', {
+          definitions: [
+            resumableStream('feed', {
+              payload: v.object({}),
+              chunk: v.object({ idx: v.number() }),
+            }),
+          ],
+        }),
+      ],
+    });
+    expect(() =>
+      implement(c)
+        .namespace('v1', (ns) =>
+          ns.resumableStream('feed', async function* () {
+            yield { idx: 1 };
+          }),
+        )
         .build(),
     ).not.toThrow();
   });

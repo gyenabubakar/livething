@@ -1,8 +1,4 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-/**
- * Runtime for durable streams (resumable + recorded). Top-level only in v1;
- * no broadcast, no nudges.
- */
 
 import {
   rethrowIfConfigError,
@@ -120,6 +116,9 @@ export async function runDurableStream(
     payload: JSON.stringify(payload ?? null),
     kind: def.kind,
     now,
+    namespace: scope.namespace?.name ?? null,
+    channelKey: scope.channelName ?? null,
+    channelScope: scope.channelScope ?? null,
     maxChunks: def.maxChunks,
     maxAgeMs: def.maxAgeMs,
     retentionAfterEndMs: def.retentionAfterEndMs,
@@ -134,8 +133,9 @@ export async function runDurableStream(
 export async function resumeDurableStream(
   runtime: DurableStreamRuntime,
   connection: RuntimeConnection,
-  scope: ResolvedScope,
-  resolveDef: (event: string) => DurableStreamRuntimeDef | undefined,
+  resolveDef: (
+    row: Storage.DurableStreamRow,
+  ) => { def: DurableStreamRuntimeDef; scope: ResolvedScope } | undefined,
   streamId: string,
   since: number,
 ): Promise<void> {
@@ -163,8 +163,8 @@ export async function resumeDurableStream(
     }
   }
 
-  const def = resolveDef(row.event);
-  if (!def) {
+  const resolved = resolveDef(row);
+  if (!resolved) {
     runtime.sendProtocolMessage(connection, '_error', {
       code: StreamAborted.code,
       detail: { reason: 'not-found' as const },
@@ -172,6 +172,7 @@ export async function resumeDurableStream(
     });
     return;
   }
+  const { def, scope } = resolved;
 
   if (row.kind === 'recorded') {
     const chunks = Storage.readChunksSince(runtime.sql, identity, streamId, since);

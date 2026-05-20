@@ -12,6 +12,8 @@ import type { Primitive } from '~/primitive.ts';
 import type { CustomReplayPrimitive } from '~/replay/custom/custom.ts';
 import type { ReplayPrimitive } from '~/replay/replay.ts';
 import type { RequestPrimitive } from '~/request/request.ts';
+import type { RecordedStreamGeneratePrimitive } from '~/stream-recorded/stream-recorded.ts';
+import type { ResumableStreamGeneratePrimitive } from '~/stream-resumable/stream-resumable.ts';
 import type { GeneratePrimitive, NudgeDeclaration, StreamPrimitive } from '~/stream/stream.ts';
 
 // Internal aliases that keep the union type below readable.
@@ -39,7 +41,9 @@ type ChannelStatePrimitive =
   | AnyPostIntercept
   | AnyIncoming
   | AnyRequest
-  | AnyGenerate;
+  | AnyGenerate
+  | ResumableStreamGeneratePrimitive
+  | RecordedStreamGeneratePrimitive;
 
 /**
  * A named dynamic channel pattern used in `scope()`. Groups many matching

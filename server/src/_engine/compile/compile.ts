@@ -178,19 +178,27 @@ function validateNoCrossPrimitiveEventCollisions(
       incoming: ReadonlyMap<string, unknown>;
       requests: ReadonlyMap<string, unknown>;
       streams: ReadonlyMap<string, unknown>;
+      resumableStreams?: ReadonlyMap<string, unknown>;
+      recordedStreams?: ReadonlyMap<string, unknown>;
     },
     label: string,
   ): void {
+    const resumable = scope.resumableStreams ?? (new Map() as ReadonlyMap<string, unknown>);
+    const recorded = scope.recordedStreams ?? (new Map() as ReadonlyMap<string, unknown>);
     const allNames = new Set<string>([
       ...scope.incoming.keys(),
       ...scope.requests.keys(),
       ...scope.streams.keys(),
+      ...resumable.keys(),
+      ...recorded.keys(),
     ]);
     for (const event of allNames) {
       const where: string[] = [];
       if (scope.incoming.has(event)) where.push('incoming');
       if (scope.requests.has(event)) where.push('request');
       if (scope.streams.has(event)) where.push('stream');
+      if (resumable.has(event)) where.push('resumableStream');
+      if (recorded.has(event)) where.push('recordedStream');
       if (where.length > 1) {
         throw new Error(
           `[wskit] Event name '${event}' is registered as both '${where[0]}' and '${where[1]}' in ${label}. ` +
@@ -274,6 +282,8 @@ function validateNoReservedEventNames(
       incoming: ReadonlyMap<string, unknown>;
       requests: ReadonlyMap<string, unknown>;
       streams: ReadonlyMap<string, EngineCompileTypes.AnyGenerate>;
+      resumableStreams?: ReadonlyMap<string, EngineCompileTypes.AnyResumableStream>;
+      recordedStreams?: ReadonlyMap<string, EngineCompileTypes.AnyRecordedStream>;
     },
     label: string,
   ): void {
@@ -291,6 +301,12 @@ function validateNoReservedEventNames(
       for (const nudge of generate.stream.nudges) {
         check(nudge.event, `${label} stream '${streamEvent}' nudge`);
       }
+    }
+    if (scope.resumableStreams) {
+      for (const event of scope.resumableStreams.keys()) check(event, `${label} resumableStream`);
+    }
+    if (scope.recordedStreams) {
+      for (const event of scope.recordedStreams.keys()) check(event, `${label} recordedStream`);
     }
   }
 
@@ -316,10 +332,18 @@ interface HandlerScope {
   incoming: ReadonlyMap<string, unknown>;
   requests: ReadonlyMap<string, unknown>;
   streams: ReadonlyMap<string, unknown>;
+  resumableStreams?: ReadonlyMap<string, unknown>;
+  recordedStreams?: ReadonlyMap<string, unknown>;
 }
 
 function scopeHasHandler(scope: HandlerScope, event: string): boolean {
-  return scope.incoming.has(event) || scope.requests.has(event) || scope.streams.has(event);
+  return (
+    scope.incoming.has(event) ||
+    scope.requests.has(event) ||
+    scope.streams.has(event) ||
+    (scope.resumableStreams?.has(event) ?? false) ||
+    (scope.recordedStreams?.has(event) ?? false)
+  );
 }
 
 function assertPostInterceptHandlerExists(

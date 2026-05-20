@@ -701,7 +701,6 @@ export class Implementer<C extends Contract> {
           'Add `persistence: true` to the contract config.',
       );
     }
-    assertDurableStreamsTopLevelOnly(config.definitions);
 
     // ── Feature primitives ──────────────────────────────────────────────────
     if (config.persistence) primitives.push(persistenceFactory());
@@ -917,28 +916,6 @@ function hasDurableStreamDef(defs: readonly Definition[]): boolean {
       return true;
   }
   return false;
-}
-
-function assertDurableStreamsTopLevelOnly(defs: readonly Definition[], parentScope?: string): void {
-  for (const def of defs) {
-    if ((def._ === 'resumable-stream' || def._ === 'recorded-stream') && parentScope) {
-      throw new Error(
-        `[wskit] ${def._ === 'resumable-stream' ? 'resumableStream' : 'recordedStream'} "${
-          (def as { name: string }).name
-        }" is declared inside ${parentScope}. Durable streams are top-level only in v1. ` +
-          'Move the declaration out of the channel/namespace, or open a follow-up issue if you need it scoped.',
-      );
-    }
-    if (def._ === 'channel') {
-      const ch = def as ChannelDef;
-      const key = typeof ch.pattern === 'string' ? ch.pattern : ch.pattern.key;
-      assertDurableStreamsTopLevelOnly(ch.definitions, `channel "${key}"`);
-    }
-    if (def._ === 'namespace') {
-      const ns = def as NamespaceDef;
-      assertDurableStreamsTopLevelOnly(ns.definitions, `namespace "${ns.name}"`);
-    }
-  }
 }
 
 // The new API uses plain `error(code, schema?)` but the engine's `errors()`

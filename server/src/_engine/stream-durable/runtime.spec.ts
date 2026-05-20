@@ -28,6 +28,9 @@ function makeSql() {
           event,
           payload,
           kind,
+          namespace,
+          channelKey,
+          channelScope,
           startedAt,
           lastActivityAt,
           maxChunks,
@@ -43,6 +46,9 @@ function makeSql() {
           status: 'active',
           cursor: null,
           last_seq: 0,
+          namespace,
+          channel_key: channelKey,
+          channel_scope: channelScope,
           started_at: startedAt,
           last_activity_at: lastActivityAt,
           ended_at: null,
@@ -352,7 +358,7 @@ describe('durable stream runtime', () => {
     const { runtime, protocolMessages } = createRuntime(sql);
     const connection = createConnection();
 
-    await resumeDurableStream(runtime as never, connection, {}, () => undefined, 'missing', 0);
+    await resumeDurableStream(runtime as never, connection, () => undefined, 'missing', 0);
 
     const err = protocolMessages.find((m) => m.event === '_error');
     expect(err?.payload.code).toBe('stream-aborted');
@@ -388,14 +394,15 @@ describe('durable stream runtime', () => {
     await resumeDurableStream(
       runtime as never,
       connection,
-      {},
-      () =>
-        baseDef({
+      () => ({
+        scope: {},
+        def: baseDef({
           kind: 'resumable',
           generator: async function* (ctx: any) {
             yield ctx.stream.withCursor({ idx: 1 }, { idx: 1 });
           },
         }),
+      }),
       'busy',
       0,
     );
@@ -439,8 +446,7 @@ describe('durable stream runtime', () => {
     await resumeDurableStream(
       runtime as never,
       connection,
-      {},
-      () => baseDef({ kind: 'recorded' }),
+      () => ({ scope: {}, def: baseDef({ kind: 'recorded' }) }),
       's-replay',
       2,
     );
@@ -471,9 +477,9 @@ describe('durable stream runtime', () => {
     await resumeDurableStream(
       runtime as never,
       connection,
-      {},
-      () =>
-        baseDef({
+      () => ({
+        scope: {},
+        def: baseDef({
           kind: 'resumable',
           generator: async function* (ctx: any) {
             const startAt = (ctx.stream.cursor as { idx: number } | null)?.idx ?? 0;
@@ -482,6 +488,7 @@ describe('durable stream runtime', () => {
             }
           },
         }),
+      }),
       's-cursor',
       4,
     );
@@ -534,14 +541,15 @@ describe('durable stream runtime', () => {
     await resumeDurableStream(
       runtime as never,
       connection,
-      {},
-      () =>
-        baseDef({
+      () => ({
+        scope: {},
+        def: baseDef({
           kind: 'resumable',
           generator: async function* (ctx: any) {
             yield ctx.stream.withCursor({ attempt: ctx.stream.attempt }, { idx: 1 });
           },
         }),
+      }),
       'a',
       0,
     );

@@ -10,6 +10,14 @@ export interface NamespaceHandlerBag {
   incomingHandlers: Map<string, (ctx: any, payload: any) => void | Promise<void>>;
   requestHandlers: Map<string, (ctx: any, payload: any) => any>;
   streamGenerators: Map<string, (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>>;
+  resumableStreamGenerators: Map<
+    string,
+    (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>
+  >;
+  recordedStreamGenerators: Map<
+    string,
+    (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>
+  >;
   channelImpls: Map<string, ChannelImplement<any, any>>;
   preIntercept?: (ctx: any, message: { event: string; payload: unknown }) => any;
   postIntercepts: Map<string, (ctx: any, payload: any) => any>;
@@ -27,6 +35,8 @@ export class NamespaceImplement<C extends Contract, NsC = any> {
     incomingHandlers: new Map(),
     requestHandlers: new Map(),
     streamGenerators: new Map(),
+    resumableStreamGenerators: new Map(),
+    recordedStreamGenerators: new Map(),
     channelImpls: new Map(),
     postIntercepts: new Map(),
     rateLimitOverrides: new Map(),
@@ -74,6 +84,24 @@ export class NamespaceImplement<C extends Contract, NsC = any> {
     generator: (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>,
   ): this {
     this._bag.streamGenerators.set(event, generator as any);
+    return this;
+  }
+
+  /** Attach the generator for a resumable stream scoped to this namespace. */
+  resumableStream<E extends keyof FieldOf<NsC, 'resumableStreams'> & string>(
+    event: E,
+    generator: (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>,
+  ): this {
+    this._bag.resumableStreamGenerators.set(event, generator);
+    return this;
+  }
+
+  /** Attach the generator for a recorded stream scoped to this namespace. */
+  recordedStream<E extends keyof FieldOf<NsC, 'recordedStreams'> & string>(
+    event: E,
+    generator: (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>,
+  ): this {
+    this._bag.recordedStreamGenerators.set(event, generator);
     return this;
   }
 
