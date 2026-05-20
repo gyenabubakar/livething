@@ -162,13 +162,14 @@ export function compileHandlerDefinition(
 
 /**
  * Refuse to boot when an event name is registered as more than one of
- * `incoming` / `request` / `stream` within the same scope. The dispatcher
- * picks the first match in that order, so the loser is unreachable —
- * a client `request(...)` against a shadowed name hangs forever.
+ * `incoming` / `request` / `stream` / `resumableStream` / `recordedStream`
+ * within the same scope. The dispatcher picks the first match in that order,
+ * so the loser is unreachable — a client `request(...)` against a shadowed
+ * name hangs forever, and a stream trigger against a recorded-stream name
+ * shadowed by an incoming handler never starts a stream.
  *
- * The builder's `validateNoCrossPrimitiveEventCollisions` already catches
- * this. The boot-time guard here covers the bypass case: hand-rolled
- * primitives that go through `as any` and skip the builder.
+ * The boot-time guard here covers the bypass case: hand-rolled primitives
+ * that go through `as any` and skip the builder.
  */
 function validateNoCrossPrimitiveEventCollisions(
   compiled: EngineCompileTypes.CompiledServer,
@@ -202,7 +203,7 @@ function validateNoCrossPrimitiveEventCollisions(
       if (where.length > 1) {
         throw new Error(
           `[wskit] Event name '${event}' is registered as both '${where[0]}' and '${where[1]}' in ${label}. ` +
-            `An event name can only be used by one of incoming/request/stream within a scope — pick a different name.`,
+            `An event name can only belong to one of incoming/request/stream/resumableStream/recordedStream within a scope — pick a different name.`,
         );
       }
     }
