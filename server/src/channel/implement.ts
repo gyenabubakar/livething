@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { setOnce } from '~/_api/handler-maps.ts';
 import type { Contract } from '~/_api/contract-types.ts';
 import type { ChannelCtx } from '~/_api/ctx-types.ts';
 import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
@@ -60,7 +61,7 @@ export class ChannelImplement<C extends Contract, ChC = any> {
       payload: FieldOf<ChC, 'incoming'>[E],
     ) => void | Promise<void>,
   ): this {
-    this._bag.incomingHandlers.set(event, handler as any);
+    setOnce(this._bag.incomingHandlers, event, handler as any, 'incoming', 'this channel');
     return this;
   }
 
@@ -80,7 +81,7 @@ export class ChannelImplement<C extends Contract, ChC = any> {
       | void
       | Promise<(FieldOf<ChC, 'requests'>[E] extends { response: infer R } ? R : void) | void>,
   ): this {
-    this._bag.requestHandlers.set(event, handler as any);
+    setOnce(this._bag.requestHandlers, event, handler as any, 'request', 'this channel');
     return this;
   }
 
@@ -98,7 +99,7 @@ export class ChannelImplement<C extends Contract, ChC = any> {
       unknown
     >,
   ): this {
-    this._bag.streamGenerators.set(event, generator as any);
+    setOnce(this._bag.streamGenerators, event, generator as any, 'stream', 'this channel');
     return this;
   }
 
@@ -107,7 +108,13 @@ export class ChannelImplement<C extends Contract, ChC = any> {
     event: E,
     generator: (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>,
   ): this {
-    this._bag.resumableStreamGenerators.set(event, generator);
+    setOnce(
+      this._bag.resumableStreamGenerators,
+      event,
+      generator,
+      'resumableStream',
+      'this channel',
+    );
     return this;
   }
 
@@ -116,7 +123,7 @@ export class ChannelImplement<C extends Contract, ChC = any> {
     event: E,
     generator: (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>,
   ): this {
-    this._bag.recordedStreamGenerators.set(event, generator);
+    setOnce(this._bag.recordedStreamGenerators, event, generator, 'recordedStream', 'this channel');
     return this;
   }
 
@@ -172,8 +179,13 @@ export class ChannelImplement<C extends Contract, ChC = any> {
   ): this;
   intercept(arg1: any, arg2?: any): this {
     if (typeof arg1 === 'string') {
-      this._bag.postIntercepts.set(arg1, arg2);
+      setOnce(this._bag.postIntercepts, arg1, arg2, 'post-intercept', 'this channel');
     } else {
+      if (this._bag.preIntercept) {
+        throw new Error(
+          '[wskit] Duplicate pre-intercept on this channel. Only one pre-intercept can be attached.',
+        );
+      }
       this._bag.preIntercept = arg1;
     }
     return this;
@@ -202,7 +214,7 @@ export class ChannelImplement<C extends Contract, ChC = any> {
     ) &
       string,
   >(event: E, config: RateLimitConfig): this {
-    this._bag.rateLimitOverrides.set(event, config);
+    setOnce(this._bag.rateLimitOverrides, event, config, 'rateLimit override', 'this channel');
     return this;
   }
 

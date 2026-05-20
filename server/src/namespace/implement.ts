@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { setOnce } from '~/_api/handler-maps.ts';
 import { ChannelImplement } from '~/channel/implement.ts';
 import type { Contract } from '~/_api/contract-types.ts';
 import type { NamespaceCtx } from '~/_api/ctx-types.ts';
@@ -54,7 +55,7 @@ export class NamespaceImplement<C extends Contract, NsC = any> {
       payload: FieldOf<NsC, 'incoming'>[E],
     ) => void | Promise<void>,
   ): this {
-    this._bag.incomingHandlers.set(event, handler as any);
+    setOnce(this._bag.incomingHandlers, event, handler as any, 'incoming', 'this namespace');
     return this;
   }
 
@@ -74,7 +75,7 @@ export class NamespaceImplement<C extends Contract, NsC = any> {
       | void
       | Promise<(FieldOf<NsC, 'requests'>[E] extends { response: infer R } ? R : void) | void>,
   ): this {
-    this._bag.requestHandlers.set(event, handler as any);
+    setOnce(this._bag.requestHandlers, event, handler as any, 'request', 'this namespace');
     return this;
   }
 
@@ -83,7 +84,7 @@ export class NamespaceImplement<C extends Contract, NsC = any> {
     event: E,
     generator: (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>,
   ): this {
-    this._bag.streamGenerators.set(event, generator as any);
+    setOnce(this._bag.streamGenerators, event, generator as any, 'stream', 'this namespace');
     return this;
   }
 
@@ -92,7 +93,13 @@ export class NamespaceImplement<C extends Contract, NsC = any> {
     event: E,
     generator: (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>,
   ): this {
-    this._bag.resumableStreamGenerators.set(event, generator);
+    setOnce(
+      this._bag.resumableStreamGenerators,
+      event,
+      generator,
+      'resumableStream',
+      'this namespace',
+    );
     return this;
   }
 
@@ -101,7 +108,13 @@ export class NamespaceImplement<C extends Contract, NsC = any> {
     event: E,
     generator: (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>,
   ): this {
-    this._bag.recordedStreamGenerators.set(event, generator);
+    setOnce(
+      this._bag.recordedStreamGenerators,
+      event,
+      generator,
+      'recordedStream',
+      'this namespace',
+    );
     return this;
   }
 
@@ -115,7 +128,7 @@ export class NamespaceImplement<C extends Contract, NsC = any> {
   ): this {
     const impl = new ChannelImplement<C, FieldOf<NsC, 'channels'>[N]>();
     fn(impl);
-    this._bag.channelImpls.set(name, impl);
+    setOnce(this._bag.channelImpls, name, impl, 'channel', 'this namespace');
     return this;
   }
 
@@ -136,8 +149,13 @@ export class NamespaceImplement<C extends Contract, NsC = any> {
   ): this;
   intercept(arg1: any, arg2?: any): this {
     if (typeof arg1 === 'string') {
-      this._bag.postIntercepts.set(arg1, arg2);
+      setOnce(this._bag.postIntercepts, arg1, arg2, 'post-intercept', 'this namespace');
     } else {
+      if (this._bag.preIntercept) {
+        throw new Error(
+          '[wskit] Duplicate pre-intercept on this namespace. Only one pre-intercept can be attached.',
+        );
+      }
       this._bag.preIntercept = arg1;
     }
     return this;
@@ -155,7 +173,7 @@ export class NamespaceImplement<C extends Contract, NsC = any> {
     ) &
       string,
   >(event: E, config: RateLimitConfig): this {
-    this._bag.rateLimitOverrides.set(event, config);
+    setOnce(this._bag.rateLimitOverrides, event, config, 'rateLimit override', 'this namespace');
     return this;
   }
 }

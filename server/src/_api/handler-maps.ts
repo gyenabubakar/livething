@@ -34,3 +34,19 @@ export type BuildDefinitionsFn = (
   definitions: readonly Definition[],
   handlers: HandlerMaps,
 ) => Primitive[];
+
+/**
+ * Map.set that refuses to overwrite. A second registration of the same key
+ * means two callers raced for one handler slot — the silent winner would
+ * leave the other handler dead and the failure unobservable. Throw instead
+ * so the dev knows exactly where the conflict is.
+ */
+export function setOnce<K, V>(map: Map<K, V>, key: K, value: V, kind: string, where: string): void {
+  if (map.has(key)) {
+    throw new Error(
+      `[wskit] Duplicate ${kind} handler for '${String(key)}' in ${where}. ` +
+        `An event can only be bound once — drop the duplicate or merge the two handlers.`,
+    );
+  }
+  map.set(key, value);
+}

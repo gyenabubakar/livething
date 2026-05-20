@@ -59,6 +59,7 @@ import type { Primitive } from '~/primitive.ts';
 import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
 import type { CustomReplayOptions } from '~/replay/custom/custom.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
+import { setOnce } from './handler-maps.ts';
 import type { Contract, ContractConfig } from './contract-types.ts';
 import type { Ctx } from './ctx-types.ts';
 import type {
@@ -147,7 +148,7 @@ export class GroupBuilder<C extends Contract> {
 
   /** Attach a handler for one client→server event declared on the contract. */
   on<E extends keyof C['incoming'] & string>(event: E, handler: IncomingHandlerFor<C, E>): this {
-    this._reg.incoming.set(event, handler as any);
+    setOnce(this._reg.incoming, event, handler as any, 'incoming', 'this group');
     return this;
   }
 
@@ -156,7 +157,7 @@ export class GroupBuilder<C extends Contract> {
     event: E,
     handler: RequestHandlerFor<C, E>,
   ): this {
-    this._reg.requests.set(event, handler as any);
+    setOnce(this._reg.requests, event, handler as any, 'request', 'this group');
     return this;
   }
 
@@ -165,7 +166,7 @@ export class GroupBuilder<C extends Contract> {
     event: E,
     generator: StreamGeneratorFor<C, E>,
   ): this {
-    this._reg.streams.set(event, generator as any);
+    setOnce(this._reg.streams, event, generator as any, 'stream', 'this group');
     return this;
   }
 
@@ -174,7 +175,7 @@ export class GroupBuilder<C extends Contract> {
     id: I,
     handler: ScheduledHandlerFor<C, I>,
   ): this {
-    this._reg.scheduled.set(id, handler as any);
+    setOnce(this._reg.scheduled, id, handler as any, 'scheduled', 'this group');
     return this;
   }
 
@@ -185,7 +186,7 @@ export class GroupBuilder<C extends Contract> {
   ): this {
     const impl = new ChannelImplement<C, C['channels'][N]>();
     fn(impl);
-    this._reg.channels.set(name, impl);
+    setOnce(this._reg.channels, name, impl, 'channel', 'this group');
     return this;
   }
 
@@ -196,7 +197,7 @@ export class GroupBuilder<C extends Contract> {
   ): this {
     const impl = new NamespaceImplement<C, C['namespaces'][N]>();
     fn(impl);
-    this._reg.namespaces.set(name, impl);
+    setOnce(this._reg.namespaces, name, impl, 'namespace', 'this group');
     return this;
   }
 
@@ -208,7 +209,7 @@ export class GroupBuilder<C extends Contract> {
     event: E,
     config: RateLimitConfig,
   ): this {
-    this._reg.rateLimitOverrides.set(event, config);
+    setOnce(this._reg.rateLimitOverrides, event, config, 'rateLimit override', 'this group');
     return this;
   }
 }
@@ -323,7 +324,7 @@ export class Implementer<C extends Contract> {
    * ```
    */
   on<E extends keyof C['incoming'] & string>(event: E, handler: IncomingHandlerFor<C, E>): this {
-    this._bag.incomingHandlers.set(event, handler as any);
+    setOnce(this._bag.incomingHandlers, event, handler as any, 'incoming', 'the implementer');
     return this;
   }
 
@@ -342,7 +343,7 @@ export class Implementer<C extends Contract> {
     event: E,
     handler: RequestHandlerFor<C, E>,
   ): this {
-    this._bag.requestHandlers.set(event, handler as any);
+    setOnce(this._bag.requestHandlers, event, handler as any, 'request', 'the implementer');
     return this;
   }
 
@@ -364,7 +365,7 @@ export class Implementer<C extends Contract> {
     event: E,
     generator: StreamGeneratorFor<C, E>,
   ): this {
-    this._bag.streamGenerators.set(event, generator as any);
+    setOnce(this._bag.streamGenerators, event, generator as any, 'stream', 'the implementer');
     return this;
   }
 
@@ -392,7 +393,13 @@ export class Implementer<C extends Contract> {
     event: E,
     generator: (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>,
   ): this {
-    this._bag.resumableStreamGenerators.set(event, generator);
+    setOnce(
+      this._bag.resumableStreamGenerators,
+      event,
+      generator,
+      'resumableStream',
+      'the implementer',
+    );
     return this;
   }
 
@@ -419,7 +426,13 @@ export class Implementer<C extends Contract> {
     event: E,
     generator: (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>,
   ): this {
-    this._bag.recordedStreamGenerators.set(event, generator);
+    setOnce(
+      this._bag.recordedStreamGenerators,
+      event,
+      generator,
+      'recordedStream',
+      'the implementer',
+    );
     return this;
   }
 
@@ -438,7 +451,7 @@ export class Implementer<C extends Contract> {
     id: I,
     handler: ScheduledHandlerFor<C, I>,
   ): this {
-    this._bag.scheduledHandlers.set(id, handler as any);
+    setOnce(this._bag.scheduledHandlers, id, handler as any, 'scheduled', 'the implementer');
     return this;
   }
 
@@ -461,7 +474,7 @@ export class Implementer<C extends Contract> {
   ): this {
     const impl = new ChannelImplement<C, C['channels'][N]>();
     fn(impl);
-    this._bag.channelImpls.set(name, impl);
+    setOnce(this._bag.channelImpls, name, impl, 'channel', 'the implementer');
     return this;
   }
 
@@ -483,7 +496,7 @@ export class Implementer<C extends Contract> {
   ): this {
     const impl = new NamespaceImplement<C, C['namespaces'][N]>();
     fn(impl);
-    this._bag.namespaceImpls.set(name, impl);
+    setOnce(this._bag.namespaceImpls, name, impl, 'namespace', 'the implementer');
     return this;
   }
 
@@ -492,26 +505,27 @@ export class Implementer<C extends Contract> {
    * with `group(contract, ...)` and let you split handler code across files.
    */
   use(g: GroupBuilder<C>): this {
+    const from = 'a group';
     for (const [event, handler] of g._reg.incoming) {
-      this._bag.incomingHandlers.set(event, handler);
+      setOnce(this._bag.incomingHandlers, event, handler, 'incoming', from);
     }
     for (const [event, handler] of g._reg.requests) {
-      this._bag.requestHandlers.set(event, handler);
+      setOnce(this._bag.requestHandlers, event, handler, 'request', from);
     }
     for (const [event, gen] of g._reg.streams) {
-      this._bag.streamGenerators.set(event, gen);
+      setOnce(this._bag.streamGenerators, event, gen, 'stream', from);
     }
     for (const [id, handler] of g._reg.scheduled) {
-      this._bag.scheduledHandlers.set(id, handler);
+      setOnce(this._bag.scheduledHandlers, id, handler, 'scheduled', from);
     }
     for (const [name, impl] of g._reg.channels) {
-      this._bag.channelImpls.set(name, impl);
+      setOnce(this._bag.channelImpls, name, impl, 'channel', from);
     }
     for (const [name, impl] of g._reg.namespaces) {
-      this._bag.namespaceImpls.set(name, impl);
+      setOnce(this._bag.namespaceImpls, name, impl, 'namespace', from);
     }
     for (const [event, cfg] of g._reg.rateLimitOverrides) {
-      this._bag.rateLimitOverrides.set(event, cfg);
+      setOnce(this._bag.rateLimitOverrides, event, cfg, 'rateLimit override', from);
     }
     return this;
   }
@@ -627,8 +641,13 @@ export class Implementer<C extends Contract> {
   ): this;
   intercept(arg1: any, arg2?: any): this {
     if (typeof arg1 === 'string') {
-      this._bag.postIntercepts.set(arg1, arg2);
+      setOnce(this._bag.postIntercepts, arg1, arg2, 'post-intercept', 'the implementer');
     } else {
+      if (this._bag.preIntercept) {
+        throw new Error(
+          '[wskit] Duplicate pre-intercept on the implementer. Only one pre-intercept can be attached.',
+        );
+      }
       this._bag.preIntercept = arg1;
     }
     return this;
@@ -655,7 +674,7 @@ export class Implementer<C extends Contract> {
     event: E,
     config: RateLimitConfig,
   ): this {
-    this._bag.rateLimitOverrides.set(event, config);
+    setOnce(this._bag.rateLimitOverrides, event, config, 'rateLimit override', 'the implementer');
     return this;
   }
 
