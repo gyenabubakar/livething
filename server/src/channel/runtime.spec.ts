@@ -32,7 +32,12 @@ function createConnection(id = 'conn_1', meta: Record<string, unknown> = {}) {
 }
 
 function createRuntime() {
-  const protocol: { connectionId: string; event: string; payload: Record<string, unknown> }[] = [];
+  const protocol: {
+    connectionId: string;
+    event: string;
+    payload: Record<string, unknown>;
+    wskit: Record<string, unknown>;
+  }[] = [];
   const broadcasts: {
     channelName: string;
     event: string;
@@ -101,9 +106,11 @@ function createRuntime() {
         connection: ReturnType<typeof createConnection>,
         event: string,
         payload: Record<string, unknown>,
+        wskit: Record<string, unknown>,
       ) {
-        protocol.push({ connectionId: connection.id, event, payload });
+        protocol.push({ connectionId: connection.id, event, payload, wskit });
       },
+      wskitStampHooks: [],
       broadcastToChannel(
         channelName: string,
         event: string,
@@ -153,10 +160,7 @@ describe('channel runtime', () => {
     connections.set(first.id, first);
     connections.set(second.id, second);
 
-    await subscribeConnection(runtime, second, {
-      _channel: 'room:general',
-      _channelScope: 'rooms',
-    });
+    await subscribeConnection(runtime, second, 'room:general', 'rooms', undefined);
 
     expect(
       [...second.channelMemberships.values()].some((m) => m.channelName === 'room:general'),
@@ -168,33 +172,27 @@ describe('channel runtime', () => {
     expect(protocol).toEqual([
       {
         connectionId: 'conn_2',
-        event: '_subscribeOk',
-        payload: { _channel: 'room:general', _channelScope: 'rooms', source: 'client' },
+        event: '__subscribeOk__',
+        payload: { source: 'client' },
+        wskit: { channel: 'room:general', channelScope: 'rooms' },
       },
       {
         connectionId: 'conn_2',
-        event: '_memberJoin',
-        payload: {
-          _channel: 'room:general',
-          _channelScope: 'rooms',
-          connectionId: 'conn_1',
-          meta: { userId: 'a' },
-        },
+        event: '__memberJoin__',
+        payload: { connectionId: 'conn_1', meta: { userId: 'a' } },
+        wskit: { channel: 'room:general', channelScope: 'rooms' },
       },
       {
         connectionId: 'conn_2',
-        event: '_memberOnline',
-        payload: {
-          _channel: 'room:general',
-          _channelScope: 'rooms',
-          connectionId: 'conn_1',
-        },
+        event: '__memberOnline__',
+        payload: { connectionId: 'conn_1' },
+        wskit: { channel: 'room:general', channelScope: 'rooms' },
       },
     ]);
     expect(broadcasts).toEqual([
       {
         channelName: 'room:general',
-        event: '_memberJoin',
+        event: '__memberJoin__',
         payload: {
           connectionId: 'conn_2',
           meta: { userId: 'b' },
@@ -204,7 +202,7 @@ describe('channel runtime', () => {
       },
       {
         channelName: 'room:general',
-        event: '_memberOnline',
+        event: '__memberOnline__',
         payload: {
           connectionId: 'conn_2',
           meta: { userId: 'b' },
@@ -229,10 +227,8 @@ describe('channel runtime', () => {
           leaveChannel(runtime, nextConnection, scope, kickedReason),
       },
       connection,
-      {
-        _channel: 'room:general',
-        _channelScope: 'rooms',
-      },
+      'room:general',
+      'rooms',
     );
 
     expect(
@@ -242,14 +238,14 @@ describe('channel runtime', () => {
     expect(broadcasts).toEqual([
       {
         channelName: 'room:general',
-        event: '_memberLeave',
-        payload: { connectionId: 'conn_1' },
+        event: '__memberLeave__',
+        payload: { connectionId: 'conn_1', meta: { userId: 'a' } },
         excludeConnectionId: 'conn_1',
         channelScope: 'rooms',
       },
       {
         channelName: 'room:general',
-        event: '_memberOffline',
+        event: '__memberOffline__',
         payload: { connectionId: 'conn_1' },
         excludeConnectionId: 'conn_1',
         channelScope: 'rooms',
@@ -278,10 +274,8 @@ describe('channel runtime', () => {
           leaveChannel(runtime, nextConnection, scopeArg, kickedReason),
       },
       connection,
-      {
-        _channel: 'room:general',
-        _channelScope: 'rooms',
-      },
+      'room:general',
+      'rooms',
     );
 
     expect(
@@ -294,14 +288,14 @@ describe('channel runtime', () => {
     expect(broadcasts).toEqual([
       {
         channelName: 'room:general',
-        event: '_memberLeave',
-        payload: { connectionId: 'conn_1' },
+        event: '__memberLeave__',
+        payload: { connectionId: 'conn_1', meta: {} },
         excludeConnectionId: 'conn_1',
         channelScope: 'rooms',
       },
       {
         channelName: 'room:general',
-        event: '_memberOffline',
+        event: '__memberOffline__',
         payload: { connectionId: 'conn_1' },
         excludeConnectionId: 'conn_1',
         channelScope: 'rooms',
@@ -329,15 +323,12 @@ describe('channel runtime', () => {
     connections.set(lobbiesMember.id, lobbiesMember);
     connections.set(newSubscriber.id, newSubscriber);
 
-    await subscribeConnection(runtime, newSubscriber, {
-      _channel: 'room:general',
-      _channelScope: 'rooms',
-    });
+    await subscribeConnection(runtime, newSubscriber, 'room:general', 'rooms', undefined);
 
-    // _memberJoin syncs sent to the new subscriber must include only the
+    // __memberJoin__ syncs sent to the new subscriber must include only the
     // 'rooms' scope member, not the 'lobbies' scope member.
     const memberJoins = protocol.filter(
-      (m) => m.connectionId === 'new-sub' && m.event === '_memberJoin',
+      (m) => m.connectionId === 'new-sub' && m.event === '__memberJoin__',
     );
     expect(memberJoins.map((m) => m.payload.connectionId)).toEqual(['rooms-member']);
   });
@@ -360,7 +351,9 @@ describe('channel runtime', () => {
           ]),
         },
         connection,
-        { _channel: 'room:general', _channelScope: 'rooms' },
+        'room:general',
+        'rooms',
+        undefined,
       ),
     ).rejects.toThrow(/async validators are not supported/);
 
@@ -386,7 +379,9 @@ describe('channel runtime', () => {
         beforeSubscribeHooks: new Map([['rooms', [{ handler: hook, validator: undefined }]]]),
       },
       connection,
-      { _channel: 'room:general', _channelScope: 'rooms' },
+      'room:general',
+      'rooms',
+      undefined,
     );
 
     expect(hook).toHaveBeenCalledTimes(1);
@@ -423,14 +418,8 @@ describe('channel runtime', () => {
       beforeSubscribeHooks: new Map([['rooms', [{ handler: hook, validator: undefined }]]]),
     };
 
-    const subA = subscribeConnection(runtimeWithHook, connA, {
-      _channel: 'room:general',
-      _channelScope: 'rooms',
-    });
-    const subB = subscribeConnection(runtimeWithHook, connB, {
-      _channel: 'room:general',
-      _channelScope: 'rooms',
-    });
+    const subA = subscribeConnection(runtimeWithHook, connA, 'room:general', 'rooms', undefined);
+    const subB = subscribeConnection(runtimeWithHook, connB, 'room:general', 'rooms', undefined);
 
     // Release A first so it commits, then B so it commits and snapshots A.
     resolveA();
@@ -440,20 +429,20 @@ describe('channel runtime', () => {
 
     // Initial sync to A: empty (A committed first, no peers yet).
     const aSyncs = protocol
-      .filter((m) => m.connectionId === 'conn_A' && m.event === '_memberJoin')
+      .filter((m) => m.connectionId === 'conn_A' && m.event === '__memberJoin__')
       .map((m) => m.payload.connectionId);
     expect(aSyncs).toEqual([]);
 
     // Initial sync to B: includes A (committed before B snapshotted).
     const bSyncs = protocol
-      .filter((m) => m.connectionId === 'conn_B' && m.event === '_memberJoin')
+      .filter((m) => m.connectionId === 'conn_B' && m.event === '__memberJoin__')
       .map((m) => m.payload.connectionId);
     expect(bSyncs).toEqual(['conn_A']);
 
-    // Broadcasts: A broadcast _memberJoin{A} (no recipients yet),
-    // B broadcast _memberJoin{B} (A receives via the broadcast path).
+    // Broadcasts: A broadcast __memberJoin__{A} (no recipients yet),
+    // B broadcast __memberJoin__{B} (A receives via the broadcast path).
     const broadcastJoiners = broadcasts
-      .filter((b) => b.event === '_memberJoin')
+      .filter((b) => b.event === '__memberJoin__')
       .map((b) => (b.payload as { connectionId: string }).connectionId);
     expect(broadcastJoiners).toEqual(['conn_A', 'conn_B']);
 
@@ -479,12 +468,14 @@ describe('channel runtime', () => {
         subscribeHooks: new Map([['rooms', [hook]]]),
       },
       connection,
-      { _channel: 'room:general', _channelScope: 'rooms' },
+      'room:general',
+      'rooms',
+      undefined,
     );
 
     expect(hook).toHaveBeenCalledTimes(1);
-    // _subscribeOk had already been sent before the side-effect hook ran.
-    expect(protocol[0]?.event).toBe('_subscribeOk');
+    // __subscribeOk__ had already been sent before the side-effect hook ran.
+    expect(protocol[0]?.event).toBe('__subscribeOk__');
     expect(protocolCountDuringHook).toBeGreaterThanOrEqual(1);
   });
 
@@ -514,7 +505,9 @@ describe('channel runtime', () => {
           },
         },
         connection,
-        { _channel: 'room:general', _channelScope: 'rooms' },
+        'room:general',
+        'rooms',
+        undefined,
       ),
     ).resolves.toBeUndefined();
 
@@ -522,15 +515,15 @@ describe('channel runtime', () => {
     expect(
       [...connection.channelMemberships.values()].some((m) => m.channelName === 'room:general'),
     ).toBe(true);
-    // The client received _subscribeOk before the throw fired.
-    expect(protocol.find((p) => p.event === '_subscribeOk')).toBeDefined();
+    // The client received __subscribeOk__ before the throw fired.
+    expect(protocol.find((p) => p.event === '__subscribeOk__')).toBeDefined();
     // The runtime-error path was invoked with the channel routing markers
-    // so the client receives an _error frame addressed to this channel.
+    // so the client receives an __error__ frame addressed to this channel.
     expect(seenRuntimeErrors).toHaveLength(1);
-    expect(seenRuntimeErrors[0]!.event).toBe('_subscribe');
+    expect(seenRuntimeErrors[0]!.event).toBe('__subscribe__');
     expect(seenRuntimeErrors[0]!.routing).toEqual({
-      _channel: 'room:general',
-      _channelScope: 'rooms',
+      channel: 'room:general',
+      channelScope: 'rooms',
     });
   });
 
@@ -580,14 +573,14 @@ describe('channel runtime', () => {
     expect(broadcasts).toEqual([
       {
         channelName: 'room:general',
-        event: '_memberLeave',
-        payload: { connectionId: 'conn_1' },
+        event: '__memberLeave__',
+        payload: { connectionId: 'conn_1', meta: {} },
         excludeConnectionId: 'conn_1',
         channelScope: 'rooms',
       },
       {
         channelName: 'room:general',
-        event: '_memberOffline',
+        event: '__memberOffline__',
         payload: { connectionId: 'conn_1' },
         excludeConnectionId: 'conn_1',
         channelScope: 'rooms',
@@ -613,21 +606,22 @@ describe('subscribeConnectionAsServer', () => {
     expect(protocol).toEqual([
       {
         connectionId: 'target',
-        event: '_subscribeOk',
-        payload: { _channel: 'room:general', _channelScope: 'rooms', source: 'server' },
+        event: '__subscribeOk__',
+        payload: { source: 'server' },
+        wskit: { channel: 'room:general', channelScope: 'rooms' },
       },
     ]);
     expect(broadcasts).toEqual([
       {
         channelName: 'room:general',
-        event: '_memberJoin',
+        event: '__memberJoin__',
         payload: { connectionId: 'target', meta: { userId: 't' } },
         excludeConnectionId: 'target',
         channelScope: 'rooms',
       },
       {
         channelName: 'room:general',
-        event: '_memberOnline',
+        event: '__memberOnline__',
         payload: { connectionId: 'target', meta: { userId: 't' } },
         excludeConnectionId: 'target',
         channelScope: 'rooms',
@@ -734,8 +728,9 @@ describe('subscribeConnectionAsServer', () => {
     expect(protocol).toEqual([
       {
         connectionId: 'target',
-        event: '_subscribeOk',
-        payload: { _channel: 'lobby', source: 'server' },
+        event: '__subscribeOk__',
+        payload: { source: 'server' },
+        wskit: { channel: 'lobby' },
       },
     ]);
   });
@@ -752,10 +747,10 @@ describe('subscribeConnectionAsServer', () => {
     expect(target.channelMemberships.has(createChannelMembershipKey('room:general', 'rooms'))).toBe(
       true,
     );
-    expect(protocol.some((p) => p.event === '_subscribeOk')).toBe(true);
+    expect(protocol.some((p) => p.event === '__subscribeOk__')).toBe(true);
   });
 
-  it('sends _memberJoin syncs to the new subscriber for existing members', async () => {
+  it('sends __memberJoin__ syncs to the new subscriber for existing members', async () => {
     const { protocol, connections, runtime } = createRuntime();
     // Seed two existing members of room:general so the new subscriber
     // receives one _memberJoin per existing peer.
@@ -772,7 +767,7 @@ describe('subscribeConnectionAsServer', () => {
     await subscribeConnectionAsServer(runtime, target, 'room:general', 'rooms', undefined);
 
     const memberJoinsToTarget = protocol.filter(
-      (p) => p.connectionId === 'target' && p.event === '_memberJoin',
+      (p) => p.connectionId === 'target' && p.event === '__memberJoin__',
     );
     expect(memberJoinsToTarget.map((p) => p.payload.connectionId).sort()).toEqual([
       'existing-a',
@@ -794,9 +789,9 @@ describe('subscribeConnectionAsServer', () => {
       ],
     ]);
     const originalSend = runtime.sendProtocolMessage;
-    runtime.sendProtocolMessage = (conn, event, payload) => {
+    runtime.sendProtocolMessage = (conn, event, payload, wskit) => {
       order.push(`wire:${event}`);
-      originalSend(conn, event, payload);
+      originalSend(conn, event, payload, wskit);
     };
 
     const target = createConnection('target', {});
@@ -804,11 +799,11 @@ describe('subscribeConnectionAsServer', () => {
 
     await subscribeConnectionAsServer(runtime, target, 'room:general', 'rooms', undefined);
 
-    // onSubscribe must run AFTER the _subscribeOk frame is on the wire.
-    expect(order[0]).toBe('wire:_subscribeOk');
+    // onSubscribe must run AFTER the __subscribeOk__ frame is on the wire.
+    expect(order[0]).toBe('wire:__subscribeOk__');
     expect(order[order.length - 1]).toBe('onSubscribe');
-    expect(protocol.some((p) => p.event === '_subscribeOk' && p.payload.source === 'server')).toBe(
-      true,
-    );
+    expect(
+      protocol.some((p) => p.event === '__subscribeOk__' && p.payload.source === 'server'),
+    ).toBe(true);
   });
 });

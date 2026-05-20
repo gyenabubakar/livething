@@ -7,8 +7,9 @@ async function send(
   connection: RuntimeConnection,
   event: string,
   payload?: unknown,
+  wskit?: Record<string, unknown>,
 ) {
-  await processTextMessage(runtime, connection, JSON.stringify({ event, payload }));
+  await processTextMessage(runtime, connection, JSON.stringify({ event, payload, __wskit: wskit }));
 }
 
 function makeConnection(id = 'c1'): RuntimeConnection {
@@ -69,17 +70,17 @@ function makeRuntime(cap: number) {
 }
 
 describe('incoming dedup', () => {
-  it('drops a second frame with the same _messageId', async () => {
+  it('drops a second frame with the same __wskit.messageId', async () => {
     const connection = makeConnection();
     const runtime = makeRuntime(16);
 
-    await send(runtime, connection, 'echo', { _messageId: 'abc' });
-    await send(runtime, connection, 'echo', { _messageId: 'abc' });
+    await send(runtime, connection, 'echo', {}, { messageId: 'abc' });
+    await send(runtime, connection, 'echo', {}, { messageId: 'abc' });
 
     expect(runtime.incomingHook).toHaveBeenCalledTimes(1);
   });
 
-  it('does not dedup frames without a _messageId', async () => {
+  it('does not dedup frames without a messageId', async () => {
     const connection = makeConnection();
     const runtime = makeRuntime(16);
 
@@ -93,11 +94,11 @@ describe('incoming dedup', () => {
     const connection = makeConnection();
     const runtime = makeRuntime(2);
 
-    await send(runtime, connection, 'echo', { _messageId: 'a' });
-    await send(runtime, connection, 'echo', { _messageId: 'b' });
-    await send(runtime, connection, 'echo', { _messageId: 'c' });
+    await send(runtime, connection, 'echo', {}, { messageId: 'a' });
+    await send(runtime, connection, 'echo', {}, { messageId: 'b' });
+    await send(runtime, connection, 'echo', {}, { messageId: 'c' });
     // 'a' was evicted by 'c', so resending 'a' should dispatch again
-    await send(runtime, connection, 'echo', { _messageId: 'a' });
+    await send(runtime, connection, 'echo', {}, { messageId: 'a' });
 
     expect(runtime.incomingHook).toHaveBeenCalledTimes(4);
   });
@@ -106,10 +107,10 @@ describe('incoming dedup', () => {
     const connection = makeConnection();
     const runtime = makeRuntime(2);
 
-    await send(runtime, connection, 'echo', { _messageId: 'a' });
-    await send(runtime, connection, 'echo', { _messageId: 'b' });
+    await send(runtime, connection, 'echo', {}, { messageId: 'a' });
+    await send(runtime, connection, 'echo', {}, { messageId: 'b' });
     // 'b' is still in the window; resending must be dropped
-    await send(runtime, connection, 'echo', { _messageId: 'b' });
+    await send(runtime, connection, 'echo', {}, { messageId: 'b' });
 
     expect(runtime.incomingHook).toHaveBeenCalledTimes(2);
   });
@@ -119,8 +120,8 @@ describe('incoming dedup', () => {
     const c2 = makeConnection('c2');
     const runtime = makeRuntime(16);
 
-    await send(runtime, c1, 'echo', { _messageId: 'shared' });
-    await send(runtime, c2, 'echo', { _messageId: 'shared' });
+    await send(runtime, c1, 'echo', {}, { messageId: 'shared' });
+    await send(runtime, c2, 'echo', {}, { messageId: 'shared' });
 
     expect(runtime.incomingHook).toHaveBeenCalledTimes(2);
   });
@@ -130,13 +131,13 @@ describe('incoming dedup', () => {
     // Cap of 256 mirrors the default set by the dedup() primitive.
     const runtime = makeRuntime(256);
 
-    await send(runtime, connection, 'echo', { _messageId: 'first' });
+    await send(runtime, connection, 'echo', {}, { messageId: 'first' });
     // Fill the ring so 'first' is evicted.
     for (let i = 0; i < 256; i += 1) {
-      await send(runtime, connection, 'echo', { _messageId: `id-${i}` });
+      await send(runtime, connection, 'echo', {}, { messageId: `id-${i}` });
     }
     // After 256 more entries, 'first' was evicted — resending it must dispatch again.
-    await send(runtime, connection, 'echo', { _messageId: 'first' });
+    await send(runtime, connection, 'echo', {}, { messageId: 'first' });
 
     expect(runtime.incomingHook).toHaveBeenCalledTimes(1 + 256 + 1);
   });
@@ -145,8 +146,8 @@ describe('incoming dedup', () => {
     const connection = makeConnection();
     const runtime = makeRuntime(0);
 
-    await send(runtime, connection, 'echo', { _messageId: 'abc' });
-    await send(runtime, connection, 'echo', { _messageId: 'abc' });
+    await send(runtime, connection, 'echo', {}, { messageId: 'abc' });
+    await send(runtime, connection, 'echo', {}, { messageId: 'abc' });
 
     expect(runtime.incomingHook).toHaveBeenCalledTimes(2);
     expect(connection.seenIncomingIds).toBeUndefined();
@@ -168,36 +169,48 @@ describe('incoming dedup', () => {
       ]),
     } as unknown as Parameters<typeof runtime.activeStreams.set>[1]);
 
-    await send(runtime, connection, 'speed-up', { _streamId: 's-1', _messageId: 'n-1', factor: 2 });
-    await send(runtime, connection, 'speed-up', { _streamId: 's-1', _messageId: 'n-1', factor: 2 });
+    await send(
+      runtime,
+      connection,
+      'speed-up',
+      { factor: 2 },
+      { streamId: 's-1', messageId: 'n-1' },
+    );
+    await send(
+      runtime,
+      connection,
+      'speed-up',
+      { factor: 2 },
+      { streamId: 's-1', messageId: 'n-1' },
+    );
 
     expect(nudges).toHaveLength(1);
   });
 
-  it('does not dedup protocol frames such as _subscribe even when they carry _messageId', async () => {
+  it('does not dedup protocol frames such as __subscribe__', async () => {
     const connection = makeConnection();
     const runtime = makeRuntime(16);
     const handleSubscribe = vi.fn(async () => {});
     (runtime as unknown as { handleSubscribe: typeof handleSubscribe }).handleSubscribe =
       handleSubscribe;
 
-    const frame = { _channel: 'room', _messageId: 'sub-1' };
-    await send(runtime, connection, '_subscribe', frame);
-    await send(runtime, connection, '_subscribe', frame);
+    // Protocol frames take the protocol path before dedup runs, so a repeated
+    // frame always reaches its handler.
+    await send(runtime, connection, '__subscribe__', undefined, { channel: 'room' });
+    await send(runtime, connection, '__subscribe__', undefined, { channel: 'room' });
 
     expect(handleSubscribe).toHaveBeenCalledTimes(2);
   });
 
-  it('does not dedup _unsubscribe frames even when they carry _messageId', async () => {
+  it('does not dedup __unsubscribe__ frames', async () => {
     const connection = makeConnection();
     const runtime = makeRuntime(16);
     const handleUnsubscribe = vi.fn(async () => {});
     (runtime as unknown as { handleUnsubscribe: typeof handleUnsubscribe }).handleUnsubscribe =
       handleUnsubscribe;
 
-    const frame = { _channel: 'room', _messageId: 'unsub-1' };
-    await send(runtime, connection, '_unsubscribe', frame);
-    await send(runtime, connection, '_unsubscribe', frame);
+    await send(runtime, connection, '__unsubscribe__', {}, { channel: 'room' });
+    await send(runtime, connection, '__unsubscribe__', {}, { channel: 'room' });
 
     expect(handleUnsubscribe).toHaveBeenCalledTimes(2);
   });

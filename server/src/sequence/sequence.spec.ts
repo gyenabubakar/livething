@@ -71,12 +71,12 @@ function installSequence(
   options?: { persist?: boolean },
   sql = new FakeSqlProvider(),
 ): {
-  outgoingHandlers: Array<NonNullable<Parameters<EngineAccess['onOutgoing']>[0]>>;
+  stampHandlers: Array<NonNullable<Parameters<EngineAccess['onWskitStamp']>[0]>>;
   bootHandlers: Array<NonNullable<Parameters<EngineAccess['onBoot']>[0]>>;
-  hook: NonNullable<Parameters<EngineAccess['onOutgoing']>[0]>;
+  hook: NonNullable<Parameters<EngineAccess['onWskitStamp']>[0]>;
   sql: FakeSqlProvider;
 } {
-  const outgoingHandlers: Array<NonNullable<Parameters<EngineAccess['onOutgoing']>[0]>> = [];
+  const stampHandlers: Array<NonNullable<Parameters<EngineAccess['onWskitStamp']>[0]>> = [];
   const bootHandlers: Array<NonNullable<Parameters<EngineAccess['onBoot']>[0]>> = [];
   const installs = new Set<symbol>();
 
@@ -90,8 +90,8 @@ function installSequence(
     onBoot(handler) {
       bootHandlers.push(handler);
     },
-    onOutgoing(handler) {
-      outgoingHandlers.push(handler);
+    onWskitStamp(handler) {
+      stampHandlers.push(handler);
     },
     setSequencePersistent() {},
     requireStorage() {
@@ -111,17 +111,17 @@ function installSequence(
     },
   } as Pick<
     EngineAccess,
-    'installOnce' | 'onBoot' | 'onOutgoing' | 'requireStorage' | 'setSequencePersistent'
+    'installOnce' | 'onBoot' | 'onWskitStamp' | 'requireStorage' | 'setSequencePersistent'
   > as EngineAccess;
 
   sequence(options).__setup?.(engine);
 
-  const hook = outgoingHandlers[0];
+  const hook = stampHandlers[0];
 
   expect(hook).toBeDefined();
 
   return {
-    outgoingHandlers,
+    stampHandlers,
     bootHandlers,
     hook: hook!,
     sql,
@@ -152,8 +152,8 @@ describe('sequence', () => {
     expect(p.__requires).toEqual({ storage: true });
   });
 
-  it('registers its outgoing hook only once', () => {
-    const outgoingHandlers: Array<NonNullable<Parameters<EngineAccess['onOutgoing']>[0]>> = [];
+  it('registers its stamp hook only once', () => {
+    const stampHandlers: Array<NonNullable<Parameters<EngineAccess['onWskitStamp']>[0]>> = [];
     const installs = new Set<symbol>();
     const engine = {
       installOnce(key, install) {
@@ -162,44 +162,35 @@ describe('sequence', () => {
         installs.add(key);
         install();
       },
-      onOutgoing(handler) {
-        outgoingHandlers.push(handler);
+      onWskitStamp(handler) {
+        stampHandlers.push(handler);
       },
       setSequencePersistent() {},
-    } as Pick<EngineAccess, 'installOnce' | 'onOutgoing' | 'setSequencePersistent'> as EngineAccess;
+    } as Pick<
+      EngineAccess,
+      'installOnce' | 'onWskitStamp' | 'setSequencePersistent'
+    > as EngineAccess;
 
     sequence().__setup?.(engine);
     sequence().__setup?.(engine);
 
-    expect(outgoingHandlers).toHaveLength(1);
+    expect(stampHandlers).toHaveLength(1);
   });
 
-  it('adds an increasing _seq to normal outgoing messages', () => {
+  it('stamps an increasing seq into __wskit for outgoing messages', () => {
     const { hook } = installSequence();
-    const first = hook({ event: 'message', payload: { text: 'hello' } });
-    const second = hook({ event: 'alert', payload: { level: 'warn' } });
+    const first = hook('message');
+    const second = hook('alert');
 
-    expect(first).toEqual({ text: 'hello', _seq: 1 });
-    expect(second).toEqual({ level: 'warn', _seq: 2 });
+    expect(first).toEqual({ seq: 1 });
+    expect(second).toEqual({ seq: 2 });
   });
 
-  it('skips protocol events that start with an underscore', () => {
+  it('still stamps module-owned outgoing events with a double underscore prefix', () => {
     const { hook } = installSequence();
-    const protocolMessage = hook({ event: '_ack', payload: {} });
-    const appMessage = hook({ event: 'message', payload: { text: 'hello' } });
+    const moduleMessage = hook('__acme:analytics:flushed');
 
-    expect(protocolMessage).toBeUndefined();
-    expect(appMessage).toEqual({ text: 'hello', _seq: 1 });
-  });
-
-  it('still sequences module-owned outgoing events with a double underscore prefix', () => {
-    const { hook } = installSequence();
-    const moduleMessage = hook({
-      event: '__acme:analytics:flushed',
-      payload: { count: 1 },
-    });
-
-    expect(moduleMessage).toEqual({ count: 1, _seq: 1 });
+    expect(moduleMessage).toEqual({ seq: 1 });
   });
 
   it('creates its SQLite table during boot when persistence is enabled', async () => {
@@ -220,10 +211,10 @@ describe('sequence', () => {
     await first.bootHandlers[0]?.();
     await second.bootHandlers[0]?.();
 
-    const firstMessage = first.hook({ event: 'message', payload: { text: 'one' } });
-    const secondMessage = second.hook({ event: 'message', payload: { text: 'two' } });
+    const firstMessage = first.hook('message');
+    const secondMessage = second.hook('message');
 
-    expect(firstMessage).toEqual({ text: 'one', _seq: 1 });
-    expect(secondMessage).toEqual({ text: 'two', _seq: 2 });
+    expect(firstMessage).toEqual({ seq: 1 });
+    expect(secondMessage).toEqual({ seq: 2 });
   });
 });

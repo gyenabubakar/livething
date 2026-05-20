@@ -10,6 +10,7 @@ import * as ChannelPrimitive from '~/channel/runtime.ts';
 import * as MembershipPersistence from '~/persistence/membership.ts';
 import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
 import type { EngineCore } from '~/_engine/core.ts';
+import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as PublicApi from '~/context.ts';
 
@@ -161,8 +162,8 @@ export function commonDeps(core: EngineCore): EngineContextTypes.ContextCommonDe
     sendReplay: (connection, channelName, channelScope, event, payload, wire) => {
       sendReplay(core, connection, channelName, channelScope, event, payload, wire);
     },
-    sendProtocolMessage: (connection, event, payload) => {
-      sendProtocolMessage(core, connection, event, payload);
+    sendProtocolMessage: (connection, event, payload, wskit) => {
+      sendProtocolMessage(core, connection, event, payload, wskit);
     },
     persistAttachment: (connection) => EngineHibernation.persistAttachment(core, connection),
     toConnectionInfo: (connection) =>
@@ -185,6 +186,7 @@ export function outgoingRuntime(core: EngineCore) {
     compiled: core.compiled,
     moduleRuntimes: core.moduleRuntimes,
     outgoingHooks: core.hooks.outgoing,
+    wskitStampHooks: core.hooks.wskitStamp,
     beforeSendHooks: core.hooks.beforeSend,
     afterSendHooks: core.hooks.afterSend,
     waitUntil: (promise: Promise<unknown>) => core.waitUntilImpl(promise),
@@ -255,7 +257,8 @@ export function channelRuntime(core: EngineCore) {
       connection: RuntimeConnection,
       event: string,
       payload: Record<string, unknown>,
-    ) => sendProtocolMessage(core, connection, event, payload),
+      wskit: Record<string, unknown>,
+    ) => sendProtocolMessage(core, connection, event, payload, wskit),
     handleValidationError: (
       connection: RuntimeConnection,
       event: string,
@@ -274,7 +277,7 @@ export function channelRuntime(core: EngineCore) {
       connection: RuntimeConnection,
       error: unknown,
       event?: string,
-      routing?: Record<string, unknown>,
+      routing?: Protocol.WskitRouting,
     ) => EngineErrorRuntime.handleRuntimeError(core, buildCtx, connection, error, event, routing),
     isChannelPersistent: (channelKey: string) => core.isChannelPersistent(channelKey),
     persistMembership: (identity: string, channelName: string, channelScope: string | null) =>
@@ -305,7 +308,8 @@ export function dispatchRuntime(core: EngineCore) {
       connection: RuntimeConnection,
       event: string,
       payload: Record<string, unknown>,
-    ) => sendProtocolMessage(core, connection, event, payload),
+      wskit: Record<string, unknown>,
+    ) => sendProtocolMessage(core, connection, event, payload, wskit),
     sendReplay: (
       connection: RuntimeConnection,
       channelName: string | null,
@@ -323,7 +327,7 @@ export function dispatchRuntime(core: EngineCore) {
       connection: RuntimeConnection,
       error: unknown,
       event?: string,
-      routing?: Record<string, unknown>,
+      routing?: Protocol.WskitRouting,
     ) => EngineErrorRuntime.handleRuntimeError(core, buildCtx, connection, error, event, routing),
     handleValidationError: (
       connection: RuntimeConnection,
@@ -354,21 +358,16 @@ export function dispatchRuntime(core: EngineCore) {
         options,
         excludeConnectionId,
       ),
-    handleSubscribe: (
-      connection: RuntimeConnection,
-      payload: Record<string, unknown> | undefined,
-    ) => EngineMessageRuntime.handleSubscribe(channelRuntime(core), connection, payload),
-    handleUnsubscribe: (
-      connection: RuntimeConnection,
-      payload: Record<string, unknown> | undefined,
-    ) =>
+    handleSubscribe: (connection: RuntimeConnection, frame: Protocol.SubscribeFrame) =>
+      EngineMessageRuntime.handleSubscribe(channelRuntime(core), connection, frame),
+    handleUnsubscribe: (connection: RuntimeConnection, frame: Protocol.UnsubscribeFrame) =>
       EngineMessageRuntime.handleUnsubscribe(
         {
           ...channelRuntime(core),
           leaveChannel: buildLeaveChannel(core),
         },
         connection,
-        payload,
+        frame,
       ),
   };
 }

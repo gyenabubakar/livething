@@ -83,6 +83,7 @@ describe('message runtime', () => {
       moduleRuntimes: [],
       outgoingHooks: [],
       beforeSendHooks: [],
+      wskitStampHooks: [],
       afterSendHooks: [],
       waitUntil() {},
       logger: {
@@ -189,8 +190,8 @@ describe('message runtime', () => {
 
     expect(
       resolveScope(runtime.compiled as unknown as CompiledServer, {
-        _channel: 'room:general',
-        _channelScope: 'rooms',
+        channel: 'room:general',
+        channelScope: 'rooms',
       }),
     ).toEqual({
       channel: runtime.compiled.channelFamilies.get('rooms'),
@@ -202,36 +203,33 @@ describe('message runtime', () => {
       runtime as unknown as Parameters<typeof dispatchIncoming>[0],
       connection,
       'message',
-      {
-        _channel: 'room:general',
-        _channelScope: 'rooms',
-        text: 'hi',
-      },
+      { text: 'hi' },
+      { channel: 'room:general', channelScope: 'rooms' },
     );
 
     expect(handler).not.toHaveBeenCalled();
     expect(errors).toHaveLength(1);
     expect(errors[0]!.event).toBe('message');
     expect(errors[0]!.routing).toEqual({
-      _channel: 'room:general',
-      _channelScope: 'rooms',
+      channel: 'room:general',
+      channelScope: 'rooms',
     });
     expect((errors[0]!.error as { code?: string }).code).toBe('channel-not-subscribed');
   });
 
-  it('resolveScope throws NamespaceNotFound when _namespace targets an unregistered namespace', () => {
+  it('resolveScope throws NamespaceNotFound when namespace targets an unregistered namespace', () => {
     const compiled = {
       namespaces: new Map(),
       channels: new Map(),
       channelFamilies: new Map(),
     } as unknown as CompiledServer;
 
-    expect(() => resolveScope(compiled, { _namespace: 'typo' })).toThrowError(
+    expect(() => resolveScope(compiled, { namespace: 'typo', channelScope: null })).toThrowError(
       /namespace-not-found/i,
     );
   });
 
-  it('resolveScope throws InvalidScopeMarkers when both _namespace and _channel are set', () => {
+  it('resolveScope throws InvalidScopeMarkers when both namespace and channel are set', () => {
     const compiled = {
       namespaces: new Map([['admin', { name: 'admin' }]]),
       channels: new Map([['private-room', { pattern: 'private-room' }]]),
@@ -239,23 +237,23 @@ describe('message runtime', () => {
     } as unknown as CompiledServer;
 
     expect(() =>
-      resolveScope(compiled, { _namespace: 'admin', _channel: 'private-room' }),
+      resolveScope(compiled, { namespace: 'admin', channel: 'private-room', channelScope: null }),
     ).toThrowError(/invalid-scope-markers/i);
   });
 
-  it('resolveScope throws ChannelNotFound when _channel targets an unregistered static channel', () => {
+  it('resolveScope throws ChannelNotFound when channel targets an unregistered static channel', () => {
     const compiled = {
       namespaces: new Map(),
       channels: new Map(), // 'unknown-room' not registered
       channelFamilies: new Map(),
     } as unknown as CompiledServer;
 
-    expect(() => resolveScope(compiled, { _channel: 'unknown-room' })).toThrowError(
-      /channel-not-found/i,
-    );
+    expect(() =>
+      resolveScope(compiled, { channel: 'unknown-room', channelScope: null }),
+    ).toThrowError(/channel-not-found/i);
   });
 
-  it('resolveScope throws ChannelNotFound when _channelScope targets an unregistered family', () => {
+  it('resolveScope throws ChannelNotFound when channelScope targets an unregistered family', () => {
     const compiled = {
       namespaces: new Map(),
       channels: new Map(),
@@ -263,11 +261,11 @@ describe('message runtime', () => {
     } as unknown as CompiledServer;
 
     expect(() =>
-      resolveScope(compiled, { _channel: 'room:1', _channelScope: 'unknown-family' }),
+      resolveScope(compiled, { channel: 'room:1', channelScope: 'unknown-family' }),
     ).toThrowError(/channel-not-found/i);
   });
 
-  it('resolveScope throws ChannelNotFound when _channel does not match the family regex', () => {
+  it('resolveScope throws ChannelNotFound when channel does not match the family regex', () => {
     const compiled = {
       namespaces: new Map(),
       channels: new Map(),
@@ -291,12 +289,12 @@ describe('message runtime', () => {
       ]),
     } as unknown as CompiledServer;
 
-    expect(() =>
-      resolveScope(compiled, { _channel: 'admin', _channelScope: 'rooms' }),
-    ).toThrowError(/channel-not-found/i);
+    expect(() => resolveScope(compiled, { channel: 'admin', channelScope: 'rooms' })).toThrowError(
+      /channel-not-found/i,
+    );
   });
 
-  it('resolveScope returns the scope when _channel matches the family regex', () => {
+  it('resolveScope returns the scope when channel matches the family regex', () => {
     const family = {
       key: 'rooms',
       kind: 'channel' as const,
@@ -316,7 +314,7 @@ describe('message runtime', () => {
       channelFamilies: new Map([['rooms', family]]),
     } as unknown as CompiledServer;
 
-    expect(resolveScope(compiled, { _channel: 'room:lobby', _channelScope: 'rooms' })).toEqual({
+    expect(resolveScope(compiled, { channel: 'room:lobby', channelScope: 'rooms' })).toEqual({
       channel: family,
       channelName: 'room:lobby',
       channelScope: 'rooms',
@@ -400,6 +398,7 @@ describe('message runtime', () => {
       connection,
       'manual-check',
       {},
+      undefined,
     );
 
     expect(validationErrors).toEqual(['manual-check']);
@@ -475,6 +474,7 @@ describe('message runtime', () => {
         connection,
         'do-thing',
         {},
+        undefined,
       ),
     ).rejects.toThrow(/async validators are not supported/);
 
@@ -552,6 +552,7 @@ describe('message runtime', () => {
       connection,
       'send-strict',
       {},
+      undefined,
     );
 
     // Schema validation rejected the payload. Validation hook fires once
@@ -655,7 +656,8 @@ describe('message runtime', () => {
       runtime as unknown as Parameters<typeof dispatchIncoming>[0],
       connection,
       'manual-check',
-      { _channel: 'room' },
+      {},
+      { channel: 'room', channelScope: null },
     );
 
     expect(handleValidationError).toHaveBeenCalledTimes(1);
@@ -665,7 +667,7 @@ describe('message runtime', () => {
     expect((scope as { channel?: unknown }).channel).toBe(channel);
   });
 
-  it('a schema-failed request preserves _correlationId on the error frame', async () => {
+  it('a schema-failed request preserves correlationId on the error frame', async () => {
     // The inner schema-validation catch (validateValue throws) is a
     // separate code path from the outer dispatch catch. The outer-catch
     // routing fix (commit 8789c0a) didn't touch this branch — schema
@@ -737,15 +739,16 @@ describe('message runtime', () => {
       runtime as unknown as Parameters<typeof dispatchIncoming>[0],
       connection,
       'get-user',
-      { id: 42, _correlationId: 'corr-99' }, // wrong type — schema fails
+      { id: 42 }, // wrong type — schema fails
+      { correlationId: 'corr-99', channelScope: null },
     );
 
     expect(handleRuntimeError).toHaveBeenCalledTimes(1);
     const [, , , routing] = handleRuntimeError.mock.calls[0]!;
-    expect(routing).toEqual({ _correlationId: 'corr-99' });
+    expect(routing).toEqual({ correlationId: 'corr-99' });
   });
 
-  it('a thrown request handler error preserves _correlationId on the error frame', async () => {
+  it('a thrown request handler error preserves correlationId on the error frame', async () => {
     // Pre-fix handleDispatchError called handleRuntimeError without
     // routing, so the _error frame the client received carried no
     // correlation id and the request-response plugin could not settle
@@ -817,16 +820,17 @@ describe('message runtime', () => {
       runtime as unknown as Parameters<typeof dispatchIncoming>[0],
       connection,
       'get-user',
-      { id: 'u1', _correlationId: 'corr-42' },
+      { id: 'u1' },
+      { correlationId: 'corr-42', channelScope: null },
     );
 
     expect(handleRuntimeError).toHaveBeenCalledTimes(1);
     const [, , , routing] = handleRuntimeError.mock.calls[0]!;
-    expect(routing).toEqual({ _correlationId: 'corr-42' });
+    expect(routing).toEqual({ correlationId: 'corr-42' });
   });
 
   it('does not fall back to top-level handlers for events sent inside a channel scope', async () => {
-    // A channel-subscribed client sending an event with `_channel: '...'`
+    // A channel-subscribed client sending an event with `channel: '...'`
     // must hit only handlers declared inside that channel. Falling through
     // to top-level handlers would let any channel member fire any
     // top-level event by tagging it with the channel — breaking scope
@@ -905,7 +909,8 @@ describe('message runtime', () => {
       runtime as unknown as Parameters<typeof dispatchIncoming>[0],
       connection,
       'top-only',
-      { _channel: 'room' },
+      {},
+      { channel: 'room', channelScope: null },
     );
 
     expect(topLevelHandler).not.toHaveBeenCalled();
@@ -989,8 +994,9 @@ describe('message runtime', () => {
         runtime as unknown as Parameters<typeof processTextMessage>[0],
         connection,
         JSON.stringify({
-          event: '_replay',
-          payload: { _channel: 'admin', _channelScope: 'rooms', since: 0 },
+          event: '__replay__',
+          payload: {},
+          __wskit: { channel: 'admin', channelScope: 'rooms' },
         }),
       ),
     ).resolves.toBeUndefined();
@@ -998,17 +1004,17 @@ describe('message runtime', () => {
     expect(handleRuntimeError).toHaveBeenCalledTimes(1);
     const [, error, event, routing] = handleRuntimeError.mock.calls[0]!;
     expect((error as { code?: string }).code).toBe('channel-not-found');
-    expect(event).toBe('_replay');
-    expect(routing).toEqual({ _channel: 'admin', _channelScope: 'rooms' });
+    expect(event).toBe('__replay__');
+    expect(routing).toEqual({ channel: 'admin', channelScope: 'rooms' });
   });
 
-  it('drops non-string routing fields from a _subscribe error frame', async () => {
-    // A frame with non-string `_channel` and `_channelScope` must not
-    // carry those values onto the wire `_error`. The contract on the
-    // routing fields is "string only" — a number or an object would
-    // crash any client routing code that calls a string method on it.
+  it('rejects a __subscribe__ frame whose __wskit.channel is not a string', async () => {
+    // A non-string `channel` fails the protocol-frame schema parse, so the
+    // frame settles as a ValidationFailed routed through handleRuntimeError
+    // instead of reaching handleSubscribe with a bad channel.
     const connection = createConnection('conn_1');
     const handleRuntimeError = vi.fn();
+    const handleSubscribe = vi.fn();
 
     const runtime = {
       compiled: {
@@ -1051,9 +1057,7 @@ describe('message runtime', () => {
       setActiveConnectionId() {},
       handleRuntimeError,
       async handleValidationError() {},
-      async handleSubscribe() {
-        throw new Error('handleSubscribe-rejected');
-      },
+      handleSubscribe,
       async handleUnsubscribe() {},
       waitUntil() {},
       generateId() {
@@ -1065,21 +1069,23 @@ describe('message runtime', () => {
       runtime as unknown as Parameters<typeof processTextMessage>[0],
       connection,
       JSON.stringify({
-        event: '_subscribe',
-        payload: { _channel: 42, _channelScope: { evil: true }, _correlationId: 'req-1' },
+        event: '__subscribe__',
+        payload: {},
+        __wskit: { channel: 42, channelScope: 'rooms' },
       }),
     );
 
+    expect(handleSubscribe).not.toHaveBeenCalled();
     expect(handleRuntimeError).toHaveBeenCalledTimes(1);
-    const [, , event, routing] = handleRuntimeError.mock.calls[0]!;
-    expect(event).toBe('_subscribe');
-    // Only the string field survives; non-string fields are dropped.
-    expect(routing).toEqual({ _correlationId: 'req-1' });
+    const [, error, event] = handleRuntimeError.mock.calls[0]!;
+    expect(event).toBe('__subscribe__');
+    expect((error as { code?: string }).code).toBe('validation-failed');
   });
 
-  it('drops non-string routing fields from an _unsubscribe error frame', async () => {
+  it('rejects an __unsubscribe__ frame whose __wskit.channel is not a string', async () => {
     const connection = createConnection('conn_1');
     const handleRuntimeError = vi.fn();
+    const handleUnsubscribe = vi.fn();
 
     const runtime = {
       compiled: {
@@ -1123,9 +1129,7 @@ describe('message runtime', () => {
       handleRuntimeError,
       async handleValidationError() {},
       async handleSubscribe() {},
-      async handleUnsubscribe() {
-        throw new Error('handleUnsubscribe-rejected');
-      },
+      handleUnsubscribe,
       waitUntil() {},
       generateId() {
         return 'id_1';
@@ -1136,16 +1140,17 @@ describe('message runtime', () => {
       runtime as unknown as Parameters<typeof processTextMessage>[0],
       connection,
       JSON.stringify({
-        event: '_unsubscribe',
-        payload: { _channel: { id: 1 }, _channelScope: 99 },
+        event: '__unsubscribe__',
+        payload: {},
+        __wskit: { channel: { id: 1 }, channelScope: 99 },
       }),
     );
 
+    expect(handleUnsubscribe).not.toHaveBeenCalled();
     expect(handleRuntimeError).toHaveBeenCalledTimes(1);
-    const [, , event, routing] = handleRuntimeError.mock.calls[0]!;
-    expect(event).toBe('_unsubscribe');
-    // No string routing fields at all — routing is undefined.
-    expect(routing).toBeUndefined();
+    const [, error, event] = handleRuntimeError.mock.calls[0]!;
+    expect(event).toBe('__unsubscribe__');
+    expect((error as { code?: string }).code).toBe('validation-failed');
   });
 });
 

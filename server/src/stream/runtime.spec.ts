@@ -26,7 +26,11 @@ function createConnection(id = 'c1'): RuntimeConnection {
 }
 
 function createStreamRuntime() {
-  const protocolMessages: { event: string; payload: Record<string, unknown> }[] = [];
+  const protocolMessages: {
+    event: string;
+    payload: Record<string, unknown>;
+    wskit: Record<string, unknown>;
+  }[] = [];
   const pipelineSends: { event: string; payload: unknown }[] = [];
   const broadcasts: {
     event: string;
@@ -49,8 +53,9 @@ function createStreamRuntime() {
         _conn: RuntimeConnection,
         event: string,
         payload: Record<string, unknown>,
+        wskit: Record<string, unknown>,
       ) => {
-        protocolMessages.push({ event, payload });
+        protocolMessages.push({ event, payload, wskit });
       },
       sendThroughPipeline: (
         _conn: RuntimeConnection,
@@ -78,6 +83,7 @@ function createStreamRuntime() {
       },
       setActiveConnectionId: vi.fn(),
       persistAttachment: vi.fn(),
+      wskitStampHooks: [],
       logger: { warn: vi.fn() },
       errorHooks: [] as readonly ((
         ctx: unknown,
@@ -91,7 +97,7 @@ function createStreamRuntime() {
 }
 
 describe('stream/runtime', () => {
-  it('_streamEnd includes namespace routing metadata', async () => {
+  it('__streamEnd__ includes namespace routing metadata', async () => {
     const { runtime, protocolMessages } = createStreamRuntime();
     const connection = createConnection();
 
@@ -111,12 +117,12 @@ describe('stream/runtime', () => {
       {},
     );
 
-    const streamEnd = protocolMessages.find((m) => m.event === '_streamEnd');
+    const streamEnd = protocolMessages.find((m) => m.event === '__streamEnd__');
     expect(streamEnd).toBeDefined();
-    expect(streamEnd!.payload._namespace).toBe('ai');
+    expect(streamEnd!.wskit.namespace).toBe('ai');
   });
 
-  it('_streamEnd includes channel routing metadata', async () => {
+  it('__streamEnd__ includes channel routing metadata', async () => {
     const { runtime, protocolMessages } = createStreamRuntime();
     const connection = createConnection();
 
@@ -136,10 +142,10 @@ describe('stream/runtime', () => {
       {},
     );
 
-    const streamEnd = protocolMessages.find((m) => m.event === '_streamEnd');
+    const streamEnd = protocolMessages.find((m) => m.event === '__streamEnd__');
     expect(streamEnd).toBeDefined();
-    expect(streamEnd!.payload._channel).toBe('chat');
-    expect(streamEnd!.payload._channelScope).toBe('rooms');
+    expect(streamEnd!.wskit.channel).toBe('chat');
+    expect(streamEnd!.wskit.channelScope).toBe('rooms');
   });
 
   it('broadcast stream sends chunks to all connections', async () => {
@@ -288,7 +294,7 @@ describe('stream/runtime', () => {
     expect(broadcasts[0]!.targetIds).toEqual(expect.arrayContaining(['trigger', 'other']));
   });
 
-  it('_streamCancel from a non-owner connection is ignored', async () => {
+  it('__streamCancel__ from a non-owner connection is ignored', async () => {
     const owner = createConnection('owner');
     const stranger = createConnection('stranger');
 
@@ -313,7 +319,7 @@ describe('stream/runtime', () => {
       closed: false,
     });
 
-    await cancelStream({ activeStreams }, stranger, { _streamId: streamId });
+    await cancelStream({ activeStreams }, stranger, streamId);
 
     expect(generator.return as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
     expect(activeStreams.has(streamId)).toBe(true);
@@ -348,13 +354,13 @@ describe('stream/runtime', () => {
     const logger = { error: vi.fn(), warn: vi.fn(), info: vi.fn() };
 
     await expect(
-      cancelStream({ activeStreams, logger }, owner, { _streamId: 'stream_1' }),
+      cancelStream({ activeStreams, logger }, owner, 'stream_1'),
     ).resolves.toBeUndefined();
 
     expect(activeStreams.has('stream_1')).toBe(false);
     expect(logger.error).toHaveBeenCalledTimes(1);
     const [message, fields] = logger.error.mock.calls[0]!;
-    expect(message).toMatch(/stream cleanup threw on _streamCancel/);
+    expect(message).toMatch(/stream cleanup threw on __streamCancel__/);
     expect((fields as { streamId?: string }).streamId).toBe('stream_1');
   });
 
@@ -381,7 +387,7 @@ describe('stream/runtime', () => {
     expect(broadcasts).toHaveLength(0);
   });
 
-  it('Defer thrown from a stream handler logs a warning, fires onError hooks, and sends _error with defer-exhausted code', async () => {
+  it('Defer thrown from a stream handler logs a warning, fires onError hooks, and sends __error__ with defer-exhausted code', async () => {
     const { runtime, protocolMessages } = createStreamRuntime();
     const connection = createConnection();
     const handleRuntimeError = vi.fn();
@@ -406,16 +412,16 @@ describe('stream/runtime', () => {
 
     expect(handleRuntimeError).not.toHaveBeenCalled();
     expect((runtime.logger.warn as ReturnType<typeof vi.fn>).mock.calls[0]![0]).toMatch(/Defer/);
-    const errMsg = protocolMessages.find((m) => m.event === '_error');
+    const errMsg = protocolMessages.find((m) => m.event === '__error__');
     expect(errMsg).toBeDefined();
     expect(errMsg!.payload.code).toBe('defer-exhausted');
-    expect(errMsg!.payload._streamId).toBe('stream_1');
+    expect(errMsg!.wskit.streamId).toBe('stream_1');
   });
 
-  it('bufferStreamNudge surfaces _error and returns true for an unknown _streamId', async () => {
-    // A frame carrying `_streamId` is claiming to belong to one specific
+  it('bufferStreamNudge surfaces __error__ and returns true for an unknown streamId', async () => {
+    // A frame carrying `streamId` is claiming to belong to one specific
     // stream. If the id is unknown, the frame is malformed — surface
-    // `_error` with `_streamId` routing and treat it as handled so it
+    // `__error__` with `streamId` routing and treat it as handled so it
     // never falls through to a same-named top-level .incoming() handler.
     const { runtime } = createStreamRuntime();
     const connection = createConnection();
@@ -426,17 +432,18 @@ describe('stream/runtime', () => {
       runtime as Parameters<typeof bufferStreamNudge>[0],
       connection,
       'nudge-event',
-      { _streamId: 'does-not-exist' },
+      {},
+      { streamId: 'does-not-exist', channelScope: null },
     );
 
     expect(result).toBe(true);
     expect(handleRuntimeError).toHaveBeenCalledTimes(1);
     expect(handleRuntimeError).toHaveBeenCalledWith(connection, expect.any(Error), 'nudge-event', {
-      _streamId: 'does-not-exist',
+      streamId: 'does-not-exist',
     });
   });
 
-  it('bufferStreamNudge surfaces _error and returns true for a closed stream', async () => {
+  it('bufferStreamNudge surfaces __error__ and returns true for a closed stream', async () => {
     const { runtime } = createStreamRuntime();
     const connection = createConnection();
     const handleRuntimeError = vi.fn();
@@ -457,14 +464,15 @@ describe('stream/runtime', () => {
       runtime as Parameters<typeof bufferStreamNudge>[0],
       connection,
       'known-nudge',
-      { _streamId: 'stream_1' },
+      {},
+      { streamId: 'stream_1', channelScope: null },
     );
 
     expect(result).toBe(true);
     expect(handleRuntimeError).toHaveBeenCalledTimes(1);
   });
 
-  it('bufferStreamNudge surfaces _error and returns true for a stream owned by a different connection', async () => {
+  it('bufferStreamNudge surfaces __error__ and returns true for a stream owned by a different connection', async () => {
     const { runtime } = createStreamRuntime();
     const owner = createConnection('owner');
     const intruder = createConnection('intruder');
@@ -484,14 +492,15 @@ describe('stream/runtime', () => {
       runtime as Parameters<typeof bufferStreamNudge>[0],
       intruder,
       'known-nudge',
-      { _streamId: 'stream_1' },
+      {},
+      { streamId: 'stream_1', channelScope: null },
     );
 
     expect(result).toBe(true);
     expect(handleRuntimeError).toHaveBeenCalledTimes(1);
   });
 
-  it('bufferStreamNudge surfaces _error and returns true for an unknown event name on an active stream', async () => {
+  it('bufferStreamNudge surfaces __error__ and returns true for an unknown event name on an active stream', async () => {
     const { runtime } = createStreamRuntime();
     const connection = createConnection();
     const handleRuntimeError = vi.fn();
@@ -512,7 +521,8 @@ describe('stream/runtime', () => {
       runtime as Parameters<typeof bufferStreamNudge>[0],
       connection,
       'unknown-nudge',
-      { _streamId: 'stream_1' },
+      {},
+      { streamId: 'stream_1', channelScope: null },
     );
 
     expect(result).toBe(true);
@@ -522,12 +532,12 @@ describe('stream/runtime', () => {
       connection,
       expect.any(Error),
       'unknown-nudge',
-      { _streamId: 'stream_1' },
+      { streamId: 'stream_1' },
     );
   });
 
-  it('bufferStreamNudge returns false when the frame carries no _streamId at all', async () => {
-    // Frames without `_streamId` do not claim to belong to any stream.
+  it('bufferStreamNudge returns false when the frame carries no streamId at all', async () => {
+    // Frames without `streamId` do not claim to belong to any stream.
     // The stream layer steps aside and lets the engine route them as
     // top-level events.
     const { runtime } = createStreamRuntime();
@@ -538,6 +548,7 @@ describe('stream/runtime', () => {
       connection,
       'plain-event',
       { value: 'no-stream-id' },
+      undefined,
     );
 
     expect(result).toBe(false);
@@ -565,7 +576,8 @@ describe('stream/runtime', () => {
         runtime as Parameters<typeof bufferStreamNudge>[0],
         connection,
         'async-nudge',
-        { _streamId: 'stream_1' },
+        {},
+        { streamId: 'stream_1', channelScope: null },
       ),
     ).rejects.toThrow(/async validators are not supported/);
 
@@ -611,17 +623,18 @@ describe('stream/runtime', () => {
       runtime as Parameters<typeof bufferStreamNudge>[0],
       connection,
       'pause',
-      { _streamId: 'stream_1', bad: true },
+      { bad: true },
+      { streamId: 'stream_1', channelScope: null },
     );
 
     expect(result).toBe(true);
     expect(handleValidationError).toHaveBeenCalledTimes(1);
     expect(handleValidationError).toHaveBeenCalledWith(connection, 'pause', expect.any(Error));
-    // The wire `_error` must reach the client with `_streamId` routing so the
+    // The wire `__error__` must reach the client with `streamId` routing so the
     // client can correlate the failure to the right stream-error handler.
     expect(handleRuntimeError).toHaveBeenCalledTimes(1);
     expect(handleRuntimeError).toHaveBeenCalledWith(connection, expect.any(Error), 'pause', {
-      _streamId: 'stream_1',
+      streamId: 'stream_1',
     });
     expect(activeStream.nudges).toHaveLength(0);
   });
@@ -741,10 +754,10 @@ describe('stream/runtime', () => {
     });
 
     // Existing stream is untouched, no second stream registered, and no
-    // `_streamOk` for a stream that never started.
+    // `__streamOk__` for a stream that never started.
     expect(runtime.activeStreams.has('existing_1')).toBe(true);
     expect(runtime.activeStreams.size).toBe(1);
-    expect(protocolMessages.find((m) => m.event === '_streamOk')).toBeUndefined();
+    expect(protocolMessages.find((m) => m.event === '__streamOk__')).toBeUndefined();
   });
 
   it('runStream accepts a second start of a different event on the same connection', async () => {
@@ -852,13 +865,13 @@ describe('stream/runtime', () => {
       {},
     );
 
-    const streamOk = protocolMessages.find((m) => m.event === '_streamOk');
+    const streamOk = protocolMessages.find((m) => m.event === '__streamOk__');
     expect(streamOk).toBeDefined();
-    expect(streamOk!.payload._streamId).toBe('stream_1');
+    expect(streamOk!.wskit.streamId).toBe('stream_1');
     expect(runtime.activeStreams.has('existing_1')).toBe(true);
   });
 
-  it('Defer thrown inside a stream fires onError hooks and sends an _error with code defer-exhausted', async () => {
+  it('Defer thrown inside a stream fires onError hooks and sends an __error__ with code defer-exhausted', async () => {
     const { runtime, protocolMessages } = createStreamRuntime();
     const connection = createConnection();
 
@@ -895,14 +908,14 @@ describe('stream/runtime', () => {
     expect(err.code).toBe('defer-exhausted');
     expect(err.detail?.retries).toBe(0);
 
-    const wire = protocolMessages.find((m) => m.event === '_error');
+    const wire = protocolMessages.find((m) => m.event === '__error__');
     expect(wire).toBeDefined();
     expect(wire!.payload.code).toBe('defer-exhausted');
-    expect(wire!.payload._streamId).toBe('stream_1');
+    expect(wire!.wskit.streamId).toBe('stream_1');
     expect(wire!.payload.detail).toBeUndefined();
   });
 
-  it('adopts a client-supplied _streamId from the raw trigger payload', async () => {
+  it('adopts a client-supplied streamId from the trigger frame wskit', async () => {
     const { runtime, protocolMessages } = createStreamRuntime();
     const connection = createConnection();
 
@@ -920,17 +933,17 @@ describe('stream/runtime', () => {
       'feed',
       stream as never,
       {},
-      { _streamId: 'conv-42' },
+      { streamId: 'conv-42', channelScope: null },
     );
 
-    const streamOk = protocolMessages.find((m) => m.event === '_streamOk');
-    expect(streamOk!.payload._streamId).toBe('conv-42');
+    const streamOk = protocolMessages.find((m) => m.event === '__streamOk__');
+    expect(streamOk!.wskit.streamId).toBe('conv-42');
 
-    const streamEnd = protocolMessages.find((m) => m.event === '_streamEnd');
-    expect(streamEnd!.payload._streamId).toBe('conv-42');
+    const streamEnd = protocolMessages.find((m) => m.event === '__streamEnd__');
+    expect(streamEnd!.wskit.streamId).toBe('conv-42');
   });
 
-  it('falls back to a generated _streamId when the supplied id is malformed', async () => {
+  it('falls back to a generated streamId when the supplied id is malformed', async () => {
     const { runtime, protocolMessages } = createStreamRuntime();
     const connection = createConnection();
 
@@ -941,7 +954,14 @@ describe('stream/runtime', () => {
       },
     };
 
-    for (const bad of [{ _streamId: 123 }, { _streamId: '' }, { _streamId: 'x'.repeat(300) }]) {
+    // Wrong type, empty string, and over-length string all fall back. The
+    // numeric case can never be a valid WskitProtocol field, so cast it.
+    const badWskits: Parameters<typeof runStream>[6][] = [
+      { streamId: 123, channelScope: null } as unknown as Parameters<typeof runStream>[6],
+      { streamId: '', channelScope: null },
+      { streamId: 'x'.repeat(300), channelScope: null },
+    ];
+    for (const bad of badWskits) {
       protocolMessages.length = 0;
       runtime.activeStreams.clear();
       connection.activeStreamIds = undefined;
@@ -956,12 +976,12 @@ describe('stream/runtime', () => {
         bad,
       );
 
-      const streamOk = protocolMessages.find((m) => m.event === '_streamOk');
-      expect(streamOk!.payload._streamId).toBe('stream_1');
+      const streamOk = protocolMessages.find((m) => m.event === '__streamOk__');
+      expect(streamOk!.wskit.streamId).toBe('stream_1');
     }
   });
 
-  it('throws StreamIdCollision when the supplied _streamId is already in use', async () => {
+  it('throws StreamIdCollision when the supplied streamId is already in use', async () => {
     const { runtime } = createStreamRuntime();
     const connection = createConnection();
 
@@ -982,7 +1002,7 @@ describe('stream/runtime', () => {
         'feed',
         stream as never,
         {},
-        { _streamId: 'conv-42' },
+        { streamId: 'conv-42', channelScope: null },
       ),
     ).rejects.toMatchObject({ code: 'stream-id-collision' });
   });

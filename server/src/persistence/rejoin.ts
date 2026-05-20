@@ -27,12 +27,13 @@ export interface RejoinRuntime {
   ): Promise<void>;
   /**
    * Send a protocol-level frame addressed to the rejoining connection. Used
-   * to deliver an `_error` when the gate rejects a stored membership.
+   * to deliver an `__error__` when the gate rejects a stored membership.
    */
   sendProtocolMessage(
     connection: EngineRuntimeTypes.RuntimeConnection,
     event: string,
     payload: Record<string, unknown>,
+    wskit: Record<string, unknown>,
   ): void;
   logger?: { error(message: string, fields?: Record<string, unknown>): void };
 }
@@ -91,13 +92,17 @@ export async function autoRejoinIdentity(
       // deliver an error scoped to that channel so the client knows.
       deleteMembership(runtime.sql, connection.identity, row.channelName, row.channelScope);
 
-      const routing: Record<string, unknown> = { _channel: row.channelName };
-      if (row.channelScope !== null) routing._channelScope = row.channelScope;
-      runtime.sendProtocolMessage(connection, '_error', {
-        ...routing,
-        code: 'rejoin-rejected',
-        message: error instanceof Error ? error.message : String(error),
-      });
+      const wskit: Record<string, unknown> = { channel: row.channelName };
+      if (row.channelScope !== null) wskit.channelScope = row.channelScope;
+      runtime.sendProtocolMessage(
+        connection,
+        '__error__',
+        {
+          code: 'rejoin-rejected',
+          detail: { message: error instanceof Error ? error.message : String(error) },
+        },
+        wskit,
+      );
       runtime.logger?.error('[wskit] auto-rejoin gate rejected', {
         identity: connection.identity,
         channel: row.channelName,

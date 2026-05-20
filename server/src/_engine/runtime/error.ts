@@ -2,6 +2,7 @@ import { sendProtocolMessage } from '~/_engine/runtime/wire.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import * as ErrorsPrimitive from '~/errors/runtime.ts';
 import type { EngineCore } from '~/_engine/core.ts';
+import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 
 type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
@@ -14,47 +15,47 @@ type BuildConnectionContextFn = (
 ) => Record<PropertyKey, unknown>;
 
 /**
- * Pull a `ResolvedScope` out of the routing markers on a runtime error so
- * `onError` sees `ctx.namespace` / `ctx.channel` matching the throwing handler.
- * Returns `undefined` for unknown or malformed routing — hooks still observe
- * the error at top level.
+ * Pull a `ResolvedScope` out of the `__wskit` routing markers on a runtime
+ * error so `onError` sees `ctx.namespace` / `ctx.channel` matching the throwing
+ * handler. Returns `undefined` for unknown or malformed routing — hooks still
+ * observe the error at top level.
  */
 export function resolveScopeFromRouting(
   core: EngineCore,
-  routing: Record<string, unknown>,
+  routing: Protocol.WskitRouting,
 ): ResolvedScope | undefined {
-  if (typeof routing._namespace === 'string') {
-    const namespace = core.compiled.namespaces.get(routing._namespace);
+  if (routing.namespace !== undefined) {
+    const namespace = core.compiled.namespaces.get(routing.namespace);
     if (namespace) return { namespace };
   }
-  if (typeof routing._channel === 'string') {
-    if (typeof routing._channelScope === 'string') {
-      const family = core.compiled.channelFamilies.get(routing._channelScope);
-      if (family && ChannelPrimitive.matchesScopePattern(family.pattern, routing._channel)) {
+  if (routing.channel !== undefined) {
+    if (routing.channelScope != null) {
+      const family = core.compiled.channelFamilies.get(routing.channelScope);
+      if (family && ChannelPrimitive.matchesScopePattern(family.pattern, routing.channel)) {
         return {
           channel: family,
-          channelName: routing._channel,
-          channelScope: routing._channelScope,
+          channelName: routing.channel,
+          channelScope: routing.channelScope,
         };
       }
     } else {
-      const channel = core.compiled.channels.get(routing._channel);
+      const channel = core.compiled.channels.get(routing.channel);
       if (channel) {
-        return { channel, channelName: routing._channel, channelScope: null };
+        return { channel, channelName: routing.channel, channelScope: null };
       }
     }
   }
   return undefined;
 }
 
-/** Normalize a thrown error and send the `_error` protocol frame. */
+/** Normalize a thrown error and send the `__error__` protocol frame. */
 export async function handleRuntimeError(
   core: EngineCore,
   buildConnectionContext: BuildConnectionContextFn,
   connection: RuntimeConnection,
   error: unknown,
   event?: string,
-  routing?: Record<string, unknown>,
+  routing?: Protocol.WskitRouting,
 ): Promise<void> {
   return ErrorsPrimitive.sendRuntimeError(
     {
@@ -63,8 +64,8 @@ export async function handleRuntimeError(
       declaredErrorCodes: core.declaredErrorCodes,
       errorHooks: core.hooks.error,
       logger: core.logger,
-      sendProtocolMessage: (targetConnection, outgoingEvent, payload) => {
-        sendProtocolMessage(core, targetConnection, outgoingEvent, payload);
+      sendProtocolMessage: (targetConnection, outgoingEvent, payload, wskit) => {
+        sendProtocolMessage(core, targetConnection, outgoingEvent, payload, wskit);
       },
     },
     connection,

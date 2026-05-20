@@ -13,10 +13,8 @@ import {
   persistReplayMessage,
   pruneExpiredReplayRows,
   pruneReplayScopeRows,
-  readReplayPayloadScope,
-  readReplaySinceCursor,
+  readReplayScope,
   shouldStoreReplayMessage,
-  stripSnapshotMetadata,
 } from './runtime.ts';
 import type { ReplayRow } from './types.ts';
 
@@ -192,7 +190,7 @@ describe('replay/runtime', () => {
       shouldStoreReplayMessage(
         'rooms',
         'message',
-        { _channel: 'room-1', _channelScope: 'rooms' },
+        { channel: 'room-1', channelScope: 'rooms' },
         new Set(['typing']),
       ),
     ).toBe(true);
@@ -200,7 +198,7 @@ describe('replay/runtime', () => {
       shouldStoreReplayMessage(
         'rooms',
         'typing',
-        { _channel: 'room-1', _channelScope: 'rooms' },
+        { channel: 'room-1', channelScope: 'rooms' },
         new Set(['typing']),
       ),
     ).toBe(false);
@@ -212,7 +210,7 @@ describe('replay/runtime', () => {
       shouldStoreReplayMessage(
         undefined,
         'message',
-        { _channel: 'room-1', _channelScope: 'rooms' },
+        { channel: 'room-1', channelScope: 'rooms' },
         new Set(),
       ),
     ).toBe(true);
@@ -222,38 +220,33 @@ describe('replay/runtime', () => {
       shouldStoreReplayMessage(
         undefined,
         'message',
-        { _channel: 'room-1', _channelScope: 'rooms' },
+        { channel: 'room-1', channelScope: 'rooms' },
         new Set(),
         new Set(['rooms']),
       ),
     ).toBe(false);
 
-    // Static channel claimed by name (no _channelScope on payload).
+    // Static channel claimed by name (no channelScope on the frame).
     expect(
       shouldStoreReplayMessage(
         undefined,
         'message',
-        { _channel: 'lobby' },
+        { channel: 'lobby' },
         new Set(),
         new Set(['lobby']),
       ),
     ).toBe(false);
 
     // Top-level traffic is always captured by server-level replay.
-    expect(
-      shouldStoreReplayMessage(undefined, 'message', { text: 'hi' }, new Set(), new Set(['rooms'])),
-    ).toBe(true);
+    expect(shouldStoreReplayMessage(undefined, 'message', {}, new Set(), new Set(['rooms']))).toBe(
+      true,
+    );
   });
 
-  it('skips frames with _correlationId — request responses are private and must not be replayed', () => {
+  it('skips frames with correlationId — request responses are private and must not be replayed', () => {
     // Server-level replay.
     expect(
-      shouldStoreReplayMessage(
-        undefined,
-        'get-token',
-        { token: 'SECRET-A', _correlationId: 'req-abc' },
-        new Set(),
-      ),
+      shouldStoreReplayMessage(undefined, 'get-token', { correlationId: 'req-abc' }, new Set()),
     ).toBe(false);
     // Channel-scoped replay.
     expect(
@@ -261,27 +254,21 @@ describe('replay/runtime', () => {
         'rooms',
         'get-token',
         {
-          token: 'SECRET-A',
-          _correlationId: 'req-abc',
-          _channel: 'room-1',
-          _channelScope: 'rooms',
+          correlationId: 'req-abc',
+          channel: 'room-1',
+          channelScope: 'rooms',
         },
         new Set(),
       ),
     ).toBe(false);
-    // Sanity: the same payload without _correlationId is captured.
-    expect(shouldStoreReplayMessage(undefined, 'message', { text: 'hi' }, new Set())).toBe(true);
+    // Sanity: the same frame without correlationId is captured.
+    expect(shouldStoreReplayMessage(undefined, 'message', {}, new Set())).toBe(true);
   });
 
-  it('skips frames with _streamId — stream chunks reference an active stream and cannot be replayed', () => {
+  it('skips frames with streamId — stream chunks reference an active stream and cannot be replayed', () => {
     // Server-level replay.
     expect(
-      shouldStoreReplayMessage(
-        undefined,
-        'token',
-        { word: 'hello', _streamId: 'stream_abc_1' },
-        new Set(),
-      ),
+      shouldStoreReplayMessage(undefined, 'token', { streamId: 'stream_abc_1' }, new Set()),
     ).toBe(false);
     // Channel-scoped replay.
     expect(
@@ -289,28 +276,27 @@ describe('replay/runtime', () => {
         'rooms',
         'token',
         {
-          word: 'hello',
-          _streamId: 'stream_abc_1',
-          _channel: 'room-1',
-          _channelScope: 'rooms',
+          streamId: 'stream_abc_1',
+          channel: 'room-1',
+          channelScope: 'rooms',
         },
         new Set(),
       ),
     ).toBe(false);
-    // Sanity: the same payload without _streamId is captured.
-    expect(shouldStoreReplayMessage(undefined, 'token', { word: 'hello' }, new Set())).toBe(true);
+    // Sanity: the same frame without streamId is captured.
+    expect(shouldStoreReplayMessage(undefined, 'token', {}, new Set())).toBe(true);
   });
 
-  it('builds replay rows from final wire payloads and strips metadata for reducers', () => {
-    const payload = {
-      text: 'hello',
-      _seq: 7,
-      _messageId: 'msg_1',
-      _channel: 'room-1',
-      _channelScope: 'rooms',
+  it('builds replay rows from pure payloads and wskit metadata', () => {
+    const payload = { text: 'hello' };
+    const wskit = {
+      seq: 7,
+      messageId: 'msg_1',
+      channel: 'room-1',
+      channelScope: 'rooms',
     };
 
-    expect(readReplayPayloadScope(payload)).toEqual({
+    expect(readReplayScope(wskit)).toEqual({
       namespace: null,
       channel: 'room-1',
       channelScope: 'rooms',
@@ -321,6 +307,7 @@ describe('replay/runtime', () => {
         { type: 'snapshot', snapshotKey: (_event, next) => String(next.text) },
         'message',
         payload,
+        wskit,
         99,
       ),
     ).toMatchObject({
@@ -334,7 +321,9 @@ describe('replay/runtime', () => {
       createdAt: 99,
     });
 
-    expect(stripSnapshotMetadata(payload)).toEqual({ text: 'hello' });
+    expect(
+      JSON.parse(buildReplayRow({ type: 'history' }, 'message', payload, wskit, 99).payload),
+    ).toEqual({ text: 'hello' });
   });
 
   it('persists history rows, supports snapshot reducers, and deletes snapshots on null', () => {
@@ -344,14 +333,13 @@ describe('replay/runtime', () => {
       sql,
       { type: 'history' },
       'message',
-      { text: 'one', _seq: 1, _messageId: 'msg_1' },
+      { text: 'one' },
+      { seq: 1, messageId: 'msg_1' },
       100,
     );
 
     expect(history?.rowKey).toBe('msg_1');
-    expect(rows.get('msg_1')?.payload).toBe(
-      JSON.stringify({ text: 'one', _seq: 1, _messageId: 'msg_1' }),
-    );
+    expect(rows.get('msg_1')?.payload).toBe(JSON.stringify({ text: 'one' }));
 
     persistReplayMessage(
       sql,
@@ -370,7 +358,8 @@ describe('replay/runtime', () => {
         },
       },
       'doc-content-set',
-      { id: 'doc-1', content: 'hello', _seq: 2, _messageId: 'msg_2' },
+      { id: 'doc-1', content: 'hello' },
+      { seq: 2, messageId: 'msg_2' },
       101,
     );
 
@@ -395,7 +384,8 @@ describe('replay/runtime', () => {
         },
       },
       'doc-deleted',
-      { id: 'doc-1', _seq: 3, _messageId: 'msg_3' },
+      { id: 'doc-1' },
+      { seq: 3, messageId: 'msg_3' },
       102,
     );
 
@@ -504,7 +494,7 @@ describe('replay/runtime', () => {
 
     it('returns true when no channel scope is on the request', () => {
       expect(isChannelReplayAuthorized(undefined, {}, undefined)).toBe(true);
-      expect(isChannelReplayAuthorized(makeConnection([]), {}, { since: 0 })).toBe(true);
+      expect(isChannelReplayAuthorized(makeConnection([]), {}, { channelScope: null })).toBe(true);
     });
 
     it('returns false when channel scope is present but no connection is supplied', () => {
@@ -516,20 +506,22 @@ describe('replay/runtime', () => {
     it('returns false when the connection has no membership matching the channel + scope', () => {
       const conn = makeConnection([{ name: 'public', scope: 'rooms' }]);
       expect(
-        isChannelReplayAuthorized(conn, { channelName: 'private' }, { _channelScope: 'rooms' }),
+        isChannelReplayAuthorized(conn, { channelName: 'private' }, { channelScope: 'rooms' }),
       ).toBe(false);
     });
 
     it('returns true when the connection is a member of the requested channel + scope', () => {
       const conn = makeConnection([{ name: 'private', scope: 'rooms' }]);
       expect(
-        isChannelReplayAuthorized(conn, { channelName: 'private' }, { _channelScope: 'rooms' }),
+        isChannelReplayAuthorized(conn, { channelName: 'private' }, { channelScope: 'rooms' }),
       ).toBe(true);
     });
 
-    it('returns true for a static channel membership when the request omits _channelScope', () => {
+    it('returns true for a static channel membership when the request omits channelScope', () => {
       const conn = makeConnection([{ name: 'lobby' }]);
-      expect(isChannelReplayAuthorized(conn, { channelName: 'lobby' }, { since: 0 })).toBe(true);
+      expect(
+        isChannelReplayAuthorized(conn, { channelName: 'lobby' }, { channelScope: null }),
+      ).toBe(true);
     });
   });
 
@@ -619,48 +611,10 @@ describe('assertReplayScopeServable', () => {
   });
 
   it('passes through for channel-level replay regardless of namespace marker', () => {
-    // Resolve order in the engine prevents `_namespace` and `_channel` from
+    // Resolve order in the engine prevents namespace and channel markers from
     // both being set on the same incoming frame, but the helper does not
     // depend on that — channel replay simply does not gate on namespace.
     expect(() => assertReplayScopeServable('rooms', {})).not.toThrow();
     expect(() => assertReplayScopeServable('rooms', { namespaceName: 'admin' })).not.toThrow();
-  });
-});
-
-describe('readReplaySinceCursor', () => {
-  it('returns 0 when since is missing', () => {
-    expect(readReplaySinceCursor(undefined)).toBe(0);
-    expect(readReplaySinceCursor({})).toBe(0);
-    expect(readReplaySinceCursor({ since: undefined })).toBe(0);
-    expect(readReplaySinceCursor({ since: null })).toBe(0);
-  });
-
-  it('returns the cursor when since is a non-negative integer', () => {
-    expect(readReplaySinceCursor({ since: 0 })).toBe(0);
-    expect(readReplaySinceCursor({ since: 42 })).toBe(42);
-  });
-
-  it('throws ValidationFailed for non-integer numbers', () => {
-    for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, 1.5, -1]) {
-      let captured: unknown;
-      try {
-        readReplaySinceCursor({ since: bad });
-      } catch (error) {
-        captured = error;
-      }
-      expect(ValidationFailed.matches(captured)).toBe(true);
-    }
-  });
-
-  it('throws ValidationFailed for non-numeric since', () => {
-    for (const bad of ['abc', '7', true, [], {}]) {
-      let captured: unknown;
-      try {
-        readReplaySinceCursor({ since: bad as unknown as number });
-      } catch (error) {
-        captured = error;
-      }
-      expect(ValidationFailed.matches(captured)).toBe(true);
-    }
   });
 });

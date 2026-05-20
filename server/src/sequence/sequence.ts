@@ -1,4 +1,3 @@
-import { isProtocolEvent } from '~/_engine/compile/utils.ts';
 import { allocatePersistentSequence, ensureSequenceSchema } from '~/sequence/runtime.ts';
 import type { Primitive } from '~/primitive.ts';
 
@@ -54,18 +53,13 @@ export function sequence(options?: SequenceOptions): SequencePrimitive {
           });
         }
 
-        engine.onOutgoing((message) => {
-          // Skip internal protocol events (e.g. `_ack`, `_replay`).
-          if (isProtocolEvent(message.event)) return;
-
+        // Stamp `seq` into every outgoing user frame's `__wskit`. The pipeline
+        // already skips protocol frames before calling stampers.
+        engine.onWskitStamp(() => {
           const nextSeq = persist
             ? allocatePersistentSequence(engine.requireStorage().sql)
             : (current += 1);
-
-          return {
-            ...(message.payload as Record<string, unknown>),
-            _seq: nextSeq,
-          };
+          return { seq: nextSeq };
         });
       });
     },

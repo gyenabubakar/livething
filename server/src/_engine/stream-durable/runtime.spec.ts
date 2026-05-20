@@ -218,7 +218,11 @@ function createConnection(id = 'c1', identity = 'u1'): RuntimeConnection {
 }
 
 function createRuntime(sqlInstance: ReturnType<typeof makeSql>) {
-  const protocolMessages: { event: string; payload: Record<string, unknown> }[] = [];
+  const protocolMessages: {
+    event: string;
+    payload: Record<string, unknown>;
+    wskit: Record<string, unknown>;
+  }[] = [];
   const pipelineSends: { event: string; payload: unknown; routing: unknown }[] = [];
   let nextStreamId = 0;
 
@@ -237,8 +241,9 @@ function createRuntime(sqlInstance: ReturnType<typeof makeSql>) {
       _conn: RuntimeConnection,
       event: string,
       payload: Record<string, unknown>,
+      wskit: Record<string, unknown>,
     ) => {
-      protocolMessages.push({ event, payload });
+      protocolMessages.push({ event, payload, wskit });
     },
     sendThroughPipeline: (
       _conn: RuntimeConnection,
@@ -284,7 +289,7 @@ function baseDef(overrides: Partial<DurableStreamRuntimeDef> = {}): DurableStrea
 
 // ---------- tests ----------
 describe('durable stream runtime', () => {
-  it('recorded stream — completes cleanly, marks the row ended, sends _streamEnd', async () => {
+  it('recorded stream — completes cleanly, marks the row ended, sends __streamEnd__', async () => {
     const sql = makeSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime, protocolMessages } = createRuntime(sql);
@@ -305,9 +310,9 @@ describe('durable stream runtime', () => {
       undefined,
     );
 
-    expect(protocolMessages.find((m) => m.event === '_streamOk')).toBeDefined();
-    const end = protocolMessages.find((m) => m.event === '_streamEnd');
-    expect(end?.payload._seq).toBe(2);
+    expect(protocolMessages.find((m) => m.event === '__streamOk__')).toBeDefined();
+    const end = protocolMessages.find((m) => m.event === '__streamEnd__');
+    expect(end?.wskit.seq).toBe(2);
 
     const row = Storage.readStream(sql, 'u1', 'gen-1');
     expect(row?.status).toBe('ended');
@@ -350,8 +355,8 @@ describe('durable stream runtime', () => {
     // The buffer holds at most `maxChunks` chunks after trim.
     const chunkRows = Storage.readChunksSince(sql, 'u1', 'gen-1', 0);
     expect(chunkRows.length).toBeLessThanOrEqual(2);
-    // The dev caught the error and returned cleanly — _streamEnd fires.
-    expect(protocolMessages.find((m) => m.event === '_streamEnd')).toBeDefined();
+    // The dev caught the error and returned cleanly — __streamEnd__ fires.
+    expect(protocolMessages.find((m) => m.event === '__streamEnd__')).toBeDefined();
   });
 
   it('cancelDurableStream — deletes row + chunks immediately', async () => {
@@ -392,10 +397,10 @@ describe('durable stream runtime', () => {
 
     await resumeDurableStream(runtime as never, connection, () => undefined, null, 'missing', 0);
 
-    const err = protocolMessages.find((m) => m.event === '_error');
+    const err = protocolMessages.find((m) => m.event === '__error__');
     expect(err?.payload.code).toBe('stream-aborted');
     expect((err?.payload.detail as { reason: string } | undefined)?.reason).toBe('not-found');
-    expect(err?.payload._streamId).toBe('missing');
+    expect(err?.wskit.streamId).toBe('missing');
   });
 
   it('resumeDurableStream — closes any in-flight generator for the same id and proceeds', async () => {
@@ -441,10 +446,10 @@ describe('durable stream runtime', () => {
     );
 
     // The stale entry was asked to close; resume continued with a fresh
-    // generator run. No _error frame, and a _streamOk was sent for the
+    // generator run. No __error__ frame, and a __streamOk__ was sent for the
     // re-invocation.
-    expect(protocolMessages.find((m) => m.event === '_error')).toBeUndefined();
-    expect(protocolMessages.find((m) => m.event === '_streamOk')).toBeDefined();
+    expect(protocolMessages.find((m) => m.event === '__error__')).toBeUndefined();
+    expect(protocolMessages.find((m) => m.event === '__streamOk__')).toBeDefined();
     expect(returnSpy).toHaveBeenCalled();
   });
 
@@ -486,8 +491,8 @@ describe('durable stream runtime', () => {
     );
 
     const replayed = protocolMessages.filter((m) => m.event === 'e');
-    expect(replayed.map((m) => m.payload._seq)).toEqual([3, 4, 5]);
-    expect(protocolMessages.find((m) => m.event === '_streamEnd')).toBeDefined();
+    expect(replayed.map((m) => m.wskit.seq)).toEqual([3, 4, 5]);
+    expect(protocolMessages.find((m) => m.event === '__streamEnd__')).toBeDefined();
   });
 
   it('resumeDurableStream — resumable stream re-invokes the generator with the saved cursor', async () => {
@@ -534,7 +539,7 @@ describe('durable stream runtime', () => {
     expect(sent[1]).toMatchObject({ i: 6 });
   });
 
-  it('resumeDurableStream — resumed run continues _seq from row.lastSeq, not from 1', async () => {
+  it('resumeDurableStream — resumed run continues seq from row.lastSeq, not from 1', async () => {
     const sql = makeSql();
     Storage.ensureDurableStreamSchema(sql);
     const { runtime, pipelineSends } = createRuntime(sql);
@@ -604,7 +609,7 @@ describe('durable stream runtime', () => {
       0,
     );
 
-    const err = protocolMessages.find((m) => m.event === '_error');
+    const err = protocolMessages.find((m) => m.event === '__error__');
     expect(err?.payload.code).toBe('stream-aborted');
     expect((err?.payload.detail as { reason: string } | undefined)?.reason).toBe('expired');
     expect(Storage.readStream(sql, 'u1', 's-old')).toBeNull();
@@ -637,7 +642,7 @@ describe('durable stream runtime', () => {
       0,
     );
 
-    const err = protocolMessages.find((m) => m.event === '_error');
+    const err = protocolMessages.find((m) => m.event === '__error__');
     expect(err?.payload.code).toBe('stream-aborted');
     expect((err?.payload.detail as { reason: string } | undefined)?.reason).toBe('not-found');
     expect(Storage.readStream(sql, 'u1', 's-ended-old')).toBeNull();
@@ -734,14 +739,14 @@ describe('durable stream runtime', () => {
       4,
     );
 
-    const err = protocolMessages.find((m) => m.event === '_error');
+    const err = protocolMessages.find((m) => m.event === '__error__');
     expect(err?.payload.code).toBe('stream-aborted');
     expect((err?.payload.detail as { reason: string } | undefined)?.reason).toBe('cursor-invalid');
-    expect(err?.payload._streamId).toBe('s-bad');
-    // Generator never ran, no chunks went out, no _streamOk frame either.
+    expect(err?.wskit.streamId).toBe('s-bad');
+    // Generator never ran, no chunks went out, no __streamOk__ frame either.
     expect(generatorSpy).not.toHaveBeenCalled();
     expect(pipelineSends).toHaveLength(0);
-    expect(protocolMessages.find((m) => m.event === '_streamOk')).toBeUndefined();
+    expect(protocolMessages.find((m) => m.event === '__streamOk__')).toBeUndefined();
   });
 
   it('ctx.stream.attempt — is 1 on first run', async () => {
@@ -933,8 +938,8 @@ describe('durable stream runtime', () => {
     // routing arg, not the payload). One pipeline send per chunk per
     // recipient: 2 chunks × 2 recipients = 4 sends.
     expect(pipelineSends.filter((p) => p.event === 'e')).toHaveLength(4);
-    // The closing _streamEnd is sent via sendProtocolMessage to each peer.
-    expect(protocolMessages.filter((m) => m.event === '_streamEnd')).toHaveLength(2);
+    // The closing __streamEnd__ is sent via sendProtocolMessage to each peer.
+    expect(protocolMessages.filter((m) => m.event === '__streamEnd__')).toHaveLength(2);
   });
 
   it('broadcast recordedStream — late joiner resume replays from the scope-keyed buffer', async () => {
@@ -984,10 +989,10 @@ describe('durable stream runtime', () => {
     );
 
     const replayed = protocolMessages.filter((m) => m.event === 'e');
-    expect(replayed.map((m) => m.payload._seq)).toEqual([2, 3]);
-    // Active broadcast — no _streamEnd from the resumer (the generator is
+    expect(replayed.map((m) => m.wskit.seq)).toEqual([2, 3]);
+    // Active broadcast — no __streamEnd__ from the resumer (the generator is
     // still running on the creator's connection in a real run).
-    expect(protocolMessages.find((m) => m.event === '_streamEnd')).toBeUndefined();
+    expect(protocolMessages.find((m) => m.event === '__streamEnd__')).toBeUndefined();
   });
 
   it('broadcast resumableStream — chunks land in buffer + cursor advances on each yield', async () => {
@@ -1080,10 +1085,10 @@ describe('durable stream runtime', () => {
     );
 
     const replayed = protocolMessages.filter((m) => m.event === 'e');
-    expect(replayed.map((m) => m.payload._seq)).toEqual([1, 2]);
-    // Peer never reaches the generator — no pipeline sends, no _streamEnd.
+    expect(replayed.map((m) => m.wskit.seq)).toEqual([1, 2]);
+    // Peer never reaches the generator — no pipeline sends, no __streamEnd__.
     expect(pipelineSends.filter((p) => p.event === 'e')).toHaveLength(0);
-    expect(protocolMessages.find((m) => m.event === '_streamEnd')).toBeUndefined();
+    expect(protocolMessages.find((m) => m.event === '__streamEnd__')).toBeUndefined();
   });
 
   it('broadcast cancel — non-creator unsubscribes self, source keeps running', async () => {
@@ -1163,7 +1168,7 @@ describe('durable stream runtime', () => {
       0,
     );
 
-    const err = protocolMessages.find((m) => m.event === '_error');
+    const err = protocolMessages.find((m) => m.event === '__error__');
     expect((err?.payload.detail as { reason: string } | undefined)?.reason).toBe('unsubscribed');
   });
 
@@ -1269,13 +1274,13 @@ describe('durable stream runtime', () => {
       0,
     );
 
-    // Adopt sent _streamOk + replayed both buffered chunks to the new wire.
+    // Adopt sent __streamOk__ + replayed both buffered chunks to the new wire.
     const okFrames = protocolMessages.filter(
-      (m) => m.event === '_streamOk' && m.payload._streamId === live.id,
+      (m) => m.event === '__streamOk__' && m.wskit.streamId === live.id,
     );
     expect(okFrames.length).toBeGreaterThanOrEqual(1);
     const replayed = protocolMessages.filter((m) => m.event === 'e');
-    expect(replayed.map((m) => m.payload._seq)).toEqual([1, 2]);
+    expect(replayed.map((m) => m.wskit.seq)).toEqual([1, 2]);
 
     expect(live.detached).toBe(false);
     expect(live.connection?.id).toBe('c-new');

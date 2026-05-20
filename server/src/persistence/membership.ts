@@ -196,8 +196,8 @@ export async function autoRejoinIdentity(
         };
         return subscribeFromServer(ref, channelName, channelScope, payload, rejoining);
       },
-      sendProtocolMessage: (target, event, payload) =>
-        sendProtocolMessage(core, target, event, payload),
+      sendProtocolMessage: (target, event, payload, wskit) =>
+        sendProtocolMessage(core, target, event, payload, wskit),
       logger: core.logger,
     },
     connection,

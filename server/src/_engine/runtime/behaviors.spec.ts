@@ -256,7 +256,7 @@ describe('defer retry behavior', () => {
       },
     });
 
-    await dispatchIncoming(runtime, connection, 'work', {});
+    await dispatchIncoming(runtime, connection, 'work', {}, undefined);
     expect(handler).toHaveBeenCalledTimes(1);
 
     await vi.advanceTimersByTimeAsync(10);
@@ -291,7 +291,7 @@ describe('defer retry behavior', () => {
       },
     });
 
-    await dispatchIncoming(runtime, connection, 'work', { id: 1 });
+    await dispatchIncoming(runtime, connection, 'work', { id: 1 }, undefined);
     // Attempts: 1 (first), then retries 2, 3. After attempt 3 Defer triggers exhausted.
     for (let i = 0; i < 5; i++) {
       await vi.advanceTimersByTimeAsync(1);
@@ -324,7 +324,7 @@ describe('Disconnect thrown from handler', () => {
       connections: new Map([[connection.id, connection]]),
     });
 
-    await dispatchIncoming(runtime, connection, 'evict', {});
+    await dispatchIncoming(runtime, connection, 'evict', {}, undefined);
 
     expect(connection.descriptor.close).toHaveBeenCalledWith(4403, 'banned');
   });
@@ -352,7 +352,7 @@ describe('Block at dispatch', () => {
       handleValidationError: validationError,
     });
 
-    await dispatchIncoming(runtime, connection, 'any', {});
+    await dispatchIncoming(runtime, connection, 'any', {}, undefined);
 
     expect(handler).toHaveBeenCalledTimes(1);
     expect(runtimeError).not.toHaveBeenCalled();
@@ -376,19 +376,7 @@ describe('processTextMessage protocol branches', () => {
     expect(connection.descriptor.send).toHaveBeenCalledWith('pong');
   });
 
-  it('responds to JSON {event:"ping"} with {event:"pong"}', async () => {
-    const connection = createConnection();
-    const runtime = baseDispatchRuntime({
-      connections: new Map([[connection.id, connection]]),
-    });
-    const runtimeWithActivity = { ...runtime, activityHooks: [] } as any;
-
-    await processTextMessage(runtimeWithActivity, connection, JSON.stringify({ event: 'ping' }));
-
-    expect(connection.descriptor.send).toHaveBeenCalledWith(JSON.stringify({ event: 'pong' }));
-  });
-
-  it('cancels an active stream on _streamCancel', async () => {
+  it('cancels an active stream on __streamCancel__', async () => {
     const connection = createConnection();
     const generator = {
       return: vi.fn(async () => ({ value: undefined, done: true as const })),
@@ -414,7 +402,11 @@ describe('processTextMessage protocol branches', () => {
     await processTextMessage(
       runtimeWithActivity,
       connection,
-      JSON.stringify({ event: '_streamCancel', payload: { _streamId: 'stream_1' } }),
+      JSON.stringify({
+        event: '__streamCancel__',
+        payload: {},
+        __wskit: { streamId: 'stream_1' },
+      }),
     );
 
     expect(generator.return).toHaveBeenCalledTimes(1);
@@ -459,7 +451,7 @@ describe('processTextMessage protocol branches', () => {
     }
   });
 
-  it('routes _subscribe failures through handleRuntimeError with channel routing metadata', async () => {
+  it('routes __subscribe__ failures through handleRuntimeError with channel routing metadata', async () => {
     const connection = createConnection();
     const errors: Array<{ error: unknown; event: string | undefined; routing?: unknown }> = [];
 
@@ -478,20 +470,21 @@ describe('processTextMessage protocol branches', () => {
       runtimeWithActivity,
       connection,
       JSON.stringify({
-        event: '_subscribe',
-        payload: { _channel: 'room:general', _channelScope: 'rooms' },
+        event: '__subscribe__',
+        payload: {},
+        __wskit: { channel: 'room:general', channelScope: 'rooms' },
       }),
     );
 
     expect(errors).toHaveLength(1);
-    expect(errors[0]!.event).toBe('_subscribe');
+    expect(errors[0]!.event).toBe('__subscribe__');
     expect(errors[0]!.routing).toEqual({
-      _channel: 'room:general',
-      _channelScope: 'rooms',
+      channel: 'room:general',
+      channelScope: 'rooms',
     });
   });
 
-  it('routes _unsubscribe failures through handleRuntimeError with channel routing metadata', async () => {
+  it('routes __unsubscribe__ failures through handleRuntimeError with channel routing metadata', async () => {
     const connection = createConnection();
     const errors: Array<{ error: unknown; event: string | undefined; routing?: unknown }> = [];
 
@@ -510,16 +503,17 @@ describe('processTextMessage protocol branches', () => {
       runtimeWithActivity,
       connection,
       JSON.stringify({
-        event: '_unsubscribe',
-        payload: { _channel: 'room:general', _channelScope: 'rooms' },
+        event: '__unsubscribe__',
+        payload: {},
+        __wskit: { channel: 'room:general', channelScope: 'rooms' },
       }),
     );
 
     expect(errors).toHaveLength(1);
-    expect(errors[0]!.event).toBe('_unsubscribe');
+    expect(errors[0]!.event).toBe('__unsubscribe__');
     expect(errors[0]!.routing).toEqual({
-      _channel: 'room:general',
-      _channelScope: 'rooms',
+      channel: 'room:general',
+      channelScope: 'rooms',
     });
     expect((errors[0]!.error as { code?: string }).code).toBe('channel-not-subscribed');
   });
@@ -612,6 +606,7 @@ describe('onAfterSend async rejection', () => {
         moduleRuntimes: [],
         outgoingHooks: [],
         beforeSendHooks: [],
+        wskitStampHooks: [],
         afterSendHooks: [() => Promise.reject(new Error('persist failed'))],
         waitUntil(promise) {
           waitUntilTasks.push(promise);

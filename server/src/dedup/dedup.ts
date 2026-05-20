@@ -1,4 +1,3 @@
-import { isProtocolEvent } from '~/_engine/compile/utils.ts';
 import type { Primitive } from '~/primitive.ts';
 
 /** The TypeScript type returned by `dedup()`. */
@@ -8,7 +7,7 @@ export interface DedupPrimitive extends Primitive<'dedup'> {}
 const DEDUP_KEY = Symbol('dedup');
 
 /**
- * The default number of recent incoming `_messageId` values remembered per
+ * The default number of recent incoming `messageId` values remembered per
  * connection. Chosen to cover realistic burst retry scenarios (a few seconds
  * of client retries under flaky networks) without growing memory unbounded.
  */
@@ -36,15 +35,9 @@ export function dedup(): DedupPrimitive {
       engine.installOnce(DEDUP_KEY, () => {
         engine.enableIncomingDedup(DEDUP_DEFAULT_INCOMING_CAP);
 
-        engine.onOutgoing((message) => {
-          // Skip internal protocol events (e.g. `_ack`, `_replay`).
-          if (isProtocolEvent(message.event)) return;
-
-          return {
-            ...(message.payload as Record<string, unknown>),
-            _messageId: engine.generateId('msg'),
-          };
-        });
+        // Stamp `messageId` into every outgoing user frame's `__wskit`. The
+        // pipeline already skips protocol frames before calling stampers.
+        engine.onWskitStamp(() => ({ messageId: engine.generateId('msg') }));
       });
     },
   };

@@ -42,6 +42,9 @@ export function createEngineAccess(
     onOutgoing: (handler) => {
       core.hooks.outgoing.push(handler);
     },
+    onWskitStamp: (handler) => {
+      core.hooks.wskitStamp.push(handler);
+    },
     onBeforeSend: (handler) => {
       core.hooks.beforeSend.push(handler);
     },
@@ -183,7 +186,6 @@ export function createEngineAccess(
     },
     assertReplaySendContract: (event, payload, routing) => {
       OutgoingRuntime.assertPayloadRecord(payload);
-      OutgoingRuntime.assertNoReservedPayloadFields(payload);
       if (!OutgoingRuntime.isDeclaredOutgoingEvent(core.compiled, event, routing)) {
         throw new Error(`[wskit] Outgoing event "${event}" was not declared in the active scope.`);
       }
@@ -191,7 +193,7 @@ export function createEngineAccess(
     sendAck: (connectionId) => {
       const connection = core.connections.get(connectionId);
       if (!connection?.activeAckId) return;
-      sendProtocolMessage(core, connection, '_ack', { _ackId: connection.activeAckId });
+      sendProtocolMessage(core, connection, '__ack__', {}, { ackId: connection.activeAckId });
     },
     rescheduleAlarm: () => deps.rescheduleAlarm(),
     generateId: (prefix) => core.generateId(prefix),
@@ -201,7 +203,7 @@ export function createEngineAccess(
     rawSend: (connectionId, event, payload) => {
       const connection = core.connections.get(connectionId);
       if (!connection) return;
-      sendProtocolMessage(core, connection, event, payload as Record<string, unknown>);
+      sendProtocolMessage(core, connection, event, payload as Record<string, unknown>, {});
     },
   };
 }

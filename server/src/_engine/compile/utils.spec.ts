@@ -3,7 +3,7 @@ import { WskitError } from '@wskit/core';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { stripProtocolFields, validateValue } from './utils.ts';
+import { validateValue } from './utils.ts';
 
 describe('validateValue — StandardSchema duck-type detection', () => {
   describe('valibot schema', () => {
@@ -69,59 +69,5 @@ describe('validateValue — StandardSchema duck-type detection', () => {
     it('passes value through unchanged when validator is null', () => {
       expect(validateValue(null, 'hello', 'test-event')).toBe('hello');
     });
-  });
-});
-
-describe('stripProtocolFields', () => {
-  it('removes the eight reserved transport keys', () => {
-    expect(
-      stripProtocolFields({
-        text: 'hi',
-        _channel: 'rooms',
-        _channelScope: 'rooms',
-        _namespace: 'admin',
-        _correlationId: 'corr',
-        _ackId: 'ack',
-        _messageId: 'mid',
-        _seq: 5,
-        _streamId: 'stream',
-      }),
-    ).toEqual({ text: 'hi' });
-  });
-
-  it('leaves regular keys (and underscore-suffixed keys with no leading underscore semantics) untouched', () => {
-    expect(stripProtocolFields({ a: 1, b: 'x', nested: { _channel: 'no-strip' } })).toEqual({
-      a: 1,
-      b: 'x',
-      nested: { _channel: 'no-strip' },
-    });
-  });
-
-  it('returns primitives, arrays, null, and undefined unchanged', () => {
-    expect(stripProtocolFields(undefined)).toBeUndefined();
-    expect(stripProtocolFields(null)).toBeNull();
-    expect(stripProtocolFields(42)).toBe(42);
-    expect(stripProtocolFields('text')).toBe('text');
-    const arr = [1, 2, 3];
-    expect(stripProtocolFields(arr)).toBe(arr);
-  });
-
-  it('returns a clone, not the original object', () => {
-    const original = { text: 'hi', _channel: 'foo' };
-    const cleaned = stripProtocolFields(original) as Record<string, unknown>;
-    expect(cleaned).not.toBe(original);
-    expect(original._channel).toBe('foo');
-  });
-
-  it('does not let an attacker poison the cleaned object via a __proto__ key', () => {
-    const malicious = JSON.parse('{"__proto__":{"role":"admin","isAdmin":true},"msg":"hi"}');
-    expect(Object.prototype.hasOwnProperty.call(malicious, '__proto__')).toBe(true);
-
-    const cleaned = stripProtocolFields(malicious) as Record<string, unknown>;
-
-    expect(Object.getPrototypeOf(cleaned)).toBe(Object.prototype);
-    expect((cleaned as { role?: string }).role).toBeUndefined();
-    expect((cleaned as { isAdmin?: boolean }).isAdmin).toBeUndefined();
-    expect(cleaned).toEqual({ msg: 'hi' });
   });
 });

@@ -36,7 +36,7 @@ describe('channels.kick end-to-end', () => {
     banned.tags.ephemeral.set('user', new Set(['troll']));
     alsoBanned.tags.ephemeral.set('user', new Set(['troll']));
 
-    const protocol: { connectionId: string; event: string; payload: any }[] = [];
+    const protocol: { connectionId: string; event: string; payload: any; wskit: any }[] = [];
     const broadcasts: {
       channelName: string;
       event: string;
@@ -96,8 +96,13 @@ describe('channels.kick end-to-end', () => {
         return { id: c.id };
       },
       persistAttachment() {},
-      sendProtocolMessage(c: ReturnType<typeof createConnection>, event: string, payload: any) {
-        protocol.push({ connectionId: c.id, event, payload });
+      sendProtocolMessage(
+        c: ReturnType<typeof createConnection>,
+        event: string,
+        payload: any,
+        wskit: any,
+      ) {
+        protocol.push({ connectionId: c.id, event, payload, wskit });
       },
       broadcastToChannel(
         channelName: string,
@@ -125,12 +130,13 @@ describe('channels.kick end-to-end', () => {
       null,
     );
 
-    const kicked = protocol.filter((p) => p.event === '_kicked');
+    const kicked = protocol.filter((p) => p.event === '__kicked__');
     expect(kicked).toHaveLength(2);
     expect(kicked.every((p) => p.payload.reason === 'spam')).toBe(true);
+    expect(kicked.every((p) => p.wskit.channel === 'room:general')).toBe(true);
     expect(new Set(kicked.map((p) => p.connectionId))).toEqual(new Set(['banned', 'also_banned']));
 
-    const memberLeaves = broadcasts.filter((b) => b.event === '_memberLeave');
+    const memberLeaves = broadcasts.filter((b) => b.event === '__memberLeave__');
     expect(memberLeaves).toHaveLength(2);
     expect(new Set(memberLeaves.map((b) => b.excludeConnectionId))).toEqual(
       new Set(['banned', 'also_banned']),

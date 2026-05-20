@@ -44,6 +44,7 @@ function createRuntime(overrides: Partial<OutgoingRuntime> = {}): OutgoingRuntim
     } as unknown as OutgoingRuntime['compiled'],
     moduleRuntimes: [],
     outgoingHooks: [],
+    wskitStampHooks: [],
     beforeSendHooks: [],
     afterSendHooks: [],
     waitUntil() {},
@@ -84,94 +85,8 @@ describe('outgoing/runtime sendThroughPipeline', () => {
     ).toThrow(/plain object/);
   });
 
-  it('rejects user-set reserved keys', () => {
-    const runtime = createRuntime();
-    const connection = createConnection();
-
-    expect(() => sendThroughPipeline(runtime, connection, undefined, 'foo', { _seq: 99 })).toThrow(
-      /reserved for the engine/,
-    );
-  });
-
-  it('rejects new reserved keys added by hooks', () => {
+  it('lets a module add its own keys to the payload', () => {
     const runtime = createRuntime({
-      moduleRuntimes: [
-        {
-          onOutgoing: (message: { event: string; payload: unknown }) => ({
-            ...(message.payload as Record<string, unknown>),
-            _x: 'leak',
-          }),
-        } as unknown as OutgoingRuntime['moduleRuntimes'][number],
-      ],
-    });
-    const connection = createConnection();
-
-    expect(() => sendThroughPipeline(runtime, connection, undefined, 'foo', { a: 1 })).toThrow(
-      /reserved for the engine/,
-    );
-  });
-
-  it('rejects a module that rewrites the value of a reserved key written by an engine hook', () => {
-    // Pre-fix the post-module check only compared key sets. A module that
-    // returned `{ ...payload, _seq: 1 }` kept the same keys and slipped
-    // through, sending a corrupt sequence number to the wire and into
-    // replay storage. The check now snapshots values too.
-    const runtime = createRuntime({
-      outgoingHooks: [
-        (message: { event: string; payload: unknown }) => ({
-          ...(message.payload as Record<string, unknown>),
-          _seq: 42,
-        }),
-      ],
-      moduleRuntimes: [
-        {
-          onOutgoing: (message: { event: string; payload: unknown }) => ({
-            ...(message.payload as Record<string, unknown>),
-            _seq: 1, // module tries to overwrite the engine-owned value
-          }),
-        } as unknown as OutgoingRuntime['moduleRuntimes'][number],
-      ],
-    });
-    const connection = createConnection();
-
-    expect(() => sendThroughPipeline(runtime, connection, undefined, 'foo', { a: 1 })).toThrow(
-      /reserved for the engine/,
-    );
-  });
-
-  it('rejects a module that drops a reserved key written by an engine hook', () => {
-    const runtime = createRuntime({
-      outgoingHooks: [
-        (message: { event: string; payload: unknown }) => ({
-          ...(message.payload as Record<string, unknown>),
-          _seq: 42,
-        }),
-      ],
-      moduleRuntimes: [
-        {
-          onOutgoing: (message: { event: string; payload: unknown }) => {
-            const next = { ...(message.payload as Record<string, unknown>) };
-            delete next._seq;
-            return next;
-          },
-        } as unknown as OutgoingRuntime['moduleRuntimes'][number],
-      ],
-    });
-    const connection = createConnection();
-
-    expect(() => sendThroughPipeline(runtime, connection, undefined, 'foo', { a: 1 })).toThrow(
-      /reserved for the engine/,
-    );
-  });
-
-  it('passes when a module returns the payload with reserved keys preserved unchanged', () => {
-    const runtime = createRuntime({
-      outgoingHooks: [
-        (message: { event: string; payload: unknown }) => ({
-          ...(message.payload as Record<string, unknown>),
-          _seq: 42,
-        }),
-      ],
       moduleRuntimes: [
         {
           onOutgoing: (message: { event: string; payload: unknown }) => ({
@@ -199,7 +114,7 @@ describe('outgoing/runtime sendThroughPipeline', () => {
     const sent = JSON.parse(
       (connection.descriptor.send as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string,
     );
-    expect(sent).toEqual({ event: 'foo', payload: { a: 1 } });
+    expect(sent).toEqual({ event: 'foo', payload: { a: 1 }, __wskit: {} });
   });
 
   it('throws when the outgoing event was not declared in the active scope', () => {

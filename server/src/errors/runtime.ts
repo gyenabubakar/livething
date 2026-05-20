@@ -1,8 +1,9 @@
 import { InternalError, WskitError } from '@wskit/core';
+import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { ResolvedScope, RuntimeConnection } from '~/_engine/runtime/types.ts';
 
 /**
- * Runtime surface for sending normalised `_error` messages.
+ * Runtime surface for sending normalised `__error__` frames.
  */
 interface RuntimeErrorDeps {
   buildConnectionContext(
@@ -10,12 +11,11 @@ interface RuntimeErrorDeps {
     scope?: ResolvedScope,
   ): Record<PropertyKey, unknown>;
   /**
-   * Resolve a scope from the wire routing markers carried alongside a runtime
-   * error. The engine looks up `_namespace`, `_channel`, and `_channelScope`
-   * against the compiled handler so the hook context can carry `ctx.namespace`
-   * or `ctx.channel`. Returns undefined when no scope can be derived.
+   * Resolve a scope from the `__wskit` routing markers carried alongside a
+   * runtime error so the hook context can carry `ctx.namespace` or
+   * `ctx.channel`. Returns undefined when no scope can be derived.
    */
-  resolveScopeFromRouting?(routing: Record<string, unknown>): ResolvedScope | undefined;
+  resolveScopeFromRouting?(routing: Protocol.WskitRouting): ResolvedScope | undefined;
   declaredErrorCodes: ReadonlySet<string>;
   errorHooks: readonly ((ctx: unknown, error: unknown, event?: string) => void | Promise<void>)[];
   logger: {
@@ -26,6 +26,7 @@ interface RuntimeErrorDeps {
     connection: RuntimeConnection,
     event: string,
     payload: Record<string, unknown>,
+    wskit: Record<string, unknown>,
   ): void;
 }
 
@@ -45,30 +46,34 @@ interface ValidationErrorDeps {
 }
 
 /**
- * Convert any thrown value into the wire payload used by wskit's `_error`
- * protocol event.
+ * Split a thrown value into the `payload` and `__wskit` halves of wskit's
+ * `__error__` protocol frame. `payload` carries `code` (and `detail` when the
+ * error has one); `__wskit` carries the routing markers so the client can
+ * correlate the failure with its pending operation.
  */
-export function normalizeRuntimeErrorPayload(
+export function normalizeRuntimeError(
   error: unknown,
-  routing?: Record<string, unknown>,
-): Record<string, unknown> {
+  routing?: Protocol.WskitRouting,
+): { payload: Record<string, unknown>; wskit: Record<string, unknown> } {
+  const wskit: Record<string, unknown> = { ...(routing ?? {}) };
+
   if (error instanceof WskitError) {
-    return { code: error.code, detail: error.detail, ...routing };
+    return { payload: { code: error.code, detail: error.detail }, wskit };
   }
 
-  return { code: InternalError.code, ...routing };
+  return { payload: { code: InternalError.code }, wskit };
 }
 
 /**
  * Run `onError(...)` hooks for internal errors, then send the normalized
- * `_error` protocol message to the client.
+ * `__error__` protocol frame to the client.
  */
 export async function sendRuntimeError(
   deps: RuntimeErrorDeps,
   connection: RuntimeConnection,
   error: unknown,
   event?: string,
-  routing?: Record<string, unknown>,
+  routing?: Protocol.WskitRouting,
 ): Promise<void> {
   if (error instanceof WskitError && !deps.declaredErrorCodes.has(error.code)) {
     deps.logger.warn('[wskit] Thrown WskitError was not declared with errors(...)', {
@@ -83,25 +88,26 @@ export async function sendRuntimeError(
     try {
       await hook(ctx, error, event);
     } catch (hookError) {
-      // A throwing hook must never block the `_error` frame from reaching the
-      // client — otherwise request Promises hang and stream onError callbacks
-      // never fire. Hooks are observational; isolate failures here and
-      // continue to the remaining hooks plus the protocol send below.
-      deps.logger.error('[wskit] onError hook threw; sending _error to client anyway', {
+      // A throwing hook must never block the `__error__` frame from reaching
+      // the client — otherwise request Promises hang and stream onError
+      // callbacks never fire. Hooks are observational; isolate failures here
+      // and continue to the remaining hooks plus the protocol send below.
+      deps.logger.error('[wskit] onError hook threw; sending __error__ to client anyway', {
         event,
         error: hookError instanceof Error ? hookError.message : String(hookError),
       });
     }
   }
 
-  deps.sendProtocolMessage(connection, '_error', normalizeRuntimeErrorPayload(error, routing));
+  const { payload, wskit } = normalizeRuntimeError(error, routing);
+  deps.sendProtocolMessage(connection, '__error__', payload, wskit);
 }
 
 /**
  * Notify `onValidationError(...)` hooks for one failed incoming payload.
  *
- * This does not decide whether the client receives `_error`; it only tells the
- * registered validation hooks that validation failed.
+ * This does not decide whether the client receives `__error__`; it only tells
+ * the registered validation hooks that validation failed.
  */
 export async function notifyValidationError(
   deps: ValidationErrorDeps,

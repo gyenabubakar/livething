@@ -7,11 +7,10 @@ import {
   isChannelReplayAuthorized,
   matchesReplayScope,
   readReplayContextScope,
-  readReplaySinceCursor,
   shouldStoreReplayMessage,
 } from '~/replay/runtime.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
-import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
+import type { RuntimeConnection, WireOutgoingMessage } from '~/_engine/runtime/types.ts';
 import type { KVProvider, Logger, SQLProvider } from '~/context.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { ReplayWire } from '../wire.ts';
@@ -236,74 +235,40 @@ export interface CustomReplayPrimitive<
 const CUSTOM_REPLAY_KEY = Symbol('custom-replay');
 
 /**
- * Converts a raw internal outgoing message (which still has `_seq`,
- * `_messageId`, etc. on the payload) into the clean `OutgoingWireMessage<'top'>`
- * shape that the developer's `onBeforeSend` / `onAfterSend` hooks receive.
- *
- * Uses JSON round-trip to produce a completely plain object — no prototype chain,
- * no undefined values, no references to internal data.
+ * Shape one outgoing wire message into the `OutgoingWireMessage<'top'>` the
+ * developer's `onBeforeSend` / `onAfterSend` hooks receive. The wire metadata
+ * comes from the frame's `__wskit`; the payload is already pure user data.
  */
-function toTopLevelWireMessage(message: {
-  event: string;
-  payload: Record<string, unknown>;
-}): OutgoingWireMessage<'top'> {
-  const channel = typeof message.payload._channel === 'string' ? message.payload._channel : null;
-  const channelScope =
-    typeof message.payload._channelScope === 'string' ? message.payload._channelScope : null;
-  // JSON.stringify drops undefined values; encode + decode preserves the
-  // explicit nulls so consumers always see channel/channelScope keys.
-  const stringified = JSON.stringify({
+function toTopLevelWireMessage(message: WireOutgoingMessage): OutgoingWireMessage<'top'> {
+  return {
     event: message.event,
-    payload: Object.fromEntries(
-      Object.entries(message.payload).filter(([key]) => !key.startsWith('_')),
-    ),
+    payload: message.payload,
     wire: {
-      seq: message.payload._seq,
-      messageId: message.payload._messageId,
-      channel,
-      channelScope,
+      seq: Number(message.wskit.seq),
+      messageId: String(message.wskit.messageId),
+      channel: typeof message.wskit.channel === 'string' ? message.wskit.channel : null,
+      channelScope:
+        typeof message.wskit.channelScope === 'string' ? message.wskit.channelScope : null,
     },
-  });
-  const parsed = JSON.parse(stringified) as OutgoingWireMessage<'top'> & {
-    wire: { channel: string | null; channelScope: string | null };
   };
-  parsed.wire.channel = channel;
-  parsed.wire.channelScope = channelScope;
-  return parsed;
 }
 
 /**
- * Same as `toTopLevelWireMessage` but for channel-scoped messages. Adds
- * `channel` and `channelScope` to the `wire` object from the internal payload.
+ * Same as `toTopLevelWireMessage` but for channel-scoped messages — `channel`
+ * is always present.
  */
-function toChannelWireMessage(message: {
-  event: string;
-  payload: Record<string, unknown>;
-}): OutgoingWireMessage<'channel'> {
-  // JSON.stringify drops `undefined` values; force the explicit `null` so
-  // static-channel messages keep `channelScope: null` after the round-trip
-  // instead of dropping the key entirely.
-  const channelScope =
-    typeof message.payload._channelScope === 'string' ? message.payload._channelScope : null;
-  const stringified = JSON.stringify({
+function toChannelWireMessage(message: WireOutgoingMessage): OutgoingWireMessage<'channel'> {
+  return {
     event: message.event,
-    payload: Object.fromEntries(
-      Object.entries(message.payload).filter(([key]) => !key.startsWith('_')),
-    ),
+    payload: message.payload,
     wire: {
-      seq: message.payload._seq,
-      messageId: message.payload._messageId,
-      channel: message.payload._channel,
-      channelScope,
+      seq: Number(message.wskit.seq),
+      messageId: String(message.wskit.messageId),
+      channel: String(message.wskit.channel),
+      channelScope:
+        typeof message.wskit.channelScope === 'string' ? message.wskit.channelScope : null,
     },
-  });
-  const parsed = JSON.parse(stringified) as OutgoingWireMessage<'channel'> & {
-    wire: { channelScope: string | null };
   };
-  if (parsed.wire.channelScope === undefined) {
-    (parsed.wire as { channelScope: string | null }).channelScope = null;
-  }
-  return parsed;
 }
 
 /**
@@ -421,7 +386,7 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
             !shouldStoreReplayMessage(
               channelKey,
               message.event,
-              message.payload,
+              message.wskit,
               new Set(),
               engine.getReplayClaimedChannelKeys(),
             )
@@ -442,7 +407,7 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
             !shouldStoreReplayMessage(
               channelKey,
               message.event,
-              message.payload,
+              message.wskit,
               new Set(),
               engine.getReplayClaimedChannelKeys(),
             )
@@ -457,7 +422,8 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
         });
       }
 
-      engine.onProtocolMessage('_replay', async (ctx, payload) => {
+      engine.onProtocolMessage('__replay__', async (ctx, frame) => {
+        if (frame.event !== '__replay__') return false;
         const baseCtx = ctx as Record<PropertyKey, unknown>;
         const scope = readReplayContextScope(baseCtx);
 
@@ -468,45 +434,33 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
         }
 
         const connection = baseCtx[ENGINE_INTERNAL_CONNECTION] as RuntimeConnection | undefined;
-        // Channel-scoped replay requests — including those landing on the
-        // top-level custom-replay handler when the request carries
-        // `_channel`/`_channelScope` — must verify membership. Otherwise any
-        // connected client can harvest a channel's history by crafting one
-        // replay frame.
-        if (!isChannelReplayAuthorized(connection, scope, payload)) {
+        // Channel-scoped replay requests must verify membership. Otherwise any
+        // connected client could harvest a channel's history with one frame.
+        if (!isChannelReplayAuthorized(connection, scope, frame.__wskit)) {
           return true;
         }
 
         assertReplayScopeServable(channelKey, scope);
 
-        const since = readReplaySinceCursor(payload);
+        const since = frame.payload.lastKnownSeq ?? 0;
 
         if (channelKey && scope.channelName) {
-          // Channel primitive scope: build the channel-shaped context.
-          // Membership keys store the raw wire `_channelScope`; mirror that
-          // here so the context's sendReplay routes through the right scope.
-          const wireChannelScope =
-            typeof payload?._channelScope === 'string' ? payload._channelScope : null;
-
           await opts.onReplay(
             createChannelReplayContext(
               engine,
               baseCtx,
               scope.channelName,
-              wireChannelScope,
+              frame.__wskit.channelScope ?? null,
             ) as ReplayContext<CustomReplayScope>,
             since,
           );
           return true;
         }
 
-        const requestChannel = typeof payload?._channel === 'string' ? payload._channel : null;
-        const requestChannelScope =
-          typeof payload?._channelScope === 'string' ? payload._channelScope : null;
         await opts.onReplay(
           createTopLevelReplayContext(engine, baseCtx, {
-            channel: requestChannel,
-            channelScope: requestChannelScope,
+            channel: frame.__wskit.channel ?? null,
+            channelScope: frame.__wskit.channelScope ?? null,
           }) as ReplayContext<CustomReplayScope>,
           since,
         );

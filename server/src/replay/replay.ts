@@ -10,12 +10,12 @@ import {
   pruneExpiredReplayRows,
   pruneReplayScopeRows,
   readReplayContextScope,
-  readReplayPayloadScope,
-  readReplaySinceCursor,
+  readReplayScope,
   shouldStoreReplayMessage,
 } from '~/replay/runtime.ts';
 import type { EngineAccess } from '~/_engine/access.ts';
-import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
+import type * as Protocol from '~/_engine/runtime/protocol.ts';
+import type { RuntimeConnection, WireOutgoingMessage } from '~/_engine/runtime/types.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { ReplayOptions } from '~/replay/types.ts';
 import type { ReplayWire } from './wire.ts';
@@ -119,7 +119,7 @@ export function replay(options?: ReplayOptions | false): ReplayPrimitive {
         });
       }
 
-      engine.onProtocolMessage('_replay', installer.protocolHandler);
+      engine.onProtocolMessage('__replay__', installer.protocolHandler);
     },
   };
 }
@@ -196,12 +196,12 @@ class ReplayInstaller {
   };
 
   /** Persist one outgoing wire message to the replay table. */
-  persist = (wireMessage: { event: string; payload: Record<string, unknown> }): void => {
+  persist = (wireMessage: WireOutgoingMessage): void => {
     if (
       !shouldStoreReplayMessage(
         this.channelKey,
         wireMessage.event,
-        wireMessage.payload,
+        wireMessage.wskit,
         this.exclude,
         this.engine.getReplayClaimedChannelKeys(),
       )
@@ -214,17 +214,20 @@ class ReplayInstaller {
       this.opts,
       wireMessage.event,
       wireMessage.payload,
+      wireMessage.wskit,
       Date.now(),
     );
     pruneExpiredReplayRows(sql, this.opts.retention, row?.createdAt ?? Date.now());
-    pruneReplayScopeRows(sql, this.opts.retention, readReplayPayloadScope(wireMessage.payload));
+    pruneReplayScopeRows(sql, this.opts.retention, readReplayScope(wireMessage.wskit));
   };
 
-  /** Handle the `_replay` protocol message by resending stored rows to the requester. */
+  /** Handle the `__replay__` protocol frame by resending stored rows to the requester. */
   protocolHandler = async (
     ctx: unknown,
-    payload: Record<string, unknown> | undefined,
+    frame: Protocol.IncomingProtocolFrame,
   ): Promise<boolean> => {
+    if (frame.event !== '__replay__') return false;
+
     const scope = readReplayContextScope(ctx as Record<PropertyKey, unknown>);
     if (!matchesReplayScope(this.channelKey, scope, this.engine.getReplayClaimedChannelKeys())) {
       return false;
@@ -235,14 +238,13 @@ class ReplayInstaller {
     const connection = (ctx as Record<PropertyKey, unknown>)[ENGINE_INTERNAL_CONNECTION] as
       | RuntimeConnection
       | undefined;
-    if (!isChannelReplayAuthorized(connection, scope, payload)) {
-      // Silent ack: a non-member asking for channel replay gets no rows
-      // and no error frame, matching the principle that the server should
-      // not confirm channel existence to non-members.
+    if (!isChannelReplayAuthorized(connection, scope, frame.__wskit)) {
+      // A non-member asking for channel replay gets no rows and no error
+      // frame — the server should not confirm a channel exists to non-members.
       return true;
     }
 
-    const since = readReplaySinceCursor(payload);
+    const since = frame.payload.lastKnownSeq ?? 0;
     const { sql } = this.engine.requireStorage();
     const rows = loadReplayRows(sql, since, {
       channelName: scope.channelName,
@@ -253,13 +255,6 @@ class ReplayInstaller {
 
     for (const row of rows) {
       const rowPayload = JSON.parse(row.payload) as Record<string, unknown>;
-      // Defense-in-depth: rows carrying _correlationId or _streamId never
-      // belong in replay even if a fixture or test harness pre-seeded
-      // them via raw SQL. _correlationId is a private 1:1 response tag,
-      // and _streamId points at one specific running stream that the
-      // requesting connection does not own.
-      if (typeof rowPayload._correlationId === 'string') continue;
-      if (typeof rowPayload._streamId === 'string') continue;
       this.engine.sendReplay(connectionId, row.channel, row.channelScope, row.event, rowPayload, {
         seq: row.seq,
         messageId: row.messageId,

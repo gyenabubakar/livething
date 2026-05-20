@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import * as EngineCompileUtils from '~/_engine/compile/utils.ts';
+import * as Protocol from '~/_engine/runtime/protocol.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
@@ -14,6 +14,11 @@ export interface OutgoingRuntime {
   compiled: EngineCompileTypes.CompiledServer;
   moduleRuntimes: readonly EngineRuntimeTypes.ModuleRuntime[];
   outgoingHooks: readonly ((message: { event: string; payload: unknown }) => unknown | void)[];
+  /**
+   * Contributors of `__wskit` metadata for outgoing user frames — the sequence
+   * number and the dedup id. Skipped for protocol frames.
+   */
+  wskitStampHooks: readonly ((event: string) => Record<string, unknown>)[];
   beforeSendHooks: readonly ((message: EngineRuntimeTypes.WireOutgoingMessage) => void)[];
   afterSendHooks: readonly ((
     message: EngineRuntimeTypes.WireOutgoingMessage,
@@ -32,7 +37,7 @@ export interface OutgoingRuntime {
 function isDeclaredModuleEvent(compiled: CompiledServer, event: string): boolean {
   for (const moduleInstance of compiled.modules) {
     for (const eventName of Object.keys(moduleInstance.outgoing)) {
-      if (EngineCompileUtils.prefixedModuleEvent(moduleInstance.id, eventName) === event) {
+      if (`__${moduleInstance.id}:${eventName}` === event) {
         return true;
       }
     }
@@ -44,19 +49,18 @@ function isDeclaredModuleEvent(compiled: CompiledServer, event: string): boolean
 /**
  * Check whether an outgoing event was declared in the correct scope.
  *
- * Module events (`__`-prefixed) are checked against module declarations.
- * Single-underscore names are reserved for engine protocol traffic — only
- * the engine-known protocol names pass this check; any other `_`-prefixed
- * name fails so future protocol additions stay non-breaking. Everything
- * else must appear in the scope's outgoing or stream maps.
+ * Protocol frames (`__x__`) are engine traffic and always allowed — the engine
+ * fans out `__memberJoin__` and the rest through this pipeline. Module events
+ * (`__moduleId:event`) are checked against module declarations. Everything else
+ * must appear in the scope's outgoing or stream maps.
  */
 export function isDeclaredOutgoingEvent(
   compiled: EngineCompileTypes.CompiledServer,
   event: string,
   routing?: EngineRuntimeTypes.RoutingTarget,
 ): boolean {
+  if (Protocol.isProtocolEventName(event)) return true;
   if (event.startsWith('__')) return isDeclaredModuleEvent(compiled, event);
-  if (event.startsWith('_')) return EngineCompileUtils.isEngineOutgoingProtocolEvent(event);
 
   if (routing?.namespace) {
     const namespace = compiled.namespaces.get(routing.namespace);
@@ -89,52 +93,12 @@ export function isDeclaredOutgoingEvent(
   );
 }
 
-// ───── Section: payload shape + reserved-key checks ─────
+// ───── Section: payload shape check ─────
 
 /** Throw if the payload is not a plain object — arrays and primitives are rejected. */
 export function assertPayloadRecord(payload: unknown): asserts payload is Record<string, unknown> {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
     throw new Error('[wskit] Outgoing payload must be a plain object.');
-  }
-}
-
-/** Throw if any payload key starts with `_` — those are reserved for the engine. */
-export function assertNoReservedPayloadFields(payload: Record<string, unknown>): void {
-  for (const key of Object.keys(payload)) {
-    if (key.startsWith('_')) {
-      throw new Error(
-        '[wskit] Outgoing payload fields starting with "_" are reserved for the engine.',
-      );
-    }
-  }
-}
-
-/**
- * Throw if any `_`-prefixed field on the payload differs from the snapshot
- * captured before module hooks ran — added, removed, or value-changed.
- * Engine `onOutgoing` hooks (sequence, dedup) write reserved fields like
- * `_seq` and `_messageId` first; the snapshot is taken right after, then
- * module hooks run. This check rejects any module attempt to mutate engine
- * wire metadata, not just additions.
- */
-function assertReservedPayloadFieldsUnchanged(
-  payload: Record<string, unknown>,
-  reservedSnapshot: ReadonlyMap<string, unknown>,
-): void {
-  for (const key of Object.keys(payload)) {
-    if (!key.startsWith('_')) continue;
-    if (!reservedSnapshot.has(key) || !Object.is(payload[key], reservedSnapshot.get(key))) {
-      throw new Error(
-        '[wskit] Outgoing payload fields starting with "_" are reserved for the engine.',
-      );
-    }
-  }
-  for (const key of reservedSnapshot.keys()) {
-    if (!(key in payload)) {
-      throw new Error(
-        '[wskit] Outgoing payload fields starting with "_" are reserved for the engine.',
-      );
-    }
   }
 }
 
@@ -145,22 +109,16 @@ function runOutgoingHooks(
   outgoingHooks: OutgoingRuntime['outgoingHooks'],
   moduleRuntimes: readonly EngineRuntimeTypes.ModuleRuntime[],
   message: { event: string; payload: unknown },
-): { message: { event: string; payload: unknown }; allowedReservedFields: ReadonlySet<string> } {
+): { event: string; payload: unknown } {
   let current = message;
 
-  // Hook return value replaces the payload only — the event is already
-  // bound. A hook returning `{ event, payload }` puts the whole object in
-  // `current.payload`; routing fields on the object have no special meaning.
+  // Hook return value replaces the payload only — the event is already bound.
   for (const hook of outgoingHooks) {
     const next = hook(current);
     if (next !== undefined) current = { event: current.event, payload: next };
   }
 
   assertPayloadRecord(current.payload);
-  const reservedSnapshot = new Map<string, unknown>();
-  for (const [key, value] of Object.entries(current.payload)) {
-    if (key.startsWith('_')) reservedSnapshot.set(key, value);
-  }
 
   for (const moduleRuntime of moduleRuntimes) {
     if (!moduleRuntime.onOutgoing) continue;
@@ -169,26 +127,42 @@ function runOutgoingHooks(
   }
 
   assertPayloadRecord(current.payload);
-  assertReservedPayloadFieldsUnchanged(current.payload, reservedSnapshot);
-
-  return { message: current, allowedReservedFields: new Set(reservedSnapshot.keys()) };
+  return current;
 }
 
-/** Attach reserved routing markers (`_namespace`, `_channel`, etc.) onto an outgoing payload. */
-function injectRoutingMarkers(
-  payload: Record<string, unknown>,
+/** Build the `__wskit` block for an outgoing frame from its routing target. */
+function buildWskit(
   routing: EngineRuntimeTypes.RoutingTarget | undefined,
 ): Record<string, unknown> {
-  const finalPayload: Record<string, unknown> = { ...payload };
-  if (routing?.namespace) finalPayload._namespace = routing.namespace;
-  if (routing?.channel) finalPayload._channel = routing.channel;
+  const wskit: Record<string, unknown> = {};
+  if (routing?.namespace) wskit.namespace = routing.namespace;
+  if (routing?.channel) wskit.channel = routing.channel;
   if (routing?.channelScope !== null && routing?.channelScope !== undefined) {
-    finalPayload._channelScope = routing.channelScope;
+    wskit.channelScope = routing.channelScope;
   }
-  if (routing?.correlationId) finalPayload._correlationId = routing.correlationId;
-  if (routing?.streamId) finalPayload._streamId = routing.streamId;
-  if (typeof routing?.seq === 'number') finalPayload._seq = routing.seq;
-  return finalPayload;
+  if (routing?.correlationId) wskit.correlationId = routing.correlationId;
+  if (routing?.streamId) wskit.streamId = routing.streamId;
+  if (typeof routing?.seq === 'number') wskit.seq = routing.seq;
+  return wskit;
+}
+
+/**
+ * Run the sequence/dedup stampers and merge their output into `__wskit`. A
+ * value already set from routing wins — a durable stream's own `seq` is not
+ * overwritten by the global sequence counter.
+ */
+function applyWskitStampers(
+  stampers: OutgoingRuntime['wskitStampHooks'],
+  event: string,
+  wskit: Record<string, unknown>,
+): void {
+  if (Protocol.isProtocolEventName(event)) return;
+  for (const stamp of stampers) {
+    const stamped = stamp(event);
+    for (const [key, value] of Object.entries(stamped)) {
+      if (wskit[key] === undefined) wskit[key] = value;
+    }
+  }
 }
 
 /** Fan out after-send hooks, forwarding async rejections through the engine's waitUntil + logger. */
@@ -218,8 +192,8 @@ function invokeAfterSendHooks(
 // ───── Section: wire send primitives ─────
 
 /**
- * Push one outgoing event through module hooks, declaration checks, and wire
- * metadata injection before sending it to a connection.
+ * Push one outgoing event through module hooks, declaration checks, and
+ * `__wskit` metadata before sending it to a connection.
  */
 export function sendThroughPipeline(
   runtime: OutgoingRuntime,
@@ -229,9 +203,8 @@ export function sendThroughPipeline(
   payload: unknown,
 ): boolean {
   assertPayloadRecord(payload);
-  assertNoReservedPayloadFields(payload);
 
-  const { message } = runOutgoingHooks(runtime.outgoingHooks, runtime.moduleRuntimes, {
+  const message = runOutgoingHooks(runtime.outgoingHooks, runtime.moduleRuntimes, {
     event,
     payload,
   });
@@ -243,12 +216,16 @@ export function sendThroughPipeline(
     );
   }
 
-  const finalPayload = injectRoutingMarkers(message.payload as Record<string, unknown>, routing);
+  const wskit = buildWskit(routing);
+  applyWskitStampers(runtime.wskitStampHooks, message.event, wskit);
+
+  const finalPayload = message.payload as Record<string, unknown>;
 
   const wireMessage: EngineRuntimeTypes.WireOutgoingMessage = {
     connectionId: connection.id,
     event: message.event,
     payload: finalPayload,
+    wskit,
     meta: connection.meta,
   };
 
@@ -256,7 +233,9 @@ export function sendThroughPipeline(
     hook(wireMessage);
   }
 
-  connection.descriptor.send(JSON.stringify({ event: message.event, payload: finalPayload }));
+  connection.descriptor.send(
+    JSON.stringify({ event: message.event, payload: finalPayload, __wskit: wskit }),
+  );
 
   invokeAfterSendHooks(runtime.afterSendHooks, runtime.waitUntil, runtime.logger, wireMessage);
 
@@ -277,6 +256,7 @@ export function broadcastToConnections(
     | 'moduleRuntimes'
     | 'outgoingHooks'
     | 'waitUntil'
+    | 'wskitStampHooks'
   >,
   connections: readonly EngineRuntimeTypes.RuntimeConnection[],
   event: string,
@@ -338,6 +318,7 @@ export function broadcastToChannel(
       | 'moduleRuntimes'
       | 'outgoingHooks'
       | 'waitUntil'
+      | 'wskitStampHooks'
     >,
   channelName: string,
   event: string,

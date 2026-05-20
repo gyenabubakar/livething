@@ -1,39 +1,41 @@
 import { InternalError } from '@wskit/core';
-import { PROTOCOL_PAYLOAD_FIELDS } from '~/_engine/compile/utils.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 
 type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
 
 /**
- * Send an internal protocol message. Skips outgoing validation and decoration.
+ * Send an internal protocol frame. Skips outgoing validation and decoration.
  *
- * If a payload field can't be JSON-serialized (BigInt, circular, function,
- * symbol), log it and send a sanitized `_error` frame instead so the client
- * can still correlate the request or stream.
+ * The frame is `{ event, payload, __wskit }` — `payload` is the protocol
+ * event's own data, `__wskit` is its routing/correlation metadata. If the
+ * frame can't be JSON-serialized (BigInt, circular, function, symbol), log it
+ * and send a sanitized `__error__` frame instead so the client can still
+ * correlate the request or stream.
  */
 export function sendProtocolMessage(
   core: EngineCore,
   connection: RuntimeConnection,
   event: string,
   payload: Record<string, unknown>,
+  wskit: Record<string, unknown>,
 ): void {
   let wire: string;
   try {
-    wire = JSON.stringify({ event, payload });
+    wire = JSON.stringify({ event, payload, __wskit: wskit });
   } catch (error) {
-    core.logger.error('[wskit] Failed to serialize protocol frame; sending fallback _error', {
+    core.logger.error('[wskit] Failed to serialize protocol frame; sending fallback __error__', {
       event,
       error: error instanceof Error ? error.message : String(error),
     });
-    const fallbackPayload: Record<string, unknown> = { code: InternalError.code };
-    for (const key of PROTOCOL_PAYLOAD_FIELDS) {
-      if (key in payload) fallbackPayload[key] = payload[key];
-    }
     try {
-      wire = JSON.stringify({ event: '_error', payload: fallbackPayload });
+      wire = JSON.stringify({
+        event: '__error__',
+        payload: { code: InternalError.code },
+        __wskit: wskit,
+      });
     } catch (fallbackError) {
-      core.logger.error('[wskit] Fallback _error frame also failed to serialize; dropping', {
+      core.logger.error('[wskit] Fallback __error__ frame also failed to serialize; dropping', {
         error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
       });
       return;
@@ -56,32 +58,30 @@ export function sendReplay(
     throw new Error('[wskit] Outgoing payload must be a plain object.');
   }
 
-  const finalPayload: Record<string, unknown> = {
-    ...(payload as Record<string, unknown>),
-    _seq: wire.seq,
-    _messageId: wire.messageId,
-  };
-
   const resolvedChannel = channelName ?? wire.channel ?? null;
-  if (resolvedChannel !== null) finalPayload._channel = resolvedChannel;
-  if (channelScope !== null) finalPayload._channelScope = channelScope;
+  const wskit: Record<string, unknown> = {
+    seq: wire.seq,
+    messageId: wire.messageId,
+  };
+  if (resolvedChannel !== null) wskit.channel = resolvedChannel;
+  if (channelScope !== null) wskit.channelScope = channelScope;
 
   let frame: string;
   try {
-    frame = JSON.stringify({ event, payload: finalPayload });
+    frame = JSON.stringify({ event, payload, __wskit: wskit });
   } catch (error) {
-    core.logger.error('[wskit] Failed to serialize replay frame; sending fallback _error', {
+    core.logger.error('[wskit] Failed to serialize replay frame; sending fallback __error__', {
       event,
       error: error instanceof Error ? error.message : String(error),
     });
-    const fallbackPayload: Record<string, unknown> = { code: InternalError.code };
-    for (const key of PROTOCOL_PAYLOAD_FIELDS) {
-      if (key in finalPayload) fallbackPayload[key] = finalPayload[key];
-    }
     try {
-      frame = JSON.stringify({ event: '_error', payload: fallbackPayload });
+      frame = JSON.stringify({
+        event: '__error__',
+        payload: { code: InternalError.code },
+        __wskit: wskit,
+      });
     } catch (fallbackError) {
-      core.logger.error('[wskit] Fallback _error frame also failed to serialize; dropping', {
+      core.logger.error('[wskit] Fallback __error__ frame also failed to serialize; dropping', {
         error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
       });
       return;

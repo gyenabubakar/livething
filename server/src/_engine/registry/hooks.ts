@@ -6,6 +6,7 @@ export function createRegisteredHooks(): EngineRuntimeTypes.RegisteredEngineHook
     activity: [],
     incoming: [],
     outgoing: [],
+    wskitStamp: [],
     beforeSend: [],
     afterSend: [],
     protocol: new Map(),

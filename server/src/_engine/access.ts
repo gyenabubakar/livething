@@ -1,4 +1,5 @@
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
+import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as ContextApi from '~/context.ts';
 import type * as ErrorsPrimitive from '~/errors/errors.ts';
@@ -59,10 +60,22 @@ export interface EngineAccess {
   onOutgoing(handler: (message: { event: string; payload: unknown }) => unknown | void): void;
 
   /**
+   * Contribute `__wskit` metadata to every outgoing user frame.
+   *
+   * The handler receives the event name and returns a partial `__wskit`
+   * object merged into the frame — used by `sequence()` and `dedup()` to add
+   * `seq` and `messageId`. Skipped for protocol frames. A value already set
+   * from routing (e.g. a durable stream's own `seq`) is not overwritten.
+   *
+   * @internal
+   */
+  onWskitStamp(handler: (event: string) => Record<string, unknown>): void;
+
+  /**
    * Observe one fully prepared outgoing wire message before it is sent.
    *
-   * The payload here already includes engine metadata like `_seq`,
-   * `_messageId`, and any scope routing markers. Throw to stop the send.
+   * The framework metadata — `seq`, `messageId`, scope routing markers — lives
+   * on `message.wskit` by this point. Throw to stop the send.
    */
   onBeforeSend(handler: (message: EngineRuntimeTypes.WireOutgoingMessage) => void): void;
 
@@ -174,7 +187,7 @@ export interface EngineAccess {
     event: EngineRuntimeTypes.IncomingProtocolEvent,
     handler: (
       ctx: unknown,
-      payload: Record<string, unknown> | undefined,
+      frame: Protocol.IncomingProtocolFrame,
     ) => boolean | void | Promise<boolean | void>,
   ): void;
 
@@ -320,9 +333,9 @@ export interface EngineAccess {
   /**
    * Turn on server-side deduplication of incoming messages.
    *
-   * When enabled, the engine remembers the most recent `cap` `_messageId`
+   * When enabled, the engine remembers the most recent `cap` `messageId`
    * values per connection and silently drops any incoming frame whose
-   * `_messageId` is already in the window. Used by `dedup()` to protect
+   * `__wskit.messageId` is already in the window. Used by `dedup()` to protect
    * handlers from duplicate client sends (retries, flaky networks).
    *
    * @internal
@@ -391,11 +404,11 @@ export interface EngineAccess {
 
   /**
    * Validate that a `ctx.sendReplay(...)` call satisfies the same contract
-   * as a normal `ctx.send(...)`: the payload is a plain object, no user
-   * payload key starts with `_`, and the event is declared in the routing
-   * scope. Used by the replay primitive to enforce the public-API contract
-   * before forwarding to `sendReplay`. The replay-from-storage path stays
-   * trusted because rows were validated when written.
+   * as a normal `ctx.send(...)`: the payload is a plain object and the event
+   * is declared in the routing scope. Used by the replay primitive to enforce
+   * the public-API contract before forwarding to `sendReplay`. The
+   * replay-from-storage path stays trusted because rows were validated when
+   * written.
    */
   assertReplaySendContract(
     event: string,

@@ -1,6 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
+import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type * as PublicApi from '~/context.ts';
 import type { TagRef } from '~/context.ts';
 import type * as LifecycleTypes from '~/lifecycle/lifecycle.ts';
@@ -20,13 +21,15 @@ export interface ChannelBeforeSubscribeHook {
 /**
  * One finalized outgoing wire message.
  *
- * At this point sequence, dedup, routing markers, and other engine-owned
- * metadata have already been attached to `payload`.
+ * At this point the outgoing hooks have run and the framework metadata —
+ * routing markers, sequence number, dedup id — has been collected into
+ * `wskit`, the frame's `__wskit` sibling. `payload` is pure user data.
  */
 export interface WireOutgoingMessage {
   connectionId: string;
   event: string;
   payload: Record<string, unknown>;
+  wskit: Record<string, unknown>;
   meta: Record<string, unknown>;
 }
 
@@ -37,13 +40,7 @@ export interface WireOutgoingMessage {
  * handlers run. Built-in primitives can hook into these names through
  * `onProtocolMessage(...)`.
  */
-export type IncomingProtocolEvent =
-  | 'ping'
-  | '_subscribe'
-  | '_unsubscribe'
-  | '_streamCancel'
-  | '_replay'
-  | '_resumeStream';
+export type IncomingProtocolEvent = Protocol.IncomingProtocolEvent;
 
 /**
  * All hook registries the engine fills during primitive setup.
@@ -63,6 +60,13 @@ export interface RegisteredEngineHooks {
   /** Runs before wire serialization — can observe or rewrite the payload (event is locked). */
   outgoing: ((message: { event: string; payload: unknown }) => unknown | void)[];
 
+  /**
+   * Contributors of `__wskit` metadata on outgoing user frames — the sequence
+   * number and the dedup id. Each returns a partial `__wskit` object merged
+   * into the frame. Skipped for protocol frames.
+   */
+  wskitStamp: ((event: string) => Record<string, unknown>)[];
+
   /** Runs after wire metadata is attached but before the frame is sent. */
   beforeSend: ((message: WireOutgoingMessage) => void)[];
 
@@ -74,7 +78,7 @@ export interface RegisteredEngineHooks {
     IncomingProtocolEvent,
     ((
       ctx: any,
-      payload: Record<string, unknown> | undefined,
+      frame: Protocol.IncomingProtocolFrame,
     ) => boolean | void | Promise<boolean | void>)[]
   >;
 

@@ -1,7 +1,6 @@
-import { ValidationFailed } from '@wskit/core';
 import { describe, expect, it, vi } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
-import { handleRequest, readCorrelationId } from './runtime.ts';
+import { handleRequest } from './runtime.ts';
 import type { RequestPrimitive } from './request.ts';
 
 function createConnection(): RuntimeConnection {
@@ -27,29 +26,6 @@ function createConnection(): RuntimeConnection {
 }
 
 describe('request/runtime', () => {
-  it('returns the correlation id when it is a string', () => {
-    expect(readCorrelationId({ _correlationId: 'req-abc' })).toBe('req-abc');
-  });
-
-  it('returns undefined when the field is missing or the payload is not an object', () => {
-    expect(readCorrelationId({})).toBeUndefined();
-    expect(readCorrelationId(null)).toBeUndefined();
-    expect(readCorrelationId(undefined)).toBeUndefined();
-    expect(readCorrelationId('not-an-object')).toBeUndefined();
-  });
-
-  it('throws ValidationFailed when _correlationId is present but not a string', () => {
-    for (const bad of [123, { id: 1 }, [1, 2], null, true, false]) {
-      let captured: unknown;
-      try {
-        readCorrelationId({ _correlationId: bad });
-      } catch (error) {
-        captured = error;
-      }
-      expect(ValidationFailed.matches(captured)).toBe(true);
-    }
-  });
-
   it('sends the request response with scope routing and correlation metadata', async () => {
     const sendThroughPipeline = vi.fn(() => true);
     const runtime = {
@@ -73,7 +49,7 @@ describe('request/runtime', () => {
       'status',
       request,
       { room: 'room-1' },
-      { room: 'room-1', _correlationId: 'req-1' },
+      { channelScope: null, correlationId: 'req-1' },
     );
 
     expect(sendThroughPipeline).toHaveBeenCalledWith(
@@ -105,9 +81,9 @@ describe('request/runtime', () => {
       }),
     } as unknown as RequestPrimitive;
 
-    await expect(handleRequest(runtime, connection, {}, 'status', request, {}, {})).rejects.toThrow(
-      '[wskit] ctx.respond() was already called',
-    );
+    await expect(
+      handleRequest(runtime, connection, {}, 'status', request, {}, undefined),
+    ).rejects.toThrow('[wskit] ctx.respond() was already called');
   });
 
   it('does not call sendThroughPipeline when handler never calls ctx.respond()', async () => {
@@ -128,7 +104,7 @@ describe('request/runtime', () => {
       }),
     } as unknown as RequestPrimitive;
 
-    await handleRequest(runtime, connection, {}, 'status', request, {}, {});
+    await handleRequest(runtime, connection, {}, 'status', request, {}, undefined);
 
     expect(sendThroughPipeline).not.toHaveBeenCalled();
   });
@@ -148,9 +124,9 @@ describe('request/runtime', () => {
       }),
     } as unknown as RequestPrimitive;
 
-    await expect(handleRequest(runtime, connection, {}, 'status', request, {}, {})).rejects.toThrow(
-      'boom',
-    );
+    await expect(
+      handleRequest(runtime, connection, {}, 'status', request, {}, undefined),
+    ).rejects.toThrow('boom');
 
     expect(runtime.setActiveConnectionId).toHaveBeenNthCalledWith(1, 'c1');
     expect(runtime.setActiveConnectionId).toHaveBeenNthCalledWith(2, undefined);

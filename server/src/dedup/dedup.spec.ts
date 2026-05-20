@@ -3,10 +3,10 @@ import { describe, expect, it } from 'vitest';
 import type { EngineAccess } from '~/_engine/access.ts';
 
 function installDedup(): {
-  outgoingHandlers: Array<NonNullable<Parameters<EngineAccess['onOutgoing']>[0]>>;
-  hook: NonNullable<Parameters<EngineAccess['onOutgoing']>[0]>;
+  stampHandlers: Array<NonNullable<Parameters<EngineAccess['onWskitStamp']>[0]>>;
+  hook: NonNullable<Parameters<EngineAccess['onWskitStamp']>[0]>;
 } {
-  const outgoingHandlers: Array<NonNullable<Parameters<EngineAccess['onOutgoing']>[0]>> = [];
+  const stampHandlers: Array<NonNullable<Parameters<EngineAccess['onWskitStamp']>[0]>> = [];
   const installs = new Set<symbol>();
   let nextId = 1;
 
@@ -17,8 +17,8 @@ function installDedup(): {
       installs.add(key);
       install();
     },
-    onOutgoing(handler) {
-      outgoingHandlers.push(handler);
+    onWskitStamp(handler) {
+      stampHandlers.push(handler);
     },
     generateId(prefix = 'id') {
       return `${prefix}-${nextId++}`;
@@ -26,17 +26,17 @@ function installDedup(): {
     enableIncomingDedup() {},
   } as Pick<
     EngineAccess,
-    'generateId' | 'installOnce' | 'onOutgoing' | 'enableIncomingDedup'
+    'generateId' | 'installOnce' | 'onWskitStamp' | 'enableIncomingDedup'
   > as EngineAccess;
 
   dedup().__setup?.(engine);
 
-  const hook = outgoingHandlers[0];
+  const hook = stampHandlers[0];
 
   expect(hook).toBeDefined();
 
   return {
-    outgoingHandlers,
+    stampHandlers,
     hook: hook!,
   };
 }
@@ -59,8 +59,8 @@ describe('dedup', () => {
     expect(p.__requires).toEqual({});
   });
 
-  it('registers its outgoing hook only once', () => {
-    const outgoingHandlers: Array<NonNullable<Parameters<EngineAccess['onOutgoing']>[0]>> = [];
+  it('registers its stamp hook only once', () => {
+    const stampHandlers: Array<NonNullable<Parameters<EngineAccess['onWskitStamp']>[0]>> = [];
     const installs = new Set<symbol>();
     let nextId = 1;
     const engine = {
@@ -70,8 +70,8 @@ describe('dedup', () => {
         installs.add(key);
         install();
       },
-      onOutgoing(handler) {
-        outgoingHandlers.push(handler);
+      onWskitStamp(handler) {
+        stampHandlers.push(handler);
       },
       generateId(prefix = 'id') {
         return `${prefix}-${nextId++}`;
@@ -79,40 +79,28 @@ describe('dedup', () => {
       enableIncomingDedup() {},
     } as Pick<
       EngineAccess,
-      'generateId' | 'installOnce' | 'onOutgoing' | 'enableIncomingDedup'
+      'generateId' | 'installOnce' | 'onWskitStamp' | 'enableIncomingDedup'
     > as EngineAccess;
 
     dedup().__setup?.(engine);
     dedup().__setup?.(engine);
 
-    expect(outgoingHandlers).toHaveLength(1);
+    expect(stampHandlers).toHaveLength(1);
   });
 
-  it('adds a unique _messageId to normal outgoing messages', () => {
+  it('stamps a unique messageId into __wskit for outgoing messages', () => {
     const { hook } = installDedup();
-    const first = hook({ event: 'message', payload: { text: 'hello' } });
-    const second = hook({ event: 'alert', payload: { level: 'warn' } });
+    const first = hook('message');
+    const second = hook('alert');
 
-    expect(first).toEqual({ text: 'hello', _messageId: 'msg-1' });
-    expect(second).toEqual({ level: 'warn', _messageId: 'msg-2' });
+    expect(first).toEqual({ messageId: 'msg-1' });
+    expect(second).toEqual({ messageId: 'msg-2' });
   });
 
-  it('skips protocol events that start with an underscore', () => {
+  it('still stamps module-owned outgoing events with a double underscore prefix', () => {
     const { hook } = installDedup();
-    const protocolMessage = hook({ event: '_ack', payload: {} });
-    const appMessage = hook({ event: 'message', payload: { text: 'hello' } });
+    const moduleMessage = hook('__acme:analytics:flushed');
 
-    expect(protocolMessage).toBeUndefined();
-    expect(appMessage).toEqual({ text: 'hello', _messageId: 'msg-1' });
-  });
-
-  it('still dedups module-owned outgoing events with a double underscore prefix', () => {
-    const { hook } = installDedup();
-    const moduleMessage = hook({
-      event: '__acme:analytics:flushed',
-      payload: { count: 1 },
-    });
-
-    expect(moduleMessage).toEqual({ count: 1, _messageId: 'msg-1' });
+    expect(moduleMessage).toEqual({ messageId: 'msg-1' });
   });
 });

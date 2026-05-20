@@ -131,6 +131,7 @@ export interface ContextCommonDeps {
     connection: RuntimeConnection,
     event: string,
     payload: Record<string, unknown>,
+    wskit: Record<string, unknown>,
   ): void;
   persistAttachment(connection: RuntimeConnection): void;
   toConnectionInfo(

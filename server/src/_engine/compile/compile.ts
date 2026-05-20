@@ -8,7 +8,6 @@ import { compileNamespacePrimitive } from '~/namespace/compile.ts';
 import { collectReplayClaimedScopes } from '~/replay/compile.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
 import type * as DefineServer from '~/server-definition.ts';
-import { RESERVED_EVENT_NAMES } from './utils.ts';
 import * as EngineCompileUtils from './utils.ts';
 import type * as EngineCompileTypes from './types.ts';
 
@@ -246,33 +245,20 @@ function validateNoReservedEventNames(
   declaredModuleEvents: ReadonlySet<string>,
 ): void {
   function check(event: string, scopeLabel: string): void {
-    if (RESERVED_EVENT_NAMES.has(event)) {
+    if (event === 'ping' || event === 'pong') {
       throw new Error(
-        `[wskit] '${event}' is a reserved protocol event name (used by ${scopeLabel}). ` +
+        `[wskit] '${event}' is a reserved heartbeat frame name (used by ${scopeLabel}). ` +
           `Pick a different name for your event.`,
       );
     }
-    // Catch hand-rolled / `as any` events that bypass the friendly check
-    // in `event(...)`. The double-underscore prefix is reserved for module-
-    // owned outgoing events; allow only the names the modules themselves
-    // declared. Anything else with the prefix is a user-declared event
-    // that would silently fail at send time.
-    if (event.startsWith('__')) {
-      if (!declaredModuleEvents.has(event)) {
-        throw new Error(
-          `[wskit] '${event}' starts with a reserved double-underscore prefix (used by ${scopeLabel}). ` +
-            `That prefix is reserved for module-owned outgoing events — pick a different name.`,
-        );
-      }
-      return;
-    }
-    // The single-underscore prefix is reserved for engine protocol events
-    // as a name-shape rule, so the framework can add new protocol events
-    // later without breaking user handlers.
-    if (event.startsWith('_')) {
+    // The double-underscore prefix is reserved for wskit protocol events
+    // (__subscribe__, __error__, ...) and module-owned events. Allow only the
+    // names installed modules actually declared — anything else with the
+    // prefix is a user-declared event that would clash with the protocol.
+    if (event.startsWith('__') && !declaredModuleEvents.has(event)) {
       throw new Error(
-        `[wskit] '${event}' starts with a reserved single-underscore prefix (used by ${scopeLabel}). ` +
-          `That prefix is reserved for engine protocol events — pick a different name.`,
+        `[wskit] '${event}' starts with a reserved double-underscore prefix (used by ${scopeLabel}). ` +
+          `That prefix is reserved for wskit protocol and module events — pick a different name.`,
       );
     }
   }

@@ -1,7 +1,8 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { ChannelNotFound, ChannelNotSubscribed, rethrowIfConfigError } from '@wskit/core';
-import { stripProtocolFields, validateValue } from '~/_engine/compile/utils.ts';
+import { validateValue } from '~/_engine/compile/utils.ts';
 import type { CompiledChannel } from '~/_engine/compile/types.ts';
+import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { ConnectionInfo } from '~/index.ts';
 
@@ -122,6 +123,7 @@ interface ChannelRuntime {
     connection: RuntimeConnection,
     event: string,
     payload: Record<string, unknown>,
+    wskit: Record<string, unknown>,
   ): void;
   broadcastToChannel(
     channelName: string,
@@ -141,7 +143,7 @@ interface ChannelRuntime {
     connection: RuntimeConnection,
     error: unknown,
     event?: string,
-    routing?: Record<string, unknown>,
+    routing?: Protocol.WskitRouting,
   ): Promise<void>;
   logger?: { error(message: string, fields?: Record<string, unknown>): void };
   /**
@@ -159,7 +161,7 @@ interface ChannelRuntime {
   persistMembership(identity: string, channelName: string, channelScope: string | null): void;
   /**
    * Delete a durable membership row for the given identity. Called on a TRUE
-   * leave (client `_unsubscribe`, `removeMember`, kick) of a persistent
+   * leave (client `__unsubscribe__`, `removeMember`, kick) of a persistent
    * channel. Disconnect path skips this so the user stays in the group across
    * reconnects.
    */
@@ -189,27 +191,33 @@ function getChannelMembersByScope(
     .map((connection) => runtime.toConnectionInfo(connection));
 }
 
-function resolveChannel(
+/**
+ * Resolve a compiled channel from the `channel` + `channelScope` markers a
+ * `__subscribe__` / `__unsubscribe__` frame carried on its `__wskit` block.
+ * Returns `undefined` when the channel does not exist or the concrete name
+ * fails the family pattern.
+ */
+function resolveChannelByName(
   runtime: Pick<ChannelRuntime, 'compiled'>,
-  payload: Record<string, unknown>,
+  channelName: string,
+  channelScope: string | null,
 ): ResolvedChannelScope | undefined {
-  if (typeof payload._channel !== 'string') return;
-
-  const channelScope: string | null =
-    typeof payload._channelScope === 'string' ? payload._channelScope : null;
   const channel =
     channelScope === null
-      ? runtime.compiled.channels.get(payload._channel)
+      ? runtime.compiled.channels.get(channelName)
       : runtime.compiled.channelFamilies.get(channelScope);
 
   if (!channel) return;
-  if (!matchesScopePattern(channel.pattern, payload._channel)) return;
+  if (!matchesScopePattern(channel.pattern, channelName)) return;
 
-  return {
-    channel,
-    channelName: payload._channel,
-    channelScope,
-  };
+  return { channel, channelName, channelScope };
+}
+
+/** Build the `__wskit` routing block for a channel-scoped protocol frame. */
+function channelWskit(scope: ChannelScope): Record<string, unknown> {
+  const wskit: Record<string, unknown> = { channel: scope.channelName };
+  if (scope.channelScope !== null) wskit.channelScope = scope.channelScope;
+  return wskit;
 }
 
 /**
@@ -222,7 +230,7 @@ export async function leaveChannel(
   kickedReason?: string,
   // Pass `disconnect: true` from the socket-close path. On a persistent
   // channel this keeps the durable row, skips `onUnsubscribe`, and emits
-  // only `_memberOffline`. Ephemeral channels treat any close as a true
+  // only `__memberOffline__`. Ephemeral channels treat any close as a true
   // leave because no durable row exists.
   disconnect?: boolean,
 ): Promise<void> {
@@ -264,20 +272,21 @@ export async function leaveChannel(
   }
 
   if (kickedReason) {
-    runtime.sendProtocolMessage(connection, '_kicked', {
-      _channel: scope.channelName,
-      ...(scope.channelScope !== null ? { _channelScope: scope.channelScope } : {}),
-      reason: kickedReason,
-    });
+    runtime.sendProtocolMessage(
+      connection,
+      '__kicked__',
+      { reason: kickedReason },
+      channelWskit(scope),
+    );
   }
 
-  // Order: _memberLeave first, _memberOffline second — peers update the
+  // Order: __memberLeave__ first, __memberOffline__ second — peers update the
   // members list before reacting to the presence change.
   if (isTrueLeave) {
     runtime.broadcastToChannel(
       scope.channelName,
-      '_memberLeave',
-      { connectionId: connection.id },
+      '__memberLeave__',
+      { connectionId: connection.id, meta: connection.meta },
       connection.id,
       scope.channelScope,
     );
@@ -285,7 +294,7 @@ export async function leaveChannel(
 
   runtime.broadcastToChannel(
     scope.channelName,
-    '_memberOffline',
+    '__memberOffline__',
     { connectionId: connection.id },
     connection.id,
     scope.channelScope,
@@ -310,13 +319,13 @@ export async function leaveChannel(
 
 /**
  * Run the gate + commit + notify flow that brings a connection into a channel.
- * Shared by the client-initiated wire path (`_subscribe`) and the server-side
- * `channelHandle.subscribe(ref)` primitive — both end up here once the channel
- * scope is resolved and the subscribe payload is in hand.
+ * Shared by the client-initiated wire path (`__subscribe__`) and the
+ * server-side `channelHandle.subscribe(ref)` primitive — both end up here once
+ * the channel scope is resolved and the subscribe data is in hand.
  *
- * `source` is stamped on the outgoing `_subscribeOk` so the client SDK can tell
- * whether the subscribe came from its own request (`'client'`) or from the
- * server (`'server'`) without correlating against a pending Promise.
+ * `source` is stamped on the outgoing `__subscribeOk__` so the client SDK can
+ * tell whether the subscribe came from its own request (`'client'`) or from
+ * the server (`'server'`) without correlating against a pending Promise.
  */
 async function runSubscribeFlow(
   runtime: ChannelRuntime,
@@ -325,9 +334,9 @@ async function runSubscribeFlow(
   data: unknown,
   source: 'client' | 'server',
   // Pass `rejoining: true` when restoring a fresh socket's session for an
-  // identity that's already a group member. Suppresses the `_memberJoin`
+  // identity that's already a group member. Suppresses the `__memberJoin__`
   // peer broadcast (membership didn't change) while still firing
-  // `_memberOnline` for presence.
+  // `__memberOnline__` for presence.
   rejoining = false,
 ): Promise<void> {
   const ctx = runtime.buildConnectionContext(connection, scope);
@@ -337,10 +346,10 @@ async function runSubscribeFlow(
 
     if (hook.validator) {
       try {
-        validatedData = validateValue(hook.validator, data, '_subscribe');
+        validatedData = validateValue(hook.validator, data, '__subscribe__');
       } catch (error) {
         rethrowIfConfigError(error);
-        await runtime.handleValidationError(connection, '_subscribe', error, scope);
+        await runtime.handleValidationError(connection, '__subscribe__', error, scope);
         throw error;
       }
     }
@@ -362,10 +371,10 @@ async function runSubscribeFlow(
     runtime.persistMembership(connection.identity, scope.channelName, scope.channelScope);
   }
 
-  // Pass the scope so the _memberJoin syncs only include connections
+  // Pass the scope so the __memberJoin__ syncs only include connections
   // that joined this same scope, not connections in a different family
   // that happen to use the same concrete channel name. Filter self out
-  // so the client doesn't get a redundant _memberJoin for itself.
+  // so the client doesn't get a redundant __memberJoin__ for itself.
   const existingMembers = getChannelMembersByScope(
     runtime,
     scope.channelName,
@@ -379,38 +388,35 @@ async function runSubscribeFlow(
   // the confirmation regardless of whether a side-effect hook later
   // throws. A throw inside onSubscribe is treated as observational and
   // routed through the runtime-error path with the channel routing
-  // markers, so the client receives a separate _error frame addressed
+  // markers, so the client receives a separate __error__ frame addressed
   // to the channel scope while the subscription itself stays valid.
-  runtime.sendProtocolMessage(connection, '_subscribeOk', {
-    _channel: scope.channelName,
-    ...(scope.channelScope !== null ? { _channelScope: scope.channelScope } : {}),
-    source,
-  });
+  runtime.sendProtocolMessage(connection, '__subscribeOk__', { source }, channelWskit(scope));
 
-  // Send one _memberJoin + one _memberOnline per existing peer so the new
-  // socket has both the group-membership view and the live-presence view
+  // Send one __memberJoin__ + one __memberOnline__ per existing peer so the
+  // new socket has both the group-membership view and the live-presence view
   // in one round-trip.
   for (const member of existingMembers) {
-    runtime.sendProtocolMessage(connection, '_memberJoin', {
-      _channel: scope.channelName,
-      ...(scope.channelScope !== null ? { _channelScope: scope.channelScope } : {}),
-      connectionId: member.id,
-      meta: member.meta,
-    });
-    runtime.sendProtocolMessage(connection, '_memberOnline', {
-      _channel: scope.channelName,
-      ...(scope.channelScope !== null ? { _channelScope: scope.channelScope } : {}),
-      connectionId: member.id,
-    });
+    runtime.sendProtocolMessage(
+      connection,
+      '__memberJoin__',
+      { connectionId: member.id, meta: member.meta },
+      channelWskit(scope),
+    );
+    runtime.sendProtocolMessage(
+      connection,
+      '__memberOnline__',
+      { connectionId: member.id },
+      channelWskit(scope),
+    );
   }
 
-  // Order: _memberJoin first (group changed), then _memberOnline
-  // (presence changed). Auto-rejoin skips _memberJoin because the user
+  // Order: __memberJoin__ first (group changed), then __memberOnline__
+  // (presence changed). Auto-rejoin skips __memberJoin__ because the user
   // was already a member.
   if (!rejoining) {
     runtime.broadcastToChannel(
       scope.channelName,
-      '_memberJoin',
+      '__memberJoin__',
       {
         connectionId: connection.id,
         meta: connection.meta,
@@ -422,7 +428,7 @@ async function runSubscribeFlow(
 
   runtime.broadcastToChannel(
     scope.channelName,
-    '_memberOnline',
+    '__memberOnline__',
     {
       connectionId: connection.id,
       meta: connection.meta,
@@ -435,9 +441,9 @@ async function runSubscribeFlow(
     try {
       await hook(ctx);
     } catch (error) {
-      const routing: Record<string, unknown> = { _channel: scope.channelName };
-      if (scope.channelScope !== null) routing._channelScope = scope.channelScope;
-      await runtime.handleRuntimeError(connection, error, '_subscribe', routing);
+      const routing: Protocol.WskitRouting = { channel: scope.channelName };
+      if (scope.channelScope !== null) routing.channelScope = scope.channelScope;
+      await runtime.handleRuntimeError(connection, error, '__subscribe__', routing);
       return;
     }
   }
@@ -446,21 +452,20 @@ async function runSubscribeFlow(
 /**
  * Subscribe one connection to a channel and emit the protocol events that
  * bring it into sync with the current member list. Entry point for the
- * client-initiated path — invoked when a `_subscribe` frame arrives.
+ * client-initiated path — invoked when a `__subscribe__` frame arrives.
  */
 export async function subscribeConnection(
   runtime: ChannelRuntime,
   connection: RuntimeConnection,
-  payload: Record<string, unknown> | undefined,
+  channelName: string,
+  channelScope: string | null,
+  data: unknown,
 ): Promise<void> {
-  if (!payload) return;
-
-  const scope = resolveChannel(runtime, payload);
+  const scope = resolveChannelByName(runtime, channelName, channelScope);
   if (!scope) {
     throw ChannelNotFound();
   }
 
-  const data = stripProtocolFields(payload);
   await runSubscribeFlow(runtime, connection, scope, data, 'client');
 }
 
@@ -471,7 +476,7 @@ export async function subscribeConnection(
  * Resolves to a no-op when the connection is already a member of the target
  * channel scope — calling subscribe on an existing membership is treated as
  * "make sure they are in", not as a re-subscribe. The wire-level no-op means
- * no extra `_subscribeOk` and no extra `_memberJoin` reach the client.
+ * no extra `__subscribeOk__` and no extra `__memberJoin__` reach the client.
  */
 export async function subscribeConnectionAsServer(
   runtime: ChannelRuntime,
@@ -511,11 +516,10 @@ export async function unsubscribeConnection(
     ): Promise<void>;
   },
   connection: RuntimeConnection,
-  payload: Record<string, unknown> | undefined,
+  channelName: string,
+  channelScope: string | null,
 ): Promise<void> {
-  if (!payload) return;
-
-  const scope = resolveChannel(runtime, payload);
+  const scope = resolveChannelByName(runtime, channelName, channelScope);
   if (!scope) {
     throw ChannelNotFound();
   }

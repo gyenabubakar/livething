@@ -80,13 +80,15 @@ const EMPTY_CLAIMED_CHANNEL_KEYS: ReadonlySet<string> = new Set();
 export function isChannelReplayAuthorized(
   connection: RuntimeConnection | undefined,
   scope: { channelName?: string },
-  payload: Record<string, unknown> | undefined,
+  wskit: { channelScope?: string | null } | undefined,
 ): boolean {
   if (!scope.channelName) return true;
   if (!connection) return false;
-  const wireChannelScope: string | null =
-    typeof payload?._channelScope === 'string' ? payload._channelScope : null;
-  return ChannelPrimitive.hasChannelMembership(connection, scope.channelName, wireChannelScope);
+  return ChannelPrimitive.hasChannelMembership(
+    connection,
+    scope.channelName,
+    wskit?.channelScope ?? null,
+  );
 }
 
 /**
@@ -97,26 +99,24 @@ export function readReplayContextScope(ctx: Record<PropertyKey, unknown>): Engin
 }
 
 /**
- * Read replay scope markers from one final outgoing payload.
+ * Read replay scope markers from one outgoing frame's `__wskit` block.
  */
-export function readReplayPayloadScope(payload: Record<string, unknown>): ReplayPayloadScope {
+export function readReplayScope(wskit: Record<string, unknown>): ReplayPayloadScope {
   return {
-    namespace: typeof payload._namespace === 'string' ? payload._namespace : null,
-    channel: typeof payload._channel === 'string' ? payload._channel : null,
-    channelScope: typeof payload._channelScope === 'string' ? payload._channelScope : null,
+    namespace: typeof wskit.namespace === 'string' ? wskit.namespace : null,
+    channel: typeof wskit.channel === 'string' ? wskit.channel : null,
+    channelScope: typeof wskit.channelScope === 'string' ? wskit.channelScope : null,
   };
 }
 
 /**
- * Reject a `_replay` request whose `_namespace` lands on a top-level replay
+ * Reject a `__replay__` request whose namespace lands on a top-level replay
  * primitive that does not own namespace traffic.
  *
  * Namespace-scoped replay is not implemented yet (issue #8 tracks that work).
- * Without this guard, a top-level `_replay` carrying `_namespace` reads the
+ * Without this guard, a top-level `__replay__` carrying a namespace reads the
  * unscoped store under `WHERE namespace IS NULL`, returning either zero rows
  * or — worse — top-level rows to a client that expected namespace history.
- * Surface a typed validation error instead so the client learns the request
- * cannot be served and the engine never silently mis-routes.
  */
 export function assertReplayScopeServable(
   channelKey: string | undefined,
@@ -124,11 +124,11 @@ export function assertReplayScopeServable(
 ): void {
   if (!channelKey && scope.namespaceName) {
     throw ValidationFailed({
-      event: '_replay',
+      event: '__replay__',
       issues: [
         {
           message: `replay is not configured for namespace "${scope.namespaceName}"`,
-          path: ['_namespace'],
+          path: ['namespace'],
         },
       ],
     });
@@ -136,62 +136,28 @@ export function assertReplayScopeServable(
 }
 
 /**
- * Read and validate the `since` cursor on an incoming `_replay` request.
+ * Decide whether one outgoing frame belongs to this replay instance.
  *
- * Sequence numbers are positive monotonic integers, so a valid cursor is a
- * non-negative integer. Anything else — undefined, fractional, negative,
- * non-finite, or a non-number — surfaces a typed validation error to the
- * client. Both built-in and custom replay run this check so a malformed
- * `since` never silently degrades to "match nothing" or "match everything".
- */
-export function readReplaySinceCursor(payload: Record<string, unknown> | undefined): number {
-  const raw = payload?.since;
-  if (raw === undefined || raw === null) return 0;
-  if (typeof raw === 'number' && Number.isInteger(raw) && raw >= 0) return raw;
-  throw ValidationFailed({
-    event: '_replay',
-    issues: [
-      {
-        message: 'since must be a non-negative integer',
-        path: ['since'],
-      },
-    ],
-  });
-}
-
-/**
- * Decide whether one final outgoing message belongs to this replay instance.
+ * Channel-scoped replay only stores frames for its own channel. Server-level
+ * replay (no `channelKey`) cascades — it stores frames for every scope except
+ * the channels listed in `claimedChannelKeys`.
  *
- * Channel-scoped replay only stores messages for its own channel. Server-level
- * replay (no `channelKey`) cascades — it stores messages for every scope
- * except the channels listed in `claimedChannelKeys`, which are the channels
- * that registered their own `.replay(...)` or disabled replay via
- * `.replay(false)`.
- *
- * Frames that carry `_correlationId` are private 1:1 request responses. They
- * never belong in a replay store — a different connection later asking for
- * `_replay` would receive somebody else's response.
+ * Frames carrying a `correlationId` are private 1:1 request responses, and
+ * frames carrying a `streamId` are stream chunks — neither belongs in a replay
+ * store, so both are skipped.
  */
 export function shouldStoreReplayMessage(
   channelKey: string | undefined,
   event: string,
-  payload: Record<string, unknown>,
+  wskit: Record<string, unknown>,
   exclude: ReadonlySet<string>,
   claimedChannelKeys: ReadonlySet<string> = EMPTY_CLAIMED_CHANNEL_KEYS,
 ): boolean {
   if (exclude.has(event)) return false;
-  // Skip 1:1 request responses — they are addressed to one in-flight caller
-  // via _correlationId and replaying them would hand a different client the
-  // original requester's response.
-  if (typeof payload._correlationId === 'string') return false;
-  // Skip stream chunks. A stream chunk carries `_streamId` referencing one
-  // active stream on the original connection. Re-sending it on a fresh
-  // connection or a future reconnect would surface a phantom stream id the
-  // client does not know about. Issue #3 tracks proper stream replay across
-  // reconnect; until then, stream chunks are not replayable.
-  if (typeof payload._streamId === 'string') return false;
+  if (typeof wskit.correlationId === 'string') return false;
+  if (typeof wskit.streamId === 'string') return false;
 
-  const scope = readReplayPayloadScope(payload);
+  const scope = readReplayScope(wskit);
 
   if (channelKey) {
     return scope.channelScope === channelKey || scope.channel === channelKey;
@@ -203,22 +169,25 @@ export function shouldStoreReplayMessage(
 }
 
 /**
- * Convert one final outgoing message into the replay row that should be stored.
+ * Convert one outgoing frame into the replay row that should be stored. The
+ * `payload` column holds the pure user payload; sequence number, message id,
+ * and scope come from the frame's `__wskit`.
  */
 export function buildReplayRow(
   options: ReplayOptions,
   event: string,
   payload: Record<string, unknown>,
+  wskit: Record<string, unknown>,
   now: number,
 ): ReplayRow {
-  const seq = payload._seq;
-  const messageId = payload._messageId;
+  const seq = wskit.seq;
+  const messageId = wskit.messageId;
 
   if (typeof seq !== 'number' || typeof messageId !== 'string') {
     throw new Error('[wskit] replay() requires sequence() and dedup() in the same scope.');
   }
 
-  const scope = readReplayPayloadScope(payload);
+  const scope = readReplayScope(wskit);
   const type = options.type ?? 'history';
   const snapshotKey = type === 'snapshot' ? (options.snapshotKey?.(event, payload) ?? event) : null;
 
@@ -238,9 +207,6 @@ export function buildReplayRow(
 
 /**
  * Load one replay row by its primary key.
- *
- * Snapshot mode uses this to read the current stored value before applying a
- * reducer.
  */
 export function getReplayRowByKey(
   sql: {
@@ -287,8 +253,6 @@ export function getReplayRowByKey(
 
 /**
  * Delete one replay row by key.
- *
- * Snapshot reducers use this when they return `null`.
  */
 export function deleteReplayRow(
   sql: {
@@ -311,32 +275,15 @@ export function deleteReplayRow(
 export function toReplaySnapshotValue(row: ReplayRow): ReplaySnapshotValue {
   return {
     event: row.event,
-    payload: stripSnapshotMetadata(JSON.parse(row.payload) as Record<string, unknown>),
+    payload: JSON.parse(row.payload) as Record<string, unknown>,
   };
 }
 
 /**
- * Remove engine-owned wire metadata from the reducer-facing snapshot payload.
+ * Persist one replayable outgoing frame.
  *
- * Snapshot reducers should work with the logical app payload, not the replay
- * bookkeeping fields that wskit can restore automatically later.
- */
-export function stripSnapshotMetadata(payload: Record<string, unknown>): Record<string, unknown> {
-  const next: Record<string, unknown> = {};
-
-  for (const [key, value] of Object.entries(payload)) {
-    if (key.startsWith('_')) continue;
-    next[key] = value;
-  }
-
-  return next;
-}
-
-/**
- * Persist one replayable outgoing message.
- *
- * History mode stores every message. Snapshot mode stores one current value
- * per logical key, using the configured reducer when present.
+ * History mode stores every frame. Snapshot mode stores one current value per
+ * logical key, using the configured reducer when present.
  */
 export function persistReplayMessage(
   sql: {
@@ -355,9 +302,10 @@ export function persistReplayMessage(
   options: ReplayOptions,
   event: string,
   payload: Record<string, unknown>,
+  wskit: Record<string, unknown>,
   now: number,
 ): ReplayRow | null {
-  const row = buildReplayRow(options, event, payload, now);
+  const row = buildReplayRow(options, event, payload, wskit, now);
 
   if ((options.type ?? 'history') === 'history') {
     storeReplayRow(sql, row);
@@ -366,10 +314,7 @@ export function persistReplayMessage(
 
   return sql.transaction((tx) => {
     const previousRow = getReplayRowByKey(tx, row.rowKey);
-    const nextValue: ReplaySnapshotValue = {
-      event,
-      payload: stripSnapshotMetadata(payload),
-    };
+    const nextValue: ReplaySnapshotValue = { event, payload };
     const reduced = options.reduce
       ? options.reduce(previousRow ? toReplaySnapshotValue(previousRow) : null, nextValue)
       : nextValue;
@@ -498,12 +443,7 @@ export function pruneReplayScopeRows(
 }
 
 /**
- * Load replay rows for the active scope after the client's last seen seq.
- */
-/**
  * Build the SQL string and bound params for one `loadReplayRows` call.
- * Branches based on whether the scope targets a specific channel/family or the
- * unscoped top-level replay log.
  */
 export function buildLoadReplayQuery(
   since: number,
@@ -582,6 +522,9 @@ export function buildLoadReplayQuery(
   };
 }
 
+/**
+ * Load replay rows for the active scope after the client's last seen seq.
+ */
 export function loadReplayRows(
   sql: {
     exec<TRow = unknown>(query: string, ...params: unknown[]): { toArray(): TRow[] };

@@ -45,7 +45,9 @@ const NoPayload = v.strictObject({});
 
 export const SubscribeFrame = v.object({
   event: v.literal('__subscribe__'),
-  payload: NoPayload,
+  // Subscribe-time data the client passes to `onBeforeSubscribe` — kept loose
+  // here; the channel's `onBeforeSubscribe` validator is what type-checks it.
+  payload: v.optional(v.unknown()),
   __wskit: v.strictObject(RequiredChannelScope),
 });
 
@@ -99,7 +101,13 @@ export const StreamOkFrame = v.object({
 export const StreamEndFrame = v.object({
   event: v.literal('__streamEnd__'),
   payload: NoPayload,
-  __wskit: v.strictObject({ ...OptionalScope, streamId: v.string() }),
+  // `seq` is the stream's final sequence number — it lets the client check it
+  // did not miss the last chunk before the stream ended.
+  __wskit: v.strictObject({
+    ...OptionalScope,
+    streamId: v.string(),
+    seq: v.optional(NonNegativeInt),
+  }),
 });
 
 export const AckFrame = v.object({
@@ -206,6 +214,9 @@ export type IncomingProtocolFrame = v.InferOutput<typeof IncomingProtocolFrame>;
 export type OutgoingProtocolFrame = v.InferOutput<typeof OutgoingProtocolFrame>;
 export type WskitProtocol = v.InferOutput<typeof WskitProtocolSchema>;
 export type UserEventFrame = v.InferOutput<typeof UserEventFrameSchema>;
+
+/** A subset of `__wskit` markers — the routing carried on a server `__error__` frame. */
+export type WskitRouting = Partial<WskitProtocol>;
 
 export type SubscribeFrame = v.InferOutput<typeof SubscribeFrame>;
 export type UnsubscribeFrame = v.InferOutput<typeof UnsubscribeFrame>;

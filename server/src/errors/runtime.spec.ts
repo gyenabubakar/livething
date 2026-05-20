@@ -1,31 +1,27 @@
 import { WskitError } from '@wskit/core';
 import { describe, expect, it } from 'vitest';
-import {
-  normalizeRuntimeErrorPayload,
-  notifyValidationError,
-  sendRuntimeError,
-} from './runtime.ts';
+import { normalizeRuntimeError, notifyValidationError, sendRuntimeError } from './runtime.ts';
 
 describe('errors runtime', () => {
-  it('normalizes WskitError values into _error payloads', () => {
+  it('normalizes WskitError values into __error__ payload and wskit halves', () => {
     expect(
-      normalizeRuntimeErrorPayload(new WskitError('forbidden', { reason: 'nope' }), {
-        _streamId: 's1',
+      normalizeRuntimeError(new WskitError('forbidden', { reason: 'nope' }), {
+        streamId: 's1',
       }),
     ).toEqual({
-      code: 'forbidden',
-      detail: { reason: 'nope' },
-      _streamId: 's1',
+      payload: { code: 'forbidden', detail: { reason: 'nope' } },
+      wskit: { streamId: 's1' },
     });
   });
 
   it('normalizes unknown values into internal-error payloads', () => {
-    expect(normalizeRuntimeErrorPayload(new Error('boom'))).toEqual({
-      code: 'internal-error',
+    expect(normalizeRuntimeError(new Error('boom'))).toEqual({
+      payload: { code: 'internal-error' },
+      wskit: {},
     });
   });
 
-  it('still sends _error after running error hooks', async () => {
+  it('still sends __error__ after running error hooks', async () => {
     const sent: Array<{ event: string; payload: Record<string, unknown> }> = [];
     const observed: string[] = [];
 
@@ -54,7 +50,7 @@ describe('errors runtime', () => {
     );
 
     expect(observed).toEqual(['echo']);
-    expect(sent).toEqual([{ event: '_error', payload: { code: 'internal-error' } }]);
+    expect(sent).toEqual([{ event: '__error__', payload: { code: 'internal-error' } }]);
   });
 
   it('runs error hooks for WskitError values too', async () => {
@@ -102,15 +98,15 @@ describe('errors runtime', () => {
         ],
       },
       { id: 'c1' } as never,
-      '_subscribe',
+      '__subscribe__',
       new Error('bad'),
       { channelName: 'room-1' } as never,
     );
 
-    expect(events).toEqual(['_subscribe:room-1']);
+    expect(events).toEqual(['__subscribe__:room-1']);
   });
 
-  it('isolates a throwing onError hook so subsequent hooks and the _error send still run', async () => {
+  it('isolates a throwing onError hook so subsequent hooks and the __error__ send still run', async () => {
     const sent: Array<{ event: string; payload: Record<string, unknown> }> = [];
     const observed: string[] = [];
     const errors: string[] = [];
@@ -147,9 +143,9 @@ describe('errors runtime', () => {
     // Second hook still ran despite the first throwing.
     expect(observed).toEqual(['second']);
     // Logger received the isolation message.
-    expect(errors).toEqual(['[wskit] onError hook threw; sending _error to client anyway']);
-    // _error frame was sent exactly once with the normalized payload.
-    expect(sent).toEqual([{ event: '_error', payload: { code: 'internal-error' } }]);
+    expect(errors).toEqual(['[wskit] onError hook threw; sending __error__ to client anyway']);
+    // __error__ frame was sent exactly once with the normalized payload.
+    expect(sent).toEqual([{ event: '__error__', payload: { code: 'internal-error' } }]);
   });
 
   it('warns when a thrown WskitError was never declared', async () => {
@@ -181,7 +177,7 @@ describe('errors runtime', () => {
     expect(warnings).toEqual(['[wskit] Thrown WskitError was not declared with errors(...)']);
     expect(sent).toEqual([
       {
-        event: '_error',
+        event: '__error__',
         payload: { code: 'quota-exceeded', detail: { limit: 1 } },
       },
     ]);
@@ -198,11 +194,11 @@ describe('errors runtime', () => {
           return { id: 'c1' };
         },
         resolveScopeFromRouting(routing) {
-          if (typeof routing._channel === 'string' && typeof routing._channelScope === 'string') {
+          if (typeof routing.channel === 'string' && typeof routing.channelScope === 'string') {
             return {
               channel: fakeChannel as never,
-              channelName: routing._channel,
-              channelScope: routing._channelScope,
+              channelName: routing.channel,
+              channelScope: routing.channelScope,
             };
           }
           return undefined;
@@ -215,7 +211,7 @@ describe('errors runtime', () => {
       { id: 'c1' } as never,
       new Error('boom'),
       'post',
-      { _channel: 'room-7', _channelScope: 'rooms' },
+      { channel: 'room-7', channelScope: 'rooms' },
     );
 
     expect(builtScopes).toEqual([
@@ -244,7 +240,7 @@ describe('errors runtime', () => {
       { id: 'c1' } as never,
       new Error('boom'),
       'post',
-      { _namespace: 'unknown' },
+      { namespace: 'unknown' },
     );
 
     expect(builtScopes).toEqual([undefined]);

@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { ValidationFailed } from '@wskit/core';
 import { runWithScopedContext } from '~/intercept/runtime.ts';
+import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { ResolvedScope, RoutingTarget, RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { RequestPrimitive } from './request.ts';
 
@@ -19,39 +19,13 @@ interface RequestRuntime {
 }
 
 /**
- * Extract the `_correlationId` field from an incoming payload.
- *
- * The client attaches this ID when sending a request so the engine can tag
- * the response with the same ID. The client then matches the response back
- * to the original `request()` Promise.
- *
- * The id must be a string. Anything else surfaces a typed validation error
- * to the client so a buggy wrapper learns immediately instead of waiting on
- * a Promise that can never resolve. A missing field is allowed and returns
- * `undefined` — the response then goes out without a correlation tag.
- */
-export function readCorrelationId(payload: unknown): string | undefined {
-  if (!payload || typeof payload !== 'object' || !('_correlationId' in payload)) return undefined;
-  const value = (payload as Record<string, unknown>)._correlationId;
-  if (typeof value === 'string') return value;
-  throw ValidationFailed({
-    event: '_correlationId',
-    issues: [
-      {
-        message: '_correlationId must be a string',
-        path: ['_correlationId'],
-      },
-    ],
-  });
-}
-
-/**
  * Execute a matched `.request(...)` handler and send the response back to the
  * client through the outgoing pipeline.
  *
  * A request handler typically calls `ctx.respond(value)`. This runtime helper
- * captures that value, then emits an outgoing event with the same name and
- * the original `_correlationId` so the client can resolve the correct Promise.
+ * captures that value, then emits an outgoing event with the same name and the
+ * original `correlationId` (read from the incoming frame's `__wskit`) so the
+ * client can resolve the correct Promise.
  */
 export async function handleRequest(
   runtime: RequestRuntime,
@@ -60,9 +34,9 @@ export async function handleRequest(
   event: string,
   request: RequestPrimitive,
   payload: unknown,
-  rawPayload: unknown,
+  wskit: Protocol.WskitProtocol | undefined,
 ): Promise<void> {
-  const correlationId = readCorrelationId(rawPayload);
+  const correlationId = wskit?.correlationId;
   let response: unknown;
   let responded = false;
   await runWithScopedContext(runtime, connection, scope, (ctx) => {

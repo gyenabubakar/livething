@@ -150,22 +150,27 @@ describe('autoRejoinIdentity', () => {
     const subscribe = vi.fn(async () => {
       throw new Error('not on the eng team');
     });
-    const sent: Array<{ event: string; payload: Record<string, unknown> }> = [];
+    const sent: Array<{
+      event: string;
+      payload: Record<string, unknown>;
+      wskit: Record<string, unknown>;
+    }> = [];
 
     await autoRejoinIdentity(
       {
         sql,
         subscribeConnectionAsServer: subscribe,
-        sendProtocolMessage: (_c, event, payload) => sent.push({ event, payload }),
+        sendProtocolMessage: (_c, event, payload, wskit) => sent.push({ event, payload, wskit }),
       },
       fakeConnection('u-42'),
     );
 
     expect(listMembershipsByIdentity(sql, 'u-42')).toHaveLength(0);
     expect(sent).toHaveLength(1);
-    expect(sent[0]!.event).toBe('_error');
-    expect(sent[0]!.payload._channel).toBe('team-eng');
+    expect(sent[0]!.event).toBe('__error__');
+    expect(sent[0]!.wskit.channel).toBe('team-eng');
     expect(sent[0]!.payload.code).toBe('rejoin-rejected');
+    expect((sent[0]!.payload.detail as { message: string }).message).toBe('not on the eng team');
   });
 
   it('one rejection does not stop the rest of the rejoin', async () => {
