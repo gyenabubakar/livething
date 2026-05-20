@@ -477,7 +477,7 @@ export const StreamAborted = error('stream-aborted', (p: unknown) => {
     !(STREAM_ABORTED_REASONS as readonly string[]).includes(reason)
   ) {
     throw new Error(
-      'StreamAborted detail.reason must be one of: cancelled, buffer-full, expired, not-found, hibernation-wake, aborted',
+      `StreamAborted detail.reason must be one of: ${STREAM_ABORTED_REASONS.join(', ')}`,
     );
   }
   return { reason: reason as StreamAbortedReason };

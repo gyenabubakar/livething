@@ -716,10 +716,15 @@ describe('durable stream runtime', () => {
     expect(row!.broadcast).toBe(true);
     expect(row!.creatorIdentity).toBe('u-creator');
 
-    // Both chunks were fanned out to the peer (and only the peer — creator
-    // gets its own copy through sendThroughPipeline).
-    expect(broadcasts).toHaveLength(2);
-    expect(broadcasts[0]!.targets.map((t) => t.id)).toEqual(['c-peer']);
+    // Both chunks were fanned out to the peer, plus a closing _streamEnd
+    // when the generator finished. Creator gets its own copies through
+    // sendThroughPipeline, not this broadcast list.
+    const chunkBroadcasts = broadcasts.filter((b) => b.event === 'e');
+    const endBroadcasts = broadcasts.filter((b) => b.event === '_streamEnd');
+    expect(chunkBroadcasts).toHaveLength(2);
+    expect(chunkBroadcasts[0]!.targets.map((t) => t.id)).toEqual(['c-peer']);
+    expect(endBroadcasts).toHaveLength(1);
+    expect(endBroadcasts[0]!.targets.map((t) => t.id)).toEqual(['c-peer']);
   });
 
   it('broadcast recordedStream — late joiner resume replays from the scope-keyed buffer', async () => {

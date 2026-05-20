@@ -117,37 +117,6 @@ export interface ChannelPrimitive<
 const CHANNEL_KEY = Symbol('channel');
 
 /**
- * Create a `ScopeDeclaration` for a dynamic channel family. A dynamic channel
- * matches many subscription paths against one regex and groups them under a
- * single family key.
- *
- * Pass the result as the first argument to `channel(...)` inside `definitions`.
- * `channel(scope('rooms', /^room:.+$/), { definitions: [...] })` creates a
- * family that matches subscriptions like `room:general`, `room:alpha-42`, etc.
- * The full matched string is available at `ctx.channel.name`; the family key
- * is at `ctx.channel.scope`. Slice the name yourself if you need a sub-path.
- *
- * @param key     Family identifier. Passed to `implement(c).channel(key, ch => ...)`
- *   and used in `ctx.channels.get(key, name)` lookups.
- * @param pattern Regex matched against the subscription path. Anchor with `^`
- *   and `$` so it matches the full name. `scope()` rejects nested unbounded
- *   quantifiers like `(a+)+` and `(\w+)+` that could freeze the runtime on
- *   near-miss input via regex backtracking.
- *
- * @example
- * ```ts
- * import { contract, channel, scope } from '@wskit/server';
- *
- * const app = contract<Env>('app')({
- *   definitions: [
- *     channel(scope('rooms', /^room:.+$/), { definitions: [] }),
- *   ],
- * });
- * // ctx.channel.name → 'room:alpha-42'
- * // ctx.channel.scope → 'rooms'
- * ```
- */
-/**
  * Validate a `ScopeDeclaration` (key + pattern). Used by `scope()` for the
  * friendly call-site error and by `channel()` so a hand-rolled scope-shaped
  * object cannot bypass the same check.
@@ -189,6 +158,37 @@ function assertValidScopeDeclaration(declaration: ScopeDeclaration<string>, sour
 // input.
 const CATASTROPHIC_BACKTRACK_SHAPE = /\([^)]*[+*][^)]*\)[+*]/;
 
+/**
+ * Create a `ScopeDeclaration` for a dynamic channel family. A dynamic channel
+ * matches many subscription paths against one regex and groups them under a
+ * single family key.
+ *
+ * Pass the result as the first argument to `channel(...)` inside `definitions`.
+ * `channel(scope('rooms', /^room:.+$/), { definitions: [...] })` creates a
+ * family that matches subscriptions like `room:general`, `room:alpha-42`, etc.
+ * The full matched string is available at `ctx.channel.name`; the family key
+ * is at `ctx.channel.scope`. Slice the name yourself if you need a sub-path.
+ *
+ * @param key     Family identifier. Passed to `implement(c).channel(key, ch => ...)`
+ *   and used in `ctx.channels.get(key, name)` lookups.
+ * @param pattern Regex matched against the subscription path. Anchor with `^`
+ *   and `$` so it matches the full name. `scope()` rejects nested unbounded
+ *   quantifiers like `(a+)+` and `(\w+)+` that could freeze the runtime on
+ *   near-miss input via regex backtracking.
+ *
+ * @example
+ * ```ts
+ * import { contract, channel, scope } from '@wskit/server';
+ *
+ * const app = contract<Env>('app')({
+ *   definitions: [
+ *     channel(scope('rooms', /^room:.+$/), { definitions: [] }),
+ *   ],
+ * });
+ * // ctx.channel.name → 'room:alpha-42'
+ * // ctx.channel.scope → 'rooms'
+ * ```
+ */
 export function scope<TKey extends string>(key: TKey, pattern: RegExp): ScopeDeclaration<TKey> {
   const declaration = { key, pattern };
   assertValidScopeDeclaration(declaration, 'scope()');

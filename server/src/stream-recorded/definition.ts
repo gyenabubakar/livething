@@ -84,7 +84,7 @@ interface RecordedStreamConfig<
  *
  * @example
  * ```ts
- * import { contract, recordedStream, t } from '@wskit/server';
+ * import { contract, recordedStream } from '@wskit/server';
  * import { StreamAborted } from '@wskit/server/errors';
  * import * as v from 'valibot';
  *

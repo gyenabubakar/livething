@@ -13,10 +13,18 @@ describe('stream-durable client inference', () => {
     expectTypeOf<StreamDurableClient>().toHaveProperty('channels');
   });
 
-  it('infers chunk payloads for the recorded and resumable streams', () => {
+  it('lists every declared durable stream by event name', () => {
     expectTypeOf<StreamDurableClient['recordedStreams']>().toHaveProperty('count-tokens');
+    expectTypeOf<StreamDurableClient['recordedStreams']>().toHaveProperty('buffer-full-demo');
     expectTypeOf<StreamDurableClient['resumableStreams']>().toHaveProperty('paginate');
     expectTypeOf<StreamDurableClient['resumableStreams']>().toHaveProperty('attempt-stream');
-    expectTypeOf<StreamDurableClient['recordedStreams']>().toHaveProperty('buffer-full-demo');
+  });
+
+  it('each entry carries the contract slots a client SDK reads', () => {
+    expectTypeOf<StreamDurableClient['recordedStreams']['count-tokens']>().toHaveProperty(
+      'payload',
+    );
+    expectTypeOf<StreamDurableClient['recordedStreams']['count-tokens']>().toHaveProperty('chunk');
+    expectTypeOf<StreamDurableClient['resumableStreams']['paginate']>().toHaveProperty('cursor');
   });
 });

@@ -254,8 +254,11 @@ export async function resumeDurableStream(
   if (isPeerSubscriber) return;
 
   if (row.kind === 'recorded') {
-    // Single-subscriber recorded: caught up; mark ended.
-    if (row.broadcast) return;
+    // Recorded streams have no cursor to resume from — the generator runs
+    // once end-to-end. The creator's resume after a drop is therefore
+    // terminal: replay what's in the buffer, mark the row ended, signal
+    // _streamEnd. Broadcast peers received chunks live; their later resume
+    // hits the ended branch above and gets _streamEnd too.
     Storage.markEnded(runtime.sql, storageIdentity, streamId, Date.now());
     runtime.sendProtocolMessage(connection, '_streamEnd', {
       _streamId: streamId,
@@ -286,34 +289,6 @@ export async function resumeDurableStream(
     cursor,
     2,
   );
-}
-
-/**
- * Mark every active durable stream owned by `connection` as suspended.
- *
- * Broadcast streams use a synthetic scope-key identity rather than the
- * connection's identity, so we read the row to find the right key. A
- * broadcast stream stays running on the source connection; only single-
- * subscriber rows get suspended here.
- */
-export function markStreamsSuspendedForConnection(
-  runtime: { sql: DurableStreamRuntime['sql']; activeStreams: Map<string, ActiveStream> },
-  connection: RuntimeConnection,
-): void {
-  const realIdentity = connection.identity ?? connection.id;
-  const now = Date.now();
-  for (const active of runtime.activeStreams.values()) {
-    if (active.connectionId !== connection.id) continue;
-    // Broadcast streams: try both keys — broadcast scope keys are synthetic
-    // (`__bcast:*__`) and look nothing like a real identity.
-    const single = Storage.readStream(runtime.sql, realIdentity, active.id);
-    if (single) {
-      Storage.markSuspended(runtime.sql, realIdentity, active.id, now);
-    }
-    // For broadcasts, leaving the row 'active' is fine — the row's identity
-    // is the scope key, no single-connection suspend applies. Phase 5 will
-    // refine cancel ownership for broadcasts.
-  }
 }
 
 /** Delete suspended rows past `maxAgeMs` and ended rows past `retentionAfterEndMs`. */
@@ -493,6 +468,33 @@ async function runGenerator(
       _streamId: streamId,
       _seq: seq,
     });
+    if (def.broadcast) {
+      // Tell every peer subscriber the source generator finished. They'd
+      // otherwise only learn on their next resume attempt.
+      const targets = resolveBroadcastTargets({
+        runtime,
+        excludeConnectionId: connection.id,
+        scope,
+        extraFilter: (candidate) =>
+          !Storage.isUnsubscribed(
+            runtime.sql,
+            identity,
+            streamId,
+            candidate.identity ?? candidate.id,
+          ),
+      });
+      runtime.broadcastToConnections(
+        targets,
+        '_streamEnd',
+        { _streamId: streamId, _seq: seq },
+        {
+          namespace: scope.namespace?.name,
+          channel: scope.channelName,
+          channelScope: scope.channelScope,
+        },
+        connection.id,
+      );
+    }
   } catch (error) {
     rethrowIfConfigError(error);
     await runtime.handleRuntimeError(connection, error, def.event, { _streamId: streamId });
@@ -518,9 +520,10 @@ function unwrapYield(value: unknown): { chunkValue: unknown; cursorValue: unknow
  *
  * - Single-subscriber stream: stop the generator, delete the row + chunks.
  * - Broadcast stream from the creator identity: same — kills it for everyone.
- * - Broadcast stream from a non-creator: silently no-op for v1; the resuming
- *   client just stops listening. Phase 5 will turn this into a per-subscriber
- *   unsubscribe with proper subscriber tracking.
+ * - Broadcast stream from a non-creator identity: add the caller's identity
+ *   to the per-stream unsubscribed list so the fanout step skips them, and a
+ *   later resume from that identity gets `StreamAborted({ reason: 'unsubscribed' })`.
+ *   The source keeps running for everyone else.
  */
 export async function cancelDurableStream(
   runtime: DurableStreamRuntime,
