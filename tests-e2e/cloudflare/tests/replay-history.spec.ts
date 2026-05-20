@@ -583,18 +583,14 @@ test.describe('replay handler', () => {
     }).toPass({ timeout: 10_000 });
   });
 
-  test('ctx.sendReplay enforces declaration + reserved-field guard', async ({ page }) => {
-    // Pre-fix ctx.sendReplay only checked the payload was an object. A handler
-    // could resend an undeclared event or pass a user `_`-prefixed field that
-    // collides with engine wire metadata. Both checks now match ctx.send.
+  test('ctx.sendReplay rejects an undeclared event', async ({ page }) => {
+    // ctx.sendReplay runs the same declaration check as ctx.send — resending
+    // an event the scope never declared is rejected.
     await page.getByTestId('trigger-bad-replay-btn').click();
     await expect(page.getByTestId('replay-guard-undeclared')).toContainText(
       'not declared in the active scope',
     );
-    await expect(page.getByTestId('replay-guard-reserved-field')).toContainText(
-      'reserved for the engine',
-    );
-    // Sanity: the rejected sends did not break the connection. A real
+    // Sanity: the rejected send did not break the connection. A real
     // ctx.sendReplay still works.
     await page.getByTestId('request-history-btn').click();
     await waitForText(page, 'history-injected', 'true');

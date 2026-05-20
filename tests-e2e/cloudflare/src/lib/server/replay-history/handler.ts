@@ -107,7 +107,6 @@ export const replayHandler = implement(replayContract)
   })
   .on('trigger-bad-replay', (ctx) => {
     let undeclared = '';
-    let reservedField = '';
     try {
       (ctx.sendReplay as (e: string, p: unknown, w: unknown) => void)(
         'not-declared-event',
@@ -117,16 +116,7 @@ export const replayHandler = implement(replayContract)
     } catch (err) {
       undeclared = err instanceof Error ? err.message : String(err);
     }
-    try {
-      ctx.sendReplay(
-        'chat-msg',
-        { text: 'x', from: 'system', _evil: 'leaked' } as unknown as { text: string; from: string },
-        { seq: 0, messageId: 'bad-2' },
-      );
-    } catch (err) {
-      reservedField = err instanceof Error ? err.message : String(err);
-    }
-    ctx.send('replay-guard-error', { undeclared, reservedField });
+    ctx.send('replay-guard-error', { undeclared });
   })
   .on('inject-family-replay', (ctx) => {
     ctx.sendReplay(

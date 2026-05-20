@@ -15,7 +15,6 @@
 	let roomConfirmedResult = $state('');
 	let roomSinceValue = $state(0);
 	let badReplayUndeclared = $state('');
-	let badReplayReservedField = $state('');
 
 	function connect() {
 		if (ws) return;
@@ -63,7 +62,6 @@
 				roomConfirmedResult = `total:${payload.total},confirmed:${payload.confirmed}`;
 			} else if (evt === 'bad-replay-log') {
 				badReplayUndeclared = String(payload.undeclared ?? '');
-				badReplayReservedField = String(payload.reservedField ?? '');
 			} else if (evt === '__subscribeOk__') {
 				if (__wskit?.channel === 'custom-room') roomSubscribed = 'subscribed';
 			}
@@ -131,7 +129,6 @@
 
 	function triggerBadReplay() {
 		badReplayUndeclared = '';
-		badReplayReservedField = '';
 		ws?.send(
 			JSON.stringify({ event: '__replay__', payload: { lastKnownSeq: 2_147_483_647 }, __wskit: {} }),
 		);
@@ -187,7 +184,6 @@
 		<button data-testid="trigger-bad-replay-btn" onclick={triggerBadReplay} disabled={status !== 'connected'}>Trigger Bad Replay</button>
 		<button data-testid="query-bad-replay-btn" onclick={queryBadReplayLog} disabled={status !== 'connected'}>Query Bad Replay Log</button>
 		<div data-testid="bad-replay-undeclared">{badReplayUndeclared}</div>
-		<div data-testid="bad-replay-reserved-field">{badReplayReservedField}</div>
 	</section>
 </main>
 

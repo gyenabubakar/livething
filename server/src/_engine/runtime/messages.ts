@@ -971,11 +971,19 @@ async function dispatchProtocolFrame(
       case '__streamCancel__': {
         await StreamPrimitive.cancelStream(runtime, connection, frame.__wskit.streamId);
         if (runtime.sql) {
+          // A broadcast durable stream's row is keyed by its scope, so the
+          // cancel frame's routing markers are needed to find it.
+          let cancelScope: EngineRuntimeTypes.ResolvedScope = {};
+          try {
+            cancelScope = resolveScope(runtime.compiled, frame.__wskit);
+          } catch {
+            /* malformed routing — fall back to a top-level lookup */
+          }
           await DurableStreamRuntime.cancelDurableStream(
             runtime as unknown as DurableStreamRuntime.DurableStreamRuntime,
             connection,
             frame.__wskit.streamId,
-            {},
+            cancelScope,
           );
         }
         return;
@@ -1051,6 +1059,13 @@ export async function processTextMessage(
   }
 
   const event = (parsed as { event: string }).event;
+
+  // A JSON `{ event: 'ping' }` frame answers with a JSON `{ event: 'pong' }`.
+  // (Raw text `ping`/`pong` are handled above.)
+  if (event === 'ping') {
+    connection.descriptor.send(JSON.stringify({ event: 'pong' }));
+    return;
+  }
 
   // Protocol frames are parsed against the protocol variant and routed by the
   // dispatcher. They are excluded from dedup and nudge buffering — a retried

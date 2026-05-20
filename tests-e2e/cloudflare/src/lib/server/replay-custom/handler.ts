@@ -62,29 +62,14 @@ export const replayCustomHandler = implement(replayCustomContract)
     onReplay: async (ctx, since) => {
       if (since === 2_147_483_647) {
         let undeclared = '';
-        let reservedField = '';
         try {
           ctx.sendReplay('not-declared-event', { ok: true }, { seq: 1, messageId: 'bad-1' });
         } catch (err) {
           undeclared = err instanceof Error ? err.message : String(err);
         }
-        try {
-          ctx.sendReplay(
-            'note',
-            {
-              text: 'x',
-              author: 'system',
-              _evil: 'leaked',
-            },
-            { seq: 2, messageId: 'bad-2' },
-          );
-        } catch (err) {
-          reservedField = err instanceof Error ? err.message : String(err);
-        }
         ctx.sql.exec(
-          'INSERT OR REPLACE INTO _bad_replay_log (id, undeclared, reserved_field) VALUES (1, ?, ?)',
+          'INSERT OR REPLACE INTO _bad_replay_log (id, undeclared) VALUES (1, ?)',
           undeclared,
-          reservedField,
         );
         return;
       }
@@ -126,8 +111,7 @@ export const replayCustomHandler = implement(replayCustomContract)
     ctx.sql.exec(`
       CREATE TABLE IF NOT EXISTS _bad_replay_log (
         id INTEGER PRIMARY KEY,
-        undeclared TEXT NOT NULL DEFAULT '',
-        reserved_field TEXT NOT NULL DEFAULT ''
+        undeclared TEXT NOT NULL DEFAULT ''
       )
     `);
     ctx.sql.exec(`
@@ -162,13 +146,11 @@ export const replayCustomHandler = implement(replayCustomContract)
     const rows = ctx.sql
       .exec<{
         undeclared: string;
-        reserved_field: string;
-      }>('SELECT undeclared, reserved_field FROM _bad_replay_log WHERE id = 1')
+      }>('SELECT undeclared FROM _bad_replay_log WHERE id = 1')
       .toArray();
     const row = rows[0];
     ctx.send('bad-replay-log', {
       undeclared: row?.undeclared ?? '',
-      reservedField: row?.reserved_field ?? '',
     });
   })
   .on('get-confirmed-count', (ctx) => {

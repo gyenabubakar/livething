@@ -66,7 +66,9 @@ export const ReplayFrame = v.object({
 export const StreamCancelFrame = v.object({
   event: v.literal('__streamCancel__'),
   payload: NoPayload,
-  __wskit: v.strictObject({ streamId: v.string() }),
+  // Scope markers let the engine find a broadcast durable stream's row, which
+  // is keyed by scope rather than by the cancelling connection's identity.
+  __wskit: v.strictObject({ ...OptionalScope, streamId: v.string() }),
 });
 
 export const ResumeStreamFrame = v.object({

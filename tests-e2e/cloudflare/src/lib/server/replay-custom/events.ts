@@ -11,7 +11,7 @@ export const GetRoomConfirmedCount = v.object({});
 export const RoomConfirmedCount = v.object({ total: v.number(), confirmed: v.number() });
 
 export const QueryBadReplayLog = v.object({});
-export const BadReplayLog = v.object({ undeclared: v.string(), reservedField: v.string() });
+export const BadReplayLog = v.object({ undeclared: v.string() });
 
 export const RoomStreamPayload = v.object({ count: v.number() });
 export const RoomStreamChunk = v.object({ token: v.string() });

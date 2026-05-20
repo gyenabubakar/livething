@@ -18,4 +18,4 @@ export const TriggerBigIntReplay = v.object({});
 
 export const StartTinyStream = v.object({});
 export const TinyChunk = v.object({ value: v.string() });
-export const ReplayGuardError = v.object({ undeclared: v.string(), reservedField: v.string() });
+export const ReplayGuardError = v.object({ undeclared: v.string() });

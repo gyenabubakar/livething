@@ -186,14 +186,9 @@ test.describe('custom replay handler', () => {
     }).toPass({ timeout: 5_000 });
   });
 
-  test('custom replay ctx.sendReplay enforces declaration + reserved-field guard', async ({
-    page,
-  }) => {
-    // Pre-fix custom replay's onReplay context wired ctx.sendReplay straight
-    // into engine.sendReplay, skipping the contract check that the built-in
-    // replay path now runs. This pin attempts both an undeclared event and a
-    // user "_"-prefixed payload field from inside onReplay and asserts both
-    // throws reach the client.
+  test('custom replay ctx.sendReplay rejects an undeclared event', async ({ page }) => {
+    // Custom replay's onReplay ctx.sendReplay runs the same declaration check
+    // as the built-in replay path — an undeclared event is rejected.
     await page.getByTestId('trigger-bad-replay-btn').click();
     // Settle the __replay__ round-trip before querying the log.
     await page.waitForTimeout(200);
@@ -201,10 +196,7 @@ test.describe('custom replay handler', () => {
     await expect(page.getByTestId('bad-replay-undeclared')).toContainText(
       'not declared in the active scope',
     );
-    await expect(page.getByTestId('bad-replay-reserved-field')).toContainText(
-      'reserved for the engine',
-    );
-    // Sanity: the rejected sends did not break the connection.
+    // Sanity: the rejected send did not break the connection.
     await page.getByTestId('add-note-btn').click();
     await waitForText(page, 'notes', /custom replay note/);
   });

@@ -12,7 +12,6 @@
 	let cursorEvents = $state<string[]>([]);
 	let historyInjected = $state('');
 	let replayGuardUndeclared = $state('');
-	let replayGuardReservedField = $state('');
 	let bigintReplayError = $state('');
 	let bigintReplayErrorMessageId = $state('');
 	let afterBigintRowDelivered = $state('');
@@ -77,7 +76,6 @@
 				if (payload.text === 'injected-room-history') roomHistoryInjected = 'true';
 			} else if (evt === 'replay-guard-error') {
 				replayGuardUndeclared = String(payload.undeclared ?? '');
-				replayGuardReservedField = String(payload.reservedField ?? '');
 			} else if (evt === '__subscribeOk__') {
 				if (__wskit?.channel === 'replay-room') roomSubscribed = 'subscribed';
 			}
@@ -142,7 +140,6 @@
 
 	function triggerBadReplay() {
 		replayGuardUndeclared = '';
-		replayGuardReservedField = '';
 		send('trigger-bad-replay', {});
 	}
 
@@ -204,7 +201,6 @@
 		<div data-testid="history-injected">{historyInjected}</div>
 		<button data-testid="trigger-bad-replay-btn" onclick={triggerBadReplay} disabled={status !== 'connected'}>Trigger Bad Replay</button>
 		<div data-testid="replay-guard-undeclared">{replayGuardUndeclared}</div>
-		<div data-testid="replay-guard-reserved-field">{replayGuardReservedField}</div>
 		<button data-testid="trigger-bigint-replay-btn" onclick={triggerBigIntReplay} disabled={status !== 'connected'}>Trigger BigInt Replay</button>
 		<div data-testid="bigint-replay-error">{bigintReplayError}</div>
 		<div data-testid="bigint-replay-error-message-id">{bigintReplayErrorMessageId}</div>

@@ -195,7 +195,7 @@ test.describe('stream-durable broadcast (channel scope)', () => {
       await send(pageA, a, {
         event: '__streamCancel__',
         payload: {},
-        __wskit: { streamId },
+        __wskit: { channel: 'rooms', streamId },
       });
 
       await pageA.waitForTimeout(700);
@@ -260,7 +260,7 @@ test.describe('stream-durable broadcast (channel scope)', () => {
       await send(pageB, b, {
         event: '__streamCancel__',
         payload: {},
-        __wskit: { streamId },
+        __wskit: { channel: 'rooms', streamId },
       });
 
       await waitForFrame(
