@@ -152,11 +152,31 @@ test.describe('surface-area gaps', () => {
     expect(events).not.toContain('room-stream');
   });
 
-  // `intercept('streamEvent', ...)` on a sub-builder works at runtime, but
-  // the .intercept() type narrows E to keyof FieldOf<NsC, 'incoming'> in
-  // server/src/_api/implement.ts and the channel/namespace builders. Adding
-  // streams/requests/resumableStreams/recordedStreams to that constraint
-  // (and resolving the payload type lookup across categories) is a real
-  // type-system change, not a small inline fix. Un-skip when that lands.
-  test.skip('intercept on a sub-builder rewrites the payload of a stream trigger', async () => {});
+  test('intercept on a sub-builder rewrites the payload of a stream trigger', async ({
+    page,
+  }, testInfo) => {
+    const room = `sag-${testInfo.testId}`;
+    await page.goto('/intercept');
+    await installRig(page);
+    const a = await connect(page, '/ws/intercept', 'alice', room);
+
+    await send(page, a, {
+      event: 'intercepted-stream',
+      payload: { _namespace: 'ns', text: 'hello' },
+    });
+    const ok = await waitForFrame(page, a, (f) => f.event === '_streamOk');
+    const streamId = ok.payload._streamId as string;
+
+    const chunk = await waitForFrame(
+      page,
+      a,
+      (f) =>
+        f.event === 'intercepted-stream' &&
+        f.payload._streamId === streamId &&
+        typeof f.payload?.text === 'string',
+    );
+    // The namespace's post-intercept appends `-rewritten` to payload.text
+    // before the generator receives it.
+    expect(chunk.payload.text).toBe('hello-rewritten');
+  });
 });

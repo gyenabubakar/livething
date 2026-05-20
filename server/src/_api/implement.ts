@@ -60,7 +60,12 @@ import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
 import type { CustomReplayOptions } from '~/replay/custom/custom.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
 import { setOnce } from './handler-maps.ts';
-import type { Contract, ContractConfig } from './contract-types.ts';
+import type {
+  Contract,
+  ContractConfig,
+  InterceptableEventName,
+  InterceptablePayload,
+} from './contract-types.ts';
 import type { Ctx } from './ctx-types.ts';
 import type {
   ChannelDef,
@@ -256,9 +261,9 @@ export class GroupBuilder<C extends Contract> {
    * is a post-validation per-event hook. Same shape as `Implementer.intercept`.
    */
   intercept(handler: (ctx: any, msg: { event: string; payload: unknown }) => any): this;
-  intercept<E extends keyof C['incoming'] & string>(
+  intercept<E extends InterceptableEventName<C>>(
     event: E,
-    handler: (ctx: any, payload: C['incoming'][E]) => any,
+    handler: (ctx: any, payload: InterceptablePayload<C, E>) => any,
   ): this;
   intercept(arg1: any, arg2?: any): this {
     if (typeof arg1 === 'string') {
@@ -856,9 +861,9 @@ export class Implementer<C extends Contract> {
    * ```
    */
   intercept(handler: (ctx: any, message: { event: string; payload: unknown }) => any): this;
-  intercept<E extends keyof C['incoming'] & string>(
+  intercept<E extends InterceptableEventName<C>>(
     event: E,
-    handler: (ctx: Ctx<C>, payload: C['incoming'][E]) => any,
+    handler: (ctx: Ctx<C>, payload: InterceptablePayload<C, E>) => any,
   ): this;
   intercept(arg1: any, arg2?: any): this {
     if (typeof arg1 === 'string') {

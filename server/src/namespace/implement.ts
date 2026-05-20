@@ -1,6 +1,10 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { setOnce } from '~/_api/handler-maps.ts';
-import type { Contract } from '~/_api/contract-types.ts';
+import type {
+  Contract,
+  InterceptableEventName,
+  InterceptablePayload,
+} from '~/_api/contract-types.ts';
 import type { NamespaceCtx } from '~/_api/ctx-types.ts';
 import type { FieldOf } from '~/channel/implement.ts';
 import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
@@ -125,9 +129,9 @@ export class NamespaceImplement<C extends Contract, NsC = any> {
   intercept(
     handler: (ctx: NamespaceCtx<NsC, C>, message: { event: string; payload: unknown }) => any,
   ): this;
-  intercept<E extends keyof FieldOf<NsC, 'incoming'> & string>(
+  intercept<E extends InterceptableEventName<NsC>>(
     event: E,
-    handler: (ctx: NamespaceCtx<NsC, C>, payload: FieldOf<NsC, 'incoming'>[E]) => any,
+    handler: (ctx: NamespaceCtx<NsC, C>, payload: InterceptablePayload<NsC, E>) => any,
   ): this;
   intercept(arg1: any, arg2?: any): this {
     if (typeof arg1 === 'string') {

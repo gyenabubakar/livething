@@ -1,4 +1,13 @@
-import { channel, contract, implement, incoming, namespace, outgoing, t } from '@wskit/server';
+import {
+  channel,
+  contract,
+  implement,
+  incoming,
+  namespace,
+  outgoing,
+  stream,
+  t,
+} from '@wskit/server';
 import { Block } from '@wskit/server/errors';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
@@ -6,6 +15,8 @@ import { requireUsername } from '../_shared/upgrade.ts';
 
 const EchoPayload = v.object({ text: v.string() });
 const EchoedPayload = v.object({ text: v.string() });
+const InterceptedStreamPayload = v.object({ text: v.string() });
+const InterceptedStreamChunk = v.object({ text: v.string() });
 
 export const interceptContract = contract<Env>('intercept')({
   meta: t<{ username: string }>(),
@@ -14,7 +25,14 @@ export const interceptContract = contract<Env>('intercept')({
     outgoing('echoed', EchoedPayload),
 
     namespace('ns', {
-      definitions: [incoming('echo', EchoPayload), outgoing('echoed', EchoedPayload)],
+      definitions: [
+        incoming('echo', EchoPayload),
+        outgoing('echoed', EchoedPayload),
+        stream('intercepted-stream', {
+          payload: InterceptedStreamPayload,
+          chunk: InterceptedStreamChunk,
+        }),
+      ],
     }),
 
     channel('room', {
@@ -54,8 +72,14 @@ export const interceptHandler = implement(interceptContract)
         if (payload.text === 'ns-post') return { text: 'ns-post-rewritten' };
         return payload;
       })
+      .intercept('intercepted-stream', (_ctx, payload) => {
+        return { text: `${payload.text}-rewritten` };
+      })
       .on('echo', (ctx, payload) => {
         ctx.namespace.send('echoed', { text: `ns:${payload.text}` });
+      })
+      .stream('intercepted-stream', async function* (_ctx, payload) {
+        yield { text: payload.text };
       }),
   )
   .channel('room', (ch) =>

@@ -1,6 +1,10 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { setOnce } from '~/_api/handler-maps.ts';
-import type { Contract } from '~/_api/contract-types.ts';
+import type {
+  Contract,
+  InterceptableEventName,
+  InterceptablePayload,
+} from '~/_api/contract-types.ts';
 import type { ChannelCtx } from '~/_api/ctx-types.ts';
 import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
 import type { CustomReplayOptions } from '~/replay/custom/custom.ts';
@@ -193,9 +197,9 @@ export class ChannelImplement<C extends Contract, ChC = any> {
   intercept(
     handler: (ctx: ChannelCtx<ChC, C>, message: { event: string; payload: unknown }) => any,
   ): this;
-  intercept<E extends keyof FieldOf<ChC, 'incoming'> & string>(
+  intercept<E extends InterceptableEventName<ChC>>(
     event: E,
-    handler: (ctx: ChannelCtx<ChC, C>, payload: FieldOf<ChC, 'incoming'>[E]) => any,
+    handler: (ctx: ChannelCtx<ChC, C>, payload: InterceptablePayload<ChC, E>) => any,
   ): this;
   intercept(arg1: any, arg2?: any): this {
     if (typeof arg1 === 'string') {

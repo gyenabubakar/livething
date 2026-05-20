@@ -122,6 +122,65 @@ export type NamespaceContract<TDefs extends readonly Definition[] = readonly Def
 >;
 
 // ---------------------------------------------------------------------------
+// Intercept lookup helpers
+// ---------------------------------------------------------------------------
+//
+// Post-intercepts attach to a single event name and run after validation but
+// before the handler. The runtime fires them for incoming, request, AND
+// stream-trigger frames. These helpers let `.intercept('event-name', ...)`
+// see the right event names and infer the right payload type for whichever
+// category the event was declared in.
+
+type EventNamesIn<T> = T extends Record<string, unknown> ? keyof T & string : never;
+
+/**
+ * Every event name in `C` that carries a payload — the union of incoming,
+ * request, stream, resumableStream, and recordedStream event names.
+ */
+export type InterceptableEventName<C> =
+  | EventNamesIn<C extends { incoming: infer X } ? X : never>
+  | EventNamesIn<C extends { requests: infer X } ? X : never>
+  | EventNamesIn<C extends { streams: infer X } ? X : never>
+  | EventNamesIn<C extends { resumableStreams: infer X } ? X : never>
+  | EventNamesIn<C extends { recordedStreams: infer X } ? X : never>;
+
+/**
+ * The payload type for an event name, picked from whichever category
+ * declared it. The cross-primitive collision guard at build time prevents
+ * a name from belonging to more than one category in a single scope, so
+ * this lookup is unambiguous.
+ */
+export type InterceptablePayload<C, E extends string> = C extends { incoming: infer I }
+  ? E extends keyof I
+    ? I[E]
+    : C extends { requests: infer R }
+      ? E extends keyof R
+        ? R[E] extends { payload: infer P }
+          ? P
+          : never
+        : C extends { streams: infer S }
+          ? E extends keyof S
+            ? S[E] extends { payload: infer P }
+              ? P
+              : never
+            : C extends { resumableStreams: infer RS }
+              ? E extends keyof RS
+                ? RS[E] extends { payload: infer P }
+                  ? P
+                  : never
+                : C extends { recordedStreams: infer RD }
+                  ? E extends keyof RD
+                    ? RD[E] extends { payload: infer P }
+                      ? P
+                      : never
+                    : never
+                  : never
+              : never
+          : never
+      : never
+  : never;
+
+// ---------------------------------------------------------------------------
 // ContractConfig — the shape passed to contract()
 // ---------------------------------------------------------------------------
 
