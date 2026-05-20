@@ -159,6 +159,10 @@ export async function runConnectionLifecycle(
 
 /**
  * Stop and forget any active streams owned by a connection that is going away.
+ *
+ * Streams declared with `onDisconnect: 'keep-running'` are left alone — the
+ * generator continues producing into storage and a later `_resumeStream` from
+ * the same identity (or any broadcast subscriber) catches up from the buffer.
  */
 export async function cancelActiveStreamsForConnection(
   runtime: {
@@ -169,6 +173,8 @@ export async function cancelActiveStreamsForConnection(
         connectionId: string;
         generator: AsyncGenerator<unknown, void, unknown>;
         closed: boolean;
+        onDisconnect?: 'cancel-but-buffer' | 'keep-running';
+        detached?: boolean;
       }
     >;
     logger?: { error(message: string, fields?: Record<string, unknown>): void };
@@ -177,6 +183,10 @@ export async function cancelActiveStreamsForConnection(
 ): Promise<void> {
   for (const activeStream of [...runtime.activeStreams.values()]) {
     if (activeStream.connectionId !== connectionId) continue;
+    if (activeStream.onDisconnect === 'keep-running') {
+      activeStream.detached = true;
+      continue;
+    }
     activeStream.closed = true;
     try {
       // A user-supplied generator may throw from its `finally` block. Log

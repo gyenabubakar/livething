@@ -88,6 +88,14 @@ export const streamDurableScopedContract = contract<Env>('stream-durable-scoped'
       maxAgeMs: 60_000,
       retentionAfterEndMs: 300,
     }),
+    recordedStream('keep-running-feed', {
+      payload: Empty,
+      chunk: IdxChunk,
+      maxChunks: 50,
+      maxAgeMs: 60_000,
+      retentionAfterEndMs: 30_000,
+      onDisconnect: 'keep-running',
+    }),
 
     namespace('v1', {
       definitions: [
@@ -150,6 +158,13 @@ export const streamDurableScopedHandler = implement(streamDurableScopedContract)
     yield { idx: 1 };
     yield { idx: 2 };
     throw new Error('mid-stream boom');
+  })
+
+  .recordedStream('keep-running-feed', async function* () {
+    for (let i = 1; i <= 20; i += 1) {
+      yield { idx: i };
+      await new Promise((r) => setTimeout(r, 80));
+    }
   })
 
   .channel('rooms', (ch) =>

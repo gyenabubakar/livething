@@ -682,6 +682,7 @@ export async function dispatchIncoming(
           maxAgeMs: durable.maxAgeMs,
           retentionAfterEndMs: durable.retentionAfterEndMs,
           cursor: resumableStream?.cursor,
+          onDisconnect: durable.onDisconnect,
         },
         postPayload,
         message.payload,
@@ -828,6 +829,7 @@ function resolveDurableDefForRow(
         maxAgeMs: resumable.maxAgeMs,
         retentionAfterEndMs: resumable.retentionAfterEndMs,
         cursor: resumable.cursor,
+        onDisconnect: resumable.onDisconnect,
       },
     };
   }
@@ -844,6 +846,7 @@ function resolveDurableDefForRow(
         maxChunks: recorded.maxChunks,
         maxAgeMs: recorded.maxAgeMs,
         retentionAfterEndMs: recorded.retentionAfterEndMs,
+        onDisconnect: recorded.onDisconnect,
       },
     };
   }

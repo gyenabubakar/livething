@@ -270,6 +270,24 @@ export interface ActiveStream {
   nudges: { event: string; payload: unknown }[];
   nudgeValidators: Map<string, unknown>;
   closed: boolean;
+  /**
+   * `'cancel-but-buffer'` (default for durable, only value for non-durable) or
+   * `'keep-running'`. Drives whether `cancelActiveStreamsForConnection` calls
+   * `generator.return()` on the owning connection's close.
+   */
+  onDisconnect?: 'cancel-but-buffer' | 'keep-running';
+  /**
+   * True when the owning connection has dropped on a `keep-running` stream and
+   * the generator is still producing into storage with no client attached. The
+   * runtime skips wire sends to the dropped connection while this is set.
+   */
+  detached?: boolean;
+  /**
+   * The live connection the generator should send chunks to. Mutated when a
+   * resuming client adopts a previously-detached `keep-running` stream so the
+   * generator's next yield lands on the new wire.
+   */
+  connection?: RuntimeConnection;
 }
 
 /**

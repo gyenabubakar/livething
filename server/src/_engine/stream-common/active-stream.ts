@@ -22,6 +22,11 @@ export interface BuildActiveStreamInput {
   connection: RuntimeConnection;
   generator: AsyncGenerator<unknown, void, unknown>;
   nudges: readonly NudgeBinding[];
+  /**
+   * Disconnect policy for durable streams. Optional — defaults to
+   * `'cancel-but-buffer'` (and non-durable streams leave it undefined).
+   */
+  onDisconnect?: 'cancel-but-buffer' | 'keep-running';
 }
 
 /** Return value from `buildActiveStream`. */
@@ -50,6 +55,8 @@ export function buildActiveStream(input: BuildActiveStreamInput): ActiveStreamHa
     nudges: nudgeBuffer,
     nudgeValidators,
     closed: false,
+    onDisconnect: input.onDisconnect,
+    connection: input.connection,
   };
   return { active, nudgeBuffer };
 }

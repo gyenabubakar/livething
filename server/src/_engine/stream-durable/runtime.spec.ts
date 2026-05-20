@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { StreamAborted } from '@wskit/core';
+import * as ConnectionLifecycle from '~/_engine/runtime/connection.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { ActiveStream, RuntimeConnection } from '~/_engine/runtime/types.ts';
 import { cancelDurableStream, resumeDurableStream, runDurableStream } from './runtime.ts';
@@ -1164,5 +1165,128 @@ describe('durable stream runtime', () => {
 
     const err = protocolMessages.find((m) => m.event === '_error');
     expect((err?.payload.detail as { reason: string } | undefined)?.reason).toBe('unsubscribed');
+  });
+
+  it('keep-running — disconnect leaves the active stream in place and marks it detached', async () => {
+    const sql = makeSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime } = createRuntime(sql);
+    const connection = createConnection();
+
+    function noopRelease(): void {}
+    let release: () => void = noopRelease;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    const run = runDurableStream(
+      runtime as never,
+      connection,
+      {},
+      baseDef({
+        kind: 'recorded',
+        onDisconnect: 'keep-running',
+        maxChunks: 10,
+        generator: async function* () {
+          yield { i: 1 };
+          await gate;
+          yield { i: 2 };
+        },
+      }),
+      {},
+      undefined,
+    );
+
+    await new Promise((r) => setTimeout(r, 10));
+    expect(runtime.activeStreams.size).toBe(1);
+    const live = [...runtime.activeStreams.values()][0]!;
+
+    // Simulate the disconnect hook: keep-running entry stays put, detached
+    // flag flips on, generator is NOT returned.
+    await ConnectionLifecycle.cancelActiveStreamsForConnection(runtime as never, connection.id);
+    expect(runtime.activeStreams.has(live.id)).toBe(true);
+    expect(live.detached).toBe(true);
+    expect(live.closed).toBe(false);
+
+    release();
+    await run;
+  });
+
+  it('keep-running — resume from a fresh connection swaps the wire target and replays the buffer', async () => {
+    const sql = makeSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime, protocolMessages, pipelineSends } = createRuntime(sql);
+    const original = createConnection('c-orig', 'u1');
+    const reconnect = createConnection('c-new', 'u1');
+
+    function noopRelease(): void {}
+    let release: () => void = noopRelease;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    const run = runDurableStream(
+      runtime as never,
+      original,
+      {},
+      baseDef({
+        kind: 'recorded',
+        onDisconnect: 'keep-running',
+        maxChunks: 10,
+        generator: async function* () {
+          yield { i: 1 };
+          yield { i: 2 };
+          await gate;
+          yield { i: 3 };
+        },
+      }),
+      {},
+      undefined,
+    );
+
+    await new Promise((r) => setTimeout(r, 10));
+    const live = [...runtime.activeStreams.values()][0]!;
+
+    await ConnectionLifecycle.cancelActiveStreamsForConnection(runtime as never, original.id);
+    expect(live.detached).toBe(true);
+
+    const sentBeforeResume = pipelineSends.length;
+
+    await resumeDurableStream(
+      runtime as never,
+      reconnect,
+      () => ({
+        scope: {},
+        def: baseDef({
+          kind: 'recorded',
+          onDisconnect: 'keep-running',
+          maxChunks: 10,
+          generator: async function* () {} as never,
+        }),
+      }),
+      Storage.readStream(sql, 'u1', live.id),
+      live.id,
+      0,
+    );
+
+    // Adopt sent _streamOk + replayed both buffered chunks to the new wire.
+    const okFrames = protocolMessages.filter(
+      (m) => m.event === '_streamOk' && m.payload._streamId === live.id,
+    );
+    expect(okFrames.length).toBeGreaterThanOrEqual(1);
+    const replayed = protocolMessages.filter((m) => m.event === 'e');
+    expect(replayed.map((m) => m.payload._seq)).toEqual([1, 2]);
+
+    expect(live.detached).toBe(false);
+    expect(live.connection?.id).toBe('c-new');
+    expect(live.connectionId).toBe('c-new');
+
+    release();
+    await run;
+
+    // The third chunk produced after resume goes through sendThroughPipeline
+    // (wireTarget = live.connection = c-new), not the stale c-orig.
+    const sentAfterResume = pipelineSends.length;
+    expect(sentAfterResume).toBeGreaterThan(sentBeforeResume);
   });
 });

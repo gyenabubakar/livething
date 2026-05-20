@@ -81,6 +81,8 @@ export interface DurableStreamRuntimeDef {
   readonly retentionAfterEndMs?: number;
   /** Validator for the saved cursor (resumable streams only). */
   readonly cursor?: unknown;
+  /** Disconnect policy — drives whether the generator survives the drop. */
+  readonly onDisconnect?: 'cancel-but-buffer' | 'keep-running';
 }
 
 function readSuppliedStreamId(rawPayload: unknown): string | undefined {
@@ -271,6 +273,48 @@ export async function resumeDurableStream(
   const isPeerSubscriber =
     row.broadcast && row.creatorIdentity !== null && row.creatorIdentity !== realIdentity;
 
+  // Scope markers attached to every wire frame the resume path emits, so
+  // late frames look identical to live ones (client filters by _channel /
+  // _namespace expect them either way).
+  const scopeMarkers: Record<string, unknown> = {};
+  if (row.namespace) scopeMarkers._namespace = row.namespace;
+  if (row.channelKey) scopeMarkers._channel = row.channelKey;
+  if (row.channelScope) scopeMarkers._channelScope = row.channelScope;
+
+  // Creator-side adopt path for a keep-running stream whose generator is still
+  // alive after the owning client dropped. Swap the wire target to the new
+  // connection, replay buffered chunks since `since`, and return without
+  // touching the generator — future yields land on the adopted connection.
+  if (!isPeerSubscriber && row.status === 'active') {
+    const live = runtime.activeStreams.get(streamId);
+    if (live && live.detached) {
+      live.connection = connection;
+      live.connectionId = connection.id;
+      live.detached = false;
+      if (!connection.activeStreamIds) connection.activeStreamIds = new Set();
+      connection.activeStreamIds.add(streamId);
+      runtime.persistAttachment(connection);
+
+      runtime.sendProtocolMessage(connection, '_streamOk', {
+        ...scopeMarkers,
+        _streamId: streamId,
+      });
+      const chunks = Storage.readChunksSince(runtime.sql, storageIdentity, streamId, since);
+      for (const chunk of chunks) {
+        const parsed = JSON.parse(chunk.payload);
+        const wirePayload: Record<string, unknown> = {
+          ...(typeof parsed === 'object' && parsed !== null ? parsed : {}),
+          ...scopeMarkers,
+          _streamId: streamId,
+          _seq: chunk.seq,
+        };
+        if (chunk.messageId) wirePayload._messageId = chunk.messageId;
+        runtime.sendProtocolMessage(connection, def.event, wirePayload);
+      }
+      return;
+    }
+  }
+
   // Non-peer resume: a stale in-memory entry may still be parked in an
   // `await`; nudge it to close but don't block. The finally guard below
   // stops it from clobbering the new entry when it eventually drains. Skip
@@ -287,14 +331,6 @@ export async function resumeDurableStream(
       }
     }
   }
-
-  // Scope markers attached to every wire frame the resume path emits, so
-  // late frames look identical to live ones (client filters by _channel /
-  // _namespace expect them either way).
-  const scopeMarkers: Record<string, unknown> = {};
-  if (row.namespace) scopeMarkers._namespace = row.namespace;
-  if (row.channelKey) scopeMarkers._channel = row.channelKey;
-  if (row.channelScope) scopeMarkers._channelScope = row.channelScope;
 
   if (row.kind === 'recorded' || isPeerSubscriber) {
     const chunks = Storage.readChunksSince(runtime.sql, storageIdentity, streamId, since);
@@ -421,6 +457,7 @@ async function runGenerator(
     connection,
     generator: iterator,
     nudges: def.nudges ?? [],
+    onDisconnect: def.onDisconnect,
   });
 
   runtime.activeStreams.set(streamId, activeStream);
@@ -525,18 +562,25 @@ async function runGenerator(
         }
       }
 
-      runtime.sendThroughPipeline(
-        connection,
-        {
-          namespace: scope.namespace?.name,
-          channel: scope.channelName,
-          channelScope: scope.channelScope,
-          streamId,
-          seq,
-        },
-        def.event,
-        wirePayload,
-      );
+      // For keep-running streams, `activeStream.connection` may have been
+      // swapped to a fresh connection on resume; for detached streams with no
+      // client yet attached, skip the creator-side wire send entirely (the
+      // chunk is already in the buffer for a later resume).
+      const wireTarget = activeStream.connection ?? connection;
+      if (!activeStream.detached) {
+        runtime.sendThroughPipeline(
+          wireTarget,
+          {
+            namespace: scope.namespace?.name,
+            channel: scope.channelName,
+            channelScope: scope.channelScope,
+            streamId,
+            seq,
+          },
+          def.event,
+          wirePayload,
+        );
+      }
 
       // Drain buffered nudges into the next iterator.next() input and clear
       // the queue. Mirrors plain stream's loop tail so dev code calling

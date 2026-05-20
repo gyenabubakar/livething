@@ -48,11 +48,55 @@ test.describe('stream config options', () => {
     expect(chunksCc2.length).toBeGreaterThanOrEqual(1);
   });
 
-  // 'keep-running' is documented as reserved for a later release
-  // (server-spec.md, "Lifecycle and configuration" table). The runtime today
-  // ignores the option and treats every disconnect as 'cancel-but-buffer'.
-  // Un-skip when the disconnect-path branch lands.
-  test.skip('onDisconnect: keep-running — generator keeps producing after drop, resume catches up from the buffer', async () => {});
+  test('onDisconnect: keep-running — generator keeps producing after drop, resume catches up from the buffer', async ({
+    page,
+  }, testInfo) => {
+    const room = `sco-${testInfo.testId}`;
+    await openRig(page);
+    const a = await connect(page, WS_PATH, 'alice', room);
+
+    const streamId = 'kr-1';
+    await send(page, a, { event: 'keep-running-feed', payload: { _streamId: streamId } });
+    await waitForFrame(page, a, (f) => f.event === '_streamOk' && f.payload._streamId === streamId);
+    // Wait for at least one chunk before dropping so we know the generator is
+    // running.
+    await page.waitForFunction(
+      ([sid]) =>
+        (window.__wskitFrames!(sid as string) ?? []).filter(
+          (f) => f.event === 'keep-running-feed' && typeof f.payload?.idx === 'number',
+        ).length >= 1,
+      [a],
+    );
+
+    await closeSocket(page, a);
+    // Generator yield cadence is 80ms; wait long enough that several more
+    // chunks have landed in the buffer while we were offline.
+    await page.waitForTimeout(800);
+
+    const b = await connect(page, WS_PATH, 'alice', room);
+    await send(page, b, {
+      event: '_resumeStream',
+      payload: { _streamId: streamId, since: 0 },
+    });
+
+    // Wait for the resume to deliver at least the chunks produced while we
+    // were offline. Don't run to completion — the test only needs to prove
+    // the catch-up window worked.
+    await page.waitForFunction(
+      ([sid]) =>
+        (window.__wskitFrames!(sid as string) ?? []).filter(
+          (f) => f.event === 'keep-running-feed' && typeof f.payload?.idx === 'number',
+        ).length >= 5,
+      [b],
+    );
+
+    const indices = (await frames(page, b))
+      .filter((f) => f.event === 'keep-running-feed' && typeof f.payload?.idx === 'number')
+      .map((f) => f.payload.idx as number);
+    // Buffer replay carries the seq numbers from before the disconnect.
+    expect(indices[0]).toBe(1);
+    expect(indices).toEqual([...indices].sort((x, y) => x - y));
+  });
 
   test('custom maxAgeMs — suspended row past the window surfaces stream-aborted expired on resume', async ({
     page,

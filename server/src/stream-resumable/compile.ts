@@ -23,6 +23,18 @@ export function compileResumableStreamDef(
       `[wskit] No generator registered for resumableStream('${def.name}'). Call implement(c).resumableStream('${def.name}', ...).`,
     );
   }
+  // A non-broadcast resumable stream does not buffer chunks (only the cursor),
+  // so chunks produced while the owning client is disconnected would silently
+  // fall on the floor. Block the combination at build time and tell the dev
+  // either to enable broadcast (which buffers) or use a recordedStream.
+  if (def.onDisconnect === 'keep-running' && !def.broadcast) {
+    throw new Error(
+      `[wskit] resumableStream('${def.name}') has onDisconnect: 'keep-running' but broadcast is off. ` +
+        `A non-broadcast resumable stream does not buffer chunks, so anything produced after the ` +
+        `client drops would be lost. Set broadcast: true, or switch to recordedStream if you want ` +
+        `a buffered keep-running stream for a single client.`,
+    );
+  }
   return resumableGenerateFactory({
     event: def.name,
     validator: def.payload,

@@ -107,4 +107,45 @@ describe('resumableStream build-time validation', () => {
     });
     expect(() => implement(c).build()).toThrow(/No generator registered for resumableStream/);
   });
+
+  it('throws at build when keep-running is used on a non-broadcast resumableStream', () => {
+    const c = contract<Record<string, unknown>>('app')({
+      persistence: true,
+      definitions: [
+        resumableStream('feed', {
+          payload: v.object({}),
+          chunk: v.object({ idx: v.number() }),
+          onDisconnect: 'keep-running',
+        }),
+      ],
+    });
+    expect(() =>
+      implement(c)
+        .resumableStream('feed', async function* () {
+          yield { idx: 1 };
+        })
+        .build(),
+    ).toThrow(/keep-running.*broadcast/);
+  });
+
+  it('allows keep-running on a broadcast resumableStream', () => {
+    const c = contract<Record<string, unknown>>('app')({
+      persistence: true,
+      definitions: [
+        resumableStream('feed', {
+          payload: v.object({}),
+          chunk: v.object({ idx: v.number() }),
+          broadcast: true,
+          onDisconnect: 'keep-running',
+        }),
+      ],
+    });
+    expect(() =>
+      implement(c)
+        .resumableStream('feed', async function* () {
+          yield { idx: 1 };
+        })
+        .build(),
+    ).not.toThrow();
+  });
 });
