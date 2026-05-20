@@ -503,29 +503,6 @@ export const StreamAborted = error('stream-aborted', (p: unknown) => {
 export const StreamIdCollision = error('stream-id-collision');
 
 /**
- * Sent to the client when it asks to start a stream of an event that already
- * has another stream of the same event running on the same connection. By
- * default a connection can only have one active stream per event name —
- * starting a second one is rejected with this code. The existing stream's
- * `_streamId` is carried in `detail._streamId` so the client can decide
- * whether to wait for it, cancel it, or surface the conflict to the user.
- *
- * Opt out per-stream with `.allowConcurrent()` on the stream builder if the
- * use case genuinely needs parallel runs of the same event (e.g. fan-out
- * searches).
- *
- * @example
- * ```ts
- * try {
- *   await socket.stream('start-tokens', { prompt: 'hi' });
- * } catch (err) {
- *   if (StreamAlreadyActive.matches(err)) {
- *     console.log('already running', err.detail._streamId);
- *   }
- * }
- * ```
- */
-/**
  * Sent to the client when an incoming frame is rejected because the connection
  * is sending faster than the configured rate-limit cap for the scope the frame
  * landed in. The handler does not run; the validator does not run. The client
@@ -559,6 +536,29 @@ export const RateLimited = error('rate-limited', (p: unknown) => {
   return { retryAfter: obj.retryAfter };
 });
 
+/**
+ * Sent to the client when it asks to start a stream of an event that already
+ * has another stream of the same event running on the same connection. By
+ * default a connection can only have one active stream per event name —
+ * starting a second one is rejected with this code. The existing stream's
+ * `_streamId` is carried in `detail._streamId` so the client can decide
+ * whether to wait for it, cancel it, or surface the conflict to the user.
+ *
+ * Opt out per-stream with `.allowConcurrent()` on the stream builder if the
+ * use case genuinely needs parallel runs of the same event (e.g. fan-out
+ * searches).
+ *
+ * @example
+ * ```ts
+ * try {
+ *   await socket.stream('start-tokens', { prompt: 'hi' });
+ * } catch (err) {
+ *   if (StreamAlreadyActive.matches(err)) {
+ *     console.log('already running', err.detail._streamId);
+ *   }
+ * }
+ * ```
+ */
 export const StreamAlreadyActive = error('stream-already-active', (p: unknown) => {
   if (typeof p !== 'object' || p === null) {
     throw new Error('StreamAlreadyActive detail must be an object');
