@@ -502,6 +502,7 @@ describe('StreamAborted', () => {
     'expired',
     'not-found',
     'hibernation-wake',
+    'unsubscribed',
     'aborted',
   ] as const;
 

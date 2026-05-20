@@ -194,6 +194,18 @@ export async function resumeDurableStream(
   }
 
   const storageIdentity = row.identity;
+  const realIdentityForGuard = connection.identity ?? connection.id;
+  if (
+    row.broadcast &&
+    Storage.isUnsubscribed(runtime.sql, storageIdentity, streamId, realIdentityForGuard)
+  ) {
+    runtime.sendProtocolMessage(connection, '_error', {
+      code: StreamAborted.code,
+      detail: { reason: 'unsubscribed' as const },
+      _streamId: streamId,
+    });
+    return;
+  }
 
   // A stale in-memory entry may still be parked in an `await`; nudge it to
   // close but don't block. The finally guard below stops it from clobbering
@@ -219,7 +231,7 @@ export async function resumeDurableStream(
   }
   const { def, scope } = resolved;
 
-  const realIdentity = connection.identity ?? connection.id;
+  const realIdentity = realIdentityForGuard;
   // Peer-subscriber on a broadcast stream: replay buffered chunks since
   // `since` and return. Subscribers never re-invoke the generator; only the
   // creator can do that (handled below).
@@ -439,26 +451,29 @@ async function runGenerator(
           : { value: chunkValue };
 
       if (def.broadcast) {
-        // Fan out to every other connection in scope. Channel-scoped streams
-        // go to channel members only; namespace and top-level go to every
-        // connection. The creator gets the chunk via sendThroughPipeline
-        // below, so excludeSelf is implicit.
+        // Fan out to every other connection in scope minus identities that
+        // unsubscribed from this stream. Channel-scoped streams go to channel
+        // members only; namespace and top-level go to every connection. The
+        // creator gets the chunk via sendThroughPipeline below.
         const targets: RuntimeConnection[] = [];
         for (const candidate of runtime.connections.values()) {
           if (candidate.id === connection.id) continue;
           if (scope.channelName) {
             if (
-              ChannelPrimitive.hasChannelMembership(
+              !ChannelPrimitive.hasChannelMembership(
                 candidate,
                 scope.channelName,
                 scope.channelScope ?? null,
               )
             ) {
-              targets.push(candidate);
+              continue;
             }
-          } else {
-            targets.push(candidate);
           }
+          const candidateIdentity = candidate.identity ?? candidate.id;
+          if (Storage.isUnsubscribed(runtime.sql, identity, streamId, candidateIdentity)) {
+            continue;
+          }
+          targets.push(candidate);
         }
         runtime.broadcastToConnections(
           targets,
@@ -551,8 +566,9 @@ export async function cancelDurableStream(
   if (!row) return;
 
   if (row.broadcast && row.creatorIdentity && row.creatorIdentity !== realIdentity) {
-    // Non-creator client cancel of a broadcast stream — phase 5 will detach
-    // the subscriber; for now we leave the source running.
+    // Non-creator client cancel of a broadcast stream → remove this identity
+    // from future fanout. The source keeps running for everyone else.
+    Storage.markUnsubscribed(runtime.sql, row.identity, streamId, realIdentity, Date.now());
     return;
   }
 

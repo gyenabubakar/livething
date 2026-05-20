@@ -426,6 +426,9 @@ export const InternalError = error('internal-error');
  *   dropped in-memory state (e.g. Cloudflare Durable Object waking from
  *   hibernation). The wire-level connection is still alive; only the
  *   in-flight stream is gone.
+ * - `'unsubscribed'` — the client previously sent `_streamCancel` on this
+ *   broadcast stream's id, so the server has stopped fanning chunks to that
+ *   identity. The stream itself stays running for everyone else.
  * - `'aborted'` — catch-all when the framework had to tear the stream down
  *   for an internal reason that does not match any of the above.
  *
@@ -450,6 +453,7 @@ export type StreamAbortedReason =
   | 'expired'
   | 'not-found'
   | 'hibernation-wake'
+  | 'unsubscribed'
   | 'aborted';
 
 const STREAM_ABORTED_REASONS: readonly StreamAbortedReason[] = [
@@ -458,6 +462,7 @@ const STREAM_ABORTED_REASONS: readonly StreamAbortedReason[] = [
   'expired',
   'not-found',
   'hibernation-wake',
+  'unsubscribed',
   'aborted',
 ];
 

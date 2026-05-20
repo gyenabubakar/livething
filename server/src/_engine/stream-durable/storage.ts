@@ -48,6 +48,20 @@ const CREATE_STREAM_CHUNKS_TABLE_SQL = `
   )
 `;
 
+// Tracks identities that opted out of a broadcast stream via `_streamCancel`.
+// The fanout step skips identities listed here; their resume returns
+// stream-aborted unsubscribed.
+const CREATE_STREAM_UNSUBSCRIBED_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS _wskit_stream_unsubscribed (
+    identity             TEXT NOT NULL,
+    stream_id            TEXT NOT NULL,
+    subscriber_identity  TEXT NOT NULL,
+    unsubscribed_at      INTEGER NOT NULL,
+    PRIMARY KEY (identity, stream_id, subscriber_identity),
+    FOREIGN KEY (identity, stream_id) REFERENCES _wskit_streams (identity, stream_id) ON DELETE CASCADE
+  )
+`;
+
 export type DurableStreamKind = 'resumable' | 'recorded';
 export type DurableStreamStatus = 'active' | 'suspended' | 'ended';
 
@@ -98,6 +112,7 @@ export function ensureDurableStreamSchema(sql: SqlExec): void {
   sql.exec(CREATE_STREAMS_TABLE_SQL);
   sql.exec(CREATE_STREAMS_STATUS_INDEX_SQL);
   sql.exec(CREATE_STREAM_CHUNKS_TABLE_SQL);
+  sql.exec(CREATE_STREAM_UNSUBSCRIBED_TABLE_SQL);
 }
 
 function rowToStream(row: Record<string, unknown>): DurableStreamRow {
@@ -321,6 +336,44 @@ export function trimOldestChunks(
     streamId,
     keepNewest,
   );
+}
+
+/** Record that `subscriberIdentity` opted out of a broadcast stream. */
+export function markUnsubscribed(
+  sql: SqlExec,
+  storageIdentity: string,
+  streamId: string,
+  subscriberIdentity: string,
+  now: number,
+): void {
+  sql.exec(
+    `INSERT OR IGNORE INTO _wskit_stream_unsubscribed
+     (identity, stream_id, subscriber_identity, unsubscribed_at)
+     VALUES (?, ?, ?, ?)`,
+    storageIdentity,
+    streamId,
+    subscriberIdentity,
+    now,
+  );
+}
+
+/** True when `subscriberIdentity` previously cancelled out of the broadcast. */
+export function isUnsubscribed(
+  sql: SqlExec,
+  storageIdentity: string,
+  streamId: string,
+  subscriberIdentity: string,
+): boolean {
+  const rows = sql
+    .exec(
+      `SELECT 1 AS hit FROM _wskit_stream_unsubscribed
+       WHERE identity = ? AND stream_id = ? AND subscriber_identity = ? LIMIT 1`,
+      storageIdentity,
+      streamId,
+      subscriberIdentity,
+    )
+    .toArray();
+  return rows.length > 0;
 }
 
 /** Returned identifiers point at rows the caller can DELETE. */

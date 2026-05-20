@@ -10,6 +10,7 @@ import type { DurableStreamRuntimeDef } from './runtime.ts';
 function makeSql() {
   const streams = new Map<string, Record<string, unknown>>();
   const chunks = new Map<string, Record<string, unknown>>();
+  const unsubscribed = new Set<string>();
   function key(parts: unknown[]): string {
     return parts.join('|');
   }
@@ -17,6 +18,7 @@ function makeSql() {
   return {
     streams,
     chunks,
+    unsubscribed,
     exec(query: string, ...params: unknown[]): { toArray(): Record<string, unknown>[] } {
       const q = query.trim();
       if (q.startsWith('PRAGMA') || q.startsWith('CREATE')) return { toArray: () => [] };
@@ -156,6 +158,18 @@ function makeSql() {
           if (row.identity === identity && row.stream_id === streamId) n += 1;
         }
         return { toArray: () => [{ n }] };
+      }
+      if (q.startsWith('INSERT OR IGNORE INTO _wskit_stream_unsubscribed')) {
+        const [identity, streamId, subscriberIdentity] = params;
+        unsubscribed.add(key([identity, streamId, subscriberIdentity]));
+        return { toArray: () => [] };
+      }
+      if (q.startsWith('SELECT 1 AS hit FROM _wskit_stream_unsubscribed')) {
+        const [identity, streamId, subscriberIdentity] = params;
+        return {
+          toArray: () =>
+            unsubscribed.has(key([identity, streamId, subscriberIdentity])) ? [{ hit: 1 }] : [],
+        };
       }
       if (q.startsWith('DELETE FROM _wskit_stream_chunks')) {
         // The trimOldestChunks query uses a sub-select. For the stub, mimic
@@ -855,5 +869,86 @@ describe('durable stream runtime', () => {
     // Peer never reaches the generator — no pipeline sends, no _streamEnd.
     expect(pipelineSends.filter((p) => p.event === 'e')).toHaveLength(0);
     expect(protocolMessages.find((m) => m.event === '_streamEnd')).toBeUndefined();
+  });
+
+  it('broadcast cancel — non-creator unsubscribes self, source keeps running', async () => {
+    const sql = makeSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime } = createRuntime(sql);
+    const peer = createConnection('c-peer', 'u-peer');
+
+    Storage.insertStream(sql, {
+      identity: '__bcast:top__',
+      streamId: 's-c',
+      event: 'e',
+      payload: '{}',
+      kind: 'recorded',
+      now: Date.now(),
+      broadcast: true,
+      creatorIdentity: 'u-creator',
+      maxChunks: 10,
+    });
+
+    await cancelDurableStream(runtime as never, peer, 's-c', {});
+
+    // Row is still there; peer is on the unsubscribed list.
+    expect(Storage.readStream(sql, '__bcast:top__', 's-c')).not.toBeNull();
+    expect(Storage.isUnsubscribed(sql, '__bcast:top__', 's-c', 'u-peer')).toBe(true);
+  });
+
+  it('broadcast cancel — creator kills the source for everyone', async () => {
+    const sql = makeSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime } = createRuntime(sql);
+    const creator = createConnection('c-creator', 'u-creator');
+
+    Storage.insertStream(sql, {
+      identity: '__bcast:top__',
+      streamId: 's-d',
+      event: 'e',
+      payload: '{}',
+      kind: 'recorded',
+      now: Date.now(),
+      broadcast: true,
+      creatorIdentity: 'u-creator',
+      maxChunks: 10,
+    });
+
+    await cancelDurableStream(runtime as never, creator, 's-d', {});
+
+    expect(Storage.readStream(sql, '__bcast:top__', 's-d')).toBeNull();
+  });
+
+  it('broadcast resume — unsubscribed identity gets stream-aborted unsubscribed', async () => {
+    const sql = makeSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime, protocolMessages } = createRuntime(sql);
+    const peer = createConnection('c-peer', 'u-peer');
+
+    Storage.insertStream(sql, {
+      identity: '__bcast:top__',
+      streamId: 's-e',
+      event: 'e',
+      payload: '{}',
+      kind: 'recorded',
+      now: Date.now(),
+      broadcast: true,
+      creatorIdentity: 'u-creator',
+      maxChunks: 10,
+    });
+    Storage.markUnsubscribed(sql, '__bcast:top__', 's-e', 'u-peer', Date.now());
+
+    const row = Storage.readStream(sql, '__bcast:top__', 's-e');
+    await resumeDurableStream(
+      runtime as never,
+      peer,
+      () => ({ scope: {}, def: baseDef({ kind: 'recorded', broadcast: true }) }),
+      row,
+      's-e',
+      0,
+    );
+
+    const err = protocolMessages.find((m) => m.event === '_error');
+    expect((err?.payload.detail as { reason: string } | undefined)?.reason).toBe('unsubscribed');
   });
 });
