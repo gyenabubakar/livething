@@ -81,6 +81,12 @@
       { "name": "MULTIFILE_SERVER", "class_name": "MultifileServer" },
       { "name": "RATE_LIMIT_SERVER", "class_name": "RateLimitServer" },
       { "name": "STREAM_DURABLE_SERVER", "class_name": "StreamDurableServer" },
+      { "name": "STREAM_DURABLE_SCOPED_SERVER", "class_name": "StreamDurableScopedServer" },
+      {
+        "name": "STREAM_DURABLE_BROADCAST_SERVER",
+        "class_name": "StreamDurableBroadcastServer",
+      },
+      { "name": "GROUP_FULL_SURFACE_SERVER", "class_name": "GroupFullSurfaceServer" },
     ],
   },
   "migrations": [
@@ -131,6 +137,9 @@
         "TypedTagsServer",
         "RateLimitServer",
         "StreamDurableServer",
+        "StreamDurableScopedServer",
+        "StreamDurableBroadcastServer",
+        "GroupFullSurfaceServer",
       ],
     },
   ],

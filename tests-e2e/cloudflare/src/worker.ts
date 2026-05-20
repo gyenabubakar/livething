@@ -42,6 +42,9 @@ export { ProtocolPingsServer } from './lib/server/protocol-pings/durable-object.
 export { MultifileServer } from './lib/server/multifile/durable-object.ts';
 export { RateLimitServer } from './lib/server/rate-limit/durable-object.ts';
 export { StreamDurableServer } from './lib/server/stream-durable/durable-object.ts';
+export { StreamDurableScopedServer } from './lib/server/stream-durable-scoped/durable-object.ts';
+export { StreamDurableBroadcastServer } from './lib/server/stream-durable-broadcast/durable-object.ts';
+export { GroupFullSurfaceServer } from './lib/server/group-full-surface/durable-object.ts';
 
 const FEATURE_ROUTES: Record<string, keyof Env> = {
   '/ws/incoming': 'INCOMING_SERVER',
@@ -81,6 +84,9 @@ const FEATURE_ROUTES: Record<string, keyof Env> = {
   '/ws/multifile': 'MULTIFILE_SERVER',
   '/ws/rate-limit': 'RATE_LIMIT_SERVER',
   '/ws/stream-durable': 'STREAM_DURABLE_SERVER',
+  '/ws/stream-durable-scoped': 'STREAM_DURABLE_SCOPED_SERVER',
+  '/ws/stream-durable-broadcast': 'STREAM_DURABLE_BROADCAST_SERVER',
+  '/ws/group-full-surface': 'GROUP_FULL_SURFACE_SERVER',
 };
 
 export default {

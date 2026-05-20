@@ -123,6 +123,67 @@ test.describe('stream-durable', () => {
     await expect.poll(() => page.getByTestId('last-error-code').textContent()).toBe('');
   });
 
+  test('stream-id collision from a storage race surfaces one stream-id-collision _error', async ({
+    browser,
+  }, testInfo) => {
+    const room = `sdb-${testInfo.testId}`;
+    const streamId = 'race-1';
+
+    // Both contexts use the SAME username, so they share identity and both
+    // land on the same durable-object room. Fire 'count-tokens' with the
+    // same _streamId from each socket as close together as possible. One
+    // succeeds; the other gets a stream-id-collision _error.
+    const ctxA = await browser.newContext();
+    const ctxB = await browser.newContext();
+    const pageA = await ctxA.newPage();
+    const pageB = await ctxB.newPage();
+    try {
+      await pageA.goto(`/stream-durable?room=${room}`);
+      await pageA.getByTestId('username').fill('race-user');
+      await pageA.getByTestId('stream-id').fill(streamId);
+      await pageA.getByTestId('connect').click();
+      await expect(pageA.getByTestId('status')).toHaveText('connected');
+
+      await pageB.goto(`/stream-durable?room=${room}`);
+      await pageB.getByTestId('username').fill('race-user');
+      await pageB.getByTestId('stream-id').fill(streamId);
+      await pageB.getByTestId('connect').click();
+      await expect(pageB.getByTestId('status')).toHaveText('connected');
+
+      // Fire both in the same JS turn from the same Node process to maximise
+      // the chance the second one hits the storage race in the DO.
+      await Promise.all([
+        pageA.getByTestId('start-count-tokens').click(),
+        pageB.getByTestId('start-count-tokens').click(),
+      ]);
+
+      // Poll for resolution: one of the two pages must see a
+      // stream-id-collision error.
+      await expect
+        .poll(
+          async () => {
+            const codeA = await pageA.getByTestId('last-error-code').textContent();
+            const codeB = await pageB.getByTestId('last-error-code').textContent();
+            return [codeA, codeB].includes('stream-id-collision') ? 'ok' : 'no';
+          },
+          { timeout: 10_000 },
+        )
+        .toBe('ok');
+
+      // The other page must receive chunks (or be in the middle of receiving).
+      await expect
+        .poll(async () => {
+          const a = Number(await pageA.getByTestId('token-chunk-count').textContent());
+          const b = Number(await pageB.getByTestId('token-chunk-count').textContent());
+          return Math.max(a, b);
+        })
+        .toBeGreaterThan(0);
+    } finally {
+      await ctxA.close();
+      await ctxB.close();
+    }
+  });
+
   test('cancel deletes the durable row — subsequent resume returns not-found', async ({
     page,
   }, testInfo) => {
