@@ -97,7 +97,7 @@
 	}
 
 	function sendResume() {
-		send('_resume', { _streamId: streamIdInput, since: Number(sinceInput) || 0 });
+		send('_resumeStream', { _streamId: streamIdInput, since: Number(sinceInput) || 0 });
 	}
 </script>
 

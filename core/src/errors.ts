@@ -421,7 +421,7 @@ export const InternalError = error('internal-error');
  *   The framework throws this into the generator's `yield` so handler code can
  *   catch and decide; if uncaught it surfaces on the wire.
  * - `'expired'` — a suspended durable stream aged out of its retention window before the client returned.
- * - `'not-found'` — a `_resume` request named a stream id the server doesn't recognise.
+ * - `'not-found'` — a `_resumeStream` request named a stream id the server doesn't recognise.
  * - `'hibernation-wake'` — a non-durable stream was lost because the server
  *   dropped in-memory state (e.g. Cloudflare Durable Object waking from
  *   hibernation). The wire-level connection is still alive; only the

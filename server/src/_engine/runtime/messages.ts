@@ -961,7 +961,7 @@ export async function processTextMessage(
       }
       return;
     }
-    case '_resume': {
+    case '_resumeStream': {
       const payload = parsed.payload as { _streamId?: unknown; since?: unknown } | undefined;
       const streamId = typeof payload?._streamId === 'string' ? payload._streamId : null;
       const since = typeof payload?.since === 'number' ? payload.since : 0;

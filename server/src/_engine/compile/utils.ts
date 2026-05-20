@@ -31,7 +31,7 @@ export const RESERVED_EVENT_NAMES: ReadonlySet<string> = new Set([
   '_streamOk',
   '_streamEnd',
   '_streamCancel',
-  '_resume',
+  '_resumeStream',
 ]);
 
 /**
@@ -225,6 +225,6 @@ export function isIncomingProtocolEvent(
     event === '_unsubscribe' ||
     event === '_streamCancel' ||
     event === '_replay' ||
-    event === '_resume'
+    event === '_resumeStream'
   );
 }
