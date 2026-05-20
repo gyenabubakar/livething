@@ -14,94 +14,6 @@ import {
   RoomNote,
 } from './events.ts';
 
-const topReplayCustom = {
-  onBeforeSend: (ctx: any, msg: any) => {
-    ctx.sql.exec(
-      'INSERT INTO _custom_replay (event, payload, seq, message_id) VALUES (?, ?, ?, ?)',
-      msg.event,
-      JSON.stringify(msg.payload),
-      msg.wire.seq,
-      msg.wire.messageId,
-    );
-  },
-  onAfterSend: (ctx: any, msg: any) => {
-    ctx.sql.exec('UPDATE _custom_replay SET confirmed = 1 WHERE seq = ?', msg.wire.seq);
-  },
-  onReplay: async (ctx: any, since: number) => {
-    if (since === 2_147_483_647) {
-      let undeclared = '';
-      let reservedField = '';
-      try {
-        ctx.sendReplay('not-declared-event', { ok: true }, { seq: 1, messageId: 'bad-1' });
-      } catch (err) {
-        undeclared = err instanceof Error ? err.message : String(err);
-      }
-      try {
-        ctx.sendReplay(
-          'note',
-          {
-            text: 'x',
-            author: 'system',
-            _evil: 'leaked',
-          },
-          { seq: 2, messageId: 'bad-2' },
-        );
-      } catch (err) {
-        reservedField = err instanceof Error ? err.message : String(err);
-      }
-      ctx.sql.exec(
-        'INSERT OR REPLACE INTO _bad_replay_log (id, undeclared, reserved_field) VALUES (1, ?, ?)',
-        undeclared,
-        reservedField,
-      );
-      return;
-    }
-
-    const rows = (
-      ctx.sql.exec(
-        'SELECT event, payload, seq, message_id FROM _custom_replay WHERE seq > ? ORDER BY seq ASC',
-        since,
-      ) as { toArray(): Array<{ event: string; payload: string; seq: number; message_id: string }> }
-    ).toArray();
-
-    for (const row of rows) {
-      ctx.sendReplay(row.event, JSON.parse(row.payload), {
-        seq: row.seq,
-        messageId: row.message_id,
-      });
-    }
-  },
-};
-
-const roomReplayCustom = {
-  onBeforeSend: (ctx: any, msg: any) => {
-    ctx.sql.exec(
-      'INSERT INTO _custom_room_replay (event, payload, seq, message_id) VALUES (?, ?, ?, ?)',
-      msg.event,
-      JSON.stringify(msg.payload),
-      msg.wire.seq,
-      msg.wire.messageId,
-    );
-  },
-  onAfterSend: (ctx: any, msg: any) => {
-    ctx.sql.exec('UPDATE _custom_room_replay SET confirmed = 1 WHERE seq = ?', msg.wire.seq);
-  },
-  onReplay: async (ctx: any, since: number) => {
-    const rows = (
-      ctx.sql.exec(
-        'SELECT event, payload, seq, message_id FROM _custom_room_replay WHERE seq > ? ORDER BY seq ASC',
-        since,
-      ) as { toArray(): Array<{ event: string; payload: string; seq: number; message_id: string }> }
-    ).toArray();
-    for (const row of rows) {
-      ctx.sendReplay(row.event, JSON.parse(row.payload), {
-        seq: row.seq,
-        messageId: row.message_id,
-      });
-    }
-  },
-};
-
 export const replayCustomContract = contract<Env>('replay-custom-test')({
   sequence: { persist: true },
   dedup: true,
@@ -127,7 +39,66 @@ export const replayCustomContract = contract<Env>('replay-custom-test')({
 });
 
 export const replayCustomHandler = implement(replayCustomContract)
-  .customReplay(topReplayCustom)
+  .customReplay({
+    onBeforeSend: (ctx, msg) => {
+      ctx.sql.exec(
+        'INSERT INTO _custom_replay (event, payload, seq, message_id) VALUES (?, ?, ?, ?)',
+        msg.event,
+        JSON.stringify(msg.payload),
+        msg.wire.seq,
+        msg.wire.messageId,
+      );
+    },
+    onAfterSend: (ctx, msg) => {
+      ctx.sql.exec('UPDATE _custom_replay SET confirmed = 1 WHERE seq = ?', msg.wire.seq);
+    },
+    onReplay: async (ctx, since) => {
+      if (since === 2_147_483_647) {
+        let undeclared = '';
+        let reservedField = '';
+        try {
+          ctx.sendReplay('not-declared-event', { ok: true }, { seq: 1, messageId: 'bad-1' });
+        } catch (err) {
+          undeclared = err instanceof Error ? err.message : String(err);
+        }
+        try {
+          ctx.sendReplay(
+            'note',
+            {
+              text: 'x',
+              author: 'system',
+              _evil: 'leaked',
+            },
+            { seq: 2, messageId: 'bad-2' },
+          );
+        } catch (err) {
+          reservedField = err instanceof Error ? err.message : String(err);
+        }
+        ctx.sql.exec(
+          'INSERT OR REPLACE INTO _bad_replay_log (id, undeclared, reserved_field) VALUES (1, ?, ?)',
+          undeclared,
+          reservedField,
+        );
+        return;
+      }
+
+      const rows = (
+        ctx.sql.exec(
+          'SELECT event, payload, seq, message_id FROM _custom_replay WHERE seq > ? ORDER BY seq ASC',
+          since,
+        ) as {
+          toArray(): Array<{ event: string; payload: string; seq: number; message_id: string }>;
+        }
+      ).toArray();
+
+      for (const row of rows) {
+        ctx.sendReplay(row.event, JSON.parse(row.payload), {
+          seq: row.seq,
+          messageId: row.message_id,
+        });
+      }
+    },
+  })
   .onUpgrade((request) => {
     const url = new URL(request.url);
     const username = url.searchParams.get('username');
@@ -205,7 +176,41 @@ export const replayCustomHandler = implement(replayCustomContract)
   })
   .channel('custom-room', (ch) =>
     ch
-      .customReplay(roomReplayCustom)
+      .customReplay({
+        onBeforeSend: (ctx, msg) => {
+          ctx.sql.exec(
+            'INSERT INTO _custom_room_replay (event, payload, seq, message_id) VALUES (?, ?, ?, ?)',
+            msg.event,
+            JSON.stringify(msg.payload),
+            msg.wire.seq,
+            msg.wire.messageId,
+          );
+        },
+        onAfterSend: (ctx, msg) => {
+          ctx.sql.exec('UPDATE _custom_room_replay SET confirmed = 1 WHERE seq = ?', msg.wire.seq);
+        },
+        onReplay: async (ctx, since) => {
+          const rows = (
+            ctx.sql.exec(
+              'SELECT event, payload, seq, message_id FROM _custom_room_replay WHERE seq > ? ORDER BY seq ASC',
+              since,
+            ) as {
+              toArray(): Array<{
+                event: string;
+                payload: string;
+                seq: number;
+                message_id: string;
+              }>;
+            }
+          ).toArray();
+          for (const row of rows) {
+            ctx.sendReplay(row.event, JSON.parse(row.payload), {
+              seq: row.seq,
+              messageId: row.message_id,
+            });
+          }
+        },
+      })
       .on('add-room-note', (ctx, payload) => {
         ctx.channel.send('room-note', { text: payload.text, author: ctx.meta.username });
         ctx.channel.broadcast('room-note', { text: payload.text, author: ctx.meta.username });

@@ -6,57 +6,6 @@ import { requireUsername } from '../_shared/upgrade.ts';
 const Note = v.object({ text: v.string() });
 const SendNote = v.object({ text: v.string() });
 
-const cascadeReplayCustom = {
-  onBeforeSend: (ctx: any, msg: any) => {
-    ctx.sql.exec(
-      'INSERT INTO _cascade_replay (event, payload, seq, message_id, channel, channel_scope) VALUES (?, ?, ?, ?, ?, ?)',
-      msg.event,
-      JSON.stringify(msg.payload),
-      msg.wire.seq,
-      msg.wire.messageId,
-      msg.wire.channel,
-      msg.wire.channelScope,
-    );
-  },
-  onReplay: (ctx: any, since: number) => {
-    const requestedChannel = ctx.request.channel;
-    const requestedScope = ctx.request.channelScope;
-    type Row = {
-      event: string;
-      payload: string;
-      seq: number;
-      message_id: string;
-      channel: string | null;
-      channel_scope: string | null;
-    };
-    const rows: Row[] = requestedChannel
-      ? (
-          ctx.sql.exec(
-            'SELECT event, payload, seq, message_id, channel, channel_scope FROM _cascade_replay WHERE seq > ? AND channel = ? AND ((channel_scope IS NULL AND ? IS NULL) OR channel_scope = ?) ORDER BY seq ASC',
-            since,
-            requestedChannel,
-            requestedScope,
-            requestedScope,
-          ) as { toArray(): Row[] }
-        ).toArray()
-      : (
-          ctx.sql.exec(
-            'SELECT event, payload, seq, message_id, channel, channel_scope FROM _cascade_replay WHERE seq > ? AND channel IS NULL ORDER BY seq ASC',
-            since,
-          ) as { toArray(): Row[] }
-        ).toArray();
-
-    for (const row of rows) {
-      ctx.sendReplay(row.event, JSON.parse(row.payload), {
-        seq: row.seq,
-        messageId: row.message_id,
-        channel: row.channel ?? undefined,
-        channelScope: row.channel_scope ?? null,
-      });
-    }
-  },
-};
-
 export const replayCustomCascadeContract = contract<Env>('replay-custom-cascade')({
   sequence: { persist: true },
   dedup: true,
@@ -72,7 +21,56 @@ export const replayCustomCascadeContract = contract<Env>('replay-custom-cascade'
 });
 
 export const replayCustomCascadeHandler = implement(replayCustomCascadeContract)
-  .customReplay(cascadeReplayCustom)
+  .customReplay({
+    onBeforeSend: (ctx, msg) => {
+      ctx.sql.exec(
+        'INSERT INTO _cascade_replay (event, payload, seq, message_id, channel, channel_scope) VALUES (?, ?, ?, ?, ?, ?)',
+        msg.event,
+        JSON.stringify(msg.payload),
+        msg.wire.seq,
+        msg.wire.messageId,
+        msg.wire.channel,
+        msg.wire.channelScope,
+      );
+    },
+    onReplay: (ctx, since) => {
+      const requestedChannel = ctx.request.channel;
+      const requestedScope = ctx.request.channelScope;
+      type Row = {
+        event: string;
+        payload: string;
+        seq: number;
+        message_id: string;
+        channel: string | null;
+        channel_scope: string | null;
+      };
+      const rows: Row[] = requestedChannel
+        ? (
+            ctx.sql.exec(
+              'SELECT event, payload, seq, message_id, channel, channel_scope FROM _cascade_replay WHERE seq > ? AND channel = ? AND ((channel_scope IS NULL AND ? IS NULL) OR channel_scope = ?) ORDER BY seq ASC',
+              since,
+              requestedChannel,
+              requestedScope,
+              requestedScope,
+            ) as { toArray(): Row[] }
+          ).toArray()
+        : (
+            ctx.sql.exec(
+              'SELECT event, payload, seq, message_id, channel, channel_scope FROM _cascade_replay WHERE seq > ? AND channel IS NULL ORDER BY seq ASC',
+              since,
+            ) as { toArray(): Row[] }
+          ).toArray();
+
+      for (const row of rows) {
+        ctx.sendReplay(row.event, JSON.parse(row.payload), {
+          seq: row.seq,
+          messageId: row.message_id,
+          channel: row.channel ?? undefined,
+          channelScope: row.channel_scope ?? null,
+        });
+      }
+    },
+  })
   .onUpgrade((request) => requireUsername(request))
   .onInit((ctx) => {
     ctx.sql.exec(`
