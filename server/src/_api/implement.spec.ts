@@ -180,3 +180,53 @@ describe('Implementer.use(group) — duplicate detection across boundaries', () 
     expect(() => implement(c).use(g1).use(g2).build()).not.toThrow();
   });
 });
+
+describe('GroupBuilder — full method surface', () => {
+  it('carries resumableStream + recordedStream + customReplay + lifecycle into the implementer', () => {
+    const c = contract<Record<string, unknown>>('app')({
+      persistence: true,
+      definitions: [
+        resumableStream('paginate', { payload: v.object({}), chunk: v.object({}) }),
+        recordedStream('ai', { payload: v.object({}), chunk: v.object({}) }),
+      ],
+    });
+    const g = group(c, (gb) =>
+      gb
+        .resumableStream('paginate', async function* () {})
+        .recordedStream('ai', async function* () {})
+        .customReplay({ onReplay: () => {} })
+        .onConnect(() => {})
+        .onDisconnect(() => {}),
+    );
+    expect(() => implement(c).use(g).build()).not.toThrow();
+  });
+
+  it('rejects a group lifecycle hook that the implementer already set', () => {
+    const c = makeContract();
+    const g = group(c, (gb) => gb.onConnect(() => {}));
+    expect(() =>
+      implement(c)
+        .onConnect(() => {})
+        .use(g),
+    ).toThrow(/Duplicate .onConnect\(\) from a group/);
+  });
+
+  it('rejects a group customReplay that the implementer already set', () => {
+    const c = makeContract();
+    const g = group(c, (gb) => gb.customReplay({ onReplay: () => {} }));
+    expect(() =>
+      implement(c)
+        .customReplay({ onReplay: () => {} })
+        .use(g),
+    ).toThrow(/Duplicate \.customReplay\(\) from a group/);
+  });
+
+  it('rejects a second .onUpgrade inside one group', () => {
+    const c = makeContract();
+    expect(() =>
+      group(c, (gb) =>
+        gb.onUpgrade(() => ({ identity: 'a' })).onUpgrade(() => ({ identity: 'a' })),
+      ),
+    ).toThrow(/Duplicate \.onUpgrade\(\) on this group/);
+  });
+});

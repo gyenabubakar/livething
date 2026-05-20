@@ -123,10 +123,25 @@ interface GroupRegistrations {
   incoming: Map<string, (ctx: any, payload: any) => void | Promise<void>>;
   requests: Map<string, (ctx: any, payload: any) => any>;
   streams: Map<string, (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>>;
+  resumableStreams: Map<string, (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>>;
+  recordedStreams: Map<string, (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>>;
   scheduled: Map<string, (ctx: any, data: any) => void | Promise<void>>;
   channels: Map<string, ChannelImplement<any, any>>;
   namespaces: Map<string, NamespaceImplement<any, any>>;
+  preIntercept?: (ctx: any, msg: { event: string; payload: unknown }) => any;
+  postIntercepts: Map<string, (ctx: any, payload: unknown) => any>;
   rateLimitOverrides: Map<string, RateLimitConfig>;
+  customReplayHooks?: CustomReplayOptions<'top'>;
+  lifecycle: {
+    onUpgrade?: UpgradeHandler;
+    onInit?: InitHandler;
+    onConnect?: ConnectHandler;
+    onDisconnect?: DisconnectHandler;
+    onShutdown?: ShutdownHandler;
+    onError?: ErrorHandler;
+    onValidationError?: ValidationErrorHandler;
+    onBinary?: BinaryHandler;
+  };
 }
 
 /**
@@ -140,10 +155,14 @@ export class GroupBuilder<C extends Contract> {
     incoming: new Map(),
     requests: new Map(),
     streams: new Map(),
+    resumableStreams: new Map(),
+    recordedStreams: new Map(),
     scheduled: new Map(),
     channels: new Map(),
     namespaces: new Map(),
+    postIntercepts: new Map(),
     rateLimitOverrides: new Map(),
+    lifecycle: {},
   };
 
   /** Attach a handler for one client→server event declared on the contract. */
@@ -167,6 +186,24 @@ export class GroupBuilder<C extends Contract> {
     generator: StreamGeneratorFor<C, E>,
   ): this {
     setOnce(this._reg.streams, event, generator as any, 'stream', 'this group');
+    return this;
+  }
+
+  /** Attach the generator for a resumable stream. Same surface as `Implementer.resumableStream`. */
+  resumableStream<E extends keyof C['resumableStreams'] & string>(
+    event: E,
+    generator: (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>,
+  ): this {
+    setOnce(this._reg.resumableStreams, event, generator, 'resumableStream', 'this group');
+    return this;
+  }
+
+  /** Attach the generator for a recorded stream. Same surface as `Implementer.recordedStream`. */
+  recordedStream<E extends keyof C['recordedStreams'] & string>(
+    event: E,
+    generator: (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>,
+  ): this {
+    setOnce(this._reg.recordedStreams, event, generator, 'recordedStream', 'this group');
     return this;
   }
 
@@ -211,6 +248,146 @@ export class GroupBuilder<C extends Contract> {
   ): this {
     setOnce(this._reg.rateLimitOverrides, event, config, 'rateLimit override', 'this group');
     return this;
+  }
+
+  /**
+   * Middleware-style hook scoped to this group's eventual mount point.
+   * `intercept(handler)` is a pre-validation hook; `intercept(event, handler)`
+   * is a post-validation per-event hook. Same shape as `Implementer.intercept`.
+   */
+  intercept(handler: (ctx: any, msg: { event: string; payload: unknown }) => any): this;
+  intercept<E extends keyof C['incoming'] & string>(
+    event: E,
+    handler: (ctx: any, payload: C['incoming'][E]) => any,
+  ): this;
+  intercept(arg1: any, arg2?: any): this {
+    if (typeof arg1 === 'string') {
+      setOnce(this._reg.postIntercepts, arg1, arg2, 'post-intercept', 'this group');
+    } else {
+      if (this._reg.preIntercept) {
+        throw new Error(
+          '[wskit] Duplicate pre-intercept on this group. Only one pre-intercept can be attached.',
+        );
+      }
+      this._reg.preIntercept = arg1;
+    }
+    return this;
+  }
+
+  /** Plug in custom replay hooks. Same shape as `Implementer.customReplay`. */
+  customReplay(hooks: CustomReplayOptions<'top'>): this {
+    if (this._reg.customReplayHooks) {
+      throw new Error(
+        '[wskit] Duplicate .customReplay() on this group. Only one custom-replay strategy can be attached.',
+      );
+    }
+    this._reg.customReplayHooks = hooks;
+    return this;
+  }
+
+  /** Attach the WebSocket upgrade hook. Same surface as `Implementer.onUpgrade`. */
+  onUpgrade(
+    handler: (
+      request: Request,
+      helpers: Parameters<UpgradeHandler>[1],
+    ) => UpgradeResult | Promise<UpgradeResult>,
+  ): this {
+    assertLifecycleOnce(this._reg.lifecycle, 'onUpgrade');
+    this._reg.lifecycle.onUpgrade = handler as UpgradeHandler;
+    return this;
+  }
+
+  /** Attach the server-init hook. Same surface as `Implementer.onInit`. */
+  onInit(handler: (ctx: any) => void | Promise<void>): this {
+    assertLifecycleOnce(this._reg.lifecycle, 'onInit');
+    this._reg.lifecycle.onInit = handler as InitHandler;
+    return this;
+  }
+
+  /** Attach the per-connection connect hook. Same surface as `Implementer.onConnect`. */
+  onConnect(handler: (ctx: Ctx<C>) => void | Promise<void>): this {
+    assertLifecycleOnce(this._reg.lifecycle, 'onConnect');
+    this._reg.lifecycle.onConnect = handler as ConnectHandler;
+    return this;
+  }
+
+  /** Attach the per-connection disconnect hook. Same surface as `Implementer.onDisconnect`. */
+  onDisconnect(handler: (ctx: Ctx<C>) => void | Promise<void>): this {
+    assertLifecycleOnce(this._reg.lifecycle, 'onDisconnect');
+    this._reg.lifecycle.onDisconnect = handler as DisconnectHandler;
+    return this;
+  }
+
+  /** Attach the server-shutdown hook. Same surface as `Implementer.onShutdown`. */
+  onShutdown(handler: (ctx: any) => void | Promise<void>): this {
+    assertLifecycleOnce(this._reg.lifecycle, 'onShutdown');
+    this._reg.lifecycle.onShutdown = handler as ShutdownHandler;
+    return this;
+  }
+
+  /** Attach the unhandled-error hook. Same surface as `Implementer.onError`. */
+  onError(handler: (ctx: Ctx<C>, error: unknown, event?: string) => void | Promise<void>): this {
+    assertLifecycleOnce(this._reg.lifecycle, 'onError');
+    this._reg.lifecycle.onError = handler as ErrorHandler;
+    return this;
+  }
+
+  /** Attach the validation-error hook. Same surface as `Implementer.onValidationError`. */
+  onValidationError(
+    handler: (ctx: Ctx<C>, event: string, error: unknown) => void | Promise<void>,
+  ): this {
+    assertLifecycleOnce(this._reg.lifecycle, 'onValidationError');
+    this._reg.lifecycle.onValidationError = handler as ValidationErrorHandler;
+    return this;
+  }
+
+  /** Attach the binary-frame hook. Same surface as `Implementer.onBinary`. */
+  onBinary(handler: (ctx: Ctx<C>, data: ArrayBuffer | Uint8Array) => void | Promise<void>): this {
+    assertLifecycleOnce(this._reg.lifecycle, 'onBinary');
+    this._reg.lifecycle.onBinary = handler as BinaryHandler;
+    return this;
+  }
+}
+
+function mergeLifecycleHook(
+  target: ImplementerBag['lifecycle'],
+  source: GroupRegistrations['lifecycle'],
+  hook:
+    | 'onUpgrade'
+    | 'onInit'
+    | 'onConnect'
+    | 'onDisconnect'
+    | 'onShutdown'
+    | 'onError'
+    | 'onValidationError'
+    | 'onBinary',
+): void {
+  const incoming = source[hook];
+  if (!incoming) return;
+  if (target[hook]) {
+    throw new Error(
+      `[wskit] Duplicate .${hook}() from a group. The implementer or another group already set one.`,
+    );
+  }
+  target[hook] = incoming as any;
+}
+
+function assertLifecycleOnce(
+  lifecycle: GroupRegistrations['lifecycle'],
+  hook:
+    | 'onUpgrade'
+    | 'onInit'
+    | 'onConnect'
+    | 'onDisconnect'
+    | 'onShutdown'
+    | 'onError'
+    | 'onValidationError'
+    | 'onBinary',
+): void {
+  if (lifecycle[hook]) {
+    throw new Error(
+      `[wskit] Duplicate .${hook}() on this group. Only one ${hook} hook can be attached.`,
+    );
   }
 }
 
@@ -515,6 +692,12 @@ export class Implementer<C extends Contract> {
     for (const [event, gen] of g._reg.streams) {
       setOnce(this._bag.streamGenerators, event, gen, 'stream', from);
     }
+    for (const [event, gen] of g._reg.resumableStreams) {
+      setOnce(this._bag.resumableStreamGenerators, event, gen, 'resumableStream', from);
+    }
+    for (const [event, gen] of g._reg.recordedStreams) {
+      setOnce(this._bag.recordedStreamGenerators, event, gen, 'recordedStream', from);
+    }
     for (const [id, handler] of g._reg.scheduled) {
       setOnce(this._bag.scheduledHandlers, id, handler, 'scheduled', from);
     }
@@ -524,9 +707,36 @@ export class Implementer<C extends Contract> {
     for (const [name, impl] of g._reg.namespaces) {
       setOnce(this._bag.namespaceImpls, name, impl, 'namespace', from);
     }
+    for (const [event, handler] of g._reg.postIntercepts) {
+      setOnce(this._bag.postIntercepts, event, handler, 'post-intercept', from);
+    }
     for (const [event, cfg] of g._reg.rateLimitOverrides) {
       setOnce(this._bag.rateLimitOverrides, event, cfg, 'rateLimit override', from);
     }
+    if (g._reg.preIntercept) {
+      if (this._bag.preIntercept) {
+        throw new Error(
+          '[wskit] Duplicate pre-intercept from a group. The implementer or another group already set one.',
+        );
+      }
+      this._bag.preIntercept = g._reg.preIntercept;
+    }
+    if (g._reg.customReplayHooks) {
+      if (this._bag.customReplayHooks) {
+        throw new Error(
+          '[wskit] Duplicate .customReplay() from a group. The implementer or another group already set one.',
+        );
+      }
+      this._bag.customReplayHooks = g._reg.customReplayHooks;
+    }
+    mergeLifecycleHook(this._bag.lifecycle, g._reg.lifecycle, 'onUpgrade');
+    mergeLifecycleHook(this._bag.lifecycle, g._reg.lifecycle, 'onInit');
+    mergeLifecycleHook(this._bag.lifecycle, g._reg.lifecycle, 'onConnect');
+    mergeLifecycleHook(this._bag.lifecycle, g._reg.lifecycle, 'onDisconnect');
+    mergeLifecycleHook(this._bag.lifecycle, g._reg.lifecycle, 'onShutdown');
+    mergeLifecycleHook(this._bag.lifecycle, g._reg.lifecycle, 'onError');
+    mergeLifecycleHook(this._bag.lifecycle, g._reg.lifecycle, 'onValidationError');
+    mergeLifecycleHook(this._bag.lifecycle, g._reg.lifecycle, 'onBinary');
     return this;
   }
 
