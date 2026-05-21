@@ -10,6 +10,7 @@ import {
   WskitError,
 } from '@wskit/core';
 import * as EngineCompileUtils from '~/_engine/compile/utils.ts';
+import { ENGINE_ACK_ID } from '~/_engine/contexts/types.ts';
 import * as Protocol from '~/_engine/runtime/protocol.ts';
 import * as DurableStreamRuntime from '~/_engine/stream-durable/runtime.ts';
 import { ensureDurableStreamSchema } from '~/_engine/stream-durable/storage.ts';
@@ -649,11 +650,11 @@ export async function dispatchIncoming(
       payloadValue,
     );
 
-    // Stash the ack id so `ctx.ack()` knows which client Promise to resolve.
-    connection.activeAckId = wskit?.ackId;
-
     if (incoming) {
       await InterceptPrimitive.runWithScopedContext(runtime, connection, scope, (ctx) => {
+        // The ack id rides on this dispatch's own ctx so `ctx.ack()` confirms
+        // this message, never a later one that interleaved on the connection.
+        (ctx as Record<PropertyKey, unknown>)[ENGINE_ACK_ID] = wskit?.ackId;
         return incoming.handler(ctx, postPayload);
       });
       return;

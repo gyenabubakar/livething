@@ -1,4 +1,4 @@
-import { ENGINE_SCOPE_META } from '~/_engine/contexts/types.ts';
+import { ENGINE_ACK_ID, ENGINE_SCOPE_META } from '~/_engine/contexts/types.ts';
 import type { Primitive } from '~/primitive.ts';
 
 /** The TypeScript type returned by `ack()`. */
@@ -55,7 +55,7 @@ export function ack(): AckPrimitive {
 
         return {
           ack() {
-            engine.sendAck(String(base.id));
+            engine.sendAck(String(base.id), base[ENGINE_ACK_ID] as string | undefined);
           },
         };
       });

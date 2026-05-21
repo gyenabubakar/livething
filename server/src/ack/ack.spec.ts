@@ -1,4 +1,4 @@
-import { ENGINE_SCOPE_META } from '~/_engine/contexts/types.ts';
+import { ENGINE_ACK_ID, ENGINE_SCOPE_META } from '~/_engine/contexts/types.ts';
 import { ack } from '~/ack/ack.ts';
 import { describe, expect, it } from 'vitest';
 import type { EngineAccess } from '~/_engine/access.ts';
@@ -27,13 +27,13 @@ describe('ack', () => {
 
   it('adds ctx.ack() only for top-level connection contexts', () => {
     const extenders: Array<NonNullable<Parameters<EngineAccess['extendContext']>[0]>> = [];
-    const sent: string[] = [];
+    const sent: Array<{ connectionId: string; ackId: string | undefined }> = [];
     const engine = {
       extendContext(factory) {
         extenders.push(factory);
       },
-      sendAck(connectionId: string) {
-        sent.push(connectionId);
+      sendAck(connectionId: string, ackId: string | undefined) {
+        sent.push({ connectionId, ackId });
       },
     } as Pick<EngineAccess, 'extendContext' | 'sendAck'> as EngineAccess;
 
@@ -42,6 +42,7 @@ describe('ack', () => {
     const topLevelCtx: Record<PropertyKey, unknown> = {
       id: 'c1',
       [ENGINE_SCOPE_META]: {},
+      [ENGINE_ACK_ID]: 'ack-1',
     };
     const namespacedCtx: Record<PropertyKey, unknown> = {
       id: 'c2',
@@ -62,6 +63,44 @@ describe('ack', () => {
     expect(channelCtx.ack).toBeUndefined();
 
     (topLevelCtx.ack as () => void)();
-    expect(sent).toEqual(['c1']);
+    expect(sent).toEqual([{ connectionId: 'c1', ackId: 'ack-1' }]);
+  });
+
+  it('ctx.ack() sends the ack id carried on its own context', () => {
+    const extenders: Array<NonNullable<Parameters<EngineAccess['extendContext']>[0]>> = [];
+    const sent: Array<{ connectionId: string; ackId: string | undefined }> = [];
+    const engine = {
+      extendContext(factory) {
+        extenders.push(factory);
+      },
+      sendAck(connectionId: string, ackId: string | undefined) {
+        sent.push({ connectionId, ackId });
+      },
+    } as Pick<EngineAccess, 'extendContext' | 'sendAck'> as EngineAccess;
+
+    ack().__setup?.(engine);
+
+    // Two contexts for the same connection, each carrying its own ack id —
+    // ack() must read its own ctx, not a value shared across the connection.
+    const ctxA: Record<PropertyKey, unknown> = {
+      id: 'c1',
+      [ENGINE_SCOPE_META]: {},
+      [ENGINE_ACK_ID]: 'ack-a',
+    };
+    const ctxB: Record<PropertyKey, unknown> = {
+      id: 'c1',
+      [ENGINE_SCOPE_META]: {},
+      [ENGINE_ACK_ID]: 'ack-b',
+    };
+    Object.assign(ctxA, extenders[0]!(ctxA));
+    Object.assign(ctxB, extenders[0]!(ctxB));
+
+    (ctxA.ack as () => void)();
+    (ctxB.ack as () => void)();
+
+    expect(sent).toEqual([
+      { connectionId: 'c1', ackId: 'ack-a' },
+      { connectionId: 'c1', ackId: 'ack-b' },
+    ]);
   });
 });

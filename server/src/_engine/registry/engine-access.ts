@@ -190,10 +190,11 @@ export function createEngineAccess(
         throw new Error(`[wskit] Outgoing event "${event}" was not declared in the active scope.`);
       }
     },
-    sendAck: (connectionId) => {
+    sendAck: (connectionId, ackId) => {
+      if (!ackId) return;
       const connection = core.connections.get(connectionId);
-      if (!connection?.activeAckId) return;
-      sendProtocolMessage(core, connection, '__ack__', {}, { ackId: connection.activeAckId });
+      if (!connection) return;
+      sendProtocolMessage(core, connection, '__ack__', {}, { ackId });
     },
     rescheduleAlarm: () => deps.rescheduleAlarm(),
     generateId: (prefix) => core.generateId(prefix),

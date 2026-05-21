@@ -223,8 +223,6 @@ export interface RuntimeConnection {
   quality: 'excellent' | 'good' | 'degraded' | 'poor';
   /** Resolves once the onConnect lifecycle hook has finished running. */
   lifecycleReady?: Promise<void>;
-  /** The ackId of the message currently being handled, if ack is enabled. */
-  activeAckId?: string;
   /** Handle for the heartbeat timeout timer. */
   heartbeatTimer?: unknown;
   /** Handle for the next scheduled ping timer. */

@@ -1,3 +1,4 @@
+import { ENGINE_ACK_ID } from '~/_engine/contexts/types.ts';
 import {
   broadcastToChannel,
   dispatchIncoming,
@@ -216,6 +217,92 @@ describe('message runtime', () => {
       channelScope: 'rooms',
     });
     expect((errors[0]!.error as { code?: string }).code).toBe('channel-not-subscribed');
+  });
+
+  it('ctx.ack() ack id rides on each dispatch ctx, not a shared connection field', async () => {
+    // Regression: two messages on one connection interleave at an await. The
+    // ack id must travel on each dispatch's own ctx — a shared connection
+    // field gets overwritten by the second message before the first acks.
+    const connection = createConnection('conn_1');
+    const acked: Array<{ which: unknown; ackId: unknown }> = [];
+
+    let releaseA!: () => void;
+    const gateA = new Promise<void>((resolve) => {
+      releaseA = resolve;
+    });
+
+    async function handler(ctx: Record<PropertyKey, unknown>, payload: { which: string }) {
+      if (payload.which === 'A') await gateA;
+      acked.push({ which: payload.which, ackId: ctx[ENGINE_ACK_ID] });
+    }
+
+    const runtime = {
+      compiled: {
+        outgoing: new Map(),
+        incoming: new Map([['msg', { event: 'msg', handler, validator: undefined }]]),
+        requests: new Map(),
+        streams: new Map(),
+        resumableStreams: new Map(),
+        recordedStreams: new Map(),
+        preIntercepts: [],
+        postIntercepts: new Map(),
+        namespaces: new Map(),
+        channels: new Map(),
+        channelFamilies: new Map(),
+        scheduled: new Map(),
+        modules: [],
+        requires: {},
+        replayClaimedChannelKeys: new Set(),
+      },
+      connections: new Map([[connection.id, connection]]),
+      toConnectionInfo() {
+        return { id: connection.id };
+      },
+      activeStreams: new Map(),
+      protocolHandlers: new Map(),
+      incomingHooks: [],
+      moduleRuntimes: [],
+      errorHooks: [],
+      requireTimers() {
+        return { setTimeout: () => undefined, clearTimeout() {} };
+      },
+      buildConnectionContext() {
+        return { id: connection.id };
+      },
+      broadcastToConnections() {},
+      sendProtocolMessage() {},
+      sendReplay() {},
+      persistAttachment() {},
+      setActiveConnectionId() {},
+      async handleRuntimeError() {},
+      async handleValidationError() {},
+      async handleSubscribe() {},
+      async handleUnsubscribe() {},
+      waitUntil() {},
+      generateId() {
+        return 'id_1';
+      },
+    };
+
+    const pA = dispatchIncoming(
+      runtime as unknown as Parameters<typeof dispatchIncoming>[0],
+      connection,
+      'msg',
+      { which: 'A' },
+      { ackId: 'ack-a', channelScope: null },
+    );
+    const pB = dispatchIncoming(
+      runtime as unknown as Parameters<typeof dispatchIncoming>[0],
+      connection,
+      'msg',
+      { which: 'B' },
+      { ackId: 'ack-b', channelScope: null },
+    );
+    releaseA();
+    await Promise.all([pA, pB]);
+
+    expect(acked).toContainEqual({ which: 'A', ackId: 'ack-a' });
+    expect(acked).toContainEqual({ which: 'B', ackId: 'ack-b' });
   });
 
   it('resolveScope throws NamespaceNotFound when namespace targets an unregistered namespace', () => {

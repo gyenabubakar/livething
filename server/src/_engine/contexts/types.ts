@@ -37,6 +37,15 @@ export const ENGINE_SCOPE_META = Symbol('wskit-engine-scope-meta');
 export const ENGINE_INTERNAL_CONNECTION = Symbol('wskit-engine-internal-connection');
 
 /**
+ * Symbol key under which the engine stashes the current message's ack id on a
+ * handler context. `ctx.ack()` reads it so a handler always confirms its own
+ * message — never a later message that interleaved on the same connection.
+ *
+ * @internal
+ */
+export const ENGINE_ACK_ID = Symbol('wskit-engine-ack-id');
+
+/**
  * Shared capabilities needed to build init, task, shutdown, and connection
  * contexts from the engine state.
  */

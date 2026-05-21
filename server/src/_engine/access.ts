@@ -417,12 +417,12 @@ export interface EngineAccess {
   ): asserts payload is Record<string, unknown>;
 
   /**
-   * Send the current in-flight ack for one live connection, if there is one.
+   * Send an ack frame for the given message id to one live connection.
    *
-   * `ack()` uses this so the primitive can own `ctx.ack()` without reaching
-   * into engine-owned connection state directly.
+   * `ctx.ack()` uses this — it passes the ack id carried on its own context,
+   * so each handler confirms exactly its own message.
    */
-  sendAck(connectionId: string): void;
+  sendAck(connectionId: string, ackId: string | undefined): void;
 
   /**
    * Let a background task continue even after the current callback returns.
