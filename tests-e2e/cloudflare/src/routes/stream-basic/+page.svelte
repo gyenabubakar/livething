@@ -7,7 +7,6 @@
 	let chunkIndices = $state<number[]>([]);
 	let streamError = $state('');
 	let streamEnd = $state(false);
-	let cancelOkReceived = $state(false);
 	let cancelObserved = $state(false);
 
 	function reset() {
@@ -16,7 +15,6 @@
 		chunkIndices = [];
 		streamError = '';
 		streamEnd = false;
-		cancelOkReceived = false;
 		cancelObserved = false;
 	}
 
@@ -47,9 +45,6 @@
 					break;
 				case '__streamEnd__':
 					streamEnd = true;
-					break;
-				case '__streamCancelOk__':
-					cancelOkReceived = true;
 					break;
 				case '__error__':
 					if (data.__wskit?.streamId) {
@@ -122,5 +117,4 @@
 <span data-testid="chunk-indices">{chunkIndices.join(',')}</span>
 <span data-testid="stream-error">{streamError}</span>
 <span data-testid="stream-end">{streamEnd ? 'yes' : 'no'}</span>
-<span data-testid="cancel-ok">{cancelOkReceived ? 'yes' : 'no'}</span>
 <span data-testid="cancel-observed">{cancelObserved ? 'yes' : 'no'}</span>
