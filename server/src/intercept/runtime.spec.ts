@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { describe, expect, it } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import { intercept } from './intercept.ts';
 import { runPostIntercepts, runPreIntercepts, runWithScopedContext } from './runtime.ts';
@@ -27,10 +28,7 @@ function createConnection(): RuntimeConnection {
 
 describe('intercept/runtime', () => {
   it('runs pre intercepts in order and lets them rewrite the payload', async () => {
-    const runtime = {
-      buildConnectionContext: () => ({ ok: true }),
-      setActiveConnectionId: vi.fn(),
-    };
+    const runtime = { buildConnectionContext: () => ({ ok: true }) };
     const connection = createConnection();
 
     const first = intercept(async (_ctx, message) => ({
@@ -48,17 +46,10 @@ describe('intercept/runtime', () => {
     });
 
     expect(next).toEqual({ event: 'hello', payload: { a: 1, b: 2 } });
-    expect(runtime.setActiveConnectionId).toHaveBeenNthCalledWith(1, 'c1');
-    expect(runtime.setActiveConnectionId).toHaveBeenNthCalledWith(2, undefined);
-    expect(runtime.setActiveConnectionId).toHaveBeenNthCalledWith(3, 'c1');
-    expect(runtime.setActiveConnectionId).toHaveBeenNthCalledWith(4, undefined);
   });
 
   it('locks the event name: a returned {event, payload} object becomes the new payload as a whole', async () => {
-    const runtime = {
-      buildConnectionContext: () => ({ ok: true }),
-      setActiveConnectionId: vi.fn(),
-    };
+    const runtime = { buildConnectionContext: () => ({ ok: true }) };
     const connection = createConnection();
 
     // User code that "tries" to rewrite the event by returning a full
@@ -81,10 +72,7 @@ describe('intercept/runtime', () => {
   });
 
   it('void return from a pre-intercept passes the payload through unchanged', async () => {
-    const runtime = {
-      buildConnectionContext: () => ({ ok: true }),
-      setActiveConnectionId: vi.fn(),
-    };
+    const runtime = { buildConnectionContext: () => ({ ok: true }) };
     const connection = createConnection();
 
     const passthrough = intercept(() => undefined);
@@ -100,10 +88,7 @@ describe('intercept/runtime', () => {
   it('null and other falsy non-undefined returns from a pre-intercept ARE treated as the new payload', async () => {
     // Only `undefined` means "no change". `null`, `0`, `false`, `''` are
     // valid replacement payloads.
-    const runtime = {
-      buildConnectionContext: () => ({ ok: true }),
-      setActiveConnectionId: vi.fn(),
-    };
+    const runtime = { buildConnectionContext: () => ({ ok: true }) };
     const connection = createConnection();
 
     const nuller = intercept(() => null);
@@ -117,10 +102,7 @@ describe('intercept/runtime', () => {
   });
 
   it('runs post intercepts in order and lets them rewrite the payload', async () => {
-    const runtime = {
-      buildConnectionContext: () => ({ ok: true }),
-      setActiveConnectionId: vi.fn(),
-    };
+    const runtime = { buildConnectionContext: () => ({ ok: true }) };
     const connection = createConnection();
 
     const first = intercept('hello', async (_ctx, payload: { count: number }) => ({
@@ -137,10 +119,7 @@ describe('intercept/runtime', () => {
 
   it('Block in a pre-intercept still propagates as an error', async () => {
     const { Block } = await import('@wskit/core');
-    const runtime = {
-      buildConnectionContext: () => ({ ok: true }),
-      setActiveConnectionId: vi.fn(),
-    };
+    const runtime = { buildConnectionContext: () => ({ ok: true }) };
     const connection = createConnection();
 
     const blocker = intercept(async () => {
@@ -157,10 +136,7 @@ describe('intercept/runtime', () => {
     // and post-intercepts fire at step 4, so by the time a post-intercept
     // runs the payload has already been validated. Changing the order would
     // break this assumption.
-    const runtime = {
-      buildConnectionContext: () => ({ ok: true }),
-      setActiveConnectionId: vi.fn(),
-    };
+    const runtime = { buildConnectionContext: () => ({ ok: true }) };
     const connection = createConnection();
 
     const payloadsSeenByPost: unknown[] = [];
@@ -177,20 +153,22 @@ describe('intercept/runtime', () => {
     expect(result).toEqual({ count: 42 });
   });
 
-  it('always clears the active connection id even when a scoped callback throws', async () => {
-    const runtime = {
-      buildConnectionContext: () => ({ ok: true }),
-      setActiveConnectionId: vi.fn(),
-    };
+  it('runs the scoped callback inside the connection async context, auto-scoped on throw', async () => {
+    const asyncContext = new AsyncLocalStorage<string>();
+    const runtime = { buildConnectionContext: () => ({ ok: true }), asyncContext };
     const connection = createConnection();
 
+    let seen: string | undefined;
     await expect(
       runWithScopedContext(runtime, connection, {}, async () => {
+        seen = asyncContext.getStore();
         throw new Error('boom');
       }),
     ).rejects.toThrow('boom');
 
-    expect(runtime.setActiveConnectionId).toHaveBeenNthCalledWith(1, 'c1');
-    expect(runtime.setActiveConnectionId).toHaveBeenNthCalledWith(2, undefined);
+    // The callback ran with the connection id in scope; the throw does not
+    // leak the context — `run()` auto-scopes it.
+    expect(seen).toBe('c1');
+    expect(asyncContext.getStore()).toBeUndefined();
   });
 });

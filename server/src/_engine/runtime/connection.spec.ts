@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import {
   acceptConnection,
   cancelActiveStreamsForConnection,
@@ -566,8 +567,35 @@ describe('connection runtime', () => {
     ]);
   });
 
-  it('restores activeConnectionState.current when an onConnect hook throws', async () => {
-    const activeConnectionState: { current?: string } = { current: 'previous-conn' };
+  it('runs lifecycle hooks inside the connection async context', async () => {
+    const asyncContext = new AsyncLocalStorage<string>();
+    let seen: string | undefined;
+
+    await runConnectionLifecycle(
+      {
+        connectHooks: [
+          () => {
+            seen = asyncContext.getStore();
+          },
+        ],
+        disconnectHooks: [],
+        moduleRuntimes: [],
+        asyncContext,
+        createModuleScopedContext(_id, ctx) {
+          return ctx;
+        },
+      },
+      'connect',
+      { id: 'conn_42' },
+    );
+
+    expect(seen).toBe('conn_42');
+    // The async context is auto-scoped — nothing leaks past the lifecycle.
+    expect(asyncContext.getStore()).toBeUndefined();
+  });
+
+  it('does not leak the async context when an onConnect hook throws', async () => {
+    const asyncContext = new AsyncLocalStorage<string>();
 
     await expect(
       runConnectionLifecycle(
@@ -579,7 +607,7 @@ describe('connection runtime', () => {
           ],
           disconnectHooks: [],
           moduleRuntimes: [],
-          activeConnectionState,
+          asyncContext,
           createModuleScopedContext(_id, ctx) {
             return ctx;
           },
@@ -589,27 +617,7 @@ describe('connection runtime', () => {
       ),
     ).rejects.toThrow('boom');
 
-    expect(activeConnectionState.current).toBe('previous-conn');
-  });
-
-  it('restores activeConnectionState.current to undefined when no previous value existed', async () => {
-    const activeConnectionState: { current?: string } = {};
-
-    await runConnectionLifecycle(
-      {
-        connectHooks: [() => {}],
-        disconnectHooks: [],
-        moduleRuntimes: [],
-        activeConnectionState,
-        createModuleScopedContext(_id, ctx) {
-          return ctx;
-        },
-      },
-      'connect',
-      { id: 'conn_99' },
-    );
-
-    expect(activeConnectionState.current).toBeUndefined();
+    expect(asyncContext.getStore()).toBeUndefined();
   });
 
   it('handleConnectionClose attaches closeCode and closeReason to the disconnect ctx', async () => {

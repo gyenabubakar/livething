@@ -202,6 +202,7 @@ export function outgoingRuntime(core: EngineCore) {
 export function memberRuntime(core: EngineCore) {
   return {
     ...outgoingRuntime(core),
+    asyncContext: core.asyncContext,
     connections: core.connections,
     toConnectionInfo: (connection: RuntimeConnection) =>
       EngineContexts.toConnectionInfo(connection, core.engineInstanceId),
@@ -320,9 +321,6 @@ export function dispatchRuntime(core: EngineCore) {
     ) => sendReplay(core, connection, channelName, channelScope, event, payload, wire),
     persistAttachment: (connection: RuntimeConnection) =>
       EngineHibernation.persistAttachment(core, connection),
-    setActiveConnectionId: (value?: string) => {
-      core.activeConnectionId = value;
-    },
     handleRuntimeError: (
       connection: RuntimeConnection,
       error: unknown,
@@ -446,14 +444,7 @@ export function runConnectionLifecycle(
   return EngineConnectionRuntime.runConnectionLifecycle(
     {
       moduleRuntimes: core.moduleRuntimes,
-      activeConnectionState: {
-        get current() {
-          return core.activeConnectionId;
-        },
-        set current(value: string | undefined) {
-          core.activeConnectionId = value;
-        },
-      },
+      asyncContext: core.asyncContext,
       connectHooks: core.hooks.connect,
       disconnectHooks: core.hooks.disconnect,
       createModuleScopedContext: (moduleId, targetCtx) =>

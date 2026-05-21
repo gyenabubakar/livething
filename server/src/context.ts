@@ -142,6 +142,22 @@ export interface TimerProvider {
 }
 
 /**
+ * Async-context capability the adapter provides so the engine can tell which
+ * connection's dispatch is currently running, even when handlers for different
+ * connections interleave at `await` points.
+ *
+ * `AsyncLocalStorage` from `node:async_hooks` satisfies this interface
+ * directly — an adapter provides `new AsyncLocalStorage<string>()`. When an
+ * adapter does not provide it, a module's `getState()` throws when called.
+ */
+export interface AsyncContext {
+  /** Run `callback` with `connectionId` recorded as the active connection. */
+  run<R>(connectionId: string, callback: () => R): R;
+  /** The active connection id on the current async call stack, or `undefined`. */
+  getStore(): string | undefined;
+}
+
+/**
  * Structured logger available as `ctx.log`.
  *
  * The adapter decides where output goes (stdout, a remote log service, etc.).

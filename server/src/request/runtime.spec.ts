@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { describe, expect, it, vi } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import { handleRequest } from './runtime.ts';
@@ -30,7 +31,6 @@ describe('request/runtime', () => {
     const sendThroughPipeline = vi.fn(() => true);
     const runtime = {
       buildConnectionContext: () => ({ ok: true }),
-      setActiveConnectionId: vi.fn(),
       sendThroughPipeline,
     };
     const connection = createConnection();
@@ -68,7 +68,6 @@ describe('request/runtime', () => {
   it('calling ctx.respond() twice in one invocation throws', async () => {
     const runtime = {
       buildConnectionContext: () => ({ ok: true }),
-      setActiveConnectionId: vi.fn(),
       sendThroughPipeline: vi.fn(() => true),
     };
     const connection = createConnection();
@@ -90,7 +89,6 @@ describe('request/runtime', () => {
     const sendThroughPipeline = vi.fn(() => true);
     const runtime = {
       buildConnectionContext: () => ({ ok: true }),
-      setActiveConnectionId: vi.fn(),
       sendThroughPipeline,
     };
     const connection = createConnection();
@@ -109,17 +107,20 @@ describe('request/runtime', () => {
     expect(sendThroughPipeline).not.toHaveBeenCalled();
   });
 
-  it('clears the active connection id when a request handler throws', async () => {
+  it('runs the request handler inside the connection async context, auto-scoped on throw', async () => {
+    const asyncContext = new AsyncLocalStorage<string>();
     const runtime = {
       buildConnectionContext: () => ({ ok: true }),
-      setActiveConnectionId: vi.fn(),
+      asyncContext,
       sendThroughPipeline: vi.fn(() => true),
     };
     const connection = createConnection();
+    let seen: string | undefined;
     const request = {
       __wskit: 'request',
       event: 'status',
       handler: vi.fn(async () => {
+        seen = asyncContext.getStore();
         throw new Error('boom');
       }),
     } as unknown as RequestPrimitive;
@@ -128,7 +129,7 @@ describe('request/runtime', () => {
       handleRequest(runtime, connection, {}, 'status', request, {}, undefined),
     ).rejects.toThrow('boom');
 
-    expect(runtime.setActiveConnectionId).toHaveBeenNthCalledWith(1, 'c1');
-    expect(runtime.setActiveConnectionId).toHaveBeenNthCalledWith(2, undefined);
+    expect(seen).toBe('c1');
+    expect(asyncContext.getStore()).toBeUndefined();
   });
 });

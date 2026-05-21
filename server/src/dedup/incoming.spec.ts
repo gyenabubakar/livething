@@ -57,7 +57,6 @@ function makeRuntime(cap: number) {
     sendProtocolMessage() {},
     sendReplay() {},
     persistAttachment() {},
-    setActiveConnectionId() {},
     async handleRuntimeError() {},
     async handleValidationError() {},
     broadcastToConnections() {},

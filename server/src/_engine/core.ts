@@ -111,8 +111,11 @@ export class EngineCore {
   alarmHandle: unknown = null;
   idCounter = 0;
   readonly instanceNonce = Math.random().toString(36).slice(2, 8);
-  /** Connection id currently being dispatched. Read by module hooks. */
-  activeConnectionId?: string;
+  /**
+   * Async-context capability from the adapter. Tracks the connection whose
+   * dispatch is on the async call stack; read by a module's `getState()`.
+   */
+  asyncContext?: PublicApi.AsyncContext;
 
   constructor(handler: DefineServer.ServerDefinition, options: EngineAdapterTypes.EngineOptions) {
     this.options = options;
@@ -136,6 +139,10 @@ export class EngineCore {
 
   setPlatform(platform: unknown): void {
     this.platform = platform;
+  }
+
+  setAsyncContext(asyncContext: PublicApi.AsyncContext): void {
+    this.asyncContext = asyncContext;
   }
 
   setWaitUntil(waitUntil: (promise: Promise<unknown>) => void): void {

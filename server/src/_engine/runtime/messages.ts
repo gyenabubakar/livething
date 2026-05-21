@@ -93,7 +93,7 @@ interface DispatchRuntime
     wire: { seq: number; messageId: string; channel?: string },
   ): void;
   persistAttachment(connection: EngineRuntimeTypes.RuntimeConnection): void;
-  setActiveConnectionId(id?: string): void;
+  asyncContext?: PublicApi.AsyncContext;
   handleRuntimeError(
     connection: EngineRuntimeTypes.RuntimeConnection,
     error: unknown,
@@ -664,7 +664,7 @@ export async function dispatchIncoming(
       await RequestPrimitive.handleRequest(
         {
           buildConnectionContext: runtime.buildConnectionContext,
-          setActiveConnectionId: runtime.setActiveConnectionId,
+          asyncContext: runtime.asyncContext,
           sendThroughPipeline: (nextConnection, routing, nextEvent, nextPayload) => {
             return OutgoingRuntime.sendThroughPipeline(
               runtime,

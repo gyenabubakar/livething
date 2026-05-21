@@ -1,4 +1,5 @@
 import { CloseCodes, StreamAborted } from '@wskit/core';
+import { withConnectionContext } from '~/_engine/async-context.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import * as HeartbeatPrimitive from '~/heartbeat/runtime.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
@@ -116,7 +117,7 @@ export async function runConnectionLifecycle(
       onConnect?: (ctx: Record<PropertyKey, unknown>) => void | Promise<void>;
       onDisconnect?: (ctx: Record<PropertyKey, unknown>) => void | Promise<void>;
     }[];
-    activeConnectionState: { current?: string };
+    asyncContext?: PublicApi.AsyncContext;
     createModuleScopedContext(
       moduleId: string,
       ctx: Record<PropertyKey, unknown>,
@@ -125,10 +126,7 @@ export async function runConnectionLifecycle(
   kind: 'connect' | 'disconnect',
   ctx: Record<PropertyKey, unknown>,
 ): Promise<void> {
-  const previous = runtime.activeConnectionState.current;
-  runtime.activeConnectionState.current = String(ctx.id);
-
-  try {
+  return withConnectionContext(runtime.asyncContext, String(ctx.id), async () => {
     if (kind === 'connect') {
       for (const hook of runtime.connectHooks) {
         await hook(ctx);
@@ -152,9 +150,7 @@ export async function runConnectionLifecycle(
         }
       }
     }
-  } finally {
-    runtime.activeConnectionState.current = previous;
-  }
+  });
 }
 
 /**

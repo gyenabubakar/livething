@@ -57,6 +57,14 @@ export class Engine {
     this.core.setPlatform(platform);
   }
 
+  /**
+   * Set the async-context capability used to track which connection's dispatch
+   * is running. Required for a module's `getState()` to resolve correctly.
+   */
+  setAsyncContext(asyncContext: PublicApi.AsyncContext): void {
+    this.core.setAsyncContext(asyncContext);
+  }
+
   /** Set the adapter's `waitUntil` so tasks can outlive a single callback. */
   setWaitUntil(waitUntil: (promise: Promise<unknown>) => void): void {
     this.core.setWaitUntil(waitUntil);

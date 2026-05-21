@@ -12,7 +12,9 @@ export default defineConfig({
       formats: ['es'],
     },
     rollupOptions: {
-      external: [/^cloudflare:workers$/, /^@wskit\/server(?:\/.*)?$/],
+      // `node:*` builtins are provided by the Workers runtime (nodejs_compat);
+      // keep them external so the bundler never stubs them out.
+      external: [/^cloudflare:workers$/, /^node:/, /^@wskit\/server(?:\/.*)?$/],
     },
   },
 });

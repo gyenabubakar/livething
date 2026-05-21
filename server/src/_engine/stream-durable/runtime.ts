@@ -1,6 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 
 import { rethrowIfConfigError, StreamAborted, StreamIdCollision } from '@wskit/core';
+import { withConnectionContext } from '~/_engine/async-context.ts';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import {
   assertNoConcurrentStream,
@@ -16,6 +17,7 @@ import type {
   RoutingTarget,
   RuntimeConnection,
 } from '~/_engine/runtime/types.ts';
+import type { AsyncContext } from '~/context.ts';
 import { isCursorChunk, makeCursorChunk } from './cursor.ts';
 import * as Storage from './storage.ts';
 import { computeBroadcastScopeKey } from './types.ts';
@@ -51,7 +53,7 @@ export interface DurableStreamRuntime {
     options?: { namespace?: string; channel?: string; channelScope?: string | null },
     excludeConnectionId?: string,
   ): void;
-  setActiveConnectionId(id?: string): void;
+  asyncContext?: AsyncContext;
   persistAttachment(connection: RuntimeConnection): void;
   /** SQLite handle. Undefined when storage was not configured (engine asserts). */
   sql: {
@@ -471,13 +473,11 @@ async function runGenerator(
   let seq = startSeq;
   try {
     while (!activeStream.closed) {
-      runtime.setActiveConnectionId(connection.id);
-      let result: IteratorResult<unknown>;
-      try {
-        result = await iterator.next(nextInput);
-      } finally {
-        runtime.setActiveConnectionId(undefined);
-      }
+      // Advance the generator inside the connection's async context so module
+      // APIs it calls (e.g. hooks.getState()) resolve to the stream owner.
+      const result = await withConnectionContext(runtime.asyncContext, connection.id, () =>
+        iterator.next(nextInput),
+      );
       if (result.done) break;
 
       seq += 1;

@@ -1,5 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { withConnectionContext } from '~/_engine/async-context.ts';
 import type { ResolvedScope, RuntimeConnection } from '~/_engine/runtime/types.ts';
+import type { AsyncContext } from '~/context.ts';
 import type {
   InterceptMessage,
   PostInterceptPrimitive,
@@ -11,16 +13,15 @@ interface InterceptRuntime {
     connection: RuntimeConnection,
     scope?: ResolvedScope,
   ): Record<PropertyKey, unknown>;
-  setActiveConnectionId(id?: string): void;
+  asyncContext?: AsyncContext;
 }
 
 /**
  * Build a scoped connection context and run a handler inside it.
  *
- * While the handler runs, the engine tracks which connection is "active" so
- * that context-aware helpers (like `ctx.ack()`) know who they are acting on.
- * The active connection is always cleared when the handler finishes, even if
- * it throws.
+ * The handler runs inside the engine's async context, so context-aware
+ * helpers a module calls (like `getState()`) resolve to this connection even
+ * while handlers for other connections interleave.
  */
 export async function runWithScopedContext<T>(
   runtime: InterceptRuntime,
@@ -29,13 +30,7 @@ export async function runWithScopedContext<T>(
   handler: (ctx: Record<PropertyKey, unknown>) => T | Promise<T>,
 ): Promise<T> {
   const ctx = runtime.buildConnectionContext(connection, scope);
-  runtime.setActiveConnectionId(connection.id);
-
-  try {
-    return await handler(ctx);
-  } finally {
-    runtime.setActiveConnectionId(undefined);
-  }
+  return withConnectionContext(runtime.asyncContext, connection.id, () => handler(ctx));
 }
 
 /**

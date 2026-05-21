@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { createChannelMembershipKey } from '~/channel/runtime.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
@@ -82,7 +83,7 @@ function createStreamRuntime() {
           targetIds: conns.map((c) => c.id),
         });
       },
-      setActiveConnectionId: vi.fn(),
+      asyncContext: new AsyncLocalStorage<string>(),
       persistAttachment: vi.fn(),
       wskitStampHooks: [],
       logger: { warn: vi.fn() },
@@ -665,30 +666,21 @@ describe('stream/runtime', () => {
     expect(connection.activeStreamIds?.has('stream_1')).toBe(false);
   });
 
-  it('generator body sees the stream owner connection id via setActiveConnectionId', async () => {
-    // Pre-fix the engine bracketed setActiveConnectionId around generator
-    // construction (which only returns the iterator, doesn't run the body).
-    // By the time `iterator.next()` ran the body, the active id was already
-    // cleared. Module APIs that call hooks.getState() inside a stream
-    // generator saw `undefined` instead of the stream owner's id.
+  it('generator body sees the stream owner connection id via the async context', async () => {
+    // The engine advances the generator inside `asyncContext.run(...)`, so
+    // module APIs the generator body calls (e.g. hooks.getState()) resolve to
+    // the stream owner instead of `undefined`.
     const { runtime } = createStreamRuntime();
     const connection = createConnection();
-
-    let activeId: string | undefined;
-    runtime.setActiveConnectionId = vi.fn((id?: string) => {
-      activeId = id;
-    });
 
     const idsObservedFromBody: (string | undefined)[] = [];
 
     const stream = {
       stream: { nudges: [], broadcast: false },
       generator: async function* () {
-        // Read at the top of each yield iteration. The bracket must be set
-        // around iterator.next() so this reads the stream owner's id.
-        idsObservedFromBody.push(activeId);
+        idsObservedFromBody.push(runtime.asyncContext.getStore());
         yield { token: 'a' };
-        idsObservedFromBody.push(activeId);
+        idsObservedFromBody.push(runtime.asyncContext.getStore());
         yield { token: 'b' };
       },
     };
@@ -703,8 +695,8 @@ describe('stream/runtime', () => {
     );
 
     expect(idsObservedFromBody).toEqual(['c1', 'c1']);
-    // After the stream ends, the bracket has restored undefined.
-    expect(activeId).toBeUndefined();
+    // Outside the stream advance, the context is auto-scoped.
+    expect(runtime.asyncContext.getStore()).toBeUndefined();
   });
 
   it('runStream rejects a second start of the same event on the same connection by default', async () => {

@@ -2,6 +2,7 @@
 import { runWithScopedContext } from '~/intercept/runtime.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { ResolvedScope, RoutingTarget, RuntimeConnection } from '~/_engine/runtime/types.ts';
+import type { AsyncContext } from '~/context.ts';
 import type { RequestPrimitive } from './request.ts';
 
 interface RequestRuntime {
@@ -9,7 +10,7 @@ interface RequestRuntime {
     connection: RuntimeConnection,
     scope?: ResolvedScope,
   ): Record<PropertyKey, unknown>;
-  setActiveConnectionId(id?: string): void;
+  asyncContext?: AsyncContext;
   sendThroughPipeline(
     connection: RuntimeConnection,
     routing: RoutingTarget | undefined,

@@ -262,7 +262,6 @@ function createRuntime(sqlInstance: ReturnType<typeof makeSql>) {
     ) => {
       broadcasts.push({ targets, event, payload });
     },
-    setActiveConnectionId: vi.fn(),
     persistAttachment: vi.fn(),
     logger: { warn: vi.fn() },
     errorHooks: [] as readonly ((

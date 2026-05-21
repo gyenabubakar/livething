@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { rethrowIfConfigError, StreamIdCollision, ValidationFailed } from '@wskit/core';
+import { withConnectionContext } from '~/_engine/async-context.ts';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import {
   assertNoConcurrentStream,
@@ -11,6 +12,7 @@ import { DeferExhausted } from '~/errors/errors.ts';
 import type { AnyGenerate } from '~/_engine/compile/types.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { ActiveStream, ResolvedScope, RuntimeConnection } from '~/_engine/runtime/types.ts';
+import type { AsyncContext } from '~/context.ts';
 
 /**
  * The small runtime surface stream helpers need from the engine.
@@ -47,7 +49,7 @@ interface StreamRuntime {
     event: string,
     payload: unknown,
   ): boolean;
-  setActiveConnectionId(id?: string): void;
+  asyncContext?: AsyncContext;
   handleRuntimeError(
     connection: RuntimeConnection,
     error: unknown,
@@ -253,16 +255,11 @@ export async function runStream(
     let nextInput: unknown = stream.stream.nudges.length > 0 ? [] : undefined;
 
     while (!activeStream.closed) {
-      // Set the active connection id around each advance so module APIs the
-      // generator calls (e.g. hooks.getState()) see the stream owner. Restore
-      // after so unrelated work doesn't see a stale id.
-      runtime.setActiveConnectionId(connection.id);
-      let result: IteratorResult<unknown>;
-      try {
-        result = await iterator.next(nextInput);
-      } finally {
-        runtime.setActiveConnectionId(undefined);
-      }
+      // Advance the generator inside the connection's async context so module
+      // APIs it calls (e.g. hooks.getState()) resolve to the stream owner.
+      const result = await withConnectionContext(runtime.asyncContext, connection.id, () =>
+        iterator.next(nextInput),
+      );
       if (result.done) break;
 
       if (stream.stream.broadcast) {

@@ -1,9 +1,15 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { defineServerAdapter } from '@wskit/server/adapters';
 import { DurableObject } from 'cloudflare:workers';
 import type { ConnectionHandle, Engine, Logger, ServerDefinition } from '@wskit/server/adapters';
 import { createPlatform } from './platform.ts';
 import { createStorage, createTimers } from './providers.ts';
 import { normalizeBinary } from './utils.ts';
+
+// One async-context store per isolate. The engine uses it to track which
+// connection's dispatch is on the async call stack so a module's `getState()`
+// resolves correctly even when interleaved handlers run.
+const connectionAsyncContext = new AsyncLocalStorage<string>();
 
 /**
  * The instance shape of a `serve()`-produced Durable Object.
@@ -67,6 +73,7 @@ const buildServe = defineServerAdapter<undefined, CloudflareDurableObjectClass>(
         this.engine.setPlatform(createPlatform(ctx, env));
         this.engine.setStorage(createStorage(ctx, logger));
         this.engine.setTimerProvider(createTimers(ctx));
+        this.engine.setAsyncContext(connectionAsyncContext);
         this.engine.setWaitUntil((promise: Promise<unknown>) => {
           ctx.waitUntil?.(promise);
         });

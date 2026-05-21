@@ -96,7 +96,6 @@ function baseDispatchRuntime(
     sendProtocolMessage() {},
     sendReplay() {},
     persistAttachment() {},
-    setActiveConnectionId() {},
     async handleRuntimeError() {},
     async handleValidationError() {},
     async handleSubscribe() {},
