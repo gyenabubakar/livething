@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { error } from '@wskit/core';
+import * as v from 'valibot';
 
 // ---------------------------------------------------------------------------
 // Re-exports from @wskit/core
@@ -124,20 +125,11 @@ export function Defer(delay: number) {
  * })
  * ```
  */
-export const DeferExhausted = error('defer-exhausted', (p: unknown) => {
-  if (typeof p !== 'object' || p === null) {
-    throw new Error('DeferExhausted detail must be an object');
-  }
-  const obj = p as Record<string, unknown>;
-  if (typeof obj.event !== 'string') {
-    throw new Error('DeferExhausted detail.event must be a string');
-  }
-  if (typeof obj.retries !== 'number' || !Number.isFinite(obj.retries)) {
-    throw new Error('DeferExhausted detail.retries must be a finite number');
-  }
-  return {
-    event: obj.event,
-    payload: obj.payload,
-    retries: obj.retries,
-  };
-});
+export const DeferExhausted = error(
+  'defer-exhausted',
+  v.object({
+    event: v.string(),
+    payload: v.unknown(),
+    retries: v.pipe(v.number(), v.finite()),
+  }),
+);

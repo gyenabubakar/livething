@@ -11,6 +11,7 @@ import {
   ValidationFailed,
   WskitError,
 } from '~/errors.ts';
+import * as v from 'valibot';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type { ErrorDef, ErrorDefWithFactory } from '~/errors.ts';
 
@@ -81,14 +82,10 @@ const _matchesFn: (err: unknown) => err is WskitError<'not-found', void> = NotFo
 void _matchesFn;
 
 // ===========================================================================
-// 4. error() — parse function overload
+// 4. error() — schema overload
 // ===========================================================================
 
-const Forbidden = error('forbidden', (p: unknown) => {
-  const obj = p as Record<string, unknown>;
-  if (typeof obj.reason !== 'string') throw new Error('reason required');
-  return { reason: obj.reason };
-});
+const Forbidden = error('forbidden', v.object({ reason: v.string() }));
 
 // Callable — creates WskitError
 const forbiddenErr = Forbidden({ reason: 'not a member' });
@@ -160,7 +157,7 @@ const _baseOnlyDef: ErrorDef<'gone', void> = error('gone');
 void _baseOnlyDef;
 
 // Factory ErrorDef IS callable
-const _factoryDef = error('bad-input', (p: unknown) => p as { field: string });
+const _factoryDef = error('bad-input', v.object({ field: v.string() }));
 _factoryDef({ field: 'name' });
 
 // ===========================================================================

@@ -103,15 +103,11 @@ describe('error() code-only', () => {
 });
 
 // ===========================================================================
-// error() — parse function
+// error() — with schema
 // ===========================================================================
 
-describe('error() with parse function', () => {
-  const Forbidden = error('forbidden', (p: unknown) => {
-    const obj = p as Record<string, unknown>;
-    if (typeof obj.reason !== 'string') throw new Error('reason required');
-    return { reason: obj.reason };
-  });
+describe('error() with schema', () => {
+  const Forbidden = error('forbidden', v.object({ reason: v.string() }));
 
   it('has the correct code', () => {
     expect(Forbidden.code).toBe('forbidden');
@@ -124,9 +120,9 @@ describe('error() with parse function', () => {
     expect(err.detail).toEqual({ reason: 'denied' });
   });
 
-  it('throws when parse function rejects input', () => {
+  it('throws when the schema rejects input', () => {
     expect(() => Forbidden({ wrong: true } as unknown as { reason: string })).toThrow(
-      'reason required',
+      'Validation failed',
     );
   });
 
@@ -228,11 +224,7 @@ describe('error() async StandardSchema rejection', () => {
 
 describe('.matches() edge cases', () => {
   const CodeOnly = error('gone');
-  const WithDetail = error('rate-limited', (p: unknown) => {
-    const obj = p as Record<string, unknown>;
-    if (typeof obj.retryAfter !== 'number') throw new Error('retryAfter required');
-    return { retryAfter: obj.retryAfter };
-  });
+  const WithDetail = error('rate-limited', v.object({ retryAfter: v.number() }));
 
   it('code-only matches regardless of detail value', () => {
     expect(CodeOnly.matches(new WskitError('gone', undefined))).toBe(true);
@@ -261,7 +253,7 @@ describe('.matches() edge cases', () => {
 // ===========================================================================
 
 describe('error factory properties', () => {
-  const Forbidden = error('forbidden', (p: unknown) => p as { reason: string });
+  const Forbidden = error('forbidden', v.object({ reason: v.string() }));
 
   it('.code is accessible on the factory', () => {
     expect(Forbidden.code).toBe('forbidden');
@@ -339,32 +331,32 @@ describe('ValidationFailed', () => {
 describe('ValidationFailed parser — bad payload', () => {
   it('throws when detail is not an object', () => {
     // oxlint-disable-next-line @typescript-eslint/no-explicit-any
-    expect(() => ValidationFailed('not-an-object' as any)).toThrow('must be an object');
+    expect(() => ValidationFailed('not-an-object' as any)).toThrow('Validation failed');
   });
 
   it('throws when detail.event is not a string', () => {
     // oxlint-disable-next-line @typescript-eslint/no-explicit-any
-    expect(() => ValidationFailed({ issues: [] } as any)).toThrow('detail.event must be a string');
+    expect(() => ValidationFailed({ issues: [] } as any)).toThrow('Validation failed');
   });
 
   it('throws when detail.issues is not an array', () => {
     // oxlint-disable-next-line @typescript-eslint/no-explicit-any
     expect(() => ValidationFailed({ event: 'x', issues: 'nope' } as any)).toThrow(
-      'detail.issues must be an array',
+      'Validation failed',
     );
   });
 
   it('throws when an issue is not an object', () => {
     // oxlint-disable-next-line @typescript-eslint/no-explicit-any
     expect(() => ValidationFailed({ event: 'x', issues: ['bad'] } as any)).toThrow(
-      'issues[0] must be an object',
+      'Validation failed',
     );
   });
 
   it('throws when an issue.message is not a string', () => {
     // oxlint-disable-next-line @typescript-eslint/no-explicit-any
     expect(() => ValidationFailed({ event: 'x', issues: [{ message: 99 }] } as any)).toThrow(
-      'issues[0].message must be a string',
+      'Validation failed',
     );
   });
 
@@ -373,7 +365,7 @@ describe('ValidationFailed parser — bad payload', () => {
     expect(() =>
       // oxlint-disable-next-line @typescript-eslint/no-explicit-any
       ValidationFailed({ event: 'x', issues: [{ message: 'bad', path: 'wrong' }] } as any),
-    ).toThrow('issues[0].path must be an array');
+    ).toThrow('Validation failed');
   });
 
   it('throws when a path element is not a string or number', () => {
@@ -383,7 +375,7 @@ describe('ValidationFailed parser — bad payload', () => {
         // oxlint-disable-next-line @typescript-eslint/no-explicit-any
         issues: [{ message: 'bad', path: [{}] }] as any,
       }),
-    ).toThrow('issues[0].path[0] must be a string or number');
+    ).toThrow('Validation failed');
   });
 });
 
@@ -473,21 +465,21 @@ describe('StreamAlreadyActive', () => {
 describe('StreamAlreadyActive parser — bad payload', () => {
   it('throws when detail is not an object', () => {
     // oxlint-disable-next-line @typescript-eslint/no-explicit-any
-    expect(() => StreamAlreadyActive('not-an-object' as any)).toThrow('must be an object');
+    expect(() => StreamAlreadyActive('not-an-object' as any)).toThrow('Validation failed');
   });
 
   it('throws when detail.event is not a string', () => {
     expect(() =>
       // oxlint-disable-next-line @typescript-eslint/no-explicit-any
       StreamAlreadyActive({ _streamId: 'stream_1' } as any),
-    ).toThrow('detail.event must be a string');
+    ).toThrow('Validation failed');
   });
 
   it('throws when detail._streamId is not a string', () => {
     expect(() =>
       // oxlint-disable-next-line @typescript-eslint/no-explicit-any
       StreamAlreadyActive({ event: 'start-tokens' } as any),
-    ).toThrow('detail._streamId must be a string');
+    ).toThrow('Validation failed');
   });
 });
 
@@ -540,17 +532,17 @@ describe('StreamAborted', () => {
 describe('StreamAborted parser — bad payload', () => {
   it('throws when detail is not an object', () => {
     // oxlint-disable-next-line @typescript-eslint/no-explicit-any
-    expect(() => StreamAborted('not-an-object' as any)).toThrow('must be an object');
+    expect(() => StreamAborted('not-an-object' as any)).toThrow('Validation failed');
   });
 
   it('throws when detail.reason is not a known value', () => {
     // oxlint-disable-next-line @typescript-eslint/no-explicit-any
-    expect(() => StreamAborted({ reason: 'unknown' } as any)).toThrow('reason');
+    expect(() => StreamAborted({ reason: 'unknown' } as any)).toThrow('Validation failed');
   });
 
   it('throws when detail.reason is missing', () => {
     // oxlint-disable-next-line @typescript-eslint/no-explicit-any
-    expect(() => StreamAborted({} as any)).toThrow('reason');
+    expect(() => StreamAborted({} as any)).toThrow('Validation failed');
   });
 });
 
@@ -593,19 +585,21 @@ describe('RateLimited', () => {
 describe('RateLimited parser — bad payload', () => {
   it('throws when detail is not an object', () => {
     // oxlint-disable-next-line @typescript-eslint/no-explicit-any
-    expect(() => RateLimited('nope' as any)).toThrow('must be an object');
+    expect(() => RateLimited('nope' as any)).toThrow('Validation failed');
   });
 
   it('throws when retryAfter is missing or non-numeric', () => {
     // oxlint-disable-next-line @typescript-eslint/no-explicit-any
-    expect(() => RateLimited({} as any)).toThrow('retryAfter');
+    expect(() => RateLimited({} as any)).toThrow('Validation failed');
     // oxlint-disable-next-line @typescript-eslint/no-explicit-any
-    expect(() => RateLimited({ retryAfter: 'soon' } as any)).toThrow('retryAfter');
+    expect(() => RateLimited({ retryAfter: 'soon' } as any)).toThrow('Validation failed');
   });
 
   it('throws when retryAfter is negative or non-finite', () => {
-    expect(() => RateLimited({ retryAfter: -1 })).toThrow('retryAfter');
-    expect(() => RateLimited({ retryAfter: Number.POSITIVE_INFINITY })).toThrow('retryAfter');
+    expect(() => RateLimited({ retryAfter: -1 })).toThrow('Validation failed');
+    expect(() => RateLimited({ retryAfter: Number.POSITIVE_INFINITY })).toThrow(
+      'Validation failed',
+    );
   });
 });
 

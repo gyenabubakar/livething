@@ -1,13 +1,11 @@
 import { error } from '~/errors/errors.ts';
 import { errors } from '~/errors/primitive.ts';
+import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import type { EngineAccess } from '~/_engine/access.ts';
 
-const Forbidden = error('forbidden', (value: unknown) => value as { reason: string });
-const ChannelNotFound = error(
-  'channel-not-found',
-  (value: unknown) => value as { channel: string },
-);
+const Forbidden = error('forbidden', v.object({ reason: v.string() }));
+const ChannelNotFound = error('channel-not-found', v.object({ channel: v.string() }));
 
 describe('errors', () => {
   it('produces correct tag and kind', () => {

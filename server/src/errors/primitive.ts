@@ -34,8 +34,9 @@ const ERRORS_KEY = Symbol('errors');
  * @example
  * ```ts
  * import { contract, error, implement, incoming } from '@wskit/server';
+ * import * as v from 'valibot';
  *
- * const NotFound = error('not-found', (p: { id: string }) => p);
+ * const NotFound = error('not-found', v.object({ id: v.string() }));
  *
  * const c = contract<Env>('users')({
  *   errors: [NotFound],

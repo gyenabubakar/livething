@@ -2,15 +2,13 @@
 
 import { error } from '~/errors/errors.ts';
 import { errors } from '~/errors/primitive.ts';
+import * as v from 'valibot';
 import type { ErrorsPrimitive } from '~/errors/primitive.ts';
 import type { PrimitiveKind, PrimitiveRef } from '~/primitive.ts';
 
-const Forbidden = error('forbidden', (value: unknown) => value as { reason: string });
-const ChannelNotFound = error(
-  'channel-not-found',
-  (value: unknown) => value as { channel: string },
-);
-const QuotaExceeded = error('quota-exceeded', (value: unknown) => value as { limit: number });
+const Forbidden = error('forbidden', v.object({ reason: v.string() }));
+const ChannelNotFound = error('channel-not-found', v.object({ channel: v.string() }));
+const QuotaExceeded = error('quota-exceeded', v.object({ limit: v.number() }));
 
 // ===========================================================================
 // 1. errors() carries the exact tuple of error defs

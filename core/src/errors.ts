@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import * as v from 'valibot';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import { assertSyncResult } from './sync-guard.ts';
 
@@ -81,19 +82,7 @@ export class WskitError<TCode extends string = string, TDetail = unknown> extend
 // ErrorDef — the thing `error()` returns
 // ---------------------------------------------------------------------------
 
-/**
- * A validation/parse function: takes unknown input, returns typed output, or
- * throws if the input is malformed.
- *
- * **The validator must do real work.** It's also the runtime check used by
- * `.matches()` — if the function just type-casts without inspecting the value,
- * `.matches()` effectively only checks the error code, and malformed details
- * will slip through both the factory and the guard.
- *
- * If you're absolutely certain the input is well-formed (e.g. a trusted
- * internal source), a type cast is acceptable as an explicit escape hatch —
- * but be aware that you're opting out of runtime safety.
- */
+/** Internal shape of the validate closure: parse `unknown`, return the typed detail, or throw. */
 type ValidateFn<TDetail> = (value: unknown) => TDetail;
 
 /**
@@ -123,14 +112,12 @@ export interface ErrorDef<TCode extends string = string, TDetail = void> {
 
 /**
  * An error definition with a factory — created when `error()` receives a
- * validator (parse function or StandardSchema). Call it to create a `WskitError`:
+ * detail schema. Call it to create a `WskitError`:
  *
  * ```ts
- * const Forbidden = error('forbidden', (p) => {
- *   const obj = p as Record<string, unknown>;
- *   if (typeof obj.reason !== 'string') throw new Error('reason required');
- *   return { reason: obj.reason };
- * });
+ * import * as v from 'valibot';
+ *
+ * const Forbidden = error('forbidden', v.object({ reason: v.string() }));
  *
  * throw Forbidden({ reason: 'Not a member' }); // WskitError<'forbidden', { reason: string }>
  * ```
@@ -190,74 +177,44 @@ export const Block = Object.freeze({ __wskit: 'block' as const });
  * Define a typed application error. Shared between server and client — define
  * your errors once in a shared file, import them on both sides.
  *
- * Three overloads:
+ * Two overloads:
  *
  * 1. **Code-only** — no detail payload:
  *    ```ts
  *    const NotFound = error('not-found');
  *    ```
  *
- * 2. **Parse function** — detail type inferred from return value:
+ * 2. **With a detail schema** — any Standard Schema (valibot, zod, arktype).
+ *    The detail type is inferred from the schema, and the schema is also the
+ *    runtime check `.matches()` runs:
  *    ```ts
- *    const Forbidden = error('forbidden', (p) => {
- *      const obj = p as Record<string, unknown>;
- *      if (typeof obj.reason !== 'string') throw new Error('reason required');
- *      return { reason: obj.reason };
- *    });
- *    ```
+ *    import * as v from 'valibot';
  *
- *    The parse function must **actually validate** — checking fields and
- *    throwing on anything unexpected. This is wskit's zero-runtime-dep
- *    replacement for bringing in zod/valibot just for error shapes, and it
- *    doubles as the runtime check used by `.matches()`. If your function
- *    only type-casts (e.g. `(p) => p as { reason: string }`) then `.matches()`
- *    will return true for *any* `WskitError` with this code, regardless of
- *    whether `detail` actually has the expected shape — and the factory will
- *    happily produce malformed errors. Type-casting is only safe when you are
- *    absolutely certain the input is well-formed (e.g. a private, server-only
- *    control-flow error you construct yourself).
- *
- * 3. **StandardSchema** — detail type inferred from schema output (valibot, zod, arktype):
- *    ```ts
  *    const RateLimited = error('rate-limited', v.object({ retryAfter: v.number() }));
  *    ```
  *
- *    Schemas always validate, so this overload is the safest default.
- *
- * Overloads 2 and 3 return a callable factory. Call it to create the error:
+ * The schema overload returns a callable factory. Call it to create the error:
  * ```ts
- * throw Forbidden({ reason: 'Not a member' });
+ * throw RateLimited({ retryAfter: 30 });
  * ```
  */
 export function error<TCode extends string>(code: TCode): ErrorDefWithFactory<TCode, void>;
-export function error<TCode extends string, TDetail>(
-  code: TCode,
-  parse: ValidateFn<TDetail>,
-): ErrorDefWithFactory<TCode, TDetail>;
 export function error<TCode extends string, TSchema extends StandardSchemaV1>(
   code: TCode,
   schema: TSchema,
 ): ErrorDefWithFactory<TCode, StandardSchemaV1.InferOutput<TSchema>>;
-export function error(
-  code: string,
-  schemaOrParse?: StandardSchemaV1 | ValidateFn<any>,
-): ErrorDefWithFactory<string, any> {
-  const validate: ValidateFn<any> | undefined = !schemaOrParse
+export function error(code: string, schema?: StandardSchemaV1): ErrorDefWithFactory<string, any> {
+  const validate: ValidateFn<any> | undefined = !schema
     ? undefined
-    : typeof schemaOrParse === 'function'
-      ? (value: unknown) => assertSyncResult(schemaOrParse(value), `error("${code}")`)
-      : (value: unknown) => {
-          const result = assertSyncResult(
-            schemaOrParse['~standard'].validate(value),
-            `error("${code}")`,
+    : (value: unknown) => {
+        const result = assertSyncResult(schema['~standard'].validate(value), `error("${code}")`);
+        if (result.issues) {
+          throw new Error(
+            `[wskit] Validation failed for error "${code}": ${result.issues[0]?.message}`,
           );
-          if (result.issues) {
-            throw new Error(
-              `[wskit] Validation failed for error "${code}": ${result.issues[0]?.message}`,
-            );
-          }
-          return result.value;
-        };
+        }
+        return result.value;
+      };
 
   function factory(detail?: any) {
     return new WskitError(code, validate ? validate(detail) : undefined);
@@ -286,43 +243,18 @@ export function error(
  *
  * Detail contains the event name and the Standard Schema issues array.
  */
-export const ValidationFailed = error('validation-failed', (p: unknown) => {
-  if (typeof p !== 'object' || p === null) {
-    throw new Error('ValidationFailed detail must be an object');
-  }
-  const obj = p as Record<string, unknown>;
-  if (typeof obj.event !== 'string') {
-    throw new Error('ValidationFailed detail.event must be a string');
-  }
-  if (!Array.isArray(obj.issues)) {
-    throw new Error('ValidationFailed detail.issues must be an array');
-  }
-  const issues: Array<{ message: string; path?: Array<string | number> }> = obj.issues.map(
-    (issue, i) => {
-      if (typeof issue !== 'object' || issue === null) {
-        throw new Error(`ValidationFailed detail.issues[${i}] must be an object`);
-      }
-      const { message, path } = issue as Record<string, unknown>;
-      if (typeof message !== 'string') {
-        throw new Error(`ValidationFailed detail.issues[${i}].message must be a string`);
-      }
-      if (path === undefined) return { message };
-      if (!Array.isArray(path)) {
-        throw new Error(`ValidationFailed detail.issues[${i}].path must be an array`);
-      }
-      for (let j = 0; j < path.length; j++) {
-        const part = path[j];
-        if (typeof part !== 'string' && typeof part !== 'number') {
-          throw new Error(
-            `ValidationFailed detail.issues[${i}].path[${j}] must be a string or number`,
-          );
-        }
-      }
-      return { message, path: path as Array<string | number> };
-    },
-  );
-  return { event: obj.event, issues };
-});
+export const ValidationFailed = error(
+  'validation-failed',
+  v.object({
+    event: v.string(),
+    issues: v.array(
+      v.object({
+        message: v.string(),
+        path: v.optional(v.array(v.union([v.string(), v.number()]))),
+      }),
+    ),
+  }),
+);
 
 /**
  * The error you get when you try to subscribe to a channel name the server
@@ -461,7 +393,7 @@ export type StreamAbortedReason =
   | 'cursor-invalid'
   | 'aborted';
 
-const STREAM_ABORTED_REASONS: readonly StreamAbortedReason[] = [
+const STREAM_ABORTED_REASONS = [
   'cancelled',
   'buffer-full',
   'expired',
@@ -470,24 +402,12 @@ const STREAM_ABORTED_REASONS: readonly StreamAbortedReason[] = [
   'unsubscribed',
   'cursor-invalid',
   'aborted',
-];
+] as const;
 
-export const StreamAborted = error('stream-aborted', (p: unknown) => {
-  if (typeof p !== 'object' || p === null) {
-    throw new Error('StreamAborted detail must be an object');
-  }
-  const obj = p as Record<string, unknown>;
-  const reason = obj.reason;
-  if (
-    typeof reason !== 'string' ||
-    !(STREAM_ABORTED_REASONS as readonly string[]).includes(reason)
-  ) {
-    throw new Error(
-      `StreamAborted detail.reason must be one of: ${STREAM_ABORTED_REASONS.join(', ')}`,
-    );
-  }
-  return { reason: reason as StreamAbortedReason };
-});
+export const StreamAborted = error(
+  'stream-aborted',
+  v.object({ reason: v.picklist(STREAM_ABORTED_REASONS) }),
+);
 
 /**
  * Sent to the client when a stream trigger frame carries a dev-supplied
@@ -527,20 +447,10 @@ export const StreamIdCollision = error('stream-id-collision');
  * });
  * ```
  */
-export const RateLimited = error('rate-limited', (p: unknown) => {
-  if (typeof p !== 'object' || p === null) {
-    throw new Error('RateLimited detail must be an object');
-  }
-  const obj = p as Record<string, unknown>;
-  if (
-    typeof obj.retryAfter !== 'number' ||
-    !Number.isFinite(obj.retryAfter) ||
-    obj.retryAfter < 0
-  ) {
-    throw new Error('RateLimited detail.retryAfter must be a non-negative finite number');
-  }
-  return { retryAfter: obj.retryAfter };
-});
+export const RateLimited = error(
+  'rate-limited',
+  v.object({ retryAfter: v.pipe(v.number(), v.finite(), v.minValue(0)) }),
+);
 
 /**
  * Sent to the client when it asks to start a stream of an event that already
@@ -565,16 +475,7 @@ export const RateLimited = error('rate-limited', (p: unknown) => {
  * }
  * ```
  */
-export const StreamAlreadyActive = error('stream-already-active', (p: unknown) => {
-  if (typeof p !== 'object' || p === null) {
-    throw new Error('StreamAlreadyActive detail must be an object');
-  }
-  const obj = p as Record<string, unknown>;
-  if (typeof obj.event !== 'string') {
-    throw new Error('StreamAlreadyActive detail.event must be a string');
-  }
-  if (typeof obj._streamId !== 'string') {
-    throw new Error('StreamAlreadyActive detail._streamId must be a string');
-  }
-  return { event: obj.event, _streamId: obj._streamId };
-});
+export const StreamAlreadyActive = error(
+  'stream-already-active',
+  v.object({ event: v.string(), _streamId: v.string() }),
+);
