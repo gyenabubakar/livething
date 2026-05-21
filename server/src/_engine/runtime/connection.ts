@@ -161,7 +161,7 @@ export async function runConnectionLifecycle(
  * Stop and forget any active streams owned by a connection that is going away.
  *
  * Streams declared with `onDisconnect: 'keep-running'` are left alone — the
- * generator continues producing into storage and a later `_resumeStream` from
+ * generator continues producing into storage and a later `__resumeStream__` from
  * the same identity (or any broadcast subscriber) catches up from the buffer.
  */
 export async function cancelActiveStreamsForConnection(
@@ -245,7 +245,7 @@ export async function handleConnectionClose(
   // cleanup completes before shutdown returns; the adapter's natural
   // webSocketClose callback may then fire a second time for the same
   // connection. Re-running the lifecycle would double-fire onDisconnect
-  // and rebroadcast _memberLeave to peers. Bail when the connection has
+  // and rebroadcast __memberLeave__ to peers. Bail when the connection has
   // already been removed from the live set.
   if (!runtime.connections.has(connection.id)) return;
 
@@ -265,7 +265,7 @@ export async function handleConnectionClose(
   try {
     // A user-supplied onDisconnect hook (or a module's onDisconnect) may
     // throw. Contain the throw so the rest of the close cleanup —
-    // channel leaves (which broadcast `_memberLeave` to peers), heartbeat
+    // channel leaves (which broadcast `__memberLeave__` to peers), heartbeat
     // timer teardown — still runs. Otherwise channel members never see
     // the leave and timers leak.
     await runtime.runConnectionLifecycle('disconnect', ctx);
@@ -322,7 +322,7 @@ export async function handleConnectionClose(
  * Route binary frames into the optional binary lifecycle hook.
  *
  * A throw from any hook is routed through the engine's runtime-error path
- * so the client gets `_error` and `onError` hooks fire — the same shape
+ * so the client gets `__error__` and `onError` hooks fire — the same shape
  * text-message handlers already follow. The first throw stops the
  * remaining binary hooks for this frame.
  */
@@ -682,7 +682,7 @@ export async function handleShutdown(
 
   // Send the wire-level close frame first so clients see GOING_AWAY
   // promptly, then drive the per-connection cleanup chain ourselves
-  // (onDisconnect hooks, _memberLeave broadcasts, channel leaves,
+  // (onDisconnect hooks, __memberLeave__ broadcasts, channel leaves,
   // heartbeat timer teardown). Awaiting the cleanup here is the whole
   // point of the change: pre-fix the cleanup ran fire-and-forget on the
   // adapter's webSocketClose callback and the DO could be evicted

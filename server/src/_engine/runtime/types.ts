@@ -104,7 +104,7 @@ export interface RegisteredEngineHooks {
   /** Runs during graceful engine shutdown. */
   shutdown: ((ctx: any) => void | Promise<void>)[];
 
-  /** Observes unrecognized runtime errors before the client gets `_error`. */
+  /** Observes unrecognized runtime errors before the client gets `__error__`. */
   error: ((ctx: any, error: unknown, event?: string) => void | Promise<void>)[];
 
   /**
@@ -223,7 +223,7 @@ export interface RuntimeConnection {
   quality: 'excellent' | 'good' | 'degraded' | 'poor';
   /** Resolves once the onConnect lifecycle hook has finished running. */
   lifecycleReady?: Promise<void>;
-  /** The _ackId of the message currently being handled, if ack is enabled. */
+  /** The ackId of the message currently being handled, if ack is enabled. */
   activeAckId?: string;
   /** Handle for the heartbeat timeout timer. */
   heartbeatTimer?: unknown;
@@ -234,7 +234,7 @@ export interface RuntimeConnection {
   /** Sliding window of recent latency samples for quality calculation. */
   recentLatencies?: number[];
   /**
-   * Bounded ring of `_messageId` values already seen on this connection, used
+   * Bounded ring of `messageId` values already seen on this connection, used
    * by `dedup()` to drop duplicate incoming frames before they reach handlers.
    * Lazy-initialized on first seen id; `undefined` when dedup is off or the
    * connection has not yet received an id-bearing frame.
@@ -242,7 +242,7 @@ export interface RuntimeConnection {
   seenIncomingIds?: { buf: string[]; writePtr: number; set: Set<string>; cap: number };
   /**
    * IDs of streams currently in-flight for this connection. Written into the
-   * hibernation attachment so orphaned streams can be signalled with `_error`
+   * hibernation attachment so orphaned streams can be signalled with `__error__`
    * on wake. Lazy-initialized when the first stream starts.
    */
   activeStreamIds?: Set<string>;
@@ -340,7 +340,7 @@ export interface RoutingTarget {
   correlationId?: string;
   streamId?: string;
   /**
-   * Sequence number to stamp on the outgoing payload as `_seq`. Used by
+   * Sequence number to stamp on the outgoing frame as `__wskit.seq`. Used by
    * durable streams to give resume a stable cursor; plain streams rely on
    * the `sequence` primitive to inject this via onOutgoing instead.
    */
@@ -350,8 +350,8 @@ export interface RoutingTarget {
 /**
  * The resolved scope for one incoming message.
  *
- * This is the engine's parsed view of `_namespace`, `_channel`, and
- * `_channelScope` markers from the incoming payload.
+ * This is the engine's parsed view of `__wskit.namespace`, `__wskit.channel`,
+ * and `__wskit.channelScope` markers from the incoming frame.
  */
 export interface ResolvedScope {
   namespace?: EngineCompileTypes.CompiledNamespace;

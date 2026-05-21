@@ -253,21 +253,21 @@ if (StreamAborted.matches(maybeSa)) {
 const _saaCode: 'stream-already-active' = StreamAlreadyActive.code;
 void _saaCode;
 
-const saaErr = StreamAlreadyActive({ event: 'start-tokens', _streamId: 'stream_1' });
+const saaErr = StreamAlreadyActive({ event: 'start-tokens', streamId: 'stream_1' });
 const _saaErrCode: 'stream-already-active' = saaErr.code;
-const _saaDetail: { event: string; _streamId: string } = saaErr.detail;
+const _saaDetail: { event: string; streamId: string } = saaErr.detail;
 void [_saaErrCode, _saaDetail];
 
-// @ts-expect-error — missing _streamId
+// @ts-expect-error — missing streamId
 StreamAlreadyActive({ event: 'start-tokens' });
 
 // @ts-expect-error — missing event
-StreamAlreadyActive({ _streamId: 'stream_1' });
+StreamAlreadyActive({ streamId: 'stream_1' });
 
 declare const maybeSaa: unknown;
 if (StreamAlreadyActive.matches(maybeSaa)) {
   const _saamc: 'stream-already-active' = maybeSaa.code;
-  const _saamd: { event: string; _streamId: string } = maybeSaa.detail;
+  const _saamd: { event: string; streamId: string } = maybeSaa.detail;
   void [_saamc, _saamd];
 }
 

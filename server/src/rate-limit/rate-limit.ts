@@ -44,7 +44,7 @@ const RATE_LIMIT_KEY = Symbol('rate-limit');
  * so a rejected frame never reaches user code.
  *
  * On rejection it throws `RateLimited({ retryAfter })` which the engine
- * routes to an `_error` frame, preserving `_correlationId` / `_ackId` if the
+ * routes to an `__error__` frame, preserving `__wskit.correlationId` / `__wskit.ackId` if the
  * original frame carried them.
  *
  * Use through the `rateLimit:` config on `contract({...})`, `channel({...})`,

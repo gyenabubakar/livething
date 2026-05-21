@@ -10,7 +10,7 @@ import type { Validator } from '~/types.ts';
 export type SubscribeHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
 
 /**
- * Handler called only on a TRUE leave — when the client sends `_unsubscribe`,
+ * Handler called only on a TRUE leave — when the client sends `__unsubscribe__`,
  * is kicked, or is removed via `removeMember(identity)`. The user has left
  * the group; for persistent channels the durable membership row has been
  * deleted. NOT fired on plain disconnect of a persistent channel — that case
@@ -161,7 +161,7 @@ export function onUnsubscribe<TCtx>(handler: UnsubscribeHandler<TCtx>): Unsubscr
 /**
  * Creates an `onSessionEnd` lifecycle primitive for a channel. The handler
  * runs whenever this connection's view of the channel ends — a true leave
- * (`_unsubscribe`, kick, `removeMember`) OR a plain disconnect. Use this
+ * (`__unsubscribe__`, kick, `removeMember`) OR a plain disconnect. Use this
  * for per-session cleanup or for counting active connections.
  */
 export function onSessionEnd<TCtx>(handler: SessionEndHandler<TCtx>): SessionEndPrimitive<TCtx> {

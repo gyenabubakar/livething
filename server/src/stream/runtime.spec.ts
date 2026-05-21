@@ -744,7 +744,7 @@ describe('stream/runtime', () => {
       ),
     ).rejects.toMatchObject({
       code: 'stream-already-active',
-      detail: { event: 'start-tokens', _streamId: 'existing_1' },
+      detail: { event: 'start-tokens', streamId: 'existing_1' },
     });
 
     // Existing stream is untouched, no second stream registered, and no

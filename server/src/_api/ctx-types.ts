@@ -192,7 +192,7 @@ export type Ctx<C extends Contract> = {
 
   // ───── Always-on feature surface. Runtime throws if the feature was not enabled. ─────
 
-  /** Send an `_ack` back to the client. Requires `ack: true` on the contract. */
+  /** Send an `__ack__` back to the client. Requires `ack: true` on the contract. */
   ack(): void;
   /**
    * Inject a synthetic replay frame for one outgoing event. Requires

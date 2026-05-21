@@ -167,7 +167,7 @@ export function compileChannelPrimitive(primitive: ChannelPrimitiveType): Compil
 
 /**
  * Refuse to boot when a channel family pattern matches a static channel name.
- * The two would route the same wire `_channel` value to different compiled
+ * The two would route the same wire `__wskit.channel` value to different compiled
  * definitions depending on which side the lookup hit first. Surface the
  * conflict at boot time to keep runtime behaviour unambiguous.
  */

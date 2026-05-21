@@ -13,8 +13,8 @@ export interface RejoinRuntime {
   /**
    * Server-side subscribe primitive (from #11). The rejoin path invokes this
    * for every durable membership the identity has so the connection lands
-   * back in the channel without a client `_subscribe` frame. The `rejoining`
-   * flag tells the subscribe flow to suppress `_memberJoin` peer broadcasts
+   * back in the channel without a client `__subscribe__` frame. The `rejoining`
+   * flag tells the subscribe flow to suppress `__memberJoin__` peer broadcasts
    * (the user is already a member of the group — only the new socket's
    * presence has changed).
    */
@@ -44,9 +44,9 @@ export interface RejoinRuntime {
  * Runs once per accept, BEFORE `onConnect` fires, so user handlers see the
  * connection already in its old channels. For each durable membership the
  * engine re-runs `onBeforeSubscribe`. On pass the connection is committed
- * via the server-subscribe primitive (`source: 'server'`, fires `_subscribeOk`
- * and `_memberJoin` syncs the same way a fresh subscribe does). On reject
- * the durable row is dropped and an `_error` scoped to the channel is sent
+ * via the server-subscribe primitive (`source: 'server'`, fires `__subscribeOk__`
+ * and `__memberJoin__` syncs the same way a fresh subscribe does). On reject
+ * the durable row is dropped and an `__error__` scoped to the channel is sent
  * to the new socket so the client knows that one channel did not restore.
  *
  * Rows for channels that no longer exist (renamed or removed between

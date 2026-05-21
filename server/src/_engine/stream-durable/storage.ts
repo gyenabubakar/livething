@@ -50,7 +50,7 @@ const CREATE_STREAM_CHUNKS_TABLE_SQL = `
   )
 `;
 
-// Tracks identities that opted out of a broadcast stream via `_streamCancel`.
+// Tracks identities that opted out of a broadcast stream via `__streamCancel__`.
 // The fanout step skips identities listed here; their resume returns
 // stream-aborted unsubscribed.
 const CREATE_STREAM_UNSUBSCRIBED_TABLE_SQL = `
@@ -170,7 +170,7 @@ export interface InsertStreamInput {
  * check upstream covers the common case, but a concurrent insert race on the
  * same (identity, stream_id) hits the SQLite PRIMARY KEY constraint instead.
  * Surface that as `StreamIdCollision` so the dispatcher's catch turns it into
- * a typed _error frame.
+ * a typed __error__ frame.
  */
 export function insertStream(sql: SqlExec, input: InsertStreamInput): void {
   try {

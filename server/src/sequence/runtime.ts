@@ -31,7 +31,7 @@ const GLOBAL_SEQUENCE_SCOPE = 'global';
 /**
  * Create the SQLite table used by durable sequence numbers.
  *
- * wskit keeps a single row here with the next `_seq` number that has not been
+ * wskit keeps a single row here with the next `seq` number that has not been
  * handed out yet.
  */
 export function ensureSequenceSchema(sql: SQLProvider): void {

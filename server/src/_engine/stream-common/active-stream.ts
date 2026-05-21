@@ -92,7 +92,7 @@ export function assertNoConcurrentStream(
   for (const id of ids) {
     const existing = runtime.activeStreams.get(id);
     if (existing && !existing.closed && existing.event === event) {
-      throw StreamAlreadyActive({ event, _streamId: existing.id });
+      throw StreamAlreadyActive({ event, streamId: existing.id });
     }
   }
 }

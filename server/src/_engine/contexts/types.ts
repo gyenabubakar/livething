@@ -99,7 +99,7 @@ export interface ContextCommonDeps {
   /**
    * Remove every live connection of the given identity from one channel
    * scope AND drop the durable membership row. True-leave semantics —
-   * `onUnsubscribe` fires, `_memberLeave`/`_memberOffline` broadcast.
+   * `onUnsubscribe` fires, `__memberLeave__`/`__memberOffline__` broadcast.
    */
   removeChannelMember(
     channelName: string,

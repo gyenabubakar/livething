@@ -169,7 +169,7 @@ export interface PrimitiveFactory<
  *   setup(engine) {
  *     engine.onIncoming((msg) => { ... });
  *     engine.extendContext((ctx) => ({
- *       ack() { engine.rawSend(ctx.id, '_ack', { _ackId: ... }); }
+ *       ack() { engine.rawSend(ctx.id, '__ack__', {}); }
  *     }));
  *   },
  * });

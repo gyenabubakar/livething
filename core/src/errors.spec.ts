@@ -432,23 +432,23 @@ describe('StreamAlreadyActive', () => {
     expect(StreamAlreadyActive.code).toBe('stream-already-active');
   });
 
-  it('creates WskitError with event and _streamId', () => {
-    const err = StreamAlreadyActive({ event: 'start-tokens', _streamId: 'stream_42' });
+  it('creates WskitError with event and streamId', () => {
+    const err = StreamAlreadyActive({ event: 'start-tokens', streamId: 'stream_42' });
     expect(err).toBeInstanceOf(WskitError);
     expect(err.code).toBe('stream-already-active');
-    expect(err.detail).toEqual({ event: 'start-tokens', _streamId: 'stream_42' });
+    expect(err.detail).toEqual({ event: 'start-tokens', streamId: 'stream_42' });
   });
 
   it('.matches() returns true for a valid detail', () => {
     const err = new WskitError('stream-already-active', {
       event: 'start-tokens',
-      _streamId: 'stream_1',
+      streamId: 'stream_1',
     });
     expect(StreamAlreadyActive.matches(err)).toBe(true);
   });
 
   it('.matches() returns false for wrong code', () => {
-    const err = new WskitError('forbidden', { event: 'x', _streamId: 's' });
+    const err = new WskitError('forbidden', { event: 'x', streamId: 's' });
     expect(StreamAlreadyActive.matches(err)).toBe(false);
   });
 
@@ -471,11 +471,11 @@ describe('StreamAlreadyActive parser — bad payload', () => {
   it('throws when detail.event is not a string', () => {
     expect(() =>
       // oxlint-disable-next-line @typescript-eslint/no-explicit-any
-      StreamAlreadyActive({ _streamId: 'stream_1' } as any),
+      StreamAlreadyActive({ streamId: 'stream_1' } as any),
     ).toThrow('Validation failed');
   });
 
-  it('throws when detail._streamId is not a string', () => {
+  it('throws when detail.streamId is not a string', () => {
     expect(() =>
       // oxlint-disable-next-line @typescript-eslint/no-explicit-any
       StreamAlreadyActive({ event: 'start-tokens' } as any),
@@ -623,12 +623,12 @@ describe('factory throw + catch + .matches() roundtrip', () => {
 
   it('built-in with detail', () => {
     try {
-      throw StreamAlreadyActive({ event: 'start-tokens', _streamId: 'stream_1' });
+      throw StreamAlreadyActive({ event: 'start-tokens', streamId: 'stream_1' });
     } catch (err) {
       expect(StreamAlreadyActive.matches(err)).toBe(true);
       if (StreamAlreadyActive.matches(err)) {
         expect(err.detail.event).toBe('start-tokens');
-        expect(err.detail._streamId).toBe('stream_1');
+        expect(err.detail.streamId).toBe('stream_1');
       }
     }
   });

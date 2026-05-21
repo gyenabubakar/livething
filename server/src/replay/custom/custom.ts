@@ -130,18 +130,18 @@ interface BaseCustomReplayContext {
  * The context passed to `onReplay` at the top-level connection scope. Provides
  * `sendReplay()` for re-sending stored messages to the reconnecting client.
  *
- * `request.channel` is the concrete channel name when the client's `_replay`
+ * `request.channel` is the concrete channel name when the client's `__replay__`
  * frame was scoped to a channel, otherwise `null`. `request.channelScope` is
  * the family key for dynamic channels, `null` for static channels and for
  * unscoped replay requests. Read both with null-guards. Use them to filter
  * persisted rows when serving replay back.
  */
 export interface TopLevelReplayContext extends BaseCustomReplayContext {
-  /** Routing markers from the client's `_replay` frame. */
+  /** Routing markers from the client's `__replay__` frame. */
   readonly request: {
-    /** Channel name from `_channel` on the request, or `null`. */
+    /** Channel name from `__wskit.channel` on the request, or `null`. */
     readonly channel: string | null;
-    /** Family key from `_channelScope` on the request, or `null`. */
+    /** Family key from `__wskit.channelScope` on the request, or `null`. */
     readonly channelScope: string | null;
   };
   /**
@@ -215,7 +215,7 @@ export interface CustomReplayOptions<TScope extends CustomReplayScope = 'top'> {
   ) => void | Promise<void>;
 
   /**
-   * Called when a client sends the `_replay` protocol message. Query your own
+   * Called when a client sends the `__replay__` protocol message. Query your own
    * store for all messages since `since` and call `ctx.sendReplay()` for each.
    *
    * @param ctx   The replay context with `sendReplay()` and storage access.
@@ -309,7 +309,7 @@ function createTopLevelReplayContext(
 
 /**
  * Build the `ChannelReplayContext` passed to the developer's `onReplay` hook
- * when the `_replay` request targets a specific channel.
+ * when the `__replay__` request targets a specific channel.
  */
 function createChannelReplayContext(
   engine: EngineAccess,
@@ -341,7 +341,7 @@ function createChannelReplayContext(
  * @internal
  *
  * Internal primitive factory that powers `.replayCustom()`. It wires the
- * configured hooks into the engine's outgoing pipeline and `_replay` protocol
+ * configured hooks into the engine's outgoing pipeline and `__replay__` protocol
  * handler. This is not part of the public API — use the `.replayCustom()`
  * builder instead.
  *

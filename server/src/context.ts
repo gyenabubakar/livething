@@ -356,9 +356,9 @@ export interface ChannelHandle<
   members(): ConnectionInfo<Meta>[];
   /**
    * Subscribe a connection to this exact channel scope from server code,
-   * without a client `_subscribe` frame. Runs the channel's `onBeforeSubscribe`
-   * gate, commits the membership, emits `_subscribeOk { source: 'server' }` to
-   * the target, fans out `_memberJoin` to existing members, and runs the
+   * without a client `__subscribe__` frame. Runs the channel's `onBeforeSubscribe`
+   * gate, commits the membership, emits `__subscribeOk__ { source: 'server' }` to
+   * the target, fans out `__memberJoin__` to existing members, and runs the
    * `onSubscribe` hook — exactly the same path a client-initiated subscribe
    * takes.
    *
@@ -383,8 +383,8 @@ export interface ChannelHandle<
    * - `GroupHandle` (returned by `ctx.tags.ephemeral(...)` / `.persistent(...)`)
    *   — kick every socket with any key under the group.
    *
-   * Sends `_kicked` to each removed socket, fires `onUnsubscribe`, and
-   * broadcasts `_memberLeave` / `_memberOffline` to remaining members.
+   * Sends `__kicked__` to each removed socket, fires `onUnsubscribe`, and
+   * broadcasts `__memberLeave__` / `__memberOffline__` to remaining members.
    * Awaits every hook completion; rejections propagate to the caller.
    */
   kick(
@@ -407,7 +407,7 @@ export interface ChannelHandle<
    *
    * Fires the channel's `onUnsubscribe` hook for every affected connection
    * (true leave semantics) followed by `onSessionEnd` for each. Broadcasts
-   * `_memberLeave` then `_memberOffline` to remaining members.
+   * `__memberLeave__` then `__memberOffline__` to remaining members.
    *
    * No-op when persistence is disabled — the durable row never existed,
    * so use `kick(tag, reason)` to drop sockets in that case.

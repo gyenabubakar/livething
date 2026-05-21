@@ -810,7 +810,7 @@ export class Implementer<C extends Contract> {
 
   /**
    * Catches any error thrown by an event handler that the runtime didn't
-   * already turn into a client `_error` frame. Use it for logging and
+   * already turn into a client `__error__` frame. Use it for logging and
    * server-side reporting. The third argument is the event name when the
    * error came from an event handler.
    */
@@ -823,7 +823,7 @@ export class Implementer<C extends Contract> {
   /**
    * Runs when an incoming payload fails its schema validation. Use it for
    * logging or auditing — the runtime already sends the client a
-   * `validation-failed` `_error` frame, so handlers see nothing.
+   * `validation-failed` `__error__` frame, so handlers see nothing.
    */
   onValidationError(
     handler: (ctx: any, event: string, validationError: unknown) => void | Promise<void>,
@@ -957,7 +957,7 @@ export class Implementer<C extends Contract> {
 
     if (hasDurableStreamDef(config.definitions)) {
       primitives.push(
-        scheduledFactory('_wskit:stream-durable-sweep', (b) =>
+        scheduledFactory('__wskit:stream-durable-sweep', (b) =>
           b.every(60_000).run((ctx: { sql: Parameters<typeof sweepDurableStreams>[0]['sql'] }) => {
             ensureDurableStreamSchema(ctx.sql);
             sweepDurableStreams({ sql: ctx.sql });

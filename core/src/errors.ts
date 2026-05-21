@@ -277,8 +277,8 @@ export const ChannelNotFound = error('channel-not-found');
 
 /**
  * The error you get when you target a namespace the server doesn't
- * recognise. Usually a typo in `_namespace` or a mismatch between your
- * client and server versions.
+ * recognise. Usually a typo in the namespace name or a mismatch between
+ * your client and server versions.
  *
  * @example
  * ```ts
@@ -295,10 +295,10 @@ export const NamespaceNotFound = error('namespace-not-found');
 
 /**
  * The error you get when an incoming frame carries more than one scope
- * marker at once — for example both `_namespace` and `_channel`. wskit
- * routes a frame to exactly one scope, so a frame that names two scopes
- * is ambiguous and the server rejects it instead of silently picking
- * one.
+ * marker at once — for example both `__wskit.namespace` and
+ * `__wskit.channel`. wskit routes a frame to exactly one scope, so a
+ * frame that names two scopes is ambiguous and the server rejects it
+ * instead of silently picking one.
  *
  * @example
  * ```ts
@@ -348,17 +348,17 @@ export const InternalError = error('internal-error');
  * Sent to the client when an in-flight stream terminates for a server-side
  * reason the client should react to. `detail.reason` describes why:
  *
- * - `'cancelled'` — the stream was cancelled (by `_streamCancel` or server-side teardown).
+ * - `'cancelled'` — the stream was cancelled (by `__streamCancel__` or server-side teardown).
  * - `'buffer-full'` — a durable (recorded) stream's chunk buffer hit its cap.
  *   The framework throws this into the generator's `yield` so handler code can
  *   catch and decide; if uncaught it surfaces on the wire.
  * - `'expired'` — a suspended durable stream aged out of its retention window before the client returned.
- * - `'not-found'` — a `_resumeStream` request named a stream id the server doesn't recognise.
+ * - `'not-found'` — a `__resumeStream__` request named a stream id the server doesn't recognise.
  * - `'hibernation-wake'` — a non-durable stream was lost because the server
  *   dropped in-memory state (e.g. Cloudflare Durable Object waking from
  *   hibernation). The wire-level connection is still alive; only the
  *   in-flight stream is gone.
- * - `'unsubscribed'` — the client previously sent `_streamCancel` on this
+ * - `'unsubscribed'` — the client previously sent `__streamCancel__` on this
  *   broadcast stream's id, so the server has stopped fanning chunks to that
  *   identity. The stream itself stays running for everyone else.
  * - `'cursor-invalid'` — on resume, the stored cursor failed the validator
@@ -411,7 +411,7 @@ export const StreamAborted = error(
 
 /**
  * Sent to the client when a stream trigger frame carries a dev-supplied
- * `_streamId` that is already in use by another active stream for the same
+ * `streamId` that is already in use by another active stream for the same
  * connection identity. The client must pick a different id or wait for the
  * existing stream to end.
  *
@@ -440,11 +440,13 @@ export const StreamIdCollision = error('stream-id-collision');
  *
  * @example
  * ```ts
- * socket.on('_error', (err) => {
+ * try {
+ *   await socket.request('send-message', { text });
+ * } catch (err) {
  *   if (RateLimited.matches(err)) {
  *     setTimeout(retry, err.detail.retryAfter * 1000);
  *   }
- * });
+ * }
  * ```
  */
 export const RateLimited = error(
@@ -457,7 +459,7 @@ export const RateLimited = error(
  * has another stream of the same event running on the same connection. By
  * default a connection can only have one active stream per event name —
  * starting a second one is rejected with this code. The existing stream's
- * `_streamId` is carried in `detail._streamId` so the client can decide
+ * `streamId` is carried in `detail.streamId` so the client can decide
  * whether to wait for it, cancel it, or surface the conflict to the user.
  *
  * Opt out per-stream with `.allowConcurrent()` on the stream builder if the
@@ -470,12 +472,12 @@ export const RateLimited = error(
  *   await socket.stream('start-tokens', { prompt: 'hi' });
  * } catch (err) {
  *   if (StreamAlreadyActive.matches(err)) {
- *     console.log('already running', err.detail._streamId);
+ *     console.log('already running', err.detail.streamId);
  *   }
  * }
  * ```
  */
 export const StreamAlreadyActive = error(
   'stream-already-active',
-  v.object({ event: v.string(), _streamId: v.string() }),
+  v.object({ event: v.string(), streamId: v.string() }),
 );

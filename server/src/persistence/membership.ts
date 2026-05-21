@@ -53,7 +53,7 @@ export function persistMembership(
 
 /**
  * Delete a durable channel-membership row. Called on a real leave (client
- * `_unsubscribe`, `removeMember`, kick) of a persistent channel.
+ * `__unsubscribe__`, `removeMember`, kick) of a persistent channel.
  */
 export function deleteDurableMembership(
   core: EngineCore,
@@ -73,7 +73,7 @@ export function deleteDurableMembership(
 /**
  * Kick every live connection of `identity` out of one channel scope AND drop
  * the durable row. True leave: `onUnsubscribe` fires, peers get
- * `_memberLeave`/`_memberOffline`, and the user will NOT auto-rejoin on the
+ * `__memberLeave__`/`__memberOffline__`, and the user will NOT auto-rejoin on the
  * next reconnect. No-op if nothing matches and persistence is off.
  */
 export async function removeChannelMember(

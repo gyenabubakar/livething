@@ -125,7 +125,7 @@ export function insertMembership(
 
 /**
  * Delete a single durable membership row. Called on a true leave (client
- * `_unsubscribe`, `removeMember`, kick) of a persistent channel.
+ * `__unsubscribe__`, `removeMember`, kick) of a persistent channel.
  */
 export function deleteMembership(
   sql: Pick<SQLProvider, 'exec'>,

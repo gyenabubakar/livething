@@ -133,9 +133,9 @@ export class ChannelImplement<C extends Contract, ChC = any> {
 
   /**
    * Runs BEFORE a client subscribes to this channel. Throw to reject the
-   * subscribe — the client gets an `_error` frame. Use it for auth or
+   * subscribe — the client gets an `__error__` frame. Use it for auth or
    * capacity checks. The optional `data` is whatever the client sent in
-   * its `_subscribe` payload.
+   * its `__subscribe__` payload.
    */
   onBeforeSubscribe(
     handler: (ctx: ChannelCtx<ChC, C>, data?: unknown) => void | Promise<void>,

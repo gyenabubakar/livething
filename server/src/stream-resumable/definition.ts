@@ -10,7 +10,7 @@ interface CommonResumableConfig {
   onDisconnect?: OnDisconnect;
   /** How long a suspended stream is kept after the owning connection drops. Default: 5 minutes. */
   maxAgeMs?: number;
-  /** How long an ended stream is kept after `_streamEnd` so a quick reconnect can still resume. Default: 30 seconds. */
+  /** How long an ended stream is kept after `__streamEnd__` so a quick reconnect can still resume. Default: 30 seconds. */
   retentionAfterEndMs?: number;
   /**
    * One generator, many subscribers. The creator runs the cursor-driven
@@ -23,7 +23,7 @@ interface CommonResumableConfig {
    * - Inside `namespace(...)` — fans out to every connection in that namespace.
    * - Inside `channel(...)` — fans out to every connection subscribed to the channel.
    *
-   * A non-creator that sends `_streamCancel` is unsubscribed from future
+   * A non-creator that sends `__streamCancel__` is unsubscribed from future
    * chunks for that stream id (its later resume returns `StreamAborted` with
    * `reason: 'unsubscribed'`). The stream itself keeps running for everyone
    * else. A cancel from the creator identity tears the whole stream down.

@@ -125,7 +125,7 @@ export function replay(options?: ReplayOptions | false): ReplayPrimitive {
 }
 
 /**
- * Bundles the context extender, persist callback, and `_replay` protocol
+ * Bundles the context extender, persist callback, and `__replay__` protocol
  * handler used during replay setup. Using a class lets the three callbacks
  * share the same engine reference, channel key, exclude set, and options
  * without repeating the constructor arguments.
