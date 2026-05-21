@@ -253,7 +253,7 @@ describe('connection runtime', () => {
     expect(events).toEqual(['lifecycle:connect', 'close']);
   });
 
-  it('wakeHibernatedConnection sends _error for each orphaned stream ID in the attachment', () => {
+  it('wakeHibernatedConnection sends __error__ for each orphaned stream ID in the attachment', () => {
     const sent: string[] = [];
     const wsKey = {
       send(data: string) {
@@ -311,24 +311,24 @@ describe('connection runtime', () => {
 
     expect(sent).toHaveLength(2);
     expect(JSON.parse(sent[0]!)).toEqual({
-      event: '_error',
+      event: '__error__',
       payload: {
         code: 'stream-aborted',
         detail: { reason: 'hibernation-wake' },
-        _streamId: 'stream_1',
       },
+      __wskit: { streamId: 'stream_1' },
     });
     expect(JSON.parse(sent[1]!)).toEqual({
-      event: '_error',
+      event: '__error__',
       payload: {
         code: 'stream-aborted',
         detail: { reason: 'hibernation-wake' },
-        _streamId: 'stream_2',
       },
+      __wskit: { streamId: 'stream_2' },
     });
   });
 
-  it('wakeHibernatedConnection sends no _error frames when attachment has no active streams', () => {
+  it('wakeHibernatedConnection sends no __error__ frames when attachment has no active streams', () => {
     const sent: string[] = [];
     const wsKey = {
       send(data: string) {

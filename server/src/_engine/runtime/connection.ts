@@ -492,12 +492,12 @@ export function wakeHibernatedConnection(
   for (const streamId of restoredStreamIds) {
     descriptor.send(
       JSON.stringify({
-        event: '_error',
+        event: '__error__',
         payload: {
           code: StreamAborted.code,
           detail: { reason: 'hibernation-wake' as const },
-          _streamId: streamId,
         },
+        __wskit: { streamId },
       }),
     );
   }
