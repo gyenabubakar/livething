@@ -168,6 +168,21 @@ export const MemberOfflineFrame = v.object({
   __wskit: v.strictObject(RequiredChannelScope),
 });
 
+// The whole current member list, sent once right after __subscribeOk__ in
+// place of a per-member __memberJoin__ / __memberOnline__ initial batch.
+export const MemberSyncFrame = v.object({
+  event: v.literal('__memberSync__'),
+  payload: v.strictObject({
+    members: v.array(
+      v.strictObject({
+        connectionId: v.string(),
+        meta: v.optional(v.record(v.string(), v.unknown())),
+      }),
+    ),
+  }),
+  __wskit: v.strictObject(RequiredChannelScope),
+});
+
 /** All frames the engine sends to clients, discriminated on `event`. */
 export const OutgoingProtocolFrame = v.variant('event', [
   SubscribeOkFrame,
@@ -180,6 +195,7 @@ export const OutgoingProtocolFrame = v.variant('event', [
   MemberLeaveFrame,
   MemberOnlineFrame,
   MemberOfflineFrame,
+  MemberSyncFrame,
 ]);
 
 // ───── Section: user-event frames ─────
@@ -233,6 +249,7 @@ export type MemberJoinFrame = v.InferOutput<typeof MemberJoinFrame>;
 export type MemberLeaveFrame = v.InferOutput<typeof MemberLeaveFrame>;
 export type MemberOnlineFrame = v.InferOutput<typeof MemberOnlineFrame>;
 export type MemberOfflineFrame = v.InferOutput<typeof MemberOfflineFrame>;
+export type MemberSyncFrame = v.InferOutput<typeof MemberSyncFrame>;
 
 /** Names of the protocol events the client may send into the engine. */
 export type IncomingProtocolEvent = IncomingProtocolFrame['event'];

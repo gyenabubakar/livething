@@ -199,16 +199,6 @@ interface ResolvedChannelScope {
   channelScope: string | null;
 }
 
-function getChannelMembersByScope(
-  runtime: Pick<ChannelRuntime, 'channelMembers' | 'toConnectionInfo'>,
-  channelName: string,
-  channelScope: string | null,
-): ConnectionInfo<Record<string, unknown>>[] {
-  const members = runtime.channelMembers.get(createChannelMembershipKey(channelName, channelScope));
-  if (!members) return [];
-  return [...members].map((connection) => runtime.toConnectionInfo(connection));
-}
-
 /**
  * Resolve a compiled channel from the `channel` + `channelScope` markers a
  * `__subscribe__` / `__unsubscribe__` frame carried on its `__wskit` block.
@@ -392,34 +382,26 @@ async function runSubscribeFlow(
     runtime.persistMembership(connection.identity, scope.channelName, scope.channelScope);
   }
 
-  // Scope keeps the sync to members of this exact scope. Filter self out.
-  const existingMembers = getChannelMembersByScope(
-    runtime,
-    scope.channelName,
-    scope.channelScope,
-  ).filter((member) => member.id !== connection.id);
+  // Snapshot the members of this exact scope, self excluded, straight from
+  // the index — no throwaway ConnectionInfo objects.
+  const memberKey = createChannelMembershipKey(scope.channelName, scope.channelScope);
+  const members: { connectionId: string; meta: Record<string, unknown> }[] = [];
+  for (const member of runtime.channelMembers.get(memberKey) ?? []) {
+    if (member.id !== connection.id) {
+      members.push({ connectionId: member.id, meta: member.meta });
+    }
+  }
+
+  const wskit = channelWskit(scope);
 
   // Confirm the subscribe before any onSubscribe side effects. Once the gate
   // passed and membership is committed, the client must hear the confirmation
   // even if a later onSubscribe hook throws.
-  runtime.sendProtocolMessage(connection, '__subscribeOk__', { source }, channelWskit(scope));
+  runtime.sendProtocolMessage(connection, '__subscribeOk__', { source }, wskit);
 
-  // Send __memberJoin__ + __memberOnline__ per existing peer so the new socket
-  // gets both the membership view and the presence view.
-  for (const member of existingMembers) {
-    runtime.sendProtocolMessage(
-      connection,
-      '__memberJoin__',
-      { connectionId: member.id, meta: member.meta },
-      channelWskit(scope),
-    );
-    runtime.sendProtocolMessage(
-      connection,
-      '__memberOnline__',
-      { connectionId: member.id },
-      channelWskit(scope),
-    );
-  }
+  // One snapshot frame with the whole member list, in place of a
+  // __memberJoin__ + __memberOnline__ pair per existing peer.
+  runtime.sendProtocolMessage(connection, '__memberSync__', { members }, wskit);
 
   // Order: __memberJoin__ (group changed) before __memberOnline__ (presence).
   // Rejoin skips __memberJoin__ — the user was already a member.

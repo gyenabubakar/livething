@@ -137,10 +137,10 @@ test.describe('persistence', () => {
     expect(onlineFrame.__wskit?.channel).toBe('archive-room');
 
     const bobFrames = await frames(page, bob);
-    // Bob may have seen ONE __memberJoin__ (his own initial sync from
-    // existing members). What matters: there is NOT a __memberJoin__ frame
-    // specifically for Alice's new socket. The __memberOnline__ frame for
-    // Alice should not be preceded by a matching __memberJoin__.
+    // Bob's own initial sync arrives as __memberSync__, not __memberJoin__.
+    // What matters: there is NOT a __memberJoin__ frame specifically for
+    // Alice's new socket. The __memberOnline__ frame for Alice should not
+    // be preceded by a matching __memberJoin__.
     const memberJoinIdx = bobFrames.findIndex(
       (f) =>
         f.event === '__memberJoin__' &&

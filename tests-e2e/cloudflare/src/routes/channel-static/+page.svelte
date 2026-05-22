@@ -45,6 +45,11 @@
 			if (data.event === '__memberJoin__' && data.__wskit?.channel) {
 				memberJoins = [...memberJoins, `${data.__wskit.channel}:${data.payload.connectionId}`];
 			}
+			if (data.event === '__memberSync__' && data.__wskit?.channel) {
+				for (const m of data.payload.members) {
+					memberJoins = [...memberJoins, `${data.__wskit.channel}:${m.connectionId}`];
+				}
+			}
 			if (data.event === '__memberLeave__' && data.__wskit?.channel) {
 				memberLeaves = [
 					...memberLeaves,

@@ -188,14 +188,8 @@ describe('channel runtime', () => {
       },
       {
         connectionId: 'conn_2',
-        event: '__memberJoin__',
-        payload: { connectionId: 'conn_1', meta: { userId: 'a' } },
-        wskit: { channel: 'room:general', channelScope: 'rooms' },
-      },
-      {
-        connectionId: 'conn_2',
-        event: '__memberOnline__',
-        payload: { connectionId: 'conn_1' },
+        event: '__memberSync__',
+        payload: { members: [{ connectionId: 'conn_1', meta: { userId: 'a' } }] },
         wskit: { channel: 'room:general', channelScope: 'rooms' },
       },
     ]);
@@ -338,12 +332,11 @@ describe('channel runtime', () => {
 
     await subscribeConnection(runtime, newSubscriber, 'room:general', 'rooms', undefined);
 
-    // __memberJoin__ syncs sent to the new subscriber must include only the
-    // 'rooms' scope member, not the 'lobbies' scope member.
-    const memberJoins = protocol.filter(
-      (m) => m.connectionId === 'new-sub' && m.event === '__memberJoin__',
-    );
-    expect(memberJoins.map((m) => m.payload.connectionId)).toEqual(['rooms-member']);
+    // __memberSync__ to the new subscriber must include only the 'rooms'
+    // scope member, not the 'lobbies' scope member.
+    const sync = protocol.find((m) => m.connectionId === 'new-sub' && m.event === '__memberSync__');
+    const members = (sync?.payload.members ?? []) as { connectionId: string }[];
+    expect(members.map((m) => m.connectionId)).toEqual(['rooms-member']);
   });
 
   it('onBeforeSubscribe with an async validator throws WskitConfigError without routing through handleValidationError', async () => {
@@ -441,16 +434,18 @@ describe('channel runtime', () => {
     await subB;
 
     // Initial sync to A: empty (A committed first, no peers yet).
-    const aSyncs = protocol
-      .filter((m) => m.connectionId === 'conn_A' && m.event === '__memberJoin__')
-      .map((m) => m.payload.connectionId);
-    expect(aSyncs).toEqual([]);
+    const aSync = protocol.find((m) => m.connectionId === 'conn_A' && m.event === '__memberSync__');
+    const aSyncIds = ((aSync?.payload.members ?? []) as { connectionId: string }[]).map(
+      (m) => m.connectionId,
+    );
+    expect(aSyncIds).toEqual([]);
 
     // Initial sync to B: includes A (committed before B snapshotted).
-    const bSyncs = protocol
-      .filter((m) => m.connectionId === 'conn_B' && m.event === '__memberJoin__')
-      .map((m) => m.payload.connectionId);
-    expect(bSyncs).toEqual(['conn_A']);
+    const bSync = protocol.find((m) => m.connectionId === 'conn_B' && m.event === '__memberSync__');
+    const bSyncIds = ((bSync?.payload.members ?? []) as { connectionId: string }[]).map(
+      (m) => m.connectionId,
+    );
+    expect(bSyncIds).toEqual(['conn_A']);
 
     // Broadcasts: A broadcast __memberJoin__{A} (no recipients yet),
     // B broadcast __memberJoin__{B} (A receives via the broadcast path).
@@ -459,10 +454,9 @@ describe('channel runtime', () => {
       .map((b) => (b.payload as { connectionId: string }).connectionId);
     expect(broadcastJoiners).toEqual(['conn_A', 'conn_B']);
 
-    // Self-filter: neither connection received a _memberJoin frame for
-    // its own connectionId via the initial sync path.
-    expect(aSyncs).not.toContain('conn_A');
-    expect(bSyncs).not.toContain('conn_B');
+    // Self-filter: neither connection's own id appears in its initial sync.
+    expect(aSyncIds).not.toContain('conn_A');
+    expect(bSyncIds).not.toContain('conn_B');
   });
 
   it('sends _subscribeOk before running onSubscribe side effects', async () => {
@@ -624,6 +618,12 @@ describe('subscribeConnectionAsServer', () => {
         payload: { source: 'server' },
         wskit: { channel: 'room:general', channelScope: 'rooms' },
       },
+      {
+        connectionId: 'target',
+        event: '__memberSync__',
+        payload: { members: [] },
+        wskit: { channel: 'room:general', channelScope: 'rooms' },
+      },
     ]);
     expect(broadcasts).toEqual([
       {
@@ -774,6 +774,12 @@ describe('subscribeConnectionAsServer', () => {
         payload: { source: 'server' },
         wskit: { channel: 'lobby' },
       },
+      {
+        connectionId: 'target',
+        event: '__memberSync__',
+        payload: { members: [] },
+        wskit: { channel: 'lobby' },
+      },
     ]);
   });
 
@@ -792,11 +798,11 @@ describe('subscribeConnectionAsServer', () => {
     expect(protocol.some((p) => p.event === '__subscribeOk__')).toBe(true);
   });
 
-  it('sends __memberJoin__ syncs to the new subscriber for existing members', async () => {
+  it('sends a member sync to the new subscriber for existing members', async () => {
     const channelMembers = new Map<string, Set<RuntimeConnection>>();
     const { protocol, connections, runtime } = createRuntime(channelMembers);
     // Seed two existing members of room:general so the new subscriber
-    // receives one _memberJoin per existing peer.
+    // receives them in one __memberSync__ frame.
     const existingA = createConnection('existing-a', { who: 'a' });
     const existingB = createConnection('existing-b', { who: 'b' });
     addChannelMembership(channelMembers, existingA, 'room:general', 'rooms');
@@ -809,13 +815,9 @@ describe('subscribeConnectionAsServer', () => {
 
     await subscribeConnectionAsServer(runtime, target, 'room:general', 'rooms', undefined);
 
-    const memberJoinsToTarget = protocol.filter(
-      (p) => p.connectionId === 'target' && p.event === '__memberJoin__',
-    );
-    expect(memberJoinsToTarget.map((p) => p.payload.connectionId).sort()).toEqual([
-      'existing-a',
-      'existing-b',
-    ]);
+    const sync = protocol.find((p) => p.connectionId === 'target' && p.event === '__memberSync__');
+    const members = (sync?.payload.members ?? []) as { connectionId: string }[];
+    expect(members.map((m) => m.connectionId).sort()).toEqual(['existing-a', 'existing-b']);
   });
 
   it('runs onSubscribe after the subscribe is committed and the wire events have been sent', async () => {
