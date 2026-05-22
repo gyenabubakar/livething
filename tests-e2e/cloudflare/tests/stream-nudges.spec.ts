@@ -71,18 +71,19 @@ test.describe('stream-nudges', () => {
   }, testInfo) => {
     await openPage(page, `test-${testInfo.testId}`);
 
-    // Start stream, then immediately send pause before any yields land.
-    // The pause nudge should be buffered and available at the first ctx.nudges(yield).
-    await page.getByTestId('start-long').click();
-    await page.getByTestId('pause').click();
+    // The page sends the pause the instant __streamOk__ lands, so the nudge
+    // reaches the server's buffer within one round-trip — no Playwright click
+    // latency in the path. It is buffered well before the 50ms-per-chunk
+    // generator drains nudges a second time.
+    await page.getByTestId('start-then-pause').click();
 
-    // Stream should end early due to pause landing at first yield.
+    // Stream should end early due to the buffered pause.
     await expect(page.getByTestId('stream-end')).toHaveText('yes');
 
     const tokens = (await page.getByTestId('tokens').textContent()) ?? '';
     const wordCount = tokens.trim().split(/\s+/).filter(Boolean).length;
-    // With pause at first yield, should have only 1 token (the one yielded before
-    // ctx.nudges is called and checked).
+    // The pause lands just after the first chunk yields, so the generator stops
+    // at the second ctx.nudges() drain — two tokens at most.
     expect(wordCount).toBeLessThanOrEqual(2);
   });
 

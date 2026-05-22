@@ -9,6 +9,7 @@
 	let lastError = $state('');
 	let lastErrorStreamId = $state('');
 	let nudgeSawEvents = $state('');
+	let autoPauseOnStreamOk = $state(false);
 
 	function reset() {
 		lastStreamId = '';
@@ -43,6 +44,16 @@
 			switch (data.event) {
 				case '__streamOk__':
 					if (data.__wskit?.streamId) lastStreamId = data.__wskit.streamId;
+					if (autoPauseOnStreamOk && data.__wskit?.streamId) {
+						autoPauseOnStreamOk = false;
+						ws?.send(
+							JSON.stringify({
+								event: 'pause',
+								payload: {},
+								__wskit: { streamId: data.__wskit.streamId },
+							}),
+						);
+					}
 					break;
 				case '__streamEnd__':
 					streamEnd = true;
@@ -73,6 +84,16 @@
 	}
 	function pause() {
 		ws?.send(JSON.stringify({ event: 'pause', payload: {}, __wskit: { streamId: lastStreamId } }));
+	}
+	function startThenPause() {
+		reset();
+		autoPauseOnStreamOk = true;
+		ws?.send(
+			JSON.stringify({
+				event: 'start-nudge-stream',
+				payload: { prompt: 'a b c d e f g h i j k l m n o p' },
+			}),
+		);
 	}
 	function pauseMultiple(count: number) {
 		for (let i = 0; i < count; i++) {
@@ -106,6 +127,7 @@
 	Start long
 </button>
 <button data-testid="pause" onclick={pause}>Pause</button>
+<button data-testid="start-then-pause" onclick={startThenPause}>Start then pause</button>
 <button data-testid="pause-multiple" onclick={() => pauseMultiple(3)}>Pause x3</button>
 <button data-testid="speed-up" onclick={() => speedUp(50)}>Speed up x50</button>
 <button data-testid="malformed-pause" onclick={malformedPause}>Malformed pause</button>
