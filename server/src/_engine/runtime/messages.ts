@@ -241,6 +241,13 @@ export async function dispatchIncoming(
     ? scoped.recordedStreams.get(event)
     : runtime.compiled.recordedStreams.get(event);
 
+  // One context for the whole dispatch — reused across pre-intercepts,
+  // post-intercepts, and the handler. Built on first need.
+  let sharedCtx: Record<PropertyKey, unknown> | undefined;
+  function getCtx(): Record<PropertyKey, unknown> {
+    return (sharedCtx ??= runtime.buildConnectionContext(connection, scope));
+  }
+
   let message = { event, payload };
 
   try {
@@ -259,18 +266,18 @@ export async function dispatchIncoming(
     message = await InterceptPrimitive.runPreIntercepts(
       runtime,
       connection,
-      scope,
       runtime.compiled.preIntercepts,
       message,
+      getCtx,
     );
 
     if (scope.namespace) {
       message = await InterceptPrimitive.runPreIntercepts(
         runtime,
         connection,
-        scope,
         scope.namespace.preIntercepts,
         message,
+        getCtx,
       );
     }
 
@@ -278,9 +285,9 @@ export async function dispatchIncoming(
       message = await InterceptPrimitive.runPreIntercepts(
         runtime,
         connection,
-        scope,
         scope.channel.preIntercepts,
         message,
+        getCtx,
       );
     }
 
@@ -311,13 +318,13 @@ export async function dispatchIncoming(
     const postPayload = await InterceptPrimitive.runPostIntercepts(
       runtime,
       connection,
-      scope,
       [...topPost, ...scopedPost],
       payloadValue,
+      getCtx,
     );
 
     if (incoming) {
-      await InterceptPrimitive.runWithScopedContext(runtime, connection, scope, (ctx) => {
+      await InterceptPrimitive.runWithScopedContext(runtime, connection, getCtx(), (ctx) => {
         // The ack id rides on this dispatch's own ctx so `ctx.ack()` confirms
         // this message, never a later one that interleaved on the connection.
         (ctx as Record<PropertyKey, unknown>)[ENGINE_ACK_ID] = wskit?.ackId;

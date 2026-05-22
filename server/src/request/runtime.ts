@@ -40,16 +40,21 @@ export async function handleRequest(
   const correlationId = wskit?.correlationId;
   let response: unknown;
   let responded = false;
-  await runWithScopedContext(runtime, connection, scope, (ctx) => {
-    (ctx as Record<PropertyKey, unknown>).respond = (value: unknown) => {
-      if (responded) {
-        throw new Error('[wskit] ctx.respond() was already called for this request invocation.');
-      }
-      responded = true;
-      response = value;
-    };
-    return request.handler(ctx, payload);
-  });
+  await runWithScopedContext(
+    runtime,
+    connection,
+    runtime.buildConnectionContext(connection, scope),
+    (ctx) => {
+      (ctx as Record<PropertyKey, unknown>).respond = (value: unknown) => {
+        if (responded) {
+          throw new Error('[wskit] ctx.respond() was already called for this request invocation.');
+        }
+        responded = true;
+        response = value;
+      };
+      return request.handler(ctx, payload);
+    },
+  );
 
   // Handler that never called ctx.respond() — leave the request hanging on
   // the client side. Pushing `undefined` through the pipeline would fail the

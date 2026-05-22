@@ -57,3 +57,17 @@ describe('buildConnectionContext', () => {
     void ctx.channels;
   });
 });
+
+// A dispatch with 3 pre-intercepts: the old path built a fresh context for
+// each intercept plus the handler (4 builds); 2a builds one and shares it.
+describe('context builds for a 3-intercept dispatch', () => {
+  bench('one shared context (2a)', () => {
+    buildCtx(connection);
+  });
+
+  bench('a fresh context per intercept + handler (before 2a)', () => {
+    for (let i = 0; i < 4; i++) {
+      buildCtx(connection);
+    }
+  });
+});
