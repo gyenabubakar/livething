@@ -26,3 +26,18 @@ describe('stream-durable client inference', () => {
     expectTypeOf<StreamDurableClient['streams']['count-tokens']>().toHaveProperty('chunk');
   });
 });
+
+describe('StreamDurableClient — InferClient precision pin', () => {
+  it('every inferred client slot is a precise type, never `any`', () => {
+    // Regression guard for the InferClient any-collapse bug: implement().build()
+    // must carry the contract type. If build() returns `any` again, every slot
+    // below collapses to `any` and these assertions fail to compile.
+    expectTypeOf<StreamDurableClient['incoming']>().not.toBeAny();
+    expectTypeOf<StreamDurableClient['outgoing']>().not.toBeAny();
+    expectTypeOf<StreamDurableClient['requests']>().not.toBeAny();
+    expectTypeOf<StreamDurableClient['streams']>().not.toBeAny();
+    expectTypeOf<StreamDurableClient['channels']>().not.toBeAny();
+    expectTypeOf<StreamDurableClient['namespaces']>().not.toBeAny();
+    expectTypeOf<StreamDurableClient['__errors__']>().not.toBeAny();
+  });
+});

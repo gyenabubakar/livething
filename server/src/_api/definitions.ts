@@ -62,9 +62,9 @@ export type Definition =
   | IncomingDef<string, any>
   | OutgoingDef<string, any>
   | RequestDef<string, any, any>
-  | StreamDef<string, any, any, readonly NudgeDef<string, any>[]>
-  | ResumableStreamDef<string, any, any, any, readonly NudgeDef<string, any>[]>
-  | RecordedStreamDef<string, any, any, readonly NudgeDef<string, any>[]>
+  | StreamDef<string, unknown, unknown, readonly NudgeDef<string, unknown>[]>
+  | ResumableStreamDef<string, unknown, unknown, unknown, readonly NudgeDef<string, unknown>[]>
+  | RecordedStreamDef<string, unknown, unknown, readonly NudgeDef<string, unknown>[]>
   | ScheduledDef<string, any>
   | ChannelDef<string | ScopeDeclaration<string>, readonly Definition[]>
   | NamespaceDef<string, readonly NamespaceDefinition[]>;
@@ -78,9 +78,9 @@ export type NamespaceDefinition =
   | IncomingDef<string, any>
   | OutgoingDef<string, any>
   | RequestDef<string, any, any>
-  | StreamDef<string, any, any, readonly NudgeDef<string, any>[]>
-  | ResumableStreamDef<string, any, any, any, readonly NudgeDef<string, any>[]>
-  | RecordedStreamDef<string, any, any, readonly NudgeDef<string, any>[]>
+  | StreamDef<string, unknown, unknown, readonly NudgeDef<string, unknown>[]>
+  | ResumableStreamDef<string, unknown, unknown, unknown, readonly NudgeDef<string, unknown>[]>
+  | RecordedStreamDef<string, unknown, unknown, readonly NudgeDef<string, unknown>[]>
   | ScheduledDef<string, any>;
 
 // Re-export the runtime error factory from core. It returns an `ErrorDefWithFactory`

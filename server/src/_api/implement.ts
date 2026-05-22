@@ -926,8 +926,12 @@ export class Implementer<C extends Contract> {
 
   /**
    * Finalize the implementation into a `ServerDefinition` the adapter can run.
+   *
+   * The contract type `C` is carried through on the return type so
+   * `InferClient<typeof built>` can recover the full client contract. Dropping
+   * it (returning `any`) silently collapses every inferred client slot to `any`.
    */
-  build(): ServerDefinition<readonly Primitive[], any> {
+  build(): ServerDefinition<readonly Primitive[], C> {
     const primitives: Primitive[] = [];
     const config = this._contract.__config as ContractConfig;
 

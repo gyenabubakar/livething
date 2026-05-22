@@ -68,6 +68,61 @@ type BuiltInErrorUnion =
   | typeof InternalError;
 
 /**
+ * Read one slot off a contract type, falling back to `{}` when the contract
+ * does not declare it. Going through this helper instead of a direct index
+ * lets `InferClient` reach slots — like `resumableStreams` — that are not part
+ * of the loose `ServerContract` constraint.
+ */
+type Slot<TContract, TKey extends string> = TKey extends keyof TContract ? TContract[TKey] : {};
+
+/** Merge of the three server-side stream slots, before per-entry tidying. */
+type RawStreams<TContract> = Slot<TContract, 'streams'> &
+  Slot<TContract, 'resumableStreams'> &
+  Slot<TContract, 'recordedStreams'>;
+
+/**
+ * Drop fields a stream never declared. A stream with no `cursor` validator
+ * leaves `cursor` as `unknown`; a stream with no nudges leaves `nudges` as an
+ * open `{ [name: string]: unknown }` map. Neither carries information, so the
+ * client entry omits them — only streams that declare a real cursor or real
+ * nudges keep those fields.
+ */
+type TidyStreamEntry<TEntry> = Omit<
+  TEntry,
+  | ('cursor' extends keyof TEntry ? (unknown extends TEntry['cursor'] ? 'cursor' : never) : never)
+  | ('nudges' extends keyof TEntry
+      ? string extends keyof TEntry['nudges']
+        ? 'nudges'
+        : never
+      : never)
+>;
+
+/**
+ * The client's flat view of every server-pushed stream. The contract keeps
+ * `stream(...)`, `resumableStream(...)`, and `recordedStream(...)` in three
+ * separate slots; the client sees one merged map, with undeclared `cursor` /
+ * `nudges` fields omitted from each entry.
+ */
+type ClientStreams<TContract> = {
+  [TName in keyof RawStreams<TContract>]: TidyStreamEntry<RawStreams<TContract>[TName]>;
+};
+
+/**
+ * One channel or namespace turned into the client's perspective: the server's
+ * `outgoing` events are what the client receives, its `incoming` events are
+ * what the client sends.
+ */
+type ClientScope<TScope> = {
+  incoming: Slot<TScope, 'outgoing'>;
+  outgoing: Slot<TScope, 'incoming'>;
+  requests: Slot<TScope, 'requests'>;
+  streams: ClientStreams<TScope>;
+};
+
+/** Apply `ClientScope` to every entry of a channel or namespace map. */
+type ClientScopeMap<TScopes> = { [TKey in keyof TScopes]: ClientScope<TScopes[TKey]> };
+
+/**
  * Read a wskit `ServerDefinition` and turn it into the full client contract type.
  *
  * Pass the type of your server definition (the value returned by `.build()`)
@@ -105,18 +160,23 @@ type BuiltInErrorUnion =
  * them back and flips them into the client's perspective.
  */
 export type InferClient<TServer extends ServerDefinition> = SimplifyDeep<{
-  incoming: ContractOf<TServer>['incoming'];
-  outgoing: ContractOf<TServer>['outgoing'];
-  requests: ContractOf<TServer>['requests'];
+  /** Events the client receives — declared on the server with `outgoing(...)`. */
+  incoming: Slot<ContractOf<TServer>, 'outgoing'>;
+  /** Events the client sends — declared on the server with `incoming(...)`. */
+  outgoing: Slot<ContractOf<TServer>, 'incoming'>;
+  /** Request/response pairs the client can invoke — declared with `request(...)`. */
+  requests: Slot<ContractOf<TServer>, 'requests'>;
   /**
    * Every server-pushed stream the client can subscribe to. Plain `stream(...)`,
    * `resumableStream(...)`, and `recordedStream(...)` all show up under this
    * single slot — to the client they look identical on the wire. The choice of
    * primitive is a server-side concern.
    */
-  streams: ContractOf<TServer>['streams'];
-  namespaces: ContractOf<TServer>['namespaces'];
-  channels: ContractOf<TServer>['channels'];
+  streams: ClientStreams<ContractOf<TServer>>;
+  /** Per-namespace sub-contracts, each flipped into the client's perspective. */
+  namespaces: ClientScopeMap<Slot<ContractOf<TServer>, 'namespaces'>>;
+  /** Per-channel sub-contracts, each flipped into the client's perspective. */
+  channels: ClientScopeMap<Slot<ContractOf<TServer>, 'channels'>>;
   /** Built-in engine errors (e.g. `validation-failed`) merged with developer-defined errors. */
-  __errors__: ErrorMap<BuiltInErrorUnion> & ContractOf<TServer>['errors'];
+  __errors__: ErrorMap<BuiltInErrorUnion> & Slot<ContractOf<TServer>, 'errors'>;
 }>;

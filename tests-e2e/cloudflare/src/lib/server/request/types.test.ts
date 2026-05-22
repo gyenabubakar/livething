@@ -11,3 +11,18 @@ describe('request client inference', () => {
     expectTypeOf<RequestClient>().toHaveProperty('channels');
   });
 });
+
+describe('RequestClient — InferClient precision pin', () => {
+  it('every inferred client slot is a precise type, never `any`', () => {
+    // Regression guard for the InferClient any-collapse bug: implement().build()
+    // must carry the contract type. If build() returns `any` again, every slot
+    // below collapses to `any` and these assertions fail to compile.
+    expectTypeOf<RequestClient['incoming']>().not.toBeAny();
+    expectTypeOf<RequestClient['outgoing']>().not.toBeAny();
+    expectTypeOf<RequestClient['requests']>().not.toBeAny();
+    expectTypeOf<RequestClient['streams']>().not.toBeAny();
+    expectTypeOf<RequestClient['channels']>().not.toBeAny();
+    expectTypeOf<RequestClient['namespaces']>().not.toBeAny();
+    expectTypeOf<RequestClient['__errors__']>().not.toBeAny();
+  });
+});

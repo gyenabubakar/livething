@@ -71,10 +71,7 @@ type AddOne<Acc, D> =
         ? Acc & { readonly requests: Record<N, { payload: P; response: R }> }
         : D extends StreamDef<infer N, infer P, infer C, infer Nu>
           ? Acc & {
-              readonly streams: Record<
-                N,
-                { payload: P; chunk: C; nudges: NudgesMap<Nu>; broadcast: boolean }
-              >;
+              readonly streams: Record<N, { payload: P; chunk: C; nudges: NudgesMap<Nu> }>;
             }
           : D extends ResumableStreamDef<infer N, infer P, infer C, infer Cu, infer Nu>
             ? Acc & {
