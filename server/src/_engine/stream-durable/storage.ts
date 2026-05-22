@@ -50,15 +50,15 @@ const CREATE_STREAM_CHUNKS_TABLE_SQL = `
   )
 `;
 
-// Tracks identities that opted out of a broadcast stream via `__streamCancel__`.
-// The fanout step skips identities listed here; their resume returns
-// stream-aborted unsubscribed.
-const CREATE_STREAM_UNSUBSCRIBED_TABLE_SQL = `
-  CREATE TABLE IF NOT EXISTS _wskit_stream_unsubscribed (
+// One row per subscriber of a broadcast stream: how far a resume has caught
+// them up, and when they opted out (null while subscribed).
+const CREATE_STREAM_SUBSCRIBERS_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS _wskit_stream_subscribers (
     identity             TEXT NOT NULL,
     stream_id            TEXT NOT NULL,
     subscriber_identity  TEXT NOT NULL,
-    unsubscribed_at      INTEGER NOT NULL,
+    caught_up_seq        INTEGER NOT NULL DEFAULT 0,
+    unsubscribed_at      INTEGER,
     PRIMARY KEY (identity, stream_id, subscriber_identity),
     FOREIGN KEY (identity, stream_id) REFERENCES _wskit_streams (identity, stream_id) ON DELETE CASCADE
   )
@@ -119,7 +119,7 @@ export function ensureDurableStreamSchema(sql: SqlExec): void {
   sql.exec(CREATE_STREAMS_TABLE_SQL);
   sql.exec(CREATE_STREAMS_STATUS_INDEX_SQL);
   sql.exec(CREATE_STREAM_CHUNKS_TABLE_SQL);
-  sql.exec(CREATE_STREAM_UNSUBSCRIBED_TABLE_SQL);
+  sql.exec(CREATE_STREAM_SUBSCRIBERS_TABLE_SQL);
 }
 
 function rowToStream(row: Record<string, unknown>): DurableStreamRow {
@@ -382,6 +382,75 @@ export function trimOldestChunks(
   );
 }
 
+/** One subscriber's standing in a broadcast stream. */
+export interface StreamSubscriber {
+  /** Highest chunk seq a resume has caught this subscriber up to. */
+  caughtUpSeq: number;
+  /** When the subscriber opted out, or `null` while subscribed. */
+  unsubscribedAt: number | null;
+}
+
+/** Add a subscriber row at caught-up seq 0. No-op when the row exists. */
+export function seedSubscriber(
+  sql: SqlExec,
+  storageIdentity: string,
+  streamId: string,
+  subscriberIdentity: string,
+): void {
+  sql.exec(
+    `INSERT OR IGNORE INTO _wskit_stream_subscribers
+     (identity, stream_id, subscriber_identity, caught_up_seq)
+     VALUES (?, ?, ?, 0)`,
+    storageIdentity,
+    streamId,
+    subscriberIdentity,
+  );
+}
+
+/** Record how far a resume caught a subscriber up. Upserts the row. */
+export function setCaughtUpSeq(
+  sql: SqlExec,
+  storageIdentity: string,
+  streamId: string,
+  subscriberIdentity: string,
+  caughtUpSeq: number,
+): void {
+  sql.exec(
+    `INSERT INTO _wskit_stream_subscribers
+     (identity, stream_id, subscriber_identity, caught_up_seq)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT (identity, stream_id, subscriber_identity)
+     DO UPDATE SET caught_up_seq = excluded.caught_up_seq`,
+    storageIdentity,
+    streamId,
+    subscriberIdentity,
+    caughtUpSeq,
+  );
+}
+
+/** Read a subscriber's standing, or `null` when they have no row. */
+export function getSubscriber(
+  sql: SqlExec,
+  storageIdentity: string,
+  streamId: string,
+  subscriberIdentity: string,
+): StreamSubscriber | null {
+  const row = sql
+    .exec(
+      `SELECT caught_up_seq, unsubscribed_at FROM _wskit_stream_subscribers
+       WHERE identity = ? AND stream_id = ? AND subscriber_identity = ? LIMIT 1`,
+      storageIdentity,
+      streamId,
+      subscriberIdentity,
+    )
+    .toArray()[0];
+  if (!row) return null;
+  return {
+    caughtUpSeq: Number(row.caught_up_seq),
+    unsubscribedAt: row.unsubscribed_at == null ? null : Number(row.unsubscribed_at),
+  };
+}
+
 /** Record that `subscriberIdentity` opted out of a broadcast stream. */
 export function markUnsubscribed(
   sql: SqlExec,
@@ -391,9 +460,11 @@ export function markUnsubscribed(
   now: number,
 ): void {
   sql.exec(
-    `INSERT OR IGNORE INTO _wskit_stream_unsubscribed
+    `INSERT INTO _wskit_stream_subscribers
      (identity, stream_id, subscriber_identity, unsubscribed_at)
-     VALUES (?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT (identity, stream_id, subscriber_identity)
+     DO UPDATE SET unsubscribed_at = excluded.unsubscribed_at`,
     storageIdentity,
     streamId,
     subscriberIdentity,
@@ -408,16 +479,7 @@ export function isUnsubscribed(
   streamId: string,
   subscriberIdentity: string,
 ): boolean {
-  const rows = sql
-    .exec(
-      `SELECT 1 AS hit FROM _wskit_stream_unsubscribed
-       WHERE identity = ? AND stream_id = ? AND subscriber_identity = ? LIMIT 1`,
-      storageIdentity,
-      streamId,
-      subscriberIdentity,
-    )
-    .toArray();
-  return rows.length > 0;
+  return getSubscriber(sql, storageIdentity, streamId, subscriberIdentity)?.unsubscribedAt != null;
 }
 
 /** Identifier pair returned by sweep queries, ready to pass to `deleteStream`. */

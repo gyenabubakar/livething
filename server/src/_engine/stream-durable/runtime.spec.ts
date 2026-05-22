@@ -12,7 +12,7 @@ import type { DurableStreamRuntimeDef } from './runtime.ts';
 function makeSql() {
   const streams = new Map<string, Record<string, unknown>>();
   const chunks = new Map<string, Record<string, unknown>>();
-  const unsubscribed = new Set<string>();
+  const subscribers = new Map<string, { caught_up_seq: unknown; unsubscribed_at: unknown }>();
   function key(parts: unknown[]): string {
     return parts.join('|');
   }
@@ -20,7 +20,7 @@ function makeSql() {
   return {
     streams,
     chunks,
-    unsubscribed,
+    subscribers,
     exec(query: string, ...params: unknown[]): { toArray(): Record<string, unknown>[] } {
       const q = query.trim();
       if (q.startsWith('PRAGMA') || q.startsWith('CREATE')) return { toArray: () => [] };
@@ -161,17 +161,25 @@ function makeSql() {
         }
         return { toArray: () => [{ n }] };
       }
-      if (q.startsWith('INSERT OR IGNORE INTO _wskit_stream_unsubscribed')) {
+      if (q.startsWith('INSERT OR IGNORE INTO _wskit_stream_subscribers')) {
         const [identity, streamId, subscriberIdentity] = params;
-        unsubscribed.add(key([identity, streamId, subscriberIdentity]));
+        const k = key([identity, streamId, subscriberIdentity]);
+        if (!subscribers.has(k)) subscribers.set(k, { caught_up_seq: 0, unsubscribed_at: null });
         return { toArray: () => [] };
       }
-      if (q.startsWith('SELECT 1 AS hit FROM _wskit_stream_unsubscribed')) {
+      if (q.startsWith('INSERT INTO _wskit_stream_subscribers')) {
+        const [identity, streamId, subscriberIdentity, value] = params;
+        const k = key([identity, streamId, subscriberIdentity]);
+        const row = subscribers.get(k) ?? { caught_up_seq: 0, unsubscribed_at: null };
+        if (q.includes('DO UPDATE SET caught_up_seq')) row.caught_up_seq = value;
+        else row.unsubscribed_at = value;
+        subscribers.set(k, row);
+        return { toArray: () => [] };
+      }
+      if (q.startsWith('SELECT caught_up_seq, unsubscribed_at FROM _wskit_stream_subscribers')) {
         const [identity, streamId, subscriberIdentity] = params;
-        return {
-          toArray: () =>
-            unsubscribed.has(key([identity, streamId, subscriberIdentity])) ? [{ hit: 1 }] : [],
-        };
+        const row = subscribers.get(key([identity, streamId, subscriberIdentity]));
+        return { toArray: () => (row ? [{ ...row }] : []) };
       }
       if (q.startsWith('DELETE FROM _wskit_stream_chunks')) {
         // The trimOldestChunks query uses a sub-select. For the stub, mimic

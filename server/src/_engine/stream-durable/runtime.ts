@@ -171,6 +171,17 @@ export async function runDurableStream(
     retentionAfterEndMs: def.retentionAfterEndMs,
   });
 
+  // Seed everyone already in the scope; a late joiner gets its row on resume.
+  if (def.broadcast) {
+    for (const member of resolveBroadcastTargets({
+      runtime,
+      excludeConnectionId: connection.id,
+      scope,
+    })) {
+      Storage.seedSubscriber(runtime.sql, storageIdentity, streamId, member.identity ?? member.id);
+    }
+  }
+
   runtime.sendProtocolMessage(connection, '__streamOk__', {}, { ...scopeWskit(scope), streamId });
 
   await runGenerator(
@@ -349,6 +360,10 @@ export async function resumeDurableStream(
           ...(chunk.messageId ? { messageId: chunk.messageId } : {}),
         },
       );
+    }
+    if (isPeerSubscriber) {
+      const caughtUpSeq = chunks.length > 0 ? chunks[chunks.length - 1]!.seq : lastKnownSeq;
+      Storage.setCaughtUpSeq(runtime.sql, storageIdentity, streamId, realIdentity, caughtUpSeq);
     }
   }
 
@@ -531,13 +546,17 @@ async function runGenerator(
           runtime,
           excludeConnectionId: connection.id,
           scope,
-          extraFilter: (candidate) =>
-            !Storage.isUnsubscribed(
+          // A late joiner has no row until it resumes, so it gets nothing live
+          // until then — the resume backfill and the live tail never overlap.
+          extraFilter: (candidate) => {
+            const sub = Storage.getSubscriber(
               runtime.sql,
               identity,
               streamId,
               candidate.identity ?? candidate.id,
-            ),
+            );
+            return sub !== null && sub.unsubscribedAt === null && seq > sub.caughtUpSeq;
+          },
         });
         // The pipeline adds streamId + seq to __wskit from the routing markers.
         for (const target of targets) {
@@ -602,13 +621,15 @@ async function runGenerator(
         runtime,
         excludeConnectionId: connection.id,
         scope,
-        extraFilter: (candidate) =>
-          !Storage.isUnsubscribed(
+        extraFilter: (candidate) => {
+          const sub = Storage.getSubscriber(
             runtime.sql,
             identity,
             streamId,
             candidate.identity ?? candidate.id,
-          ),
+          );
+          return sub !== null && sub.unsubscribedAt === null;
+        },
       });
       const endWskit = { ...scopeWskit(scope), streamId, seq };
       for (const target of peerTargets) {

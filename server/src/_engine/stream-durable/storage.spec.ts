@@ -7,7 +7,7 @@ import * as Storage from './storage.ts';
 function memorySql() {
   const streams = new Map<string, Record<string, unknown>>();
   const chunks = new Map<string, Record<string, unknown>>();
-  const unsubscribed = new Set<string>();
+  const subscribers = new Map<string, { caught_up_seq: unknown; unsubscribed_at: unknown }>();
   let raiseConstraint = false;
   function key(parts: unknown[]): string {
     return parts.join('|');
@@ -132,6 +132,9 @@ function memorySql() {
         for (const k of [...chunks.keys()]) {
           if (k.startsWith(key([identity, streamId]) + '|')) chunks.delete(k);
         }
+        for (const k of [...subscribers.keys()]) {
+          if (k.startsWith(key([identity, streamId]) + '|')) subscribers.delete(k);
+        }
         return { toArray: () => [] };
       }
 
@@ -190,17 +193,25 @@ function memorySql() {
         return { toArray: () => out };
       }
 
-      if (q.startsWith('INSERT OR IGNORE INTO _wskit_stream_unsubscribed')) {
+      if (q.startsWith('INSERT OR IGNORE INTO _wskit_stream_subscribers')) {
         const [identity, streamId, subscriberIdentity] = params;
-        unsubscribed.add(key([identity, streamId, subscriberIdentity]));
+        const k = key([identity, streamId, subscriberIdentity]);
+        if (!subscribers.has(k)) subscribers.set(k, { caught_up_seq: 0, unsubscribed_at: null });
         return { toArray: () => [] };
       }
-      if (q.startsWith('SELECT 1 AS hit FROM _wskit_stream_unsubscribed')) {
+      if (q.startsWith('INSERT INTO _wskit_stream_subscribers')) {
+        const [identity, streamId, subscriberIdentity, value] = params;
+        const k = key([identity, streamId, subscriberIdentity]);
+        const row = subscribers.get(k) ?? { caught_up_seq: 0, unsubscribed_at: null };
+        if (q.includes('DO UPDATE SET caught_up_seq')) row.caught_up_seq = value;
+        else row.unsubscribed_at = value;
+        subscribers.set(k, row);
+        return { toArray: () => [] };
+      }
+      if (q.startsWith('SELECT caught_up_seq, unsubscribed_at FROM _wskit_stream_subscribers')) {
         const [identity, streamId, subscriberIdentity] = params;
-        return {
-          toArray: () =>
-            unsubscribed.has(key([identity, streamId, subscriberIdentity])) ? [{ hit: 1 }] : [],
-        };
+        const row = subscribers.get(key([identity, streamId, subscriberIdentity]));
+        return { toArray: () => (row ? [{ ...row }] : []) };
       }
 
       return { toArray: () => [] };
@@ -371,7 +382,7 @@ describe('durable-stream/storage', () => {
     expect(Storage.isUnsubscribed(sql, '__bcast:top__', 's-1', 'u-peer')).toBe(false);
     Storage.markUnsubscribed(sql, '__bcast:top__', 's-1', 'u-peer', 2_000);
     expect(Storage.isUnsubscribed(sql, '__bcast:top__', 's-1', 'u-peer')).toBe(true);
-    // Idempotent — INSERT OR IGNORE means a repeat is a no-op, not an error.
+    // A repeat just refreshes the opt-out timestamp — it must not throw.
     expect(() =>
       Storage.markUnsubscribed(sql, '__bcast:top__', 's-1', 'u-peer', 3_000),
     ).not.toThrow();
