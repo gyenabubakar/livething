@@ -322,15 +322,10 @@ describe('broadcastToConnections — fanout resilience', () => {
     expect((errorLogs[0]!.data as { connectionId: string }).connectionId).toBe('B');
   });
 
-  it('keeps delivering when the payload itself fails JSON.stringify (BigInt)', () => {
-    // sendThroughPipeline runs JSON.stringify on the payload before
-    // calling descriptor.send. A BigInt makes that throw. Pre-fix the
-    // throw escaped the broadcast loop and every peer after the first
-    // was skipped — including the first, since the throw happened
-    // before send. Post-fix the broadcast logs once per attempted peer
-    // and the loop continues. (Every peer still misses the frame here
-    // because the payload itself is unserializable; the point is the
-    // loop doesn't crash the dispatcher.)
+  it('reports an unserializable broadcast payload once and does not throw (BigInt)', () => {
+    // The payload is serialized once for the whole broadcast. A BigInt makes
+    // JSON.stringify throw, so preparation fails, a single error is logged,
+    // and nobody receives the frame — without crashing the dispatcher.
     const errorLogs: Array<{ message: string; data?: unknown }> = [];
     const runtime = createRuntime({
       logger: {
@@ -347,8 +342,25 @@ describe('broadcastToConnections — fanout resilience', () => {
       broadcastToConnections(runtime, [a, b], 'foo', { count: 1n } as unknown as object),
     ).not.toThrow();
 
-    // Both peers errored on stringify, both got logged, neither received.
-    expect(errorLogs).toHaveLength(2);
+    expect(errorLogs).toHaveLength(1);
+  });
+
+  it('produces a wire frame that parses to event, payload, and __wskit', () => {
+    const sent: string[] = [];
+    const runtime = createRuntime({ wskitStampHooks: [() => ({ seq: 7 })] });
+    const a = peer('A', (frame) => sent.push(frame));
+    const b = peer('B', (frame) => sent.push(frame));
+
+    broadcastToConnections(runtime, [a, b], 'foo', { text: 'hi', n: 42 });
+
+    expect(sent).toHaveLength(2);
+    for (const frame of sent) {
+      expect(JSON.parse(frame)).toEqual({
+        event: 'foo',
+        payload: { text: 'hi', n: 42 },
+        __wskit: { seq: 7 },
+      });
+    }
   });
 });
 
