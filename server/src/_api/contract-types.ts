@@ -7,6 +7,7 @@
  */
 
 import type { ScopeDeclaration } from '~/channel/channel.ts';
+import type { ErrorDef } from '~/errors/errors.ts';
 import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
 import type {
   ChannelDef,
@@ -279,7 +280,7 @@ type ErrorMapFromConfig<TConfig> = TConfig extends { errors: infer TErrors }
     ? {
         [TDef in TErrors[number] as TDef extends { code: infer C extends string }
           ? C
-          : never]: TDef extends { __detail?: infer D } ? D : unknown;
+          : never]: TDef extends ErrorDef<string, infer D> ? D : unknown;
       }
     : {}
   : {};
