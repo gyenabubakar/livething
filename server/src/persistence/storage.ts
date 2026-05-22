@@ -42,41 +42,6 @@ const CREATE_TAGS_GROUP_KEY_INDEX_SQL = `
   ON __wskit_tags (group_name, key)
 `;
 
-// ── DML ────────────────────────────────────────────────────────────────────
-
-const INSERT_MEMBERSHIP_SQL = `
-  INSERT OR REPLACE INTO __wskit_channel_memberships
-    (identity, channel_name, channel_scope, joined_at)
-  VALUES (?, ?, ?, ?)
-`;
-
-const DELETE_MEMBERSHIP_SQL = `
-  DELETE FROM __wskit_channel_memberships
-  WHERE identity = ? AND channel_name = ? AND channel_scope = ?
-`;
-
-const SELECT_MEMBERSHIPS_BY_IDENTITY_SQL = `
-  SELECT channel_name, channel_scope, joined_at
-  FROM __wskit_channel_memberships
-  WHERE identity = ?
-`;
-
-const SELECT_MEMBERSHIP_EXISTS_SQL = `
-  SELECT 1 FROM __wskit_channel_memberships
-  WHERE identity = ? AND channel_name = ? AND channel_scope = ?
-  LIMIT 1
-`;
-
-const DELETE_MEMBERSHIPS_BY_IDENTITY_SQL =
-  'DELETE FROM __wskit_channel_memberships WHERE identity = ?';
-
-const DELETE_MEMBERSHIPS_BY_CHANNEL_SQL = `
-  DELETE FROM __wskit_channel_memberships
-  WHERE channel_name = ? AND channel_scope = ?
-`;
-
-const DELETE_TAGS_BY_IDENTITY_SQL = 'DELETE FROM __wskit_tags WHERE identity = ?';
-
 // ── Types ──────────────────────────────────────────────────────────────────
 
 /**
@@ -126,7 +91,17 @@ export function insertMembership(
   channelScope: string | null,
   joinedAt: number = Date.now(),
 ): void {
-  sql.exec(INSERT_MEMBERSHIP_SQL, identity, channelName, scopeToDb(channelScope), joinedAt);
+  sql.exec(
+    `
+      INSERT OR REPLACE INTO __wskit_channel_memberships
+        (identity, channel_name, channel_scope, joined_at)
+      VALUES (?, ?, ?, ?)
+    `,
+    identity,
+    channelName,
+    scopeToDb(channelScope),
+    joinedAt,
+  );
 }
 
 /**
@@ -139,7 +114,15 @@ export function deleteMembership(
   channelName: string,
   channelScope: string | null,
 ): void {
-  sql.exec(DELETE_MEMBERSHIP_SQL, identity, channelName, scopeToDb(channelScope));
+  sql.exec(
+    `
+      DELETE FROM __wskit_channel_memberships
+      WHERE identity = ? AND channel_name = ? AND channel_scope = ?
+    `,
+    identity,
+    channelName,
+    scopeToDb(channelScope),
+  );
 }
 
 /**
@@ -150,7 +133,16 @@ export function listMembershipsByIdentity(
   sql: Pick<SQLProvider, 'exec'>,
   identity: string,
 ): readonly DurableMembership[] {
-  const rows = sql.exec<RawMembershipRow>(SELECT_MEMBERSHIPS_BY_IDENTITY_SQL, identity).toArray();
+  const rows = sql
+    .exec<RawMembershipRow>(
+      `
+        SELECT channel_name, channel_scope, joined_at
+        FROM __wskit_channel_memberships
+        WHERE identity = ?
+      `,
+      identity,
+    )
+    .toArray();
   return rows.map((row) => ({
     channelName: row.channel_name,
     channelScope: scopeFromDb(row.channel_scope),
@@ -166,8 +158,18 @@ export function membershipExists(
   channelScope: string | null,
 ): boolean {
   return (
-    sql.exec(SELECT_MEMBERSHIP_EXISTS_SQL, identity, channelName, scopeToDb(channelScope)).toArray()
-      .length > 0
+    sql
+      .exec(
+        `
+          SELECT 1 FROM __wskit_channel_memberships
+          WHERE identity = ? AND channel_name = ? AND channel_scope = ?
+          LIMIT 1
+        `,
+        identity,
+        channelName,
+        scopeToDb(channelScope),
+      )
+      .toArray().length > 0
   );
 }
 
@@ -175,7 +177,7 @@ export function membershipExists(
  * Delete every membership row for one identity. Used by `purgeIdentity`.
  */
 export function purgeMembershipsByIdentity(sql: Pick<SQLProvider, 'exec'>, identity: string): void {
-  sql.exec(DELETE_MEMBERSHIPS_BY_IDENTITY_SQL, identity);
+  sql.exec('DELETE FROM __wskit_channel_memberships WHERE identity = ?', identity);
 }
 
 /**
@@ -187,7 +189,14 @@ export function deleteMembershipsByChannel(
   channelName: string,
   channelScope: string | null,
 ): void {
-  sql.exec(DELETE_MEMBERSHIPS_BY_CHANNEL_SQL, channelName, scopeToDb(channelScope));
+  sql.exec(
+    `
+      DELETE FROM __wskit_channel_memberships
+      WHERE channel_name = ? AND channel_scope = ?
+    `,
+    channelName,
+    scopeToDb(channelScope),
+  );
 }
 
 // ── Tags ───────────────────────────────────────────────────────────────────
@@ -197,7 +206,7 @@ export function deleteMembershipsByChannel(
  * Safe to call even when no rows exist for the identity.
  */
 export function purgeTagsByIdentity(sql: Pick<SQLProvider, 'exec'>, identity: string): void {
-  sql.exec(DELETE_TAGS_BY_IDENTITY_SQL, identity);
+  sql.exec('DELETE FROM __wskit_tags WHERE identity = ?', identity);
 }
 
 // ── Scope mapping ──────────────────────────────────────────────────────────

@@ -1,30 +1,5 @@
 import type { SQLProvider } from '~/context.ts';
 
-const INSERT_TAG_SQL = `
-  INSERT OR REPLACE INTO __wskit_tags
-    (identity, group_name, key, added_at)
-  VALUES (?, ?, ?, ?)
-`;
-
-const DELETE_TAG_SQL = `
-  DELETE FROM __wskit_tags
-  WHERE identity = ? AND group_name = ? AND key = ?
-`;
-
-const SELECT_TAGS_BY_IDENTITY_SQL = `
-  SELECT group_name, key, added_at
-  FROM __wskit_tags
-  WHERE identity = ?
-`;
-
-const SELECT_TAGS_BY_GROUP_SQL = `
-  SELECT identity, key, added_at
-  FROM __wskit_tags
-  WHERE group_name = ?
-`;
-
-const DELETE_TAGS_BY_GROUP_SQL = 'DELETE FROM __wskit_tags WHERE group_name = ?';
-
 /** One durable persistent-tag row, as the engine reads it. */
 export interface DurableTag {
   group: string;
@@ -49,7 +24,17 @@ export function insertTag(
   key: string,
   addedAt: number = Date.now(),
 ): void {
-  sql.exec(INSERT_TAG_SQL, identity, group, key, addedAt);
+  sql.exec(
+    `
+      INSERT OR REPLACE INTO __wskit_tags
+        (identity, group_name, key, added_at)
+      VALUES (?, ?, ?, ?)
+    `,
+    identity,
+    group,
+    key,
+    addedAt,
+  );
 }
 
 /**
@@ -62,7 +47,15 @@ export function deleteTag(
   group: string,
   key: string,
 ): void {
-  sql.exec(DELETE_TAG_SQL, identity, group, key);
+  sql.exec(
+    `
+      DELETE FROM __wskit_tags
+      WHERE identity = ? AND group_name = ? AND key = ?
+    `,
+    identity,
+    group,
+    key,
+  );
 }
 
 /**
@@ -73,7 +66,16 @@ export function listTagsByIdentity(
   sql: Pick<SQLProvider, 'exec'>,
   identity: string,
 ): readonly DurableTag[] {
-  const rows = sql.exec<RawTagRow>(SELECT_TAGS_BY_IDENTITY_SQL, identity).toArray();
+  const rows = sql
+    .exec<RawTagRow>(
+      `
+        SELECT group_name, key, added_at
+        FROM __wskit_tags
+        WHERE identity = ?
+      `,
+      identity,
+    )
+    .toArray();
   return rows.map((row) => ({
     group: row.group_name,
     key: row.key,
@@ -97,8 +99,14 @@ export function listGroupNames(sql: Pick<SQLProvider, 'exec'>): readonly string[
  * removed between deploys.
  */
 export function deleteGroup(sql: Pick<SQLProvider, 'exec'>, group: string): void {
-  sql.exec(DELETE_TAGS_BY_GROUP_SQL, group);
+  sql.exec('DELETE FROM __wskit_tags WHERE group_name = ?', group);
 }
 
 /** Internal — used by integration paths that need the raw query. */
-export const _internal = { SELECT_TAGS_BY_GROUP_SQL };
+export const _internal = {
+  SELECT_TAGS_BY_GROUP_SQL: `
+    SELECT identity, key, added_at
+    FROM __wskit_tags
+    WHERE group_name = ?
+  `,
+};

@@ -35,9 +35,7 @@ class FakeSqlProvider implements SQLProvider {
       return new FakeSqlResult<TRow>((row ? [row] : []) as TRow[]);
     }
 
-    if (
-      normalizedQuery.startsWith('INSERT INTO __wskit_sequence ( scope, nextSeq ) VALUES (?, ?)')
-    ) {
+    if (normalizedQuery.startsWith('INSERT INTO __wskit_sequence (scope, nextSeq) VALUES (?, ?)')) {
       const scope = String(params[0]);
       this.sequence.set(scope, {
         scope,

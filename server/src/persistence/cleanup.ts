@@ -3,10 +3,6 @@ import type { SQLProvider } from '~/context.ts';
 
 type RawRow = { channel_name: string; channel_scope: string };
 
-const SELECT_DISTINCT_SCOPES_SQL = `
-  SELECT DISTINCT channel_name, channel_scope FROM __wskit_channel_memberships
-`;
-
 /**
  * Boot-time reconcile for persistent channels. Walks every `(channel_name,
  * channel_scope)` pair that has at least one durable row, drops the row set
@@ -24,7 +20,7 @@ export function reconcilePersistenceOnBoot(
   isPairPersistent: (channelName: string, channelScope: string | null) => boolean,
 ): number {
   const pairs = sql
-    .exec<RawRow>(SELECT_DISTINCT_SCOPES_SQL)
+    .exec<RawRow>('SELECT DISTINCT channel_name, channel_scope FROM __wskit_channel_memberships')
     .toArray()
     .map((row) => ({
       channelName: row.channel_name,

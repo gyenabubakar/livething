@@ -29,18 +29,6 @@ const SCHEDULED_DLQ_TABLE_SQL = `
     error TEXT NOT NULL
   )
 `;
-const SELECT_SCHEDULED_SQL = `
-  SELECT id, taskId, time, data, everyMs, attempts, recurring, retry
-  FROM __wskit_scheduled
-`;
-const SELECT_SCHEDULED_DLQ_SQL = `
-  SELECT id, taskId, time, failedAt, data, attempts, error
-  FROM __wskit_scheduled_dlq
-`;
-
-const DELETE_SCHEDULED_SQL = 'DELETE FROM __wskit_scheduled';
-const DELETE_SCHEDULED_DLQ_SQL = 'DELETE FROM __wskit_scheduled_dlq';
-
 type ScheduledRunRow = {
   id: string;
   taskId: string;
@@ -61,31 +49,6 @@ type ScheduledDeadLetterRow = {
   attempts: number;
   error: string | null;
 };
-
-const INSERT_SCHEDULED_SQL = `
-  INSERT INTO __wskit_scheduled (
-    id,
-    taskId,
-    time,
-    data,
-    everyMs,
-    attempts,
-    recurring,
-    retry
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-`;
-
-const INSERT_SCHEDULED_DLQ_SQL = `
-  INSERT INTO __wskit_scheduled_dlq (
-    id,
-    taskId,
-    time,
-    failedAt,
-    data,
-    attempts,
-    error
-  ) VALUES (?, ?, ?, ?, ?, ?, ?)
-`;
 
 const DEFAULT_BACKOFF_MS: readonly number[] = [1_000, 5_000, 25_000];
 
@@ -160,10 +123,21 @@ function persistSchedulerState(runtime: ScheduledRuntimeAccess): void {
   storage.sql.exec(SCHEDULED_TABLE_SQL);
   storage.sql.exec(SCHEDULED_DLQ_TABLE_SQL);
   storage.sql.transaction((tx) => {
-    tx.exec(DELETE_SCHEDULED_SQL);
+    tx.exec('DELETE FROM __wskit_scheduled');
     for (const run of runs) {
       tx.exec(
-        INSERT_SCHEDULED_SQL,
+        `
+          INSERT INTO __wskit_scheduled (
+            id,
+            taskId,
+            time,
+            data,
+            everyMs,
+            attempts,
+            recurring,
+            retry
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `,
         run.id,
         run.taskId,
         run.time,
@@ -175,10 +149,20 @@ function persistSchedulerState(runtime: ScheduledRuntimeAccess): void {
       );
     }
 
-    tx.exec(DELETE_SCHEDULED_DLQ_SQL);
+    tx.exec('DELETE FROM __wskit_scheduled_dlq');
     for (const entry of deadLetters) {
       tx.exec(
-        INSERT_SCHEDULED_DLQ_SQL,
+        `
+          INSERT INTO __wskit_scheduled_dlq (
+            id,
+            taskId,
+            time,
+            failedAt,
+            data,
+            attempts,
+            error
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        `,
         entry.id,
         entry.taskId,
         entry.time,
@@ -258,7 +242,14 @@ export function bootstrapScheduledRuntime(runtime: ScheduledRuntimeAccess): void
     knownTaskIds.add(task.taskId);
   }
 
-  for (const row of storage.sql.exec<ScheduledRunRow>(SELECT_SCHEDULED_SQL).toArray()) {
+  for (const row of storage.sql
+    .exec<ScheduledRunRow>(
+      `
+        SELECT id, taskId, time, data, everyMs, attempts, recurring, retry
+        FROM __wskit_scheduled
+      `,
+    )
+    .toArray()) {
     const taskId = String(row.taskId);
     if (!knownTaskIds.has(taskId)) continue;
     scheduledRuns.set(String(row.id), {
@@ -273,7 +264,14 @@ export function bootstrapScheduledRuntime(runtime: ScheduledRuntimeAccess): void
     });
   }
 
-  for (const row of storage.sql.exec<ScheduledDeadLetterRow>(SELECT_SCHEDULED_DLQ_SQL).toArray()) {
+  for (const row of storage.sql
+    .exec<ScheduledDeadLetterRow>(
+      `
+        SELECT id, taskId, time, failedAt, data, attempts, error
+        FROM __wskit_scheduled_dlq
+      `,
+    )
+    .toArray()) {
     deadLetters.set(String(row.id), {
       id: String(row.id),
       taskId: String(row.taskId),

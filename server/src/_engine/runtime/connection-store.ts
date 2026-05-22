@@ -17,22 +17,6 @@ const CREATE_CONNECTIONS_IDENTITY_INDEX_SQL = `
   ON __wskit_connections (identity)
 `;
 
-const UPSERT_CONNECTION_SQL = `
-  INSERT OR REPLACE INTO __wskit_connections
-    (connection_id, identity, meta, ephemeral_tags, ephemeral_memberships, active_stream_ids)
-  VALUES (?, ?, ?, ?, ?, ?)
-`;
-
-const SELECT_CONNECTION_SQL = `
-  SELECT connection_id, identity, meta, ephemeral_tags, ephemeral_memberships, active_stream_ids
-  FROM __wskit_connections
-  WHERE connection_id = ?
-`;
-
-const DELETE_CONNECTION_SQL = 'DELETE FROM __wskit_connections WHERE connection_id = ?';
-
-const DELETE_ALL_CONNECTIONS_SQL = 'DELETE FROM __wskit_connections';
-
 /**
  * The shape persisted into the `__wskit_connections` row. The engine writes one
  * row per live connection and reads it back on hibernation wake.
@@ -99,7 +83,11 @@ export function buildConnectionRow(connection: RuntimeConnection): StoredConnect
  */
 export function writeConnectionRow(sql: Pick<SQLProvider, 'exec'>, row: StoredConnectionRow): void {
   sql.exec(
-    UPSERT_CONNECTION_SQL,
+    `
+      INSERT OR REPLACE INTO __wskit_connections
+        (connection_id, identity, meta, ephemeral_tags, ephemeral_memberships, active_stream_ids)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `,
     row.connection_id,
     row.identity,
     JSON.stringify(row.meta),
@@ -117,7 +105,16 @@ export function readConnectionRow(
   sql: Pick<SQLProvider, 'exec'>,
   connectionId: string,
 ): StoredConnectionRow | null {
-  const raw = sql.exec<RawRow>(SELECT_CONNECTION_SQL, connectionId).one();
+  const raw = sql
+    .exec<RawRow>(
+      `
+        SELECT connection_id, identity, meta, ephemeral_tags, ephemeral_memberships, active_stream_ids
+        FROM __wskit_connections
+        WHERE connection_id = ?
+      `,
+      connectionId,
+    )
+    .one();
   if (!raw) return null;
   return {
     connection_id: raw.connection_id,
@@ -133,7 +130,7 @@ export function readConnectionRow(
  * Delete one connection row on real disconnect.
  */
 export function deleteConnectionRow(sql: Pick<SQLProvider, 'exec'>, connectionId: string): void {
-  sql.exec(DELETE_CONNECTION_SQL, connectionId);
+  sql.exec('DELETE FROM __wskit_connections WHERE connection_id = ?', connectionId);
 }
 
 /**
@@ -149,7 +146,7 @@ export function reconcileConnectionRows(
   surviving: ReadonlySet<string>,
 ): void {
   if (surviving.size === 0) {
-    sql.exec(DELETE_ALL_CONNECTIONS_SQL);
+    sql.exec('DELETE FROM __wskit_connections');
     return;
   }
   const placeholders = Array.from({ length: surviving.size }, () => '?').join(', ');
