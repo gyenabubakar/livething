@@ -1,3 +1,4 @@
+import { KeyedLock } from '~/_engine/keyed-lock.ts';
 import { scope } from '~/channel/channel.ts';
 import {
   addChannelMembership,
@@ -73,6 +74,7 @@ function createRuntime() {
         channelFamilies: new Map([['rooms', rooms]]),
       },
       connections,
+      channelLock: new KeyedLock(),
       beforeSubscribeHooks: new Map(),
       subscribeHooks: new Map(),
       unsubscribeHooks: new Map(),
@@ -132,6 +134,7 @@ function createRuntime() {
       isChannelPersistent: () => false,
       persistMembership: () => {},
       deleteDurableMembership: () => {},
+      hasDurableMembership: () => true,
     },
   };
 }
@@ -628,6 +631,33 @@ describe('subscribeConnectionAsServer', () => {
         channelScope: 'rooms',
       },
     ]);
+  });
+
+  it('rejoin skips a channel whose durable membership was dropped while it waited', async () => {
+    const { protocol, connections, runtime } = createRuntime();
+    const target = createConnection('target', { userId: 't' });
+    connections.set(target.id, target);
+
+    // Persistent channel, but the saved membership is already gone — rejoin must not resurrect it.
+    const rejoinRuntime = {
+      ...runtime,
+      isChannelPersistent: () => true,
+      hasDurableMembership: () => false,
+    };
+
+    await subscribeConnectionAsServer(
+      rejoinRuntime,
+      target,
+      'room:general',
+      'rooms',
+      undefined,
+      true,
+    );
+
+    expect(target.channelMemberships.has(createChannelMembershipKey('room:general', 'rooms'))).toBe(
+      false,
+    );
+    expect(protocol).toEqual([]);
   });
 
   it('runs onBeforeSubscribe with the supplied payload', async () => {

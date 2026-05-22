@@ -23,6 +23,7 @@ import * as RequestPrimitive from '~/request/runtime.ts';
 import * as StreamPrimitive from '~/stream/runtime.ts';
 import * as v from 'valibot';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
+import type { KeyedLock } from '~/_engine/keyed-lock.ts';
 import type * as DurableStreamStorage from '~/_engine/stream-durable/storage.ts';
 import type * as PublicApi from '~/context.ts';
 import type * as EngineRuntimeTypes from './types.ts';
@@ -127,6 +128,8 @@ interface DispatchRuntime
  * Dependency bag for channel subscribe/unsubscribe helpers.
  */
 interface ChannelRuntime extends EngineRuntimeTypes.ConnectionMembersRuntime {
+  channelLock: KeyedLock;
+  hasDurableMembership(identity: string, channelName: string, channelScope: string | null): boolean;
   beforeSubscribeHooks: ReadonlyMap<
     string,
     readonly { handler: (ctx: any, data?: unknown) => void | Promise<void>; validator?: unknown }[]

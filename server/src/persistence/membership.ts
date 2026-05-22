@@ -70,6 +70,22 @@ export function deleteDurableMembership(
   );
 }
 
+/** True when a durable membership row exists for this identity and channel scope. */
+export function hasDurableMembership(
+  core: EngineCore,
+  identity: string,
+  channelName: string,
+  channelScope: string | null,
+): boolean {
+  if (!core.persistenceEnabled) return false;
+  return PersistenceStorage.membershipExists(
+    core.requireStorage().sql,
+    identity,
+    channelName,
+    channelScope,
+  );
+}
+
 /**
  * Kick every live connection of `identity` out of one channel scope AND drop
  * the durable row. True leave: `onUnsubscribe` fires, peers get
@@ -83,46 +99,49 @@ export async function removeChannelMember(
   channelScope: string | null,
   identity: string,
 ): Promise<void> {
-  if (core.persistenceEnabled) {
-    PersistenceStorage.deleteMembership(
-      core.requireStorage().sql,
-      identity,
+  const membershipKey = ChannelPrimitive.createChannelMembershipKey(channelName, channelScope);
+
+  await core.channelLock.run(membershipKey, async () => {
+    if (core.persistenceEnabled) {
+      PersistenceStorage.deleteMembership(
+        core.requireStorage().sql,
+        identity,
+        channelName,
+        channelScope,
+      );
+    }
+
+    const resolved = ChannelPrimitive.resolveCompiledChannel(
+      core.compiled,
       channelName,
       channelScope,
     );
-  }
 
-  const membershipKey = ChannelPrimitive.createChannelMembershipKey(channelName, channelScope);
-  const resolved = ChannelPrimitive.resolveCompiledChannel(
-    core.compiled,
-    channelName,
-    channelScope,
-  );
-
-  const targets: RuntimeConnection[] = [];
-  for (const connection of core.connections.values()) {
-    if (connection.identity !== identity) continue;
-    if (!connection.channelMemberships.has(membershipKey)) continue;
-    targets.push(connection);
-  }
-
-  for (const connection of targets) {
-    try {
-      await leaveChannel(connection, {
-        channel: resolved,
-        channelName,
-        channelScope,
-      });
-    } catch (error) {
-      core.logger.error('[wskit] removeChannelMember leaveChannel threw', {
-        identity,
-        channel: channelName,
-        channelScope,
-        connectionId: connection.id,
-        error: error instanceof Error ? error.message : String(error),
-      });
+    const targets: RuntimeConnection[] = [];
+    for (const connection of core.connections.values()) {
+      if (connection.identity !== identity) continue;
+      if (!connection.channelMemberships.has(membershipKey)) continue;
+      targets.push(connection);
     }
-  }
+
+    for (const connection of targets) {
+      try {
+        await leaveChannel(connection, {
+          channel: resolved,
+          channelName,
+          channelScope,
+        });
+      } catch (error) {
+        core.logger.error('[wskit] removeChannelMember leaveChannel threw', {
+          identity,
+          channel: channelName,
+          channelScope,
+          connectionId: connection.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  });
 }
 
 /**

@@ -2,6 +2,7 @@
 import { ChannelNotFound, ChannelNotSubscribed, rethrowIfConfigError } from '@wskit/core';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import type { CompiledChannel } from '~/_engine/compile/types.ts';
+import type { KeyedLock } from '~/_engine/keyed-lock.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { ConnectionInfo } from '~/index.ts';
@@ -106,6 +107,7 @@ interface ChannelRuntime {
     channelFamilies: Map<string, CompiledChannel>;
   };
   connections: Map<string, RuntimeConnection>;
+  channelLock: KeyedLock;
   beforeSubscribeHooks: ReadonlyMap<
     string,
     readonly { handler: (ctx: any, data?: unknown) => void | Promise<void>; validator?: unknown }[]
@@ -166,6 +168,7 @@ interface ChannelRuntime {
    * reconnects.
    */
   deleteDurableMembership(identity: string, channelName: string, channelScope: string | null): void;
+  hasDurableMembership(identity: string, channelName: string, channelScope: string | null): boolean;
 }
 
 interface ChannelScope {
@@ -333,6 +336,15 @@ async function runSubscribeFlow(
   // member. Skips the `__memberJoin__` broadcast but still fires `__memberOnline__`.
   rejoining = false,
 ): Promise<void> {
+  // Skip if a leave dropped the saved membership while this rejoin waited for the lock.
+  if (
+    rejoining &&
+    runtime.isChannelPersistent(scope.channel.key) &&
+    !runtime.hasDurableMembership(connection.identity, scope.channelName, scope.channelScope)
+  ) {
+    return;
+  }
+
   const ctx = runtime.buildConnectionContext(connection, scope);
 
   for (const hook of runtime.beforeSubscribeHooks.get(scope.channel.key) ?? []) {
@@ -444,7 +456,10 @@ export async function subscribeConnection(
     throw ChannelNotFound();
   }
 
-  await runSubscribeFlow(runtime, connection, scope, data, 'client');
+  await runtime.channelLock.run(
+    createChannelMembershipKey(scope.channelName, scope.channelScope),
+    () => runSubscribeFlow(runtime, connection, scope, data, 'client'),
+  );
 }
 
 /**
@@ -471,13 +486,15 @@ export async function subscribeConnectionAsServer(
 
   if (hasChannelMembership(connection, channelName, channelScope)) return;
 
-  await runSubscribeFlow(
-    runtime,
-    connection,
-    { channel, channelName, channelScope },
-    payload,
-    'server',
-    rejoining,
+  await runtime.channelLock.run(createChannelMembershipKey(channelName, channelScope), () =>
+    runSubscribeFlow(
+      runtime,
+      connection,
+      { channel, channelName, channelScope },
+      payload,
+      'server',
+      rejoining,
+    ),
   );
 }
 
@@ -502,11 +519,15 @@ export async function unsubscribeConnection(
     throw ChannelNotFound();
   }
 
-  if (!hasChannelMembership(connection, scope.channelName, scope.channelScope)) {
-    throw ChannelNotSubscribed();
-  }
-
-  await runtime.leaveChannel(connection, scope);
+  await runtime.channelLock.run(
+    createChannelMembershipKey(scope.channelName, scope.channelScope),
+    async () => {
+      if (!hasChannelMembership(connection, scope.channelName, scope.channelScope)) {
+        throw ChannelNotSubscribed();
+      }
+      await runtime.leaveChannel(connection, scope);
+    },
+  );
 }
 
 /**
@@ -556,39 +577,41 @@ export async function kickChannelMembers(
   channelScope: string | null,
 ): Promise<void> {
   const targetKey = createChannelMembershipKey(channelName, channelScope);
-  const pending: Promise<void>[] = [];
-  for (const connection of runtime.connections.values()) {
-    if (!matchesKickTarget(connection, target)) continue;
+  await runtime.channelLock.run(targetKey, async () => {
+    const pending: Promise<void>[] = [];
+    for (const connection of runtime.connections.values()) {
+      if (!matchesKickTarget(connection, target)) continue;
 
-    const membership = connection.channelMemberships.get(targetKey);
-    if (!membership) continue;
+      const membership = connection.channelMemberships.get(targetKey);
+      if (!membership) continue;
 
-    const channel = resolveCompiledChannel(
-      runtime.compiled,
-      membership.channelName,
-      membership.channelScope,
-    );
+      const channel = resolveCompiledChannel(
+        runtime.compiled,
+        membership.channelName,
+        membership.channelScope,
+      );
 
-    pending.push(
-      runtime
-        .leaveChannel(
-          connection,
-          {
-            channel,
-            channelName: membership.channelName,
-            channelScope: membership.channelScope,
-          },
-          reason,
-        )
-        .catch((error) => {
-          runtime.logger?.error('[wskit] leaveChannel threw during kick', {
-            channelName: membership.channelName,
-            channelScope: membership.channelScope,
-            connectionId: connection.id,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }),
-    );
-  }
-  await Promise.all(pending);
+      pending.push(
+        runtime
+          .leaveChannel(
+            connection,
+            {
+              channel,
+              channelName: membership.channelName,
+              channelScope: membership.channelScope,
+            },
+            reason,
+          )
+          .catch((error) => {
+            runtime.logger?.error('[wskit] leaveChannel threw during kick', {
+              channelName: membership.channelName,
+              channelScope: membership.channelScope,
+              connectionId: connection.id,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }),
+      );
+    }
+    await Promise.all(pending);
+  });
 }

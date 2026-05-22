@@ -61,6 +61,12 @@ const SELECT_MEMBERSHIPS_BY_IDENTITY_SQL = `
   WHERE identity = ?
 `;
 
+const SELECT_MEMBERSHIP_EXISTS_SQL = `
+  SELECT 1 FROM _wskit_channel_memberships
+  WHERE identity = ? AND channel_name = ? AND channel_scope = ?
+  LIMIT 1
+`;
+
 const DELETE_MEMBERSHIPS_BY_IDENTITY_SQL =
   'DELETE FROM _wskit_channel_memberships WHERE identity = ?';
 
@@ -150,6 +156,19 @@ export function listMembershipsByIdentity(
     channelScope: scopeFromDb(row.channel_scope),
     joinedAt: row.joined_at,
   }));
+}
+
+/** True when a durable membership row exists for this identity and channel scope. */
+export function membershipExists(
+  sql: Pick<SQLProvider, 'exec'>,
+  identity: string,
+  channelName: string,
+  channelScope: string | null,
+): boolean {
+  return (
+    sql.exec(SELECT_MEMBERSHIP_EXISTS_SQL, identity, channelName, scopeToDb(channelScope)).toArray()
+      .length > 0
+  );
 }
 
 /**

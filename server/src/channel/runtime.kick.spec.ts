@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { KeyedLock } from '~/_engine/keyed-lock.ts';
 import { addChannelMembership, kickChannelMembers, leaveChannel } from '~/channel/runtime.ts';
 import { describe, expect, it } from 'vitest';
 
@@ -70,6 +71,7 @@ describe('channels.kick end-to-end', () => {
         channelFamilies: new Map(),
       },
       connections,
+      channelLock: new KeyedLock(),
       beforeSubscribeHooks: new Map(),
       subscribeHooks: new Map(),
       unsubscribeHooks: new Map(),
@@ -190,6 +192,7 @@ describe('channels.kick end-to-end', () => {
         channelFamilies: new Map(),
       },
       connections,
+      channelLock: new KeyedLock(),
       beforeSubscribeHooks: new Map(),
       subscribeHooks: new Map(),
       unsubscribeHooks: new Map([

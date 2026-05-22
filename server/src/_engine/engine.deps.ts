@@ -229,6 +229,7 @@ export function channelRuntime(core: EngineCore) {
   const buildCtx = buildConnectionContext(core);
   return {
     ...memberRuntime(core),
+    channelLock: core.channelLock,
     beforeSubscribeHooks: core.hooks.beforeSubscribe,
     subscribeHooks: core.hooks.subscribe,
     unsubscribeHooks: core.hooks.unsubscribe,
@@ -285,6 +286,8 @@ export function channelRuntime(core: EngineCore) {
       MembershipPersistence.persistMembership(core, identity, channelName, channelScope),
     deleteDurableMembership: (identity: string, channelName: string, channelScope: string | null) =>
       MembershipPersistence.deleteDurableMembership(core, identity, channelName, channelScope),
+    hasDurableMembership: (identity: string, channelName: string, channelScope: string | null) =>
+      MembershipPersistence.hasDurableMembership(core, identity, channelName, channelScope),
     logger: core.logger,
   };
 }
