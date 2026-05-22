@@ -1034,6 +1034,34 @@ describe('durable stream runtime', () => {
     expect(Storage.readChunksSince(sql, '__bcast:top__', 'gen-1', 0)).toHaveLength(3);
   });
 
+  it('resumableStream — cursor does not advance for a chunk produced after the connection closed', async () => {
+    const sql = makeSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime } = createRuntime(sql);
+    const connection = createConnection('c1', 'u1');
+
+    await runDurableStream(
+      runtime as never,
+      connection,
+      {},
+      baseDef({
+        kind: 'resumable',
+        generator: async function* (ctx: any) {
+          yield ctx.stream.withCursor({ row: 1 }, { idx: 1 });
+          // The owning connection drops after row 1.
+          runtime.activeStreams.get('gen-1')!.closed = true;
+          yield ctx.stream.withCursor({ row: 2 }, { idx: 2 });
+        },
+      }),
+      {},
+      undefined,
+    );
+
+    // The cursor must still point at row 1 — a resume re-runs from there, so
+    // moving it to row 2 (which the closed client never got) would skip a row.
+    expect(JSON.parse(Storage.readStream(sql, 'u1', 'gen-1')!.cursor!)).toEqual({ idx: 1 });
+  });
+
   it('broadcast resumableStream — peer-subscriber resume replays from buffer, no generator re-run', async () => {
     const sql = makeSql();
     Storage.ensureDurableStreamSchema(sql);

@@ -494,6 +494,9 @@ async function runGenerator(
         iterator.next(nextInput),
       );
       if (result.done) break;
+      // Connection closed mid-advance: dropping this chunk keeps a resumable
+      // cursor from moving past a row the client never received.
+      if (activeStream.closed && def.kind === 'resumable') break;
 
       seq += 1;
       const { chunkValue, cursorValue } = unwrapYield(result.value);
