@@ -72,15 +72,15 @@ export class EngineCore {
   hibernationEnabled = false;
   replayEnabled = false;
   sequencePersistent = false;
-  /** Set by `.enablePersistence()`. Turns on durable tables and membership writes. */
+  /** Set by `persistence: true`. Turns on durable tables and membership writes. */
   persistenceEnabled = false;
   incomingDedupCap = 0;
   initialized = false;
 
-  /** Per-channel `.persistent(value)` overrides. Explicit `false` opts out. */
+  /** Per-channel `persistent` overrides. Explicit `false` opts out. */
   readonly channelPersistenceOverrides = new Map<string, boolean>();
 
-  /** Tag groups declared via `.tagGroups(...)`. Empty when `withTags` is not used. */
+  /** Tag groups declared via the contract's `tagGroups` config. Empty when none are declared. */
   readonly declaredTagGroups = {
     ephemeral: new Set<string>(),
     persistent: new Set<string>(),

@@ -29,7 +29,7 @@ export interface GroupHandle<Meta = Record<string, unknown>> {
   readonly __wskit: 'group-handle';
   /** Whether this group is ephemeral or persistent. */
   readonly kind: TagKind;
-  /** Group name as declared on the builder. */
+  /** Group name as declared in the contract's tagGroups config. */
   readonly group: string;
 
   /** Add `key` to the current connection's set under this group. */

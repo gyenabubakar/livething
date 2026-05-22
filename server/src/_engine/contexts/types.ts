@@ -152,12 +152,12 @@ export interface ContextCommonDeps {
   ): void;
   contextExtenders?: readonly ((ctx: unknown) => Record<string, unknown>)[];
   /**
-   * Whether at least one tag group was declared via `.tagGroups(...)`. When
-   * `false`, `ctx.tags` is omitted from every connection context.
+   * Whether at least one tag group was declared via the contract's `tagGroups`
+   * config. When `false`, `ctx.tags` is omitted from every connection context.
    */
   usesTags: boolean;
   /**
-   * Whether the engine flipped persistence on via `.enablePersistence()`.
+   * Whether the contract enabled persistence via `persistence: true`.
    * Persistent tag writes are no-ops when this is `false`.
    */
   persistenceEnabled: boolean;

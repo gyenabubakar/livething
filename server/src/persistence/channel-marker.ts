@@ -10,12 +10,12 @@ export interface PersistentMarkerPrimitive extends Primitive<'persistent-marker'
 const PERSISTENT_MARKER_KEY = Symbol('persistent-marker');
 
 /**
- * Channel-scope marker that records the dev's `.persistent(enabled)` choice on
- * the engine. The engine reads this back per channel-key at runtime to decide
- * whether to write a durable membership row on subscribe and whether to drop
- * the row on disconnect.
+ * Channel-scope marker that records the dev's per-channel `persistent` choice
+ * on the engine. The engine reads this back per channel-key at runtime to
+ * decide whether to write a durable membership row on subscribe and whether to
+ * drop the row on disconnect.
  *
- * On a persistence-disabled server (no `.enablePersistence()`) the marker is a
+ * On a persistence-disabled server (no `persistence: true`) the marker is a
  * pure no-op — the engine never consults the registry because every channel
  * stays ephemeral regardless.
  *

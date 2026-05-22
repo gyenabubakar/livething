@@ -16,8 +16,8 @@ export type SubscribeHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
  * deleted. NOT fired on plain disconnect of a persistent channel — that case
  * fires `onSessionEnd` instead.
  *
- * On ephemeral channels (no `.enablePersistence()` or `.persistent(false)`)
- * disconnect IS a true leave, so this hook fires together with
+ * On ephemeral channels (no `persistence: true`, or `persistent: false` on the
+ * channel) disconnect IS a true leave, so this hook fires together with
  * `onSessionEnd` for every leave path.
  */
 export type UnsubscribeHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;

@@ -230,7 +230,7 @@ export interface TagRef {
   readonly __wskit: 'tag-ref';
   /** Which kind of group the tag belongs to. */
   readonly kind: 'ephemeral' | 'persistent';
-  /** Group name as declared on the builder. */
+  /** Group name as declared in the contract's tagGroups config. */
   readonly group: string;
   /** Key inside the group. Any non-empty string the dev chose. */
   readonly key: string;

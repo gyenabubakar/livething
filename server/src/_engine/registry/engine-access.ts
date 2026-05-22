@@ -143,15 +143,13 @@ export function createEngineAccess(
     },
     registerTagGroups: (kind, groups) => {
       if (core.tagGroupsRegistered[kind]) {
-        throw new Error(
-          `[wskit] .tagGroups('${kind}', ...) declared more than once on this builder.`,
-        );
+        throw new Error(`[wskit] tagGroups.${kind} declared more than once in this contract.`);
       }
       core.tagGroupsRegistered[kind] = true;
       if (kind === 'persistent' && !core.persistenceEnabled) {
         const sample = groups[0];
         throw new Error(
-          `[wskit] persistent tag group '${sample}' requires withPersistence and a call to .enablePersistence(). Wrap your server with withPersistence(...) and call .enablePersistence() on the builder, or move '${sample}' to the 'ephemeral' kind.`,
+          `[wskit] persistent tag group '${sample}' requires persistence. Set 'persistence: true' in your contract, or move '${sample}' to the 'ephemeral' kind.`,
         );
       }
       for (const group of groups) core.declaredTagGroups[kind].add(group);

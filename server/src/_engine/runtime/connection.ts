@@ -73,7 +73,7 @@ interface ConnectionRuntime {
   ): Promise<void>;
   /**
    * Re-subscribe a fresh connection to every persistent channel its identity
-   * was in. Present when `withPersistence` is wired; called from
+   * was in. Present when persistence is enabled; called from
    * `acceptConnection` between the initial row write and `onConnect`.
    */
   autoRejoinIdentity?(connection: EngineRuntimeTypes.RuntimeConnection): Promise<void>;
@@ -572,8 +572,9 @@ export async function handleUpgrade(
             }>)
       | undefined;
     /**
-     * Built once per engine. `withTags` populates the field; engines without
-     * `withTags` pass `undefined` and the helper bag is the empty object.
+     * Built once per engine. A contract with `tagGroups` populates the field;
+     * contracts without tag groups pass `undefined` and the helper bag is the
+     * empty object.
      */
     upgradeHelpers: LifecycleTypes.UpgradeHelpers;
   },

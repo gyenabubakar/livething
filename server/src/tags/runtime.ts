@@ -26,7 +26,7 @@ function assertGroupDeclared(
 ): void {
   if (runtime.isTagGroupDeclared(kind, group)) return;
   throw new Error(
-    `[wskit] tag group '${group}' is not declared under .tagGroups('${kind}', ...). Register it on the builder or check for a typo.`,
+    `[wskit] tag group '${group}' is not declared under tagGroups.${kind}. Add it to your contract's tagGroups config or check for a typo.`,
   );
 }
 
