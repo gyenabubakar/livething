@@ -98,6 +98,25 @@ describe('StreamBasicClient — streams', () => {
   });
 });
 
+describe('StreamBasicClient — stream resumable flags', () => {
+  it('all streams are not resumable', () => {
+    expectTypeOf<StreamBasicClient['streams']['start-boom']['resumable']>().toEqualTypeOf<false>();
+    expectTypeOf<
+      StreamBasicClient['streams']['start-boom-immediate']['resumable']
+    >().toEqualTypeOf<false>();
+    expectTypeOf<
+      StreamBasicClient['streams']['start-cancel-observe']['resumable']
+    >().toEqualTypeOf<false>();
+    expectTypeOf<StreamBasicClient['streams']['start-empty']['resumable']>().toEqualTypeOf<false>();
+    expectTypeOf<
+      StreamBasicClient['streams']['start-tokens']['resumable']
+    >().toEqualTypeOf<false>();
+    expectTypeOf<
+      StreamBasicClient['streams']['start-typed-error']['resumable']
+    >().toEqualTypeOf<false>();
+  });
+});
+
 describe('StreamBasicClient — declared errors', () => {
   it('has not-found error with id detail', () => {
     expectTypeOf<StreamBasicClient['errors']['not-found']>().toEqualTypeOf<{ id: string }>();

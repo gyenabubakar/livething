@@ -114,6 +114,23 @@ describe('StreamDurableBroadcastClient — namespaces', () => {
   });
 });
 
+describe('StreamDurableBroadcastClient — stream resumable flags', () => {
+  it('all streams are resumable', () => {
+    expectTypeOf<
+      StreamDurableBroadcastClient['channels']['rooms']['streams']['attempt-broadcast']['resumable']
+    >().toEqualTypeOf<true>();
+    expectTypeOf<
+      StreamDurableBroadcastClient['channels']['rooms']['streams']['paginate']['resumable']
+    >().toEqualTypeOf<true>();
+    expectTypeOf<
+      StreamDurableBroadcastClient['channels']['rooms']['streams']['feed']['resumable']
+    >().toEqualTypeOf<true>();
+    expectTypeOf<
+      StreamDurableBroadcastClient['namespaces']['v1']['streams']['news']['resumable']
+    >().toEqualTypeOf<true>();
+  });
+});
+
 describe('StreamDurableBroadcastClient — empty slots', () => {
   it('top-level incoming is empty', () => {
     expectTypeOf<keyof StreamDurableBroadcastClient['incoming']>().toBeNever();

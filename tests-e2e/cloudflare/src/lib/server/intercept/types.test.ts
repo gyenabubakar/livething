@@ -78,6 +78,14 @@ describe('InterceptClient — namespaces', () => {
   });
 });
 
+describe('InterceptClient — stream resumable flags', () => {
+  it('intercepted-stream is not resumable', () => {
+    expectTypeOf<
+      InterceptClient['namespaces']['ns']['streams']['intercepted-stream']['resumable']
+    >().toEqualTypeOf<false>();
+  });
+});
+
 describe('InterceptClient — channels', () => {
   it('has room channel', () => {
     expectTypeOf<InterceptClient['channels']>().toHaveProperty('room');

@@ -127,6 +127,20 @@ describe('ModulesClient — streams', () => {
   });
 });
 
+describe('ModulesClient — stream resumable flags', () => {
+  it('stream-connection-id is not resumable', () => {
+    expectTypeOf<
+      ModulesClient['streams']['stream-connection-id']['resumable']
+    >().toEqualTypeOf<false>();
+  });
+
+  it('stream-throw-on-cancel is not resumable', () => {
+    expectTypeOf<
+      ModulesClient['streams']['stream-throw-on-cancel']['resumable']
+    >().toEqualTypeOf<false>();
+  });
+});
+
 describe('ModulesClient — empty slots', () => {
   it('channels is empty', () => {
     expectTypeOf<keyof ModulesClient['channels']>().toBeNever();

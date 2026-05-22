@@ -194,6 +194,59 @@ describe('StreamDurableScopedClient — namespaces.v1 streams', () => {
   });
 });
 
+describe('StreamDurableScopedClient — stream resumable flags', () => {
+  it('top-level streams have correct resumable flags', () => {
+    expectTypeOf<
+      StreamDurableScopedClient['streams']['start-concurrent']['resumable']
+    >().toEqualTypeOf<false>();
+    expectTypeOf<
+      StreamDurableScopedClient['streams']['boom-mid']['resumable']
+    >().toEqualTypeOf<true>();
+    expectTypeOf<
+      StreamDurableScopedClient['streams']['short-window']['resumable']
+    >().toEqualTypeOf<true>();
+    expectTypeOf<
+      StreamDurableScopedClient['streams']['short-retention']['resumable']
+    >().toEqualTypeOf<true>();
+    expectTypeOf<
+      StreamDurableScopedClient['streams']['keep-running-feed']['resumable']
+    >().toEqualTypeOf<true>();
+  });
+
+  it('channel streams have correct resumable flags', () => {
+    expectTypeOf<
+      StreamDurableScopedClient['channels']['rooms']['streams']['channel-tokens']['resumable']
+    >().toEqualTypeOf<false>();
+    expectTypeOf<
+      StreamDurableScopedClient['channels']['rooms']['streams']['paginate']['resumable']
+    >().toEqualTypeOf<true>();
+    expectTypeOf<
+      StreamDurableScopedClient['channels']['rooms']['streams']['paused-feed']['resumable']
+    >().toEqualTypeOf<true>();
+    expectTypeOf<
+      StreamDurableScopedClient['channels']['rooms']['streams']['history']['resumable']
+    >().toEqualTypeOf<true>();
+    expectTypeOf<
+      StreamDurableScopedClient['channels']['rooms']['streams']['history-nudged']['resumable']
+    >().toEqualTypeOf<true>();
+  });
+
+  it('namespace streams have correct resumable flags', () => {
+    expectTypeOf<
+      StreamDurableScopedClient['namespaces']['v1']['streams']['ns-tokens']['resumable']
+    >().toEqualTypeOf<false>();
+    expectTypeOf<
+      StreamDurableScopedClient['namespaces']['v1']['streams']['audit-export']['resumable']
+    >().toEqualTypeOf<true>();
+    expectTypeOf<
+      StreamDurableScopedClient['namespaces']['v1']['streams']['audit-nudged']['resumable']
+    >().toEqualTypeOf<true>();
+    expectTypeOf<
+      StreamDurableScopedClient['namespaces']['v1']['streams']['logs']['resumable']
+    >().toEqualTypeOf<true>();
+  });
+});
+
 describe('StreamDurableScopedClient — empty slots', () => {
   it('incoming is empty', () => {
     expectTypeOf<keyof StreamDurableScopedClient['incoming']>().toBeNever();

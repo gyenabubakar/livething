@@ -99,6 +99,14 @@ describe('NamespaceClient — namespaces', () => {
   });
 });
 
+describe('NamespaceClient — stream resumable flags', () => {
+  it('start-ns-stream is not resumable', () => {
+    expectTypeOf<
+      NamespaceClient['namespaces']['ns']['streams']['start-ns-stream']['resumable']
+    >().toEqualTypeOf<false>();
+  });
+});
+
 describe('NamespaceClient — builtin errors', () => {
   it('has all builtin error codes', () => {
     expectTypeOf<NamespaceClient['errors']>().toHaveProperty('validation-failed');

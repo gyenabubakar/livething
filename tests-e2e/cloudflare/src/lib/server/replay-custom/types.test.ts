@@ -115,6 +115,14 @@ describe('ReplayCustomClient — channels', () => {
   });
 });
 
+describe('ReplayCustomClient — stream resumable flags', () => {
+  it('room-stream is not resumable', () => {
+    expectTypeOf<
+      ReplayCustomClient['channels']['custom-room']['streams']['room-stream']['resumable']
+    >().toEqualTypeOf<false>();
+  });
+});
+
 describe('ReplayCustomClient — builtin errors', () => {
   it('has all builtin error codes', () => {
     expectTypeOf<ReplayCustomClient['errors']>().toHaveProperty('validation-failed');

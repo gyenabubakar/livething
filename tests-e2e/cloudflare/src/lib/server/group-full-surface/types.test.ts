@@ -179,6 +179,22 @@ describe('GroupFullSurfaceClient — streams', () => {
   });
 });
 
+describe('GroupFullSurfaceClient — stream resumable flags', () => {
+  it('feed is not resumable', () => {
+    expectTypeOf<GroupFullSurfaceClient['streams']['feed']['resumable']>().toEqualTypeOf<false>();
+  });
+
+  it('paginate is resumable', () => {
+    expectTypeOf<
+      GroupFullSurfaceClient['streams']['paginate']['resumable']
+    >().toEqualTypeOf<true>();
+  });
+
+  it('tokens is resumable', () => {
+    expectTypeOf<GroupFullSurfaceClient['streams']['tokens']['resumable']>().toEqualTypeOf<true>();
+  });
+});
+
 describe('GroupFullSurfaceClient — channels', () => {
   it('has rooms channel', () => {
     expectTypeOf<GroupFullSurfaceClient['channels']>().toHaveProperty('rooms');

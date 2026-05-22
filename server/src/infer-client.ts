@@ -75,11 +75,6 @@ type BuiltInErrorUnion =
  */
 type Slot<TContract, TKey extends string> = TKey extends keyof TContract ? TContract[TKey] : {};
 
-/** Merge of the three server-side stream slots, before per-entry tidying. */
-type RawStreams<TContract> = Slot<TContract, 'streams'> &
-  Slot<TContract, 'resumableStreams'> &
-  Slot<TContract, 'recordedStreams'>;
-
 /**
  * Drop fields a stream never declared. A stream with no `cursor` validator
  * leaves `cursor` as `unknown`; a stream with no nudges leaves `nudges` as an
@@ -98,14 +93,25 @@ type TidyStreamEntry<TEntry> = Omit<
 >;
 
 /**
+ * Map every entry of one server-side stream slot into its client shape:
+ * tidied, and stamped with a `resumable` flag. `resumable` is `true` for the
+ * durable kinds (`resumableStream` / `recordedStream`) that survive a
+ * reconnect, and `false` for a plain `stream`. The client library reads this
+ * flag to gate resume-only methods at the type level.
+ */
+type ClientStreamSlot<TSlot, TResumable extends boolean> = {
+  [TName in keyof TSlot]: TidyStreamEntry<TSlot[TName]> & { resumable: TResumable };
+};
+
+/**
  * The client's flat view of every server-pushed stream. The contract keeps
  * `stream(...)`, `resumableStream(...)`, and `recordedStream(...)` in three
- * separate slots; the client sees one merged map, with undeclared `cursor` /
- * `nudges` fields omitted from each entry.
+ * separate slots; the client sees one merged map. Undeclared `cursor` /
+ * `nudges` fields are omitted, and each entry carries a `resumable` flag.
  */
-type ClientStreams<TContract> = {
-  [TName in keyof RawStreams<TContract>]: TidyStreamEntry<RawStreams<TContract>[TName]>;
-};
+type ClientStreams<TContract> = ClientStreamSlot<Slot<TContract, 'streams'>, false> &
+  ClientStreamSlot<Slot<TContract, 'resumableStreams'>, true> &
+  ClientStreamSlot<Slot<TContract, 'recordedStreams'>, true>;
 
 /**
  * One channel or namespace turned into the client's perspective: the server's
@@ -169,8 +175,9 @@ export type InferClient<TServer extends ServerDefinition> = SimplifyDeep<{
   /**
    * Every server-pushed stream the client can subscribe to. Plain `stream(...)`,
    * `resumableStream(...)`, and `recordedStream(...)` all show up under this
-   * single slot — to the client they look identical on the wire. The choice of
-   * primitive is a server-side concern.
+   * single slot. Each entry carries a `resumable` flag — `true` for the durable
+   * kinds that survive a reconnect, `false` for a plain stream — so the client
+   * can gate resume-only methods at the type level.
    */
   streams: ClientStreams<ContractOf<TServer>>;
   /** Per-namespace sub-contracts, each flipped into the client's perspective. */

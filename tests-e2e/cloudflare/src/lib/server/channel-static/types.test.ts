@@ -131,6 +131,14 @@ describe('ChannelStaticClient — empty slots', () => {
   });
 });
 
+describe('ChannelStaticClient — stream resumable flags', () => {
+  it('start-channel-stream is not resumable', () => {
+    expectTypeOf<
+      ChannelStaticClient['channels']['room']['streams']['start-channel-stream']['resumable']
+    >().toEqualTypeOf<false>();
+  });
+});
+
 describe('ChannelStaticClient — builtin errors', () => {
   it('has all builtin error codes', () => {
     expectTypeOf<ChannelStaticClient['errors']>().toHaveProperty('validation-failed');

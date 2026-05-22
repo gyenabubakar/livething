@@ -109,6 +109,14 @@ describe('ReplayClient — streams', () => {
   });
 });
 
+describe('ReplayClient — stream resumable flags', () => {
+  it('start-tiny-stream is not resumable', () => {
+    expectTypeOf<
+      ReplayClient['streams']['start-tiny-stream']['resumable']
+    >().toEqualTypeOf<false>();
+  });
+});
+
 describe('ReplayClient — namespaces', () => {
   it('has admin namespace', () => {
     expectTypeOf<ReplayClient['namespaces']>().toHaveProperty('admin');

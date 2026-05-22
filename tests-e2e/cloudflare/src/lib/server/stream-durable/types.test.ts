@@ -76,6 +76,21 @@ describe('StreamDurableClient — streams', () => {
   });
 });
 
+describe('StreamDurableClient — stream resumable flags', () => {
+  it('all streams are resumable', () => {
+    expectTypeOf<
+      StreamDurableClient['streams']['attempt-stream']['resumable']
+    >().toEqualTypeOf<true>();
+    expectTypeOf<StreamDurableClient['streams']['paginate']['resumable']>().toEqualTypeOf<true>();
+    expectTypeOf<
+      StreamDurableClient['streams']['buffer-full-demo']['resumable']
+    >().toEqualTypeOf<true>();
+    expectTypeOf<
+      StreamDurableClient['streams']['count-tokens']['resumable']
+    >().toEqualTypeOf<true>();
+  });
+});
+
 describe('StreamDurableClient — empty slots', () => {
   it('incoming is empty', () => {
     expectTypeOf<keyof StreamDurableClient['incoming']>().toBeNever();

@@ -97,6 +97,14 @@ describe('HibernationClient — streams', () => {
   });
 });
 
+describe('HibernationClient — stream resumable flags', () => {
+  it('start-slow-stream is not resumable', () => {
+    expectTypeOf<
+      HibernationClient['streams']['start-slow-stream']['resumable']
+    >().toEqualTypeOf<false>();
+  });
+});
+
 describe('HibernationClient — channels', () => {
   it('has room channel', () => {
     expectTypeOf<HibernationClient['channels']>().toHaveProperty('room');

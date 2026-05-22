@@ -94,6 +94,20 @@ describe('StreamBroadcastClient — channels', () => {
   });
 });
 
+describe('StreamBroadcastClient — stream resumable flags', () => {
+  it('all streams are not resumable', () => {
+    expectTypeOf<
+      StreamBroadcastClient['streams']['start-broadcast']['resumable']
+    >().toEqualTypeOf<false>();
+    expectTypeOf<
+      StreamBroadcastClient['channels']['rooms']['streams']['start-room-broadcast']['resumable']
+    >().toEqualTypeOf<false>();
+    expectTypeOf<
+      StreamBroadcastClient['channels']['rooms']['streams']['start-room-stream']['resumable']
+    >().toEqualTypeOf<false>();
+  });
+});
+
 describe('StreamBroadcastClient — empty slots', () => {
   it('incoming is empty', () => {
     expectTypeOf<keyof StreamBroadcastClient['incoming']>().toBeNever();

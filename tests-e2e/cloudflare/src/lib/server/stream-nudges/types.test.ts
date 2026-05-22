@@ -83,6 +83,14 @@ describe('StreamNudgesClient — streams', () => {
   });
 });
 
+describe('StreamNudgesClient — stream resumable flags', () => {
+  it('start-nudge-stream is not resumable', () => {
+    expectTypeOf<
+      StreamNudgesClient['streams']['start-nudge-stream']['resumable']
+    >().toEqualTypeOf<false>();
+  });
+});
+
 describe('StreamNudgesClient — empty slots', () => {
   it('requests is empty', () => {
     expectTypeOf<keyof StreamNudgesClient['requests']>().toBeNever();

@@ -109,6 +109,14 @@ describe('ErrorsControlFlowClient — streams', () => {
   });
 });
 
+describe('ErrorsControlFlowClient — stream resumable flags', () => {
+  it('start-defer-stream is not resumable', () => {
+    expectTypeOf<
+      ErrorsControlFlowClient['streams']['start-defer-stream']['resumable']
+    >().toEqualTypeOf<false>();
+  });
+});
+
 describe('ErrorsControlFlowClient — channels', () => {
   it('has chat channel', () => {
     expectTypeOf<ErrorsControlFlowClient['channels']>().toHaveProperty('chat');
