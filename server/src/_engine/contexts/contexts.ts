@@ -81,6 +81,7 @@ export function buildConnectionContext(
 ): EngineContextTypes.ConnectionContext<Record<string, unknown>, Record<string, unknown>, unknown> &
   Record<PropertyKey, unknown> {
   const { sql, kv } = createLazyStorageView(deps.requireStorage);
+  let channelsApi: ReturnType<typeof buildChannelsApi> | undefined;
   function cancelScheduled(taskId: string, filter?: Record<string, unknown>): void {
     const result = deps.cancelScheduled(taskId, filter);
     if (result.removed === 0) {
@@ -111,11 +112,24 @@ export function buildConnectionContext(
     getConnections: () => {
       return [...deps.connections.values()].map((target) => deps.toConnectionInfo(target));
     },
-    connectionCount: deps.connections.size,
-    bufferedAmount: connection.descriptor.bufferedAmount(),
-    latency: connection.latency,
-    quality: connection.quality,
-    channels: buildChannelsApi(connection, deps),
+    // Live reads, not snapshots — so a context reused across a dispatch's
+    // intercepts and handler always reflects current values.
+    get connectionCount() {
+      return deps.connections.size;
+    },
+    get bufferedAmount() {
+      return connection.descriptor.bufferedAmount();
+    },
+    get latency() {
+      return connection.latency;
+    },
+    get quality() {
+      return connection.quality;
+    },
+    // Built on first access — most handlers never touch `ctx.channels`.
+    get channels() {
+      return (channelsApi ??= buildChannelsApi(connection, deps));
+    },
     schedule: (taskId, options) => {
       deps.scheduleTask(taskId, options.time, options.data);
     },
@@ -126,23 +140,6 @@ export function buildConnectionContext(
         void timers.setAlarm(time);
       }
     },
-    ...(deps.usesTags
-      ? {
-          tags: TagsRuntime.buildTagsApi(
-            {
-              tagMembers: deps.tagMembers,
-              isTagGroupDeclared: deps.isTagGroupDeclared,
-              toConnectionInfo: deps.toConnectionInfo,
-              sendThroughPipeline: (target, event, payload) =>
-                deps.sendThroughPipeline(target, undefined, event, payload),
-              persistAttachment: deps.persistAttachment,
-              persistenceEnabled: deps.persistenceEnabled,
-              requireStorage: deps.requireStorage,
-            },
-            connection,
-          ),
-        }
-      : {}),
     ...buildNamespaceScopeExtra(connection, scope, deps),
     ...buildChannelScopeExtra(connection, scope, deps),
     sql,
@@ -152,6 +149,31 @@ export function buildConnectionContext(
     waitUntil: deps.waitUntilImpl,
     platform: deps.platform,
   };
+
+  // `ctx.tags` exists only on tag-enabled servers, and is built on first
+  // access — most handlers never touch it.
+  if (deps.usesTags) {
+    let tagsApi: ReturnType<typeof TagsRuntime.buildTagsApi> | undefined;
+    Object.defineProperty(base, 'tags', {
+      configurable: true,
+      enumerable: true,
+      get() {
+        return (tagsApi ??= TagsRuntime.buildTagsApi(
+          {
+            tagMembers: deps.tagMembers,
+            isTagGroupDeclared: deps.isTagGroupDeclared,
+            toConnectionInfo: deps.toConnectionInfo,
+            sendThroughPipeline: (target, event, payload) =>
+              deps.sendThroughPipeline(target, undefined, event, payload),
+            persistAttachment: deps.persistAttachment,
+            persistenceEnabled: deps.persistenceEnabled,
+            requireStorage: deps.requireStorage,
+          },
+          connection,
+        ));
+      },
+    });
+  }
 
   // User extension hook — extenders see the assembled ctx and return a
   // partial that gets merged in.
