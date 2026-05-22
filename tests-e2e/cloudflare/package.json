@@ -17,6 +17,7 @@
     "clean": "rm -rf node_modules dist .svelte-kit build"
   },
   "dependencies": {
+    "@wskit/core": "workspace:*",
     "@wskit/server": "workspace:*",
     "@wskit/server-cloudflare": "workspace:*",
     "drizzle-orm": "^0.45.2",
