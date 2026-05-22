@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import * as EngineContexts from '~/_engine/contexts/contexts.ts';
+import * as EngineChannelFrames from '~/_engine/runtime/channel-frames.ts';
 import * as EngineConnectionRuntime from '~/_engine/runtime/connection.ts';
 import * as EngineErrorRuntime from '~/_engine/runtime/error.ts';
 import * as EngineHibernation from '~/_engine/runtime/hibernation.ts';
@@ -30,7 +31,7 @@ function buildLeaveChannel(core: EngineCore) {
     kickedReason?: string,
     disconnect?: boolean,
   ) =>
-    EngineMessageRuntime.leaveChannel(
+    EngineChannelFrames.leaveChannel(
       channelRuntime(core),
       connection,
       scope,
@@ -117,9 +118,9 @@ export function commonDeps(core: EngineCore): EngineContextTypes.ContextCommonDe
       );
     },
     getChannelMembers: (channelName, channelScope) =>
-      EngineMessageRuntime.getChannelMembers(memberRuntime(core), channelName, channelScope),
+      EngineChannelFrames.getChannelMembers(memberRuntime(core), channelName, channelScope),
     kickChannelMembers: (channelName, target, reason, channelScope) => {
-      return EngineMessageRuntime.kickChannelMembers(
+      return EngineChannelFrames.kickChannelMembers(
         {
           ...channelRuntime(core),
           leaveChannel: buildLeaveChannel(core),
@@ -140,7 +141,7 @@ export function commonDeps(core: EngineCore): EngineContextTypes.ContextCommonDe
       );
     },
     subscribeConnectionAsServer: (ref, channelName, channelScope, payload) => {
-      return EngineMessageRuntime.subscribeFromServer(
+      return EngineChannelFrames.subscribeFromServer(
         { ...channelRuntime(core), instanceId: core.engineInstanceId },
         ref,
         channelName,
@@ -360,9 +361,9 @@ export function dispatchRuntime(core: EngineCore) {
         excludeConnectionId,
       ),
     handleSubscribe: (connection: RuntimeConnection, frame: Protocol.SubscribeFrame) =>
-      EngineMessageRuntime.handleSubscribe(channelRuntime(core), connection, frame),
+      EngineChannelFrames.handleSubscribe(channelRuntime(core), connection, frame),
     handleUnsubscribe: (connection: RuntimeConnection, frame: Protocol.UnsubscribeFrame) =>
-      EngineMessageRuntime.handleUnsubscribe(
+      EngineChannelFrames.handleUnsubscribe(
         {
           ...channelRuntime(core),
           leaveChannel: buildLeaveChannel(core),
@@ -411,7 +412,7 @@ export function connectionRuntime(core: EngineCore) {
             MembershipPersistence.autoRejoinIdentity(
               core,
               (ref, channelName, channelScope, payload, rejoining) =>
-                EngineMessageRuntime.subscribeFromServer(
+                EngineChannelFrames.subscribeFromServer(
                   { ...channelRuntime(core), instanceId: core.engineInstanceId },
                   ref,
                   channelName,

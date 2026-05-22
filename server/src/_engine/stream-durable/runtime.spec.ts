@@ -1057,8 +1057,8 @@ describe('durable stream runtime', () => {
       undefined,
     );
 
-    // The cursor must still point at row 1 — a resume re-runs from there, so
-    // moving it to row 2 (which the closed client never got) would skip a row.
+    // The cursor should still be on row 1 — a reconnect picks the stream up
+    // from the cursor, so moving it to row 2 would skip a row nobody received.
     expect(JSON.parse(Storage.readStream(sql, 'u1', 'gen-1')!.cursor!)).toEqual({ idx: 1 });
   });
 

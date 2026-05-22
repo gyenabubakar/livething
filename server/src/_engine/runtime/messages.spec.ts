@@ -3,8 +3,8 @@ import {
   broadcastToChannel,
   dispatchIncoming,
   processTextMessage,
-  resolveScope,
 } from '~/_engine/runtime/messages.ts';
+import { resolveScope } from '~/_engine/runtime/scope.ts';
 import { createChannelMembershipKey } from '~/channel/runtime.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
@@ -301,110 +301,6 @@ describe('message runtime', () => {
 
     expect(acked).toContainEqual({ which: 'A', ackId: 'ack-a' });
     expect(acked).toContainEqual({ which: 'B', ackId: 'ack-b' });
-  });
-
-  it('resolveScope throws NamespaceNotFound when namespace targets an unregistered namespace', () => {
-    const compiled = {
-      namespaces: new Map(),
-      channels: new Map(),
-      channelFamilies: new Map(),
-    } as unknown as CompiledServer;
-
-    expect(() => resolveScope(compiled, { namespace: 'typo', channelScope: null })).toThrowError(
-      /namespace-not-found/i,
-    );
-  });
-
-  it('resolveScope throws InvalidScopeMarkers when both namespace and channel are set', () => {
-    const compiled = {
-      namespaces: new Map([['admin', { name: 'admin' }]]),
-      channels: new Map([['private-room', { pattern: 'private-room' }]]),
-      channelFamilies: new Map(),
-    } as unknown as CompiledServer;
-
-    expect(() =>
-      resolveScope(compiled, { namespace: 'admin', channel: 'private-room', channelScope: null }),
-    ).toThrowError(/invalid-scope-markers/i);
-  });
-
-  it('resolveScope throws ChannelNotFound when channel targets an unregistered static channel', () => {
-    const compiled = {
-      namespaces: new Map(),
-      channels: new Map(), // 'unknown-room' not registered
-      channelFamilies: new Map(),
-    } as unknown as CompiledServer;
-
-    expect(() =>
-      resolveScope(compiled, { channel: 'unknown-room', channelScope: null }),
-    ).toThrowError(/channel-not-found/i);
-  });
-
-  it('resolveScope throws ChannelNotFound when channelScope targets an unregistered family', () => {
-    const compiled = {
-      namespaces: new Map(),
-      channels: new Map(),
-      channelFamilies: new Map(), // 'unknown-family' not registered
-    } as unknown as CompiledServer;
-
-    expect(() =>
-      resolveScope(compiled, { channel: 'room:1', channelScope: 'unknown-family' }),
-    ).toThrowError(/channel-not-found/i);
-  });
-
-  it('resolveScope throws ChannelNotFound when channel does not match the family regex', () => {
-    const compiled = {
-      namespaces: new Map(),
-      channels: new Map(),
-      channelFamilies: new Map([
-        [
-          'rooms',
-          {
-            key: 'rooms',
-            kind: 'channel' as const,
-            pattern: { key: 'rooms', pattern: /^room:/ },
-            outgoing: new Map(),
-            incoming: new Map(),
-            requests: new Map(),
-            streams: new Map(),
-            resumableStreams: new Map(),
-            recordedStreams: new Map(),
-            preIntercepts: [],
-            postIntercepts: new Map(),
-          },
-        ],
-      ]),
-    } as unknown as CompiledServer;
-
-    expect(() => resolveScope(compiled, { channel: 'admin', channelScope: 'rooms' })).toThrowError(
-      /channel-not-found/i,
-    );
-  });
-
-  it('resolveScope returns the scope when channel matches the family regex', () => {
-    const family = {
-      key: 'rooms',
-      kind: 'channel' as const,
-      pattern: { key: 'rooms', pattern: /^room:/ },
-      outgoing: new Map(),
-      incoming: new Map(),
-      requests: new Map(),
-      streams: new Map(),
-      resumableStreams: new Map(),
-      recordedStreams: new Map(),
-      preIntercepts: [],
-      postIntercepts: new Map(),
-    };
-    const compiled = {
-      namespaces: new Map(),
-      channels: new Map(),
-      channelFamilies: new Map([['rooms', family]]),
-    } as unknown as CompiledServer;
-
-    expect(resolveScope(compiled, { channel: 'room:lobby', channelScope: 'rooms' })).toEqual({
-      channel: family,
-      channelName: 'room:lobby',
-      channelScope: 'rooms',
-    });
   });
 
   it('routes ValidationFailed thrown from a handler to handleValidationError', async () => {
@@ -1226,82 +1122,5 @@ describe('message runtime', () => {
     const [, error, event] = handleRuntimeError.mock.calls[0]!;
     expect(event).toBe('__unsubscribe__');
     expect((error as { code?: string }).code).toBe('validation-failed');
-  });
-});
-
-describe('getChannelMembers scope isolation', () => {
-  it('returns only static members when called with null scope', async () => {
-    const { getChannelMembers } = await import('~/_engine/runtime/messages.ts');
-    const staticMember = createConnection('static');
-    const familyMember = createConnection('family');
-    addMembership(staticMember, 'lobby', null);
-    addMembership(familyMember, 'lobby', 'rooms');
-
-    const runtime = {
-      connections: new Map([
-        [staticMember.id, staticMember],
-        [familyMember.id, familyMember],
-      ]),
-      compiled: {} as CompiledServer,
-      toConnectionInfo: (c: RuntimeConnection) => ({
-        id: c.id,
-        identity: c.identity,
-        meta: c.meta,
-        tags: [],
-        channels: [...c.channelMemberships.values()].map((m) => m.channelName),
-        latency: null,
-        quality: 'good' as const,
-        bufferedAmount: 0,
-        ref: () => ({
-          __wskit: 'connection-ref' as const,
-          id: c.id,
-          instance: undefined,
-          identity: c.identity,
-        }),
-      }),
-      sendThroughPipeline: () => true,
-    };
-
-    const result = getChannelMembers(runtime, 'lobby', null);
-    expect(result.map((r) => r.id)).toEqual(['static']);
-  });
-
-  it('returns only the matching family members when called with a family key', async () => {
-    const { getChannelMembers } = await import('~/_engine/runtime/messages.ts');
-    const staticMember = createConnection('static');
-    const familyMember = createConnection('family');
-    const otherFamilyMember = createConnection('other');
-    addMembership(staticMember, 'lobby', null);
-    addMembership(familyMember, 'lobby', 'rooms');
-    addMembership(otherFamilyMember, 'lobby', 'lobbies');
-
-    const runtime = {
-      connections: new Map([
-        [staticMember.id, staticMember],
-        [familyMember.id, familyMember],
-        [otherFamilyMember.id, otherFamilyMember],
-      ]),
-      compiled: {} as CompiledServer,
-      toConnectionInfo: (c: RuntimeConnection) => ({
-        id: c.id,
-        identity: c.identity,
-        meta: c.meta,
-        tags: [],
-        channels: [...c.channelMemberships.values()].map((m) => m.channelName),
-        latency: null,
-        quality: 'good' as const,
-        bufferedAmount: 0,
-        ref: () => ({
-          __wskit: 'connection-ref' as const,
-          id: c.id,
-          instance: undefined,
-          identity: c.identity,
-        }),
-      }),
-      sendThroughPipeline: () => true,
-    };
-
-    const result = getChannelMembers(runtime, 'lobby', 'rooms');
-    expect(result.map((r) => r.id)).toEqual(['family']);
   });
 });
