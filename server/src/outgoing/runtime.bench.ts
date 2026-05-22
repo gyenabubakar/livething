@@ -7,7 +7,7 @@ import type { broadcastToChannel as BroadcastToChannel } from '~/outgoing/runtim
 type ChannelRuntimeArg = Parameters<typeof BroadcastToChannel>[0];
 
 function createConnection(id: string): RuntimeConnection {
-  const connection: RuntimeConnection = {
+  return {
     id,
     identity: id,
     wsKey: Symbol(id),
@@ -26,15 +26,19 @@ function createConnection(id: string): RuntimeConnection {
     latency: null,
     quality: 'good',
   };
-  addChannelMembership(connection, 'room', null);
-  return connection;
 }
 
-function createRuntime(memberCount: number): ChannelRuntimeArg {
+function createRuntime(
+  memberCount: number,
+  totalConnections: number,
+  withStamper = true,
+): ChannelRuntimeArg {
   const connections = new Map<string, RuntimeConnection>();
-  for (let i = 0; i < memberCount; i++) {
+  const channelMembers = new Map<string, Set<RuntimeConnection>>();
+  for (let i = 0; i < totalConnections; i++) {
     const connection = createConnection(`c${i}`);
     connections.set(connection.id, connection);
+    if (i < memberCount) addChannelMembership(channelMembers, connection, 'room', null);
   }
 
   let seq = 0;
@@ -60,12 +64,13 @@ function createRuntime(memberCount: number): ChannelRuntimeArg {
       modules: [],
     },
     connections,
+    channelMembers,
     moduleRuntimes: [],
     outgoingHooks: [
       (message: { event: string; payload: unknown }) => message.payload,
       () => undefined,
     ],
-    wskitStampHooks: [() => ({ seq: seq++ })],
+    wskitStampHooks: withStamper ? [() => ({ seq: seq++ })] : [],
     beforeSendHooks: [],
     afterSendHooks: [],
     waitUntil() {},
@@ -88,14 +93,41 @@ const largePayload = {
   mentions: ['user-1', 'user-2', 'user-3', 'user-4'],
 };
 
-for (const memberCount of [100, 1000]) {
-  describe(`broadcastToChannel · ${memberCount} members`, () => {
-    const smallRuntime = createRuntime(memberCount);
+// [members in the broadcast channel, total connections on the server]
+const scenarios: Array<[number, number]> = [
+  [100, 100],
+  [1000, 1000],
+  [10, 5000],
+  [100, 5000],
+];
+
+for (const [memberCount, total] of scenarios) {
+  describe(`broadcastToChannel · ${memberCount} members of ${total} connections`, () => {
+    const smallRuntime = createRuntime(memberCount, total);
     bench('small payload', () => {
       broadcastToChannel(smallRuntime, 'room', 'chat', smallPayload, undefined, null);
     });
 
-    const largeRuntime = createRuntime(memberCount);
+    const largeRuntime = createRuntime(memberCount, total);
+    bench('large payload (~2 KB)', () => {
+      broadcastToChannel(largeRuntime, 'room', 'chat', largePayload, undefined, null);
+    });
+  });
+}
+
+// No sequence/dedup stamper — every recipient's frame is identical, so the
+// broadcast can build the frame string once.
+for (const [memberCount, total] of [
+  [1000, 1000],
+  [100, 5000],
+] as Array<[number, number]>) {
+  describe(`broadcastToChannel · ${memberCount} of ${total} · no stamper`, () => {
+    const smallRuntime = createRuntime(memberCount, total, false);
+    bench('small payload', () => {
+      broadcastToChannel(smallRuntime, 'room', 'chat', smallPayload, undefined, null);
+    });
+
+    const largeRuntime = createRuntime(memberCount, total, false);
     bench('large payload (~2 KB)', () => {
       broadcastToChannel(largeRuntime, 'room', 'chat', largePayload, undefined, null);
     });

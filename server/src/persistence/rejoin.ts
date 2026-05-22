@@ -1,4 +1,5 @@
 import { deleteMembership, listMembershipsByIdentity } from '~/persistence/storage.ts';
+import { addConnectionTag } from '~/tags/runtime.ts';
 import { listTagsByIdentity } from '~/tags/storage.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type { SQLProvider } from '~/context.ts';
@@ -10,6 +11,7 @@ import type { SQLProvider } from '~/context.ts';
  */
 export interface RejoinRuntime {
   sql: Pick<SQLProvider, 'exec'>;
+  tagMembers: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>;
   /**
    * Server-side subscribe primitive (from #11). The rejoin path invokes this
    * for every durable membership the identity has so the connection lands
@@ -69,9 +71,7 @@ export async function autoRejoinIdentity(
   // can read them via `ctx.tags.persistent(...)`.
   const tagRows = listTagsByIdentity(runtime.sql, connection.identity);
   for (const tag of tagRows) {
-    const set = connection.tags.persistent.get(tag.group) ?? new Set<string>();
-    set.add(tag.key);
-    connection.tags.persistent.set(tag.group, set);
+    addConnectionTag(runtime.tagMembers, connection, 'persistent', tag.group, tag.key);
   }
 
   const rows = listMembershipsByIdentity(runtime.sql, connection.identity);

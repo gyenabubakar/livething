@@ -369,6 +369,7 @@ export interface ResolvedScope {
  */
 export interface ConnectionMembersRuntime {
   connections: Map<string, RuntimeConnection>;
+  channelMembers: Map<string, Set<RuntimeConnection>>;
   compiled: EngineCompileTypes.CompiledServer;
   toConnectionInfo(
     connection: RuntimeConnection,

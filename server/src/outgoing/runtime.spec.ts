@@ -362,10 +362,27 @@ describe('broadcastToConnections — fanout resilience', () => {
       });
     }
   });
+
+  it('reuses one frame string across recipients when no stamper varies __wskit', () => {
+    const sent: string[] = [];
+    const runtime = createRuntime();
+    const a = peer('A', (frame) => sent.push(frame));
+    const b = peer('B', (frame) => sent.push(frame));
+
+    broadcastToConnections(runtime, [a, b], 'foo', { text: 'hi' });
+
+    expect(sent).toHaveLength(2);
+    expect(sent[0]).toBe(sent[1]);
+    expect(JSON.parse(sent[0]!)).toEqual({ event: 'foo', payload: { text: 'hi' }, __wskit: {} });
+  });
 });
 
 describe('broadcastToChannel — fanout resilience', () => {
-  function peer(id: string, send: (frame: string) => void): RuntimeConnection {
+  function peer(
+    channelMembers: Map<string, Set<RuntimeConnection>>,
+    id: string,
+    send: (frame: string) => void,
+  ): RuntimeConnection {
     const conn: RuntimeConnection = {
       id,
       identity: id,
@@ -388,17 +405,18 @@ describe('broadcastToChannel — fanout resilience', () => {
       latency: null,
       quality: 'good',
     };
-    addChannelMembership(conn, 'general', null);
+    addChannelMembership(channelMembers, conn, 'general', null);
     return conn;
   }
 
   it('keeps delivering to remaining channel members when one peer throws', () => {
     const errorLogs: Array<{ message: string; data?: unknown }> = [];
-    const a = peer('A', () => {});
-    const b = peer('B', () => {
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
+    const a = peer(channelMembers, 'A', () => {});
+    const b = peer(channelMembers, 'B', () => {
       throw new Error('InvalidStateError: socket is CLOSING');
     });
-    const c = peer('C', () => {});
+    const c = peer(channelMembers, 'C', () => {});
     const connections = new Map<string, RuntimeConnection>([
       [a.id, a],
       [b.id, b],
@@ -425,7 +443,11 @@ describe('broadcastToChannel — fanout resilience', () => {
         },
       }),
       connections,
-    } as OutgoingRuntime & { connections: Map<string, RuntimeConnection> };
+      channelMembers,
+    } as OutgoingRuntime & {
+      connections: Map<string, RuntimeConnection>;
+      channelMembers: Map<string, Set<RuntimeConnection>>;
+    };
 
     expect(() =>
       broadcastToChannel(runtime as never, 'general', 'msg', { text: 'hi' }, undefined, null),

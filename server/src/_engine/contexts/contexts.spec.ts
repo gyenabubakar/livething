@@ -42,6 +42,7 @@ function baseDeps(overrides: Partial<Parameters<typeof buildConnectionContext>[0
   return {
     compiled: {} as any,
     connections: new Map<string, RuntimeConnection>(),
+    tagMembers: new Map<string, Set<RuntimeConnection>>(),
     env: {},
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     platform: {},

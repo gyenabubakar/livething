@@ -527,6 +527,8 @@ describe('wakeHibernatedConnection — channel memberships restore', () => {
       compiled: baseCompiled() as any,
       timers: undefined,
       connections: new Map(),
+      channelMembers: new Map(),
+      tagMembers: new Map(),
       wsToConnectionId: new Map(),
       generateId: () => 'conn_new',
       persistAttachment() {},

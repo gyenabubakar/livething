@@ -47,6 +47,7 @@ function buildConnectionContext(core: EngineCore) {
       {
         compiled: core.compiled,
         connections: core.connections,
+        tagMembers: core.tagMembers,
         ...commonDeps(core),
       },
       connection,
@@ -205,6 +206,7 @@ export function memberRuntime(core: EngineCore) {
     ...outgoingRuntime(core),
     asyncContext: core.asyncContext,
     connections: core.connections,
+    channelMembers: core.channelMembers,
     toConnectionInfo: (connection: RuntimeConnection) =>
       EngineContexts.toConnectionInfo(connection, core.engineInstanceId),
     sendThroughPipeline: (
@@ -383,6 +385,8 @@ export function connectionRuntime(core: EngineCore) {
     compiled: core.compiled,
     timers: core.timers,
     connections: core.connections,
+    channelMembers: core.channelMembers,
+    tagMembers: core.tagMembers,
     wsToConnectionId: core.wsToConnectionId,
     generateId: (prefix?: string) => core.generateId(prefix),
     persistAttachment: (connection: RuntimeConnection) =>
@@ -470,6 +474,7 @@ export function handleConnectionClose(
     {
       compiled: core.compiled,
       connections: core.connections,
+      tagMembers: core.tagMembers,
       wsToConnectionId: core.wsToConnectionId,
       timers: core.timers,
       cancelActiveStreamsForConnection: (connectionId) =>

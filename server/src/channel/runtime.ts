@@ -29,16 +29,22 @@ export function createChannelMembershipKey(
   return JSON.stringify([channelScope, channelName]);
 }
 
-/** Record that a connection has joined a channel. */
+/** Record that a connection has joined a channel, updating the member index. */
 export function addChannelMembership(
-  connection: Pick<RuntimeConnection, 'channelMemberships'>,
+  channelMembers: Map<string, Set<RuntimeConnection>>,
+  connection: RuntimeConnection,
   channelName: string,
   channelScope: string | null,
 ): void {
-  connection.channelMemberships.set(createChannelMembershipKey(channelName, channelScope), {
-    channelName,
-    channelScope,
-  });
+  const key = createChannelMembershipKey(channelName, channelScope);
+  connection.channelMemberships.set(key, { channelName, channelScope });
+
+  let members = channelMembers.get(key);
+  if (!members) {
+    members = new Set();
+    channelMembers.set(key, members);
+  }
+  members.add(connection);
 }
 
 /** Check whether a connection is currently subscribed to a channel. */
@@ -50,13 +56,22 @@ export function hasChannelMembership(
   return connection.channelMemberships.has(createChannelMembershipKey(channelName, channelScope));
 }
 
-/** Remove a connection's subscription to a channel. */
+/** Remove a connection's subscription to a channel, updating the member index. */
 export function removeChannelMembership(
-  connection: Pick<RuntimeConnection, 'channelMemberships'>,
+  channelMembers: Map<string, Set<RuntimeConnection>>,
+  connection: RuntimeConnection,
   channelName: string,
   channelScope: string | null,
 ): void {
-  connection.channelMemberships.delete(createChannelMembershipKey(channelName, channelScope));
+  const key = createChannelMembershipKey(channelName, channelScope);
+  connection.channelMemberships.delete(key);
+
+  const members = channelMembers.get(key);
+  if (members) {
+    members.delete(connection);
+    // Drop the empty set so churned dynamic channels do not leak keys.
+    if (members.size === 0) channelMembers.delete(key);
+  }
 }
 
 /** Get all channel membership entries for a connection. */
@@ -107,6 +122,7 @@ interface ChannelRuntime {
     channelFamilies: Map<string, CompiledChannel>;
   };
   connections: Map<string, RuntimeConnection>;
+  channelMembers: Map<string, Set<RuntimeConnection>>;
   channelLock: KeyedLock;
   beforeSubscribeHooks: ReadonlyMap<
     string,
@@ -184,14 +200,13 @@ interface ResolvedChannelScope {
 }
 
 function getChannelMembersByScope(
-  runtime: Pick<ChannelRuntime, 'connections' | 'toConnectionInfo'>,
+  runtime: Pick<ChannelRuntime, 'channelMembers' | 'toConnectionInfo'>,
   channelName: string,
   channelScope: string | null,
 ): ConnectionInfo<Record<string, unknown>>[] {
-  const membershipKey = createChannelMembershipKey(channelName, channelScope);
-  return [...runtime.connections.values()]
-    .filter((connection) => connection.channelMemberships.has(membershipKey))
-    .map((connection) => runtime.toConnectionInfo(connection));
+  const members = runtime.channelMembers.get(createChannelMembershipKey(channelName, channelScope));
+  if (!members) return [];
+  return [...members].map((connection) => runtime.toConnectionInfo(connection));
 }
 
 /**
@@ -263,7 +278,12 @@ export async function leaveChannel(
     }
   }
 
-  removeChannelMembership(connection, scope.channelName, scope.channelScope);
+  removeChannelMembership(
+    runtime.channelMembers,
+    connection,
+    scope.channelName,
+    scope.channelScope,
+  );
   runtime.persistAttachment(connection);
 
   if (isTrueLeave && isPersistent) {
@@ -365,7 +385,7 @@ async function runSubscribeFlow(
 
   // Commit membership before snapshotting the member list. Otherwise two
   // concurrent subscribes both snapshot empty and miss each other.
-  addChannelMembership(connection, scope.channelName, scope.channelScope);
+  addChannelMembership(runtime.channelMembers, connection, scope.channelName, scope.channelScope);
   runtime.persistAttachment(connection);
 
   if (runtime.isChannelPersistent(scope.channel.key)) {
@@ -579,7 +599,8 @@ export async function kickChannelMembers(
   const targetKey = createChannelMembershipKey(channelName, channelScope);
   await runtime.channelLock.run(targetKey, async () => {
     const pending: Promise<void>[] = [];
-    for (const connection of runtime.connections.values()) {
+    // Snapshot — leaveChannel removes from the index set as it runs.
+    for (const connection of [...(runtime.channelMembers.get(targetKey) ?? [])]) {
       if (!matchesKickTarget(connection, target)) continue;
 
       const membership = connection.channelMemberships.get(targetKey);

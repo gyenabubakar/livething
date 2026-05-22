@@ -5,7 +5,7 @@ import {
   processTextMessage,
 } from '~/_engine/runtime/messages.ts';
 import { resolveScope } from '~/_engine/runtime/scope.ts';
-import { createChannelMembershipKey } from '~/channel/runtime.ts';
+import { addChannelMembership } from '~/channel/runtime.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import type { CompiledServer } from '~/_engine/compile/types.ts';
@@ -34,29 +34,29 @@ function createConnection(id: string): RuntimeConnection {
 }
 
 function addMembership(
+  channelMembers: Map<string, Set<RuntimeConnection>>,
   connection: ReturnType<typeof createConnection>,
   channelName: string,
   channelScope: string | null = null,
 ) {
-  connection.channelMemberships.set(createChannelMembershipKey(channelName, channelScope), {
-    channelName,
-    channelScope,
-  });
+  addChannelMembership(channelMembers, connection, channelName, channelScope);
 }
 
 describe('message runtime', () => {
   it('broadcastToChannel only targets members of the matching channel scope', () => {
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
     const roomsMember = createConnection('rooms');
     const lobbiesMember = createConnection('lobbies');
 
-    addMembership(roomsMember, 'room:general', 'rooms');
-    addMembership(lobbiesMember, 'room:general', 'lobbies');
+    addMembership(channelMembers, roomsMember, 'room:general', 'rooms');
+    addMembership(channelMembers, lobbiesMember, 'room:general', 'lobbies');
 
     const runtime = {
       connections: new Map([
         [roomsMember.id, roomsMember],
         [lobbiesMember.id, lobbiesMember],
       ]),
+      channelMembers,
       compiled: {
         outgoing: new Map([['message', { event: 'message' }]]),
         streams: new Map(),
@@ -116,8 +116,9 @@ describe('message runtime', () => {
   it('rejects incoming channel traffic when only a same-name membership exists in another scope', async () => {
     const handler = vi.fn();
     const errors: Array<{ error: unknown; event?: string; routing?: unknown }> = [];
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
     const connection = createConnection('conn_1');
-    addMembership(connection, 'room:general', 'lobbies');
+    addMembership(channelMembers, connection, 'room:general', 'lobbies');
 
     const runtime = {
       compiled: {
@@ -155,6 +156,7 @@ describe('message runtime', () => {
         replayClaimedChannelKeys: new Set(),
       },
       connections: new Map([[connection.id, connection]]),
+      channelMembers,
       toConnectionInfo() {
         throw new Error('unused');
       },
@@ -552,8 +554,9 @@ describe('message runtime', () => {
     const { ValidationFailed } = await import('@wskit/core');
     const handleValidationError = vi.fn();
     const handleRuntimeError = vi.fn();
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
     const connection = createConnection('conn_1');
-    addMembership(connection, 'room', undefined);
+    addMembership(channelMembers, connection, 'room', undefined);
 
     const channel = {
       key: 'room',
@@ -602,6 +605,7 @@ describe('message runtime', () => {
         replayClaimedChannelKeys: new Set(),
       },
       connections: new Map([[connection.id, connection]]),
+      channelMembers,
       toConnectionInfo() {
         return { id: connection.id };
       },
@@ -811,8 +815,9 @@ describe('message runtime', () => {
     // top-level event by tagging it with the channel — breaking scope
     // isolation.
     const topLevelHandler = vi.fn();
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
     const connection = createConnection('conn_1');
-    addMembership(connection, 'room', undefined);
+    addMembership(channelMembers, connection, 'room', undefined);
 
     const runtime = {
       compiled: {
@@ -852,6 +857,7 @@ describe('message runtime', () => {
         replayClaimedChannelKeys: new Set(),
       },
       connections: new Map([[connection.id, connection]]),
+      channelMembers,
       toConnectionInfo() {
         return { id: connection.id };
       },

@@ -2,6 +2,7 @@ import { CloseCodes, StreamAborted } from '@wskit/core';
 import { withConnectionContext } from '~/_engine/async-context.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import * as HeartbeatPrimitive from '~/heartbeat/runtime.ts';
+import * as TagPrimitive from '~/tags/runtime.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as PublicApi from '~/context.ts';
@@ -27,6 +28,8 @@ interface ConnectionRuntime {
   compiled: EngineCompileTypes.CompiledServer;
   timers?: { clearTimeout(handle: unknown): void; setTimeout(fn: () => void, ms: number): unknown };
   connections: Map<string, EngineRuntimeTypes.RuntimeConnection>;
+  channelMembers: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>;
+  tagMembers: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>;
   wsToConnectionId: Map<unknown, string>;
   generateId(prefix?: string): string;
   persistAttachment(connection: EngineRuntimeTypes.RuntimeConnection): void;
@@ -210,7 +213,12 @@ export async function cancelActiveStreamsForConnection(
 export async function handleConnectionClose(
   runtime: Pick<
     ConnectionRuntime,
-    'compiled' | 'connections' | 'wsToConnectionId' | 'timers' | 'deleteConnectionState'
+    | 'compiled'
+    | 'connections'
+    | 'tagMembers'
+    | 'wsToConnectionId'
+    | 'timers'
+    | 'deleteConnectionState'
   > & {
     cancelActiveStreamsForConnection(connectionId: string): Promise<void>;
     buildConnectionContext(
@@ -306,6 +314,8 @@ export async function handleConnectionClose(
     }
   }
 
+  TagPrimitive.removeConnectionFromTagIndex(runtime.tagMembers, connection);
+
   if (connection.heartbeatTimer !== undefined && runtime.timers) {
     runtime.timers.clearTimeout(connection.heartbeatTimer);
     connection.heartbeatTimer = undefined;
@@ -357,24 +367,22 @@ export function acceptConnection(
   wsKey: unknown,
   descriptor: EngineAdapterTypes.ConnectionDescriptor,
 ): EngineAdapterTypes.ConnectionHandle {
-  const ephemeralTags = new Map<string, Set<string>>();
-  for (const ref of descriptor.tags ?? []) {
-    if (ref.kind !== 'ephemeral') continue;
-    const set = ephemeralTags.get(ref.group) ?? new Set<string>();
-    set.add(ref.key);
-    ephemeralTags.set(ref.group, set);
-  }
   const connection: EngineRuntimeTypes.RuntimeConnection = {
     id: runtime.generateId('conn'),
     identity: descriptor.identity,
     wsKey,
     descriptor,
     meta: descriptor.meta ?? {},
-    tags: { ephemeral: ephemeralTags, persistent: new Map() },
+    tags: { ephemeral: new Map(), persistent: new Map() },
     channelMemberships: new Map(),
     latency: null,
     quality: 'good',
   };
+
+  for (const ref of descriptor.tags ?? []) {
+    if (ref.kind !== 'ephemeral') continue;
+    TagPrimitive.addConnectionTag(runtime.tagMembers, connection, 'ephemeral', ref.group, ref.key);
+  }
 
   runtime.connections.set(connection.id, connection);
   runtime.wsToConnectionId.set(wsKey, connection.id);
@@ -457,22 +465,12 @@ export function wakeHibernatedConnection(
     group: t.group,
     key: t.key,
   }));
-  const ephemeralMap = new Map<string, Set<string>>();
-  for (const t of row?.ephemeral_tags ?? []) {
-    const set = ephemeralMap.get(t.group) ?? new Set<string>();
-    set.add(t.key);
-    ephemeralMap.set(t.group, set);
-  }
+  // Both filled after the connection is created so the add* helpers can also
+  // repopulate the engine-wide channel and tag member indexes.
   const channelMemberships = new Map<
     string,
     { channelName: string; channelScope: string | null }
   >();
-  for (const membership of row?.ephemeral_memberships ?? []) {
-    channelMemberships.set(
-      ChannelPrimitive.createChannelMembershipKey(membership.channelName, membership.channelScope),
-      { channelName: membership.channelName, channelScope: membership.channelScope },
-    );
-  }
   const restoredStreamIds = row?.active_stream_ids ?? [];
 
   const descriptor: EngineAdapterTypes.ConnectionDescriptor = {
@@ -504,7 +502,7 @@ export function wakeHibernatedConnection(
     wsKey,
     descriptor,
     meta,
-    tags: { ephemeral: ephemeralMap, persistent: new Map() },
+    tags: { ephemeral: new Map(), persistent: new Map() },
     channelMemberships,
     latency: null,
     quality: 'good',
@@ -512,6 +510,20 @@ export function wakeHibernatedConnection(
 
   runtime.connections.set(connection.id, connection);
   runtime.wsToConnectionId.set(wsKey, connection.id);
+
+  for (const t of row?.ephemeral_tags ?? []) {
+    TagPrimitive.addConnectionTag(runtime.tagMembers, connection, 'ephemeral', t.group, t.key);
+  }
+
+  for (const membership of row?.ephemeral_memberships ?? []) {
+    ChannelPrimitive.addChannelMembership(
+      runtime.channelMembers,
+      connection,
+      membership.channelName,
+      membership.channelScope,
+    );
+  }
+
   // Re-persist so the row reflects the cleared active_stream_ids (the wake
   // path drained them above) and the attachment carries the correct id
   // even if it was missing before.

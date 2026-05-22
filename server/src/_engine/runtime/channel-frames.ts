@@ -69,11 +69,11 @@ export function getChannelMembers(
   channelName: string,
   channelScope: string | null,
 ): PublicApi.ConnectionInfo<Record<string, unknown>>[] {
-  const membershipKey = ChannelPrimitive.createChannelMembershipKey(channelName, channelScope);
-
-  return [...runtime.connections.values()]
-    .filter((connection) => connection.channelMemberships.has(membershipKey))
-    .map((connection) => runtime.toConnectionInfo(connection));
+  const members = runtime.channelMembers.get(
+    ChannelPrimitive.createChannelMembershipKey(channelName, channelScope),
+  );
+  if (!members) return [];
+  return [...members].map((connection) => runtime.toConnectionInfo(connection));
 }
 
 /** Re-export of the shared channel-leave helper so runtime callers can import from one module. */

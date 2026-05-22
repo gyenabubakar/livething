@@ -130,7 +130,7 @@ export function buildConnectionContext(
       ? {
           tags: TagsRuntime.buildTagsApi(
             {
-              connections: deps.connections,
+              tagMembers: deps.tagMembers,
               isTagGroupDeclared: deps.isTagGroupDeclared,
               toConnectionInfo: deps.toConnectionInfo,
               sendThroughPipeline: (target, event, payload) =>

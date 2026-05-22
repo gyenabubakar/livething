@@ -83,7 +83,7 @@ describe('autoRejoinIdentity', () => {
     const sendProtocolMessage = vi.fn();
 
     await autoRejoinIdentity(
-      { sql, subscribeConnectionAsServer: subscribe, sendProtocolMessage },
+      { sql, tagMembers: new Map(), subscribeConnectionAsServer: subscribe, sendProtocolMessage },
       fakeConnection(''),
     );
     expect(subscribe).not.toHaveBeenCalled();
@@ -105,6 +105,7 @@ describe('autoRejoinIdentity', () => {
     await autoRejoinIdentity(
       {
         sql,
+        tagMembers: new Map(),
         subscribeConnectionAsServer: subscribe,
         sendProtocolMessage: () => {},
       },
@@ -131,6 +132,7 @@ describe('autoRejoinIdentity', () => {
     await autoRejoinIdentity(
       {
         sql,
+        tagMembers: new Map(),
         subscribeConnectionAsServer: subscribe,
         sendProtocolMessage: () => {},
       },
@@ -159,6 +161,7 @@ describe('autoRejoinIdentity', () => {
     await autoRejoinIdentity(
       {
         sql,
+        tagMembers: new Map(),
         subscribeConnectionAsServer: subscribe,
         sendProtocolMessage: (_c, event, payload, wskit) => sent.push({ event, payload, wskit }),
       },
@@ -189,6 +192,7 @@ describe('autoRejoinIdentity', () => {
     await autoRejoinIdentity(
       {
         sql,
+        tagMembers: new Map(),
         subscribeConnectionAsServer: subscribe,
         sendProtocolMessage: () => {},
       },

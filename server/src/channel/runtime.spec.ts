@@ -10,6 +10,7 @@ import {
 } from '~/channel/runtime.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
+import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 
 function createConnection(id = 'conn_1', meta: Record<string, unknown> = {}) {
   return {
@@ -33,7 +34,9 @@ function createConnection(id = 'conn_1', meta: Record<string, unknown> = {}) {
   };
 }
 
-function createRuntime() {
+function createRuntime(
+  channelMembers: Map<string, Set<RuntimeConnection>> = new Map<string, Set<RuntimeConnection>>(),
+) {
   const protocol: {
     connectionId: string;
     event: string;
@@ -68,12 +71,14 @@ function createRuntime() {
     protocol,
     broadcasts,
     connections,
+    channelMembers,
     runtime: {
       compiled: {
         channels: new Map(),
         channelFamilies: new Map([['rooms', rooms]]),
       },
       connections,
+      channelMembers,
       channelLock: new KeyedLock(),
       beforeSubscribeHooks: new Map(),
       subscribeHooks: new Map(),
@@ -156,11 +161,12 @@ describe('createChannelMembershipKey', () => {
 
 describe('channel runtime', () => {
   it('subscribes a connection and sends member sync events', async () => {
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
     const first = createConnection('conn_1', { userId: 'a' });
-    addChannelMembership(first, 'room:general', 'rooms');
+    addChannelMembership(channelMembers, first, 'room:general', 'rooms');
 
     const second = createConnection('conn_2', { userId: 'b' });
-    const { runtime, connections, protocol, broadcasts } = createRuntime();
+    const { runtime, connections, protocol, broadcasts } = createRuntime(channelMembers);
     connections.set(first.id, first);
     connections.set(second.id, second);
 
@@ -218,10 +224,11 @@ describe('channel runtime', () => {
   });
 
   it('unsubscribes a connection and broadcasts member leave', async () => {
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
     const connection = createConnection('conn_1', { userId: 'a' });
-    addChannelMembership(connection, 'room:general', 'rooms');
+    addChannelMembership(channelMembers, connection, 'room:general', 'rooms');
 
-    const { runtime, connections, broadcasts } = createRuntime();
+    const { runtime, connections, broadcasts } = createRuntime(channelMembers);
     connections.set(connection.id, connection);
 
     await unsubscribeConnection(
@@ -258,12 +265,13 @@ describe('channel runtime', () => {
   });
 
   it('keeps same-name memberships isolated across channel families', async () => {
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
     const connection = createConnection('conn_1');
 
-    addChannelMembership(connection, 'room:general', 'rooms');
-    addChannelMembership(connection, 'room:general', 'lobbies');
+    addChannelMembership(channelMembers, connection, 'room:general', 'rooms');
+    addChannelMembership(channelMembers, connection, 'room:general', 'lobbies');
 
-    const { runtime, connections, broadcasts } = createRuntime();
+    const { runtime, connections, broadcasts } = createRuntime(channelMembers);
     runtime.compiled.channelFamilies.set('lobbies', {
       ...runtime.compiled.channelFamilies.get('rooms')!,
       key: 'lobbies',
@@ -311,13 +319,14 @@ describe('channel runtime', () => {
     // Two channel families that share the concrete channel name 'room:general'.
     // A connection joining one scope should only see the other scope's members
     // when subscribing — not connections from a sibling scope.
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
     const roomsMember = createConnection('rooms-member', { userId: 'a' });
     const lobbiesMember = createConnection('lobbies-member', { userId: 'b' });
-    addChannelMembership(roomsMember, 'room:general', 'rooms');
-    addChannelMembership(lobbiesMember, 'room:general', 'lobbies');
+    addChannelMembership(channelMembers, roomsMember, 'room:general', 'rooms');
+    addChannelMembership(channelMembers, lobbiesMember, 'room:general', 'lobbies');
 
     const newSubscriber = createConnection('new-sub');
-    const { runtime, connections, protocol } = createRuntime();
+    const { runtime, connections, protocol } = createRuntime(channelMembers);
     runtime.compiled.channelFamilies.set('lobbies', {
       ...runtime.compiled.channelFamilies.get('rooms')!,
       key: 'lobbies',
@@ -537,10 +546,11 @@ describe('channel runtime', () => {
     // stale. The hook throw is now contained, the tail runs
     // unconditionally, and the original error is re-thrown so kick
     // callers still observe it.
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
     const connection = createConnection('conn_1');
-    addChannelMembership(connection, 'room:general', 'rooms');
+    addChannelMembership(channelMembers, connection, 'room:general', 'rooms');
 
-    const { runtime, broadcasts } = createRuntime();
+    const { runtime, broadcasts } = createRuntime(channelMembers);
     const persisted: string[] = [];
     const logger = { error: vi.fn() };
     const runtimeWithHook = {
@@ -711,9 +721,10 @@ describe('subscribeConnectionAsServer', () => {
   });
 
   it('no-ops when the connection is already a member', async () => {
-    const { protocol, broadcasts, connections, runtime } = createRuntime();
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
+    const { protocol, broadcasts, connections, runtime } = createRuntime(channelMembers);
     const target = createConnection('target', {});
-    addChannelMembership(target, 'room:general', 'rooms');
+    addChannelMembership(channelMembers, target, 'room:general', 'rooms');
     connections.set(target.id, target);
 
     await subscribeConnectionAsServer(runtime, target, 'room:general', 'rooms', undefined);
@@ -782,13 +793,14 @@ describe('subscribeConnectionAsServer', () => {
   });
 
   it('sends __memberJoin__ syncs to the new subscriber for existing members', async () => {
-    const { protocol, connections, runtime } = createRuntime();
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
+    const { protocol, connections, runtime } = createRuntime(channelMembers);
     // Seed two existing members of room:general so the new subscriber
     // receives one _memberJoin per existing peer.
     const existingA = createConnection('existing-a', { who: 'a' });
     const existingB = createConnection('existing-b', { who: 'b' });
-    addChannelMembership(existingA, 'room:general', 'rooms');
-    addChannelMembership(existingB, 'room:general', 'rooms');
+    addChannelMembership(channelMembers, existingA, 'room:general', 'rooms');
+    addChannelMembership(channelMembers, existingB, 'room:general', 'rooms');
     connections.set(existingA.id, existingA);
     connections.set(existingB.id, existingB);
 

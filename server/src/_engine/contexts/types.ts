@@ -174,6 +174,7 @@ export interface ContextCommonDeps {
 export interface BuildConnectionContextDeps extends ContextCommonDeps {
   compiled: EngineCompileTypes.CompiledServer;
   connections: Map<string, EngineRuntimeTypes.RuntimeConnection>;
+  tagMembers: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>;
 }
 
 /**

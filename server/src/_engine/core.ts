@@ -102,6 +102,10 @@ export class EngineCore {
   // ─────── runtime maps ───────
 
   readonly connections = new Map<string, RuntimeConnection>();
+  // Channel-key → members index, so broadcasts skip a full connections scan.
+  readonly channelMembers = new Map<string, Set<RuntimeConnection>>();
+  // Tag-key → members index, so tag fan-out skips a full connections scan.
+  readonly tagMembers = new Map<string, Set<RuntimeConnection>>();
   readonly wsToConnectionId = new Map<unknown, string>();
   readonly activeStreams = new Map<string, ActiveStream>();
   readonly scheduledRuns = new Map<string, ScheduledPrimitiveTypes.ScheduledRun>();

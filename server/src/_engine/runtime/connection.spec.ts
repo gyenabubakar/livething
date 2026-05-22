@@ -46,6 +46,8 @@ describe('connection runtime', () => {
         timers: undefined,
         connections: new Map(),
         wsToConnectionId: new Map(),
+        channelMembers: new Map(),
+        tagMembers: new Map(),
         generateId() {
           return 'conn_1';
         },
@@ -120,6 +122,8 @@ describe('connection runtime', () => {
         timers: undefined,
         connections: new Map(),
         wsToConnectionId: new Map(),
+        channelMembers: new Map(),
+        tagMembers: new Map(),
         generateId() {
           return 'conn_2';
         },
@@ -204,6 +208,8 @@ describe('connection runtime', () => {
         timers: undefined,
         connections: new Map(),
         wsToConnectionId: new Map(),
+        channelMembers: new Map(),
+        tagMembers: new Map(),
         generateId() {
           return 'conn_3';
         },
@@ -285,6 +291,8 @@ describe('connection runtime', () => {
         timers: undefined,
         connections: new Map(),
         wsToConnectionId: new Map(),
+        channelMembers: new Map(),
+        tagMembers: new Map(),
         generateId() {
           return 'conn_1';
         },
@@ -360,6 +368,8 @@ describe('connection runtime', () => {
         timers: undefined,
         connections: new Map(),
         wsToConnectionId: new Map(),
+        channelMembers: new Map(),
+        tagMembers: new Map(),
         generateId() {
           return 'conn_1';
         },

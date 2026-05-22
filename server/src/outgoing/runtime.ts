@@ -250,6 +250,12 @@ interface PreparedBroadcast {
   finalPayload: Record<string, unknown>;
   baseWskit: Record<string, unknown>;
   needsWireMessage: boolean;
+  /**
+   * The whole frame string when it is identical for every recipient — set
+   * when nothing stamps a per-connection `__wskit` value. Built once here so
+   * `sendPrepared` skips the per-recipient stamp + serialize.
+   */
+  sharedFrame?: string;
 }
 
 type BroadcastRuntime = Pick<
@@ -290,14 +296,29 @@ function prepareBroadcast(
   }
 
   const finalPayload = message.payload as Record<string, unknown>;
+  const eventJson = JSON.stringify(message.event);
+  const payloadJson = JSON.stringify(finalPayload);
+  const baseWskit = buildWskit(routing);
+  const hasBeforeSend = runtime.beforeSendHooks.length > 0;
+
+  // The frame is identical for every recipient unless something stamps a
+  // per-connection `__wskit` value. Stampers are skipped for protocol events,
+  // so those always qualify; user events qualify only with no stampers. A
+  // beforeSend hook can rewrite `__wskit` per recipient, so it disqualifies.
+  const sharedWskit =
+    !hasBeforeSend &&
+    (Protocol.isProtocolEventName(message.event) || runtime.wskitStampHooks.length === 0);
 
   return {
     event: message.event,
-    eventJson: JSON.stringify(message.event),
-    payloadJson: JSON.stringify(finalPayload),
+    eventJson,
+    payloadJson,
     finalPayload,
-    baseWskit: buildWskit(routing),
-    needsWireMessage: runtime.beforeSendHooks.length > 0 || runtime.afterSendHooks.length > 0,
+    baseWskit,
+    needsWireMessage: hasBeforeSend || runtime.afterSendHooks.length > 0,
+    sharedFrame: sharedWskit
+      ? `{"event":${eventJson},"payload":${payloadJson},"__wskit":${JSON.stringify(baseWskit)}}`
+      : undefined,
   };
 }
 
@@ -312,6 +333,23 @@ function sendPrepared(
   connection: EngineRuntimeTypes.RuntimeConnection,
   prepared: PreparedBroadcast,
 ): void {
+  // Shared-frame fast path: the bytes are the same for everyone, so just
+  // write the prepared string. beforeSend is empty here (it disqualifies a
+  // shared frame), so only an afterSend hook still needs the wire message.
+  if (prepared.sharedFrame !== undefined) {
+    connection.descriptor.send(prepared.sharedFrame);
+    if (prepared.needsWireMessage) {
+      invokeAfterSendHooks(runtime.afterSendHooks, runtime.waitUntil, runtime.logger, {
+        connectionId: connection.id,
+        event: prepared.event,
+        payload: prepared.finalPayload,
+        wskit: prepared.baseWskit,
+        meta: connection.meta,
+      });
+    }
+    return;
+  }
+
   const wskit = { ...prepared.baseWskit };
   applyWskitStampers(runtime.wskitStampHooks, prepared.event, wskit);
 
@@ -433,10 +471,10 @@ export function broadcastToChannel(
   channelScope: string | null,
   excludeSelf?: boolean,
 ): void {
-  const connections = [...runtime.connections.values()].filter((connection) => {
-    return ChannelPrimitive.hasChannelMembership(connection, channelName, channelScope);
-  });
-  if (connections.length === 0) return;
+  const members = runtime.channelMembers.get(
+    ChannelPrimitive.createChannelMembershipKey(channelName, channelScope),
+  );
+  if (!members || members.size === 0) return;
 
   let prepared: PreparedBroadcast;
   try {
@@ -452,7 +490,7 @@ export function broadcastToChannel(
     return;
   }
 
-  for (const connection of connections) {
+  for (const connection of members) {
     if (excludeConnectionId && (excludeSelf ?? true) && connection.id === excludeConnectionId)
       continue;
     // One bad peer must not stop the rest of the fanout — log and continue.

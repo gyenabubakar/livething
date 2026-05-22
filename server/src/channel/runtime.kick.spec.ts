@@ -2,6 +2,7 @@
 import { KeyedLock } from '~/_engine/keyed-lock.ts';
 import { addChannelMembership, kickChannelMembers, leaveChannel } from '~/channel/runtime.ts';
 import { describe, expect, it } from 'vitest';
+import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 
 function createConnection(id: string) {
   return {
@@ -27,13 +28,14 @@ function createConnection(id: string) {
 
 describe('channels.kick end-to-end', () => {
   it('kicks tagged members, sends _kicked to them, and broadcasts _memberLeave', async () => {
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
     const kept = createConnection('keeper');
     const banned = createConnection('banned');
     const alsoBanned = createConnection('also_banned');
 
-    addChannelMembership(kept, 'room:general', null);
-    addChannelMembership(banned, 'room:general', null);
-    addChannelMembership(alsoBanned, 'room:general', null);
+    addChannelMembership(channelMembers, kept, 'room:general', null);
+    addChannelMembership(channelMembers, banned, 'room:general', null);
+    addChannelMembership(channelMembers, alsoBanned, 'room:general', null);
     banned.tags.ephemeral.set('user', new Set(['troll']));
     alsoBanned.tags.ephemeral.set('user', new Set(['troll']));
 
@@ -71,6 +73,7 @@ describe('channels.kick end-to-end', () => {
         channelFamilies: new Map(),
       },
       connections,
+      channelMembers,
       channelLock: new KeyedLock(),
       beforeSubscribeHooks: new Map(),
       subscribeHooks: new Map(),
@@ -157,10 +160,11 @@ describe('channels.kick end-to-end', () => {
   });
 
   it('logs every onUnsubscribe failure and never rejects the caller, even with multiple throwing members', async () => {
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
     const banned = createConnection('banned');
     const alsoBanned = createConnection('also_banned');
-    addChannelMembership(banned, 'room:general', null);
-    addChannelMembership(alsoBanned, 'room:general', null);
+    addChannelMembership(channelMembers, banned, 'room:general', null);
+    addChannelMembership(channelMembers, alsoBanned, 'room:general', null);
     banned.tags.ephemeral.set('user', new Set(['troll']));
     alsoBanned.tags.ephemeral.set('user', new Set(['troll']));
 
@@ -192,6 +196,7 @@ describe('channels.kick end-to-end', () => {
         channelFamilies: new Map(),
       },
       connections,
+      channelMembers,
       channelLock: new KeyedLock(),
       beforeSubscribeHooks: new Map(),
       subscribeHooks: new Map(),

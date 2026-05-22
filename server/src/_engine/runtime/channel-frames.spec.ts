@@ -1,5 +1,5 @@
 import { getChannelMembers } from '~/_engine/runtime/channel-frames.ts';
-import { createChannelMembershipKey } from '~/channel/runtime.ts';
+import { addChannelMembership } from '~/channel/runtime.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 
@@ -26,19 +26,21 @@ function createConnection(id: string): RuntimeConnection {
 }
 
 function addMembership(
+  channelMembers: Map<string, Set<RuntimeConnection>>,
   connection: ReturnType<typeof createConnection>,
   channelName: string,
   channelScope: string | null = null,
 ) {
-  connection.channelMemberships.set(createChannelMembershipKey(channelName, channelScope), {
-    channelName,
-    channelScope,
-  });
+  addChannelMembership(channelMembers, connection, channelName, channelScope);
 }
 
-function memberRuntime(connections: RuntimeConnection[]) {
+function memberRuntime(
+  connections: RuntimeConnection[],
+  channelMembers: Map<string, Set<RuntimeConnection>>,
+) {
   return {
     connections: new Map(connections.map((connection) => [connection.id, connection])),
+    channelMembers,
     toConnectionInfo: (c: RuntimeConnection) => ({
       id: c.id,
       identity: c.identity,
@@ -60,12 +62,13 @@ function memberRuntime(connections: RuntimeConnection[]) {
 
 describe('getChannelMembers scope isolation', () => {
   it('returns only static members when called with null scope', () => {
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
     const staticMember = createConnection('static');
     const familyMember = createConnection('family');
-    addMembership(staticMember, 'lobby', null);
-    addMembership(familyMember, 'lobby', 'rooms');
+    addMembership(channelMembers, staticMember, 'lobby', null);
+    addMembership(channelMembers, familyMember, 'lobby', 'rooms');
 
-    const runtime = memberRuntime([staticMember, familyMember]);
+    const runtime = memberRuntime([staticMember, familyMember], channelMembers);
 
     const result = getChannelMembers(
       runtime as unknown as Parameters<typeof getChannelMembers>[0],
@@ -76,14 +79,15 @@ describe('getChannelMembers scope isolation', () => {
   });
 
   it('returns only the matching family members when called with a family key', () => {
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
     const staticMember = createConnection('static');
     const familyMember = createConnection('family');
     const otherFamilyMember = createConnection('other');
-    addMembership(staticMember, 'lobby', null);
-    addMembership(familyMember, 'lobby', 'rooms');
-    addMembership(otherFamilyMember, 'lobby', 'lobbies');
+    addMembership(channelMembers, staticMember, 'lobby', null);
+    addMembership(channelMembers, familyMember, 'lobby', 'rooms');
+    addMembership(channelMembers, otherFamilyMember, 'lobby', 'lobbies');
 
-    const runtime = memberRuntime([staticMember, familyMember, otherFamilyMember]);
+    const runtime = memberRuntime([staticMember, familyMember, otherFamilyMember], channelMembers);
 
     const result = getChannelMembers(
       runtime as unknown as Parameters<typeof getChannelMembers>[0],

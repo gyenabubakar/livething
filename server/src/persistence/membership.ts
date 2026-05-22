@@ -200,6 +200,7 @@ export async function autoRejoinIdentity(
   await runAutoRejoin(
     {
       sql,
+      tagMembers: core.tagMembers,
       subscribeConnectionAsServer: async (
         target,
         channelName,

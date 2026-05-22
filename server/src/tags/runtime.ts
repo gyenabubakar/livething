@@ -10,7 +10,7 @@ type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
  * connection context.
  */
 export interface TagsRuntime {
-  connections: ReadonlyMap<string, RuntimeConnection>;
+  tagMembers: Map<string, Set<RuntimeConnection>>;
   isTagGroupDeclared(kind: TagKind, group: string): boolean;
   toConnectionInfo(connection: RuntimeConnection): ConnectionInfo<Record<string, unknown>>;
   sendThroughPipeline(connection: RuntimeConnection, event: string, payload: unknown): void;
@@ -43,12 +43,100 @@ function getOrCreateSet(bag: Map<string, Set<string>>, group: string): Set<strin
   return set;
 }
 
+function tagGroupIndexKey(kind: TagKind, group: string): string {
+  return JSON.stringify([kind, group]);
+}
+
+function tagRefIndexKey(kind: TagKind, group: string, key: string): string {
+  return JSON.stringify([kind, group, key]);
+}
+
+function addToTagIndex(
+  tagMembers: Map<string, Set<RuntimeConnection>>,
+  indexKey: string,
+  connection: RuntimeConnection,
+): void {
+  let members = tagMembers.get(indexKey);
+  if (!members) {
+    members = new Set();
+    tagMembers.set(indexKey, members);
+  }
+  members.add(connection);
+}
+
+function removeFromTagIndex(
+  tagMembers: Map<string, Set<RuntimeConnection>>,
+  indexKey: string,
+  connection: RuntimeConnection,
+): void {
+  const members = tagMembers.get(indexKey);
+  if (!members) return;
+  members.delete(connection);
+  if (members.size === 0) tagMembers.delete(indexKey);
+}
+
+/**
+ * Tag a connection and update the member index. Returns `false` when the
+ * connection already held the tag.
+ */
+export function addConnectionTag(
+  tagMembers: Map<string, Set<RuntimeConnection>>,
+  connection: RuntimeConnection,
+  kind: TagKind,
+  group: string,
+  key: string,
+): boolean {
+  const set = getOrCreateSet(connection.tags[kind], group);
+  if (set.has(key)) return false;
+  set.add(key);
+  addToTagIndex(tagMembers, tagRefIndexKey(kind, group, key), connection);
+  addToTagIndex(tagMembers, tagGroupIndexKey(kind, group), connection);
+  return true;
+}
+
+/**
+ * Remove a tag from a connection and update the member index. Returns `false`
+ * when the connection did not hold the tag.
+ */
+export function removeConnectionTag(
+  tagMembers: Map<string, Set<RuntimeConnection>>,
+  connection: RuntimeConnection,
+  kind: TagKind,
+  group: string,
+  key: string,
+): boolean {
+  const bag = connection.tags[kind];
+  const set = bag.get(group);
+  if (!set || !set.delete(key)) return false;
+  removeFromTagIndex(tagMembers, tagRefIndexKey(kind, group, key), connection);
+  if (set.size === 0) {
+    bag.delete(group);
+    removeFromTagIndex(tagMembers, tagGroupIndexKey(kind, group), connection);
+  }
+  return true;
+}
+
+/** Drop a closing connection from every tag-index entry it appears in. */
+export function removeConnectionFromTagIndex(
+  tagMembers: Map<string, Set<RuntimeConnection>>,
+  connection: RuntimeConnection,
+): void {
+  for (const kind of ['ephemeral', 'persistent'] as const) {
+    for (const [group, keys] of connection.tags[kind]) {
+      removeFromTagIndex(tagMembers, tagGroupIndexKey(kind, group), connection);
+      for (const key of keys) {
+        removeFromTagIndex(tagMembers, tagRefIndexKey(kind, group, key), connection);
+      }
+    }
+  }
+}
+
 function makeRef(kind: TagKind, group: string, key: string): TagRef {
   return { __wskit: 'tag-ref', kind, group, key };
 }
 
 function makeRefHandle(
-  runtime: Pick<TagsRuntime, 'connections' | 'toConnectionInfo' | 'sendThroughPipeline'>,
+  runtime: Pick<TagsRuntime, 'tagMembers' | 'toConnectionInfo' | 'sendThroughPipeline'>,
   kind: TagKind,
   group: string,
   key: string,
@@ -59,27 +147,19 @@ function makeRefHandle(
     group,
     key,
     send(event: string, payload: unknown) {
-      for (const target of runtime.connections.values()) {
-        if (target.tags[kind].get(group)?.has(key)) {
-          runtime.sendThroughPipeline(target, event, payload);
-        }
+      const members = runtime.tagMembers.get(tagRefIndexKey(kind, group, key));
+      if (!members) return;
+      for (const target of members) {
+        runtime.sendThroughPipeline(target, event, payload);
       }
     },
     connections() {
-      const out: ConnectionInfo<Record<string, unknown>>[] = [];
-      for (const target of runtime.connections.values()) {
-        if (target.tags[kind].get(group)?.has(key)) {
-          out.push(runtime.toConnectionInfo(target));
-        }
-      }
-      return out;
+      const members = runtime.tagMembers.get(tagRefIndexKey(kind, group, key));
+      if (!members) return [];
+      return [...members].map((target) => runtime.toConnectionInfo(target));
     },
     count(): number {
-      let total = 0;
-      for (const target of runtime.connections.values()) {
-        if (target.tags[kind].get(group)?.has(key)) total++;
-      }
-      return total;
+      return runtime.tagMembers.get(tagRefIndexKey(kind, group, key))?.size ?? 0;
     },
   };
 }
@@ -113,9 +193,7 @@ export function buildGroupHandle(
     group,
 
     add(key: string) {
-      const set = getOrCreateSet(readBag(connection, kind), group);
-      if (set.has(key)) return;
-      set.add(key);
+      if (!addConnectionTag(runtime.tagMembers, connection, kind, group, key)) return;
       if (kind === 'ephemeral') {
         runtime.persistAttachment(connection);
         return;
@@ -126,9 +204,7 @@ export function buildGroupHandle(
     },
 
     remove(key: string) {
-      const set = readBag(connection, kind).get(group);
-      if (!set || !set.delete(key)) return;
-      if (set.size === 0) readBag(connection, kind).delete(group);
+      if (!removeConnectionTag(runtime.tagMembers, connection, kind, group, key)) return;
       if (kind === 'ephemeral') {
         runtime.persistAttachment(connection);
         return;
@@ -143,35 +219,30 @@ export function buildGroupHandle(
     },
 
     send(event: string, payload: unknown) {
-      for (const target of runtime.connections.values()) {
-        if ((readBag(target, kind).get(group)?.size ?? 0) === 0) continue;
+      const members = runtime.tagMembers.get(tagGroupIndexKey(kind, group));
+      if (!members) return;
+      for (const target of members) {
         runtime.sendThroughPipeline(target, event, payload);
       }
     },
 
     connections() {
-      const out: ConnectionInfo<Record<string, unknown>>[] = [];
-      for (const target of runtime.connections.values()) {
-        if ((readBag(target, kind).get(group)?.size ?? 0) === 0) continue;
-        out.push(runtime.toConnectionInfo(target));
-      }
-      return out;
+      const members = runtime.tagMembers.get(tagGroupIndexKey(kind, group));
+      if (!members) return [];
+      return [...members].map((target) => runtime.toConnectionInfo(target));
     },
 
     count(): number {
-      let total = 0;
-      for (const target of runtime.connections.values()) {
-        if ((readBag(target, kind).get(group)?.size ?? 0) > 0) total++;
-      }
-      return total;
+      return runtime.tagMembers.get(tagGroupIndexKey(kind, group))?.size ?? 0;
     },
 
     keys(): readonly string[] {
+      const members = runtime.tagMembers.get(tagGroupIndexKey(kind, group));
+      if (!members) return [];
       const out = new Set<string>();
-      for (const target of runtime.connections.values()) {
+      for (const target of members) {
         const set = readBag(target, kind).get(group);
-        if (!set) continue;
-        for (const key of set) out.add(key);
+        if (set) for (const key of set) out.add(key);
       }
       return [...out];
     },
