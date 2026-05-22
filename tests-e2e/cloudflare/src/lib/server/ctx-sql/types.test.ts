@@ -1,22 +1,8 @@
 import { describe, expectTypeOf, it } from 'vitest';
 import type { CtxSqlClient } from './handler.ts';
 
-describe('ctx-sql client inference', () => {
-  it('exposes the expected top-level slots', () => {
-    expectTypeOf<CtxSqlClient>().toHaveProperty('incoming');
-    expectTypeOf<CtxSqlClient>().toHaveProperty('outgoing');
-    expectTypeOf<CtxSqlClient>().toHaveProperty('requests');
-    expectTypeOf<CtxSqlClient>().toHaveProperty('streams');
-    expectTypeOf<CtxSqlClient>().toHaveProperty('namespaces');
-    expectTypeOf<CtxSqlClient>().toHaveProperty('channels');
-  });
-});
-
-describe('CtxSqlClient — InferClient precision pin', () => {
-  it('every inferred client slot is a precise type, never `any`', () => {
-    // Regression guard for the InferClient any-collapse bug: implement().build()
-    // must carry the contract type. If build() returns `any` again, every slot
-    // below collapses to `any` and these assertions fail to compile.
+describe('CtxSqlClient — no-any guard', () => {
+  it('no slot is any', () => {
     expectTypeOf<CtxSqlClient['incoming']>().not.toBeAny();
     expectTypeOf<CtxSqlClient['outgoing']>().not.toBeAny();
     expectTypeOf<CtxSqlClient['requests']>().not.toBeAny();
@@ -24,5 +10,102 @@ describe('CtxSqlClient — InferClient precision pin', () => {
     expectTypeOf<CtxSqlClient['channels']>().not.toBeAny();
     expectTypeOf<CtxSqlClient['namespaces']>().not.toBeAny();
     expectTypeOf<CtxSqlClient['__errors__']>().not.toBeAny();
+  });
+});
+
+describe('CtxSqlClient — incoming (server outgoing)', () => {
+  it('has notes-list', () => {
+    expectTypeOf<CtxSqlClient['incoming']['notes-list']>().toEqualTypeOf<{
+      notes: Array<{ id: number; title: string; body: string }>;
+    }>();
+  });
+
+  it('has sql-one-result', () => {
+    expectTypeOf<CtxSqlClient['incoming']['sql-one-result']>().toEqualTypeOf<{
+      row: { c: number } | null;
+    }>();
+  });
+
+  it('has sql-one-empty-result', () => {
+    expectTypeOf<CtxSqlClient['incoming']['sql-one-empty-result']>().toEqualTypeOf<{
+      row: { c: number } | null;
+    }>();
+  });
+
+  it('has sql-raw-result', () => {
+    expectTypeOf<CtxSqlClient['incoming']['sql-raw-result']>().toEqualTypeOf<{
+      rows: unknown[][];
+    }>();
+  });
+
+  it('has sql-reuse-result', () => {
+    expectTypeOf<CtxSqlClient['incoming']['sql-reuse-result']>().toEqualTypeOf<{ error: string }>();
+  });
+
+  it('exactly five events in incoming', () => {
+    expectTypeOf<keyof CtxSqlClient['incoming']>().toEqualTypeOf<
+      | 'notes-list'
+      | 'sql-one-result'
+      | 'sql-one-empty-result'
+      | 'sql-raw-result'
+      | 'sql-reuse-result'
+    >();
+  });
+});
+
+describe('CtxSqlClient — outgoing (server incoming)', () => {
+  it('has save-note', () => {
+    expectTypeOf<CtxSqlClient['outgoing']['save-note']>().toEqualTypeOf<{
+      title: string;
+      body: string;
+    }>();
+  });
+
+  it('has get-notes with empty payload', () => {
+    expectTypeOf<CtxSqlClient['outgoing']['get-notes']>().toEqualTypeOf<{}>();
+  });
+
+  it('has sql-one-probe with empty payload', () => {
+    expectTypeOf<CtxSqlClient['outgoing']['sql-one-probe']>().toEqualTypeOf<{}>();
+  });
+
+  it('has sql-one-empty-probe with empty payload', () => {
+    expectTypeOf<CtxSqlClient['outgoing']['sql-one-empty-probe']>().toEqualTypeOf<{}>();
+  });
+
+  it('has sql-raw-probe with empty payload', () => {
+    expectTypeOf<CtxSqlClient['outgoing']['sql-raw-probe']>().toEqualTypeOf<{}>();
+  });
+
+  it('has sql-reuse-probe with empty payload', () => {
+    expectTypeOf<CtxSqlClient['outgoing']['sql-reuse-probe']>().toEqualTypeOf<{}>();
+  });
+});
+
+describe('CtxSqlClient — empty slots', () => {
+  it('requests is empty', () => {
+    expectTypeOf<keyof CtxSqlClient['requests']>().toBeNever();
+  });
+
+  it('streams is empty', () => {
+    expectTypeOf<keyof CtxSqlClient['streams']>().toBeNever();
+  });
+
+  it('channels is empty', () => {
+    expectTypeOf<keyof CtxSqlClient['channels']>().toBeNever();
+  });
+
+  it('namespaces is empty', () => {
+    expectTypeOf<keyof CtxSqlClient['namespaces']>().toBeNever();
+  });
+});
+
+describe('CtxSqlClient — builtin errors', () => {
+  it('has all builtin error codes', () => {
+    expectTypeOf<CtxSqlClient['__errors__']>().toHaveProperty('validation-failed');
+    expectTypeOf<CtxSqlClient['__errors__']>().toHaveProperty('channel-not-found');
+    expectTypeOf<CtxSqlClient['__errors__']>().toHaveProperty('channel-not-subscribed');
+    expectTypeOf<CtxSqlClient['__errors__']>().toHaveProperty('namespace-not-found');
+    expectTypeOf<CtxSqlClient['__errors__']>().toHaveProperty('internal-error');
   });
 });

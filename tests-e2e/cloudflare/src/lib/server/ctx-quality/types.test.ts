@@ -1,22 +1,8 @@
 import { describe, expectTypeOf, it } from 'vitest';
 import type { CtxQualityClient } from './handler.ts';
 
-describe('ctx-quality client inference', () => {
-  it('exposes the expected top-level slots', () => {
-    expectTypeOf<CtxQualityClient>().toHaveProperty('incoming');
-    expectTypeOf<CtxQualityClient>().toHaveProperty('outgoing');
-    expectTypeOf<CtxQualityClient>().toHaveProperty('requests');
-    expectTypeOf<CtxQualityClient>().toHaveProperty('streams');
-    expectTypeOf<CtxQualityClient>().toHaveProperty('namespaces');
-    expectTypeOf<CtxQualityClient>().toHaveProperty('channels');
-  });
-});
-
-describe('CtxQualityClient — InferClient precision pin', () => {
-  it('every inferred client slot is a precise type, never `any`', () => {
-    // Regression guard for the InferClient any-collapse bug: implement().build()
-    // must carry the contract type. If build() returns `any` again, every slot
-    // below collapses to `any` and these assertions fail to compile.
+describe('CtxQualityClient — no-any guard', () => {
+  it('no slot is any', () => {
     expectTypeOf<CtxQualityClient['incoming']>().not.toBeAny();
     expectTypeOf<CtxQualityClient['outgoing']>().not.toBeAny();
     expectTypeOf<CtxQualityClient['requests']>().not.toBeAny();
@@ -24,5 +10,57 @@ describe('CtxQualityClient — InferClient precision pin', () => {
     expectTypeOf<CtxQualityClient['channels']>().not.toBeAny();
     expectTypeOf<CtxQualityClient['namespaces']>().not.toBeAny();
     expectTypeOf<CtxQualityClient['__errors__']>().not.toBeAny();
+  });
+});
+
+describe('CtxQualityClient — incoming (server outgoing)', () => {
+  it('has quality-result with correct shape', () => {
+    expectTypeOf<CtxQualityClient['incoming']['quality-result']>().toEqualTypeOf<{
+      quality: string;
+      latency: number | null;
+      bufferedAmount: number;
+    }>();
+  });
+
+  it('only quality-result in incoming', () => {
+    expectTypeOf<keyof CtxQualityClient['incoming']>().toEqualTypeOf<'quality-result'>();
+  });
+});
+
+describe('CtxQualityClient — outgoing (server incoming)', () => {
+  it('has get-quality with empty payload', () => {
+    expectTypeOf<CtxQualityClient['outgoing']['get-quality']>().toEqualTypeOf<{}>();
+  });
+
+  it('only get-quality in outgoing', () => {
+    expectTypeOf<keyof CtxQualityClient['outgoing']>().toEqualTypeOf<'get-quality'>();
+  });
+});
+
+describe('CtxQualityClient — empty slots', () => {
+  it('requests is empty', () => {
+    expectTypeOf<keyof CtxQualityClient['requests']>().toBeNever();
+  });
+
+  it('streams is empty', () => {
+    expectTypeOf<keyof CtxQualityClient['streams']>().toBeNever();
+  });
+
+  it('channels is empty', () => {
+    expectTypeOf<keyof CtxQualityClient['channels']>().toBeNever();
+  });
+
+  it('namespaces is empty', () => {
+    expectTypeOf<keyof CtxQualityClient['namespaces']>().toBeNever();
+  });
+});
+
+describe('CtxQualityClient — builtin errors', () => {
+  it('has all builtin error codes', () => {
+    expectTypeOf<CtxQualityClient['__errors__']>().toHaveProperty('validation-failed');
+    expectTypeOf<CtxQualityClient['__errors__']>().toHaveProperty('channel-not-found');
+    expectTypeOf<CtxQualityClient['__errors__']>().toHaveProperty('channel-not-subscribed');
+    expectTypeOf<CtxQualityClient['__errors__']>().toHaveProperty('namespace-not-found');
+    expectTypeOf<CtxQualityClient['__errors__']>().toHaveProperty('internal-error');
   });
 });

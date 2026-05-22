@@ -1,22 +1,8 @@
 import { describe, expectTypeOf, it } from 'vitest';
 import type { ErrorHookIsolationClient } from './handler.ts';
 
-describe('error-hook-isolation client inference', () => {
-  it('exposes the expected top-level slots', () => {
-    expectTypeOf<ErrorHookIsolationClient>().toHaveProperty('incoming');
-    expectTypeOf<ErrorHookIsolationClient>().toHaveProperty('outgoing');
-    expectTypeOf<ErrorHookIsolationClient>().toHaveProperty('requests');
-    expectTypeOf<ErrorHookIsolationClient>().toHaveProperty('streams');
-    expectTypeOf<ErrorHookIsolationClient>().toHaveProperty('namespaces');
-    expectTypeOf<ErrorHookIsolationClient>().toHaveProperty('channels');
-  });
-});
-
-describe('ErrorHookIsolationClient — InferClient precision pin', () => {
-  it('every inferred client slot is a precise type, never `any`', () => {
-    // Regression guard for the InferClient any-collapse bug: implement().build()
-    // must carry the contract type. If build() returns `any` again, every slot
-    // below collapses to `any` and these assertions fail to compile.
+describe('ErrorHookIsolationClient — no-any guard', () => {
+  it('no slot is any', () => {
     expectTypeOf<ErrorHookIsolationClient['incoming']>().not.toBeAny();
     expectTypeOf<ErrorHookIsolationClient['outgoing']>().not.toBeAny();
     expectTypeOf<ErrorHookIsolationClient['requests']>().not.toBeAny();
@@ -24,5 +10,59 @@ describe('ErrorHookIsolationClient — InferClient precision pin', () => {
     expectTypeOf<ErrorHookIsolationClient['channels']>().not.toBeAny();
     expectTypeOf<ErrorHookIsolationClient['namespaces']>().not.toBeAny();
     expectTypeOf<ErrorHookIsolationClient['__errors__']>().not.toBeAny();
+  });
+});
+
+describe('ErrorHookIsolationClient — requests', () => {
+  it('has do-request', () => {
+    expectTypeOf<ErrorHookIsolationClient['requests']>().toHaveProperty('do-request');
+  });
+
+  it('do-request has correct payload', () => {
+    expectTypeOf<ErrorHookIsolationClient['requests']['do-request']['payload']>().toEqualTypeOf<{
+      text: string;
+    }>();
+  });
+
+  it('do-request has correct response', () => {
+    expectTypeOf<ErrorHookIsolationClient['requests']['do-request']['response']>().toEqualTypeOf<{
+      text: string;
+    }>();
+  });
+
+  it('only do-request in requests', () => {
+    expectTypeOf<keyof ErrorHookIsolationClient['requests']>().toEqualTypeOf<'do-request'>();
+  });
+});
+
+describe('ErrorHookIsolationClient — empty slots', () => {
+  it('incoming is empty', () => {
+    expectTypeOf<keyof ErrorHookIsolationClient['incoming']>().toBeNever();
+  });
+
+  it('outgoing is empty', () => {
+    expectTypeOf<keyof ErrorHookIsolationClient['outgoing']>().toBeNever();
+  });
+
+  it('streams is empty', () => {
+    expectTypeOf<keyof ErrorHookIsolationClient['streams']>().toBeNever();
+  });
+
+  it('channels is empty', () => {
+    expectTypeOf<keyof ErrorHookIsolationClient['channels']>().toBeNever();
+  });
+
+  it('namespaces is empty', () => {
+    expectTypeOf<keyof ErrorHookIsolationClient['namespaces']>().toBeNever();
+  });
+});
+
+describe('ErrorHookIsolationClient — builtin errors', () => {
+  it('has all builtin error codes', () => {
+    expectTypeOf<ErrorHookIsolationClient['__errors__']>().toHaveProperty('validation-failed');
+    expectTypeOf<ErrorHookIsolationClient['__errors__']>().toHaveProperty('channel-not-found');
+    expectTypeOf<ErrorHookIsolationClient['__errors__']>().toHaveProperty('channel-not-subscribed');
+    expectTypeOf<ErrorHookIsolationClient['__errors__']>().toHaveProperty('namespace-not-found');
+    expectTypeOf<ErrorHookIsolationClient['__errors__']>().toHaveProperty('internal-error');
   });
 });

@@ -1,22 +1,8 @@
 import { describe, expectTypeOf, it } from 'vitest';
 import type { ProtocolPingsClient } from './handler.ts';
 
-describe('protocol-pings client inference', () => {
-  it('exposes the expected top-level slots', () => {
-    expectTypeOf<ProtocolPingsClient>().toHaveProperty('incoming');
-    expectTypeOf<ProtocolPingsClient>().toHaveProperty('outgoing');
-    expectTypeOf<ProtocolPingsClient>().toHaveProperty('requests');
-    expectTypeOf<ProtocolPingsClient>().toHaveProperty('streams');
-    expectTypeOf<ProtocolPingsClient>().toHaveProperty('namespaces');
-    expectTypeOf<ProtocolPingsClient>().toHaveProperty('channels');
-  });
-});
-
-describe('ProtocolPingsClient — InferClient precision pin', () => {
-  it('every inferred client slot is a precise type, never `any`', () => {
-    // Regression guard for the InferClient any-collapse bug: implement().build()
-    // must carry the contract type. If build() returns `any` again, every slot
-    // below collapses to `any` and these assertions fail to compile.
+describe('ProtocolPingsClient — no-any guard', () => {
+  it('no slot is any', () => {
     expectTypeOf<ProtocolPingsClient['incoming']>().not.toBeAny();
     expectTypeOf<ProtocolPingsClient['outgoing']>().not.toBeAny();
     expectTypeOf<ProtocolPingsClient['requests']>().not.toBeAny();
@@ -24,5 +10,41 @@ describe('ProtocolPingsClient — InferClient precision pin', () => {
     expectTypeOf<ProtocolPingsClient['channels']>().not.toBeAny();
     expectTypeOf<ProtocolPingsClient['namespaces']>().not.toBeAny();
     expectTypeOf<ProtocolPingsClient['__errors__']>().not.toBeAny();
+  });
+});
+
+describe('ProtocolPingsClient — all slots are empty (no definitions)', () => {
+  it('incoming is empty', () => {
+    expectTypeOf<keyof ProtocolPingsClient['incoming']>().toBeNever();
+  });
+
+  it('outgoing is empty', () => {
+    expectTypeOf<keyof ProtocolPingsClient['outgoing']>().toBeNever();
+  });
+
+  it('requests is empty', () => {
+    expectTypeOf<keyof ProtocolPingsClient['requests']>().toBeNever();
+  });
+
+  it('streams is empty', () => {
+    expectTypeOf<keyof ProtocolPingsClient['streams']>().toBeNever();
+  });
+
+  it('channels is empty', () => {
+    expectTypeOf<keyof ProtocolPingsClient['channels']>().toBeNever();
+  });
+
+  it('namespaces is empty', () => {
+    expectTypeOf<keyof ProtocolPingsClient['namespaces']>().toBeNever();
+  });
+});
+
+describe('ProtocolPingsClient — builtin errors', () => {
+  it('has all builtin error codes', () => {
+    expectTypeOf<ProtocolPingsClient['__errors__']>().toHaveProperty('validation-failed');
+    expectTypeOf<ProtocolPingsClient['__errors__']>().toHaveProperty('channel-not-found');
+    expectTypeOf<ProtocolPingsClient['__errors__']>().toHaveProperty('channel-not-subscribed');
+    expectTypeOf<ProtocolPingsClient['__errors__']>().toHaveProperty('namespace-not-found');
+    expectTypeOf<ProtocolPingsClient['__errors__']>().toHaveProperty('internal-error');
   });
 });

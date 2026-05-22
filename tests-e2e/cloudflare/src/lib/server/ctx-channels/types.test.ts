@@ -1,22 +1,8 @@
 import { describe, expectTypeOf, it } from 'vitest';
 import type { CtxChannelsClient } from './handler.ts';
 
-describe('ctx-channels client inference', () => {
-  it('exposes the expected top-level slots', () => {
-    expectTypeOf<CtxChannelsClient>().toHaveProperty('incoming');
-    expectTypeOf<CtxChannelsClient>().toHaveProperty('outgoing');
-    expectTypeOf<CtxChannelsClient>().toHaveProperty('requests');
-    expectTypeOf<CtxChannelsClient>().toHaveProperty('streams');
-    expectTypeOf<CtxChannelsClient>().toHaveProperty('namespaces');
-    expectTypeOf<CtxChannelsClient>().toHaveProperty('channels');
-  });
-});
-
-describe('CtxChannelsClient — InferClient precision pin', () => {
-  it('every inferred client slot is a precise type, never `any`', () => {
-    // Regression guard for the InferClient any-collapse bug: implement().build()
-    // must carry the contract type. If build() returns `any` again, every slot
-    // below collapses to `any` and these assertions fail to compile.
+describe('CtxChannelsClient — no-any guard', () => {
+  it('no slot is any', () => {
     expectTypeOf<CtxChannelsClient['incoming']>().not.toBeAny();
     expectTypeOf<CtxChannelsClient['outgoing']>().not.toBeAny();
     expectTypeOf<CtxChannelsClient['requests']>().not.toBeAny();
@@ -24,5 +10,103 @@ describe('CtxChannelsClient — InferClient precision pin', () => {
     expectTypeOf<CtxChannelsClient['channels']>().not.toBeAny();
     expectTypeOf<CtxChannelsClient['namespaces']>().not.toBeAny();
     expectTypeOf<CtxChannelsClient['__errors__']>().not.toBeAny();
+  });
+});
+
+describe('CtxChannelsClient — top-level incoming (server outgoing)', () => {
+  it('has members-result', () => {
+    expectTypeOf<CtxChannelsClient['incoming']['members-result']>().toEqualTypeOf<{
+      channel: string;
+      count: number;
+    }>();
+  });
+
+  it('has member-id-result', () => {
+    expectTypeOf<CtxChannelsClient['incoming']['member-id-result']>().toEqualTypeOf<{
+      id: string;
+    }>();
+  });
+
+  it('exactly two events in incoming', () => {
+    expectTypeOf<keyof CtxChannelsClient['incoming']>().toEqualTypeOf<
+      'members-result' | 'member-id-result'
+    >();
+  });
+});
+
+describe('CtxChannelsClient — top-level outgoing (server incoming)', () => {
+  it('has get-members', () => {
+    expectTypeOf<CtxChannelsClient['outgoing']['get-members']>().toEqualTypeOf<{
+      channel: string;
+    }>();
+  });
+
+  it('has get-member-id', () => {
+    expectTypeOf<CtxChannelsClient['outgoing']['get-member-id']>().toEqualTypeOf<{
+      channel: string;
+    }>();
+  });
+
+  it('has kick-in-channel', () => {
+    expectTypeOf<CtxChannelsClient['outgoing']['kick-in-channel']>().toEqualTypeOf<{
+      channel: string;
+      tag: string;
+      reason: string;
+    }>();
+  });
+
+  it('has kick-nonmember', () => {
+    expectTypeOf<CtxChannelsClient['outgoing']['kick-nonmember']>().toEqualTypeOf<{}>();
+  });
+
+  it('exactly four events in outgoing', () => {
+    expectTypeOf<keyof CtxChannelsClient['outgoing']>().toEqualTypeOf<
+      'get-members' | 'get-member-id' | 'kick-in-channel' | 'kick-nonmember'
+    >();
+  });
+});
+
+describe('CtxChannelsClient — channels', () => {
+  it('has room channel', () => {
+    expectTypeOf<CtxChannelsClient['channels']>().toHaveProperty('room');
+  });
+
+  it('room incoming has room-message (server outgoing)', () => {
+    expectTypeOf<
+      CtxChannelsClient['channels']['room']['incoming']['room-message']
+    >().toEqualTypeOf<{
+      text: string;
+      from: string;
+    }>();
+  });
+
+  it('room outgoing has send-room-message (server incoming)', () => {
+    expectTypeOf<
+      CtxChannelsClient['channels']['room']['outgoing']['send-room-message']
+    >().toEqualTypeOf<{ text: string }>();
+  });
+});
+
+describe('CtxChannelsClient — empty slots', () => {
+  it('requests is empty', () => {
+    expectTypeOf<keyof CtxChannelsClient['requests']>().toBeNever();
+  });
+
+  it('streams is empty', () => {
+    expectTypeOf<keyof CtxChannelsClient['streams']>().toBeNever();
+  });
+
+  it('namespaces is empty', () => {
+    expectTypeOf<keyof CtxChannelsClient['namespaces']>().toBeNever();
+  });
+});
+
+describe('CtxChannelsClient — builtin errors', () => {
+  it('has all builtin error codes', () => {
+    expectTypeOf<CtxChannelsClient['__errors__']>().toHaveProperty('validation-failed');
+    expectTypeOf<CtxChannelsClient['__errors__']>().toHaveProperty('channel-not-found');
+    expectTypeOf<CtxChannelsClient['__errors__']>().toHaveProperty('channel-not-subscribed');
+    expectTypeOf<CtxChannelsClient['__errors__']>().toHaveProperty('namespace-not-found');
+    expectTypeOf<CtxChannelsClient['__errors__']>().toHaveProperty('internal-error');
   });
 });

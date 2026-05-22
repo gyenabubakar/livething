@@ -1,22 +1,8 @@
 import { describe, expectTypeOf, it } from 'vitest';
 import type { CtxMetaClient } from './handler.ts';
 
-describe('ctx-meta client inference', () => {
-  it('exposes the expected top-level slots', () => {
-    expectTypeOf<CtxMetaClient>().toHaveProperty('incoming');
-    expectTypeOf<CtxMetaClient>().toHaveProperty('outgoing');
-    expectTypeOf<CtxMetaClient>().toHaveProperty('requests');
-    expectTypeOf<CtxMetaClient>().toHaveProperty('streams');
-    expectTypeOf<CtxMetaClient>().toHaveProperty('namespaces');
-    expectTypeOf<CtxMetaClient>().toHaveProperty('channels');
-  });
-});
-
-describe('CtxMetaClient — InferClient precision pin', () => {
-  it('every inferred client slot is a precise type, never `any`', () => {
-    // Regression guard for the InferClient any-collapse bug: implement().build()
-    // must carry the contract type. If build() returns `any` again, every slot
-    // below collapses to `any` and these assertions fail to compile.
+describe('CtxMetaClient — no-any guard', () => {
+  it('no slot is any', () => {
     expectTypeOf<CtxMetaClient['incoming']>().not.toBeAny();
     expectTypeOf<CtxMetaClient['outgoing']>().not.toBeAny();
     expectTypeOf<CtxMetaClient['requests']>().not.toBeAny();
@@ -24,5 +10,79 @@ describe('CtxMetaClient — InferClient precision pin', () => {
     expectTypeOf<CtxMetaClient['channels']>().not.toBeAny();
     expectTypeOf<CtxMetaClient['namespaces']>().not.toBeAny();
     expectTypeOf<CtxMetaClient['__errors__']>().not.toBeAny();
+  });
+});
+
+describe('CtxMetaClient — incoming (server outgoing)', () => {
+  it('has who-am-i-result', () => {
+    expectTypeOf<CtxMetaClient['incoming']['who-am-i-result']>().toEqualTypeOf<{
+      username: string;
+    }>();
+  });
+
+  it('has members-list-result', () => {
+    expectTypeOf<CtxMetaClient['incoming']['members-list-result']>().toEqualTypeOf<{
+      members: string[];
+    }>();
+  });
+
+  it('has broadcast-identity-received', () => {
+    expectTypeOf<CtxMetaClient['incoming']['broadcast-identity-received']>().toEqualTypeOf<{
+      from: string;
+    }>();
+  });
+
+  it('exactly three events in incoming', () => {
+    expectTypeOf<keyof CtxMetaClient['incoming']>().toEqualTypeOf<
+      'who-am-i-result' | 'members-list-result' | 'broadcast-identity-received'
+    >();
+  });
+});
+
+describe('CtxMetaClient — outgoing (server incoming)', () => {
+  it('has who-am-i with empty payload', () => {
+    expectTypeOf<CtxMetaClient['outgoing']['who-am-i']>().toEqualTypeOf<{}>();
+  });
+
+  it('has list-members with empty payload', () => {
+    expectTypeOf<CtxMetaClient['outgoing']['list-members']>().toEqualTypeOf<{}>();
+  });
+
+  it('has broadcast-identity with empty payload', () => {
+    expectTypeOf<CtxMetaClient['outgoing']['broadcast-identity']>().toEqualTypeOf<{}>();
+  });
+
+  it('exactly three events in outgoing', () => {
+    expectTypeOf<keyof CtxMetaClient['outgoing']>().toEqualTypeOf<
+      'who-am-i' | 'list-members' | 'broadcast-identity'
+    >();
+  });
+});
+
+describe('CtxMetaClient — empty slots', () => {
+  it('requests is empty', () => {
+    expectTypeOf<keyof CtxMetaClient['requests']>().toBeNever();
+  });
+
+  it('streams is empty', () => {
+    expectTypeOf<keyof CtxMetaClient['streams']>().toBeNever();
+  });
+
+  it('channels is empty', () => {
+    expectTypeOf<keyof CtxMetaClient['channels']>().toBeNever();
+  });
+
+  it('namespaces is empty', () => {
+    expectTypeOf<keyof CtxMetaClient['namespaces']>().toBeNever();
+  });
+});
+
+describe('CtxMetaClient — builtin errors', () => {
+  it('has all builtin error codes', () => {
+    expectTypeOf<CtxMetaClient['__errors__']>().toHaveProperty('validation-failed');
+    expectTypeOf<CtxMetaClient['__errors__']>().toHaveProperty('channel-not-found');
+    expectTypeOf<CtxMetaClient['__errors__']>().toHaveProperty('channel-not-subscribed');
+    expectTypeOf<CtxMetaClient['__errors__']>().toHaveProperty('namespace-not-found');
+    expectTypeOf<CtxMetaClient['__errors__']>().toHaveProperty('internal-error');
   });
 });

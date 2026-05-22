@@ -1,22 +1,8 @@
 import { describe, expectTypeOf, it } from 'vitest';
 import type { ReplaySnapshotClient } from './handler.ts';
 
-describe('replay-snapshot client inference', () => {
-  it('exposes the expected top-level slots', () => {
-    expectTypeOf<ReplaySnapshotClient>().toHaveProperty('incoming');
-    expectTypeOf<ReplaySnapshotClient>().toHaveProperty('outgoing');
-    expectTypeOf<ReplaySnapshotClient>().toHaveProperty('requests');
-    expectTypeOf<ReplaySnapshotClient>().toHaveProperty('streams');
-    expectTypeOf<ReplaySnapshotClient>().toHaveProperty('namespaces');
-    expectTypeOf<ReplaySnapshotClient>().toHaveProperty('channels');
-  });
-});
-
-describe('ReplaySnapshotClient — InferClient precision pin', () => {
-  it('every inferred client slot is a precise type, never `any`', () => {
-    // Regression guard for the InferClient any-collapse bug: implement().build()
-    // must carry the contract type. If build() returns `any` again, every slot
-    // below collapses to `any` and these assertions fail to compile.
+describe('ReplaySnapshotClient — no-any guard', () => {
+  it('no slot is any', () => {
     expectTypeOf<ReplaySnapshotClient['incoming']>().not.toBeAny();
     expectTypeOf<ReplaySnapshotClient['outgoing']>().not.toBeAny();
     expectTypeOf<ReplaySnapshotClient['requests']>().not.toBeAny();
@@ -24,5 +10,97 @@ describe('ReplaySnapshotClient — InferClient precision pin', () => {
     expectTypeOf<ReplaySnapshotClient['channels']>().not.toBeAny();
     expectTypeOf<ReplaySnapshotClient['namespaces']>().not.toBeAny();
     expectTypeOf<ReplaySnapshotClient['__errors__']>().not.toBeAny();
+  });
+});
+
+describe('ReplaySnapshotClient — incoming (server outgoing)', () => {
+  it('has doc-snapshot', () => {
+    expectTypeOf<ReplaySnapshotClient['incoming']['doc-snapshot']>().toEqualTypeOf<{
+      docId: string;
+      title: string;
+    }>();
+  });
+
+  it('has doc-deleted', () => {
+    expectTypeOf<ReplaySnapshotClient['incoming']['doc-deleted']>().toEqualTypeOf<{
+      docId: string;
+    }>();
+  });
+
+  it('has counter-snapshot', () => {
+    expectTypeOf<ReplaySnapshotClient['incoming']['counter-snapshot']>().toEqualTypeOf<{
+      key: string;
+      total: number;
+    }>();
+  });
+
+  it('exactly three events in top-level incoming', () => {
+    expectTypeOf<keyof ReplaySnapshotClient['incoming']>().toEqualTypeOf<
+      'doc-snapshot' | 'doc-deleted' | 'counter-snapshot'
+    >();
+  });
+});
+
+describe('ReplaySnapshotClient — outgoing (server incoming)', () => {
+  it('has update-doc', () => {
+    expectTypeOf<ReplaySnapshotClient['outgoing']['update-doc']>().toEqualTypeOf<{
+      docId: string;
+      title: string;
+    }>();
+  });
+
+  it('has delete-doc', () => {
+    expectTypeOf<ReplaySnapshotClient['outgoing']['delete-doc']>().toEqualTypeOf<{
+      docId: string;
+    }>();
+  });
+
+  it('has increment-counter', () => {
+    expectTypeOf<ReplaySnapshotClient['outgoing']['increment-counter']>().toEqualTypeOf<{
+      key: string;
+      amount: number;
+    }>();
+  });
+});
+
+describe('ReplaySnapshotClient — channels', () => {
+  it('has snapshot-room channel', () => {
+    expectTypeOf<ReplaySnapshotClient['channels']>().toHaveProperty('snapshot-room');
+  });
+
+  it('snapshot-room incoming has room-doc-snapshot (server outgoing)', () => {
+    expectTypeOf<
+      ReplaySnapshotClient['channels']['snapshot-room']['incoming']['room-doc-snapshot']
+    >().toEqualTypeOf<{ docId: string; title: string }>();
+  });
+
+  it('snapshot-room outgoing has update-room-doc (server incoming)', () => {
+    expectTypeOf<
+      ReplaySnapshotClient['channels']['snapshot-room']['outgoing']['update-room-doc']
+    >().toEqualTypeOf<{ docId: string; title: string }>();
+  });
+});
+
+describe('ReplaySnapshotClient — empty slots', () => {
+  it('requests is empty', () => {
+    expectTypeOf<keyof ReplaySnapshotClient['requests']>().toBeNever();
+  });
+
+  it('streams is empty', () => {
+    expectTypeOf<keyof ReplaySnapshotClient['streams']>().toBeNever();
+  });
+
+  it('namespaces is empty', () => {
+    expectTypeOf<keyof ReplaySnapshotClient['namespaces']>().toBeNever();
+  });
+});
+
+describe('ReplaySnapshotClient — builtin errors', () => {
+  it('has all builtin error codes', () => {
+    expectTypeOf<ReplaySnapshotClient['__errors__']>().toHaveProperty('validation-failed');
+    expectTypeOf<ReplaySnapshotClient['__errors__']>().toHaveProperty('channel-not-found');
+    expectTypeOf<ReplaySnapshotClient['__errors__']>().toHaveProperty('channel-not-subscribed');
+    expectTypeOf<ReplaySnapshotClient['__errors__']>().toHaveProperty('namespace-not-found');
+    expectTypeOf<ReplaySnapshotClient['__errors__']>().toHaveProperty('internal-error');
   });
 });

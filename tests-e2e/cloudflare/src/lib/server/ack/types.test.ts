@@ -1,22 +1,8 @@
 import { describe, expectTypeOf, it } from 'vitest';
 import type { AckClient } from './handler.ts';
 
-describe('ack client inference', () => {
-  it('exposes the expected top-level slots', () => {
-    expectTypeOf<AckClient>().toHaveProperty('incoming');
-    expectTypeOf<AckClient>().toHaveProperty('outgoing');
-    expectTypeOf<AckClient>().toHaveProperty('requests');
-    expectTypeOf<AckClient>().toHaveProperty('streams');
-    expectTypeOf<AckClient>().toHaveProperty('namespaces');
-    expectTypeOf<AckClient>().toHaveProperty('channels');
-  });
-});
-
-describe('AckClient — InferClient precision pin', () => {
-  it('every inferred client slot is a precise type, never `any`', () => {
-    // Regression guard for the InferClient any-collapse bug: implement().build()
-    // must carry the contract type. If build() returns `any` again, every slot
-    // below collapses to `any` and these assertions fail to compile.
+describe('AckClient — no-any guard', () => {
+  it('no slot is any', () => {
     expectTypeOf<AckClient['incoming']>().not.toBeAny();
     expectTypeOf<AckClient['outgoing']>().not.toBeAny();
     expectTypeOf<AckClient['requests']>().not.toBeAny();
@@ -24,5 +10,57 @@ describe('AckClient — InferClient precision pin', () => {
     expectTypeOf<AckClient['channels']>().not.toBeAny();
     expectTypeOf<AckClient['namespaces']>().not.toBeAny();
     expectTypeOf<AckClient['__errors__']>().not.toBeAny();
+  });
+});
+
+describe('AckClient — incoming (server outgoing → client receives)', () => {
+  it('has ack-check-ok with empty payload', () => {
+    expectTypeOf<AckClient['incoming']['ack-check-ok']>().toEqualTypeOf<{}>();
+  });
+
+  it('no extra keys in incoming', () => {
+    expectTypeOf<keyof AckClient['incoming']>().toEqualTypeOf<'ack-check-ok'>();
+  });
+});
+
+describe('AckClient — outgoing (server incoming → client sends)', () => {
+  it('has ack-check with empty payload', () => {
+    expectTypeOf<AckClient['outgoing']['ack-check']>().toEqualTypeOf<{}>();
+  });
+
+  it('has throw-me with empty payload', () => {
+    expectTypeOf<AckClient['outgoing']['throw-me']>().toEqualTypeOf<{}>();
+  });
+
+  it('only ack-check and throw-me in outgoing', () => {
+    expectTypeOf<keyof AckClient['outgoing']>().toEqualTypeOf<'ack-check' | 'throw-me'>();
+  });
+});
+
+describe('AckClient — empty slots', () => {
+  it('requests is empty', () => {
+    expectTypeOf<keyof AckClient['requests']>().toBeNever();
+  });
+
+  it('streams is empty', () => {
+    expectTypeOf<keyof AckClient['streams']>().toBeNever();
+  });
+
+  it('channels is empty', () => {
+    expectTypeOf<keyof AckClient['channels']>().toBeNever();
+  });
+
+  it('namespaces is empty', () => {
+    expectTypeOf<keyof AckClient['namespaces']>().toBeNever();
+  });
+});
+
+describe('AckClient — builtin errors', () => {
+  it('has all builtin error codes', () => {
+    expectTypeOf<AckClient['__errors__']>().toHaveProperty('validation-failed');
+    expectTypeOf<AckClient['__errors__']>().toHaveProperty('channel-not-found');
+    expectTypeOf<AckClient['__errors__']>().toHaveProperty('channel-not-subscribed');
+    expectTypeOf<AckClient['__errors__']>().toHaveProperty('namespace-not-found');
+    expectTypeOf<AckClient['__errors__']>().toHaveProperty('internal-error');
   });
 });

@@ -1,22 +1,8 @@
 import { describe, expectTypeOf, it } from 'vitest';
 import type { ReplayMembershipGateClient } from './handler.ts';
 
-describe('replay-membership-gate client inference', () => {
-  it('exposes the expected top-level slots', () => {
-    expectTypeOf<ReplayMembershipGateClient>().toHaveProperty('incoming');
-    expectTypeOf<ReplayMembershipGateClient>().toHaveProperty('outgoing');
-    expectTypeOf<ReplayMembershipGateClient>().toHaveProperty('requests');
-    expectTypeOf<ReplayMembershipGateClient>().toHaveProperty('streams');
-    expectTypeOf<ReplayMembershipGateClient>().toHaveProperty('namespaces');
-    expectTypeOf<ReplayMembershipGateClient>().toHaveProperty('channels');
-  });
-});
-
-describe('ReplayMembershipGateClient — InferClient precision pin', () => {
-  it('every inferred client slot is a precise type, never `any`', () => {
-    // Regression guard for the InferClient any-collapse bug: implement().build()
-    // must carry the contract type. If build() returns `any` again, every slot
-    // below collapses to `any` and these assertions fail to compile.
+describe('ReplayMembershipGateClient — no-any guard', () => {
+  it('no slot is any', () => {
     expectTypeOf<ReplayMembershipGateClient['incoming']>().not.toBeAny();
     expectTypeOf<ReplayMembershipGateClient['outgoing']>().not.toBeAny();
     expectTypeOf<ReplayMembershipGateClient['requests']>().not.toBeAny();
@@ -24,5 +10,73 @@ describe('ReplayMembershipGateClient — InferClient precision pin', () => {
     expectTypeOf<ReplayMembershipGateClient['channels']>().not.toBeAny();
     expectTypeOf<ReplayMembershipGateClient['namespaces']>().not.toBeAny();
     expectTypeOf<ReplayMembershipGateClient['__errors__']>().not.toBeAny();
+  });
+});
+
+describe('ReplayMembershipGateClient — incoming (server outgoing)', () => {
+  it('has top-beacon', () => {
+    expectTypeOf<ReplayMembershipGateClient['incoming']['top-beacon']>().toEqualTypeOf<{
+      text: string;
+    }>();
+  });
+
+  it('only top-beacon in top-level incoming', () => {
+    expectTypeOf<keyof ReplayMembershipGateClient['incoming']>().toEqualTypeOf<'top-beacon'>();
+  });
+});
+
+describe('ReplayMembershipGateClient — outgoing (server incoming)', () => {
+  it('has send-beacon', () => {
+    expectTypeOf<ReplayMembershipGateClient['outgoing']['send-beacon']>().toEqualTypeOf<{
+      text: string;
+    }>();
+  });
+
+  it('only send-beacon in outgoing', () => {
+    expectTypeOf<keyof ReplayMembershipGateClient['outgoing']>().toEqualTypeOf<'send-beacon'>();
+  });
+});
+
+describe('ReplayMembershipGateClient — channels', () => {
+  it('has private channel', () => {
+    expectTypeOf<ReplayMembershipGateClient['channels']>().toHaveProperty('private');
+  });
+
+  it('private incoming has secret (server outgoing)', () => {
+    expectTypeOf<
+      ReplayMembershipGateClient['channels']['private']['incoming']['secret']
+    >().toEqualTypeOf<{ text: string }>();
+  });
+
+  it('private outgoing has send-secret (server incoming)', () => {
+    expectTypeOf<
+      ReplayMembershipGateClient['channels']['private']['outgoing']['send-secret']
+    >().toEqualTypeOf<{ text: string }>();
+  });
+});
+
+describe('ReplayMembershipGateClient — empty slots', () => {
+  it('requests is empty', () => {
+    expectTypeOf<keyof ReplayMembershipGateClient['requests']>().toBeNever();
+  });
+
+  it('streams is empty', () => {
+    expectTypeOf<keyof ReplayMembershipGateClient['streams']>().toBeNever();
+  });
+
+  it('namespaces is empty', () => {
+    expectTypeOf<keyof ReplayMembershipGateClient['namespaces']>().toBeNever();
+  });
+});
+
+describe('ReplayMembershipGateClient — builtin errors', () => {
+  it('has all builtin error codes', () => {
+    expectTypeOf<ReplayMembershipGateClient['__errors__']>().toHaveProperty('validation-failed');
+    expectTypeOf<ReplayMembershipGateClient['__errors__']>().toHaveProperty('channel-not-found');
+    expectTypeOf<ReplayMembershipGateClient['__errors__']>().toHaveProperty(
+      'channel-not-subscribed',
+    );
+    expectTypeOf<ReplayMembershipGateClient['__errors__']>().toHaveProperty('namespace-not-found');
+    expectTypeOf<ReplayMembershipGateClient['__errors__']>().toHaveProperty('internal-error');
   });
 });

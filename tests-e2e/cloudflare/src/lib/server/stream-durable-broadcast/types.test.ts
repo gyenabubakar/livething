@@ -1,22 +1,8 @@
 import { describe, expectTypeOf, it } from 'vitest';
 import type { StreamDurableBroadcastClient } from './handler.ts';
 
-describe('stream-durable-broadcast client inference', () => {
-  it('exposes the expected top-level slots', () => {
-    expectTypeOf<StreamDurableBroadcastClient>().toHaveProperty('incoming');
-    expectTypeOf<StreamDurableBroadcastClient>().toHaveProperty('outgoing');
-    expectTypeOf<StreamDurableBroadcastClient>().toHaveProperty('requests');
-    expectTypeOf<StreamDurableBroadcastClient>().toHaveProperty('streams');
-    expectTypeOf<StreamDurableBroadcastClient>().toHaveProperty('namespaces');
-    expectTypeOf<StreamDurableBroadcastClient>().toHaveProperty('channels');
-  });
-});
-
-describe('StreamDurableBroadcastClient — InferClient precision pin', () => {
-  it('every inferred client slot is a precise type, never `any`', () => {
-    // Regression guard for the InferClient any-collapse bug: implement().build()
-    // must carry the contract type. If build() returns `any` again, every slot
-    // below collapses to `any` and these assertions fail to compile.
+describe('StreamDurableBroadcastClient — no-any guard', () => {
+  it('no slot is any', () => {
     expectTypeOf<StreamDurableBroadcastClient['incoming']>().not.toBeAny();
     expectTypeOf<StreamDurableBroadcastClient['outgoing']>().not.toBeAny();
     expectTypeOf<StreamDurableBroadcastClient['requests']>().not.toBeAny();
@@ -24,5 +10,138 @@ describe('StreamDurableBroadcastClient — InferClient precision pin', () => {
     expectTypeOf<StreamDurableBroadcastClient['channels']>().not.toBeAny();
     expectTypeOf<StreamDurableBroadcastClient['namespaces']>().not.toBeAny();
     expectTypeOf<StreamDurableBroadcastClient['__errors__']>().not.toBeAny();
+  });
+});
+
+describe('StreamDurableBroadcastClient — channels', () => {
+  it('has rooms channel', () => {
+    expectTypeOf<StreamDurableBroadcastClient['channels']>().toHaveProperty('rooms');
+  });
+
+  it('rooms streams has feed (recordedStream)', () => {
+    expectTypeOf<StreamDurableBroadcastClient['channels']['rooms']['streams']>().toHaveProperty(
+      'feed',
+    );
+  });
+
+  it('feed has correct payload and chunk', () => {
+    expectTypeOf<
+      StreamDurableBroadcastClient['channels']['rooms']['streams']['feed']['payload']
+    >().toEqualTypeOf<{}>();
+    expectTypeOf<
+      StreamDurableBroadcastClient['channels']['rooms']['streams']['feed']['chunk']
+    >().toEqualTypeOf<{ token: string }>();
+  });
+
+  it('feed has no cursor, nudges, or broadcast key', () => {
+    expectTypeOf<
+      StreamDurableBroadcastClient['channels']['rooms']['streams']['feed']
+    >().not.toHaveProperty('cursor');
+    expectTypeOf<
+      StreamDurableBroadcastClient['channels']['rooms']['streams']['feed']
+    >().not.toHaveProperty('nudges');
+    expectTypeOf<
+      StreamDurableBroadcastClient['channels']['rooms']['streams']['feed']
+    >().not.toHaveProperty('broadcast');
+  });
+
+  it('rooms streams has paginate (resumableStream)', () => {
+    expectTypeOf<StreamDurableBroadcastClient['channels']['rooms']['streams']>().toHaveProperty(
+      'paginate',
+    );
+  });
+
+  it('paginate has correct chunk', () => {
+    expectTypeOf<
+      StreamDurableBroadcastClient['channels']['rooms']['streams']['paginate']['chunk']
+    >().toEqualTypeOf<{ row: number }>();
+  });
+
+  it('paginate has no cursor (no cursor validator)', () => {
+    expectTypeOf<
+      StreamDurableBroadcastClient['channels']['rooms']['streams']['paginate']
+    >().not.toHaveProperty('cursor');
+  });
+
+  it('rooms streams has attempt-broadcast (resumableStream)', () => {
+    expectTypeOf<StreamDurableBroadcastClient['channels']['rooms']['streams']>().toHaveProperty(
+      'attempt-broadcast',
+    );
+  });
+
+  it('attempt-broadcast chunk is correct', () => {
+    expectTypeOf<
+      StreamDurableBroadcastClient['channels']['rooms']['streams']['attempt-broadcast']['chunk']
+    >().toEqualTypeOf<{ attempt: number }>();
+  });
+
+  it('rooms incoming and outgoing are empty', () => {
+    expectTypeOf<keyof StreamDurableBroadcastClient['channels']['rooms']['incoming']>().toBeNever();
+    expectTypeOf<keyof StreamDurableBroadcastClient['channels']['rooms']['outgoing']>().toBeNever();
+  });
+});
+
+describe('StreamDurableBroadcastClient — namespaces', () => {
+  it('has v1 namespace', () => {
+    expectTypeOf<StreamDurableBroadcastClient['namespaces']>().toHaveProperty('v1');
+  });
+
+  it('v1 streams has news (recordedStream)', () => {
+    expectTypeOf<StreamDurableBroadcastClient['namespaces']['v1']['streams']>().toHaveProperty(
+      'news',
+    );
+  });
+
+  it('news has correct payload and chunk', () => {
+    expectTypeOf<
+      StreamDurableBroadcastClient['namespaces']['v1']['streams']['news']['payload']
+    >().toEqualTypeOf<{}>();
+    expectTypeOf<
+      StreamDurableBroadcastClient['namespaces']['v1']['streams']['news']['chunk']
+    >().toEqualTypeOf<{ headline: string }>();
+  });
+
+  it('news has no cursor, nudges, or broadcast key', () => {
+    expectTypeOf<
+      StreamDurableBroadcastClient['namespaces']['v1']['streams']['news']
+    >().not.toHaveProperty('cursor');
+    expectTypeOf<
+      StreamDurableBroadcastClient['namespaces']['v1']['streams']['news']
+    >().not.toHaveProperty('nudges');
+    expectTypeOf<
+      StreamDurableBroadcastClient['namespaces']['v1']['streams']['news']
+    >().not.toHaveProperty('broadcast');
+  });
+});
+
+describe('StreamDurableBroadcastClient — empty slots', () => {
+  it('top-level incoming is empty', () => {
+    expectTypeOf<keyof StreamDurableBroadcastClient['incoming']>().toBeNever();
+  });
+
+  it('top-level outgoing is empty', () => {
+    expectTypeOf<keyof StreamDurableBroadcastClient['outgoing']>().toBeNever();
+  });
+
+  it('requests is empty', () => {
+    expectTypeOf<keyof StreamDurableBroadcastClient['requests']>().toBeNever();
+  });
+
+  it('top-level streams is empty', () => {
+    expectTypeOf<keyof StreamDurableBroadcastClient['streams']>().toBeNever();
+  });
+});
+
+describe('StreamDurableBroadcastClient — builtin errors', () => {
+  it('has all builtin error codes', () => {
+    expectTypeOf<StreamDurableBroadcastClient['__errors__']>().toHaveProperty('validation-failed');
+    expectTypeOf<StreamDurableBroadcastClient['__errors__']>().toHaveProperty('channel-not-found');
+    expectTypeOf<StreamDurableBroadcastClient['__errors__']>().toHaveProperty(
+      'channel-not-subscribed',
+    );
+    expectTypeOf<StreamDurableBroadcastClient['__errors__']>().toHaveProperty(
+      'namespace-not-found',
+    );
+    expectTypeOf<StreamDurableBroadcastClient['__errors__']>().toHaveProperty('internal-error');
   });
 });

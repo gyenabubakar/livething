@@ -1,22 +1,8 @@
 import { describe, expectTypeOf, it } from 'vitest';
 import type { TypedTagsClient } from './handler.ts';
 
-describe('typed-tags client inference', () => {
-  it('exposes the expected top-level slots', () => {
-    expectTypeOf<TypedTagsClient>().toHaveProperty('incoming');
-    expectTypeOf<TypedTagsClient>().toHaveProperty('outgoing');
-    expectTypeOf<TypedTagsClient>().toHaveProperty('requests');
-    expectTypeOf<TypedTagsClient>().toHaveProperty('streams');
-    expectTypeOf<TypedTagsClient>().toHaveProperty('namespaces');
-    expectTypeOf<TypedTagsClient>().toHaveProperty('channels');
-  });
-});
-
-describe('TypedTagsClient — InferClient precision pin', () => {
-  it('every inferred client slot is a precise type, never `any`', () => {
-    // Regression guard for the InferClient any-collapse bug: implement().build()
-    // must carry the contract type. If build() returns `any` again, every slot
-    // below collapses to `any` and these assertions fail to compile.
+describe('TypedTagsClient — no-any guard', () => {
+  it('no slot is any', () => {
     expectTypeOf<TypedTagsClient['incoming']>().not.toBeAny();
     expectTypeOf<TypedTagsClient['outgoing']>().not.toBeAny();
     expectTypeOf<TypedTagsClient['requests']>().not.toBeAny();
@@ -24,5 +10,124 @@ describe('TypedTagsClient — InferClient precision pin', () => {
     expectTypeOf<TypedTagsClient['channels']>().not.toBeAny();
     expectTypeOf<TypedTagsClient['namespaces']>().not.toBeAny();
     expectTypeOf<TypedTagsClient['__errors__']>().not.toBeAny();
+  });
+});
+
+describe('TypedTagsClient — incoming (server outgoing)', () => {
+  it('has tags-list', () => {
+    expectTypeOf<TypedTagsClient['incoming']['tags-list']>().toEqualTypeOf<{
+      tags: Array<{ kind: string; group: string; key: string }>;
+    }>();
+  });
+
+  it('has fan-out-echo', () => {
+    expectTypeOf<TypedTagsClient['incoming']['fan-out-echo']>().toEqualTypeOf<{
+      text: string;
+      from: string;
+    }>();
+  });
+
+  it('has count-result', () => {
+    expectTypeOf<TypedTagsClient['incoming']['count-result']>().toEqualTypeOf<{ count: number }>();
+  });
+
+  it('exactly three events in incoming', () => {
+    expectTypeOf<keyof TypedTagsClient['incoming']>().toEqualTypeOf<
+      'tags-list' | 'fan-out-echo' | 'count-result'
+    >();
+  });
+});
+
+describe('TypedTagsClient — outgoing (server incoming)', () => {
+  it('has add-tag', () => {
+    expectTypeOf<TypedTagsClient['outgoing']['add-tag']>().toEqualTypeOf<{
+      kind: 'ephemeral' | 'persistent';
+      group: string;
+      key: string;
+    }>();
+  });
+
+  it('has remove-tag', () => {
+    expectTypeOf<TypedTagsClient['outgoing']['remove-tag']>().toEqualTypeOf<{
+      kind: 'ephemeral' | 'persistent';
+      group: string;
+      key: string;
+    }>();
+  });
+
+  it('has list-my-tags with empty payload', () => {
+    expectTypeOf<TypedTagsClient['outgoing']['list-my-tags']>().toEqualTypeOf<{}>();
+  });
+
+  it('has fan-out-to-tag', () => {
+    expectTypeOf<TypedTagsClient['outgoing']['fan-out-to-tag']>().toEqualTypeOf<{
+      group: string;
+      key: string;
+      text: string;
+    }>();
+  });
+
+  it('has count-by-tag', () => {
+    expectTypeOf<TypedTagsClient['outgoing']['count-by-tag']>().toEqualTypeOf<{
+      group: string;
+      key: string;
+    }>();
+  });
+
+  it('has kick-by-tag', () => {
+    expectTypeOf<TypedTagsClient['outgoing']['kick-by-tag']>().toEqualTypeOf<{
+      group: string;
+      key: string;
+      reason: string;
+    }>();
+  });
+
+  it('exactly six events in outgoing', () => {
+    expectTypeOf<keyof TypedTagsClient['outgoing']>().toEqualTypeOf<
+      'add-tag' | 'remove-tag' | 'list-my-tags' | 'fan-out-to-tag' | 'count-by-tag' | 'kick-by-tag'
+    >();
+  });
+});
+
+describe('TypedTagsClient — channels', () => {
+  it('has room channel', () => {
+    expectTypeOf<TypedTagsClient['channels']>().toHaveProperty('room');
+  });
+
+  it('room incoming has room-message (server outgoing)', () => {
+    expectTypeOf<TypedTagsClient['channels']['room']['incoming']['room-message']>().toEqualTypeOf<{
+      text: string;
+      from: string;
+    }>();
+  });
+
+  it('room outgoing has send-in-room (server incoming)', () => {
+    expectTypeOf<TypedTagsClient['channels']['room']['outgoing']['send-in-room']>().toEqualTypeOf<{
+      text: string;
+    }>();
+  });
+});
+
+describe('TypedTagsClient — empty slots', () => {
+  it('requests is empty', () => {
+    expectTypeOf<keyof TypedTagsClient['requests']>().toBeNever();
+  });
+
+  it('streams is empty', () => {
+    expectTypeOf<keyof TypedTagsClient['streams']>().toBeNever();
+  });
+
+  it('namespaces is empty', () => {
+    expectTypeOf<keyof TypedTagsClient['namespaces']>().toBeNever();
+  });
+});
+
+describe('TypedTagsClient — builtin errors', () => {
+  it('has all builtin error codes', () => {
+    expectTypeOf<TypedTagsClient['__errors__']>().toHaveProperty('validation-failed');
+    expectTypeOf<TypedTagsClient['__errors__']>().toHaveProperty('channel-not-found');
+    expectTypeOf<TypedTagsClient['__errors__']>().toHaveProperty('channel-not-subscribed');
+    expectTypeOf<TypedTagsClient['__errors__']>().toHaveProperty('namespace-not-found');
+    expectTypeOf<TypedTagsClient['__errors__']>().toHaveProperty('internal-error');
   });
 });
