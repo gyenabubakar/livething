@@ -312,16 +312,21 @@ export async function dispatchIncoming(
       return;
     }
 
-    const topPost = runtime.compiled.postIntercepts.get(event) ?? [];
+    // Post-intercepts are rare. Skip the array work entirely on the common
+    // path where the dispatched event has none registered.
+    const topPost = runtime.compiled.postIntercepts.get(event);
     const scopedPost =
-      scope.channel?.postIntercepts.get(event) ?? scope.namespace?.postIntercepts.get(event) ?? [];
-    const postPayload = await InterceptPrimitive.runPostIntercepts(
-      runtime,
-      connection,
-      [...topPost, ...scopedPost],
-      payloadValue,
-      getCtx,
-    );
+      scope.channel?.postIntercepts.get(event) ?? scope.namespace?.postIntercepts.get(event);
+    let postPayload = payloadValue;
+    if (topPost || scopedPost) {
+      postPayload = await InterceptPrimitive.runPostIntercepts(
+        runtime,
+        connection,
+        [...(topPost ?? []), ...(scopedPost ?? [])],
+        payloadValue,
+        getCtx,
+      );
+    }
 
     if (incoming) {
       await InterceptPrimitive.runWithScopedContext(runtime, connection, getCtx(), (ctx) => {

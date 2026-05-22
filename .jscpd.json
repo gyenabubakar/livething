@@ -1,0 +1,14 @@
+{
+  "gitignore": true,
+  "ignore": [
+    "**/*.spec.ts",
+    "**/*.test.ts",
+    "**/*.test-d.ts",
+    "**/*.bench.ts",
+    "**/*.mocks.ts",
+    "tests-e2e/**",
+    "_type_experiments/**"
+  ],
+  "reporters": ["console"],
+  "threshold": 5
+}
