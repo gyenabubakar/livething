@@ -746,6 +746,81 @@ describe('stream/runtime', () => {
     expect(protocolMessages.find((m) => m.event === '__streamOk__')).toBeUndefined();
   });
 
+  it('two concurrent starts of the same event — exactly one is rejected', async () => {
+    // Pins the atomic check-then-register: an await slipped between them would
+    // let both starts through.
+    const { runtime } = createStreamRuntime();
+    const connection = createConnection();
+    const stream = {
+      stream: { nudges: [], broadcast: false, allowConcurrent: false },
+      generator: async function* () {
+        yield { token: 'a' };
+      },
+    };
+
+    const results = await Promise.allSettled([
+      runStream(
+        runtime as Parameters<typeof runStream>[0],
+        connection,
+        {},
+        'tok',
+        stream as never,
+        {},
+        { streamId: 's1', channelScope: null },
+      ),
+      runStream(
+        runtime as Parameters<typeof runStream>[0],
+        connection,
+        {},
+        'tok',
+        stream as never,
+        {},
+        { streamId: 's2', channelScope: null },
+      ),
+    ]);
+
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    const rejected = results.filter((r) => r.status === 'rejected');
+    expect(rejected).toHaveLength(1);
+    expect((rejected[0] as PromiseRejectedResult).reason).toMatchObject({
+      code: 'stream-already-active',
+    });
+  });
+
+  it('two concurrent starts of the same event both run when allowConcurrent is set', async () => {
+    const { runtime } = createStreamRuntime();
+    const connection = createConnection();
+    const stream = {
+      stream: { nudges: [], broadcast: false, allowConcurrent: true },
+      generator: async function* () {
+        yield { token: 'a' };
+      },
+    };
+
+    const results = await Promise.allSettled([
+      runStream(
+        runtime as Parameters<typeof runStream>[0],
+        connection,
+        {},
+        'tok',
+        stream as never,
+        {},
+        { streamId: 's1', channelScope: null },
+      ),
+      runStream(
+        runtime as Parameters<typeof runStream>[0],
+        connection,
+        {},
+        'tok',
+        stream as never,
+        {},
+        { streamId: 's2', channelScope: null },
+      ),
+    ]);
+
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(2);
+  });
+
   it('runStream accepts a second start of a different event on the same connection', async () => {
     const { runtime } = createStreamRuntime();
     const connection = createConnection();
