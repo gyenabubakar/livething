@@ -9,7 +9,7 @@ describe('ErrorsFactoryClient — no-any guard', () => {
     expectTypeOf<ErrorsFactoryClient['streams']>().not.toBeAny();
     expectTypeOf<ErrorsFactoryClient['channels']>().not.toBeAny();
     expectTypeOf<ErrorsFactoryClient['namespaces']>().not.toBeAny();
-    expectTypeOf<ErrorsFactoryClient['__errors__']>().not.toBeAny();
+    expectTypeOf<ErrorsFactoryClient['errors']>().not.toBeAny();
   });
 });
 
@@ -47,31 +47,31 @@ describe('ErrorsFactoryClient — outgoing (server incoming)', () => {
 
 describe('ErrorsFactoryClient — declared errors', () => {
   it('has not-found error with id detail', () => {
-    expectTypeOf<ErrorsFactoryClient['__errors__']['not-found']>().toEqualTypeOf<{ id: string }>();
+    expectTypeOf<ErrorsFactoryClient['errors']['not-found']>().toEqualTypeOf<{ id: string }>();
   });
 
   it('has forbidden error with reason detail', () => {
-    expectTypeOf<ErrorsFactoryClient['__errors__']['forbidden']>().toEqualTypeOf<{
+    expectTypeOf<ErrorsFactoryClient['errors']['forbidden']>().toEqualTypeOf<{
       reason: string;
     }>();
   });
 
   it('has simple-error (no detail schema)', () => {
-    expectTypeOf<ErrorsFactoryClient['__errors__']>().toHaveProperty('simple-error');
+    expectTypeOf<ErrorsFactoryClient['errors']>().toHaveProperty('simple-error');
   });
 
   it('has bigint-detail error', () => {
-    expectTypeOf<ErrorsFactoryClient['__errors__']>().toHaveProperty('bigint-detail');
+    expectTypeOf<ErrorsFactoryClient['errors']>().toHaveProperty('bigint-detail');
   });
 });
 
 describe('ErrorsFactoryClient — builtin errors present', () => {
   it('has all builtin error codes', () => {
-    expectTypeOf<ErrorsFactoryClient['__errors__']>().toHaveProperty('validation-failed');
-    expectTypeOf<ErrorsFactoryClient['__errors__']>().toHaveProperty('channel-not-found');
-    expectTypeOf<ErrorsFactoryClient['__errors__']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<ErrorsFactoryClient['__errors__']>().toHaveProperty('namespace-not-found');
-    expectTypeOf<ErrorsFactoryClient['__errors__']>().toHaveProperty('internal-error');
+    expectTypeOf<ErrorsFactoryClient['errors']>().toHaveProperty('validation-failed');
+    expectTypeOf<ErrorsFactoryClient['errors']>().toHaveProperty('channel-not-found');
+    expectTypeOf<ErrorsFactoryClient['errors']>().toHaveProperty('channel-not-subscribed');
+    expectTypeOf<ErrorsFactoryClient['errors']>().toHaveProperty('namespace-not-found');
+    expectTypeOf<ErrorsFactoryClient['errors']>().toHaveProperty('internal-error');
   });
 });
 

@@ -9,7 +9,7 @@ describe('CtxKvClient — no-any guard', () => {
     expectTypeOf<CtxKvClient['streams']>().not.toBeAny();
     expectTypeOf<CtxKvClient['channels']>().not.toBeAny();
     expectTypeOf<CtxKvClient['namespaces']>().not.toBeAny();
-    expectTypeOf<CtxKvClient['__errors__']>().not.toBeAny();
+    expectTypeOf<CtxKvClient['errors']>().not.toBeAny();
   });
 });
 
@@ -77,10 +77,10 @@ describe('CtxKvClient — empty slots', () => {
 
 describe('CtxKvClient — builtin errors', () => {
   it('has all builtin error codes', () => {
-    expectTypeOf<CtxKvClient['__errors__']>().toHaveProperty('validation-failed');
-    expectTypeOf<CtxKvClient['__errors__']>().toHaveProperty('channel-not-found');
-    expectTypeOf<CtxKvClient['__errors__']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<CtxKvClient['__errors__']>().toHaveProperty('namespace-not-found');
-    expectTypeOf<CtxKvClient['__errors__']>().toHaveProperty('internal-error');
+    expectTypeOf<CtxKvClient['errors']>().toHaveProperty('validation-failed');
+    expectTypeOf<CtxKvClient['errors']>().toHaveProperty('channel-not-found');
+    expectTypeOf<CtxKvClient['errors']>().toHaveProperty('channel-not-subscribed');
+    expectTypeOf<CtxKvClient['errors']>().toHaveProperty('namespace-not-found');
+    expectTypeOf<CtxKvClient['errors']>().toHaveProperty('internal-error');
   });
 });

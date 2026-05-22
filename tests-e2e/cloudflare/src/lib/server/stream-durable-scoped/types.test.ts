@@ -9,7 +9,7 @@ describe('StreamDurableScopedClient — no-any guard', () => {
     expectTypeOf<StreamDurableScopedClient['streams']>().not.toBeAny();
     expectTypeOf<StreamDurableScopedClient['channels']>().not.toBeAny();
     expectTypeOf<StreamDurableScopedClient['namespaces']>().not.toBeAny();
-    expectTypeOf<StreamDurableScopedClient['__errors__']>().not.toBeAny();
+    expectTypeOf<StreamDurableScopedClient['errors']>().not.toBeAny();
   });
 });
 
@@ -210,12 +210,10 @@ describe('StreamDurableScopedClient — empty slots', () => {
 
 describe('StreamDurableScopedClient — builtin errors', () => {
   it('has all builtin error codes', () => {
-    expectTypeOf<StreamDurableScopedClient['__errors__']>().toHaveProperty('validation-failed');
-    expectTypeOf<StreamDurableScopedClient['__errors__']>().toHaveProperty('channel-not-found');
-    expectTypeOf<StreamDurableScopedClient['__errors__']>().toHaveProperty(
-      'channel-not-subscribed',
-    );
-    expectTypeOf<StreamDurableScopedClient['__errors__']>().toHaveProperty('namespace-not-found');
-    expectTypeOf<StreamDurableScopedClient['__errors__']>().toHaveProperty('internal-error');
+    expectTypeOf<StreamDurableScopedClient['errors']>().toHaveProperty('validation-failed');
+    expectTypeOf<StreamDurableScopedClient['errors']>().toHaveProperty('channel-not-found');
+    expectTypeOf<StreamDurableScopedClient['errors']>().toHaveProperty('channel-not-subscribed');
+    expectTypeOf<StreamDurableScopedClient['errors']>().toHaveProperty('namespace-not-found');
+    expectTypeOf<StreamDurableScopedClient['errors']>().toHaveProperty('internal-error');
   });
 });

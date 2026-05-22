@@ -9,7 +9,7 @@ describe('NamespaceClient — no-any guard', () => {
     expectTypeOf<NamespaceClient['streams']>().not.toBeAny();
     expectTypeOf<NamespaceClient['channels']>().not.toBeAny();
     expectTypeOf<NamespaceClient['namespaces']>().not.toBeAny();
-    expectTypeOf<NamespaceClient['__errors__']>().not.toBeAny();
+    expectTypeOf<NamespaceClient['errors']>().not.toBeAny();
   });
 });
 
@@ -101,10 +101,10 @@ describe('NamespaceClient — namespaces', () => {
 
 describe('NamespaceClient — builtin errors', () => {
   it('has all builtin error codes', () => {
-    expectTypeOf<NamespaceClient['__errors__']>().toHaveProperty('validation-failed');
-    expectTypeOf<NamespaceClient['__errors__']>().toHaveProperty('channel-not-found');
-    expectTypeOf<NamespaceClient['__errors__']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<NamespaceClient['__errors__']>().toHaveProperty('namespace-not-found');
-    expectTypeOf<NamespaceClient['__errors__']>().toHaveProperty('internal-error');
+    expectTypeOf<NamespaceClient['errors']>().toHaveProperty('validation-failed');
+    expectTypeOf<NamespaceClient['errors']>().toHaveProperty('channel-not-found');
+    expectTypeOf<NamespaceClient['errors']>().toHaveProperty('channel-not-subscribed');
+    expectTypeOf<NamespaceClient['errors']>().toHaveProperty('namespace-not-found');
+    expectTypeOf<NamespaceClient['errors']>().toHaveProperty('internal-error');
   });
 });

@@ -9,7 +9,7 @@ describe('ChannelScopeIsolationClient — no-any guard', () => {
     expectTypeOf<ChannelScopeIsolationClient['streams']>().not.toBeAny();
     expectTypeOf<ChannelScopeIsolationClient['channels']>().not.toBeAny();
     expectTypeOf<ChannelScopeIsolationClient['namespaces']>().not.toBeAny();
-    expectTypeOf<ChannelScopeIsolationClient['__errors__']>().not.toBeAny();
+    expectTypeOf<ChannelScopeIsolationClient['errors']>().not.toBeAny();
   });
 });
 
@@ -141,12 +141,10 @@ describe('ChannelScopeIsolationClient — empty slots', () => {
 
 describe('ChannelScopeIsolationClient — builtin errors', () => {
   it('has all builtin error codes', () => {
-    expectTypeOf<ChannelScopeIsolationClient['__errors__']>().toHaveProperty('validation-failed');
-    expectTypeOf<ChannelScopeIsolationClient['__errors__']>().toHaveProperty('channel-not-found');
-    expectTypeOf<ChannelScopeIsolationClient['__errors__']>().toHaveProperty(
-      'channel-not-subscribed',
-    );
-    expectTypeOf<ChannelScopeIsolationClient['__errors__']>().toHaveProperty('namespace-not-found');
-    expectTypeOf<ChannelScopeIsolationClient['__errors__']>().toHaveProperty('internal-error');
+    expectTypeOf<ChannelScopeIsolationClient['errors']>().toHaveProperty('validation-failed');
+    expectTypeOf<ChannelScopeIsolationClient['errors']>().toHaveProperty('channel-not-found');
+    expectTypeOf<ChannelScopeIsolationClient['errors']>().toHaveProperty('channel-not-subscribed');
+    expectTypeOf<ChannelScopeIsolationClient['errors']>().toHaveProperty('namespace-not-found');
+    expectTypeOf<ChannelScopeIsolationClient['errors']>().toHaveProperty('internal-error');
   });
 });

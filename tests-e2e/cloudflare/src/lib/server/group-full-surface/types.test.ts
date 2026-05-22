@@ -9,7 +9,7 @@ describe('GroupFullSurfaceClient — no-any guard', () => {
     expectTypeOf<GroupFullSurfaceClient['streams']>().not.toBeAny();
     expectTypeOf<GroupFullSurfaceClient['channels']>().not.toBeAny();
     expectTypeOf<GroupFullSurfaceClient['namespaces']>().not.toBeAny();
-    expectTypeOf<GroupFullSurfaceClient['__errors__']>().not.toBeAny();
+    expectTypeOf<GroupFullSurfaceClient['errors']>().not.toBeAny();
   });
 });
 
@@ -222,11 +222,11 @@ describe('GroupFullSurfaceClient — namespaces', () => {
 
 describe('GroupFullSurfaceClient — builtin errors', () => {
   it('has all builtin error codes', () => {
-    expectTypeOf<GroupFullSurfaceClient['__errors__']>().toHaveProperty('validation-failed');
-    expectTypeOf<GroupFullSurfaceClient['__errors__']>().toHaveProperty('channel-not-found');
-    expectTypeOf<GroupFullSurfaceClient['__errors__']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<GroupFullSurfaceClient['__errors__']>().toHaveProperty('namespace-not-found');
-    expectTypeOf<GroupFullSurfaceClient['__errors__']>().toHaveProperty('internal-error');
+    expectTypeOf<GroupFullSurfaceClient['errors']>().toHaveProperty('validation-failed');
+    expectTypeOf<GroupFullSurfaceClient['errors']>().toHaveProperty('channel-not-found');
+    expectTypeOf<GroupFullSurfaceClient['errors']>().toHaveProperty('channel-not-subscribed');
+    expectTypeOf<GroupFullSurfaceClient['errors']>().toHaveProperty('namespace-not-found');
+    expectTypeOf<GroupFullSurfaceClient['errors']>().toHaveProperty('internal-error');
   });
 });
 

@@ -9,7 +9,7 @@ describe('ReplayClient — no-any guard', () => {
     expectTypeOf<ReplayClient['streams']>().not.toBeAny();
     expectTypeOf<ReplayClient['channels']>().not.toBeAny();
     expectTypeOf<ReplayClient['namespaces']>().not.toBeAny();
-    expectTypeOf<ReplayClient['__errors__']>().not.toBeAny();
+    expectTypeOf<ReplayClient['errors']>().not.toBeAny();
   });
 });
 
@@ -170,10 +170,10 @@ describe('ReplayClient — channels', () => {
 
 describe('ReplayClient — builtin errors', () => {
   it('has all builtin error codes', () => {
-    expectTypeOf<ReplayClient['__errors__']>().toHaveProperty('validation-failed');
-    expectTypeOf<ReplayClient['__errors__']>().toHaveProperty('channel-not-found');
-    expectTypeOf<ReplayClient['__errors__']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<ReplayClient['__errors__']>().toHaveProperty('namespace-not-found');
-    expectTypeOf<ReplayClient['__errors__']>().toHaveProperty('internal-error');
+    expectTypeOf<ReplayClient['errors']>().toHaveProperty('validation-failed');
+    expectTypeOf<ReplayClient['errors']>().toHaveProperty('channel-not-found');
+    expectTypeOf<ReplayClient['errors']>().toHaveProperty('channel-not-subscribed');
+    expectTypeOf<ReplayClient['errors']>().toHaveProperty('namespace-not-found');
+    expectTypeOf<ReplayClient['errors']>().toHaveProperty('internal-error');
   });
 });

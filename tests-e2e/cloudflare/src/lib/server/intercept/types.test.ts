@@ -9,7 +9,7 @@ describe('InterceptClient — no-any guard', () => {
     expectTypeOf<InterceptClient['streams']>().not.toBeAny();
     expectTypeOf<InterceptClient['channels']>().not.toBeAny();
     expectTypeOf<InterceptClient['namespaces']>().not.toBeAny();
-    expectTypeOf<InterceptClient['__errors__']>().not.toBeAny();
+    expectTypeOf<InterceptClient['errors']>().not.toBeAny();
   });
 });
 
@@ -108,10 +108,10 @@ describe('InterceptClient — empty slots', () => {
 
 describe('InterceptClient — builtin errors', () => {
   it('has all builtin error codes', () => {
-    expectTypeOf<InterceptClient['__errors__']>().toHaveProperty('validation-failed');
-    expectTypeOf<InterceptClient['__errors__']>().toHaveProperty('channel-not-found');
-    expectTypeOf<InterceptClient['__errors__']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<InterceptClient['__errors__']>().toHaveProperty('namespace-not-found');
-    expectTypeOf<InterceptClient['__errors__']>().toHaveProperty('internal-error');
+    expectTypeOf<InterceptClient['errors']>().toHaveProperty('validation-failed');
+    expectTypeOf<InterceptClient['errors']>().toHaveProperty('channel-not-found');
+    expectTypeOf<InterceptClient['errors']>().toHaveProperty('channel-not-subscribed');
+    expectTypeOf<InterceptClient['errors']>().toHaveProperty('namespace-not-found');
+    expectTypeOf<InterceptClient['errors']>().toHaveProperty('internal-error');
   });
 });

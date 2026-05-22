@@ -9,7 +9,7 @@ describe('StreamBasicClient — no-any guard', () => {
     expectTypeOf<StreamBasicClient['streams']>().not.toBeAny();
     expectTypeOf<StreamBasicClient['channels']>().not.toBeAny();
     expectTypeOf<StreamBasicClient['namespaces']>().not.toBeAny();
-    expectTypeOf<StreamBasicClient['__errors__']>().not.toBeAny();
+    expectTypeOf<StreamBasicClient['errors']>().not.toBeAny();
   });
 });
 
@@ -100,16 +100,16 @@ describe('StreamBasicClient — streams', () => {
 
 describe('StreamBasicClient — declared errors', () => {
   it('has not-found error with id detail', () => {
-    expectTypeOf<StreamBasicClient['__errors__']['not-found']>().toEqualTypeOf<{ id: string }>();
+    expectTypeOf<StreamBasicClient['errors']['not-found']>().toEqualTypeOf<{ id: string }>();
   });
 });
 
 describe('StreamBasicClient — builtin errors', () => {
   it('has all builtin error codes', () => {
-    expectTypeOf<StreamBasicClient['__errors__']>().toHaveProperty('validation-failed');
-    expectTypeOf<StreamBasicClient['__errors__']>().toHaveProperty('channel-not-found');
-    expectTypeOf<StreamBasicClient['__errors__']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<StreamBasicClient['__errors__']>().toHaveProperty('namespace-not-found');
-    expectTypeOf<StreamBasicClient['__errors__']>().toHaveProperty('internal-error');
+    expectTypeOf<StreamBasicClient['errors']>().toHaveProperty('validation-failed');
+    expectTypeOf<StreamBasicClient['errors']>().toHaveProperty('channel-not-found');
+    expectTypeOf<StreamBasicClient['errors']>().toHaveProperty('channel-not-subscribed');
+    expectTypeOf<StreamBasicClient['errors']>().toHaveProperty('namespace-not-found');
+    expectTypeOf<StreamBasicClient['errors']>().toHaveProperty('internal-error');
   });
 });

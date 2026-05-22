@@ -9,7 +9,7 @@ describe('HibernationClient — no-any guard', () => {
     expectTypeOf<HibernationClient['streams']>().not.toBeAny();
     expectTypeOf<HibernationClient['channels']>().not.toBeAny();
     expectTypeOf<HibernationClient['namespaces']>().not.toBeAny();
-    expectTypeOf<HibernationClient['__errors__']>().not.toBeAny();
+    expectTypeOf<HibernationClient['errors']>().not.toBeAny();
   });
 });
 
@@ -119,10 +119,10 @@ describe('HibernationClient — channels', () => {
 
 describe('HibernationClient — builtin errors', () => {
   it('has all builtin error codes', () => {
-    expectTypeOf<HibernationClient['__errors__']>().toHaveProperty('validation-failed');
-    expectTypeOf<HibernationClient['__errors__']>().toHaveProperty('channel-not-found');
-    expectTypeOf<HibernationClient['__errors__']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<HibernationClient['__errors__']>().toHaveProperty('namespace-not-found');
-    expectTypeOf<HibernationClient['__errors__']>().toHaveProperty('internal-error');
+    expectTypeOf<HibernationClient['errors']>().toHaveProperty('validation-failed');
+    expectTypeOf<HibernationClient['errors']>().toHaveProperty('channel-not-found');
+    expectTypeOf<HibernationClient['errors']>().toHaveProperty('channel-not-subscribed');
+    expectTypeOf<HibernationClient['errors']>().toHaveProperty('namespace-not-found');
+    expectTypeOf<HibernationClient['errors']>().toHaveProperty('internal-error');
   });
 });

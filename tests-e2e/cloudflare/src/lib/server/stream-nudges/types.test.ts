@@ -9,7 +9,7 @@ describe('StreamNudgesClient — no-any guard', () => {
     expectTypeOf<StreamNudgesClient['streams']>().not.toBeAny();
     expectTypeOf<StreamNudgesClient['channels']>().not.toBeAny();
     expectTypeOf<StreamNudgesClient['namespaces']>().not.toBeAny();
-    expectTypeOf<StreamNudgesClient['__errors__']>().not.toBeAny();
+    expectTypeOf<StreamNudgesClient['errors']>().not.toBeAny();
   });
 });
 
@@ -99,10 +99,10 @@ describe('StreamNudgesClient — empty slots', () => {
 
 describe('StreamNudgesClient — builtin errors', () => {
   it('has all builtin error codes', () => {
-    expectTypeOf<StreamNudgesClient['__errors__']>().toHaveProperty('validation-failed');
-    expectTypeOf<StreamNudgesClient['__errors__']>().toHaveProperty('channel-not-found');
-    expectTypeOf<StreamNudgesClient['__errors__']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<StreamNudgesClient['__errors__']>().toHaveProperty('namespace-not-found');
-    expectTypeOf<StreamNudgesClient['__errors__']>().toHaveProperty('internal-error');
+    expectTypeOf<StreamNudgesClient['errors']>().toHaveProperty('validation-failed');
+    expectTypeOf<StreamNudgesClient['errors']>().toHaveProperty('channel-not-found');
+    expectTypeOf<StreamNudgesClient['errors']>().toHaveProperty('channel-not-subscribed');
+    expectTypeOf<StreamNudgesClient['errors']>().toHaveProperty('namespace-not-found');
+    expectTypeOf<StreamNudgesClient['errors']>().toHaveProperty('internal-error');
   });
 });

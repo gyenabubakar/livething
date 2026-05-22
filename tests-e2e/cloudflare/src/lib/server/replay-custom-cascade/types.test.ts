@@ -9,7 +9,7 @@ describe('ReplayCustomCascadeClient — no-any guard', () => {
     expectTypeOf<ReplayCustomCascadeClient['streams']>().not.toBeAny();
     expectTypeOf<ReplayCustomCascadeClient['channels']>().not.toBeAny();
     expectTypeOf<ReplayCustomCascadeClient['namespaces']>().not.toBeAny();
-    expectTypeOf<ReplayCustomCascadeClient['__errors__']>().not.toBeAny();
+    expectTypeOf<ReplayCustomCascadeClient['errors']>().not.toBeAny();
   });
 });
 
@@ -71,12 +71,10 @@ describe('ReplayCustomCascadeClient — channels', () => {
 
 describe('ReplayCustomCascadeClient — builtin errors', () => {
   it('has all builtin error codes', () => {
-    expectTypeOf<ReplayCustomCascadeClient['__errors__']>().toHaveProperty('validation-failed');
-    expectTypeOf<ReplayCustomCascadeClient['__errors__']>().toHaveProperty('channel-not-found');
-    expectTypeOf<ReplayCustomCascadeClient['__errors__']>().toHaveProperty(
-      'channel-not-subscribed',
-    );
-    expectTypeOf<ReplayCustomCascadeClient['__errors__']>().toHaveProperty('namespace-not-found');
-    expectTypeOf<ReplayCustomCascadeClient['__errors__']>().toHaveProperty('internal-error');
+    expectTypeOf<ReplayCustomCascadeClient['errors']>().toHaveProperty('validation-failed');
+    expectTypeOf<ReplayCustomCascadeClient['errors']>().toHaveProperty('channel-not-found');
+    expectTypeOf<ReplayCustomCascadeClient['errors']>().toHaveProperty('channel-not-subscribed');
+    expectTypeOf<ReplayCustomCascadeClient['errors']>().toHaveProperty('namespace-not-found');
+    expectTypeOf<ReplayCustomCascadeClient['errors']>().toHaveProperty('internal-error');
   });
 });

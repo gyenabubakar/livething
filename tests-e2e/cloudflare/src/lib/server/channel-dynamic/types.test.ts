@@ -9,7 +9,7 @@ describe('ChannelDynamicClient — no-any guard', () => {
     expectTypeOf<ChannelDynamicClient['streams']>().not.toBeAny();
     expectTypeOf<ChannelDynamicClient['channels']>().not.toBeAny();
     expectTypeOf<ChannelDynamicClient['namespaces']>().not.toBeAny();
-    expectTypeOf<ChannelDynamicClient['__errors__']>().not.toBeAny();
+    expectTypeOf<ChannelDynamicClient['errors']>().not.toBeAny();
   });
 });
 
@@ -137,10 +137,10 @@ describe('ChannelDynamicClient — empty slots', () => {
 
 describe('ChannelDynamicClient — builtin errors', () => {
   it('has all builtin error codes', () => {
-    expectTypeOf<ChannelDynamicClient['__errors__']>().toHaveProperty('validation-failed');
-    expectTypeOf<ChannelDynamicClient['__errors__']>().toHaveProperty('channel-not-found');
-    expectTypeOf<ChannelDynamicClient['__errors__']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<ChannelDynamicClient['__errors__']>().toHaveProperty('namespace-not-found');
-    expectTypeOf<ChannelDynamicClient['__errors__']>().toHaveProperty('internal-error');
+    expectTypeOf<ChannelDynamicClient['errors']>().toHaveProperty('validation-failed');
+    expectTypeOf<ChannelDynamicClient['errors']>().toHaveProperty('channel-not-found');
+    expectTypeOf<ChannelDynamicClient['errors']>().toHaveProperty('channel-not-subscribed');
+    expectTypeOf<ChannelDynamicClient['errors']>().toHaveProperty('namespace-not-found');
+    expectTypeOf<ChannelDynamicClient['errors']>().toHaveProperty('internal-error');
   });
 });

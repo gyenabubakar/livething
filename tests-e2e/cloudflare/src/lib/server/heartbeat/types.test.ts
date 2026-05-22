@@ -9,7 +9,7 @@ describe('HeartbeatClient — no-any guard', () => {
     expectTypeOf<HeartbeatClient['streams']>().not.toBeAny();
     expectTypeOf<HeartbeatClient['channels']>().not.toBeAny();
     expectTypeOf<HeartbeatClient['namespaces']>().not.toBeAny();
-    expectTypeOf<HeartbeatClient['__errors__']>().not.toBeAny();
+    expectTypeOf<HeartbeatClient['errors']>().not.toBeAny();
   });
 });
 
@@ -41,10 +41,10 @@ describe('HeartbeatClient — all slots are empty (no definitions)', () => {
 
 describe('HeartbeatClient — builtin errors', () => {
   it('has all builtin error codes', () => {
-    expectTypeOf<HeartbeatClient['__errors__']>().toHaveProperty('validation-failed');
-    expectTypeOf<HeartbeatClient['__errors__']>().toHaveProperty('channel-not-found');
-    expectTypeOf<HeartbeatClient['__errors__']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<HeartbeatClient['__errors__']>().toHaveProperty('namespace-not-found');
-    expectTypeOf<HeartbeatClient['__errors__']>().toHaveProperty('internal-error');
+    expectTypeOf<HeartbeatClient['errors']>().toHaveProperty('validation-failed');
+    expectTypeOf<HeartbeatClient['errors']>().toHaveProperty('channel-not-found');
+    expectTypeOf<HeartbeatClient['errors']>().toHaveProperty('channel-not-subscribed');
+    expectTypeOf<HeartbeatClient['errors']>().toHaveProperty('namespace-not-found');
+    expectTypeOf<HeartbeatClient['errors']>().toHaveProperty('internal-error');
   });
 });

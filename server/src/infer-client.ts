@@ -178,5 +178,5 @@ export type InferClient<TServer extends ServerDefinition> = SimplifyDeep<{
   /** Per-channel sub-contracts, each flipped into the client's perspective. */
   channels: ClientScopeMap<Slot<ContractOf<TServer>, 'channels'>>;
   /** Built-in engine errors (e.g. `validation-failed`) merged with developer-defined errors. */
-  __errors__: ErrorMap<BuiltInErrorUnion> & Slot<ContractOf<TServer>, 'errors'>;
+  errors: ErrorMap<BuiltInErrorUnion> & Slot<ContractOf<TServer>, 'errors'>;
 }>;

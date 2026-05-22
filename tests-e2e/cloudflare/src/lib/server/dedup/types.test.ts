@@ -9,7 +9,7 @@ describe('DedupClient — no-any guard', () => {
     expectTypeOf<DedupClient['streams']>().not.toBeAny();
     expectTypeOf<DedupClient['channels']>().not.toBeAny();
     expectTypeOf<DedupClient['namespaces']>().not.toBeAny();
-    expectTypeOf<DedupClient['__errors__']>().not.toBeAny();
+    expectTypeOf<DedupClient['errors']>().not.toBeAny();
   });
 });
 
@@ -60,10 +60,10 @@ describe('DedupClient — empty slots', () => {
 
 describe('DedupClient — builtin errors', () => {
   it('has all builtin error codes', () => {
-    expectTypeOf<DedupClient['__errors__']>().toHaveProperty('validation-failed');
-    expectTypeOf<DedupClient['__errors__']>().toHaveProperty('channel-not-found');
-    expectTypeOf<DedupClient['__errors__']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<DedupClient['__errors__']>().toHaveProperty('namespace-not-found');
-    expectTypeOf<DedupClient['__errors__']>().toHaveProperty('internal-error');
+    expectTypeOf<DedupClient['errors']>().toHaveProperty('validation-failed');
+    expectTypeOf<DedupClient['errors']>().toHaveProperty('channel-not-found');
+    expectTypeOf<DedupClient['errors']>().toHaveProperty('channel-not-subscribed');
+    expectTypeOf<DedupClient['errors']>().toHaveProperty('namespace-not-found');
+    expectTypeOf<DedupClient['errors']>().toHaveProperty('internal-error');
   });
 });

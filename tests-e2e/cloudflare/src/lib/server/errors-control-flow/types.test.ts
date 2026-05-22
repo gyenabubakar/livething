@@ -9,7 +9,7 @@ describe('ErrorsControlFlowClient — no-any guard', () => {
     expectTypeOf<ErrorsControlFlowClient['streams']>().not.toBeAny();
     expectTypeOf<ErrorsControlFlowClient['channels']>().not.toBeAny();
     expectTypeOf<ErrorsControlFlowClient['namespaces']>().not.toBeAny();
-    expectTypeOf<ErrorsControlFlowClient['__errors__']>().not.toBeAny();
+    expectTypeOf<ErrorsControlFlowClient['errors']>().not.toBeAny();
   });
 });
 
@@ -127,10 +127,10 @@ describe('ErrorsControlFlowClient — channels', () => {
 
 describe('ErrorsControlFlowClient — builtin errors', () => {
   it('has all builtin error codes', () => {
-    expectTypeOf<ErrorsControlFlowClient['__errors__']>().toHaveProperty('validation-failed');
-    expectTypeOf<ErrorsControlFlowClient['__errors__']>().toHaveProperty('channel-not-found');
-    expectTypeOf<ErrorsControlFlowClient['__errors__']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<ErrorsControlFlowClient['__errors__']>().toHaveProperty('namespace-not-found');
-    expectTypeOf<ErrorsControlFlowClient['__errors__']>().toHaveProperty('internal-error');
+    expectTypeOf<ErrorsControlFlowClient['errors']>().toHaveProperty('validation-failed');
+    expectTypeOf<ErrorsControlFlowClient['errors']>().toHaveProperty('channel-not-found');
+    expectTypeOf<ErrorsControlFlowClient['errors']>().toHaveProperty('channel-not-subscribed');
+    expectTypeOf<ErrorsControlFlowClient['errors']>().toHaveProperty('namespace-not-found');
+    expectTypeOf<ErrorsControlFlowClient['errors']>().toHaveProperty('internal-error');
   });
 });

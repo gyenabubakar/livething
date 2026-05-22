@@ -9,7 +9,7 @@ describe('BinaryClient — no-any guard', () => {
     expectTypeOf<BinaryClient['streams']>().not.toBeAny();
     expectTypeOf<BinaryClient['channels']>().not.toBeAny();
     expectTypeOf<BinaryClient['namespaces']>().not.toBeAny();
-    expectTypeOf<BinaryClient['__errors__']>().not.toBeAny();
+    expectTypeOf<BinaryClient['errors']>().not.toBeAny();
   });
 });
 
@@ -76,10 +76,10 @@ describe('BinaryClient — empty slots', () => {
 
 describe('BinaryClient — builtin errors', () => {
   it('has all builtin error codes', () => {
-    expectTypeOf<BinaryClient['__errors__']>().toHaveProperty('validation-failed');
-    expectTypeOf<BinaryClient['__errors__']>().toHaveProperty('channel-not-found');
-    expectTypeOf<BinaryClient['__errors__']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<BinaryClient['__errors__']>().toHaveProperty('namespace-not-found');
-    expectTypeOf<BinaryClient['__errors__']>().toHaveProperty('internal-error');
+    expectTypeOf<BinaryClient['errors']>().toHaveProperty('validation-failed');
+    expectTypeOf<BinaryClient['errors']>().toHaveProperty('channel-not-found');
+    expectTypeOf<BinaryClient['errors']>().toHaveProperty('channel-not-subscribed');
+    expectTypeOf<BinaryClient['errors']>().toHaveProperty('namespace-not-found');
+    expectTypeOf<BinaryClient['errors']>().toHaveProperty('internal-error');
   });
 });

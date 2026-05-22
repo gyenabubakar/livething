@@ -9,7 +9,7 @@ describe('ChannelKeyCollisionClient — no-any guard', () => {
     expectTypeOf<ChannelKeyCollisionClient['streams']>().not.toBeAny();
     expectTypeOf<ChannelKeyCollisionClient['channels']>().not.toBeAny();
     expectTypeOf<ChannelKeyCollisionClient['namespaces']>().not.toBeAny();
-    expectTypeOf<ChannelKeyCollisionClient['__errors__']>().not.toBeAny();
+    expectTypeOf<ChannelKeyCollisionClient['errors']>().not.toBeAny();
   });
 });
 
@@ -107,12 +107,10 @@ describe('ChannelKeyCollisionClient — empty slots', () => {
 
 describe('ChannelKeyCollisionClient — builtin errors', () => {
   it('has all builtin error codes', () => {
-    expectTypeOf<ChannelKeyCollisionClient['__errors__']>().toHaveProperty('validation-failed');
-    expectTypeOf<ChannelKeyCollisionClient['__errors__']>().toHaveProperty('channel-not-found');
-    expectTypeOf<ChannelKeyCollisionClient['__errors__']>().toHaveProperty(
-      'channel-not-subscribed',
-    );
-    expectTypeOf<ChannelKeyCollisionClient['__errors__']>().toHaveProperty('namespace-not-found');
-    expectTypeOf<ChannelKeyCollisionClient['__errors__']>().toHaveProperty('internal-error');
+    expectTypeOf<ChannelKeyCollisionClient['errors']>().toHaveProperty('validation-failed');
+    expectTypeOf<ChannelKeyCollisionClient['errors']>().toHaveProperty('channel-not-found');
+    expectTypeOf<ChannelKeyCollisionClient['errors']>().toHaveProperty('channel-not-subscribed');
+    expectTypeOf<ChannelKeyCollisionClient['errors']>().toHaveProperty('namespace-not-found');
+    expectTypeOf<ChannelKeyCollisionClient['errors']>().toHaveProperty('internal-error');
   });
 });

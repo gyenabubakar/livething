@@ -9,7 +9,7 @@ describe('RateLimitClient — no-any guard', () => {
     expectTypeOf<RateLimitClient['streams']>().not.toBeAny();
     expectTypeOf<RateLimitClient['channels']>().not.toBeAny();
     expectTypeOf<RateLimitClient['namespaces']>().not.toBeAny();
-    expectTypeOf<RateLimitClient['__errors__']>().not.toBeAny();
+    expectTypeOf<RateLimitClient['errors']>().not.toBeAny();
   });
 });
 
@@ -136,10 +136,10 @@ describe('RateLimitClient — namespaces', () => {
 
 describe('RateLimitClient — builtin errors', () => {
   it('has all builtin error codes', () => {
-    expectTypeOf<RateLimitClient['__errors__']>().toHaveProperty('validation-failed');
-    expectTypeOf<RateLimitClient['__errors__']>().toHaveProperty('channel-not-found');
-    expectTypeOf<RateLimitClient['__errors__']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<RateLimitClient['__errors__']>().toHaveProperty('namespace-not-found');
-    expectTypeOf<RateLimitClient['__errors__']>().toHaveProperty('internal-error');
+    expectTypeOf<RateLimitClient['errors']>().toHaveProperty('validation-failed');
+    expectTypeOf<RateLimitClient['errors']>().toHaveProperty('channel-not-found');
+    expectTypeOf<RateLimitClient['errors']>().toHaveProperty('channel-not-subscribed');
+    expectTypeOf<RateLimitClient['errors']>().toHaveProperty('namespace-not-found');
+    expectTypeOf<RateLimitClient['errors']>().toHaveProperty('internal-error');
   });
 });

@@ -9,7 +9,7 @@ describe('StreamDurableBroadcastClient — no-any guard', () => {
     expectTypeOf<StreamDurableBroadcastClient['streams']>().not.toBeAny();
     expectTypeOf<StreamDurableBroadcastClient['channels']>().not.toBeAny();
     expectTypeOf<StreamDurableBroadcastClient['namespaces']>().not.toBeAny();
-    expectTypeOf<StreamDurableBroadcastClient['__errors__']>().not.toBeAny();
+    expectTypeOf<StreamDurableBroadcastClient['errors']>().not.toBeAny();
   });
 });
 
@@ -134,14 +134,10 @@ describe('StreamDurableBroadcastClient — empty slots', () => {
 
 describe('StreamDurableBroadcastClient — builtin errors', () => {
   it('has all builtin error codes', () => {
-    expectTypeOf<StreamDurableBroadcastClient['__errors__']>().toHaveProperty('validation-failed');
-    expectTypeOf<StreamDurableBroadcastClient['__errors__']>().toHaveProperty('channel-not-found');
-    expectTypeOf<StreamDurableBroadcastClient['__errors__']>().toHaveProperty(
-      'channel-not-subscribed',
-    );
-    expectTypeOf<StreamDurableBroadcastClient['__errors__']>().toHaveProperty(
-      'namespace-not-found',
-    );
-    expectTypeOf<StreamDurableBroadcastClient['__errors__']>().toHaveProperty('internal-error');
+    expectTypeOf<StreamDurableBroadcastClient['errors']>().toHaveProperty('validation-failed');
+    expectTypeOf<StreamDurableBroadcastClient['errors']>().toHaveProperty('channel-not-found');
+    expectTypeOf<StreamDurableBroadcastClient['errors']>().toHaveProperty('channel-not-subscribed');
+    expectTypeOf<StreamDurableBroadcastClient['errors']>().toHaveProperty('namespace-not-found');
+    expectTypeOf<StreamDurableBroadcastClient['errors']>().toHaveProperty('internal-error');
   });
 });

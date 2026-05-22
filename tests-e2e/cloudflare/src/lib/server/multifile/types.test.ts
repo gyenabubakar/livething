@@ -9,7 +9,7 @@ describe('MultifileClient — no-any guard', () => {
     expectTypeOf<MultifileClient['streams']>().not.toBeAny();
     expectTypeOf<MultifileClient['channels']>().not.toBeAny();
     expectTypeOf<MultifileClient['namespaces']>().not.toBeAny();
-    expectTypeOf<MultifileClient['__errors__']>().not.toBeAny();
+    expectTypeOf<MultifileClient['errors']>().not.toBeAny();
   });
 });
 
@@ -64,10 +64,10 @@ describe('MultifileClient — empty slots', () => {
 
 describe('MultifileClient — builtin errors', () => {
   it('has all builtin error codes', () => {
-    expectTypeOf<MultifileClient['__errors__']>().toHaveProperty('validation-failed');
-    expectTypeOf<MultifileClient['__errors__']>().toHaveProperty('channel-not-found');
-    expectTypeOf<MultifileClient['__errors__']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<MultifileClient['__errors__']>().toHaveProperty('namespace-not-found');
-    expectTypeOf<MultifileClient['__errors__']>().toHaveProperty('internal-error');
+    expectTypeOf<MultifileClient['errors']>().toHaveProperty('validation-failed');
+    expectTypeOf<MultifileClient['errors']>().toHaveProperty('channel-not-found');
+    expectTypeOf<MultifileClient['errors']>().toHaveProperty('channel-not-subscribed');
+    expectTypeOf<MultifileClient['errors']>().toHaveProperty('namespace-not-found');
+    expectTypeOf<MultifileClient['errors']>().toHaveProperty('internal-error');
   });
 });

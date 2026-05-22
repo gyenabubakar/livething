@@ -9,7 +9,7 @@ describe('SequenceClient — no-any guard', () => {
     expectTypeOf<SequenceClient['streams']>().not.toBeAny();
     expectTypeOf<SequenceClient['channels']>().not.toBeAny();
     expectTypeOf<SequenceClient['namespaces']>().not.toBeAny();
-    expectTypeOf<SequenceClient['__errors__']>().not.toBeAny();
+    expectTypeOf<SequenceClient['errors']>().not.toBeAny();
   });
 });
 
@@ -53,10 +53,10 @@ describe('SequenceClient — empty slots', () => {
 
 describe('SequenceClient — builtin errors', () => {
   it('has all builtin error codes', () => {
-    expectTypeOf<SequenceClient['__errors__']>().toHaveProperty('validation-failed');
-    expectTypeOf<SequenceClient['__errors__']>().toHaveProperty('channel-not-found');
-    expectTypeOf<SequenceClient['__errors__']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<SequenceClient['__errors__']>().toHaveProperty('namespace-not-found');
-    expectTypeOf<SequenceClient['__errors__']>().toHaveProperty('internal-error');
+    expectTypeOf<SequenceClient['errors']>().toHaveProperty('validation-failed');
+    expectTypeOf<SequenceClient['errors']>().toHaveProperty('channel-not-found');
+    expectTypeOf<SequenceClient['errors']>().toHaveProperty('channel-not-subscribed');
+    expectTypeOf<SequenceClient['errors']>().toHaveProperty('namespace-not-found');
+    expectTypeOf<SequenceClient['errors']>().toHaveProperty('internal-error');
   });
 });

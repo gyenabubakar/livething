@@ -9,7 +9,7 @@ describe('CtxTagsClient — no-any guard', () => {
     expectTypeOf<CtxTagsClient['streams']>().not.toBeAny();
     expectTypeOf<CtxTagsClient['channels']>().not.toBeAny();
     expectTypeOf<CtxTagsClient['namespaces']>().not.toBeAny();
-    expectTypeOf<CtxTagsClient['__errors__']>().not.toBeAny();
+    expectTypeOf<CtxTagsClient['errors']>().not.toBeAny();
   });
 });
 
@@ -84,10 +84,10 @@ describe('CtxTagsClient — empty slots', () => {
 
 describe('CtxTagsClient — builtin errors', () => {
   it('has all builtin error codes', () => {
-    expectTypeOf<CtxTagsClient['__errors__']>().toHaveProperty('validation-failed');
-    expectTypeOf<CtxTagsClient['__errors__']>().toHaveProperty('channel-not-found');
-    expectTypeOf<CtxTagsClient['__errors__']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<CtxTagsClient['__errors__']>().toHaveProperty('namespace-not-found');
-    expectTypeOf<CtxTagsClient['__errors__']>().toHaveProperty('internal-error');
+    expectTypeOf<CtxTagsClient['errors']>().toHaveProperty('validation-failed');
+    expectTypeOf<CtxTagsClient['errors']>().toHaveProperty('channel-not-found');
+    expectTypeOf<CtxTagsClient['errors']>().toHaveProperty('channel-not-subscribed');
+    expectTypeOf<CtxTagsClient['errors']>().toHaveProperty('namespace-not-found');
+    expectTypeOf<CtxTagsClient['errors']>().toHaveProperty('internal-error');
   });
 });

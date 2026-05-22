@@ -9,7 +9,7 @@ describe('ModulesClient — no-any guard', () => {
     expectTypeOf<ModulesClient['streams']>().not.toBeAny();
     expectTypeOf<ModulesClient['channels']>().not.toBeAny();
     expectTypeOf<ModulesClient['namespaces']>().not.toBeAny();
-    expectTypeOf<ModulesClient['__errors__']>().not.toBeAny();
+    expectTypeOf<ModulesClient['errors']>().not.toBeAny();
   });
 });
 
@@ -143,10 +143,10 @@ describe('ModulesClient — empty slots', () => {
 
 describe('ModulesClient — builtin errors', () => {
   it('has all builtin error codes', () => {
-    expectTypeOf<ModulesClient['__errors__']>().toHaveProperty('validation-failed');
-    expectTypeOf<ModulesClient['__errors__']>().toHaveProperty('channel-not-found');
-    expectTypeOf<ModulesClient['__errors__']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<ModulesClient['__errors__']>().toHaveProperty('namespace-not-found');
-    expectTypeOf<ModulesClient['__errors__']>().toHaveProperty('internal-error');
+    expectTypeOf<ModulesClient['errors']>().toHaveProperty('validation-failed');
+    expectTypeOf<ModulesClient['errors']>().toHaveProperty('channel-not-found');
+    expectTypeOf<ModulesClient['errors']>().toHaveProperty('channel-not-subscribed');
+    expectTypeOf<ModulesClient['errors']>().toHaveProperty('namespace-not-found');
+    expectTypeOf<ModulesClient['errors']>().toHaveProperty('internal-error');
   });
 });

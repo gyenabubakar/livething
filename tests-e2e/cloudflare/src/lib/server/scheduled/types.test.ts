@@ -9,7 +9,7 @@ describe('ScheduledClient — no-any guard', () => {
     expectTypeOf<ScheduledClient['streams']>().not.toBeAny();
     expectTypeOf<ScheduledClient['channels']>().not.toBeAny();
     expectTypeOf<ScheduledClient['namespaces']>().not.toBeAny();
-    expectTypeOf<ScheduledClient['__errors__']>().not.toBeAny();
+    expectTypeOf<ScheduledClient['errors']>().not.toBeAny();
   });
 });
 
@@ -151,10 +151,10 @@ describe('ScheduledClient — empty slots', () => {
 
 describe('ScheduledClient — builtin errors', () => {
   it('has all builtin error codes', () => {
-    expectTypeOf<ScheduledClient['__errors__']>().toHaveProperty('validation-failed');
-    expectTypeOf<ScheduledClient['__errors__']>().toHaveProperty('channel-not-found');
-    expectTypeOf<ScheduledClient['__errors__']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<ScheduledClient['__errors__']>().toHaveProperty('namespace-not-found');
-    expectTypeOf<ScheduledClient['__errors__']>().toHaveProperty('internal-error');
+    expectTypeOf<ScheduledClient['errors']>().toHaveProperty('validation-failed');
+    expectTypeOf<ScheduledClient['errors']>().toHaveProperty('channel-not-found');
+    expectTypeOf<ScheduledClient['errors']>().toHaveProperty('channel-not-subscribed');
+    expectTypeOf<ScheduledClient['errors']>().toHaveProperty('namespace-not-found');
+    expectTypeOf<ScheduledClient['errors']>().toHaveProperty('internal-error');
   });
 });
