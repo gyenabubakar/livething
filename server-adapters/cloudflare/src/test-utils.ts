@@ -130,6 +130,7 @@ export interface FakeEngine {
     setStorage: unknown[];
     setPlatform: unknown[];
     setTimerProvider: unknown[];
+    setAsyncContext: unknown[];
     setWaitUntil: unknown[];
     setLogger: unknown[];
     handleUpgrade: Request[];
@@ -158,6 +159,7 @@ export function makeFakeEngine(): FakeEngine {
     setStorage: [],
     setPlatform: [],
     setTimerProvider: [],
+    setAsyncContext: [],
     setWaitUntil: [],
     setLogger: [],
     handleUpgrade: [],
@@ -193,6 +195,9 @@ export function makeFakeEngine(): FakeEngine {
     },
     setTimerProvider: (t: unknown) => {
       calls.setTimerProvider.push(t);
+    },
+    setAsyncContext: (asyncContext: unknown) => {
+      calls.setAsyncContext.push(asyncContext);
     },
     setWaitUntil: (fn: unknown) => {
       calls.setWaitUntil.push(fn);
