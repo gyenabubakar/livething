@@ -8,7 +8,8 @@ const CREATE_CONNECTIONS_TABLE_SQL = `
     meta                  TEXT NOT NULL,
     ephemeral_tags        TEXT NOT NULL DEFAULT '[]',
     ephemeral_memberships TEXT NOT NULL DEFAULT '[]',
-    active_stream_ids     TEXT NOT NULL DEFAULT '[]'
+    active_stream_ids     TEXT NOT NULL DEFAULT '[]',
+    metadata              TEXT NOT NULL DEFAULT '{}'
   )
 `;
 

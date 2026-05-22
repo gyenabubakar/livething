@@ -8,6 +8,7 @@ const CREATE_MEMBERSHIPS_TABLE_SQL = `
     channel_name  TEXT NOT NULL,
     channel_scope TEXT NOT NULL DEFAULT '',
     joined_at     INTEGER NOT NULL,
+    metadata      TEXT NOT NULL DEFAULT '{}',
     PRIMARY KEY (identity, channel_name, channel_scope)
   )
 `;
@@ -28,6 +29,7 @@ const CREATE_TAGS_TABLE_SQL = `
     group_name TEXT NOT NULL,
     key        TEXT NOT NULL,
     added_at   INTEGER NOT NULL,
+    metadata   TEXT NOT NULL DEFAULT '{}',
     PRIMARY KEY (identity, group_name, key)
   )
 `;

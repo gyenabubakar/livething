@@ -3,7 +3,8 @@ import type { SQLProvider } from '~/context.ts';
 const CREATE_SEQUENCE_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS __wskit_sequence (
     scope TEXT PRIMARY KEY,
-    nextSeq INTEGER NOT NULL
+    nextSeq INTEGER NOT NULL,
+    metadata TEXT NOT NULL DEFAULT '{}'
   )
 `;
 

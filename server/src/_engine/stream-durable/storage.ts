@@ -28,6 +28,7 @@ const CREATE_STREAMS_TABLE_SQL = `
     max_chunks                INTEGER,
     max_age_ms                INTEGER,
     retention_after_end_ms    INTEGER,
+    metadata                  TEXT NOT NULL DEFAULT '{}',
     PRIMARY KEY (identity, stream_id)
   )
 `;
@@ -45,6 +46,7 @@ const CREATE_STREAM_CHUNKS_TABLE_SQL = `
     message_id   TEXT,
     payload      TEXT NOT NULL,
     emitted_at   INTEGER NOT NULL,
+    metadata     TEXT NOT NULL DEFAULT '{}',
     PRIMARY KEY (identity, stream_id, seq),
     FOREIGN KEY (identity, stream_id) REFERENCES __wskit_streams (identity, stream_id) ON DELETE CASCADE
   )
@@ -59,6 +61,7 @@ const CREATE_STREAM_SUBSCRIBERS_TABLE_SQL = `
     subscriber_identity  TEXT NOT NULL,
     caught_up_seq        INTEGER NOT NULL DEFAULT 0,
     unsubscribed_at      INTEGER,
+    metadata             TEXT NOT NULL DEFAULT '{}',
     PRIMARY KEY (identity, stream_id, subscriber_identity),
     FOREIGN KEY (identity, stream_id) REFERENCES __wskit_streams (identity, stream_id) ON DELETE CASCADE
   )

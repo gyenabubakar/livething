@@ -14,7 +14,8 @@ const SCHEDULED_TABLE_SQL = `
     everyMs INTEGER,
     attempts INTEGER NOT NULL DEFAULT 0,
     recurring INTEGER NOT NULL DEFAULT 0,
-    retry INTEGER NOT NULL DEFAULT 1
+    retry INTEGER NOT NULL DEFAULT 1,
+    metadata TEXT NOT NULL DEFAULT '{}'
   )
 `;
 
@@ -26,7 +27,8 @@ const SCHEDULED_DLQ_TABLE_SQL = `
     failedAt INTEGER NOT NULL,
     data TEXT,
     attempts INTEGER NOT NULL,
-    error TEXT NOT NULL
+    error TEXT NOT NULL,
+    metadata TEXT NOT NULL DEFAULT '{}'
   )
 `;
 type ScheduledRunRow = {

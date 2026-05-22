@@ -22,7 +22,8 @@ const CREATE_REPLAY_TABLE_SQL = `
     channel TEXT,
     channelScope TEXT,
     snapshotKey TEXT,
-    createdAt INTEGER NOT NULL
+    createdAt INTEGER NOT NULL,
+    metadata TEXT NOT NULL DEFAULT '{}'
   )
 `;
 
