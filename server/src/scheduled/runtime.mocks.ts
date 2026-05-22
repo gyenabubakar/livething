@@ -66,17 +66,17 @@ export class FakeSqlProvider {
   exec<TRow = unknown>(query: string, ...params: unknown[]): FakeSqlResult<TRow> {
     const normalizedQuery = query.replaceAll(/\s+/g, ' ').trim();
 
-    if (normalizedQuery.startsWith('CREATE TABLE IF NOT EXISTS _wskit_scheduled_dlq')) {
+    if (normalizedQuery.startsWith('CREATE TABLE IF NOT EXISTS __wskit_scheduled_dlq')) {
       return new FakeSqlResult<TRow>([]);
     }
 
-    if (normalizedQuery.startsWith('CREATE TABLE IF NOT EXISTS _wskit_scheduled')) {
+    if (normalizedQuery.startsWith('CREATE TABLE IF NOT EXISTS __wskit_scheduled')) {
       return new FakeSqlResult<TRow>([]);
     }
 
     if (
       normalizedQuery.startsWith(
-        'SELECT id, taskId, time, data, everyMs, attempts, recurring, retry FROM _wskit_scheduled',
+        'SELECT id, taskId, time, data, everyMs, attempts, recurring, retry FROM __wskit_scheduled',
       )
     ) {
       return new FakeSqlResult<TRow>([...this.scheduled.values()] as TRow[]);
@@ -84,23 +84,23 @@ export class FakeSqlProvider {
 
     if (
       normalizedQuery.startsWith(
-        'SELECT id, taskId, time, failedAt, data, attempts, error FROM _wskit_scheduled_dlq',
+        'SELECT id, taskId, time, failedAt, data, attempts, error FROM __wskit_scheduled_dlq',
       )
     ) {
       return new FakeSqlResult<TRow>([...this.scheduledDlq.values()] as TRow[]);
     }
 
-    if (normalizedQuery.startsWith('DELETE FROM _wskit_scheduled_dlq')) {
+    if (normalizedQuery.startsWith('DELETE FROM __wskit_scheduled_dlq')) {
       this.scheduledDlq.clear();
       return new FakeSqlResult<TRow>([]);
     }
 
-    if (normalizedQuery.startsWith('DELETE FROM _wskit_scheduled')) {
+    if (normalizedQuery.startsWith('DELETE FROM __wskit_scheduled')) {
       this.scheduled.clear();
       return new FakeSqlResult<TRow>([]);
     }
 
-    if (normalizedQuery.startsWith('INSERT INTO _wskit_scheduled ')) {
+    if (normalizedQuery.startsWith('INSERT INTO __wskit_scheduled ')) {
       this.scheduled.set(String(params[0]), {
         id: String(params[0]),
         taskId: String(params[1]),
@@ -114,7 +114,7 @@ export class FakeSqlProvider {
       return new FakeSqlResult<TRow>([]);
     }
 
-    if (normalizedQuery.startsWith('INSERT INTO _wskit_scheduled_dlq')) {
+    if (normalizedQuery.startsWith('INSERT INTO __wskit_scheduled_dlq')) {
       this.scheduledDlq.set(String(params[0]), {
         id: String(params[0]),
         taskId: String(params[1]),

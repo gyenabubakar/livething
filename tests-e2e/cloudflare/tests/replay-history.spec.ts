@@ -116,7 +116,7 @@ test.describe('replay handler', () => {
     // the original connection. Replay must not store them: a reconnecting
     // client has no stream by that id, and Issue #3 tracks proper stream
     // replay across reconnect. Pre-fix the persist filter only blocked
-    // `correlationId`, so chunks slipped into `_wskit_replay` and came
+    // `correlationId`, so chunks slipped into `__wskit_replay` and came
     // back on every later `__replay__ lastKnownSeq: 0`.
     const result = await page.evaluate(async () => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;

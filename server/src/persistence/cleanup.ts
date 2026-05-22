@@ -4,7 +4,7 @@ import type { SQLProvider } from '~/context.ts';
 type RawRow = { channel_name: string; channel_scope: string };
 
 const SELECT_DISTINCT_SCOPES_SQL = `
-  SELECT DISTINCT channel_name, channel_scope FROM _wskit_channel_memberships
+  SELECT DISTINCT channel_name, channel_scope FROM __wskit_channel_memberships
 `;
 
 /**

@@ -2,7 +2,7 @@ import type { SQLProvider } from '~/context.ts';
 import type { RuntimeConnection } from './types.ts';
 
 const CREATE_CONNECTIONS_TABLE_SQL = `
-  CREATE TABLE IF NOT EXISTS _wskit_connections (
+  CREATE TABLE IF NOT EXISTS __wskit_connections (
     connection_id         TEXT PRIMARY KEY,
     identity              TEXT NOT NULL,
     meta                  TEXT NOT NULL,
@@ -13,28 +13,28 @@ const CREATE_CONNECTIONS_TABLE_SQL = `
 `;
 
 const CREATE_CONNECTIONS_IDENTITY_INDEX_SQL = `
-  CREATE INDEX IF NOT EXISTS idx_wskit_connections_identity
-  ON _wskit_connections (identity)
+  CREATE INDEX IF NOT EXISTS __wskit_idx_connections_identity
+  ON __wskit_connections (identity)
 `;
 
 const UPSERT_CONNECTION_SQL = `
-  INSERT OR REPLACE INTO _wskit_connections
+  INSERT OR REPLACE INTO __wskit_connections
     (connection_id, identity, meta, ephemeral_tags, ephemeral_memberships, active_stream_ids)
   VALUES (?, ?, ?, ?, ?, ?)
 `;
 
 const SELECT_CONNECTION_SQL = `
   SELECT connection_id, identity, meta, ephemeral_tags, ephemeral_memberships, active_stream_ids
-  FROM _wskit_connections
+  FROM __wskit_connections
   WHERE connection_id = ?
 `;
 
-const DELETE_CONNECTION_SQL = 'DELETE FROM _wskit_connections WHERE connection_id = ?';
+const DELETE_CONNECTION_SQL = 'DELETE FROM __wskit_connections WHERE connection_id = ?';
 
-const DELETE_ALL_CONNECTIONS_SQL = 'DELETE FROM _wskit_connections';
+const DELETE_ALL_CONNECTIONS_SQL = 'DELETE FROM __wskit_connections';
 
 /**
- * The shape persisted into the `_wskit_connections` row. The engine writes one
+ * The shape persisted into the `__wskit_connections` row. The engine writes one
  * row per live connection and reads it back on hibernation wake.
  */
 /**
@@ -154,7 +154,7 @@ export function reconcileConnectionRows(
   }
   const placeholders = Array.from({ length: surviving.size }, () => '?').join(', ');
   sql.exec(
-    `DELETE FROM _wskit_connections WHERE connection_id NOT IN (${placeholders})`,
+    `DELETE FROM __wskit_connections WHERE connection_id NOT IN (${placeholders})`,
     ...surviving,
   );
 }

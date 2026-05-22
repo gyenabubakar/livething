@@ -25,10 +25,10 @@ function memorySql() {
       const q = query.trim();
       if (q.startsWith('PRAGMA') || q.startsWith('CREATE')) return { toArray: () => [] };
 
-      if (q.startsWith('INSERT INTO _wskit_streams')) {
+      if (q.startsWith('INSERT INTO __wskit_streams')) {
         if (raiseConstraint) {
           throw new Error(
-            'UNIQUE constraint failed: _wskit_streams.identity, _wskit_streams.stream_id',
+            'UNIQUE constraint failed: __wskit_streams.identity, __wskit_streams.stream_id',
           );
         }
         const [
@@ -72,13 +72,13 @@ function memorySql() {
         return { toArray: () => [] };
       }
 
-      if (q.startsWith('SELECT * FROM _wskit_streams WHERE identity')) {
+      if (q.startsWith('SELECT * FROM __wskit_streams WHERE identity')) {
         const [identity, streamId] = params;
         const row = streams.get(key([identity, streamId]));
         return { toArray: () => (row ? [row] : []) };
       }
 
-      if (q.startsWith('UPDATE _wskit_streams SET cursor')) {
+      if (q.startsWith('UPDATE __wskit_streams SET cursor')) {
         const [cursor, lastSeq, now, identity, streamId] = params;
         const row = streams.get(key([identity, streamId]));
         if (row) {
@@ -88,7 +88,7 @@ function memorySql() {
         }
         return { toArray: () => [] };
       }
-      if (q.startsWith('UPDATE _wskit_streams SET last_seq')) {
+      if (q.startsWith('UPDATE __wskit_streams SET last_seq')) {
         const [lastSeq, now, identity, streamId] = params;
         const row = streams.get(key([identity, streamId]));
         if (row) {
@@ -97,7 +97,7 @@ function memorySql() {
         }
         return { toArray: () => [] };
       }
-      if (q.startsWith("UPDATE _wskit_streams SET status = 'suspended'")) {
+      if (q.startsWith("UPDATE __wskit_streams SET status = 'suspended'")) {
         const [now, identity, streamId] = params;
         const row = streams.get(key([identity, streamId]));
         if (row && row.status === 'active') {
@@ -106,7 +106,7 @@ function memorySql() {
         }
         return { toArray: () => [] };
       }
-      if (q.startsWith("UPDATE _wskit_streams SET status = 'ended'")) {
+      if (q.startsWith("UPDATE __wskit_streams SET status = 'ended'")) {
         const [now, lastActivityAt, identity, streamId] = params;
         const row = streams.get(key([identity, streamId]));
         if (row) {
@@ -116,7 +116,7 @@ function memorySql() {
         }
         return { toArray: () => [] };
       }
-      if (q.startsWith("UPDATE _wskit_streams SET status = 'active'")) {
+      if (q.startsWith("UPDATE __wskit_streams SET status = 'active'")) {
         const [now, identity, streamId] = params;
         const row = streams.get(key([identity, streamId]));
         if (row) {
@@ -125,7 +125,7 @@ function memorySql() {
         }
         return { toArray: () => [] };
       }
-      if (q.startsWith('DELETE FROM _wskit_streams')) {
+      if (q.startsWith('DELETE FROM __wskit_streams')) {
         const [identity, streamId] = params;
         streams.delete(key([identity, streamId]));
         // emulate ON DELETE CASCADE
@@ -138,7 +138,7 @@ function memorySql() {
         return { toArray: () => [] };
       }
 
-      if (q.startsWith('INSERT INTO _wskit_stream_chunks')) {
+      if (q.startsWith('INSERT INTO __wskit_stream_chunks')) {
         const [identity, streamId, seq, messageId, payload, now] = params;
         chunks.set(key([identity, streamId, seq]), {
           identity,
@@ -150,7 +150,7 @@ function memorySql() {
         });
         return { toArray: () => [] };
       }
-      if (q.startsWith('SELECT * FROM _wskit_stream_chunks')) {
+      if (q.startsWith('SELECT * FROM __wskit_stream_chunks')) {
         const [identity, streamId, since] = params;
         const out: Record<string, unknown>[] = [];
         for (const row of chunks.values()) {
@@ -165,7 +165,7 @@ function memorySql() {
         out.sort((a, b) => Number(a.seq) - Number(b.seq));
         return { toArray: () => out };
       }
-      if (q.startsWith('SELECT COUNT(*) AS n FROM _wskit_stream_chunks')) {
+      if (q.startsWith('SELECT COUNT(*) AS n FROM __wskit_stream_chunks')) {
         const [identity, streamId] = params;
         let n = 0;
         for (const row of chunks.values()) {
@@ -174,7 +174,7 @@ function memorySql() {
         return { toArray: () => [{ n }] };
       }
 
-      if (q.startsWith('SELECT identity, stream_id FROM _wskit_streams')) {
+      if (q.startsWith('SELECT identity, stream_id FROM __wskit_streams')) {
         const isSuspended = q.includes("status = 'suspended'");
         const [now] = params;
         const out: Record<string, unknown>[] = [];
@@ -193,13 +193,13 @@ function memorySql() {
         return { toArray: () => out };
       }
 
-      if (q.startsWith('INSERT OR IGNORE INTO _wskit_stream_subscribers')) {
+      if (q.startsWith('INSERT OR IGNORE INTO __wskit_stream_subscribers')) {
         const [identity, streamId, subscriberIdentity] = params;
         const k = key([identity, streamId, subscriberIdentity]);
         if (!subscribers.has(k)) subscribers.set(k, { caught_up_seq: 0, unsubscribed_at: null });
         return { toArray: () => [] };
       }
-      if (q.startsWith('INSERT INTO _wskit_stream_subscribers')) {
+      if (q.startsWith('INSERT INTO __wskit_stream_subscribers')) {
         const [identity, streamId, subscriberIdentity, value] = params;
         const k = key([identity, streamId, subscriberIdentity]);
         const row = subscribers.get(k) ?? { caught_up_seq: 0, unsubscribed_at: null };
@@ -208,7 +208,7 @@ function memorySql() {
         subscribers.set(k, row);
         return { toArray: () => [] };
       }
-      if (q.startsWith('SELECT caught_up_seq, unsubscribed_at FROM _wskit_stream_subscribers')) {
+      if (q.startsWith('SELECT caught_up_seq, unsubscribed_at FROM __wskit_stream_subscribers')) {
         const [identity, streamId, subscriberIdentity] = params;
         const row = subscribers.get(key([identity, streamId, subscriberIdentity]));
         return { toArray: () => (row ? [{ ...row }] : []) };

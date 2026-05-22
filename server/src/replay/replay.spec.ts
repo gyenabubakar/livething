@@ -16,7 +16,7 @@ class FakeReplaySql {
 
     if (
       normalizedQuery.startsWith(
-        'SELECT rowKey, messageId, seq, event, payload, namespace, channel, channelScope, snapshotKey, createdAt FROM _wskit_replay WHERE rowKey = ?',
+        'SELECT rowKey, messageId, seq, event, payload, namespace, channel, channelScope, snapshotKey, createdAt FROM __wskit_replay WHERE rowKey = ?',
       )
     ) {
       const row = this.rows.get(String(params[0]));
@@ -33,7 +33,7 @@ class FakeReplaySql {
       };
     }
 
-    if (normalizedQuery.startsWith('DELETE FROM _wskit_replay WHERE rowKey = ?')) {
+    if (normalizedQuery.startsWith('DELETE FROM __wskit_replay WHERE rowKey = ?')) {
       this.rows.delete(String(params[0]));
       return {
         toArray() {
@@ -48,7 +48,7 @@ class FakeReplaySql {
       };
     }
 
-    if (normalizedQuery.startsWith('INSERT OR REPLACE INTO _wskit_replay')) {
+    if (normalizedQuery.startsWith('INSERT OR REPLACE INTO __wskit_replay')) {
       const row: ReplayRow = {
         rowKey: String(params[0]),
         messageId: String(params[1]),

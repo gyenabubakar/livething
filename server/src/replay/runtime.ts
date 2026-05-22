@@ -12,7 +12,7 @@ import type {
 } from '~/replay/types.ts';
 
 const CREATE_REPLAY_TABLE_SQL = `
-  CREATE TABLE IF NOT EXISTS _wskit_replay (
+  CREATE TABLE IF NOT EXISTS __wskit_replay (
     rowKey TEXT PRIMARY KEY,
     messageId TEXT NOT NULL,
     seq INTEGER NOT NULL,
@@ -27,13 +27,13 @@ const CREATE_REPLAY_TABLE_SQL = `
 `;
 
 const CREATE_REPLAY_SEQ_INDEX_SQL = `
-  CREATE INDEX IF NOT EXISTS idx_wskit_replay_seq
-  ON _wskit_replay (seq)
+  CREATE INDEX IF NOT EXISTS __wskit_idx_replay_seq
+  ON __wskit_replay (seq)
 `;
 
 const CREATE_REPLAY_SCOPE_SEQ_INDEX_SQL = `
-  CREATE INDEX IF NOT EXISTS idx_wskit_replay_scope_seq
-  ON _wskit_replay (channel, channelScope, seq)
+  CREATE INDEX IF NOT EXISTS __wskit_idx_replay_scope_seq
+  ON __wskit_replay (channel, channelScope, seq)
 `;
 
 /**
@@ -228,7 +228,7 @@ export function getReplayRowByKey(
           channelScope,
           snapshotKey,
           createdAt
-        FROM _wskit_replay
+        FROM __wskit_replay
         WHERE rowKey = ?
       `,
       rowKey,
@@ -262,7 +262,7 @@ export function deleteReplayRow(
 ): void {
   sql.exec(
     `
-      DELETE FROM _wskit_replay
+      DELETE FROM __wskit_replay
       WHERE rowKey = ?
     `,
     rowKey,
@@ -363,7 +363,7 @@ export function storeReplayRow(
 ): void {
   sql.exec(
     `
-      INSERT OR REPLACE INTO _wskit_replay (
+      INSERT OR REPLACE INTO __wskit_replay (
         rowKey,
         messageId,
         seq,
@@ -403,7 +403,7 @@ export function pruneExpiredReplayRows(
 
   sql.exec(
     `
-      DELETE FROM _wskit_replay
+      DELETE FROM __wskit_replay
       WHERE createdAt < ?
     `,
     now - retention.maxAgeMs,
@@ -424,10 +424,10 @@ export function pruneReplayScopeRows(
 
   sql.exec(
     `
-      DELETE FROM _wskit_replay
+      DELETE FROM __wskit_replay
       WHERE rowKey IN (
         SELECT rowKey
-        FROM _wskit_replay
+        FROM __wskit_replay
         WHERE namespace IS ?
           AND channel IS ?
           AND channelScope IS ?
@@ -465,7 +465,7 @@ export function buildLoadReplayQuery(
             channelScope,
             snapshotKey,
             createdAt
-          FROM _wskit_replay
+          FROM __wskit_replay
           WHERE channel IS ?
             AND channelScope IS NULL
             AND seq > ?
@@ -487,7 +487,7 @@ export function buildLoadReplayQuery(
           channelScope,
           snapshotKey,
           createdAt
-        FROM _wskit_replay
+        FROM __wskit_replay
         WHERE channel IS ?
           AND channelScope IS ?
           AND seq > ?
@@ -510,7 +510,7 @@ export function buildLoadReplayQuery(
         channelScope,
         snapshotKey,
         createdAt
-      FROM _wskit_replay
+      FROM __wskit_replay
       WHERE namespace IS NULL
         AND channel IS NULL
         AND channelScope IS NULL

@@ -25,18 +25,18 @@ class FakeSqlProvider implements SQLProvider {
   exec<TRow = unknown>(query: string, ...params: unknown[]): FakeSqlResult<TRow> {
     const normalizedQuery = query.replaceAll(/\s+/g, ' ').trim();
 
-    if (normalizedQuery.startsWith('CREATE TABLE IF NOT EXISTS _wskit_sequence')) {
+    if (normalizedQuery.startsWith('CREATE TABLE IF NOT EXISTS __wskit_sequence')) {
       return new FakeSqlResult<TRow>([]);
     }
 
-    if (normalizedQuery.startsWith('SELECT nextSeq FROM _wskit_sequence WHERE scope = ?')) {
+    if (normalizedQuery.startsWith('SELECT nextSeq FROM __wskit_sequence WHERE scope = ?')) {
       const scope = String(params[0]);
       const row = this.sequence.get(scope);
       return new FakeSqlResult<TRow>((row ? [row] : []) as TRow[]);
     }
 
     if (
-      normalizedQuery.startsWith('INSERT INTO _wskit_sequence ( scope, nextSeq ) VALUES (?, ?)')
+      normalizedQuery.startsWith('INSERT INTO __wskit_sequence ( scope, nextSeq ) VALUES (?, ?)')
     ) {
       const scope = String(params[0]);
       this.sequence.set(scope, {
@@ -46,7 +46,7 @@ class FakeSqlProvider implements SQLProvider {
       return new FakeSqlResult<TRow>([]);
     }
 
-    if (normalizedQuery.startsWith('UPDATE _wskit_sequence SET nextSeq = ? WHERE scope = ?')) {
+    if (normalizedQuery.startsWith('UPDATE __wskit_sequence SET nextSeq = ? WHERE scope = ?')) {
       const scope = String(params[1]);
       this.sequence.set(scope, {
         scope,

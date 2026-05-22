@@ -35,7 +35,7 @@ function inMemorySql(): SQLProvider {
 
     if (normalized.startsWith('CREATE')) return result<TRow>([]);
 
-    if (normalized.startsWith('INSERT OR REPLACE INTO _wskit_connections')) {
+    if (normalized.startsWith('INSERT OR REPLACE INTO __wskit_connections')) {
       const [
         connection_id,
         identity,
@@ -61,17 +61,17 @@ function inMemorySql(): SQLProvider {
       return result<TRow>(row ? [row as unknown as TRow] : []);
     }
 
-    if (normalized.startsWith('DELETE FROM _wskit_connections WHERE connection_id =')) {
+    if (normalized.startsWith('DELETE FROM __wskit_connections WHERE connection_id =')) {
       rows.delete(params[0] as string);
       return result<TRow>([]);
     }
 
-    if (normalized === 'DELETE FROM _wskit_connections') {
+    if (normalized === 'DELETE FROM __wskit_connections') {
       rows.clear();
       return result<TRow>([]);
     }
 
-    if (normalized.startsWith('DELETE FROM _wskit_connections WHERE connection_id NOT IN')) {
+    if (normalized.startsWith('DELETE FROM __wskit_connections WHERE connection_id NOT IN')) {
       const keep = new Set(params as string[]);
       for (const id of [...rows.keys()]) {
         if (!keep.has(id)) rows.delete(id);
@@ -218,7 +218,7 @@ describe('connection-store', () => {
     // throwing — the connection wakes with no tags / no memberships rather
     // than crashing the engine.
     sql.exec(
-      'INSERT OR REPLACE INTO _wskit_connections (connection_id, identity, meta, ephemeral_tags, ephemeral_memberships, active_stream_ids) VALUES (?, ?, ?, ?, ?, ?)',
+      'INSERT OR REPLACE INTO __wskit_connections (connection_id, identity, meta, ephemeral_tags, ephemeral_memberships, active_stream_ids) VALUES (?, ?, ?, ?, ?, ?)',
       'broken',
       'broken-id',
       'not-json',

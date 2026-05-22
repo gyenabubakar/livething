@@ -176,7 +176,7 @@ export const scheduledHandler = implement(scheduledContract)
         taskId: string;
         attempts: number;
         error: string;
-      }>('SELECT taskId, attempts, error FROM _wskit_scheduled_dlq ORDER BY failedAt DESC LIMIT 1')
+      }>('SELECT taskId, attempts, error FROM __wskit_scheduled_dlq ORDER BY failedAt DESC LIMIT 1')
       .toArray();
     const row = rows[0];
     if (!row) return;

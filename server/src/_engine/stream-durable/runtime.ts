@@ -411,7 +411,7 @@ export async function resumeDurableStream(
   runtime.sendProtocolMessage(connection, '__streamOk__', {}, { ...scopeMarkers, streamId });
 
   runtime.sql.exec(
-    "UPDATE _wskit_streams SET status = 'active', last_activity_at = ? WHERE identity = ? AND stream_id = ?",
+    "UPDATE __wskit_streams SET status = 'active', last_activity_at = ? WHERE identity = ? AND stream_id = ?",
     Date.now(),
     storageIdentity,
     streamId,

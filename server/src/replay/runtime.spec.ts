@@ -95,7 +95,7 @@ function createReplaySql() {
       return new FakeSqlResult<TRow>(row ? [{ ...row }] : []);
     }
 
-    if (normalized.startsWith('INSERT OR REPLACE INTO _wskit_replay')) {
+    if (normalized.startsWith('INSERT OR REPLACE INTO __wskit_replay')) {
       const [
         rowKey,
         messageId,
@@ -123,12 +123,12 @@ function createReplaySql() {
       return new FakeSqlResult<TRow>([]);
     }
 
-    if (normalized.startsWith('DELETE FROM _wskit_replay WHERE rowKey = ?')) {
+    if (normalized.startsWith('DELETE FROM __wskit_replay WHERE rowKey = ?')) {
       rows.delete(String(params[0]));
       return new FakeSqlResult<TRow>([]);
     }
 
-    if (normalized.startsWith('DELETE FROM _wskit_replay WHERE createdAt < ?')) {
+    if (normalized.startsWith('DELETE FROM __wskit_replay WHERE createdAt < ?')) {
       const cutoff = Number(params[0]);
       for (const [key, row] of rows) {
         if (row.createdAt < cutoff) rows.delete(key);
@@ -136,7 +136,7 @@ function createReplaySql() {
       return new FakeSqlResult<TRow>([]);
     }
 
-    if (normalized.startsWith('DELETE FROM _wskit_replay WHERE rowKey IN (')) {
+    if (normalized.startsWith('DELETE FROM __wskit_replay WHERE rowKey IN (')) {
       const [namespace, channel, channelScope, offset] = params;
       const doomed = [...rows.values()]
         .filter(

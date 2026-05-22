@@ -1,29 +1,29 @@
 import type { SQLProvider } from '~/context.ts';
 
 const INSERT_TAG_SQL = `
-  INSERT OR REPLACE INTO _wskit_tags
+  INSERT OR REPLACE INTO __wskit_tags
     (identity, group_name, key, added_at)
   VALUES (?, ?, ?, ?)
 `;
 
 const DELETE_TAG_SQL = `
-  DELETE FROM _wskit_tags
+  DELETE FROM __wskit_tags
   WHERE identity = ? AND group_name = ? AND key = ?
 `;
 
 const SELECT_TAGS_BY_IDENTITY_SQL = `
   SELECT group_name, key, added_at
-  FROM _wskit_tags
+  FROM __wskit_tags
   WHERE identity = ?
 `;
 
 const SELECT_TAGS_BY_GROUP_SQL = `
   SELECT identity, key, added_at
-  FROM _wskit_tags
+  FROM __wskit_tags
   WHERE group_name = ?
 `;
 
-const DELETE_TAGS_BY_GROUP_SQL = 'DELETE FROM _wskit_tags WHERE group_name = ?';
+const DELETE_TAGS_BY_GROUP_SQL = 'DELETE FROM __wskit_tags WHERE group_name = ?';
 
 /** One durable persistent-tag row, as the engine reads it. */
 export interface DurableTag {
@@ -87,7 +87,7 @@ export function listTagsByIdentity(
  */
 export function listGroupNames(sql: Pick<SQLProvider, 'exec'>): readonly string[] {
   const rows = sql
-    .exec<{ group_name: string }>('SELECT DISTINCT group_name FROM _wskit_tags')
+    .exec<{ group_name: string }>('SELECT DISTINCT group_name FROM __wskit_tags')
     .toArray();
   return rows.map((row) => row.group_name);
 }

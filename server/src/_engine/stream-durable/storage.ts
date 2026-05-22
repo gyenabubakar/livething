@@ -3,12 +3,12 @@ import { StreamIdCollision } from '@wskit/core';
 
 /**
  * Storage layer for durable streams. Two tables keyed by
- * `(identity, stream_id)`: `_wskit_streams` (one row per stream) and
- * `_wskit_stream_chunks` (recorded streams only, ON DELETE CASCADE).
+ * `(identity, stream_id)`: `__wskit_streams` (one row per stream) and
+ * `__wskit_stream_chunks` (recorded streams only, ON DELETE CASCADE).
  */
 
 const CREATE_STREAMS_TABLE_SQL = `
-  CREATE TABLE IF NOT EXISTS _wskit_streams (
+  CREATE TABLE IF NOT EXISTS __wskit_streams (
     identity                  TEXT NOT NULL,
     stream_id                 TEXT NOT NULL,
     event                     TEXT NOT NULL,
@@ -33,12 +33,12 @@ const CREATE_STREAMS_TABLE_SQL = `
 `;
 
 const CREATE_STREAMS_STATUS_INDEX_SQL = `
-  CREATE INDEX IF NOT EXISTS idx_wskit_streams_status
-  ON _wskit_streams (status, last_activity_at)
+  CREATE INDEX IF NOT EXISTS __wskit_idx_streams_status
+  ON __wskit_streams (status, last_activity_at)
 `;
 
 const CREATE_STREAM_CHUNKS_TABLE_SQL = `
-  CREATE TABLE IF NOT EXISTS _wskit_stream_chunks (
+  CREATE TABLE IF NOT EXISTS __wskit_stream_chunks (
     identity     TEXT NOT NULL,
     stream_id    TEXT NOT NULL,
     seq          INTEGER NOT NULL,
@@ -46,21 +46,21 @@ const CREATE_STREAM_CHUNKS_TABLE_SQL = `
     payload      TEXT NOT NULL,
     emitted_at   INTEGER NOT NULL,
     PRIMARY KEY (identity, stream_id, seq),
-    FOREIGN KEY (identity, stream_id) REFERENCES _wskit_streams (identity, stream_id) ON DELETE CASCADE
+    FOREIGN KEY (identity, stream_id) REFERENCES __wskit_streams (identity, stream_id) ON DELETE CASCADE
   )
 `;
 
 // One row per subscriber of a broadcast stream: how far a resume has caught
 // them up, and when they opted out (null while subscribed).
 const CREATE_STREAM_SUBSCRIBERS_TABLE_SQL = `
-  CREATE TABLE IF NOT EXISTS _wskit_stream_subscribers (
+  CREATE TABLE IF NOT EXISTS __wskit_stream_subscribers (
     identity             TEXT NOT NULL,
     stream_id            TEXT NOT NULL,
     subscriber_identity  TEXT NOT NULL,
     caught_up_seq        INTEGER NOT NULL DEFAULT 0,
     unsubscribed_at      INTEGER,
     PRIMARY KEY (identity, stream_id, subscriber_identity),
-    FOREIGN KEY (identity, stream_id) REFERENCES _wskit_streams (identity, stream_id) ON DELETE CASCADE
+    FOREIGN KEY (identity, stream_id) REFERENCES __wskit_streams (identity, stream_id) ON DELETE CASCADE
   )
 `;
 
@@ -70,7 +70,7 @@ export type DurableStreamKind = 'resumable' | 'recorded';
 /** Lifecycle state of a durable stream row. */
 export type DurableStreamStatus = 'active' | 'suspended' | 'ended';
 
-/** One row from `_wskit_streams`, decoded into typed fields. */
+/** One row from `__wskit_streams`, decoded into typed fields. */
 export interface DurableStreamRow {
   identity: string;
   streamId: string;
@@ -93,7 +93,7 @@ export interface DurableStreamRow {
   retentionAfterEndMs: number | null;
 }
 
-/** One row from `_wskit_stream_chunks`, decoded into typed fields. */
+/** One row from `__wskit_stream_chunks`, decoded into typed fields. */
 export interface DurableStreamChunkRow {
   identity: string;
   streamId: string;
@@ -175,7 +175,7 @@ export interface InsertStreamInput {
 export function insertStream(sql: SqlExec, input: InsertStreamInput): void {
   try {
     sql.exec(
-      `INSERT INTO _wskit_streams
+      `INSERT INTO __wskit_streams
        (identity, stream_id, event, payload, kind, status, last_seq, namespace, channel_key, channel_scope, broadcast, creator_identity, started_at, last_activity_at, max_chunks, max_age_ms, retention_after_end_ms)
        VALUES (?, ?, ?, ?, ?, 'active', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       input.identity,
@@ -221,7 +221,7 @@ export function readStream(
 ): DurableStreamRow | null {
   const rows = sql
     .exec(
-      'SELECT * FROM _wskit_streams WHERE identity = ? AND stream_id = ? LIMIT 1',
+      'SELECT * FROM __wskit_streams WHERE identity = ? AND stream_id = ? LIMIT 1',
       identity,
       streamId,
     )
@@ -239,7 +239,7 @@ export function updateCursor(
   now: number,
 ): void {
   sql.exec(
-    'UPDATE _wskit_streams SET cursor = ?, last_seq = ?, last_activity_at = ? WHERE identity = ? AND stream_id = ?',
+    'UPDATE __wskit_streams SET cursor = ?, last_seq = ?, last_activity_at = ? WHERE identity = ? AND stream_id = ?',
     cursor,
     lastSeq,
     now,
@@ -257,7 +257,7 @@ export function updateLastSeq(
   now: number,
 ): void {
   sql.exec(
-    'UPDATE _wskit_streams SET last_seq = ?, last_activity_at = ? WHERE identity = ? AND stream_id = ?',
+    'UPDATE __wskit_streams SET last_seq = ?, last_activity_at = ? WHERE identity = ? AND stream_id = ?',
     lastSeq,
     now,
     identity,
@@ -268,7 +268,7 @@ export function updateLastSeq(
 /** Move an active row to suspended so the sweep can age it out after `maxAgeMs`. */
 export function markSuspended(sql: SqlExec, identity: string, streamId: string, now: number): void {
   sql.exec(
-    `UPDATE _wskit_streams SET status = 'suspended', last_activity_at = ?
+    `UPDATE __wskit_streams SET status = 'suspended', last_activity_at = ?
      WHERE identity = ? AND stream_id = ? AND status = 'active'`,
     now,
     identity,
@@ -279,7 +279,7 @@ export function markSuspended(sql: SqlExec, identity: string, streamId: string, 
 /** Mark a row ended and stamp `ended_at` so the retention window starts ticking. */
 export function markEnded(sql: SqlExec, identity: string, streamId: string, now: number): void {
   sql.exec(
-    `UPDATE _wskit_streams SET status = 'ended', ended_at = ?, last_activity_at = ?
+    `UPDATE __wskit_streams SET status = 'ended', ended_at = ?, last_activity_at = ?
      WHERE identity = ? AND stream_id = ?`,
     now,
     now,
@@ -288,9 +288,9 @@ export function markEnded(sql: SqlExec, identity: string, streamId: string, now:
   );
 }
 
-/** Delete the row and its chunks (ON DELETE CASCADE clears `_wskit_stream_chunks`). */
+/** Delete the row and its chunks (ON DELETE CASCADE clears `__wskit_stream_chunks`). */
 export function deleteStream(sql: SqlExec, identity: string, streamId: string): void {
-  sql.exec('DELETE FROM _wskit_streams WHERE identity = ? AND stream_id = ?', identity, streamId);
+  sql.exec('DELETE FROM __wskit_streams WHERE identity = ? AND stream_id = ?', identity, streamId);
 }
 
 /** Inputs accepted by `appendChunk`. */
@@ -306,7 +306,7 @@ export interface AppendChunkInput {
 /** Append one chunk to the buffer for replay on resume. */
 export function appendChunk(sql: SqlExec, input: AppendChunkInput): void {
   sql.exec(
-    `INSERT INTO _wskit_stream_chunks (identity, stream_id, seq, message_id, payload, emitted_at)
+    `INSERT INTO __wskit_stream_chunks (identity, stream_id, seq, message_id, payload, emitted_at)
      VALUES (?, ?, ?, ?, ?, ?)`,
     input.identity,
     input.streamId,
@@ -326,7 +326,7 @@ export function readChunksSince(
 ): DurableStreamChunkRow[] {
   const rows = sql
     .exec(
-      `SELECT * FROM _wskit_stream_chunks
+      `SELECT * FROM __wskit_stream_chunks
      WHERE identity = ? AND stream_id = ? AND seq > ?
      ORDER BY seq ASC`,
       identity,
@@ -348,7 +348,7 @@ export function readChunksSince(
 export function countChunks(sql: SqlExec, identity: string, streamId: string): number {
   const rows = sql
     .exec(
-      'SELECT COUNT(*) AS n FROM _wskit_stream_chunks WHERE identity = ? AND stream_id = ?',
+      'SELECT COUNT(*) AS n FROM __wskit_stream_chunks WHERE identity = ? AND stream_id = ?',
       identity,
       streamId,
     )
@@ -364,13 +364,13 @@ export function trimOldestChunks(
   keepNewest: number,
 ): void {
   sql.exec(
-    `DELETE FROM _wskit_stream_chunks
+    `DELETE FROM __wskit_stream_chunks
      WHERE identity = ? AND stream_id = ?
        AND seq IN (
-         SELECT seq FROM _wskit_stream_chunks
+         SELECT seq FROM __wskit_stream_chunks
          WHERE identity = ? AND stream_id = ?
          ORDER BY seq ASC
-         LIMIT MAX(0, (SELECT COUNT(*) FROM _wskit_stream_chunks WHERE identity = ? AND stream_id = ?) - ?)
+         LIMIT MAX(0, (SELECT COUNT(*) FROM __wskit_stream_chunks WHERE identity = ? AND stream_id = ?) - ?)
        )`,
     identity,
     streamId,
@@ -398,7 +398,7 @@ export function seedSubscriber(
   subscriberIdentity: string,
 ): void {
   sql.exec(
-    `INSERT OR IGNORE INTO _wskit_stream_subscribers
+    `INSERT OR IGNORE INTO __wskit_stream_subscribers
      (identity, stream_id, subscriber_identity, caught_up_seq)
      VALUES (?, ?, ?, 0)`,
     storageIdentity,
@@ -416,7 +416,7 @@ export function setCaughtUpSeq(
   caughtUpSeq: number,
 ): void {
   sql.exec(
-    `INSERT INTO _wskit_stream_subscribers
+    `INSERT INTO __wskit_stream_subscribers
      (identity, stream_id, subscriber_identity, caught_up_seq)
      VALUES (?, ?, ?, ?)
      ON CONFLICT (identity, stream_id, subscriber_identity)
@@ -437,7 +437,7 @@ export function getSubscriber(
 ): StreamSubscriber | null {
   const row = sql
     .exec(
-      `SELECT caught_up_seq, unsubscribed_at FROM _wskit_stream_subscribers
+      `SELECT caught_up_seq, unsubscribed_at FROM __wskit_stream_subscribers
        WHERE identity = ? AND stream_id = ? AND subscriber_identity = ? LIMIT 1`,
       storageIdentity,
       streamId,
@@ -460,7 +460,7 @@ export function markUnsubscribed(
   now: number,
 ): void {
   sql.exec(
-    `INSERT INTO _wskit_stream_subscribers
+    `INSERT INTO __wskit_stream_subscribers
      (identity, stream_id, subscriber_identity, unsubscribed_at)
      VALUES (?, ?, ?, ?)
      ON CONFLICT (identity, stream_id, subscriber_identity)
@@ -492,7 +492,7 @@ export interface SweepCandidate {
 export function findExpiredSuspended(sql: SqlExec, now: number): SweepCandidate[] {
   const rows = sql
     .exec(
-      `SELECT identity, stream_id FROM _wskit_streams
+      `SELECT identity, stream_id FROM __wskit_streams
      WHERE status = 'suspended'
        AND max_age_ms IS NOT NULL
        AND (last_activity_at + max_age_ms) < ?`,
@@ -509,7 +509,7 @@ export function findExpiredSuspended(sql: SqlExec, now: number): SweepCandidate[
 export function findExpiredEnded(sql: SqlExec, now: number): SweepCandidate[] {
   const rows = sql
     .exec(
-      `SELECT identity, stream_id FROM _wskit_streams
+      `SELECT identity, stream_id FROM __wskit_streams
      WHERE status = 'ended'
        AND ended_at IS NOT NULL
        AND retention_after_end_ms IS NOT NULL

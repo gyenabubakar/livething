@@ -1,7 +1,7 @@
 import type { SQLProvider } from '~/context.ts';
 
 const CREATE_SEQUENCE_TABLE_SQL = `
-  CREATE TABLE IF NOT EXISTS _wskit_sequence (
+  CREATE TABLE IF NOT EXISTS __wskit_sequence (
     scope TEXT PRIMARY KEY,
     nextSeq INTEGER NOT NULL
   )
@@ -9,19 +9,19 @@ const CREATE_SEQUENCE_TABLE_SQL = `
 
 const SELECT_SEQUENCE_SQL = `
   SELECT nextSeq
-  FROM _wskit_sequence
+  FROM __wskit_sequence
   WHERE scope = ?
 `;
 
 const INSERT_SEQUENCE_SQL = `
-  INSERT INTO _wskit_sequence (
+  INSERT INTO __wskit_sequence (
     scope,
     nextSeq
   ) VALUES (?, ?)
 `;
 
 const UPDATE_SEQUENCE_SQL = `
-  UPDATE _wskit_sequence
+  UPDATE __wskit_sequence
   SET nextSeq = ?
   WHERE scope = ?
 `;

@@ -3,7 +3,7 @@ import type { SQLProvider } from '~/context.ts';
 // ── DDL ────────────────────────────────────────────────────────────────────
 
 const CREATE_MEMBERSHIPS_TABLE_SQL = `
-  CREATE TABLE IF NOT EXISTS _wskit_channel_memberships (
+  CREATE TABLE IF NOT EXISTS __wskit_channel_memberships (
     identity      TEXT NOT NULL,
     channel_name  TEXT NOT NULL,
     channel_scope TEXT NOT NULL DEFAULT '',
@@ -13,17 +13,17 @@ const CREATE_MEMBERSHIPS_TABLE_SQL = `
 `;
 
 const CREATE_MEMBERSHIPS_IDENTITY_INDEX_SQL = `
-  CREATE INDEX IF NOT EXISTS idx_channel_memberships_identity
-  ON _wskit_channel_memberships (identity)
+  CREATE INDEX IF NOT EXISTS __wskit_idx_channel_memberships_identity
+  ON __wskit_channel_memberships (identity)
 `;
 
 const CREATE_MEMBERSHIPS_CHANNEL_INDEX_SQL = `
-  CREATE INDEX IF NOT EXISTS idx_channel_memberships_channel
-  ON _wskit_channel_memberships (channel_name, channel_scope)
+  CREATE INDEX IF NOT EXISTS __wskit_idx_channel_memberships_channel
+  ON __wskit_channel_memberships (channel_name, channel_scope)
 `;
 
 const CREATE_TAGS_TABLE_SQL = `
-  CREATE TABLE IF NOT EXISTS _wskit_tags (
+  CREATE TABLE IF NOT EXISTS __wskit_tags (
     identity   TEXT NOT NULL,
     group_name TEXT NOT NULL,
     key        TEXT NOT NULL,
@@ -33,49 +33,49 @@ const CREATE_TAGS_TABLE_SQL = `
 `;
 
 const CREATE_TAGS_IDENTITY_INDEX_SQL = `
-  CREATE INDEX IF NOT EXISTS idx_tags_identity
-  ON _wskit_tags (identity)
+  CREATE INDEX IF NOT EXISTS __wskit_idx_tags_identity
+  ON __wskit_tags (identity)
 `;
 
 const CREATE_TAGS_GROUP_KEY_INDEX_SQL = `
-  CREATE INDEX IF NOT EXISTS idx_tags_group_key
-  ON _wskit_tags (group_name, key)
+  CREATE INDEX IF NOT EXISTS __wskit_idx_tags_group_key
+  ON __wskit_tags (group_name, key)
 `;
 
 // ── DML ────────────────────────────────────────────────────────────────────
 
 const INSERT_MEMBERSHIP_SQL = `
-  INSERT OR REPLACE INTO _wskit_channel_memberships
+  INSERT OR REPLACE INTO __wskit_channel_memberships
     (identity, channel_name, channel_scope, joined_at)
   VALUES (?, ?, ?, ?)
 `;
 
 const DELETE_MEMBERSHIP_SQL = `
-  DELETE FROM _wskit_channel_memberships
+  DELETE FROM __wskit_channel_memberships
   WHERE identity = ? AND channel_name = ? AND channel_scope = ?
 `;
 
 const SELECT_MEMBERSHIPS_BY_IDENTITY_SQL = `
   SELECT channel_name, channel_scope, joined_at
-  FROM _wskit_channel_memberships
+  FROM __wskit_channel_memberships
   WHERE identity = ?
 `;
 
 const SELECT_MEMBERSHIP_EXISTS_SQL = `
-  SELECT 1 FROM _wskit_channel_memberships
+  SELECT 1 FROM __wskit_channel_memberships
   WHERE identity = ? AND channel_name = ? AND channel_scope = ?
   LIMIT 1
 `;
 
 const DELETE_MEMBERSHIPS_BY_IDENTITY_SQL =
-  'DELETE FROM _wskit_channel_memberships WHERE identity = ?';
+  'DELETE FROM __wskit_channel_memberships WHERE identity = ?';
 
 const DELETE_MEMBERSHIPS_BY_CHANNEL_SQL = `
-  DELETE FROM _wskit_channel_memberships
+  DELETE FROM __wskit_channel_memberships
   WHERE channel_name = ? AND channel_scope = ?
 `;
 
-const DELETE_TAGS_BY_IDENTITY_SQL = 'DELETE FROM _wskit_tags WHERE identity = ?';
+const DELETE_TAGS_BY_IDENTITY_SQL = 'DELETE FROM __wskit_tags WHERE identity = ?';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -102,7 +102,7 @@ type RawMembershipRow = {
  * Create the per-user durable tables and indexes. Idempotent — safe to call
  * on every engine boot. Both tables are created together so a later phase
  * can drop tag rows for an identity during `purgeIdentity` without worrying
- * about the `_wskit_tags` table being absent.
+ * about the `__wskit_tags` table being absent.
  */
 export function ensurePersistenceSchema(sql: Pick<SQLProvider, 'exec'>): void {
   sql.exec(CREATE_MEMBERSHIPS_TABLE_SQL);

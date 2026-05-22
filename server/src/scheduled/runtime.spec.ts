@@ -56,7 +56,7 @@ function createScheduledRuntime(
 
     if (
       normalized.startsWith(
-        'SELECT id, taskId, time, data, everyMs, attempts, recurring, retry FROM _wskit_scheduled',
+        'SELECT id, taskId, time, data, everyMs, attempts, recurring, retry FROM __wskit_scheduled',
       )
     ) {
       return new FakeSqlResult<TRow>(storageRows.scheduled);
@@ -64,23 +64,23 @@ function createScheduledRuntime(
 
     if (
       normalized.startsWith(
-        'SELECT id, taskId, time, failedAt, data, attempts, error FROM _wskit_scheduled_dlq',
+        'SELECT id, taskId, time, failedAt, data, attempts, error FROM __wskit_scheduled_dlq',
       )
     ) {
       return new FakeSqlResult<TRow>(storageRows.dlq);
     }
 
-    if (normalized.startsWith('DELETE FROM _wskit_scheduled_dlq')) {
+    if (normalized.startsWith('DELETE FROM __wskit_scheduled_dlq')) {
       storageRows.dlq = [];
       return new FakeSqlResult<TRow>([]);
     }
 
-    if (normalized.startsWith('DELETE FROM _wskit_scheduled')) {
+    if (normalized.startsWith('DELETE FROM __wskit_scheduled')) {
       storageRows.scheduled = [];
       return new FakeSqlResult<TRow>([]);
     }
 
-    if (normalized.startsWith('INSERT INTO _wskit_scheduled_dlq')) {
+    if (normalized.startsWith('INSERT INTO __wskit_scheduled_dlq')) {
       const [id, taskId, time, failedAt, data, attempts, error] = params;
       storageRows.dlq.push({
         id,
@@ -94,7 +94,7 @@ function createScheduledRuntime(
       return new FakeSqlResult<TRow>([]);
     }
 
-    if (normalized.startsWith('INSERT INTO _wskit_scheduled')) {
+    if (normalized.startsWith('INSERT INTO __wskit_scheduled')) {
       const [id, taskId, time, data, everyMs, attempts, recurring, retry] = params;
       storageRows.scheduled.push({
         id,
@@ -172,7 +172,7 @@ describe('scheduled/runtime', () => {
 
   it('drops persisted runs whose taskId is no longer registered at boot', () => {
     // A previous deploy registered a recurring `cleanup` task and persisted
-    // its row to `_wskit_scheduled`. The new deploy removes the task. Boot
+    // its row to `__wskit_scheduled`. The new deploy removes the task. Boot
     // must drop the orphan row instead of restoring it — otherwise every
     // alarm tick would skip the missing handler and re-queue the same row
     // for the next interval, leaving storage to grow forever.

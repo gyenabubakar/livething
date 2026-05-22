@@ -28,7 +28,7 @@ function inMemorySql(): SQLProvider {
   function exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow> {
     const q = query.trim().replace(/\s+/g, ' ');
     if (q.startsWith('CREATE')) return result<TRow>([]);
-    if (q.startsWith('INSERT OR REPLACE INTO _wskit_channel_memberships')) {
+    if (q.startsWith('INSERT OR REPLACE INTO __wskit_channel_memberships')) {
       const [identity, channel_name, channel_scope, joined_at] = params as [
         string,
         string,
@@ -41,7 +41,7 @@ function inMemorySql(): SQLProvider {
     }
     if (
       q.startsWith(
-        'DELETE FROM _wskit_channel_memberships WHERE identity = ? AND channel_name = ? AND channel_scope = ?',
+        'DELETE FROM __wskit_channel_memberships WHERE identity = ? AND channel_name = ? AND channel_scope = ?',
       )
     ) {
       const [identity, channel_name, channel_scope] = params as [string, string, string];
@@ -54,8 +54,8 @@ function inMemorySql(): SQLProvider {
         [...rows.values()].filter((r) => r.identity === identity) as unknown as TRow[],
       );
     }
-    if (q.startsWith('DELETE FROM _wskit_tags')) return result<TRow>([]);
-    if (q.startsWith('SELECT group_name, key, added_at FROM _wskit_tags')) {
+    if (q.startsWith('DELETE FROM __wskit_tags')) return result<TRow>([]);
+    if (q.startsWith('SELECT group_name, key, added_at FROM __wskit_tags')) {
       return result<TRow>([]);
     }
     throw new Error(`unrecognized SQL: ${q}`);

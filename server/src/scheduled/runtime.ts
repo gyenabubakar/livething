@@ -6,7 +6,7 @@ import type {
 } from './types.ts';
 
 const SCHEDULED_TABLE_SQL = `
-  CREATE TABLE IF NOT EXISTS _wskit_scheduled (
+  CREATE TABLE IF NOT EXISTS __wskit_scheduled (
     id TEXT PRIMARY KEY,
     taskId TEXT NOT NULL,
     time INTEGER NOT NULL,
@@ -19,7 +19,7 @@ const SCHEDULED_TABLE_SQL = `
 `;
 
 const SCHEDULED_DLQ_TABLE_SQL = `
-  CREATE TABLE IF NOT EXISTS _wskit_scheduled_dlq (
+  CREATE TABLE IF NOT EXISTS __wskit_scheduled_dlq (
     id TEXT PRIMARY KEY,
     taskId TEXT NOT NULL,
     time INTEGER NOT NULL,
@@ -31,15 +31,15 @@ const SCHEDULED_DLQ_TABLE_SQL = `
 `;
 const SELECT_SCHEDULED_SQL = `
   SELECT id, taskId, time, data, everyMs, attempts, recurring, retry
-  FROM _wskit_scheduled
+  FROM __wskit_scheduled
 `;
 const SELECT_SCHEDULED_DLQ_SQL = `
   SELECT id, taskId, time, failedAt, data, attempts, error
-  FROM _wskit_scheduled_dlq
+  FROM __wskit_scheduled_dlq
 `;
 
-const DELETE_SCHEDULED_SQL = 'DELETE FROM _wskit_scheduled';
-const DELETE_SCHEDULED_DLQ_SQL = 'DELETE FROM _wskit_scheduled_dlq';
+const DELETE_SCHEDULED_SQL = 'DELETE FROM __wskit_scheduled';
+const DELETE_SCHEDULED_DLQ_SQL = 'DELETE FROM __wskit_scheduled_dlq';
 
 type ScheduledRunRow = {
   id: string;
@@ -63,7 +63,7 @@ type ScheduledDeadLetterRow = {
 };
 
 const INSERT_SCHEDULED_SQL = `
-  INSERT INTO _wskit_scheduled (
+  INSERT INTO __wskit_scheduled (
     id,
     taskId,
     time,
@@ -76,7 +76,7 @@ const INSERT_SCHEDULED_SQL = `
 `;
 
 const INSERT_SCHEDULED_DLQ_SQL = `
-  INSERT INTO _wskit_scheduled_dlq (
+  INSERT INTO __wskit_scheduled_dlq (
     id,
     taskId,
     time,

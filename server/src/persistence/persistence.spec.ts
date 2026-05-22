@@ -46,24 +46,24 @@ describe('persistence()', () => {
     expect(bootHooks).toHaveLength(1);
     bootHooks[0]!();
     expect(
-      execCalls.some((q) => q.includes('CREATE TABLE IF NOT EXISTS _wskit_channel_memberships')),
+      execCalls.some((q) => q.includes('CREATE TABLE IF NOT EXISTS __wskit_channel_memberships')),
     ).toBe(true);
-    expect(execCalls.some((q) => q.includes('CREATE TABLE IF NOT EXISTS _wskit_tags'))).toBe(true);
+    expect(execCalls.some((q) => q.includes('CREATE TABLE IF NOT EXISTS __wskit_tags'))).toBe(true);
     expect(
       execCalls.some((q) =>
-        q.includes('CREATE INDEX IF NOT EXISTS idx_channel_memberships_identity'),
+        q.includes('CREATE INDEX IF NOT EXISTS __wskit_idx_channel_memberships_identity'),
       ),
     ).toBe(true);
     expect(
       execCalls.some((q) =>
-        q.includes('CREATE INDEX IF NOT EXISTS idx_channel_memberships_channel'),
+        q.includes('CREATE INDEX IF NOT EXISTS __wskit_idx_channel_memberships_channel'),
       ),
     ).toBe(true);
-    expect(execCalls.some((q) => q.includes('CREATE INDEX IF NOT EXISTS idx_tags_identity'))).toBe(
-      true,
-    );
-    expect(execCalls.some((q) => q.includes('CREATE INDEX IF NOT EXISTS idx_tags_group_key'))).toBe(
-      true,
-    );
+    expect(
+      execCalls.some((q) => q.includes('CREATE INDEX IF NOT EXISTS __wskit_idx_tags_identity')),
+    ).toBe(true);
+    expect(
+      execCalls.some((q) => q.includes('CREATE INDEX IF NOT EXISTS __wskit_idx_tags_group_key')),
+    ).toBe(true);
   });
 });

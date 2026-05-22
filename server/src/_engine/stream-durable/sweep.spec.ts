@@ -18,7 +18,7 @@ function makeSql() {
       const q = query.trim();
       if (q.startsWith('PRAGMA') || q.startsWith('CREATE')) return { toArray: () => [] };
 
-      if (q.startsWith('INSERT INTO _wskit_streams')) {
+      if (q.startsWith('INSERT INTO __wskit_streams')) {
         const [
           identity,
           streamId,
@@ -59,7 +59,7 @@ function makeSql() {
         });
         return { toArray: () => [] };
       }
-      if (q.startsWith("UPDATE _wskit_streams SET status = 'suspended'")) {
+      if (q.startsWith("UPDATE __wskit_streams SET status = 'suspended'")) {
         const [now, identity, streamId] = params;
         const row = streams.get(key([identity, streamId]));
         if (row && row.status === 'active') {
@@ -68,7 +68,7 @@ function makeSql() {
         }
         return { toArray: () => [] };
       }
-      if (q.startsWith("UPDATE _wskit_streams SET status = 'ended'")) {
+      if (q.startsWith("UPDATE __wskit_streams SET status = 'ended'")) {
         const [now, lastActivityAt, identity, streamId] = params;
         const row = streams.get(key([identity, streamId]));
         if (row) {
@@ -78,7 +78,7 @@ function makeSql() {
         }
         return { toArray: () => [] };
       }
-      if (q.startsWith('DELETE FROM _wskit_streams')) {
+      if (q.startsWith('DELETE FROM __wskit_streams')) {
         const [identity, streamId] = params;
         streams.delete(key([identity, streamId]));
         for (const k of [...chunks.keys()]) {
@@ -86,7 +86,7 @@ function makeSql() {
         }
         return { toArray: () => [] };
       }
-      if (q.startsWith('SELECT identity, stream_id FROM _wskit_streams')) {
+      if (q.startsWith('SELECT identity, stream_id FROM __wskit_streams')) {
         const isSuspended = q.includes("status = 'suspended'");
         const [now] = params;
         const out: Record<string, unknown>[] = [];

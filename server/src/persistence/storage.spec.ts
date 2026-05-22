@@ -43,7 +43,7 @@ function inMemorySql(): SQLProvider {
 
     if (q.startsWith('CREATE')) return result<TRow>([]);
 
-    if (q.startsWith('INSERT OR REPLACE INTO _wskit_channel_memberships')) {
+    if (q.startsWith('INSERT OR REPLACE INTO __wskit_channel_memberships')) {
       const [identity, channel_name, channel_scope, joined_at] = params as [
         string,
         string,
@@ -57,7 +57,7 @@ function inMemorySql(): SQLProvider {
 
     if (
       q.startsWith(
-        'DELETE FROM _wskit_channel_memberships WHERE identity = ? AND channel_name = ? AND channel_scope = ?',
+        'DELETE FROM __wskit_channel_memberships WHERE identity = ? AND channel_name = ? AND channel_scope = ?',
       )
     ) {
       const [identity, channel_name, channel_scope] = params as [string, string, string];
@@ -67,7 +67,7 @@ function inMemorySql(): SQLProvider {
 
     if (
       q.startsWith(
-        'DELETE FROM _wskit_channel_memberships WHERE channel_name = ? AND channel_scope = ?',
+        'DELETE FROM __wskit_channel_memberships WHERE channel_name = ? AND channel_scope = ?',
       )
     ) {
       const [channel_name, channel_scope] = params as [string, string];
@@ -79,7 +79,7 @@ function inMemorySql(): SQLProvider {
       return result<TRow>([]);
     }
 
-    if (q.startsWith('DELETE FROM _wskit_channel_memberships WHERE identity = ?')) {
+    if (q.startsWith('DELETE FROM __wskit_channel_memberships WHERE identity = ?')) {
       const [identity] = params as [string];
       for (const [k, row] of memberships) {
         if (row.identity === identity) memberships.delete(k);
@@ -88,14 +88,14 @@ function inMemorySql(): SQLProvider {
     }
 
     if (
-      q.startsWith('SELECT channel_name, channel_scope, joined_at FROM _wskit_channel_memberships')
+      q.startsWith('SELECT channel_name, channel_scope, joined_at FROM __wskit_channel_memberships')
     ) {
       const [identity] = params as [string];
       const rows = [...memberships.values()].filter((r) => r.identity === identity);
       return result<TRow>(rows as unknown as TRow[]);
     }
 
-    if (q.startsWith('DELETE FROM _wskit_tags WHERE identity = ?')) {
+    if (q.startsWith('DELETE FROM __wskit_tags WHERE identity = ?')) {
       const [identity] = params as [string];
       for (const [k, row] of tags) {
         if (row.identity === identity) tags.delete(k);

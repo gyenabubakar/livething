@@ -28,12 +28,12 @@ function createSql() {
       return new FakeSqlResult<TRow>(nextSeq == null ? null : { nextSeq });
     }
 
-    if (query.includes('INSERT INTO _wskit_sequence')) {
+    if (query.includes('INSERT INTO __wskit_sequence')) {
       nextSeq = Number(params[1]);
       return new FakeSqlResult<TRow>(null);
     }
 
-    if (query.includes('UPDATE _wskit_sequence')) {
+    if (query.includes('UPDATE __wskit_sequence')) {
       nextSeq = Number(params[0]);
       return new FakeSqlResult<TRow>(null);
     }
@@ -58,7 +58,7 @@ describe('sequence/runtime', () => {
 
     ensureSequenceSchema(sql);
 
-    expect(calls[0]).toContain('CREATE TABLE IF NOT EXISTS _wskit_sequence');
+    expect(calls[0]).toContain('CREATE TABLE IF NOT EXISTS __wskit_sequence');
   });
 
   it('allocates persistent sequence numbers monotonically', () => {
@@ -81,7 +81,7 @@ describe('sequence/runtime', () => {
         return new FakeSqlResult<TRow>(currentSeq == null ? null : { nextSeq: currentSeq });
       }
 
-      if (query.includes('UPDATE _wskit_sequence')) {
+      if (query.includes('UPDATE __wskit_sequence')) {
         currentSeq = Number(params[0]);
         return new FakeSqlResult<TRow>(null);
       }
@@ -99,6 +99,6 @@ describe('sequence/runtime', () => {
     expect(allocatePersistentSequence(sql)).toBe(42);
     expect(allocatePersistentSequence(sql)).toBe(43);
     // No INSERT should happen when the row already exists.
-    expect(queries.some((q) => q.startsWith('INSERT INTO _wskit_sequence'))).toBe(false);
+    expect(queries.some((q) => q.startsWith('INSERT INTO __wskit_sequence'))).toBe(false);
   });
 });

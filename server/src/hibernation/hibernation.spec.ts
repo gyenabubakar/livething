@@ -64,12 +64,12 @@ describe('hibernation()', () => {
 
     expect(bootHooks).toHaveLength(1);
     bootHooks[0]!();
-    expect(execCalls.some((q) => q.includes('CREATE TABLE IF NOT EXISTS _wskit_connections'))).toBe(
-      true,
-    );
+    expect(
+      execCalls.some((q) => q.includes('CREATE TABLE IF NOT EXISTS __wskit_connections')),
+    ).toBe(true);
     expect(
       execCalls.some((q) =>
-        q.includes('CREATE INDEX IF NOT EXISTS idx_wskit_connections_identity'),
+        q.includes('CREATE INDEX IF NOT EXISTS __wskit_idx_connections_identity'),
       ),
     ).toBe(true);
   });
