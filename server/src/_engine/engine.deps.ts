@@ -21,6 +21,32 @@ type RoutingTarget = EngineRuntimeTypes.RoutingTarget;
 type BroadcastOptions = PublicApi.BroadcastOptions;
 type CompiledChannel = EngineRuntimeTypes.ResolvedScope['channel'];
 
+// ─────── dep-bag memoization ───────
+
+// Each dependency bag closes over `core` and is otherwise constant for the
+// engine's life — build it once per core and reuse it, rather than rebuilding
+// the whole tree on every message and every send.
+interface DepsMemo {
+  common?: ReturnType<typeof buildCommonDeps>;
+  outgoing?: ReturnType<typeof buildOutgoingRuntime>;
+  member?: ReturnType<typeof buildMemberRuntime>;
+  channel?: ReturnType<typeof buildChannelRuntime>;
+  dispatch?: ReturnType<typeof buildDispatchRuntime>;
+  connection?: ReturnType<typeof buildConnectionRuntime>;
+  ctxDeps?: EngineContextTypes.BuildConnectionContextDeps;
+}
+
+const depsMemo = new WeakMap<EngineCore, DepsMemo>();
+
+function depsMemoFor(core: EngineCore): DepsMemo {
+  let memo = depsMemo.get(core);
+  if (memo === undefined) {
+    memo = {};
+    depsMemo.set(core, memo);
+  }
+  return memo;
+}
+
 // ─────── shared helpers ───────
 
 /** Bound `leaveChannel` closure used by persistence and identity ops. */
@@ -40,20 +66,20 @@ function buildLeaveChannel(core: EngineCore) {
     );
 }
 
+/** The constant dep bag passed to `EngineContexts.buildConnectionContext`. */
+function ctxDeps(core: EngineCore): EngineContextTypes.BuildConnectionContextDeps {
+  return (depsMemoFor(core).ctxDeps ??= {
+    compiled: core.compiled,
+    connections: core.connections,
+    tagMembers: core.tagMembers,
+    ...commonDeps(core),
+  });
+}
+
 /** Closure that builds a live-connection context. Used by error + dispatch helpers. */
 function buildConnectionContext(core: EngineCore) {
-  return (connection: RuntimeConnection, scope?: ResolvedScope) => {
-    return EngineContexts.buildConnectionContext(
-      {
-        compiled: core.compiled,
-        connections: core.connections,
-        tagMembers: core.tagMembers,
-        ...commonDeps(core),
-      },
-      connection,
-      scope,
-    );
-  };
+  return (connection: RuntimeConnection, scope?: ResolvedScope) =>
+    EngineContexts.buildConnectionContext(ctxDeps(core), connection, scope);
 }
 
 /** Factory for the task context passed to scheduled handlers. */
@@ -69,6 +95,10 @@ function buildTaskContextFactory(core: EngineCore): () => unknown {
 
 /** Shared dep bag for init, shutdown, task, and connection context builders. */
 export function commonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps {
+  return (depsMemoFor(core).common ??= buildCommonDeps(core));
+}
+
+function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps {
   const createTaskContext = buildTaskContextFactory(core);
   return {
     env: core.env,
@@ -184,6 +214,10 @@ export function commonDeps(core: EngineCore): EngineContextTypes.ContextCommonDe
 
 /** Dep bag for helpers that only touch outgoing messages. */
 export function outgoingRuntime(core: EngineCore) {
+  return (depsMemoFor(core).outgoing ??= buildOutgoingRuntime(core));
+}
+
+function buildOutgoingRuntime(core: EngineCore) {
   return {
     compiled: core.compiled,
     moduleRuntimes: core.moduleRuntimes,
@@ -202,6 +236,10 @@ export function outgoingRuntime(core: EngineCore) {
 
 /** Dep bag for helpers that also need live connections and membership data. */
 export function memberRuntime(core: EngineCore) {
+  return (depsMemoFor(core).member ??= buildMemberRuntime(core));
+}
+
+function buildMemberRuntime(core: EngineCore) {
   return {
     ...outgoingRuntime(core),
     asyncContext: core.asyncContext,
@@ -229,6 +267,10 @@ export function memberRuntime(core: EngineCore) {
 
 /** Dep bag for channel subscribe/unsubscribe helpers. */
 export function channelRuntime(core: EngineCore) {
+  return (depsMemoFor(core).channel ??= buildChannelRuntime(core));
+}
+
+function buildChannelRuntime(core: EngineCore) {
   const buildCtx = buildConnectionContext(core);
   return {
     ...memberRuntime(core),
@@ -299,6 +341,10 @@ export function channelRuntime(core: EngineCore) {
 
 /** Dep bag for inbound text-message dispatch. */
 export function dispatchRuntime(core: EngineCore) {
+  return (depsMemoFor(core).dispatch ??= buildDispatchRuntime(core));
+}
+
+function buildDispatchRuntime(core: EngineCore) {
   const buildCtx = buildConnectionContext(core);
   return {
     ...memberRuntime(core),
@@ -380,6 +426,10 @@ export function dispatchRuntime(core: EngineCore) {
 
 /** Dep bag for connection accept, wake, and close logic. */
 export function connectionRuntime(core: EngineCore) {
+  return (depsMemoFor(core).connection ??= buildConnectionRuntime(core));
+}
+
+function buildConnectionRuntime(core: EngineCore) {
   const buildCtx = buildConnectionContext(core);
   return {
     compiled: core.compiled,
