@@ -154,14 +154,20 @@ export async function purgeIdentity(
   leaveChannel: LeaveChannelFn,
   identity: string,
 ): Promise<void> {
-  // JSON-encode the pair as the set key so any character in a channel name
-  // survives the pack/unpack round-trip.
-  const channelKeys = new Set<string>();
+  // Dedup the channels by membership key; the pair itself is the map value,
+  // so the key stays opaque and is never parsed back.
+  const channels = new Map<string, { channelName: string; channelScope: string | null }>();
 
   for (const connection of core.connections.values()) {
     if (connection.identity !== identity) continue;
     for (const membership of connection.channelMemberships.values()) {
-      channelKeys.add(JSON.stringify([membership.channelName, membership.channelScope]));
+      channels.set(
+        ChannelPrimitive.createChannelMembershipKey(
+          membership.channelName,
+          membership.channelScope,
+        ),
+        membership,
+      );
     }
   }
 
@@ -169,12 +175,14 @@ export async function purgeIdentity(
     const sql = core.requireStorage().sql;
     const rows = PersistenceStorage.listMembershipsByIdentity(sql, identity);
     for (const row of rows) {
-      channelKeys.add(JSON.stringify([row.channelName, row.channelScope]));
+      channels.set(ChannelPrimitive.createChannelMembershipKey(row.channelName, row.channelScope), {
+        channelName: row.channelName,
+        channelScope: row.channelScope,
+      });
     }
   }
 
-  for (const key of channelKeys) {
-    const [channelName, channelScope] = JSON.parse(key) as [string, string | null];
+  for (const { channelName, channelScope } of channels.values()) {
     await removeChannelMember(core, leaveChannel, channelName, channelScope, identity);
   }
 
