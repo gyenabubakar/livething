@@ -385,7 +385,7 @@ function assertLifecycleOnce(
  * `implement(contract).use(group)` to mount the group's handlers onto a
  * full implementation.
  *
- * Groups are **organisational** — they let you split implementation across
+ * Groups are **organizational** — they let you split implementation across
  * files. They do not change the contract.
  *
  * @example
