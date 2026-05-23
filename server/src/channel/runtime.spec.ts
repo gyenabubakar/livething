@@ -61,8 +61,7 @@ function createRuntime(
     streams: new Map(),
     resumableStreams: new Map(),
     recordedStreams: new Map(),
-    preIntercepts: [],
-    postIntercepts: new Map(),
+    intercepts: [],
   };
 
   const connections = new Map<string, ReturnType<typeof createConnection>>();
@@ -758,8 +757,7 @@ describe('subscribeConnectionAsServer', () => {
       streams: new Map(),
       resumableStreams: new Map(),
       recordedStreams: new Map(),
-      preIntercepts: [],
-      postIntercepts: new Map(),
+      intercepts: [],
     } as never);
     const target = createConnection('target', {});
     connections.set(target.id, target);

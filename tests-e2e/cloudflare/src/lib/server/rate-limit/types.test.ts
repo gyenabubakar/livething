@@ -90,7 +90,9 @@ describe('RateLimitClient — channels', () => {
   it('rooms incoming has chatter-broadcast', () => {
     expectTypeOf<
       RateLimitClient['channels']['rooms']['incoming']['chatter-broadcast']
-    >().toEqualTypeOf<{ text: string }>();
+    >().toEqualTypeOf<{
+      text: string;
+    }>();
   });
 
   it('rooms outgoing has chatter', () => {

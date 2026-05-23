@@ -30,7 +30,9 @@ describe('StreamDurableBroadcastClient — channels', () => {
     >().toEqualTypeOf<{}>();
     expectTypeOf<
       StreamDurableBroadcastClient['channels']['rooms']['streams']['feed']['chunk']
-    >().toEqualTypeOf<{ token: string }>();
+    >().toEqualTypeOf<{
+      token: string;
+    }>();
   });
 
   it('feed has no cursor, nudges, or broadcast key', () => {
@@ -54,7 +56,9 @@ describe('StreamDurableBroadcastClient — channels', () => {
   it('paginate has correct chunk', () => {
     expectTypeOf<
       StreamDurableBroadcastClient['channels']['rooms']['streams']['paginate']['chunk']
-    >().toEqualTypeOf<{ row: number }>();
+    >().toEqualTypeOf<{
+      row: number;
+    }>();
   });
 
   it('paginate has no cursor (no cursor validator)', () => {
@@ -98,7 +102,9 @@ describe('StreamDurableBroadcastClient — namespaces', () => {
     >().toEqualTypeOf<{}>();
     expectTypeOf<
       StreamDurableBroadcastClient['namespaces']['v1']['streams']['news']['chunk']
-    >().toEqualTypeOf<{ headline: string }>();
+    >().toEqualTypeOf<{
+      headline: string;
+    }>();
   });
 
   it('news has no cursor, nudges, or broadcast key', () => {

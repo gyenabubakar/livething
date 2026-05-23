@@ -13,8 +13,7 @@ describe('namespace', () => {
     const primitive = namespace(
       'notifications',
       outgoing('message'),
-      intercept((_ctx, message) => message),
-      intercept('message', (_ctx, payload) => payload),
+      intercept((_ctx, frame) => frame.payload),
       incoming('send-message', async () => {}),
       request('status', async () => {}),
       generate(streamDecl, async function* () {
@@ -27,6 +26,6 @@ describe('namespace', () => {
     expect(primitive.__identity[1]).toBe('notifications');
     expect(primitive.pattern).toBe('notifications');
     expect(Object.isFrozen(primitive.primitives)).toBe(true);
-    expect(primitive.primitives).toHaveLength(6);
+    expect(primitive.primitives).toHaveLength(5);
   });
 });

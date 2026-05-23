@@ -68,7 +68,9 @@ describe('NamespaceClient — namespaces', () => {
     >().toEqualTypeOf<{}>();
     expectTypeOf<
       NamespaceClient['namespaces']['ns']['requests']['get-ns-info']['response']
-    >().toEqualTypeOf<{ namespace: string }>();
+    >().toEqualTypeOf<{
+      namespace: string;
+    }>();
   });
 
   it('ns streams has start-ns-stream', () => {
@@ -80,10 +82,14 @@ describe('NamespaceClient — namespaces', () => {
   it('start-ns-stream has correct payload and chunk', () => {
     expectTypeOf<
       NamespaceClient['namespaces']['ns']['streams']['start-ns-stream']['payload']
-    >().toEqualTypeOf<{ count: number }>();
+    >().toEqualTypeOf<{
+      count: number;
+    }>();
     expectTypeOf<
       NamespaceClient['namespaces']['ns']['streams']['start-ns-stream']['chunk']
-    >().toEqualTypeOf<{ index: number }>();
+    >().toEqualTypeOf<{
+      index: number;
+    }>();
   });
 
   it('start-ns-stream has no cursor or nudges', () => {

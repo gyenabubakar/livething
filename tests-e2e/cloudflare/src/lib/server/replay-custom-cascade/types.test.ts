@@ -47,25 +47,33 @@ describe('ReplayCustomCascadeClient — channels', () => {
   it('lobby incoming has note (server outgoing)', () => {
     expectTypeOf<
       ReplayCustomCascadeClient['channels']['lobby']['incoming']['note']
-    >().toEqualTypeOf<{ text: string }>();
+    >().toEqualTypeOf<{
+      text: string;
+    }>();
   });
 
   it('lobby outgoing has send-note (server incoming)', () => {
     expectTypeOf<
       ReplayCustomCascadeClient['channels']['lobby']['outgoing']['send-note']
-    >().toEqualTypeOf<{ text: string }>();
+    >().toEqualTypeOf<{
+      text: string;
+    }>();
   });
 
   it('rooms incoming has note', () => {
     expectTypeOf<
       ReplayCustomCascadeClient['channels']['rooms']['incoming']['note']
-    >().toEqualTypeOf<{ text: string }>();
+    >().toEqualTypeOf<{
+      text: string;
+    }>();
   });
 
   it('rooms outgoing has send-note', () => {
     expectTypeOf<
       ReplayCustomCascadeClient['channels']['rooms']['outgoing']['send-note']
-    >().toEqualTypeOf<{ text: string }>();
+    >().toEqualTypeOf<{
+      text: string;
+    }>();
   });
 });
 

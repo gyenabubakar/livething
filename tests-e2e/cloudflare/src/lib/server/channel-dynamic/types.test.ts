@@ -50,7 +50,9 @@ describe('ChannelDynamicClient — top-level outgoing (server incoming)', () => 
   it('has trigger-server-subscribe-dynamic', () => {
     expectTypeOf<
       ChannelDynamicClient['outgoing']['trigger-server-subscribe-dynamic']
-    >().toEqualTypeOf<{ name: string }>();
+    >().toEqualTypeOf<{
+      name: string;
+    }>();
   });
 
   it('exactly two events in top-level outgoing', () => {

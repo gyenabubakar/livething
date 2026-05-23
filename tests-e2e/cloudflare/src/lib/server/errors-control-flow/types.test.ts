@@ -93,7 +93,9 @@ describe('ErrorsControlFlowClient — streams', () => {
     >().toEqualTypeOf<{}>();
     expectTypeOf<
       ErrorsControlFlowClient['streams']['start-defer-stream']['chunk']
-    >().toEqualTypeOf<{ index: number }>();
+    >().toEqualTypeOf<{
+      index: number;
+    }>();
   });
 
   it('start-defer-stream has no cursor or nudges', () => {

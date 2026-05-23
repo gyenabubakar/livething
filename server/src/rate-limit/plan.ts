@@ -88,7 +88,7 @@ function readNamespaceRateLimit(def: NamespaceDef): RateLimitConfig | undefined 
  *
  * Returns `null` when no `rateLimit:` is set anywhere AND no per-handler
  * overrides exist — the caller should skip pushing the primitive in that
- * case so engines without the feature never pay for the pre-intercept.
+ * case so engines without the feature never pay for the intercept.
  */
 export function resolvePlan(input: PlanInput): ResolvedRateLimitPlan | null {
   const alloc = createAllocator();

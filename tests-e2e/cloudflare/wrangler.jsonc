@@ -10,34 +10,13 @@
   },
   "durable_objects": {
     "bindings": [
-      {
-        "name": "REPLAY_SERVER",
-        "class_name": "ReplayServer",
-      },
-      {
-        "name": "REPLAY_CUSTOM_SERVER",
-        "class_name": "ReplayCustomServer",
-      },
-      {
-        "name": "MODULES_SERVER",
-        "class_name": "ModulesServer",
-      },
-      {
-        "name": "REPLAY_SNAPSHOT_SERVER",
-        "class_name": "ReplaySnapshotServer",
-      },
-      {
-        "name": "HTTP_REJECT_SERVER",
-        "class_name": "RejectHttpServer",
-      },
-      {
-        "name": "ACK_SERVER",
-        "class_name": "AckServer",
-      },
-      {
-        "name": "BINARY_SERVER",
-        "class_name": "BinaryServer",
-      },
+      { "name": "REPLAY_SERVER", "class_name": "ReplayServer" },
+      { "name": "REPLAY_CUSTOM_SERVER", "class_name": "ReplayCustomServer" },
+      { "name": "MODULES_SERVER", "class_name": "ModulesServer" },
+      { "name": "REPLAY_SNAPSHOT_SERVER", "class_name": "ReplaySnapshotServer" },
+      { "name": "HTTP_REJECT_SERVER", "class_name": "RejectHttpServer" },
+      { "name": "ACK_SERVER", "class_name": "AckServer" },
+      { "name": "BINARY_SERVER", "class_name": "BinaryServer" },
       { "name": "INCOMING_SERVER", "class_name": "IncomingServer" },
       { "name": "REQUEST_SERVER", "class_name": "RequestServer" },
       { "name": "STREAM_BASIC_SERVER", "class_name": "StreamBasicServer" },

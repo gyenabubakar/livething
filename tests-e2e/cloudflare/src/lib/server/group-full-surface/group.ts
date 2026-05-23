@@ -1,4 +1,4 @@
-import { group } from '@wskit/server';
+import { group, matches } from '@wskit/server';
 import { RejectUpgrade } from '@wskit/server/errors';
 import { groupFullSurfaceContract } from './contract.ts';
 
@@ -51,13 +51,11 @@ export const fullSurfaceGroup = group(groupFullSurfaceContract, (g) =>
       ctx.send('binary-marker', { size: data.byteLength });
     })
 
-    .intercept((ctx, msg) => {
-      ctx.send('pre-intercept-marker', { event: msg.event });
-    })
-
-    .intercept('chat', (ctx, payload) => {
-      ctx.send('post-intercept-marker', { text: payload.text });
-      return payload;
+    .intercept((ctx, frame) => {
+      ctx.send('pre-intercept-marker', { event: frame.event });
+      if (matches(groupFullSurfaceContract, 'chat', frame)) {
+        ctx.send('post-intercept-marker', { text: frame.payload.text });
+      }
     })
 
     .rateLimit('chat', { enabled: true, max: 1, windowMs: 60_000 })

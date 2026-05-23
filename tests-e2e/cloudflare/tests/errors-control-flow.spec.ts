@@ -18,7 +18,7 @@ test.describe('errors-control-flow', () => {
     await expect(page.getByTestId('defer-result')).toHaveText('deferred-received');
   });
 
-  test('Block in pre-intercept: handler never runs, no reply leaks', async ({ page }) => {
+  test('Block in intercept: handler never runs, no reply leaks', async ({ page }) => {
     await page.getByTestId('block-test').click();
     // Follow up with a real echo to prove the connection + pipeline are alive.
     await page.getByTestId('do-echo').click();
@@ -61,7 +61,7 @@ test.describe('errors-control-flow', () => {
     expect(closed.reason).toBe('force disconnect');
   });
 
-  test('Disconnect thrown from inside a pre-intercept closes the connection', async ({
+  test('Disconnect thrown from inside an intercept closes the connection', async ({
     page,
   }, testInfo) => {
     const room = `test-${testInfo.testId}-intercept`;

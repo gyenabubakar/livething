@@ -6,6 +6,7 @@ export {
   group,
   implement,
   incoming,
+  matches,
   namespace,
   nudge,
   outgoing,
@@ -16,6 +17,7 @@ export {
   scope,
   stream,
   t,
+  unsafeCast,
 } from './_api/index.ts';
 export type {
   ChannelContract,
@@ -24,12 +26,16 @@ export type {
   ContractConfig,
   Ctx,
   Definition,
+  FrameFor,
   GroupHandle,
   NamespaceContract,
   NamespaceCtx,
   TagRefHandle,
   TagsApi,
 } from './_api/index.ts';
+
+// Intercept primitive types — useful for declaring intercept handler types.
+export type { InterceptFrame, InterceptRouting } from './intercept/intercept.ts';
 
 export type { RateLimitConfig } from './rate-limit/rate-limit.ts';
 

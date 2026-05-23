@@ -40,7 +40,7 @@ const RATE_LIMIT_KEY = Symbol('rate-limit');
 
 /**
  * Build the rate-limit primitive from a resolved cascade plan. The primitive
- * runs as a pre-intercept: it fires before validation and before the handler,
+ * runs as an intercept: it fires before validation and before the handler,
  * so a rejected frame never reaches user code.
  *
  * On rejection it throws `RateLimited({ retryAfter })` which the engine

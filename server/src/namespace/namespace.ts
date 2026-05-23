@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import type { IncomingPrimitive } from '~/incoming/incoming.ts';
-import type { PostInterceptPrimitive, PreInterceptPrimitive } from '~/intercept/intercept.ts';
+import type { InterceptPrimitive } from '~/intercept/intercept.ts';
 import type { OutgoingPrimitive } from '~/outgoing/outgoing.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { RequestPrimitive } from '~/request/request.ts';
@@ -11,8 +11,7 @@ import type { GeneratePrimitive, NudgeDeclaration, StreamPrimitive } from '~/str
 // Internal aliases that keep the union types below readable.
 type AnyOutgoing = OutgoingPrimitive<string, any>;
 type AnyIncoming = IncomingPrimitive<string, any, any>;
-type AnyPreIntercept = PreInterceptPrimitive<any>;
-type AnyPostIntercept = PostInterceptPrimitive<string, any, any>;
+type AnyIntercept = InterceptPrimitive<any>;
 type AnyRequest = RequestPrimitive<string, any, any, any>;
 type AnyGenerate = GeneratePrimitive<
   StreamPrimitive<string, any, any, readonly NudgeDeclaration[]>,
@@ -27,8 +26,7 @@ type AnyGenerate = GeneratePrimitive<
  */
 export type NamespaceChild =
   | AnyOutgoing
-  | AnyPreIntercept
-  | AnyPostIntercept
+  | AnyIntercept
   | AnyIncoming
   | AnyRequest
   | AnyGenerate

@@ -72,19 +72,26 @@ describe('ReplayCustomClient — channels', () => {
   it('custom-room incoming has room-confirmed-count', () => {
     expectTypeOf<
       ReplayCustomClient['channels']['custom-room']['incoming']['room-confirmed-count']
-    >().toEqualTypeOf<{ total: number; confirmed: number }>();
+    >().toEqualTypeOf<{
+      total: number;
+      confirmed: number;
+    }>();
   });
 
   it('custom-room incoming has room-replay-events', () => {
     expectTypeOf<
       ReplayCustomClient['channels']['custom-room']['incoming']['room-replay-events']
-    >().toEqualTypeOf<{ events: string[] }>();
+    >().toEqualTypeOf<{
+      events: string[];
+    }>();
   });
 
   it('custom-room outgoing has add-room-note (server incoming)', () => {
     expectTypeOf<
       ReplayCustomClient['channels']['custom-room']['outgoing']['add-room-note']
-    >().toEqualTypeOf<{ text: string }>();
+    >().toEqualTypeOf<{
+      text: string;
+    }>();
   });
 
   it('custom-room outgoing has get-room-confirmed-count with empty payload', () => {
@@ -108,10 +115,14 @@ describe('ReplayCustomClient — channels', () => {
   it('room-stream has correct payload and chunk', () => {
     expectTypeOf<
       ReplayCustomClient['channels']['custom-room']['streams']['room-stream']['payload']
-    >().toEqualTypeOf<{ count: number }>();
+    >().toEqualTypeOf<{
+      count: number;
+    }>();
     expectTypeOf<
       ReplayCustomClient['channels']['custom-room']['streams']['room-stream']['chunk']
-    >().toEqualTypeOf<{ token: string }>();
+    >().toEqualTypeOf<{
+      token: string;
+    }>();
   });
 });
 

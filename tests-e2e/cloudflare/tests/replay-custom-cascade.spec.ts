@@ -90,7 +90,9 @@ test.describe('replay-custom-cascade', () => {
     // Disconnect and open a second connection — fresh message log.
     await page.evaluate(
       ({ h }) => (h as unknown as { first: { ws: WebSocket } }).first.ws.close(),
-      { h: handle },
+      {
+        h: handle,
+      },
     );
 
     await page.evaluate(
@@ -250,7 +252,9 @@ test.describe('replay-custom-cascade', () => {
     // Open a second connection and ask for replay of `room-7` in family `rooms`.
     await page.evaluate(
       ({ h }) => (h as unknown as { first: { ws: WebSocket } }).first.ws.close(),
-      { h: handle },
+      {
+        h: handle,
+      },
     );
     await page.evaluate(
       async ({ h, room }) => {

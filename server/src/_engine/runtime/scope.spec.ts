@@ -68,8 +68,7 @@ describe('resolveScope', () => {
             streams: new Map(),
             resumableStreams: new Map(),
             recordedStreams: new Map(),
-            preIntercepts: [],
-            postIntercepts: new Map(),
+            intercepts: [],
           },
         ],
       ]),
@@ -91,8 +90,7 @@ describe('resolveScope', () => {
       streams: new Map(),
       resumableStreams: new Map(),
       recordedStreams: new Map(),
-      preIntercepts: [],
-      postIntercepts: new Map(),
+      intercepts: [],
     };
     const compiled = {
       namespaces: new Map(),

@@ -1,11 +1,8 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { setOnce } from '~/_api/handler-maps.ts';
-import type {
-  Contract,
-  InterceptableEventName,
-  InterceptablePayload,
-} from '~/_api/contract-types.ts';
+import type { Contract } from '~/_api/contract-types.ts';
 import type { ChannelCtx } from '~/_api/ctx-types.ts';
+import type { InterceptFrame } from '~/intercept/intercept.ts';
 import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
 import type { CustomReplayOptions } from '~/replay/custom/custom.ts';
 
@@ -30,8 +27,7 @@ export interface ChannelHandlerBag {
   onSubscribeHandler?: (ctx: any) => void | Promise<void>;
   onUnsubscribeHandler?: (ctx: any) => void | Promise<void>;
   onSessionEndHandler?: (ctx: any) => void | Promise<void>;
-  preIntercept?: (ctx: any, message: { event: string; payload: unknown }) => any;
-  postIntercepts: Map<string, (ctx: any, payload: any) => any>;
+  intercept?: (ctx: any, frame: InterceptFrame) => any;
   rateLimitOverrides: Map<string, RateLimitConfig>;
   customReplayHooks?: CustomReplayOptions<'channel'>;
 }
@@ -49,7 +45,6 @@ export class ChannelImplement<C extends Contract, ChC = any> {
     streamGenerators: new Map(),
     resumableStreamGenerators: new Map(),
     recordedStreamGenerators: new Map(),
-    postIntercepts: new Map(),
     rateLimitOverrides: new Map(),
   };
 
@@ -187,31 +182,21 @@ export class ChannelImplement<C extends Contract, ChC = any> {
   }
 
   /**
-   * Middleware-style hook scoped to this channel.
+   * Middleware-style hook scoped to this channel. Runs before schema
+   * validation on every event in this channel. Throw `Block` to drop the
+   * frame, `Disconnect` to close the connection, or return a new value to
+   * replace the payload.
    *
-   * - `intercept(handler)` — runs BEFORE schema validation on every event in
-   *   this channel. Throw to bail.
-   * - `intercept(event, handler)` — runs AFTER validation, BEFORE the event
-   *   handler. Scoped to one event in this channel.
+   * Use `contract.matches(...)` or `contract.unsafeCast(...)` inside the
+   * handler to narrow `frame.payload` to a typed shape per event.
    */
-  intercept(
-    handler: (ctx: ChannelCtx<ChC, C>, message: { event: string; payload: unknown }) => any,
-  ): this;
-  intercept<E extends InterceptableEventName<ChC>>(
-    event: E,
-    handler: (ctx: ChannelCtx<ChC, C>, payload: InterceptablePayload<ChC, E>) => any,
-  ): this;
-  intercept(arg1: any, arg2?: any): this {
-    if (typeof arg1 === 'string') {
-      setOnce(this._bag.postIntercepts, arg1, arg2, 'post-intercept', 'this channel');
-    } else {
-      if (this._bag.preIntercept) {
-        throw new Error(
-          '[wskit] Duplicate pre-intercept on this channel. Only one pre-intercept can be attached.',
-        );
-      }
-      this._bag.preIntercept = arg1;
+  intercept(handler: (ctx: ChannelCtx<ChC, C>, frame: InterceptFrame) => any): this {
+    if (this._bag.intercept) {
+      throw new Error(
+        '[wskit] Duplicate intercept on this channel. Only one intercept can be attached.',
+      );
     }
+    this._bag.intercept = handler;
     return this;
   }
 

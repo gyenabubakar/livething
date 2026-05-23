@@ -83,7 +83,9 @@ describe('CtxChannelsClient — channels', () => {
   it('room outgoing has send-room-message (server incoming)', () => {
     expectTypeOf<
       CtxChannelsClient['channels']['room']['outgoing']['send-room-message']
-    >().toEqualTypeOf<{ text: string }>();
+    >().toEqualTypeOf<{
+      text: string;
+    }>();
   });
 });
 

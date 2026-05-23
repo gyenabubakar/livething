@@ -71,13 +71,19 @@ describe('ReplaySnapshotClient — channels', () => {
   it('snapshot-room incoming has room-doc-snapshot (server outgoing)', () => {
     expectTypeOf<
       ReplaySnapshotClient['channels']['snapshot-room']['incoming']['room-doc-snapshot']
-    >().toEqualTypeOf<{ docId: string; title: string }>();
+    >().toEqualTypeOf<{
+      docId: string;
+      title: string;
+    }>();
   });
 
   it('snapshot-room outgoing has update-room-doc (server incoming)', () => {
     expectTypeOf<
       ReplaySnapshotClient['channels']['snapshot-room']['outgoing']['update-room-doc']
-    >().toEqualTypeOf<{ docId: string; title: string }>();
+    >().toEqualTypeOf<{
+      docId: string;
+      title: string;
+    }>();
   });
 });
 

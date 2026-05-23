@@ -149,7 +149,9 @@ describe('ReplayClient — channels', () => {
   it('replay-room outgoing has send-room-msg', () => {
     expectTypeOf<
       ReplayClient['channels']['replay-room']['outgoing']['send-room-msg']
-    >().toEqualTypeOf<{ text: string }>();
+    >().toEqualTypeOf<{
+      text: string;
+    }>();
   });
 
   it('replay-room outgoing has request-room-history', () => {

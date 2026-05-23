@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { rateLimit } from './rate-limit.ts';
 
 describe('rateLimit primitive', () => {
-  it('returns a pre-intercept primitive', () => {
+  it('returns an intercept primitive', () => {
     const prim = rateLimit({
       scopeRules: new Map([
         ['top', { id: 1, windowMs: 60_000, max: 1, per: (ctx: any) => ctx.id }],
@@ -12,7 +12,6 @@ describe('rateLimit primitive', () => {
       eventOverrides: new Map(),
     }) as any;
     expect(prim.__wskit).toBe('intercept');
-    expect(prim.mode).toBe('pre');
     expect(typeof prim.handler).toBe('function');
   });
 

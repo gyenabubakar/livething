@@ -45,13 +45,17 @@ describe('ReplayMembershipGateClient — channels', () => {
   it('private incoming has secret (server outgoing)', () => {
     expectTypeOf<
       ReplayMembershipGateClient['channels']['private']['incoming']['secret']
-    >().toEqualTypeOf<{ text: string }>();
+    >().toEqualTypeOf<{
+      text: string;
+    }>();
   });
 
   it('private outgoing has send-secret (server incoming)', () => {
     expectTypeOf<
       ReplayMembershipGateClient['channels']['private']['outgoing']['send-secret']
-    >().toEqualTypeOf<{ text: string }>();
+    >().toEqualTypeOf<{
+      text: string;
+    }>();
   });
 });
 

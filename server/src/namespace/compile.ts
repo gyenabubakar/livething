@@ -1,14 +1,12 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { addPostIntercept } from '~/intercept/compile.ts';
 import { intercept as interceptFactory } from '~/intercept/intercept.ts';
 import { namespace as namespaceFactory } from '~/namespace/namespace.ts';
 import type { BuildDefinitionsFn, HandlerMaps } from '~/_api/handler-maps.ts';
 import type {
   AnyGenerate,
   AnyIncoming,
+  AnyIntercept,
   AnyOutgoing,
-  AnyPostIntercept,
-  AnyPreIntercept,
   AnyRecordedStream,
   AnyRequest,
   AnyResumableStream,
@@ -64,13 +62,8 @@ export function compileNamespaceDef(
   };
   const childPrimitives = buildDefinitions(def.definitions, childHandlers);
 
-  if (impl?._bag.preIntercept) {
-    childPrimitives.unshift(interceptFactory(impl._bag.preIntercept));
-  }
-  if (impl) {
-    for (const [event, handler] of impl._bag.postIntercepts) {
-      childPrimitives.push(interceptFactory(event, handler));
-    }
+  if (impl?._bag.intercept) {
+    childPrimitives.unshift(interceptFactory(impl._bag.intercept));
   }
   return namespaceFactory(def.name, ...(childPrimitives as any[]));
 }
@@ -87,8 +80,7 @@ export function compileNamespacePrimitive(primitive: NamespacePrimitiveType): Co
     streams: new Map(),
     resumableStreams: new Map(),
     recordedStreams: new Map(),
-    preIntercepts: [],
-    postIntercepts: new Map(),
+    intercepts: [],
   };
 
   for (const child of primitive.primitives) {
@@ -114,15 +106,9 @@ export function compileNamespacePrimitive(primitive: NamespacePrimitiveType): Co
       case 'recorded-stream-generate':
         scope.recordedStreams.set((child as AnyRecordedStream).event, child as AnyRecordedStream);
         break;
-      case 'intercept': {
-        const intercept = child as AnyPreIntercept | AnyPostIntercept;
-        if (intercept.mode === 'pre') {
-          scope.preIntercepts.push(intercept);
-        } else {
-          addPostIntercept(intercept.event, intercept, scope.postIntercepts);
-        }
+      case 'intercept':
+        scope.intercepts.push(child as AnyIntercept);
         break;
-      }
     }
   }
 

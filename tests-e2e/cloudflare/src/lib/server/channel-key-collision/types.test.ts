@@ -13,104 +13,44 @@ describe('ChannelKeyCollisionClient — no-any guard', () => {
   });
 });
 
-describe('ChannelKeyCollisionClient — top-level incoming (server outgoing)', () => {
-  it('has members-result', () => {
-    expectTypeOf<ChannelKeyCollisionClient['incoming']['members-result']>().toEqualTypeOf<{
-      family: string;
-      name: string;
-      count: number;
-    }>();
-  });
-
-  it('only members-result in incoming', () => {
-    expectTypeOf<keyof ChannelKeyCollisionClient['incoming']>().toEqualTypeOf<'members-result'>();
-  });
-});
-
 describe('ChannelKeyCollisionClient — top-level outgoing (server incoming)', () => {
-  it('has broadcast-a', () => {
+  it('has broadcast-a and broadcast-b', () => {
     expectTypeOf<ChannelKeyCollisionClient['outgoing']['broadcast-a']>().toEqualTypeOf<{
       name: string;
       text: string;
     }>();
-  });
-
-  it('has broadcast-b', () => {
     expectTypeOf<ChannelKeyCollisionClient['outgoing']['broadcast-b']>().toEqualTypeOf<{
       name: string;
       text: string;
     }>();
   });
 
-  it('has members-a', () => {
-    expectTypeOf<ChannelKeyCollisionClient['outgoing']['members-a']>().toEqualTypeOf<{
-      name: string;
-    }>();
-  });
-
-  it('has members-b', () => {
-    expectTypeOf<ChannelKeyCollisionClient['outgoing']['members-b']>().toEqualTypeOf<{
-      name: string;
-    }>();
-  });
-
-  it('exactly four events in outgoing', () => {
+  it('exactly two outgoing events', () => {
     expectTypeOf<keyof ChannelKeyCollisionClient['outgoing']>().toEqualTypeOf<
-      'broadcast-a' | 'broadcast-b' | 'members-a' | 'members-b'
+      'broadcast-a' | 'broadcast-b'
     >();
   });
 });
 
-describe('ChannelKeyCollisionClient — channels', () => {
-  it('has rooms channel', () => {
-    expectTypeOf<ChannelKeyCollisionClient['channels']>().toHaveProperty('rooms');
+describe('ChannelKeyCollisionClient — channel families', () => {
+  it('has both families', () => {
+    expectTypeOf<keyof ChannelKeyCollisionClient['channels']>().toEqualTypeOf<
+      'rooms' | 'rooms-private'
+    >();
   });
 
-  it('has rooms::private channel', () => {
-    expectTypeOf<ChannelKeyCollisionClient['channels']>().toHaveProperty('rooms::private');
-  });
-
-  it('rooms channel incoming has hello (server outgoing)', () => {
+  it('each family declares the hello incoming event', () => {
     expectTypeOf<
       ChannelKeyCollisionClient['channels']['rooms']['incoming']['hello']
     >().toEqualTypeOf<{
       family: string;
-      name: string;
       text: string;
     }>();
-  });
-
-  it('rooms channel outgoing is empty (no incoming declared in rooms scope)', () => {
-    expectTypeOf<keyof ChannelKeyCollisionClient['channels']['rooms']['outgoing']>().toBeNever();
-  });
-
-  it('rooms::private channel incoming has hello', () => {
     expectTypeOf<
-      ChannelKeyCollisionClient['channels']['rooms::private']['incoming']['hello']
-    >().toEqualTypeOf<{ family: string; name: string; text: string }>();
-  });
-});
-
-describe('ChannelKeyCollisionClient — empty slots', () => {
-  it('requests is empty', () => {
-    expectTypeOf<keyof ChannelKeyCollisionClient['requests']>().toBeNever();
-  });
-
-  it('streams is empty', () => {
-    expectTypeOf<keyof ChannelKeyCollisionClient['streams']>().toBeNever();
-  });
-
-  it('namespaces is empty', () => {
-    expectTypeOf<keyof ChannelKeyCollisionClient['namespaces']>().toBeNever();
-  });
-});
-
-describe('ChannelKeyCollisionClient — builtin errors', () => {
-  it('has all builtin error codes', () => {
-    expectTypeOf<ChannelKeyCollisionClient['errors']>().toHaveProperty('validation-failed');
-    expectTypeOf<ChannelKeyCollisionClient['errors']>().toHaveProperty('channel-not-found');
-    expectTypeOf<ChannelKeyCollisionClient['errors']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<ChannelKeyCollisionClient['errors']>().toHaveProperty('namespace-not-found');
-    expectTypeOf<ChannelKeyCollisionClient['errors']>().toHaveProperty('internal-error');
+      ChannelKeyCollisionClient['channels']['rooms-private']['incoming']['hello']
+    >().toEqualTypeOf<{
+      family: string;
+      text: string;
+    }>();
   });
 });

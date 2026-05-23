@@ -203,7 +203,9 @@ describe('outgoing/runtime sendThroughPipeline', () => {
         connection,
         { channel: 'room-1', channelScope: 'rooms' },
         'room-event',
-        { a: 1 },
+        {
+          a: 1,
+        },
       ),
     ).not.toThrow();
   });

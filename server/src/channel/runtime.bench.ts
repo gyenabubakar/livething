@@ -45,8 +45,7 @@ function createRuntime(memberCount: number) {
     streams: new Map(),
     resumableStreams: new Map(),
     recordedStreams: new Map(),
-    preIntercepts: [],
-    postIntercepts: new Map(),
+    intercepts: [],
   };
 
   for (let i = 0; i < memberCount; i++) {

@@ -76,7 +76,9 @@ describe('StreamBroadcastClient — channels', () => {
     >().toEqualTypeOf<{ count: number }>();
     expectTypeOf<
       StreamBroadcastClient['channels']['rooms']['streams']['start-room-stream']['chunk']
-    >().toEqualTypeOf<{ index: number }>();
+    >().toEqualTypeOf<{
+      index: number;
+    }>();
   });
 
   it('no stream entry has broadcast key', () => {

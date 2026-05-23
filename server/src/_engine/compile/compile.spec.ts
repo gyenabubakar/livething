@@ -226,3 +226,139 @@ describe('namespace cannot contain a channel or another namespace', () => {
     );
   });
 });
+
+describe('scope and event name syntax — reserved characters', () => {
+  it('rejects a channel name starting with @', () => {
+    const c = contract<Record<string, unknown>>('app')({
+      definitions: [channel('@chat', { definitions: [] })],
+    });
+    expect(() => compileHandlerDefinition(implement(c).build())).toThrow(
+      /channel name '@chat' starts with a reserved prefix character/,
+    );
+  });
+
+  it('rejects a channel name starting with #', () => {
+    const c = contract<Record<string, unknown>>('app')({
+      definitions: [channel('#chat', { definitions: [] })],
+    });
+    expect(() => compileHandlerDefinition(implement(c).build())).toThrow(
+      /channel name '#chat' starts with a reserved prefix character/,
+    );
+  });
+
+  it('rejects a namespace name starting with @', () => {
+    const c = contract<Record<string, unknown>>('app')({
+      definitions: [namespace('@admin', { definitions: [] })],
+    });
+    expect(() => compileHandlerDefinition(implement(c).build())).toThrow(
+      /namespace name '@admin' starts with a reserved prefix character/,
+    );
+  });
+
+  it('rejects a namespace name starting with #', () => {
+    const c = contract<Record<string, unknown>>('app')({
+      definitions: [namespace('#admin', { definitions: [] })],
+    });
+    expect(() => compileHandlerDefinition(implement(c).build())).toThrow(
+      /namespace name '#admin' starts with a reserved prefix character/,
+    );
+  });
+
+  it('rejects a channel name containing ::', () => {
+    const c = contract<Record<string, unknown>>('app')({
+      definitions: [channel('chat::rooms', { definitions: [] })],
+    });
+    expect(() => compileHandlerDefinition(implement(c).build())).toThrow(
+      /channel name 'chat::rooms' contains '::'/,
+    );
+  });
+
+  it('rejects a namespace name containing ::', () => {
+    const c = contract<Record<string, unknown>>('app')({
+      definitions: [namespace('admin::v1', { definitions: [] })],
+    });
+    expect(() => compileHandlerDefinition(implement(c).build())).toThrow(
+      /namespace name 'admin::v1' contains '::'/,
+    );
+  });
+
+  it('rejects a channel family key starting with @', () => {
+    const c = contract<Record<string, unknown>>('app')({
+      definitions: [channel(scope('@rooms', /^room:.+$/), { definitions: [] })],
+    });
+    expect(() => compileHandlerDefinition(implement(c).build())).toThrow(
+      /channel name '@rooms' starts with a reserved prefix character/,
+    );
+  });
+
+  it('rejects a top-level event name containing ::', () => {
+    const c = contract<Record<string, unknown>>('app')({
+      definitions: [incoming('send::message', v.object({}))],
+    });
+    expect(() =>
+      compileHandlerDefinition(
+        implement(c)
+          .on('send::message', () => {})
+          .build(),
+      ),
+    ).toThrow(/Event name 'send::message' in top-level contains '::'/);
+  });
+
+  it('rejects an event name containing :: inside a channel', () => {
+    const c = contract<Record<string, unknown>>('app')({
+      definitions: [channel('chat', { definitions: [incoming('send::message', v.object({}))] })],
+    });
+    expect(() =>
+      compileHandlerDefinition(
+        implement(c)
+          .channel('chat', (ch) => ch.on('send::message', () => {}))
+          .build(),
+      ),
+    ).toThrow(/Event name 'send::message' in channel 'chat' contains '::'/);
+  });
+
+  it('rejects an event name containing :: inside a namespace', () => {
+    const c = contract<Record<string, unknown>>('app')({
+      definitions: [namespace('admin', { definitions: [incoming('send::message', v.object({}))] })],
+    });
+    expect(() =>
+      compileHandlerDefinition(
+        implement(c)
+          .namespace('admin', (ns) => ns.on('send::message', () => {}))
+          .build(),
+      ),
+    ).toThrow(/Event name 'send::message' in namespace 'admin' contains '::'/);
+  });
+
+  it('rejects a stream event name containing ::', () => {
+    const c = contract<Record<string, unknown>>('app')({
+      definitions: [stream('count::up', { payload: v.object({}), chunk: v.object({}) })],
+    });
+    expect(() =>
+      compileHandlerDefinition(
+        implement(c)
+          .stream('count::up', async function* () {
+            yield {};
+          })
+          .build(),
+      ),
+    ).toThrow(/Event name 'count::up' in top-level contains '::'/);
+  });
+
+  it('allows ordinary names with @, #, and : at non-start positions', () => {
+    const c = contract<Record<string, unknown>>('app')({
+      definitions: [
+        channel('chat@v1', { definitions: [] }),
+        namespace('admin#v2', { definitions: [] }),
+        incoming('user:created', v.object({})),
+      ],
+    });
+    expect(() =>
+      compileHandlerDefinition(
+        implement(c)
+          .on('user:created', () => {})
+          .build(),
+      ),
+    ).not.toThrow();
+  });
+});

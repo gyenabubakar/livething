@@ -58,7 +58,7 @@ describe('buildConnectionContext', () => {
   });
 });
 
-// A dispatch with 3 pre-intercepts: the old path built a fresh context for
+// A dispatch with 3 intercepts: the old path built a fresh context for
 // each intercept plus the handler (4 builds); 2a builds one and shares it.
 describe('context builds for a 3-intercept dispatch', () => {
   bench('one shared context (2a)', () => {

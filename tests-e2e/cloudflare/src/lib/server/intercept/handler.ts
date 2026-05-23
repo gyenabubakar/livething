@@ -3,6 +3,7 @@ import {
   contract,
   implement,
   incoming,
+  matches,
   namespace,
   outgoing,
   stream,
@@ -43,37 +44,27 @@ export const interceptContract = contract<Env>('intercept')({
 
 export const interceptHandler = implement(interceptContract)
   .onUpgrade((request) => requireUsername(request))
-  .intercept((_ctx, message) => {
-    if (message.event === 'echo' && message.payload && typeof message.payload === 'object') {
-      const text = (message.payload as { text?: string }).text;
-      if (text === 'top-pre') return { text: 'top-pre-rewritten' };
-      if (text === 'top-passthrough') return;
+  // Top-level intercept — narrow with matches() so frame.payload is typed.
+  .intercept((_ctx, frame) => {
+    if (matches(interceptContract, 'echo', frame)) {
+      // payload is { text: string } here; no `as` casts needed.
+      if (frame.payload.text === 'top-pre') return { text: 'top-pre-rewritten' };
+      if (frame.payload.text === 'top-passthrough') return;
     }
-  })
-  .intercept('echo', (_ctx, payload) => {
-    if (payload.text === 'top-post') return { text: 'top-post-rewritten' };
-    if (payload.text === 'top-post-passthrough') return undefined;
-    if (payload.text === 'top-post-block') throw Block;
-    return payload;
   })
   .on('echo', (ctx, payload) => {
     ctx.send('echoed', { text: `top:${payload.text}` });
   })
   .namespace('ns', (ns) =>
     ns
-      .intercept((_ctx, message) => {
-        if (message.event === 'echo' && message.payload && typeof message.payload === 'object') {
-          const text = (message.payload as { text?: string }).text;
-          if (text === 'ns-pre') return { text: 'ns-pre-rewritten' };
-          if (text === 'ns-pre-block') throw Block;
+      .intercept((_ctx, frame) => {
+        if (matches(interceptContract, '#ns::echo', frame)) {
+          if (frame.payload.text === 'ns-pre') return { text: 'ns-pre-rewritten' };
+          if (frame.payload.text === 'ns-pre-block') throw Block;
         }
-      })
-      .intercept('echo', (_ctx, payload) => {
-        if (payload.text === 'ns-post') return { text: 'ns-post-rewritten' };
-        return payload;
-      })
-      .intercept('intercepted-stream', (_ctx, payload) => {
-        return { text: `${payload.text}-rewritten` };
+        if (matches(interceptContract, '#ns::intercepted-stream', frame)) {
+          return { text: `${frame.payload.text}-rewritten` };
+        }
       })
       .on('echo', (ctx, payload) => {
         ctx.namespace.send('echoed', { text: `ns:${payload.text}` });
@@ -84,16 +75,11 @@ export const interceptHandler = implement(interceptContract)
   )
   .channel('room', (ch) =>
     ch
-      .intercept((_ctx, message) => {
-        if (message.event === 'echo' && message.payload && typeof message.payload === 'object') {
-          const text = (message.payload as { text?: string }).text;
-          if (text === 'ch-pre') return { text: 'ch-pre-rewritten' };
-          if (text === 'ch-pre-block') throw Block;
+      .intercept((_ctx, frame) => {
+        if (matches(interceptContract, '@room::echo', frame)) {
+          if (frame.payload.text === 'ch-pre') return { text: 'ch-pre-rewritten' };
+          if (frame.payload.text === 'ch-pre-block') throw Block;
         }
-      })
-      .intercept('echo', (_ctx, payload) => {
-        if (payload.text === 'ch-post') return { text: 'ch-post-rewritten' };
-        return payload;
       })
       .on('echo', (ctx, payload) => {
         ctx.channel.send('echoed', { text: `ch:${payload.text}` });

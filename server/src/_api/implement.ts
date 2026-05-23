@@ -44,6 +44,7 @@ import { compileRecordedStreamDef } from '~/stream-recorded/compile.ts';
 import { compileResumableStreamDef } from '~/stream-resumable/compile.ts';
 import { compileStreamDef } from '~/stream/compile.ts';
 import { tagGroups as tagGroupsFactory } from '~/tags/tags.ts';
+import type { InterceptFrame } from '~/intercept/intercept.ts';
 import type {
   BinaryHandler,
   ConnectHandler,
@@ -60,12 +61,7 @@ import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
 import type { CustomReplayOptions } from '~/replay/custom/custom.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
 import { setOnce } from './handler-maps.ts';
-import type {
-  Contract,
-  ContractConfig,
-  InterceptableEventName,
-  InterceptablePayload,
-} from './contract-types.ts';
+import type { Contract, ContractConfig } from './contract-types.ts';
 import type { Ctx } from './ctx-types.ts';
 import type {
   ChannelDef,
@@ -98,7 +94,11 @@ type IncomingHandlerFor<C extends Contract, E extends keyof C['incoming']> = (
 type RequestResponseOf<
   C extends Contract,
   E extends keyof C['requests'],
-> = C['requests'][E] extends { response: infer R } ? R : void;
+> = C['requests'][E] extends {
+  response: infer R;
+}
+  ? R
+  : void;
 
 type RequestHandlerFor<C extends Contract, E extends keyof C['requests']> = (
   ctx: Ctx<C> & { respond(value: RequestResponseOf<C, E>): void },
@@ -133,8 +133,7 @@ interface GroupRegistrations {
   scheduled: Map<string, (ctx: any, data: any) => void | Promise<void>>;
   channels: Map<string, ChannelImplement<any, any>>;
   namespaces: Map<string, NamespaceImplement<any, any>>;
-  preIntercept?: (ctx: any, msg: { event: string; payload: unknown }) => any;
-  postIntercepts: Map<string, (ctx: any, payload: unknown) => any>;
+  intercept?: (ctx: any, frame: InterceptFrame) => any;
   rateLimitOverrides: Map<string, RateLimitConfig>;
   customReplayHooks?: CustomReplayOptions<'top'>;
   lifecycle: {
@@ -165,7 +164,6 @@ export class GroupBuilder<C extends Contract> {
     scheduled: new Map(),
     channels: new Map(),
     namespaces: new Map(),
-    postIntercepts: new Map(),
     rateLimitOverrides: new Map(),
     lifecycle: {},
   };
@@ -256,26 +254,17 @@ export class GroupBuilder<C extends Contract> {
   }
 
   /**
-   * Middleware-style hook scoped to this group's eventual mount point.
-   * `intercept(handler)` is a pre-validation hook; `intercept(event, handler)`
-   * is a post-validation per-event hook. Same shape as `Implementer.intercept`.
+   * Middleware-style hook scoped to this group's eventual mount point. Runs
+   * before schema validation on every event. Same shape as
+   * `Implementer.intercept`.
    */
-  intercept(handler: (ctx: any, msg: { event: string; payload: unknown }) => any): this;
-  intercept<E extends InterceptableEventName<C>>(
-    event: E,
-    handler: (ctx: any, payload: InterceptablePayload<C, E>) => any,
-  ): this;
-  intercept(arg1: any, arg2?: any): this {
-    if (typeof arg1 === 'string') {
-      setOnce(this._reg.postIntercepts, arg1, arg2, 'post-intercept', 'this group');
-    } else {
-      if (this._reg.preIntercept) {
-        throw new Error(
-          '[wskit] Duplicate pre-intercept on this group. Only one pre-intercept can be attached.',
-        );
-      }
-      this._reg.preIntercept = arg1;
+  intercept(handler: (ctx: any, frame: InterceptFrame) => any): this {
+    if (this._reg.intercept) {
+      throw new Error(
+        '[wskit] Duplicate intercept on this group. Only one intercept can be attached.',
+      );
     }
+    this._reg.intercept = handler;
     return this;
   }
 
@@ -450,8 +439,7 @@ interface ImplementerBag {
   scheduledHandlers: Map<string, (ctx: any, data: any) => void | Promise<void>>;
   channelImpls: Map<string, ChannelImplement<any, any>>;
   namespaceImpls: Map<string, NamespaceImplement<any, any>>;
-  preIntercept?: (ctx: any, msg: { event: string; payload: unknown }) => any;
-  postIntercepts: Map<string, (ctx: any, payload: unknown) => any>;
+  intercept?: (ctx: any, frame: InterceptFrame) => any;
   rateLimitOverrides: Map<string, RateLimitConfig>;
   customReplayHooks?: CustomReplayOptions<'top'>;
   lifecycle: {
@@ -485,7 +473,6 @@ export class Implementer<C extends Contract> {
     scheduledHandlers: new Map(),
     channelImpls: new Map(),
     namespaceImpls: new Map(),
-    postIntercepts: new Map(),
     rateLimitOverrides: new Map(),
     lifecycle: {},
   };
@@ -715,19 +702,16 @@ export class Implementer<C extends Contract> {
     for (const [name, impl] of g._reg.namespaces) {
       setOnce(this._bag.namespaceImpls, name, impl, 'namespace', from);
     }
-    for (const [event, handler] of g._reg.postIntercepts) {
-      setOnce(this._bag.postIntercepts, event, handler, 'post-intercept', from);
-    }
     for (const [event, cfg] of g._reg.rateLimitOverrides) {
       setOnce(this._bag.rateLimitOverrides, event, cfg, 'rateLimit override', from);
     }
-    if (g._reg.preIntercept) {
-      if (this._bag.preIntercept) {
+    if (g._reg.intercept) {
+      if (this._bag.intercept) {
         throw new Error(
-          '[wskit] Duplicate pre-intercept from a group. The implementer or another group already set one.',
+          '[wskit] Duplicate intercept from a group. The implementer or another group already set one.',
         );
       }
-      this._bag.preIntercept = g._reg.preIntercept;
+      this._bag.intercept = g._reg.intercept;
     }
     if (g._reg.customReplayHooks) {
       if (this._bag.customReplayHooks) {
@@ -846,36 +830,30 @@ export class Implementer<C extends Contract> {
   // ─────────────────── intercept ───────────────────
 
   /**
-   * Attach a middleware-style hook that runs on incoming events.
+   * Attach a middleware-style hook that runs on every incoming event before
+   * schema validation. Use it for things like rate limiting, auth checks, or
+   * payload rewriting. Throw `Block` to drop the frame, `Disconnect` to close
+   * the connection, or return a new value to replace the payload.
    *
-   * - `intercept(handler)` — runs BEFORE schema validation on every event.
-   *   Use it for things like rate limiting or auth checks. Throw to bail.
-   * - `intercept(event, handler)` — runs AFTER validation, BEFORE the event's
-   *   own handler. Scoped to one event.
+   * Use `contract.matches(...)` or `contract.unsafeCast(...)` inside the
+   * handler to narrow `frame.payload` to a typed shape per event.
    *
    * @example
    * ```ts
    * implement(chat)
-   *   .intercept((ctx, msg) => { if (isBanned(ctx.identity)) throw Disconnect(...); })
-   *   .intercept('send-msg', (ctx, payload) => { audit(payload); });
+   *   .intercept((ctx, frame) => {
+   *     if (isBanned(ctx.identity)) throw Disconnect(4003, 'banned');
+   *     if (chat.matches('send-msg', frame)) audit(frame.payload);
+   *   });
    * ```
    */
-  intercept(handler: (ctx: any, message: { event: string; payload: unknown }) => any): this;
-  intercept<E extends InterceptableEventName<C>>(
-    event: E,
-    handler: (ctx: Ctx<C>, payload: InterceptablePayload<C, E>) => any,
-  ): this;
-  intercept(arg1: any, arg2?: any): this {
-    if (typeof arg1 === 'string') {
-      setOnce(this._bag.postIntercepts, arg1, arg2, 'post-intercept', 'the implementer');
-    } else {
-      if (this._bag.preIntercept) {
-        throw new Error(
-          '[wskit] Duplicate pre-intercept on the implementer. Only one pre-intercept can be attached.',
-        );
-      }
-      this._bag.preIntercept = arg1;
+  intercept(handler: (ctx: Ctx<C>, frame: InterceptFrame) => any): this {
+    if (this._bag.intercept) {
+      throw new Error(
+        '[wskit] Duplicate intercept on the implementer. Only one intercept can be attached.',
+      );
     }
+    this._bag.intercept = handler;
     return this;
   }
 
@@ -1064,11 +1042,8 @@ export class Implementer<C extends Contract> {
       primitives.push(onValidationError(this._bag.lifecycle.onValidationError));
     if (this._bag.lifecycle.onBinary) primitives.push(onBinary(this._bag.lifecycle.onBinary));
 
-    // ── Intercepts ───────────────────────────────────────────────────────────
-    if (this._bag.preIntercept) primitives.push(interceptFactory(this._bag.preIntercept));
-    for (const [event, handler] of this._bag.postIntercepts) {
-      primitives.push(interceptFactory(event, handler));
-    }
+    // ── Intercept ────────────────────────────────────────────────────────────
+    if (this._bag.intercept) primitives.push(interceptFactory(this._bag.intercept));
 
     // ── Top-level definitions ────────────────────────────────────────────────
     primitives.push(

@@ -35,10 +35,8 @@ export type AnyGenerate = StreamPrimitive.GeneratePrimitive<
 export type AnyResumableStream = ResumableStreamPrimitive.ResumableStreamGeneratePrimitive;
 /** Compiled recorded stream handler (`recordedStream(...)` after compile). */
 export type AnyRecordedStream = RecordedStreamPrimitive.RecordedStreamGeneratePrimitive;
-/** Any pre-validation `.intercept()` primitive. */
-export type AnyPreIntercept = InterceptPrimitive.PreInterceptPrimitive<any>;
-/** Any post-validation `.intercept(event, handler)` primitive. */
-export type AnyPostIntercept = InterceptPrimitive.PostInterceptPrimitive<string, any, any>;
+/** Any `.intercept()` primitive. */
+export type AnyIntercept = InterceptPrimitive.InterceptPrimitive<any>;
 /** Any `.scheduled()` task declaration. */
 export type AnyScheduled = ScheduledPrimitive.ScheduledPrimitive<string, any, any, any>;
 /** Any installed module instance from `defineModule(...)`. */
@@ -68,8 +66,7 @@ export interface CompiledNamespace {
   streams: Map<string, AnyGenerate>;
   resumableStreams: Map<string, AnyResumableStream>;
   recordedStreams: Map<string, AnyRecordedStream>;
-  preIntercepts: AnyPreIntercept[];
-  postIntercepts: Map<string, AnyPostIntercept[]>;
+  intercepts: AnyIntercept[];
 }
 
 /**
@@ -85,8 +82,7 @@ export interface CompiledChannel {
   streams: Map<string, AnyGenerate>;
   resumableStreams: Map<string, AnyResumableStream>;
   recordedStreams: Map<string, AnyRecordedStream>;
-  preIntercepts: AnyPreIntercept[];
-  postIntercepts: Map<string, AnyPostIntercept[]>;
+  intercepts: AnyIntercept[];
 }
 
 /**
@@ -102,8 +98,7 @@ export interface CompiledServer {
   streams: Map<string, AnyGenerate>;
   resumableStreams: Map<string, AnyResumableStream>;
   recordedStreams: Map<string, AnyRecordedStream>;
-  preIntercepts: AnyPreIntercept[];
-  postIntercepts: Map<string, AnyPostIntercept[]>;
+  intercepts: AnyIntercept[];
   namespaces: Map<string, CompiledNamespace>;
   channels: Map<string, CompiledChannel>;
   channelFamilies: Map<string, CompiledChannel>;

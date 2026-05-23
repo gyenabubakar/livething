@@ -7,7 +7,6 @@ import {
   onUnsubscribe,
 } from '~/channel/lifecycle.ts';
 import { matchesScopePattern } from '~/channel/runtime.ts';
-import { addPostIntercept } from '~/intercept/compile.ts';
 import { intercept as interceptFactory } from '~/intercept/intercept.ts';
 import { persistentMarker } from '~/persistence/channel-marker.ts';
 import { handleReplay as customReplayFactory } from '~/replay/custom/custom.ts';
@@ -16,9 +15,8 @@ import type { BuildDefinitionsFn, HandlerMaps } from '~/_api/handler-maps.ts';
 import type {
   AnyGenerate,
   AnyIncoming,
+  AnyIntercept,
   AnyOutgoing,
-  AnyPostIntercept,
-  AnyPreIntercept,
   AnyRecordedStream,
   AnyRequest,
   AnyResumableStream,
@@ -76,13 +74,8 @@ export function compileChannelDef(
   };
   childPrimitives.push(...buildDefinitions(def.definitions, childHandlers));
 
-  if (impl?._bag.preIntercept) {
-    childPrimitives.push(interceptFactory(impl._bag.preIntercept));
-  }
-  if (impl) {
-    for (const [event, handler] of impl._bag.postIntercepts) {
-      childPrimitives.push(interceptFactory(event, handler));
-    }
+  if (impl?._bag.intercept) {
+    childPrimitives.push(interceptFactory(impl._bag.intercept));
   }
 
   if (impl?._bag.onBeforeSubscribeHandler) {
@@ -123,8 +116,7 @@ export function compileChannelPrimitive(primitive: ChannelPrimitiveType): Compil
     streams: new Map(),
     resumableStreams: new Map(),
     recordedStreams: new Map(),
-    preIntercepts: [],
-    postIntercepts: new Map(),
+    intercepts: [],
   };
 
   for (const child of primitive.primitives) {
@@ -150,15 +142,9 @@ export function compileChannelPrimitive(primitive: ChannelPrimitiveType): Compil
       case 'recorded-stream-generate':
         scope.recordedStreams.set((child as AnyRecordedStream).event, child as AnyRecordedStream);
         break;
-      case 'intercept': {
-        const intercept = child as AnyPreIntercept | AnyPostIntercept;
-        if (intercept.mode === 'pre') {
-          scope.preIntercepts.push(intercept);
-        } else {
-          addPostIntercept(intercept.event, intercept, scope.postIntercepts);
-        }
+      case 'intercept':
+        scope.intercepts.push(child as AnyIntercept);
         break;
-      }
     }
   }
 

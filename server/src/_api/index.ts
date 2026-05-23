@@ -3,6 +3,8 @@
  */
 
 export { contract } from './contract.ts';
+export { matches, parseKey, unsafeCast } from './matches.ts';
+export type { FrameFor, ParsedKey } from './matches-types.ts';
 export {
   channel,
   error,

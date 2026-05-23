@@ -190,10 +190,42 @@ function isDuplicateIncoming(
 // ───── Section: inbound dispatch ─────
 
 /**
+ * Build the curated `routing` view of a frame's `__wskit` envelope for the
+ * intercept callback. Returns an empty object when no routing markers were
+ * sent so callers never have to null-check.
+ */
+function buildInterceptRouting(
+  wskit: Protocol.WskitProtocol | undefined,
+): InterceptPrimitive.InterceptRouting {
+  if (!wskit) return {};
+  const routing: {
+    messageId?: string;
+    ackId?: string;
+    correlationId?: string;
+    streamId?: string;
+    channel?: string;
+    channelScope?: string | null;
+    namespace?: string;
+    seq?: number;
+  } = {};
+  if (wskit.messageId !== undefined) routing.messageId = wskit.messageId;
+  if (wskit.ackId !== undefined) routing.ackId = wskit.ackId;
+  if (wskit.correlationId !== undefined) routing.correlationId = wskit.correlationId;
+  if (wskit.streamId !== undefined) routing.streamId = wskit.streamId;
+  if (wskit.channel !== undefined) {
+    routing.channel = wskit.channel;
+    routing.channelScope = wskit.channelScope ?? null;
+  }
+  if (wskit.namespace !== undefined) routing.namespace = wskit.namespace;
+  if (wskit.seq !== undefined) routing.seq = wskit.seq;
+  return routing;
+}
+
+/**
  * Main inbound event dispatcher.
  *
- * This runs module hooks, pre-intercepts, post-intercepts, validation, incoming handlers,
- * requests, and streams in the order described by the server spec.
+ * Runs module hooks, intercepts, validation, incoming handlers, requests, and
+ * streams in the order described by the server spec.
  */
 export async function dispatchIncoming(
   runtime: DispatchRuntime,
@@ -241,8 +273,8 @@ export async function dispatchIncoming(
     ? scoped.recordedStreams.get(event)
     : runtime.compiled.recordedStreams.get(event);
 
-  // One context for the whole dispatch — reused across pre-intercepts,
-  // post-intercepts, and the handler. Built on first need.
+  // One context for the whole dispatch — reused across intercepts and the
+  // handler. Built on first need.
   let sharedCtx: Record<PropertyKey, unknown> | undefined;
   function getCtx(): Record<PropertyKey, unknown> {
     return (sharedCtx ??= runtime.buildConnectionContext(connection, scope));
@@ -263,33 +295,49 @@ export async function dispatchIncoming(
       if (next !== undefined) message = { event: message.event, payload: next };
     }
 
-    message = await InterceptPrimitive.runPreIntercepts(
+    const interceptKind: 'incoming' | 'request' | 'stream' | 'unknown' = incoming
+      ? 'incoming'
+      : request
+        ? 'request'
+        : stream || resumableStream || recordedStream
+          ? 'stream'
+          : 'unknown';
+    const interceptRouting = buildInterceptRouting(wskit);
+    let frame: InterceptPrimitive.InterceptFrame = {
+      event,
+      payload: message.payload,
+      kind: interceptKind,
+      routing: interceptRouting,
+    };
+    frame = await InterceptPrimitive.runIntercepts(
       runtime,
       connection,
-      runtime.compiled.preIntercepts,
-      message,
+      runtime.compiled.intercepts,
+      frame,
       getCtx,
     );
 
     if (scope.namespace) {
-      message = await InterceptPrimitive.runPreIntercepts(
+      frame = await InterceptPrimitive.runIntercepts(
         runtime,
         connection,
-        scope.namespace.preIntercepts,
-        message,
+        scope.namespace.intercepts,
+        frame,
         getCtx,
       );
     }
 
     if (scope.channel) {
-      message = await InterceptPrimitive.runPreIntercepts(
+      frame = await InterceptPrimitive.runIntercepts(
         runtime,
         connection,
-        scope.channel.preIntercepts,
-        message,
+        scope.channel.intercepts,
+        frame,
         getCtx,
       );
     }
+
+    message = { event: frame.event, payload: frame.payload };
 
     const primitive = incoming ?? request ?? stream ?? resumableStream ?? recordedStream;
     if (!primitive) return;
@@ -312,28 +360,12 @@ export async function dispatchIncoming(
       return;
     }
 
-    // Post-intercepts are rare. Skip the array work entirely on the common
-    // path where the dispatched event has none registered.
-    const topPost = runtime.compiled.postIntercepts.get(event);
-    const scopedPost =
-      scope.channel?.postIntercepts.get(event) ?? scope.namespace?.postIntercepts.get(event);
-    let postPayload = payloadValue;
-    if (topPost || scopedPost) {
-      postPayload = await InterceptPrimitive.runPostIntercepts(
-        runtime,
-        connection,
-        [...(topPost ?? []), ...(scopedPost ?? [])],
-        payloadValue,
-        getCtx,
-      );
-    }
-
     if (incoming) {
       await InterceptPrimitive.runWithScopedContext(runtime, connection, getCtx(), (ctx) => {
         // The ack id rides on this dispatch's own ctx so `ctx.ack()` confirms
         // this message, never a later one that interleaved on the connection.
         (ctx as Record<PropertyKey, unknown>)[ENGINE_ACK_ID] = wskit?.ackId;
-        return incoming.handler(ctx, postPayload);
+        return incoming.handler(ctx, payloadValue);
       });
       return;
     }
@@ -357,7 +389,7 @@ export async function dispatchIncoming(
         scope,
         event,
         request,
-        postPayload,
+        payloadValue,
         wskit,
       );
       return;
@@ -370,7 +402,7 @@ export async function dispatchIncoming(
         scope,
         event,
         stream,
-        postPayload,
+        payloadValue,
         wskit,
       );
     } else if (resumableStream || recordedStream) {
@@ -400,7 +432,7 @@ export async function dispatchIncoming(
           cursor: resumableStream?.cursor,
           onDisconnect: durable.onDisconnect,
         },
-        postPayload,
+        payloadValue,
         wskit,
       );
     }

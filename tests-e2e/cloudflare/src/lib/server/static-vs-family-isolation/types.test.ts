@@ -89,25 +89,36 @@ describe('StaticVsFamilyIsolationClient — channels', () => {
   it('general incoming has msg (server outgoing)', () => {
     expectTypeOf<
       StaticVsFamilyIsolationClient['channels']['general']['incoming']['msg']
-    >().toEqualTypeOf<{ from: string; text: string }>();
+    >().toEqualTypeOf<{
+      from: string;
+      text: string;
+    }>();
   });
 
   it('general outgoing has send-in-general (server incoming)', () => {
     expectTypeOf<
       StaticVsFamilyIsolationClient['channels']['general']['outgoing']['send-in-general']
-    >().toEqualTypeOf<{ text: string }>();
+    >().toEqualTypeOf<{
+      text: string;
+    }>();
   });
 
   it('rooms incoming has msg', () => {
     expectTypeOf<
       StaticVsFamilyIsolationClient['channels']['rooms']['incoming']['msg']
-    >().toEqualTypeOf<{ from: string; text: string }>();
+    >().toEqualTypeOf<{
+      from: string;
+      text: string;
+    }>();
   });
 
   it('rooms outgoing has send-in-room', () => {
     expectTypeOf<
       StaticVsFamilyIsolationClient['channels']['rooms']['outgoing']['send-in-room']
-    >().toEqualTypeOf<{ name: string; text: string }>();
+    >().toEqualTypeOf<{
+      name: string;
+      text: string;
+    }>();
   });
 });
 

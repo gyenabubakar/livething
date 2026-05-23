@@ -163,7 +163,7 @@ test.describe('group full surface', () => {
     expect(marker.payload.event).toBe('chat');
   });
 
-  test('group.intercept(event, ...) (post) fires per-event with typed payload', async ({
+  test('group.intercept with matches() narrowing fires per-event with typed payload', async ({
     page,
   }, testInfo) => {
     const room = `gfs-ipost-${testInfo.testId}`;

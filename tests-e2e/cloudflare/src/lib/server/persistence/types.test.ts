@@ -50,25 +50,36 @@ describe('PersistenceClient — channels', () => {
   it('archive-room incoming has room-message', () => {
     expectTypeOf<
       PersistenceClient['channels']['archive-room']['incoming']['room-message']
-    >().toEqualTypeOf<{ text: string; from: string }>();
+    >().toEqualTypeOf<{
+      text: string;
+      from: string;
+    }>();
   });
 
   it('archive-room incoming has session-ended', () => {
     expectTypeOf<
       PersistenceClient['channels']['archive-room']['incoming']['session-ended']
-    >().toEqualTypeOf<{ channel: string; username: string }>();
+    >().toEqualTypeOf<{
+      channel: string;
+      username: string;
+    }>();
   });
 
   it('archive-room outgoing has send-message (server incoming)', () => {
     expectTypeOf<
       PersistenceClient['channels']['archive-room']['outgoing']['send-message']
-    >().toEqualTypeOf<{ text: string }>();
+    >().toEqualTypeOf<{
+      text: string;
+    }>();
   });
 
   it('typing-indicator incoming has room-message', () => {
     expectTypeOf<
       PersistenceClient['channels']['typing-indicator']['incoming']['room-message']
-    >().toEqualTypeOf<{ text: string; from: string }>();
+    >().toEqualTypeOf<{
+      text: string;
+      from: string;
+    }>();
   });
 
   it('typing-indicator outgoing is empty', () => {

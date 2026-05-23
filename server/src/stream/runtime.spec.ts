@@ -534,7 +534,9 @@ describe('stream/runtime', () => {
       connection,
       expect.any(Error),
       'unknown-nudge',
-      { streamId: 'stream_1' },
+      {
+        streamId: 'stream_1',
+      },
     );
   });
 
@@ -960,7 +962,9 @@ describe('stream/runtime', () => {
       {},
       'feed',
       stream as never,
-      { seed: 1 },
+      {
+        seed: 1,
+      },
     );
 
     expect(hookCalls).toHaveLength(1);

@@ -6,7 +6,7 @@ import type {
   UnsubscribePrimitive,
 } from '~/channel/lifecycle.ts';
 import type { IncomingPrimitive } from '~/incoming/incoming.ts';
-import type { PostInterceptPrimitive, PreInterceptPrimitive } from '~/intercept/intercept.ts';
+import type { InterceptPrimitive } from '~/intercept/intercept.ts';
 import type { OutgoingPrimitive } from '~/outgoing/outgoing.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { CustomReplayPrimitive } from '~/replay/custom/custom.ts';
@@ -19,8 +19,7 @@ import type { GeneratePrimitive, NudgeDeclaration, StreamPrimitive } from '~/str
 // Internal aliases that keep the union type below readable.
 type AnyOutgoing = OutgoingPrimitive<string, any>;
 type AnyIncoming = IncomingPrimitive<string, any, any>;
-type AnyPreIntercept = PreInterceptPrimitive<any>;
-type AnyPostIntercept = PostInterceptPrimitive<string, any, any>;
+type AnyIntercept = InterceptPrimitive<any>;
 type AnyRequest = RequestPrimitive<string, any, any, any>;
 type AnyGenerate = GeneratePrimitive<
   StreamPrimitive<string, any, any, readonly NudgeDeclaration[]>,
@@ -37,8 +36,7 @@ type ChannelStatePrimitive =
   | AnyOutgoing
   | ReplayPrimitive
   | CustomReplayPrimitive
-  | AnyPreIntercept
-  | AnyPostIntercept
+  | AnyIntercept
   | AnyIncoming
   | AnyRequest
   | AnyGenerate

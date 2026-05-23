@@ -24,7 +24,9 @@ describe('StreamDurableScopedClient — top-level streams', () => {
     >().toEqualTypeOf<{}>();
     expectTypeOf<
       StreamDurableScopedClient['streams']['start-concurrent']['chunk']
-    >().toEqualTypeOf<{ token: string }>();
+    >().toEqualTypeOf<{
+      token: string;
+    }>();
   });
 
   it('start-concurrent has no cursor or nudges', () => {
@@ -90,7 +92,9 @@ describe('StreamDurableScopedClient — channels.rooms streams', () => {
   it('history chunk is correct', () => {
     expectTypeOf<
       StreamDurableScopedClient['channels']['rooms']['streams']['history']['chunk']
-    >().toEqualTypeOf<{ idx: number }>();
+    >().toEqualTypeOf<{
+      idx: number;
+    }>();
   });
 
   it('rooms has paused-feed (resumableStream with nudges)', () => {
@@ -163,7 +167,9 @@ describe('StreamDurableScopedClient — namespaces.v1 streams', () => {
   it('logs chunk is correct', () => {
     expectTypeOf<
       StreamDurableScopedClient['namespaces']['v1']['streams']['logs']['chunk']
-    >().toEqualTypeOf<{ line: string }>();
+    >().toEqualTypeOf<{
+      line: string;
+    }>();
   });
 
   it('v1 has audit-export (resumableStream — no cursor)', () => {

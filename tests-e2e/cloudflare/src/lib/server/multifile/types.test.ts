@@ -44,7 +44,9 @@ describe('MultifileClient — channels', () => {
   it('lobby outgoing has send-room-message (server incoming)', () => {
     expectTypeOf<
       MultifileClient['channels']['lobby']['outgoing']['send-room-message']
-    >().toEqualTypeOf<{ text: string }>();
+    >().toEqualTypeOf<{
+      text: string;
+    }>();
   });
 });
 

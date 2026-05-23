@@ -2,123 +2,94 @@
 import type { Primitive } from '~/primitive.ts';
 
 /**
- * The shape of a message as it travels through the pre-intercept pipeline.
- * Interceptors receive this object to inspect the incoming event and
- * payload. The event name is locked from the moment the message hits the
- * dispatcher — interceptors cannot rewrite routing.
+ * The shape of a message as it travels through the intercept pipeline.
+ *
+ * `kind`, `event`, and `routing` are read-only views of the dispatched frame.
+ * `payload` is the raw, unvalidated payload — narrow it with
+ * `contract.matches(...)` or `contract.unsafeCast(...)` to get a typed shape.
+ *
+ * The event name is locked from the moment the message hits the dispatcher —
+ * an intercept cannot rewrite routing. The return value of the handler
+ * replaces `payload` only.
  */
-export interface InterceptMessage {
+export interface InterceptFrame {
   /** The event name exactly as it arrived from the client. */
   readonly event: string;
-  /** The raw unparsed payload. */
+  /**
+   * The payload value. Type is `unknown` until narrowed by `matches()` or
+   * `unsafeCast()` from `@wskit/server`. `matches()` also validates against
+   * the declared schema; `unsafeCast()` is a type-only assertion.
+   */
   readonly payload: unknown;
+  /** Which primitive family handles this event, or `'unknown'` if none match. */
+  readonly kind: 'incoming' | 'request' | 'stream' | 'unknown';
+  /** Curated routing metadata from the wire `__wskit` envelope. */
+  readonly routing: InterceptRouting;
 }
 
 /**
- * The return type of a pre-intercept handler.
+ * Curated subset of the wire `__wskit` envelope — the routing/correlation
+ * markers safe for user code to read inside an intercept.
+ */
+export interface InterceptRouting {
+  readonly messageId?: string;
+  readonly ackId?: string;
+  readonly correlationId?: string;
+  readonly streamId?: string;
+  readonly channel?: string;
+  readonly channelScope?: string | null;
+  readonly namespace?: string;
+  readonly seq?: number;
+}
+
+/**
+ * The return type of an intercept handler.
  *
  * Return a new payload to replace the current one. Return `void` / `undefined`
- * to pass it through unchanged. The event name cannot be rewritten — whatever
- * value you return becomes `message.payload` verbatim, even if it happens to
- * be an object with its own `event` and `payload` fields.
+ * to pass it through unchanged. The event name and routing cannot be rewritten
+ * — whatever value you return becomes `frame.payload` verbatim, even if it
+ * happens to be an object with its own `event` or `routing` fields.
  */
-export type PreInterceptResult = unknown | void | Promise<unknown | void>;
+export type InterceptResult = unknown | void | Promise<unknown | void>;
 
 /**
- * The return type of a post-intercept handler.
- * Return a new payload to replace the current one, or return `void` / `undefined`
- * to pass it through unchanged.
+ * Handler signature for an intercept: runs before any event is dispatched.
+ * Receives the full `InterceptFrame` and can transform the payload.
  */
-export type PostInterceptResult<TPayload> = TPayload | void | Promise<TPayload | void>;
+export type InterceptHandler<TCtx = any> = (ctx: TCtx, frame: InterceptFrame) => InterceptResult;
 
-/**
- * Handler signature for a pre-intercept: runs before any event is dispatched.
- * Receives the full `{ event, payload }` message and can transform it.
- */
-export type PreInterceptHandler<TCtx = any> = (
-  ctx: TCtx,
-  message: InterceptMessage,
-) => PreInterceptResult;
-
-/**
- * Handler signature for a post-intercept: runs for one specific event after
- * dispatch but before the application handler is called.
- * Receives the current payload and can transform it.
- */
-export type PostInterceptHandler<TCtx = any, TPayload = unknown> = (
-  ctx: TCtx,
-  payload: TPayload,
-) => PostInterceptResult<TPayload>;
-
-/** Primitive type for a pre-intercept (no event filter). */
-export interface PreInterceptPrimitive<TCtx = any> extends Primitive<'intercept'> {
-  readonly mode: 'pre';
-  readonly handler: PreInterceptHandler<TCtx>;
+/** Primitive type for an intercept. */
+export interface InterceptPrimitive<TCtx = any> extends Primitive<'intercept'> {
+  readonly handler: InterceptHandler<TCtx>;
 }
 
-/** Primitive type for a post-intercept (scoped to one event). */
-export interface PostInterceptPrimitive<
-  TEvent extends string = string,
-  TPayload = unknown,
-  TCtx = any,
-> extends Primitive<'intercept'> {
-  readonly mode: 'post';
-  /** The event this interceptor is scoped to. */
-  readonly event: TEvent;
-  readonly handler: PostInterceptHandler<TCtx, TPayload>;
-}
-
-/** Union of both intercept primitive types. */
-export type InterceptPrimitive<TEvent extends string = string, TPayload = unknown, TCtx = any> =
-  | PreInterceptPrimitive<TCtx>
-  | PostInterceptPrimitive<TEvent, TPayload, TCtx>;
-
 /**
- * Unique symbol.
- * Pre-intercepts use `[INTERCEPT_KEY, 'pre']` as identity (singleton per scope).
- * Post-intercepts use `[INTERCEPT_KEY, 'post:<event>']` so each event can have
- * its own post-interceptor.
+ * Unique symbol. Intercepts use `[INTERCEPT_KEY, 'intercept']` as identity
+ * (singleton per scope) so the same intercept can be registered idempotently.
  */
 const INTERCEPT_KEY = Symbol('intercept');
 
-/** Overload: creates a pre-intercept that applies to every incoming message. */
-export function intercept(handler: PreInterceptHandler<any>): PreInterceptPrimitive<any>;
-/** Overload: creates a post-intercept scoped to `event`. */
-export function intercept<TEvent extends string>(
-  event: TEvent,
-  handler: PostInterceptHandler<any, any>,
-): PostInterceptPrimitive<TEvent, any, any>;
 /**
- * Creates an intercept primitive in one of two modes:
+ * Creates an intercept primitive that fires before any event is dispatched.
  *
- * - **Pre-intercept** (`firstArg` is a function): fires before the event is
- *   dispatched. Receives the raw `{ event, payload }` and can replace the
- *   payload. The event name is locked — whatever you return becomes the new
- *   `payload`, even if the returned value has its own `event` field.
- *   Returning `void` passes the payload through unchanged.
- *
- * - **Post-intercept** (`firstArg` is a string): fires for a single named
- *   event, after the event is matched but before the handler runs. Receives
- *   the current payload and can replace it. Returning `void` passes the payload
- *   through unchanged.
- *
- * Post-intercepts only run when a matching `incoming`, `request`, or `stream`
- * handler is registered for that event in the same scope. If none exists, the
- * engine throws at boot.
+ * Receives the full `InterceptFrame` (`event`, `payload`, `kind`, `routing`)
+ * and can replace the payload by returning a new value. Returning `void`
+ * passes the payload through unchanged. The event name and routing cannot be
+ * rewritten — whatever you return becomes the new `payload`, even if the
+ * returned value has its own `event` or `routing` field.
  *
  * ### Pipeline order
  *
  * For every incoming message the engine walks this pipeline:
  *
- * 1. **Pre-intercept** (if any) — one per scope (top-level, namespace, channel).
+ * 1. **Intercept** (if any) — one per scope (top-level, namespace, channel).
  * 2. **Event routing** — match the event to its handler.
  * 3. **Validation** — the handler's validator runs (if declared).
- * 4. **Post-intercept for that event** (if any).
- * 5. **Handler** — `incoming` / `request` / `stream` trigger.
+ * 4. **Handler** — `incoming` / `request` / `stream` trigger.
  *
  * ### Control-flow errors
  *
- * Pre- and post-intercepts can throw:
+ * Intercepts can throw:
  *
  * - `Block` — silently drops the message; the handler never runs and no
  *   response is sent.
@@ -126,39 +97,24 @@ export function intercept<TEvent extends string>(
  *
  * @example
  * ```ts
- * // Pre-intercept: log all messages
- * intercept((ctx, msg) => { console.log(msg.event); });
+ * // Log all messages
+ * intercept((ctx, frame) => { console.log(frame.kind, frame.event); });
  *
- * // Post-intercept: sanitise one event's payload
- * intercept('send-message', (ctx, payload) => ({
- *   ...payload,
- *   text: sanitise(payload.text),
- * }));
+ * // Narrow + transform a specific event's payload
+ * intercept((ctx, frame) => {
+ *   if (myContract.matches('send-message', frame)) {
+ *     return { ...frame.payload, text: sanitise(frame.payload.text) };
+ *   }
+ * });
  * ```
  */
-export function intercept(
-  firstArg: string | PreInterceptHandler<any>,
-  secondArg?: PostInterceptHandler<any, any>,
-): InterceptPrimitive {
-  if (typeof firstArg === 'string') {
-    return {
-      __wskit: 'intercept',
-      __kind: 'infrastructure',
-      __identity: [INTERCEPT_KEY, `post:${firstArg}`],
-      __requires: {},
-      mode: 'post',
-      event: firstArg,
-      handler: secondArg!,
-    };
-  }
-
+export function intercept(handler: InterceptHandler<any>): InterceptPrimitive<any> {
   return {
     __wskit: 'intercept',
     __kind: 'infrastructure',
-    __identity: [INTERCEPT_KEY, 'pre'],
+    __identity: [INTERCEPT_KEY, 'intercept'],
     __requires: {},
-    mode: 'pre',
-    handler: firstArg,
+    handler,
   };
 }
 

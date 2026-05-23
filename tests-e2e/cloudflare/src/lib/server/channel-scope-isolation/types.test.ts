@@ -25,7 +25,11 @@ describe('ChannelScopeIsolationClient — top-level incoming (server outgoing)',
   it('has private-members-result', () => {
     expectTypeOf<
       ChannelScopeIsolationClient['incoming']['private-members-result']
-    >().toEqualTypeOf<{ name: string; count: number; ids: string[] }>();
+    >().toEqualTypeOf<{
+      name: string;
+      count: number;
+      ids: string[];
+    }>();
   });
 
   it('has kick-acknowledged', () => {
@@ -73,7 +77,10 @@ describe('ChannelScopeIsolationClient — top-level outgoing (server incoming)',
   it('has public-broadcast-from-top', () => {
     expectTypeOf<
       ChannelScopeIsolationClient['outgoing']['public-broadcast-from-top']
-    >().toEqualTypeOf<{ name: string; text: string }>();
+    >().toEqualTypeOf<{
+      name: string;
+      text: string;
+    }>();
   });
 
   it('has public-send-direct', () => {
@@ -103,13 +110,20 @@ describe('ChannelScopeIsolationClient — channels', () => {
   it('publicRooms incoming has room-message (server outgoing)', () => {
     expectTypeOf<
       ChannelScopeIsolationClient['channels']['publicRooms']['incoming']['room-message']
-    >().toEqualTypeOf<{ family: string; name: string; text: string }>();
+    >().toEqualTypeOf<{
+      family: string;
+      name: string;
+      text: string;
+    }>();
   });
 
   it('publicRooms outgoing has send-in-public (server incoming)', () => {
     expectTypeOf<
       ChannelScopeIsolationClient['channels']['publicRooms']['outgoing']['send-in-public']
-    >().toEqualTypeOf<{ name: string; text: string }>();
+    >().toEqualTypeOf<{
+      name: string;
+      text: string;
+    }>();
   });
 
   it('privateRooms incoming has private-message', () => {

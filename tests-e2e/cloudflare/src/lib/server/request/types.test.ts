@@ -88,7 +88,9 @@ describe('RequestClient — namespaces', () => {
     >().toEqualTypeOf<{}>();
     expectTypeOf<
       RequestClient['namespaces']['ns']['requests']['get-ns-info']['response']
-    >().toEqualTypeOf<{ namespace: string }>();
+    >().toEqualTypeOf<{
+      namespace: string;
+    }>();
   });
 
   it('ns incoming and outgoing are empty', () => {
@@ -114,7 +116,9 @@ describe('RequestClient — channels', () => {
     >().toEqualTypeOf<{}>();
     expectTypeOf<
       RequestClient['channels']['room']['requests']['get-channel-info']['response']
-    >().toEqualTypeOf<{ channel: string }>();
+    >().toEqualTypeOf<{
+      channel: string;
+    }>();
   });
 
   it('room incoming and outgoing are empty', () => {

@@ -3,7 +3,6 @@ import {
   compileChannelPrimitive,
   validateChannelFamilyPatternsDisjointFromStaticNames,
 } from '~/channel/compile.ts';
-import { addPostIntercept } from '~/intercept/compile.ts';
 import { compileNamespacePrimitive } from '~/namespace/compile.ts';
 import { collectReplayClaimedScopes } from '~/replay/compile.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
@@ -80,14 +79,9 @@ function visitCompiledPrimitives(
         );
         continue;
 
-      case 'intercept': {
-        const intercept = primitive as
-          | EngineCompileTypes.AnyPreIntercept
-          | EngineCompileTypes.AnyPostIntercept;
-        if (intercept.mode === 'pre') compiled.preIntercepts.push(intercept);
-        else addPostIntercept(intercept.event, intercept, compiled.postIntercepts);
+      case 'intercept':
+        compiled.intercepts.push(primitive as EngineCompileTypes.AnyIntercept);
         continue;
-      }
 
       case 'module':
         compiled.modules.push(primitive as EngineCompileTypes.AnyModule);
@@ -139,8 +133,7 @@ export function compileHandlerDefinition(
     streams: new Map(),
     resumableStreams: new Map(),
     recordedStreams: new Map(),
-    preIntercepts: [],
-    postIntercepts: new Map(),
+    intercepts: [],
     namespaces: new Map(),
     channels: new Map(),
     channelFamilies: new Map(),
@@ -152,11 +145,90 @@ export function compileHandlerDefinition(
 
   visitCompiledPrimitives(compiled, handler.primitives);
   collectReplayClaimedScopes(handler.primitives, compiled.replayClaimedChannelKeys);
-  validatePostInterceptHandlers(compiled);
   validateNoCrossPrimitiveEventCollisions(compiled);
   validateNoReservedEventNames(compiled, collectModuleEventNames(compiled));
+  validateScopeAndEventNameSyntax(compiled);
   validateChannelFamilyPatternsDisjointFromStaticNames(compiled);
   return compiled;
+}
+
+/**
+ * Refuse to boot when a scope or event name uses characters reserved by the
+ * `contract.matches(...)` / `contract.unsafeCast(...)` path key grammar.
+ *
+ * Path keys take the form `[<@channel | #namespace>::]event`, so:
+ * - Scope names (channel + namespace) starting with `@` or `#` would be
+ *   indistinguishable from the scope prefix.
+ * - `::` is the separator between scope name and event name, so neither side
+ *   may contain it.
+ *
+ * These rules are easier to enforce as a build-time hard error than to escape
+ * at parse time; real-world names don't need any of these characters.
+ */
+function validateScopeAndEventNameSyntax(compiled: EngineCompileTypes.CompiledServer): void {
+  function checkScopeName(name: string, kind: 'channel' | 'namespace'): void {
+    if (name.startsWith('@') || name.startsWith('#')) {
+      throw new Error(
+        `[wskit] ${kind} name '${name}' starts with a reserved prefix character ('@' or '#'). ` +
+          `Those prefixes are reserved for the contract.matches(...) path key syntax — pick a different name.`,
+      );
+    }
+    if (name.includes('::')) {
+      throw new Error(
+        `[wskit] ${kind} name '${name}' contains '::', which is reserved as the separator in ` +
+          `the contract.matches(...) path key syntax — pick a different name.`,
+      );
+    }
+  }
+
+  function checkEventName(event: string, scopeLabel: string): void {
+    if (event.includes('::')) {
+      throw new Error(
+        `[wskit] Event name '${event}' in ${scopeLabel} contains '::', which is reserved as the ` +
+          `separator in the contract.matches(...) path key syntax — pick a different name.`,
+      );
+    }
+  }
+
+  function checkEventsInScope(
+    scope: {
+      outgoing: ReadonlyMap<string, unknown>;
+      incoming: ReadonlyMap<string, unknown>;
+      requests: ReadonlyMap<string, unknown>;
+      streams: ReadonlyMap<string, EngineCompileTypes.AnyGenerate>;
+      resumableStreams?: ReadonlyMap<string, EngineCompileTypes.AnyResumableStream>;
+      recordedStreams?: ReadonlyMap<string, EngineCompileTypes.AnyRecordedStream>;
+    },
+    scopeLabel: string,
+  ): void {
+    for (const event of scope.outgoing.keys()) checkEventName(event, scopeLabel);
+    for (const event of scope.incoming.keys()) checkEventName(event, scopeLabel);
+    for (const event of scope.requests.keys()) checkEventName(event, scopeLabel);
+    for (const event of scope.streams.keys()) checkEventName(event, scopeLabel);
+    if (scope.resumableStreams) {
+      for (const event of scope.resumableStreams.keys()) checkEventName(event, scopeLabel);
+    }
+    if (scope.recordedStreams) {
+      for (const event of scope.recordedStreams.keys()) checkEventName(event, scopeLabel);
+    }
+  }
+
+  checkEventsInScope(compiled, 'top-level');
+
+  for (const namespace of compiled.namespaces.values()) {
+    checkScopeName(namespace.name, 'namespace');
+    checkEventsInScope(namespace, `namespace '${namespace.name}'`);
+  }
+
+  for (const channel of compiled.channels.values()) {
+    checkScopeName(channel.key, 'channel');
+    checkEventsInScope(channel, `channel '${channel.key}'`);
+  }
+
+  for (const family of compiled.channelFamilies.values()) {
+    checkScopeName(family.key, 'channel');
+    checkEventsInScope(family, `channel family '${family.key}'`);
+  }
 }
 
 /**
@@ -316,62 +388,5 @@ function validateNoReservedEventNames(
   }
   for (const family of compiled.channelFamilies.values()) {
     checkScope(family, `channel family '${family.key}'`);
-  }
-}
-
-/**
- * Check that every post-intercept has a matching `incoming` / `request` /
- * `stream` handler in the same scope. Orphan post-intercepts are never fired
- * at runtime because the dispatcher returns early when no handler matches,
- * so this failure must surface at boot instead of silently doing nothing.
- */
-interface HandlerScope {
-  incoming: ReadonlyMap<string, unknown>;
-  requests: ReadonlyMap<string, unknown>;
-  streams: ReadonlyMap<string, unknown>;
-  resumableStreams?: ReadonlyMap<string, unknown>;
-  recordedStreams?: ReadonlyMap<string, unknown>;
-}
-
-function scopeHasHandler(scope: HandlerScope, event: string): boolean {
-  return (
-    scope.incoming.has(event) ||
-    scope.requests.has(event) ||
-    scope.streams.has(event) ||
-    (scope.resumableStreams?.has(event) ?? false) ||
-    (scope.recordedStreams?.has(event) ?? false)
-  );
-}
-
-function assertPostInterceptHandlerExists(
-  scope: HandlerScope,
-  event: string,
-  scopeLabel: string,
-): void {
-  if (scopeHasHandler(scope, event)) return;
-  throw new Error(
-    `[wskit] Post-intercept registered for '${event}' in ${scopeLabel} but no incoming/request/stream handler accepts '${event}' there. Add a handler or remove the post-intercept.`,
-  );
-}
-
-function validatePostInterceptHandlers(compiled: EngineCompileTypes.CompiledServer): void {
-  for (const event of compiled.postIntercepts.keys()) {
-    assertPostInterceptHandlerExists(compiled, event, 'top-level');
-  }
-
-  for (const namespace of compiled.namespaces.values()) {
-    for (const event of namespace.postIntercepts.keys()) {
-      assertPostInterceptHandlerExists(namespace, event, `namespace '${namespace.name}'`);
-    }
-  }
-
-  for (const channel of compiled.channels.values()) validateChannelPostIntercepts(channel);
-  for (const channel of compiled.channelFamilies.values()) validateChannelPostIntercepts(channel);
-}
-
-function validateChannelPostIntercepts(channel: EngineCompileTypes.CompiledChannel): void {
-  const patternLabel = typeof channel.pattern === 'string' ? channel.pattern : channel.pattern.key;
-  for (const event of channel.postIntercepts.keys()) {
-    assertPostInterceptHandlerExists(channel, event, `channel '${patternLabel}'`);
   }
 }

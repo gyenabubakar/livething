@@ -121,7 +121,9 @@ describe('HibernationClient — channels', () => {
   it('room outgoing has broadcast-to-room (server incoming)', () => {
     expectTypeOf<
       HibernationClient['channels']['room']['outgoing']['broadcast-to-room']
-    >().toEqualTypeOf<{ text: string }>();
+    >().toEqualTypeOf<{
+      text: string;
+    }>();
   });
 });
 

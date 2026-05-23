@@ -143,7 +143,9 @@ export const modulesHandler = implement(modulesContract)
   .on('trigger-vacuum', (ctx) => {
     (ctx.schedule as (id: string, opts: { time: number; data?: unknown }) => void)(
       '__e2e:drizzle:drizzle-vacuum',
-      { time: Date.now() + 200 },
+      {
+        time: Date.now() + 200,
+      },
     );
   })
   .on('get-outgoing-count', (ctx) => {
@@ -176,13 +178,17 @@ export const modulesHandler = implement(modulesContract)
   .on('trigger-module-every', (ctx) => {
     (ctx.schedule as (id: string, opts: { time: number; data?: unknown }) => void)(
       '__e2e:drizzle:drizzle-every-tick',
-      { time: Date.now() + 100 },
+      {
+        time: Date.now() + 100,
+      },
     );
   })
   .on('trigger-module-flaky', (ctx) => {
     (ctx.schedule as (id: string, opts: { time: number; data?: unknown }) => void)(
       '__e2e:drizzle:drizzle-flaky',
-      { time: Date.now() + 100 },
+      {
+        time: Date.now() + 100,
+      },
     );
   })
   .on('trigger-module-always-fail', (ctx) => {
@@ -194,7 +200,9 @@ export const modulesHandler = implement(modulesContract)
   .on('trigger-module-query-dlq', (ctx) => {
     (ctx.schedule as (id: string, opts: { time: number; data?: unknown }) => void)(
       '__e2e:drizzle:drizzle-query-dlq',
-      { time: Date.now() + 100 },
+      {
+        time: Date.now() + 100,
+      },
     );
   })
   .on('trigger-module-denied', () => {

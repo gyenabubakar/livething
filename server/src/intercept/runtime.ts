@@ -2,11 +2,9 @@
 import { withConnectionContext } from '~/_engine/async-context.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { AsyncContext } from '~/context.ts';
-import type {
-  InterceptMessage,
-  PostInterceptPrimitive,
-  PreInterceptPrimitive,
-} from './intercept.ts';
+import type { InterceptFrame, InterceptPrimitive } from './intercept.ts';
+
+export type { InterceptFrame, InterceptRouting } from './intercept.ts';
 
 interface InterceptRuntime {
   asyncContext?: AsyncContext;
@@ -31,69 +29,41 @@ export async function runWithScopedContext<T>(
 }
 
 /**
- * Run every pre-validation intercept in registration order.
+ * Run every intercept in registration order.
  *
- * Each intercept sees the message *before* schema validation. The returned
- * value (when not `undefined`) becomes the new `payload` for the next
- * intercept and eventually for the validator. The event name is locked.
+ * Each intercept sees the frame *before* schema validation. The returned value
+ * (when not `undefined`) becomes the new `payload` for the next intercept and
+ * eventually for the validator. The event name and routing are locked.
  *
  * Throwing inside an intercept stops the chain — the error propagates to the
  * engine's normal error handling (e.g. `Block`, `Skip`, typed errors).
  */
-export async function runPreIntercepts(
+export async function runIntercepts(
   runtime: InterceptRuntime,
   connection: RuntimeConnection,
-  intercepts: readonly PreInterceptPrimitive[],
-  message: InterceptMessage,
+  intercepts: readonly InterceptPrimitive[],
+  frame: InterceptFrame,
   getCtx: GetContext,
-): Promise<InterceptMessage> {
-  if (intercepts.length === 0) return message;
+): Promise<InterceptFrame> {
+  if (intercepts.length === 0) return frame;
 
   const ctx = getCtx();
-  let nextMessage = message;
+  let nextFrame = frame;
 
   for (const intercept of intercepts) {
     const next = await withConnectionContext(runtime.asyncContext, connection.id, () =>
-      intercept.handler(ctx, nextMessage),
+      intercept.handler(ctx, nextFrame),
     );
 
     if (next !== undefined) {
-      nextMessage = { event: nextMessage.event, payload: next };
+      nextFrame = {
+        event: nextFrame.event,
+        payload: next,
+        kind: nextFrame.kind,
+        routing: nextFrame.routing,
+      };
     }
   }
 
-  return nextMessage;
-}
-
-/**
- * Run every post-validation intercept for one event in registration order.
- *
- * Each intercept sees the *validated* payload (not the raw wire message).
- * Returning a new value replaces the payload for the next intercept and the
- * final handler. Returning `undefined` keeps the current payload.
- *
- * Throwing inside an intercept stops the chain — the error propagates to the
- * engine's normal error handling.
- */
-export async function runPostIntercepts(
-  runtime: InterceptRuntime,
-  connection: RuntimeConnection,
-  intercepts: readonly PostInterceptPrimitive[],
-  payload: unknown,
-  getCtx: GetContext,
-): Promise<unknown> {
-  if (intercepts.length === 0) return payload;
-
-  const ctx = getCtx();
-  let nextPayload = payload;
-
-  for (const intercept of intercepts) {
-    const next = await withConnectionContext(runtime.asyncContext, connection.id, () =>
-      intercept.handler(ctx, nextPayload),
-    );
-
-    if (next !== undefined) nextPayload = next;
-  }
-
-  return nextPayload;
+  return nextFrame;
 }

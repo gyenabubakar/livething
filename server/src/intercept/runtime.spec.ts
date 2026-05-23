@@ -2,7 +2,8 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { describe, expect, it } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import { intercept } from './intercept.ts';
-import { runPostIntercepts, runPreIntercepts, runWithScopedContext } from './runtime.ts';
+import { runIntercepts, runWithScopedContext } from './runtime.ts';
+import type { InterceptFrame } from './intercept.ts';
 
 function createConnection(): RuntimeConnection {
   return {
@@ -30,28 +31,33 @@ function getCtx(): Record<PropertyKey, unknown> {
   return {};
 }
 
+function makeFrame(event: string, payload: unknown): InterceptFrame {
+  return { event, payload, kind: 'incoming', routing: {} };
+}
+
 describe('intercept/runtime', () => {
-  it('runs pre intercepts in order and lets them rewrite the payload', async () => {
+  it('runs intercepts in order and lets them rewrite the payload', async () => {
     const connection = createConnection();
 
-    const first = intercept(async (_ctx, message) => ({
-      ...(message.payload as Record<string, unknown>),
+    const first = intercept(async (_ctx, frame) => ({
+      ...(frame.payload as Record<string, unknown>),
       a: 1,
     }));
-    const second = intercept(async (_ctx, message) => ({
-      ...(message.payload as Record<string, unknown>),
+    const second = intercept(async (_ctx, frame) => ({
+      ...(frame.payload as Record<string, unknown>),
       b: 2,
     }));
 
-    const next = await runPreIntercepts(
+    const next = await runIntercepts(
       {},
       connection,
       [first, second],
-      { event: 'hello', payload: {} },
+      makeFrame('hello', {}),
       getCtx,
     );
 
-    expect(next).toEqual({ event: 'hello', payload: { a: 1, b: 2 } });
+    expect(next.event).toBe('hello');
+    expect(next.payload).toEqual({ a: 1, b: 2 });
   });
 
   it('builds the connection context once and shares it across intercepts', async () => {
@@ -73,7 +79,7 @@ describe('intercept/runtime', () => {
       return undefined;
     });
 
-    await runPreIntercepts({}, connection, [a, b], { event: 'e', payload: {} }, countingGetCtx);
+    await runIntercepts({}, connection, [a, b], makeFrame('e', {}), countingGetCtx);
 
     expect(builds).toBe(1);
     expect(seen[0]).toBe(seen[1]);
@@ -83,19 +89,13 @@ describe('intercept/runtime', () => {
     const connection = createConnection();
     let builds = 0;
 
-    const next = await runPreIntercepts(
-      {},
-      connection,
-      [],
-      { event: 'e', payload: { keep: true } },
-      () => {
-        builds += 1;
-        return {};
-      },
-    );
+    const next = await runIntercepts({}, connection, [], makeFrame('e', { keep: true }), () => {
+      builds += 1;
+      return {};
+    });
 
     expect(builds).toBe(0);
-    expect(next).toEqual({ event: 'e', payload: { keep: true } });
+    expect(next.payload).toEqual({ keep: true });
   });
 
   it('locks the event name: a returned {event, payload} object becomes the new payload as a whole', async () => {
@@ -104,75 +104,60 @@ describe('intercept/runtime', () => {
     // User code that "tries" to rewrite the event by returning a full
     // {event, payload} shape. The engine must NOT route based on this —
     // the wrapper object becomes the new payload verbatim.
-    const aliasing = intercept(async (_ctx, _message) => ({
+    const aliasing = intercept(async () => ({
       event: 'real',
       payload: { count: 7 },
     }));
 
-    const next = await runPreIntercepts(
+    const next = await runIntercepts(
       {},
       connection,
       [aliasing],
-      { event: 'alias', payload: { ignored: true } },
+      makeFrame('alias', { ignored: true }),
       getCtx,
     );
 
     // Event stays locked at the wire-level 'alias'. The whole returned
-    // object becomes message.payload.
+    // object becomes frame.payload.
     expect(next.event).toBe('alias');
     expect(next.payload).toEqual({ event: 'real', payload: { count: 7 } });
   });
 
-  it('void return from a pre-intercept passes the payload through unchanged', async () => {
+  it('void return passes the payload through unchanged', async () => {
     const connection = createConnection();
 
     const passthrough = intercept(() => undefined);
 
-    const next = await runPreIntercepts(
+    const next = await runIntercepts(
       {},
       connection,
       [passthrough],
-      { event: 'foo', payload: { keep: true } },
+      makeFrame('foo', { keep: true }),
       getCtx,
     );
 
-    expect(next).toEqual({ event: 'foo', payload: { keep: true } });
+    expect(next.payload).toEqual({ keep: true });
   });
 
-  it('null and other falsy non-undefined returns from a pre-intercept ARE treated as the new payload', async () => {
+  it('null and other falsy non-undefined returns ARE treated as the new payload', async () => {
     // Only `undefined` means "no change". `null`, `0`, `false`, `''` are
     // valid replacement payloads.
     const connection = createConnection();
 
     const nuller = intercept(() => null);
 
-    const next = await runPreIntercepts(
+    const next = await runIntercepts(
       {},
       connection,
       [nuller],
-      { event: 'foo', payload: { original: true } },
+      makeFrame('foo', { original: true }),
       getCtx,
     );
 
-    expect(next).toEqual({ event: 'foo', payload: null });
+    expect(next.payload).toBeNull();
   });
 
-  it('runs post intercepts in order and lets them rewrite the payload', async () => {
-    const connection = createConnection();
-
-    const first = intercept('hello', async (_ctx, payload: { count: number }) => ({
-      count: payload.count + 1,
-    }));
-    const second = intercept('hello', async (_ctx, payload: { count: number }) => ({
-      count: payload.count + 1,
-    }));
-
-    const next = await runPostIntercepts({}, connection, [first, second], { count: 1 }, getCtx);
-
-    expect(next).toEqual({ count: 3 });
-  });
-
-  it('Block in a pre-intercept still propagates as an error', async () => {
+  it('Block in an intercept still propagates as an error', async () => {
     const { Block } = await import('@wskit/core');
     const connection = createConnection();
 
@@ -181,29 +166,38 @@ describe('intercept/runtime', () => {
     });
 
     await expect(
-      runPreIntercepts({}, connection, [blocker], { event: 'test', payload: {} }, getCtx),
+      runIntercepts({}, connection, [blocker], makeFrame('test', {}), getCtx),
     ).rejects.toBe(Block);
   });
 
-  it('validation runs before post-intercepts: post-intercept receives already-validated payload', async () => {
-    // This test documents the ordering contract: validation fires at step 3
-    // and post-intercepts fire at step 4, so by the time a post-intercept
-    // runs the payload has already been validated. Changing the order would
-    // break this assumption.
+  it('preserves kind and routing across the chain', async () => {
     const connection = createConnection();
 
-    const payloadsSeenByPost: unknown[] = [];
-    const enricher = intercept('hello', async (_ctx, payload: { count: number }) => {
-      payloadsSeenByPost.push(payload);
-      return payload;
+    const seen: InterceptFrame[] = [];
+    const recorder = intercept((_ctx, frame) => {
+      seen.push(frame);
+      return { stamped: true };
+    });
+    const second = intercept((_ctx, frame) => {
+      seen.push(frame);
+      return undefined;
     });
 
-    // Simulate: validation has already run and produced { count: 42 }.
-    // Post-intercept should receive the post-validation value.
-    const result = await runPostIntercepts({}, connection, [enricher], { count: 42 }, getCtx);
+    const start: InterceptFrame = {
+      event: 'go',
+      payload: { v: 1 },
+      kind: 'request',
+      routing: { correlationId: 'abc-123' },
+    };
+    const next = await runIntercepts({}, connection, [recorder, second], start, getCtx);
 
-    expect(payloadsSeenByPost).toEqual([{ count: 42 }]);
-    expect(result).toEqual({ count: 42 });
+    expect(seen[0]?.kind).toBe('request');
+    expect(seen[0]?.routing.correlationId).toBe('abc-123');
+    expect(seen[1]?.payload).toEqual({ stamped: true });
+    expect(seen[1]?.kind).toBe('request');
+    expect(seen[1]?.routing.correlationId).toBe('abc-123');
+    expect(next.kind).toBe('request');
+    expect(next.routing.correlationId).toBe('abc-123');
   });
 
   it('runs the scoped callback inside the connection async context, auto-scoped on throw', async () => {

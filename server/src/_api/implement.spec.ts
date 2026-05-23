@@ -97,22 +97,13 @@ describe('Implementer — duplicate-handler detection', () => {
     ).toThrow(/Duplicate namespace handler for 'admin'/);
   });
 
-  it('rejects a second pre-intercept', () => {
+  it('rejects a second intercept', () => {
     const c = makeContract();
     expect(() =>
       implement(c)
         .intercept(() => {})
         .intercept(() => {}),
-    ).toThrow(/Duplicate pre-intercept/);
-  });
-
-  it('rejects a second post-intercept for the same event', () => {
-    const c = makeContract();
-    expect(() =>
-      implement(c)
-        .intercept('chat', () => {})
-        .intercept('chat', () => {}),
-    ).toThrow(/Duplicate post-intercept handler for 'chat'/);
+    ).toThrow(/Duplicate intercept/);
   });
 
   it('rejects a duplicate handler inside a channel sub-builder', () => {

@@ -95,7 +95,9 @@ describe('ChannelStaticClient — channels', () => {
     >().toEqualTypeOf<{ count: number }>();
     expectTypeOf<
       ChannelStaticClient['channels']['room']['streams']['start-channel-stream']['chunk']
-    >().toEqualTypeOf<{ index: number }>();
+    >().toEqualTypeOf<{
+      index: number;
+    }>();
   });
 
   it('start-channel-stream has no cursor or nudges (basic stream)', () => {
@@ -113,7 +115,11 @@ describe('ChannelStaticClient — channels', () => {
   it('room2 channel has room-message in incoming', () => {
     expectTypeOf<
       ChannelStaticClient['channels']['room2']['incoming']['room-message']
-    >().toEqualTypeOf<{ text: string; from: string; kind: string }>();
+    >().toEqualTypeOf<{
+      text: string;
+      from: string;
+      kind: string;
+    }>();
   });
 });
 

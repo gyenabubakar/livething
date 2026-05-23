@@ -323,7 +323,9 @@ describe('replay/runtime', () => {
 
     expect(
       JSON.parse(buildReplayRow({ type: 'history' }, 'message', payload, wskit, 99).payload),
-    ).toEqual({ text: 'hello' });
+    ).toEqual({
+      text: 'hello',
+    });
   });
 
   it('persists history rows, supports snapshot reducers, and deletes snapshots on null', () => {

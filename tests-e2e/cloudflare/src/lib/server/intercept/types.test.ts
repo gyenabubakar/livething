@@ -59,10 +59,14 @@ describe('InterceptClient — namespaces', () => {
   it('intercepted-stream has correct payload and chunk', () => {
     expectTypeOf<
       InterceptClient['namespaces']['ns']['streams']['intercepted-stream']['payload']
-    >().toEqualTypeOf<{ text: string }>();
+    >().toEqualTypeOf<{
+      text: string;
+    }>();
     expectTypeOf<
       InterceptClient['namespaces']['ns']['streams']['intercepted-stream']['chunk']
-    >().toEqualTypeOf<{ text: string }>();
+    >().toEqualTypeOf<{
+      text: string;
+    }>();
   });
 
   it('intercepted-stream has no cursor or nudges', () => {

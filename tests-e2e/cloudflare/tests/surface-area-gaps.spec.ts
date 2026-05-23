@@ -187,8 +187,8 @@ test.describe('surface-area gaps', () => {
         f.__wskit?.streamId === streamId &&
         typeof f.payload?.text === 'string',
     );
-    // The namespace's post-intercept appends `-rewritten` to payload.text
-    // before the generator receives it.
+    // The namespace's intercept appends `-rewritten` to payload.text via
+    // matches() narrowing before the generator receives it.
     expect(chunk.payload.text).toBe('hello-rewritten');
   });
 });

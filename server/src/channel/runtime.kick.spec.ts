@@ -57,8 +57,7 @@ describe('channels.kick end-to-end', () => {
       streams: new Map(),
       resumableStreams: new Map(),
       recordedStreams: new Map(),
-      preIntercepts: [],
-      postIntercepts: new Map(),
+      intercepts: [],
     };
 
     const connections = new Map([
@@ -178,8 +177,7 @@ describe('channels.kick end-to-end', () => {
       streams: new Map(),
       resumableStreams: new Map(),
       recordedStreams: new Map(),
-      preIntercepts: [],
-      postIntercepts: new Map(),
+      intercepts: [],
     };
 
     const connections = new Map([

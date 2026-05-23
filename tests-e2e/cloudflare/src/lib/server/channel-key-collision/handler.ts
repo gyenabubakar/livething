@@ -3,31 +3,25 @@ import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-const HelloPayload = v.object({ family: v.string(), name: v.string(), text: v.string() });
-const BroadcastAPayload = v.object({ name: v.string(), text: v.string() });
-const BroadcastBPayload = v.object({ name: v.string(), text: v.string() });
-const MembersAPayload = v.object({ name: v.string() });
-const MembersBPayload = v.object({ name: v.string() });
-const MembersResultPayload = v.object({
-  family: v.string(),
-  name: v.string(),
-  count: v.number(),
-});
+// Two families whose qualified names could be confused if the engine ever
+// concatenated key + scope-value naively:
+// - family 'rooms' matches names like 'private-lobby' → reads as 'rooms/private-lobby'
+// - family 'rooms-private' matches 'lobby' → reads as 'rooms-private/lobby'
+// The engine routes by (family-key, scope-value) tuple, so they stay isolated.
+// This fixture proves that.
+const HelloPayload = v.object({ family: v.string(), text: v.string() });
+const BroadcastPayload = v.object({ name: v.string(), text: v.string() });
 
 export const channelKeyCollisionContract = contract<Env>('channel-key-collision')({
   meta: t<{ username: string }>(),
   definitions: [
-    incoming('broadcast-a', BroadcastAPayload),
-    incoming('broadcast-b', BroadcastBPayload),
-    incoming('members-a', MembersAPayload),
-    incoming('members-b', MembersBPayload),
+    incoming('broadcast-a', BroadcastPayload),
+    incoming('broadcast-b', BroadcastPayload),
 
-    outgoing('members-result', MembersResultPayload),
-
-    channel(scope('rooms', /^private::.+$/), {
+    channel(scope('rooms', /^private-.+$/), {
       definitions: [outgoing('hello', HelloPayload)],
     }),
-    channel(scope('rooms::private', /^.+$/), {
+    channel(scope('rooms-private', /^.+$/), {
       definitions: [outgoing('hello', HelloPayload)],
     }),
   ],
@@ -39,31 +33,13 @@ export const channelKeyCollisionHandler = implement(channelKeyCollisionContract)
   .on('broadcast-a', (ctx, payload) => {
     ctx.channels.get('rooms', payload.name).broadcast('hello', {
       family: 'rooms',
-      name: payload.name,
       text: payload.text,
     });
   })
   .on('broadcast-b', (ctx, payload) => {
-    ctx.channels.get('rooms::private', payload.name).broadcast('hello', {
-      family: 'rooms::private',
-      name: payload.name,
+    ctx.channels.get('rooms-private', payload.name).broadcast('hello', {
+      family: 'rooms-private',
       text: payload.text,
-    });
-  })
-  .on('members-a', (ctx, payload) => {
-    const handle = ctx.channels.get('rooms', payload.name);
-    ctx.send('members-result', {
-      family: 'rooms',
-      name: payload.name,
-      count: handle.members().length,
-    });
-  })
-  .on('members-b', (ctx, payload) => {
-    const handle = ctx.channels.get('rooms::private', payload.name);
-    ctx.send('members-result', {
-      family: 'rooms::private',
-      name: payload.name,
-      count: handle.members().length,
     });
   })
 

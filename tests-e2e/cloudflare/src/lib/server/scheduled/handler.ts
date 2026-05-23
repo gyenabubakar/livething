@@ -203,7 +203,10 @@ export const scheduledHandler = implement(scheduledContract)
     try {
       (ctx.schedule as (taskId: string, options: { time: number; data?: unknown }) => void)(
         'cleanup',
-        { time: Date.now() + 50, data: { nope: true } },
+        {
+          time: Date.now() + 50,
+          data: { nope: true },
+        },
       );
     } catch (error) {
       ctx.send('schedule-guard-error', {
@@ -251,7 +254,9 @@ export const scheduledHandler = implement(scheduledContract)
     try {
       (ctx.schedule as (id: string, opts: { time: number }) => void)(
         'typo-task-id-that-is-not-registered',
-        { time: Date.now() + 60_000 },
+        {
+          time: Date.now() + 60_000,
+        },
       );
     } catch (err) {
       rejected = true;

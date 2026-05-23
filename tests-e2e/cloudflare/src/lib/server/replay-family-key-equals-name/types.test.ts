@@ -43,13 +43,17 @@ describe('ReplayFamilyKeyEqualsNameClient — channels', () => {
   it('rooms incoming has room-message (server outgoing)', () => {
     expectTypeOf<
       ReplayFamilyKeyEqualsNameClient['channels']['rooms']['incoming']['room-message']
-    >().toEqualTypeOf<{ text: string }>();
+    >().toEqualTypeOf<{
+      text: string;
+    }>();
   });
 
   it('rooms outgoing has send-batch (server incoming)', () => {
     expectTypeOf<
       ReplayFamilyKeyEqualsNameClient['channels']['rooms']['outgoing']['send-batch']
-    >().toEqualTypeOf<{ count: number }>();
+    >().toEqualTypeOf<{
+      count: number;
+    }>();
   });
 });
 
