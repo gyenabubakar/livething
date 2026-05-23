@@ -167,13 +167,19 @@ function createReplaySql() {
 }
 
 describe('replay/runtime', () => {
-  it('creates the replay schema and indexes', () => {
+  it('creates the replay schema and indexes in one round trip', () => {
     const exec = vi.fn(() => new FakeSqlResult([]));
     const sql = { exec };
 
     ensureReplaySchema(sql);
 
-    expect(exec).toHaveBeenCalledTimes(3);
+    // Schema-init batches CREATE TABLE + CREATE INDEX into one multi-statement
+    // string so the engine boot pays one round trip instead of three.
+    expect(exec).toHaveBeenCalledTimes(1);
+    const call = String((exec.mock.calls[0] as unknown as unknown[])?.[0] ?? '');
+    expect(call).toContain('CREATE TABLE IF NOT EXISTS __wskit_replay');
+    expect(call).toContain('CREATE INDEX IF NOT EXISTS __wskit_idx_replay_seq');
+    expect(call).toContain('CREATE INDEX IF NOT EXISTS __wskit_idx_replay_scope_seq');
   });
 
   it('matches replay ownership by scope and excludes mismatched messages', () => {

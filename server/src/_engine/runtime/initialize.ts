@@ -2,6 +2,7 @@
 import * as EngineContexts from '~/_engine/contexts/contexts.ts';
 import { installPrimitiveHooks } from '~/_engine/registry/install.ts';
 import { createModuleHooks } from '~/_engine/registry/module-hooks.ts';
+import { isSchemaInitialized, markSchemaInitialized } from '~/_engine/runtime/schema-meta.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type { EngineAccessDeps } from '~/_engine/registry/engine-access.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
@@ -64,6 +65,23 @@ export async function initialize(core: EngineCore, accessDeps: EngineAccessDeps)
     core.moduleRuntimes.push(runtime);
   }
 
+  // Schema-init hooks (CREATE TABLE IF NOT EXISTS) only run when the marker
+  // row says storage is not on the current schema version. On a fresh DO the
+  // SELECT throws and we treat it as not-initialized.
+  const storageForSchema = core.storage;
+  if (core.hooks.bootSchema.length > 0) {
+    const initialized = storageForSchema ? isSchemaInitialized(storageForSchema.sql) : false;
+    if (!initialized) {
+      for (const hook of core.hooks.bootSchema) {
+        await hook();
+      }
+      if (storageForSchema) {
+        markSchemaInitialized(storageForSchema.sql);
+      }
+    }
+  }
+
+  // Always-run boot hooks (cleanup, state restore). These never skip.
   for (const hook of core.hooks.boot) {
     await hook();
   }

@@ -22,13 +22,17 @@ function buildAccess(
 }
 
 /**
- * Install the scheduled runtime on first use (idempotent). Adds a boot hook
- * that loads the queue and an alarm hook that drains due runs.
+ * Install the scheduled runtime on first use (idempotent). Adds a schema-init
+ * hook for the tables, a boot hook that loads the queue, and an alarm hook
+ * that drains due runs.
  */
 export function ensureScheduledRuntime(core: EngineCore, createTaskContext: () => unknown): void {
   if (core.installedFeatures.has(SCHEDULED_RUNTIME_KEY)) return;
   core.installedFeatures.add(SCHEDULED_RUNTIME_KEY);
 
+  core.hooks.bootSchema.push(() =>
+    Scheduled.ensureScheduledSchema(buildAccess(core, createTaskContext)),
+  );
   core.hooks.boot.push(() =>
     Scheduled.bootstrapScheduledRuntime(buildAccess(core, createTaskContext)),
   );

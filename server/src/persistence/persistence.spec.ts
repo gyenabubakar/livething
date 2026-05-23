@@ -13,6 +13,7 @@ describe('persistence()', () => {
         enabled = value;
       },
       onBoot() {},
+      onBootSchema() {},
       requireStorage: () => ({
         sql: {
           exec: () => ({ toArray: () => [], one: () => null, raw: () => [] }),
@@ -23,14 +24,15 @@ describe('persistence()', () => {
     expect(enabled).toBe(true);
   });
 
-  it('registers a boot hook that creates both durable tables and indexes', () => {
-    const bootHooks: Array<() => void> = [];
+  it('registers a schema hook that creates both durable tables and indexes', () => {
+    const schemaHooks: Array<() => void> = [];
     const execCalls: string[] = [];
 
     persistence().__setup?.({
       setPersistenceEnabled() {},
-      onBoot(handler: () => void) {
-        bootHooks.push(handler);
+      onBoot() {},
+      onBootSchema(handler: () => void) {
+        schemaHooks.push(handler);
       },
       requireStorage: () => ({
         sql: {
@@ -43,8 +45,8 @@ describe('persistence()', () => {
       }),
     } as never);
 
-    expect(bootHooks).toHaveLength(1);
-    bootHooks[0]!();
+    expect(schemaHooks).toHaveLength(1);
+    schemaHooks[0]!();
     expect(
       execCalls.some((q) => q.includes('CREATE TABLE IF NOT EXISTS __wskit_channel_memberships')),
     ).toBe(true);

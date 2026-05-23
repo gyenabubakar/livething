@@ -92,6 +92,13 @@ export interface RegisteredEngineHooks {
   /** Runs during primitive setup, before `init` hooks — for internal bootstrap. */
   boot: (() => void | Promise<void>)[];
 
+  /**
+   * Like `boot`, but for `ensure*Schema` calls that issue `CREATE TABLE IF
+   * NOT EXISTS`. The engine skips these on warm boots when the schema
+   * marker row (`__wskit_meta.schema_version`) says storage is current.
+   */
+  bootSchema: (() => void | Promise<void>)[];
+
   /** Runs once during `engine.initialize()` — for framework-level startup. */
   init: ((ctx: any) => void | Promise<void>)[];
 

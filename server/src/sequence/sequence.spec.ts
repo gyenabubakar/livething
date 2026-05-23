@@ -70,12 +70,14 @@ function installSequence(
   sql = new FakeSqlProvider(),
 ): {
   stampHandlers: Array<NonNullable<Parameters<EngineAccess['onWskitStamp']>[0]>>;
-  bootHandlers: Array<NonNullable<Parameters<EngineAccess['onBoot']>[0]>>;
+  bootHandlers: Array<NonNullable<Parameters<EngineAccess['onBootSchema']>[0]>>;
   hook: NonNullable<Parameters<EngineAccess['onWskitStamp']>[0]>;
   sql: FakeSqlProvider;
 } {
   const stampHandlers: Array<NonNullable<Parameters<EngineAccess['onWskitStamp']>[0]>> = [];
-  const bootHandlers: Array<NonNullable<Parameters<EngineAccess['onBoot']>[0]>> = [];
+  // Sequence registers its schema-init on onBootSchema (split from onBoot
+  // so warm boots can skip it).
+  const bootHandlers: Array<NonNullable<Parameters<EngineAccess['onBootSchema']>[0]>> = [];
   const installs = new Set<symbol>();
 
   const engine = {
@@ -85,7 +87,8 @@ function installSequence(
       installs.add(key);
       install();
     },
-    onBoot(handler) {
+    onBoot() {},
+    onBootSchema(handler) {
       bootHandlers.push(handler);
     },
     onWskitStamp(handler) {
@@ -109,7 +112,12 @@ function installSequence(
     },
   } as Pick<
     EngineAccess,
-    'installOnce' | 'onBoot' | 'onWskitStamp' | 'requireStorage' | 'setSequencePersistent'
+    | 'installOnce'
+    | 'onBoot'
+    | 'onBootSchema'
+    | 'onWskitStamp'
+    | 'requireStorage'
+    | 'setSequencePersistent'
   > as EngineAccess;
 
   sequence(options).__setup?.(engine);

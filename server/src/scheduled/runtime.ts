@@ -31,6 +31,9 @@ const SCHEDULED_DLQ_TABLE_SQL = `
     metadata TEXT NOT NULL DEFAULT '{}'
   )
 `;
+
+// Both DDL statements bundled — one round trip instead of two.
+const SCHEDULED_SCHEMA_SQL = `${SCHEDULED_TABLE_SQL};\n${SCHEDULED_DLQ_TABLE_SQL}`;
 type ScheduledRunRow = {
   id: string;
   taskId: string;
@@ -122,8 +125,6 @@ function persistSchedulerState(runtime: ScheduledRuntimeAccess): void {
   const runs = [...runtime.getScheduledRuns().values()];
   const deadLetters = [...runtime.getScheduledDlq().values()];
 
-  storage.sql.exec(SCHEDULED_TABLE_SQL);
-  storage.sql.exec(SCHEDULED_DLQ_TABLE_SQL);
   storage.sql.transaction((tx) => {
     tx.exec('DELETE FROM __wskit_scheduled');
     for (const run of runs) {
@@ -216,19 +217,23 @@ function ensureRecurringRuns(runtime: ScheduledRuntimeAccess): void {
 }
 
 /**
- * Prepare scheduler storage and restore queued runs into memory.
- *
- * This runs during engine boot, before normal init hooks. It makes sure the
- * scheduler tables exist, restores queued and dead-lettered runs, rebuilds the
- * recurring baseline queue, and then asks the engine to plan the next alarm.
+ * Create the scheduler tables. Idempotent. The engine routes this through
+ * `onBootSchema` so warm boots skip it when the schema marker row says
+ * storage is current.
+ */
+export function ensureScheduledSchema(runtime: ScheduledRuntimeAccess): void {
+  runtime.requireStorage().sql.exec(SCHEDULED_SCHEMA_SQL);
+}
+
+/**
+ * Restore queued runs and dead-lettered runs into memory. Always runs on
+ * every boot. Assumes the schema already exists (either freshly created in
+ * `ensureScheduledSchema` on cold boot, or from a previous boot on wake).
  */
 export function bootstrapScheduledRuntime(runtime: ScheduledRuntimeAccess): void {
   const storage = runtime.requireStorage();
   const scheduledRuns = runtime.getScheduledRuns();
   const deadLetters = runtime.getScheduledDlq();
-
-  storage.sql.exec(SCHEDULED_TABLE_SQL);
-  storage.sql.exec(SCHEDULED_DLQ_TABLE_SQL);
 
   scheduledRuns.clear();
   deadLetters.clear();

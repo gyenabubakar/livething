@@ -42,6 +42,14 @@ export interface EngineAccess {
   onBoot(handler: () => void | Promise<void>): void;
 
   /**
+   * Like `onBoot`, but for `ensure*Schema` calls. The engine skips these on
+   * warm boots when the schema marker row says storage is already current.
+   * Use this ONLY for idempotent `CREATE TABLE IF NOT EXISTS` work — never
+   * for cleanup or state restoration, which must always run.
+   */
+  onBootSchema(handler: () => void | Promise<void>): void;
+
+  /**
    * Observe or rewrite incoming wire messages before the engine routes them.
    *
    * Return a value to replace the payload, or return nothing to leave it

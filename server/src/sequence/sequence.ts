@@ -48,7 +48,7 @@ export function sequence(options?: SequenceOptions): SequencePrimitive {
         let current = 0;
 
         if (persist) {
-          engine.onBoot(() => {
+          engine.onBootSchema(() => {
             ensureSequenceSchema(engine.requireStorage().sql);
           });
         }

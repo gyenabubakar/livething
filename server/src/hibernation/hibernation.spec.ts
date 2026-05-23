@@ -36,20 +36,22 @@ describe('hibernation()', () => {
         enabled = value;
       },
       onBoot() {},
+      onBootSchema() {},
     } as never);
 
     expect(enabled).toBe(false);
   });
 
-  it('registers a boot hook that ensures the connection schema when enabled', () => {
+  it('registers a schema hook that ensures the connection schema when enabled', () => {
     const primitive = hibernation(true);
-    const bootHooks: Array<() => void> = [];
+    const schemaHooks: Array<() => void> = [];
     const execCalls: string[] = [];
 
     primitive.__setup?.({
       setHibernationEnabled() {},
-      onBoot(handler: () => void) {
-        bootHooks.push(handler);
+      onBoot() {},
+      onBootSchema(handler: () => void) {
+        schemaHooks.push(handler);
       },
       requireStorage: () => ({
         sql: {
@@ -62,8 +64,8 @@ describe('hibernation()', () => {
       }),
     } as never);
 
-    expect(bootHooks).toHaveLength(1);
-    bootHooks[0]!();
+    expect(schemaHooks).toHaveLength(1);
+    schemaHooks[0]!();
     expect(
       execCalls.some((q) => q.includes('CREATE TABLE IF NOT EXISTS __wskit_connections')),
     ).toBe(true);
@@ -74,17 +76,18 @@ describe('hibernation()', () => {
     ).toBe(true);
   });
 
-  it('does not register a boot hook when disabled', () => {
+  it('does not register a schema hook when disabled', () => {
     const primitive = hibernation(false);
-    const bootHooks: Array<() => void> = [];
+    const schemaHooks: Array<() => void> = [];
 
     primitive.__setup?.({
       setHibernationEnabled() {},
-      onBoot(handler: () => void) {
-        bootHooks.push(handler);
+      onBoot() {},
+      onBootSchema(handler: () => void) {
+        schemaHooks.push(handler);
       },
     } as never);
 
-    expect(bootHooks).toHaveLength(0);
+    expect(schemaHooks).toHaveLength(0);
   });
 });

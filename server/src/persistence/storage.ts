@@ -65,19 +65,24 @@ type RawMembershipRow = {
 
 // ── Schema ─────────────────────────────────────────────────────────────────
 
+// All six DDL statements in one multi-statement string. Cloudflare's SQL
+// `exec` accepts semicolon-separated statements, so this is one round trip
+// instead of six.
+const PERSISTENCE_SCHEMA_SQL = [
+  CREATE_MEMBERSHIPS_TABLE_SQL,
+  CREATE_MEMBERSHIPS_IDENTITY_INDEX_SQL,
+  CREATE_MEMBERSHIPS_CHANNEL_INDEX_SQL,
+  CREATE_TAGS_TABLE_SQL,
+  CREATE_TAGS_IDENTITY_INDEX_SQL,
+  CREATE_TAGS_GROUP_KEY_INDEX_SQL,
+].join(';\n');
+
 /**
  * Create the per-user durable tables and indexes. Idempotent — safe to call
- * on every engine boot. Both tables are created together so a later phase
- * can drop tag rows for an identity during `purgeIdentity` without worrying
- * about the `__wskit_tags` table being absent.
+ * on every engine boot.
  */
 export function ensurePersistenceSchema(sql: Pick<SQLProvider, 'exec'>): void {
-  sql.exec(CREATE_MEMBERSHIPS_TABLE_SQL);
-  sql.exec(CREATE_MEMBERSHIPS_IDENTITY_INDEX_SQL);
-  sql.exec(CREATE_MEMBERSHIPS_CHANNEL_INDEX_SQL);
-  sql.exec(CREATE_TAGS_TABLE_SQL);
-  sql.exec(CREATE_TAGS_IDENTITY_INDEX_SQL);
-  sql.exec(CREATE_TAGS_GROUP_KEY_INDEX_SQL);
+  sql.exec(PERSISTENCE_SCHEMA_SQL);
 }
 
 // ── Memberships ────────────────────────────────────────────────────────────
@@ -214,11 +219,11 @@ export function purgeTagsByIdentity(sql: Pick<SQLProvider, 'exec'>, identity: st
 // ── Scope mapping ──────────────────────────────────────────────────────────
 
 /**
- * Maps in-code `null` scope (static channel) to the DB sentinel `''`.
- * SQLite treats NULLs as distinct in UNIQUE/PK, so `null` would break the
- * `(identity, channel_name, channel_scope)` primary key for static channels.
- * `''` works as the canonical "no scope" marker on the DB side; in-engine
- * code never sees it.
+ * Maps in-code `null` scope (static channel) to the empty string `''` on the
+ * DB side. SQLite treats NULLs as distinct in UNIQUE/PK, so `null` would
+ * break the `(identity, channel_name, channel_scope)` primary key for static
+ * channels. `''` is the canonical "no scope" marker on disk; in-engine code
+ * never sees it.
  */
 function scopeToDb(scope: string | null): string {
   return scope ?? '';

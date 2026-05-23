@@ -36,6 +36,9 @@ export function createEngineAccess(
     onBoot: (handler) => {
       core.hooks.boot.push(handler);
     },
+    onBootSchema: (handler) => {
+      core.hooks.bootSchema.push(handler);
+    },
     onIncoming: (handler) => {
       core.hooks.incoming.push(handler);
     },

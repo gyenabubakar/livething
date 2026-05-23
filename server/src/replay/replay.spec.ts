@@ -254,6 +254,7 @@ describe('replay', () => {
       onBeforeSend() {},
       onAfterSend() {},
       onBoot() {},
+      onBootSchema() {},
       onProtocolMessage() {},
       sendReplay() {},
     } as Pick<
@@ -298,6 +299,7 @@ describe('replay', () => {
       onBeforeSend() {},
       onAfterSend() {},
       onBoot() {},
+      onBootSchema() {},
       onProtocolMessage() {},
       sendReplay(...args: Parameters<EngineAccess['sendReplay']>) {
         sent.push(args);
@@ -350,6 +352,7 @@ describe('replay', () => {
       onBeforeSend() {},
       onAfterSend() {},
       onBoot() {},
+      onBootSchema() {},
       onProtocolMessage() {},
       sendReplay() {},
     } as Pick<
@@ -421,6 +424,7 @@ describe('replay', () => {
       onBeforeSend() {},
       onAfterSend() {},
       onBoot() {},
+      onBootSchema() {},
       requireStorage(): StorageProvider {
         return {
           sql: {

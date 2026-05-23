@@ -12,6 +12,7 @@ export function createRegisteredHooks(): EngineRuntimeTypes.RegisteredEngineHook
     protocol: new Map(),
     contextExtenders: [],
     boot: [],
+    bootSchema: [],
     init: [],
     connect: [],
     disconnect: [],

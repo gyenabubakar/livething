@@ -115,14 +115,20 @@ interface SqlExec {
   };
 }
 
+// All five statements (the PRAGMA + four CREATEs) bundled into one round
+// trip. The PRAGMA is repeated every boot anyway since SQLite resets it
+// per-connection, so it stays at the front of the bundle.
+const DURABLE_STREAM_SCHEMA_SQL = [
+  'PRAGMA foreign_keys = ON',
+  CREATE_STREAMS_TABLE_SQL,
+  CREATE_STREAMS_STATUS_INDEX_SQL,
+  CREATE_STREAM_CHUNKS_TABLE_SQL,
+  CREATE_STREAM_SUBSCRIBERS_TABLE_SQL,
+].join(';\n');
+
 /** Create the durable stream tables and indexes if they do not yet exist. */
 export function ensureDurableStreamSchema(sql: SqlExec): void {
-  // FK enforcement on — cascade delete clears chunks on row removal.
-  sql.exec('PRAGMA foreign_keys = ON');
-  sql.exec(CREATE_STREAMS_TABLE_SQL);
-  sql.exec(CREATE_STREAMS_STATUS_INDEX_SQL);
-  sql.exec(CREATE_STREAM_CHUNKS_TABLE_SQL);
-  sql.exec(CREATE_STREAM_SUBSCRIBERS_TABLE_SQL);
+  sql.exec(DURABLE_STREAM_SCHEMA_SQL);
 }
 
 function rowToStream(row: Record<string, unknown>): DurableStreamRow {

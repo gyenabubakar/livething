@@ -50,13 +50,15 @@ type RawRow = {
   active_stream_ids: string;
 };
 
+// Table + index bundled — one round trip instead of two.
+const CONNECTION_SCHEMA_SQL = `${CREATE_CONNECTIONS_TABLE_SQL};\n${CREATE_CONNECTIONS_IDENTITY_INDEX_SQL}`;
+
 /**
  * Create the table and identity index used to persist per-connection state
  * across hibernation cycles. Idempotent — safe to call on every engine boot.
  */
 export function ensureConnectionSchema(sql: Pick<SQLProvider, 'exec'>): void {
-  sql.exec(CREATE_CONNECTIONS_TABLE_SQL);
-  sql.exec(CREATE_CONNECTIONS_IDENTITY_INDEX_SQL);
+  sql.exec(CONNECTION_SCHEMA_SQL);
 }
 
 /**

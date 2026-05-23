@@ -31,7 +31,7 @@ export function hibernation(enabled = true): HibernationPrimitive {
     __setup(engine) {
       engine.setHibernationEnabled(enabled);
       if (!enabled) return;
-      engine.onBoot(() => {
+      engine.onBootSchema(() => {
         ensureConnectionSchema(engine.requireStorage().sql);
       });
     },

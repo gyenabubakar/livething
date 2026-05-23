@@ -37,15 +37,20 @@ const CREATE_REPLAY_SCOPE_SEQ_INDEX_SQL = `
   ON __wskit_replay (channel, channelScope, seq)
 `;
 
+const REPLAY_SCHEMA_SQL = [
+  CREATE_REPLAY_TABLE_SQL,
+  CREATE_REPLAY_SEQ_INDEX_SQL,
+  CREATE_REPLAY_SCOPE_SEQ_INDEX_SQL,
+].join(';\n');
+
 /**
  * Create the SQLite tables and indexes the automatic replay primitive needs.
+ * One round trip instead of three thanks to multi-statement `sql.exec`.
  */
 export function ensureReplaySchema(sql: {
   exec(query: string, ...params: unknown[]): unknown;
 }): void {
-  sql.exec(CREATE_REPLAY_TABLE_SQL);
-  sql.exec(CREATE_REPLAY_SEQ_INDEX_SQL);
-  sql.exec(CREATE_REPLAY_SCOPE_SEQ_INDEX_SQL);
+  sql.exec(REPLAY_SCHEMA_SQL);
 }
 
 /**

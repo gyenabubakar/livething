@@ -35,10 +35,11 @@ export function persistence(): PersistencePrimitive {
     __requires: { storage: true },
     __setup(engine) {
       engine.setPersistenceEnabled(true);
+      engine.onBootSchema(() => {
+        ensurePersistenceSchema(engine.requireStorage().sql);
+      });
       engine.onBoot(() => {
-        const sql = engine.requireStorage().sql;
-        ensurePersistenceSchema(sql);
-        const dropped = reconcilePersistenceOnBoot(sql, (name, scope) =>
+        const dropped = reconcilePersistenceOnBoot(engine.requireStorage().sql, (name, scope) =>
           engine.isDurableMembershipPairPersistent(name, scope),
         );
         if (dropped > 0) {

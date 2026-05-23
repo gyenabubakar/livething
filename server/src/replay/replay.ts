@@ -99,10 +99,11 @@ export function replay(options?: ReplayOptions | false): ReplayPrimitive {
       const { channelKey } = engine.getScopeInfo();
       const exclude = new Set(opts.exclude ?? []);
 
+      engine.onBootSchema(() => {
+        ensureReplaySchema(engine.requireStorage().sql);
+      });
       engine.onBoot(() => {
-        const { sql } = engine.requireStorage();
-        ensureReplaySchema(sql);
-        pruneExpiredReplayRows(sql, opts.retention, Date.now());
+        pruneExpiredReplayRows(engine.requireStorage().sql, opts.retention, Date.now());
       });
 
       const installer = new ReplayInstaller(engine, channelKey, exclude, opts);
