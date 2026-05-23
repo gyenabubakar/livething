@@ -1,11 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 
-/**
- * Derives the structured `Contract` shape from a `definitions` tuple. Each
- * section (`incoming`, `outgoing`, `requests`, `streams`, `scheduled`,
- * `channels`, `namespaces`) becomes a record keyed by definition name.
- */
-
 import type { ScopeDeclaration } from '~/channel/channel.ts';
 import type { ErrorDef } from '~/errors/errors.ts';
 import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
@@ -27,13 +21,10 @@ import type {
 // ---------------------------------------------------------------------------
 // Single-pass categorizer
 //
-// One tail-recursive walk over the definitions tuple builds a record of all
-// per-kind slots in a single instantiation. Previously each slot was its own
-// mapped-type-over-tuple walk plus a contravariant MergeUnion collapse — seven
-// walks per contract level, repeating for every nested channel/namespace.
-// The accumulator pattern below does the same job in one pass; TS memoizes
-// `Categorize<D>` so downstream slot lookups (`Contract['incoming']`, etc.)
-// are O(1) indexes into the cached record.
+// One tail-recursive walk over the definitions tuple builds a record of every
+// per-kind slot in a single instantiation. TS memoizes `Categorize<D>` so
+// downstream slot lookups (`Contract['incoming']`, etc.) are O(1) indexes into
+// the cached record.
 // ---------------------------------------------------------------------------
 
 type NudgesMap<TNudges extends readonly NudgeDef<string, any>[]> = {

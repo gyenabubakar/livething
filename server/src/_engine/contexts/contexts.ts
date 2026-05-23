@@ -5,8 +5,6 @@ import type * as PublicApi from '~/context.ts';
 import { createLazyStorageView } from './lazy-storage.ts';
 import * as EngineContextTypes from './types.ts';
 
-// Re-exports — per-kind context code now lives next to its primitive, but
-// engine internals still import these names from this file's old paths.
 export { createInitContext, createShutdownContext } from '~/lifecycle/context.ts';
 export { createTaskContext } from '~/scheduled/context.ts';
 export { buildChannelHandle } from '~/channel/context.ts';

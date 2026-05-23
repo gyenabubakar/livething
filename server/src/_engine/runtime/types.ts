@@ -195,7 +195,6 @@ export interface RuntimeConnection {
   meta: Record<string, unknown>;
 
   // -- Channel state --
-  /** Tags currently assigned to this connection (used for sendTo/getConnectionsByTag). */
   /**
    * Per-group tag storage. Outer key is the group name, inner Set is the
    * keys held under that group. The `(kind, group)` split is enforced at
@@ -254,12 +253,6 @@ export interface RuntimeConnection {
 }
 
 /**
- * Runtime bookkeeping for one active stream generator.
- *
- * This tracks the live generator, any queued nudges, and whether the stream
- * has been closed.
- */
-/**
  * What the framework does to a durable stream's generator when the owning
  * connection drops.
  *
@@ -270,6 +263,12 @@ export interface RuntimeConnection {
  */
 export type OnDisconnect = 'cancel-but-buffer' | 'keep-running';
 
+/**
+ * Runtime bookkeeping for one active stream generator.
+ *
+ * Tracks the live generator, any queued nudges, and whether the stream has
+ * been closed.
+ */
 export interface ActiveStream {
   id: string;
   connectionId: string;

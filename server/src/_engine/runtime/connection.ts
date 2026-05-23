@@ -692,10 +692,9 @@ export async function handleShutdown(
   // Send the wire-level close frame first so clients see GOING_AWAY
   // promptly, then drive the per-connection cleanup chain ourselves
   // (onDisconnect hooks, __memberLeave__ broadcasts, channel leaves,
-  // heartbeat timer teardown). Awaiting the cleanup here is the whole
-  // point of the change: pre-fix the cleanup ran fire-and-forget on the
-  // adapter's webSocketClose callback and the DO could be evicted
-  // before any of it landed, leaving channel peers with ghost members.
+  // heartbeat timer teardown). The cleanup must be awaited so the DO
+  // is not evicted before it lands and leaves channel peers with ghost
+  // members.
   for (const connection of draining) {
     connection.descriptor.close(CloseCodes.GOING_AWAY, 'Server shutting down');
   }

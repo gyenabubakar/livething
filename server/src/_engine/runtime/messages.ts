@@ -30,13 +30,6 @@ type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
 /** Routing markers carried on a server-sent `__error__` frame's `__wskit`. */
 export type WskitRouting = Protocol.WskitRouting;
 
-// ───── Section: re-exports of outgoing helpers ─────
-
-/**
- * Re-exports of the outgoing pipeline helpers so runtime callers can continue
- * to import from a single module. The implementations live in
- * `outgoing/runtime.ts`.
- */
 export const sendThroughPipeline = OutgoingRuntime.sendThroughPipeline;
 export const broadcastToConnections = OutgoingRuntime.broadcastToConnections;
 export const broadcastToChannel = OutgoingRuntime.broadcastToChannel;

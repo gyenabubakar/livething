@@ -1,14 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 
-/**
- * Top-level `contract()` factory. Holds declarative state (events, channels,
- * features, tag groups) but no handlers. Pair it with `implement(contract)` to
- * attach behaviour.
- *
- * Curried so the env generic and the config inference don't fight each other:
- * `contract<Env>('name')({ ... })`.
- */
-
 import type { Contract, ContractConfig } from './contract-types.ts';
 
 interface ContractFactory<TEnv extends object> {

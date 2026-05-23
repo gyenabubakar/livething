@@ -1,15 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 
-/**
- * `module()` — the public factory for defining a wskit module.
- *
- * Mirrors the contract shape: `requires`, optional `dependencies` (typed
- * contract feature flags), and a flat `definitions` array using the same
- * factories the contract uses (`outgoing`, `scheduled`, `error`). The
- * `setup(args, hooks)` callback returns the per-connection API; that return
- * type is inferred so handlers see typed values from `<Module>.use(ctx)`.
- */
-
 import { defineModule } from '~/modules/define.ts';
 import type { ErrorContractDef, OutgoingDef, ScheduledDef } from '~/_api/definitions.ts';
 import type { ErrorDef } from '~/errors/errors.ts';
@@ -116,8 +106,7 @@ export function module<TArgs = void>(id: string) {
   return function moduleConfig<TApi>(
     config: ModuleConfig<TArgs, any, TApi>,
   ): ModuleFactory<string, TArgs, TApi, any, readonly ErrorDef<string, any>[]> {
-    // Extract outgoing schemas + scheduled-task IDs + errors for the legacy
-    // defineModule shape.
+    // Split the flat `definitions` array into the per-kind buckets `defineModule` accepts.
     const outgoingMap: Record<string, unknown> = {};
     const errorDefs: ErrorDef<string, any>[] = [];
 

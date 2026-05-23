@@ -1,23 +1,9 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 
-/**
- * Runtime behind `matches(contract, key, frame)` and `unsafeCast(contract, key, frame)`.
- *
- * `matches` parses the path key, checks the frame's event + routing scope, runs
- * the declared validator on `frame.payload`, and returns `true` iff all three
- * pass. It's the safe entry point: TS narrows `frame` to `FrameFor<C, K>` only
- * in the true branch.
- *
- * `unsafeCast` is the type-only escape hatch — no runtime check, returns the
- * frame as-is with the narrowed type. For when the dev's own logic has
- * already established the kind/scope and they want to skip a second
- * validation pass.
- *
- * Exposed as standalone functions (not methods on the contract) because
- * method variance with `this`-typed return positions breaks the contract's
- * assignability to `Contract<unknown, unknown>`. Top-level generics work
- * cleanly with type predicates.
- */
+// `matches` and `unsafeCast` are standalone functions (not methods on the
+// contract) because method variance with `this`-typed return positions breaks
+// the contract's assignability to `Contract<unknown, unknown>`. Top-level
+// generics work cleanly with type predicates.
 
 import { validateValue } from '~/_engine/compile/utils.ts';
 import type { InterceptFrame } from '~/intercept/intercept.ts';
@@ -129,7 +115,6 @@ function lookupForParsedKey(
     return undefined;
   }
 
-  // parsed.scope === 'namespace'
   for (const def of contractDefinitions) {
     if (def._ !== 'namespace') continue;
     if (def.name !== parsed.name) continue;

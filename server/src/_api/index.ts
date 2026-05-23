@@ -1,7 +1,3 @@
-/**
- * Public surface for the contract + implement API.
- */
-
 export { contract } from './contract.ts';
 export { matches, parseKey, unsafeCast } from './matches.ts';
 export type { FrameFor, ParsedKey } from './matches-types.ts';

@@ -1,14 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 
-/**
- * Definition barrel.
- *
- * Each definition kind lives next to its primitive in `~/<kind>/definition.ts`
- * (e.g. `~/incoming/definition.ts`). This file re-exports them all, plus the
- * cross-kind helpers (`Definition` union, `t()`, the `error()` re-export) so
- * everything contract-side can be imported from one place.
- */
-
 import type { ScopeDeclaration } from '~/channel/channel.ts';
 import type { ChannelDef } from '~/channel/definition.ts';
 import type { ErrorContractDef } from '~/errors/definition.ts';
@@ -83,10 +74,6 @@ export type NamespaceDefinition =
   | RecordedStreamDef<string, unknown, unknown, readonly NudgeDef<string, unknown>[]>
   | ScheduledDef<string, any>;
 
-// Re-export the runtime error factory from core. It returns an `ErrorDefWithFactory`
-// that is callable (e.g. `throw NotFound({ id: 'x' })`) and can be passed into
-// the `errors: [...]` array on the contract config. We treat it as both an error
-// declaration and a throwable.
 export { error } from '@wskit/core';
 
 /**

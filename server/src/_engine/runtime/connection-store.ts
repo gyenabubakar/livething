@@ -19,10 +19,6 @@ const CREATE_CONNECTIONS_IDENTITY_INDEX_SQL = `
 `;
 
 /**
- * The shape persisted into the `__wskit_connections` row. The engine writes one
- * row per live connection and reads it back on hibernation wake.
- */
-/**
  * One row of the ephemeral-tag JSON column. Each entry is one
  * `(group, key)` pair the connection currently holds in the ephemeral
  * storage area.
@@ -32,6 +28,10 @@ export interface StoredEphemeralTag {
   key: string;
 }
 
+/**
+ * The shape persisted into the `__wskit_connections` row. The engine writes one
+ * row per live connection and reads it back on hibernation wake.
+ */
 export interface StoredConnectionRow {
   connection_id: string;
   identity: string;

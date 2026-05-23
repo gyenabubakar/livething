@@ -1,16 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 
-/**
- * Derive the typed `ctx` shape from a `Contract`.
- *
- * Every feature-gated method (`ack`, `sendReplay`, `sendBinary`, `broadcastBinary`,
- * `channel.sendReplay`) is always present on the type. At runtime, calling one
- * of these methods when the contract did not enable the matching feature
- * throws a clear error. Where the misuse is statically detectable from the
- * contract — e.g. registering an `onBinary` handler without `binary: true` —
- * `implement(...).build()` rejects it at boot.
- */
-
 import type {
   ChannelHandle,
   ChannelsManager,

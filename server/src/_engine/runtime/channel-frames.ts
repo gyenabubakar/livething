@@ -76,7 +76,6 @@ export function getChannelMembers(
   return [...members].map((connection) => runtime.toConnectionInfo(connection));
 }
 
-/** Re-export of the shared channel-leave helper so runtime callers can import from one module. */
 export const leaveChannel = ChannelPrimitive.leaveChannel;
 
 /**

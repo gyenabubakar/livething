@@ -1,11 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 
-/**
- * Implementation half of the wskit contract/implement API. `implement(contract)`
- * returns an `Implementer` where you bind handlers, then call `.build()` to
- * produce a `ServerDefinition` the adapter can serve.
- */
-
 import { error as coreErrorFactory } from '@wskit/core';
 import { sweepDurableStreams } from '~/_engine/stream-durable/runtime.ts';
 import { ensureDurableStreamSchema } from '~/_engine/stream-durable/storage.ts';
@@ -77,8 +71,6 @@ import type {
 } from './definitions.ts';
 import type { HandlerMaps } from './handler-maps.ts';
 
-// Re-export the sub-implementer classes from their new homes so external
-// import paths (`@wskit/server`) keep working.
 export { ChannelImplement } from '~/channel/implement.ts';
 export { NamespaceImplement } from '~/namespace/implement.ts';
 
@@ -1021,9 +1013,8 @@ export class Implementer<C extends Contract> {
     }
 
     // ── Modules ──────────────────────────────────────────────────────────────
-    // Modules go in BEFORE lifecycle and definitions so their hooks register
-    // first and run before user handlers (matches legacy `.use(MyModule())`
-    // order on the old builder chain).
+    // Push modules ahead of lifecycle and definitions so their hooks register
+    // first and run before user handlers.
     if (config.modules && config.modules.length > 0) {
       for (const mod of config.modules) {
         primitives.push(mod as Primitive);
@@ -1143,8 +1134,8 @@ function hasDurableStreamDef(defs: readonly Definition[]): boolean {
   return false;
 }
 
-// The new API uses plain `error(code, schema?)` but the engine's `errors()`
-// primitive wants an ErrorDef with a callable factory. Wrap as needed.
+// The contract-side `error(code, schema?)` shape is plain data; the engine's
+// `errors()` primitive wants an ErrorDef with a callable factory.
 function makeRuntimeErrorDef(code: string, schema?: any) {
   return schema ? coreErrorFactory(code, schema) : coreErrorFactory(code);
 }

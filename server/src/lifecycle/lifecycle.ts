@@ -1,26 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 /* oxlint-disable eslint-plugin-import(no-cycle) */
 
-/**
- * This file is the source of truth for all server and connection lifecycle
- * primitives. It defines the handler types, the primitive interfaces, and the
- * factory functions for all eight lifecycle hooks:
- *
- *   - `onInit`           — server has started
- *   - `onConnect`        — a client connected
- *   - `onDisconnect`     — a client disconnected
- *   - `onShutdown`       — server is shutting down
- *   - `onError`          — an unhandled error occurred
- *   - `onUpgrade`        — validate the HTTP upgrade request
- *   - `onBinary`         — a raw binary WebSocket frame arrived
- *   - `onValidationError`— a message failed schema validation
- *
- * All eight factories are created from the private `makeLifecycle` helper, which
- * produces the correct `Primitive` shape. The factories are exported with a
- * `__key` symbol so other modules can reference them in dependency declarations.
- *
- */
-
 import type { EngineAccess } from '~/_engine/access.ts';
 import type * as PublicApiTypes from '~/context.ts';
 import type { Primitive } from '~/primitive.ts';

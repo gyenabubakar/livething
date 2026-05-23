@@ -1,4 +1,3 @@
-// New contract + implement API (primary surface)
 export {
   channel,
   contract,
@@ -34,7 +33,6 @@ export type {
   TagsApi,
 } from './_api/index.ts';
 
-// Intercept primitive types — useful for declaring intercept handler types.
 export type { InterceptFrame, InterceptRouting } from './intercept/intercept.ts';
 
 export type { RateLimitConfig } from './rate-limit/rate-limit.ts';

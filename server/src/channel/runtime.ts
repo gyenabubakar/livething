@@ -533,17 +533,6 @@ export async function unsubscribeConnection(
 }
 
 /**
- * Remove tagged members from a channel, usually for moderation or access
- * control.
- *
- * Scoped to the exact `channelName + channelScope` pair: kicks never cross
- * into a different channel family that happens to share a concrete name.
- *
- * Every triggered `leaveChannel` runs to completion. `onUnsubscribe` hook
- * failures are logged through `runtime.logger` and do not cancel the rest
- * of the kick — the same shape the engine uses during shutdown drain.
- */
-/**
  * Target accepted by `channelHandle.kick(...)` and engine-level kick. Resolves
  * to a connection-matching predicate at runtime:
  *
@@ -565,6 +554,17 @@ function matchesKickTarget(connection: RuntimeConnection, target: KickTarget): b
   return (connection.tags[target.kind].get(target.group)?.size ?? 0) > 0;
 }
 
+/**
+ * Remove tagged members from a channel, usually for moderation or access
+ * control.
+ *
+ * Scoped to the exact `channelName + channelScope` pair: kicks never cross
+ * into a different channel family that happens to share a concrete name.
+ *
+ * Every triggered `leaveChannel` runs to completion. `onUnsubscribe` hook
+ * failures are logged through `runtime.logger` and do not cancel the rest
+ * of the kick — the same shape the engine uses during shutdown drain.
+ */
 export async function kickChannelMembers(
   runtime: ChannelRuntime & {
     leaveChannel(
