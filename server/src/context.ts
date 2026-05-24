@@ -371,23 +371,15 @@ export interface ChannelHandle<
   /** List the connections currently subscribed to this exact channel scope. */
   members(): ConnectionInfo<Meta>[];
   /**
-   * Subscribe a connection to this exact channel scope from server code,
-   * without a client `__subscribe__` frame. Runs the channel's `onBeforeSubscribe`
-   * gate, commits the membership, emits `__subscribeOk__ { source: 'server' }` to
-   * the target, fans out `__memberJoin__` to existing members, and runs the
-   * `onSubscribe` hook — exactly the same path a client-initiated subscribe
-   * takes.
+   * Subscribe a connection to this channel from server code.
    *
-   * If the connection is already a member of this scope, the call resolves
-   * immediately as a no-op — no gate, no events. The mental model is "make
-   * sure they are in", not "re-subscribe".
+   * Runs the same flow as a client-initiated subscribe: `check`, `commit`,
+   * then `onSubscribe`. If the connection is already in this channel, this
+   * is a no-op.
    *
-   * `payload` feeds the channel's `onBeforeSubscribe` validator and gate. The
-   * type is unknown at this level; channels that declared a validator get a
-   * typed argument through the builder.
+   * `payload` is passed to the channel's `check` handler and validator.
    *
-   * The returned promise rejects if `onBeforeSubscribe` throws (the
-   * subscription is not committed in that case).
+   * Rejects if `check` or `commit` throws — the connection is not added.
    */
   subscribe(ref: ConnectionRef, payload?: unknown): Promise<void>;
   /**

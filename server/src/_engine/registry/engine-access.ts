@@ -103,13 +103,11 @@ export function createEngineAccess(
     onAlarm: (handler) => {
       core.hooks.alarm.push(handler);
     },
-    onBeforeSubscribe: (handler, validator) => {
-      pushChannelHook(
-        core.hooks.beforeSubscribe,
-        scope?.channelKey,
-        { handler, validator },
-        'onBeforeSubscribe',
-      );
+    onCheck: (handler, validator) => {
+      pushChannelHook(core.hooks.check, scope?.channelKey, { handler, validator }, 'onCheck');
+    },
+    onCommit: (handler) => {
+      pushChannelHook(core.hooks.commit, scope?.channelKey, { handler }, 'onCommit');
     },
     onSubscribe: (handler) => {
       pushChannelHook(core.hooks.subscribe, scope?.channelKey, handler, 'onSubscribe');
@@ -218,7 +216,7 @@ function pushChannelHook<T>(
   hooks: Map<string, T[]>,
   channelKey: string | undefined,
   hook: T,
-  hookName: 'onBeforeSubscribe' | 'onSubscribe' | 'onUnsubscribe' | 'onSessionEnd',
+  hookName: 'onCheck' | 'onCommit' | 'onSubscribe' | 'onUnsubscribe' | 'onSessionEnd',
 ): void {
   if (!channelKey) {
     throw new Error(`[wskit] ${hookName}() can only be registered inside channel(...).`);

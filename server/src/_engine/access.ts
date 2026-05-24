@@ -207,15 +207,24 @@ export interface EngineAccess {
   onAlarm(handler: () => void | Promise<void>): void;
 
   /**
-   * Run logic before a channel subscription completes.
+   * Register the async check phase for a channel subscribe guard.
    *
-   * The optional validator lets the primitive validate subscription data before
-   * the hook receives it.
+   * The handler runs before membership is committed and may be async. The
+   * optional validator validates the subscribe payload before the handler runs.
+   * The return value is forwarded to the paired `onCommit` handler.
    */
-  onBeforeSubscribe(
-    handler: (ctx: unknown, data?: unknown) => void | Promise<void>,
+  onCheck(
+    handler: (ctx: unknown, data?: unknown) => unknown | Promise<unknown>,
     validator?: ValidationTypes.Validator<unknown>,
   ): void;
+
+  /**
+   * Register the sync commit phase for a channel subscribe guard.
+   *
+   * Receives the value returned by the paired `onCheck` handler. Must be
+   * synchronous — returning a Promise throws at runtime.
+   */
+  onCommit(handler: (ctx: unknown, checkResult: unknown) => void): void;
 
   /**
    * Run logic after a channel subscription succeeds.

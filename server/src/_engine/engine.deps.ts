@@ -274,8 +274,8 @@ function buildChannelRuntime(core: EngineCore) {
   const buildCtx = buildConnectionContext(core);
   return {
     ...memberRuntime(core),
-    channelLock: core.channelLock,
-    beforeSubscribeHooks: core.hooks.beforeSubscribe,
+    checkHooks: core.hooks.check,
+    commitHooks: core.hooks.commit,
     subscribeHooks: core.hooks.subscribe,
     unsubscribeHooks: core.hooks.unsubscribe,
     sessionEndHooks: core.hooks.sessionEnd,

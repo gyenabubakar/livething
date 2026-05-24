@@ -76,7 +76,7 @@ export const channelDynamicHandler = implement(channelDynamicContract)
 
   .channel('room', (ch) =>
     ch
-      .onBeforeSubscribe(async (ctx) => {
+      .check(async (ctx) => {
         if (ctx.meta.username === 'banned-user') {
           throw new Error('banned-user may not subscribe');
         }
@@ -129,7 +129,7 @@ export const channelDynamicHandler = implement(channelDynamicContract)
   )
 
   .channel('proto-probe', (ch) =>
-    ch.onBeforeSubscribe((_ctx, data) => {
+    ch.check((_ctx, data) => {
       const d = data as { role?: unknown } | undefined;
       if (d?.role === 'admin') {
         throw new Error('admin role on subscribe payload is forbidden');

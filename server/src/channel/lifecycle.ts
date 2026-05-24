@@ -31,27 +31,40 @@ export type UnsubscribeHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>
 export type SessionEndHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
 
 /**
- * Handler called before a client's subscription is confirmed. Throw to reject
- * the subscription (e.g. `throw Block(...)`). Optionally receives `data` —
- * the payload the client sent with the subscription request (e.g. an auth
- * token).
+ * An async function that runs before a client is allowed into a channel.
+ * Use it for things like token validation or permission checks.
+ *
+ * Return any value — TypeScript infers the type and passes it as the second
+ * argument of the paired `commit` handler. Throw to deny the subscribe.
  */
-export type BeforeSubscribeHandler<TCtx = any, TData = unknown> = (
+export type CheckHandler<TCtx = any, TData = unknown, TResult = unknown> = (
   ctx: TCtx,
   data?: TData,
-) => void | Promise<void>;
+) => TResult | Promise<TResult>;
 
-/** Primitive type produced by `onBeforeSubscribe()`. */
-export interface BeforeSubscribePrimitive<
+/**
+ * A synchronous function that runs right before the subscriber is added to the channel.
+ * Receives the value returned by `check` as `checkResult`.
+ *
+ * Use it for final checks like enforcing a capacity limit.
+ * Must be synchronous — do not return a `Promise`. Throw to deny the subscribe.
+ */
+export type CommitHandler<TCtx = any, TCheck = unknown> = (ctx: TCtx, checkResult: TCheck) => void;
+
+/** Primitive produced by `check()`. */
+export interface CheckPrimitive<
   TCtx = any,
   TData = unknown,
-> extends Primitive<'onBeforeSubscribe'> {
-  readonly handler: BeforeSubscribeHandler<TCtx, TData>;
-  /**
-   * Optional schema validator for the subscription data payload. When present,
-   * the engine validates `data` before calling `handler`.
-   */
+  TResult = unknown,
+> extends Primitive<'check'> {
+  readonly handler: CheckHandler<TCtx, TData, TResult>;
+  /** Optional schema that validates the subscribe payload before the handler runs. */
   readonly validator?: Validator<TData>;
+}
+
+/** Primitive produced by `commit()`. */
+export interface CommitPrimitive<TCtx = any, TCheck = unknown> extends Primitive<'commit'> {
+  readonly handler: CommitHandler<TCtx, TCheck>;
 }
 
 /** Primitive type produced by `onSubscribe()`. */
@@ -69,18 +82,19 @@ export interface SessionEndPrimitive<TCtx = any> extends Primitive<'onSessionEnd
   readonly handler: SessionEndHandler<TCtx>;
 }
 
-const ON_BEFORE_SUBSCRIBE_KEY = Symbol('onBeforeSubscribe');
+const ON_CHECK_KEY = Symbol('check');
+const ON_COMMIT_KEY = Symbol('commit');
 const ON_SUBSCRIBE_KEY = Symbol('onSubscribe');
 const ON_UNSUBSCRIBE_KEY = Symbol('onUnsubscribe');
 const ON_SESSION_END_KEY = Symbol('onSessionEnd');
 
 /**
- * Creates an `onBeforeSubscribe` lifecycle primitive for a channel. The handler
- * runs before the client's subscription is confirmed. Throw from the handler
- * (e.g. `throw Block(myError(...))`) to reject the subscription.
+ * Run an async check before a client is allowed into a channel.
  *
- * Optionally pass `options.validator` to validate the subscription data payload
- * the client may send alongside the subscribe request.
+ * Return any value — TypeScript infers the type and passes it as the second
+ * argument to the paired `commit` handler. Throw to deny the subscribe.
+ *
+ * Pass `options.validator` to validate the subscribe payload first.
  *
  * @example
  * ```ts
@@ -89,25 +103,69 @@ const ON_SESSION_END_KEY = Symbol('onSessionEnd');
  * const Forbidden = error('forbidden');
  *
  * implement(chat).channel('private-room', (ch) =>
- *   ch.onBeforeSubscribe(async (ctx, data) => {
- *     if (!ctx.meta.roles.includes('member')) throw Block(Forbidden());
- *   }),
+ *   ch
+ *     .check(async (ctx, data?: { token: string }) => {
+ *       const user = await db.verifyToken(data?.token);
+ *       if (!user) throw Block(Forbidden());
+ *       return user; // available in commit() below
+ *     })
+ *     .commit((ctx, user) => {
+ *       if (ctx.channels.get('private-room').members().length >= 50) {
+ *         throw Block(error('room-full')());
+ *       }
+ *     }),
  * );
  * ```
  */
-export function onBeforeSubscribe<TCtx, TData = unknown>(
-  handler: BeforeSubscribeHandler<TCtx, TData>,
+export function check<TCtx, TData = unknown, TResult = unknown>(
+  handler: CheckHandler<TCtx, TData, TResult>,
   options?: { validator?: Validator<TData> },
-): BeforeSubscribePrimitive<TCtx, TData> {
+): CheckPrimitive<TCtx, TData, TResult> {
   return {
-    __wskit: 'onBeforeSubscribe',
+    __wskit: 'check',
     __kind: 'lifecycle',
-    __identity: [ON_BEFORE_SUBSCRIBE_KEY],
+    __identity: [ON_CHECK_KEY],
     __requires: {},
     handler,
     validator: options?.validator,
     __setup(engine: EngineAccess) {
-      engine.onBeforeSubscribe(handler as BeforeSubscribeHandler, options?.validator);
+      engine.onCheck(handler as CheckHandler, options?.validator);
+    },
+  };
+}
+
+/**
+ * Creates a `commit` lifecycle primitive for a channel.
+ *
+ * Run a final sync check right before the subscriber is added to the channel.
+ *
+ * Receives the value returned by `check` — TypeScript knows the type.
+ * Use it for things like capacity limits. Throw to deny the subscribe.
+ *
+ * Must be synchronous. Do not use `async` or return a `Promise`.
+ *
+ * @example
+ * ```ts
+ * implement(chat).channel('private-room', (ch) =>
+ *   ch.commit((ctx) => {
+ *     if (ctx.channels.get('private-room').members().length >= 50) {
+ *       throw Block(error('room-full')());
+ *     }
+ *   }),
+ * );
+ * ```
+ */
+export function commit<TCtx, TCheck = unknown>(
+  handler: CommitHandler<TCtx, TCheck>,
+): CommitPrimitive<TCtx, TCheck> {
+  return {
+    __wskit: 'commit',
+    __kind: 'lifecycle',
+    __identity: [ON_COMMIT_KEY],
+    __requires: {},
+    handler,
+    __setup(engine: EngineAccess) {
+      engine.onCommit(handler as CommitHandler);
     },
   };
 }
@@ -177,8 +235,10 @@ export function onSessionEnd<TCtx>(handler: SessionEndHandler<TCtx>): SessionEnd
   };
 }
 
-/** Symbol key used to reference `onBeforeSubscribe` in dependency declarations. */
-onBeforeSubscribe.__key = ON_BEFORE_SUBSCRIBE_KEY;
+/** Symbol key used to reference `check` in dependency declarations. */
+check.__key = ON_CHECK_KEY;
+/** Symbol key used to reference `commit` in dependency declarations. */
+commit.__key = ON_COMMIT_KEY;
 /** Symbol key used to reference `onSubscribe` in dependency declarations. */
 onSubscribe.__key = ON_SUBSCRIBE_KEY;
 /** Symbol key used to reference `onUnsubscribe` in dependency declarations. */

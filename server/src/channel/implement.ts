@@ -5,6 +5,7 @@ import type { ChannelCtx } from '~/_api/ctx-types.ts';
 import type { InterceptFrame } from '~/intercept/intercept.ts';
 import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
 import type { CustomReplayOptions } from '~/replay/custom/custom.ts';
+import type { Validator } from '~/types.ts';
 
 // Reads one slot (incoming / requests / streams / etc.) off a sub-contract
 // so the .on() / .request() / .stream() methods below get per-event types.
@@ -23,7 +24,9 @@ export interface ChannelHandlerBag {
     string,
     (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>
   >;
-  onBeforeSubscribeHandler?: (ctx: any, data?: any) => void | Promise<void>;
+  checkHandler?: (ctx: any, data?: any) => unknown | Promise<unknown>;
+  checkValidator?: unknown;
+  commitHandler?: (ctx: any, checkResult: unknown) => void;
   onSubscribeHandler?: (ctx: any) => void | Promise<void>;
   onUnsubscribeHandler?: (ctx: any) => void | Promise<void>;
   onSessionEndHandler?: (ctx: any) => void | Promise<void>;
@@ -37,7 +40,7 @@ export interface ChannelHandlerBag {
  * to attach handlers, lifecycle hooks, intercepts, and a custom replay
  * strategy that only apply inside this channel.
  */
-export class ChannelImplement<C extends Contract, ChC = any> {
+export class ChannelImplement<C extends Contract, ChC = any, TCheck = unknown> {
   /** @internal */
   readonly _bag: ChannelHandlerBag = {
     incomingHandlers: new Map(),
@@ -127,20 +130,60 @@ export class ChannelImplement<C extends Contract, ChC = any> {
   }
 
   /**
-   * Runs BEFORE a client subscribes to this channel. Throw to reject the
-   * subscribe — the client gets an `__error__` frame. Use it for auth or
-   * capacity checks. The optional `data` is whatever the client sent in
-   * its `__subscribe__` payload.
+   * Run an async check before a client is allowed into this channel.
+   *
+   * Whatever you return is passed as the second argument to `.commit()` —
+   * TypeScript infers the type automatically. Throw to deny the subscribe.
+   *
+   * Pass `options.validator` to validate the subscribe payload first.
+   *
+   * @example
+   * ```ts
+   * ch.check(async (ctx, data?: { token: string }) => {
+   *   const user = await db.verifyToken(data?.token);
+   *   if (!user) throw Block(Forbidden());
+   *   return user; // available in commit() below
+   * })
+   * ```
    */
-  onBeforeSubscribe(
-    handler: (ctx: ChannelCtx<ChC, C>, data?: unknown) => void | Promise<void>,
-  ): this {
-    if (this._bag.onBeforeSubscribeHandler) {
+  check<TData = unknown, TResult = unknown>(
+    handler: (ctx: ChannelCtx<ChC, C>, data?: TData) => TResult | Promise<TResult>,
+    options?: { validator?: Validator<TData> },
+  ): ChannelImplement<C, ChC, TResult> {
+    if (this._bag.checkHandler) {
       throw new Error(
-        '[wskit] Duplicate .onBeforeSubscribe() on this channel. Only one hook can be attached.',
+        '[wskit] Duplicate .check() on this channel. Only one check hook can be attached.',
       );
     }
-    this._bag.onBeforeSubscribeHandler = handler as any;
+    this._bag.checkHandler = handler as any;
+    this._bag.checkValidator = options?.validator;
+    return this as any as ChannelImplement<C, ChC, TResult>;
+  }
+
+  /**
+   * Run a final sync check right before this subscriber is added to the channel.
+   *
+   * Receives the value returned by `.check()` — TypeScript knows the type.
+   * Throw to deny the subscribe.
+   *
+   * Must be synchronous. Do not use `async` or return a `Promise`.
+   *
+   * @example
+   * ```ts
+   * ch.commit((ctx, user) => {
+   *   if (ctx.channels.get('room').members().length >= 50) {
+   *     throw Block(CapacityReached());
+   *   }
+   * })
+   * ```
+   */
+  commit(handler: (ctx: ChannelCtx<ChC, C>, checkResult: TCheck) => void): this {
+    if (this._bag.commitHandler) {
+      throw new Error(
+        '[wskit] Duplicate .commit() on this channel. Only one commit hook can be attached.',
+      );
+    }
+    this._bag.commitHandler = handler as any;
     return this;
   }
 

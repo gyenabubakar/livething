@@ -1,7 +1,8 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { WskitConfigError } from '@wskit/core';
 import type {
-  BeforeSubscribePrimitive,
+  CheckPrimitive,
+  CommitPrimitive,
   SubscribePrimitive,
   UnsubscribePrimitive,
 } from '~/channel/lifecycle.ts';
@@ -88,7 +89,8 @@ export type ChannelPattern = string | ScopeDeclaration<string>;
  * Lifecycle children handle subscribe and unsubscribe events.
  */
 export type ChannelLifecycleChild =
-  | BeforeSubscribePrimitive<any, any>
+  | CheckPrimitive<any, any, any>
+  | CommitPrimitive<any, any>
   | SubscribePrimitive<any>
   | UnsubscribePrimitive<any>;
 

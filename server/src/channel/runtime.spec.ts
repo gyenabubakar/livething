@@ -1,4 +1,3 @@
-import { KeyedLock } from '~/_engine/keyed-lock.ts';
 import { scope } from '~/channel/channel.ts';
 import {
   addChannelMembership,
@@ -78,8 +77,8 @@ function createRuntime(
       },
       connections,
       channelMembers,
-      channelLock: new KeyedLock(),
-      beforeSubscribeHooks: new Map(),
+      checkHooks: new Map(),
+      commitHooks: new Map(),
       subscribeHooks: new Map(),
       unsubscribeHooks: new Map(),
       sessionEndHooks: new Map(),
@@ -338,7 +337,7 @@ describe('channel runtime', () => {
     expect(members.map((m) => m.connectionId)).toEqual(['rooms-member']);
   });
 
-  it('onBeforeSubscribe with an async validator throws WskitConfigError without routing through handleValidationError', async () => {
+  it('check with an async validator throws WskitConfigError without routing through handleValidationError', async () => {
     const connection = createConnection('conn_1');
     const { runtime, connections } = createRuntime();
     connections.set(connection.id, connection);
@@ -351,9 +350,7 @@ describe('channel runtime', () => {
         {
           ...runtime,
           handleValidationError,
-          beforeSubscribeHooks: new Map([
-            ['rooms', [{ handler: hook, validator: v.objectAsync({}) }]],
-          ]),
+          checkHooks: new Map([['rooms', [{ handler: hook, validator: v.objectAsync({}) }]]]),
         },
         connection,
         'room:general',
@@ -366,14 +363,14 @@ describe('channel runtime', () => {
     expect(hook).not.toHaveBeenCalled();
   });
 
-  it('onBeforeSubscribe fires before addChannelMembership (ordering guarantee)', async () => {
+  it('check fires before addChannelMembership (ordering guarantee)', async () => {
     const connection = createConnection('conn_1');
     const { runtime, connections } = createRuntime();
     connections.set(connection.id, connection);
 
-    let wasMemberDuringHook = true;
+    let wasMemberDuringCheck = true;
     const hook = vi.fn(async () => {
-      wasMemberDuringHook = [...connection.channelMemberships.values()].some(
+      wasMemberDuringCheck = [...connection.channelMemberships.values()].some(
         (m) => m.channelName === 'room:general',
       );
     });
@@ -381,7 +378,7 @@ describe('channel runtime', () => {
     await subscribeConnection(
       {
         ...runtime,
-        beforeSubscribeHooks: new Map([['rooms', [{ handler: hook, validator: undefined }]]]),
+        checkHooks: new Map([['rooms', [{ handler: hook, validator: undefined }]]]),
       },
       connection,
       'room:general',
@@ -390,24 +387,115 @@ describe('channel runtime', () => {
     );
 
     expect(hook).toHaveBeenCalledTimes(1);
-    // At hook invocation time the connection must NOT yet be a member.
-    expect(wasMemberDuringHook).toBe(false);
+    // The connection must NOT be a member yet when check runs.
+    expect(wasMemberDuringCheck).toBe(false);
     // After subscribe completes the connection IS a member.
     expect(
       [...connection.channelMemberships.values()].some((m) => m.channelName === 'room:general'),
     ).toBe(true);
   });
 
-  it('two concurrent subscribes behind an awaited onBeforeSubscribe each see the other in the initial sync', async () => {
+  it('commit throwing rejects the subscribe and does not write membership', async () => {
+    const connection = createConnection('conn_1');
+    const { runtime, connections } = createRuntime();
+    connections.set(connection.id, connection);
+
+    const err = new Error('capacity full');
+    await expect(
+      subscribeConnection(
+        {
+          ...runtime,
+          commitHooks: new Map([
+            [
+              'rooms',
+              [
+                {
+                  handler: () => {
+                    throw err;
+                  },
+                },
+              ],
+            ],
+          ]),
+        },
+        connection,
+        'room:general',
+        'rooms',
+        undefined,
+      ),
+    ).rejects.toThrow('capacity full');
+
+    expect([...connection.channelMemberships.values()]).toHaveLength(0);
+  });
+
+  it('async commit handler is detected at runtime and throws', async () => {
+    const connection = createConnection('conn_1');
+    const { runtime, connections } = createRuntime();
+    connections.set(connection.id, connection);
+
+    await expect(
+      subscribeConnection(
+        {
+          ...runtime,
+          commitHooks: new Map([
+            [
+              'rooms',
+              [{ handler: (async () => {}) as unknown as (ctx: unknown, r: unknown) => void }],
+            ],
+          ]),
+        },
+        connection,
+        'room:general',
+        'rooms',
+        undefined,
+      ),
+    ).rejects.toThrow(/commit\(\) must be synchronous/);
+  });
+
+  it('check result flows as typed second arg to commit', async () => {
+    const connection = createConnection('conn_1');
+    const { runtime, connections } = createRuntime();
+    connections.set(connection.id, connection);
+
+    const checkResult = { userId: 'abc' };
+    let receivedInCommit: unknown;
+
+    await subscribeConnection(
+      {
+        ...runtime,
+        checkHooks: new Map([
+          ['rooms', [{ handler: async () => checkResult, validator: undefined }]],
+        ]),
+        commitHooks: new Map([
+          [
+            'rooms',
+            [
+              {
+                handler: (_ctx, r) => {
+                  receivedInCommit = r;
+                },
+              },
+            ],
+          ],
+        ]),
+      },
+      connection,
+      'room:general',
+      'rooms',
+      undefined,
+    );
+
+    expect(receivedInCommit).toBe(checkResult);
+  });
+
+  it('two concurrent subscribes with check each see the other in the initial sync', async () => {
     const connA = createConnection('conn_A', { who: 'a' });
     const connB = createConnection('conn_B', { who: 'b' });
     const { runtime, connections, protocol, broadcasts } = createRuntime();
     connections.set(connA.id, connA);
     connections.set(connB.id, connB);
 
-    // Awaited hook releases A first, then B. Both call subscribeConnection
-    // concurrently — pre-fix both snapshotted the empty member list before
-    // the await, so neither saw the other in its initial sync.
+    // A resolves first so B's member snapshot includes A.
     let resolveA!: () => void;
     let resolveB!: () => void;
     const aReady = new Promise<void>((r) => (resolveA = r));
@@ -420,7 +508,7 @@ describe('channel runtime', () => {
 
     const runtimeWithHook = {
       ...runtime,
-      beforeSubscribeHooks: new Map([['rooms', [{ handler: hook, validator: undefined }]]]),
+      checkHooks: new Map([['rooms', [{ handler: hook, validator: undefined }]]]),
     };
 
     const subA = subscribeConnection(runtimeWithHook, connA, 'room:general', 'rooms', undefined);
@@ -669,10 +757,10 @@ describe('subscribeConnectionAsServer', () => {
     expect(protocol).toEqual([]);
   });
 
-  it('runs onBeforeSubscribe with the supplied payload', async () => {
+  it('runs check with the supplied payload', async () => {
     const { connections, runtime } = createRuntime();
     const seen: unknown[] = [];
-    runtime.beforeSubscribeHooks = new Map([
+    runtime.checkHooks = new Map([
       [
         'rooms',
         [
@@ -695,9 +783,9 @@ describe('subscribeConnectionAsServer', () => {
     );
   });
 
-  it('rejects when onBeforeSubscribe throws — connection stays out of the channel', async () => {
+  it('rejects when check throws — connection stays out of the channel', async () => {
     const { connections, runtime } = createRuntime();
-    runtime.beforeSubscribeHooks = new Map([
+    runtime.checkHooks = new Map([
       [
         'rooms',
         [
@@ -781,8 +869,8 @@ describe('subscribeConnectionAsServer', () => {
     ]);
   });
 
-  it('works on a channel with no onBeforeSubscribe hook', async () => {
-    // The gate is optional. A channel without onBeforeSubscribe should
+  it('works on a channel with no check/commit hooks', async () => {
+    // Both hooks are optional. A channel without them should
     // accept the subscribe without complaint and commit the membership.
     const { protocol, connections, runtime } = createRuntime();
     const target = createConnection('target', {});

@@ -203,16 +203,14 @@ test.describe('channel-dynamic', () => {
     await ctxB.close();
   });
 
-  test('onBeforeSubscribe sync rejection prevents subscription for banned-user', async ({
-    page,
-  }, testInfo) => {
+  test('check sync rejection prevents subscription for banned-user', async ({ page }, testInfo) => {
     await openPage(page, `test-${testInfo.testId}`, 'banned-user');
     await page.getByTestId('sub-general').click();
     await expect(page.getByTestId('subscribe-error')).toContainText('room:general');
     await expect(page.getByTestId('subscribe-ok')).toHaveText('');
   });
 
-  test('onBeforeSubscribe async rejection prevents subscription for async-banned-user', async ({
+  test('check async rejection prevents subscription for async-banned-user', async ({
     page,
   }, testInfo) => {
     await openPage(page, `test-${testInfo.testId}`, 'async-banned-user');
@@ -333,17 +331,16 @@ test.describe('channel-dynamic', () => {
     expect(await page.getByTestId('top-only-action-fired').textContent()).toBe('testuser');
   });
 
-  test('two concurrent _subscribe with an awaited onBeforeSubscribe each see the other on initial sync', async ({
+  test('two concurrent _subscribe with an awaited check each see the other on initial sync', async ({
     page,
   }, testInfo) => {
-    // The fixture's onBeforeSubscribe sleeps 50ms when username starts
-    // with "slow-user". Two clients hit that gate at the same time so
-    // both sit in the await before either commits membership. Pre-fix
-    // each snapshotted the empty member list before the await, then
-    // both committed, and each connection saw an empty initial sync —
-    // A's view excluded B and B's view excluded A. Post-fix membership
-    // commits before the snapshot, so each new subscriber sees every
-    // peer that committed before it (filtered against itself).
+    // The fixture's check sleeps 50ms when username starts with "slow-user".
+    // Two clients hit that gate at the same time so both sit in the await
+    // before either commits membership. Pre-fix each snapshotted the empty
+    // member list before the await, then both committed, and each connection
+    // saw an empty initial sync — A's view excluded B and B's view excluded A.
+    // Post-fix membership commits before the snapshot, so each new subscriber
+    // sees every peer that committed before it (filtered against itself).
     const room = `race-${testInfo.testId}`;
     await page.goto(`/channel-dynamic?room=${room}`);
 
@@ -411,9 +408,23 @@ test.describe('channel-dynamic', () => {
               }[];
             }
           >;
-          return handles[name]!.messages.filter((m) => m.event === '__memberJoin__').map((m) =>
-            String(m.payload.connectionId),
-          );
+          const msgs = handles[name]!.messages;
+
+          const joinIds = msgs
+            .filter((m) => m.event === '__memberJoin__')
+            .map((m) => String(m.payload.connectionId));
+
+          // Since 5d05a08, initial state arrives as __memberSync__ (one frame
+          // with all current members), not per-member __memberJoin__ frames.
+          // Include those connection ids so concurrent-subscribe assertions work.
+          const syncIds = msgs
+            .filter((m) => m.event === '__memberSync__')
+            .flatMap((m) => {
+              const members = m.payload.members as Array<{ connectionId: string }> | undefined;
+              return (members ?? []).map((mb) => mb.connectionId);
+            });
+
+          return [...new Set([...joinIds, ...syncIds])];
         },
         { h: handle, name },
       );
@@ -531,7 +542,7 @@ test.describe('channel-dynamic', () => {
     await ctxB.close();
   });
 
-  test('__subscribe__ with a __proto__ payload key cannot poison the data the onBeforeSubscribe hook sees', async ({
+  test('__subscribe__ with a __proto__ payload key cannot poison the data the check hook sees', async ({
     page,
   }, testInfo) => {
     await openPage(page, `test-${testInfo.testId}`);

@@ -101,47 +101,45 @@ export async function removeChannelMember(
 ): Promise<void> {
   const membershipKey = ChannelPrimitive.createChannelMembershipKey(channelName, channelScope);
 
-  await core.channelLock.run(membershipKey, async () => {
-    if (core.persistenceEnabled) {
-      PersistenceStorage.deleteMembership(
-        core.requireStorage().sql,
-        identity,
-        channelName,
-        channelScope,
-      );
-    }
-
-    const resolved = ChannelPrimitive.resolveCompiledChannel(
-      core.compiled,
+  if (core.persistenceEnabled) {
+    PersistenceStorage.deleteMembership(
+      core.requireStorage().sql,
+      identity,
       channelName,
       channelScope,
     );
+  }
 
-    const targets: RuntimeConnection[] = [];
-    for (const connection of core.connections.values()) {
-      if (connection.identity !== identity) continue;
-      if (!connection.channelMemberships.has(membershipKey)) continue;
-      targets.push(connection);
-    }
+  const resolved = ChannelPrimitive.resolveCompiledChannel(
+    core.compiled,
+    channelName,
+    channelScope,
+  );
 
-    for (const connection of targets) {
-      try {
-        await leaveChannel(connection, {
-          channel: resolved,
-          channelName,
-          channelScope,
-        });
-      } catch (error) {
-        core.logger.error('[wskit] removeChannelMember leaveChannel threw', {
-          identity,
-          channel: channelName,
-          channelScope,
-          connectionId: connection.id,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
+  const targets: RuntimeConnection[] = [];
+  for (const connection of core.connections.values()) {
+    if (connection.identity !== identity) continue;
+    if (!connection.channelMemberships.has(membershipKey)) continue;
+    targets.push(connection);
+  }
+
+  for (const connection of targets) {
+    try {
+      await leaveChannel(connection, {
+        channel: resolved,
+        channelName,
+        channelScope,
+      });
+    } catch (error) {
+      core.logger.error('[wskit] removeChannelMember leaveChannel threw', {
+        identity,
+        channel: channelName,
+        channelScope,
+        connectionId: connection.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
-  });
+  }
 }
 
 /**

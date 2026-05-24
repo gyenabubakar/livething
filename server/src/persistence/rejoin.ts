@@ -45,7 +45,7 @@ export interface RejoinRuntime {
  *
  * Runs once per accept, BEFORE `onConnect` fires, so user handlers see the
  * connection already in its old channels. For each durable membership the
- * engine re-runs `onBeforeSubscribe`. On pass the connection is committed
+ * engine re-runs the `check` hook. On pass the connection is committed
  * via the server-subscribe primitive (`source: 'server'`, fires `__subscribeOk__`
  * and `__memberJoin__` syncs the same way a fresh subscribe does). On reject
  * the durable row is dropped and an `__error__` scoped to the channel is sent
@@ -67,7 +67,7 @@ export async function autoRejoinIdentity(
 ): Promise<void> {
   if (!connection.identity) return;
 
-  // Restore persistent tags first — channel auto-rejoin's onBeforeSubscribe
+  // Restore persistent tags first — channel auto-rejoin's check hook
   // can read them via `ctx.tags.persistent(...)`.
   const tagRows = listTagsByIdentity(runtime.sql, connection.identity);
   for (const tag of tagRows) {

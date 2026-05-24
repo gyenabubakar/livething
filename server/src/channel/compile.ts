@@ -1,7 +1,8 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { channel as channelFactory, scope as scopeFactory } from '~/channel/channel.ts';
 import {
-  onBeforeSubscribe,
+  check as checkFactory,
+  commit as commitFactory,
   onSessionEnd as onSessionEndFactory,
   onSubscribe,
   onUnsubscribe,
@@ -78,8 +79,16 @@ export function compileChannelDef(
     childPrimitives.push(interceptFactory(impl._bag.intercept));
   }
 
-  if (impl?._bag.onBeforeSubscribeHandler) {
-    childPrimitives.push(onBeforeSubscribe(impl._bag.onBeforeSubscribeHandler));
+  if (impl?._bag.checkHandler) {
+    childPrimitives.push(
+      checkFactory(
+        impl._bag.checkHandler,
+        impl._bag.checkValidator ? { validator: impl._bag.checkValidator as any } : undefined,
+      ),
+    );
+  }
+  if (impl?._bag.commitHandler) {
+    childPrimitives.push(commitFactory(impl._bag.commitHandler));
   }
   if (impl?._bag.onSubscribeHandler) {
     childPrimitives.push(onSubscribe(impl._bag.onSubscribeHandler));

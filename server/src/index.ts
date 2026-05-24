@@ -1,5 +1,7 @@
 export {
   channel,
+  check,
+  commit,
   contract,
   error,
   group,
@@ -21,6 +23,10 @@ export {
 export type {
   ChannelContract,
   ChannelCtx,
+  CheckHandler,
+  CheckPrimitive,
+  CommitHandler,
+  CommitPrimitive,
   Contract,
   ContractConfig,
   Ctx,

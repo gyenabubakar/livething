@@ -66,6 +66,7 @@
         "class_name": "StreamDurableBroadcastServer",
       },
       { "name": "GROUP_FULL_SURFACE_SERVER", "class_name": "GroupFullSurfaceServer" },
+      { "name": "CHANNEL_CHECK_COMMIT_SERVER", "class_name": "ChannelCheckCommitServer" },
     ],
   },
   "observability": {
@@ -123,6 +124,8 @@
         "StreamDurableScopedServer",
         "StreamDurableBroadcastServer",
         "GroupFullSurfaceServer",
+        "BenchServer",
+        "ChannelCheckCommitServer",
       ],
     },
     {

@@ -10,7 +10,7 @@ import type { StandardSchemaV1 } from '@standard-schema/spec';
  * zod, arktype, or any other compliant library).
  *
  * Accepted everywhere wskit expects validation: `incoming`, `request`,
- * `stream`, `nudge`, `onBeforeSubscribe`. TypeScript infers the payload type
+ * `stream`, `nudge`, `check`. TypeScript infers the payload type
  * from the schema, so your handler is typed automatically.
  *
  * ```ts

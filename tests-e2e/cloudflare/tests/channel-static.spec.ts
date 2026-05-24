@@ -118,13 +118,11 @@ test.describe('channel-static', () => {
     await ctxB.close();
   });
 
-  test('onBeforeSubscribe rejection emits _error and prevents the subscription', async ({
-    page,
-  }, testInfo) => {
+  test('check rejection emits _error and prevents the subscription', async ({ page }, testInfo) => {
     await openPage(page, `test-${testInfo.testId}`, 'blocked-user');
     await page.getByTestId('subscribe-room').click();
-    // The thrown error in onBeforeSubscribe is routed back as an _error
-    // frame — that's our positive signal. Then assert no _subscribeOk.
+    // The thrown error in check is routed back as an _error frame —
+    // that's our positive signal. Then assert no _subscribeOk.
     await expect(page.getByTestId('subscribe-error')).toContainText('room:');
     await expect(page.getByTestId('subscribe-ok-count')).toHaveText('0');
   });

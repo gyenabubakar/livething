@@ -1,4 +1,3 @@
-import { KeyedLock } from '~/_engine/keyed-lock.ts';
 import {
   addChannelMembership,
   removeChannelMembership,
@@ -58,8 +57,8 @@ function createRuntime(memberCount: number) {
     compiled: { channels: new Map([['general', channel]]), channelFamilies: new Map() },
     connections,
     channelMembers,
-    channelLock: new KeyedLock(),
-    beforeSubscribeHooks: new Map(),
+    checkHooks: new Map(),
+    commitHooks: new Map(),
     subscribeHooks: new Map(),
     unsubscribeHooks: new Map(),
     sessionEndHooks: new Map(),

@@ -1,5 +1,4 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { KeyedLock } from '~/_engine/keyed-lock.ts';
 import { addChannelMembership, kickChannelMembers, leaveChannel } from '~/channel/runtime.ts';
 import { describe, expect, it } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
@@ -73,8 +72,8 @@ describe('channels.kick end-to-end', () => {
       },
       connections,
       channelMembers,
-      channelLock: new KeyedLock(),
-      beforeSubscribeHooks: new Map(),
+      checkHooks: new Map(),
+      commitHooks: new Map(),
       subscribeHooks: new Map(),
       unsubscribeHooks: new Map(),
       sessionEndHooks: new Map(),
@@ -195,8 +194,8 @@ describe('channels.kick end-to-end', () => {
       },
       connections,
       channelMembers,
-      channelLock: new KeyedLock(),
-      beforeSubscribeHooks: new Map(),
+      checkHooks: new Map(),
+      commitHooks: new Map(),
       subscribeHooks: new Map(),
       unsubscribeHooks: new Map([
         [

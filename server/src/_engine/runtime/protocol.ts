@@ -45,7 +45,7 @@ const NoPayload = v.strictObject({});
 
 export const SubscribeFrame = v.object({
   event: v.literal('__subscribe__'),
-  // Loose here — the channel's `onBeforeSubscribe` validator type-checks it.
+  // Loose here — the channel's `check` validator type-checks it.
   payload: v.optional(v.unknown()),
   __wskit: v.strictObject(RequiredChannelScope),
 });

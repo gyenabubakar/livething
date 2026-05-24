@@ -2,7 +2,6 @@
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import * as OutgoingRuntime from '~/outgoing/runtime.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
-import type { KeyedLock } from '~/_engine/keyed-lock.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type * as PublicApi from '~/context.ts';
 import type * as EngineRuntimeTypes from './types.ts';
@@ -11,11 +10,17 @@ import type * as EngineRuntimeTypes from './types.ts';
  * Dependency bag for channel subscribe/unsubscribe helpers.
  */
 interface ChannelRuntime extends EngineRuntimeTypes.ConnectionMembersRuntime {
-  channelLock: KeyedLock;
   hasDurableMembership(identity: string, channelName: string, channelScope: string | null): boolean;
-  beforeSubscribeHooks: ReadonlyMap<
+  checkHooks: ReadonlyMap<
     string,
-    readonly { handler: (ctx: any, data?: unknown) => void | Promise<void>; validator?: unknown }[]
+    readonly {
+      handler: (ctx: any, data?: unknown) => unknown | Promise<unknown>;
+      validator?: unknown;
+    }[]
+  >;
+  commitHooks: ReadonlyMap<
+    string,
+    readonly { handler: (ctx: any, checkResult: unknown) => void }[]
   >;
   subscribeHooks: ReadonlyMap<string, readonly ((ctx: any) => void | Promise<void>)[]>;
   unsubscribeHooks: ReadonlyMap<string, readonly ((ctx: any) => void | Promise<void>)[]>;

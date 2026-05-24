@@ -74,7 +74,7 @@ export const channelStaticHandler = implement(channelStaticContract)
 
   .channel('room', (ch) =>
     ch
-      .onBeforeSubscribe((ctx) => {
+      .check((ctx) => {
         if (ctx.meta.username === 'blocked-user') {
           throw new Error('blocked-user may not subscribe');
         }

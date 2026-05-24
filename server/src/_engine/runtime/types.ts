@@ -8,14 +8,25 @@ import type * as LifecycleTypes from '~/lifecycle/lifecycle.ts';
 import type * as ValidationTypes from '~/types.ts';
 
 /**
- * One `onBeforeSubscribe` hook plus its optional validator.
+ * One `check` hook plus its optional payload validator.
  *
- * The validator runs first so the hook can receive a typed, already-checked
- * subscription payload.
+ * The validator runs first so the hook receives a typed, already-checked
+ * subscription payload. The handler may return any value; that value is
+ * forwarded to the paired `commit` hook.
  */
-export interface ChannelBeforeSubscribeHook {
-  handler: (ctx: any, data?: unknown) => void | Promise<void>;
+export interface ChannelCheckHook {
+  handler: (ctx: any, data?: unknown) => unknown | Promise<unknown>;
   validator?: ValidationTypes.Validator<any>;
+}
+
+/**
+ * One `commit` hook — the synchronous side of the two-phase subscribe guard.
+ *
+ * Receives the value returned by the paired `check` handler. Must be
+ * synchronous; the engine throws if the handler returns a Promise.
+ */
+export interface ChannelCommitHook {
+  handler: (ctx: any, checkResult: unknown) => void;
 }
 
 /**
@@ -161,8 +172,10 @@ export interface RegisteredEngineHooks {
 
   // -- Channel membership -----------------------------------------------------
 
-  /** Auth gates per channel key — runs before a subscription is confirmed. */
-  beforeSubscribe: Map<string, ChannelBeforeSubscribeHook[]>;
+  /** Async check phase per channel key — runs before a subscription is confirmed. */
+  check: Map<string, ChannelCheckHook[]>;
+  /** Sync commit phase per channel key — runs immediately before membership is written. */
+  commit: Map<string, ChannelCommitHook[]>;
 
   /** Runs after a channel subscription succeeds, keyed by channel key. */
   subscribe: Map<string, ((ctx: any) => void | Promise<void>)[]>;

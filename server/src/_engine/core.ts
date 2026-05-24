@@ -10,7 +10,6 @@ import {
   ValidationFailed,
 } from '@wskit/core';
 import * as EngineCompile from '~/_engine/compile/compile.ts';
-import { KeyedLock } from '~/_engine/keyed-lock.ts';
 import { createRegisteredHooks } from '~/_engine/registry/hooks.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
@@ -117,7 +116,6 @@ export class EngineCore {
   readonly scheduledDlq = new Map<string, ScheduledPrimitiveTypes.ScheduledDeadLetter>();
   readonly installedFeatures = new Set<symbol>();
   readonly moduleRuntimes: ModuleRuntime[] = [];
-  readonly channelLock = new KeyedLock();
 
   alarmHandle: unknown = null;
   idCounter = 0;
