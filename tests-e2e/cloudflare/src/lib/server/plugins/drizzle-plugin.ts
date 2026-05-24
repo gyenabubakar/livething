@@ -72,12 +72,12 @@ export const Drizzle = plugin<{ migrate: boolean }>('e2e:drizzle')({
       }
 
       db.run(
-        `CREATE TABLE IF NOT EXISTS module_meta (
+        `CREATE TABLE IF NOT EXISTS plugin_meta (
           key TEXT PRIMARY KEY,
           value INTEGER NOT NULL
         )`,
       );
-      db.run(`INSERT OR IGNORE INTO module_meta (key, value) VALUES ('shutdown_count', 0)`);
+      db.run(`INSERT OR IGNORE INTO plugin_meta (key, value) VALUES ('shutdown_count', 0)`);
     });
 
     hooks.onConnect((ctx) => {
@@ -98,7 +98,7 @@ export const Drizzle = plugin<{ migrate: boolean }>('e2e:drizzle')({
 
     hooks.onShutdown(() => {
       db.run(
-        "INSERT INTO module_meta (key, value) VALUES ('shutdown_count', 1) ON CONFLICT(key) DO UPDATE SET value = value + 1",
+        "INSERT INTO plugin_meta (key, value) VALUES ('shutdown_count', 1) ON CONFLICT(key) DO UPDATE SET value = value + 1",
       );
       console.log('[drizzle-plugin] shutdown, processed', messageCount, 'messages');
     });

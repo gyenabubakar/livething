@@ -68,7 +68,7 @@ export function ack(): AckPrimitive {
  * `dependencies` array to declare that ack must be registered alongside it.
  *
  * ```ts
- * defineModule({
+ * definePlugin({
  *   id: 'acme:delivery',
  *   key: Symbol('acme:delivery'),
  *   dependencies: [ack],

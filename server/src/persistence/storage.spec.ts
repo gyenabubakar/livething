@@ -11,7 +11,7 @@ import {
 } from './storage.ts';
 
 /**
- * Tiny SQL stub that recognises just the statements this module emits. Keeps
+ * Tiny SQL stub that recognises just the statements this file emits. Keeps
  * membership and tag rows in two maps so the helpers can be exercised
  * end-to-end without a real SQLite instance.
  */

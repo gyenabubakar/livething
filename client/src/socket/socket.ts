@@ -583,7 +583,7 @@ export class Socket<TContract extends SocketContract> {
     this._dispatchMessage(pluginMsg!.event, pluginMsg!.payload);
   }
 
-  /** @internal — schedule a reconnection attempt via the Reconnection module */
+  /** @internal — schedule a reconnection attempt via the Reconnection class */
   private _scheduleReconnect(): void {
     const scheduled = this._reconnection.schedule(
       () => {

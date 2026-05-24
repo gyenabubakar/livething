@@ -300,7 +300,7 @@ function collectPluginEventNames(compiled: EngineCompileTypes.CompiledServer): R
   const names = new Set<string>();
   for (const pluginInstance of compiled.plugins) {
     for (const eventName of Object.keys(pluginInstance.outgoing)) {
-      names.add(EngineCompileUtils.prefixedModuleEvent(pluginInstance.id, eventName));
+      names.add(EngineCompileUtils.prefixedPluginEvent(pluginInstance.id, eventName));
     }
   }
   return names;

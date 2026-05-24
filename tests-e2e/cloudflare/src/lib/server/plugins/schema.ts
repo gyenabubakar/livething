@@ -9,7 +9,7 @@ export const records = sqliteTable('records', {
     .notNull(),
 });
 
-export const pluginMeta = sqliteTable('module_meta', {
+export const pluginMeta = sqliteTable('plugin_meta', {
   key: text('key').primaryKey(),
   value: integer('value').notNull(),
 });

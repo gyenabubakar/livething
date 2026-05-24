@@ -148,7 +148,7 @@ export interface PrimitiveFactory<
 /**
  * Create a built-in primitive factory.
  *
- * This is an internal wskit API — product developers use `defineModule`
+ * This is an internal wskit API — product developers use `definePlugin`
  * for custom primitives. `definePrimitive` is for the primitives that
  * ship with wskit itself (ack, incoming, channel, etc.).
  *

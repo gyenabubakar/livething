@@ -171,7 +171,7 @@ export interface PluginFactory<
  *
  * @internal
  */
-export const PLUGIN_API_MAP = Symbol.for('wskit.moduleApis');
+export const PLUGIN_API_MAP = Symbol.for('wskit.pluginApis');
 
 function isPluginId(value: string): boolean {
   return /^[a-z0-9-]+:[a-z0-9-]+$/.test(value);

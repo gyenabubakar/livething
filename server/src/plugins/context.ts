@@ -16,7 +16,7 @@ export function createPluginScopedContext(
   ctx: Record<PropertyKey, unknown>,
 ): Record<PropertyKey, unknown> {
   function prefix(event: string): string {
-    return EngineCompileUtils.prefixedModuleEvent(pluginId, event);
+    return EngineCompileUtils.prefixedPluginEvent(pluginId, event);
   }
 
   return new Proxy(ctx, {

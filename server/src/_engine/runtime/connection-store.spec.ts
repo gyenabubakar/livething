@@ -11,7 +11,7 @@ import {
 import type { RuntimeConnection } from './types.ts';
 
 /**
- * Tiny in-memory SQL stub that recognises just the statements this module
+ * Tiny in-memory SQL stub that recognises just the statements this file
  * emits. Returns plain objects through `SqlResult` — enough to drive the
  * helpers under test without spinning up a real SQLite instance.
  */

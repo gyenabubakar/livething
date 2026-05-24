@@ -105,7 +105,7 @@ export const pluginsContract = contract<Env>('plugins-test')({
   ],
 });
 
-export const modulesHandler = implement(pluginsContract)
+export const pluginsHandler = implement(pluginsContract)
   .onUpgrade((request) => {
     const url = new URL(request.url);
     const username = url.searchParams.get('username');
@@ -250,4 +250,4 @@ export const modulesHandler = implement(pluginsContract)
   })
   .build();
 
-export type PluginsClient = InferClient<typeof modulesHandler>;
+export type PluginsClient = InferClient<typeof pluginsHandler>;

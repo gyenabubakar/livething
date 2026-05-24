@@ -49,7 +49,7 @@ function makeRuntime(cap: number) {
     errorHooks: [],
     incomingDedupCap: cap,
     connections: new Map(),
-    moduleRuntimes: [],
+    pluginRuntimes: [],
     logger: { warn() {}, error() {} },
     requireTimers: () => ({ setTimeout: () => undefined, clearTimeout() {} }),
     buildConnectionContext: () => ({}),

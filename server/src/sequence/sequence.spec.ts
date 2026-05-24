@@ -194,9 +194,9 @@ describe('sequence', () => {
 
   it('still stamps plugin-owned outgoing events with a double underscore prefix', () => {
     const { hook } = installSequence();
-    const moduleMessage = hook('__acme:analytics:flushed');
+    const pluginMessage = hook('__acme:analytics:flushed');
 
-    expect(moduleMessage).toEqual({ seq: 1 });
+    expect(pluginMessage).toEqual({ seq: 1 });
   });
 
   it('creates its SQLite table during boot when persistence is enabled', async () => {

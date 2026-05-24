@@ -89,7 +89,7 @@ export interface OutgoingWireMessage<TScope extends CustomReplayScope = 'top'> {
 /**
  * The context passed to `onBeforeSend` and `onAfterSend` hooks. Provides
  * storage and platform access so hooks can persist messages without resorting
- * to module-scoped variable hacks.
+ * to file-scoped variable hacks.
  */
 export interface CustomReplaySendContext {
   /** SQL access for persisting messages to your own replay store. */

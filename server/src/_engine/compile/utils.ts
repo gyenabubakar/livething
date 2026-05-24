@@ -112,6 +112,6 @@ export function validateValue(validator: unknown, value: unknown, event = 'unkno
 /**
  * Build the private wire event name for a plugin-owned event.
  */
-export function prefixedModuleEvent(pluginId: string, event: string): string {
+export function prefixedPluginEvent(pluginId: string, event: string): string {
   return `__${pluginId}:${event}`;
 }

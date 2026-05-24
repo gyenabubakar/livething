@@ -59,7 +59,7 @@ interface PlatformCallbacks {
  * Resolves the adapter (user-provided → auto-detected web → null)
  * and handles bind/unbind lifecycle.
  *
- * Internal module — not exported from the package. Used by Socket.
+ * Internal class — not exported from the package. Used by Socket.
  */
 export class Platform {
   private readonly adapter: PlatformAdapter | null;
