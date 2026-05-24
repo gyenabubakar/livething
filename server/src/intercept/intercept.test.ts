@@ -5,7 +5,7 @@ import type { PrimitiveKind, PrimitiveRef } from '~/primitive.ts';
 const handler = intercept(async (ctx: { userId: string }, frame) => {
   const _user: string = ctx.userId;
   const _event: string = frame.event;
-  const _kind: 'incoming' | 'request' | 'stream' | 'unknown' = frame.kind;
+  const _kind: 'incoming' | 'request' | 'stream' | 'nudge' | 'unknown' = frame.kind;
   const _channel: string | undefined = frame.routing.channel;
   void [_user, _event, _kind, _channel];
   return frame.payload;

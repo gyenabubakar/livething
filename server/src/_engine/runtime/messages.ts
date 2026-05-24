@@ -788,11 +788,87 @@ export async function processTextMessage(
     : runtime.compiled.streams.has(event) ||
       runtime.compiled.resumableStreams.has(event) ||
       runtime.compiled.recordedStreams.has(event);
-  if (
-    !isStreamTrigger &&
-    (await StreamPrimitive.bufferStreamNudge(runtime, connection, event, frame.payload, wskit))
-  ) {
-    return;
+  if (!isStreamTrigger) {
+    let nudgePayload = frame.payload;
+
+    if (wskit?.streamId) {
+      const topIntercepts = runtime.compiled.intercepts;
+      const nsIntercepts = triggerScope.namespace?.intercepts;
+      const chIntercepts = triggerScope.channel?.intercepts;
+
+      if (
+        topIntercepts.length > 0 ||
+        (nsIntercepts?.length ?? 0) > 0 ||
+        (chIntercepts?.length ?? 0) > 0
+      ) {
+        let sharedCtx: Record<PropertyKey, unknown> | undefined;
+        function getCtx() {
+          return (sharedCtx ??= runtime.buildConnectionContext(connection, triggerScope));
+        }
+
+        try {
+          let nudgeFrame: InterceptPrimitive.InterceptFrame = {
+            event,
+            payload: frame.payload,
+            kind: 'nudge',
+            routing: buildInterceptRouting(wskit),
+          };
+          nudgeFrame = await InterceptPrimitive.runIntercepts(
+            runtime,
+            connection,
+            topIntercepts,
+            nudgeFrame,
+            getCtx,
+          );
+          if (nsIntercepts) {
+            nudgeFrame = await InterceptPrimitive.runIntercepts(
+              runtime,
+              connection,
+              nsIntercepts,
+              nudgeFrame,
+              getCtx,
+            );
+          }
+          if (chIntercepts) {
+            nudgeFrame = await InterceptPrimitive.runIntercepts(
+              runtime,
+              connection,
+              chIntercepts,
+              nudgeFrame,
+              getCtx,
+            );
+          }
+          nudgePayload = nudgeFrame.payload;
+        } catch (error) {
+          rethrowIfConfigError(error);
+          if (error === Block) return;
+          if (
+            error &&
+            typeof error === 'object' &&
+            (error as { __wskit?: string }).__wskit === 'disconnect'
+          ) {
+            connection.descriptor.close(
+              (error as { code: number }).code,
+              (error as { reason: string }).reason,
+            );
+            return;
+          }
+          await runtime.handleRuntimeError(connection, error, event, {
+            streamId: wskit.streamId,
+          });
+          return;
+        }
+      }
+    }
+
+    const buffered = await StreamPrimitive.bufferStreamNudge(
+      runtime,
+      connection,
+      event,
+      nudgePayload,
+      wskit,
+    );
+    if (buffered) return;
   }
 
   await dispatchIncoming(runtime, connection, event, frame.payload, wskit);

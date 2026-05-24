@@ -56,6 +56,12 @@ describe('InterceptClient — namespaces', () => {
     );
   });
 
+  it('ns streams has ns-nudge-stream', () => {
+    expectTypeOf<InterceptClient['namespaces']['ns']['streams']>().toHaveProperty(
+      'ns-nudge-stream',
+    );
+  });
+
   it('intercepted-stream has correct payload and chunk', () => {
     expectTypeOf<
       InterceptClient['namespaces']['ns']['streams']['intercepted-stream']['payload']
@@ -106,15 +112,33 @@ describe('InterceptClient — channels', () => {
       text: string;
     }>();
   });
+
+  it('room streams has ch-nudge-stream', () => {
+    expectTypeOf<InterceptClient['channels']['room']['streams']>().toHaveProperty(
+      'ch-nudge-stream',
+    );
+  });
 });
 
 describe('InterceptClient — empty slots', () => {
   it('requests is empty', () => {
     expectTypeOf<keyof InterceptClient['requests']>().toBeNever();
   });
+});
 
-  it('top-level streams is empty', () => {
-    expectTypeOf<keyof InterceptClient['streams']>().toBeNever();
+describe('InterceptClient — nudge-stream', () => {
+  it('top-level streams has nudge-stream', () => {
+    expectTypeOf<InterceptClient['streams']>().toHaveProperty('nudge-stream');
+  });
+
+  it('nudge-stream chunk is { saw: string }', () => {
+    expectTypeOf<InterceptClient['streams']['nudge-stream']['chunk']>().toEqualTypeOf<{
+      saw: string;
+    }>();
+  });
+
+  it('nudge-stream is not resumable', () => {
+    expectTypeOf<InterceptClient['streams']['nudge-stream']['resumable']>().toEqualTypeOf<false>();
   });
 });
 

@@ -22,7 +22,7 @@ export interface InterceptFrame {
    */
   readonly payload: unknown;
   /** Which primitive family handles this event, or `'unknown'` if none match. */
-  readonly kind: 'incoming' | 'request' | 'stream' | 'unknown';
+  readonly kind: 'incoming' | 'request' | 'stream' | 'nudge' | 'unknown';
   /** Curated routing metadata from the wire `__wskit` envelope. */
   readonly routing: InterceptRouting;
 }

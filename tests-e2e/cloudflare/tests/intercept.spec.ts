@@ -88,4 +88,77 @@ test.describe('intercept', () => {
     await page.getByTestId('send-ns-pre').click();
     await expect(page.getByTestId('echoed')).toContainText('ns:ns-pre-rewritten');
   });
+
+  // ── nudge intercepts ──────────────────────────────────────────────────────
+
+  test('intercept transforms nudge payload before it reaches the stream generator', async ({
+    page,
+  }, testInfo) => {
+    await openPage(page, `test-${testInfo.testId}`);
+    // The page sends the hint nudge automatically when __streamOk__ arrives,
+    // so it lands in the buffer before the generator drains nudges the first
+    // time. The top-level intercept rewrites 'hello' → 'hello-intercepted'.
+    await page.getByTestId('start-nudge-stream').click();
+    await expect(page.getByTestId('nudge-chunks')).toContainText('hello-intercepted');
+    await expect(page.getByTestId('nudge-stream-end')).toHaveText('yes');
+  });
+
+  test('Block thrown in a nudge intercept drops the nudge: generator sees no-hint', async ({
+    page,
+  }, testInfo) => {
+    await openPage(page, `test-${testInfo.testId}`);
+    // 'hint-block' triggers a Block in the intercept — nudge is dropped before
+    // reaching the buffer. The generator resumes with an empty nudge list and
+    // yields 'no-hint'.
+    await page.getByTestId('start-nudge-stream-block').click();
+    await expect(page.getByTestId('nudge-stream-end')).toHaveText('yes');
+    await expect(page.getByTestId('nudge-chunks')).toContainText('no-hint');
+    await expect(page.getByTestId('nudge-chunks')).not.toContainText('hint-block');
+  });
+
+  // ── namespace-scoped nudge intercepts ─────────────────────────────────────
+
+  test('namespace intercept transforms nudge payload for a namespace-scoped stream', async ({
+    page,
+  }, testInfo) => {
+    await openPage(page, `test-${testInfo.testId}`);
+    await page.getByTestId('start-ns-nudge-stream').click();
+    await expect(page.getByTestId('ns-nudge-chunks')).toContainText('hello-ns-intercepted');
+    await expect(page.getByTestId('ns-nudge-stream-end')).toHaveText('yes');
+  });
+
+  test('namespace intercept Block drops a nudge for a namespace-scoped stream', async ({
+    page,
+  }, testInfo) => {
+    await openPage(page, `test-${testInfo.testId}`);
+    await page.getByTestId('start-ns-nudge-stream-block').click();
+    await expect(page.getByTestId('ns-nudge-stream-end')).toHaveText('yes');
+    await expect(page.getByTestId('ns-nudge-chunks')).toContainText('no-hint');
+    await expect(page.getByTestId('ns-nudge-chunks')).not.toContainText('ns-hint-block');
+  });
+
+  // ── channel-scoped nudge intercepts ───────────────────────────────────────
+
+  test('channel intercept transforms nudge payload for a channel-scoped stream', async ({
+    page,
+  }, testInfo) => {
+    await openPage(page, `test-${testInfo.testId}`);
+    await page.getByTestId('subscribe-room').click();
+    await expect(page.getByTestId('subscribed')).toHaveText('yes');
+    await page.getByTestId('start-ch-nudge-stream').click();
+    await expect(page.getByTestId('ch-nudge-chunks')).toContainText('hello-ch-intercepted');
+    await expect(page.getByTestId('ch-nudge-stream-end')).toHaveText('yes');
+  });
+
+  test('channel intercept Block drops a nudge for a channel-scoped stream', async ({
+    page,
+  }, testInfo) => {
+    await openPage(page, `test-${testInfo.testId}`);
+    await page.getByTestId('subscribe-room').click();
+    await expect(page.getByTestId('subscribed')).toHaveText('yes');
+    await page.getByTestId('start-ch-nudge-stream-block').click();
+    await expect(page.getByTestId('ch-nudge-stream-end')).toHaveText('yes');
+    await expect(page.getByTestId('ch-nudge-chunks')).toContainText('no-hint');
+    await expect(page.getByTestId('ch-nudge-chunks')).not.toContainText('ch-hint-block');
+  });
 });

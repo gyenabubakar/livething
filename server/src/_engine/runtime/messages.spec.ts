@@ -1113,3 +1113,264 @@ describe('message runtime', () => {
     expect((error as { code?: string }).code).toBe('validation-failed');
   });
 });
+
+// ── nudge intercept ───────────────────────────────────────────────────────────
+
+function makeScopedNode(intercepts: unknown[] = []) {
+  return {
+    intercepts,
+    streams: new Map(),
+    resumableStreams: new Map(),
+    recordedStreams: new Map(),
+  };
+}
+
+function makeNudgeRuntime(
+  intercepts: unknown[],
+  activeStreams: Map<string, unknown>,
+  handleRuntimeError = vi.fn(),
+  {
+    namespaces = new Map(),
+    channels = new Map(),
+  }: { namespaces?: Map<string, unknown>; channels?: Map<string, unknown> } = {},
+) {
+  return {
+    compiled: {
+      outgoing: new Map(),
+      incoming: new Map(),
+      requests: new Map(),
+      streams: new Map(),
+      resumableStreams: new Map(),
+      recordedStreams: new Map(),
+      intercepts,
+      namespaces,
+      channels,
+      channelFamilies: new Map(),
+      scheduled: new Map(),
+      modules: [],
+      requires: {},
+      replayClaimedChannelKeys: new Set(),
+    },
+    connections: new Map(),
+    activeStreams,
+    protocolHandlers: new Map(),
+    incomingHooks: [],
+    moduleRuntimes: [],
+    errorHooks: [],
+    activityHooks: [],
+    logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
+    incomingDedupCap: 0,
+    durableStreamSchemaReady: false,
+    buildConnectionContext: () => ({}),
+    handleRuntimeError,
+    async handleValidationError() {},
+    async handleSubscribe() {},
+    async handleUnsubscribe() {},
+    sendProtocolMessage() {},
+    sendReplay() {},
+    persistAttachment() {},
+    requireTimers() {
+      return { setTimeout: () => undefined, clearTimeout() {} };
+    },
+    waitUntil() {},
+    generateId() {
+      return 'id_1';
+    },
+    toConnectionInfo() {
+      throw new Error('unused');
+    },
+  };
+}
+
+function makeActiveStream(connectionId: string, nudgeEvent: string) {
+  return {
+    id: 'stream_1',
+    connectionId,
+    event: 'my-stream',
+    generator: (async function* () {})(),
+    nudges: [] as { event: string; payload: unknown }[],
+    nudgeValidators: new Map([[nudgeEvent, undefined]]),
+    closed: false,
+  };
+}
+
+describe('nudge intercepts', () => {
+  it('intercept sees kind=nudge and routing.streamId for a nudge frame', async () => {
+    const connection = createConnection('conn_1');
+    const activeStream = makeActiveStream(connection.id, 'nudge-event');
+    const activeStreams = new Map([['stream_1', activeStream]]);
+
+    const seenFrames: unknown[] = [];
+    const { intercept } = await import('~/intercept/intercept.ts');
+    const spy = intercept((_ctx, frame) => {
+      seenFrames.push({ kind: frame.kind, streamId: frame.routing.streamId, event: frame.event });
+    });
+
+    const runtime = makeNudgeRuntime([spy], activeStreams);
+
+    await processTextMessage(
+      runtime as unknown as Parameters<typeof processTextMessage>[0],
+      connection,
+      JSON.stringify({
+        event: 'nudge-event',
+        payload: { value: 1 },
+        __wskit: { streamId: 'stream_1', channelScope: null },
+      }),
+    );
+
+    expect(seenFrames).toHaveLength(1);
+    expect(seenFrames[0]).toEqual({ kind: 'nudge', streamId: 'stream_1', event: 'nudge-event' });
+  });
+
+  it('intercept can transform the nudge payload before it is buffered', async () => {
+    const connection = createConnection('conn_1');
+    const activeStream = makeActiveStream(connection.id, 'nudge-event');
+    const activeStreams = new Map([['stream_1', activeStream]]);
+
+    const { intercept } = await import('~/intercept/intercept.ts');
+    const transformer = intercept(() => ({ transformed: true }));
+
+    const runtime = makeNudgeRuntime([transformer], activeStreams);
+
+    await processTextMessage(
+      runtime as unknown as Parameters<typeof processTextMessage>[0],
+      connection,
+      JSON.stringify({
+        event: 'nudge-event',
+        payload: { original: true },
+        __wskit: { streamId: 'stream_1', channelScope: null },
+      }),
+    );
+
+    expect(activeStream.nudges).toHaveLength(1);
+    expect(activeStream.nudges[0]!.payload).toEqual({ transformed: true });
+  });
+
+  it('Block thrown in a nudge intercept drops the nudge without buffering', async () => {
+    const { Block } = await import('@wskit/core');
+    const connection = createConnection('conn_1');
+    const activeStream = makeActiveStream(connection.id, 'nudge-event');
+    const activeStreams = new Map([['stream_1', activeStream]]);
+
+    const { intercept } = await import('~/intercept/intercept.ts');
+    const blocker = intercept(() => {
+      throw Block;
+    });
+
+    const runtime = makeNudgeRuntime([blocker], activeStreams);
+
+    await processTextMessage(
+      runtime as unknown as Parameters<typeof processTextMessage>[0],
+      connection,
+      JSON.stringify({
+        event: 'nudge-event',
+        payload: { value: 1 },
+        __wskit: { streamId: 'stream_1', channelScope: null },
+      }),
+    );
+
+    expect(activeStream.nudges).toHaveLength(0);
+  });
+
+  it('no intercepts registered: nudge reaches buffer unchanged (zero-cost path)', async () => {
+    const connection = createConnection('conn_1');
+    const activeStream = makeActiveStream(connection.id, 'nudge-event');
+    const activeStreams = new Map([['stream_1', activeStream]]);
+
+    const runtime = makeNudgeRuntime([], activeStreams);
+
+    await processTextMessage(
+      runtime as unknown as Parameters<typeof processTextMessage>[0],
+      connection,
+      JSON.stringify({
+        event: 'nudge-event',
+        payload: { passthrough: true },
+        __wskit: { streamId: 'stream_1', channelScope: null },
+      }),
+    );
+
+    expect(activeStream.nudges).toHaveLength(1);
+    expect(activeStream.nudges[0]!.payload).toEqual({ passthrough: true });
+  });
+
+  it('non-Block error in a nudge intercept calls handleRuntimeError with streamId routing', async () => {
+    const connection = createConnection('conn_1');
+    const activeStream = makeActiveStream(connection.id, 'nudge-event');
+    const activeStreams = new Map([['stream_1', activeStream]]);
+    const handleRuntimeError = vi.fn();
+
+    const { intercept } = await import('~/intercept/intercept.ts');
+    const thrower = intercept(() => {
+      throw new Error('bad nudge');
+    });
+
+    const runtime = makeNudgeRuntime([thrower], activeStreams, handleRuntimeError);
+
+    await processTextMessage(
+      runtime as unknown as Parameters<typeof processTextMessage>[0],
+      connection,
+      JSON.stringify({
+        event: 'nudge-event',
+        payload: {},
+        __wskit: { streamId: 'stream_1', channelScope: null },
+      }),
+    );
+
+    expect(activeStream.nudges).toHaveLength(0);
+    expect(handleRuntimeError).toHaveBeenCalledTimes(1);
+    const [, , , routing] = handleRuntimeError.mock.calls[0]!;
+    expect((routing as { streamId?: string }).streamId).toBe('stream_1');
+  });
+
+  it('Block in namespace intercept drops a nudge sent with namespace routing', async () => {
+    const { Block } = await import('@wskit/core');
+    const connection = createConnection('conn_1');
+    const activeStream = makeActiveStream(connection.id, 'ns-nudge');
+    const activeStreams = new Map([['stream_1', activeStream]]);
+
+    const { intercept } = await import('~/intercept/intercept.ts');
+    const nsSpy = intercept(() => {
+      throw Block;
+    });
+    const namespaces = new Map([['ns', makeScopedNode([nsSpy])]]);
+    const runtime = makeNudgeRuntime([], activeStreams, vi.fn(), { namespaces });
+
+    await processTextMessage(
+      runtime as unknown as Parameters<typeof processTextMessage>[0],
+      connection,
+      JSON.stringify({
+        event: 'ns-nudge',
+        payload: { value: 1 },
+        __wskit: { streamId: 'stream_1', namespace: 'ns' },
+      }),
+    );
+
+    expect(activeStream.nudges).toHaveLength(0);
+  });
+
+  it('Block in channel intercept drops a nudge sent with channel routing', async () => {
+    const { Block } = await import('@wskit/core');
+    const connection = createConnection('conn_1');
+    const activeStream = makeActiveStream(connection.id, 'ch-nudge');
+    const activeStreams = new Map([['stream_1', activeStream]]);
+
+    const { intercept } = await import('~/intercept/intercept.ts');
+    const chSpy = intercept(() => {
+      throw Block;
+    });
+    const channels = new Map([['room', makeScopedNode([chSpy])]]);
+    const runtime = makeNudgeRuntime([], activeStreams, vi.fn(), { channels });
+
+    await processTextMessage(
+      runtime as unknown as Parameters<typeof processTextMessage>[0],
+      connection,
+      JSON.stringify({
+        event: 'ch-nudge',
+        payload: { value: 1 },
+        __wskit: { streamId: 'stream_1', channel: 'room', channelScope: null },
+      }),
+    );
+
+    expect(activeStream.nudges).toHaveLength(0);
+  });
+});
