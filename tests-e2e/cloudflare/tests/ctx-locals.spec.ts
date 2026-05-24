@@ -28,6 +28,27 @@ test.describe('ctx-locals', () => {
     await expect(page.getByTestId('echoed')).toHaveText('hello:top:ns');
   });
 
+  test('channel intercept provides a value the channel handler can inject', async ({
+    page,
+  }, testInfo) => {
+    await openPage(page, `test-${testInfo.testId}`);
+    await page.getByTestId('subscribe-room').click();
+    await expect(page.getByTestId('subscribed')).toHaveText('yes');
+    await page.getByTestId('send-channel-echo').click();
+    // TopKey provided by top intercept → 'top'
+    // ChannelKey provided by channel intercept → 'channel'
+    await expect(page.getByTestId('echoed')).toHaveText('hello:top:channel');
+  });
+
+  test('top-level provide is visible inside a channel handler', async ({ page }, testInfo) => {
+    await openPage(page, `test-${testInfo.testId}`);
+    await page.getByTestId('subscribe-room').click();
+    await expect(page.getByTestId('subscribed')).toHaveText('yes');
+    await page.getByTestId('send-channel-echo').click();
+    // The echoed text includes top→'top', proving the top intercept's provide reached the channel handler
+    await expect(page.getByTestId('echoed')).toContainText('top');
+  });
+
   test('two separate dispatches have isolated locals', async ({ page }, testInfo) => {
     await openPage(page, `test-${testInfo.testId}`);
 

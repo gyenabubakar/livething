@@ -1,4 +1,6 @@
 import { buildConnectionContext } from '~/_engine/contexts/contexts.ts';
+import { intercept } from '~/intercept/intercept.ts';
+import { runIntercepts } from '~/intercept/runtime.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import { localKey } from './local-key.ts';
@@ -156,6 +158,48 @@ describe('ctx.provide / ctx.inject', () => {
     ctx.provide(key, { role: 'admin' });
     const seen = ctx.inject(key);
     expect(seen).toEqual({ role: 'admin' });
+  });
+
+  it('provide in an intercept is visible to the handler via the shared dispatch ctx', async () => {
+    const key = localKey<string>('role');
+    const connection = createConnection();
+    const ctx = buildConnectionContext(baseDeps(), connection);
+
+    const topIntercept = intercept((c) => {
+      (c as typeof ctx).provide(key, 'admin');
+    });
+
+    await runIntercepts({}, connection, {
+      intercepts: [topIntercept],
+      frame: { event: 'echo', payload: {}, kind: 'incoming', routing: {} },
+      getCtx: () => ctx,
+    });
+
+    // Same ctx the handler would receive — value survives the intercept chain
+    expect(ctx.inject(key)).toBe('admin');
+  });
+
+  it('second intercept in chain can inject what the first provided', async () => {
+    const key = localKey<number>('step');
+    const connection = createConnection();
+    const ctx = buildConnectionContext(baseDeps(), connection);
+
+    let seenInSecond: number | undefined;
+
+    const first = intercept((c) => {
+      (c as typeof ctx).provide(key, 1);
+    });
+    const second = intercept((c) => {
+      seenInSecond = (c as typeof ctx).inject(key);
+    });
+
+    await runIntercepts({}, connection, {
+      intercepts: [first, second],
+      frame: { event: 'echo', payload: {}, kind: 'incoming', routing: {} },
+      getCtx: () => ctx,
+    });
+
+    expect(seenInSecond).toBe(1);
   });
 
   it('works with object values', () => {
