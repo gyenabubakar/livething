@@ -10,6 +10,7 @@ import type {
   SQLProvider,
   TagRef,
 } from '~/context.ts';
+import type { LocalKey } from '~/local-key/local-key.ts';
 import type { Contract } from './contract-types.ts';
 
 // ---------------------------------------------------------------------------
@@ -178,6 +179,21 @@ export type Ctx<C extends Contract> = {
   waitUntil(promise: Promise<unknown>): void;
   /** Set the next alarm on the adapter's timer surface (unix ms). */
   setAlarm(time: number): void;
+
+  /**
+   * Store a typed value under a key for the current message dispatch. The
+   * value is visible to every downstream intercept and to the final handler
+   * sharing this dispatch context. Each dispatch starts with a clean store.
+   * @see inject
+   */
+  provide<T>(key: LocalKey<T>, value: T): void;
+  /**
+   * Retrieve a value stored by an upstream intercept's `ctx.provide` call.
+   * Returns `undefined` when nothing was provided for this key in the current
+   * dispatch.
+   * @see provide
+   */
+  inject<T>(key: LocalKey<T>): T | undefined;
 
   // ───── Always-on feature surface. Runtime throws if the feature was not enabled. ─────
 

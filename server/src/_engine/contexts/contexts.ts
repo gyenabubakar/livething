@@ -2,6 +2,7 @@ import { buildChannelsApi, buildChannelScopeExtra } from '~/channel/context.ts';
 import { buildNamespaceScopeExtra } from '~/namespace/context.ts';
 import * as TagsRuntime from '~/tags/runtime.ts';
 import type * as PublicApi from '~/context.ts';
+import type { LocalKey } from '~/local-key/local-key.ts';
 import { createLazyStorageView } from './lazy-storage.ts';
 import * as EngineContextTypes from './types.ts';
 
@@ -84,6 +85,8 @@ export function buildConnectionContext(
 ): EngineContextTypes.ConnectionContext<Record<string, unknown>, Record<string, unknown>, unknown> &
   Record<PropertyKey, unknown> {
   const { sql, kv } = createLazyStorageView(deps.requireStorage);
+
+  const locals = new Map<LocalKey<unknown>, unknown>();
 
   let channelsApi: ReturnType<typeof buildChannelsApi> | undefined;
 
@@ -171,6 +174,14 @@ export function buildConnectionContext(
     log: deps.logger,
     waitUntil: deps.waitUntilImpl,
     platform: deps.platform,
+
+    provide<T>(key: LocalKey<T>, value: T): void {
+      locals.set(key, value);
+    },
+
+    inject<T>(key: LocalKey<T>): T | undefined {
+      return locals.get(key) as T | undefined;
+    },
   };
 
   // `ctx.tags` exists only on tag-enabled servers, and is built on first

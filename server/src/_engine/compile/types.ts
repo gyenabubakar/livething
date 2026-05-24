@@ -2,9 +2,9 @@
 import type * as ChannelPrimitive from '~/channel/channel.ts';
 import type * as IncomingPrimitive from '~/incoming/index.ts';
 import type * as InterceptPrimitive from '~/intercept/intercept.ts';
-import type * as DefinePlugin from '~/plugins/define.ts';
 import type * as NamespacePrimitive from '~/namespace/namespace.ts';
 import type * as OutgoingPrimitive from '~/outgoing/index.ts';
+import type * as DefinePlugin from '~/plugins/define.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
 import type * as RequestPrimitive from '~/request/request.ts';
 import type * as ScheduledPrimitive from '~/scheduled/scheduled.ts';

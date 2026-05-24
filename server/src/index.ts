@@ -41,6 +41,9 @@ export type {
 
 export type { InterceptFrame, InterceptRouting } from './intercept/intercept.ts';
 
+export { localKey } from './local-key/local-key.ts';
+export type { LocalKey } from './local-key/local-key.ts';
+
 export type { RateLimitConfig } from './rate-limit/rate-limit.ts';
 
 export type { Validator } from './types.ts';
