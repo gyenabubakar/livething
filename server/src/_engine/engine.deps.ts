@@ -419,6 +419,7 @@ function buildDispatchRuntime(core: EngineCore) {
         connection,
         frame,
       ),
+    durableStreamSchemaReady: false,
   };
 }
 
@@ -462,8 +463,12 @@ function buildConnectionRuntime(core: EngineCore) {
     // adds a microtask and shifts `runConnectionLifecycle('connect')` timing.
     ...(core.persistenceEnabled
       ? {
-          autoRejoinIdentity: (connection: RuntimeConnection) =>
-            MembershipPersistence.autoRejoinIdentity(
+          autoRejoinIdentity: (connection: RuntimeConnection) => {
+            if (core.freshBoot) {
+              core.freshBoot = false;
+              return Promise.resolve();
+            }
+            return MembershipPersistence.autoRejoinIdentity(
               core,
               (ref, channelName, channelScope, payload, rejoining) =>
                 EngineChannelFrames.subscribeFromServer(
@@ -475,7 +480,8 @@ function buildConnectionRuntime(core: EngineCore) {
                   rejoining,
                 ),
               connection,
-            ),
+            );
+          },
         }
       : {}),
   };

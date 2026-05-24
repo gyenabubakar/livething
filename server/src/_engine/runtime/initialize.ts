@@ -77,6 +77,7 @@ export async function initialize(core: EngineCore, accessDeps: EngineAccessDeps)
       }
       if (storageForSchema) {
         markSchemaInitialized(storageForSchema.sql);
+        core.freshBoot = true;
       }
     }
   }

@@ -115,6 +115,39 @@ function chunkToPayload(chunkValue: unknown): Record<string, unknown> {
     : { value: chunkValue };
 }
 
+/**
+ * Send buffered chunks to a connection using pre-built wire frames.
+ *
+ * Each chunk's payload is already a valid JSON string in the database (it was
+ * `JSON.stringify`-ed on write), so we splice it directly into the frame
+ * string rather than parse → spread → re-stringify per chunk. The constant
+ * parts of `__wskit` (scope markers + streamId) are also serialized once
+ * before the loop, then only the per-chunk `seq` (a plain number) and the
+ * optional `messageId` are appended.
+ */
+function sendChunkFrames(
+  connection: RuntimeConnection,
+  eventName: string,
+  chunks: Storage.DurableStreamChunkRow[],
+  scopeMarkers: Record<string, unknown>,
+  streamId: string,
+): void {
+  if (chunks.length === 0) return;
+
+  const eventJson = JSON.stringify(eventName);
+  // Serialize the constant part of __wskit (scope fields + streamId), strip the
+  // closing "}" so we can append ,"seq":N} per chunk without a full re-serialize.
+  const wskitPrefix = JSON.stringify({ ...scopeMarkers, streamId }).slice(0, -1) + ',"seq":';
+
+  for (const chunk of chunks) {
+    const wire =
+      chunk.messageId !== null
+        ? `{"event":${eventJson},"payload":${chunk.payload},"__wskit":${wskitPrefix}${chunk.seq},"messageId":${JSON.stringify(chunk.messageId)}}}`
+        : `{"event":${eventJson},"payload":${chunk.payload},"__wskit":${wskitPrefix}${chunk.seq}}}`;
+    connection.descriptor.send(wire);
+  }
+}
+
 /** Read a client-supplied `streamId` from the trigger frame's `__wskit`. */
 function readSuppliedStreamId(wskit: Protocol.WskitProtocol | undefined): string | undefined {
   const value = wskit?.streamId;
@@ -316,19 +349,7 @@ export async function resumeDurableStream(
 
       runtime.sendProtocolMessage(connection, '__streamOk__', {}, { ...scopeMarkers, streamId });
       const chunks = Storage.readChunksSince(runtime.sql, storageIdentity, streamId, lastKnownSeq);
-      for (const chunk of chunks) {
-        runtime.sendProtocolMessage(
-          connection,
-          def.event,
-          chunkToPayload(JSON.parse(chunk.payload)),
-          {
-            ...scopeMarkers,
-            streamId,
-            seq: chunk.seq,
-            ...(chunk.messageId ? { messageId: chunk.messageId } : {}),
-          },
-        );
-      }
+      sendChunkFrames(connection, def.event, chunks, scopeMarkers, streamId);
       return;
     }
   }
@@ -348,19 +369,7 @@ export async function resumeDurableStream(
 
   if (row.kind === 'recorded' || isPeerSubscriber) {
     const chunks = Storage.readChunksSince(runtime.sql, storageIdentity, streamId, lastKnownSeq);
-    for (const chunk of chunks) {
-      runtime.sendProtocolMessage(
-        connection,
-        def.event,
-        chunkToPayload(JSON.parse(chunk.payload)),
-        {
-          ...scopeMarkers,
-          streamId,
-          seq: chunk.seq,
-          ...(chunk.messageId ? { messageId: chunk.messageId } : {}),
-        },
-      );
-    }
+    sendChunkFrames(connection, def.event, chunks, scopeMarkers, streamId);
     if (isPeerSubscriber) {
       const caughtUpSeq = chunks.length > 0 ? chunks[chunks.length - 1]!.seq : lastKnownSeq;
       Storage.setCaughtUpSeq(runtime.sql, storageIdentity, streamId, realIdentity, caughtUpSeq);

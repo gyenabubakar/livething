@@ -76,6 +76,11 @@ export class EngineCore {
   persistenceEnabled = false;
   incomingDedupCap = 0;
   initialized = false;
+  /**
+   * True after a cold-boot schema run (fresh DO). The first `autoRejoinIdentity`
+   * call clears it so subsequent connections query normally.
+   */
+  freshBoot = false;
 
   /** Per-channel `persistent` overrides. Explicit `false` opts out. */
   readonly channelPersistenceOverrides = new Map<string, boolean>();

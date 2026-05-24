@@ -68,6 +68,10 @@
       { "name": "GROUP_FULL_SURFACE_SERVER", "class_name": "GroupFullSurfaceServer" },
     ],
   },
+  "observability": {
+    "enabled": true,
+    "logs": { "head_sampling_rate": 1 },
+  },
   "migrations": [
     {
       "tag": "v1",

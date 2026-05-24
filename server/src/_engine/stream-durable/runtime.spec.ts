@@ -283,6 +283,13 @@ function createRuntime(sqlInstance: ReturnType<typeof makeSql>) {
   return { runtime, protocolMessages, pipelineSends, broadcasts };
 }
 
+function wireChunks(
+  connection: RuntimeConnection,
+): { event: string; __wskit: Record<string, unknown> }[] {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return ((connection.descriptor.send as any).mock.calls as [string][]).map(([w]) => JSON.parse(w));
+}
+
 function baseDef(overrides: Partial<DurableStreamRuntimeDef> = {}): DurableStreamRuntimeDef {
   return {
     event: 'e',
@@ -498,8 +505,8 @@ describe('durable stream runtime', () => {
       2,
     );
 
-    const replayed = protocolMessages.filter((m) => m.event === 'e');
-    expect(replayed.map((m) => m.wskit.seq)).toEqual([3, 4, 5]);
+    const replayed = wireChunks(connection).filter((f) => f.event === 'e');
+    expect(replayed.map((f) => f.__wskit.seq)).toEqual([3, 4, 5]);
     expect(protocolMessages.find((m) => m.event === '__streamEnd__')).toBeDefined();
   });
 
@@ -993,8 +1000,8 @@ describe('durable stream runtime', () => {
       1,
     );
 
-    const replayed = protocolMessages.filter((m) => m.event === 'e');
-    expect(replayed.map((m) => m.wskit.seq)).toEqual([2, 3]);
+    const replayed = wireChunks(peer).filter((f) => f.event === 'e');
+    expect(replayed.map((f) => f.__wskit.seq)).toEqual([2, 3]);
     // Active broadcast — no __streamEnd__ from the resumer (the generator is
     // still running on the creator's connection in a real run).
     expect(protocolMessages.find((m) => m.event === '__streamEnd__')).toBeUndefined();
@@ -1117,8 +1124,8 @@ describe('durable stream runtime', () => {
       0,
     );
 
-    const replayed = protocolMessages.filter((m) => m.event === 'e');
-    expect(replayed.map((m) => m.wskit.seq)).toEqual([1, 2]);
+    const replayed = wireChunks(peer).filter((f) => f.event === 'e');
+    expect(replayed.map((f) => f.__wskit.seq)).toEqual([1, 2]);
     // Peer never reaches the generator — no pipeline sends, no __streamEnd__.
     expect(pipelineSends.filter((p) => p.event === 'e')).toHaveLength(0);
     expect(protocolMessages.find((m) => m.event === '__streamEnd__')).toBeUndefined();
@@ -1312,8 +1319,8 @@ describe('durable stream runtime', () => {
       (m) => m.event === '__streamOk__' && m.wskit.streamId === live.id,
     );
     expect(okFrames.length).toBeGreaterThanOrEqual(1);
-    const replayed = protocolMessages.filter((m) => m.event === 'e');
-    expect(replayed.map((m) => m.wskit.seq)).toEqual([1, 2]);
+    const replayed = wireChunks(reconnect).filter((f) => f.event === 'e');
+    expect(replayed.map((f) => f.__wskit.seq)).toEqual([1, 2]);
 
     expect(live.detached).toBe(false);
     expect(live.connection?.id).toBe('c-new');

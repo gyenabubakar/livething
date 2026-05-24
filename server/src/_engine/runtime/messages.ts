@@ -112,6 +112,12 @@ interface DispatchRuntime
     connection: EngineRuntimeTypes.RuntimeConnection,
     frame: Protocol.UnsubscribeFrame,
   ): Promise<void>;
+  /**
+   * Tracks whether `ensureDurableStreamSchema` has already run in this DO
+   * instance lifetime. Flipped to `true` on first stream start or resume so
+   * subsequent operations skip the redundant DDL check.
+   */
+  durableStreamSchemaReady: boolean;
 }
 
 // ───── Section: wire-error helpers ─────
@@ -407,7 +413,10 @@ export async function dispatchIncoming(
             '" requires storage; the adapter did not call engine.setStorage(...).',
         );
       }
-      ensureDurableStreamSchema(runtime.sql);
+      if (!runtime.durableStreamSchemaReady) {
+        ensureDurableStreamSchema(runtime.sql);
+        runtime.durableStreamSchemaReady = true;
+      }
       await DurableStreamRuntime.runDurableStream(
         runtime as unknown as DurableStreamRuntime.DurableStreamRuntime,
         connection,
@@ -590,7 +599,10 @@ async function handleResumeStream(
     );
     return;
   }
-  ensureDurableStreamSchema(runtime.sql);
+  if (!runtime.durableStreamSchemaReady) {
+    ensureDurableStreamSchema(runtime.sql);
+    runtime.durableStreamSchemaReady = true;
+  }
 
   // Routing markers let a non-creator resume a broadcast stream by its scope key.
   let resumeScope: EngineRuntimeTypes.ResolvedScope = {};
