@@ -27,7 +27,7 @@ describe('definePlugin', () => {
 
     expect(analytics.id).toBe('acme:analytics');
     expect(analytics.__key).toBe(key);
-    expect(instance.__wskit).toBe('module');
+    expect(instance.__wskit).toBe('plugin');
     expect(instance.id).toBe('acme:analytics');
     expect(instance.args).toEqual({ sampleRate: 1 });
     expect(instance.outgoing).toEqual({ flushed: expect.anything() });

@@ -83,8 +83,8 @@ function visitCompiledPrimitives(
         compiled.intercepts.push(primitive as EngineCompileTypes.AnyIntercept);
         continue;
 
-      case 'module':
-        compiled.modules.push(primitive as EngineCompileTypes.AnyModule);
+      case 'plugin':
+        compiled.plugins.push(primitive as EngineCompileTypes.AnyPlugin);
         continue;
     }
 
@@ -138,7 +138,7 @@ export function compileHandlerDefinition(
     channels: new Map(),
     channelFamilies: new Map(),
     scheduled: new Map(),
-    modules: [],
+    plugins: [],
     requires: {},
     replayClaimedChannelKeys: new Set<string>(),
   };
@@ -298,7 +298,7 @@ function validateNoCrossPrimitiveEventCollisions(
 // underscore events.
 function collectPluginEventNames(compiled: EngineCompileTypes.CompiledServer): ReadonlySet<string> {
   const names = new Set<string>();
-  for (const pluginInstance of compiled.modules) {
+  for (const pluginInstance of compiled.plugins) {
     for (const eventName of Object.keys(pluginInstance.outgoing)) {
       names.add(EngineCompileUtils.prefixedModuleEvent(pluginInstance.id, eventName));
     }

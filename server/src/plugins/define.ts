@@ -121,7 +121,7 @@ export interface PluginInstance<
   TApi = unknown,
   TOutgoing extends Record<string, unknown> = {},
   TErrors extends readonly ErrorDef<string, any>[] = readonly [],
-> extends Primitive<'module'> {
+> extends Primitive<'plugin'> {
   readonly id: TId;
   readonly args: TArgs;
 
@@ -234,7 +234,7 @@ export function definePlugin<
   }
 
   const factory = definePrimitive<
-    'module',
+    'plugin',
     [args: TArgs],
     {
       id: string;
@@ -244,9 +244,9 @@ export function definePlugin<
       setupPlugin: PluginConfig<TArgs, TApi, TCtx, TOutgoing, TErrors>['setup'];
     }
   >({
-    tag: 'module' as const,
+    tag: 'plugin' as const,
     key: config.key,
-    kind: 'module' as const,
+    kind: 'plugin' as const,
     requires: config.requires,
     create(args: TArgs) {
       return {

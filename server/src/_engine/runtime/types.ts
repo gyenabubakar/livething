@@ -329,7 +329,7 @@ export interface ActiveStream {
  * plugin's hooks and build its scoped helper API when needed.
  */
 export interface PluginRuntime {
-  instance: EngineCompileTypes.AnyModule;
+  instance: EngineCompileTypes.AnyPlugin;
   onInit?: (ctx: any) => void | Promise<void>;
   onIncoming?: (message: { event: string; payload: unknown }) => unknown | void;
   onOutgoing?: (message: { event: string; payload: unknown }) => unknown | void;

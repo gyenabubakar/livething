@@ -61,7 +61,7 @@ function createRuntime(
         ],
       ]),
       channelFamilies: new Map(),
-      modules: [],
+      plugins: [],
     },
     connections,
     channelMembers,

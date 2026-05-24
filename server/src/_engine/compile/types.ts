@@ -40,7 +40,7 @@ export type AnyIntercept = InterceptPrimitive.InterceptPrimitive<any>;
 /** Any `.scheduled()` task declaration. */
 export type AnyScheduled = ScheduledPrimitive.ScheduledPrimitive<string, any, any, any>;
 /** Any installed plugin instance from `definePlugin(...)`. */
-export type AnyModule = DefinePlugin.PluginInstance<
+export type AnyPlugin = DefinePlugin.PluginInstance<
   string,
   any,
   any,
@@ -103,7 +103,7 @@ export interface CompiledServer {
   channels: Map<string, CompiledChannel>;
   channelFamilies: Map<string, CompiledChannel>;
   scheduled: Map<string, AnyScheduled>;
-  modules: AnyModule[];
+  plugins: AnyPlugin[];
   requires: RequiresManifest;
   /**
    * Channel keys (static channel names or scope keys) that have an explicit

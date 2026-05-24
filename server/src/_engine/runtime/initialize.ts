@@ -53,7 +53,7 @@ export async function initialize(core: EngineCore, accessDeps: EngineAccessDeps)
   }
   validateEngineRequirements(core);
 
-  for (const pluginInstance of core.compiled.modules) {
+  for (const pluginInstance of core.compiled.plugins) {
     const runtime: PluginRuntime = {
       instance: pluginInstance,
       contextFactory: () => ({}),

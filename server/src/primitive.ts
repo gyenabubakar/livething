@@ -15,7 +15,7 @@ export type PrimitiveKind =
   | 'infrastructure'
   | 'lifecycle'
   | 'scope'
-  | 'module';
+  | 'plugin';
 
 // ---------------------------------------------------------------------------
 // Platform requirements

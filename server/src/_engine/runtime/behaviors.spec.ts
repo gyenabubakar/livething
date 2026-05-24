@@ -42,7 +42,7 @@ function baseCompiled() {
     channels: new Map(),
     channelFamilies: new Map(),
     scheduled: new Map(),
-    modules: [],
+    plugins: [],
     requires: {},
     replayClaimedChannelKeys: new Set(),
   };

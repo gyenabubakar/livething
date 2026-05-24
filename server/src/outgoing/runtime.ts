@@ -35,7 +35,7 @@ export interface OutgoingRuntime {
 
 /** Check whether an event name belongs to any installed plugin's outgoing declarations. */
 function isDeclaredPluginEvent(compiled: CompiledServer, event: string): boolean {
-  for (const pluginInstance of compiled.modules) {
+  for (const pluginInstance of compiled.plugins) {
     for (const eventName of Object.keys(pluginInstance.outgoing)) {
       if (`__${pluginInstance.id}:${eventName}` === event) {
         return true;

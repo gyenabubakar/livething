@@ -40,7 +40,7 @@ function createRuntime(overrides: Partial<OutgoingRuntime> = {}): OutgoingRuntim
       namespaces: new Map(),
       channels: new Map(),
       channelFamilies: new Map(),
-      modules: [],
+      plugins: [],
     } as unknown as OutgoingRuntime['compiled'],
     pluginRuntimes: [],
     outgoingHooks: [],
@@ -162,7 +162,7 @@ describe('outgoing/runtime sendThroughPipeline', () => {
         ]),
         channels: new Map(),
         channelFamilies: new Map(),
-        modules: [],
+        plugins: [],
       } as unknown as OutgoingRuntime['compiled'],
     });
     const connection = createConnection();
@@ -192,7 +192,7 @@ describe('outgoing/runtime sendThroughPipeline', () => {
             },
           ],
         ]),
-        modules: [],
+        plugins: [],
       } as unknown as OutgoingRuntime['compiled'],
     });
     const connection = createConnection();
@@ -230,7 +230,7 @@ describe('outgoing/runtime sendThroughPipeline', () => {
         ]),
         channels: new Map(),
         channelFamilies: new Map(),
-        modules: [],
+        plugins: [],
       } as unknown as OutgoingRuntime['compiled'],
     });
     const connection = createConnection();
@@ -261,7 +261,7 @@ describe('outgoing/runtime sendThroughPipeline', () => {
           ],
         ]),
         channelFamilies: new Map(),
-        modules: [],
+        plugins: [],
       } as unknown as OutgoingRuntime['compiled'],
     });
     const connection = createConnection();
@@ -435,7 +435,7 @@ describe('broadcastToChannel — fanout resilience', () => {
           namespaces: new Map(),
           channels: new Map([['general', { outgoing: new Map([['msg', { event: 'msg' }]]) }]]),
           channelFamilies: new Map(),
-          modules: [],
+          plugins: [],
         } as unknown as OutgoingRuntime['compiled'],
         logger: {
           warn() {},

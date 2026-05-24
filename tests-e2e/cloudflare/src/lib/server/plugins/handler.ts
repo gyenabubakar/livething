@@ -50,7 +50,7 @@ const StreamConnectionIdChunk = v.object({ id: v.string() });
 const StreamThrowOnCancelPayload = v.object({});
 const StreamThrowOnCancelChunk = v.object({ tick: v.number() });
 
-export const modulesContract = contract<Env>('modules-test')({
+export const pluginsContract = contract<Env>('plugins-test')({
   meta: t<{ username: string }>(),
   plugins: [Drizzle({ migrate: true })],
   definitions: [
@@ -105,7 +105,7 @@ export const modulesContract = contract<Env>('modules-test')({
   ],
 });
 
-export const modulesHandler = implement(modulesContract)
+export const modulesHandler = implement(pluginsContract)
   .onUpgrade((request) => {
     const url = new URL(request.url);
     const username = url.searchParams.get('username');
