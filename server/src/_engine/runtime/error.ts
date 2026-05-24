@@ -14,6 +14,11 @@ type BuildConnectionContextFn = (
   scope?: ResolvedScope,
 ) => Record<PropertyKey, unknown>;
 
+interface ErrorHandlerDeps {
+  core: EngineCore;
+  buildConnectionContext: BuildConnectionContextFn;
+}
+
 /**
  * Pull a `ResolvedScope` out of the `__wskit` routing markers on a runtime
  * error so `onError` sees `ctx.namespace` / `ctx.channel` matching the throwing
@@ -50,13 +55,11 @@ export function resolveScopeFromRouting(
 
 /** Normalize a thrown error and send the `__error__` protocol frame. */
 export async function handleRuntimeError(
-  core: EngineCore,
-  buildConnectionContext: BuildConnectionContextFn,
+  deps: ErrorHandlerDeps,
   connection: RuntimeConnection,
-  error: unknown,
-  event?: string,
-  routing?: Protocol.WskitRouting,
+  opts: ErrorsPrimitive.SendRuntimeErrorOptions,
 ): Promise<void> {
+  const { core, buildConnectionContext } = deps;
   return ErrorsPrimitive.sendRuntimeError(
     {
       buildConnectionContext,
@@ -64,34 +67,28 @@ export async function handleRuntimeError(
       declaredErrorCodes: core.declaredErrorCodes,
       errorHooks: core.hooks.error,
       logger: core.logger,
-      sendProtocolMessage: (targetConnection, outgoingEvent, payload, wskit) => {
-        sendProtocolMessage(core, targetConnection, outgoingEvent, payload, wskit);
+      sendProtocolMessage: (targetConnection, msgOpts) => {
+        sendProtocolMessage(core, targetConnection, msgOpts);
       },
     },
     connection,
-    error,
-    event,
-    routing,
+    opts,
   );
 }
 
 /** Run validation-error hooks before the normal error path takes over. */
 export async function handleValidationError(
-  core: EngineCore,
-  buildConnectionContext: BuildConnectionContextFn,
+  deps: ErrorHandlerDeps,
   connection: RuntimeConnection,
-  event: string,
-  validationError: unknown,
-  scope?: ResolvedScope,
+  opts: ErrorsPrimitive.NotifyValidationErrorOptions,
 ): Promise<void> {
+  const { core, buildConnectionContext } = deps;
   return ErrorsPrimitive.notifyValidationError(
     {
       buildConnectionContext,
       validationErrorHooks: core.hooks.validationError,
     },
     connection,
-    event,
-    validationError,
-    scope,
+    opts,
   );
 }

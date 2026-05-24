@@ -152,13 +152,18 @@ export function assertReplayScopeServable(
  * frames carrying a `streamId` are stream chunks — neither belongs in a replay
  * store, so both are skipped.
  */
+export interface ShouldStoreReplayMessageOptions {
+  channelKey: string | undefined;
+  wskit: Record<string, unknown>;
+  exclude: ReadonlySet<string>;
+  claimedChannelKeys?: ReadonlySet<string>;
+}
+
 export function shouldStoreReplayMessage(
-  channelKey: string | undefined,
   event: string,
-  wskit: Record<string, unknown>,
-  exclude: ReadonlySet<string>,
-  claimedChannelKeys: ReadonlySet<string> = EMPTY_CLAIMED_CHANNEL_KEYS,
+  options: ShouldStoreReplayMessageOptions,
 ): boolean {
+  const { channelKey, wskit, exclude, claimedChannelKeys = EMPTY_CLAIMED_CHANNEL_KEYS } = options;
   if (exclude.has(event)) return false;
   if (typeof wskit.correlationId === 'string') return false;
   if (typeof wskit.streamId === 'string') return false;
@@ -179,13 +184,15 @@ export function shouldStoreReplayMessage(
  * `payload` column holds the pure user payload; sequence number, message id,
  * and scope come from the frame's `__wskit`.
  */
-export function buildReplayRow(
-  options: ReplayOptions,
-  event: string,
-  payload: Record<string, unknown>,
-  wskit: Record<string, unknown>,
-  now: number,
-): ReplayRow {
+export interface BuildReplayRowOptions {
+  options: ReplayOptions;
+  payload: Record<string, unknown>;
+  wskit: Record<string, unknown>;
+  now: number;
+}
+
+export function buildReplayRow(event: string, params: BuildReplayRowOptions): ReplayRow {
+  const { options, payload, wskit, now } = params;
   const seq = wskit.seq;
   const messageId = wskit.messageId;
 
@@ -198,7 +205,7 @@ export function buildReplayRow(
   const snapshotKey = type === 'snapshot' ? (options.snapshotKey?.(event, payload) ?? event) : null;
 
   return {
-    rowKey: buildReplayRowKey(type, scope, messageId, snapshotKey),
+    rowKey: buildReplayRowKey(type, scope, { messageId, snapshotKey }),
     messageId,
     seq,
     event,
@@ -285,6 +292,14 @@ export function toReplaySnapshotValue(row: ReplayRow): ReplaySnapshotValue {
   };
 }
 
+export interface PersistReplayMessageOptions {
+  options: ReplayOptions;
+  event: string;
+  payload: Record<string, unknown>;
+  wskit: Record<string, unknown>;
+  now: number;
+}
+
 /**
  * Persist one replayable outgoing frame.
  *
@@ -305,13 +320,10 @@ export function persistReplayMessage(
       }) => T,
     ): T;
   },
-  options: ReplayOptions,
-  event: string,
-  payload: Record<string, unknown>,
-  wskit: Record<string, unknown>,
-  now: number,
+  opts: PersistReplayMessageOptions,
 ): ReplayRow | null {
-  const row = buildReplayRow(options, event, payload, wskit, now);
+  const { options, event, payload, wskit, now } = opts;
+  const row = buildReplayRow(event, { options, payload, wskit, now });
 
   if ((options.type ?? 'history') === 'history') {
     storeReplayRow(sql, row);
@@ -344,9 +356,9 @@ export function persistReplayMessage(
 function buildReplayRowKey(
   type: ReplayType,
   scope: ReplayPayloadScope,
-  messageId: string,
-  snapshotKey: string | null,
+  ids: { messageId: string; snapshotKey: string | null },
 ): string {
+  const { messageId, snapshotKey } = ids;
   if (type === 'history') return messageId;
 
   return [

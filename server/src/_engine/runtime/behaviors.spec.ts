@@ -6,6 +6,7 @@ import { createChannelMembershipKey } from '~/channel/runtime.ts';
 import { Defer, Disconnect, RejectUpgrade } from '~/errors/errors.ts';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
+import type { SendRuntimeErrorOptions } from '~/errors/runtime.ts';
 
 function createConnection(id = 'conn_1'): RuntimeConnection {
   return {
@@ -254,7 +255,7 @@ describe('defer retry behavior', () => {
       },
     });
 
-    await dispatchIncoming(runtime, connection, 'work', {}, undefined);
+    await dispatchIncoming(runtime, connection, { event: 'work', payload: {}, wskit: undefined });
     expect(handler).toHaveBeenCalledTimes(1);
 
     await vi.advanceTimersByTimeAsync(10);
@@ -289,7 +290,11 @@ describe('defer retry behavior', () => {
       },
     });
 
-    await dispatchIncoming(runtime, connection, 'work', { id: 1 }, undefined);
+    await dispatchIncoming(runtime, connection, {
+      event: 'work',
+      payload: { id: 1 },
+      wskit: undefined,
+    });
     // Attempts: 1 (first), then retries 2, 3. After attempt 3 Defer triggers exhausted.
     for (let i = 0; i < 5; i++) {
       await vi.advanceTimersByTimeAsync(1);
@@ -322,7 +327,7 @@ describe('Disconnect thrown from handler', () => {
       connections: new Map([[connection.id, connection]]),
     });
 
-    await dispatchIncoming(runtime, connection, 'evict', {}, undefined);
+    await dispatchIncoming(runtime, connection, { event: 'evict', payload: {}, wskit: undefined });
 
     expect(connection.descriptor.close).toHaveBeenCalledWith(4403, 'banned');
   });
@@ -350,7 +355,7 @@ describe('Block at dispatch', () => {
       handleValidationError: validationError,
     });
 
-    await dispatchIncoming(runtime, connection, 'any', {}, undefined);
+    await dispatchIncoming(runtime, connection, { event: 'any', payload: {}, wskit: undefined });
 
     expect(handler).toHaveBeenCalledTimes(1);
     expect(runtimeError).not.toHaveBeenCalled();
@@ -458,7 +463,7 @@ describe('processTextMessage protocol branches', () => {
       async handleSubscribe() {
         throw new Error('beforeSubscribe rejected');
       },
-      async handleRuntimeError(_conn, error, event, routing) {
+      async handleRuntimeError(_conn, { error, event, routing }: SendRuntimeErrorOptions) {
         errors.push({ error, event, routing });
       },
     });
@@ -491,7 +496,7 @@ describe('processTextMessage protocol branches', () => {
       async handleUnsubscribe() {
         throw new WskitError('channel-not-subscribed', undefined);
       },
-      async handleRuntimeError(_conn, error, event, routing) {
+      async handleRuntimeError(_conn, { error, event, routing }: SendRuntimeErrorOptions) {
         errors.push({ error, event, routing });
       },
     });
@@ -617,9 +622,7 @@ describe('onAfterSend async rejection', () => {
         },
       },
       connection,
-      undefined,
-      'tick',
-      { n: 1 },
+      { routing: undefined, event: 'tick', payload: { n: 1 } },
     );
 
     expect(waitUntilTasks).toHaveLength(1);

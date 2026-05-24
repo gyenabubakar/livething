@@ -62,18 +62,26 @@ describe('outgoing/runtime sendThroughPipeline', () => {
     const runtime = createRuntime();
     const connection = createConnection();
 
-    expect(() => sendThroughPipeline(runtime, connection, undefined, 'foo', [] as unknown)).toThrow(
-      /plain object/,
-    );
+    expect(() =>
+      sendThroughPipeline(runtime, connection, {
+        routing: undefined,
+        event: 'foo',
+        payload: [] as unknown,
+      }),
+    ).toThrow(/plain object/);
   });
 
   it('throws when payload is a primitive number', () => {
     const runtime = createRuntime();
     const connection = createConnection();
 
-    expect(() => sendThroughPipeline(runtime, connection, undefined, 'foo', 42 as unknown)).toThrow(
-      /plain object/,
-    );
+    expect(() =>
+      sendThroughPipeline(runtime, connection, {
+        routing: undefined,
+        event: 'foo',
+        payload: 42 as unknown,
+      }),
+    ).toThrow(/plain object/);
   });
 
   it('throws when payload is a primitive string', () => {
@@ -81,7 +89,11 @@ describe('outgoing/runtime sendThroughPipeline', () => {
     const connection = createConnection();
 
     expect(() =>
-      sendThroughPipeline(runtime, connection, undefined, 'foo', 'string' as unknown),
+      sendThroughPipeline(runtime, connection, {
+        routing: undefined,
+        event: 'foo',
+        payload: 'string' as unknown,
+      }),
     ).toThrow(/plain object/);
   });
 
@@ -99,7 +111,11 @@ describe('outgoing/runtime sendThroughPipeline', () => {
     const connection = createConnection();
 
     expect(() =>
-      sendThroughPipeline(runtime, connection, undefined, 'foo', { a: 1 }),
+      sendThroughPipeline(runtime, connection, {
+        routing: undefined,
+        event: 'foo',
+        payload: { a: 1 },
+      }),
     ).not.toThrow();
   });
 
@@ -107,7 +123,11 @@ describe('outgoing/runtime sendThroughPipeline', () => {
     const runtime = createRuntime();
     const connection = createConnection();
 
-    const result = sendThroughPipeline(runtime, connection, undefined, 'foo', { a: 1 });
+    const result = sendThroughPipeline(runtime, connection, {
+      routing: undefined,
+      event: 'foo',
+      payload: { a: 1 },
+    });
 
     expect(result).toBe(true);
     expect(connection.descriptor.send).toHaveBeenCalledTimes(1);
@@ -121,9 +141,9 @@ describe('outgoing/runtime sendThroughPipeline', () => {
     const runtime = createRuntime();
     const connection = createConnection();
 
-    expect(() => sendThroughPipeline(runtime, connection, undefined, 'bar', {})).toThrow(
-      /Outgoing event "bar" was not declared in the active scope/,
-    );
+    expect(() =>
+      sendThroughPipeline(runtime, connection, { routing: undefined, event: 'bar', payload: {} }),
+    ).toThrow(/Outgoing event "bar" was not declared in the active scope/);
   });
 
   it('rejects single-underscore names that are not engine protocol events', () => {
@@ -135,10 +155,18 @@ describe('outgoing/runtime sendThroughPipeline', () => {
     const connection = createConnection();
 
     expect(() =>
-      sendThroughPipeline(runtime, connection, undefined, '_evilName', { x: 1 }),
+      sendThroughPipeline(runtime, connection, {
+        routing: undefined,
+        event: '_evilName',
+        payload: { x: 1 },
+      }),
     ).toThrow(/Outgoing event "_evilName" was not declared in the active scope/);
     expect(() =>
-      sendThroughPipeline(runtime, connection, undefined, '_anything', { x: 1 }),
+      sendThroughPipeline(runtime, connection, {
+        routing: undefined,
+        event: '_anything',
+        payload: { x: 1 },
+      }),
     ).toThrow(/Outgoing event "_anything" was not declared/);
   });
 
@@ -168,7 +196,11 @@ describe('outgoing/runtime sendThroughPipeline', () => {
     const connection = createConnection();
 
     expect(() =>
-      sendThroughPipeline(runtime, connection, { namespace: 'admin' }, 'ns-event', { a: 1 }),
+      sendThroughPipeline(runtime, connection, {
+        routing: { namespace: 'admin' },
+        event: 'ns-event',
+        payload: { a: 1 },
+      }),
     ).not.toThrow();
   });
 
@@ -198,15 +230,11 @@ describe('outgoing/runtime sendThroughPipeline', () => {
     const connection = createConnection();
 
     expect(() =>
-      sendThroughPipeline(
-        runtime,
-        connection,
-        { channel: 'room-1', channelScope: 'rooms' },
-        'room-event',
-        {
-          a: 1,
-        },
-      ),
+      sendThroughPipeline(runtime, connection, {
+        routing: { channel: 'room-1', channelScope: 'rooms' },
+        event: 'room-event',
+        payload: { a: 1 },
+      }),
     ).not.toThrow();
   });
 
@@ -237,7 +265,11 @@ describe('outgoing/runtime sendThroughPipeline', () => {
 
     // 'other-event' is not in the admin namespace's outgoing declarations.
     expect(() =>
-      sendThroughPipeline(runtime, connection, { namespace: 'admin' }, 'other-event', {}),
+      sendThroughPipeline(runtime, connection, {
+        routing: { namespace: 'admin' },
+        event: 'other-event',
+        payload: {},
+      }),
     ).toThrow(/Outgoing event "other-event" was not declared in the active scope/);
   });
 
@@ -267,7 +299,11 @@ describe('outgoing/runtime sendThroughPipeline', () => {
     const connection = createConnection();
 
     expect(() =>
-      sendThroughPipeline(runtime, connection, { channel: 'general' }, 'chat-msg', { a: 1 }),
+      sendThroughPipeline(runtime, connection, {
+        routing: { channel: 'general' },
+        event: 'chat-msg',
+        payload: { a: 1 },
+      }),
     ).not.toThrow();
   });
 });
@@ -315,7 +351,9 @@ describe('broadcastToConnections — fanout resilience', () => {
     });
     const c = peer('C', (frame) => delivered.push(`C:${frame}`));
 
-    expect(() => broadcastToConnections(runtime, [a, b, c], 'foo', { text: 'hi' })).not.toThrow();
+    expect(() =>
+      broadcastToConnections(runtime, [a, b, c], { event: 'foo', payload: { text: 'hi' } }),
+    ).not.toThrow();
 
     expect(delivered).toHaveLength(2);
     expect(delivered[0]).toContain('A:');
@@ -341,7 +379,10 @@ describe('broadcastToConnections — fanout resilience', () => {
     const b = peer('B', () => {});
 
     expect(() =>
-      broadcastToConnections(runtime, [a, b], 'foo', { count: 1n } as unknown as object),
+      broadcastToConnections(runtime, [a, b], {
+        event: 'foo',
+        payload: { count: 1n } as unknown as object,
+      }),
     ).not.toThrow();
 
     expect(errorLogs).toHaveLength(1);
@@ -353,7 +394,7 @@ describe('broadcastToConnections — fanout resilience', () => {
     const a = peer('A', (frame) => sent.push(frame));
     const b = peer('B', (frame) => sent.push(frame));
 
-    broadcastToConnections(runtime, [a, b], 'foo', { text: 'hi', n: 42 });
+    broadcastToConnections(runtime, [a, b], { event: 'foo', payload: { text: 'hi', n: 42 } });
 
     expect(sent).toHaveLength(2);
     for (const frame of sent) {
@@ -371,7 +412,7 @@ describe('broadcastToConnections — fanout resilience', () => {
     const a = peer('A', (frame) => sent.push(frame));
     const b = peer('B', (frame) => sent.push(frame));
 
-    broadcastToConnections(runtime, [a, b], 'foo', { text: 'hi' });
+    broadcastToConnections(runtime, [a, b], { event: 'foo', payload: { text: 'hi' } });
 
     expect(sent).toHaveLength(2);
     expect(sent[0]).toBe(sent[1]);
@@ -407,7 +448,7 @@ describe('broadcastToChannel — fanout resilience', () => {
       latency: null,
       quality: 'good',
     };
-    addChannelMembership(channelMembers, conn, 'general', null);
+    addChannelMembership(channelMembers, conn, { channelName: 'general', channelScope: null });
     return conn;
   }
 
@@ -452,7 +493,13 @@ describe('broadcastToChannel — fanout resilience', () => {
     };
 
     expect(() =>
-      broadcastToChannel(runtime as never, 'general', 'msg', { text: 'hi' }, undefined, null),
+      broadcastToChannel(runtime as never, {
+        channelName: 'general',
+        event: 'msg',
+        payload: { text: 'hi' },
+        excludeConnectionId: undefined,
+        channelScope: null,
+      }),
     ).not.toThrow();
 
     expect(errorLogs).toHaveLength(1);

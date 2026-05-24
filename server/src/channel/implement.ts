@@ -67,7 +67,11 @@ export class ChannelImplement<C extends Contract, ChC = any, TCheck = unknown> {
       payload: FieldOf<ChC, 'incoming'>[E],
     ) => void | Promise<void>,
   ): this {
-    setOnce(this._bag.incomingHandlers, event, handler as any, 'incoming', 'this channel');
+    setOnce(this._bag.incomingHandlers, event, {
+      value: handler as any,
+      kind: 'incoming',
+      where: 'this channel',
+    });
     return this;
   }
 
@@ -87,7 +91,11 @@ export class ChannelImplement<C extends Contract, ChC = any, TCheck = unknown> {
       | void
       | Promise<(FieldOf<ChC, 'requests'>[E] extends { response: infer R } ? R : void) | void>,
   ): this {
-    setOnce(this._bag.requestHandlers, event, handler as any, 'request', 'this channel');
+    setOnce(this._bag.requestHandlers, event, {
+      value: handler as any,
+      kind: 'request',
+      where: 'this channel',
+    });
     return this;
   }
 
@@ -105,7 +113,11 @@ export class ChannelImplement<C extends Contract, ChC = any, TCheck = unknown> {
       unknown
     >,
   ): this {
-    setOnce(this._bag.streamGenerators, event, generator as any, 'stream', 'this channel');
+    setOnce(this._bag.streamGenerators, event, {
+      value: generator as any,
+      kind: 'stream',
+      where: 'this channel',
+    });
     return this;
   }
 
@@ -114,13 +126,11 @@ export class ChannelImplement<C extends Contract, ChC = any, TCheck = unknown> {
     event: E,
     generator: (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>,
   ): this {
-    setOnce(
-      this._bag.resumableStreamGenerators,
-      event,
-      generator,
-      'resumableStream',
-      'this channel',
-    );
+    setOnce(this._bag.resumableStreamGenerators, event, {
+      value: generator,
+      kind: 'resumableStream',
+      where: 'this channel',
+    });
     return this;
   }
 
@@ -129,7 +139,11 @@ export class ChannelImplement<C extends Contract, ChC = any, TCheck = unknown> {
     event: E,
     generator: (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>,
   ): this {
-    setOnce(this._bag.recordedStreamGenerators, event, generator, 'recordedStream', 'this channel');
+    setOnce(this._bag.recordedStreamGenerators, event, {
+      value: generator,
+      kind: 'recordedStream',
+      where: 'this channel',
+    });
     return this;
   }
 
@@ -269,7 +283,11 @@ export class ChannelImplement<C extends Contract, ChC = any, TCheck = unknown> {
     ) &
       string,
   >(event: E, config: RateLimitConfig): this {
-    setOnce(this._bag.rateLimitOverrides, event, config, 'rateLimit override', 'this channel');
+    setOnce(this._bag.rateLimitOverrides, event, {
+      value: config,
+      kind: 'rateLimit override',
+      where: 'this channel',
+    });
     return this;
   }
 

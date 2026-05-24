@@ -41,25 +41,37 @@ export function ensureScheduledRuntime(core: EngineCore, createTaskContext: () =
   );
 }
 
+export interface ScheduleTaskOptions {
+  taskId: string;
+  time: number;
+  data: unknown;
+}
+
 /** Queue one future scheduled task run. */
 export function scheduleTask(
   core: EngineCore,
   createTaskContext: () => unknown,
-  taskId: string,
-  time: number,
-  data: unknown,
+  options: ScheduleTaskOptions,
 ): void {
-  Scheduled.scheduleTaskRun(buildAccess(core, createTaskContext), taskId, time, data);
+  Scheduled.scheduleTaskRun(buildAccess(core, createTaskContext), options);
+}
+
+export interface CancelScheduledOptions {
+  taskId: string;
+  filter?: Record<string, unknown>;
 }
 
 /** Remove every queued run for one scheduled task id. */
 export function cancelScheduled(
   core: EngineCore,
   createTaskContext: () => unknown,
-  taskId: string,
-  filter?: Record<string, unknown>,
+  options: CancelScheduledOptions,
 ): ScheduledPrimitiveTypes.ScheduledCancelResult {
-  return Scheduled.cancelScheduledRuns(buildAccess(core, createTaskContext), taskId, filter);
+  return Scheduled.cancelScheduledRuns(
+    buildAccess(core, createTaskContext),
+    options.taskId,
+    options.filter,
+  );
 }
 
 /**

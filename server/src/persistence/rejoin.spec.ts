@@ -5,6 +5,7 @@ import {
   listMembershipsByIdentity,
 } from '~/persistence/storage.ts';
 import { describe, expect, it, vi } from 'vitest';
+import type { SendProtocolMessageOptions } from '~/_engine/runtime/wire.ts';
 import type { SQLProvider, SqlResult } from '~/context.ts';
 
 function inMemorySql(): SQLProvider {
@@ -74,10 +75,12 @@ describe('autoRejoinIdentity', () => {
     const subscribe = vi.fn<
       (
         connection: never,
-        channelName: string,
-        channelScope: string | null,
-        payload: unknown,
-        rejoining: boolean,
+        opts: {
+          channelName: string;
+          channelScope: string | null;
+          payload: unknown;
+          rejoining: boolean;
+        },
       ) => Promise<void>
     >(async () => {});
     const sendProtocolMessage = vi.fn();
@@ -95,10 +98,12 @@ describe('autoRejoinIdentity', () => {
     const subscribe = vi.fn<
       (
         connection: never,
-        channelName: string,
-        channelScope: string | null,
-        payload: unknown,
-        rejoining: boolean,
+        opts: {
+          channelName: string;
+          channelScope: string | null;
+          payload: unknown;
+          rejoining: boolean;
+        },
       ) => Promise<void>
     >(async () => {});
 
@@ -117,15 +122,17 @@ describe('autoRejoinIdentity', () => {
   it('calls subscribeConnectionAsServer for every stored membership', async () => {
     const sql = inMemorySql();
     ensurePersistenceSchema(sql);
-    insertMembership(sql, 'u-42', 'lobby', null);
-    insertMembership(sql, 'u-42', 'room', 'room:abc');
+    insertMembership(sql, { identity: 'u-42', channelName: 'lobby', channelScope: null });
+    insertMembership(sql, { identity: 'u-42', channelName: 'room', channelScope: 'room:abc' });
     const subscribe = vi.fn<
       (
         connection: never,
-        channelName: string,
-        channelScope: string | null,
-        payload: unknown,
-        rejoining: boolean,
+        opts: {
+          channelName: string;
+          channelScope: string | null;
+          payload: unknown;
+          rejoining: boolean;
+        },
       ) => Promise<void>
     >(async () => {});
 
@@ -139,7 +146,10 @@ describe('autoRejoinIdentity', () => {
       fakeConnection('u-42'),
     );
     expect(subscribe).toHaveBeenCalledTimes(2);
-    const calls = subscribe.mock.calls.map((c) => ({ name: c[1], scope: c[2] }));
+    const calls = subscribe.mock.calls.map((c) => ({
+      name: c[1]?.channelName,
+      scope: c[1]?.channelScope,
+    }));
     expect(calls).toContainEqual({ name: 'lobby', scope: null });
     expect(calls).toContainEqual({ name: 'room', scope: 'room:abc' });
   });
@@ -147,7 +157,7 @@ describe('autoRejoinIdentity', () => {
   it('on subscribe rejection drops the durable row and sends scoped _error', async () => {
     const sql = inMemorySql();
     ensurePersistenceSchema(sql);
-    insertMembership(sql, 'u-42', 'team-eng', null);
+    insertMembership(sql, { identity: 'u-42', channelName: 'team-eng', channelScope: null });
 
     const subscribe = vi.fn(async () => {
       throw new Error('not on the eng team');
@@ -163,7 +173,8 @@ describe('autoRejoinIdentity', () => {
         sql,
         tagMembers: new Map(),
         subscribeConnectionAsServer: subscribe,
-        sendProtocolMessage: (_c, event, payload, wskit) => sent.push({ event, payload, wskit }),
+        sendProtocolMessage: (_c, { event, payload, wskit }: SendProtocolMessageOptions) =>
+          sent.push({ event, payload, wskit }),
       },
       fakeConnection('u-42'),
     );
@@ -179,9 +190,9 @@ describe('autoRejoinIdentity', () => {
   it('one rejection does not stop the rest of the rejoin', async () => {
     const sql = inMemorySql();
     ensurePersistenceSchema(sql);
-    insertMembership(sql, 'u-42', 'room-1', null);
-    insertMembership(sql, 'u-42', 'room-2', null);
-    insertMembership(sql, 'u-42', 'room-3', null);
+    insertMembership(sql, { identity: 'u-42', channelName: 'room-1', channelScope: null });
+    insertMembership(sql, { identity: 'u-42', channelName: 'room-2', channelScope: null });
+    insertMembership(sql, { identity: 'u-42', channelName: 'room-3', channelScope: null });
 
     let nth = 0;
     const subscribe = vi.fn(async () => {

@@ -48,13 +48,11 @@ describe('intercept/runtime', () => {
       b: 2,
     }));
 
-    const next = await runIntercepts(
-      {},
-      connection,
-      [first, second],
-      makeFrame('hello', {}),
+    const next = await runIntercepts({}, connection, {
+      intercepts: [first, second],
+      frame: makeFrame('hello', {}),
       getCtx,
-    );
+    });
 
     expect(next.event).toBe('hello');
     expect(next.payload).toEqual({ a: 1, b: 2 });
@@ -79,7 +77,11 @@ describe('intercept/runtime', () => {
       return undefined;
     });
 
-    await runIntercepts({}, connection, [a, b], makeFrame('e', {}), countingGetCtx);
+    await runIntercepts({}, connection, {
+      intercepts: [a, b],
+      frame: makeFrame('e', {}),
+      getCtx: countingGetCtx,
+    });
 
     expect(builds).toBe(1);
     expect(seen[0]).toBe(seen[1]);
@@ -89,9 +91,13 @@ describe('intercept/runtime', () => {
     const connection = createConnection();
     let builds = 0;
 
-    const next = await runIntercepts({}, connection, [], makeFrame('e', { keep: true }), () => {
-      builds += 1;
-      return {};
+    const next = await runIntercepts({}, connection, {
+      intercepts: [],
+      frame: makeFrame('e', { keep: true }),
+      getCtx: () => {
+        builds += 1;
+        return {};
+      },
     });
 
     expect(builds).toBe(0);
@@ -109,13 +115,11 @@ describe('intercept/runtime', () => {
       payload: { count: 7 },
     }));
 
-    const next = await runIntercepts(
-      {},
-      connection,
-      [aliasing],
-      makeFrame('alias', { ignored: true }),
+    const next = await runIntercepts({}, connection, {
+      intercepts: [aliasing],
+      frame: makeFrame('alias', { ignored: true }),
       getCtx,
-    );
+    });
 
     // Event stays locked at the wire-level 'alias'. The whole returned
     // object becomes frame.payload.
@@ -128,13 +132,11 @@ describe('intercept/runtime', () => {
 
     const passthrough = intercept(() => undefined);
 
-    const next = await runIntercepts(
-      {},
-      connection,
-      [passthrough],
-      makeFrame('foo', { keep: true }),
+    const next = await runIntercepts({}, connection, {
+      intercepts: [passthrough],
+      frame: makeFrame('foo', { keep: true }),
       getCtx,
-    );
+    });
 
     expect(next.payload).toEqual({ keep: true });
   });
@@ -146,13 +148,11 @@ describe('intercept/runtime', () => {
 
     const nuller = intercept(() => null);
 
-    const next = await runIntercepts(
-      {},
-      connection,
-      [nuller],
-      makeFrame('foo', { original: true }),
+    const next = await runIntercepts({}, connection, {
+      intercepts: [nuller],
+      frame: makeFrame('foo', { original: true }),
       getCtx,
-    );
+    });
 
     expect(next.payload).toBeNull();
   });
@@ -166,7 +166,11 @@ describe('intercept/runtime', () => {
     });
 
     await expect(
-      runIntercepts({}, connection, [blocker], makeFrame('test', {}), getCtx),
+      runIntercepts({}, connection, {
+        intercepts: [blocker],
+        frame: makeFrame('test', {}),
+        getCtx,
+      }),
     ).rejects.toBe(Block);
   });
 
@@ -189,7 +193,11 @@ describe('intercept/runtime', () => {
       kind: 'request',
       routing: { correlationId: 'abc-123' },
     };
-    const next = await runIntercepts({}, connection, [recorder, second], start, getCtx);
+    const next = await runIntercepts({}, connection, {
+      intercepts: [recorder, second],
+      frame: start,
+      getCtx,
+    });
 
     expect(seen[0]?.kind).toBe('request');
     expect(seen[0]?.routing.correlationId).toBe('abc-123');
@@ -206,9 +214,12 @@ describe('intercept/runtime', () => {
 
     let seen: string | undefined;
     await expect(
-      runWithScopedContext({ asyncContext }, connection, {}, async () => {
-        seen = asyncContext.getStore();
-        throw new Error('boom');
+      runWithScopedContext({ asyncContext }, connection, {
+        ctx: {},
+        handler: async () => {
+          seen = asyncContext.getStore();
+          throw new Error('boom');
+        },
       }),
     ).rejects.toThrow('boom');
 

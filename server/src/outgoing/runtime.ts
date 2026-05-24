@@ -24,10 +24,7 @@ export interface OutgoingRuntime {
     message: EngineRuntimeTypes.WireOutgoingMessage,
   ) => void | Promise<void>)[];
   waitUntil(promise: Promise<unknown>): void;
-  logger: {
-    warn(message: string, data?: unknown): void;
-    error(message: string, data?: unknown): void;
-  };
+  logger: Pick<PublicApi.Logger, 'warn' | 'error'>;
   generateId(prefix?: string): string;
 }
 
@@ -166,11 +163,10 @@ function applyWskitStampers(
 
 /** Fan out after-send hooks, forwarding async rejections through the engine's waitUntil + logger. */
 function invokeAfterSendHooks(
-  afterSendHooks: OutgoingRuntime['afterSendHooks'],
-  waitUntil: OutgoingRuntime['waitUntil'],
-  logger: OutgoingRuntime['logger'],
+  runtime: Pick<OutgoingRuntime, 'afterSendHooks' | 'waitUntil' | 'logger'>,
   wireMessage: EngineRuntimeTypes.WireOutgoingMessage,
 ): void {
+  const { afterSendHooks, waitUntil, logger } = runtime;
   for (const hook of afterSendHooks) {
     try {
       const result = hook(wireMessage);
@@ -194,13 +190,18 @@ function invokeAfterSendHooks(
  * Push one outgoing event through plugin hooks, declaration checks, and
  * `__wskit` metadata before sending it to a connection.
  */
+export interface SendThroughPipelineOptions {
+  routing: EngineRuntimeTypes.RoutingTarget | undefined;
+  event: string;
+  payload: unknown;
+}
+
 export function sendThroughPipeline(
   runtime: OutgoingRuntime,
   connection: EngineRuntimeTypes.RuntimeConnection,
-  routing: EngineRuntimeTypes.RoutingTarget | undefined,
-  event: string,
-  payload: unknown,
+  opts: SendThroughPipelineOptions,
 ): boolean {
+  const { routing, event, payload } = opts;
   assertPayloadRecord(payload);
 
   const message = runOutgoingHooks(runtime.outgoingHooks, runtime.pluginRuntimes, {
@@ -236,7 +237,7 @@ export function sendThroughPipeline(
     JSON.stringify({ event: message.event, payload: finalPayload, __wskit: wskit }),
   );
 
-  invokeAfterSendHooks(runtime.afterSendHooks, runtime.waitUntil, runtime.logger, wireMessage);
+  invokeAfterSendHooks(runtime, wireMessage);
 
   return true;
 }
@@ -276,12 +277,17 @@ type BroadcastRuntime = Pick<
  * and JSON serialization of the event name and payload. `sendPrepared` reuses
  * the result for every recipient instead of repeating this per peer.
  */
+interface PrepareBroadcastOptions {
+  routing: EngineRuntimeTypes.RoutingTarget | undefined;
+  event: string;
+  payload: unknown;
+}
+
 function prepareBroadcast(
   runtime: BroadcastRuntime,
-  routing: EngineRuntimeTypes.RoutingTarget | undefined,
-  event: string,
-  payload: unknown,
+  opts: PrepareBroadcastOptions,
 ): PreparedBroadcast {
+  const { routing, event, payload } = opts;
   assertPayloadRecord(payload);
 
   const message = runOutgoingHooks(runtime.outgoingHooks, runtime.pluginRuntimes, {
@@ -339,7 +345,7 @@ function sendPrepared(
   if (prepared.sharedFrame !== undefined) {
     connection.descriptor.send(prepared.sharedFrame);
     if (prepared.needsWireMessage) {
-      invokeAfterSendHooks(runtime.afterSendHooks, runtime.waitUntil, runtime.logger, {
+      invokeAfterSendHooks(runtime, {
         connectionId: connection.id,
         event: prepared.event,
         payload: prepared.finalPayload,
@@ -374,13 +380,24 @@ function sendPrepared(
   );
 
   if (wireMessage) {
-    invokeAfterSendHooks(runtime.afterSendHooks, runtime.waitUntil, runtime.logger, wireMessage);
+    invokeAfterSendHooks(runtime, wireMessage);
   }
 }
 
 /**
  * Broadcast one event to a set of already-selected connections.
  */
+export interface BroadcastToConnectionsOptions {
+  event: string;
+  payload: unknown;
+  options?: PublicApi.BroadcastOptions & {
+    namespace?: string;
+    channel?: string;
+    channelScope?: string | null;
+  };
+  excludeConnectionId?: string;
+}
+
 export function broadcastToConnections(
   runtime: Pick<
     OutgoingRuntime,
@@ -395,29 +412,22 @@ export function broadcastToConnections(
     | 'wskitStampHooks'
   >,
   connections: readonly EngineRuntimeTypes.RuntimeConnection[],
-  event: string,
-  payload: unknown,
-  options?: PublicApi.BroadcastOptions & {
-    namespace?: string;
-    channel?: string;
-    channelScope?: string | null;
-  },
-  excludeConnectionId?: string,
+  opts: BroadcastToConnectionsOptions,
 ): void {
+  const { event, payload, options, excludeConnectionId } = opts;
   if (connections.length === 0) return;
 
   let prepared: PreparedBroadcast;
   try {
-    prepared = prepareBroadcast(
-      runtime,
-      {
+    prepared = prepareBroadcast(runtime, {
+      routing: {
         namespace: options?.namespace,
         channel: options?.channel,
         channelScope: options?.channelScope,
       },
       event,
       payload,
-    );
+    });
   } catch (error) {
     // A payload or declaration error fails the same way for every peer — log once.
     runtime.logger?.error('[wskit] broadcast preparation failed; no peers received', {
@@ -450,6 +460,15 @@ export function broadcastToConnections(
 /**
  * Broadcast one event to every member currently in a channel.
  */
+export interface BroadcastToChannelOptions {
+  channelName: string;
+  event: string;
+  payload: unknown;
+  excludeConnectionId: string | undefined;
+  channelScope: string | null;
+  excludeSelf?: boolean;
+}
+
 export function broadcastToChannel(
   runtime: EngineRuntimeTypes.ConnectionMembersRuntime &
     Pick<
@@ -464,13 +483,9 @@ export function broadcastToChannel(
       | 'waitUntil'
       | 'wskitStampHooks'
     >,
-  channelName: string,
-  event: string,
-  payload: unknown,
-  excludeConnectionId: string | undefined,
-  channelScope: string | null,
-  excludeSelf?: boolean,
+  opts: BroadcastToChannelOptions,
 ): void {
+  const { channelName, event, payload, excludeConnectionId, channelScope, excludeSelf } = opts;
   const members = runtime.channelMembers.get(
     ChannelPrimitive.createChannelMembershipKey(channelName, channelScope),
   );
@@ -478,7 +493,11 @@ export function broadcastToChannel(
 
   let prepared: PreparedBroadcast;
   try {
-    prepared = prepareBroadcast(runtime, { channel: channelName, channelScope }, event, payload);
+    prepared = prepareBroadcast(runtime, {
+      routing: { channel: channelName, channelScope },
+      event,
+      payload,
+    });
   } catch (error) {
     // A payload or declaration error fails the same way for every member — log once.
     runtime.logger?.error('[wskit] channel broadcast preparation failed; no members received', {

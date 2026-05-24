@@ -5,6 +5,7 @@ import {
 } from '~/channel/runtime.ts';
 import { bench, describe } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
+import type { SendProtocolMessageOptions } from '~/_engine/runtime/wire.ts';
 import type { subscribeConnection as SubscribeConnection } from '~/channel/runtime.ts';
 
 type ChannelRuntimeArg = Parameters<typeof SubscribeConnection>[0];
@@ -50,7 +51,7 @@ function createRuntime(memberCount: number) {
   for (let i = 0; i < memberCount; i++) {
     const member = createConnection(`m${i}`);
     connections.set(member.id, member);
-    addChannelMembership(channelMembers, member, 'general', null);
+    addChannelMembership(channelMembers, member, { channelName: 'general', channelScope: null });
   }
 
   const runtime = {
@@ -75,9 +76,7 @@ function createRuntime(memberCount: number) {
     persistAttachment: () => {},
     sendProtocolMessage: (
       _connection: RuntimeConnection,
-      event: string,
-      payload: Record<string, unknown>,
-      wskit: Record<string, unknown>,
+      { event, payload, wskit }: SendProtocolMessageOptions,
     ) => {
       JSON.stringify({ event, payload, __wskit: wskit });
     },
@@ -103,8 +102,15 @@ for (const memberCount of [100, 500]) {
     bench('member-sync to the joining socket', async () => {
       const joiner = createConnection(`j${n++}`);
       connections.set(joiner.id, joiner);
-      await subscribeConnection(runtime, joiner, 'general', null, undefined);
-      removeChannelMembership(channelMembers, joiner, 'general', null);
+      await subscribeConnection(runtime, joiner, {
+        channelName: 'general',
+        channelScope: null,
+        data: undefined,
+      });
+      removeChannelMembership(channelMembers, joiner, {
+        channelName: 'general',
+        channelScope: null,
+      });
       connections.delete(joiner.id);
     });
   });

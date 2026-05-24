@@ -1,6 +1,16 @@
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
+import type { SendProtocolMessageOptions, SendReplayOptions } from '~/_engine/runtime/wire.ts';
+import type {
+  KickChannelMembersOptions,
+  SubscribeConnectionAsServerOptions,
+} from '~/channel/runtime.ts';
 import type * as PublicApi from '~/context.ts';
+import type {
+  BroadcastToChannelOptions,
+  BroadcastToConnectionsOptions,
+  SendThroughPipelineOptions,
+} from '~/outgoing/runtime.ts';
 import type { ScheduledCancelResult } from '~/scheduled/types.ts';
 
 /**
@@ -51,60 +61,46 @@ export const ENGINE_ACK_ID = Symbol('wskit-engine-ack-id');
  */
 export interface ContextCommonDeps {
   env: Record<string, unknown>;
+
   logger: PublicApi.Logger;
+
   platform: unknown;
+
   waitUntilImpl: (promise: Promise<unknown>) => void;
+
   /**
    * The engine's instance id, or `undefined` when running single-instance.
    * Read when building `ConnectionRef`s on `ConnectionInfo` or `ctx.self`.
    */
   instanceId: string | undefined;
+
   requireStorage(): PublicApi.StorageProvider;
+
   requireTimers(): PublicApi.TimerProvider;
+
   scheduleTask(taskId: string, time: number, data: unknown): void;
+
   cancelScheduled(taskId: string, filter?: Record<string, unknown>): ScheduledCancelResult;
+
   broadcastToConnections(
     connections: readonly EngineRuntimeTypes.RuntimeConnection[],
-    event: string,
-    payload: unknown,
-    options?: PublicApi.BroadcastOptions & { namespace?: string; channelScope?: string | null },
-    excludeConnectionId?: string,
+    opts: BroadcastToConnectionsOptions,
   ): void;
+
   sendThroughPipeline(
     connection: EngineRuntimeTypes.RuntimeConnection,
-    routing:
-      | {
-          namespace?: string;
-          channel?: string;
-          channelScope?: string | null;
-          correlationId?: string;
-          streamId?: string;
-        }
-      | undefined,
-    event: string,
-    payload: unknown,
+    opts: SendThroughPipelineOptions,
   ): boolean;
-  broadcastToChannel(
-    channelName: string,
-    event: string,
-    payload: unknown,
-    excludeConnectionId: string | undefined,
-    channelScope: string | null,
-    excludeSelf?: boolean,
-  ): void;
+
+  broadcastToChannel(opts: BroadcastToChannelOptions): void;
+
   getChannelMembers(
     channelName: string,
     channelScope: string | null,
   ): ConnectionInfo<Record<string, unknown>>[];
-  kickChannelMembers(
-    channelName: string,
-    target:
-      | PublicApi.ConnectionRef
-      | PublicApi.TagRef
-      | { __wskit: 'group-handle'; kind: 'ephemeral' | 'persistent'; group: string },
-    reason: string,
-    channelScope: string | null,
-  ): Promise<void>;
+
+  kickChannelMembers(opts: KickChannelMembersOptions): Promise<void>;
+
   /**
    * Remove every live connection of the given identity from one channel
    * scope AND drop the durable membership row. True-leave semantics —
@@ -115,52 +111,48 @@ export interface ContextCommonDeps {
     channelScope: string | null,
     identity: string,
   ): Promise<void>;
+
   /**
    * Server-initiated channel subscribe. Invoked from `channelHandle.subscribe(ref)`.
    * Resolves to a no-op when the target connection is already a member.
    */
   subscribeConnectionAsServer(
     ref: PublicApi.ConnectionRef,
-    channelName: string,
-    channelScope: string | null,
-    payload: unknown,
+    opts: Omit<SubscribeConnectionAsServerOptions, 'rejoining'>,
   ): Promise<void>;
+
   resolveChannel(
     target: string | { family: string; name: string },
   ): { channelName: string; channelScope: string | null } | undefined;
-  sendReplay(
-    connection: EngineRuntimeTypes.RuntimeConnection,
-    channelName: string | null,
-    channelScope: string | null,
-    event: string,
-    payload: unknown,
-    wire: { seq: number; messageId: string; channel?: string },
-  ): void;
-  sendProtocolMessage(
-    connection: RuntimeConnection,
-    event: string,
-    payload: Record<string, unknown>,
-    wskit: Record<string, unknown>,
-  ): void;
+
+  sendReplay(connection: EngineRuntimeTypes.RuntimeConnection, opts: SendReplayOptions): void;
+
+  sendProtocolMessage(connection: RuntimeConnection, opts: SendProtocolMessageOptions): void;
+
   persistAttachment(connection: RuntimeConnection): void;
+
   toConnectionInfo(
     connection: EngineRuntimeTypes.RuntimeConnection,
   ): PublicApi.ConnectionInfo<Record<string, unknown>>;
+
   attachPluginApis(
     ctx: Record<PropertyKey, unknown>,
     connection?: EngineRuntimeTypes.RuntimeConnection,
   ): void;
+
   contextExtenders?: readonly ((ctx: unknown) => Record<string, unknown>)[];
   /**
    * Whether at least one tag group was declared via the contract's `tagGroups`
    * config. When `false`, `ctx.tags` is omitted from every connection context.
    */
   usesTags: boolean;
+
   /**
    * Whether the contract enabled persistence via `persistence: true`.
    * Persistent tag writes are no-ops when this is `false`.
    */
   persistenceEnabled: boolean;
+
   /**
    * Check whether a given `(kind, group)` is declared on this engine. The tag
    * runtime throws when a handler accesses an undeclared group.

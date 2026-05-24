@@ -50,7 +50,11 @@ export class NamespaceImplement<C extends Contract, NsC = any> {
       payload: FieldOf<NsC, 'incoming'>[E],
     ) => void | Promise<void>,
   ): this {
-    setOnce(this._bag.incomingHandlers, event, handler as any, 'incoming', 'this namespace');
+    setOnce(this._bag.incomingHandlers, event, {
+      value: handler as any,
+      kind: 'incoming',
+      where: 'this namespace',
+    });
     return this;
   }
 
@@ -70,7 +74,11 @@ export class NamespaceImplement<C extends Contract, NsC = any> {
       | void
       | Promise<(FieldOf<NsC, 'requests'>[E] extends { response: infer R } ? R : void) | void>,
   ): this {
-    setOnce(this._bag.requestHandlers, event, handler as any, 'request', 'this namespace');
+    setOnce(this._bag.requestHandlers, event, {
+      value: handler as any,
+      kind: 'request',
+      where: 'this namespace',
+    });
     return this;
   }
 
@@ -79,7 +87,11 @@ export class NamespaceImplement<C extends Contract, NsC = any> {
     event: E,
     generator: (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>,
   ): this {
-    setOnce(this._bag.streamGenerators, event, generator as any, 'stream', 'this namespace');
+    setOnce(this._bag.streamGenerators, event, {
+      value: generator as any,
+      kind: 'stream',
+      where: 'this namespace',
+    });
     return this;
   }
 
@@ -88,13 +100,11 @@ export class NamespaceImplement<C extends Contract, NsC = any> {
     event: E,
     generator: (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>,
   ): this {
-    setOnce(
-      this._bag.resumableStreamGenerators,
-      event,
-      generator,
-      'resumableStream',
-      'this namespace',
-    );
+    setOnce(this._bag.resumableStreamGenerators, event, {
+      value: generator,
+      kind: 'resumableStream',
+      where: 'this namespace',
+    });
     return this;
   }
 
@@ -103,13 +113,11 @@ export class NamespaceImplement<C extends Contract, NsC = any> {
     event: E,
     generator: (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>,
   ): this {
-    setOnce(
-      this._bag.recordedStreamGenerators,
-      event,
-      generator,
-      'recordedStream',
-      'this namespace',
-    );
+    setOnce(this._bag.recordedStreamGenerators, event, {
+      value: generator,
+      kind: 'recordedStream',
+      where: 'this namespace',
+    });
     return this;
   }
 
@@ -144,7 +152,11 @@ export class NamespaceImplement<C extends Contract, NsC = any> {
     ) &
       string,
   >(event: E, config: RateLimitConfig): this {
-    setOnce(this._bag.rateLimitOverrides, event, config, 'rateLimit override', 'this namespace');
+    setOnce(this._bag.rateLimitOverrides, event, {
+      value: config,
+      kind: 'rateLimit override',
+      where: 'this namespace',
+    });
     return this;
   }
 }

@@ -64,16 +64,17 @@ export async function installRig(page: Page) {
   });
 }
 
-export async function connect(
-  page: Page,
-  path: string,
-  username: string,
-  room: string,
-): Promise<string> {
+export interface ConnectOptions {
+  path: string;
+  username: string;
+  room: string;
+}
+
+export async function connect(page: Page, opts: ConnectOptions): Promise<string> {
   return page.evaluate(([p, u, r]) => window.__wskitConnect!(p, u, r).then((res) => res.id), [
-    path,
-    username,
-    room,
+    opts.path,
+    opts.username,
+    opts.room,
   ] as const);
 }
 
@@ -96,12 +97,17 @@ export async function frames(page: Page, id: string): Promise<WireFrame[]> {
   return page.evaluate((sid) => window.__wskitFrames!(sid), id);
 }
 
+export interface WaitForFrameOptions {
+  match: (f: WireFrame) => boolean;
+  timeoutMs?: number;
+}
+
 export async function waitForFrame(
   page: Page,
   id: string,
-  match: (f: WireFrame) => boolean,
-  timeoutMs = 5000,
+  opts: WaitForFrameOptions,
 ): Promise<WireFrame> {
+  const { match, timeoutMs = 5000 } = opts;
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     const all = await frames(page, id);

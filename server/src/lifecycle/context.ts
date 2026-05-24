@@ -44,7 +44,7 @@ export function createShutdownContext(
       }
     },
     broadcast: (event, payload) => {
-      deps.broadcastToConnections([...deps.connections.values()], event, payload, undefined);
+      deps.broadcastToConnections([...deps.connections.values()], { event, payload });
     },
     sql,
     kv,

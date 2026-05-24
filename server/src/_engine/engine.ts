@@ -147,12 +147,11 @@ export class Engine {
           connectionId,
         ),
       handleConnectionClose: (connection) =>
-        EngineDeps.handleConnectionClose(
-          core,
+        EngineDeps.handleConnectionClose(core, {
           connection,
-          CloseCodes.GOING_AWAY,
-          'Server shutting down',
-        ),
+          code: CloseCodes.GOING_AWAY,
+          reason: 'Server shutting down',
+        }),
       alarmState: {
         get current() {
           return core.alarmHandle;

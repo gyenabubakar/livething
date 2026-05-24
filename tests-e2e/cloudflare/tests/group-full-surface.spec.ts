@@ -20,8 +20,10 @@ test.describe('group full surface', () => {
 
   test('group.on routes incoming and onConnect sent welcome', async ({ page }, testInfo) => {
     const room = `gfs-on-${testInfo.testId}`;
-    const a = await connect(page, WS_PATH, 'alice', room);
-    await waitForFrame(page, a, (f) => f.event === 'welcome' && f.payload.username === 'alice');
+    const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
+    await waitForFrame(page, a, {
+      match: (f) => f.event === 'welcome' && f.payload.username === 'alice',
+    });
 
     await send(page, a, { event: 'chat', payload: { text: 'hi' } });
     await page.waitForFunction(
@@ -35,34 +37,30 @@ test.describe('group full surface', () => {
 
   test('group.request returns a value via correlation id', async ({ page }, testInfo) => {
     const room = `gfs-req-${testInfo.testId}`;
-    const a = await connect(page, WS_PATH, 'alice', room);
-    await waitForFrame(page, a, (f) => f.event === 'welcome');
+    const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
+    await waitForFrame(page, a, { match: (f) => f.event === 'welcome' });
 
     await send(page, a, {
       event: 'lookup',
       payload: { id: 'abc' },
       __wskit: { correlationId: 'c1' },
     });
-    const res = await waitForFrame(
-      page,
-      a,
-      (f) => f.event === 'lookup' && f.__wskit?.correlationId === 'c1',
-    );
+    const res = await waitForFrame(page, a, {
+      match: (f) => f.event === 'lookup' && f.__wskit?.correlationId === 'c1',
+    });
     expect(res.payload.found).toBe(true);
     expect(res.payload.hit).toBe('abc');
   });
 
   test('group.stream yields chunks', async ({ page }, testInfo) => {
     const room = `gfs-stream-${testInfo.testId}`;
-    const a = await connect(page, WS_PATH, 'alice', room);
-    await waitForFrame(page, a, (f) => f.event === 'welcome');
+    const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
+    await waitForFrame(page, a, { match: (f) => f.event === 'welcome' });
 
     await send(page, a, { event: 'feed', payload: {}, __wskit: { streamId: 'feed-1' } });
-    await waitForFrame(
-      page,
-      a,
-      (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === 'feed-1',
-    );
+    await waitForFrame(page, a, {
+      match: (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === 'feed-1',
+    });
     const chunks = (await frames(page, a))
       .filter((f) => f.event === 'feed' && typeof f.payload.idx === 'number')
       .map((f) => f.payload.idx as number);
@@ -71,26 +69,22 @@ test.describe('group full surface', () => {
 
   test('group.resumableStream and group.recordedStream both work', async ({ page }, testInfo) => {
     const room = `gfs-streams-${testInfo.testId}`;
-    const a = await connect(page, WS_PATH, 'alice', room);
-    await waitForFrame(page, a, (f) => f.event === 'welcome');
+    const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
+    await waitForFrame(page, a, { match: (f) => f.event === 'welcome' });
 
     await send(page, a, { event: 'paginate', payload: {}, __wskit: { streamId: 'p-1' } });
-    await waitForFrame(
-      page,
-      a,
-      (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === 'p-1',
-    );
+    await waitForFrame(page, a, {
+      match: (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === 'p-1',
+    });
     const rows = (await frames(page, a))
       .filter((f) => f.event === 'paginate' && typeof f.payload.row === 'number')
       .map((f) => f.payload.row as number);
     expect(rows).toEqual([1, 2, 3, 4, 5]);
 
     await send(page, a, { event: 'tokens', payload: {}, __wskit: { streamId: 't-1' } });
-    await waitForFrame(
-      page,
-      a,
-      (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === 't-1',
-    );
+    await waitForFrame(page, a, {
+      match: (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === 't-1',
+    });
     const toks = (await frames(page, a))
       .filter((f) => f.event === 'tokens' && typeof f.payload.token === 'string')
       .map((f) => f.payload.token as string);
@@ -99,8 +93,8 @@ test.describe('group full surface', () => {
 
   test('group.scheduled fires and records into SQL', async ({ page }, testInfo) => {
     const room = `gfs-sched-${testInfo.testId}`;
-    const a = await connect(page, WS_PATH, 'alice', room);
-    await waitForFrame(page, a, (f) => f.event === 'welcome');
+    const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
+    await waitForFrame(page, a, { match: (f) => f.event === 'welcome' });
 
     await send(page, a, { event: 'start-tick', payload: {} });
 
@@ -122,44 +116,40 @@ test.describe('group full surface', () => {
     page,
   }, testInfo) => {
     const room = `gfs-ch-${testInfo.testId}`;
-    const a = await connect(page, WS_PATH, 'alice', room);
-    await waitForFrame(page, a, (f) => f.event === 'welcome');
+    const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
+    await waitForFrame(page, a, { match: (f) => f.event === 'welcome' });
     await send(page, a, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
-    await waitForFrame(page, a, (f) => f.event === '__subscribeOk__');
+    await waitForFrame(page, a, { match: (f) => f.event === '__subscribeOk__' });
 
     await send(page, a, {
       event: 'send-msg',
       payload: { text: 'hello room' },
       __wskit: { channel: 'rooms' },
     });
-    const msg = await waitForFrame(
-      page,
-      a,
-      (f) => f.event === 'room-msg' && f.payload.text === 'hello room',
-    );
+    const msg = await waitForFrame(page, a, {
+      match: (f) => f.event === 'room-msg' && f.payload.text === 'hello room',
+    });
     expect(msg.payload.from).toBe('alice');
   });
 
   test('group.namespace v1-ping returns v1-pong', async ({ page }, testInfo) => {
     const room = `gfs-ns-${testInfo.testId}`;
-    const a = await connect(page, WS_PATH, 'alice', room);
-    await waitForFrame(page, a, (f) => f.event === 'welcome');
+    const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
+    await waitForFrame(page, a, { match: (f) => f.event === 'welcome' });
 
     await send(page, a, { event: 'v1-ping', payload: {}, __wskit: { namespace: 'v1' } });
-    await waitForFrame(page, a, (f) => f.event === 'v1-pong');
+    await waitForFrame(page, a, { match: (f) => f.event === 'v1-pong' });
   });
 
   test('group.intercept (pre) fires for every message', async ({ page }, testInfo) => {
     const room = `gfs-ipre-${testInfo.testId}`;
-    const a = await connect(page, WS_PATH, 'alice', room);
-    await waitForFrame(page, a, (f) => f.event === 'welcome');
+    const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
+    await waitForFrame(page, a, { match: (f) => f.event === 'welcome' });
 
     await send(page, a, { event: 'chat', payload: { text: 'pre-check' } });
-    const marker = await waitForFrame(
-      page,
-      a,
-      (f) => f.event === 'pre-intercept-marker' && f.payload.event === 'chat',
-    );
+    const marker = await waitForFrame(page, a, {
+      match: (f) => f.event === 'pre-intercept-marker' && f.payload.event === 'chat',
+    });
     expect(marker.payload.event).toBe('chat');
   });
 
@@ -167,15 +157,13 @@ test.describe('group full surface', () => {
     page,
   }, testInfo) => {
     const room = `gfs-ipost-${testInfo.testId}`;
-    const a = await connect(page, WS_PATH, 'alice', room);
-    await waitForFrame(page, a, (f) => f.event === 'welcome');
+    const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
+    await waitForFrame(page, a, { match: (f) => f.event === 'welcome' });
 
     await send(page, a, { event: 'chat', payload: { text: 'post-check' } });
-    const marker = await waitForFrame(
-      page,
-      a,
-      (f) => f.event === 'post-intercept-marker' && f.payload.text === 'post-check',
-    );
+    const marker = await waitForFrame(page, a, {
+      match: (f) => f.event === 'post-intercept-marker' && f.payload.text === 'post-check',
+    });
     expect(marker.payload.text).toBe('post-check');
   });
 
@@ -183,36 +171,32 @@ test.describe('group full surface', () => {
     page,
   }, testInfo) => {
     const room = `gfs-rl-${testInfo.testId}`;
-    const a = await connect(page, WS_PATH, 'alice', room);
-    await waitForFrame(page, a, (f) => f.event === 'welcome');
+    const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
+    await waitForFrame(page, a, { match: (f) => f.event === 'welcome' });
 
     await send(page, a, { event: 'chat', payload: { text: 'one' } });
     await send(page, a, { event: 'chat', payload: { text: 'two' } });
-    const err = await waitForFrame(page, a, (f) => f.event === '__error__');
+    const err = await waitForFrame(page, a, { match: (f) => f.event === '__error__' });
     expect(err.payload.code).toBe('rate-limited');
   });
 
   test('group.customReplay round-trips a stored marker', async ({ page }, testInfo) => {
     const room = `gfs-replay-${testInfo.testId}`;
-    const a = await connect(page, WS_PATH, 'alice', room);
-    await waitForFrame(page, a, (f) => f.event === 'welcome');
+    const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
+    await waitForFrame(page, a, { match: (f) => f.event === 'welcome' });
 
     await send(page, a, { event: 'emit-replay-marker', payload: { note: 'stored-1' } });
-    await waitForFrame(
-      page,
-      a,
-      (f) => f.event === 'replay-marker' && f.payload.note === 'stored-1',
-    );
+    await waitForFrame(page, a, {
+      match: (f) => f.event === 'replay-marker' && f.payload.note === 'stored-1',
+    });
 
-    const b = await connect(page, WS_PATH, 'bob', room);
-    await waitForFrame(page, b, (f) => f.event === 'welcome');
+    const b = await connect(page, { path: WS_PATH, username: 'bob', room: room });
+    await waitForFrame(page, b, { match: (f) => f.event === 'welcome' });
     await send(page, b, { event: '__replay__', payload: { lastKnownSeq: 0 }, __wskit: {} });
 
-    await waitForFrame(
-      page,
-      b,
-      (f) => f.event === 'replay-marker' && f.payload.note === 'stored-1',
-    );
+    await waitForFrame(page, b, {
+      match: (f) => f.event === 'replay-marker' && f.payload.note === 'stored-1',
+    });
   });
 
   test('group.onConnect sends welcome and group.onDisconnect writes to SQL', async ({
@@ -220,38 +204,40 @@ test.describe('group full surface', () => {
   }, testInfo) => {
     const room = `gfs-life-${testInfo.testId}`;
 
-    const a = await connect(page, WS_PATH, 'alice', room);
-    await waitForFrame(page, a, (f) => f.event === 'welcome' && f.payload.username === 'alice');
+    const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
+    await waitForFrame(page, a, {
+      match: (f) => f.event === 'welcome' && f.payload.username === 'alice',
+    });
     await closeSocket(page, a);
     await page.waitForTimeout(300);
 
-    const b = await connect(page, WS_PATH, 'alice', room);
-    await waitForFrame(page, b, (f) => f.event === 'welcome');
+    const b = await connect(page, { path: WS_PATH, username: 'alice', room: room });
+    await waitForFrame(page, b, { match: (f) => f.event === 'welcome' });
     await send(page, b, {
       event: 'check-disconnect-log',
       payload: { identity: 'alice' },
     });
-    const goodbye = await waitForFrame(page, b, (f) => f.event === 'goodbye');
+    const goodbye = await waitForFrame(page, b, { match: (f) => f.event === 'goodbye' });
     expect(goodbye.payload.username).toMatch(/^seen:[1-9]\d*$/);
   });
 
   test('group.onInit ran at boot — check-init replies with ran=1', async ({ page }, testInfo) => {
     const room = `gfs-init-${testInfo.testId}`;
-    const a = await connect(page, WS_PATH, 'alice', room);
-    await waitForFrame(page, a, (f) => f.event === 'welcome');
+    const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
+    await waitForFrame(page, a, { match: (f) => f.event === 'welcome' });
 
     await send(page, a, { event: 'check-init', payload: {} });
-    const marker = await waitForFrame(page, a, (f) => f.event === 'init-marker');
+    const marker = await waitForFrame(page, a, { match: (f) => f.event === 'init-marker' });
     expect(marker.payload.ran).toBe(1);
   });
 
   test('group.onError, onValidationError, onBinary all fire', async ({ page }, testInfo) => {
     const room = `gfs-err-${testInfo.testId}`;
-    const a = await connect(page, WS_PATH, 'alice', room);
-    await waitForFrame(page, a, (f) => f.event === 'welcome');
+    const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
+    await waitForFrame(page, a, { match: (f) => f.event === 'welcome' });
 
     await send(page, a, { event: 'bang', payload: {} });
-    const errMarker = await waitForFrame(page, a, (f) => f.event === 'error-marker');
+    const errMarker = await waitForFrame(page, a, { match: (f) => f.event === 'error-marker' });
     expect(errMarker.payload.event).toBe('bang');
     expect(String(errMarker.payload.msg)).toContain('bang!');
 
@@ -259,15 +245,13 @@ test.describe('group full surface', () => {
       event: 'bad-payload',
       payload: { wrong: true } as unknown as Record<string, unknown>,
     });
-    const valMarker = await waitForFrame(
-      page,
-      a,
-      (f) => f.event === 'validation-marker' && f.payload.event === 'bad-payload',
-    );
+    const valMarker = await waitForFrame(page, a, {
+      match: (f) => f.event === 'validation-marker' && f.payload.event === 'bad-payload',
+    });
     expect(valMarker.payload.event).toBe('bad-payload');
 
     await sendBinary(page, a, [1, 2, 3, 4, 5, 6, 7, 8]);
-    const binMarker = await waitForFrame(page, a, (f) => f.event === 'binary-marker');
+    const binMarker = await waitForFrame(page, a, { match: (f) => f.event === 'binary-marker' });
     expect(binMarker.payload.size).toBe(8);
   });
 });

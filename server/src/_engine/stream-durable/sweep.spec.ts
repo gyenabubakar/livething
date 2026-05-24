@@ -123,7 +123,7 @@ describe('sweepDurableStreams', () => {
       now: Date.now(),
       maxAgeMs: 60_000,
     });
-    Storage.markSuspended(sql, 'u', 's1', Date.now());
+    Storage.markSuspended(sql, { identity: 'u', streamId: 's1', now: Date.now() });
     const deleted = sweepDurableStreams({ sql });
     expect(deleted).toBe(0);
     expect(sql.streams.size).toBe(1);
@@ -143,7 +143,7 @@ describe('sweepDurableStreams', () => {
       now: longAgo,
       maxAgeMs: 1,
     });
-    Storage.markSuspended(sql, 'u', 's1', longAgo);
+    Storage.markSuspended(sql, { identity: 'u', streamId: 's1', now: longAgo });
     const deleted = sweepDurableStreams({ sql });
     expect(deleted).toBe(1);
     expect(sql.streams.size).toBe(0);
@@ -162,7 +162,7 @@ describe('sweepDurableStreams', () => {
       now: longAgo,
       retentionAfterEndMs: 1,
     });
-    Storage.markEnded(sql, 'u', 's2', longAgo);
+    Storage.markEnded(sql, { identity: 'u', streamId: 's2', now: longAgo });
     const deleted = sweepDurableStreams({ sql });
     expect(deleted).toBe(1);
     expect(sql.streams.size).toBe(0);
@@ -182,7 +182,7 @@ describe('sweepDurableStreams', () => {
       now: longAgo,
       maxAgeMs: 1,
     });
-    Storage.markSuspended(sql, 'u', 'expired-suspended', longAgo);
+    Storage.markSuspended(sql, { identity: 'u', streamId: 'expired-suspended', now: longAgo });
 
     Storage.insertStream(sql, {
       identity: 'u',
@@ -193,7 +193,7 @@ describe('sweepDurableStreams', () => {
       now: longAgo,
       retentionAfterEndMs: 1,
     });
-    Storage.markEnded(sql, 'u', 'expired-ended', longAgo);
+    Storage.markEnded(sql, { identity: 'u', streamId: 'expired-ended', now: longAgo });
 
     Storage.insertStream(sql, {
       identity: 'u',
@@ -204,7 +204,7 @@ describe('sweepDurableStreams', () => {
       now: Date.now(),
       maxAgeMs: 60_000,
     });
-    Storage.markSuspended(sql, 'u', 'fresh', Date.now());
+    Storage.markSuspended(sql, { identity: 'u', streamId: 'fresh', now: Date.now() });
 
     const deleted = sweepDurableStreams({ sql });
     expect(deleted).toBe(2);

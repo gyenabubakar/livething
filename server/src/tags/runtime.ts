@@ -75,6 +75,12 @@ function removeFromTagIndex(
   if (members.size === 0) tagMembers.delete(indexKey);
 }
 
+export interface TagKey {
+  kind: TagKind;
+  group: string;
+  key: string;
+}
+
 /**
  * Tag a connection and update the member index. Returns `false` when the
  * connection already held the tag.
@@ -82,10 +88,9 @@ function removeFromTagIndex(
 export function addConnectionTag(
   tagMembers: Map<string, Set<RuntimeConnection>>,
   connection: RuntimeConnection,
-  kind: TagKind,
-  group: string,
-  key: string,
+  tag: TagKey,
 ): boolean {
+  const { kind, group, key } = tag;
   const set = getOrCreateSet(connection.tags[kind], group);
   if (set.has(key)) return false;
   set.add(key);
@@ -101,10 +106,9 @@ export function addConnectionTag(
 export function removeConnectionTag(
   tagMembers: Map<string, Set<RuntimeConnection>>,
   connection: RuntimeConnection,
-  kind: TagKind,
-  group: string,
-  key: string,
+  tag: TagKey,
 ): boolean {
+  const { kind, group, key } = tag;
   const bag = connection.tags[kind];
   const set = bag.get(group);
   if (!set || !set.delete(key)) return false;
@@ -137,10 +141,9 @@ function makeRef(kind: TagKind, group: string, key: string): TagRef {
 
 function makeRefHandle(
   runtime: Pick<TagsRuntime, 'tagMembers' | 'toConnectionInfo' | 'sendThroughPipeline'>,
-  kind: TagKind,
-  group: string,
-  key: string,
+  tag: TagKey,
 ): TagRefHandle {
+  const { kind, group, key } = tag;
   return {
     __wskit: 'tag-ref',
     kind,
@@ -175,6 +178,11 @@ function listConnectionTags(connection: RuntimeConnection): TagRef[] {
   return refs;
 }
 
+export interface TagGroupRef {
+  kind: TagKind;
+  group: string;
+}
+
 /**
  * Build the group-handle surface for one `(kind, group)`. Validates the
  * group is declared; throws if not.
@@ -182,9 +190,9 @@ function listConnectionTags(connection: RuntimeConnection): TagRef[] {
 export function buildGroupHandle(
   runtime: TagsRuntime,
   connection: RuntimeConnection,
-  kind: TagKind,
-  group: string,
+  groupRef: TagGroupRef,
 ): GroupHandle {
+  const { kind, group } = groupRef;
   assertGroupDeclared(runtime, kind, group);
 
   return {
@@ -193,24 +201,24 @@ export function buildGroupHandle(
     group,
 
     add(key: string) {
-      if (!addConnectionTag(runtime.tagMembers, connection, kind, group, key)) return;
+      if (!addConnectionTag(runtime.tagMembers, connection, { kind, group, key })) return;
       if (kind === 'ephemeral') {
         runtime.persistAttachment(connection);
         return;
       }
       if (runtime.persistenceEnabled && connection.identity) {
-        insertTag(runtime.requireStorage().sql, connection.identity, group, key);
+        insertTag(runtime.requireStorage().sql, { identity: connection.identity, group, key });
       }
     },
 
     remove(key: string) {
-      if (!removeConnectionTag(runtime.tagMembers, connection, kind, group, key)) return;
+      if (!removeConnectionTag(runtime.tagMembers, connection, { kind, group, key })) return;
       if (kind === 'ephemeral') {
         runtime.persistAttachment(connection);
         return;
       }
       if (runtime.persistenceEnabled && connection.identity) {
-        deleteTag(runtime.requireStorage().sql, connection.identity, group, key);
+        deleteTag(runtime.requireStorage().sql, { identity: connection.identity, group, key });
       }
     },
 
@@ -248,7 +256,7 @@ export function buildGroupHandle(
     },
 
     ref(key: string): TagRefHandle {
-      return makeRefHandle(runtime, kind, group, key);
+      return makeRefHandle(runtime, { kind, group, key });
     },
 
     list(): readonly TagRef[] {
@@ -265,10 +273,10 @@ export function buildGroupHandle(
 export function buildTagsApi(runtime: TagsRuntime, connection: RuntimeConnection): TagsApi {
   return {
     ephemeral(group: string) {
-      return buildGroupHandle(runtime, connection, 'ephemeral', group);
+      return buildGroupHandle(runtime, connection, { kind: 'ephemeral', group });
     },
     persistent(group: string) {
-      return buildGroupHandle(runtime, connection, 'persistent', group);
+      return buildGroupHandle(runtime, connection, { kind: 'persistent', group });
     },
     list(): readonly TagRef[] {
       return listConnectionTags(connection);

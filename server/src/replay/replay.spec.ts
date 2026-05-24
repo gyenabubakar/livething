@@ -136,11 +136,10 @@ describe('replay', () => {
   it('reduces snapshot rows when a reducer is provided', () => {
     const sql = new FakeReplaySql();
 
-    persistReplayMessage(
-      sql,
-      {
+    persistReplayMessage(sql, {
+      options: {
         type: 'snapshot',
-        snapshotKey(_event, payload) {
+        snapshotKey(_event: string, payload: Record<string, unknown>) {
           return String(payload.id);
         },
         reduce(previous, next) {
@@ -155,17 +154,16 @@ describe('replay', () => {
           };
         },
       },
-      'doc-title-set',
-      { id: 'doc-1', title: 'Draft' },
-      { seq: 1, messageId: 'm1' },
-      1,
-    );
+      event: 'doc-title-set',
+      payload: { id: 'doc-1', title: 'Draft' },
+      wskit: { seq: 1, messageId: 'm1' },
+      now: 1,
+    });
 
-    persistReplayMessage(
-      sql,
-      {
+    persistReplayMessage(sql, {
+      options: {
         type: 'snapshot',
-        snapshotKey(_event, payload) {
+        snapshotKey(_event: string, payload: Record<string, unknown>) {
           return String(payload.id);
         },
         reduce(previous, next) {
@@ -180,11 +178,11 @@ describe('replay', () => {
           };
         },
       },
-      'doc-content-set',
-      { id: 'doc-1', content: 'Hello' },
-      { seq: 2, messageId: 'm2' },
-      2,
-    );
+      event: 'doc-content-set',
+      payload: { id: 'doc-1', content: 'Hello' },
+      wskit: { seq: 2, messageId: 'm2' },
+      now: 2,
+    });
 
     expect(sql.rows.size).toBe(1);
     expect([...sql.rows.values()][0]).toMatchObject({
@@ -202,25 +200,23 @@ describe('replay', () => {
   it('deletes a snapshot when the reducer returns null', () => {
     const sql = new FakeReplaySql();
 
-    persistReplayMessage(
-      sql,
-      {
+    persistReplayMessage(sql, {
+      options: {
         type: 'snapshot',
-        snapshotKey(_event, payload) {
+        snapshotKey(_event: string, payload: Record<string, unknown>) {
           return String(payload.id);
         },
       },
-      'message-created',
-      { id: 'm1', text: 'Hello' },
-      { seq: 1, messageId: 'm1' },
-      1,
-    );
+      event: 'message-created',
+      payload: { id: 'm1', text: 'Hello' },
+      wskit: { seq: 1, messageId: 'm1' },
+      now: 1,
+    });
 
-    const deleted = persistReplayMessage(
-      sql,
-      {
+    const deleted = persistReplayMessage(sql, {
+      options: {
         type: 'snapshot',
-        snapshotKey(_event, payload) {
+        snapshotKey(_event: string, payload: Record<string, unknown>) {
           return String(payload.id);
         },
         reduce(_previous, next) {
@@ -228,11 +224,11 @@ describe('replay', () => {
           return next;
         },
       },
-      'message-deleted',
-      { id: 'm1' },
-      { seq: 2, messageId: 'm2' },
-      2,
-    );
+      event: 'message-deleted',
+      payload: { id: 'm1' },
+      wskit: { seq: 2, messageId: 'm2' },
+      now: 2,
+    });
 
     expect(deleted).toBeNull();
     expect(sql.rows.size).toBe(0);
@@ -331,9 +327,9 @@ describe('replay', () => {
     );
 
     expect(sent).toHaveLength(1);
-    const [, channelName, channelScope] = sent[0]!;
-    expect(channelName).toBe('room-1');
-    expect(channelScope).toBe('rooms');
+    const [, opts] = sent[0]!;
+    expect(opts.channelName).toBe('room-1');
+    expect(opts.channelScope).toBe('rooms');
   });
 
   it('adds channel sendReplay only for the matching channel scope', () => {
@@ -535,11 +531,13 @@ describe('replay', () => {
     expect(sent).toEqual([
       [
         'c1',
-        'room-1',
-        'rooms',
-        'message',
-        { text: 'history' },
-        { seq: 5, messageId: 'msg-1', channel: 'room-1' },
+        {
+          channelName: 'room-1',
+          channelScope: 'rooms',
+          event: 'message',
+          payload: { text: 'history' },
+          wire: { seq: 5, messageId: 'msg-1', channel: 'room-1' },
+        },
       ],
     ]);
   });

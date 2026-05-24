@@ -16,9 +16,9 @@ test.describe('stream-durable scoped (channel + namespace)', () => {
     const room = `sds-${testInfo.testId}`;
     const streamId = 'paginate-1';
 
-    const a = await connect(page, WS_PATH, 'alice', room);
+    const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
     await send(page, a, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
-    await waitForFrame(page, a, (f) => f.event === '__subscribeOk__');
+    await waitForFrame(page, a, { match: (f) => f.event === '__subscribeOk__' });
 
     await send(page, a, {
       event: 'paginate',
@@ -37,17 +37,15 @@ test.describe('stream-durable scoped (channel + namespace)', () => {
     await closeSocket(page, a);
     await page.waitForTimeout(150);
 
-    const b = await connect(page, WS_PATH, 'alice', room);
+    const b = await connect(page, { path: WS_PATH, username: 'alice', room: room });
 
     // Persistence auto-rejoins alice's prior channel membership on the new
     // socket — the server-emitted __subscribeOk__ carries source: 'server'. If
     // this assertion ever fails, the rest of the test would only fail with
     // a misleading not-found error, so verify it directly first.
-    const rejoin = await waitForFrame(
-      page,
-      b,
-      (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'rooms',
-    );
+    const rejoin = await waitForFrame(page, b, {
+      match: (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'rooms',
+    });
     expect(rejoin.payload.source).toBe('server');
 
     await send(page, b, {
@@ -56,14 +54,12 @@ test.describe('stream-durable scoped (channel + namespace)', () => {
       __wskit: { channel: 'rooms', streamId },
     });
 
-    await waitForFrame(
-      page,
-      b,
-      (f) =>
+    await waitForFrame(page, b, {
+      match: (f) =>
         f.event === '__streamEnd__' &&
         f.__wskit?.streamId === streamId &&
         f.__wskit?.channel === 'rooms',
-    );
+    });
 
     const firstSocketRows = (await frames(page, a))
       .filter((f) => f.event === 'paginate' && f.__wskit?.channel === 'rooms')
@@ -81,42 +77,38 @@ test.describe('stream-durable scoped (channel + namespace)', () => {
     const room = `sds-${testInfo.testId}`;
     const streamId = 'history-1';
 
-    const a = await connect(page, WS_PATH, 'alice', room);
+    const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
     await send(page, a, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
-    await waitForFrame(page, a, (f) => f.event === '__subscribeOk__');
+    await waitForFrame(page, a, { match: (f) => f.event === '__subscribeOk__' });
 
     await send(page, a, {
       event: 'history',
       payload: {},
       __wskit: { channel: 'rooms', streamId },
     });
-    await waitForFrame(
-      page,
-      a,
-      (f) =>
+    await waitForFrame(page, a, {
+      match: (f) =>
         f.event === '__streamEnd__' &&
         f.__wskit?.streamId === streamId &&
         f.__wskit?.channel === 'rooms',
-    );
+    });
 
     await closeSocket(page, a);
     await page.waitForTimeout(150);
 
-    const b = await connect(page, WS_PATH, 'alice', room);
+    const b = await connect(page, { path: WS_PATH, username: 'alice', room: room });
     await send(page, b, {
       event: '__resumeStream__',
       payload: { lastKnownSeq: 2 },
       __wskit: { channel: 'rooms', streamId },
     });
 
-    await waitForFrame(
-      page,
-      b,
-      (f) =>
+    await waitForFrame(page, b, {
+      match: (f) =>
         f.event === '__streamEnd__' &&
         f.__wskit?.streamId === streamId &&
         f.__wskit?.channel === 'rooms',
-    );
+    });
 
     const replayed = (await frames(page, b))
       .filter((f) => f.event === 'history' && f.__wskit?.channel === 'rooms')
@@ -130,33 +122,29 @@ test.describe('stream-durable scoped (channel + namespace)', () => {
     const room = `sds-${testInfo.testId}`;
     const streamId = 'logs-1';
 
-    const a = await connect(page, WS_PATH, 'alice', room);
+    const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
     await send(page, a, {
       event: 'logs',
       payload: {},
       __wskit: { namespace: 'v1', streamId },
     });
-    await waitForFrame(
-      page,
-      a,
-      (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
-    );
+    await waitForFrame(page, a, {
+      match: (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
+    });
 
     await closeSocket(page, a);
     await page.waitForTimeout(150);
 
-    const b = await connect(page, WS_PATH, 'alice', room);
+    const b = await connect(page, { path: WS_PATH, username: 'alice', room: room });
     await send(page, b, {
       event: '__resumeStream__',
       payload: { lastKnownSeq: 0 },
       __wskit: { namespace: 'v1', streamId },
     });
 
-    await waitForFrame(
-      page,
-      b,
-      (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
-    );
+    await waitForFrame(page, b, {
+      match: (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
+    });
 
     const lines = (await frames(page, b))
       .filter((f) => f.event === 'logs' && f.__wskit?.namespace === 'v1')
@@ -181,28 +169,26 @@ test.describe('stream-durable scoped (channel + namespace)', () => {
       await pageB.goto('/stream-durable-scoped');
       await installRig(pageB);
 
-      const a = await connect(pageA, WS_PATH, 'alice', room);
+      const a = await connect(pageA, { path: WS_PATH, username: 'alice', room: room });
       await send(pageA, a, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
-      await waitForFrame(pageA, a, (f) => f.event === '__subscribeOk__');
+      await waitForFrame(pageA, a, { match: (f) => f.event === '__subscribeOk__' });
       await send(pageA, a, {
         event: 'paginate',
         payload: {},
         __wskit: { channel: 'rooms', streamId },
       });
-      await waitForFrame(
-        pageA,
-        a,
-        (f) => f.event === 'paginate' && typeof f.payload?.row === 'number',
-      );
+      await waitForFrame(pageA, a, {
+        match: (f) => f.event === 'paginate' && typeof f.payload?.row === 'number',
+      });
 
-      const b = await connect(pageB, WS_PATH, 'bob', room);
+      const b = await connect(pageB, { path: WS_PATH, username: 'bob', room: room });
       await send(pageB, b, {
         event: '__resumeStream__',
         payload: { lastKnownSeq: 0 },
         __wskit: { channel: 'rooms', streamId },
       });
 
-      const err = await waitForFrame(pageB, b, (f) => f.event === '__error__');
+      const err = await waitForFrame(pageB, b, { match: (f) => f.event === '__error__' });
       expect(err.payload.code).toBe('stream-aborted');
       expect((err.payload.detail as { reason: string }).reason).toBe('not-found');
     } finally {
@@ -217,9 +203,9 @@ test.describe('stream-durable scoped (channel + namespace)', () => {
     const room = `sds-${testInfo.testId}`;
     const streamId = 'paused-1';
 
-    const a = await connect(page, WS_PATH, 'alice', room);
+    const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
     await send(page, a, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
-    await waitForFrame(page, a, (f) => f.event === '__subscribeOk__');
+    await waitForFrame(page, a, { match: (f) => f.event === '__subscribeOk__' });
 
     await send(page, a, {
       event: 'paused-feed',
@@ -245,14 +231,12 @@ test.describe('stream-durable scoped (channel + namespace)', () => {
       __wskit: { channel: 'rooms', streamId },
     });
 
-    await waitForFrame(
-      page,
-      a,
-      (f) =>
+    await waitForFrame(page, a, {
+      match: (f) =>
         f.event === '__streamEnd__' &&
         f.__wskit?.streamId === streamId &&
         f.__wskit?.channel === 'rooms',
-    );
+    });
 
     await page.waitForTimeout(500);
     const rowsAfter = (await frames(page, a)).filter(

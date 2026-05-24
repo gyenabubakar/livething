@@ -3,7 +3,13 @@ import { createChannelMembershipKey } from '~/channel/runtime.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import type { ActiveStream, RuntimeConnection } from '~/_engine/runtime/types.ts';
+import type { SendProtocolMessageOptions } from '~/_engine/runtime/wire.ts';
+import type {
+  BroadcastToConnectionsOptions,
+  SendThroughPipelineOptions,
+} from '~/outgoing/runtime.ts';
 import { bufferStreamNudge, cancelStream, runStream } from './runtime.ts';
+import type { RunStreamOptions } from './runtime.ts';
 
 function createConnection(id = 'c1'): RuntimeConnection {
   return {
@@ -53,27 +59,20 @@ function createStreamRuntime() {
       buildConnectionContext: () => ({ id: 'c1', nudges: () => [] }),
       sendProtocolMessage: (
         _conn: RuntimeConnection,
-        event: string,
-        payload: Record<string, unknown>,
-        wskit: Record<string, unknown>,
+        { event, payload, wskit }: SendProtocolMessageOptions,
       ) => {
         protocolMessages.push({ event, payload, wskit });
       },
       sendThroughPipeline: (
         _conn: RuntimeConnection,
-        _scope: unknown,
-        event: string,
-        payload: unknown,
+        { event, payload }: SendThroughPipelineOptions,
       ) => {
         pipelineSends.push({ event, payload });
         return true;
       },
       broadcastToConnections: (
         conns: readonly RuntimeConnection[],
-        event: string,
-        payload: unknown,
-        options?: { namespace?: string; channel?: string; excludeSelf?: boolean },
-        excludeConnectionId?: string,
+        { event, payload, options, excludeConnectionId }: BroadcastToConnectionsOptions,
       ) => {
         broadcasts.push({
           event,
@@ -110,14 +109,12 @@ describe('stream/runtime', () => {
       },
     };
 
-    await runStream(
-      runtime as Parameters<typeof runStream>[0],
-      connection,
-      { namespace: { name: 'ai' } as never },
-      'stream-prompt',
-      stream as never,
-      {},
-    );
+    await runStream(runtime as Parameters<typeof runStream>[0], connection, {
+      scope: { namespace: { name: 'ai' } as never },
+      event: 'stream-prompt',
+      stream: stream as never,
+      payload: {},
+    });
 
     const streamEnd = protocolMessages.find((m) => m.event === '__streamEnd__');
     expect(streamEnd).toBeDefined();
@@ -135,14 +132,12 @@ describe('stream/runtime', () => {
       },
     };
 
-    await runStream(
-      runtime as Parameters<typeof runStream>[0],
-      connection,
-      { channelName: 'chat', channelScope: 'rooms' },
-      'chat-stream',
-      stream as never,
-      {},
-    );
+    await runStream(runtime as Parameters<typeof runStream>[0], connection, {
+      scope: { channelName: 'chat', channelScope: 'rooms' },
+      event: 'chat-stream',
+      stream: stream as never,
+      payload: {},
+    });
 
     const streamEnd = protocolMessages.find((m) => m.event === '__streamEnd__');
     expect(streamEnd).toBeDefined();
@@ -164,14 +159,12 @@ describe('stream/runtime', () => {
       },
     };
 
-    await runStream(
-      runtime as Parameters<typeof runStream>[0],
-      trigger,
-      {},
-      'broadcast-stream',
-      stream as never,
-      {},
-    );
+    await runStream(runtime as Parameters<typeof runStream>[0], trigger, {
+      scope: {},
+      event: 'broadcast-stream',
+      stream: stream as never,
+      payload: {},
+    });
 
     expect(broadcasts).toHaveLength(1);
     expect(broadcasts[0]!.event).toBe('broadcast-stream');
@@ -209,14 +202,12 @@ describe('stream/runtime', () => {
     // Peer broadcasts must forward channelScope so the outgoing pipeline
     // resolves the channel family rather than failing the declaration check
     // against a non-existent static channel called 'room:123'.
-    await runStream(
-      runtime as Parameters<typeof runStream>[0],
-      trigger,
-      { channelName: 'room:123', channelScope: 'rooms' },
-      'broadcast-stream',
-      stream as never,
-      {},
-    );
+    await runStream(runtime as Parameters<typeof runStream>[0], trigger, {
+      scope: { channelName: 'room:123', channelScope: 'rooms' },
+      event: 'broadcast-stream',
+      stream: stream as never,
+      payload: {},
+    });
 
     expect(broadcasts).toHaveLength(1);
     expect(broadcasts[0]!.options?.channel).toBe('room:123');
@@ -253,14 +244,12 @@ describe('stream/runtime', () => {
       },
     };
 
-    await runStream(
-      runtime as Parameters<typeof runStream>[0],
-      trigger,
-      { channelName: 'room:1', channelScope: 'rooms' },
-      'broadcast-stream',
-      stream as never,
-      {},
-    );
+    await runStream(runtime as Parameters<typeof runStream>[0], trigger, {
+      scope: { channelName: 'room:1', channelScope: 'rooms' },
+      event: 'broadcast-stream',
+      stream: stream as never,
+      payload: {},
+    });
 
     expect(broadcasts).toHaveLength(1);
     // The targets list passed to broadcastToConnections must only contain
@@ -283,14 +272,12 @@ describe('stream/runtime', () => {
       },
     };
 
-    await runStream(
-      runtime as Parameters<typeof runStream>[0],
-      trigger,
-      {}, // no channelName — top-level broadcast
-      'broadcast-stream',
-      stream as never,
-      {},
-    );
+    await runStream(runtime as Parameters<typeof runStream>[0], trigger, {
+      scope: {},
+      event: 'broadcast-stream', // no channelName — top-level broadcast
+      stream: stream as never,
+      payload: {},
+    });
 
     expect(broadcasts).toHaveLength(1);
     expect(broadcasts[0]!.targetIds).toEqual(expect.arrayContaining(['trigger', 'other']));
@@ -377,14 +364,12 @@ describe('stream/runtime', () => {
       },
     };
 
-    await runStream(
-      runtime as Parameters<typeof runStream>[0],
-      connection,
-      {},
-      'my-stream',
-      stream as never,
-      {},
-    );
+    await runStream(runtime as Parameters<typeof runStream>[0], connection, {
+      scope: {},
+      event: 'my-stream',
+      stream: stream as never,
+      payload: {},
+    });
 
     expect(broadcasts).toHaveLength(0);
   });
@@ -403,14 +388,12 @@ describe('stream/runtime', () => {
       },
     };
 
-    await runStream(
-      runtime as Parameters<typeof runStream>[0],
-      connection,
-      {},
-      'stream-event',
-      stream as never,
-      {},
-    );
+    await runStream(runtime as Parameters<typeof runStream>[0], connection, {
+      scope: {},
+      event: 'stream-event',
+      stream: stream as never,
+      payload: {},
+    });
 
     expect(handleRuntimeError).not.toHaveBeenCalled();
     expect((runtime.logger.warn as ReturnType<typeof vi.fn>).mock.calls[0]![0]).toMatch(/Defer/);
@@ -433,15 +416,19 @@ describe('stream/runtime', () => {
     const result = await bufferStreamNudge(
       runtime as Parameters<typeof bufferStreamNudge>[0],
       connection,
-      'nudge-event',
-      {},
-      { streamId: 'does-not-exist', channelScope: null },
+      {
+        event: 'nudge-event',
+        payload: {},
+        wskit: { streamId: 'does-not-exist', channelScope: null },
+      },
     );
 
     expect(result).toBe(true);
     expect(handleRuntimeError).toHaveBeenCalledTimes(1);
-    expect(handleRuntimeError).toHaveBeenCalledWith(connection, expect.any(Error), 'nudge-event', {
-      streamId: 'does-not-exist',
+    expect(handleRuntimeError).toHaveBeenCalledWith(connection, {
+      error: expect.any(Error),
+      event: 'nudge-event',
+      routing: { streamId: 'does-not-exist' },
     });
   });
 
@@ -465,9 +452,7 @@ describe('stream/runtime', () => {
     const result = await bufferStreamNudge(
       runtime as Parameters<typeof bufferStreamNudge>[0],
       connection,
-      'known-nudge',
-      {},
-      { streamId: 'stream_1', channelScope: null },
+      { event: 'known-nudge', payload: {}, wskit: { streamId: 'stream_1', channelScope: null } },
     );
 
     expect(result).toBe(true);
@@ -493,9 +478,7 @@ describe('stream/runtime', () => {
     const result = await bufferStreamNudge(
       runtime as Parameters<typeof bufferStreamNudge>[0],
       intruder,
-      'known-nudge',
-      {},
-      { streamId: 'stream_1', channelScope: null },
+      { event: 'known-nudge', payload: {}, wskit: { streamId: 'stream_1', channelScope: null } },
     );
 
     expect(result).toBe(true);
@@ -522,22 +505,17 @@ describe('stream/runtime', () => {
     const result = await bufferStreamNudge(
       runtime as Parameters<typeof bufferStreamNudge>[0],
       connection,
-      'unknown-nudge',
-      {},
-      { streamId: 'stream_1', channelScope: null },
+      { event: 'unknown-nudge', payload: {}, wskit: { streamId: 'stream_1', channelScope: null } },
     );
 
     expect(result).toBe(true);
     expect(activeStream.nudges).toHaveLength(0);
     expect(handleRuntimeError).toHaveBeenCalledTimes(1);
-    expect(handleRuntimeError).toHaveBeenCalledWith(
-      connection,
-      expect.any(Error),
-      'unknown-nudge',
-      {
-        streamId: 'stream_1',
-      },
-    );
+    expect(handleRuntimeError).toHaveBeenCalledWith(connection, {
+      error: expect.any(Error),
+      event: 'unknown-nudge',
+      routing: { streamId: 'stream_1' },
+    });
   });
 
   it('bufferStreamNudge returns false when the frame carries no streamId at all', async () => {
@@ -550,9 +528,7 @@ describe('stream/runtime', () => {
     const result = await bufferStreamNudge(
       runtime as Parameters<typeof bufferStreamNudge>[0],
       connection,
-      'plain-event',
-      { value: 'no-stream-id' },
-      undefined,
+      { event: 'plain-event', payload: { value: 'no-stream-id' }, wskit: undefined },
     );
 
     expect(result).toBe(false);
@@ -576,13 +552,11 @@ describe('stream/runtime', () => {
     runtime.activeStreams.set('stream_1', activeStream);
 
     await expect(
-      bufferStreamNudge(
-        runtime as Parameters<typeof bufferStreamNudge>[0],
-        connection,
-        'async-nudge',
-        {},
-        { streamId: 'stream_1', channelScope: null },
-      ),
+      bufferStreamNudge(runtime as Parameters<typeof bufferStreamNudge>[0], connection, {
+        event: 'async-nudge',
+        payload: {},
+        wskit: { streamId: 'stream_1', channelScope: null },
+      }),
     ).rejects.toThrow(/async validators are not supported/);
 
     expect(handleValidationError).not.toHaveBeenCalled();
@@ -619,19 +593,26 @@ describe('stream/runtime', () => {
     const result = await bufferStreamNudge(
       runtime as Parameters<typeof bufferStreamNudge>[0],
       connection,
-      'pause',
-      { bad: true },
-      { streamId: 'stream_1', channelScope: null },
+      {
+        event: 'pause',
+        payload: { bad: true },
+        wskit: { streamId: 'stream_1', channelScope: null },
+      },
     );
 
     expect(result).toBe(true);
     expect(handleValidationError).toHaveBeenCalledTimes(1);
-    expect(handleValidationError).toHaveBeenCalledWith(connection, 'pause', expect.any(Error));
+    expect(handleValidationError).toHaveBeenCalledWith(connection, {
+      event: 'pause',
+      validationError: expect.any(Error),
+    });
     // The wire `__error__` must reach the client with `streamId` routing so the
     // client can correlate the failure to the right stream-error handler.
     expect(handleRuntimeError).toHaveBeenCalledTimes(1);
-    expect(handleRuntimeError).toHaveBeenCalledWith(connection, expect.any(Error), 'pause', {
-      streamId: 'stream_1',
+    expect(handleRuntimeError).toHaveBeenCalledWith(connection, {
+      error: expect.any(Error),
+      event: 'pause',
+      routing: { streamId: 'stream_1' },
     });
     expect(activeStream.nudges).toHaveLength(0);
   });
@@ -652,14 +633,12 @@ describe('stream/runtime', () => {
       },
     };
 
-    await runStream(
-      runtime as Parameters<typeof runStream>[0],
-      connection,
-      {},
-      'my-stream',
-      stream as never,
-      {},
-    );
+    await runStream(runtime as Parameters<typeof runStream>[0], connection, {
+      scope: {},
+      event: 'my-stream',
+      stream: stream as never,
+      payload: {},
+    });
 
     // First call: stream ID was added to activeStreamIds before yield
     expect(snapshots[0]).toContain('stream_1');
@@ -687,14 +666,12 @@ describe('stream/runtime', () => {
       },
     };
 
-    await runStream(
-      runtime as Parameters<typeof runStream>[0],
-      connection,
-      {},
-      'my-stream',
-      stream as never,
-      {},
-    );
+    await runStream(runtime as Parameters<typeof runStream>[0], connection, {
+      scope: {},
+      event: 'my-stream',
+      stream: stream as never,
+      payload: {},
+    });
 
     expect(idsObservedFromBody).toEqual(['c1', 'c1']);
     // Outside the stream advance, the context is auto-scoped.
@@ -728,14 +705,12 @@ describe('stream/runtime', () => {
     };
 
     await expect(
-      runStream(
-        runtime as Parameters<typeof runStream>[0],
-        connection,
-        {},
-        'start-tokens',
-        stream as never,
-        {},
-      ),
+      runStream(runtime as Parameters<typeof runStream>[0], connection, {
+        scope: {},
+        event: 'start-tokens',
+        stream: stream as never,
+        payload: {},
+      }),
     ).rejects.toMatchObject({
       code: 'stream-already-active',
       detail: { event: 'start-tokens', streamId: 'existing_1' },
@@ -761,24 +736,20 @@ describe('stream/runtime', () => {
     };
 
     const results = await Promise.allSettled([
-      runStream(
-        runtime as Parameters<typeof runStream>[0],
-        connection,
-        {},
-        'tok',
-        stream as never,
-        {},
-        { streamId: 's1', channelScope: null },
-      ),
-      runStream(
-        runtime as Parameters<typeof runStream>[0],
-        connection,
-        {},
-        'tok',
-        stream as never,
-        {},
-        { streamId: 's2', channelScope: null },
-      ),
+      runStream(runtime as Parameters<typeof runStream>[0], connection, {
+        scope: {},
+        event: 'tok',
+        stream: stream as never,
+        payload: {},
+        wskit: { streamId: 's1', channelScope: null },
+      }),
+      runStream(runtime as Parameters<typeof runStream>[0], connection, {
+        scope: {},
+        event: 'tok',
+        stream: stream as never,
+        payload: {},
+        wskit: { streamId: 's2', channelScope: null },
+      }),
     ]);
 
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
@@ -800,24 +771,20 @@ describe('stream/runtime', () => {
     };
 
     const results = await Promise.allSettled([
-      runStream(
-        runtime as Parameters<typeof runStream>[0],
-        connection,
-        {},
-        'tok',
-        stream as never,
-        {},
-        { streamId: 's1', channelScope: null },
-      ),
-      runStream(
-        runtime as Parameters<typeof runStream>[0],
-        connection,
-        {},
-        'tok',
-        stream as never,
-        {},
-        { streamId: 's2', channelScope: null },
-      ),
+      runStream(runtime as Parameters<typeof runStream>[0], connection, {
+        scope: {},
+        event: 'tok',
+        stream: stream as never,
+        payload: {},
+        wskit: { streamId: 's1', channelScope: null },
+      }),
+      runStream(runtime as Parameters<typeof runStream>[0], connection, {
+        scope: {},
+        event: 'tok',
+        stream: stream as never,
+        payload: {},
+        wskit: { streamId: 's2', channelScope: null },
+      }),
     ]);
 
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(2);
@@ -847,14 +814,12 @@ describe('stream/runtime', () => {
     };
 
     await expect(
-      runStream(
-        runtime as Parameters<typeof runStream>[0],
-        connection,
-        {},
-        'start-summary',
-        stream as never,
-        {},
-      ),
+      runStream(runtime as Parameters<typeof runStream>[0], connection, {
+        scope: {},
+        event: 'start-summary',
+        stream: stream as never,
+        payload: {},
+      }),
     ).resolves.toBeUndefined();
   });
 
@@ -883,14 +848,12 @@ describe('stream/runtime', () => {
     };
 
     await expect(
-      runStream(
-        runtime as Parameters<typeof runStream>[0],
-        other,
-        {},
-        'start-tokens',
-        stream as never,
-        {},
-      ),
+      runStream(runtime as Parameters<typeof runStream>[0], other, {
+        scope: {},
+        event: 'start-tokens',
+        stream: stream as never,
+        payload: {},
+      }),
     ).resolves.toBeUndefined();
   });
 
@@ -919,14 +882,12 @@ describe('stream/runtime', () => {
       },
     };
 
-    await runStream(
-      runtime as Parameters<typeof runStream>[0],
-      connection,
-      {},
-      'start-tokens',
-      stream as never,
-      {},
-    );
+    await runStream(runtime as Parameters<typeof runStream>[0], connection, {
+      scope: {},
+      event: 'start-tokens',
+      stream: stream as never,
+      payload: {},
+    });
 
     const streamOk = protocolMessages.find((m) => m.event === '__streamOk__');
     expect(streamOk).toBeDefined();
@@ -956,16 +917,12 @@ describe('stream/runtime', () => {
       },
     };
 
-    await runStream(
-      runtime as Parameters<typeof runStream>[0],
-      connection,
-      {},
-      'feed',
-      stream as never,
-      {
-        seed: 1,
-      },
-    );
+    await runStream(runtime as Parameters<typeof runStream>[0], connection, {
+      scope: {},
+      event: 'feed',
+      stream: stream as never,
+      payload: { seed: 1 },
+    });
 
     expect(hookCalls).toHaveLength(1);
     expect(hookCalls[0]!.event).toBe('feed');
@@ -991,15 +948,13 @@ describe('stream/runtime', () => {
       },
     };
 
-    await runStream(
-      runtime as Parameters<typeof runStream>[0],
-      connection,
-      {},
-      'feed',
-      stream as never,
-      {},
-      { streamId: 'conv-42', channelScope: null },
-    );
+    await runStream(runtime as Parameters<typeof runStream>[0], connection, {
+      scope: {},
+      event: 'feed',
+      stream: stream as never,
+      payload: {},
+      wskit: { streamId: 'conv-42', channelScope: null },
+    });
 
     const streamOk = protocolMessages.find((m) => m.event === '__streamOk__');
     expect(streamOk!.wskit.streamId).toBe('conv-42');
@@ -1021,8 +976,8 @@ describe('stream/runtime', () => {
 
     // Wrong type, empty string, and over-length string all fall back. The
     // numeric case can never be a valid WskitProtocol field, so cast it.
-    const badWskits: Parameters<typeof runStream>[6][] = [
-      { streamId: 123, channelScope: null } as unknown as Parameters<typeof runStream>[6],
+    const badWskits: NonNullable<RunStreamOptions['wskit']>[] = [
+      { streamId: 123, channelScope: null } as unknown as NonNullable<RunStreamOptions['wskit']>,
       { streamId: '', channelScope: null },
       { streamId: 'x'.repeat(300), channelScope: null },
     ];
@@ -1031,15 +986,13 @@ describe('stream/runtime', () => {
       runtime.activeStreams.clear();
       connection.activeStreamIds = undefined;
 
-      await runStream(
-        runtime as Parameters<typeof runStream>[0],
-        connection,
-        {},
-        'feed',
-        stream as never,
-        {},
-        bad,
-      );
+      await runStream(runtime as Parameters<typeof runStream>[0], connection, {
+        scope: {},
+        event: 'feed',
+        stream: stream as never,
+        payload: {},
+        wskit: bad,
+      });
 
       const streamOk = protocolMessages.find((m) => m.event === '__streamOk__');
       expect(streamOk!.wskit.streamId).toBe('stream_1');
@@ -1060,15 +1013,13 @@ describe('stream/runtime', () => {
     };
 
     await expect(
-      runStream(
-        runtime as Parameters<typeof runStream>[0],
-        connection,
-        {},
-        'feed',
-        stream as never,
-        {},
-        { streamId: 'conv-42', channelScope: null },
-      ),
+      runStream(runtime as Parameters<typeof runStream>[0], connection, {
+        scope: {},
+        event: 'feed',
+        stream: stream as never,
+        payload: {},
+        wskit: { streamId: 'conv-42', channelScope: null },
+      }),
     ).rejects.toMatchObject({ code: 'stream-id-collision' });
   });
 });

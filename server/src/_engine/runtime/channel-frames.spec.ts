@@ -25,13 +25,17 @@ function createConnection(id: string): RuntimeConnection {
   };
 }
 
+interface AddMembershipOptions {
+  channelName: string;
+  channelScope?: string | null;
+}
+
 function addMembership(
   channelMembers: Map<string, Set<RuntimeConnection>>,
   connection: ReturnType<typeof createConnection>,
-  channelName: string,
-  channelScope: string | null = null,
+  { channelName, channelScope = null }: AddMembershipOptions,
 ) {
-  addChannelMembership(channelMembers, connection, channelName, channelScope);
+  addChannelMembership(channelMembers, connection, { channelName, channelScope });
 }
 
 function memberRuntime(
@@ -65,8 +69,8 @@ describe('getChannelMembers scope isolation', () => {
     const channelMembers = new Map<string, Set<RuntimeConnection>>();
     const staticMember = createConnection('static');
     const familyMember = createConnection('family');
-    addMembership(channelMembers, staticMember, 'lobby', null);
-    addMembership(channelMembers, familyMember, 'lobby', 'rooms');
+    addMembership(channelMembers, staticMember, { channelName: 'lobby', channelScope: null });
+    addMembership(channelMembers, familyMember, { channelName: 'lobby', channelScope: 'rooms' });
 
     const runtime = memberRuntime([staticMember, familyMember], channelMembers);
 
@@ -83,9 +87,12 @@ describe('getChannelMembers scope isolation', () => {
     const staticMember = createConnection('static');
     const familyMember = createConnection('family');
     const otherFamilyMember = createConnection('other');
-    addMembership(channelMembers, staticMember, 'lobby', null);
-    addMembership(channelMembers, familyMember, 'lobby', 'rooms');
-    addMembership(channelMembers, otherFamilyMember, 'lobby', 'lobbies');
+    addMembership(channelMembers, staticMember, { channelName: 'lobby', channelScope: null });
+    addMembership(channelMembers, familyMember, { channelName: 'lobby', channelScope: 'rooms' });
+    addMembership(channelMembers, otherFamilyMember, {
+      channelName: 'lobby',
+      channelScope: 'lobbies',
+    });
 
     const runtime = memberRuntime([staticMember, familyMember, otherFamilyMember], channelMembers);
 

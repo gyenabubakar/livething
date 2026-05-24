@@ -13,6 +13,11 @@ interface InterceptRuntime {
 /** Returns the dispatch-shared connection context, building it on first call. */
 type GetContext = () => Record<PropertyKey, unknown>;
 
+export interface RunWithScopedContextOptions<T> {
+  ctx: Record<PropertyKey, unknown>;
+  handler: (ctx: Record<PropertyKey, unknown>) => T | Promise<T>;
+}
+
 /**
  * Run a handler inside the engine's async context for this connection.
  *
@@ -22,10 +27,16 @@ type GetContext = () => Record<PropertyKey, unknown>;
 export async function runWithScopedContext<T>(
   runtime: InterceptRuntime,
   connection: RuntimeConnection,
-  ctx: Record<PropertyKey, unknown>,
-  handler: (ctx: Record<PropertyKey, unknown>) => T | Promise<T>,
+  options: RunWithScopedContextOptions<T>,
 ): Promise<T> {
+  const { ctx, handler } = options;
   return withConnectionContext(runtime.asyncContext, connection.id, () => handler(ctx));
+}
+
+export interface RunInterceptsOptions {
+  intercepts: readonly InterceptPrimitive[];
+  frame: InterceptFrame;
+  getCtx: GetContext;
 }
 
 /**
@@ -41,10 +52,9 @@ export async function runWithScopedContext<T>(
 export async function runIntercepts(
   runtime: InterceptRuntime,
   connection: RuntimeConnection,
-  intercepts: readonly InterceptPrimitive[],
-  frame: InterceptFrame,
-  getCtx: GetContext,
+  options: RunInterceptsOptions,
 ): Promise<InterceptFrame> {
+  const { intercepts, frame, getCtx } = options;
   if (intercepts.length === 0) return frame;
 
   const ctx = getCtx();

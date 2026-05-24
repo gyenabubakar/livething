@@ -1,8 +1,8 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import * as OutgoingRuntime from '~/outgoing/runtime.ts';
-import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
+import type { SendProtocolMessageOptions } from '~/_engine/runtime/wire.ts';
 import type * as PublicApi from '~/context.ts';
 import type * as EngineRuntimeTypes from './types.ts';
 
@@ -32,29 +32,16 @@ interface ChannelRuntime extends EngineRuntimeTypes.ConnectionMembersRuntime {
   persistAttachment(connection: EngineRuntimeTypes.RuntimeConnection): void;
   sendProtocolMessage(
     connection: EngineRuntimeTypes.RuntimeConnection,
-    event: string,
-    payload: Record<string, unknown>,
-    wskit: Record<string, unknown>,
+    opts: SendProtocolMessageOptions,
   ): void;
-  broadcastToChannel(
-    channelName: string,
-    event: string,
-    payload: unknown,
-    excludeConnectionId: string | undefined,
-    channelScope: string | null,
-    excludeSelf?: boolean,
-  ): void;
+  broadcastToChannel(opts: ChannelPrimitive.BroadcastToChannelOptions): void;
   handleValidationError(
     connection: EngineRuntimeTypes.RuntimeConnection,
-    event: string,
-    validationError: unknown,
-    scope?: EngineRuntimeTypes.ResolvedScope,
+    opts: { event: string; validationError: unknown; scope?: EngineRuntimeTypes.ResolvedScope },
   ): Promise<void>;
   handleRuntimeError(
     connection: EngineRuntimeTypes.RuntimeConnection,
-    error: unknown,
-    event?: string,
-    routing?: Protocol.WskitRouting,
+    opts: { error: unknown; event?: string; routing?: Protocol.WskitRouting },
   ): Promise<void>;
   isChannelPersistent(channelKey: string): boolean;
   persistMembership(identity: string, channelName: string, channelScope: string | null): void;
@@ -103,20 +90,12 @@ export function kickChannelMembers(
     > & {
       leaveChannel(
         connection: EngineRuntimeTypes.RuntimeConnection,
-        scope: {
-          channel?: EngineCompileTypes.CompiledChannel;
-          channelName: string;
-          channelScope: string | null;
-        },
-        kickedReason?: string,
+        opts: ChannelPrimitive.LeaveChannelOptions,
       ): Promise<void>;
     },
-  channelName: string,
-  target: ChannelPrimitive.KickTarget,
-  reason: string,
-  channelScope: string | null,
+  opts: ChannelPrimitive.KickChannelMembersOptions,
 ): Promise<void> {
-  return ChannelPrimitive.kickChannelMembers(runtime, channelName, target, reason, channelScope);
+  return ChannelPrimitive.kickChannelMembers(runtime, opts);
 }
 
 /**
@@ -142,30 +121,15 @@ export async function handleSubscribe(
   await ChannelPrimitive.subscribeConnection(
     {
       ...runtime,
-      broadcastToChannel: (
-        channelName,
-        event,
-        nextPayload,
-        excludeConnectionId,
-        channelScope,
-        excludeSelf,
-      ) => {
-        OutgoingRuntime.broadcastToChannel(
-          runtime,
-          channelName,
-          event,
-          nextPayload,
-          excludeConnectionId,
-          channelScope,
-          excludeSelf,
-        );
-      },
+      broadcastToChannel: (opts) => OutgoingRuntime.broadcastToChannel(runtime, opts),
       toConnectionInfo: (nextConnection) => runtime.toConnectionInfo(nextConnection),
     },
     connection,
-    frame.__wskit.channel,
-    frame.__wskit.channelScope,
-    frame.payload,
+    {
+      channelName: frame.__wskit.channel,
+      channelScope: frame.__wskit.channelScope,
+      data: frame.payload,
+    },
   );
 }
 
@@ -174,6 +138,13 @@ export async function handleSubscribe(
  * up from the ref, refuses cross-instance refs until the broker exists, and
  * delegates to the channel primitive's server-side subscribe path.
  */
+export interface SubscribeFromServerOptions {
+  channelName: string;
+  channelScope: string | null;
+  payload: unknown;
+  rejoining?: boolean;
+}
+
 export async function subscribeFromServer(
   runtime: ChannelRuntime &
     Pick<
@@ -189,11 +160,9 @@ export async function subscribeFromServer(
       | 'wskitStampHooks'
     > & { instanceId: string | undefined },
   ref: { __wskit: 'connection-ref'; id: string; instance: string | undefined; identity: string },
-  channelName: string,
-  channelScope: string | null,
-  payload: unknown,
-  rejoining = false,
+  opts: SubscribeFromServerOptions,
 ): Promise<void> {
+  const { channelName, channelScope, payload, rejoining = false } = opts;
   if (ref.instance !== runtime.instanceId) {
     throw new Error(
       `[wskit] channelHandle.subscribe(ref) targets instance "${ref.instance ?? 'undefined'}" but this engine is "${runtime.instanceId ?? 'undefined'}" — cross-instance routing requires a broker, which is not configured yet.`,
@@ -210,31 +179,11 @@ export async function subscribeFromServer(
   await ChannelPrimitive.subscribeConnectionAsServer(
     {
       ...runtime,
-      broadcastToChannel: (
-        channelName2,
-        event,
-        nextPayload,
-        excludeConnectionId,
-        channelScope2,
-        excludeSelf,
-      ) => {
-        OutgoingRuntime.broadcastToChannel(
-          runtime,
-          channelName2,
-          event,
-          nextPayload,
-          excludeConnectionId,
-          channelScope2,
-          excludeSelf,
-        );
-      },
+      broadcastToChannel: (bcOpts) => OutgoingRuntime.broadcastToChannel(runtime, bcOpts),
       toConnectionInfo: (nextConnection) => runtime.toConnectionInfo(nextConnection),
     },
     target,
-    channelName,
-    channelScope,
-    payload,
-    rejoining,
+    { channelName, channelScope, payload, rejoining },
   );
 }
 
@@ -257,20 +206,14 @@ export async function handleUnsubscribe(
     > & {
       leaveChannel(
         connection: EngineRuntimeTypes.RuntimeConnection,
-        scope: {
-          channel?: EngineCompileTypes.CompiledChannel;
-          channelName: string;
-          channelScope: string | null;
-        },
+        opts: ChannelPrimitive.LeaveChannelOptions,
       ): Promise<void>;
     },
   connection: EngineRuntimeTypes.RuntimeConnection,
   frame: Protocol.UnsubscribeFrame,
 ): Promise<void> {
-  await ChannelPrimitive.unsubscribeConnection(
-    runtime,
-    connection,
-    frame.__wskit.channel,
-    frame.__wskit.channelScope,
-  );
+  await ChannelPrimitive.unsubscribeConnection(runtime, connection, {
+    channelName: frame.__wskit.channel,
+    channelScope: frame.__wskit.channelScope,
+  });
 }

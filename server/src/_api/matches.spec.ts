@@ -13,12 +13,13 @@ import type { InterceptFrame } from '~/intercept/intercept.ts';
 import { contract } from './contract.ts';
 import { matches, parseKey, unsafeCast } from './matches.ts';
 
-function makeFrame(
-  event: string,
-  payload: unknown,
-  routing: InterceptFrame['routing'] = {},
-  kind: InterceptFrame['kind'] = 'unknown',
-): InterceptFrame {
+interface MakeFrameOptions {
+  routing?: InterceptFrame['routing'];
+  kind?: InterceptFrame['kind'];
+}
+
+function makeFrame(event: string, payload: unknown, opts: MakeFrameOptions = {}): InterceptFrame {
+  const { routing = {}, kind = 'unknown' } = opts;
   return { event, payload, routing, kind };
 }
 
@@ -113,7 +114,11 @@ describe('matches — happy path', () => {
   });
 
   it('matches a channel-scoped event with the routing set', () => {
-    const frame = makeFrame('send', { text: 'hi' }, { channel: 'chat', channelScope: null });
+    const frame = makeFrame(
+      'send',
+      { text: 'hi' },
+      { routing: { channel: 'chat', channelScope: null } },
+    );
     expect(matches(testContract, '@chat::send', frame)).toBe(true);
   });
 
@@ -121,13 +126,13 @@ describe('matches — happy path', () => {
     const frame = makeFrame(
       'join',
       { user: 'alice' },
-      { channel: 'rooms', channelScope: 'room:42' },
+      { routing: { channel: 'rooms', channelScope: 'room:42' } },
     );
     expect(matches(testContract, '@rooms::join', frame)).toBe(true);
   });
 
   it('matches a namespace-scoped event', () => {
-    const frame = makeFrame('kick-user', { userId: 'u1' }, { namespace: 'admin' });
+    const frame = makeFrame('kick-user', { userId: 'u1' }, { routing: { namespace: 'admin' } });
     expect(matches(testContract, '#admin::kick-user', frame)).toBe(true);
   });
 });
@@ -139,22 +144,22 @@ describe('matches — sad path', () => {
   });
 
   it('returns false when top-level key gets a channel-scoped frame', () => {
-    const frame = makeFrame('send-msg', { text: 'hi' }, { channel: 'chat' });
+    const frame = makeFrame('send-msg', { text: 'hi' }, { routing: { channel: 'chat' } });
     expect(matches(testContract, 'send-msg', frame)).toBe(false);
   });
 
   it('returns false when top-level key gets a namespace-scoped frame', () => {
-    const frame = makeFrame('send-msg', { text: 'hi' }, { namespace: 'admin' });
+    const frame = makeFrame('send-msg', { text: 'hi' }, { routing: { namespace: 'admin' } });
     expect(matches(testContract, 'send-msg', frame)).toBe(false);
   });
 
   it('returns false when channel scope mismatches', () => {
-    const frame = makeFrame('send', { text: 'hi' }, { channel: 'other' });
+    const frame = makeFrame('send', { text: 'hi' }, { routing: { channel: 'other' } });
     expect(matches(testContract, '@chat::send', frame)).toBe(false);
   });
 
   it('returns false when namespace scope mismatches', () => {
-    const frame = makeFrame('kick-user', { userId: 'u1' }, { namespace: 'other' });
+    const frame = makeFrame('kick-user', { userId: 'u1' }, { routing: { namespace: 'other' } });
     expect(matches(testContract, '#admin::kick-user', frame)).toBe(false);
   });
 
@@ -203,7 +208,7 @@ describe('matches — narrows the frame type predicate', () => {
     const frame: InterceptFrame = makeFrame(
       'send',
       { text: 'hi' },
-      { channel: 'chat', channelScope: null },
+      { routing: { channel: 'chat', channelScope: null } },
     );
     if (matches(testContract, '@chat::send', frame)) {
       const _channel: 'chat' = frame.routing.channel;

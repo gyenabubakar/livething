@@ -73,9 +73,9 @@ describe('reconcilePersistenceOnBoot', () => {
   it('drops rows for channels that no longer match a persistent channel', () => {
     const sql = inMemorySql();
     ensurePersistenceSchema(sql);
-    insertMembership(sql, 'u-1', 'team-eng', null);
-    insertMembership(sql, 'u-2', 'team-eng', null);
-    insertMembership(sql, 'u-1', 'archived-room', null);
+    insertMembership(sql, { identity: 'u-1', channelName: 'team-eng', channelScope: null });
+    insertMembership(sql, { identity: 'u-2', channelName: 'team-eng', channelScope: null });
+    insertMembership(sql, { identity: 'u-1', channelName: 'archived-room', channelScope: null });
 
     const dropped = reconcilePersistenceOnBoot(sql, (name) => name === 'team-eng');
     expect(dropped).toBe(1);
@@ -94,8 +94,8 @@ describe('reconcilePersistenceOnBoot', () => {
   it('keeps rows for dynamic families that are still persistent', () => {
     const sql = inMemorySql();
     ensurePersistenceSchema(sql);
-    insertMembership(sql, 'u-1', 'room:abc', 'rooms');
-    insertMembership(sql, 'u-1', 'room:xyz', 'rooms');
+    insertMembership(sql, { identity: 'u-1', channelName: 'room:abc', channelScope: 'rooms' });
+    insertMembership(sql, { identity: 'u-1', channelName: 'room:xyz', channelScope: 'rooms' });
 
     const dropped = reconcilePersistenceOnBoot(sql, (_name, scope) => scope === 'rooms');
     expect(dropped).toBe(0);

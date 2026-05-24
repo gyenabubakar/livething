@@ -47,6 +47,7 @@ export function inject<
  * injectChannel(socket, 'chat', 'message', { text: 'hello' });
  * ```
  */
+// oxlint-disable max-params -- TODO: enforce this rule when client library is rewritten
 export function injectChannel<
   TContract extends SocketContract,
   TChannel extends keyof ChannelsOf<TContract> & string,
@@ -57,10 +58,10 @@ export function injectChannel<
   event: K,
   payload: IncomingOf<ChannelsOf<TContract>[TChannel]>[K],
 ): void {
-  // Tag the payload with _channel so the Channels plugin routes it
   const tagged = { ...(payload as Record<string, unknown>), _channel: channel };
   dispatchMessage(socket, event, tagged);
 }
+// oxlint-enable max-params
 
 /**
  * Shared dispatch logic: runs a message through middleware → plugin

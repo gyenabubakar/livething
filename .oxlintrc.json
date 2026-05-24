@@ -86,6 +86,7 @@
     "no-unused-labels": "error",
     "no-unused-private-class-members": "error",
     "no-useless-backreference": "error",
-    "require-yield": "error"
+    "require-yield": "error",
+    "max-params": ["error", { "max": 3 }]
   }
 }

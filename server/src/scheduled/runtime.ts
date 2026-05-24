@@ -408,6 +408,12 @@ export async function handleScheduledAlarm(runtime: ScheduledRuntimeAccess): Pro
   runtime.rescheduleAlarm();
 }
 
+export interface ScheduleTaskRunOptions {
+  taskId: string;
+  time: number;
+  data: unknown;
+}
+
 /**
  * Queue one future run of a scheduled task.
  *
@@ -416,10 +422,9 @@ export async function handleScheduledAlarm(runtime: ScheduledRuntimeAccess): Pro
  */
 export function scheduleTaskRun(
   runtime: ScheduledRuntimeAccess,
-  taskId: string,
-  time: number,
-  data: unknown,
+  options: ScheduleTaskRunOptions,
 ): void {
+  const { taskId, time, data } = options;
   const task = runtime.getScheduledTask(taskId);
   if (!task) {
     throw new Error(`[wskit] scheduled task "${taskId}" is not registered.`);

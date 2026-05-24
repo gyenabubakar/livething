@@ -38,7 +38,8 @@ function createRuntime(
   for (let i = 0; i < totalConnections; i++) {
     const connection = createConnection(`c${i}`);
     connections.set(connection.id, connection);
-    if (i < memberCount) addChannelMembership(channelMembers, connection, 'room', null);
+    if (i < memberCount)
+      addChannelMembership(channelMembers, connection, { channelName: 'room', channelScope: null });
   }
 
   let seq = 0;
@@ -105,12 +106,24 @@ for (const [memberCount, total] of scenarios) {
   describe(`broadcastToChannel · ${memberCount} members of ${total} connections`, () => {
     const smallRuntime = createRuntime(memberCount, total);
     bench('small payload', () => {
-      broadcastToChannel(smallRuntime, 'room', 'chat', smallPayload, undefined, null);
+      broadcastToChannel(smallRuntime, {
+        channelName: 'room',
+        event: 'chat',
+        payload: smallPayload,
+        excludeConnectionId: undefined,
+        channelScope: null,
+      });
     });
 
     const largeRuntime = createRuntime(memberCount, total);
     bench('large payload (~2 KB)', () => {
-      broadcastToChannel(largeRuntime, 'room', 'chat', largePayload, undefined, null);
+      broadcastToChannel(largeRuntime, {
+        channelName: 'room',
+        event: 'chat',
+        payload: largePayload,
+        excludeConnectionId: undefined,
+        channelScope: null,
+      });
     });
   });
 }
@@ -124,12 +137,24 @@ for (const [memberCount, total] of [
   describe(`broadcastToChannel · ${memberCount} of ${total} · no stamper`, () => {
     const smallRuntime = createRuntime(memberCount, total, false);
     bench('small payload', () => {
-      broadcastToChannel(smallRuntime, 'room', 'chat', smallPayload, undefined, null);
+      broadcastToChannel(smallRuntime, {
+        channelName: 'room',
+        event: 'chat',
+        payload: smallPayload,
+        excludeConnectionId: undefined,
+        channelScope: null,
+      });
     });
 
     const largeRuntime = createRuntime(memberCount, total, false);
     bench('large payload (~2 KB)', () => {
-      broadcastToChannel(largeRuntime, 'room', 'chat', largePayload, undefined, null);
+      broadcastToChannel(largeRuntime, {
+        channelName: 'room',
+        event: 'chat',
+        payload: largePayload,
+        excludeConnectionId: undefined,
+        channelScope: null,
+      });
     });
   });
 }

@@ -193,104 +193,106 @@ describe('replay/runtime', () => {
     );
     expect(matchesReplayScope('rooms', { channelScope: 'rooms' })).toBe(true);
     expect(
-      shouldStoreReplayMessage(
-        'rooms',
-        'message',
-        { channel: 'room-1', channelScope: 'rooms' },
-        new Set(['typing']),
-      ),
+      shouldStoreReplayMessage('message', {
+        channelKey: 'rooms',
+        wskit: { channel: 'room-1', channelScope: 'rooms' },
+        exclude: new Set(['typing']),
+      }),
     ).toBe(true);
     expect(
-      shouldStoreReplayMessage(
-        'rooms',
-        'typing',
-        { channel: 'room-1', channelScope: 'rooms' },
-        new Set(['typing']),
-      ),
+      shouldStoreReplayMessage('typing', {
+        channelKey: 'rooms',
+        wskit: { channel: 'room-1', channelScope: 'rooms' },
+        exclude: new Set(['typing']),
+      }),
     ).toBe(false);
   });
 
   it('server-level shouldStoreReplayMessage cascades into channels not in the claimed set', () => {
     // No channel has claimed; server-level captures channel traffic.
     expect(
-      shouldStoreReplayMessage(
-        undefined,
-        'message',
-        { channel: 'room-1', channelScope: 'rooms' },
-        new Set(),
-      ),
+      shouldStoreReplayMessage('message', {
+        channelKey: undefined,
+        wskit: { channel: 'room-1', channelScope: 'rooms' },
+        exclude: new Set(),
+      }),
     ).toBe(true);
 
     // 'rooms' is claimed (channel registered its own replay) — server-level skips.
     expect(
-      shouldStoreReplayMessage(
-        undefined,
-        'message',
-        { channel: 'room-1', channelScope: 'rooms' },
-        new Set(),
-        new Set(['rooms']),
-      ),
+      shouldStoreReplayMessage('message', {
+        channelKey: undefined,
+        wskit: { channel: 'room-1', channelScope: 'rooms' },
+        exclude: new Set(),
+        claimedChannelKeys: new Set(['rooms']),
+      }),
     ).toBe(false);
 
     // Static channel claimed by name (no channelScope on the frame).
     expect(
-      shouldStoreReplayMessage(
-        undefined,
-        'message',
-        { channel: 'lobby' },
-        new Set(),
-        new Set(['lobby']),
-      ),
+      shouldStoreReplayMessage('message', {
+        channelKey: undefined,
+        wskit: { channel: 'lobby' },
+        exclude: new Set(),
+        claimedChannelKeys: new Set(['lobby']),
+      }),
     ).toBe(false);
 
     // Top-level traffic is always captured by server-level replay.
-    expect(shouldStoreReplayMessage(undefined, 'message', {}, new Set(), new Set(['rooms']))).toBe(
-      true,
-    );
+    expect(
+      shouldStoreReplayMessage('message', {
+        channelKey: undefined,
+        wskit: {},
+        exclude: new Set(),
+        claimedChannelKeys: new Set(['rooms']),
+      }),
+    ).toBe(true);
   });
 
   it('skips frames with correlationId — request responses are private and must not be replayed', () => {
     // Server-level replay.
     expect(
-      shouldStoreReplayMessage(undefined, 'get-token', { correlationId: 'req-abc' }, new Set()),
+      shouldStoreReplayMessage('get-token', {
+        channelKey: undefined,
+        wskit: { correlationId: 'req-abc' },
+        exclude: new Set(),
+      }),
     ).toBe(false);
     // Channel-scoped replay.
     expect(
-      shouldStoreReplayMessage(
-        'rooms',
-        'get-token',
-        {
-          correlationId: 'req-abc',
-          channel: 'room-1',
-          channelScope: 'rooms',
-        },
-        new Set(),
-      ),
+      shouldStoreReplayMessage('get-token', {
+        channelKey: 'rooms',
+        wskit: { correlationId: 'req-abc', channel: 'room-1', channelScope: 'rooms' },
+        exclude: new Set(),
+      }),
     ).toBe(false);
     // Sanity: the same frame without correlationId is captured.
-    expect(shouldStoreReplayMessage(undefined, 'message', {}, new Set())).toBe(true);
+    expect(
+      shouldStoreReplayMessage('message', { channelKey: undefined, wskit: {}, exclude: new Set() }),
+    ).toBe(true);
   });
 
   it('skips frames with streamId — stream chunks reference an active stream and cannot be replayed', () => {
     // Server-level replay.
     expect(
-      shouldStoreReplayMessage(undefined, 'token', { streamId: 'stream_abc_1' }, new Set()),
+      shouldStoreReplayMessage('token', {
+        channelKey: undefined,
+        wskit: { streamId: 'stream_abc_1' },
+        exclude: new Set(),
+      }),
     ).toBe(false);
     // Channel-scoped replay.
     expect(
-      shouldStoreReplayMessage(
-        'rooms',
-        'token',
-        {
-          streamId: 'stream_abc_1',
-          channel: 'room-1',
-          channelScope: 'rooms',
-        },
-        new Set(),
-      ),
+      shouldStoreReplayMessage('token', {
+        channelKey: 'rooms',
+        wskit: { streamId: 'stream_abc_1', channel: 'room-1', channelScope: 'rooms' },
+        exclude: new Set(),
+      }),
     ).toBe(false);
     // Sanity: the same frame without streamId is captured.
-    expect(shouldStoreReplayMessage(undefined, 'token', {}, new Set())).toBe(true);
+    expect(
+      shouldStoreReplayMessage('token', { channelKey: undefined, wskit: {}, exclude: new Set() }),
+    ).toBe(true);
   });
 
   it('builds replay rows from pure payloads and wskit metadata', () => {
@@ -309,13 +311,15 @@ describe('replay/runtime', () => {
     });
 
     expect(
-      buildReplayRow(
-        { type: 'snapshot', snapshotKey: (_event, next) => String(next.text) },
-        'message',
+      buildReplayRow('message', {
+        options: {
+          type: 'snapshot',
+          snapshotKey: (_event: string, next: Record<string, unknown>) => String(next.text),
+        },
         payload,
         wskit,
-        99,
-      ),
+        now: 99,
+      }),
     ).toMatchObject({
       rowKey: 'snapshot||room-1|rooms|hello',
       messageId: 'msg_1',
@@ -328,7 +332,10 @@ describe('replay/runtime', () => {
     });
 
     expect(
-      JSON.parse(buildReplayRow({ type: 'history' }, 'message', payload, wskit, 99).payload),
+      JSON.parse(
+        buildReplayRow('message', { options: { type: 'history' }, payload, wskit, now: 99 })
+          .payload,
+      ),
     ).toEqual({
       text: 'hello',
     });
@@ -337,23 +344,21 @@ describe('replay/runtime', () => {
   it('persists history rows, supports snapshot reducers, and deletes snapshots on null', () => {
     const { rows, sql } = createReplaySql();
 
-    const history = persistReplayMessage(
-      sql,
-      { type: 'history' },
-      'message',
-      { text: 'one' },
-      { seq: 1, messageId: 'msg_1' },
-      100,
-    );
+    const history = persistReplayMessage(sql, {
+      options: { type: 'history' },
+      event: 'message',
+      payload: { text: 'one' },
+      wskit: { seq: 1, messageId: 'msg_1' },
+      now: 100,
+    });
 
     expect(history?.rowKey).toBe('msg_1');
     expect(rows.get('msg_1')?.payload).toBe(JSON.stringify({ text: 'one' }));
 
-    persistReplayMessage(
-      sql,
-      {
+    persistReplayMessage(sql, {
+      options: {
         type: 'snapshot',
-        snapshotKey: (_event, payload) => String(payload.id),
+        snapshotKey: (_event: string, payload: Record<string, unknown>) => String(payload.id),
         reduce(previous, next) {
           return {
             event: 'doc-snapshot',
@@ -365,11 +370,11 @@ describe('replay/runtime', () => {
           };
         },
       },
-      'doc-content-set',
-      { id: 'doc-1', content: 'hello' },
-      { seq: 2, messageId: 'msg_2' },
-      101,
-    );
+      event: 'doc-content-set',
+      payload: { id: 'doc-1', content: 'hello' },
+      wskit: { seq: 2, messageId: 'msg_2' },
+      now: 101,
+    });
 
     const snapshot = rows.get('snapshot||||doc-1');
     expect(snapshot).toMatchObject({
@@ -382,20 +387,19 @@ describe('replay/runtime', () => {
       content: 'hello',
     });
 
-    persistReplayMessage(
-      sql,
-      {
+    persistReplayMessage(sql, {
+      options: {
         type: 'snapshot',
-        snapshotKey: (_event, payload) => String(payload.id),
+        snapshotKey: (_event: string, payload: Record<string, unknown>) => String(payload.id),
         reduce() {
           return null;
         },
       },
-      'doc-deleted',
-      { id: 'doc-1' },
-      { seq: 3, messageId: 'msg_3' },
-      102,
-    );
+      event: 'doc-deleted',
+      payload: { id: 'doc-1' },
+      wskit: { seq: 3, messageId: 'msg_3' },
+      now: 102,
+    });
 
     expect(rows.has('snapshot||||doc-1')).toBe(false);
   });

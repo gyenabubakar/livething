@@ -2,6 +2,8 @@
 import { addChannelMembership, kickChannelMembers, leaveChannel } from '~/channel/runtime.ts';
 import { describe, expect, it } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
+import type { SendProtocolMessageOptions } from '~/_engine/runtime/wire.ts';
+import type { BroadcastToChannelOptions } from '~/channel/runtime.ts';
 
 function createConnection(id: string) {
   return {
@@ -32,9 +34,15 @@ describe('channels.kick end-to-end', () => {
     const banned = createConnection('banned');
     const alsoBanned = createConnection('also_banned');
 
-    addChannelMembership(channelMembers, kept, 'room:general', null);
-    addChannelMembership(channelMembers, banned, 'room:general', null);
-    addChannelMembership(channelMembers, alsoBanned, 'room:general', null);
+    addChannelMembership(channelMembers, kept, { channelName: 'room:general', channelScope: null });
+    addChannelMembership(channelMembers, banned, {
+      channelName: 'room:general',
+      channelScope: null,
+    });
+    addChannelMembership(channelMembers, alsoBanned, {
+      channelName: 'room:general',
+      channelScope: null,
+    });
     banned.tags.ephemeral.set('user', new Set(['troll']));
     alsoBanned.tags.ephemeral.set('user', new Set(['troll']));
 
@@ -101,18 +109,16 @@ describe('channels.kick end-to-end', () => {
       persistAttachment() {},
       sendProtocolMessage(
         c: ReturnType<typeof createConnection>,
-        event: string,
-        payload: any,
-        wskit: any,
+        { event, payload, wskit }: SendProtocolMessageOptions,
       ) {
         protocol.push({ connectionId: c.id, event, payload, wskit });
       },
-      broadcastToChannel(
-        channelName: string,
-        event: string,
-        payload: any,
-        excludeConnectionId?: string,
-      ) {
+      broadcastToChannel({
+        channelName,
+        event,
+        payload,
+        excludeConnectionId,
+      }: BroadcastToChannelOptions) {
         broadcasts.push({ channelName, event, payload, excludeConnectionId });
       },
       async handleValidationError() {},
@@ -124,13 +130,20 @@ describe('channels.kick end-to-end', () => {
     await kickChannelMembers(
       {
         ...runtime,
-        leaveChannel: async (connection: any, scope: any, kickedReason: any) =>
-          leaveChannel(runtime as any, connection, scope, kickedReason),
+        leaveChannel: async (connection: any, opts: any) =>
+          leaveChannel(runtime as any, connection, opts),
       } as any,
-      'room:general',
-      { __wskit: 'tag-ref' as const, kind: 'ephemeral' as const, group: 'user', key: 'troll' },
-      'spam',
-      null,
+      {
+        channelName: 'room:general',
+        target: {
+          __wskit: 'tag-ref' as const,
+          kind: 'ephemeral' as const,
+          group: 'user',
+          key: 'troll',
+        },
+        reason: 'spam',
+        channelScope: null,
+      },
     );
 
     const kicked = protocol.filter((p) => p.event === '__kicked__');
@@ -161,8 +174,14 @@ describe('channels.kick end-to-end', () => {
     const channelMembers = new Map<string, Set<RuntimeConnection>>();
     const banned = createConnection('banned');
     const alsoBanned = createConnection('also_banned');
-    addChannelMembership(channelMembers, banned, 'room:general', null);
-    addChannelMembership(channelMembers, alsoBanned, 'room:general', null);
+    addChannelMembership(channelMembers, banned, {
+      channelName: 'room:general',
+      channelScope: null,
+    });
+    addChannelMembership(channelMembers, alsoBanned, {
+      channelName: 'room:general',
+      channelScope: null,
+    });
     banned.tags.ephemeral.set('user', new Set(['troll']));
     alsoBanned.tags.ephemeral.set('user', new Set(['troll']));
 
@@ -233,13 +252,20 @@ describe('channels.kick end-to-end', () => {
       kickChannelMembers(
         {
           ...runtime,
-          leaveChannel: async (connection: any, scope: any, kickedReason: any) =>
-            leaveChannel(runtime as any, connection, scope, kickedReason),
+          leaveChannel: async (connection: any, opts: any) =>
+            leaveChannel(runtime as any, connection, opts),
         } as any,
-        'room:general',
-        { __wskit: 'tag-ref' as const, kind: 'ephemeral' as const, group: 'user', key: 'troll' },
-        'spam',
-        null,
+        {
+          channelName: 'room:general',
+          target: {
+            __wskit: 'tag-ref' as const,
+            kind: 'ephemeral' as const,
+            group: 'user',
+            key: 'troll',
+          },
+          reason: 'spam',
+          channelScope: null,
+        },
       ),
     ).resolves.toBeUndefined();
 

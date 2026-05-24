@@ -25,16 +25,18 @@ function buildMessagingApi(
   'broadcast' | 'broadcastBinary' | 'close' | 'send' | 'sendBinary' | 'sendToConnection'
 > {
   return {
-    send: (event, payload) => deps.sendThroughPipeline(connection, undefined, event, payload),
+    send: (event, payload) =>
+      deps.sendThroughPipeline(connection, { routing: undefined, event, payload }),
+
     broadcast: (event, payload, options) => {
-      deps.broadcastToConnections(
-        [...deps.connections.values()],
+      deps.broadcastToConnections([...deps.connections.values()], {
         event,
         payload,
         options,
-        connection.id,
-      );
+        excludeConnectionId: connection.id,
+      });
     },
+
     sendToConnection: (connectionId, event, payload) => {
       const target = deps.connections.get(connectionId);
       if (!target) {
@@ -44,19 +46,22 @@ function buildMessagingApi(
         });
         return false;
       }
-      deps.sendThroughPipeline(target, undefined, event, payload);
+      deps.sendThroughPipeline(target, { routing: undefined, event, payload });
       return true;
     },
+
     sendBinary: (data) => {
       connection.descriptor.sendBinary(data);
       return true;
     },
+
     broadcastBinary: (data, options) => {
       for (const target of deps.connections.values()) {
         if (options?.excludeSelf && target.id === connection.id) continue;
         target.descriptor.sendBinary(data);
       }
     },
+
     close: (code, reason) => connection.descriptor.close(code, reason),
   };
 }
@@ -79,7 +84,9 @@ export function buildConnectionContext(
 ): EngineContextTypes.ConnectionContext<Record<string, unknown>, Record<string, unknown>, unknown> &
   Record<PropertyKey, unknown> {
   const { sql, kv } = createLazyStorageView(deps.requireStorage);
+
   let channelsApi: ReturnType<typeof buildChannelsApi> | undefined;
+
   function cancelScheduled(taskId: string, filter?: Record<string, unknown>): void {
     const result = deps.cancelScheduled(taskId, filter);
     if (result.removed === 0) {
@@ -90,6 +97,7 @@ export function buildConnectionContext(
       });
     }
   }
+
   const base: EngineContextTypes.ConnectionContext<
     Record<string, unknown>,
     Record<string, unknown>,
@@ -101,45 +109,62 @@ export function buildConnectionContext(
       channelName: scope?.channelName,
       channelScope: scope?.channelScope,
     } satisfies EngineContextTypes.EngineScopeMeta,
+
     [EngineContextTypes.ENGINE_INTERNAL_CONNECTION]: connection,
+
     id: connection.id,
+
     identity: connection.identity,
+
     self: buildConnectionRef(connection.id, connection.identity, deps.instanceId),
+
     meta: connection.meta,
+
     ...buildMessagingApi(connection, deps),
+
     getConnections: () => {
       return [...deps.connections.values()].map((target) => deps.toConnectionInfo(target));
     },
+
     // Live reads, not snapshots — so a context reused across a dispatch's
     // intercepts and handler always reflects current values.
     get connectionCount() {
       return deps.connections.size;
     },
+
     get bufferedAmount() {
       return connection.descriptor.bufferedAmount();
     },
+
     get latency() {
       return connection.latency;
     },
+
     get quality() {
       return deps.hibernationEnabled ? null : connection.quality;
     },
+
     // Built on first access — most handlers never touch `ctx.channels`.
     get channels() {
       return (channelsApi ??= buildChannelsApi(connection, deps));
     },
+
     schedule: (taskId, options) => {
       deps.scheduleTask(taskId, options.time, options.data);
     },
+
     cancelScheduled,
+
     setAlarm: (time) => {
       const timers = deps.requireTimers();
       if (timers.setAlarm) {
         void timers.setAlarm(time);
       }
     },
+
     ...buildNamespaceScopeExtra(connection, scope, deps),
     ...buildChannelScopeExtra(connection, scope, deps),
+
     sql,
     kv,
     env: deps.env,
@@ -162,7 +187,7 @@ export function buildConnectionContext(
             isTagGroupDeclared: deps.isTagGroupDeclared,
             toConnectionInfo: deps.toConnectionInfo,
             sendThroughPipeline: (target, event, payload) =>
-              deps.sendThroughPipeline(target, undefined, event, payload),
+              deps.sendThroughPipeline(target, { routing: undefined, event, payload }),
             persistAttachment: deps.persistAttachment,
             persistenceEnabled: deps.persistenceEnabled,
             requireStorage: deps.requireStorage,

@@ -13,7 +13,7 @@ test.describe('surface-area gaps', () => {
   }, testInfo) => {
     const room = `sag-${testInfo.testId}`;
     await openRig(page, '/namespace');
-    const a = await connect(page, '/ws/namespace', 'alice', room);
+    const a = await connect(page, { path: '/ws/namespace', username: 'alice', room: room });
 
     await send(page, a, {
       event: 'get-ns-info',
@@ -21,11 +21,9 @@ test.describe('surface-area gaps', () => {
       __wskit: { namespace: 'ns', correlationId: 'corr-1' },
     });
 
-    const reply = await waitForFrame(
-      page,
-      a,
-      (f) => f.event === 'get-ns-info' && f.__wskit?.correlationId === 'corr-1',
-    );
+    const reply = await waitForFrame(page, a, {
+      match: (f) => f.event === 'get-ns-info' && f.__wskit?.correlationId === 'corr-1',
+    });
     expect(reply.__wskit?.namespace).toBe('ns');
     expect(reply.payload.namespace).toBe('ns');
   });
@@ -36,7 +34,7 @@ test.describe('surface-area gaps', () => {
     const room = `sag-${testInfo.testId}`;
     await page.goto('/rate-limit');
     await installRig(page);
-    const a = await connect(page, '/ws/rate-limit', 'alice', room);
+    const a = await connect(page, { path: '/ws/rate-limit', username: 'alice', room: room });
 
     // Layer 1 — contract cap (top-level max=3). Fourth 'tick' rejected.
     for (let i = 0; i < 3; i += 1) {
@@ -83,7 +81,7 @@ test.describe('surface-area gaps', () => {
       payload: {},
       __wskit: { channel: 'rooms' },
     });
-    await waitForFrame(page, a, (f) => f.event === '__subscribeOk__');
+    await waitForFrame(page, a, { match: (f) => f.event === '__subscribeOk__' });
     await send(page, a, {
       event: 'chatter',
       payload: { text: 'hi' },
@@ -116,14 +114,14 @@ test.describe('surface-area gaps', () => {
     const room = `sag-${testInfo.testId}`;
     await page.goto('/replay-custom');
     await installRig(page);
-    const a = await connect(page, '/ws/replay-custom', 'alice', room);
+    const a = await connect(page, { path: '/ws/replay-custom', username: 'alice', room: room });
 
     await send(page, a, {
       event: '__subscribe__',
       payload: {},
       __wskit: { channel: 'custom-room' },
     });
-    await waitForFrame(page, a, (f) => f.event === '__subscribeOk__');
+    await waitForFrame(page, a, { match: (f) => f.event === '__subscribeOk__' });
 
     // Trigger one logged outgoing (room-note via add-room-note) so the
     // replay log has at least one row to look at.
@@ -132,11 +130,9 @@ test.describe('surface-area gaps', () => {
       payload: { text: 'before-stream' },
       __wskit: { channel: 'custom-room' },
     });
-    await waitForFrame(
-      page,
-      a,
-      (f) => f.event === 'room-note' && f.__wskit?.channel === 'custom-room',
-    );
+    await waitForFrame(page, a, {
+      match: (f) => f.event === 'room-note' && f.__wskit?.channel === 'custom-room',
+    });
 
     // Trigger the channel-scoped stream — it emits chunks via the outgoing
     // pipeline but those chunks must NOT show up in the customReplay log
@@ -146,18 +142,16 @@ test.describe('surface-area gaps', () => {
       payload: { count: 3 },
       __wskit: { channel: 'custom-room' },
     });
-    await waitForFrame(page, a, (f) => f.event === '__streamEnd__');
+    await waitForFrame(page, a, { match: (f) => f.event === '__streamEnd__' });
 
     await send(page, a, {
       event: 'query-room-replay-events',
       payload: {},
       __wskit: { channel: 'custom-room' },
     });
-    const logged = await waitForFrame(
-      page,
-      a,
-      (f) => f.event === 'room-replay-events' && f.__wskit?.channel === 'custom-room',
-    );
+    const logged = await waitForFrame(page, a, {
+      match: (f) => f.event === 'room-replay-events' && f.__wskit?.channel === 'custom-room',
+    });
     const events = logged.payload.events as string[];
     expect(events).toContain('room-note');
     expect(events).not.toContain('room-stream');
@@ -169,24 +163,22 @@ test.describe('surface-area gaps', () => {
     const room = `sag-${testInfo.testId}`;
     await page.goto('/intercept');
     await installRig(page);
-    const a = await connect(page, '/ws/intercept', 'alice', room);
+    const a = await connect(page, { path: '/ws/intercept', username: 'alice', room: room });
 
     await send(page, a, {
       event: 'intercepted-stream',
       payload: { text: 'hello' },
       __wskit: { namespace: 'ns' },
     });
-    const ok = await waitForFrame(page, a, (f) => f.event === '__streamOk__');
+    const ok = await waitForFrame(page, a, { match: (f) => f.event === '__streamOk__' });
     const streamId = ok.__wskit?.streamId as string;
 
-    const chunk = await waitForFrame(
-      page,
-      a,
-      (f) =>
+    const chunk = await waitForFrame(page, a, {
+      match: (f) =>
         f.event === 'intercepted-stream' &&
         f.__wskit?.streamId === streamId &&
         typeof f.payload?.text === 'string',
-    );
+    });
     // The namespace's intercept appends `-rewritten` to payload.text via
     // matches() narrowing before the generator receives it.
     expect(chunk.payload.text).toBe('hello-rewritten');

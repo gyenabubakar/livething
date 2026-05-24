@@ -295,16 +295,20 @@ function createTopLevelReplayContext(
         channel: wire.channel,
         channelScope: wire.channelScope,
       });
-      engine.sendReplay(
-        String(baseCtx.id),
-        wire.channel ?? null,
-        wire.channelScope ?? null,
+      engine.sendReplay(String(baseCtx.id), {
+        channelName: wire.channel ?? null,
+        channelScope: wire.channelScope ?? null,
         event,
         payload,
         wire,
-      );
+      });
     },
   };
+}
+
+export interface CreateChannelReplayContextOptions {
+  channelName: string;
+  channelScope: string | null;
 }
 
 /**
@@ -314,9 +318,9 @@ function createTopLevelReplayContext(
 function createChannelReplayContext(
   engine: EngineAccess,
   baseCtx: Record<PropertyKey, unknown>,
-  channelName: string,
-  channelScope: string | null,
+  options: CreateChannelReplayContextOptions,
 ): ChannelReplayContext {
+  const { channelName, channelScope } = options;
   return {
     id: String(baseCtx.id),
     meta: (baseCtx.meta as Record<string, unknown>) ?? {},
@@ -332,7 +336,13 @@ function createChannelReplayContext(
         channel: channelName,
         channelScope,
       });
-      engine.sendReplay(String(baseCtx.id), channelName, channelScope, event, payload, wire);
+      engine.sendReplay(String(baseCtx.id), {
+        channelName,
+        channelScope,
+        event,
+        payload,
+        wire,
+      });
     },
   };
 }
@@ -383,13 +393,12 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
       if (opts.onBeforeSend) {
         engine.onBeforeSend((message) => {
           if (
-            !shouldStoreReplayMessage(
+            !shouldStoreReplayMessage(message.event, {
               channelKey,
-              message.event,
-              message.wskit,
-              new Set(),
-              engine.getReplayClaimedChannelKeys(),
-            )
+              wskit: message.wskit,
+              exclude: new Set(),
+              claimedChannelKeys: engine.getReplayClaimedChannelKeys(),
+            })
           )
             return;
           opts.onBeforeSend!(
@@ -404,13 +413,12 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
       if (opts.onAfterSend) {
         engine.onAfterSend((message) => {
           if (
-            !shouldStoreReplayMessage(
+            !shouldStoreReplayMessage(message.event, {
               channelKey,
-              message.event,
-              message.wskit,
-              new Set(),
-              engine.getReplayClaimedChannelKeys(),
-            )
+              wskit: message.wskit,
+              exclude: new Set(),
+              claimedChannelKeys: engine.getReplayClaimedChannelKeys(),
+            })
           )
             return;
           return opts.onAfterSend!(
@@ -444,12 +452,10 @@ export function handleReplay<TScope extends CustomReplayScope = 'top'>(
 
         if (channelKey && scope.channelName) {
           await opts.onReplay(
-            createChannelReplayContext(
-              engine,
-              baseCtx,
-              scope.channelName,
-              frame.__wskit.channelScope ?? null,
-            ) as ReplayContext<CustomReplayScope>,
+            createChannelReplayContext(engine, baseCtx, {
+              channelName: scope.channelName,
+              channelScope: frame.__wskit.channelScope ?? null,
+            }) as ReplayContext<CustomReplayScope>,
             since,
           );
           return true;

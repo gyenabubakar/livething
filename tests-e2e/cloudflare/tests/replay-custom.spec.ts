@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
-function waitForText(page: Page, testId: string, expected: string | RegExp, timeout = 10_000) {
-  return expect(page.getByTestId(testId)).toHaveText(expected, { timeout });
+function waitForText(page: Page, testId: string, expected: string | RegExp) {
+  return expect(page.getByTestId(testId)).toHaveText(expected, { timeout: 10_000 });
 }
 
 test.describe('custom replay handler', () => {

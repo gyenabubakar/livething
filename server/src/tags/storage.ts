@@ -13,48 +13,51 @@ type RawTagRow = {
   added_at: number;
 };
 
+export interface InsertTagInput {
+  identity: string;
+  group: string;
+  key: string;
+  addedAt?: number;
+}
+
 /**
  * Insert or replace a durable tag row for the given identity. Called when
  * `ctx.tags.persistent(group).add(key)` runs.
  */
-export function insertTag(
-  sql: Pick<SQLProvider, 'exec'>,
-  identity: string,
-  group: string,
-  key: string,
-  addedAt: number = Date.now(),
-): void {
+export function insertTag(sql: Pick<SQLProvider, 'exec'>, input: InsertTagInput): void {
+  const addedAt = input.addedAt ?? Date.now();
   sql.exec(
     `
       INSERT OR REPLACE INTO __wskit_tags
         (identity, group_name, key, added_at)
       VALUES (?, ?, ?, ?)
     `,
-    identity,
-    group,
-    key,
+    input.identity,
+    input.group,
+    input.key,
     addedAt,
   );
+}
+
+export interface DeleteTagInput {
+  identity: string;
+  group: string;
+  key: string;
 }
 
 /**
  * Delete one durable tag row. Called when
  * `ctx.tags.persistent(group).remove(key)` runs.
  */
-export function deleteTag(
-  sql: Pick<SQLProvider, 'exec'>,
-  identity: string,
-  group: string,
-  key: string,
-): void {
+export function deleteTag(sql: Pick<SQLProvider, 'exec'>, input: DeleteTagInput): void {
   sql.exec(
     `
       DELETE FROM __wskit_tags
       WHERE identity = ? AND group_name = ? AND key = ?
     `,
-    identity,
-    group,
-    key,
+    input.identity,
+    input.group,
+    input.key,
   );
 }
 

@@ -1,6 +1,7 @@
 import { InternalError, WskitError } from '@wskit/core';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { ResolvedScope, RuntimeConnection } from '~/_engine/runtime/types.ts';
+import type { Logger } from '~/context.ts';
 
 /**
  * Runtime surface for sending normalised `__error__` frames.
@@ -18,15 +19,10 @@ interface RuntimeErrorDeps {
   resolveScopeFromRouting?(routing: Protocol.WskitRouting): ResolvedScope | undefined;
   declaredErrorCodes: ReadonlySet<string>;
   errorHooks: readonly ((ctx: unknown, error: unknown, event?: string) => void | Promise<void>)[];
-  logger: {
-    warn(message: string, data?: unknown): void;
-    error(message: string, data?: unknown): void;
-  };
+  logger: Pick<Logger, 'warn' | 'error'>;
   sendProtocolMessage(
     connection: RuntimeConnection,
-    event: string,
-    payload: Record<string, unknown>,
-    wskit: Record<string, unknown>,
+    opts: { event: string; payload: Record<string, unknown>; wskit: Record<string, unknown> },
   ): void;
 }
 
@@ -64,6 +60,12 @@ export function normalizeRuntimeError(
   return { payload: { code: InternalError.code }, wskit };
 }
 
+export interface SendRuntimeErrorOptions {
+  error: unknown;
+  event?: string;
+  routing?: Protocol.WskitRouting;
+}
+
 /**
  * Run `onError(...)` hooks for internal errors, then send the normalized
  * `__error__` protocol frame to the client.
@@ -71,10 +73,9 @@ export function normalizeRuntimeError(
 export async function sendRuntimeError(
   deps: RuntimeErrorDeps,
   connection: RuntimeConnection,
-  error: unknown,
-  event?: string,
-  routing?: Protocol.WskitRouting,
+  options: SendRuntimeErrorOptions,
 ): Promise<void> {
+  const { error, event, routing } = options;
   if (error instanceof WskitError && !deps.declaredErrorCodes.has(error.code)) {
     deps.logger.warn('[wskit] Thrown WskitError was not declared with errors(...)', {
       code: error.code,
@@ -100,7 +101,13 @@ export async function sendRuntimeError(
   }
 
   const { payload, wskit } = normalizeRuntimeError(error, routing);
-  deps.sendProtocolMessage(connection, '__error__', payload, wskit);
+  deps.sendProtocolMessage(connection, { event: '__error__', payload, wskit });
+}
+
+export interface NotifyValidationErrorOptions {
+  event: string;
+  validationError: unknown;
+  scope?: ResolvedScope;
 }
 
 /**
@@ -112,10 +119,9 @@ export async function sendRuntimeError(
 export async function notifyValidationError(
   deps: ValidationErrorDeps,
   connection: RuntimeConnection,
-  event: string,
-  validationError: unknown,
-  scope?: ResolvedScope,
+  options: NotifyValidationErrorOptions,
 ): Promise<void> {
+  const { event, validationError, scope } = options;
   if (deps.validationErrorHooks.length === 0) return;
 
   const ctx = deps.buildConnectionContext(connection, scope);

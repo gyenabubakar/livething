@@ -27,27 +27,35 @@ export function buildChannelHandle(
     name: scope.channelName,
     scope: scope.channelScope,
     send: (event: string, payload: unknown) =>
-      deps.sendThroughPipeline(
-        connection,
-        { channel: scope.channelName, channelScope: scope.channelScope },
+      deps.sendThroughPipeline(connection, {
+        routing: { channel: scope.channelName, channelScope: scope.channelScope },
         event,
         payload,
-      ),
+      }),
     broadcast: (event: string, payload: unknown, options?: { excludeSelf?: boolean }) => {
-      deps.broadcastToChannel(
-        scope.channelName,
+      deps.broadcastToChannel({
+        channelName: scope.channelName,
         event,
         payload,
-        connection.id,
-        scope.channelScope,
-        options?.excludeSelf,
-      );
+        excludeConnectionId: connection.id,
+        channelScope: scope.channelScope,
+        excludeSelf: options?.excludeSelf,
+      });
     },
     members: () => deps.getChannelMembers(scope.channelName, scope.channelScope),
     subscribe: (ref, payload) =>
-      deps.subscribeConnectionAsServer(ref, scope.channelName, scope.channelScope, payload),
+      deps.subscribeConnectionAsServer(ref, {
+        channelName: scope.channelName,
+        channelScope: scope.channelScope,
+        payload,
+      }),
     kick: (target, reason: string) =>
-      deps.kickChannelMembers(scope.channelName, target, reason, scope.channelScope),
+      deps.kickChannelMembers({
+        channelName: scope.channelName,
+        target,
+        reason,
+        channelScope: scope.channelScope,
+      }),
     removeMember: (identity: string) =>
       deps.removeChannelMember(scope.channelName, scope.channelScope, identity),
   };

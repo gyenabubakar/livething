@@ -412,11 +412,13 @@ export interface EngineAccess {
    */
   sendReplay(
     connectionId: string,
-    channelName: string | null,
-    channelScope: string | null,
-    event: string,
-    payload: unknown,
-    wire: { seq: number; messageId: string; channel?: string },
+    options: {
+      channelName: string | null;
+      channelScope: string | null;
+      event: string;
+      payload: unknown;
+      wire: { seq: number; messageId: string; channel?: string };
+    },
   ): void;
 
   /**

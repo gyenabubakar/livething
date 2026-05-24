@@ -16,7 +16,7 @@ export function createTaskContext(
     sql,
     kv,
     broadcast: (event, payload) => {
-      deps.broadcastToConnections([...deps.connections.values()], event, payload, undefined);
+      deps.broadcastToConnections([...deps.connections.values()], { event, payload });
     },
     sendToConnection: (connectionId, event, payload) => {
       const connection = deps.connections.get(connectionId);
@@ -27,7 +27,7 @@ export function createTaskContext(
         });
         return false;
       }
-      deps.sendThroughPipeline(connection, undefined, event, payload);
+      deps.sendThroughPipeline(connection, { routing: undefined, event, payload });
       return true;
     },
     getConnections: () => {

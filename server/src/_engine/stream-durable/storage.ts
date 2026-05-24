@@ -115,6 +115,17 @@ interface SqlExec {
   };
 }
 
+interface StreamRef {
+  identity: string;
+  streamId: string;
+}
+
+interface SubscriberRef {
+  storageIdentity: string;
+  streamId: string;
+  subscriberIdentity: string;
+}
+
 // All five statements (the PRAGMA + four CREATEs) bundled into one round
 // trip. The PRAGMA is repeated every boot anyway since SQLite resets it
 // per-connection, so it stays at the front of the bundle.
@@ -241,12 +252,9 @@ export function readStream(
 /** Persist the latest cursor + last_seq + activity timestamp for a resumable stream. */
 export function updateCursor(
   sql: SqlExec,
-  identity: string,
-  streamId: string,
-  cursor: string,
-  lastSeq: number,
-  now: number,
+  opts: StreamRef & { cursor: string; lastSeq: number; now: number },
 ): void {
+  const { identity, streamId, cursor, lastSeq, now } = opts;
   sql.exec(
     'UPDATE __wskit_streams SET cursor = ?, last_seq = ?, last_activity_at = ? WHERE identity = ? AND stream_id = ?',
     cursor,
@@ -260,11 +268,9 @@ export function updateCursor(
 /** Persist the latest last_seq + activity timestamp. Used when no cursor is yielded. */
 export function updateLastSeq(
   sql: SqlExec,
-  identity: string,
-  streamId: string,
-  lastSeq: number,
-  now: number,
+  opts: StreamRef & { lastSeq: number; now: number },
 ): void {
+  const { identity, streamId, lastSeq, now } = opts;
   sql.exec(
     'UPDATE __wskit_streams SET last_seq = ?, last_activity_at = ? WHERE identity = ? AND stream_id = ?',
     lastSeq,
@@ -275,7 +281,8 @@ export function updateLastSeq(
 }
 
 /** Move an active row to suspended so the sweep can age it out after `maxAgeMs`. */
-export function markSuspended(sql: SqlExec, identity: string, streamId: string, now: number): void {
+export function markSuspended(sql: SqlExec, opts: StreamRef & { now: number }): void {
+  const { identity, streamId, now } = opts;
   sql.exec(
     `UPDATE __wskit_streams SET status = 'suspended', last_activity_at = ?
      WHERE identity = ? AND stream_id = ? AND status = 'active'`,
@@ -286,7 +293,8 @@ export function markSuspended(sql: SqlExec, identity: string, streamId: string, 
 }
 
 /** Mark a row ended and stamp `ended_at` so the retention window starts ticking. */
-export function markEnded(sql: SqlExec, identity: string, streamId: string, now: number): void {
+export function markEnded(sql: SqlExec, opts: StreamRef & { now: number }): void {
+  const { identity, streamId, now } = opts;
   sql.exec(
     `UPDATE __wskit_streams SET status = 'ended', ended_at = ?, last_activity_at = ?
      WHERE identity = ? AND stream_id = ?`,
@@ -329,10 +337,9 @@ export function appendChunk(sql: SqlExec, input: AppendChunkInput): void {
 /** Read chunks with `seq > since`, ordered ascending. Used by resume to replay the tail. */
 export function readChunksSince(
   sql: SqlExec,
-  identity: string,
-  streamId: string,
-  since: number,
+  opts: StreamRef & { since: number },
 ): DurableStreamChunkRow[] {
+  const { identity, streamId, since } = opts;
   const rows = sql
     .exec(
       `SELECT * FROM __wskit_stream_chunks
@@ -366,12 +373,8 @@ export function countChunks(sql: SqlExec, identity: string, streamId: string): n
 }
 
 /** Delete the oldest chunks so only `keepNewest` remain. No-op if already within cap. */
-export function trimOldestChunks(
-  sql: SqlExec,
-  identity: string,
-  streamId: string,
-  keepNewest: number,
-): void {
+export function trimOldestChunks(sql: SqlExec, opts: StreamRef & { keepNewest: number }): void {
+  const { identity, streamId, keepNewest } = opts;
   sql.exec(
     `DELETE FROM __wskit_stream_chunks
      WHERE identity = ? AND stream_id = ?
@@ -400,12 +403,8 @@ export interface StreamSubscriber {
 }
 
 /** Add a subscriber row at caught-up seq 0. No-op when the row exists. */
-export function seedSubscriber(
-  sql: SqlExec,
-  storageIdentity: string,
-  streamId: string,
-  subscriberIdentity: string,
-): void {
+export function seedSubscriber(sql: SqlExec, opts: SubscriberRef): void {
+  const { storageIdentity, streamId, subscriberIdentity } = opts;
   sql.exec(
     `INSERT OR IGNORE INTO __wskit_stream_subscribers
      (identity, stream_id, subscriber_identity, caught_up_seq)
@@ -417,13 +416,8 @@ export function seedSubscriber(
 }
 
 /** Record how far a resume caught a subscriber up. Upserts the row. */
-export function setCaughtUpSeq(
-  sql: SqlExec,
-  storageIdentity: string,
-  streamId: string,
-  subscriberIdentity: string,
-  caughtUpSeq: number,
-): void {
+export function setCaughtUpSeq(sql: SqlExec, opts: SubscriberRef & { caughtUpSeq: number }): void {
+  const { storageIdentity, streamId, subscriberIdentity, caughtUpSeq } = opts;
   sql.exec(
     `INSERT INTO __wskit_stream_subscribers
      (identity, stream_id, subscriber_identity, caught_up_seq)
@@ -438,12 +432,8 @@ export function setCaughtUpSeq(
 }
 
 /** Read a subscriber's standing, or `null` when they have no row. */
-export function getSubscriber(
-  sql: SqlExec,
-  storageIdentity: string,
-  streamId: string,
-  subscriberIdentity: string,
-): StreamSubscriber | null {
+export function getSubscriber(sql: SqlExec, opts: SubscriberRef): StreamSubscriber | null {
+  const { storageIdentity, streamId, subscriberIdentity } = opts;
   const row = sql
     .exec(
       `SELECT caught_up_seq, unsubscribed_at FROM __wskit_stream_subscribers
@@ -461,13 +451,8 @@ export function getSubscriber(
 }
 
 /** Record that `subscriberIdentity` opted out of a broadcast stream. */
-export function markUnsubscribed(
-  sql: SqlExec,
-  storageIdentity: string,
-  streamId: string,
-  subscriberIdentity: string,
-  now: number,
-): void {
+export function markUnsubscribed(sql: SqlExec, opts: SubscriberRef & { now: number }): void {
+  const { storageIdentity, streamId, subscriberIdentity, now } = opts;
   sql.exec(
     `INSERT INTO __wskit_stream_subscribers
      (identity, stream_id, subscriber_identity, unsubscribed_at)
@@ -482,13 +467,8 @@ export function markUnsubscribed(
 }
 
 /** True when `subscriberIdentity` previously cancelled out of the broadcast. */
-export function isUnsubscribed(
-  sql: SqlExec,
-  storageIdentity: string,
-  streamId: string,
-  subscriberIdentity: string,
-): boolean {
-  return getSubscriber(sql, storageIdentity, streamId, subscriberIdentity)?.unsubscribedAt != null;
+export function isUnsubscribed(sql: SqlExec, opts: SubscriberRef): boolean {
+  return getSubscriber(sql, opts)?.unsubscribedAt != null;
 }
 
 /** Identifier pair returned by sweep queries, ready to pass to `deleteStream`. */

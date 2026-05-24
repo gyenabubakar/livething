@@ -71,38 +71,31 @@ interface DispatchRuntime
   ): Record<PropertyKey, unknown>;
   sendProtocolMessage(
     connection: EngineRuntimeTypes.RuntimeConnection,
-    event: string,
-    payload: Record<string, unknown>,
-    wskit: Record<string, unknown>,
+    opts: { event: string; payload: Record<string, unknown>; wskit: Record<string, unknown> },
   ): void;
   sendReplay(
     connection: EngineRuntimeTypes.RuntimeConnection,
-    channelName: string | null,
-    channelScope: string | null,
-    event: string,
-    payload: unknown,
-    wire: { seq: number; messageId: string; channel?: string },
+    opts: {
+      channelName: string | null;
+      channelScope: string | null;
+      event: string;
+      payload: unknown;
+      wire: { seq: number; messageId: string; channel?: string };
+    },
   ): void;
   persistAttachment(connection: EngineRuntimeTypes.RuntimeConnection): void;
   asyncContext?: PublicApi.AsyncContext;
   handleRuntimeError(
     connection: EngineRuntimeTypes.RuntimeConnection,
-    error: unknown,
-    event?: string,
-    routing?: WskitRouting,
+    opts: { error: unknown; event?: string; routing?: WskitRouting },
   ): Promise<void>;
   handleValidationError(
     connection: EngineRuntimeTypes.RuntimeConnection,
-    event: string,
-    validationError: unknown,
-    scope?: EngineRuntimeTypes.ResolvedScope,
+    opts: { event: string; validationError: unknown; scope?: EngineRuntimeTypes.ResolvedScope },
   ): Promise<void>;
   broadcastToConnections(
     connections: readonly EngineRuntimeTypes.RuntimeConnection[],
-    event: string,
-    payload: unknown,
-    options?: PublicApi.BroadcastOptions & { namespace?: string; channelScope?: string | null },
-    excludeConnectionId?: string,
+    opts: OutgoingRuntime.BroadcastToConnectionsOptions,
   ): void;
   handleSubscribe(
     connection: EngineRuntimeTypes.RuntimeConnection,
@@ -220,6 +213,22 @@ function buildInterceptRouting(
   return routing;
 }
 
+export interface DispatchIncomingOptions {
+  event: string;
+  payload: unknown;
+  wskit: Protocol.WskitProtocol | undefined;
+  attempt?: number;
+}
+
+interface HandleDispatchErrorOptions {
+  event: string;
+  payload: unknown;
+  wskit: Protocol.WskitProtocol | undefined;
+  scope: EngineRuntimeTypes.ResolvedScope;
+  error: unknown;
+  attempt: number;
+}
+
 /**
  * Main inbound event dispatcher.
  *
@@ -229,11 +238,9 @@ function buildInterceptRouting(
 export async function dispatchIncoming(
   runtime: DispatchRuntime,
   connection: EngineRuntimeTypes.RuntimeConnection,
-  event: string,
-  payload: unknown,
-  wskit: Protocol.WskitProtocol | undefined,
-  attempt = 0,
+  opts: DispatchIncomingOptions,
 ): Promise<void> {
+  const { event, payload, wskit, attempt = 0 } = opts;
   // Dedup runs in `processTextMessage`. Defer retries re-enter here directly
   // and skip dedup — that is the engine replaying its own work, not a resend.
 
@@ -242,7 +249,11 @@ export async function dispatchIncoming(
     scope = resolveScope(runtime.compiled, wskit);
   } catch (error) {
     // Bad routing markers — send the client a typed `__error__` frame.
-    await runtime.handleRuntimeError(connection, error, event, routingFromWskit(wskit));
+    await runtime.handleRuntimeError(connection, {
+      error,
+      event,
+      routing: routingFromWskit(wskit),
+    });
     return;
   }
   if (
@@ -253,9 +264,10 @@ export async function dispatchIncoming(
       scope.channelScope ?? null,
     )
   ) {
-    await runtime.handleRuntimeError(connection, ChannelNotSubscribed(), event, {
-      channel: scope.channelName,
-      channelScope: scope.channelScope ?? null,
+    await runtime.handleRuntimeError(connection, {
+      error: ChannelNotSubscribed(),
+      event,
+      routing: { channel: scope.channelName, channelScope: scope.channelScope ?? null },
     });
     return;
   }
@@ -308,32 +320,26 @@ export async function dispatchIncoming(
       kind: interceptKind,
       routing: interceptRouting,
     };
-    frame = await InterceptPrimitive.runIntercepts(
-      runtime,
-      connection,
-      runtime.compiled.intercepts,
+    frame = await InterceptPrimitive.runIntercepts(runtime, connection, {
+      intercepts: runtime.compiled.intercepts,
       frame,
       getCtx,
-    );
+    });
 
     if (scope.namespace) {
-      frame = await InterceptPrimitive.runIntercepts(
-        runtime,
-        connection,
-        scope.namespace.intercepts,
+      frame = await InterceptPrimitive.runIntercepts(runtime, connection, {
+        intercepts: scope.namespace.intercepts,
         frame,
         getCtx,
-      );
+      });
     }
 
     if (scope.channel) {
-      frame = await InterceptPrimitive.runIntercepts(
-        runtime,
-        connection,
-        scope.channel.intercepts,
+      frame = await InterceptPrimitive.runIntercepts(runtime, connection, {
+        intercepts: scope.channel.intercepts,
         frame,
         getCtx,
-      );
+      });
     }
 
     message = { event: frame.event, payload: frame.payload };
@@ -352,19 +358,26 @@ export async function dispatchIncoming(
       rethrowIfConfigError(error);
       // Route the validation error fully here and stop. Rethrowing would make
       // the outer catch fire the user hooks a second time.
-      await runtime.handleValidationError(connection, event, error, scope);
+      await runtime.handleValidationError(connection, { event, validationError: error, scope });
       // Keep routing markers (`correlationId`) so a bad-payload request settles
       // on the client instead of hanging until timeout.
-      await runtime.handleRuntimeError(connection, error, event, routingFromWskit(wskit));
+      await runtime.handleRuntimeError(connection, {
+        error,
+        event,
+        routing: routingFromWskit(wskit),
+      });
       return;
     }
 
     if (incoming) {
-      await InterceptPrimitive.runWithScopedContext(runtime, connection, getCtx(), (ctx) => {
-        // The ack id rides on this dispatch's own ctx so `ctx.ack()` confirms
-        // this message, never a later one that interleaved on the connection.
-        (ctx as Record<PropertyKey, unknown>)[ENGINE_ACK_ID] = wskit?.ackId;
-        return incoming.handler(ctx, payloadValue);
+      await InterceptPrimitive.runWithScopedContext(runtime, connection, {
+        ctx: getCtx(),
+        handler: (ctx) => {
+          // The ack id rides on this dispatch's own ctx so `ctx.ack()` confirms
+          // this message, never a later one that interleaved on the connection.
+          (ctx as Record<PropertyKey, unknown>)[ENGINE_ACK_ID] = wskit?.ackId;
+          return incoming.handler(ctx, payloadValue);
+        },
       });
       return;
     }
@@ -374,36 +387,23 @@ export async function dispatchIncoming(
         {
           buildConnectionContext: runtime.buildConnectionContext,
           asyncContext: runtime.asyncContext,
-          sendThroughPipeline: (nextConnection, routing, nextEvent, nextPayload) => {
-            return OutgoingRuntime.sendThroughPipeline(
-              runtime,
-              nextConnection,
-              routing,
-              nextEvent,
-              nextPayload,
-            );
+          sendThroughPipeline: (nextConnection, nextOpts) => {
+            return OutgoingRuntime.sendThroughPipeline(runtime, nextConnection, nextOpts);
           },
         },
-        connection,
-        scope,
-        event,
-        request,
-        payloadValue,
-        wskit,
+        { connection, scope, event, request, payload: payloadValue, wskit },
       );
       return;
     }
 
     if (stream) {
-      await StreamPrimitive.runStream(
-        runtime,
-        connection,
+      await StreamPrimitive.runStream(runtime, connection, {
         scope,
         event,
         stream,
-        payloadValue,
+        payload: payloadValue,
         wskit,
-      );
+      });
     } else if (resumableStream || recordedStream) {
       const durable = resumableStream ?? recordedStream!;
       if (!runtime.sql) {
@@ -420,46 +420,55 @@ export async function dispatchIncoming(
       await DurableStreamRuntime.runDurableStream(
         runtime as unknown as DurableStreamRuntime.DurableStreamRuntime,
         connection,
-        scope,
         {
-          event: durable.event,
-          kind: resumableStream ? 'resumable' : 'recorded',
-          generator: durable.generator,
-          allowConcurrent: durable.allowConcurrent,
-          broadcast: durable.broadcast ?? false,
-          nudges: durable.nudges,
-          maxChunks: recordedStream?.maxChunks ?? resumableStream?.maxChunks,
-          maxAgeMs: durable.maxAgeMs,
-          retentionAfterEndMs: durable.retentionAfterEndMs,
-          cursor: resumableStream?.cursor,
-          onDisconnect: durable.onDisconnect,
+          scope,
+          def: {
+            event: durable.event,
+            kind: resumableStream ? 'resumable' : 'recorded',
+            generator: durable.generator,
+            allowConcurrent: durable.allowConcurrent,
+            broadcast: durable.broadcast ?? false,
+            nudges: durable.nudges,
+            maxChunks: recordedStream?.maxChunks ?? resumableStream?.maxChunks,
+            maxAgeMs: durable.maxAgeMs,
+            retentionAfterEndMs: durable.retentionAfterEndMs,
+            cursor: resumableStream?.cursor,
+            onDisconnect: durable.onDisconnect,
+          },
+          payload: payloadValue,
+          wskit,
         },
-        payloadValue,
-        wskit,
       );
     }
   } catch (error) {
-    await handleDispatchError(runtime, connection, event, payload, wskit, scope, error, attempt);
+    await handleDispatchError(runtime, connection, {
+      event,
+      payload,
+      wskit,
+      scope,
+      error,
+      attempt,
+    });
   }
 }
 
 async function handleDispatchError(
   runtime: DispatchRuntime,
   connection: RuntimeConnection,
-  event: string,
-  payload: unknown,
-  wskit: Protocol.WskitProtocol | undefined,
-  scope: EngineRuntimeTypes.ResolvedScope,
-  error: unknown,
-  attempt: number,
+  opts: HandleDispatchErrorOptions,
 ): Promise<void> {
+  const { event, payload, wskit, scope, error, attempt } = opts;
   rethrowIfConfigError(error);
   if (error === Block) return;
 
   if (error instanceof WskitError && error.code === 'validation-failed') {
     // Pass `scope` so onValidationError hooks get the right channel/namespace ctx.
-    await runtime.handleValidationError(connection, event, error, scope);
-    await runtime.handleRuntimeError(connection, error, event, routingFromWskit(wskit));
+    await runtime.handleValidationError(connection, { event, validationError: error, scope });
+    await runtime.handleRuntimeError(connection, {
+      error,
+      event,
+      routing: routingFromWskit(wskit),
+    });
     return;
   }
 
@@ -493,14 +502,14 @@ async function handleDispatchError(
 
     const delay = Number((error as { delay: number }).delay);
     runtime.requireTimers().setTimeout(() => {
-      void dispatchIncoming(runtime, connection, event, payload, wskit, attempt + 1);
+      void dispatchIncoming(runtime, connection, { event, payload, wskit, attempt: attempt + 1 });
     }, delay);
     return;
   }
 
   // Keep routing markers (`correlationId`) so a thrown request error settles
   // on the client instead of hanging until timeout.
-  await runtime.handleRuntimeError(connection, error, event, routingFromWskit(wskit));
+  await runtime.handleRuntimeError(connection, { error, event, routing: routingFromWskit(wskit) });
 }
 
 // Find the compiled durable-stream def for a stored row, in the scope the row
@@ -591,12 +600,11 @@ async function handleResumeStream(
   const lastKnownSeq = frame.payload.lastKnownSeq ?? 0;
 
   if (!runtime.sql) {
-    runtime.sendProtocolMessage(
-      connection,
-      '__error__',
-      { code: 'stream-aborted', detail: { reason: 'not-found' as const } },
-      { streamId },
-    );
+    runtime.sendProtocolMessage(connection, {
+      event: '__error__',
+      payload: { code: 'stream-aborted', detail: { reason: 'not-found' as const } },
+      wskit: { streamId },
+    });
     return;
   }
   if (!runtime.durableStreamSchemaReady) {
@@ -612,15 +620,16 @@ async function handleResumeStream(
     /* malformed routing markers — fall back to top-level lookup */
   }
   const durableRuntime = runtime as unknown as DurableStreamRuntime.DurableStreamRuntime;
-  const row = DurableStreamRuntime.findResumeRow(durableRuntime, connection, resumeScope, streamId);
-  await DurableStreamRuntime.resumeDurableStream(
-    durableRuntime,
-    connection,
-    (matched) => resolveDurableDefForRow(runtime, connection, matched),
+  const row = DurableStreamRuntime.findResumeRow(durableRuntime, connection, {
+    resumeScope,
+    streamId,
+  });
+  await DurableStreamRuntime.resumeDurableStream(durableRuntime, connection, {
+    resolveDef: (matched) => resolveDurableDefForRow(runtime, connection, matched),
     row,
     streamId,
     lastKnownSeq,
-  );
+  });
 }
 
 /**
@@ -639,7 +648,10 @@ async function dispatchProtocolFrame(
   } catch (error) {
     const rawEvent = (parsed as { event?: unknown }).event;
     const event = typeof rawEvent === 'string' ? rawEvent : 'protocol';
-    await runtime.handleRuntimeError(connection, toValidationFailed(event, error), event);
+    await runtime.handleRuntimeError(connection, {
+      error: toValidationFailed(event, error),
+      event,
+    });
     return;
   }
 
@@ -665,8 +677,7 @@ async function dispatchProtocolFrame(
           await DurableStreamRuntime.cancelDurableStream(
             runtime as unknown as DurableStreamRuntime.DurableStreamRuntime,
             connection,
-            frame.__wskit.streamId,
-            cancelScope,
+            { streamId: frame.__wskit.streamId, cancelScope },
           );
         }
         return;
@@ -686,12 +697,11 @@ async function dispatchProtocolFrame(
       }
     }
   } catch (error) {
-    await runtime.handleRuntimeError(
-      connection,
+    await runtime.handleRuntimeError(connection, {
       error,
-      frame.event,
-      routingFromWskit(frame.__wskit),
-    );
+      event: frame.event,
+      routing: routingFromWskit(frame.__wskit),
+    });
   }
 }
 
@@ -759,7 +769,10 @@ export async function processTextMessage(
   try {
     frame = v.parse(Protocol.UserEventFrameSchema, parsed);
   } catch (error) {
-    await runtime.handleRuntimeError(connection, toValidationFailed(event, error), event);
+    await runtime.handleRuntimeError(connection, {
+      error: toValidationFailed(event, error),
+      event,
+    });
     return;
   }
   const wskit = frame.__wskit;
@@ -813,30 +826,24 @@ export async function processTextMessage(
             kind: 'nudge',
             routing: buildInterceptRouting(wskit),
           };
-          nudgeFrame = await InterceptPrimitive.runIntercepts(
-            runtime,
-            connection,
-            topIntercepts,
-            nudgeFrame,
+          nudgeFrame = await InterceptPrimitive.runIntercepts(runtime, connection, {
+            intercepts: topIntercepts,
+            frame: nudgeFrame,
             getCtx,
-          );
+          });
           if (nsIntercepts) {
-            nudgeFrame = await InterceptPrimitive.runIntercepts(
-              runtime,
-              connection,
-              nsIntercepts,
-              nudgeFrame,
+            nudgeFrame = await InterceptPrimitive.runIntercepts(runtime, connection, {
+              intercepts: nsIntercepts,
+              frame: nudgeFrame,
               getCtx,
-            );
+            });
           }
           if (chIntercepts) {
-            nudgeFrame = await InterceptPrimitive.runIntercepts(
-              runtime,
-              connection,
-              chIntercepts,
-              nudgeFrame,
+            nudgeFrame = await InterceptPrimitive.runIntercepts(runtime, connection, {
+              intercepts: chIntercepts,
+              frame: nudgeFrame,
               getCtx,
-            );
+            });
           }
           nudgePayload = nudgeFrame.payload;
         } catch (error) {
@@ -853,23 +860,23 @@ export async function processTextMessage(
             );
             return;
           }
-          await runtime.handleRuntimeError(connection, error, event, {
-            streamId: wskit.streamId,
+          await runtime.handleRuntimeError(connection, {
+            error,
+            event,
+            routing: { streamId: wskit.streamId },
           });
           return;
         }
       }
     }
 
-    const buffered = await StreamPrimitive.bufferStreamNudge(
-      runtime,
-      connection,
+    const buffered = await StreamPrimitive.bufferStreamNudge(runtime, connection, {
       event,
-      nudgePayload,
+      payload: nudgePayload,
       wskit,
-    );
+    });
     if (buffered) return;
   }
 
-  await dispatchIncoming(runtime, connection, event, frame.payload, wskit);
+  await dispatchIncoming(runtime, connection, { event, payload: frame.payload, wskit });
 }

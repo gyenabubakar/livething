@@ -1,10 +1,17 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
-async function goConnect(page: Page, room: string, streamId: string, username = 'ds-user') {
-  await page.goto(`/stream-durable?room=${room}`);
+interface GoConnectOptions {
+  room: string;
+  streamId: string;
+  username?: string;
+}
+
+async function goConnect(page: Page, opts: GoConnectOptions) {
+  const username = opts.username ?? 'ds-user';
+  await page.goto(`/stream-durable?room=${opts.room}`);
   await page.getByTestId('username').fill(username);
-  await page.getByTestId('stream-id').fill(streamId);
+  await page.getByTestId('stream-id').fill(opts.streamId);
   await page.getByTestId('connect').click();
   await expect(page.getByTestId('status')).toHaveText('connected');
 }
@@ -15,7 +22,7 @@ test.describe('stream-durable', () => {
   }, testInfo) => {
     const room = `sdb-${testInfo.testId}`;
     const streamId = 'conv-1';
-    await goConnect(page, room, streamId);
+    await goConnect(page, { room: room, streamId: streamId });
 
     // Run the full stream to completion. Buffer table has all 5 chunks.
     await page.getByTestId('start-count-tokens').click();
@@ -47,7 +54,7 @@ test.describe('stream-durable', () => {
   }, testInfo) => {
     const room = `sdb-${testInfo.testId}`;
     const streamId = 'pages-1';
-    await goConnect(page, room, streamId);
+    await goConnect(page, { room: room, streamId: streamId });
 
     await page.getByTestId('start-paginate').click();
 
@@ -76,7 +83,7 @@ test.describe('stream-durable', () => {
     page,
   }, testInfo) => {
     const room = `sdb-${testInfo.testId}`;
-    await goConnect(page, room, 'does-not-exist');
+    await goConnect(page, { room: room, streamId: 'does-not-exist' });
 
     await page.getByTestId('send-resume').click();
 
@@ -92,7 +99,7 @@ test.describe('stream-durable', () => {
   test('ctx.stream.attempt — 1 on first run, 2 after resume', async ({ page }, testInfo) => {
     const room = `sdb-${testInfo.testId}`;
     const streamId = 'attempt-1';
-    await goConnect(page, room, streamId);
+    await goConnect(page, { room: room, streamId: streamId });
 
     await page.getByTestId('start-attempt').click();
     await expect.poll(() => page.getByTestId('attempt-value').textContent()).toBe('1');
@@ -113,7 +120,7 @@ test.describe('stream-durable', () => {
   }, testInfo) => {
     const room = `sdb-${testInfo.testId}`;
     const streamId = 'bf-1';
-    await goConnect(page, room, streamId);
+    await goConnect(page, { room: room, streamId: streamId });
 
     await page.getByTestId('start-buffer-full').click();
 
@@ -189,7 +196,7 @@ test.describe('stream-durable', () => {
   }, testInfo) => {
     const room = `sdb-${testInfo.testId}`;
     const streamId = 'cancel-1';
-    await goConnect(page, room, streamId);
+    await goConnect(page, { room: room, streamId: streamId });
 
     await page.getByTestId('start-paginate').click();
     await expect

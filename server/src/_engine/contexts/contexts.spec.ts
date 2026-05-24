@@ -130,7 +130,11 @@ describe('sendToConnection', () => {
 
     const ctx = buildConnectionContext(deps, self);
     expect(ctx.sendToConnection('peer', 'evt', { text: 'hi' })).toBe(true);
-    expect(deps.sendThroughPipeline).toHaveBeenCalledWith(peer, undefined, 'evt', { text: 'hi' });
+    expect(deps.sendThroughPipeline).toHaveBeenCalledWith(peer, {
+      routing: undefined,
+      event: 'evt',
+      payload: { text: 'hi' },
+    });
   });
 });
 
@@ -271,13 +275,12 @@ describe('ctx.broadcast excludeSelf', () => {
     const ctx = buildConnectionContext(deps, self);
     ctx.broadcast('message', { text: 'hello' });
 
-    expect(broadcastToConnections).toHaveBeenCalledWith(
-      [self, peer],
-      'message',
-      { text: 'hello' },
-      undefined,
-      'self',
-    );
+    expect(broadcastToConnections).toHaveBeenCalledWith([self, peer], {
+      event: 'message',
+      payload: { text: 'hello' },
+      options: undefined,
+      excludeConnectionId: 'self',
+    });
   });
 
   it('includes self when excludeSelf is false', () => {
@@ -295,13 +298,12 @@ describe('ctx.broadcast excludeSelf', () => {
     const ctx = buildConnectionContext(deps, self);
     ctx.broadcast('message', { text: 'hello' }, { excludeSelf: false });
 
-    expect(broadcastToConnections).toHaveBeenCalledWith(
-      [self, peer],
-      'message',
-      { text: 'hello' },
-      { excludeSelf: false },
-      'self',
-    );
+    expect(broadcastToConnections).toHaveBeenCalledWith([self, peer], {
+      event: 'message',
+      payload: { text: 'hello' },
+      options: { excludeSelf: false },
+      excludeConnectionId: 'self',
+    });
   });
 });
 
@@ -349,12 +351,11 @@ describe('ctx.channel.send', () => {
     const ctx = buildConnectionContext(deps, connection, scope);
     (ctx as any).channel.send('greeting', { msg: 'hi' });
 
-    expect(sendThroughPipeline).toHaveBeenCalledWith(
-      connection,
-      { channel: 'general', channelScope: 'rooms' },
-      'greeting',
-      { msg: 'hi' },
-    );
+    expect(sendThroughPipeline).toHaveBeenCalledWith(connection, {
+      routing: { channel: 'general', channelScope: 'rooms' },
+      event: 'greeting',
+      payload: { msg: 'hi' },
+    });
     expect(broadcastToChannel).not.toHaveBeenCalled();
   });
 });
@@ -449,7 +450,12 @@ describe('ctx.channels.get(name).members()', () => {
     const ctx = buildConnectionContext(deps, connection);
     await (ctx as any).channels.get('room').kick('banned', 'spam');
 
-    expect(kickChannelMembers).toHaveBeenCalledWith('room', 'banned', 'spam', undefined);
+    expect(kickChannelMembers).toHaveBeenCalledWith({
+      channelName: 'room',
+      target: 'banned',
+      reason: 'spam',
+      channelScope: undefined,
+    });
   });
 });
 

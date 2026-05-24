@@ -226,6 +226,7 @@ const buildServe = defineServerAdapter<undefined, CloudflareDurableObjectClass>(
         await connection.handleBinary(normalizeBinary(message));
       }
 
+      // oxlint-disable-next-line max-params
       async webSocketClose(
         ws: WebSocket,
         code: number,

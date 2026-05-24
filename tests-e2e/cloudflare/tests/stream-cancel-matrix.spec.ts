@@ -18,21 +18,21 @@ test.describe('stream-cancel matrix', () => {
     const room = `scm-${testInfo.testId}`;
     await pageWithRig(page, '/stream-broadcast');
     const channelKey = `room:${testInfo.testId}`;
-    const a = await connect(page, '/ws/stream-broadcast', 'alice', room);
+    const a = await connect(page, { path: '/ws/stream-broadcast', username: 'alice', room: room });
 
     await send(page, a, {
       event: '__subscribe__',
       payload: {},
       __wskit: { channel: channelKey, channelScope: 'rooms' },
     });
-    await waitForFrame(page, a, (f) => f.event === '__subscribeOk__');
+    await waitForFrame(page, a, { match: (f) => f.event === '__subscribeOk__' });
 
     await send(page, a, {
       event: 'start-room-stream',
       payload: { count: 20 },
       __wskit: { channel: channelKey, channelScope: 'rooms' },
     });
-    const ok = await waitForFrame(page, a, (f) => f.event === '__streamOk__');
+    const ok = await waitForFrame(page, a, { match: (f) => f.event === '__streamOk__' });
     const streamId = ok.__wskit?.streamId as string;
     await page.waitForFunction(
       ([sid]) =>
@@ -64,14 +64,14 @@ test.describe('stream-cancel matrix', () => {
   }, testInfo) => {
     const room = `scm-${testInfo.testId}`;
     await pageWithRig(page, '/namespace');
-    const a = await connect(page, '/ws/namespace', 'alice', room);
+    const a = await connect(page, { path: '/ws/namespace', username: 'alice', room: room });
 
     await send(page, a, {
       event: 'start-ns-stream',
       payload: { count: 20 },
       __wskit: { namespace: 'ns' },
     });
-    const ok = await waitForFrame(page, a, (f) => f.event === '__streamOk__');
+    const ok = await waitForFrame(page, a, { match: (f) => f.event === '__streamOk__' });
     const streamId = ok.__wskit?.streamId as string;
     await page.waitForFunction(
       ([sid]) =>
@@ -102,9 +102,13 @@ test.describe('stream-cancel matrix', () => {
   }, testInfo) => {
     const room = `scm-${testInfo.testId}`;
     await pageWithRig(page, '/stream-durable-scoped');
-    const a = await connect(page, '/ws/stream-durable-scoped', 'alice', room);
+    const a = await connect(page, {
+      path: '/ws/stream-durable-scoped',
+      username: 'alice',
+      room: room,
+    });
     await send(page, a, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
-    await waitForFrame(page, a, (f) => f.event === '__subscribeOk__');
+    await waitForFrame(page, a, { match: (f) => f.event === '__subscribeOk__' });
 
     const streamId = 'history-cancel-1';
     await send(page, a, {
@@ -112,7 +116,7 @@ test.describe('stream-cancel matrix', () => {
       payload: {},
       __wskit: { channel: 'rooms', streamId },
     });
-    await waitForFrame(page, a, (f) => f.event === '__streamOk__');
+    await waitForFrame(page, a, { match: (f) => f.event === '__streamOk__' });
     await page.waitForFunction(
       ([sid]) =>
         (window.__wskitFrames!(sid as string) ?? []).filter(
@@ -133,7 +137,7 @@ test.describe('stream-cancel matrix', () => {
       payload: { lastKnownSeq: 0 },
       __wskit: { channel: 'rooms', streamId },
     });
-    const err = await waitForFrame(page, a, (f) => f.event === '__error__');
+    const err = await waitForFrame(page, a, { match: (f) => f.event === '__error__' });
     expect(err.payload.code).toBe('stream-aborted');
     expect((err.payload.detail as { reason: string }).reason).toBe('not-found');
   });
@@ -143,7 +147,11 @@ test.describe('stream-cancel matrix', () => {
   }, testInfo) => {
     const room = `scm-${testInfo.testId}`;
     await pageWithRig(page, '/stream-durable-scoped');
-    const a = await connect(page, '/ws/stream-durable-scoped', 'alice', room);
+    const a = await connect(page, {
+      path: '/ws/stream-durable-scoped',
+      username: 'alice',
+      room: room,
+    });
 
     const streamId = 'logs-cancel-1';
     await send(page, a, {
@@ -151,7 +159,7 @@ test.describe('stream-cancel matrix', () => {
       payload: {},
       __wskit: { namespace: 'v1', streamId },
     });
-    await waitForFrame(page, a, (f) => f.event === '__streamOk__');
+    await waitForFrame(page, a, { match: (f) => f.event === '__streamOk__' });
     await page.waitForFunction(
       ([sid]) =>
         (window.__wskitFrames!(sid as string) ?? []).filter(
@@ -172,7 +180,7 @@ test.describe('stream-cancel matrix', () => {
       payload: { lastKnownSeq: 0 },
       __wskit: { namespace: 'v1', streamId },
     });
-    const err = await waitForFrame(page, a, (f) => f.event === '__error__');
+    const err = await waitForFrame(page, a, { match: (f) => f.event === '__error__' });
     expect(err.payload.code).toBe('stream-aborted');
     expect((err.payload.detail as { reason: string }).reason).toBe('not-found');
   });
@@ -182,9 +190,13 @@ test.describe('stream-cancel matrix', () => {
   }, testInfo) => {
     const room = `scm-${testInfo.testId}`;
     await pageWithRig(page, '/stream-durable-scoped');
-    const a = await connect(page, '/ws/stream-durable-scoped', 'alice', room);
+    const a = await connect(page, {
+      path: '/ws/stream-durable-scoped',
+      username: 'alice',
+      room: room,
+    });
     await send(page, a, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
-    await waitForFrame(page, a, (f) => f.event === '__subscribeOk__');
+    await waitForFrame(page, a, { match: (f) => f.event === '__subscribeOk__' });
 
     const streamId = 'paginate-cancel-1';
     await send(page, a, {
@@ -192,7 +204,7 @@ test.describe('stream-cancel matrix', () => {
       payload: {},
       __wskit: { channel: 'rooms', streamId },
     });
-    await waitForFrame(page, a, (f) => f.event === '__streamOk__');
+    await waitForFrame(page, a, { match: (f) => f.event === '__streamOk__' });
     await page.waitForFunction(
       ([sid]) =>
         (window.__wskitFrames!(sid as string) ?? []).filter(
@@ -213,7 +225,7 @@ test.describe('stream-cancel matrix', () => {
       payload: { lastKnownSeq: 0 },
       __wskit: { channel: 'rooms', streamId },
     });
-    const err = await waitForFrame(page, a, (f) => f.event === '__error__');
+    const err = await waitForFrame(page, a, { match: (f) => f.event === '__error__' });
     expect(err.payload.code).toBe('stream-aborted');
     expect((err.payload.detail as { reason: string }).reason).toBe('not-found');
   });
@@ -223,7 +235,11 @@ test.describe('stream-cancel matrix', () => {
   }, testInfo) => {
     const room = `scm-${testInfo.testId}`;
     await pageWithRig(page, '/stream-durable-scoped');
-    const a = await connect(page, '/ws/stream-durable-scoped', 'alice', room);
+    const a = await connect(page, {
+      path: '/ws/stream-durable-scoped',
+      username: 'alice',
+      room: room,
+    });
 
     const streamId = 'audit-cancel-1';
     await send(page, a, {
@@ -231,7 +247,7 @@ test.describe('stream-cancel matrix', () => {
       payload: {},
       __wskit: { namespace: 'v1', streamId },
     });
-    await waitForFrame(page, a, (f) => f.event === '__streamOk__');
+    await waitForFrame(page, a, { match: (f) => f.event === '__streamOk__' });
     await page.waitForFunction(
       ([sid]) =>
         (window.__wskitFrames!(sid as string) ?? []).filter(
@@ -252,7 +268,7 @@ test.describe('stream-cancel matrix', () => {
       payload: { lastKnownSeq: 0 },
       __wskit: { namespace: 'v1', streamId },
     });
-    const err = await waitForFrame(page, a, (f) => f.event === '__error__');
+    const err = await waitForFrame(page, a, { match: (f) => f.event === '__error__' });
     expect(err.payload.code).toBe('stream-aborted');
     expect((err.payload.detail as { reason: string }).reason).toBe('not-found');
   });

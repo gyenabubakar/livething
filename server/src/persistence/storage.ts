@@ -87,15 +87,19 @@ export function ensurePersistenceSchema(sql: Pick<SQLProvider, 'exec'>): void {
 
 // ── Memberships ────────────────────────────────────────────────────────────
 
+export interface MembershipKey {
+  identity: string;
+  channelName: string;
+  channelScope: string | null;
+}
+
 /**
  * Insert or replace a durable membership row. Called on a successful subscribe
  * to a persistent channel.
  */
 export function insertMembership(
   sql: Pick<SQLProvider, 'exec'>,
-  identity: string,
-  channelName: string,
-  channelScope: string | null,
+  key: MembershipKey,
   joinedAt: number = Date.now(),
 ): void {
   sql.exec(
@@ -104,9 +108,9 @@ export function insertMembership(
         (identity, channel_name, channel_scope, joined_at)
       VALUES (?, ?, ?, ?)
     `,
-    identity,
-    channelName,
-    scopeToDb(channelScope),
+    key.identity,
+    key.channelName,
+    scopeToDb(key.channelScope),
     joinedAt,
   );
 }
@@ -115,20 +119,15 @@ export function insertMembership(
  * Delete a single durable membership row. Called on a true leave (client
  * `__unsubscribe__`, `removeMember`, kick) of a persistent channel.
  */
-export function deleteMembership(
-  sql: Pick<SQLProvider, 'exec'>,
-  identity: string,
-  channelName: string,
-  channelScope: string | null,
-): void {
+export function deleteMembership(sql: Pick<SQLProvider, 'exec'>, key: MembershipKey): void {
   sql.exec(
     `
       DELETE FROM __wskit_channel_memberships
       WHERE identity = ? AND channel_name = ? AND channel_scope = ?
     `,
-    identity,
-    channelName,
-    scopeToDb(channelScope),
+    key.identity,
+    key.channelName,
+    scopeToDb(key.channelScope),
   );
 }
 
@@ -158,12 +157,7 @@ export function listMembershipsByIdentity(
 }
 
 /** True when a durable membership row exists for this identity and channel scope. */
-export function membershipExists(
-  sql: Pick<SQLProvider, 'exec'>,
-  identity: string,
-  channelName: string,
-  channelScope: string | null,
-): boolean {
+export function membershipExists(sql: Pick<SQLProvider, 'exec'>, key: MembershipKey): boolean {
   return (
     sql
       .exec(
@@ -172,9 +166,9 @@ export function membershipExists(
           WHERE identity = ? AND channel_name = ? AND channel_scope = ?
           LIMIT 1
         `,
-        identity,
-        channelName,
-        scopeToDb(channelScope),
+        key.identity,
+        key.channelName,
+        scopeToDb(key.channelScope),
       )
       .toArray().length > 0
   );

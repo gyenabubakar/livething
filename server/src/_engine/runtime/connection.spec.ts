@@ -670,7 +670,11 @@ describe('connection runtime', () => {
       async leaveChannel() {},
     };
 
-    await handleConnectionClose(runtime as never, connection as never, 4001, 'kicked-by-admin');
+    await handleConnectionClose(runtime as never, {
+      connection: connection as never,
+      code: 4001,
+      reason: 'kicked-by-admin',
+    });
 
     expect(observedCode).toBe(4001);
     expect(observedReason).toBe('kicked-by-admin');
@@ -722,7 +726,11 @@ describe('connection runtime', () => {
       },
     };
 
-    await handleConnectionClose(runtime as never, connection as never, 1000, 'normal');
+    await handleConnectionClose(runtime as never, {
+      connection: connection as never,
+      code: 1000,
+      reason: 'normal',
+    });
 
     // Nothing ran — guard short-circuited at the top.
     expect(events).toEqual([]);
@@ -781,7 +789,11 @@ describe('connection runtime', () => {
     };
 
     await expect(
-      handleConnectionClose(runtime as never, connection as never, 1000, 'normal'),
+      handleConnectionClose(runtime as never, {
+        connection: connection as never,
+        code: 1000,
+        reason: 'normal',
+      }),
     ).resolves.toBeUndefined();
 
     // Channel-leave still ran despite the hook throwing.
@@ -849,7 +861,11 @@ describe('connection runtime', () => {
     };
 
     await expect(
-      handleConnectionClose(runtime as never, connection as never, 1000, 'normal'),
+      handleConnectionClose(runtime as never, {
+        connection: connection as never,
+        code: 1000,
+        reason: 'normal',
+      }),
     ).resolves.toBeUndefined();
 
     // Both channels were attempted, heartbeat cleared, and the throw was logged.

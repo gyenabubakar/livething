@@ -395,8 +395,6 @@ export interface ConnectionMembersRuntime {
   ): PublicApi.ConnectionInfo<Record<string, unknown>>;
   sendThroughPipeline(
     connection: RuntimeConnection,
-    routing: RoutingTarget | undefined,
-    event: string,
-    payload: unknown,
+    opts: { routing: RoutingTarget | undefined; event: string; payload: unknown },
   ): boolean;
 }

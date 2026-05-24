@@ -177,7 +177,7 @@ export async function cancelActiveStreamsForConnection(
         detached?: boolean;
       }
     >;
-    logger?: { error(message: string, fields?: Record<string, unknown>): void };
+    logger?: Pick<PublicApi.Logger, 'error'>;
   },
   connectionId: string,
 ): Promise<void> {
@@ -207,6 +207,12 @@ export async function cancelActiveStreamsForConnection(
   }
 }
 
+export interface HandleConnectionCloseOptions {
+  connection: EngineRuntimeTypes.RuntimeConnection;
+  code: number;
+  reason: string;
+}
+
 /**
  * Perform full close cleanup for a connection, including lifecycle hooks and
  * channel leaves.
@@ -232,20 +238,13 @@ export async function handleConnectionClose(
     ): Promise<void>;
     leaveChannel(
       connection: EngineRuntimeTypes.RuntimeConnection,
-      scope: {
-        channel?: EngineCompileTypes.CompiledChannel;
-        channelName: string;
-        channelScope: string | null;
-      },
-      kickedReason?: string,
-      disconnect?: boolean,
+      opts: ChannelPrimitive.LeaveChannelOptions,
     ): Promise<void>;
-    logger?: { error(message: string, fields?: Record<string, unknown>): void };
+    logger?: Pick<PublicApi.Logger, 'error'>;
   },
-  connection: EngineRuntimeTypes.RuntimeConnection,
-  code: number,
-  reason: string,
+  options: HandleConnectionCloseOptions,
 ): Promise<void> {
+  const { connection, code, reason } = options;
   // Idempotency guard. handleShutdown drives this directly so the close
   // cleanup completes before shutdown returns; the adapter's natural
   // webSocketClose callback may then fire a second time for the same
@@ -293,18 +292,15 @@ export async function handleConnectionClose(
     // one membership must not block later memberships from leaving and
     // must not block heartbeat cleanup below.
     try {
-      await runtime.leaveChannel(
-        connection,
-        {
-          channel: resolved,
-          channelName: membership.channelName,
-          channelScope: membership.channelScope,
-        },
-        undefined,
+      await runtime.leaveChannel(connection, {
+        channel: resolved,
+        channelName: membership.channelName,
+        channelScope: membership.channelScope,
+        kickedReason: undefined,
         // disconnect: socket-close path. Persistent channels keep their
         // durable rows so the user is auto-rejoined on next connect.
-        true,
-      );
+        disconnect: true,
+      });
     } catch (error) {
       runtime.logger?.error('[wskit] leaveChannel threw during close', {
         connectionId: connection.id,
@@ -382,7 +378,11 @@ export function acceptConnection(
 
   for (const ref of descriptor.tags ?? []) {
     if (ref.kind !== 'ephemeral') continue;
-    TagPrimitive.addConnectionTag(runtime.tagMembers, connection, 'ephemeral', ref.group, ref.key);
+    TagPrimitive.addConnectionTag(runtime.tagMembers, connection, {
+      kind: 'ephemeral',
+      group: ref.group,
+      key: ref.key,
+    });
   }
 
   runtime.connections.set(connection.id, connection);
@@ -513,16 +513,18 @@ export function wakeHibernatedConnection(
   runtime.wsToConnectionId.set(wsKey, connection.id);
 
   for (const t of row?.ephemeral_tags ?? []) {
-    TagPrimitive.addConnectionTag(runtime.tagMembers, connection, 'ephemeral', t.group, t.key);
+    TagPrimitive.addConnectionTag(runtime.tagMembers, connection, {
+      kind: 'ephemeral',
+      group: t.group,
+      key: t.key,
+    });
   }
 
   for (const membership of row?.ephemeral_memberships ?? []) {
-    ChannelPrimitive.addChannelMembership(
-      runtime.channelMembers,
-      connection,
-      membership.channelName,
-      membership.channelScope,
-    );
+    ChannelPrimitive.addChannelMembership(runtime.channelMembers, connection, {
+      channelName: membership.channelName,
+      channelScope: membership.channelScope,
+    });
   }
 
   // Re-persist so the row reflects the cleared active_stream_ids (the wake
@@ -657,7 +659,7 @@ export async function handleShutdown(
     cancelActiveStreamsForConnection(connectionId: string): Promise<void>;
     handleConnectionClose(connection: EngineRuntimeTypes.RuntimeConnection): Promise<void>;
     alarmState: { current: unknown | null };
-    logger?: { error(message: string, fields?: Record<string, unknown>): void };
+    logger?: Pick<PublicApi.Logger, 'error'>;
   },
 ): Promise<void> {
   // Shutdown is a best-effort drain: a throwing hook must not block

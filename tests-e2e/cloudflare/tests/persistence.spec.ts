@@ -81,8 +81,8 @@ async function waitForFrame(
   page: Page,
   id: string,
   match: (f: WireFrame) => boolean,
-  timeoutMs = 2000,
 ): Promise<WireFrame> {
+  const timeoutMs = 2000;
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     const all = await frames(page, id);

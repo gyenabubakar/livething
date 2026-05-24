@@ -76,6 +76,11 @@ export function installCtxNudges(ctx: Record<PropertyKey, unknown>): void {
   ctx.nudges = (value: unknown) => (Array.isArray(value) ? value : []);
 }
 
+export interface AssertNoConcurrentStreamOptions {
+  event: string;
+  allowConcurrent: boolean;
+}
+
 /**
  * Refuse to start a second stream for the same event on the same connection
  * unless `allowConcurrent` is true. Mirrors plain stream's pre-flight check.
@@ -83,9 +88,9 @@ export function installCtxNudges(ctx: Record<PropertyKey, unknown>): void {
 export function assertNoConcurrentStream(
   runtime: { activeStreams: ReadonlyMap<string, ActiveStream> },
   connection: RuntimeConnection,
-  event: string,
-  allowConcurrent: boolean,
+  options: AssertNoConcurrentStreamOptions,
 ): void {
+  const { event, allowConcurrent } = options;
   if (allowConcurrent) return;
   const ids = connection.activeStreamIds;
   if (!ids) return;

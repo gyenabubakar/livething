@@ -162,7 +162,11 @@ export class GroupBuilder<C extends Contract> {
 
   /** Attach a handler for one client→server event declared on the contract. */
   on<E extends keyof C['incoming'] & string>(event: E, handler: IncomingHandlerFor<C, E>): this {
-    setOnce(this._reg.incoming, event, handler as any, 'incoming', 'this group');
+    setOnce(this._reg.incoming, event, {
+      value: handler as any,
+      kind: 'incoming',
+      where: 'this group',
+    });
     return this;
   }
 
@@ -171,7 +175,11 @@ export class GroupBuilder<C extends Contract> {
     event: E,
     handler: RequestHandlerFor<C, E>,
   ): this {
-    setOnce(this._reg.requests, event, handler as any, 'request', 'this group');
+    setOnce(this._reg.requests, event, {
+      value: handler as any,
+      kind: 'request',
+      where: 'this group',
+    });
     return this;
   }
 
@@ -180,7 +188,11 @@ export class GroupBuilder<C extends Contract> {
     event: E,
     generator: StreamGeneratorFor<C, E>,
   ): this {
-    setOnce(this._reg.streams, event, generator as any, 'stream', 'this group');
+    setOnce(this._reg.streams, event, {
+      value: generator as any,
+      kind: 'stream',
+      where: 'this group',
+    });
     return this;
   }
 
@@ -189,7 +201,11 @@ export class GroupBuilder<C extends Contract> {
     event: E,
     generator: (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>,
   ): this {
-    setOnce(this._reg.resumableStreams, event, generator, 'resumableStream', 'this group');
+    setOnce(this._reg.resumableStreams, event, {
+      value: generator,
+      kind: 'resumableStream',
+      where: 'this group',
+    });
     return this;
   }
 
@@ -198,7 +214,11 @@ export class GroupBuilder<C extends Contract> {
     event: E,
     generator: (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>,
   ): this {
-    setOnce(this._reg.recordedStreams, event, generator, 'recordedStream', 'this group');
+    setOnce(this._reg.recordedStreams, event, {
+      value: generator,
+      kind: 'recordedStream',
+      where: 'this group',
+    });
     return this;
   }
 
@@ -207,7 +227,11 @@ export class GroupBuilder<C extends Contract> {
     id: I,
     handler: ScheduledHandlerFor<C, I>,
   ): this {
-    setOnce(this._reg.scheduled, id, handler as any, 'scheduled', 'this group');
+    setOnce(this._reg.scheduled, id, {
+      value: handler as any,
+      kind: 'scheduled',
+      where: 'this group',
+    });
     return this;
   }
 
@@ -218,7 +242,7 @@ export class GroupBuilder<C extends Contract> {
   ): this {
     const impl = new ChannelImplement<C, C['channels'][N]>();
     fn(impl);
-    setOnce(this._reg.channels, name, impl, 'channel', 'this group');
+    setOnce(this._reg.channels, name, { value: impl, kind: 'channel', where: 'this group' });
     return this;
   }
 
@@ -229,7 +253,7 @@ export class GroupBuilder<C extends Contract> {
   ): this {
     const impl = new NamespaceImplement<C, C['namespaces'][N]>();
     fn(impl);
-    setOnce(this._reg.namespaces, name, impl, 'namespace', 'this group');
+    setOnce(this._reg.namespaces, name, { value: impl, kind: 'namespace', where: 'this group' });
     return this;
   }
 
@@ -241,7 +265,11 @@ export class GroupBuilder<C extends Contract> {
     event: E,
     config: RateLimitConfig,
   ): this {
-    setOnce(this._reg.rateLimitOverrides, event, config, 'rateLimit override', 'this group');
+    setOnce(this._reg.rateLimitOverrides, event, {
+      value: config,
+      kind: 'rateLimit override',
+      where: 'this group',
+    });
     return this;
   }
 
@@ -488,7 +516,11 @@ export class Implementer<C extends Contract> {
    * ```
    */
   on<E extends keyof C['incoming'] & string>(event: E, handler: IncomingHandlerFor<C, E>): this {
-    setOnce(this._bag.incomingHandlers, event, handler as any, 'incoming', 'the implementer');
+    setOnce(this._bag.incomingHandlers, event, {
+      value: handler as any,
+      kind: 'incoming',
+      where: 'the implementer',
+    });
     return this;
   }
 
@@ -507,7 +539,11 @@ export class Implementer<C extends Contract> {
     event: E,
     handler: RequestHandlerFor<C, E>,
   ): this {
-    setOnce(this._bag.requestHandlers, event, handler as any, 'request', 'the implementer');
+    setOnce(this._bag.requestHandlers, event, {
+      value: handler as any,
+      kind: 'request',
+      where: 'the implementer',
+    });
     return this;
   }
 
@@ -529,7 +565,11 @@ export class Implementer<C extends Contract> {
     event: E,
     generator: StreamGeneratorFor<C, E>,
   ): this {
-    setOnce(this._bag.streamGenerators, event, generator as any, 'stream', 'the implementer');
+    setOnce(this._bag.streamGenerators, event, {
+      value: generator as any,
+      kind: 'stream',
+      where: 'the implementer',
+    });
     return this;
   }
 
@@ -557,13 +597,11 @@ export class Implementer<C extends Contract> {
     event: E,
     generator: (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>,
   ): this {
-    setOnce(
-      this._bag.resumableStreamGenerators,
-      event,
-      generator,
-      'resumableStream',
-      'the implementer',
-    );
+    setOnce(this._bag.resumableStreamGenerators, event, {
+      value: generator,
+      kind: 'resumableStream',
+      where: 'the implementer',
+    });
     return this;
   }
 
@@ -590,13 +628,11 @@ export class Implementer<C extends Contract> {
     event: E,
     generator: (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>,
   ): this {
-    setOnce(
-      this._bag.recordedStreamGenerators,
-      event,
-      generator,
-      'recordedStream',
-      'the implementer',
-    );
+    setOnce(this._bag.recordedStreamGenerators, event, {
+      value: generator,
+      kind: 'recordedStream',
+      where: 'the implementer',
+    });
     return this;
   }
 
@@ -615,7 +651,11 @@ export class Implementer<C extends Contract> {
     id: I,
     handler: ScheduledHandlerFor<C, I>,
   ): this {
-    setOnce(this._bag.scheduledHandlers, id, handler as any, 'scheduled', 'the implementer');
+    setOnce(this._bag.scheduledHandlers, id, {
+      value: handler as any,
+      kind: 'scheduled',
+      where: 'the implementer',
+    });
     return this;
   }
 
@@ -638,7 +678,11 @@ export class Implementer<C extends Contract> {
   ): this {
     const impl = new ChannelImplement<C, C['channels'][N]>();
     fn(impl);
-    setOnce(this._bag.channelImpls, name, impl, 'channel', 'the implementer');
+    setOnce(this._bag.channelImpls, name, {
+      value: impl,
+      kind: 'channel',
+      where: 'the implementer',
+    });
     return this;
   }
 
@@ -660,7 +704,11 @@ export class Implementer<C extends Contract> {
   ): this {
     const impl = new NamespaceImplement<C, C['namespaces'][N]>();
     fn(impl);
-    setOnce(this._bag.namespaceImpls, name, impl, 'namespace', 'the implementer');
+    setOnce(this._bag.namespaceImpls, name, {
+      value: impl,
+      kind: 'namespace',
+      where: 'the implementer',
+    });
     return this;
   }
 
@@ -671,31 +719,43 @@ export class Implementer<C extends Contract> {
   use(g: GroupBuilder<C>): this {
     const from = 'a group';
     for (const [event, handler] of g._reg.incoming) {
-      setOnce(this._bag.incomingHandlers, event, handler, 'incoming', from);
+      setOnce(this._bag.incomingHandlers, event, { value: handler, kind: 'incoming', where: from });
     }
     for (const [event, handler] of g._reg.requests) {
-      setOnce(this._bag.requestHandlers, event, handler, 'request', from);
+      setOnce(this._bag.requestHandlers, event, { value: handler, kind: 'request', where: from });
     }
     for (const [event, gen] of g._reg.streams) {
-      setOnce(this._bag.streamGenerators, event, gen, 'stream', from);
+      setOnce(this._bag.streamGenerators, event, { value: gen, kind: 'stream', where: from });
     }
     for (const [event, gen] of g._reg.resumableStreams) {
-      setOnce(this._bag.resumableStreamGenerators, event, gen, 'resumableStream', from);
+      setOnce(this._bag.resumableStreamGenerators, event, {
+        value: gen,
+        kind: 'resumableStream',
+        where: from,
+      });
     }
     for (const [event, gen] of g._reg.recordedStreams) {
-      setOnce(this._bag.recordedStreamGenerators, event, gen, 'recordedStream', from);
+      setOnce(this._bag.recordedStreamGenerators, event, {
+        value: gen,
+        kind: 'recordedStream',
+        where: from,
+      });
     }
     for (const [id, handler] of g._reg.scheduled) {
-      setOnce(this._bag.scheduledHandlers, id, handler, 'scheduled', from);
+      setOnce(this._bag.scheduledHandlers, id, { value: handler, kind: 'scheduled', where: from });
     }
     for (const [name, impl] of g._reg.channels) {
-      setOnce(this._bag.channelImpls, name, impl, 'channel', from);
+      setOnce(this._bag.channelImpls, name, { value: impl, kind: 'channel', where: from });
     }
     for (const [name, impl] of g._reg.namespaces) {
-      setOnce(this._bag.namespaceImpls, name, impl, 'namespace', from);
+      setOnce(this._bag.namespaceImpls, name, { value: impl, kind: 'namespace', where: from });
     }
     for (const [event, cfg] of g._reg.rateLimitOverrides) {
-      setOnce(this._bag.rateLimitOverrides, event, cfg, 'rateLimit override', from);
+      setOnce(this._bag.rateLimitOverrides, event, {
+        value: cfg,
+        kind: 'rateLimit override',
+        where: from,
+      });
     }
     if (g._reg.intercept) {
       if (this._bag.intercept) {
@@ -870,7 +930,11 @@ export class Implementer<C extends Contract> {
     event: E,
     config: RateLimitConfig,
   ): this {
-    setOnce(this._bag.rateLimitOverrides, event, config, 'rateLimit override', 'the implementer');
+    setOnce(this._bag.rateLimitOverrides, event, {
+      value: config,
+      kind: 'rateLimit override',
+      where: 'the implementer',
+    });
     return this;
   }
 

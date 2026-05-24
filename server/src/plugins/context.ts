@@ -23,16 +23,42 @@ export function createPluginScopedContext(
     get(target, key, receiver) {
       switch (key) {
         case 'send':
-          return wrapPrefixedSend(target, receiver, 'send', prefix, 'event-first');
+          return wrapPrefixedSend({
+            target,
+            receiver,
+            key: 'send',
+            prefix,
+            position: 'event-first',
+          });
         case 'broadcast':
-          return wrapPrefixedSend(target, receiver, 'broadcast', prefix, 'event-first');
+          return wrapPrefixedSend({
+            target,
+            receiver,
+            key: 'broadcast',
+            prefix,
+            position: 'event-first',
+          });
         case 'sendToConnection':
-          return wrapPrefixedSend(target, receiver, 'sendToConnection', prefix, 'event-second');
+          return wrapPrefixedSend({
+            target,
+            receiver,
+            key: 'sendToConnection',
+            prefix,
+            position: 'event-second',
+          });
         default:
           return Reflect.get(target, key, receiver);
       }
     },
   });
+}
+
+interface WrapPrefixedSendOptions {
+  target: Record<PropertyKey, unknown>;
+  receiver: unknown;
+  key: 'send' | 'broadcast' | 'sendToConnection';
+  prefix: (event: string) => string;
+  position: 'event-first' | 'event-second';
 }
 
 /**
@@ -44,13 +70,13 @@ export function createPluginScopedContext(
  *   - `event-first`  → `(event, payload, ...rest)` (e.g. `send`, `broadcast`)
  *   - `event-second` → `(target, event, payload)` (e.g. `sendTo`, `sendToConnection`)
  */
-function wrapPrefixedSend(
-  target: Record<PropertyKey, unknown>,
-  receiver: unknown,
-  key: 'send' | 'broadcast' | 'sendToConnection',
-  prefix: (event: string) => string,
-  position: 'event-first' | 'event-second',
-): (...args: unknown[]) => unknown {
+function wrapPrefixedSend({
+  target,
+  receiver,
+  key,
+  prefix,
+  position,
+}: WrapPrefixedSendOptions): (...args: unknown[]) => unknown {
   const original = Reflect.get(target, key, receiver) as (...args: unknown[]) => unknown;
   if (position === 'event-first') {
     return (event: unknown, ...rest: unknown[]) => original(prefix(event as string), ...rest);

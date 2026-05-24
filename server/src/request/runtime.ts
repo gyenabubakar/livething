@@ -13,10 +13,17 @@ interface RequestRuntime {
   asyncContext?: AsyncContext;
   sendThroughPipeline(
     connection: RuntimeConnection,
-    routing: RoutingTarget | undefined,
-    event: string,
-    payload: unknown,
+    opts: { routing: RoutingTarget | undefined; event: string; payload: unknown },
   ): boolean;
+}
+
+export interface HandleRequestOptions {
+  connection: RuntimeConnection;
+  scope: ResolvedScope;
+  event: string;
+  request: RequestPrimitive;
+  payload: unknown;
+  wskit: Protocol.WskitProtocol | undefined;
 }
 
 /**
@@ -30,21 +37,15 @@ interface RequestRuntime {
  */
 export async function handleRequest(
   runtime: RequestRuntime,
-  connection: RuntimeConnection,
-  scope: ResolvedScope,
-  event: string,
-  request: RequestPrimitive,
-  payload: unknown,
-  wskit: Protocol.WskitProtocol | undefined,
+  options: HandleRequestOptions,
 ): Promise<void> {
+  const { connection, scope, event, request, payload, wskit } = options;
   const correlationId = wskit?.correlationId;
   let response: unknown;
   let responded = false;
-  await runWithScopedContext(
-    runtime,
-    connection,
-    runtime.buildConnectionContext(connection, scope),
-    (ctx) => {
+  await runWithScopedContext(runtime, connection, {
+    ctx: runtime.buildConnectionContext(connection, scope),
+    handler: (ctx) => {
       (ctx as Record<PropertyKey, unknown>).respond = (value: unknown) => {
         if (responded) {
           throw new Error('[wskit] ctx.respond() was already called for this request invocation.');
@@ -54,22 +55,21 @@ export async function handleRequest(
       };
       return request.handler(ctx, payload);
     },
-  );
+  });
 
   // Handler that never called ctx.respond() — leave the request hanging on
   // the client side. Pushing `undefined` through the pipeline would fail the
   // payload-must-be-an-object check and surface as a spurious internal error.
   if (!responded) return;
 
-  runtime.sendThroughPipeline(
-    connection,
-    {
+  runtime.sendThroughPipeline(connection, {
+    routing: {
       namespace: scope.namespace?.name,
       channel: scope.channelName,
       channelScope: scope.channelScope,
       correlationId,
     },
     event,
-    response,
-  );
+    payload: response,
+  });
 }

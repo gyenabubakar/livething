@@ -17,7 +17,7 @@ import type {
   RoutingTarget,
   RuntimeConnection,
 } from '~/_engine/runtime/types.ts';
-import type { AsyncContext } from '~/context.ts';
+import type { AsyncContext, Logger } from '~/context.ts';
 import { isCursorChunk, makeCursorChunk } from './cursor.ts';
 import * as Storage from './storage.ts';
 import { computeBroadcastScopeKey } from './types.ts';
@@ -28,7 +28,7 @@ export interface DurableStreamRuntime {
   activeStreams: Map<string, ActiveStream>;
   connections: ReadonlyMap<string, RuntimeConnection>;
   generateId(prefix?: string): string;
-  logger: { warn(message: string, data?: Record<string, unknown>): void };
+  logger: Pick<Logger, 'warn'>;
   errorHooks: readonly ((ctx: unknown, error: unknown, event?: string) => void | Promise<void>)[];
   buildConnectionContext(
     connection: RuntimeConnection,
@@ -36,22 +36,20 @@ export interface DurableStreamRuntime {
   ): Record<PropertyKey, unknown>;
   sendProtocolMessage(
     connection: RuntimeConnection,
-    event: string,
-    payload: Record<string, unknown>,
-    wskit: Record<string, unknown>,
+    opts: { event: string; payload: Record<string, unknown>; wskit: Record<string, unknown> },
   ): void;
   sendThroughPipeline(
     connection: RuntimeConnection,
-    routing: RoutingTarget | undefined,
-    event: string,
-    payload: unknown,
+    opts: { routing: RoutingTarget | undefined; event: string; payload: unknown },
   ): boolean;
   broadcastToConnections(
     connections: readonly RuntimeConnection[],
-    event: string,
-    payload: unknown,
-    options?: { namespace?: string; channel?: string; channelScope?: string | null },
-    excludeConnectionId?: string,
+    opts: {
+      event: string;
+      payload: unknown;
+      options?: { namespace?: string; channel?: string; channelScope?: string | null };
+      excludeConnectionId?: string;
+    },
   ): void;
   asyncContext?: AsyncContext;
   persistAttachment(connection: RuntimeConnection): void;
@@ -61,9 +59,7 @@ export interface DurableStreamRuntime {
   };
   handleRuntimeError(
     connection: RuntimeConnection,
-    error: unknown,
-    event?: string,
-    routing?: Protocol.WskitRouting,
+    opts: { error: unknown; event?: string; routing?: Protocol.WskitRouting },
   ): Promise<void>;
 }
 
@@ -125,13 +121,15 @@ function chunkToPayload(chunkValue: unknown): Record<string, unknown> {
  * before the loop, then only the per-chunk `seq` (a plain number) and the
  * optional `messageId` are appended.
  */
-function sendChunkFrames(
-  connection: RuntimeConnection,
-  eventName: string,
-  chunks: Storage.DurableStreamChunkRow[],
-  scopeMarkers: Record<string, unknown>,
-  streamId: string,
-): void {
+interface SendChunkFramesOpts {
+  eventName: string;
+  chunks: Storage.DurableStreamChunkRow[];
+  scopeMarkers: Record<string, unknown>;
+  streamId: string;
+}
+
+function sendChunkFrames(connection: RuntimeConnection, opts: SendChunkFramesOpts): void {
+  const { eventName, chunks, scopeMarkers, streamId } = opts;
   if (chunks.length === 0) return;
 
   const eventJson = JSON.stringify(eventName);
@@ -157,34 +155,41 @@ function readSuppliedStreamId(wskit: Protocol.WskitProtocol | undefined): string
 
 function ensureUniqueStreamId(
   runtime: DurableStreamRuntime,
-  _connection: RuntimeConnection,
-  streamId: string,
-  storageIdentity: string,
+  opts: { streamId: string; storageIdentity: string },
 ): void {
+  const { streamId, storageIdentity } = opts;
   if (runtime.activeStreams.has(streamId)) throw StreamIdCollision();
   // Same stream id already active under this storage identity on another socket.
   const row = Storage.readStream(runtime.sql, storageIdentity, streamId);
   if (row && row.status === 'active') throw StreamIdCollision();
 }
 
+export interface RunDurableStreamOptions {
+  scope: ResolvedScope;
+  def: DurableStreamRuntimeDef;
+  payload: unknown;
+  wskit: Protocol.WskitProtocol | undefined;
+}
+
 /** Start a fresh durable stream from a client trigger frame. */
 export async function runDurableStream(
   runtime: DurableStreamRuntime,
   connection: RuntimeConnection,
-  scope: ResolvedScope,
-  def: DurableStreamRuntimeDef,
-  payload: unknown,
-  wskit: Protocol.WskitProtocol | undefined,
+  opts: RunDurableStreamOptions,
 ): Promise<void> {
+  const { scope, def, payload, wskit } = opts;
   const creatorIdentity = connection.identity ?? connection.id;
   // Broadcast streams key the row by scope so every subscriber finds the same row.
   const storageIdentity = def.broadcast ? computeBroadcastScopeKey(scope) : creatorIdentity;
 
-  assertNoConcurrentStream(runtime, connection, def.event, def.allowConcurrent);
+  assertNoConcurrentStream(runtime, connection, {
+    event: def.event,
+    allowConcurrent: def.allowConcurrent,
+  });
 
   const supplied = readSuppliedStreamId(wskit);
   const streamId = supplied ?? runtime.generateId('dstream');
-  ensureUniqueStreamId(runtime, connection, streamId, storageIdentity);
+  ensureUniqueStreamId(runtime, { streamId, storageIdentity });
 
   const now = Date.now();
   Storage.insertStream(runtime.sql, {
@@ -211,24 +216,30 @@ export async function runDurableStream(
       excludeConnectionId: connection.id,
       scope,
     })) {
-      Storage.seedSubscriber(runtime.sql, storageIdentity, streamId, member.identity ?? member.id);
+      Storage.seedSubscriber(runtime.sql, {
+        storageIdentity,
+        streamId,
+        subscriberIdentity: member.identity ?? member.id,
+      });
     }
   }
 
-  runtime.sendProtocolMessage(connection, '__streamOk__', {}, { ...scopeWskit(scope), streamId });
+  runtime.sendProtocolMessage(connection, {
+    event: '__streamOk__',
+    payload: {},
+    wskit: { ...scopeWskit(scope), streamId },
+  });
 
-  await runGenerator(
-    runtime,
-    connection,
+  await runGenerator(runtime, connection, {
     scope,
     def,
     payload,
     streamId,
-    storageIdentity,
-    null,
-    1,
-    0,
-  );
+    identity: storageIdentity,
+    initialCursor: null,
+    attempt: 1,
+    startSeq: 0,
+  });
 }
 
 /**
@@ -239,9 +250,9 @@ export async function runDurableStream(
 export function findResumeRow(
   runtime: DurableStreamRuntime,
   connection: RuntimeConnection,
-  resumeScope: ResolvedScope,
-  streamId: string,
+  opts: { resumeScope: ResolvedScope; streamId: string },
 ): Storage.DurableStreamRow | null {
+  const { resumeScope, streamId } = opts;
   const realIdentity = connection.identity ?? connection.id;
   const single = Storage.readStream(runtime.sql, realIdentity, streamId);
   if (single) return single;
@@ -249,24 +260,28 @@ export function findResumeRow(
   return Storage.readStream(runtime.sql, scopeKey, streamId);
 }
 
+export interface ResumeDurableStreamOptions {
+  resolveDef: (
+    row: Storage.DurableStreamRow,
+  ) => { def: DurableStreamRuntimeDef; scope: ResolvedScope } | undefined;
+  row: Storage.DurableStreamRow | null;
+  streamId: string;
+  lastKnownSeq: number;
+}
+
 /** Handle a client `__resumeStream__` frame for a suspended or ended durable stream. */
 export async function resumeDurableStream(
   runtime: DurableStreamRuntime,
   connection: RuntimeConnection,
-  resolveDef: (
-    row: Storage.DurableStreamRow,
-  ) => { def: DurableStreamRuntimeDef; scope: ResolvedScope } | undefined,
-  row: Storage.DurableStreamRow | null,
-  streamId: string,
-  lastKnownSeq: number,
+  opts: ResumeDurableStreamOptions,
 ): Promise<void> {
+  const { resolveDef, row, streamId, lastKnownSeq } = opts;
   if (!row) {
-    runtime.sendProtocolMessage(
-      connection,
-      '__error__',
-      { code: StreamAborted.code, detail: { reason: 'not-found' as const } },
-      { streamId },
-    );
+    runtime.sendProtocolMessage(connection, {
+      event: '__error__',
+      payload: { code: StreamAborted.code, detail: { reason: 'not-found' as const } },
+      wskit: { streamId },
+    });
     return;
   }
 
@@ -277,12 +292,11 @@ export async function resumeDurableStream(
     row.lastActivityAt + row.maxAgeMs < nowAtResume
   ) {
     Storage.deleteStream(runtime.sql, row.identity, streamId);
-    runtime.sendProtocolMessage(
-      connection,
-      '__error__',
-      { code: StreamAborted.code, detail: { reason: 'expired' as const } },
-      { ...rowWskit(row), streamId },
-    );
+    runtime.sendProtocolMessage(connection, {
+      event: '__error__',
+      payload: { code: StreamAborted.code, detail: { reason: 'expired' as const } },
+      wskit: { ...rowWskit(row), streamId },
+    });
     return;
   }
   if (
@@ -292,12 +306,11 @@ export async function resumeDurableStream(
     row.endedAt + row.retentionAfterEndMs < nowAtResume
   ) {
     Storage.deleteStream(runtime.sql, row.identity, streamId);
-    runtime.sendProtocolMessage(
-      connection,
-      '__error__',
-      { code: StreamAborted.code, detail: { reason: 'not-found' as const } },
-      { ...rowWskit(row), streamId },
-    );
+    runtime.sendProtocolMessage(connection, {
+      event: '__error__',
+      payload: { code: StreamAborted.code, detail: { reason: 'not-found' as const } },
+      wskit: { ...rowWskit(row), streamId },
+    });
     return;
   }
 
@@ -305,25 +318,27 @@ export async function resumeDurableStream(
   const realIdentityForGuard = connection.identity ?? connection.id;
   if (
     row.broadcast &&
-    Storage.isUnsubscribed(runtime.sql, storageIdentity, streamId, realIdentityForGuard)
+    Storage.isUnsubscribed(runtime.sql, {
+      storageIdentity,
+      streamId,
+      subscriberIdentity: realIdentityForGuard,
+    })
   ) {
-    runtime.sendProtocolMessage(
-      connection,
-      '__error__',
-      { code: StreamAborted.code, detail: { reason: 'unsubscribed' as const } },
-      { streamId },
-    );
+    runtime.sendProtocolMessage(connection, {
+      event: '__error__',
+      payload: { code: StreamAborted.code, detail: { reason: 'unsubscribed' as const } },
+      wskit: { streamId },
+    });
     return;
   }
 
   const resolved = resolveDef(row);
   if (!resolved) {
-    runtime.sendProtocolMessage(
-      connection,
-      '__error__',
-      { code: StreamAborted.code, detail: { reason: 'not-found' as const } },
-      { streamId },
-    );
+    runtime.sendProtocolMessage(connection, {
+      event: '__error__',
+      payload: { code: StreamAborted.code, detail: { reason: 'not-found' as const } },
+      wskit: { streamId },
+    });
     return;
   }
   const { def, scope } = resolved;
@@ -347,9 +362,17 @@ export async function resumeDurableStream(
       connection.activeStreamIds.add(streamId);
       runtime.persistAttachment(connection);
 
-      runtime.sendProtocolMessage(connection, '__streamOk__', {}, { ...scopeMarkers, streamId });
-      const chunks = Storage.readChunksSince(runtime.sql, storageIdentity, streamId, lastKnownSeq);
-      sendChunkFrames(connection, def.event, chunks, scopeMarkers, streamId);
+      runtime.sendProtocolMessage(connection, {
+        event: '__streamOk__',
+        payload: {},
+        wskit: { ...scopeMarkers, streamId },
+      });
+      const chunks = Storage.readChunksSince(runtime.sql, {
+        identity: storageIdentity,
+        streamId,
+        since: lastKnownSeq,
+      });
+      sendChunkFrames(connection, { eventName: def.event, chunks, scopeMarkers, streamId });
       return;
     }
   }
@@ -368,21 +391,29 @@ export async function resumeDurableStream(
   }
 
   if (row.kind === 'recorded' || isPeerSubscriber) {
-    const chunks = Storage.readChunksSince(runtime.sql, storageIdentity, streamId, lastKnownSeq);
-    sendChunkFrames(connection, def.event, chunks, scopeMarkers, streamId);
+    const chunks = Storage.readChunksSince(runtime.sql, {
+      identity: storageIdentity,
+      streamId,
+      since: lastKnownSeq,
+    });
+    sendChunkFrames(connection, { eventName: def.event, chunks, scopeMarkers, streamId });
     if (isPeerSubscriber) {
       const caughtUpSeq = chunks.length > 0 ? chunks[chunks.length - 1]!.seq : lastKnownSeq;
-      Storage.setCaughtUpSeq(runtime.sql, storageIdentity, streamId, realIdentity, caughtUpSeq);
+      Storage.setCaughtUpSeq(runtime.sql, {
+        storageIdentity,
+        streamId,
+        subscriberIdentity: realIdentity,
+        caughtUpSeq,
+      });
     }
   }
 
   if (row.status === 'ended') {
-    runtime.sendProtocolMessage(
-      connection,
-      '__streamEnd__',
-      {},
-      { ...scopeMarkers, streamId, seq: row.lastSeq },
-    );
+    runtime.sendProtocolMessage(connection, {
+      event: '__streamEnd__',
+      payload: {},
+      wskit: { ...scopeMarkers, streamId, seq: row.lastSeq },
+    });
     return;
   }
 
@@ -391,13 +422,12 @@ export async function resumeDurableStream(
 
   if (row.kind === 'recorded') {
     // Recorded streams have no cursor — they can't resume, so end the stream.
-    Storage.markEnded(runtime.sql, storageIdentity, streamId, Date.now());
-    runtime.sendProtocolMessage(
-      connection,
-      '__streamEnd__',
-      {},
-      { ...scopeMarkers, streamId, seq: row.lastSeq },
-    );
+    Storage.markEnded(runtime.sql, { identity: storageIdentity, streamId, now: Date.now() });
+    runtime.sendProtocolMessage(connection, {
+      event: '__streamEnd__',
+      payload: {},
+      wskit: { ...scopeMarkers, streamId, seq: row.lastSeq },
+    });
     return;
   }
 
@@ -407,17 +437,20 @@ export async function resumeDurableStream(
     try {
       cursor = def.cursor ? validateValue(def.cursor, raw, '__resumeStream__') : raw;
     } catch {
-      runtime.sendProtocolMessage(
-        connection,
-        '__error__',
-        { code: StreamAborted.code, detail: { reason: 'cursor-invalid' as const } },
-        { ...scopeMarkers, streamId },
-      );
+      runtime.sendProtocolMessage(connection, {
+        event: '__error__',
+        payload: { code: StreamAborted.code, detail: { reason: 'cursor-invalid' as const } },
+        wskit: { ...scopeMarkers, streamId },
+      });
       return;
     }
   }
   const payload = JSON.parse(row.payload);
-  runtime.sendProtocolMessage(connection, '__streamOk__', {}, { ...scopeMarkers, streamId });
+  runtime.sendProtocolMessage(connection, {
+    event: '__streamOk__',
+    payload: {},
+    wskit: { ...scopeMarkers, streamId },
+  });
 
   runtime.sql.exec(
     "UPDATE __wskit_streams SET status = 'active', last_activity_at = ? WHERE identity = ? AND stream_id = ?",
@@ -426,18 +459,16 @@ export async function resumeDurableStream(
     streamId,
   );
 
-  await runGenerator(
-    runtime,
-    connection,
+  await runGenerator(runtime, connection, {
     scope,
     def,
     payload,
     streamId,
-    storageIdentity,
-    cursor,
-    2,
-    row.lastSeq,
-  );
+    identity: storageIdentity,
+    initialCursor: cursor,
+    attempt: 2,
+    startSeq: row.lastSeq,
+  });
 }
 
 /** Delete suspended rows past `maxAgeMs` and ended rows past `retentionAfterEndMs`. */
@@ -455,18 +486,23 @@ export function sweepDurableStreams(runtime: { sql: DurableStreamRuntime['sql'] 
   return deleted;
 }
 
+interface RunGeneratorOptions {
+  scope: ResolvedScope;
+  def: DurableStreamRuntimeDef;
+  payload: unknown;
+  streamId: string;
+  identity: string;
+  initialCursor: unknown;
+  attempt: number;
+  startSeq: number;
+}
+
 async function runGenerator(
   runtime: DurableStreamRuntime,
   connection: RuntimeConnection,
-  scope: ResolvedScope,
-  def: DurableStreamRuntimeDef,
-  payload: unknown,
-  streamId: string,
-  identity: string,
-  initialCursor: unknown,
-  attempt: number,
-  startSeq: number,
+  opts: RunGeneratorOptions,
 ): Promise<void> {
+  const { scope, def, payload, streamId, identity, initialCursor, attempt, startSeq } = opts;
   const ctx = runtime.buildConnectionContext(connection, scope) as Record<PropertyKey, unknown>;
   ctx.stream = {
     id: streamId,
@@ -526,7 +562,11 @@ async function runGenerator(
         if (def.maxChunks) {
           const count = Storage.countChunks(runtime.sql, identity, streamId);
           if (count > def.maxChunks) {
-            Storage.trimOldestChunks(runtime.sql, identity, streamId, def.maxChunks);
+            Storage.trimOldestChunks(runtime.sql, {
+              identity,
+              streamId,
+              keepNewest: def.maxChunks,
+            });
             try {
               await iterator.throw(StreamAborted({ reason: 'buffer-full' }));
             } catch (err) {
@@ -539,16 +579,15 @@ async function runGenerator(
       }
 
       if (def.kind === 'resumable' && cursorValue !== undefined) {
-        Storage.updateCursor(
-          runtime.sql,
+        Storage.updateCursor(runtime.sql, {
           identity,
           streamId,
-          JSON.stringify(cursorValue),
-          seq,
+          cursor: JSON.stringify(cursorValue),
+          lastSeq: seq,
           now,
-        );
+        });
       } else {
-        Storage.updateLastSeq(runtime.sql, identity, streamId, seq, now);
+        Storage.updateLastSeq(runtime.sql, { identity, streamId, lastSeq: seq, now });
       }
 
       const wirePayload = chunkToPayload(chunkValue);
@@ -561,29 +600,27 @@ async function runGenerator(
           // A late joiner has no row until it resumes, so it gets nothing live
           // until then — the resume backfill and the live tail never overlap.
           extraFilter: (candidate) => {
-            const sub = Storage.getSubscriber(
-              runtime.sql,
-              identity,
+            const sub = Storage.getSubscriber(runtime.sql, {
+              storageIdentity: identity,
               streamId,
-              candidate.identity ?? candidate.id,
-            );
+              subscriberIdentity: candidate.identity ?? candidate.id,
+            });
             return sub !== null && sub.unsubscribedAt === null && seq > sub.caughtUpSeq;
           },
         });
         // The pipeline adds streamId + seq to __wskit from the routing markers.
         for (const target of targets) {
-          runtime.sendThroughPipeline(
-            target,
-            {
+          runtime.sendThroughPipeline(target, {
+            routing: {
               namespace: scope.namespace?.name,
               channel: scope.channelName,
               channelScope: scope.channelScope,
               streamId,
               seq,
             },
-            def.event,
-            wirePayload,
-          );
+            event: def.event,
+            payload: wirePayload,
+          });
         }
       }
 
@@ -591,18 +628,17 @@ async function runGenerator(
       // is already buffered for a later resume.
       const wireTarget = activeStream.connection ?? connection;
       if (!activeStream.detached) {
-        runtime.sendThroughPipeline(
-          wireTarget,
-          {
+        runtime.sendThroughPipeline(wireTarget, {
+          routing: {
             namespace: scope.namespace?.name,
             channel: scope.channelName,
             channelScope: scope.channelScope,
             streamId,
             seq,
           },
-          def.event,
-          wirePayload,
-        );
+          event: def.event,
+          payload: wirePayload,
+        });
       }
 
       if (hasNudges) {
@@ -615,18 +651,17 @@ async function runGenerator(
       // Only suspend if still active — a cancel would have deleted the row.
       const row = Storage.readStream(runtime.sql, identity, streamId);
       if (row && row.status === 'active') {
-        Storage.markSuspended(runtime.sql, identity, streamId, Date.now());
+        Storage.markSuspended(runtime.sql, { identity, streamId, now: Date.now() });
       }
       return;
     }
 
-    Storage.markEnded(runtime.sql, identity, streamId, Date.now());
-    runtime.sendProtocolMessage(
-      connection,
-      '__streamEnd__',
-      {},
-      { ...scopeWskit(scope), streamId, seq },
-    );
+    Storage.markEnded(runtime.sql, { identity, streamId, now: Date.now() });
+    runtime.sendProtocolMessage(connection, {
+      event: '__streamEnd__',
+      payload: {},
+      wskit: { ...scopeWskit(scope), streamId, seq },
+    });
     if (def.broadcast) {
       // Tell every subscriber the source generator finished.
       const peerTargets = resolveBroadcastTargets({
@@ -634,24 +669,31 @@ async function runGenerator(
         excludeConnectionId: connection.id,
         scope,
         extraFilter: (candidate) => {
-          const sub = Storage.getSubscriber(
-            runtime.sql,
-            identity,
+          const sub = Storage.getSubscriber(runtime.sql, {
+            storageIdentity: identity,
             streamId,
-            candidate.identity ?? candidate.id,
-          );
+            subscriberIdentity: candidate.identity ?? candidate.id,
+          });
           return sub !== null && sub.unsubscribedAt === null;
         },
       });
       const endWskit = { ...scopeWskit(scope), streamId, seq };
       for (const target of peerTargets) {
-        runtime.sendProtocolMessage(target, '__streamEnd__', {}, endWskit);
+        runtime.sendProtocolMessage(target, {
+          event: '__streamEnd__',
+          payload: {},
+          wskit: endWskit,
+        });
       }
     }
   } catch (error) {
     rethrowIfConfigError(error);
-    await runtime.handleRuntimeError(connection, error, def.event, { streamId });
-    Storage.markEnded(runtime.sql, identity, streamId, Date.now());
+    await runtime.handleRuntimeError(connection, {
+      error,
+      event: def.event,
+      routing: { streamId },
+    });
+    Storage.markEnded(runtime.sql, { identity, streamId, now: Date.now() });
   } finally {
     activeStream.closed = true;
     // Don't remove a slot a resume run has already taken over.
@@ -680,16 +722,21 @@ function unwrapYield(value: unknown): { chunkValue: unknown; cursorValue: unknow
 export async function cancelDurableStream(
   runtime: DurableStreamRuntime,
   connection: RuntimeConnection,
-  streamId: string,
-  cancelScope: ResolvedScope,
+  opts: { streamId: string; cancelScope: ResolvedScope },
 ): Promise<void> {
+  const { streamId, cancelScope } = opts;
   const realIdentity = connection.identity ?? connection.id;
-  const row = findResumeRow(runtime, connection, cancelScope, streamId);
+  const row = findResumeRow(runtime, connection, { resumeScope: cancelScope, streamId });
   if (!row) return;
 
   if (row.broadcast && row.creatorIdentity && row.creatorIdentity !== realIdentity) {
     // A non-creator cancel only unsubscribes them; the stream keeps running.
-    Storage.markUnsubscribed(runtime.sql, row.identity, streamId, realIdentity, Date.now());
+    Storage.markUnsubscribed(runtime.sql, {
+      storageIdentity: row.identity,
+      streamId,
+      subscriberIdentity: realIdentity,
+      now: Date.now(),
+    });
     return;
   }
 

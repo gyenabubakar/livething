@@ -6,6 +6,7 @@ import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as PublicApi from '~/context.ts';
+import type { MembershipKey } from '~/persistence/storage.ts';
 
 type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
 type CompiledChannel = EngineCompileTypes.CompiledChannel;
@@ -17,18 +18,19 @@ type CompiledChannel = EngineCompileTypes.CompiledChannel;
  */
 type LeaveChannelFn = (
   connection: RuntimeConnection,
-  scope: { channel?: CompiledChannel; channelName: string; channelScope: string | null },
-  kickedReason?: string,
-  disconnect?: boolean,
+  opts: {
+    channel?: CompiledChannel;
+    channelName: string;
+    channelScope: string | null;
+    kickedReason?: string;
+    disconnect?: boolean;
+  },
 ) => Promise<void>;
 
 /** Server-initiated channel subscribe. Used by the auto-rejoin path. */
 type SubscribeFromServerFn = (
   ref: PublicApi.ConnectionRef,
-  channelName: string,
-  channelScope: string | null,
-  payload: unknown,
-  rejoining?: boolean,
+  opts: { channelName: string; channelScope: string | null; payload: unknown; rejoining?: boolean },
 ) => Promise<void>;
 
 /**
@@ -36,54 +38,24 @@ type SubscribeFromServerFn = (
  * `isChannelPersistent(...)` first — we still gate on `persistenceEnabled`
  * here as a safety net.
  */
-export function persistMembership(
-  core: EngineCore,
-  identity: string,
-  channelName: string,
-  channelScope: string | null,
-): void {
+export function persistMembership(core: EngineCore, key: MembershipKey): void {
   if (!core.persistenceEnabled) return;
-  PersistenceStorage.insertMembership(
-    core.requireStorage().sql,
-    identity,
-    channelName,
-    channelScope,
-  );
+  PersistenceStorage.insertMembership(core.requireStorage().sql, key);
 }
 
 /**
  * Delete a durable channel-membership row. Called on a real leave (client
  * `__unsubscribe__`, `removeMember`, kick) of a persistent channel.
  */
-export function deleteDurableMembership(
-  core: EngineCore,
-  identity: string,
-  channelName: string,
-  channelScope: string | null,
-): void {
+export function deleteDurableMembership(core: EngineCore, key: MembershipKey): void {
   if (!core.persistenceEnabled) return;
-  PersistenceStorage.deleteMembership(
-    core.requireStorage().sql,
-    identity,
-    channelName,
-    channelScope,
-  );
+  PersistenceStorage.deleteMembership(core.requireStorage().sql, key);
 }
 
 /** True when a durable membership row exists for this identity and channel scope. */
-export function hasDurableMembership(
-  core: EngineCore,
-  identity: string,
-  channelName: string,
-  channelScope: string | null,
-): boolean {
+export function hasDurableMembership(core: EngineCore, key: MembershipKey): boolean {
   if (!core.persistenceEnabled) return false;
-  return PersistenceStorage.membershipExists(
-    core.requireStorage().sql,
-    identity,
-    channelName,
-    channelScope,
-  );
+  return PersistenceStorage.membershipExists(core.requireStorage().sql, key);
 }
 
 /**
@@ -95,19 +67,13 @@ export function hasDurableMembership(
 export async function removeChannelMember(
   core: EngineCore,
   leaveChannel: LeaveChannelFn,
-  channelName: string,
-  channelScope: string | null,
-  identity: string,
+  key: MembershipKey,
 ): Promise<void> {
+  const { identity, channelName, channelScope } = key;
   const membershipKey = ChannelPrimitive.createChannelMembershipKey(channelName, channelScope);
 
   if (core.persistenceEnabled) {
-    PersistenceStorage.deleteMembership(
-      core.requireStorage().sql,
-      identity,
-      channelName,
-      channelScope,
-    );
+    PersistenceStorage.deleteMembership(core.requireStorage().sql, key);
   }
 
   const resolved = ChannelPrimitive.resolveCompiledChannel(
@@ -181,7 +147,7 @@ export async function purgeIdentity(
   }
 
   for (const { channelName, channelScope } of channels.values()) {
-    await removeChannelMember(core, leaveChannel, channelName, channelScope, identity);
+    await removeChannelMember(core, leaveChannel, { identity, channelName, channelScope });
   }
 
   if (core.persistenceEnabled) {
@@ -207,23 +173,16 @@ export async function autoRejoinIdentity(
     {
       sql,
       tagMembers: core.tagMembers,
-      subscribeConnectionAsServer: async (
-        target,
-        channelName,
-        channelScope,
-        payload,
-        rejoining,
-      ) => {
+      subscribeConnectionAsServer: async (target, opts) => {
         const ref: PublicApi.ConnectionRef = {
           __wskit: 'connection-ref',
           id: target.id,
           instance: core.engineInstanceId,
           identity: target.identity,
         };
-        return subscribeFromServer(ref, channelName, channelScope, payload, rejoining);
+        return subscribeFromServer(ref, opts);
       },
-      sendProtocolMessage: (target, event, payload, wskit) =>
-        sendProtocolMessage(core, target, event, payload, wskit),
+      sendProtocolMessage: (target, opts) => sendProtocolMessage(core, target, opts),
       logger: core.logger,
     },
     connection,

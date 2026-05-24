@@ -55,11 +55,11 @@ describe('tag member index', () => {
     const sent: string[] = [];
     const eng = createConnection('eng');
     const sales = createConnection('sales');
-    addConnectionTag(tagMembers, eng, 'ephemeral', 'team', 'eng');
-    addConnectionTag(tagMembers, sales, 'ephemeral', 'team', 'sales');
+    addConnectionTag(tagMembers, eng, { kind: 'ephemeral', group: 'team', key: 'eng' });
+    addConnectionTag(tagMembers, sales, { kind: 'ephemeral', group: 'team', key: 'sales' });
 
     const runtime = createRuntime(tagMembers, sent);
-    buildGroupHandle(runtime, eng, 'ephemeral', 'team').ref('eng').send('evt', {});
+    buildGroupHandle(runtime, eng, { kind: 'ephemeral', group: 'team' }).ref('eng').send('evt', {});
 
     expect(sent).toEqual(['eng']);
   });
@@ -69,10 +69,13 @@ describe('tag member index', () => {
     const sent: string[] = [];
     const a = createConnection('a');
     const b = createConnection('b');
-    addConnectionTag(tagMembers, a, 'ephemeral', 'team', 'eng');
-    addConnectionTag(tagMembers, b, 'ephemeral', 'team', 'sales');
+    addConnectionTag(tagMembers, a, { kind: 'ephemeral', group: 'team', key: 'eng' });
+    addConnectionTag(tagMembers, b, { kind: 'ephemeral', group: 'team', key: 'sales' });
 
-    buildGroupHandle(createRuntime(tagMembers, sent), a, 'ephemeral', 'team').send('evt', {});
+    buildGroupHandle(createRuntime(tagMembers, sent), a, { kind: 'ephemeral', group: 'team' }).send(
+      'evt',
+      {},
+    );
 
     expect(sent.sort()).toEqual(['a', 'b']);
   });
@@ -81,23 +84,25 @@ describe('tag member index', () => {
     const tagMembers = new Map<string, Set<RuntimeConnection>>();
     const sent: string[] = [];
     const conn = createConnection('c1');
-    addConnectionTag(tagMembers, conn, 'ephemeral', 'team', 'eng');
-    addConnectionTag(tagMembers, conn, 'ephemeral', 'team', 'lead');
+    addConnectionTag(tagMembers, conn, { kind: 'ephemeral', group: 'team', key: 'eng' });
+    addConnectionTag(tagMembers, conn, { kind: 'ephemeral', group: 'team', key: 'lead' });
 
-    removeConnectionTag(tagMembers, conn, 'ephemeral', 'team', 'eng');
+    removeConnectionTag(tagMembers, conn, { kind: 'ephemeral', group: 'team', key: 'eng' });
 
     const runtime = createRuntime(tagMembers, sent);
-    buildGroupHandle(runtime, conn, 'ephemeral', 'team').send('evt', {});
+    buildGroupHandle(runtime, conn, { kind: 'ephemeral', group: 'team' }).send('evt', {});
     expect(sent).toEqual(['c1']);
-    expect(buildGroupHandle(runtime, conn, 'ephemeral', 'team').ref('eng').count()).toBe(0);
+    expect(
+      buildGroupHandle(runtime, conn, { kind: 'ephemeral', group: 'team' }).ref('eng').count(),
+    ).toBe(0);
   });
 
   it('removing the last key drops every index entry for the group', () => {
     const tagMembers = new Map<string, Set<RuntimeConnection>>();
     const conn = createConnection('c1');
-    addConnectionTag(tagMembers, conn, 'ephemeral', 'team', 'eng');
+    addConnectionTag(tagMembers, conn, { kind: 'ephemeral', group: 'team', key: 'eng' });
 
-    removeConnectionTag(tagMembers, conn, 'ephemeral', 'team', 'eng');
+    removeConnectionTag(tagMembers, conn, { kind: 'ephemeral', group: 'team', key: 'eng' });
 
     expect(tagMembers.size).toBe(0);
   });
@@ -105,8 +110,8 @@ describe('tag member index', () => {
   it('removeConnectionFromTagIndex drops a closing connection from every entry', () => {
     const tagMembers = new Map<string, Set<RuntimeConnection>>();
     const conn = createConnection('c1');
-    addConnectionTag(tagMembers, conn, 'ephemeral', 'team', 'eng');
-    addConnectionTag(tagMembers, conn, 'persistent', 'role', 'admin');
+    addConnectionTag(tagMembers, conn, { kind: 'ephemeral', group: 'team', key: 'eng' });
+    addConnectionTag(tagMembers, conn, { kind: 'persistent', group: 'role', key: 'admin' });
 
     removeConnectionFromTagIndex(tagMembers, conn);
 

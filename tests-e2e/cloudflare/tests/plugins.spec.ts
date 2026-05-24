@@ -1,8 +1,16 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
-function waitForText(page: Page, testId: string, expected: string | RegExp, timeout = 10_000) {
-  return expect(page.getByTestId(testId)).toHaveText(expected, { timeout });
+interface WaitForTextOptions {
+  text: string | RegExp;
+  timeout?: number;
+}
+
+function waitForText(page: Page, testId: string, opts: string | RegExp | WaitForTextOptions) {
+  const text = typeof opts === 'string' || opts instanceof RegExp ? opts : opts.text;
+  const timeout =
+    typeof opts === 'string' || opts instanceof RegExp ? 10_000 : (opts.timeout ?? 10_000);
+  return expect(page.getByTestId(testId)).toHaveText(text, { timeout });
 }
 
 test.describe('plugins handler', () => {
@@ -67,7 +75,7 @@ test.describe('plugins handler', () => {
   test('plugin scheduled task fires on trigger', async ({ page }) => {
     await waitForText(page, 'db-connected', 'db-ready');
     await page.getByTestId('vacuum-btn').click();
-    await waitForText(page, 'vacuum-result', /vacuum:\d+/, 10_000);
+    await waitForText(page, 'vacuum-result', { text: /vacuum:\d+/, timeout: 10_000 });
   });
 
   test('plugin onIncoming can rewrite incoming payload', async ({ page }) => {
@@ -88,7 +96,7 @@ test.describe('plugins handler', () => {
   test('plugin scheduled retry: flaky task succeeds after retries', async ({ page }) => {
     await waitForText(page, 'db-connected', 'db-ready');
     await page.getByTestId('trigger-plugin-flaky-btn').click();
-    await waitForText(page, 'plugin-flaky-result', /attempts:[3-9]/, 10_000);
+    await waitForText(page, 'plugin-flaky-result', { text: /attempts:[3-9]/, timeout: 10_000 });
   });
 
   test('plugin scheduled DLQ: always-fail task lands in DLQ', async ({ page }) => {
@@ -192,7 +200,7 @@ test.describe('plugins handler', () => {
     const response = await page.request.post(`/ws/plugins/shutdown?room=${room}`);
     expect(response.status()).toBe(204);
 
-    await waitForText(page, 'status', 'disconnected', 15_000);
+    await waitForText(page, 'status', { text: 'disconnected', timeout: 15_000 });
     await page.getByTestId('connect-btn').click();
     await waitForText(page, 'status', 'connected');
     await waitForText(page, 'db-connected', 'db-ready');

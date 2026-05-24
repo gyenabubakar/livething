@@ -221,8 +221,8 @@ describe('scheduled/runtime', () => {
       { taskId: 'flush', hasData: true, dataSchema: (value: unknown) => value },
     ]);
 
-    scheduleTaskRun(runtime, 'flush', 100, { id: 'a' });
-    scheduleTaskRun(runtime, 'flush', 200, { id: 'b' });
+    scheduleTaskRun(runtime, { taskId: 'flush', time: 100, data: { id: 'a' } });
+    scheduleTaskRun(runtime, { taskId: 'flush', time: 200, data: { id: 'b' } });
     cancelScheduledRuns(runtime, 'flush', { id: 'a' });
 
     expect([...scheduledRuns.values()]).toHaveLength(1);
@@ -263,7 +263,7 @@ describe('scheduled/runtime', () => {
     ]);
     const now = vi.spyOn(Date, 'now').mockReturnValue(100);
 
-    scheduleTaskRun(runtime, 'flush', 50, { count: '5' });
+    scheduleTaskRun(runtime, { taskId: 'flush', time: 50, data: { count: '5' } });
     const run = [...scheduledRuns.values()][0]!;
     expect(run.data).toEqual({ count: 5 });
 
@@ -276,17 +276,17 @@ describe('scheduled/runtime', () => {
   it('throws when data is queued for a task without .data(...)', () => {
     const { runtime } = createScheduledRuntime([{ taskId: 'flush' }]);
 
-    expect(() => scheduleTaskRun(runtime, 'flush', 100, { nope: true })).toThrow(
-      /does not declare \.data/,
-    );
+    expect(() =>
+      scheduleTaskRun(runtime, { taskId: 'flush', time: 100, data: { nope: true } }),
+    ).toThrow(/does not declare \.data/);
   });
 
   it('throws synchronously when scheduling an unregistered task id', () => {
     const { runtime, scheduledRuns } = createScheduledRuntime([{ taskId: 'flush' }]);
 
-    expect(() => scheduleTaskRun(runtime, 'typo-flush', 100, undefined)).toThrow(
-      /scheduled task "typo-flush" is not registered/,
-    );
+    expect(() =>
+      scheduleTaskRun(runtime, { taskId: 'typo-flush', time: 100, data: undefined }),
+    ).toThrow(/scheduled task "typo-flush" is not registered/);
     // The unknown id must NOT have been queued.
     expect([...scheduledRuns.values()].map((r) => r.taskId)).not.toContain('typo-flush');
   });
@@ -302,9 +302,9 @@ describe('scheduled/runtime', () => {
       -1,
       1.5,
     ]) {
-      expect(() => scheduleTaskRun(runtime, 'flush', bad, undefined)).toThrow(
-        /requires a positive finite integer/,
-      );
+      expect(() =>
+        scheduleTaskRun(runtime, { taskId: 'flush', time: bad, data: undefined }),
+      ).toThrow(/requires a positive finite integer/);
     }
     expect([...scheduledRuns.values()]).toHaveLength(0);
   });
@@ -318,7 +318,9 @@ describe('scheduled/runtime', () => {
       },
     ]);
 
-    expect(() => scheduleTaskRun(runtime, 'flush', 100, undefined)).toThrow();
+    expect(() =>
+      scheduleTaskRun(runtime, { taskId: 'flush', time: 100, data: undefined }),
+    ).toThrow();
   });
 
   it('throws when task data fails validation at enqueue time', () => {
@@ -330,7 +332,9 @@ describe('scheduled/runtime', () => {
       },
     ]);
 
-    expect(() => scheduleTaskRun(runtime, 'flush', 100, { label: 42 })).toThrow();
+    expect(() =>
+      scheduleTaskRun(runtime, { taskId: 'flush', time: 100, data: { label: 42 } }),
+    ).toThrow();
   });
 
   it('multi-key filter cancels only runs matching every key (AND semantics)', () => {
@@ -338,9 +342,13 @@ describe('scheduled/runtime', () => {
       { taskId: 'flush', hasData: true, dataSchema: (value: unknown) => value },
     ]);
 
-    scheduleTaskRun(runtime, 'flush', 100, { label: 'drop', tier: 'gold' });
-    scheduleTaskRun(runtime, 'flush', 200, { label: 'drop', tier: 'silver' });
-    scheduleTaskRun(runtime, 'flush', 300, { label: 'keep', tier: 'gold' });
+    scheduleTaskRun(runtime, { taskId: 'flush', time: 100, data: { label: 'drop', tier: 'gold' } });
+    scheduleTaskRun(runtime, {
+      taskId: 'flush',
+      time: 200,
+      data: { label: 'drop', tier: 'silver' },
+    });
+    scheduleTaskRun(runtime, { taskId: 'flush', time: 300, data: { label: 'keep', tier: 'gold' } });
 
     cancelScheduledRuns(runtime, 'flush', { label: 'drop', tier: 'gold' });
 
@@ -359,7 +367,7 @@ describe('scheduled/runtime', () => {
       { taskId: 'flush', hasData: true, dataSchema: (value: unknown) => value },
     ]);
 
-    scheduleTaskRun(runtime, 'flush', 100, { id: 'a' });
+    scheduleTaskRun(runtime, { taskId: 'flush', time: 100, data: { id: 'a' } });
     cancelScheduledRuns(runtime, 'flush', { id: 'a', doesNotExist: 'x' });
 
     expect(scheduledRuns.size).toBe(1);
@@ -370,8 +378,8 @@ describe('scheduled/runtime', () => {
       { taskId: 'flush', hasData: true, dataSchema: (value: unknown) => value },
     ]);
 
-    scheduleTaskRun(runtime, 'flush', 100, { id: 'a' });
-    scheduleTaskRun(runtime, 'flush', 200, { id: 'b' });
+    scheduleTaskRun(runtime, { taskId: 'flush', time: 100, data: { id: 'a' } });
+    scheduleTaskRun(runtime, { taskId: 'flush', time: 200, data: { id: 'b' } });
     cancelScheduledRuns(runtime, 'flush', { __never: '__never' });
 
     expect(scheduledRuns.size).toBe(2);
@@ -686,7 +694,7 @@ describe('scheduled/runtime', () => {
       { taskId: 'ser', options: { retry: [100, 200] } },
     ]);
 
-    scheduleTaskRun(runtime, 'ser', 500, undefined);
+    scheduleTaskRun(runtime, { taskId: 'ser', time: 500, data: undefined });
     const serialized = storageRows.scheduled[0];
     expect(serialized?.retry).toBe('[100,200]');
 

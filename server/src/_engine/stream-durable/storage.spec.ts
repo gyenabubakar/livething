@@ -264,7 +264,7 @@ describe('durable-stream/storage', () => {
         now: 1_000 + seq,
       });
     }
-    const chunks = Storage.readChunksSince(sql, 'u-1', 's-1', 2);
+    const chunks = Storage.readChunksSince(sql, { identity: 'u-1', streamId: 's-1', since: 2 });
     expect(chunks.map((c) => c.seq)).toEqual([3, 4, 5]);
   });
 
@@ -277,10 +277,10 @@ describe('durable-stream/storage', () => {
       kind: 'resumable',
       now: 1_000,
     });
-    Storage.markSuspended(sql, 'u-1', 's-1', 2_000);
+    Storage.markSuspended(sql, { identity: 'u-1', streamId: 's-1', now: 2_000 });
     expect(Storage.readStream(sql, 'u-1', 's-1')!.status).toBe('suspended');
     // calling again is a no-op (only `active` flips).
-    Storage.markSuspended(sql, 'u-1', 's-1', 3_000);
+    Storage.markSuspended(sql, { identity: 'u-1', streamId: 's-1', now: 3_000 });
     expect(Storage.readStream(sql, 'u-1', 's-1')!.status).toBe('suspended');
   });
 
@@ -293,7 +293,7 @@ describe('durable-stream/storage', () => {
       kind: 'resumable',
       now: 1_000,
     });
-    Storage.markEnded(sql, 'u-1', 's-1', 5_000);
+    Storage.markEnded(sql, { identity: 'u-1', streamId: 's-1', now: 5_000 });
     const row = Storage.readStream(sql, 'u-1', 's-1')!;
     expect(row.status).toBe('ended');
     expect(row.endedAt).toBe(5_000);
@@ -318,7 +318,9 @@ describe('durable-stream/storage', () => {
     });
     Storage.deleteStream(sql, 'u-1', 's-1');
     expect(Storage.readStream(sql, 'u-1', 's-1')).toBeNull();
-    expect(Storage.readChunksSince(sql, 'u-1', 's-1', 0)).toEqual([]);
+    expect(Storage.readChunksSince(sql, { identity: 'u-1', streamId: 's-1', since: 0 })).toEqual(
+      [],
+    );
   });
 
   it('findExpiredSuspended returns rows past their max_age_ms', () => {
@@ -331,7 +333,7 @@ describe('durable-stream/storage', () => {
       now: 1_000,
       maxAgeMs: 5_000,
     });
-    Storage.markSuspended(sql, 'u-1', 's-1', 1_000);
+    Storage.markSuspended(sql, { identity: 'u-1', streamId: 's-1', now: 1_000 });
     // 1_000 + 5_000 = 6_000 → still ok at 6_000.
     expect(Storage.findExpiredSuspended(sql, 6_000)).toEqual([]);
     expect(Storage.findExpiredSuspended(sql, 6_001)).toEqual([
@@ -349,7 +351,7 @@ describe('durable-stream/storage', () => {
       now: 1_000,
       retentionAfterEndMs: 2_000,
     });
-    Storage.markEnded(sql, 'u-1', 's-1', 1_000);
+    Storage.markEnded(sql, { identity: 'u-1', streamId: 's-1', now: 1_000 });
     expect(Storage.findExpiredEnded(sql, 2_999)).toEqual([]);
     expect(Storage.findExpiredEnded(sql, 3_001)).toEqual([{ identity: 'u-1', streamId: 's-1' }]);
   });
@@ -379,12 +381,34 @@ describe('durable-stream/storage', () => {
       broadcast: true,
       creatorIdentity: 'u-creator',
     });
-    expect(Storage.isUnsubscribed(sql, '__bcast:top__', 's-1', 'u-peer')).toBe(false);
-    Storage.markUnsubscribed(sql, '__bcast:top__', 's-1', 'u-peer', 2_000);
-    expect(Storage.isUnsubscribed(sql, '__bcast:top__', 's-1', 'u-peer')).toBe(true);
+    expect(
+      Storage.isUnsubscribed(sql, {
+        storageIdentity: '__bcast:top__',
+        streamId: 's-1',
+        subscriberIdentity: 'u-peer',
+      }),
+    ).toBe(false);
+    Storage.markUnsubscribed(sql, {
+      storageIdentity: '__bcast:top__',
+      streamId: 's-1',
+      subscriberIdentity: 'u-peer',
+      now: 2_000,
+    });
+    expect(
+      Storage.isUnsubscribed(sql, {
+        storageIdentity: '__bcast:top__',
+        streamId: 's-1',
+        subscriberIdentity: 'u-peer',
+      }),
+    ).toBe(true);
     // A repeat just refreshes the opt-out timestamp — it must not throw.
     expect(() =>
-      Storage.markUnsubscribed(sql, '__bcast:top__', 's-1', 'u-peer', 3_000),
+      Storage.markUnsubscribed(sql, {
+        storageIdentity: '__bcast:top__',
+        streamId: 's-1',
+        subscriberIdentity: 'u-peer',
+        now: 3_000,
+      }),
     ).not.toThrow();
   });
 });

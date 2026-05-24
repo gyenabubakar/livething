@@ -2,7 +2,15 @@ import { deleteMembership, listMembershipsByIdentity } from '~/persistence/stora
 import { addConnectionTag } from '~/tags/runtime.ts';
 import { listTagsByIdentity } from '~/tags/storage.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
-import type { SQLProvider } from '~/context.ts';
+import type { SendProtocolMessageOptions } from '~/_engine/runtime/wire.ts';
+import type { Logger, SQLProvider } from '~/context.ts';
+
+export interface RejoinSubscribeOptions {
+  channelName: string;
+  channelScope: string | null;
+  payload: unknown;
+  rejoining: boolean;
+}
 
 /**
  * Dependency bag for the auto-rejoin path. Mirrors the channel runtime bag
@@ -22,10 +30,7 @@ export interface RejoinRuntime {
    */
   subscribeConnectionAsServer(
     connection: EngineRuntimeTypes.RuntimeConnection,
-    channelName: string,
-    channelScope: string | null,
-    payload: unknown,
-    rejoining: boolean,
+    opts: RejoinSubscribeOptions,
   ): Promise<void>;
   /**
    * Send a protocol-level frame addressed to the rejoining connection. Used
@@ -33,11 +38,9 @@ export interface RejoinRuntime {
    */
   sendProtocolMessage(
     connection: EngineRuntimeTypes.RuntimeConnection,
-    event: string,
-    payload: Record<string, unknown>,
-    wskit: Record<string, unknown>,
+    opts: SendProtocolMessageOptions,
   ): void;
-  logger?: { error(message: string, fields?: Record<string, unknown>): void };
+  logger?: Pick<Logger, 'error'>;
 }
 
 /**
@@ -71,7 +74,11 @@ export async function autoRejoinIdentity(
   // can read them via `ctx.tags.persistent(...)`.
   const tagRows = listTagsByIdentity(runtime.sql, connection.identity);
   for (const tag of tagRows) {
-    addConnectionTag(runtime.tagMembers, connection, 'persistent', tag.group, tag.key);
+    addConnectionTag(runtime.tagMembers, connection, {
+      kind: 'persistent',
+      group: tag.group,
+      key: tag.key,
+    });
   }
 
   const rows = listMembershipsByIdentity(runtime.sql, connection.identity);
@@ -79,30 +86,32 @@ export async function autoRejoinIdentity(
 
   for (const row of rows) {
     try {
-      await runtime.subscribeConnectionAsServer(
-        connection,
-        row.channelName,
-        row.channelScope,
-        undefined,
-        true,
-      );
+      await runtime.subscribeConnectionAsServer(connection, {
+        channelName: row.channelName,
+        channelScope: row.channelScope,
+        payload: undefined,
+        rejoining: true,
+      });
     } catch (error) {
       // The gate rejected (or the channel no longer exists). Drop the row
       // so the next reconnect does not retry the same dead membership, and
       // deliver an error scoped to that channel so the client knows.
-      deleteMembership(runtime.sql, connection.identity, row.channelName, row.channelScope);
+      deleteMembership(runtime.sql, {
+        identity: connection.identity,
+        channelName: row.channelName,
+        channelScope: row.channelScope,
+      });
 
       const wskit: Record<string, unknown> = { channel: row.channelName };
       if (row.channelScope !== null) wskit.channelScope = row.channelScope;
-      runtime.sendProtocolMessage(
-        connection,
-        '__error__',
-        {
+      runtime.sendProtocolMessage(connection, {
+        event: '__error__',
+        payload: {
           code: 'rejoin-rejected',
           detail: { message: error instanceof Error ? error.message : String(error) },
         },
         wskit,
-      );
+      });
       runtime.logger?.error('[wskit] auto-rejoin gate rejected', {
         identity: connection.identity,
         channel: row.channelName,

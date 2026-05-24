@@ -104,19 +104,34 @@ export function createEngineAccess(
       core.hooks.alarm.push(handler);
     },
     onCheck: (handler, validator) => {
-      pushChannelHook(core.hooks.check, scope?.channelKey, { handler, validator }, 'onCheck');
+      pushChannelHook(core.hooks.check, scope?.channelKey, {
+        hook: { handler, validator },
+        hookName: 'onCheck',
+      });
     },
     onCommit: (handler) => {
-      pushChannelHook(core.hooks.commit, scope?.channelKey, { handler }, 'onCommit');
+      pushChannelHook(core.hooks.commit, scope?.channelKey, {
+        hook: { handler },
+        hookName: 'onCommit',
+      });
     },
     onSubscribe: (handler) => {
-      pushChannelHook(core.hooks.subscribe, scope?.channelKey, handler, 'onSubscribe');
+      pushChannelHook(core.hooks.subscribe, scope?.channelKey, {
+        hook: handler,
+        hookName: 'onSubscribe',
+      });
     },
     onUnsubscribe: (handler) => {
-      pushChannelHook(core.hooks.unsubscribe, scope?.channelKey, handler, 'onUnsubscribe');
+      pushChannelHook(core.hooks.unsubscribe, scope?.channelKey, {
+        hook: handler,
+        hookName: 'onUnsubscribe',
+      });
     },
     onSessionEnd: (handler) => {
-      pushChannelHook(core.hooks.sessionEnd, scope?.channelKey, handler, 'onSessionEnd');
+      pushChannelHook(core.hooks.sessionEnd, scope?.channelKey, {
+        hook: handler,
+        hookName: 'onSessionEnd',
+      });
     },
     getScopeInfo: () => ({
       channelKey: scope?.channelKey,
@@ -178,10 +193,10 @@ export function createEngineAccess(
     getScheduledTask: (taskId) => core.compiled.scheduled.get(taskId),
     getScheduledTasks: () => core.compiled.scheduled.values(),
     createTaskContext: () => deps.createTaskContext(),
-    sendReplay: (connectionId, channelName, channelScope, event, payload, wire) => {
+    sendReplay: (connectionId, options) => {
       const connection = core.connections.get(connectionId);
       if (!connection) return;
-      sendReplay(core, connection, channelName, channelScope, event, payload, wire);
+      sendReplay(core, connection, options);
     },
     assertReplaySendContract: (event, payload, routing) => {
       OutgoingRuntime.assertPayloadRecord(payload);
@@ -193,7 +208,7 @@ export function createEngineAccess(
       if (!ackId) return;
       const connection = core.connections.get(connectionId);
       if (!connection) return;
-      sendProtocolMessage(core, connection, '__ack__', {}, { ackId });
+      sendProtocolMessage(core, connection, { event: '__ack__', payload: {}, wskit: { ackId } });
     },
     rescheduleAlarm: () => deps.rescheduleAlarm(),
     generateId: (prefix) => core.generateId(prefix),
@@ -203,9 +218,18 @@ export function createEngineAccess(
     rawSend: (connectionId, event, payload) => {
       const connection = core.connections.get(connectionId);
       if (!connection) return;
-      sendProtocolMessage(core, connection, event, payload as Record<string, unknown>, {});
+      sendProtocolMessage(core, connection, {
+        event,
+        payload: payload as Record<string, unknown>,
+        wskit: {},
+      });
     },
   };
+}
+
+interface PushChannelHookOptions<T> {
+  hook: T;
+  hookName: 'onCheck' | 'onCommit' | 'onSubscribe' | 'onUnsubscribe' | 'onSessionEnd';
 }
 
 /**
@@ -215,9 +239,9 @@ export function createEngineAccess(
 function pushChannelHook<T>(
   hooks: Map<string, T[]>,
   channelKey: string | undefined,
-  hook: T,
-  hookName: 'onCheck' | 'onCommit' | 'onSubscribe' | 'onUnsubscribe' | 'onSessionEnd',
+  options: PushChannelHookOptions<T>,
 ): void {
+  const { hook, hookName } = options;
   if (!channelKey) {
     throw new Error(`[wskit] ${hookName}() can only be registered inside channel(...).`);
   }

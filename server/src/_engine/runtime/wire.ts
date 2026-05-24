@@ -4,6 +4,12 @@ import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 
 type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
 
+export interface SendProtocolMessageOptions {
+  event: string;
+  payload: Record<string, unknown>;
+  wskit: Record<string, unknown>;
+}
+
 /**
  * Send an internal protocol frame. Skips outgoing validation and decoration.
  *
@@ -16,10 +22,9 @@ type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
 export function sendProtocolMessage(
   core: EngineCore,
   connection: RuntimeConnection,
-  event: string,
-  payload: Record<string, unknown>,
-  wskit: Record<string, unknown>,
+  options: SendProtocolMessageOptions,
 ): void {
+  const { event, payload, wskit } = options;
   let wire: string;
   try {
     wire = JSON.stringify({ event, payload, __wskit: wskit });
@@ -44,16 +49,21 @@ export function sendProtocolMessage(
   connection.descriptor.send(wire);
 }
 
+export interface SendReplayOptions {
+  channelName: string | null;
+  channelScope: string | null;
+  event: string;
+  payload: unknown;
+  wire: { seq: number; messageId: string; channel?: string };
+}
+
 /** Send one replay entry with its stored wire metadata reattached. */
 export function sendReplay(
   core: EngineCore,
   connection: RuntimeConnection,
-  channelName: string | null,
-  channelScope: string | null,
-  event: string,
-  payload: unknown,
-  wire: { seq: number; messageId: string; channel?: string },
+  options: SendReplayOptions,
 ): void {
+  const { channelName, channelScope, event, payload, wire } = options;
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
     throw new Error('[wskit] Outgoing payload must be a plain object.');
   }

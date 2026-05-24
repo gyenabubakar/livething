@@ -10,6 +10,7 @@ import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import type { CompiledServer } from '~/_engine/compile/types.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
+import type { SendRuntimeErrorOptions } from '~/errors/runtime.ts';
 
 function createConnection(id: string): RuntimeConnection {
   return {
@@ -33,13 +34,17 @@ function createConnection(id: string): RuntimeConnection {
   };
 }
 
+interface AddMembershipOptions {
+  channelName: string;
+  channelScope?: string | null;
+}
+
 function addMembership(
   channelMembers: Map<string, Set<RuntimeConnection>>,
   connection: ReturnType<typeof createConnection>,
-  channelName: string,
-  channelScope: string | null = null,
+  { channelName, channelScope = null }: AddMembershipOptions,
 ) {
-  addChannelMembership(channelMembers, connection, channelName, channelScope);
+  addChannelMembership(channelMembers, connection, { channelName, channelScope });
 }
 
 describe('message runtime', () => {
@@ -48,8 +53,14 @@ describe('message runtime', () => {
     const roomsMember = createConnection('rooms');
     const lobbiesMember = createConnection('lobbies');
 
-    addMembership(channelMembers, roomsMember, 'room:general', 'rooms');
-    addMembership(channelMembers, lobbiesMember, 'room:general', 'lobbies');
+    addMembership(channelMembers, roomsMember, {
+      channelName: 'room:general',
+      channelScope: 'rooms',
+    });
+    addMembership(channelMembers, lobbiesMember, {
+      channelName: 'room:general',
+      channelScope: 'lobbies',
+    });
 
     const runtime = {
       connections: new Map([
@@ -99,14 +110,13 @@ describe('message runtime', () => {
       },
     };
 
-    broadcastToChannel(
-      runtime as unknown as Parameters<typeof broadcastToChannel>[0],
-      'room:general',
-      'message',
-      { text: 'hi' },
-      undefined,
-      'rooms',
-    );
+    broadcastToChannel(runtime as unknown as Parameters<typeof broadcastToChannel>[0], {
+      channelName: 'room:general',
+      event: 'message',
+      payload: { text: 'hi' },
+      excludeConnectionId: undefined,
+      channelScope: 'rooms',
+    });
 
     expect(roomsMember.descriptor.send).toHaveBeenCalledTimes(1);
     expect(lobbiesMember.descriptor.send).not.toHaveBeenCalled();
@@ -117,7 +127,10 @@ describe('message runtime', () => {
     const errors: Array<{ error: unknown; event?: string; routing?: unknown }> = [];
     const channelMembers = new Map<string, Set<RuntimeConnection>>();
     const connection = createConnection('conn_1');
-    addMembership(channelMembers, connection, 'room:general', 'lobbies');
+    addMembership(channelMembers, connection, {
+      channelName: 'room:general',
+      channelScope: 'lobbies',
+    });
 
     const runtime = {
       compiled: {
@@ -176,7 +189,7 @@ describe('message runtime', () => {
       sendProtocolMessage() {},
       sendReplay() {},
       persistAttachment() {},
-      async handleRuntimeError(_conn: unknown, error: unknown, event?: string, routing?: unknown) {
+      async handleRuntimeError(_conn: unknown, { error, event, routing }: SendRuntimeErrorOptions) {
         errors.push({ error, event, routing });
       },
       async handleValidationError() {},
@@ -202,9 +215,11 @@ describe('message runtime', () => {
     await dispatchIncoming(
       runtime as unknown as Parameters<typeof dispatchIncoming>[0],
       connection,
-      'message',
-      { text: 'hi' },
-      { channel: 'room:general', channelScope: 'rooms' },
+      {
+        event: 'message',
+        payload: { text: 'hi' },
+        wskit: { channel: 'room:general', channelScope: 'rooms' },
+      },
     );
 
     expect(handler).not.toHaveBeenCalled();
@@ -283,16 +298,12 @@ describe('message runtime', () => {
     const pA = dispatchIncoming(
       runtime as unknown as Parameters<typeof dispatchIncoming>[0],
       connection,
-      'msg',
-      { which: 'A' },
-      { ackId: 'ack-a', channelScope: null },
+      { event: 'msg', payload: { which: 'A' }, wskit: { ackId: 'ack-a', channelScope: null } },
     );
     const pB = dispatchIncoming(
       runtime as unknown as Parameters<typeof dispatchIncoming>[0],
       connection,
-      'msg',
-      { which: 'B' },
-      { ackId: 'ack-b', channelScope: null },
+      { event: 'msg', payload: { which: 'B' }, wskit: { ackId: 'ack-b', channelScope: null } },
     );
     releaseA();
     await Promise.all([pA, pB]);
@@ -360,7 +371,7 @@ describe('message runtime', () => {
       async handleRuntimeError(_conn: unknown, error: unknown) {
         runtimeErrors.push(error);
       },
-      async handleValidationError(_conn: unknown, event: string) {
+      async handleValidationError(_conn: unknown, { event }: { event: string }) {
         validationErrors.push(event);
       },
       async handleSubscribe() {},
@@ -374,9 +385,7 @@ describe('message runtime', () => {
     await dispatchIncoming(
       runtime as unknown as Parameters<typeof dispatchIncoming>[0],
       connection,
-      'manual-check',
-      {},
-      undefined,
+      { event: 'manual-check', payload: {}, wskit: undefined },
     );
 
     expect(validationErrors).toEqual(['manual-check']);
@@ -445,13 +454,11 @@ describe('message runtime', () => {
     };
 
     await expect(
-      dispatchIncoming(
-        runtime as unknown as Parameters<typeof dispatchIncoming>[0],
-        connection,
-        'do-thing',
-        {},
-        undefined,
-      ),
+      dispatchIncoming(runtime as unknown as Parameters<typeof dispatchIncoming>[0], connection, {
+        event: 'do-thing',
+        payload: {},
+        wskit: undefined,
+      }),
     ).rejects.toThrow(/async validators are not supported/);
 
     expect(handleValidationError).not.toHaveBeenCalled();
@@ -524,9 +531,7 @@ describe('message runtime', () => {
     await dispatchIncoming(
       runtime as unknown as Parameters<typeof dispatchIncoming>[0],
       connection,
-      'send-strict',
-      {},
-      undefined,
+      { event: 'send-strict', payload: {}, wskit: undefined },
     );
 
     // Schema validation rejected the payload. Validation hook fires once
@@ -549,7 +554,7 @@ describe('message runtime', () => {
     const handleRuntimeError = vi.fn();
     const channelMembers = new Map<string, Set<RuntimeConnection>>();
     const connection = createConnection('conn_1');
-    addMembership(channelMembers, connection, 'room', undefined);
+    addMembership(channelMembers, connection, { channelName: 'room' });
 
     const channel = {
       key: 'room',
@@ -628,13 +633,11 @@ describe('message runtime', () => {
     await dispatchIncoming(
       runtime as unknown as Parameters<typeof dispatchIncoming>[0],
       connection,
-      'manual-check',
-      {},
-      { channel: 'room', channelScope: null },
+      { event: 'manual-check', payload: {}, wskit: { channel: 'room', channelScope: null } },
     );
 
     expect(handleValidationError).toHaveBeenCalledTimes(1);
-    const [, , , scope] = handleValidationError.mock.calls[0]!;
+    const [, { scope }] = handleValidationError.mock.calls[0]!;
     expect(scope).toBeDefined();
     expect((scope as { channelName?: string }).channelName).toBe('room');
     expect((scope as { channel?: unknown }).channel).toBe(channel);
@@ -708,13 +711,15 @@ describe('message runtime', () => {
     await dispatchIncoming(
       runtime as unknown as Parameters<typeof dispatchIncoming>[0],
       connection,
-      'get-user',
-      { id: 42 }, // wrong type — schema fails
-      { correlationId: 'corr-99', channelScope: null },
+      {
+        event: 'get-user',
+        payload: { id: 42 },
+        wskit: { correlationId: 'corr-99', channelScope: null },
+      }, // wrong type — schema fails
     );
 
     expect(handleRuntimeError).toHaveBeenCalledTimes(1);
-    const [, , , routing] = handleRuntimeError.mock.calls[0]!;
+    const [, { routing }] = handleRuntimeError.mock.calls[0]!;
     expect(routing).toEqual({ correlationId: 'corr-99' });
   });
 
@@ -787,13 +792,15 @@ describe('message runtime', () => {
     await dispatchIncoming(
       runtime as unknown as Parameters<typeof dispatchIncoming>[0],
       connection,
-      'get-user',
-      { id: 'u1' },
-      { correlationId: 'corr-42', channelScope: null },
+      {
+        event: 'get-user',
+        payload: { id: 'u1' },
+        wskit: { correlationId: 'corr-42', channelScope: null },
+      },
     );
 
     expect(handleRuntimeError).toHaveBeenCalledTimes(1);
-    const [, , , routing] = handleRuntimeError.mock.calls[0]!;
+    const [, { routing }] = handleRuntimeError.mock.calls[0]!;
     expect(routing).toEqual({ correlationId: 'corr-42' });
   });
 
@@ -806,7 +813,7 @@ describe('message runtime', () => {
     const topLevelHandler = vi.fn();
     const channelMembers = new Map<string, Set<RuntimeConnection>>();
     const connection = createConnection('conn_1');
-    addMembership(channelMembers, connection, 'room', undefined);
+    addMembership(channelMembers, connection, { channelName: 'room' });
 
     const runtime = {
       compiled: {
@@ -875,9 +882,7 @@ describe('message runtime', () => {
     await dispatchIncoming(
       runtime as unknown as Parameters<typeof dispatchIncoming>[0],
       connection,
-      'top-only',
-      {},
-      { channel: 'room', channelScope: null },
+      { event: 'top-only', payload: {}, wskit: { channel: 'room', channelScope: null } },
     );
 
     expect(topLevelHandler).not.toHaveBeenCalled();
@@ -966,7 +971,7 @@ describe('message runtime', () => {
     ).resolves.toBeUndefined();
 
     expect(handleRuntimeError).toHaveBeenCalledTimes(1);
-    const [, error, event, routing] = handleRuntimeError.mock.calls[0]!;
+    const [, { error, event, routing }] = handleRuntimeError.mock.calls[0]!;
     expect((error as { code?: string }).code).toBe('channel-not-found');
     expect(event).toBe('__replay__');
     expect(routing).toEqual({ channel: 'admin', channelScope: 'rooms' });
@@ -1039,7 +1044,7 @@ describe('message runtime', () => {
 
     expect(handleSubscribe).not.toHaveBeenCalled();
     expect(handleRuntimeError).toHaveBeenCalledTimes(1);
-    const [, error, event] = handleRuntimeError.mock.calls[0]!;
+    const [, { error, event }] = handleRuntimeError.mock.calls[0]!;
     expect(event).toBe('__subscribe__');
     expect((error as { code?: string }).code).toBe('validation-failed');
   });
@@ -1108,7 +1113,7 @@ describe('message runtime', () => {
 
     expect(handleUnsubscribe).not.toHaveBeenCalled();
     expect(handleRuntimeError).toHaveBeenCalledTimes(1);
-    const [, error, event] = handleRuntimeError.mock.calls[0]!;
+    const [, { error, event }] = handleRuntimeError.mock.calls[0]!;
     expect(event).toBe('__unsubscribe__');
     expect((error as { code?: string }).code).toBe('validation-failed');
   });
@@ -1125,15 +1130,18 @@ function makeScopedNode(intercepts: unknown[] = []) {
   };
 }
 
+interface MakeNudgeRuntimeOptions {
+  handleRuntimeError?: ReturnType<typeof vi.fn>;
+  namespaces?: Map<string, unknown>;
+  channels?: Map<string, unknown>;
+}
+
 function makeNudgeRuntime(
   intercepts: unknown[],
   activeStreams: Map<string, unknown>,
-  handleRuntimeError = vi.fn(),
-  {
-    namespaces = new Map(),
-    channels = new Map(),
-  }: { namespaces?: Map<string, unknown>; channels?: Map<string, unknown> } = {},
+  opts: MakeNudgeRuntimeOptions = {},
 ) {
+  const { handleRuntimeError = vi.fn(), namespaces = new Map(), channels = new Map() } = opts;
   return {
     compiled: {
       outgoing: new Map(),
@@ -1304,7 +1312,7 @@ describe('nudge intercepts', () => {
       throw new Error('bad nudge');
     });
 
-    const runtime = makeNudgeRuntime([thrower], activeStreams, handleRuntimeError);
+    const runtime = makeNudgeRuntime([thrower], activeStreams, { handleRuntimeError });
 
     await processTextMessage(
       runtime as unknown as Parameters<typeof processTextMessage>[0],
@@ -1318,7 +1326,7 @@ describe('nudge intercepts', () => {
 
     expect(activeStream.nudges).toHaveLength(0);
     expect(handleRuntimeError).toHaveBeenCalledTimes(1);
-    const [, , , routing] = handleRuntimeError.mock.calls[0]!;
+    const [, { routing }] = handleRuntimeError.mock.calls[0]!;
     expect((routing as { streamId?: string }).streamId).toBe('stream_1');
   });
 
@@ -1333,7 +1341,7 @@ describe('nudge intercepts', () => {
       throw Block;
     });
     const namespaces = new Map([['ns', makeScopedNode([nsSpy])]]);
-    const runtime = makeNudgeRuntime([], activeStreams, vi.fn(), { namespaces });
+    const runtime = makeNudgeRuntime([], activeStreams, { namespaces });
 
     await processTextMessage(
       runtime as unknown as Parameters<typeof processTextMessage>[0],
@@ -1359,7 +1367,7 @@ describe('nudge intercepts', () => {
       throw Block;
     });
     const channels = new Map([['room', makeScopedNode([chSpy])]]);
-    const runtime = makeNudgeRuntime([], activeStreams, vi.fn(), { channels });
+    const runtime = makeNudgeRuntime([], activeStreams, { channels });
 
     await processTextMessage(
       runtime as unknown as Parameters<typeof processTextMessage>[0],

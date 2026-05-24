@@ -42,27 +42,25 @@ describe('request/runtime', () => {
       }),
     } as unknown as RequestPrimitive;
 
-    await handleRequest(
-      runtime,
+    await handleRequest(runtime, {
       connection,
-      { channelName: 'room-1', channelScope: 'rooms' },
-      'status',
+      scope: { channelName: 'room-1', channelScope: 'rooms' },
+      event: 'status',
       request,
-      { room: 'room-1' },
-      { channelScope: null, correlationId: 'req-1' },
-    );
+      payload: { room: 'room-1' },
+      wskit: { channelScope: null, correlationId: 'req-1' },
+    });
 
-    expect(sendThroughPipeline).toHaveBeenCalledWith(
-      connection,
-      {
+    expect(sendThroughPipeline).toHaveBeenCalledWith(connection, {
+      routing: {
         namespace: undefined,
         channel: 'room-1',
         channelScope: 'rooms',
         correlationId: 'req-1',
       },
-      'status',
-      { ok: true },
-    );
+      event: 'status',
+      payload: { ok: true },
+    });
   });
 
   it('calling ctx.respond() twice in one invocation throws', async () => {
@@ -81,7 +79,14 @@ describe('request/runtime', () => {
     } as unknown as RequestPrimitive;
 
     await expect(
-      handleRequest(runtime, connection, {}, 'status', request, {}, undefined),
+      handleRequest(runtime, {
+        connection,
+        scope: {},
+        event: 'status',
+        request,
+        payload: {},
+        wskit: undefined,
+      }),
     ).rejects.toThrow('[wskit] ctx.respond() was already called');
   });
 
@@ -102,7 +107,14 @@ describe('request/runtime', () => {
       }),
     } as unknown as RequestPrimitive;
 
-    await handleRequest(runtime, connection, {}, 'status', request, {}, undefined);
+    await handleRequest(runtime, {
+      connection,
+      scope: {},
+      event: 'status',
+      request,
+      payload: {},
+      wskit: undefined,
+    });
 
     expect(sendThroughPipeline).not.toHaveBeenCalled();
   });
@@ -126,7 +138,14 @@ describe('request/runtime', () => {
     } as unknown as RequestPrimitive;
 
     await expect(
-      handleRequest(runtime, connection, {}, 'status', request, {}, undefined),
+      handleRequest(runtime, {
+        connection,
+        scope: {},
+        event: 'status',
+        request,
+        payload: {},
+        wskit: undefined,
+      }),
     ).rejects.toThrow('boom');
 
     expect(seen).toBe('c1');

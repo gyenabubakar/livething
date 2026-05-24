@@ -106,7 +106,7 @@ export function replay(options?: ReplayOptions | false): ReplayPrimitive {
         pruneExpiredReplayRows(engine.requireStorage().sql, opts.retention, Date.now());
       });
 
-      const installer = new ReplayInstaller(engine, channelKey, exclude, opts);
+      const installer = new ReplayInstaller({ engine, channelKey, exclude, opts });
 
       engine.extendContext(installer.contextExtender);
 
@@ -125,6 +125,13 @@ export function replay(options?: ReplayOptions | false): ReplayPrimitive {
   };
 }
 
+interface ReplayInstallerOptions {
+  engine: EngineAccess;
+  channelKey: string | undefined;
+  exclude: Set<string>;
+  opts: ReplayOptions;
+}
+
 /**
  * Bundles the context extender, persist callback, and `__replay__` protocol
  * handler used during replay setup. Using a class lets the three callbacks
@@ -134,12 +141,17 @@ export function replay(options?: ReplayOptions | false): ReplayPrimitive {
  * @internal
  */
 class ReplayInstaller {
-  constructor(
-    private readonly engine: EngineAccess,
-    private readonly channelKey: string | undefined,
-    private readonly exclude: Set<string>,
-    private readonly opts: ReplayOptions,
-  ) {}
+  private readonly engine: EngineAccess;
+  private readonly channelKey: string | undefined;
+  private readonly exclude: Set<string>;
+  private readonly opts: ReplayOptions;
+
+  constructor({ engine, channelKey, exclude, opts }: ReplayInstallerOptions) {
+    this.engine = engine;
+    this.channelKey = channelKey;
+    this.exclude = exclude;
+    this.opts = opts;
+  }
 
   /** Attach `sendReplay` to the relevant scope on every live connection context. */
   contextExtender = (ctx: unknown): Record<string, unknown> => {
@@ -163,14 +175,13 @@ class ReplayInstaller {
           channel: scope.channelName ?? undefined,
           channelScope: scope.channelScope ?? null,
         });
-        this.engine.sendReplay(
-          base.id as string,
-          scope.channelName ?? null,
-          scope.channelScope ?? null,
+        this.engine.sendReplay(base.id as string, {
+          channelName: scope.channelName ?? null,
+          channelScope: scope.channelScope ?? null,
           event,
           payload,
           wire,
-        );
+        });
       };
 
       return {};
@@ -183,14 +194,13 @@ class ReplayInstaller {
         channel: wire.channel,
         channelScope: wire.channelScope,
       });
-      this.engine.sendReplay(
-        base.id as string,
-        wire.channel ?? null,
-        wire.channelScope ?? null,
+      this.engine.sendReplay(base.id as string, {
+        channelName: wire.channel ?? null,
+        channelScope: wire.channelScope ?? null,
         event,
         payload,
         wire,
-      );
+      });
     };
 
     return {};
@@ -199,25 +209,23 @@ class ReplayInstaller {
   /** Persist one outgoing wire message to the replay table. */
   persist = (wireMessage: WireOutgoingMessage): void => {
     if (
-      !shouldStoreReplayMessage(
-        this.channelKey,
-        wireMessage.event,
-        wireMessage.wskit,
-        this.exclude,
-        this.engine.getReplayClaimedChannelKeys(),
-      )
+      !shouldStoreReplayMessage(wireMessage.event, {
+        channelKey: this.channelKey,
+        wskit: wireMessage.wskit,
+        exclude: this.exclude,
+        claimedChannelKeys: this.engine.getReplayClaimedChannelKeys(),
+      })
     )
       return;
 
     const { sql } = this.engine.requireStorage();
-    const row = persistReplayMessage(
-      sql,
-      this.opts,
-      wireMessage.event,
-      wireMessage.payload,
-      wireMessage.wskit,
-      Date.now(),
-    );
+    const row = persistReplayMessage(sql, {
+      options: this.opts,
+      event: wireMessage.event,
+      payload: wireMessage.payload,
+      wskit: wireMessage.wskit,
+      now: Date.now(),
+    });
     pruneExpiredReplayRows(sql, this.opts.retention, row?.createdAt ?? Date.now());
     pruneReplayScopeRows(sql, this.opts.retention, readReplayScope(wireMessage.wskit));
   };
@@ -255,10 +263,16 @@ class ReplayInstaller {
 
     for (const row of rows) {
       const rowPayload = JSON.parse(row.payload) as Record<string, unknown>;
-      this.engine.sendReplay(connectionId, row.channel, row.channelScope, row.event, rowPayload, {
-        seq: row.seq,
-        messageId: row.messageId,
-        channel: row.channel ?? undefined,
+      this.engine.sendReplay(connectionId, {
+        channelName: row.channel,
+        channelScope: row.channelScope,
+        event: row.event,
+        payload: rowPayload,
+        wire: {
+          seq: row.seq,
+          messageId: row.messageId,
+          channel: row.channel ?? undefined,
+        },
       });
     }
 

@@ -12,7 +12,7 @@ import { DeferExhausted } from '~/errors/errors.ts';
 import type { AnyGenerate } from '~/_engine/compile/types.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { ActiveStream, ResolvedScope, RuntimeConnection } from '~/_engine/runtime/types.ts';
-import type { AsyncContext } from '~/context.ts';
+import type { AsyncContext, Logger } from '~/context.ts';
 
 /**
  * The small runtime surface stream helpers need from the engine.
@@ -24,9 +24,7 @@ import type { AsyncContext } from '~/context.ts';
 interface StreamRuntime {
   activeStreams: Map<string, ActiveStream>;
   generateId(prefix?: string): string;
-  logger: {
-    warn(message: string, data?: Record<string, unknown>): void;
-  };
+  logger: Pick<Logger, 'warn'>;
   errorHooks: readonly ((ctx: unknown, error: unknown, event?: string) => void | Promise<void>)[];
   buildConnectionContext(
     connection: RuntimeConnection,
@@ -34,45 +32,40 @@ interface StreamRuntime {
   ): Record<PropertyKey, unknown>;
   sendProtocolMessage(
     connection: RuntimeConnection,
-    event: string,
-    payload: Record<string, unknown>,
-    wskit: Record<string, unknown>,
+    opts: { event: string; payload: Record<string, unknown>; wskit: Record<string, unknown> },
   ): void;
   sendThroughPipeline(
     connection: RuntimeConnection,
-    scope: {
-      namespace?: string;
-      channel?: string;
-      channelScope?: string | null;
-      streamId?: string;
+    opts: {
+      routing:
+        | { namespace?: string; channel?: string; channelScope?: string | null; streamId?: string }
+        | undefined;
+      event: string;
+      payload: unknown;
     },
-    event: string,
-    payload: unknown,
   ): boolean;
   asyncContext?: AsyncContext;
   handleRuntimeError(
     connection: RuntimeConnection,
-    error: unknown,
-    event?: string,
-    routing?: Protocol.WskitRouting,
+    opts: { error: unknown; event?: string; routing?: Protocol.WskitRouting },
   ): Promise<void>;
   handleValidationError(
     connection: RuntimeConnection,
-    event: string,
-    validationError: unknown,
-    scope?: ResolvedScope,
+    opts: { event: string; validationError: unknown; scope?: ResolvedScope },
   ): Promise<void>;
   broadcastToConnections(
     connections: readonly RuntimeConnection[],
-    event: string,
-    payload: unknown,
-    options?: {
-      namespace?: string;
-      channel?: string;
-      channelScope?: string | null;
-      excludeSelf?: boolean;
+    opts: {
+      event: string;
+      payload: unknown;
+      options?: {
+        namespace?: string;
+        channel?: string;
+        channelScope?: string | null;
+        excludeSelf?: boolean;
+      };
+      excludeConnectionId?: string;
     },
-    excludeConnectionId?: string,
   ): void;
   connections: Map<string, RuntimeConnection>;
   persistAttachment(connection: RuntimeConnection): void;
@@ -104,7 +97,7 @@ function streamWskit(streamId: string, scope: ResolvedScope): Record<string, unk
  */
 export async function cancelStream(
   runtime: Pick<StreamRuntime, 'activeStreams'> & {
-    logger?: { error(message: string, fields?: Record<string, unknown>): void };
+    logger?: Pick<Logger, 'error'>;
   },
   connection: RuntimeConnection,
   streamId: string,
@@ -137,13 +130,18 @@ export async function cancelStream(
  * Returning `true` means the event belonged to an active stream, so normal
  * incoming routing should stop.
  */
+export interface BufferStreamNudgeOptions {
+  event: string;
+  payload: unknown;
+  wskit: Protocol.WskitProtocol | undefined;
+}
+
 export async function bufferStreamNudge(
   runtime: Pick<StreamRuntime, 'activeStreams' | 'handleValidationError' | 'handleRuntimeError'>,
   connection: RuntimeConnection,
-  event: string,
-  payload: unknown,
-  wskit: Protocol.WskitProtocol | undefined,
+  options: BufferStreamNudgeOptions,
 ): Promise<boolean> {
+  const { event, payload, wskit } = options;
   const streamId = wskit?.streamId;
   if (typeof streamId !== 'string') return false;
 
@@ -162,7 +160,7 @@ export async function bufferStreamNudge(
         },
       ],
     });
-    await runtime.handleRuntimeError(connection, error, event, { streamId });
+    await runtime.handleRuntimeError(connection, { error, event, routing: { streamId } });
     return true;
   }
 
@@ -179,7 +177,7 @@ export async function bufferStreamNudge(
         },
       ],
     });
-    await runtime.handleRuntimeError(connection, error, event, { streamId });
+    await runtime.handleRuntimeError(connection, { error, event, routing: { streamId } });
     return true;
   }
 
@@ -190,14 +188,22 @@ export async function bufferStreamNudge(
     });
   } catch (error) {
     rethrowIfConfigError(error);
-    await runtime.handleValidationError(connection, event, error);
+    await runtime.handleValidationError(connection, { event, validationError: error });
     // Send `__error__` with `streamId` routing so the client hits the right
     // stream-error handler. Mark handled so it does not fall through.
-    await runtime.handleRuntimeError(connection, error, event, { streamId });
+    await runtime.handleRuntimeError(connection, { error, event, routing: { streamId } });
     return true;
   }
 
   return true;
+}
+
+export interface RunStreamOptions {
+  scope: ResolvedScope;
+  event: string;
+  stream: AnyGenerate;
+  payload: unknown;
+  wskit?: Protocol.WskitProtocol;
 }
 
 /**
@@ -207,14 +213,14 @@ export async function bufferStreamNudge(
 export async function runStream(
   runtime: StreamRuntime,
   connection: RuntimeConnection,
-  scope: ResolvedScope,
-  event: string,
-  stream: AnyGenerate,
-  payload: unknown,
-  wskit?: Protocol.WskitProtocol,
+  options: RunStreamOptions,
 ): Promise<void> {
+  const { scope, event, stream, payload, wskit } = options;
   // One active stream per event per connection, unless `.allowConcurrent()`.
-  assertNoConcurrentStream(runtime, connection, event, stream.stream.allowConcurrent);
+  assertNoConcurrentStream(runtime, connection, {
+    event,
+    allowConcurrent: stream.stream.allowConcurrent,
+  });
 
   // Use the client's `streamId` if it sent one. Reject collisions with another
   // active stream on this connection.
@@ -228,7 +234,11 @@ export async function runStream(
   } else {
     streamId = runtime.generateId('stream');
   }
-  runtime.sendProtocolMessage(connection, '__streamOk__', {}, streamWskit(streamId, scope));
+  runtime.sendProtocolMessage(connection, {
+    event: '__streamOk__',
+    payload: {},
+    wskit: streamWskit(streamId, scope),
+  });
 
   const ctx = runtime.buildConnectionContext(connection, scope) as Record<PropertyKey, unknown>;
   installCtxNudges(ctx);
@@ -274,37 +284,39 @@ export async function runStream(
               ),
             )
           : [...runtime.connections.values()];
-        runtime.broadcastToConnections(
-          targets,
+        runtime.broadcastToConnections(targets, {
           event,
-          result.value,
-          {
+          payload: result.value,
+          options: {
             namespace: scope.namespace?.name,
             channel: scope.channelName,
             channelScope: scope.channelScope,
             excludeSelf: true,
           },
-          connection.id,
-        );
+          excludeConnectionId: connection.id,
+        });
       }
-      runtime.sendThroughPipeline(
-        connection,
-        {
+      runtime.sendThroughPipeline(connection, {
+        routing: {
           namespace: scope.namespace?.name,
           channel: scope.channelName,
           channelScope: scope.channelScope,
           streamId,
         },
         event,
-        result.value,
-      );
+        payload: result.value,
+      });
 
       nextInput = stream.stream.nudges.length > 0 ? [...activeStream.nudges] : undefined;
       activeStream.nudges.length = 0;
     }
 
     if (!activeStream.closed) {
-      runtime.sendProtocolMessage(connection, '__streamEnd__', {}, streamWskit(streamId, scope));
+      runtime.sendProtocolMessage(connection, {
+        event: '__streamEnd__',
+        payload: {},
+        wskit: streamWskit(streamId, scope),
+      });
     }
   } catch (streamError) {
     const routing: Protocol.WskitRouting = { streamId };
@@ -328,14 +340,13 @@ export async function runStream(
       for (const hook of runtime.errorHooks) {
         await hook(runtime.buildConnectionContext(connection, scope), exhausted, event);
       }
-      runtime.sendProtocolMessage(
-        connection,
-        '__error__',
-        { code: DeferExhausted.code },
-        routing as Record<string, unknown>,
-      );
+      runtime.sendProtocolMessage(connection, {
+        event: '__error__',
+        payload: { code: DeferExhausted.code },
+        wskit: routing as Record<string, unknown>,
+      });
     } else {
-      await runtime.handleRuntimeError(connection, streamError, event, routing);
+      await runtime.handleRuntimeError(connection, { error: streamError, event, routing });
     }
   } finally {
     connection.activeStreamIds?.delete(streamId);

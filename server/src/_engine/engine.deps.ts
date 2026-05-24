@@ -19,8 +19,6 @@ type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
 type ResolvedScope = EngineRuntimeTypes.ResolvedScope;
 type RoutingTarget = EngineRuntimeTypes.RoutingTarget;
 type BroadcastOptions = PublicApi.BroadcastOptions;
-type CompiledChannel = EngineRuntimeTypes.ResolvedScope['channel'];
-
 // ─────── dep-bag memoization ───────
 
 // Each dependency bag closes over `core` and is otherwise constant for the
@@ -51,19 +49,8 @@ function depsMemoFor(core: EngineCore): DepsMemo {
 
 /** Bound `leaveChannel` closure used by persistence and identity ops. */
 function buildLeaveChannel(core: EngineCore) {
-  return (
-    connection: RuntimeConnection,
-    scope: { channel?: CompiledChannel; channelName: string; channelScope: string | null },
-    kickedReason?: string,
-    disconnect?: boolean,
-  ) =>
-    EngineChannelFrames.leaveChannel(
-      channelRuntime(core),
-      connection,
-      scope,
-      kickedReason,
-      disconnect,
-    );
+  return (connection: RuntimeConnection, opts: ChannelPrimitive.LeaveChannelOptions) =>
+    EngineChannelFrames.leaveChannel(channelRuntime(core), connection, opts);
 }
 
 /** The constant dep bag passed to `EngineContexts.buildConnectionContext`. */
@@ -109,76 +96,38 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
     requireStorage: () => core.requireStorage(),
     requireTimers: () => core.requireTimers(),
     scheduleTask: (taskId, time, data) =>
-      Scheduling.scheduleTask(core, createTaskContext, taskId, time, data),
+      Scheduling.scheduleTask(core, createTaskContext, { taskId, time, data }),
     cancelScheduled: (taskId, filter) =>
-      Scheduling.cancelScheduled(core, createTaskContext, taskId, filter),
-    broadcastToConnections: (connections, event, payload, options, excludeConnectionId) => {
-      EngineMessageRuntime.broadcastToConnections(
-        outgoingRuntime(core),
-        connections,
-        event,
-        payload,
-        options,
-        excludeConnectionId,
-      );
+      Scheduling.cancelScheduled(core, createTaskContext, { taskId, filter }),
+    broadcastToConnections: (connections, opts) => {
+      EngineMessageRuntime.broadcastToConnections(outgoingRuntime(core), connections, opts);
     },
-    sendThroughPipeline: (connection, routing, event, payload) => {
-      return EngineMessageRuntime.sendThroughPipeline(
-        outgoingRuntime(core),
-        connection,
-        routing,
-        event,
-        payload,
-      );
+    sendThroughPipeline: (connection, opts) => {
+      return EngineMessageRuntime.sendThroughPipeline(outgoingRuntime(core), connection, opts);
     },
-    broadcastToChannel: (
-      channelName,
-      event,
-      payload,
-      excludeConnectionId,
-      channelScope,
-      excludeSelf,
-    ) => {
-      EngineMessageRuntime.broadcastToChannel(
-        memberRuntime(core),
-        channelName,
-        event,
-        payload,
-        excludeConnectionId,
-        channelScope,
-        excludeSelf,
-      );
+    broadcastToChannel: (opts) => {
+      EngineMessageRuntime.broadcastToChannel(memberRuntime(core), opts);
     },
     getChannelMembers: (channelName, channelScope) =>
       EngineChannelFrames.getChannelMembers(memberRuntime(core), channelName, channelScope),
-    kickChannelMembers: (channelName, target, reason, channelScope) => {
+    kickChannelMembers: (opts) => {
       return EngineChannelFrames.kickChannelMembers(
-        {
-          ...channelRuntime(core),
-          leaveChannel: buildLeaveChannel(core),
-        },
-        channelName,
-        target,
-        reason,
-        channelScope,
+        { ...channelRuntime(core), leaveChannel: buildLeaveChannel(core) },
+        opts,
       );
     },
     removeChannelMember: (channelName, channelScope, identity) => {
-      return MembershipPersistence.removeChannelMember(
-        core,
-        buildLeaveChannel(core),
+      return MembershipPersistence.removeChannelMember(core, buildLeaveChannel(core), {
+        identity,
         channelName,
         channelScope,
-        identity,
-      );
+      });
     },
-    subscribeConnectionAsServer: (ref, channelName, channelScope, payload) => {
+    subscribeConnectionAsServer: (ref, opts) => {
       return EngineChannelFrames.subscribeFromServer(
         { ...channelRuntime(core), instanceId: core.engineInstanceId },
         ref,
-        channelName,
-        channelScope,
-        payload,
+        opts,
       );
     },
     resolveChannel: (target) => {
@@ -192,11 +141,11 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
       if (!ChannelPrimitive.matchesScopePattern(family.pattern, target.name)) return undefined;
       return { channelName: target.name, channelScope: target.family };
     },
-    sendReplay: (connection, channelName, channelScope, event, payload, wire) => {
-      sendReplay(core, connection, channelName, channelScope, event, payload, wire);
+    sendReplay: (connection, opts) => {
+      sendReplay(core, connection, opts);
     },
-    sendProtocolMessage: (connection, event, payload, wskit) => {
-      sendProtocolMessage(core, connection, event, payload, wskit);
+    sendProtocolMessage: (connection, opts) => {
+      sendProtocolMessage(core, connection, opts);
     },
     persistAttachment: (connection) => EngineHibernation.persistAttachment(core, connection),
     toConnectionInfo: (connection) =>
@@ -250,17 +199,8 @@ function buildMemberRuntime(core: EngineCore) {
       EngineContexts.toConnectionInfo(connection, core.engineInstanceId, core.hibernationEnabled),
     sendThroughPipeline: (
       connection: RuntimeConnection,
-      routing: RoutingTarget | undefined,
-      event: string,
-      payload: unknown,
-    ) =>
-      EngineMessageRuntime.sendThroughPipeline(
-        outgoingRuntime(core),
-        connection,
-        routing,
-        event,
-        payload,
-      ),
+      opts: { routing: RoutingTarget | undefined; event: string; payload: unknown },
+    ) => EngineMessageRuntime.sendThroughPipeline(outgoingRuntime(core), connection, opts),
   };
 }
 
@@ -280,60 +220,41 @@ function buildChannelRuntime(core: EngineCore) {
     subscribeHooks: core.hooks.subscribe,
     unsubscribeHooks: core.hooks.unsubscribe,
     sessionEndHooks: core.hooks.sessionEnd,
-    broadcastToChannel: (
-      channelName: string,
-      event: string,
-      payload: unknown,
-      excludeConnectionId: string | undefined,
-      channelScope: string | null,
-      excludeSelf?: boolean,
-    ) => {
-      EngineMessageRuntime.broadcastToChannel(
-        dispatchRuntime(core),
-        channelName,
-        event,
-        payload,
-        excludeConnectionId,
-        channelScope,
-        excludeSelf,
-      );
+    broadcastToChannel: (opts: ChannelPrimitive.BroadcastToChannelOptions) => {
+      EngineMessageRuntime.broadcastToChannel(dispatchRuntime(core), opts);
     },
     buildConnectionContext: buildCtx,
     persistAttachment: (connection: RuntimeConnection) =>
       EngineHibernation.persistAttachment(core, connection),
     sendProtocolMessage: (
       connection: RuntimeConnection,
-      event: string,
-      payload: Record<string, unknown>,
-      wskit: Record<string, unknown>,
-    ) => sendProtocolMessage(core, connection, event, payload, wskit),
+      opts: { event: string; payload: Record<string, unknown>; wskit: Record<string, unknown> },
+    ) => sendProtocolMessage(core, connection, opts),
     handleValidationError: (
       connection: RuntimeConnection,
-      event: string,
-      validationError: unknown,
-      scope?: ResolvedScope,
+      opts: { event: string; validationError: unknown; scope?: ResolvedScope },
     ) =>
       EngineErrorRuntime.handleValidationError(
-        core,
-        buildCtx,
+        { core, buildConnectionContext: buildCtx },
         connection,
-        event,
-        validationError,
-        scope,
+        opts,
       ),
     handleRuntimeError: (
       connection: RuntimeConnection,
-      error: unknown,
-      event?: string,
-      routing?: Protocol.WskitRouting,
-    ) => EngineErrorRuntime.handleRuntimeError(core, buildCtx, connection, error, event, routing),
+      opts: { error: unknown; event?: string; routing?: Protocol.WskitRouting },
+    ) =>
+      EngineErrorRuntime.handleRuntimeError(
+        { core, buildConnectionContext: buildCtx },
+        connection,
+        opts,
+      ),
     isChannelPersistent: (channelKey: string) => core.isChannelPersistent(channelKey),
     persistMembership: (identity: string, channelName: string, channelScope: string | null) =>
-      MembershipPersistence.persistMembership(core, identity, channelName, channelScope),
+      MembershipPersistence.persistMembership(core, { identity, channelName, channelScope }),
     deleteDurableMembership: (identity: string, channelName: string, channelScope: string | null) =>
-      MembershipPersistence.deleteDurableMembership(core, identity, channelName, channelScope),
+      MembershipPersistence.deleteDurableMembership(core, { identity, channelName, channelScope }),
     hasDurableMembership: (identity: string, channelName: string, channelScope: string | null) =>
-      MembershipPersistence.hasDurableMembership(core, identity, channelName, channelScope),
+      MembershipPersistence.hasDurableMembership(core, { identity, channelName, channelScope }),
     logger: core.logger,
   };
 }
@@ -360,55 +281,47 @@ function buildDispatchRuntime(core: EngineCore) {
     buildConnectionContext: buildCtx,
     sendProtocolMessage: (
       connection: RuntimeConnection,
-      event: string,
-      payload: Record<string, unknown>,
-      wskit: Record<string, unknown>,
-    ) => sendProtocolMessage(core, connection, event, payload, wskit),
+      opts: { event: string; payload: Record<string, unknown>; wskit: Record<string, unknown> },
+    ) => sendProtocolMessage(core, connection, opts),
     sendReplay: (
       connection: RuntimeConnection,
-      channelName: string | null,
-      channelScope: string | null,
-      event: string,
-      payload: unknown,
-      wire: { seq: number; messageId: string; channel?: string },
-    ) => sendReplay(core, connection, channelName, channelScope, event, payload, wire),
+      opts: {
+        channelName: string | null;
+        channelScope: string | null;
+        event: string;
+        payload: unknown;
+        wire: { seq: number; messageId: string; channel?: string };
+      },
+    ) => sendReplay(core, connection, opts),
     persistAttachment: (connection: RuntimeConnection) =>
       EngineHibernation.persistAttachment(core, connection),
     handleRuntimeError: (
       connection: RuntimeConnection,
-      error: unknown,
-      event?: string,
-      routing?: Protocol.WskitRouting,
-    ) => EngineErrorRuntime.handleRuntimeError(core, buildCtx, connection, error, event, routing),
+      opts: { error: unknown; event?: string; routing?: Protocol.WskitRouting },
+    ) =>
+      EngineErrorRuntime.handleRuntimeError(
+        { core, buildConnectionContext: buildCtx },
+        connection,
+        opts,
+      ),
     handleValidationError: (
       connection: RuntimeConnection,
-      event: string,
-      validationError: unknown,
-      scope?: ResolvedScope,
+      opts: { event: string; validationError: unknown; scope?: ResolvedScope },
     ) =>
       EngineErrorRuntime.handleValidationError(
-        core,
-        buildCtx,
+        { core, buildConnectionContext: buildCtx },
         connection,
-        event,
-        validationError,
-        scope,
+        opts,
       ),
     broadcastToConnections: (
       connections: readonly RuntimeConnection[],
-      event: string,
-      payload: unknown,
-      options?: BroadcastOptions & { namespace?: string },
-      excludeConnectionId?: string,
-    ) =>
-      EngineMessageRuntime.broadcastToConnections(
-        outgoingRuntime(core),
-        connections,
-        event,
-        payload,
-        options,
-        excludeConnectionId,
-      ),
+      opts: {
+        event: string;
+        payload: unknown;
+        options?: BroadcastOptions & { namespace?: string };
+        excludeConnectionId?: string;
+      },
+    ) => EngineMessageRuntime.broadcastToConnections(outgoingRuntime(core), connections, opts),
     handleSubscribe: (connection: RuntimeConnection, frame: Protocol.SubscribeFrame) =>
       EngineChannelFrames.handleSubscribe(channelRuntime(core), connection, frame),
     handleUnsubscribe: (connection: RuntimeConnection, frame: Protocol.UnsubscribeFrame) =>
@@ -458,9 +371,13 @@ function buildConnectionRuntime(core: EngineCore) {
     handleBinaryMessage: (connection: RuntimeConnection, data: ArrayBuffer) =>
       handleBinaryMessage(core, connection, data),
     handleConnectionClose: (connection: RuntimeConnection, code: number, reason: string) =>
-      handleConnectionClose(core, connection, code, reason),
+      handleConnectionClose(core, { connection, code, reason }),
     handleRuntimeError: (connection: RuntimeConnection, error: unknown, event?: string) =>
-      EngineErrorRuntime.handleRuntimeError(core, buildCtx, connection, error, event),
+      EngineErrorRuntime.handleRuntimeError(
+        { core, buildConnectionContext: buildCtx },
+        connection,
+        { error, event },
+      ),
     // Only wire auto-rejoin when persistence is on. Otherwise the connect path
     // adds a microtask and shifts `runConnectionLifecycle('connect')` timing.
     ...(core.persistenceEnabled
@@ -472,14 +389,11 @@ function buildConnectionRuntime(core: EngineCore) {
             }
             return MembershipPersistence.autoRejoinIdentity(
               core,
-              (ref, channelName, channelScope, payload, rejoining) =>
+              (ref, opts) =>
                 EngineChannelFrames.subscribeFromServer(
                   { ...channelRuntime(core), instanceId: core.engineInstanceId },
                   ref,
-                  channelName,
-                  channelScope,
-                  payload,
-                  rejoining,
+                  opts,
                 ),
               connection,
             );
@@ -524,9 +438,7 @@ export function runConnectionLifecycle(
 /** Close one connection fully: cancel streams, fire disconnect, leave channels. */
 export function handleConnectionClose(
   core: EngineCore,
-  connection: RuntimeConnection,
-  code: number,
-  reason: string,
+  opts: EngineConnectionRuntime.HandleConnectionCloseOptions,
 ): Promise<void> {
   return EngineConnectionRuntime.handleConnectionClose(
     {
@@ -545,9 +457,7 @@ export function handleConnectionClose(
       leaveChannel: buildLeaveChannel(core),
       logger: core.logger,
     },
-    connection,
-    code,
-    reason,
+    opts,
   );
 }
 
@@ -562,7 +472,11 @@ export function handleBinaryMessage(
     {
       buildConnectionContext: buildCtx,
       handleRuntimeError: (targetConnection, error, event) =>
-        EngineErrorRuntime.handleRuntimeError(core, buildCtx, targetConnection, error, event),
+        EngineErrorRuntime.handleRuntimeError(
+          { core, buildConnectionContext: buildCtx },
+          targetConnection,
+          { error, event },
+        ),
       activityHooks: core.hooks.activity,
       binaryHooks: core.hooks.binary,
     },

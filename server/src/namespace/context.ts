@@ -19,16 +19,19 @@ export function buildNamespaceScopeExtra(
     namespace: {
       name: namespace.name,
       send: (event: string, payload: unknown) => {
-        return deps.sendThroughPipeline(connection, { namespace: namespace.name }, event, payload);
-      },
-      broadcast: (event: string, payload: unknown, options?: { excludeSelf?: boolean }) => {
-        deps.broadcastToConnections(
-          [...deps.connections.values()],
+        return deps.sendThroughPipeline(connection, {
+          routing: { namespace: namespace.name },
           event,
           payload,
-          { namespace: namespace.name, excludeSelf: options?.excludeSelf },
-          connection.id,
-        );
+        });
+      },
+      broadcast: (event: string, payload: unknown, options?: { excludeSelf?: boolean }) => {
+        deps.broadcastToConnections([...deps.connections.values()], {
+          event,
+          payload,
+          options: { namespace: namespace.name, excludeSelf: options?.excludeSelf },
+          excludeConnectionId: connection.id,
+        });
       },
     },
   };

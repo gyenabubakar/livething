@@ -32,7 +32,7 @@ function setup(taggedCount: number, totalConnections: number) {
     const connection = createConnection(`c${i}`);
     connections.set(connection.id, connection);
     if (i < taggedCount) {
-      addConnectionTag(tagMembers, connection, 'ephemeral', 'team', 'eng');
+      addConnectionTag(tagMembers, connection, { kind: 'ephemeral', group: 'team', key: 'eng' });
     }
   }
 
@@ -56,7 +56,9 @@ for (const [taggedCount, total] of [
 ] as Array<[number, number]>) {
   describe(`tag fan-out · ${taggedCount} tagged of ${total} connections`, () => {
     const { connections, runtime, owner } = setup(taggedCount, total);
-    const refHandle = buildGroupHandle(runtime, owner, 'ephemeral', 'team').ref('eng');
+    const refHandle = buildGroupHandle(runtime, owner, { kind: 'ephemeral', group: 'team' }).ref(
+      'eng',
+    );
 
     bench('tag-ref send · index (F4)', () => {
       refHandle.send('evt', { text: 'hi' });

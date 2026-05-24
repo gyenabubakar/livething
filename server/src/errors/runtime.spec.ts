@@ -40,13 +40,12 @@ describe('errors runtime', () => {
           warn() {},
           error() {},
         },
-        sendProtocolMessage(_connection, event, payload) {
-          sent.push({ event, payload });
+        sendProtocolMessage(_connection, opts) {
+          sent.push({ event: opts.event, payload: opts.payload });
         },
       },
       { id: 'c1' } as never,
-      new Error('boom'),
-      'echo',
+      { error: new Error('boom'), event: 'echo' },
     );
 
     expect(observed).toEqual(['echo']);
@@ -74,8 +73,7 @@ describe('errors runtime', () => {
         sendProtocolMessage() {},
       },
       { id: 'c1' } as never,
-      new WskitError('forbidden', {}),
-      'echo',
+      { error: new WskitError('forbidden', {}), event: 'echo' },
     );
 
     expect(observed).toEqual(['hook']);
@@ -98,9 +96,11 @@ describe('errors runtime', () => {
         ],
       },
       { id: 'c1' } as never,
-      '__subscribe__',
-      new Error('bad'),
-      { channelName: 'room-1' } as never,
+      {
+        event: '__subscribe__',
+        validationError: new Error('bad'),
+        scope: { channelName: 'room-1' } as never,
+      },
     );
 
     expect(events).toEqual(['__subscribe__:room-1']);
@@ -131,13 +131,12 @@ describe('errors runtime', () => {
             errors.push(message);
           },
         },
-        sendProtocolMessage(_connection, event, payload) {
-          sent.push({ event, payload });
+        sendProtocolMessage(_connection, opts) {
+          sent.push({ event: opts.event, payload: opts.payload });
         },
       },
       { id: 'c1' } as never,
-      new Error('boom'),
-      'echo',
+      { error: new Error('boom'), event: 'echo' },
     );
 
     // Second hook still ran despite the first throwing.
@@ -165,13 +164,12 @@ describe('errors runtime', () => {
           },
           error() {},
         },
-        sendProtocolMessage(_connection, event, payload) {
-          sent.push({ event, payload });
+        sendProtocolMessage(_connection, opts) {
+          sent.push({ event: opts.event, payload: opts.payload });
         },
       },
       { id: 'c1' } as never,
-      new WskitError('quota-exceeded', { limit: 1 }),
-      'charge-card',
+      { error: new WskitError('quota-exceeded', { limit: 1 }), event: 'charge-card' },
     );
 
     expect(warnings).toEqual(['[wskit] Thrown WskitError was not declared with errors(...)']);
@@ -209,9 +207,11 @@ describe('errors runtime', () => {
         sendProtocolMessage() {},
       },
       { id: 'c1' } as never,
-      new Error('boom'),
-      'post',
-      { channel: 'room-7', channelScope: 'rooms' },
+      {
+        error: new Error('boom'),
+        event: 'post',
+        routing: { channel: 'room-7', channelScope: 'rooms' },
+      },
     );
 
     expect(builtScopes).toEqual([
@@ -238,9 +238,7 @@ describe('errors runtime', () => {
         sendProtocolMessage() {},
       },
       { id: 'c1' } as never,
-      new Error('boom'),
-      'post',
-      { namespace: 'unknown' },
+      { error: new Error('boom'), event: 'post', routing: { namespace: 'unknown' } },
     );
 
     expect(builtScopes).toEqual([undefined]);
