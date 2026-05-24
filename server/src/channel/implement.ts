@@ -5,11 +5,16 @@ import type { ChannelCtx } from '~/_api/ctx-types.ts';
 import type { InterceptFrame } from '~/intercept/intercept.ts';
 import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
 import type { CustomReplayOptions } from '~/replay/custom/custom.ts';
-import type { Validator } from '~/types.ts';
 
 // Reads one slot (incoming / requests / streams / etc.) off a sub-contract
 // so the .on() / .request() / .stream() methods below get per-event types.
 export type FieldOf<T, K extends string> = T extends Record<K, infer V> ? V : Record<string, any>;
+
+// Extracts the subscribe payload type from a channel contract when a check
+// validator is declared on the channel. Falls back to `unknown` otherwise.
+type SubscribePayloadOf<TChC> = 'subscribePayload' extends keyof TChC
+  ? TChC['subscribePayload']
+  : unknown;
 
 // Everything a channel sub-implementer collects, ready to be compiled.
 export interface ChannelHandlerBag {
@@ -25,7 +30,6 @@ export interface ChannelHandlerBag {
     (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>
   >;
   checkHandler?: (ctx: any, data?: any) => unknown | Promise<unknown>;
-  checkValidator?: unknown;
   commitHandler?: (ctx: any, checkResult: unknown) => void;
   onSubscribeHandler?: (ctx: any) => void | Promise<void>;
   onUnsubscribeHandler?: (ctx: any) => void | Promise<void>;
@@ -135,7 +139,8 @@ export class ChannelImplement<C extends Contract, ChC = any, TCheck = unknown> {
    * Whatever you return is passed as the second argument to `.commit()` —
    * TypeScript infers the type automatically. Throw to deny the subscribe.
    *
-   * Pass `options.validator` to validate the subscribe payload first.
+   * To validate the subscribe payload, declare `check` on the channel in the
+   * contract — `channel('room', { check: mySchema, definitions: [...] })`.
    *
    * @example
    * ```ts
@@ -146,9 +151,8 @@ export class ChannelImplement<C extends Contract, ChC = any, TCheck = unknown> {
    * })
    * ```
    */
-  check<TData = unknown, TResult = unknown>(
+  check<TData = SubscribePayloadOf<ChC>, TResult = unknown>(
     handler: (ctx: ChannelCtx<ChC, C>, data?: TData) => TResult | Promise<TResult>,
-    options?: { validator?: Validator<TData> },
   ): ChannelImplement<C, ChC, TResult> {
     if (this._bag.checkHandler) {
       throw new Error(
@@ -156,7 +160,6 @@ export class ChannelImplement<C extends Contract, ChC = any, TCheck = unknown> {
       );
     }
     this._bag.checkHandler = handler as any;
-    this._bag.checkValidator = options?.validator;
     return this as any as ChannelImplement<C, ChC, TResult>;
   }
 

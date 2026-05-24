@@ -19,6 +19,7 @@ export const channelCheckCommitContract = contract<Env>('channel-check-commit')(
   definitions: [
     // Uses both check and commit: check validates the token, commit enforces the capacity.
     channel('room', {
+      check: v.object({ token: v.string() }),
       definitions: [
         incoming('send', SendPayload),
         outgoing('message', MessagePayload),
@@ -43,8 +44,8 @@ export const channelCheckCommitHandler = implement(channelCheckCommitContract)
 
   .channel('room', (ch) =>
     ch
-      .check(async (_ctx, data?: { token: string }) => {
-        // Look up the token — in a real app this would be an async DB or auth call.
+      .check(async (_ctx, data) => {
+        // `data` is typed from the channel's `check` validator — no manual annotation needed.
         await new Promise((r) => setTimeout(r, 5));
         const role = data?.token ? TOKEN_ROLES[data.token] : undefined;
         if (!role) throw new Error('unknown or missing token');

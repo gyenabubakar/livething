@@ -1,7 +1,9 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type { Definition } from '~/_api/definitions.ts';
 import type { ScopeDeclaration } from '~/channel/channel.ts';
 import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
+import type { Validator } from '~/types.ts';
 
 /**
  * Contract-side declaration of a channel — a pub/sub group with its own
@@ -11,6 +13,7 @@ import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
 export interface ChannelDef<
   TPattern extends string | ScopeDeclaration<string> = string | ScopeDeclaration<string>,
   TDefinitions extends readonly Definition[] = readonly Definition[],
+  TCheckPayload = unknown,
 > {
   readonly _: 'channel';
   readonly pattern: TPattern;
@@ -18,6 +21,8 @@ export interface ChannelDef<
   readonly replay?: unknown;
   readonly rateLimit?: RateLimitConfig;
   readonly definitions: TDefinitions;
+  /** Validator for the subscribe payload passed to the channel's `check` handler. */
+  readonly checkValidator?: Validator<TCheckPayload>;
 }
 
 interface ChannelConfig<TDefinitions extends readonly Definition[]> {
@@ -30,18 +35,55 @@ interface ChannelConfig<TDefinitions extends readonly Definition[]> {
 /**
  * Declare a channel — a pub/sub group with its own incoming/outgoing events.
  * Use a string for static channels or `scope()` for dynamic patterns.
+ *
+ * Pass `check` to validate the payload a client sends when subscribing to this
+ * channel. The validated payload is available as the second argument of the
+ * `check` handler in the implementation, and as `subscribePayload` in
+ * `InferClient`.
  */
 export function channel<TPattern extends string, const TDefinitions extends readonly Definition[]>(
   pattern: TPattern,
   config: ChannelConfig<TDefinitions>,
-): ChannelDef<TPattern, TDefinitions>;
+): ChannelDef<TPattern, TDefinitions, unknown>;
+export function channel<
+  TPattern extends string,
+  const TDefinitions extends readonly Definition[],
+  TSchema extends StandardSchemaV1,
+>(
+  pattern: TPattern,
+  config: ChannelConfig<TDefinitions> & { check: TSchema },
+): ChannelDef<TPattern, TDefinitions, StandardSchemaV1.InferOutput<TSchema>>;
+export function channel<
+  TPattern extends string,
+  const TDefinitions extends readonly Definition[],
+  TCheckPayload,
+>(
+  pattern: TPattern,
+  config: ChannelConfig<TDefinitions> & { check: Validator<TCheckPayload> },
+): ChannelDef<TPattern, TDefinitions, TCheckPayload>;
 export function channel<TKey extends string, const TDefinitions extends readonly Definition[]>(
   pattern: ScopeDeclaration<TKey>,
   config: ChannelConfig<TDefinitions>,
-): ChannelDef<ScopeDeclaration<TKey>, TDefinitions>;
+): ChannelDef<ScopeDeclaration<TKey>, TDefinitions, unknown>;
+export function channel<
+  TKey extends string,
+  const TDefinitions extends readonly Definition[],
+  TSchema extends StandardSchemaV1,
+>(
+  pattern: ScopeDeclaration<TKey>,
+  config: ChannelConfig<TDefinitions> & { check: TSchema },
+): ChannelDef<ScopeDeclaration<TKey>, TDefinitions, StandardSchemaV1.InferOutput<TSchema>>;
+export function channel<
+  TKey extends string,
+  const TDefinitions extends readonly Definition[],
+  TCheckPayload,
+>(
+  pattern: ScopeDeclaration<TKey>,
+  config: ChannelConfig<TDefinitions> & { check: Validator<TCheckPayload> },
+): ChannelDef<ScopeDeclaration<TKey>, TDefinitions, TCheckPayload>;
 export function channel(
   pattern: string | ScopeDeclaration<string>,
-  config: ChannelConfig<readonly Definition[]>,
+  config: ChannelConfig<readonly Definition[]> & { check?: Validator },
 ): ChannelDef {
   return {
     _: 'channel',
@@ -50,5 +92,6 @@ export function channel(
     replay: config.replay,
     rateLimit: config.rateLimit,
     definitions: config.definitions,
+    checkValidator: config.check,
   };
 }

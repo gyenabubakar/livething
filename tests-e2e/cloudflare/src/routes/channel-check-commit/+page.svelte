@@ -47,6 +47,10 @@
 		send('__subscribe__', {}, { channel: 'room' });
 	}
 
+	function subRoomBadToken() {
+		send('__subscribe__', { token: 42 }, { channel: 'room' });
+	}
+
 	function subCheckOnly() {
 		send('__subscribe__', {}, { channel: 'check-only' });
 	}
@@ -64,6 +68,7 @@
 <button data-testid="sub-room-banned" onclick={() => subRoom('tok-banned')}>room (banned)</button>
 <button data-testid="sub-room-unknown" onclick={() => subRoom('tok-unknown')}>room (unknown)</button>
 <button data-testid="sub-room-no-token" onclick={subRoomNoToken}>room (no token)</button>
+<button data-testid="sub-room-bad-token" onclick={subRoomBadToken}>room (bad token type)</button>
 <button data-testid="sub-check-only" onclick={subCheckOnly}>check-only</button>
 <button data-testid="sub-commit-only" onclick={subCommitOnly}>commit-only</button>
 

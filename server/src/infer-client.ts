@@ -116,14 +116,17 @@ type ClientStreams<TContract> = ClientStreamSlot<Slot<TContract, 'streams'>, fal
 /**
  * One channel or namespace turned into the client's perspective: the server's
  * `outgoing` events are what the client receives, its `incoming` events are
- * what the client sends.
+ * what the client sends. Channels with a `check` validator also expose a
+ * `subscribePayload` field showing what the client must pass when subscribing.
  */
 type ClientScope<TScope> = {
   incoming: Slot<TScope, 'outgoing'>;
   outgoing: Slot<TScope, 'incoming'>;
   requests: Slot<TScope, 'requests'>;
   streams: ClientStreams<TScope>;
-};
+} & ('subscribePayload' extends keyof TScope
+  ? { subscribePayload: TScope['subscribePayload'] }
+  : {});
 
 /** Apply `ClientScope` to every entry of a channel or namespace map. */
 type ClientScopeMap<TScopes> = { [TKey in keyof TScopes]: ClientScope<TScopes[TKey]> };

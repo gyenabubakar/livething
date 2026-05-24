@@ -83,7 +83,7 @@ export function compileChannelDef(
     childPrimitives.push(
       checkFactory(
         impl._bag.checkHandler,
-        impl._bag.checkValidator ? { validator: impl._bag.checkValidator as any } : undefined,
+        def.checkValidator ? { validator: def.checkValidator as any } : undefined,
       ),
     );
   }

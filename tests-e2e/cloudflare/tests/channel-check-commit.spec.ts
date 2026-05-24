@@ -47,6 +47,18 @@ test.describe('channel check/commit', () => {
     await expect(page.getByTestId('subscribe-ok')).toHaveText('');
   });
 
+  // ── check validator (declared on the contract) ───────────────────────────
+
+  test('check validator: wrong payload type is rejected before check runs', async ({
+    page,
+  }, testInfo) => {
+    // token must be a string — passing a number fails the schema before the check handler runs.
+    await openPage(page, testInfo.testId);
+    await page.getByTestId('sub-room-bad-token').click();
+    await expect(page.getByTestId('subscribe-error')).toContainText('room');
+    await expect(page.getByTestId('subscribe-ok')).toHaveText('');
+  });
+
   // ── commit rejects using the typed check result ───────────────────────────
 
   test('banned role: commit uses the value returned by check to reject the subscriber', async ({

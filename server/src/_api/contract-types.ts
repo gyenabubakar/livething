@@ -81,9 +81,12 @@ type AddOne<Acc, D> =
                 }
               : D extends ScheduledDef<infer I, infer Dt>
                 ? Acc & { readonly scheduled: Record<I, Dt> }
-                : D extends ChannelDef<infer Pat, infer Defs>
+                : D extends ChannelDef<infer Pat, infer Defs, infer TCheckPayload>
                   ? Acc & {
-                      readonly channels: Record<ChannelKeyFromPattern<Pat>, ChannelContract<Defs>>;
+                      readonly channels: Record<
+                        ChannelKeyFromPattern<Pat>,
+                        ChannelContract<Defs, TCheckPayload>
+                      >;
                     }
                   : D extends NamespaceDef<infer N, infer Defs>
                     ? Acc & { readonly namespaces: Record<N, NamespaceContract<Defs>> }
@@ -100,10 +103,14 @@ type Categorize<TDefs extends readonly Definition[], Acc = EmptyCats> = TDefs ex
 // Sub-contracts
 // ---------------------------------------------------------------------------
 
-export type ChannelContract<TDefs extends readonly Definition[] = readonly Definition[]> = Pick<
+export type ChannelContract<
+  TDefs extends readonly Definition[] = readonly Definition[],
+  TCheckPayload = unknown,
+> = Pick<
   Categorize<TDefs>,
   'incoming' | 'outgoing' | 'requests' | 'streams' | 'resumableStreams' | 'recordedStreams'
->;
+> &
+  (unknown extends TCheckPayload ? {} : { readonly subscribePayload: TCheckPayload });
 
 export type NamespaceContract<TDefs extends readonly Definition[] = readonly Definition[]> = Pick<
   Categorize<TDefs>,
