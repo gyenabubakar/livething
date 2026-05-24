@@ -11,6 +11,8 @@ export default defineConfig({
       },
       formats: ['es'],
     },
+    minify: true,
+    sourcemap: true,
     rollupOptions: {
       // `node:*` builtins are provided by the Workers runtime (nodejs_compat);
       // keep them external so the bundler never stubs them out.
