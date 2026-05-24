@@ -148,7 +148,7 @@ export interface TimerProvider {
  *
  * `AsyncLocalStorage` from `node:async_hooks` satisfies this interface
  * directly — an adapter provides `new AsyncLocalStorage<string>()`. When an
- * adapter does not provide it, a module's `getState()` throws when called.
+ * adapter does not provide it, a plugin's `getState()` throws when called.
  */
 export interface AsyncContext {
   /** Run `callback` with `connectionId` recorded as the active connection. */
@@ -556,7 +556,7 @@ export interface ConnectionContext<
 
   /**
    * The WebSocket close code, present only in `onDisconnect` handlers
-   * (and module `onDisconnect`). Common values: `1000` graceful close,
+   * (and plugin `onDisconnect`). Common values: `1000` graceful close,
    * `1001` going-away during server shutdown, `1006` abnormal close
    * (network failure), `4xxx` application-defined (e.g. moderator kick).
    * Undefined in every other handler — `onConnect`, `incoming`, etc.
@@ -565,7 +565,7 @@ export interface ConnectionContext<
 
   /**
    * The WebSocket close reason string, paired with `closeCode`. Present
-   * only in `onDisconnect` handlers (and module `onDisconnect`). The
+   * only in `onDisconnect` handlers (and plugin `onDisconnect`). The
    * empty string when the close did not carry a reason.
    */
   closeReason?: string;

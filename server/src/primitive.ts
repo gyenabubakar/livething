@@ -39,7 +39,7 @@ export interface RequiresManifest {
 
 /**
  * Lightweight marker used by factories that need a stable symbol-typed
- * identity. Kept as a separate type for module() factory typing.
+ * identity. Kept as a separate type for plugin() factory typing.
  *
  * @internal
  */
@@ -125,8 +125,8 @@ export interface PrimitiveConfig<
    * initialization, after all primitives have been collected. `data` is
    * the output of `create()`.
    *
-   * Built-in primitives receive full `EngineAccess`. User modules only
-   * receive `ModuleHooks` — a restricted subset that cannot reach engine
+   * Built-in primitives receive full `EngineAccess`. User plugins only
+   * receive `PluginHooks` — a restricted subset that cannot reach engine
    * internals.
    */
   setup?(engine: EngineAccess, data: TData): void;

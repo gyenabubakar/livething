@@ -63,7 +63,7 @@ export function recordedGenerateFactory(
 
 recordedGenerateFactory.__key = RECORDED_STREAM_GENERATE_KEY;
 
-/** Identity-only handle for `dependencies: [recordedStreamFactory]` on modules. */
+/** Identity-only handle for `dependencies: [recordedStreamFactory]` on plugins. */
 export const recordedStreamFactory = {
   __key: RECORDED_STREAM_KEY,
 } as const;

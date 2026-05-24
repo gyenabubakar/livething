@@ -1,13 +1,13 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import * as EngineContexts from '~/_engine/contexts/contexts.ts';
 import { installPrimitiveHooks } from '~/_engine/registry/install.ts';
-import { createModuleHooks } from '~/_engine/registry/module-hooks.ts';
+import { createPluginHooks } from '~/_engine/registry/plugin-hooks.ts';
 import { isSchemaInitialized, markSchemaInitialized } from '~/_engine/runtime/schema-meta.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type { EngineAccessDeps } from '~/_engine/registry/engine-access.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 
-type ModuleRuntime = EngineRuntimeTypes.ModuleRuntime;
+type PluginRuntime = EngineRuntimeTypes.PluginRuntime;
 
 /** Throw if the adapter is missing something the handler said it needs. */
 function validateRequires(core: EngineCore): void {
@@ -41,7 +41,7 @@ function validateEngineRequirements(core: EngineCore): void {
 }
 
 /**
- * One-time startup. Validate capabilities, install primitives and modules,
+ * One-time startup. Validate capabilities, install primitives and plugins,
  * then run boot hooks and init hooks.
  */
 export async function initialize(core: EngineCore, accessDeps: EngineAccessDeps): Promise<void> {
@@ -53,16 +53,16 @@ export async function initialize(core: EngineCore, accessDeps: EngineAccessDeps)
   }
   validateEngineRequirements(core);
 
-  for (const moduleInstance of core.compiled.modules) {
-    const runtime: ModuleRuntime = {
-      instance: moduleInstance,
+  for (const pluginInstance of core.compiled.modules) {
+    const runtime: PluginRuntime = {
+      instance: pluginInstance,
       contextFactory: () => ({}),
     };
-    runtime.contextFactory = moduleInstance.setupModule(
-      moduleInstance.args,
-      createModuleHooks(core, runtime, accessDeps.ensureScheduledRuntime),
+    runtime.contextFactory = pluginInstance.setupPlugin(
+      pluginInstance.args,
+      createPluginHooks(core, runtime, accessDeps.ensureScheduledRuntime),
     );
-    core.moduleRuntimes.push(runtime);
+    core.pluginRuntimes.push(runtime);
   }
 
   // Schema-init hooks (CREATE TABLE IF NOT EXISTS) only run when the marker
@@ -96,10 +96,10 @@ export async function initialize(core: EngineCore, accessDeps: EngineAccessDeps)
   for (const hook of core.hooks.init) {
     await hook(initCtx);
   }
-  for (const runtime of core.moduleRuntimes) {
+  for (const runtime of core.pluginRuntimes) {
     if (runtime.onInit) {
       await runtime.onInit(
-        EngineContexts.createModuleScopedContext(
+        EngineContexts.createPluginScopedContext(
           runtime.instance.id,
           initCtx as unknown as Record<PropertyKey, unknown>,
         ),

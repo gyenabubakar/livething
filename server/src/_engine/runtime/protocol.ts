@@ -263,7 +263,7 @@ export type OutgoingProtocolEvent = OutgoingProtocolFrame['event'];
  * to split protocol frames (parsed against the protocol variant) from
  * user-event frames (parsed against the user-event schema) before validation.
  *
- * Module-owned events use the `__moduleId:event` form — they start with `__`
+ * Plugin-owned events use the `__pluginId:event` form — they start with `__`
  * but do not end with it, so this check leaves them on the user-event path.
  */
 export function isProtocolEventName(name: unknown): name is `__${string}__` {

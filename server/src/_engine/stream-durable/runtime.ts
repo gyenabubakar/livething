@@ -497,7 +497,7 @@ async function runGenerator(
   let seq = startSeq;
   try {
     while (!activeStream.closed) {
-      // Advance the generator inside the connection's async context so module
+      // Advance the generator inside the connection's async context so plugin
       // APIs it calls (e.g. hooks.getState()) resolve to the stream owner.
       const result = await withConnectionContext(runtime.asyncContext, connection.id, () =>
         iterator.next(nextInput),

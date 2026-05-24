@@ -201,8 +201,8 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
     persistAttachment: (connection) => EngineHibernation.persistAttachment(core, connection),
     toConnectionInfo: (connection) =>
       EngineContexts.toConnectionInfo(connection, core.engineInstanceId, core.hibernationEnabled),
-    attachModuleApis: (ctx, connection) =>
-      EngineContexts.attachModuleApis(core.moduleRuntimes, ctx, connection),
+    attachPluginApis: (ctx, connection) =>
+      EngineContexts.attachPluginApis(core.pluginRuntimes, ctx, connection),
     contextExtenders: core.hooks.contextExtenders,
     instanceId: core.engineInstanceId,
     usesTags: core.usesTags(),
@@ -221,7 +221,7 @@ export function outgoingRuntime(core: EngineCore) {
 function buildOutgoingRuntime(core: EngineCore) {
   return {
     compiled: core.compiled,
-    moduleRuntimes: core.moduleRuntimes,
+    pluginRuntimes: core.pluginRuntimes,
     outgoingHooks: core.hooks.outgoing,
     wskitStampHooks: core.hooks.wskitStamp,
     beforeSendHooks: core.hooks.beforeSend,
@@ -501,7 +501,7 @@ export function engineAccessDeps(core: EngineCore) {
   };
 }
 
-/** Run connect/disconnect lifecycle hooks for the handler and every module. */
+/** Run connect/disconnect lifecycle hooks for the handler and every plugin. */
 export function runConnectionLifecycle(
   core: EngineCore,
   kind: 'connect' | 'disconnect',
@@ -509,12 +509,12 @@ export function runConnectionLifecycle(
 ): Promise<void> {
   return EngineConnectionRuntime.runConnectionLifecycle(
     {
-      moduleRuntimes: core.moduleRuntimes,
+      pluginRuntimes: core.pluginRuntimes,
       asyncContext: core.asyncContext,
       connectHooks: core.hooks.connect,
       disconnectHooks: core.hooks.disconnect,
-      createModuleScopedContext: (moduleId, targetCtx) =>
-        EngineContexts.createModuleScopedContext(moduleId, targetCtx),
+      createPluginScopedContext: (pluginId, targetCtx) =>
+        EngineContexts.createPluginScopedContext(pluginId, targetCtx),
     },
     kind,
     ctx,

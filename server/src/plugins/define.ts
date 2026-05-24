@@ -7,11 +7,11 @@ import type { Primitive, PrimitiveRef, RequiresManifest } from '~/primitive.ts';
 import type { ScheduledBuilder, ScheduledHandle } from '~/scheduled/scheduled.ts';
 
 /**
- * The hook surface available to a module during `setup()`. Everything a
- * module can register — lifecycle hooks, message observers, scheduled tasks,
+ * The hook surface available to a plugin during `setup()`. Everything a
+ * plugin can register — lifecycle hooks, message observers, scheduled tasks,
  * and helpers — is exposed here.
  */
-export interface ModuleHooks<TCtx = any> {
+export interface PluginHooks<TCtx = any> {
   /**
    * Observe or rewrite the payload of an incoming message before the handler
    * runs. Return a value to replace the payload; return `void` to leave it as
@@ -39,7 +39,7 @@ export interface ModuleHooks<TCtx = any> {
   /** Run during server shutdown. */
   onShutdown(handler: () => void | Promise<void>): void;
 
-  /** Register a scheduled task owned by this module. */
+  /** Register a scheduled task owned by this plugin. */
   scheduled<TData = never, THasData extends boolean = false>(
     name: string,
     callback: (
@@ -55,25 +55,25 @@ export interface ModuleHooks<TCtx = any> {
 }
 
 /**
- * A function that builds the module's per-connection API from the handler
+ * A function that builds the plugin's per-connection API from the handler
  * context.
  *
  * This is returned by `setup()` and called once per handler invocation so
- * the module can expose its API through `MyModule.use(ctx)`.
+ * the plugin can expose its API through `MyPlugin.use(ctx)`.
  */
-export type ModuleContextFactory<TCtx = any, TApi = unknown> = (ctx: TCtx) => TApi;
+export type PluginContextFactory<TCtx = any, TApi = unknown> = (ctx: TCtx) => TApi;
 
 /**
- * Everything a module needs to register with the engine: identity, dependencies,
+ * Everything a plugin needs to register with the engine: identity, dependencies,
  * platform requirements, the events and errors it exposes, and a `setup`
  * function that wires lifecycle hooks and builds the per-connection API.
  *
- * - `TArgs` is what the developer passes when calling the module factory
- * - `TApi` is what `MyModule.use(ctx)` returns
- * - `TOutgoing` is the module's own server-to-client events
- * - `TErrors` is the module's typed errors
+ * - `TArgs` is what the developer passes when calling the plugin factory
+ * - `TApi` is what `MyPlugin.use(ctx)` returns
+ * - `TOutgoing` is the plugin's own server-to-client events
+ * - `TErrors` is the plugin's typed errors
  */
-export interface ModuleConfig<
+export interface PluginConfig<
   TArgs,
   TApi,
   TCtx = any,
@@ -89,16 +89,16 @@ export interface ModuleConfig<
   /** A unique symbol used for singleton enforcement and dependency tracking. */
   readonly key: symbol;
 
-  /** Other primitives this module depends on (validated at build time). */
+  /** Other primitives this plugin depends on (validated at build time). */
   readonly dependencies?: readonly PrimitiveRef[];
 
-  /** Platform capabilities this module needs (storage, timers, etc.). */
+  /** Platform capabilities this plugin needs (storage, timers, etc.). */
   readonly requires?: RequiresManifest;
 
-  /** Server-to-client events this module may send. */
+  /** Server-to-client events this plugin may send. */
   readonly outgoing?: TOutgoing;
 
-  /** Typed errors this module may throw. */
+  /** Typed errors this plugin may throw. */
   readonly errors?: ErrorsPrimitive<TErrors>;
 
   /**
@@ -107,15 +107,15 @@ export interface ModuleConfig<
    * Use `hooks` to register lifecycle callbacks and message transforms.
    * Return a context factory that builds the per-connection API object.
    */
-  readonly setup: (args: TArgs, hooks: ModuleHooks<TCtx>) => ModuleContextFactory<TCtx, TApi>;
+  readonly setup: (args: TArgs, hooks: PluginHooks<TCtx>) => PluginContextFactory<TCtx, TApi>;
 }
 
 /**
- * One registered module instance mounted onto a server builder via `.use(...)`.
+ * One registered plugin instance mounted onto a server builder via `.use(...)`.
  *
- * This is what the module factory function returns.
+ * This is what the plugin factory function returns.
  */
-export interface ModuleInstance<
+export interface PluginInstance<
   TId extends string = string,
   TArgs = unknown,
   TApi = unknown,
@@ -128,32 +128,32 @@ export interface ModuleInstance<
   readonly outgoing: TOutgoing;
   readonly errors?: ErrorsPrimitive<TErrors>;
 
-  readonly setupModule: ModuleConfig<TArgs, TApi, any, TOutgoing, TErrors>['setup'];
+  readonly setupPlugin: PluginConfig<TArgs, TApi, any, TOutgoing, TErrors>['setup'];
 }
 
 /**
- * The return type of `defineModule`.
+ * The return type of `definePlugin`.
  *
  * It is both a factory function and a `PrimitiveRef`:
- * - Call it with args to create a module instance to pass into `server(...).use(...)`
- * - Use `.use(ctx)` inside handlers to access the module's API
- * - Reference it in `dependencies: [myModule]` to declare a dependency
+ * - Call it with args to create a plugin instance to pass into `server(...).use(...)`
+ * - Use `.use(ctx)` inside handlers to access the plugin's API
+ * - Reference it in `dependencies: [myPlugin]` to declare a dependency
  */
-export interface ModuleFactory<
+export interface PluginFactory<
   TId extends string = string,
   TArgs = unknown,
   TApi = unknown,
   TOutgoing extends Record<string, unknown> = {},
   TErrors extends readonly ErrorDef<string, any>[] = readonly [],
 > extends PrimitiveRef {
-  (args: TArgs): ModuleInstance<TId, TArgs, TApi, TOutgoing, TErrors>;
+  (args: TArgs): PluginInstance<TId, TArgs, TApi, TOutgoing, TErrors>;
 
   /**
-   * Access this module's API from inside a handler.
+   * Access this plugin's API from inside a handler.
    *
    * ```ts
    * incoming(sendMessage, async (ctx, payload) => {
-   *   const analytics = MyModule.use(ctx);
+   *   const analytics = MyPlugin.use(ctx);
    *   analytics.track('message-sent');
    * })
    * ```
@@ -164,39 +164,39 @@ export interface ModuleFactory<
 }
 
 /**
- * Symbol key the engine uses to attach module API objects to handler contexts.
+ * Symbol key the engine uses to attach plugin API objects to handler contexts.
  *
- * `ModuleFactory.use(ctx)` reads from this key. Product code should never
- * access this directly — use `MyModule.use(ctx)` instead.
+ * `PluginFactory.use(ctx)` reads from this key. Product code should never
+ * access this directly — use `MyPlugin.use(ctx)` instead.
  *
  * @internal
  */
-export const MODULE_API_MAP = Symbol.for('wskit.moduleApis');
+export const PLUGIN_API_MAP = Symbol.for('wskit.moduleApis');
 
-function isModuleId(value: string): boolean {
+function isPluginId(value: string): boolean {
   return /^[a-z0-9-]+:[a-z0-9-]+$/.test(value);
 }
 
 /**
- * Create a reusable module primitive.
+ * Create a reusable plugin primitive.
  *
- * Modules are third-party or team-shared primitives that plug into wskit
+ * Plugins are third-party or team-shared primitives that plug into wskit
  * through a restricted hook surface. They can observe messages, hook into
  * lifecycle events, register scheduled tasks, and expose a per-connection
  * API.
  *
- * Events declared by a module are namespaced internally using the module's
- * id: an event the module sends as `'flushed'` goes onto the wire as
+ * Events declared by a plugin are namespaced internally using the plugin's
+ * id: an event the plugin sends as `'flushed'` goes onto the wire as
  * `'__acme:analytics:flushed'`. The prefix prevents collisions with
- * user-registered events and with events from other modules. User code that
+ * user-registered events and with events from other plugins. User code that
  * subscribes to these events directly (for example in a custom client
  * outside wskit's typed clients) sees the prefixed name on the wire — only
- * code reaching events through the module's own API sees the short form.
+ * code reaching events through the plugin's own API sees the short form.
  *
  * ```ts
  * const ANALYTICS_KEY = Symbol('analytics');
  *
- * const analytics = defineModule({
+ * const analytics = definePlugin({
  *   id: 'acme:analytics',
  *   key: ANALYTICS_KEY,
  *   setup(args, hooks) {
@@ -209,7 +209,7 @@ function isModuleId(value: string): boolean {
  *
  * // Mount onto a contract:
  * const app = contract<Env>('app')({
- *   modules: [analytics({ trackingId: '...' })],
+ *   plugins: [analytics({ trackingId: '...' })],
  *   definitions: [...],
  * });
  *
@@ -218,18 +218,18 @@ function isModuleId(value: string): boolean {
  * tracker.track('message-sent');
  * ```
  */
-export function defineModule<
+export function definePlugin<
   TArgs,
   TApi,
   TCtx = any,
   const TOutgoing extends Record<string, unknown> = {},
   const TErrors extends readonly ErrorDef<string, any>[] = readonly [],
 >(
-  config: ModuleConfig<TArgs, TApi, TCtx, TOutgoing, TErrors>,
-): ModuleFactory<string, TArgs, TApi, TOutgoing, TErrors> {
-  if (!isModuleId(config.id)) {
+  config: PluginConfig<TArgs, TApi, TCtx, TOutgoing, TErrors>,
+): PluginFactory<string, TArgs, TApi, TOutgoing, TErrors> {
+  if (!isPluginId(config.id)) {
     throw new Error(
-      `[wskit] Module id "${config.id}" is invalid. Use "author:name" lowercase format.`,
+      `[wskit] Plugin id "${config.id}" is invalid. Use "author:name" lowercase format.`,
     );
   }
 
@@ -241,7 +241,7 @@ export function defineModule<
       args: TArgs;
       outgoing: TOutgoing;
       errors?: ErrorsPrimitive<TErrors>;
-      setupModule: ModuleConfig<TArgs, TApi, TCtx, TOutgoing, TErrors>['setup'];
+      setupPlugin: PluginConfig<TArgs, TApi, TCtx, TOutgoing, TErrors>['setup'];
     }
   >({
     tag: 'module' as const,
@@ -254,7 +254,7 @@ export function defineModule<
         args,
         outgoing: (config.outgoing ?? {}) as TOutgoing,
         errors: config.errors,
-        setupModule: config.setup,
+        setupPlugin: config.setup,
       };
     },
   });
@@ -262,12 +262,12 @@ export function defineModule<
   return Object.assign(
     ((args: TArgs) => {
       return factory(args);
-    }) as ModuleFactory<string, TArgs, TApi, TOutgoing, TErrors>,
+    }) as PluginFactory<string, TArgs, TApi, TOutgoing, TErrors>,
     {
       use(ctx: unknown) {
         const apiMap =
           ctx && typeof ctx === 'object'
-            ? (ctx as Record<PropertyKey, unknown>)[MODULE_API_MAP]
+            ? (ctx as Record<PropertyKey, unknown>)[PLUGIN_API_MAP]
             : undefined;
 
         if (apiMap && typeof apiMap === 'object' && config.key in (apiMap as object)) {

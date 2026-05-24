@@ -19,7 +19,7 @@
 		'incoming',
 		'intercept',
 		'lifecycle-hooks',
-		'modules',
+		'plugins',
 		'namespace',
 		'protocol-pings',
 		'replay',

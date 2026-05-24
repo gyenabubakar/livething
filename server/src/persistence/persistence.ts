@@ -55,7 +55,7 @@ export function persistence(): PersistencePrimitive {
 }
 
 /**
- * Marker symbol for the `persistence` primitive. Used by modules that depend
+ * Marker symbol for the `persistence` primitive. Used by plugins that depend
  * on per-user durable state to declare the requirement in their `dependencies`
  * array.
  */

@@ -110,20 +110,20 @@ function createHandle(
 }
 
 /**
- * Run connect/disconnect hooks for both the handler and installed modules.
+ * Run connect/disconnect hooks for both the handler and installed plugins.
  */
 export async function runConnectionLifecycle(
   runtime: {
     connectHooks: readonly ((ctx: Record<PropertyKey, unknown>) => void | Promise<void>)[];
     disconnectHooks: readonly ((ctx: Record<PropertyKey, unknown>) => void | Promise<void>)[];
-    moduleRuntimes: readonly {
+    pluginRuntimes: readonly {
       instance: { id: string };
       onConnect?: (ctx: Record<PropertyKey, unknown>) => void | Promise<void>;
       onDisconnect?: (ctx: Record<PropertyKey, unknown>) => void | Promise<void>;
     }[];
     asyncContext?: PublicApi.AsyncContext;
-    createModuleScopedContext(
-      moduleId: string,
+    createPluginScopedContext(
+      pluginId: string,
       ctx: Record<PropertyKey, unknown>,
     ): Record<PropertyKey, unknown>;
   },
@@ -135,10 +135,10 @@ export async function runConnectionLifecycle(
       for (const hook of runtime.connectHooks) {
         await hook(ctx);
       }
-      for (const moduleRuntime of runtime.moduleRuntimes) {
-        if (moduleRuntime.onConnect) {
-          await moduleRuntime.onConnect(
-            runtime.createModuleScopedContext(moduleRuntime.instance.id, ctx),
+      for (const pluginRuntime of runtime.pluginRuntimes) {
+        if (pluginRuntime.onConnect) {
+          await pluginRuntime.onConnect(
+            runtime.createPluginScopedContext(pluginRuntime.instance.id, ctx),
           );
         }
       }
@@ -146,10 +146,10 @@ export async function runConnectionLifecycle(
       for (const hook of runtime.disconnectHooks) {
         await hook(ctx);
       }
-      for (const moduleRuntime of runtime.moduleRuntimes) {
-        if (moduleRuntime.onDisconnect) {
-          await moduleRuntime.onDisconnect(
-            runtime.createModuleScopedContext(moduleRuntime.instance.id, ctx),
+      for (const pluginRuntime of runtime.pluginRuntimes) {
+        if (pluginRuntime.onDisconnect) {
+          await pluginRuntime.onDisconnect(
+            runtime.createPluginScopedContext(pluginRuntime.instance.id, ctx),
           );
         }
       }
@@ -268,7 +268,7 @@ export async function handleConnectionClose(
   ctx.closeCode = code;
   ctx.closeReason = reason;
   try {
-    // A user-supplied onDisconnect hook (or a module's onDisconnect) may
+    // A user-supplied onDisconnect hook (or a plugin's onDisconnect) may
     // throw. Contain the throw so the rest of the close cleanup —
     // channel leaves (which broadcast `__memberLeave__` to peers), heartbeat
     // timer teardown — still runs. Otherwise channel members never see
@@ -647,12 +647,12 @@ export async function handleUpgrade(
 }
 
 /**
- * Shut down the engine, module hooks, active streams, and open connections.
+ * Shut down the engine, plugin hooks, active streams, and open connections.
  */
 export async function handleShutdown(
   runtime: Pick<ConnectionRuntime, 'connections' | 'timers'> & {
     shutdownHooks: readonly ((ctx: unknown) => void | Promise<void>)[];
-    moduleRuntimes: readonly { onShutdown?: () => void | Promise<void> }[];
+    pluginRuntimes: readonly { onShutdown?: () => void | Promise<void> }[];
     createShutdownContext(): unknown;
     cancelActiveStreamsForConnection(connectionId: string): Promise<void>;
     handleConnectionClose(connection: EngineRuntimeTypes.RuntimeConnection): Promise<void>;
@@ -673,12 +673,12 @@ export async function handleShutdown(
     }
   }
 
-  for (const moduleRuntime of runtime.moduleRuntimes) {
-    if (!moduleRuntime.onShutdown) continue;
+  for (const pluginRuntime of runtime.pluginRuntimes) {
+    if (!pluginRuntime.onShutdown) continue;
     try {
-      await moduleRuntime.onShutdown();
+      await pluginRuntime.onShutdown();
     } catch (error) {
-      runtime.logger?.error('[wskit] module shutdown hook threw', {
+      runtime.logger?.error('[wskit] plugin shutdown hook threw', {
         error: error instanceof Error ? error.message : String(error),
       });
     }

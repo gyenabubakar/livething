@@ -192,7 +192,7 @@ describe('sequence', () => {
     expect(second).toEqual({ seq: 2 });
   });
 
-  it('still stamps module-owned outgoing events with a double underscore prefix', () => {
+  it('still stamps plugin-owned outgoing events with a double underscore prefix', () => {
     const { hook } = installSequence();
     const moduleMessage = hook('__acme:analytics:flushed');
 

@@ -54,7 +54,7 @@ function baseDispatchRuntime(
   return {
     compiled: baseCompiled() as any,
     connections: new Map(),
-    moduleRuntimes: [],
+    pluginRuntimes: [],
     activeStreams: new Map(),
     protocolHandlers: new Map(),
     incomingHooks: [],
@@ -603,7 +603,7 @@ describe('onAfterSend async rejection', () => {
           ...baseCompiled(),
           outgoing: new Map([['tick', { event: 'tick' }]]),
         } as any,
-        moduleRuntimes: [],
+        pluginRuntimes: [],
         outgoingHooks: [],
         beforeSendHooks: [],
         wskitStampHooks: [],

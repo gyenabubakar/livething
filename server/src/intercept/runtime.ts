@@ -16,7 +16,7 @@ type GetContext = () => Record<PropertyKey, unknown>;
 /**
  * Run a handler inside the engine's async context for this connection.
  *
- * Context-aware helpers a module calls (like `getState()`) resolve to this
+ * Context-aware helpers a plugin calls (like `getState()`) resolve to this
  * connection even while handlers for other connections interleave.
  */
 export async function runWithScopedContext<T>(

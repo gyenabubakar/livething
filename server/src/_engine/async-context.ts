@@ -2,7 +2,7 @@ import type { AsyncContext } from '~/context.ts';
 
 /**
  * Run `fn` with `connectionId` recorded as the active connection so engine
- * helpers called inside it — notably a module's `getState()` — resolve to the
+ * helpers called inside it — notably a plugin's `getState()` — resolve to the
  * right connection even while other connections' handlers interleave.
  *
  * When the adapter provided no async-context capability, `fn` still runs; only

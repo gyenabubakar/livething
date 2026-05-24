@@ -65,7 +65,7 @@ function createRuntime(
     },
     connections,
     channelMembers,
-    moduleRuntimes: [],
+    pluginRuntimes: [],
     outgoingHooks: [
       (message: { event: string; payload: unknown }) => message.payload,
       () => undefined,

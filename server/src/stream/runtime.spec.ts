@@ -670,7 +670,7 @@ describe('stream/runtime', () => {
 
   it('generator body sees the stream owner connection id via the async context', async () => {
     // The engine advances the generator inside `asyncContext.run(...)`, so
-    // module APIs the generator body calls (e.g. hooks.getState()) resolve to
+    // plugin APIs the generator body calls (e.g. hooks.getState()) resolve to
     // the stream owner instead of `undefined`.
     const { runtime } = createStreamRuntime();
     const connection = createConnection();

@@ -408,7 +408,7 @@ describe('connection runtime', () => {
       connections: connections as never,
       timers: { setTimeout: () => Symbol(), clearTimeout: () => undefined },
       shutdownHooks: [],
-      moduleRuntimes: [],
+      pluginRuntimes: [],
       createShutdownContext: () => ({}),
       async cancelActiveStreamsForConnection() {},
       async handleConnectionClose() {
@@ -429,7 +429,7 @@ describe('connection runtime', () => {
     expect(order).toEqual(['close-start', 'close-end']);
   });
 
-  it('runs module onShutdown hooks during engine shutdown', async () => {
+  it('runs plugin onShutdown hooks during engine shutdown', async () => {
     const events: string[] = [];
     const closed: Array<{ code: number; reason: string }> = [];
     const cleared: unknown[] = [];
@@ -462,10 +462,10 @@ describe('connection runtime', () => {
           events.push('server-shutdown');
         },
       ],
-      moduleRuntimes: [
+      pluginRuntimes: [
         {
           async onShutdown() {
-            events.push('module-shutdown');
+            events.push('plugin-shutdown');
           },
         },
       ],
@@ -483,7 +483,7 @@ describe('connection runtime', () => {
 
     // handleConnectionClose is awaited per-connection so onDisconnect
     // and channel cleanup land before shutdown returns.
-    expect(events).toEqual(['server-shutdown', 'module-shutdown', 'close:conn_1']);
+    expect(events).toEqual(['server-shutdown', 'plugin-shutdown', 'close:conn_1']);
     expect(closed).toEqual([{ code: 1001, reason: 'Server shutting down' }]);
     expect(cleared).toEqual(['alarm-handle']);
   });
@@ -534,10 +534,10 @@ describe('connection runtime', () => {
           throw new Error('boom from onShutdown');
         },
       ],
-      moduleRuntimes: [
+      pluginRuntimes: [
         {
           async onShutdown() {
-            throw new Error('boom from module onShutdown');
+            throw new Error('boom from plugin onShutdown');
           },
         },
       ],
@@ -568,7 +568,7 @@ describe('connection runtime', () => {
     // Both throws were logged.
     expect(errorLog.map((e) => e.message)).toEqual([
       '[wskit] shutdown hook threw',
-      '[wskit] module shutdown hook threw',
+      '[wskit] plugin shutdown hook threw',
     ]);
   });
 
@@ -584,9 +584,9 @@ describe('connection runtime', () => {
           },
         ],
         disconnectHooks: [],
-        moduleRuntimes: [],
+        pluginRuntimes: [],
         asyncContext,
-        createModuleScopedContext(_id, ctx) {
+        createPluginScopedContext(_id, ctx) {
           return ctx;
         },
       },
@@ -611,9 +611,9 @@ describe('connection runtime', () => {
             },
           ],
           disconnectHooks: [],
-          moduleRuntimes: [],
+          pluginRuntimes: [],
           asyncContext,
-          createModuleScopedContext(_id, ctx) {
+          createPluginScopedContext(_id, ctx) {
             return ctx;
           },
         },

@@ -24,7 +24,7 @@
 	let flakyResult = $state('');
 	let dlqResult = $state('');
 	let errorLog = $state('');
-	let moduleTaskDataResult = $state('');
+	let pluginTaskDataResult = $state('');
 	let streamConnIdChunks = $state<string[]>([]);
 	let streamThrowChunks = $state(0);
 	let streamThrowId = $state('');
@@ -35,7 +35,7 @@
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const room = new URL(location.href).searchParams.get('room') ?? 'default';
 		ws = new WebSocket(
-			`${protocol}//${location.host}/ws/modules?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
+			`${protocol}//${location.host}/ws/plugins?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
 
 		ws.onopen = () => {
@@ -104,23 +104,23 @@
 				case 'shutdown-count':
 					shutdownCountResult = `shutdowns: ${payload.count}`;
 					break;
-				case 'module-rewrite-result':
+				case 'plugin-rewrite-result':
 					rewriteResult = `text:${payload.text},rewritten:${payload.rewritten ?? false}`;
 					break;
-				case 'module-every-tick':
+				case 'plugin-every-tick':
 					everyTickCount = Number(payload.count);
 					break;
-				case 'module-flaky-result':
+				case 'plugin-flaky-result':
 					flakyResult = `attempts:${payload.attempts}`;
 					break;
-				case 'module-dlq-result':
+				case 'plugin-dlq-result':
 					dlqResult = `${payload.taskId}:attempts=${payload.attempts}:${payload.error}`;
 					break;
 				case 'error-result':
 					errorLog = JSON.stringify(payload);
 					break;
-				case 'module-task-data-result':
-					moduleTaskDataResult = payload.result as string;
+				case 'plugin-task-data-result':
+					pluginTaskDataResult = payload.result as string;
 					break;
 				case 'stream-connection-id':
 					if (typeof payload.id === 'string') {
@@ -152,7 +152,7 @@
 </script>
 
 <main>
-	<h1>wskit modules e2e</h1>
+	<h1>wskit plugins e2e</h1>
 
 	<section>
 		<h2>Connection</h2>
@@ -209,7 +209,7 @@
 	</section>
 
 	<section>
-		<h2>Module Extras</h2>
+		<h2>Plugin Extras</h2>
 		<button
 			data-testid="vacuum-btn"
 			onclick={() => send('trigger-vacuum', {})}
@@ -249,64 +249,64 @@
 	</section>
 
 	<section>
-		<h2>Module onIncoming Rewrite</h2>
+		<h2>Plugin onIncoming Rewrite</h2>
 		<button
-			data-testid="module-rewrite-btn"
-			onclick={() => send('module-rewrite-probe', { text: 'hello' })}
+			data-testid="plugin-rewrite-btn"
+			onclick={() => send('plugin-rewrite-probe', { text: 'hello' })}
 			disabled={status !== 'connected'}>Send Rewrite Probe</button
 		>
-		<div data-testid="module-rewrite-result">{rewriteResult}</div>
+		<div data-testid="plugin-rewrite-result">{rewriteResult}</div>
 	</section>
 
 	<section>
-		<h2>Module Scheduled (every / retry / DLQ)</h2>
+		<h2>Plugin Scheduled (every / retry / DLQ)</h2>
 		<button
-			data-testid="trigger-module-every-btn"
-			onclick={() => send('trigger-module-every', {})}
+			data-testid="trigger-plugin-every-btn"
+			onclick={() => send('trigger-plugin-every', {})}
 			disabled={status !== 'connected'}>Trigger Every Tick</button
 		>
 		<button
-			data-testid="trigger-module-flaky-btn"
-			onclick={() => send('trigger-module-flaky', {})}
+			data-testid="trigger-plugin-flaky-btn"
+			onclick={() => send('trigger-plugin-flaky', {})}
 			disabled={status !== 'connected'}>Trigger Flaky</button
 		>
 		<button
-			data-testid="trigger-module-always-fail-btn"
-			onclick={() => send('trigger-module-always-fail', {})}
+			data-testid="trigger-plugin-always-fail-btn"
+			onclick={() => send('trigger-plugin-always-fail', {})}
 			disabled={status !== 'connected'}>Trigger Always Fail</button
 		>
 		<button
-			data-testid="trigger-module-query-dlq-btn"
-			onclick={() => send('trigger-module-query-dlq', {})}
-			disabled={status !== 'connected'}>Query Module DLQ</button
+			data-testid="trigger-plugin-query-dlq-btn"
+			onclick={() => send('trigger-plugin-query-dlq', {})}
+			disabled={status !== 'connected'}>Query Plugin DLQ</button
 		>
-		<div data-testid="module-every-count">{everyTickCount}</div>
-		<div data-testid="module-flaky-result">{flakyResult}</div>
-		<div data-testid="module-dlq-result">{dlqResult}</div>
+		<div data-testid="plugin-every-count">{everyTickCount}</div>
+		<div data-testid="plugin-flaky-result">{flakyResult}</div>
+		<div data-testid="plugin-dlq-result">{dlqResult}</div>
 	</section>
 
 	<section>
-		<h2>Module Error Handling</h2>
+		<h2>Plugin Error Handling</h2>
 		<button
-			data-testid="module-error-btn"
-			onclick={() => send('trigger-module-error', {})}
-			disabled={status !== 'connected'}>Trigger Module Error</button
+			data-testid="plugin-error-btn"
+			onclick={() => send('trigger-plugin-error', {})}
+			disabled={status !== 'connected'}>Trigger Plugin Error</button
 		>
 		<div data-testid="error-log">{errorLog}</div>
 	</section>
 
 	<section>
-		<h2>Module Scheduled with Data Validation</h2>
+		<h2>Plugin Scheduled with Data Validation</h2>
 		<button
-			data-testid="trigger-module-task-with-data-btn"
-			onclick={() => send('trigger-module-task-with-data', {})}
+			data-testid="trigger-plugin-task-with-data-btn"
+			onclick={() => send('trigger-plugin-task-with-data', {})}
 			disabled={status !== 'connected'}>Trigger Task with Data</button
 		>
-		<div data-testid="module-task-data-result">{moduleTaskDataResult}</div>
+		<div data-testid="plugin-task-data-result">{pluginTaskDataResult}</div>
 	</section>
 
 	<section>
-		<h2>Stream calling module hooks.getState()</h2>
+		<h2>Stream calling plugin hooks.getState()</h2>
 		<button
 			data-testid="stream-connection-id-btn"
 			onclick={() => send('stream-connection-id', { count: 3 })}

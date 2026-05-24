@@ -64,7 +64,7 @@ export function ack(): AckPrimitive {
 }
 
 /**
- * The identity of the `ack` primitive. Pass `ack` itself in a module's
+ * The identity of the `ack` primitive. Pass `ack` itself in a plugin's
  * `dependencies` array to declare that ack must be registered alongside it.
  *
  * ```ts

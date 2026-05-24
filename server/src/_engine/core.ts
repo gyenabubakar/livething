@@ -20,13 +20,13 @@ import type * as ScheduledPrimitiveTypes from '~/scheduled/types.ts';
 import type * as DefineServer from '~/server-definition.ts';
 
 type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
-type ModuleRuntime = EngineRuntimeTypes.ModuleRuntime;
+type PluginRuntime = EngineRuntimeTypes.PluginRuntime;
 type ActiveStream = EngineRuntimeTypes.ActiveStream;
 type Primitive = PrimitiveCore.Primitive;
 
 /**
  * Holds every piece of state one engine needs at runtime. No behaviour —
- * runtime modules read and write these fields directly.
+ * runtime plugins read and write these fields directly.
  */
 export class EngineCore {
   // ─────── compiled handler + primitive tree ───────
@@ -115,14 +115,14 @@ export class EngineCore {
   readonly scheduledRuns = new Map<string, ScheduledPrimitiveTypes.ScheduledRun>();
   readonly scheduledDlq = new Map<string, ScheduledPrimitiveTypes.ScheduledDeadLetter>();
   readonly installedFeatures = new Set<symbol>();
-  readonly moduleRuntimes: ModuleRuntime[] = [];
+  readonly pluginRuntimes: PluginRuntime[] = [];
 
   alarmHandle: unknown = null;
   idCounter = 0;
   readonly instanceNonce = Math.random().toString(36).slice(2, 8);
   /**
    * Async-context capability from the adapter. Tracks the connection whose
-   * dispatch is on the async call stack; read by a module's `getState()`.
+   * dispatch is on the async call stack; read by a plugin's `getState()`.
    */
   asyncContext?: PublicApi.AsyncContext;
 

@@ -1,22 +1,22 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 
-import { defineModule } from '~/modules/define.ts';
+import { definePlugin } from '~/plugins/define.ts';
 import type { ErrorContractDef, OutgoingDef, ScheduledDef } from '~/_api/definitions.ts';
 import type { ErrorDef } from '~/errors/errors.ts';
 import type { ErrorsPrimitive } from '~/errors/primitive.ts';
-import type { ModuleContextFactory, ModuleFactory, ModuleHooks } from '~/modules/define.ts';
+import type { PluginContextFactory, PluginFactory, PluginHooks } from '~/plugins/define.ts';
 import type { RequiresManifest } from '~/primitive.ts';
 
 // `error('code', schema?)` from @wskit/core returns this — a callable factory
-// PLUS code metadata. Modules accept either this or a contract-style
+// PLUS code metadata. Plugins accept either this or a contract-style
 // ErrorContractDef.
 type ErrorLike = { readonly code: string; readonly schema?: unknown } | ErrorDef<string, any>;
 
 /**
- * Feature flags a module can declare a dependency on. Boot checks that the
- * contract using this module turned them on.
+ * Feature flags a plugin can declare a dependency on. Boot checks that the
+ * contract using this plugin turned them on.
  */
-export type ModuleDependency =
+export type PluginDependency =
   | 'ack'
   | 'replay'
   | 'persistence'
@@ -27,50 +27,50 @@ export type ModuleDependency =
   | 'binary';
 
 /**
- * Definitions a module is allowed to declare. Modules expose outgoing events,
+ * Definitions a plugin is allowed to declare. Plugins expose outgoing events,
  * scheduled tasks, and errors — they do not register incoming handlers
  * (use `hooks.onIncoming` for cross-cutting message observation).
  */
-type ModuleDefinition =
+type PluginDefinition =
   | OutgoingDef<string, any>
   | ScheduledDef<string, any>
   | ErrorContractDef<string, any>
   | ErrorLike;
 
-export interface ModuleConfig<TArgs, TCtx = any, TApi = unknown> {
+export interface PluginConfig<TArgs, TCtx = any, TApi = unknown> {
   /** Adapter capability check — fails fast at boot if missing. */
   readonly requires?: RequiresManifest;
   /**
-   * Contract-level feature flags the module needs the host contract to enable.
+   * Contract-level feature flags the plugin needs the host contract to enable.
    * Boot checks that each named feature is `true` in the contract config.
    * Typos and bogus names are type errors.
    */
-  readonly dependencies?: readonly ModuleDependency[];
+  readonly dependencies?: readonly PluginDependency[];
   /**
-   * Module-owned declarations. Use the same factories the contract uses:
-   * `outgoing(...)`, `scheduled(...)`, `error(...)`. Module-owned event and
+   * Plugin-owned declarations. Use the same factories the contract uses:
+   * `outgoing(...)`, `scheduled(...)`, `error(...)`. Plugin-owned event and
    * task names are auto-namespaced as `__<id>:<name>` on the wire.
    */
-  readonly definitions?: readonly ModuleDefinition[];
+  readonly definitions?: readonly PluginDefinition[];
   /**
-   * Wire the module into the engine and return the per-connection API
+   * Wire the plugin into the engine and return the per-connection API
    * factory. The return type of `(ctx) => api` is inferred and surfaces
-   * through `<Module>.use(ctx)`.
+   * through `<Plugin>.use(ctx)`.
    */
-  readonly setup: (args: TArgs, hooks: ModuleHooks<TCtx>) => ModuleContextFactory<TCtx, TApi>;
+  readonly setup: (args: TArgs, hooks: PluginHooks<TCtx>) => PluginContextFactory<TCtx, TApi>;
 }
 
 /**
- * Create a wskit module.
+ * Create a wskit plugin.
  *
  * @example
  * ```ts
- * import { module, outgoing, scheduled, error, t } from '@wskit/server';
+ * import { plugin, outgoing, scheduled, error, t } from '@wskit/server';
  * import * as v from 'valibot';
  *
  * const Denied = error('drizzle/denied', v.object({ reason: v.string() }));
  *
- * export const Drizzle = module<{ migrate: boolean }>('acme:drizzle')({
+ * export const Drizzle = plugin<{ migrate: boolean }>('acme:drizzle')({
  *   requires: { storage: true },
  *   dependencies: ['persistence'],
  *   definitions: [
@@ -91,7 +91,7 @@ export interface ModuleConfig<TArgs, TCtx = any, TApi = unknown> {
  * // Mount onto a contract:
  * const c = contract<Env>('chat')({
  *   persistence: true,
- *   modules: [Drizzle({ migrate: true })],
+ *   plugins: [Drizzle({ migrate: true })],
  *   definitions: [...],
  * });
  *
@@ -102,11 +102,11 @@ export interface ModuleConfig<TArgs, TCtx = any, TApi = unknown> {
  * });
  * ```
  */
-export function module<TArgs = void>(id: string) {
-  return function moduleConfig<TApi>(
-    config: ModuleConfig<TArgs, any, TApi>,
-  ): ModuleFactory<string, TArgs, TApi, any, readonly ErrorDef<string, any>[]> {
-    // Split the flat `definitions` array into the per-kind buckets `defineModule` accepts.
+export function plugin<TArgs = void>(id: string) {
+  return function pluginConfig<TApi>(
+    config: PluginConfig<TArgs, any, TApi>,
+  ): PluginFactory<string, TArgs, TApi, any, readonly ErrorDef<string, any>[]> {
+    // Split the flat `definitions` array into the per-kind buckets `definePlugin` accepts.
     const outgoingMap: Record<string, unknown> = {};
     const errorDefs: ErrorDef<string, any>[] = [];
 
@@ -121,25 +121,25 @@ export function module<TArgs = void>(id: string) {
     }
 
     // Stash declared scheduled task IDs on the factory so the contract type
-    // system (and the boot-time module dependency check) can read them off
-    // the module instance.
+    // system (and the boot-time plugin dependency check) can read them off
+    // the plugin instance.
     const scheduledDefs = (config.definitions ?? []).filter(
       (d): d is ScheduledDef<string, any> => (d as { _?: string })._ === 'scheduled',
     );
 
-    const factory = defineModule({
+    const factory = definePlugin({
       id,
       key: Symbol(id),
       requires: config.requires,
       outgoing: outgoingMap as any,
       errors: errorDefs.length > 0 ? ({ defs: errorDefs } as ErrorsPrimitive<any>) : undefined,
       setup: config.setup,
-    }) as ModuleFactory<string, TArgs, TApi, any, readonly ErrorDef<string, any>[]>;
+    }) as PluginFactory<string, TArgs, TApi, any, readonly ErrorDef<string, any>[]>;
 
     // Attach declarative metadata so the contract layer can read it back.
     Object.assign(factory, {
-      __wskit_module_dependencies: config.dependencies ?? [],
-      __wskit_module_scheduled: scheduledDefs,
+      __wskit_plugin_dependencies: config.dependencies ?? [],
+      __wskit_plugin_scheduled: scheduledDefs,
     });
 
     return factory;
@@ -147,13 +147,13 @@ export function module<TArgs = void>(id: string) {
 }
 
 /**
- * `defineModule` is the lower-level factory `module()` wraps. Kept exported
+ * `definePlugin` is the lower-level factory `plugin()` wraps. Kept exported
  * because the engine still references its types internally.
  */
-export { defineModule } from '~/modules/define.ts';
+export { definePlugin } from '~/plugins/define.ts';
 export type {
-  ModuleContextFactory,
-  ModuleFactory,
-  ModuleHooks,
-  ModuleInstance,
-} from '~/modules/define.ts';
+  PluginContextFactory,
+  PluginFactory,
+  PluginHooks,
+  PluginInstance,
+} from '~/plugins/define.ts';

@@ -68,6 +68,6 @@ export function sequence(options?: SequenceOptions): SequencePrimitive {
 
 /**
  * The identity of the `sequence` primitive. Pass `sequence` itself in a
- * module's `dependencies` array to declare that it must be registered.
+ * plugin's `dependencies` array to declare that it must be registered.
  */
 sequence.__key = SEQUENCE_KEY;

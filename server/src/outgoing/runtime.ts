@@ -12,7 +12,7 @@ type CompiledServer = EngineCompileTypes.CompiledServer;
  */
 export interface OutgoingRuntime {
   compiled: EngineCompileTypes.CompiledServer;
-  moduleRuntimes: readonly EngineRuntimeTypes.ModuleRuntime[];
+  pluginRuntimes: readonly EngineRuntimeTypes.PluginRuntime[];
   outgoingHooks: readonly ((message: { event: string; payload: unknown }) => unknown | void)[];
   /**
    * Contributors of `__wskit` metadata for outgoing user frames — the sequence
@@ -33,11 +33,11 @@ export interface OutgoingRuntime {
 
 // ───── Section: declaration checks ─────
 
-/** Check whether an event name belongs to any installed module's outgoing declarations. */
-function isDeclaredModuleEvent(compiled: CompiledServer, event: string): boolean {
-  for (const moduleInstance of compiled.modules) {
-    for (const eventName of Object.keys(moduleInstance.outgoing)) {
-      if (`__${moduleInstance.id}:${eventName}` === event) {
+/** Check whether an event name belongs to any installed plugin's outgoing declarations. */
+function isDeclaredPluginEvent(compiled: CompiledServer, event: string): boolean {
+  for (const pluginInstance of compiled.modules) {
+    for (const eventName of Object.keys(pluginInstance.outgoing)) {
+      if (`__${pluginInstance.id}:${eventName}` === event) {
         return true;
       }
     }
@@ -50,8 +50,8 @@ function isDeclaredModuleEvent(compiled: CompiledServer, event: string): boolean
  * Check whether an outgoing event was declared in the correct scope.
  *
  * Protocol frames (`__x__`) are engine traffic and always allowed — the engine
- * fans out `__memberJoin__` and the rest through this pipeline. Module events
- * (`__moduleId:event`) are checked against module declarations. Everything else
+ * fans out `__memberJoin__` and the rest through this pipeline. Plugin events
+ * (`__pluginId:event`) are checked against plugin declarations. Everything else
  * must appear in the scope's outgoing or stream maps.
  */
 export function isDeclaredOutgoingEvent(
@@ -60,7 +60,7 @@ export function isDeclaredOutgoingEvent(
   routing?: EngineRuntimeTypes.RoutingTarget,
 ): boolean {
   if (Protocol.isProtocolEventName(event)) return true;
-  if (event.startsWith('__')) return isDeclaredModuleEvent(compiled, event);
+  if (event.startsWith('__')) return isDeclaredPluginEvent(compiled, event);
 
   if (routing?.namespace) {
     const namespace = compiled.namespaces.get(routing.namespace);
@@ -104,10 +104,10 @@ export function assertPayloadRecord(payload: unknown): asserts payload is Record
 
 // ───── Section: outgoing hook pipeline ─────
 
-/** Run global + module `onOutgoing` hooks and return the (possibly rewritten) message. */
+/** Run global + plugin `onOutgoing` hooks and return the (possibly rewritten) message. */
 function runOutgoingHooks(
   outgoingHooks: OutgoingRuntime['outgoingHooks'],
-  moduleRuntimes: readonly EngineRuntimeTypes.ModuleRuntime[],
+  pluginRuntimes: readonly EngineRuntimeTypes.PluginRuntime[],
   message: { event: string; payload: unknown },
 ): { event: string; payload: unknown } {
   let current = message;
@@ -120,9 +120,9 @@ function runOutgoingHooks(
 
   assertPayloadRecord(current.payload);
 
-  for (const moduleRuntime of moduleRuntimes) {
-    if (!moduleRuntime.onOutgoing) continue;
-    const next = moduleRuntime.onOutgoing(current);
+  for (const pluginRuntime of pluginRuntimes) {
+    if (!pluginRuntime.onOutgoing) continue;
+    const next = pluginRuntime.onOutgoing(current);
     if (next !== undefined) current = { event: current.event, payload: next };
   }
 
@@ -191,7 +191,7 @@ function invokeAfterSendHooks(
 // ───── Section: wire send primitives ─────
 
 /**
- * Push one outgoing event through module hooks, declaration checks, and
+ * Push one outgoing event through plugin hooks, declaration checks, and
  * `__wskit` metadata before sending it to a connection.
  */
 export function sendThroughPipeline(
@@ -203,7 +203,7 @@ export function sendThroughPipeline(
 ): boolean {
   assertPayloadRecord(payload);
 
-  const message = runOutgoingHooks(runtime.outgoingHooks, runtime.moduleRuntimes, {
+  const message = runOutgoingHooks(runtime.outgoingHooks, runtime.pluginRuntimes, {
     event,
     payload,
   });
@@ -264,7 +264,7 @@ type BroadcastRuntime = Pick<
   | 'beforeSendHooks'
   | 'compiled'
   | 'logger'
-  | 'moduleRuntimes'
+  | 'pluginRuntimes'
   | 'outgoingHooks'
   | 'waitUntil'
   | 'wskitStampHooks'
@@ -284,7 +284,7 @@ function prepareBroadcast(
 ): PreparedBroadcast {
   assertPayloadRecord(payload);
 
-  const message = runOutgoingHooks(runtime.outgoingHooks, runtime.moduleRuntimes, {
+  const message = runOutgoingHooks(runtime.outgoingHooks, runtime.pluginRuntimes, {
     event,
     payload,
   });
@@ -389,7 +389,7 @@ export function broadcastToConnections(
     | 'compiled'
     | 'generateId'
     | 'logger'
-    | 'moduleRuntimes'
+    | 'pluginRuntimes'
     | 'outgoingHooks'
     | 'waitUntil'
     | 'wskitStampHooks'
@@ -459,7 +459,7 @@ export function broadcastToChannel(
       | 'compiled'
       | 'generateId'
       | 'logger'
-      | 'moduleRuntimes'
+      | 'pluginRuntimes'
       | 'outgoingHooks'
       | 'waitUntil'
       | 'wskitStampHooks'

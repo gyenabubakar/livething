@@ -44,7 +44,7 @@ export function dedup(): DedupPrimitive {
 }
 
 /**
- * The identity of the `dedup` primitive. Pass `dedup` itself in a module's
+ * The identity of the `dedup` primitive. Pass `dedup` itself in a plugin's
  * `dependencies` array to declare that it must be registered.
  */
 dedup.__key = DEDUP_KEY;

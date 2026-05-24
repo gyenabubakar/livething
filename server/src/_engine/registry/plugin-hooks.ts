@@ -4,20 +4,20 @@ import { scheduled as createScheduled } from '~/scheduled/scheduled.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
-import type * as DefineModule from '~/modules/define.ts';
+import type * as DefinePlugin from '~/plugins/define.ts';
 
 type AnyScheduled = EngineCompileTypes.AnyScheduled;
-type ModuleRuntime = EngineRuntimeTypes.ModuleRuntime;
+type PluginRuntime = EngineRuntimeTypes.PluginRuntime;
 
 /**
- * Build the hook surface passed to one module's setup function. Smaller than
- * `EngineAccess` — modules can only register lifecycle and message hooks.
+ * Build the hook surface passed to one plugin's setup function. Smaller than
+ * `EngineAccess` — plugins can only register lifecycle and message hooks.
  */
-export function createModuleHooks(
+export function createPluginHooks(
   core: EngineCore,
-  runtime: ModuleRuntime,
+  runtime: PluginRuntime,
   ensureScheduledRuntime: () => void,
-): DefineModule.ModuleHooks<any> {
+): DefinePlugin.PluginHooks<any> {
   return {
     onIncoming: (handler) => {
       runtime.onIncoming = handler;

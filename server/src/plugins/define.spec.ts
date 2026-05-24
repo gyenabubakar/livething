@@ -2,18 +2,18 @@ import { error } from '~/errors/errors.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import type { ErrorsPrimitive } from '~/errors/primitive.ts';
-import { defineModule, MODULE_API_MAP } from './define.ts';
+import { definePlugin, PLUGIN_API_MAP } from './define.ts';
 
 const Forbidden = error('forbidden', v.object({ reason: v.string() }));
 
-describe('defineModule', () => {
-  it('creates a module factory with id, key, outgoing, errors, dependencies, and requires', () => {
+describe('definePlugin', () => {
+  it('creates a plugin factory with id, key, outgoing, errors, dependencies, and requires', () => {
     const key = Symbol('analytics');
     const dependency = { __key: Symbol('dep') };
     const setup = vi.fn(() => () => ({ track() {} }));
     const errorsPrimitive = { __wskit: 'errors', defs: [Forbidden] } as unknown as ErrorsPrimitive;
 
-    const analytics = defineModule({
+    const analytics = definePlugin({
       id: 'acme:analytics',
       key,
       dependencies: [dependency],
@@ -33,12 +33,12 @@ describe('defineModule', () => {
     expect(instance.outgoing).toEqual({ flushed: expect.anything() });
     expect(instance.errors).toBe(errorsPrimitive);
     expect(instance.__requires).toEqual({ storage: true, timers: true });
-    expect(instance.setupModule).toBe(setup);
+    expect(instance.setupPlugin).toBe(setup);
   });
 
-  it('rejects invalid module ids', () => {
+  it('rejects invalid plugin ids', () => {
     expect(() =>
-      defineModule({
+      definePlugin({
         id: 'AcmeAnalytics',
         key: Symbol('bad'),
         setup: () => () => ({}),
@@ -46,16 +46,16 @@ describe('defineModule', () => {
     ).toThrow(/invalid/);
   });
 
-  it('reads module api from the hidden module api map', () => {
+  it('reads plugin api from the hidden plugin api map', () => {
     const key = Symbol('presence');
-    const presence = defineModule({
+    const presence = definePlugin({
       id: 'acme:presence',
       key,
       setup: () => () => ({ online: true }),
     });
 
     const api = presence.use({
-      [MODULE_API_MAP]: {
+      [PLUGIN_API_MAP]: {
         [key]: { online: true },
       },
     });
@@ -65,7 +65,7 @@ describe('defineModule', () => {
 
   it('throws when use(ctx) is called outside an active wskit context', () => {
     const key = Symbol('presence');
-    const presence = defineModule({
+    const presence = definePlugin({
       id: 'acme:presence',
       key,
       setup: () => () => ({ online: true }),
@@ -76,7 +76,7 @@ describe('defineModule', () => {
 
   it('preserves typed api access from use(ctx)', () => {
     const key = Symbol('metrics');
-    const metrics = defineModule({
+    const metrics = definePlugin({
       id: 'acme:metrics',
       key,
       setup: () => () => ({
@@ -87,7 +87,7 @@ describe('defineModule', () => {
     });
 
     const value = metrics.use({
-      [MODULE_API_MAP]: {
+      [PLUGIN_API_MAP]: {
         [key]: {
           increment(name: string) {
             return name.length;

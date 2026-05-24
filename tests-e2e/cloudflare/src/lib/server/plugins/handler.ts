@@ -2,7 +2,7 @@ import { contract, implement, incoming, outgoing, stream, t } from '@wskit/serve
 import { RejectUpgrade } from '@wskit/server/errors';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
-import { Drizzle, DrizzleDenied } from './drizzle-module.ts';
+import { Drizzle, DrizzleDenied } from './drizzle-plugin.ts';
 import {
   DeleteRecord,
   DisconnectCount,
@@ -20,26 +20,26 @@ import {
   InsertRecord,
   LastState,
   MessageCount,
-  ModuleDlqResult,
-  ModuleEveryTick,
-  ModuleFlakyResult,
-  ModuleRewriteProbe,
-  ModuleRewriteResult,
-  ModuleTaskDataResult,
   OutgoingCount,
+  PluginDlqResult,
+  PluginEveryTick,
+  PluginFlakyResult,
+  PluginRewriteProbe,
+  PluginRewriteResult,
+  PluginTaskDataResult,
   RecordCount,
   RecordDeleted,
   RecordInserted,
   RecordList,
   ShutdownCount,
   SingleRecord,
-  TriggerModuleAlwaysFail,
-  TriggerModuleDenied,
-  TriggerModuleError,
-  TriggerModuleEvery,
-  TriggerModuleFlaky,
-  TriggerModuleQueryDlq,
-  TriggerModuleTaskWithData,
+  TriggerPluginAlwaysFail,
+  TriggerPluginDenied,
+  TriggerPluginError,
+  TriggerPluginEvery,
+  TriggerPluginFlaky,
+  TriggerPluginQueryDlq,
+  TriggerPluginTaskWithData,
   TriggerVacuum,
   VacuumDone,
 } from './events.ts';
@@ -52,7 +52,7 @@ const StreamThrowOnCancelChunk = v.object({ tick: v.number() });
 
 export const modulesContract = contract<Env>('modules-test')({
   meta: t<{ username: string }>(),
-  modules: [Drizzle({ migrate: true })],
+  plugins: [Drizzle({ migrate: true })],
   definitions: [
     incoming('insert-record', InsertRecord),
     incoming('get-all-records', GetAllRecords),
@@ -66,14 +66,14 @@ export const modulesContract = contract<Env>('modules-test')({
     incoming('get-generated-id', GetGeneratedId),
     incoming('get-last-state', GetLastState),
     incoming('get-shutdown-count', GetShutdownCount),
-    incoming('module-rewrite-probe', ModuleRewriteProbe),
-    incoming('trigger-module-every', TriggerModuleEvery),
-    incoming('trigger-module-flaky', TriggerModuleFlaky),
-    incoming('trigger-module-always-fail', TriggerModuleAlwaysFail),
-    incoming('trigger-module-query-dlq', TriggerModuleQueryDlq),
-    incoming('trigger-module-denied', TriggerModuleDenied),
-    incoming('trigger-module-error', TriggerModuleError),
-    incoming('trigger-module-task-with-data', TriggerModuleTaskWithData),
+    incoming('plugin-rewrite-probe', PluginRewriteProbe),
+    incoming('trigger-plugin-every', TriggerPluginEvery),
+    incoming('trigger-plugin-flaky', TriggerPluginFlaky),
+    incoming('trigger-plugin-always-fail', TriggerPluginAlwaysFail),
+    incoming('trigger-plugin-query-dlq', TriggerPluginQueryDlq),
+    incoming('trigger-plugin-denied', TriggerPluginDenied),
+    incoming('trigger-plugin-error', TriggerPluginError),
+    incoming('trigger-plugin-task-with-data', TriggerPluginTaskWithData),
 
     outgoing('record-inserted', RecordInserted),
     outgoing('record-list', RecordList),
@@ -87,12 +87,12 @@ export const modulesContract = contract<Env>('modules-test')({
     outgoing('generated-id', GeneratedId),
     outgoing('last-state', LastState),
     outgoing('shutdown-count', ShutdownCount),
-    outgoing('module-rewrite-result', ModuleRewriteResult),
-    outgoing('module-every-tick', ModuleEveryTick),
-    outgoing('module-flaky-result', ModuleFlakyResult),
-    outgoing('module-dlq-result', ModuleDlqResult),
+    outgoing('plugin-rewrite-result', PluginRewriteResult),
+    outgoing('plugin-every-tick', PluginEveryTick),
+    outgoing('plugin-flaky-result', PluginFlakyResult),
+    outgoing('plugin-dlq-result', PluginDlqResult),
     outgoing('error-result', ErrorResult),
-    outgoing('module-task-data-result', ModuleTaskDataResult),
+    outgoing('plugin-task-data-result', PluginTaskDataResult),
 
     stream('stream-connection-id', {
       payload: StreamConnectionIdPayload,
@@ -113,7 +113,7 @@ export const modulesHandler = implement(modulesContract)
     return { identity: username, meta: { username } };
   })
   .onConnect((ctx) => {
-    ctx.log.info('Module handler: client connected', { id: ctx.id });
+    ctx.log.info('Plugin handler: client connected', { id: ctx.id });
   })
   .on('insert-record', (ctx, payload) => {
     const db = Drizzle.use(ctx);
@@ -168,14 +168,14 @@ export const modulesHandler = implement(modulesContract)
     const db = Drizzle.use(ctx);
     ctx.send('shutdown-count', { count: db.getShutdownCount() });
   })
-  .on('module-rewrite-probe', (ctx, payload) => {
+  .on('plugin-rewrite-probe', (ctx, payload) => {
     const observed = payload as unknown as { text: string; rewritten?: boolean };
-    ctx.send('module-rewrite-result', {
+    ctx.send('plugin-rewrite-result', {
       text: observed.text,
       rewritten: observed.rewritten,
     });
   })
-  .on('trigger-module-every', (ctx) => {
+  .on('trigger-plugin-every', (ctx) => {
     (ctx.schedule as (id: string, opts: { time: number; data?: unknown }) => void)(
       '__e2e:drizzle:drizzle-every-tick',
       {
@@ -183,7 +183,7 @@ export const modulesHandler = implement(modulesContract)
       },
     );
   })
-  .on('trigger-module-flaky', (ctx) => {
+  .on('trigger-plugin-flaky', (ctx) => {
     (ctx.schedule as (id: string, opts: { time: number; data?: unknown }) => void)(
       '__e2e:drizzle:drizzle-flaky',
       {
@@ -191,13 +191,13 @@ export const modulesHandler = implement(modulesContract)
       },
     );
   })
-  .on('trigger-module-always-fail', (ctx) => {
+  .on('trigger-plugin-always-fail', (ctx) => {
     (ctx.schedule as (id: string, opts: { time: number; data?: unknown }) => void)(
       '__e2e:drizzle:drizzle-module-always-fail',
       { time: Date.now() + 100 },
     );
   })
-  .on('trigger-module-query-dlq', (ctx) => {
+  .on('trigger-plugin-query-dlq', (ctx) => {
     (ctx.schedule as (id: string, opts: { time: number; data?: unknown }) => void)(
       '__e2e:drizzle:drizzle-query-dlq',
       {
@@ -205,10 +205,10 @@ export const modulesHandler = implement(modulesContract)
       },
     );
   })
-  .on('trigger-module-denied', () => {
+  .on('trigger-plugin-denied', () => {
     throw DrizzleDenied({ reason: 'test denial', op: 'insert' });
   })
-  .on('trigger-module-error', (ctx) => {
+  .on('trigger-plugin-error', (ctx) => {
     try {
       throw DrizzleDenied({ reason: 'test denial', op: 'insert' });
     } catch (err: unknown) {
@@ -220,7 +220,7 @@ export const modulesHandler = implement(modulesContract)
       });
     }
   })
-  .on('trigger-module-task-with-data', (ctx) => {
+  .on('trigger-plugin-task-with-data', (ctx) => {
     (ctx.schedule as (id: string, opts: { time: number; data?: unknown }) => void)(
       '__e2e:drizzle:drizzle-task-with-data',
       {
@@ -250,4 +250,4 @@ export const modulesHandler = implement(modulesContract)
   })
   .build();
 
-export type ModulesClient = InferClient<typeof modulesHandler>;
+export type PluginsClient = InferClient<typeof modulesHandler>;

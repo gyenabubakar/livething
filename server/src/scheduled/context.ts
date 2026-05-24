@@ -2,7 +2,7 @@ import { createLazyStorageView } from '~/_engine/contexts/lazy-storage.ts';
 import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
 
 /**
- * Build the context passed to scheduled tasks and module-owned scheduled work.
+ * Build the context passed to scheduled tasks and plugin-owned scheduled work.
  */
 export function createTaskContext(
   deps: EngineContextTypes.CreateTaskContextDeps,
@@ -53,6 +53,6 @@ export function createTaskContext(
     platform: deps.platform,
   };
 
-  deps.attachModuleApis(ctx as unknown as Record<PropertyKey, unknown>, undefined);
+  deps.attachPluginApis(ctx as unknown as Record<PropertyKey, unknown>, undefined);
   return ctx;
 }

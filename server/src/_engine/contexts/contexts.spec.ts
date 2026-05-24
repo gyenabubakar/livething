@@ -83,7 +83,7 @@ function baseDeps(overrides: Partial<Parameters<typeof buildConnectionContext>[0
         identity: c.identity,
       }),
     }),
-    attachModuleApis: vi.fn(),
+    attachPluginApis: vi.fn(),
     contextExtenders: [],
     ...overrides,
   } as any;
@@ -547,7 +547,7 @@ describe('lazy storage in init/shutdown/task contexts', () => {
       sendProtocolMessage: vi.fn(),
       persistAttachment: vi.fn(),
       toConnectionInfo: (c: any) => c,
-      attachModuleApis: vi.fn(),
+      attachPluginApis: vi.fn(),
       connections: new Map<string, RuntimeConnection>(),
       contextExtenders: [],
     } as any;

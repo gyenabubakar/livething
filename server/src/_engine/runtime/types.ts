@@ -323,12 +323,12 @@ export interface ActiveStream {
 }
 
 /**
- * Runtime hooks and context factory for one installed module.
+ * Runtime hooks and context factory for one installed plugin.
  *
- * Each installed module gets one of these records so the engine can call the
- * module's hooks and build its scoped helper API when needed.
+ * Each installed plugin gets one of these records so the engine can call the
+ * plugin's hooks and build its scoped helper API when needed.
  */
-export interface ModuleRuntime {
+export interface PluginRuntime {
   instance: EngineCompileTypes.AnyModule;
   onInit?: (ctx: any) => void | Promise<void>;
   onIncoming?: (message: { event: string; payload: unknown }) => unknown | void;

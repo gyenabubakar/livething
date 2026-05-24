@@ -2,7 +2,7 @@
 import type * as ChannelPrimitive from '~/channel/channel.ts';
 import type * as IncomingPrimitive from '~/incoming/index.ts';
 import type * as InterceptPrimitive from '~/intercept/intercept.ts';
-import type * as DefineModule from '~/modules/define.ts';
+import type * as DefinePlugin from '~/plugins/define.ts';
 import type * as NamespacePrimitive from '~/namespace/namespace.ts';
 import type * as OutgoingPrimitive from '~/outgoing/index.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
@@ -39,8 +39,8 @@ export type AnyRecordedStream = RecordedStreamPrimitive.RecordedStreamGeneratePr
 export type AnyIntercept = InterceptPrimitive.InterceptPrimitive<any>;
 /** Any `.scheduled()` task declaration. */
 export type AnyScheduled = ScheduledPrimitive.ScheduledPrimitive<string, any, any, any>;
-/** Any installed module instance from `defineModule(...)`. */
-export type AnyModule = DefineModule.ModuleInstance<
+/** Any installed plugin instance from `definePlugin(...)`. */
+export type AnyModule = DefinePlugin.PluginInstance<
   string,
   any,
   any,

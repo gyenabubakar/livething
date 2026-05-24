@@ -40,31 +40,31 @@ export const LastState = v.object({
 export const GetShutdownCount = v.object({});
 export const ShutdownCount = v.object({ count: v.number() });
 
-export const ModuleRewriteProbe = v.object({
+export const PluginRewriteProbe = v.object({
   text: v.string(),
   rewritten: v.optional(v.boolean()),
 });
-export const ModuleRewriteResult = v.object({
+export const PluginRewriteResult = v.object({
   text: v.string(),
   rewritten: v.optional(v.boolean()),
 });
 
-export const TriggerModuleEvery = v.object({});
-export const ModuleEveryTick = v.object({ count: v.number() });
-export const TriggerModuleFlaky = v.object({});
-export const ModuleFlakyResult = v.object({ attempts: v.number() });
-export const TriggerModuleAlwaysFail = v.object({});
-export const TriggerModuleQueryDlq = v.object({});
-export const ModuleDlqResult = v.object({
+export const TriggerPluginEvery = v.object({});
+export const PluginEveryTick = v.object({ count: v.number() });
+export const TriggerPluginFlaky = v.object({});
+export const PluginFlakyResult = v.object({ attempts: v.number() });
+export const TriggerPluginAlwaysFail = v.object({});
+export const TriggerPluginQueryDlq = v.object({});
+export const PluginDlqResult = v.object({
   taskId: v.string(),
   attempts: v.number(),
   error: v.string(),
 });
 
-export const TriggerModuleDenied = v.object({});
+export const TriggerPluginDenied = v.object({});
 
-export const TriggerModuleError = v.object({});
+export const TriggerPluginError = v.object({});
 export const ErrorResult = v.object({ code: v.string(), message: v.string() });
 
-export const TriggerModuleTaskWithData = v.object({});
-export const ModuleTaskDataResult = v.object({ result: v.string() });
+export const TriggerPluginTaskWithData = v.object({});
+export const PluginTaskDataResult = v.object({ result: v.string() });

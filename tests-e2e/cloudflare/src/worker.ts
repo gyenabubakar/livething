@@ -1,7 +1,7 @@
 export { ReplayServer } from './lib/server/replay-history/durable-object.ts';
 export { ReplayCustomServer } from './lib/server/replay-custom/durable-object.ts';
 export { ReplaySnapshotServer } from './lib/server/replay-snapshot/durable-object.ts';
-export { ModulesServer } from './lib/server/modules/durable-object.ts';
+export { PluginsServer } from './lib/server/plugins/durable-object.ts';
 export { RejectHttpServer } from './lib/server/lifecycle-hooks-http-reject/durable-object.ts';
 export { AckServer } from './lib/server/ack/durable-object.ts';
 export { BinaryServer } from './lib/server/binary/durable-object.ts';
@@ -111,14 +111,14 @@ export default {
       return env.REPLAY_SNAPSHOT_SERVER.get(id).fetch(request);
     }
 
-    if (url.pathname === '/ws/modules') {
-      const id = env.MODULES_SERVER.idFromName(room);
-      return env.MODULES_SERVER.get(id).fetch(request);
+    if (url.pathname === '/ws/plugins') {
+      const id = env.PLUGINS_SERVER.idFromName(room);
+      return env.PLUGINS_SERVER.get(id).fetch(request);
     }
 
-    if (url.pathname === '/ws/modules/shutdown') {
-      const id = env.MODULES_SERVER.idFromName(room);
-      await env.MODULES_SERVER.get(id).shutdown();
+    if (url.pathname === '/ws/plugins/shutdown') {
+      const id = env.PLUGINS_SERVER.idFromName(room);
+      await env.PLUGINS_SERVER.get(id).shutdown();
       return new Response(null, { status: 204 });
     }
 

@@ -146,7 +146,7 @@ export interface ContextCommonDeps {
   toConnectionInfo(
     connection: EngineRuntimeTypes.RuntimeConnection,
   ): PublicApi.ConnectionInfo<Record<string, unknown>>;
-  attachModuleApis(
+  attachPluginApis(
     ctx: Record<PropertyKey, unknown>,
     connection?: EngineRuntimeTypes.RuntimeConnection,
   ): void;
@@ -218,6 +218,6 @@ export type CompiledNamespace = EngineCompileTypes.CompiledNamespace;
 
 export type CompiledServer = EngineCompileTypes.CompiledServer;
 
-export type ModuleRuntime = EngineRuntimeTypes.ModuleRuntime;
+export type PluginRuntime = EngineRuntimeTypes.PluginRuntime;
 
 export type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;

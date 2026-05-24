@@ -28,7 +28,7 @@ export type {
  * `_engine/registry/*`.
  */
 export class Engine {
-  /** State container. Exposed for internal modules that need direct field access. @internal */
+  /** State container. Exposed for internal plugins that need direct field access. @internal */
   readonly core: EngineCore;
 
   constructor(handler: DefineServer.ServerDefinition, options: EngineAdapterTypes.EngineOptions) {
@@ -59,7 +59,7 @@ export class Engine {
 
   /**
    * Set the async-context capability used to track which connection's dispatch
-   * is running. Required for a module's `getState()` to resolve correctly.
+   * is running. Required for a plugin's `getState()` to resolve correctly.
    */
   setAsyncContext(asyncContext: PublicApi.AsyncContext): void {
     this.core.setAsyncContext(asyncContext);
@@ -95,7 +95,7 @@ export class Engine {
 
   // ─────── adapter entry points ───────
 
-  /** One-time startup: validate capabilities, install modules, run boot + init hooks. */
+  /** One-time startup: validate capabilities, install plugins, run boot + init hooks. */
   async initialize(): Promise<void> {
     await Initialize.initialize(this.core, EngineDeps.engineAccessDeps(this.core));
   }
@@ -132,14 +132,14 @@ export class Engine {
     );
   }
 
-  /** Shut down the engine and every connection or module it owns. */
+  /** Shut down the engine and every connection or plugin it owns. */
   async handleShutdown(): Promise<void> {
     const core = this.core;
     return EngineConnectionRuntime.handleShutdown({
       connections: core.connections,
       timers: core.timers,
       shutdownHooks: core.hooks.shutdown,
-      moduleRuntimes: core.moduleRuntimes,
+      pluginRuntimes: core.pluginRuntimes,
       createShutdownContext: () => this.createShutdownContext(),
       cancelActiveStreamsForConnection: (connectionId) =>
         EngineConnectionRuntime.cancelActiveStreamsForConnection(

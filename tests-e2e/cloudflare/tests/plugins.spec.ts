@@ -5,56 +5,56 @@ function waitForText(page: Page, testId: string, expected: string | RegExp, time
   return expect(page.getByTestId(testId)).toHaveText(expected, { timeout });
 }
 
-test.describe('modules handler', () => {
+test.describe('plugins handler', () => {
   test.beforeEach(async ({ page }, testInfo) => {
     const room = `test-${testInfo.testId}`;
-    await page.goto(`/modules?room=${room}`);
+    await page.goto(`/plugins?room=${room}`);
     await expect(page.getByTestId('status')).toHaveText('disconnected');
     await page.getByTestId('connect-btn').click();
     await waitForText(page, 'status', 'connected');
   });
 
-  test('module onConnect fires (drizzle-ready)', async ({ page }) => {
+  test('plugin onConnect fires (drizzle-ready)', async ({ page }) => {
     await waitForText(page, 'db-connected', 'db-ready');
   });
 
-  test('insert record via module API', async ({ page }) => {
+  test('insert record via plugin API', async ({ page }) => {
     await page.getByTestId('insert-btn').click();
     await waitForText(page, 'insert-result', /id: \d+/);
   });
 
-  test('get all records via module API', async ({ page }) => {
+  test('get all records via plugin API', async ({ page }) => {
     await page.getByTestId('insert-btn').click();
     await waitForText(page, 'insert-result', /id:/);
     await page.getByTestId('get-all-btn').click();
     await waitForText(page, 'record-list', /test-item/);
   });
 
-  test('module onOutgoing can transform a module-owned outgoing event', async ({ page }) => {
+  test('plugin onOutgoing can transform a plugin-owned outgoing event', async ({ page }) => {
     await waitForText(page, 'drizzle-ready-payload', /"tables":\["records"\]/);
     await waitForText(page, 'drizzle-ready-payload', /"hooked":true/);
   });
 
-  test('get single record via module API', async ({ page }) => {
+  test('get single record via plugin API', async ({ page }) => {
     await page.getByTestId('insert-btn').click();
     await waitForText(page, 'insert-result', /id:/);
     await page.getByTestId('get-one-btn').click();
     await waitForText(page, 'single-record', /test-item/);
   });
 
-  test('delete record via module API', async ({ page }) => {
+  test('delete record via plugin API', async ({ page }) => {
     await page.getByTestId('insert-btn').click();
     await waitForText(page, 'insert-result', /id:/);
     await page.getByTestId('delete-btn').click();
     await waitForText(page, 'delete-result', 'deleted');
   });
 
-  test('get record count via module API', async ({ page }) => {
+  test('get record count via plugin API', async ({ page }) => {
     await page.getByTestId('count-btn').click();
     await waitForText(page, 'record-count', /count: \d+/);
   });
 
-  test('module onIncoming counts messages', async ({ page }) => {
+  test('plugin onIncoming counts messages', async ({ page }) => {
     await page.getByTestId('insert-btn').click();
     await waitForText(page, 'insert-result', /id:/);
     await page.getByTestId('insert-btn').click();
@@ -64,46 +64,46 @@ test.describe('modules handler', () => {
     await waitForText(page, 'message-count', /messages: [3-9]|messages: \d{2,}/);
   });
 
-  test('module scheduled task fires on trigger', async ({ page }) => {
+  test('plugin scheduled task fires on trigger', async ({ page }) => {
     await waitForText(page, 'db-connected', 'db-ready');
     await page.getByTestId('vacuum-btn').click();
     await waitForText(page, 'vacuum-result', /vacuum:\d+/, 10_000);
   });
 
-  test('module onIncoming can rewrite incoming payload', async ({ page }) => {
+  test('plugin onIncoming can rewrite incoming payload', async ({ page }) => {
     await waitForText(page, 'db-connected', 'db-ready');
-    await page.getByTestId('module-rewrite-btn').click();
-    await waitForText(page, 'module-rewrite-result', 'text:rewritten:hello,rewritten:true');
+    await page.getByTestId('plugin-rewrite-btn').click();
+    await waitForText(page, 'plugin-rewrite-result', 'text:rewritten:hello,rewritten:true');
   });
 
-  test('module scheduled every: fires repeatedly', async ({ page }) => {
+  test('plugin scheduled every: fires repeatedly', async ({ page }) => {
     await waitForText(page, 'db-connected', 'db-ready');
-    await page.getByTestId('trigger-module-every-btn').click();
+    await page.getByTestId('trigger-plugin-every-btn').click();
     await expect(async () => {
-      const count = Number(await page.getByTestId('module-every-count').textContent());
+      const count = Number(await page.getByTestId('plugin-every-count').textContent());
       expect(count).toBeGreaterThanOrEqual(2);
     }).toPass({ timeout: 15_000 });
   });
 
-  test('module scheduled retry: flaky task succeeds after retries', async ({ page }) => {
+  test('plugin scheduled retry: flaky task succeeds after retries', async ({ page }) => {
     await waitForText(page, 'db-connected', 'db-ready');
-    await page.getByTestId('trigger-module-flaky-btn').click();
-    await waitForText(page, 'module-flaky-result', /attempts:[3-9]/, 10_000);
+    await page.getByTestId('trigger-plugin-flaky-btn').click();
+    await waitForText(page, 'plugin-flaky-result', /attempts:[3-9]/, 10_000);
   });
 
-  test('module scheduled DLQ: always-fail task lands in DLQ', async ({ page }) => {
+  test('plugin scheduled DLQ: always-fail task lands in DLQ', async ({ page }) => {
     await waitForText(page, 'db-connected', 'db-ready');
-    await page.getByTestId('trigger-module-always-fail-btn').click();
+    await page.getByTestId('trigger-plugin-always-fail-btn').click();
     await expect(async () => {
-      await page.getByTestId('trigger-module-query-dlq-btn').click();
-      const result = await page.getByTestId('module-dlq-result').textContent();
+      await page.getByTestId('trigger-plugin-query-dlq-btn').click();
+      const result = await page.getByTestId('plugin-dlq-result').textContent();
       expect(result).toMatch(/drizzle-module-always-fail:attempts=/);
     }).toPass({ timeout: 15_000 });
-    const result = await page.getByTestId('module-dlq-result').textContent();
+    const result = await page.getByTestId('plugin-dlq-result').textContent();
     expect(result).toContain('module permanent failure');
   });
 
-  test('module onOutgoing counts outgoing messages', async ({ page }) => {
+  test('plugin onOutgoing counts outgoing messages', async ({ page }) => {
     await waitForText(page, 'db-connected', 'db-ready');
     await page.getByTestId('insert-btn').click();
     await waitForText(page, 'insert-result', /id:/);
@@ -112,7 +112,7 @@ test.describe('modules handler', () => {
     await waitForText(page, 'outgoing-count', /outgoing: [1-9]/);
   });
 
-  test('module hooks can observe generateId and getState', async ({ page }) => {
+  test('plugin hooks can observe generateId and getState', async ({ page }) => {
     await waitForText(page, 'db-connected', 'db-ready');
 
     await page.getByTestId('generated-id-btn').click();
@@ -123,12 +123,12 @@ test.describe('modules handler', () => {
     await waitForText(page, 'last-state-result', /"tags":\[\]/);
   });
 
-  test('module onDisconnect increments counter', async ({ browser }, testInfo) => {
+  test('plugin onDisconnect increments counter', async ({ browser }, testInfo) => {
     const room = `multi-${testInfo.testId}`;
     const page1 = await browser.newPage();
     const page2 = await browser.newPage();
-    await page1.goto(`/modules?room=${room}`);
-    await page2.goto(`/modules?room=${room}`);
+    await page1.goto(`/plugins?room=${room}`);
+    await page2.goto(`/plugins?room=${room}`);
 
     await page1.getByTestId('username-input').fill('mod-user1');
     await page1.getByTestId('connect-btn').click();
@@ -148,7 +148,7 @@ test.describe('modules handler', () => {
     await page2.close();
   });
 
-  test('module typed error reaches the client with code and detail intact', async ({
+  test('plugin typed error reaches the client with code and detail intact', async ({
     page,
   }, testInfo) => {
     const room = `test-${testInfo.testId}-err`;
@@ -157,10 +157,10 @@ test.describe('modules handler', () => {
       type Msg = { event: string; payload: Record<string, unknown> };
       return new Promise<Msg>((resolve, reject) => {
         const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const url = `${protocol}//${location.host}/ws/modules?username=${encodeURIComponent('erruser')}&room=${encodeURIComponent(currentRoom)}`;
+        const url = `${protocol}//${location.host}/ws/plugins?username=${encodeURIComponent('erruser')}&room=${encodeURIComponent(currentRoom)}`;
         const ws = new WebSocket(url);
         ws.onopen = () => {
-          ws.send(JSON.stringify({ event: 'trigger-module-denied', payload: {} }));
+          ws.send(JSON.stringify({ event: 'trigger-plugin-denied', payload: {} }));
         };
         ws.onmessage = (ev) => {
           if (typeof ev.data !== 'string') return;
@@ -181,7 +181,7 @@ test.describe('modules handler', () => {
     expect(payload.detail?.op).toBe('insert');
   });
 
-  test('module onShutdown is observable after shutdown and reconnect', async ({
+  test('plugin onShutdown is observable after shutdown and reconnect', async ({
     page,
   }, testInfo) => {
     const room = `test-${testInfo.testId}`;
@@ -189,7 +189,7 @@ test.describe('modules handler', () => {
     await page.getByTestId('shutdown-count-btn').click();
     await waitForText(page, 'shutdown-count', 'shutdowns: 0');
 
-    const response = await page.request.post(`/ws/modules/shutdown?room=${room}`);
+    const response = await page.request.post(`/ws/plugins/shutdown?room=${room}`);
     expect(response.status()).toBe(204);
 
     await waitForText(page, 'status', 'disconnected', 15_000);
@@ -208,7 +208,7 @@ test.describe('modules handler', () => {
     // 168c1b9). The explicit __streamCancel__ path was a separate code
     // path that didn't catch — the throw escaped processTextMessage into
     // the adapter WS callback. The fix mirrors the connection-close catch.
-    await page.goto(`/modules?room=test-${testInfo.testId}-streamcancel`);
+    await page.goto(`/plugins?room=test-${testInfo.testId}-streamcancel`);
     await page.getByTestId('connect-btn').click();
     await waitForText(page, 'status', 'connected');
     await waitForText(page, 'db-connected', 'db-ready');
@@ -253,8 +253,8 @@ test.describe('modules handler', () => {
     const room = `multi-${testInfo.testId}-throwfinally`;
     const observer = await browser.newPage();
     const offender = await browser.newPage();
-    await observer.goto(`/modules?room=${room}`);
-    await offender.goto(`/modules?room=${room}`);
+    await observer.goto(`/plugins?room=${room}`);
+    await offender.goto(`/plugins?room=${room}`);
     await observer.getByTestId('username-input').fill('observer');
     await observer.getByTestId('connect-btn').click();
     await waitForText(observer, 'status', 'connected');
@@ -274,7 +274,7 @@ test.describe('modules handler', () => {
     await offender.getByTestId('disconnect-btn').click();
     await waitForText(offender, 'status', 'disconnected');
 
-    // Observer asks for the disconnect count from the drizzle module's
+    // Observer asks for the disconnect count from the drizzle plugin's
     // onDisconnect hook. If the stream cleanup failure aborted the close,
     // the count would stay 0. Post-fix it ticks to 1.
     await expect(async () => {
@@ -288,16 +288,16 @@ test.describe('modules handler', () => {
     await offender.close();
   });
 
-  test('module hooks.getState() inside a stream generator returns the stream owner connection id', async ({
+  test('plugin hooks.getState() inside a stream generator returns the stream owner connection id', async ({
     page,
   }, testInfo) => {
     // Pre-fix the engine bracketed setActiveConnectionId around generator
     // construction (which only returns the iterator — the body never runs
     // there). By the time iterator.next() advanced the body, the active id
-    // was cleared. Module APIs that called hooks.getState() inside a
+    // was cleared. Plugin APIs that called hooks.getState() inside a
     // stream generator saw `undefined`.
     const room = `test-${testInfo.testId}-stream-state`;
-    await page.goto(`/modules?room=${room}`);
+    await page.goto(`/plugins?room=${room}`);
     await page.getByTestId('connect-btn').click();
     await waitForText(page, 'status', 'connected');
     await waitForText(page, 'db-connected', 'db-ready');

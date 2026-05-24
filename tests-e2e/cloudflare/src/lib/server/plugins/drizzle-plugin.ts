@@ -1,11 +1,11 @@
-import { error, module, outgoing, scheduled } from '@wskit/server';
+import { error, outgoing, plugin, scheduled } from '@wskit/server';
 import { count, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/durable-sqlite';
 import * as v from 'valibot';
 import type { Platform } from '@wskit/server-cloudflare';
 import type { DrizzleSqliteDODatabase } from 'drizzle-orm/durable-sqlite';
 import * as schema from './schema.ts';
-import { moduleMeta, records } from './schema.ts';
+import { pluginMeta, records } from './schema.ts';
 import type { InsertRecord } from './schema.ts';
 
 export const DrizzleDenied = error(
@@ -36,7 +36,7 @@ export interface DrizzleApi {
 
 const taskDataSchema = v.object({ value: v.string() });
 
-export const Drizzle = module<{ migrate: boolean }>('e2e:drizzle')({
+export const Drizzle = plugin<{ migrate: boolean }>('e2e:drizzle')({
   requires: { storage: true },
   definitions: [
     outgoing('drizzle-ready', v.object({ tables: v.array(v.string()) })),
@@ -100,13 +100,13 @@ export const Drizzle = module<{ migrate: boolean }>('e2e:drizzle')({
       db.run(
         "INSERT INTO module_meta (key, value) VALUES ('shutdown_count', 1) ON CONFLICT(key) DO UPDATE SET value = value + 1",
       );
-      console.log('[drizzle-module] shutdown, processed', messageCount, 'messages');
+      console.log('[drizzle-plugin] shutdown, processed', messageCount, 'messages');
     });
 
     hooks.onIncoming((message) => {
       messageCount++;
       if (
-        message.event === 'module-rewrite-probe' &&
+        message.event === 'plugin-rewrite-probe' &&
         message.payload &&
         typeof message.payload === 'object'
       ) {
@@ -142,7 +142,7 @@ export const Drizzle = module<{ migrate: boolean }>('e2e:drizzle')({
     hooks.scheduled('drizzle-every-tick', (t) =>
       t.every(500).run(async (ctx) => {
         everyTickCount++;
-        ctx.broadcast('module-every-tick', { count: everyTickCount });
+        ctx.broadcast('plugin-every-tick', { count: everyTickCount });
       }),
     );
 
@@ -151,7 +151,7 @@ export const Drizzle = module<{ migrate: boolean }>('e2e:drizzle')({
       t.retry([50, 100, 200]).run(async (ctx) => {
         flakyAttempts++;
         if (flakyAttempts < 3) throw new Error('module flaky failure');
-        ctx.broadcast('module-flaky-result', { attempts: flakyAttempts });
+        ctx.broadcast('plugin-flaky-result', { attempts: flakyAttempts });
         flakyAttempts = 0;
       }),
     );
@@ -176,7 +176,7 @@ export const Drizzle = module<{ migrate: boolean }>('e2e:drizzle')({
         const row = rows[0];
         if (row) {
           const err = JSON.parse(row.error) as { message: string };
-          ctx.broadcast('module-dlq-result', {
+          ctx.broadcast('plugin-dlq-result', {
             taskId: row.taskId,
             attempts: row.attempts,
             error: err.message,
@@ -187,7 +187,7 @@ export const Drizzle = module<{ migrate: boolean }>('e2e:drizzle')({
 
     hooks.scheduled('drizzle-task-with-data', (t) =>
       t.data(taskDataSchema).run(async (ctx, data) => {
-        ctx.broadcast('module-task-data-result', {
+        ctx.broadcast('plugin-task-data-result', {
           result: `validated-data-received:${data.value}`,
         });
       }),
@@ -229,7 +229,7 @@ export const Drizzle = module<{ migrate: boolean }>('e2e:drizzle')({
       },
       getShutdownCount() {
         return (
-          db.select().from(moduleMeta).where(eq(moduleMeta.key, 'shutdown_count')).get()?.value ?? 0
+          db.select().from(pluginMeta).where(eq(pluginMeta.key, 'shutdown_count')).get()?.value ?? 0
         );
       },
       getCurrentConnectionId() {

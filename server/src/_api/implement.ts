@@ -1012,11 +1012,11 @@ export class Implementer<C extends Contract> {
       }
     }
 
-    // ── Modules ──────────────────────────────────────────────────────────────
-    // Push modules ahead of lifecycle and definitions so their hooks register
+    // ── Plugins ──────────────────────────────────────────────────────────────
+    // Push plugins ahead of lifecycle and definitions so their hooks register
     // first and run before user handlers.
-    if (config.modules && config.modules.length > 0) {
-      for (const mod of config.modules) {
+    if (config.plugins && config.plugins.length > 0) {
+      for (const mod of config.plugins) {
         primitives.push(mod as Primitive);
       }
     }

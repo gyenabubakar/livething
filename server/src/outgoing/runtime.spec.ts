@@ -42,7 +42,7 @@ function createRuntime(overrides: Partial<OutgoingRuntime> = {}): OutgoingRuntim
       channelFamilies: new Map(),
       modules: [],
     } as unknown as OutgoingRuntime['compiled'],
-    moduleRuntimes: [],
+    pluginRuntimes: [],
     outgoingHooks: [],
     wskitStampHooks: [],
     beforeSendHooks: [],
@@ -85,15 +85,15 @@ describe('outgoing/runtime sendThroughPipeline', () => {
     ).toThrow(/plain object/);
   });
 
-  it('lets a module add its own keys to the payload', () => {
+  it('lets a plugin add its own keys to the payload', () => {
     const runtime = createRuntime({
-      moduleRuntimes: [
+      pluginRuntimes: [
         {
           onOutgoing: (message: { event: string; payload: unknown }) => ({
             ...(message.payload as Record<string, unknown>),
             sentAt: 1,
           }),
-        } as unknown as OutgoingRuntime['moduleRuntimes'][number],
+        } as unknown as OutgoingRuntime['pluginRuntimes'][number],
       ],
     });
     const connection = createConnection();

@@ -5,7 +5,7 @@ interface __BaseEnv_Env {
   ASSETS: Fetcher;
   REPLAY_SERVER: DurableObjectNamespace<import('./src/worker').ReplayServer>;
   REPLAY_CUSTOM_SERVER: DurableObjectNamespace<import('./src/worker').ReplayCustomServer>;
-  MODULES_SERVER: DurableObjectNamespace<import('./src/worker').ModulesServer>;
+  PLUGINS_SERVER: DurableObjectNamespace<import('./src/worker').PluginsServer>;
   REPLAY_SNAPSHOT_SERVER: DurableObjectNamespace<import('./src/worker').ReplaySnapshotServer>;
   HTTP_REJECT_SERVER: DurableObjectNamespace<import('./src/worker').RejectHttpServer>;
   ACK_SERVER: DurableObjectNamespace<import('./src/worker').AckServer>;
@@ -81,7 +81,7 @@ declare namespace Cloudflare {
       | 'ReplayServer'
       | 'ReplayCustomServer'
       | 'ReplaySnapshotServer'
-      | 'ModulesServer'
+      | 'PluginsServer'
       | 'RejectHttpServer'
       | 'AckServer'
       | 'BinaryServer'

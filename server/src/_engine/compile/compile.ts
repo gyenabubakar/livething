@@ -146,7 +146,7 @@ export function compileHandlerDefinition(
   visitCompiledPrimitives(compiled, handler.primitives);
   collectReplayClaimedScopes(handler.primitives, compiled.replayClaimedChannelKeys);
   validateNoCrossPrimitiveEventCollisions(compiled);
-  validateNoReservedEventNames(compiled, collectModuleEventNames(compiled));
+  validateNoReservedEventNames(compiled, collectPluginEventNames(compiled));
   validateScopeAndEventNameSyntax(compiled);
   validateChannelFamilyPatternsDisjointFromStaticNames(compiled);
   return compiled;
@@ -293,14 +293,14 @@ function validateNoCrossPrimitiveEventCollisions(
 }
 
 // Build the set of double-underscore outgoing event names the installed
-// modules actually declared. Used by the reserved-name guard to allow those
+// plugins actually declared. Used by the reserved-name guard to allow those
 // exact names through while still rejecting any user-declared double-
 // underscore events.
-function collectModuleEventNames(compiled: EngineCompileTypes.CompiledServer): ReadonlySet<string> {
+function collectPluginEventNames(compiled: EngineCompileTypes.CompiledServer): ReadonlySet<string> {
   const names = new Set<string>();
-  for (const moduleInstance of compiled.modules) {
-    for (const eventName of Object.keys(moduleInstance.outgoing)) {
-      names.add(EngineCompileUtils.prefixedModuleEvent(moduleInstance.id, eventName));
+  for (const pluginInstance of compiled.modules) {
+    for (const eventName of Object.keys(pluginInstance.outgoing)) {
+      names.add(EngineCompileUtils.prefixedModuleEvent(pluginInstance.id, eventName));
     }
   }
   return names;
@@ -314,7 +314,7 @@ function collectModuleEventNames(compiled: EngineCompileTypes.CompiledServer): R
  */
 function validateNoReservedEventNames(
   compiled: EngineCompileTypes.CompiledServer,
-  declaredModuleEvents: ReadonlySet<string>,
+  declaredPluginEvents: ReadonlySet<string>,
 ): void {
   function check(event: string, scopeLabel: string): void {
     if (event === 'ping' || event === 'pong') {
@@ -324,13 +324,13 @@ function validateNoReservedEventNames(
       );
     }
     // The double-underscore prefix is reserved for wskit protocol events
-    // (__subscribe__, __error__, ...) and module-owned events. Allow only the
-    // names installed modules actually declared — anything else with the
+    // (__subscribe__, __error__, ...) and plugin-owned events. Allow only the
+    // names installed plugins actually declared — anything else with the
     // prefix is a user-declared event that would clash with the protocol.
-    if (event.startsWith('__') && !declaredModuleEvents.has(event)) {
+    if (event.startsWith('__') && !declaredPluginEvents.has(event)) {
       throw new Error(
         `[wskit] '${event}' starts with a reserved double-underscore prefix (used by ${scopeLabel}). ` +
-          `That prefix is reserved for wskit protocol and module events — pick a different name.`,
+          `That prefix is reserved for wskit protocol and plugin events — pick a different name.`,
       );
     }
   }

@@ -175,12 +175,12 @@ export interface ContractConfig {
   };
   readonly errors?: readonly any[];
   /**
-   * Module instances mounted onto this server. Each entry is the result of
-   * calling a module factory — `Drizzle({ migrate: true })` etc. The module
+   * Plugin instances mounted onto this server. Each entry is the result of
+   * calling a plugin factory — `Drizzle({ migrate: true })` etc. The plugin
    * registers its own events, scheduled tasks, and errors at boot. The
-   * module API is accessed inside handlers via `<Module>.use(ctx)`.
+   * plugin API is accessed inside handlers via `<Plugin>.use(ctx)`.
    */
-  readonly modules?: readonly any[];
+  readonly plugins?: readonly any[];
   readonly definitions: readonly Definition[];
 }
 

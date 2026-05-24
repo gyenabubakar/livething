@@ -1,8 +1,8 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { describe, expect, it } from 'vitest';
 import type { EngineCore } from '~/_engine/core.ts';
-import type { ModuleRuntime, RuntimeConnection } from '~/_engine/runtime/types.ts';
-import { createModuleHooks } from './module-hooks.ts';
+import type { PluginRuntime, RuntimeConnection } from '~/_engine/runtime/types.ts';
+import { createPluginHooks } from './plugin-hooks.ts';
 
 function createConnection(id: string): RuntimeConnection {
   return {
@@ -31,11 +31,11 @@ function createHooks(core: {
   connections: Map<string, RuntimeConnection>;
   engineInstanceId: string | undefined;
 }) {
-  const runtime = { instance: { id: 'm1' } } as unknown as ModuleRuntime;
-  return createModuleHooks(core as unknown as EngineCore, runtime, () => {});
+  const runtime = { instance: { id: 'm1' } } as unknown as PluginRuntime;
+  return createPluginHooks(core as unknown as EngineCore, runtime, () => {});
 }
 
-describe('module hooks — getState()', () => {
+describe('plugin hooks — getState()', () => {
   it('throws when the adapter provides no async-context capability', () => {
     const hooks = createHooks({ connections: new Map(), engineInstanceId: undefined });
     expect(() => hooks.getState()).toThrow('async-context support');

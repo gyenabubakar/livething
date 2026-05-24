@@ -129,7 +129,7 @@ test.describe('lifecycle-hooks', () => {
       '/ws/replay',
       '/ws/replay-custom',
       '/ws/replay-snapshot',
-      '/ws/modules',
+      '/ws/plugins',
     ];
 
     for (const mount of mounts) {

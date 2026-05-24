@@ -71,7 +71,7 @@ export function resumableGenerateFactory(
 
 resumableGenerateFactory.__key = RESUMABLE_STREAM_GENERATE_KEY;
 
-/** Identity-only handle for `dependencies: [resumableStreamFactory]` on modules. */
+/** Identity-only handle for `dependencies: [resumableStreamFactory]` on plugins. */
 export const resumableStreamFactory = {
   __key: RESUMABLE_STREAM_KEY,
 } as const;

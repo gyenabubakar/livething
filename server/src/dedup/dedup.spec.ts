@@ -97,7 +97,7 @@ describe('dedup', () => {
     expect(second).toEqual({ messageId: 'msg-2' });
   });
 
-  it('still stamps module-owned outgoing events with a double underscore prefix', () => {
+  it('still stamps plugin-owned outgoing events with a double underscore prefix', () => {
     const { hook } = installDedup();
     const moduleMessage = hook('__acme:analytics:flushed');
 

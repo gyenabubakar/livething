@@ -1,22 +1,22 @@
 import * as EngineCompileUtils from '~/_engine/compile/utils.ts';
-import * as DefineModule from '~/modules/define.ts';
+import * as DefinePlugin from '~/plugins/define.ts';
 import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
 
 /**
- * Wrap a context so module event helpers automatically prefix their event names.
+ * Wrap a context so plugin event helpers automatically prefix their event names.
  *
- * Modules declare outgoing events with short names (e.g. `'flushed'`), but on
+ * Plugins declare outgoing events with short names (e.g. `'flushed'`), but on
  * the wire they become `'__acme:analytics:flushed'`. This Proxy intercepts
  * `send`, `broadcast`, `sendTo`, and `sendToConnection` and prepends the
- * module's ID before delegating to the real context method.
+ * plugin's ID before delegating to the real context method.
  */
-export function createModuleScopedContext(
-  moduleId: string,
+export function createPluginScopedContext(
+  pluginId: string,
   ctx: Record<PropertyKey, unknown>,
 ): Record<PropertyKey, unknown> {
   function prefix(event: string): string {
-    return EngineCompileUtils.prefixedModuleEvent(moduleId, event);
+    return EngineCompileUtils.prefixedModuleEvent(pluginId, event);
   }
 
   return new Proxy(ctx, {
@@ -60,18 +60,18 @@ function wrapPrefixedSend(
 }
 
 /**
- * Attach module API objects to the hidden module API map on a context.
+ * Attach plugin API objects to the hidden plugin API map on a context.
  */
-export function attachModuleApis(
-  moduleRuntimes: readonly EngineContextTypes.ModuleRuntime[],
+export function attachPluginApis(
+  pluginRuntimes: readonly EngineContextTypes.PluginRuntime[],
   ctx: Record<PropertyKey, unknown>,
   connection?: EngineContextTypes.RuntimeConnection,
 ): void {
   const apiMap: Record<PropertyKey, unknown> = {};
 
-  for (const runtime of moduleRuntimes) {
-    const moduleCtx = createModuleScopedContext(runtime.instance.id, ctx);
-    const api = runtime.contextFactory(moduleCtx);
+  for (const runtime of pluginRuntimes) {
+    const pluginCtx = createPluginScopedContext(runtime.instance.id, ctx);
+    const api = runtime.contextFactory(pluginCtx);
     apiMap[(runtime.instance as PrimitiveCore.Primitive).__identity[0]] = api;
 
     if (connection) {
@@ -79,7 +79,7 @@ export function attachModuleApis(
     }
   }
 
-  Object.defineProperty(ctx, DefineModule.MODULE_API_MAP, {
+  Object.defineProperty(ctx, DefinePlugin.PLUGIN_API_MAP, {
     configurable: true,
     enumerable: false,
     value: apiMap,

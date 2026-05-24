@@ -223,7 +223,7 @@ function buildInterceptRouting(
 /**
  * Main inbound event dispatcher.
  *
- * Runs module hooks, intercepts, validation, incoming handlers, requests, and
+ * Runs plugin hooks, intercepts, validation, incoming handlers, requests, and
  * streams in the order described by the server spec.
  */
 export async function dispatchIncoming(
@@ -288,9 +288,9 @@ export async function dispatchIncoming(
       if (next !== undefined) message = { event: message.event, payload: next };
     }
 
-    for (const moduleRuntime of runtime.moduleRuntimes) {
-      if (!moduleRuntime.onIncoming) continue;
-      const next = moduleRuntime.onIncoming(message);
+    for (const pluginRuntime of runtime.pluginRuntimes) {
+      if (!pluginRuntime.onIncoming) continue;
+      const next = pluginRuntime.onIncoming(message);
       if (next !== undefined) message = { event: message.event, payload: next };
     }
 

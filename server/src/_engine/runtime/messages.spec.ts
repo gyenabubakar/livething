@@ -81,7 +81,7 @@ describe('message runtime', () => {
           ],
         ]),
       },
-      moduleRuntimes: [],
+      pluginRuntimes: [],
       outgoingHooks: [],
       beforeSendHooks: [],
       wskitStampHooks: [],
@@ -160,7 +160,7 @@ describe('message runtime', () => {
       activeStreams: new Map(),
       protocolHandlers: new Map(),
       incomingHooks: [],
-      moduleRuntimes: [],
+      pluginRuntimes: [],
       errorHooks: [],
       requireTimers() {
         return {
@@ -258,7 +258,7 @@ describe('message runtime', () => {
       activeStreams: new Map(),
       protocolHandlers: new Map(),
       incomingHooks: [],
-      moduleRuntimes: [],
+      pluginRuntimes: [],
       errorHooks: [],
       requireTimers() {
         return { setTimeout: () => undefined, clearTimeout() {} };
@@ -345,7 +345,7 @@ describe('message runtime', () => {
       activeStreams: new Map(),
       protocolHandlers: new Map(),
       incomingHooks: [],
-      moduleRuntimes: [],
+      pluginRuntimes: [],
       errorHooks: [],
       requireTimers() {
         return { setTimeout: () => undefined, clearTimeout() {} };
@@ -422,7 +422,7 @@ describe('message runtime', () => {
       activeStreams: new Map(),
       protocolHandlers: new Map(),
       incomingHooks: [],
-      moduleRuntimes: [],
+      pluginRuntimes: [],
       errorHooks: [],
       requireTimers() {
         return { setTimeout: () => undefined, clearTimeout() {} };
@@ -499,7 +499,7 @@ describe('message runtime', () => {
       activeStreams: new Map(),
       protocolHandlers: new Map(),
       incomingHooks: [],
-      moduleRuntimes: [],
+      pluginRuntimes: [],
       errorHooks: [],
       requireTimers() {
         return { setTimeout: () => undefined, clearTimeout() {} };
@@ -603,7 +603,7 @@ describe('message runtime', () => {
       activeStreams: new Map(),
       protocolHandlers: new Map(),
       incomingHooks: [],
-      moduleRuntimes: [],
+      pluginRuntimes: [],
       errorHooks: [],
       requireTimers() {
         return { setTimeout: () => undefined, clearTimeout() {} };
@@ -683,7 +683,7 @@ describe('message runtime', () => {
       activeStreams: new Map(),
       protocolHandlers: new Map(),
       incomingHooks: [],
-      moduleRuntimes: [],
+      pluginRuntimes: [],
       errorHooks: [],
       requireTimers() {
         return { setTimeout: () => undefined, clearTimeout() {} };
@@ -762,7 +762,7 @@ describe('message runtime', () => {
       activeStreams: new Map(),
       protocolHandlers: new Map(),
       incomingHooks: [],
-      moduleRuntimes: [],
+      pluginRuntimes: [],
       errorHooks: [],
       requireTimers() {
         return { setTimeout: () => undefined, clearTimeout() {} };
@@ -851,7 +851,7 @@ describe('message runtime', () => {
       activeStreams: new Map(),
       protocolHandlers: new Map(),
       incomingHooks: [],
-      moduleRuntimes: [],
+      pluginRuntimes: [],
       errorHooks: [],
       requireTimers() {
         return { setTimeout: () => undefined, clearTimeout() {} };
@@ -930,7 +930,7 @@ describe('message runtime', () => {
       activeStreams: new Map(),
       protocolHandlers: new Map(),
       incomingHooks: [],
-      moduleRuntimes: [],
+      pluginRuntimes: [],
       errorHooks: [],
       activityHooks: [],
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -1004,7 +1004,7 @@ describe('message runtime', () => {
       activeStreams: new Map(),
       protocolHandlers: new Map(),
       incomingHooks: [],
-      moduleRuntimes: [],
+      pluginRuntimes: [],
       errorHooks: [],
       activityHooks: [],
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -1073,7 +1073,7 @@ describe('message runtime', () => {
       activeStreams: new Map(),
       protocolHandlers: new Map(),
       incomingHooks: [],
-      moduleRuntimes: [],
+      pluginRuntimes: [],
       errorHooks: [],
       activityHooks: [],
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -1155,7 +1155,7 @@ function makeNudgeRuntime(
     activeStreams,
     protocolHandlers: new Map(),
     incomingHooks: [],
-    moduleRuntimes: [],
+    pluginRuntimes: [],
     errorHooks: [],
     activityHooks: [],
     logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },

@@ -47,15 +47,15 @@ export type { Validator } from './types.ts';
 
 export type { ScopeDeclaration } from './channel/channel.ts';
 
-export { defineModule, module } from './modules/module.ts';
+export { definePlugin, plugin } from './plugins/plugin.ts';
 export type {
-  ModuleContextFactory,
-  ModuleDependency,
-  ModuleFactory,
-  ModuleHooks,
-  ModuleInstance,
-} from './modules/module.ts';
-export type { ModuleConfig } from './modules/module.ts';
+  PluginConfig,
+  PluginContextFactory,
+  PluginDependency,
+  PluginFactory,
+  PluginHooks,
+  PluginInstance,
+} from './plugins/plugin.ts';
 
 export type { InferClient } from './infer-client.ts';
 

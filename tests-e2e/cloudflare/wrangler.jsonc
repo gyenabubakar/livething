@@ -12,7 +12,7 @@
     "bindings": [
       { "name": "REPLAY_SERVER", "class_name": "ReplayServer" },
       { "name": "REPLAY_CUSTOM_SERVER", "class_name": "ReplayCustomServer" },
-      { "name": "MODULES_SERVER", "class_name": "ModulesServer" },
+      { "name": "PLUGINS_SERVER", "class_name": "PluginsServer" },
       { "name": "REPLAY_SNAPSHOT_SERVER", "class_name": "ReplaySnapshotServer" },
       { "name": "HTTP_REJECT_SERVER", "class_name": "RejectHttpServer" },
       { "name": "ACK_SERVER", "class_name": "AckServer" },
@@ -80,7 +80,7 @@
         "ReplayServer",
         "ReplayCustomServer",
         "ReplaySnapshotServer",
-        "ModulesServer",
+        "PluginsServer",
         "RejectHttpServer",
         "AckServer",
         "BinaryServer",

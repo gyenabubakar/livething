@@ -9,7 +9,7 @@ import type * as PrimitiveCore from '~/primitive.ts';
  * Throw at declaration time if an event name clashes with the wskit wire
  * protocol. `ping`/`pong` are the raw heartbeat frames; the `__` prefix is
  * reserved for protocol events (`__subscribe__`, `__error__`, ...) and
- * module-owned events. Called by every definition factory that takes an event
+ * plugin-owned events. Called by every definition factory that takes an event
  * name.
  */
 export function assertNonReservedEventName(name: string, factory: string): void {
@@ -21,7 +21,7 @@ export function assertNonReservedEventName(name: string, factory: string): void 
   if (name.startsWith('__')) {
     throw new Error(
       `[wskit] '${name}' starts with the reserved double-underscore prefix. ` +
-        `That prefix is reserved for wskit protocol and module events. Pick a different name for ${factory}().`,
+        `That prefix is reserved for wskit protocol and plugin events. Pick a different name for ${factory}().`,
     );
   }
 }
@@ -110,8 +110,8 @@ export function validateValue(validator: unknown, value: unknown, event = 'unkno
 }
 
 /**
- * Build the private wire event name for a module-owned event.
+ * Build the private wire event name for a plugin-owned event.
  */
-export function prefixedModuleEvent(moduleId: string, event: string): string {
-  return `__${moduleId}:${event}`;
+export function prefixedModuleEvent(pluginId: string, event: string): string {
+  return `__${pluginId}:${event}`;
 }
