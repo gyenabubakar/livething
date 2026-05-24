@@ -81,16 +81,21 @@ export interface DurableStreamRow {
   payload: string;
   kind: DurableStreamKind;
   status: DurableStreamStatus;
+
   cursor: string | null;
   lastSeq: number;
+
   namespace: string | null;
   channelKey: string | null;
   channelScope: string | null;
+
   broadcast: boolean;
   creatorIdentity: string | null;
+
   startedAt: number;
   lastActivityAt: number;
   endedAt: number | null;
+
   maxChunks: number | null;
   maxAgeMs: number | null;
   retentionAfterEndMs: number | null;
@@ -100,8 +105,10 @@ export interface DurableStreamRow {
 export interface DurableStreamChunkRow {
   identity: string;
   streamId: string;
+
   seq: number;
   messageId: string | null;
+
   payload: string;
   emittedAt: number;
 }
@@ -175,11 +182,14 @@ export interface InsertStreamInput {
   payload: string;
   kind: DurableStreamKind;
   now: number;
+
   namespace?: string | null;
   channelKey?: string | null;
   channelScope?: string | null;
+
   broadcast?: boolean;
   creatorIdentity?: string | null;
+
   maxChunks?: number;
   maxAgeMs?: number;
   retentionAfterEndMs?: number;
@@ -314,8 +324,10 @@ export function deleteStream(sql: SqlExec, identity: string, streamId: string): 
 export interface AppendChunkInput {
   identity: string;
   streamId: string;
+
   seq: number;
   messageId: string | null;
+
   payload: string;
   now: number;
 }
@@ -398,6 +410,7 @@ export function trimOldestChunks(sql: SqlExec, opts: StreamRef & { keepNewest: n
 export interface StreamSubscriber {
   /** Highest chunk seq a resume has caught this subscriber up to. */
   caughtUpSeq: number;
+
   /** When the subscriber opted out, or `null` while subscribed. */
   unsubscribedAt: number | null;
 }

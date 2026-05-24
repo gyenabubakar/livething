@@ -26,22 +26,30 @@ import type { DurableStreamKind } from './types.ts';
 /** Minimal slice of the engine the durable runtime needs to do its job. */
 export interface DurableStreamRuntime {
   activeStreams: Map<string, ActiveStream>;
+
   connections: ReadonlyMap<string, RuntimeConnection>;
+
   generateId(prefix?: string): string;
+
   logger: Pick<Logger, 'warn'>;
+
   errorHooks: readonly ((ctx: unknown, error: unknown, event?: string) => void | Promise<void>)[];
+
   buildConnectionContext(
     connection: RuntimeConnection,
     scope?: ResolvedScope,
   ): Record<PropertyKey, unknown>;
+
   sendProtocolMessage(
     connection: RuntimeConnection,
     opts: { event: string; payload: Record<string, unknown>; wskit: Record<string, unknown> },
   ): void;
+
   sendThroughPipeline(
     connection: RuntimeConnection,
     opts: { routing: RoutingTarget | undefined; event: string; payload: unknown },
   ): boolean;
+
   broadcastToConnections(
     connections: readonly RuntimeConnection[],
     opts: {
@@ -51,12 +59,16 @@ export interface DurableStreamRuntime {
       excludeConnectionId?: string;
     },
   ): void;
+
   asyncContext?: AsyncContext;
+
   persistAttachment(connection: RuntimeConnection): void;
+
   /** SQLite handle. Undefined when storage was not configured (engine asserts). */
   sql: {
     exec(query: string, ...params: unknown[]): { toArray(): Record<string, unknown>[] };
   };
+
   handleRuntimeError(
     connection: RuntimeConnection,
     opts: { error: unknown; event?: string; routing?: Protocol.WskitRouting },
@@ -72,22 +84,32 @@ export interface DurableNudge {
 /** Snapshot of one durable stream definition relevant to the runtime. */
 export interface DurableStreamRuntimeDef {
   readonly event: string;
+
   readonly kind: DurableStreamKind;
+
   readonly generator: (ctx: any, payload: any) => AsyncGenerator<unknown, void, unknown>;
+
   readonly allowConcurrent: boolean;
+
   readonly broadcast?: boolean;
+
   readonly nudges?: readonly DurableNudge[];
+
   readonly maxChunks?: number;
+
   readonly maxAgeMs?: number;
+
   readonly retentionAfterEndMs?: number;
+
   /** Validator for the saved cursor (resumable streams only). */
   readonly cursor?: unknown;
+
   /** Disconnect policy — drives whether the generator survives the drop. */
   readonly onDisconnect?: OnDisconnect;
 }
 
 /** Build the `__wskit` routing block for a durable-stream frame from a live scope. */
-function scopeWskit(scope: ResolvedScope): Record<string, unknown> {
+function buildScopeRouting(scope: ResolvedScope): Record<string, unknown> {
   const wskit: Record<string, unknown> = {};
   if (scope.namespace?.name) wskit.namespace = scope.namespace.name;
   if (scope.channelName) wskit.channel = scope.channelName;
@@ -96,7 +118,7 @@ function scopeWskit(scope: ResolvedScope): Record<string, unknown> {
 }
 
 /** Build the `__wskit` routing block from a stored stream row. */
-function rowWskit(row: Storage.DurableStreamRow): Record<string, unknown> {
+function buildRowRouting(row: Storage.DurableStreamRow): Record<string, unknown> {
   const wskit: Record<string, unknown> = {};
   if (row.namespace) wskit.namespace = row.namespace;
   if (row.channelKey) wskit.channel = row.channelKey;
@@ -123,8 +145,11 @@ function chunkToPayload(chunkValue: unknown): Record<string, unknown> {
  */
 interface SendChunkFramesOpts {
   eventName: string;
+
   chunks: Storage.DurableStreamChunkRow[];
+
   scopeMarkers: Record<string, unknown>;
+
   streamId: string;
 }
 
@@ -166,8 +191,11 @@ function ensureUniqueStreamId(
 
 export interface RunDurableStreamOptions {
   scope: ResolvedScope;
+
   def: DurableStreamRuntimeDef;
+
   payload: unknown;
+
   wskit: Protocol.WskitProtocol | undefined;
 }
 
@@ -210,6 +238,7 @@ export async function runDurableStream(
   });
 
   // Seed everyone already in the scope; a late joiner gets its row on resume.
+
   if (def.broadcast) {
     for (const member of resolveBroadcastTargets({
       runtime,
@@ -227,7 +256,7 @@ export async function runDurableStream(
   runtime.sendProtocolMessage(connection, {
     event: '__streamOk__',
     payload: {},
-    wskit: { ...scopeWskit(scope), streamId },
+    wskit: { ...buildScopeRouting(scope), streamId },
   });
 
   await runGenerator(runtime, connection, {
@@ -295,7 +324,7 @@ export async function resumeDurableStream(
     runtime.sendProtocolMessage(connection, {
       event: '__error__',
       payload: { code: StreamAborted.code, detail: { reason: 'expired' as const } },
-      wskit: { ...rowWskit(row), streamId },
+      wskit: { ...buildRowRouting(row), streamId },
     });
     return;
   }
@@ -309,7 +338,7 @@ export async function resumeDurableStream(
     runtime.sendProtocolMessage(connection, {
       event: '__error__',
       payload: { code: StreamAborted.code, detail: { reason: 'not-found' as const } },
-      wskit: { ...rowWskit(row), streamId },
+      wskit: { ...buildRowRouting(row), streamId },
     });
     return;
   }
@@ -348,7 +377,7 @@ export async function resumeDurableStream(
   const isPeerSubscriber =
     row.broadcast && row.creatorIdentity !== null && row.creatorIdentity !== realIdentity;
 
-  const scopeMarkers = rowWskit(row);
+  const scopeMarkers = buildRowRouting(row);
 
   // Creator reconnects to a keep-running stream still alive after the drop:
   // point it at the new connection and replay buffered chunks.
@@ -660,7 +689,7 @@ async function runGenerator(
     runtime.sendProtocolMessage(connection, {
       event: '__streamEnd__',
       payload: {},
-      wskit: { ...scopeWskit(scope), streamId, seq },
+      wskit: { ...buildScopeRouting(scope), streamId, seq },
     });
     if (def.broadcast) {
       // Tell every subscriber the source generator finished.
@@ -677,7 +706,7 @@ async function runGenerator(
           return sub !== null && sub.unsubscribedAt === null;
         },
       });
-      const endWskit = { ...scopeWskit(scope), streamId, seq };
+      const endWskit = { ...buildScopeRouting(scope), streamId, seq };
       for (const target of peerTargets) {
         runtime.sendProtocolMessage(target, {
           event: '__streamEnd__',

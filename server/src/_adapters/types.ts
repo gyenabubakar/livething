@@ -9,16 +9,22 @@ import type { TagRef } from '~/context.ts';
  */
 export interface ConnectionDescriptor {
   send(data: string): void;
+
   sendBinary(data: ArrayBuffer | ArrayBufferView): void;
+
   close(code?: number, reason?: string): void;
+
   bufferedAmount(): number;
+
   /**
    * Stable string identifying the user-equivalent entity for this socket.
    * Forwarded from the `onUpgrade` result. Required because the descriptor is
    * only built for an accepted upgrade — by that point identity is known.
    */
   identity: string;
+
   meta?: Record<string, unknown>;
+
   tags?: readonly TagRef[];
 }
 
@@ -30,8 +36,11 @@ export interface ConnectionDescriptor {
  */
 export interface ConnectionHandle {
   handleMessage(data: string): Promise<void>;
+
   handleBinary(data: ArrayBuffer): Promise<void>;
+
   handleClose(code: number, reason: string): Promise<void>;
+
   handleError(error: unknown): Promise<void>;
 }
 
@@ -41,15 +50,20 @@ export interface ConnectionHandle {
  */
 export interface UpgradeDecision {
   reject?: boolean;
+
   code?: number;
+
   reason?: string;
+
   /**
    * Stable string identifying the user-equivalent entity behind this socket.
    * Set when `reject` is falsy — every accepted upgrade carries it. Omitted
    * on reject decisions because there is no connection to attach it to.
    */
   identity?: string;
+
   meta?: Record<string, unknown>;
+
   tags?: readonly TagRef[];
 }
 
@@ -73,6 +87,7 @@ export interface UpgradeDecision {
  */
 export interface HibernationApi {
   persist(wsKey: unknown, snapshot: unknown): void;
+
   restore(wsKey: unknown): unknown;
 }
 
@@ -83,6 +98,7 @@ export interface EngineOptions {
    * platforms that need to look up the right engine after a cold start.
    */
   adapterId: string;
+
   /**
    * Adapter-provided hibernation persistence mechanism. Present when the
    * adapter supports hibernation; omitted otherwise. The engine validates at
@@ -104,11 +120,13 @@ export type Engine = EngineModule.Engine;
  */
 export interface AdapterConfig<TOptions, TService> {
   id: string;
+
   /**
    * Adapter-provided hibernation persistence. Adapters that don't support
    * hibernation omit this field; the engine then rejects any handler that
    * registered `.hibernation()` at `initialize()` time.
    */
   hibernation?: HibernationApi;
+
   setup(createEngine: () => Engine, options: TOptions): TService;
 }

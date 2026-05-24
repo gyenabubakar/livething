@@ -10,7 +10,9 @@ interface RequestRuntime {
     connection: RuntimeConnection,
     scope?: ResolvedScope,
   ): Record<PropertyKey, unknown>;
+
   asyncContext?: AsyncContext;
+
   sendThroughPipeline(
     connection: RuntimeConnection,
     opts: { routing: RoutingTarget | undefined; event: string; payload: unknown },
@@ -19,10 +21,15 @@ interface RequestRuntime {
 
 export interface HandleRequestOptions {
   connection: RuntimeConnection;
+
   scope: ResolvedScope;
+
   event: string;
+
   request: RequestPrimitive;
+
   payload: unknown;
+
   wskit: Protocol.WskitProtocol | undefined;
 }
 

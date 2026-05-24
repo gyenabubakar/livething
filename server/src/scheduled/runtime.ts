@@ -410,7 +410,9 @@ export async function handleScheduledAlarm(runtime: ScheduledRuntimeAccess): Pro
 
 export interface ScheduleTaskRunOptions {
   taskId: string;
+
   time: number;
+
   data: unknown;
 }
 

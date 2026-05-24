@@ -215,21 +215,27 @@ function buildChannelRuntime(core: EngineCore) {
   const buildCtx = buildConnectionContext(core);
   return {
     ...memberRuntime(core),
+
     checkHooks: core.hooks.check,
     commitHooks: core.hooks.commit,
     subscribeHooks: core.hooks.subscribe,
     unsubscribeHooks: core.hooks.unsubscribe,
     sessionEndHooks: core.hooks.sessionEnd,
+
     broadcastToChannel: (opts: ChannelPrimitive.BroadcastToChannelOptions) => {
       EngineMessageRuntime.broadcastToChannel(dispatchRuntime(core), opts);
     },
+
     buildConnectionContext: buildCtx,
+
     persistAttachment: (connection: RuntimeConnection) =>
       EngineHibernation.persistAttachment(core, connection),
+
     sendProtocolMessage: (
       connection: RuntimeConnection,
       opts: { event: string; payload: Record<string, unknown>; wskit: Record<string, unknown> },
     ) => sendProtocolMessage(core, connection, opts),
+
     handleValidationError: (
       connection: RuntimeConnection,
       opts: { event: string; validationError: unknown; scope?: ResolvedScope },
@@ -239,6 +245,7 @@ function buildChannelRuntime(core: EngineCore) {
         connection,
         opts,
       ),
+
     handleRuntimeError: (
       connection: RuntimeConnection,
       opts: { error: unknown; event?: string; routing?: Protocol.WskitRouting },
@@ -248,13 +255,18 @@ function buildChannelRuntime(core: EngineCore) {
         connection,
         opts,
       ),
+
     isChannelPersistent: (channelKey: string) => core.isChannelPersistent(channelKey),
+
     persistMembership: (identity: string, channelName: string, channelScope: string | null) =>
       MembershipPersistence.persistMembership(core, { identity, channelName, channelScope }),
+
     deleteDurableMembership: (identity: string, channelName: string, channelScope: string | null) =>
       MembershipPersistence.deleteDurableMembership(core, { identity, channelName, channelScope }),
+
     hasDurableMembership: (identity: string, channelName: string, channelScope: string | null) =>
       MembershipPersistence.hasDurableMembership(core, { identity, channelName, channelScope }),
+
     logger: core.logger,
   };
 }
@@ -270,6 +282,7 @@ function buildDispatchRuntime(core: EngineCore) {
   const buildCtx = buildConnectionContext(core);
   return {
     ...memberRuntime(core),
+
     logger: core.logger,
     activeStreams: core.activeStreams,
     sql: core.storageOrUndefined()?.sql,
@@ -277,12 +290,16 @@ function buildDispatchRuntime(core: EngineCore) {
     incomingHooks: core.hooks.incoming,
     errorHooks: core.hooks.error,
     incomingDedupCap: core.incomingDedupCap,
+
     requireTimers: () => core.requireTimers(),
+
     buildConnectionContext: buildCtx,
+
     sendProtocolMessage: (
       connection: RuntimeConnection,
       opts: { event: string; payload: Record<string, unknown>; wskit: Record<string, unknown> },
     ) => sendProtocolMessage(core, connection, opts),
+
     sendReplay: (
       connection: RuntimeConnection,
       opts: {
@@ -293,8 +310,10 @@ function buildDispatchRuntime(core: EngineCore) {
         wire: { seq: number; messageId: string; channel?: string };
       },
     ) => sendReplay(core, connection, opts),
+
     persistAttachment: (connection: RuntimeConnection) =>
       EngineHibernation.persistAttachment(core, connection),
+
     handleRuntimeError: (
       connection: RuntimeConnection,
       opts: { error: unknown; event?: string; routing?: Protocol.WskitRouting },
@@ -304,6 +323,7 @@ function buildDispatchRuntime(core: EngineCore) {
         connection,
         opts,
       ),
+
     handleValidationError: (
       connection: RuntimeConnection,
       opts: { event: string; validationError: unknown; scope?: ResolvedScope },
@@ -313,6 +333,7 @@ function buildDispatchRuntime(core: EngineCore) {
         connection,
         opts,
       ),
+
     broadcastToConnections: (
       connections: readonly RuntimeConnection[],
       opts: {
@@ -322,6 +343,7 @@ function buildDispatchRuntime(core: EngineCore) {
         excludeConnectionId?: string;
       },
     ) => EngineMessageRuntime.broadcastToConnections(outgoingRuntime(core), connections, opts),
+
     handleSubscribe: (connection: RuntimeConnection, frame: Protocol.SubscribeFrame) =>
       EngineChannelFrames.handleSubscribe(channelRuntime(core), connection, frame),
     handleUnsubscribe: (connection: RuntimeConnection, frame: Protocol.UnsubscribeFrame) =>
@@ -354,24 +376,35 @@ function buildConnectionRuntime(core: EngineCore) {
     channelMembers: core.channelMembers,
     tagMembers: core.tagMembers,
     wsToConnectionId: core.wsToConnectionId,
+
     generateId: (prefix?: string) => core.generateId(prefix),
+
     persistAttachment: (connection: RuntimeConnection) =>
       EngineHibernation.persistAttachment(core, connection),
+
     restoreAttachment: (wsKey: unknown) => core.options.hibernation?.restore(wsKey),
+
     readConnectionState: (connectionId: string) =>
       EngineHibernation.readConnectionState(core, connectionId),
+
     deleteConnectionState: (connectionId: string) =>
       EngineHibernation.deleteConnectionState(core, connectionId),
+
     buildConnectionContext: buildCtx,
+
     runConnectionLifecycle: (kind: 'connect' | 'disconnect', ctx: Record<PropertyKey, unknown>) => {
       return runConnectionLifecycle(core, kind, ctx);
     },
+
     processTextMessage: (connection: RuntimeConnection, data: string) =>
       EngineMessageRuntime.processTextMessage(dispatchRuntime(core), connection, data),
+
     handleBinaryMessage: (connection: RuntimeConnection, data: ArrayBuffer) =>
       handleBinaryMessage(core, connection, data),
+
     handleConnectionClose: (connection: RuntimeConnection, code: number, reason: string) =>
       handleConnectionClose(core, { connection, code, reason }),
+
     handleRuntimeError: (connection: RuntimeConnection, error: unknown, event?: string) =>
       EngineErrorRuntime.handleRuntimeError(
         { core, buildConnectionContext: buildCtx },

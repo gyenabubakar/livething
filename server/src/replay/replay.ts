@@ -127,8 +127,11 @@ export function replay(options?: ReplayOptions | false): ReplayPrimitive {
 
 interface ReplayInstallerOptions {
   engine: EngineAccess;
+
   channelKey: string | undefined;
+
   exclude: Set<string>;
+
   opts: ReplayOptions;
 }
 
@@ -226,6 +229,7 @@ class ReplayInstaller {
       wskit: wireMessage.wskit,
       now: Date.now(),
     });
+
     pruneExpiredReplayRows(sql, this.opts.retention, row?.createdAt ?? Date.now());
     pruneReplayScopeRows(sql, this.opts.retention, readReplayScope(wireMessage.wskit));
   };
@@ -258,6 +262,7 @@ class ReplayInstaller {
       channelName: scope.channelName,
       channelScope: scope.channelScope ?? null,
     });
+
     const connectionId = String((ctx as Record<PropertyKey, unknown>).id ?? '');
     if (!connectionId) return true;
 

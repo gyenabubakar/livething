@@ -54,6 +54,7 @@ const CREATE_TAGS_GROUP_KEY_INDEX_SQL = `
 export interface DurableMembership {
   channelName: string;
   channelScope: string | null;
+
   joinedAt: number;
 }
 
@@ -89,6 +90,7 @@ export function ensurePersistenceSchema(sql: Pick<SQLProvider, 'exec'>): void {
 
 export interface MembershipKey {
   identity: string;
+
   channelName: string;
   channelScope: string | null;
 }

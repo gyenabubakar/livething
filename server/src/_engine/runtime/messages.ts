@@ -27,12 +27,13 @@ import type * as EngineRuntimeTypes from './types.ts';
 
 type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
 
-/** Routing markers carried on a server-sent `__error__` frame's `__wskit`. */
-export type WskitRouting = Protocol.WskitRouting;
+export type { WskitRouting } from './protocol.ts';
 
-export const sendThroughPipeline = OutgoingRuntime.sendThroughPipeline;
-export const broadcastToConnections = OutgoingRuntime.broadcastToConnections;
-export const broadcastToChannel = OutgoingRuntime.broadcastToChannel;
+export {
+  broadcastToChannel,
+  broadcastToConnections,
+  sendThroughPipeline,
+} from '~/outgoing/runtime.ts';
 
 // ───── Section: dispatch runtime types ─────
 
@@ -42,6 +43,7 @@ export const broadcastToChannel = OutgoingRuntime.broadcastToChannel;
 interface DispatchRuntime
   extends OutgoingRuntime.OutgoingRuntime, EngineRuntimeTypes.ConnectionMembersRuntime {
   activeStreams: Map<string, EngineRuntimeTypes.ActiveStream>;
+
   /**
    * SQLite handle from the adapter. Optional at the dispatch type level
    * because not every adapter configures storage; the durable-stream runtime
@@ -50,6 +52,7 @@ interface DispatchRuntime
   sql?: {
     exec(query: string, ...params: unknown[]): { toArray(): Record<string, unknown>[] };
   };
+
   protocolHandlers: ReadonlyMap<
     Protocol.IncomingProtocolEvent,
     readonly ((
@@ -57,22 +60,29 @@ interface DispatchRuntime
       frame: Protocol.IncomingProtocolFrame,
     ) => boolean | void | Promise<boolean | void>)[]
   >;
+
   incomingHooks: readonly ((message: { event: string; payload: unknown }) => unknown | void)[];
+
   /**
    * Size of the per-connection seen-id ring used by incoming dedup. Zero means
    * incoming dedup is disabled (no `dedup()` primitive registered).
    */
   incomingDedupCap: number;
+
   errorHooks: readonly ((ctx: any, error: unknown, event?: string) => void | Promise<void>)[];
+
   requireTimers(): PublicApi.TimerProvider;
+
   buildConnectionContext(
     connection: EngineRuntimeTypes.RuntimeConnection,
     scope?: EngineRuntimeTypes.ResolvedScope,
   ): Record<PropertyKey, unknown>;
+
   sendProtocolMessage(
     connection: EngineRuntimeTypes.RuntimeConnection,
     opts: { event: string; payload: Record<string, unknown>; wskit: Record<string, unknown> },
   ): void;
+
   sendReplay(
     connection: EngineRuntimeTypes.RuntimeConnection,
     opts: {
@@ -83,28 +93,36 @@ interface DispatchRuntime
       wire: { seq: number; messageId: string; channel?: string };
     },
   ): void;
+
   persistAttachment(connection: EngineRuntimeTypes.RuntimeConnection): void;
+
   asyncContext?: PublicApi.AsyncContext;
+
   handleRuntimeError(
     connection: EngineRuntimeTypes.RuntimeConnection,
-    opts: { error: unknown; event?: string; routing?: WskitRouting },
+    opts: { error: unknown; event?: string; routing?: Protocol.WskitRouting },
   ): Promise<void>;
+
   handleValidationError(
     connection: EngineRuntimeTypes.RuntimeConnection,
     opts: { event: string; validationError: unknown; scope?: EngineRuntimeTypes.ResolvedScope },
   ): Promise<void>;
+
   broadcastToConnections(
     connections: readonly EngineRuntimeTypes.RuntimeConnection[],
     opts: OutgoingRuntime.BroadcastToConnectionsOptions,
   ): void;
+
   handleSubscribe(
     connection: EngineRuntimeTypes.RuntimeConnection,
     frame: Protocol.SubscribeFrame,
   ): Promise<void>;
+
   handleUnsubscribe(
     connection: EngineRuntimeTypes.RuntimeConnection,
     frame: Protocol.UnsubscribeFrame,
   ): Promise<void>;
+
   /**
    * Tracks whether `ensureDurableStreamSchema` has already run in this DO
    * instance lifetime. Flipped to `true` on first stream start or resume so
@@ -222,10 +240,15 @@ export interface DispatchIncomingOptions {
 
 interface HandleDispatchErrorOptions {
   event: string;
+
   payload: unknown;
+
   wskit: Protocol.WskitProtocol | undefined;
+
   scope: EngineRuntimeTypes.ResolvedScope;
+
   error: unknown;
+
   attempt: number;
 }
 
@@ -277,9 +300,11 @@ export async function dispatchIncoming(
   const incoming = scoped ? scoped.incoming.get(event) : runtime.compiled.incoming.get(event);
   const request = scoped ? scoped.requests.get(event) : runtime.compiled.requests.get(event);
   const stream = scoped ? scoped.streams.get(event) : runtime.compiled.streams.get(event);
+
   const resumableStream = scoped
     ? scoped.resumableStreams.get(event)
     : runtime.compiled.resumableStreams.get(event);
+
   const recordedStream = scoped
     ? scoped.recordedStreams.get(event)
     : runtime.compiled.recordedStreams.get(event);

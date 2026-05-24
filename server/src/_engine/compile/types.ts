@@ -2,9 +2,9 @@
 import type * as ChannelPrimitive from '~/channel/channel.ts';
 import type * as IncomingPrimitive from '~/incoming/index.ts';
 import type * as InterceptPrimitive from '~/intercept/intercept.ts';
-import type * as DefinePlugin from '~/plugins/define.ts';
 import type * as NamespacePrimitive from '~/namespace/namespace.ts';
 import type * as OutgoingPrimitive from '~/outgoing/index.ts';
+import type * as DefinePlugin from '~/plugins/define.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
 import type * as RequestPrimitive from '~/request/request.ts';
 import type * as ScheduledPrimitive from '~/scheduled/scheduled.ts';
@@ -59,13 +59,21 @@ export type RequiresManifest = PrimitiveCore.RequiresManifest;
  */
 export interface CompiledNamespace {
   kind: 'namespace';
+
   name: string;
+
   outgoing: Map<string, AnyOutgoing>;
+
   incoming: Map<string, AnyIncoming>;
+
   requests: Map<string, AnyRequest>;
+
   streams: Map<string, AnyGenerate>;
+
   resumableStreams: Map<string, AnyResumableStream>;
+
   recordedStreams: Map<string, AnyRecordedStream>;
+
   intercepts: AnyIntercept[];
 }
 
@@ -74,14 +82,23 @@ export interface CompiledNamespace {
  */
 export interface CompiledChannel {
   kind: 'channel';
+
   key: string;
+
   pattern: string | ChannelPrimitive.ScopeDeclaration<string>;
+
   outgoing: Map<string, AnyOutgoing>;
+
   incoming: Map<string, AnyIncoming>;
+
   requests: Map<string, AnyRequest>;
+
   streams: Map<string, AnyGenerate>;
+
   resumableStreams: Map<string, AnyResumableStream>;
+
   recordedStreams: Map<string, AnyRecordedStream>;
+
   intercepts: AnyIntercept[];
 }
 
@@ -93,18 +110,31 @@ export interface CompiledChannel {
  */
 export interface CompiledServer {
   outgoing: Map<string, AnyOutgoing>;
+
   incoming: Map<string, AnyIncoming>;
+
   requests: Map<string, AnyRequest>;
+
   streams: Map<string, AnyGenerate>;
+
   resumableStreams: Map<string, AnyResumableStream>;
+
   recordedStreams: Map<string, AnyRecordedStream>;
+
   intercepts: AnyIntercept[];
+
   namespaces: Map<string, CompiledNamespace>;
+
   channels: Map<string, CompiledChannel>;
+
   channelFamilies: Map<string, CompiledChannel>;
+
   scheduled: Map<string, AnyScheduled>;
+
   plugins: AnyPlugin[];
+
   requires: RequiresManifest;
+
   /**
    * Channel keys (static channel names or scope keys) that have an explicit
    * `.replay(...)` or `.replay(false)` registered inside them.

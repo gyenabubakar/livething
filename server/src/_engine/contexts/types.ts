@@ -1,16 +1,9 @@
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
-import type { SendProtocolMessageOptions, SendReplayOptions } from '~/_engine/runtime/wire.ts';
-import type {
-  KickChannelMembersOptions,
-  SubscribeConnectionAsServerOptions,
-} from '~/channel/runtime.ts';
+import type * as WireRuntime from '~/_engine/runtime/wire.ts';
+import type * as ChannelRuntime from '~/channel/runtime.ts';
 import type * as PublicApi from '~/context.ts';
-import type {
-  BroadcastToChannelOptions,
-  BroadcastToConnectionsOptions,
-  SendThroughPipelineOptions,
-} from '~/outgoing/runtime.ts';
+import type * as OutgoingRuntime from '~/outgoing/runtime.ts';
 import type { ScheduledCancelResult } from '~/scheduled/types.ts';
 
 /**
@@ -84,22 +77,22 @@ export interface ContextCommonDeps {
 
   broadcastToConnections(
     connections: readonly EngineRuntimeTypes.RuntimeConnection[],
-    opts: BroadcastToConnectionsOptions,
+    opts: OutgoingRuntime.BroadcastToConnectionsOptions,
   ): void;
 
   sendThroughPipeline(
     connection: EngineRuntimeTypes.RuntimeConnection,
-    opts: SendThroughPipelineOptions,
+    opts: OutgoingRuntime.SendThroughPipelineOptions,
   ): boolean;
 
-  broadcastToChannel(opts: BroadcastToChannelOptions): void;
+  broadcastToChannel(opts: OutgoingRuntime.BroadcastToChannelOptions): void;
 
   getChannelMembers(
     channelName: string,
     channelScope: string | null,
-  ): ConnectionInfo<Record<string, unknown>>[];
+  ): PublicApi.ConnectionInfo<Record<string, unknown>>[];
 
-  kickChannelMembers(opts: KickChannelMembersOptions): Promise<void>;
+  kickChannelMembers(opts: ChannelRuntime.KickChannelMembersOptions): Promise<void>;
 
   /**
    * Remove every live connection of the given identity from one channel
@@ -118,18 +111,24 @@ export interface ContextCommonDeps {
    */
   subscribeConnectionAsServer(
     ref: PublicApi.ConnectionRef,
-    opts: Omit<SubscribeConnectionAsServerOptions, 'rejoining'>,
+    opts: Omit<ChannelRuntime.SubscribeConnectionAsServerOptions, 'rejoining'>,
   ): Promise<void>;
 
   resolveChannel(
     target: string | { family: string; name: string },
   ): { channelName: string; channelScope: string | null } | undefined;
 
-  sendReplay(connection: EngineRuntimeTypes.RuntimeConnection, opts: SendReplayOptions): void;
+  sendReplay(
+    connection: EngineRuntimeTypes.RuntimeConnection,
+    opts: WireRuntime.SendReplayOptions,
+  ): void;
 
-  sendProtocolMessage(connection: RuntimeConnection, opts: SendProtocolMessageOptions): void;
+  sendProtocolMessage(
+    connection: EngineRuntimeTypes.RuntimeConnection,
+    opts: WireRuntime.SendProtocolMessageOptions,
+  ): void;
 
-  persistAttachment(connection: RuntimeConnection): void;
+  persistAttachment(connection: EngineRuntimeTypes.RuntimeConnection): void;
 
   toConnectionInfo(
     connection: EngineRuntimeTypes.RuntimeConnection,
@@ -177,39 +176,19 @@ export interface CreateTaskContextDeps extends ContextCommonDeps {
   connections: Map<string, EngineRuntimeTypes.RuntimeConnection>;
 }
 
-export type BroadcastOptions = PublicApi.BroadcastOptions;
+export type {
+  BroadcastOptions,
+  ConnectionContext,
+  ConnectionInfo,
+  InitContext,
+  ShutdownContext,
+  TaskContext,
+} from '~/context.ts';
 
-export type ConnectionContext<
-  TMeta extends Record<string, unknown>,
-  TEnv extends Record<string, unknown>,
-  TPlatform,
-> = PublicApi.ConnectionContext<TMeta, TEnv, TPlatform>;
+export type {
+  CompiledChannel,
+  CompiledNamespace,
+  CompiledServer,
+} from '~/_engine/compile/types.ts';
 
-export type ConnectionInfo<TMeta extends Record<string, unknown>> = PublicApi.ConnectionInfo<TMeta>;
-
-export type InitContext<TEnv extends Record<string, unknown>, TPlatform> = PublicApi.InitContext<
-  TEnv,
-  TPlatform
->;
-
-export type ShutdownContext<
-  TMeta extends Record<string, unknown>,
-  TEnv extends Record<string, unknown>,
-  TPlatform,
-> = PublicApi.ShutdownContext<TMeta, TEnv, TPlatform>;
-
-export type TaskContext<
-  TMeta extends Record<string, unknown>,
-  TEnv extends Record<string, unknown>,
-  TPlatform,
-> = PublicApi.TaskContext<TMeta, TEnv, TPlatform>;
-
-export type CompiledChannel = EngineCompileTypes.CompiledChannel;
-
-export type CompiledNamespace = EngineCompileTypes.CompiledNamespace;
-
-export type CompiledServer = EngineCompileTypes.CompiledServer;
-
-export type PluginRuntime = EngineRuntimeTypes.PluginRuntime;
-
-export type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
+export type { PluginRuntime, RuntimeConnection } from '~/_engine/runtime/types.ts';

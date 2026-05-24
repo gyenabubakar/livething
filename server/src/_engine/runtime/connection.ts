@@ -26,14 +26,19 @@ interface HibernatableWebSocket {
  */
 interface ConnectionRuntime {
   compiled: EngineCompileTypes.CompiledServer;
+
   timers?: { clearTimeout(handle: unknown): void; setTimeout(fn: () => void, ms: number): unknown };
   hibernationEnabled?: boolean;
+
   connections: Map<string, EngineRuntimeTypes.RuntimeConnection>;
   channelMembers: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>;
   tagMembers: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>;
   wsToConnectionId: Map<unknown, string>;
+
   generateId(prefix?: string): string;
+
   persistAttachment(connection: EngineRuntimeTypes.RuntimeConnection): void;
+
   /**
    * Adapter-provided snapshot restore. Returns the tiny correlation payload
    * the engine wrote on the last persist (`{ id }`), or `undefined` when the
@@ -41,37 +46,46 @@ interface ConnectionRuntime {
    * support omit this field.
    */
   restoreAttachment?(wsKey: unknown): unknown;
+
   /**
    * Read the persisted connection row matching the id read from the
    * attachment. `null` when there is no row (e.g. boot-time reconcile already
    * pruned it). Present only for hibernating engines.
    */
   readConnectionState?(connectionId: string): ConnectionStore.StoredConnectionRow | null;
+
   /** Delete the persisted connection row at real disconnect. */
   deleteConnectionState?(connectionId: string): void;
+
   buildConnectionContext(
     connection: EngineRuntimeTypes.RuntimeConnection,
     scope?: EngineRuntimeTypes.ResolvedScope,
   ): Record<PropertyKey, unknown>;
+
   runConnectionLifecycle(
     kind: 'connect' | 'disconnect',
     ctx: Record<PropertyKey, unknown>,
   ): Promise<void>;
+
   processTextMessage(connection: EngineRuntimeTypes.RuntimeConnection, data: string): Promise<void>;
+
   handleBinaryMessage(
     connection: EngineRuntimeTypes.RuntimeConnection,
     data: ArrayBuffer,
   ): Promise<void>;
+
   handleConnectionClose(
     connection: EngineRuntimeTypes.RuntimeConnection,
     code: number,
     reason: string,
   ): Promise<void>;
+
   handleRuntimeError(
     connection: EngineRuntimeTypes.RuntimeConnection,
     error: unknown,
     event?: string,
   ): Promise<void>;
+
   /**
    * Re-subscribe a fresh connection to every persistent channel its identity
    * was in. Present when persistence is enabled; called from
@@ -209,7 +223,9 @@ export async function cancelActiveStreamsForConnection(
 
 export interface HandleConnectionCloseOptions {
   connection: EngineRuntimeTypes.RuntimeConnection;
+
   code: number;
+
   reason: string;
 }
 
@@ -370,8 +386,10 @@ export function acceptConnection(
     wsKey,
     descriptor,
     meta: descriptor.meta ?? {},
+
     tags: { ephemeral: new Map(), persistent: new Map() },
     channelMemberships: new Map(),
+
     latency: null,
     quality: 'good',
   };

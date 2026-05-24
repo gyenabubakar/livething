@@ -119,15 +119,20 @@ type ScheduledHandlerFor<C extends Contract, I extends keyof C['scheduled']> = (
 interface GroupRegistrations {
   incoming: Map<string, (ctx: any, payload: any) => void | Promise<void>>;
   requests: Map<string, (ctx: any, payload: any) => any>;
+
   streams: Map<string, (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>>;
   resumableStreams: Map<string, (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>>;
   recordedStreams: Map<string, (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>>;
+
   scheduled: Map<string, (ctx: any, data: any) => void | Promise<void>>;
+
   channels: Map<string, ChannelImplement<any, any>>;
   namespaces: Map<string, NamespaceImplement<any, any>>;
+
   intercept?: (ctx: any, frame: InterceptFrame) => any;
   rateLimitOverrides: Map<string, RateLimitConfig>;
   customReplayHooks?: CustomReplayOptions<'top'>;
+
   lifecycle: {
     onUpgrade?: UpgradeHandler;
     onInit?: InitHandler;
@@ -447,6 +452,7 @@ export function group<C extends Contract>(
 interface ImplementerBag {
   incomingHandlers: Map<string, (ctx: any, payload: any) => void | Promise<void>>;
   requestHandlers: Map<string, (ctx: any, payload: any) => any>;
+
   streamGenerators: Map<string, (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>>;
   resumableStreamGenerators: Map<
     string,
@@ -456,12 +462,16 @@ interface ImplementerBag {
     string,
     (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>
   >;
+
   scheduledHandlers: Map<string, (ctx: any, data: any) => void | Promise<void>>;
+
   channelImpls: Map<string, ChannelImplement<any, any>>;
   namespaceImpls: Map<string, NamespaceImplement<any, any>>;
+
   intercept?: (ctx: any, frame: InterceptFrame) => any;
   rateLimitOverrides: Map<string, RateLimitConfig>;
   customReplayHooks?: CustomReplayOptions<'top'>;
+
   lifecycle: {
     onUpgrade?: UpgradeHandler;
     onInit?: InitHandler;

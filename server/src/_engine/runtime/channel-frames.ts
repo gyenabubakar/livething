@@ -11,6 +11,7 @@ import type * as EngineRuntimeTypes from './types.ts';
  */
 interface ChannelRuntime extends EngineRuntimeTypes.ConnectionMembersRuntime {
   hasDurableMembership(identity: string, channelName: string, channelScope: string | null): boolean;
+
   checkHooks: ReadonlyMap<
     string,
     readonly {
@@ -18,32 +19,42 @@ interface ChannelRuntime extends EngineRuntimeTypes.ConnectionMembersRuntime {
       validator?: unknown;
     }[]
   >;
+
   commitHooks: ReadonlyMap<
     string,
     readonly { handler: (ctx: any, checkResult: unknown) => void }[]
   >;
+
   subscribeHooks: ReadonlyMap<string, readonly ((ctx: any) => void | Promise<void>)[]>;
   unsubscribeHooks: ReadonlyMap<string, readonly ((ctx: any) => void | Promise<void>)[]>;
   sessionEndHooks: ReadonlyMap<string, readonly ((ctx: any) => void | Promise<void>)[]>;
+
   buildConnectionContext(
     connection: EngineRuntimeTypes.RuntimeConnection,
     scope?: EngineRuntimeTypes.ResolvedScope,
   ): Record<PropertyKey, unknown>;
+
   persistAttachment(connection: EngineRuntimeTypes.RuntimeConnection): void;
+
   sendProtocolMessage(
     connection: EngineRuntimeTypes.RuntimeConnection,
     opts: SendProtocolMessageOptions,
   ): void;
+
   broadcastToChannel(opts: ChannelPrimitive.BroadcastToChannelOptions): void;
+
   handleValidationError(
     connection: EngineRuntimeTypes.RuntimeConnection,
     opts: { event: string; validationError: unknown; scope?: EngineRuntimeTypes.ResolvedScope },
   ): Promise<void>;
+
   handleRuntimeError(
     connection: EngineRuntimeTypes.RuntimeConnection,
     opts: { error: unknown; event?: string; routing?: Protocol.WskitRouting },
   ): Promise<void>;
+
   isChannelPersistent(channelKey: string): boolean;
+
   persistMembership(identity: string, channelName: string, channelScope: string | null): void;
   deleteDurableMembership(identity: string, channelName: string, channelScope: string | null): void;
 }
@@ -68,7 +79,7 @@ export function getChannelMembers(
   return [...members].map((connection) => runtime.toConnectionInfo(connection));
 }
 
-export const leaveChannel = ChannelPrimitive.leaveChannel;
+export { leaveChannel } from '~/channel/runtime.ts';
 
 /**
  * Remove tagged members from a channel, typically for moderation or access

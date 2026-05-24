@@ -12,19 +12,27 @@ type CompiledServer = EngineCompileTypes.CompiledServer;
  */
 export interface OutgoingRuntime {
   compiled: EngineCompileTypes.CompiledServer;
+
   pluginRuntimes: readonly EngineRuntimeTypes.PluginRuntime[];
+
   outgoingHooks: readonly ((message: { event: string; payload: unknown }) => unknown | void)[];
+
   /**
    * Contributors of `__wskit` metadata for outgoing user frames — the sequence
    * number and the dedup id. Skipped for protocol frames.
    */
   wskitStampHooks: readonly ((event: string) => Record<string, unknown>)[];
+
   beforeSendHooks: readonly ((message: EngineRuntimeTypes.WireOutgoingMessage) => void)[];
+
   afterSendHooks: readonly ((
     message: EngineRuntimeTypes.WireOutgoingMessage,
   ) => void | Promise<void>)[];
+
   waitUntil(promise: Promise<unknown>): void;
+
   logger: Pick<PublicApi.Logger, 'warn' | 'error'>;
+
   generateId(prefix?: string): string;
 }
 
@@ -246,11 +254,17 @@ export function sendThroughPipeline(
 
 interface PreparedBroadcast {
   event: string;
+
   eventJson: string;
+
   payloadJson: string;
+
   finalPayload: Record<string, unknown>;
+
   baseWskit: Record<string, unknown>;
+
   needsWireMessage: boolean;
+
   /**
    * The whole frame string when it is identical for every recipient — set
    * when nothing stamps a per-connection `__wskit` value. Built once here so
@@ -389,12 +403,15 @@ function sendPrepared(
  */
 export interface BroadcastToConnectionsOptions {
   event: string;
+
   payload: unknown;
+
   options?: PublicApi.BroadcastOptions & {
     namespace?: string;
     channel?: string;
     channelScope?: string | null;
   };
+
   excludeConnectionId?: string;
 }
 
@@ -462,10 +479,15 @@ export function broadcastToConnections(
  */
 export interface BroadcastToChannelOptions {
   channelName: string;
+
   event: string;
+
   payload: unknown;
+
   excludeConnectionId: string | undefined;
+
   channelScope: string | null;
+
   excludeSelf?: boolean;
 }
 

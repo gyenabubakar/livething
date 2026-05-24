@@ -15,6 +15,7 @@ type GetContext = () => Record<PropertyKey, unknown>;
 
 export interface RunWithScopedContextOptions<T> {
   ctx: Record<PropertyKey, unknown>;
+
   handler: (ctx: Record<PropertyKey, unknown>) => T | Promise<T>;
 }
 
@@ -35,7 +36,9 @@ export async function runWithScopedContext<T>(
 
 export interface RunInterceptsOptions {
   intercepts: readonly InterceptPrimitive[];
+
   frame: InterceptFrame;
+
   getCtx: GetContext;
 }
 

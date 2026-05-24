@@ -51,9 +51,13 @@ export function sendProtocolMessage(
 
 export interface SendReplayOptions {
   channelName: string | null;
+
   channelScope: string | null;
+
   event: string;
+
   payload: unknown;
+
   wire: { seq: number; messageId: string; channel?: string };
 }
 

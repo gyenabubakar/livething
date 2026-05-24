@@ -11,11 +11,17 @@ type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
  */
 export interface TagsRuntime {
   tagMembers: Map<string, Set<RuntimeConnection>>;
+
   isTagGroupDeclared(kind: TagKind, group: string): boolean;
+
   toConnectionInfo(connection: RuntimeConnection): ConnectionInfo<Record<string, unknown>>;
+
   sendThroughPipeline(connection: RuntimeConnection, event: string, payload: unknown): void;
+
   persistAttachment(connection: RuntimeConnection): void;
+
   persistenceEnabled: boolean;
+
   requireStorage(): { sql: Pick<SQLProvider, 'exec'> };
 }
 
@@ -77,7 +83,9 @@ function removeFromTagIndex(
 
 export interface TagKey {
   kind: TagKind;
+
   group: string;
+
   key: string;
 }
 

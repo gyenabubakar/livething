@@ -110,10 +110,15 @@ export function resolveCompiledChannel(
 
 export interface BroadcastToChannelOptions {
   channelName: string;
+
   event: string;
+
   payload: unknown;
+
   excludeConnectionId: string | undefined;
+
   channelScope: string | null;
+
   excludeSelf?: boolean;
 }
 
@@ -128,8 +133,11 @@ interface ChannelRuntime {
     channels: Map<string, CompiledChannel>;
     channelFamilies: Map<string, CompiledChannel>;
   };
+
   connections: Map<string, RuntimeConnection>;
+
   channelMembers: Map<string, Set<RuntimeConnection>>;
+
   checkHooks: ReadonlyMap<
     string,
     readonly {
@@ -137,30 +145,43 @@ interface ChannelRuntime {
       validator?: unknown;
     }[]
   >;
+
   commitHooks: ReadonlyMap<
     string,
     readonly { handler: (ctx: any, checkResult: unknown) => void }[]
   >;
+
   subscribeHooks: ReadonlyMap<string, readonly ((ctx: any) => void | Promise<void>)[]>;
+
   unsubscribeHooks: ReadonlyMap<string, readonly ((ctx: any) => void | Promise<void>)[]>;
+
   sessionEndHooks: ReadonlyMap<string, readonly ((ctx: any) => void | Promise<void>)[]>;
+
   toConnectionInfo(connection: RuntimeConnection): ConnectionInfo<Record<string, unknown>>;
+
   buildConnectionContext(
     connection: RuntimeConnection,
     scope?: { channel?: CompiledChannel; channelName?: string; channelScope?: string | null },
   ): Record<PropertyKey, unknown>;
+
   persistAttachment(connection: RuntimeConnection): void;
+
   sendProtocolMessage(
     connection: RuntimeConnection,
     opts: { event: string; payload: Record<string, unknown>; wskit: Record<string, unknown> },
   ): void;
+
   broadcastToChannel(opts: BroadcastToChannelOptions): void;
+
   handleValidationError(
     connection: RuntimeConnection,
     opts: NotifyValidationErrorOptions,
   ): Promise<void>;
+
   handleRuntimeError(connection: RuntimeConnection, opts: SendRuntimeErrorOptions): Promise<void>;
+
   logger?: Pick<Logger, 'error'>;
+
   /**
    * Whether the given channel-key should write durable memberships. Returns
    * `false` when persistence is disabled at the server level OR the channel
@@ -168,12 +189,14 @@ interface ChannelRuntime {
    * through this so persistence-disabled servers pay no SQL cost.
    */
   isChannelPersistent(channelKey: string): boolean;
+
   /**
    * Insert or replace a durable membership row for the given identity. Called
    * after a successful subscribe to a persistent channel. No-op when the
    * channel is not persistent.
    */
   persistMembership(identity: string, channelName: string, channelScope: string | null): void;
+
   /**
    * Delete a durable membership row for the given identity. Called on a TRUE
    * leave (client `__unsubscribe__`, `removeMember`, kick) of a persistent
@@ -181,6 +204,7 @@ interface ChannelRuntime {
    * reconnects.
    */
   deleteDurableMembership(identity: string, channelName: string, channelScope: string | null): void;
+
   hasDurableMembership(identity: string, channelName: string, channelScope: string | null): boolean;
 }
 
@@ -219,7 +243,7 @@ function resolveChannelByName(
 }
 
 /** Build the `__wskit` routing block for a channel-scoped protocol frame. */
-function channelWskit(scope: ChannelScope): Record<string, unknown> {
+function buildChannelRouting(scope: ChannelScope): Record<string, unknown> {
   const wskit: Record<string, unknown> = { channel: scope.channelName };
   if (scope.channelScope !== null) wskit.channelScope = scope.channelScope;
   return wskit;
@@ -230,9 +254,13 @@ function channelWskit(scope: ChannelScope): Record<string, unknown> {
  */
 export interface LeaveChannelOptions {
   channel?: CompiledChannel;
+
   channelName: string;
+
   channelScope: string | null;
+
   kickedReason?: string;
+
   /** `true` on socket close. On a persistent channel it keeps the durable row and skips `onUnsubscribe`. */
   disconnect?: boolean;
 }
@@ -285,7 +313,7 @@ export async function leaveChannel(
     runtime.sendProtocolMessage(connection, {
       event: '__kicked__',
       payload: { reason: kickedReason },
-      wskit: channelWskit(scope),
+      wskit: buildChannelRouting(scope),
     });
   }
 
@@ -332,10 +360,15 @@ export async function leaveChannel(
  */
 interface RunSubscribeFlowOptions {
   channel: CompiledChannel;
+
   channelName: string;
+
   channelScope: string | null;
+
   data: unknown;
+
   source: 'client' | 'server';
+
   /** Restores a fresh socket for an existing member. Skips `__memberJoin__` but fires `__memberOnline__`. */
   rejoining?: boolean;
 }
@@ -412,7 +445,7 @@ async function runSubscribeFlow(
     }
   }
 
-  const wskit = channelWskit(scope);
+  const wskit = buildChannelRouting(scope);
 
   // Send confirmation before running onSubscribe, so a throwing hook cannot
   // delay or block it from reaching the client.
@@ -480,8 +513,11 @@ export async function subscribeConnection(
 
 export interface SubscribeConnectionAsServerOptions {
   channelName: string;
+
   channelScope: string | null;
+
   payload: unknown;
+
   rejoining?: boolean;
 }
 
@@ -574,8 +610,11 @@ function matchesKickTarget(connection: RuntimeConnection, target: KickTarget): b
  */
 export interface KickChannelMembersOptions {
   channelName: string;
+
   target: KickTarget;
+
   reason: string;
+
   channelScope: string | null;
 }
 

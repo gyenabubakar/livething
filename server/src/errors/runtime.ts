@@ -11,15 +11,20 @@ interface RuntimeErrorDeps {
     connection: RuntimeConnection,
     scope?: ResolvedScope,
   ): Record<PropertyKey, unknown>;
+
   /**
    * Resolve a scope from the `__wskit` routing markers carried alongside a
    * runtime error so the hook context can carry `ctx.namespace` or
    * `ctx.channel`. Returns undefined when no scope can be derived.
    */
   resolveScopeFromRouting?(routing: Protocol.WskitRouting): ResolvedScope | undefined;
+
   declaredErrorCodes: ReadonlySet<string>;
+
   errorHooks: readonly ((ctx: unknown, error: unknown, event?: string) => void | Promise<void>)[];
+
   logger: Pick<Logger, 'warn' | 'error'>;
+
   sendProtocolMessage(
     connection: RuntimeConnection,
     opts: { event: string; payload: Record<string, unknown>; wskit: Record<string, unknown> },
@@ -34,6 +39,7 @@ interface ValidationErrorDeps {
     connection: RuntimeConnection,
     scope?: ResolvedScope,
   ): Record<PropertyKey, unknown>;
+
   validationErrorHooks: readonly ((
     ctx: unknown,
     event: string,
@@ -62,7 +68,9 @@ export function normalizeRuntimeError(
 
 export interface SendRuntimeErrorOptions {
   error: unknown;
+
   event?: string;
+
   routing?: Protocol.WskitRouting;
 }
 
@@ -106,7 +114,9 @@ export async function sendRuntimeError(
 
 export interface NotifyValidationErrorOptions {
   event: string;
+
   validationError: unknown;
+
   scope?: ResolvedScope;
 }
 

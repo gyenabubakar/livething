@@ -51,7 +51,7 @@ export interface WireOutgoingMessage {
  * handlers run. Built-in primitives can hook into these names through
  * `onProtocolMessage(...)`.
  */
-export type IncomingProtocolEvent = Protocol.IncomingProtocolEvent;
+export type { IncomingProtocolEvent } from './protocol.ts';
 
 /**
  * All hook registries the engine fills during primitive setup.
@@ -86,7 +86,7 @@ export interface RegisteredEngineHooks {
 
   /** Handlers for reserved client protocol events (subscribe, replay, etc.). */
   protocol: Map<
-    IncomingProtocolEvent,
+    Protocol.IncomingProtocolEvent,
     ((
       ctx: any,
       frame: Protocol.IncomingProtocolFrame,
@@ -198,8 +198,10 @@ export interface RegisteredEngineHooks {
  */
 export interface RuntimeConnection {
   // -- Identity --
+
   /** Unique connection ID assigned by the engine. */
   id: string;
+
   /**
    * Stable string identifying the user-equivalent entity behind this socket.
    * Returned from `onUpgrade` and reused as the row key for any per-user
@@ -207,14 +209,18 @@ export interface RuntimeConnection {
    * the engine can index live connections by identity in storage and logs.
    */
   identity: string;
+
   /** Opaque key the adapter uses to identify the underlying WebSocket. */
   wsKey: unknown;
+
   /** Low-level send/close callbacks provided by the adapter. */
   descriptor: EngineAdapterTypes.ConnectionDescriptor;
+
   /** Arbitrary metadata attached during onUpgrade (e.g. username, role). */
   meta: Record<string, unknown>;
 
   // -- Channel state --
+
   /**
    * Per-group tag storage. Outer key is the group name, inner Set is the
    * keys held under that group. The `(kind, group)` split is enforced at
@@ -224,6 +230,7 @@ export interface RuntimeConnection {
    * separates the two storage areas.
    */
   tags: { ephemeral: Map<string, Set<string>>; persistent: Map<string, Set<string>> };
+
   /**
    * Map of membership keys to channel details, with an explicit scope marker.
    *
@@ -236,20 +243,28 @@ export interface RuntimeConnection {
   channelMemberships: Map<string, { channelName: string; channelScope: string | null }>;
 
   // -- Ephemeral runtime state --
+
   /** Most recent measured round-trip latency in milliseconds, or null if not yet measured. */
   latency: number | null;
+
   /** Connection quality tier derived from recent latency samples. */
   quality: 'excellent' | 'good' | 'degraded' | 'poor';
+
   /** Resolves once the onConnect lifecycle hook has finished running. */
   lifecycleReady?: Promise<void>;
+
   /** Handle for the heartbeat timeout timer. */
   heartbeatTimer?: unknown;
+
   /** Handle for the next scheduled ping timer. */
   pingTimer?: unknown;
+
   /** Timestamp (ms) when the last ping was sent, used to compute latency. */
   pendingPingSentAt?: number;
+
   /** Sliding window of recent latency samples for quality calculation. */
   recentLatencies?: number[];
+
   /**
    * Bounded ring of `messageId` values already seen on this connection, used
    * by `dedup()` to drop duplicate incoming frames before they reach handlers.
@@ -257,12 +272,14 @@ export interface RuntimeConnection {
    * connection has not yet received an id-bearing frame.
    */
   seenIncomingIds?: { buf: string[]; writePtr: number; set: Set<string>; cap: number };
+
   /**
    * IDs of streams currently in-flight for this connection. Written into the
    * hibernation attachment so orphaned streams can be signalled with `__error__`
    * on wake. Lazy-initialized when the first stream starts.
    */
   activeStreamIds?: Set<string>;
+
   /**
    * While set and `active`, the engine is inside the connection-accept window
    * (initial row already inserted, `onConnect` running). Per-state-change row
@@ -291,29 +308,38 @@ export type OnDisconnect = 'cancel-but-buffer' | 'keep-running';
  */
 export interface ActiveStream {
   id: string;
+
   connectionId: string;
+
   /**
    * The trigger event name that started this stream. Used to enforce
    * per-connection per-event exclusivity (one active stream per event per
    * connection by default) unless the stream opted in via `.allowConcurrent()`.
    */
   event: string;
+
   generator: AsyncGenerator<unknown, void, unknown>;
+
   nudges: { event: string; payload: unknown }[];
+
   nudgeValidators: Map<string, unknown>;
+
   closed: boolean;
+
   /**
    * `'cancel-but-buffer'` (default for durable, only value for non-durable) or
    * `'keep-running'`. Drives whether `cancelActiveStreamsForConnection` calls
    * `generator.return()` on the owning connection's close.
    */
   onDisconnect?: OnDisconnect;
+
   /**
    * True when the owning connection has dropped on a `keep-running` stream and
    * the generator is still producing into storage with no client attached. The
    * runtime skips wire sends to the dropped connection while this is set.
    */
   detached?: boolean;
+
   /**
    * The live connection the generator should send chunks to. Mutated when a
    * resuming client adopts a previously-detached `keep-running` stream so the
@@ -330,12 +356,19 @@ export interface ActiveStream {
  */
 export interface PluginRuntime {
   instance: EngineCompileTypes.AnyPlugin;
+
   onInit?: (ctx: any) => void | Promise<void>;
+
   onIncoming?: (message: { event: string; payload: unknown }) => unknown | void;
+
   onOutgoing?: (message: { event: string; payload: unknown }) => unknown | void;
+
   onConnect?: (ctx: any) => void | Promise<void>;
+
   onDisconnect?: (ctx: any) => void | Promise<void>;
+
   onShutdown?: () => void | Promise<void>;
+
   contextFactory: (ctx: any) => unknown;
 }
 
@@ -347,15 +380,20 @@ export interface PluginRuntime {
  */
 export interface RoutingTarget {
   namespace?: string;
+
   channel?: string;
+
   /**
    * Channel scope marker. `null` for static channels (no scope), a non-empty
    * family key for dynamic channel families, `undefined` when the route does
    * not target a channel at all (e.g. a top-level or namespace send).
    */
   channelScope?: string | null;
+
   correlationId?: string;
+
   streamId?: string;
+
   /**
    * Sequence number to stamp on the outgoing frame as `__wskit.seq`. Used by
    * durable streams to give resume a stable cursor; plain streams rely on
@@ -372,8 +410,11 @@ export interface RoutingTarget {
  */
 export interface ResolvedScope {
   namespace?: EngineCompileTypes.CompiledNamespace;
+
   channel?: EngineCompileTypes.CompiledChannel;
+
   channelName?: string;
+
   /**
    * Scope marker for channel-scoped frames: `null` when the frame targets a
    * static channel, the family key when it targets a dynamic family, and
@@ -388,11 +429,15 @@ export interface ResolvedScope {
  */
 export interface ConnectionMembersRuntime {
   connections: Map<string, RuntimeConnection>;
+
   channelMembers: Map<string, Set<RuntimeConnection>>;
+
   compiled: EngineCompileTypes.CompiledServer;
+
   toConnectionInfo(
     connection: RuntimeConnection,
   ): PublicApi.ConnectionInfo<Record<string, unknown>>;
+
   sendThroughPipeline(
     connection: RuntimeConnection,
     opts: { routing: RoutingTarget | undefined; event: string; payload: unknown },

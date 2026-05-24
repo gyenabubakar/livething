@@ -23,17 +23,23 @@ import type { AsyncContext, Logger } from '~/context.ts';
  */
 interface StreamRuntime {
   activeStreams: Map<string, ActiveStream>;
+
   generateId(prefix?: string): string;
+
   logger: Pick<Logger, 'warn'>;
+
   errorHooks: readonly ((ctx: unknown, error: unknown, event?: string) => void | Promise<void>)[];
+
   buildConnectionContext(
     connection: RuntimeConnection,
     scope?: ResolvedScope,
   ): Record<PropertyKey, unknown>;
+
   sendProtocolMessage(
     connection: RuntimeConnection,
     opts: { event: string; payload: Record<string, unknown>; wskit: Record<string, unknown> },
   ): void;
+
   sendThroughPipeline(
     connection: RuntimeConnection,
     opts: {
@@ -44,15 +50,19 @@ interface StreamRuntime {
       payload: unknown;
     },
   ): boolean;
+
   asyncContext?: AsyncContext;
+
   handleRuntimeError(
     connection: RuntimeConnection,
     opts: { error: unknown; event?: string; routing?: Protocol.WskitRouting },
   ): Promise<void>;
+
   handleValidationError(
     connection: RuntimeConnection,
     opts: { event: string; validationError: unknown; scope?: ResolvedScope },
   ): Promise<void>;
+
   broadcastToConnections(
     connections: readonly RuntimeConnection[],
     opts: {
@@ -67,7 +77,9 @@ interface StreamRuntime {
       excludeConnectionId?: string;
     },
   ): void;
+
   connections: Map<string, RuntimeConnection>;
+
   persistAttachment(connection: RuntimeConnection): void;
 }
 
@@ -84,7 +96,7 @@ function readSuppliedStreamId(wskit: Protocol.WskitProtocol | undefined): string
 }
 
 /** Build the `__wskit` routing block for a stream protocol frame. */
-function streamWskit(streamId: string, scope: ResolvedScope): Record<string, unknown> {
+function buildStreamRouting(streamId: string, scope: ResolvedScope): Record<string, unknown> {
   const wskit: Record<string, unknown> = { streamId };
   if (scope.namespace?.name) wskit.namespace = scope.namespace.name;
   if (scope.channelName) wskit.channel = scope.channelName;
@@ -132,7 +144,9 @@ export async function cancelStream(
  */
 export interface BufferStreamNudgeOptions {
   event: string;
+
   payload: unknown;
+
   wskit: Protocol.WskitProtocol | undefined;
 }
 
@@ -200,9 +214,13 @@ export async function bufferStreamNudge(
 
 export interface RunStreamOptions {
   scope: ResolvedScope;
+
   event: string;
+
   stream: AnyGenerate;
+
   payload: unknown;
+
   wskit?: Protocol.WskitProtocol;
 }
 
@@ -234,10 +252,11 @@ export async function runStream(
   } else {
     streamId = runtime.generateId('stream');
   }
+
   runtime.sendProtocolMessage(connection, {
     event: '__streamOk__',
     payload: {},
-    wskit: streamWskit(streamId, scope),
+    wskit: buildStreamRouting(streamId, scope),
   });
 
   const ctx = runtime.buildConnectionContext(connection, scope) as Record<PropertyKey, unknown>;
@@ -315,7 +334,7 @@ export async function runStream(
       runtime.sendProtocolMessage(connection, {
         event: '__streamEnd__',
         payload: {},
-        wskit: streamWskit(streamId, scope),
+        wskit: buildStreamRouting(streamId, scope),
       });
     }
   } catch (streamError) {

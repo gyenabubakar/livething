@@ -104,12 +104,3 @@ export function listGroupNames(sql: Pick<SQLProvider, 'exec'>): readonly string[
 export function deleteGroup(sql: Pick<SQLProvider, 'exec'>, group: string): void {
   sql.exec('DELETE FROM __wskit_tags WHERE group_name = ?', group);
 }
-
-/** Internal — used by integration paths that need the raw query. */
-export const _internal = {
-  SELECT_TAGS_BY_GROUP_SQL: `
-    SELECT identity, key, added_at
-    FROM __wskit_tags
-    WHERE group_name = ?
-  `,
-};

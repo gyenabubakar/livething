@@ -38,14 +38,17 @@ export type CustomReplayScope = 'top' | 'channel';
 export interface TopLevelOutgoingWire {
   /** A monotonically increasing sequence number, unique per connection. */
   readonly seq: number;
+
   /** A unique ID for this message. */
   readonly messageId: string;
+
   /**
    * Concrete channel name when the message was sent inside a channel,
    * `null` for true top-level messages. Use this together with
    * `channelScope` as the storage key when persisting channel rows.
    */
   readonly channel: string | null;
+
   /**
    * Family key (matching `scope(key, pattern)`) for dynamic channels,
    * `null` for static channels and for true top-level messages. Read this
@@ -80,8 +83,10 @@ export type OutgoingWire<TScope extends CustomReplayScope> = TScope extends 'cha
 export interface OutgoingWireMessage<TScope extends CustomReplayScope = 'top'> {
   /** The event name. */
   readonly event: string;
+
   /** The application payload. */
   readonly payload: Readonly<Record<string, unknown>>;
+
   /** Metadata — sequence number, message ID, and for channels, channel info. */
   readonly wire: OutgoingWire<TScope>;
 }
@@ -94,14 +99,19 @@ export interface OutgoingWireMessage<TScope extends CustomReplayScope = 'top'> {
 export interface CustomReplaySendContext {
   /** SQL access for persisting messages to your own replay store. */
   readonly sql: SQLProvider;
+
   /** KV access for persisting messages to your own replay store. */
   readonly kv: KVProvider;
+
   /** Environment variables / bindings available to the handler. */
   readonly env: Record<string, unknown>;
+
   /** Structured logger. */
   readonly log: Logger;
+
   /** Platform-specific context (e.g. the Cloudflare `DurableObjectState`). */
   readonly platform: unknown;
+
   /** The per-connection metadata from `onUpgrade`. */
   readonly meta: Record<string, unknown>;
 }
@@ -110,18 +120,25 @@ export interface CustomReplaySendContext {
 interface BaseCustomReplayContext {
   /** The connection ID of the client that requested replay. */
   readonly id: string;
+
   /** The per-connection metadata from `onUpgrade`. */
   readonly meta: Record<string, unknown>;
+
   /** SQL access for querying your own replay store. */
   readonly sql: SQLProvider;
+
   /** KV access for querying your own replay store. */
   readonly kv: KVProvider;
+
   /** Environment variables / bindings available to the handler. */
   readonly env: Record<string, unknown>;
+
   /** Structured logger. */
   readonly log: Logger;
+
   /** Platform-specific context (e.g. the Cloudflare `DurableObjectState`). */
   readonly platform: unknown;
+
   /** Schedule a promise to run after the handler returns. */
   waitUntil(promise: Promise<unknown>): void;
 }

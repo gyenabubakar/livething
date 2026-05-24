@@ -154,8 +154,11 @@ export function assertReplayScopeServable(
  */
 export interface ShouldStoreReplayMessageOptions {
   channelKey: string | undefined;
+
   wskit: Record<string, unknown>;
+
   exclude: ReadonlySet<string>;
+
   claimedChannelKeys?: ReadonlySet<string>;
 }
 
@@ -186,8 +189,11 @@ export function shouldStoreReplayMessage(
  */
 export interface BuildReplayRowOptions {
   options: ReplayOptions;
+
   payload: Record<string, unknown>;
+
   wskit: Record<string, unknown>;
+
   now: number;
 }
 
@@ -294,9 +300,13 @@ export function toReplaySnapshotValue(row: ReplayRow): ReplaySnapshotValue {
 
 export interface PersistReplayMessageOptions {
   options: ReplayOptions;
+
   event: string;
+
   payload: Record<string, unknown>;
+
   wskit: Record<string, unknown>;
+
   now: number;
 }
 

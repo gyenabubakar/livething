@@ -7,8 +7,11 @@ import type { Logger, SQLProvider } from '~/context.ts';
 
 export interface RejoinSubscribeOptions {
   channelName: string;
+
   channelScope: string | null;
+
   payload: unknown;
+
   rejoining: boolean;
 }
 
@@ -19,7 +22,9 @@ export interface RejoinSubscribeOptions {
  */
 export interface RejoinRuntime {
   sql: Pick<SQLProvider, 'exec'>;
+
   tagMembers: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>;
+
   /**
    * Server-side subscribe primitive (from #11). The rejoin path invokes this
    * for every durable membership the identity has so the connection lands
@@ -32,6 +37,7 @@ export interface RejoinRuntime {
     connection: EngineRuntimeTypes.RuntimeConnection,
     opts: RejoinSubscribeOptions,
   ): Promise<void>;
+
   /**
    * Send a protocol-level frame addressed to the rejoining connection. Used
    * to deliver an `__error__` when the gate rejects a stored membership.
@@ -40,6 +46,7 @@ export interface RejoinRuntime {
     connection: EngineRuntimeTypes.RuntimeConnection,
     opts: SendProtocolMessageOptions,
   ): void;
+
   logger?: Pick<Logger, 'error'>;
 }
 
@@ -104,6 +111,7 @@ export async function autoRejoinIdentity(
 
       const wskit: Record<string, unknown> = { channel: row.channelName };
       if (row.channelScope !== null) wskit.channelScope = row.channelScope;
+
       runtime.sendProtocolMessage(connection, {
         event: '__error__',
         payload: {
@@ -112,6 +120,7 @@ export async function autoRejoinIdentity(
         },
         wskit,
       });
+
       runtime.logger?.error('[wskit] auto-rejoin gate rejected', {
         identity: connection.identity,
         channel: row.channelName,
