@@ -13,8 +13,11 @@
   "publishConfig": {
     "access": "public"
   },
+  "sideEffects": false,
   "files": [
-    "dist"
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "dist/**/*.d.ts.map"
   ],
   "scripts": {
     "dev": "vite build --watch",
