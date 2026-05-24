@@ -125,5 +125,9 @@
         "GroupFullSurfaceServer",
       ],
     },
+    {
+      "tag": "v2",
+      "deleted_classes": ["BenchServer"],
+    },
   ],
 }
