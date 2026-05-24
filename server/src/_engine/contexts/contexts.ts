@@ -122,7 +122,7 @@ export function buildConnectionContext(
       return connection.latency;
     },
     get quality() {
-      return connection.quality;
+      return deps.hibernationEnabled ? null : connection.quality;
     },
     // Built on first access — most handlers never touch `ctx.channels`.
     get channels() {
@@ -191,6 +191,7 @@ export function buildConnectionContext(
 export function toConnectionInfo(
   connection: EngineContextTypes.RuntimeConnection,
   instanceId: string | undefined,
+  hibernationEnabled?: boolean,
 ): EngineContextTypes.ConnectionInfo<Record<string, unknown>> {
   return {
     id: connection.id,
@@ -199,7 +200,7 @@ export function toConnectionInfo(
     tags: TagsRuntime.buildConnectionTagRefs(connection),
     channels: [...connection.channelMemberships.values()].map((m) => m.channelName),
     latency: connection.latency,
-    quality: connection.quality,
+    quality: hibernationEnabled ? null : connection.quality,
     bufferedAmount: connection.descriptor.bufferedAmount(),
     ref: () => buildConnectionRef(connection.id, connection.identity, instanceId),
   };

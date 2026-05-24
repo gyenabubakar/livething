@@ -72,6 +72,7 @@ function ctxDeps(core: EngineCore): EngineContextTypes.BuildConnectionContextDep
     compiled: core.compiled,
     connections: core.connections,
     tagMembers: core.tagMembers,
+    hibernationEnabled: core.hibernationEnabled,
     ...commonDeps(core),
   });
 }
@@ -199,7 +200,7 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
     },
     persistAttachment: (connection) => EngineHibernation.persistAttachment(core, connection),
     toConnectionInfo: (connection) =>
-      EngineContexts.toConnectionInfo(connection, core.engineInstanceId),
+      EngineContexts.toConnectionInfo(connection, core.engineInstanceId, core.hibernationEnabled),
     attachModuleApis: (ctx, connection) =>
       EngineContexts.attachModuleApis(core.moduleRuntimes, ctx, connection),
     contextExtenders: core.hooks.contextExtenders,
@@ -246,7 +247,7 @@ function buildMemberRuntime(core: EngineCore) {
     connections: core.connections,
     channelMembers: core.channelMembers,
     toConnectionInfo: (connection: RuntimeConnection) =>
-      EngineContexts.toConnectionInfo(connection, core.engineInstanceId),
+      EngineContexts.toConnectionInfo(connection, core.engineInstanceId, core.hibernationEnabled),
     sendThroughPipeline: (
       connection: RuntimeConnection,
       routing: RoutingTarget | undefined,
@@ -435,6 +436,7 @@ function buildConnectionRuntime(core: EngineCore) {
   return {
     compiled: core.compiled,
     timers: core.timers,
+    hibernationEnabled: core.hibernationEnabled,
     connections: core.connections,
     channelMembers: core.channelMembers,
     tagMembers: core.tagMembers,

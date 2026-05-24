@@ -266,8 +266,8 @@ export interface ConnectionInfo<Meta = Record<string, unknown>> {
   readonly channels: readonly string[];
   /** Round-trip latency in milliseconds, measured by ping/pong. `null` if not yet measured. */
   readonly latency: number | null;
-  /** Connection quality tier derived from the rolling latency average. */
-  readonly quality: 'excellent' | 'good' | 'degraded' | 'poor';
+  /** Connection quality tier derived from the rolling latency average. `null` when hibernation is enabled (no server-side ping is sent). */
+  readonly quality: 'excellent' | 'good' | 'degraded' | 'poor' | null;
   /** Bytes waiting to be sent over the wire. High values mean the network is slower than the send rate. */
   readonly bufferedAmount: number;
   /**
@@ -551,8 +551,8 @@ export interface ConnectionContext<
   /** Round-trip latency in milliseconds, or `null` until the first ping/pong completes. */
   latency: number | null;
 
-  /** A simple health label derived from recent ping/pong measurements. */
-  quality: 'excellent' | 'good' | 'degraded' | 'poor';
+  /** A simple health label derived from recent ping/pong measurements. `null` when hibernation is enabled. */
+  quality: 'excellent' | 'good' | 'degraded' | 'poor' | null;
 
   /**
    * The WebSocket close code, present only in `onDisconnect` handlers

@@ -27,6 +27,7 @@ interface HibernatableWebSocket {
 interface ConnectionRuntime {
   compiled: EngineCompileTypes.CompiledServer;
   timers?: { clearTimeout(handle: unknown): void; setTimeout(fn: () => void, ms: number): unknown };
+  hibernationEnabled?: boolean;
   connections: Map<string, EngineRuntimeTypes.RuntimeConnection>;
   channelMembers: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>;
   tagMembers: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>;
@@ -393,7 +394,7 @@ export function acceptConnection(
   runtime.persistAttachment(connection);
   connection.pendingWrites = { active: true };
 
-  if (runtime.timers) {
+  if (runtime.timers && !runtime.hibernationEnabled) {
     HeartbeatPrimitive.scheduleConnectionPing(runtime.timers, connection);
   }
 
@@ -531,7 +532,7 @@ export function wakeHibernatedConnection(
     runtime.persistAttachment(connection);
   }
 
-  if (runtime.timers) {
+  if (runtime.timers && !runtime.hibernationEnabled) {
     HeartbeatPrimitive.scheduleConnectionPing(runtime.timers, connection);
   }
 
