@@ -5,31 +5,45 @@ import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
 
 /**
- * Save the current connection state to storage and (on hibernation adapters)
- * a tiny attachment with the id so the wake path can find the row. Skipped
- * during the accept window — `onConnect` writes flush once at the end so a
- * handler that joins ten channels writes one row, not ten.
+ * Save the connection's hibernation row. There are three reasons this can
+ * skip writing right now:
+ *
+ * - `pendingWrites.active` is on during `onConnect`, so a handler that
+ *   joins ten channels writes one row at the end, not ten along the way.
+ * - `core.invocationScope` is open during any engine entry point, so all
+ *   the row writes that handler triggers queue up and flush once at the end.
+ * - The fingerprint check inside `flushDirtyAttachment` skips the SQL call
+ *   when the row's data has not actually changed since the last write.
  */
 export function persistAttachment(core: EngineCore, connection: RuntimeConnection): void {
   if (connection.pendingWrites?.active) return;
   if (!core.hibernationEnabled) return;
 
+  if (core.invocationScope) {
+    core.invocationScope.dirtyConnections.add(connection);
+    return;
+  }
+
+  flushDirtyAttachment(core, connection);
+}
+
+/**
+ * Write the row to SQL right now, skipping the invocation-scope queue.
+ * Called by the scope flusher and by code paths that need the row on disk
+ * before control returns. The fingerprint check still applies, so a flush
+ * that matches what is already on disk does no SQL work.
+ */
+export function flushDirtyAttachment(core: EngineCore, connection: RuntimeConnection): void {
+  if (!core.hibernationEnabled) return;
+
   const row = ConnectionStore.buildConnectionRow(connection);
-  // Dedupe by fingerprint: stringifying the row is cheap (small object, no
-  // cycles); the SQL write that follows is the expensive part. Skipping it
-  // when nothing the persisted columns changed avoids redundant
-  // `INSERT OR REPLACE` calls in code paths that touch the connection
-  // without mutating any persisted field (idempotent tag toggles, re-runs of
-  // a setter that detects no-op).
   const fingerprint = JSON.stringify(row);
   if (connection.lastPersistedFingerprint === fingerprint) return;
 
   ConnectionStore.writeConnectionRow(core.requireStorage().sql, row);
   connection.lastPersistedFingerprint = fingerprint;
-  // The hibernation attachment payload is `{ id }`, constant for the
-  // connection's whole life — but the adapter's serialize call is cheap
-  // (in-memory metadata, no SQL), so it is paired with each SQL write rather
-  // than tracked separately. Skipping the SQL write naturally skips this too.
+  // Cheap adapter call that updates the in-memory hibernation tag. Runs once
+  // per SQL write — when the SQL write is skipped, this is skipped too.
   core.options.hibernation?.persist(connection.wsKey, { id: connection.id });
 }
 
@@ -48,6 +62,17 @@ export function readConnectionState(
 /** Delete one connection row. Called after disconnect hooks run. */
 export function deleteConnectionState(core: EngineCore, connectionId: string): void {
   if (!core.hibernationEnabled) return;
+  // Drop any queued write for this connection first. If we did not, the
+  // scope flush after this call would write a row back for a connection we
+  // just deleted, bringing it back to life on disk.
+  if (core.invocationScope) {
+    for (const connection of core.invocationScope.dirtyConnections) {
+      if (connection.id === connectionId) {
+        core.invocationScope.dirtyConnections.delete(connection);
+        break;
+      }
+    }
+  }
   ConnectionStore.deleteConnectionRow(core.requireStorage().sql, connectionId);
 }
 

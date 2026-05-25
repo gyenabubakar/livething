@@ -5,6 +5,7 @@ import * as EngineDeps from '~/_engine/engine.deps.ts';
 import * as EngineConnectionRuntime from '~/_engine/runtime/connection.ts';
 import * as EngineHibernation from '~/_engine/runtime/hibernation.ts';
 import * as Initialize from '~/_engine/runtime/initialize.ts';
+import { withInvocationScope } from '~/_engine/runtime/invocation-scope.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type * as PublicApi from '~/context.ts';
 import type * as LifecycleTypes from '~/lifecycle/lifecycle.ts';
@@ -102,11 +103,12 @@ export class Engine {
 
   /** Accept a new websocket and return the callbacks the adapter uses to drive it. */
   accept(wsKey: unknown, descriptor: ConnectionDescriptor): ConnectionHandle {
-    return EngineConnectionRuntime.acceptConnection(
+    const handle = EngineConnectionRuntime.acceptConnection(
       EngineDeps.connectionRuntime(this.core),
       wsKey,
       descriptor,
     );
+    return this.wrapHandle(handle);
   }
 
   /** Rebuild a connection handle for a websocket woken from hibernation. */
@@ -114,10 +116,26 @@ export class Engine {
     if (!this.usesHibernation()) {
       throw new Error('[wskit] hibernation() is not enabled for this handler.');
     }
-    return EngineConnectionRuntime.wakeHibernatedConnection(
+    const handle = EngineConnectionRuntime.wakeHibernatedConnection(
       EngineDeps.connectionRuntime(this.core),
       wsKey,
     );
+    return this.wrapHandle(handle);
+  }
+
+  // Wrap each callback so any state changes the handler triggers collect into
+  // one row write at the end of the handler instead of one row write per
+  // change. Only covers what runs (and is awaited) inside the callback —
+  // work scheduled via waitUntil, a setTimeout, or a paused generator runs
+  // after the callback returns, outside the scope, and writes right away.
+  private wrapHandle(handle: ConnectionHandle): ConnectionHandle {
+    return {
+      handleMessage: (data) => withInvocationScope(this.core, () => handle.handleMessage(data)),
+      handleBinary: (data) => withInvocationScope(this.core, () => handle.handleBinary(data)),
+      handleClose: (code, reason) =>
+        withInvocationScope(this.core, () => handle.handleClose(code, reason)),
+      handleError: (error) => withInvocationScope(this.core, () => handle.handleError(error)),
+    };
   }
 
   /** Run the upgrade hook before the adapter commits to the handshake. */
@@ -166,7 +184,9 @@ export class Engine {
 
   /** Run alarm hooks after a timer wake-up. Scheduled tasks drain via this path. */
   async handleAlarm(): Promise<void> {
-    await Initialize.handleAlarm(this.core, EngineDeps.engineAccessDeps(this.core));
+    await withInvocationScope(this.core, () =>
+      Initialize.handleAlarm(this.core, EngineDeps.engineAccessDeps(this.core)),
+    );
   }
 
   /**

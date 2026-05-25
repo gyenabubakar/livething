@@ -124,6 +124,13 @@ export class EngineCore {
   readonly installedFeatures = new Set<symbol>();
   readonly pluginRuntimes: PluginRuntime[] = [];
 
+  // Set to an open scope while the engine is inside one of its entry points
+  // (an incoming message, an alarm fire, etc.). Connections that need their
+  // hibernation row written get added to `dirtyConnections` and the row is
+  // written once at the end of the entry point. Null when no entry point is
+  // running.
+  invocationScope: { dirtyConnections: Set<RuntimeConnection> } | null = null;
+
   alarmHandle: unknown = null;
   idCounter = 0;
   readonly instanceNonce = Math.random().toString(36).slice(2, 8);
