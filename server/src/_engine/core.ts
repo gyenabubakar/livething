@@ -114,6 +114,13 @@ export class EngineCore {
   readonly activeStreams = new Map<string, ActiveStream>();
   readonly scheduledRuns = new Map<string, ScheduledPrimitiveTypes.ScheduledRun>();
   readonly scheduledDlq = new Map<string, ScheduledPrimitiveTypes.ScheduledDeadLetter>();
+
+  // Mirrors of the durable scheduler tables: maps from row id to a stable
+  // signature of the columns last written. The scheduler diffs the current
+  // in-memory queue against these maps to emit one targeted INSERT/UPDATE/DELETE
+  // per changed row instead of rewriting the whole table on each persist.
+  readonly scheduledRunsPersisted = new Map<string, string>();
+  readonly scheduledDlqPersisted = new Map<string, string>();
   readonly installedFeatures = new Set<symbol>();
   readonly pluginRuntimes: PluginRuntime[] = [];
 

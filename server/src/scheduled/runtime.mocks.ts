@@ -187,12 +187,15 @@ export function createRuntime(tasksInput: ReturnType<typeof scheduled>[]) {
     },
     getScheduledRuns: () => scheduledRuns,
     getScheduledDlq: () => scheduledDlq,
+    getScheduledRunsPersisted: () => new Map<string, string>(),
+    getScheduledDlqPersisted: () => new Map<string, string>(),
     getScheduledTask: (taskId) => tasks.get(taskId),
     getScheduledTasks: () => tasks.values(),
     createTaskContext: () => ({ kind: 'task-context' }),
     rescheduleAlarm: () => {
       rescheduleCount += 1;
     },
+    logger: { info: () => {}, warn: () => {}, error: () => {} },
   };
 
   return {

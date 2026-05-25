@@ -287,6 +287,16 @@ export interface RuntimeConnection {
    * full state in one statement. Cleared after the flush.
    */
   pendingWrites?: { active: boolean };
+
+  /**
+   * Fingerprint of the last connection row written to durable storage. The
+   * hibernation persist path stringifies the next row, compares against this
+   * value, and skips the SQL write when they match — eliminating redundant
+   * `INSERT OR REPLACE` calls for state-change sequences that produce the
+   * same row twice in a row (no-op tag toggles, idempotent re-subscribes,
+   * etc). `undefined` before the first persist.
+   */
+  lastPersistedFingerprint?: string;
 }
 
 /**

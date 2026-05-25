@@ -20,11 +20,15 @@ export function ensureSequenceSchema(sql: SQLProvider): void {
   sql.exec(CREATE_SEQUENCE_TABLE_SQL);
 }
 
+/** Default seq numbers reserved per SQL round-trip when batching is enabled. */
+export const DEFAULT_SEQUENCE_BATCH_SIZE = 100;
+
 /**
- * Claim the next durable sequence number.
+ * Claim one durable sequence number, bypassing the batch allocator.
  *
- * This happens inside one SQL transaction so two outgoing messages cannot read
- * and reuse the same number.
+ * Kept for callers that explicitly want one-write-per-call semantics. Most
+ * call sites should use `createPersistentSequenceAllocator(...)` instead — it
+ * amortises the SQL write across a whole batch.
  */
 export function allocatePersistentSequence(sql: SQLProvider): number {
   return sql.transaction((tx) => {
@@ -54,4 +58,76 @@ export function allocatePersistentSequence(sql: SQLProvider): number {
 
     return nextSeq;
   });
+}
+
+/**
+ * Reserve `batchSize` seq numbers in one SQL transaction so subsequent
+ * `next()` calls return from memory until the batch is exhausted.
+ *
+ * Trade-off: a crash mid-batch leaves the unused tail unallocated forever —
+ * those seq numbers are never handed out, producing wire-level gaps. The
+ * client side already treats gaps as "ask the server what's missing" rather
+ * than "messages were lost", so the gaps are harmless. In exchange the SQL
+ * write rate drops from 1-per-send to 1-per-batch (default 100×).
+ *
+ * Monotonic-and-unique guarantees still hold: the SQL row is bumped by the
+ * full batch size before any number in the batch is returned, so a restart
+ * always resumes above the reserved range.
+ */
+export function createPersistentSequenceAllocator(
+  sql: SQLProvider,
+  batchSize: number = DEFAULT_SEQUENCE_BATCH_SIZE,
+): { next(): number } {
+  if (!Number.isInteger(batchSize) || batchSize < 1) {
+    throw new Error(
+      `[wskit] sequence batchSize must be a positive integer, got ${String(batchSize)}.`,
+    );
+  }
+
+  // The half-open range [cursor, ceiling) is the seq numbers reserved for this
+  // wake but not yet handed out. Empty when cursor === ceiling — the next
+  // `next()` call refills via SQL.
+  let cursor = 0;
+  let ceiling = 0;
+
+  function reserveNextBatch(): void {
+    const reserved = sql.transaction((tx) => {
+      const row = tx
+        .exec<{
+          nextSeq: number;
+        }>('SELECT nextSeq FROM __wskit_sequence WHERE scope = ?', GLOBAL_SEQUENCE_SCOPE)
+        .one();
+
+      const start = row ? Number(row.nextSeq) : 1;
+      const end = start + batchSize;
+
+      if (!row) {
+        tx.exec(
+          'INSERT INTO __wskit_sequence (scope, nextSeq) VALUES (?, ?)',
+          GLOBAL_SEQUENCE_SCOPE,
+          end,
+        );
+      } else {
+        tx.exec(
+          'UPDATE __wskit_sequence SET nextSeq = ? WHERE scope = ?',
+          end,
+          GLOBAL_SEQUENCE_SCOPE,
+        );
+      }
+
+      return { start, end };
+    });
+
+    cursor = reserved.start;
+    ceiling = reserved.end;
+  }
+
+  return {
+    next(): number {
+      if (cursor >= ceiling) reserveNextBatch();
+      const value = cursor;
+      cursor += 1;
+      return value;
+    },
+  };
 }

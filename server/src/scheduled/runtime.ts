@@ -2,6 +2,7 @@ import { validateValue } from '~/_engine/compile/utils.ts';
 import type {
   ScheduledCancelResult,
   ScheduledDeadLetter,
+  ScheduledRun,
   ScheduledRuntimeAccess,
 } from './types.ts';
 
@@ -114,68 +115,223 @@ function getRetryDelay(attempts: number, retry: boolean | readonly number[]): nu
   return schedule[attempts];
 }
 
+/** Serialize one run row into its persisted column tuple for hashing/binding. */
+function serializeRunColumns(
+  run: ScheduledRun,
+): [string, string, number, string | null, number | null, number, number, number | string] {
+  return [
+    run.id,
+    run.taskId,
+    run.time,
+    run.data === undefined ? null : JSON.stringify(run.data),
+    run.every ?? null,
+    run.attempts,
+    run.recurring ? 1 : 0,
+    Array.isArray(run.retry) ? JSON.stringify(run.retry) : run.retry ? 1 : 0,
+  ];
+}
+
+/** Serialize one DLQ row into its persisted column tuple. */
+function serializeDlqColumns(
+  entry: ScheduledDeadLetter,
+): [string, string, number, number, string | null, number, string] {
+  return [
+    entry.id,
+    entry.taskId,
+    entry.time,
+    entry.failedAt,
+    entry.data === undefined ? null : JSON.stringify(entry.data),
+    entry.attempts,
+    JSON.stringify(entry.error),
+  ];
+}
+
+/** Stable string fingerprint for the persisted form of one row. */
+function fingerprint(columns: readonly unknown[]): string {
+  return JSON.stringify(columns);
+}
+
+/** One pending change to the scheduler tables, computed against the snapshot. */
+interface DiffOp {
+  kind: 'insert' | 'update' | 'delete';
+  id: string;
+  fingerprint?: string;
+  columns?: readonly unknown[];
+}
+
 /**
- * Serialize the in-memory run queue and dead-letter queue back to SQLite.
+ * Diff the current map against the persisted snapshot. Returns the list of
+ * inserts (new id), updates (id seen, fingerprint changed), and deletes (id
+ * gone from current). The caller emits SQL for each op and updates the
+ * snapshot to match.
+ */
+function diffAgainstSnapshot<T>(
+  current: ReadonlyMap<string, T>,
+  snapshot: ReadonlyMap<string, string>,
+  serialize: (value: T) => readonly unknown[],
+): DiffOp[] {
+  const ops: DiffOp[] = [];
+
+  for (const [id, value] of current) {
+    const columns = serialize(value);
+    const fp = fingerprint(columns);
+    const previous = snapshot.get(id);
+    if (previous === undefined) {
+      ops.push({ kind: 'insert', id, fingerprint: fp, columns });
+    } else if (previous !== fp) {
+      ops.push({ kind: 'update', id, fingerprint: fp, columns });
+    }
+  }
+
+  for (const id of snapshot.keys()) {
+    if (!current.has(id)) {
+      ops.push({ kind: 'delete', id });
+    }
+  }
+
+  return ops;
+}
+
+/**
+ * Persist scheduler state by writing only the rows that actually changed
+ * since the previous persist. The snapshot maps mirror the durable table
+ * contents — they are updated in lock-step with successful SQL writes so the
+ * next diff sees an accurate baseline.
  *
- * This replaces the entire table contents in a single transaction so the
- * persisted state always matches what the engine holds in memory.
+ * On a steady-state recurring task tick this collapses to a single `UPDATE`
+ * (the run id stays the same; only `time` and `attempts` change), instead of
+ * the previous `DELETE *` + reinsert-all pattern that wrote one row per
+ * queued task on every fire.
  */
 function persistSchedulerState(runtime: ScheduledRuntimeAccess): void {
   const storage = runtime.requireStorage();
-  const runs = [...runtime.getScheduledRuns().values()];
-  const deadLetters = [...runtime.getScheduledDlq().values()];
+  const runs = runtime.getScheduledRuns();
+  const deadLetters = runtime.getScheduledDlq();
+  const runsSnapshot = runtime.getScheduledRunsPersisted();
+  const dlqSnapshot = runtime.getScheduledDlqPersisted();
+
+  const runOps = diffAgainstSnapshot(runs, runsSnapshot, serializeRunColumns);
+  const dlqOps = diffAgainstSnapshot(deadLetters, dlqSnapshot, serializeDlqColumns);
+
+  if (runOps.length === 0 && dlqOps.length === 0) {
+    return;
+  }
+
+  runtime.logger.info('[wskit] scheduler persist — applying diff', {
+    runs: summarizeOps(runOps),
+    deadLetters: summarizeOps(dlqOps),
+  });
 
   storage.sql.transaction((tx) => {
-    tx.exec('DELETE FROM __wskit_scheduled');
-    for (const run of runs) {
+    for (const op of runOps) {
+      if (op.kind === 'delete') {
+        tx.exec('DELETE FROM __wskit_scheduled WHERE id = ?', op.id);
+        continue;
+      }
+      if (op.kind === 'insert') {
+        tx.exec(
+          `INSERT INTO __wskit_scheduled
+            (id, taskId, time, data, everyMs, attempts, recurring, retry)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          ...(op.columns as unknown[]),
+        );
+        continue;
+      }
+      // update — id is at position 0 of the columns tuple; rebind it as the
+      // WHERE clause and skip it in the SET list so the row stays addressable.
+      const [, taskId, time, data, everyMs, attempts, recurring, retry] = op.columns as [
+        string,
+        string,
+        number,
+        string | null,
+        number | null,
+        number,
+        number,
+        number | string,
+      ];
       tx.exec(
-        `
-          INSERT INTO __wskit_scheduled (
-            id,
-            taskId,
-            time,
-            data,
-            everyMs,
-            attempts,
-            recurring,
-            retry
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `,
-        run.id,
-        run.taskId,
-        run.time,
-        run.data === undefined ? null : JSON.stringify(run.data),
-        run.every ?? null,
-        run.attempts,
-        run.recurring ? 1 : 0,
-        Array.isArray(run.retry) ? JSON.stringify(run.retry) : run.retry ? 1 : 0,
+        `UPDATE __wskit_scheduled
+         SET taskId = ?, time = ?, data = ?, everyMs = ?, attempts = ?, recurring = ?, retry = ?
+         WHERE id = ?`,
+        taskId,
+        time,
+        data,
+        everyMs,
+        attempts,
+        recurring,
+        retry,
+        op.id,
       );
     }
 
-    tx.exec('DELETE FROM __wskit_scheduled_dlq');
-    for (const entry of deadLetters) {
+    for (const op of dlqOps) {
+      if (op.kind === 'delete') {
+        tx.exec('DELETE FROM __wskit_scheduled_dlq WHERE id = ?', op.id);
+        continue;
+      }
+      if (op.kind === 'insert') {
+        tx.exec(
+          `INSERT INTO __wskit_scheduled_dlq
+            (id, taskId, time, failedAt, data, attempts, error)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          ...(op.columns as unknown[]),
+        );
+        continue;
+      }
+      const [, taskId, time, failedAt, data, attempts, error] = op.columns as [
+        string,
+        string,
+        number,
+        number,
+        string | null,
+        number,
+        string,
+      ];
       tx.exec(
-        `
-          INSERT INTO __wskit_scheduled_dlq (
-            id,
-            taskId,
-            time,
-            failedAt,
-            data,
-            attempts,
-            error
-          ) VALUES (?, ?, ?, ?, ?, ?, ?)
-        `,
-        entry.id,
-        entry.taskId,
-        entry.time,
-        entry.failedAt,
-        entry.data === undefined ? null : JSON.stringify(entry.data),
-        entry.attempts,
-        JSON.stringify(entry.error),
+        `UPDATE __wskit_scheduled_dlq
+         SET taskId = ?, time = ?, failedAt = ?, data = ?, attempts = ?, error = ?
+         WHERE id = ?`,
+        taskId,
+        time,
+        failedAt,
+        data,
+        attempts,
+        error,
+        op.id,
       );
     }
   });
+
+  applyDiffToSnapshot(runOps, runsSnapshot);
+  applyDiffToSnapshot(dlqOps, dlqSnapshot);
+}
+
+/** Update the in-memory snapshot to reflect a successfully-applied diff. */
+function applyDiffToSnapshot(ops: readonly DiffOp[], snapshot: Map<string, string>): void {
+  for (const op of ops) {
+    if (op.kind === 'delete') {
+      snapshot.delete(op.id);
+    } else if (op.fingerprint !== undefined) {
+      snapshot.set(op.id, op.fingerprint);
+    }
+  }
+}
+
+/** Compact `{ inserts, updates, deletes }` shape for the persist log line. */
+function summarizeOps(ops: readonly DiffOp[]): {
+  inserts: number;
+  updates: number;
+  deletes: number;
+} {
+  let inserts = 0;
+  let updates = 0;
+  let deletes = 0;
+  for (const op of ops) {
+    if (op.kind === 'insert') inserts += 1;
+    else if (op.kind === 'update') updates += 1;
+    else deletes += 1;
+  }
+  return { inserts, updates, deletes };
 }
 
 /**
@@ -234,9 +390,15 @@ export function bootstrapScheduledRuntime(runtime: ScheduledRuntimeAccess): void
   const storage = runtime.requireStorage();
   const scheduledRuns = runtime.getScheduledRuns();
   const deadLetters = runtime.getScheduledDlq();
+  const runsSnapshot = runtime.getScheduledRunsPersisted();
+  const dlqSnapshot = runtime.getScheduledDlqPersisted();
 
   scheduledRuns.clear();
   deadLetters.clear();
+  runsSnapshot.clear();
+  dlqSnapshot.clear();
+
+  runtime.logger.info('[wskit] scheduler boot — loading queue from storage');
 
   // Drop rows whose taskId is no longer registered in the handler. A
   // recurring task that gets removed in a redeploy would otherwise live
@@ -258,8 +420,15 @@ export function bootstrapScheduledRuntime(runtime: ScheduledRuntimeAccess): void
     )
     .toArray()) {
     const taskId = String(row.taskId);
-    if (!knownTaskIds.has(taskId)) continue;
-    scheduledRuns.set(String(row.id), {
+    if (!knownTaskIds.has(taskId)) {
+      // Orphan row — the taskId is no longer registered, so the run is dropped
+      // from the in-memory queue. Seed the snapshot with a sentinel so the
+      // first post-boot persist diffs it as "in storage but not in current"
+      // and emits the targeted DELETE. Without this, the orphan row leaks.
+      runsSnapshot.set(String(row.id), 'orphan');
+      continue;
+    }
+    const run: ScheduledRun = {
       id: String(row.id),
       taskId,
       time: Number(row.time),
@@ -268,7 +437,11 @@ export function bootstrapScheduledRuntime(runtime: ScheduledRuntimeAccess): void
       attempts: row.attempts == null ? 0 : Number(row.attempts),
       recurring: row.recurring === 1 || row.recurring === true,
       retry: deserializeRetry(row.retry),
-    });
+    };
+    scheduledRuns.set(run.id, run);
+    // Seed the snapshot with what we just read so the next persist diff
+    // treats these rows as already-on-disk and skips re-writing them.
+    runsSnapshot.set(run.id, fingerprint(serializeRunColumns(run)));
   }
 
   for (const row of storage.sql
@@ -279,7 +452,7 @@ export function bootstrapScheduledRuntime(runtime: ScheduledRuntimeAccess): void
       `,
     )
     .toArray()) {
-    deadLetters.set(String(row.id), {
+    const entry: ScheduledDeadLetter = {
       id: String(row.id),
       taskId: String(row.taskId),
       time: Number(row.time),
@@ -290,12 +463,22 @@ export function bootstrapScheduledRuntime(runtime: ScheduledRuntimeAccess): void
         typeof row.error === 'string' && row.error.length > 0
           ? (JSON.parse(row.error) as ScheduledDeadLetter['error'])
           : { message: 'Unknown scheduled task failure' },
-    });
+    };
+    deadLetters.set(entry.id, entry);
+    dlqSnapshot.set(entry.id, fingerprint(serializeDlqColumns(entry)));
   }
 
   ensureRecurringRuns(runtime);
   persistSchedulerState(runtime);
   runtime.rescheduleAlarm();
+
+  runtime.logger.info('[wskit] scheduler boot complete', {
+    queuedRuns: scheduledRuns.size,
+    deadLetters: deadLetters.size,
+    recurringTaskIds: [...scheduledRuns.values()]
+      .filter((run) => run.recurring)
+      .map((run) => run.taskId),
+  });
 }
 
 /**
@@ -311,15 +494,30 @@ export async function handleScheduledAlarm(runtime: ScheduledRuntimeAccess): Pro
   const due = [...scheduledRuns.values()].filter((run) => run.time <= now);
 
   if (due.length === 0) {
+    runtime.logger.info('[wskit] scheduler alarm fired — nothing due', {
+      queuedRuns: scheduledRuns.size,
+    });
     runtime.rescheduleAlarm();
     return;
   }
+
+  runtime.logger.info('[wskit] scheduler alarm fired — running due tasks', {
+    dueCount: due.length,
+    dueTaskIds: due.map((run) => run.taskId),
+    queuedAfter: scheduledRuns.size - due.length,
+  });
 
   for (const run of due) {
     scheduledRuns.delete(run.id);
   }
 
-  persistSchedulerState(runtime);
+  // The pre-run persist used to live here as an at-most-once safety net: it
+  // wrote the "claimed" state before executing tasks so a crash mid-execution
+  // could not re-fire them on the next wake. It has been removed in favour of
+  // at-least-once delivery — the single persist at the end captures both the
+  // claim and the post-run state in one transaction. A DO crash between claim
+  // and persist leaves the run row in storage, and the next wake re-fires it.
+  // Match Cloudflare Queues semantics; handlers must be idempotent.
 
   const results = await Promise.allSettled(
     due.map(async (run) => {

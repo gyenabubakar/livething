@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "vite build",
-    "clean:test-state": "rm -rf .wrangler/state-* .wrangler/tmp test-results",
+    "clean:test-state": "rm -rf .wrangler/state .wrangler/state-* .wrangler/tmp test-results",
     "dev": "pnpm run dev:ui",
     "dev:ui": "vite dev --host 127.0.0.1 --port 4173",
     "dev:worker": "pnpm run clean:test-state && wrangler dev --ip 127.0.0.1 --port 8787 --persist-to .wrangler/state-8787",

@@ -220,7 +220,13 @@ describe('sequence', () => {
     const firstMessage = first.hook('message');
     const secondMessage = second.hook('message');
 
+    // The persistent allocator reserves seq numbers in batches (default 100)
+    // so the SQL write rate stays at ~1-per-batch instead of 1-per-send. The
+    // first allocator reserves [1, 101); the second sees nextSeq=101 in
+    // storage and reserves [101, 201). Wire gaps from unused reservations are
+    // expected and harmless — clients treat sequence gaps as "ask the server
+    // what's missing", not as lost messages.
     expect(firstMessage).toEqual({ seq: 1 });
-    expect(secondMessage).toEqual({ seq: 2 });
+    expect(secondMessage).toEqual({ seq: 101 });
   });
 });

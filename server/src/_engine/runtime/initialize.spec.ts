@@ -317,7 +317,7 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
 
   it('heavy (persistence + hibernation + replay + sequence + scheduled): cold boot exec budget', async () => {
     const { execCount, calls } = await initWithFakeStorage(heavyHandler);
-    if (execCount !== 13) {
+    if (execCount !== 11) {
       // eslint-disable-next-line no-console
       console.log(
         '[heavy cold] sql.exec calls:\n' +
@@ -331,22 +331,24 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
     //   7. mark sentinel (bundled CREATE meta + INSERT)
     //   8. persistence reconcile (cleanup SELECT)
     //   9-10. scheduled bootstrap loads queued runs + dlq
-    //   11-13. scheduled persist-after-restore — DELETE, INSERT, DELETE
-    //          (no schema re-init; option C dropped that)
-    expect(execCount).toBe(13);
+    //   11. scheduled persist-after-restore — one INSERT for the new recurring
+    //       run added by ensureRecurringRuns. The diff-based persist no longer
+    //       emits DELETE-all / reinsert-all per call, so the empty-load case
+    //       costs zero extra writes; only genuine new rows are written.
+    expect(execCount).toBe(11);
   });
 
   it('heavy: WARM boot (sentinel current) skips every schema hook', async () => {
     const { execCount, calls } = await initWithFakeStorage(heavyHandler, true);
-    if (execCount !== 7) {
+    if (execCount !== 5) {
       // eslint-disable-next-line no-console
       console.log(
         '[heavy warm] sql.exec calls:\n' +
           calls.map((q, i) => `  ${i + 1}. ${q.trim().slice(0, 80)}`).join('\n'),
       );
     }
-    // Compared to cold (13): saves 5 schema hooks + 1 mark = 6 round trips
-    // skipped. Remaining: 1 sentinel SELECT + 6 cleanup/state-restore.
-    expect(execCount).toBe(7);
+    // Compared to cold (11): saves 5 schema hooks + 1 mark = 6 round trips
+    // skipped. Remaining: 1 sentinel SELECT + 4 cleanup/state-restore.
+    expect(execCount).toBe(5);
   });
 });

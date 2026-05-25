@@ -13,10 +13,23 @@ type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
 export function persistAttachment(core: EngineCore, connection: RuntimeConnection): void {
   if (connection.pendingWrites?.active) return;
   if (!core.hibernationEnabled) return;
-  ConnectionStore.writeConnectionRow(
-    core.requireStorage().sql,
-    ConnectionStore.buildConnectionRow(connection),
-  );
+
+  const row = ConnectionStore.buildConnectionRow(connection);
+  // Dedupe by fingerprint: stringifying the row is cheap (small object, no
+  // cycles); the SQL write that follows is the expensive part. Skipping it
+  // when nothing the persisted columns changed avoids redundant
+  // `INSERT OR REPLACE` calls in code paths that touch the connection
+  // without mutating any persisted field (idempotent tag toggles, re-runs of
+  // a setter that detects no-op).
+  const fingerprint = JSON.stringify(row);
+  if (connection.lastPersistedFingerprint === fingerprint) return;
+
+  ConnectionStore.writeConnectionRow(core.requireStorage().sql, row);
+  connection.lastPersistedFingerprint = fingerprint;
+  // The hibernation attachment payload is `{ id }`, constant for the
+  // connection's whole life — but the adapter's serialize call is cheap
+  // (in-memory metadata, no SQL), so it is paired with each SQL write rather
+  // than tracked separately. Skipping the SQL write naturally skips this too.
   core.options.hibernation?.persist(connection.wsKey, { id: connection.id });
 }
 

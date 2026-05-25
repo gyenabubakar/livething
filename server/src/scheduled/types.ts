@@ -1,5 +1,5 @@
 import type { AnyScheduled } from '~/_engine/compile/types.ts';
-import type { StorageProvider, TimerProvider } from '~/context.ts';
+import type { Logger, StorageProvider, TimerProvider } from '~/context.ts';
 
 /**
  * One queued scheduled task run.
@@ -66,6 +66,17 @@ export interface ScheduledRuntimeAccess {
   /** Read the engine-owned in-memory dead-letter queue. */
   getScheduledDlq(): Map<string, ScheduledDeadLetter>;
 
+  /**
+   * Read the engine-owned mirror of the durable run table. Maps row id to a
+   * stable signature of the columns last written. Used by the diff-based
+   * persist to skip unchanged rows. Caller owns the map and updates it after
+   * every successful write.
+   */
+  getScheduledRunsPersisted(): Map<string, string>;
+
+  /** Read the engine-owned mirror of the durable dead-letter table. */
+  getScheduledDlqPersisted(): Map<string, string>;
+
   /** Read one declared scheduled task by its task id. */
   getScheduledTask(taskId: string): AnyScheduled | undefined;
 
@@ -77,4 +88,7 @@ export interface ScheduledRuntimeAccess {
 
   /** Ask the engine to recompute when the next alarm should fire. */
   rescheduleAlarm(): void;
+
+  /** Adapter-provided structured logger. Used for scheduler boot/fire visibility. */
+  logger: Pick<Logger, 'info' | 'warn' | 'error'>;
 }

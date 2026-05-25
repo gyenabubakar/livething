@@ -14,10 +14,13 @@ function buildAccess(
     generateId: (prefix) => core.generateId(prefix),
     getScheduledRuns: () => core.scheduledRuns,
     getScheduledDlq: () => core.scheduledDlq,
+    getScheduledRunsPersisted: () => core.scheduledRunsPersisted,
+    getScheduledDlqPersisted: () => core.scheduledDlqPersisted,
     getScheduledTask: (taskId) => core.compiled.scheduled.get(taskId),
     getScheduledTasks: () => core.compiled.scheduled.values(),
     createTaskContext,
     rescheduleAlarm: () => rescheduleAlarm(core),
+    logger: core.logger,
   };
 }
 

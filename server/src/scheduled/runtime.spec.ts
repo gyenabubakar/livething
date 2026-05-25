@@ -38,6 +38,8 @@ function createScheduledRuntime(
 ) {
   const scheduledRuns = new Map<string, ScheduledRun>();
   const deadLetters = new Map<string, ScheduledDeadLetter>();
+  const runsPersisted = new Map<string, string>();
+  const dlqPersisted = new Map<string, string>();
   let idCounter = 0;
   const storageRows = {
     scheduled: [] as Record<string, unknown>[],
@@ -139,12 +141,15 @@ function createScheduledRuntime(
     generateId: () => `task_${++idCounter}`,
     getScheduledRuns: () => scheduledRuns,
     getScheduledDlq: () => deadLetters,
+    getScheduledRunsPersisted: () => runsPersisted,
+    getScheduledDlqPersisted: () => dlqPersisted,
     getScheduledTask: (taskId) => taskMap.get(taskId) as never,
     getScheduledTasks: () => taskMap.values() as never,
     createTaskContext: () => ({ ok: true }),
     rescheduleAlarm: () => {
       runtime.alarms += 1;
     },
+    logger: { info: () => {}, warn: () => {}, error: () => {} },
   };
 
   return { runtime, scheduledRuns, deadLetters, storageRows, timers };
