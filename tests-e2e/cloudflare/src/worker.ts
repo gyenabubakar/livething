@@ -47,6 +47,7 @@ export { StreamDurableBroadcastServer } from './lib/server/stream-durable-broadc
 export { GroupFullSurfaceServer } from './lib/server/group-full-surface/durable-object.ts';
 export { ChannelCheckCommitServer } from './lib/server/channel-check-commit/durable-object.ts';
 export { CtxLocalsServer } from './lib/server/ctx-locals/durable-object.ts';
+export { MultiStateServer } from './lib/server/multi-state/durable-object.ts';
 
 const FEATURE_ROUTES: Record<string, keyof Env> = {
   '/ws/incoming': 'INCOMING_SERVER',
@@ -91,6 +92,7 @@ const FEATURE_ROUTES: Record<string, keyof Env> = {
   '/ws/group-full-surface': 'GROUP_FULL_SURFACE_SERVER',
   '/ws/channel-check-commit': 'CHANNEL_CHECK_COMMIT_SERVER',
   '/ws/ctx-locals': 'CTX_LOCALS_SERVER',
+  '/ws/multi-state': 'MULTI_STATE_SERVER',
 };
 
 export default {

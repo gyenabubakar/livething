@@ -68,6 +68,7 @@
       { "name": "GROUP_FULL_SURFACE_SERVER", "class_name": "GroupFullSurfaceServer" },
       { "name": "CHANNEL_CHECK_COMMIT_SERVER", "class_name": "ChannelCheckCommitServer" },
       { "name": "CTX_LOCALS_SERVER", "class_name": "CtxLocalsServer" },
+      { "name": "MULTI_STATE_SERVER", "class_name": "MultiStateServer" },
     ],
   },
   "observability": {
@@ -133,6 +134,10 @@
     {
       "tag": "v2",
       "deleted_classes": ["BenchServer"],
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": ["MultiStateServer"],
     },
   ],
 }
