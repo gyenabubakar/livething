@@ -73,6 +73,7 @@ interface __BaseEnv_Env {
   CHANNEL_CHECK_COMMIT_SERVER: DurableObjectNamespace<
     import('./src/worker').ChannelCheckCommitServer
   >;
+  CTX_LOCALS_SERVER: DurableObjectNamespace<import('./src/worker').CtxLocalsServer>;
 }
 declare namespace Cloudflare {
   interface GlobalProps {

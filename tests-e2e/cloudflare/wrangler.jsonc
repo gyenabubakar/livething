@@ -67,6 +67,7 @@
       },
       { "name": "GROUP_FULL_SURFACE_SERVER", "class_name": "GroupFullSurfaceServer" },
       { "name": "CHANNEL_CHECK_COMMIT_SERVER", "class_name": "ChannelCheckCommitServer" },
+      { "name": "CTX_LOCALS_SERVER", "class_name": "CtxLocalsServer" },
     ],
   },
   "observability": {
@@ -126,6 +127,7 @@
         "GroupFullSurfaceServer",
         "BenchServer",
         "ChannelCheckCommitServer",
+        "CtxLocalsServer",
       ],
     },
     {

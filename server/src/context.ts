@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import type { LocalKey } from './local-key/local-key.ts';
 
 /**
  * The result of running one SQL query through `ctx.sql.exec(...)`.
@@ -640,6 +641,29 @@ export interface ConnectionContext<
 
   /** Raw platform object from the adapter (Durable Object stub, etc.). */
   platform: Platform;
+
+  // Dispatch-local storage
+  /**
+   * Store a typed value under a key for the current message dispatch.
+   *
+   * Provided values are visible to every downstream intercept and to the
+   * final handler that shares this dispatch context. They are isolated
+   * per dispatch — values set here are not visible to the next message.
+   *
+   * @see inject
+   */
+  provide<T>(key: LocalKey<T>, value: T): void;
+
+  /**
+   * Retrieve a value stored by an upstream `provide` call for this dispatch.
+   *
+   * Returns `undefined` when nothing was provided for the given key in this
+   * dispatch (e.g. the providing intercept did not run, or no intercept
+   * called `provide` for this key at all).
+   *
+   * @see provide
+   */
+  inject<T>(key: LocalKey<T>): T | undefined;
 }
 
 /**
