@@ -142,6 +142,7 @@ export function createEngineAccess(
     },
     requireStorage: () => core.requireStorage(),
     requireTimers: () => core.requireTimers(),
+    getInvocationScope: () => core.invocationScope,
     setHibernationEnabled: (enabled) => {
       core.hibernationEnabled = enabled;
     },

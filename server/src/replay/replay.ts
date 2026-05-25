@@ -16,6 +16,7 @@ import {
 import type { EngineAccess } from '~/_engine/access.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { RuntimeConnection, WireOutgoingMessage } from '~/_engine/runtime/types.ts';
+import type { SQLProvider } from '~/context.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { ReplayOptions } from '~/replay/types.ts';
 import type { ReplayWire } from './wire.ts';
@@ -222,16 +223,37 @@ class ReplayInstaller {
       return;
 
     const { sql } = this.engine.requireStorage();
+    const scope = this.engine.getInvocationScope();
+    const replayScope = readReplayScope(wireMessage.wskit);
+    const retention = this.opts.retention;
+    function runPrune(sqlForPrune: Pick<SQLProvider, 'exec'>): void {
+      pruneExpiredReplayRows(sqlForPrune, retention, Date.now());
+      pruneReplayScopeRows(sqlForPrune, retention, replayScope);
+    }
+
     const row = persistReplayMessage(sql, {
       options: this.opts,
       event: wireMessage.event,
       payload: wireMessage.payload,
       wskit: wireMessage.wskit,
       now: Date.now(),
+      scope,
+      postFlush: runPrune,
     });
 
-    pruneExpiredReplayRows(sql, this.opts.retention, row?.createdAt ?? Date.now());
-    pruneReplayScopeRows(sql, this.opts.retention, readReplayScope(wireMessage.wskit));
+    // Only snapshot writes that ran inside an open handler scope get queued
+    // for a later flush. Every other case (history mode, or snapshot mode
+    // with no handler scope) has already saved the row to SQL above, so the
+    // retention prune needs to run here and now — otherwise the table can
+    // grow past its row limit before the next call cleans it up.
+    //
+    // For the queued case the scope flusher calls `runPrune` itself once
+    // the row is actually on disk, so we deliberately skip the prune here.
+    const queued = scope !== null && (this.opts.type ?? 'history') === 'snapshot';
+    if (!queued) {
+      pruneExpiredReplayRows(sql, retention, row?.createdAt ?? Date.now());
+      pruneReplayScopeRows(sql, retention, replayScope);
+    }
   };
 
   /** Handle the `__replay__` protocol frame by resending stored rows to the requester. */

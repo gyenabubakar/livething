@@ -34,9 +34,16 @@ describe('ReplaySnapshotClient — incoming (server outgoing)', () => {
     }>();
   });
 
-  it('exactly three events in top-level incoming', () => {
+  it('has burst-done', () => {
+    expectTypeOf<ReplaySnapshotClient['incoming']['burst-done']>().toEqualTypeOf<{
+      key: string;
+      sent: number;
+    }>();
+  });
+
+  it('exactly four events in top-level incoming', () => {
     expectTypeOf<keyof ReplaySnapshotClient['incoming']>().toEqualTypeOf<
-      'doc-snapshot' | 'doc-deleted' | 'counter-snapshot'
+      'doc-snapshot' | 'doc-deleted' | 'counter-snapshot' | 'burst-done'
     >();
   });
 });
@@ -59,6 +66,13 @@ describe('ReplaySnapshotClient — outgoing (server incoming)', () => {
     expectTypeOf<ReplaySnapshotClient['outgoing']['increment-counter']>().toEqualTypeOf<{
       key: string;
       amount: number;
+    }>();
+  });
+
+  it('has burst-counter', () => {
+    expectTypeOf<ReplaySnapshotClient['outgoing']['burst-counter']>().toEqualTypeOf<{
+      key: string;
+      count: number;
     }>();
   });
 });

@@ -2,6 +2,8 @@ import { channel, contract, implement, incoming, outgoing, t } from '@wskit/serv
 import { RejectUpgrade } from '@wskit/server/errors';
 import type { InferClient } from '@wskit/server';
 import {
+  BurstCounter,
+  BurstDone,
   CounterSnapshot,
   DeleteDoc,
   DocDeleted,
@@ -44,10 +46,12 @@ export const replaySnapshotContract = contract<Env>('replay-snapshot-test')({
     incoming('update-doc', UpdateDoc),
     incoming('delete-doc', DeleteDoc),
     incoming('increment-counter', IncrementCounter),
+    incoming('burst-counter', BurstCounter),
 
     outgoing('doc-snapshot', DocSnapshot),
     outgoing('doc-deleted', DocDeleted),
     outgoing('counter-snapshot', CounterSnapshot),
+    outgoing('burst-done', BurstDone),
 
     channel('snapshot-room', {
       replay: {
@@ -82,6 +86,19 @@ export const replaySnapshotHandler = implement(replaySnapshotContract)
   })
   .on('increment-counter', (ctx, payload) => {
     ctx.send('counter-snapshot', { key: payload.key, total: payload.amount });
+  })
+  // Burst handler used for the snapshot-coalescing benchmark. It sends a
+  // pile of counter-snapshot messages in one go, all targeting the same
+  // snapshot key. Before the snapshot-batching change, each send hit SQL
+  // and wrote a row that the next send overwrote anyway — `count` writes
+  // for one final row. After the change, all the sends fold together in
+  // memory inside the open handler scope and one row gets written when
+  // the handler finishes.
+  .on('burst-counter', (ctx, payload) => {
+    for (let i = 0; i < payload.count; i += 1) {
+      ctx.send('counter-snapshot', { key: payload.key, total: 1 });
+    }
+    ctx.send('burst-done', { key: payload.key, sent: payload.count });
   })
   .channel('snapshot-room', (ch) =>
     ch.on('update-room-doc', (ctx, payload) => {

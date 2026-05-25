@@ -10,6 +10,8 @@
 
 	let counterSnapshots = $state<string[]>([]);
 	let counterReplayCount = $state(0);
+	let burstDoneCount = $state(0);
+	let burstDoneSent = $state(0);
 	let ageTestResult = $state('');
 	let roomSubscribed = $state('');
 	let roomSnapshots = $state<string[]>([]);
@@ -61,6 +63,9 @@
 					counterReplayCount++;
 					counterSnapshots = [...counterSnapshots, entry];
 				}
+			} else if (evt === 'burst-done') {
+				burstDoneCount += 1;
+				burstDoneSent = payload.sent as number;
 			} else if (evt === 'room-doc-snapshot') {
 				const entry = `${payload.docId}:${payload.title}`;
 				if (replayRequested) {
@@ -108,6 +113,10 @@
 
 	function incrementCounter(key: string, amount: number) {
 		send('increment-counter', { key, amount });
+	}
+
+	function burstCounter(key: string, count: number) {
+		send('burst-counter', { key, count });
 	}
 
 	function requestReplayForCounters() {
@@ -179,6 +188,13 @@
 		<button data-testid="counter-replay-btn" onclick={requestReplayForCounters} disabled={status !== 'connected'}>Replay Counters</button>
 		<div data-testid="counter-snapshots">{counterSnapshots.join(' | ')}</div>
 		<div data-testid="counter-replay-count">{counterReplayCount}</div>
+	</section>
+
+	<section>
+		<h2>Burst (snapshot coalescing fixture)</h2>
+		<button data-testid="burst-50-btn" onclick={() => burstCounter('burst', 50)} disabled={status !== 'connected'}>Burst 50</button>
+		<div data-testid="burst-done-count">{burstDoneCount}</div>
+		<div data-testid="burst-done-sent">{burstDoneSent}</div>
 	</section>
 
 	<section>

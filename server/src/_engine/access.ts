@@ -4,6 +4,7 @@ import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as ContextApi from '~/context.ts';
 import type * as ErrorsPrimitive from '~/errors/errors.ts';
 import type * as LifecycleTypes from '~/lifecycle/lifecycle.ts';
+import type * as ReplayPrimitiveTypes from '~/replay/types.ts';
 import type * as ScheduledPrimitive from '~/scheduled/types.ts';
 import type * as ValidationTypes from '~/types.ts';
 
@@ -276,6 +277,29 @@ export interface EngineAccess {
    * This throws if the current adapter did not provide timers.
    */
   requireTimers(): ContextApi.TimerProvider;
+
+  /**
+   * Read the scope object the engine keeps open while it is running one
+   * of its user-facing callbacks (an incoming WebSocket message, a close,
+   * a WebSocket error, or a scheduled alarm fire). Replay reads this so
+   * it can hold snapshot-mode writes in memory and collapse many sends
+   * that target the same key into one row write at the end of the
+   * callback.
+   *
+   * Returns `null` when no such callback is running right now — in that
+   * case the caller should write to SQL right away.
+   *
+   * @internal
+   */
+  getInvocationScope(): {
+    pendingReplaySnapshotRows: Map<
+      string,
+      {
+        row: ReplayPrimitiveTypes.ReplayRow | null;
+        postFlush: (sql: Pick<ContextApi.SQLProvider, 'exec'>) => void;
+      }
+    >;
+  } | null;
 
   /**
    * Tell the engine whether this handler wants connection hibernation enabled.

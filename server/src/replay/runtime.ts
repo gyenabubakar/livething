@@ -3,6 +3,7 @@ import { ENGINE_SCOPE_META } from '~/_engine/contexts/types.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import type { EngineScopeMeta } from '~/_engine/contexts/types.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
+import type { SQLProvider } from '~/context.ts';
 import type {
   ReplayOptions,
   ReplayPayloadScope,
@@ -308,6 +309,39 @@ export interface PersistReplayMessageOptions {
   wskit: Record<string, unknown>;
 
   now: number;
+
+  /**
+   * The engine's open invocation scope, if a handler is currently running.
+   * When this is set AND the replay mode is `snapshot`, this function does
+   * NOT write to SQL. Instead, it adds the row to
+   * `scope.pendingReplaySnapshotRows` under the row key the snapshot maps
+   * to. A later write in the same handler that targets the same key will
+   * find the queued row and either replace it with the new value, or run
+   * the reducer to merge the two — all in memory. When the handler
+   * finishes, the engine walks the queue and writes one row per unique key.
+   *
+   * Pass `null` (or leave it out) to keep the old behaviour where each call
+   * writes to SQL right away.
+   */
+  scope?: {
+    pendingReplaySnapshotRows: Map<
+      string,
+      {
+        row: ReplayRow | null;
+        postFlush: (sql: Pick<SQLProvider, 'exec'>) => void;
+      }
+    >;
+  } | null;
+
+  /**
+   * Clean-up callback that runs RIGHT AFTER the row is written to SQL.
+   * Replay uses this to run its retention prune (drop oldest rows when the
+   * total goes over the limit, drop rows that have expired). Running the
+   * prune before the row is on disk would miss the just-written row when
+   * counting, so the scope flusher saves the row first and only then calls
+   * this callback.
+   */
+  postFlush?: (sql: Pick<SQLProvider, 'exec'>) => void;
 }
 
 /**
@@ -332,12 +366,52 @@ export function persistReplayMessage(
   },
   opts: PersistReplayMessageOptions,
 ): ReplayRow | null {
-  const { options, event, payload, wskit, now } = opts;
+  const { options, event, payload, wskit, now, scope, postFlush } = opts;
+  function noopPostFlush(): void {}
   const row = buildReplayRow(event, { options, payload, wskit, now });
 
   if ((options.type ?? 'history') === 'history') {
     storeReplayRow(sql, row);
     return row;
+  }
+
+  // Snapshot mode AND the engine has a handler scope open. Don't write to
+  // SQL yet. Take the previous value for this row key — from the queue if
+  // an earlier write in this same handler already touched the key,
+  // otherwise from disk — run the user's reducer over (previous, next),
+  // and save the result back into the queue. The scope flusher will walk
+  // the queue at the end of the handler and write one row per key (or
+  // delete the key when the reducer returned `null`).
+  if (scope) {
+    const nextValue: ReplaySnapshotValue = { event, payload };
+    const queued = scope.pendingReplaySnapshotRows.get(row.rowKey);
+    const previousValue =
+      queued !== undefined
+        ? queued.row === null
+          ? null
+          : toReplaySnapshotValue(queued.row)
+        : (() => {
+            const fromDisk = sql.transaction((tx) => getReplayRowByKey(tx, row.rowKey));
+            return fromDisk ? toReplaySnapshotValue(fromDisk) : null;
+          })();
+    const reduced = options.reduce ? options.reduce(previousValue, nextValue) : nextValue;
+    if (!reduced) {
+      scope.pendingReplaySnapshotRows.set(row.rowKey, {
+        row: null,
+        postFlush: postFlush ?? noopPostFlush,
+      });
+      return null;
+    }
+    const snapshotRow: ReplayRow = {
+      ...row,
+      event: reduced.event,
+      payload: JSON.stringify(reduced.payload),
+    };
+    scope.pendingReplaySnapshotRows.set(row.rowKey, {
+      row: snapshotRow,
+      postFlush: postFlush ?? noopPostFlush,
+    });
+    return snapshotRow;
   }
 
   return sql.transaction((tx) => {

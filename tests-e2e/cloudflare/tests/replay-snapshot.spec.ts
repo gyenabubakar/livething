@@ -17,6 +17,12 @@ test.describe('replay-snapshot handler', () => {
     await waitForText(page, 'status', 'connected');
   });
 
+  test('burst-counter handler fires once and reports the sent count', async ({ page }) => {
+    await page.getByTestId('burst-50-btn').click();
+    await waitForText(page, 'burst-done-count', '1');
+    await waitForText(page, 'burst-done-sent', '50');
+  });
+
   test('snapshot mode: only latest value per key replayed', async ({ page }) => {
     const seqBefore = Number(await page.getByTestId('last-seq').textContent());
     await page.getByTestId('update-doc-a-btn').click();
