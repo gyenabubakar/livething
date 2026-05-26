@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { buildConnectionContext } from '~/_engine/contexts/contexts.ts';
 import { intercept } from '~/intercept/intercept.ts';
 import { runIntercepts } from '~/intercept/runtime.ts';
@@ -41,7 +42,7 @@ function baseDeps(overrides: Record<string, unknown> = {}): any {
       sql: { exec: vi.fn(), transaction: vi.fn() },
       kv: { get: vi.fn(), set: vi.fn(), delete: vi.fn(), list: vi.fn() },
     }),
-    requireTimers: () => ({ setTimeout: () => undefined, clearTimeout: () => {} }),
+    getTimers: () => undefined,
     scheduleTask: vi.fn(),
     cancelScheduled: vi.fn(() => ({ taskExists: true, removed: 1 })),
     broadcastToConnections: vi.fn(),
@@ -79,6 +80,12 @@ function baseDeps(overrides: Record<string, unknown> = {}): any {
     instanceId: undefined,
     hibernationEnabled: false,
     ...overrides,
+  };
+}
+
+function makeRuntime() {
+  return {
+    asyncContext: new AsyncLocalStorage<{ connectionId?: string; [key: PropertyKey]: unknown }>(),
   };
 }
 
@@ -169,7 +176,7 @@ describe('ctx.provide / ctx.inject', () => {
       (c as typeof ctx).provide(key, 'admin');
     });
 
-    await runIntercepts({}, connection, {
+    await runIntercepts(makeRuntime(), connection, {
       intercepts: [topIntercept],
       frame: { event: 'echo', payload: {}, kind: 'incoming', routing: {} },
       getCtx: () => ctx,
@@ -193,7 +200,7 @@ describe('ctx.provide / ctx.inject', () => {
       seenInSecond = (c as typeof ctx).inject(key);
     });
 
-    await runIntercepts({}, connection, {
+    await runIntercepts(makeRuntime(), connection, {
       intercepts: [first, second],
       frame: { event: 'echo', payload: {}, kind: 'incoming', routing: {} },
       getCtx: () => ctx,

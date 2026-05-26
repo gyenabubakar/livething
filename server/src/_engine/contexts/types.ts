@@ -69,7 +69,7 @@ export interface ContextCommonDeps {
 
   requireStorage(): PublicApi.StorageProvider;
 
-  requireTimers(): PublicApi.TimerProvider;
+  getTimers(): PublicApi.TimerProvider | undefined;
 
   scheduleTask(taskId: string, time: number, data: unknown): void;
 

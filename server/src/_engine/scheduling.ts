@@ -10,7 +10,7 @@ function buildAccess(
 ): ScheduledPrimitiveTypes.ScheduledRuntimeAccess {
   return {
     requireStorage: () => core.requireStorage(),
-    requireTimers: () => core.requireTimers(),
+    getTimers: () => core.timers,
     generateId: (prefix) => core.generateId(prefix),
     getScheduledRuns: () => core.scheduledRuns,
     getScheduledDlq: () => core.scheduledDlq,
@@ -85,7 +85,7 @@ export function cancelScheduled(
  */
 export function rescheduleAlarm(core: EngineCore): void {
   Scheduled.rescheduleScheduledAlarm({
-    requireTimers: () => core.requireTimers(),
+    getTimers: () => core.timers,
     getScheduledRuns: () => core.scheduledRuns,
     getAlarmHandle: () => core.alarmHandle,
     setAlarmHandle: (handle) => {

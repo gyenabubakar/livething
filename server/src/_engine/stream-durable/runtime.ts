@@ -9,6 +9,7 @@ import {
   installCtxNudges,
   resolveBroadcastTargets,
 } from '~/_engine/stream-common/active-stream.ts';
+import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type {
   ActiveStream,
@@ -17,7 +18,7 @@ import type {
   RoutingTarget,
   RuntimeConnection,
 } from '~/_engine/runtime/types.ts';
-import type { AsyncContext, Logger } from '~/context.ts';
+import type { Logger } from '~/context.ts';
 import { isCursorChunk, makeCursorChunk } from './cursor.ts';
 import * as Storage from './storage.ts';
 import { computeBroadcastScopeKey } from './types.ts';
@@ -60,7 +61,7 @@ export interface DurableStreamRuntime {
     },
   ): void;
 
-  asyncContext?: AsyncContext;
+  asyncContext: EngineAsyncContext;
 
   persistAttachment(connection: RuntimeConnection): void;
 

@@ -16,9 +16,9 @@ describe('heartbeat', () => {
     expect(p.__identity[0]).toBe(heartbeat.__key);
   });
 
-  it('instances have empty dependencies and timer requirement', () => {
+  it('instances have no required adapter capabilities', () => {
     const p = heartbeat({ timeout: 30_000 });
-    expect(p.__requires).toEqual({ timers: true });
+    expect(p.__requires).toEqual({});
   });
 
   it('registers connect and activity hooks through setup', () => {

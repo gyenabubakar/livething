@@ -54,7 +54,7 @@ export function resumableGenerateFactory(
     __wskit: 'resumable-stream-generate',
     __kind: 'handler',
     __identity: [RESUMABLE_STREAM_GENERATE_KEY, input.event],
-    __requires: { storage: true, timers: true },
+    __requires: { storage: true },
     event: input.event,
     validator: input.validator,
     cursor: input.cursor,

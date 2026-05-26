@@ -126,13 +126,7 @@ export interface FakeEngine {
   engine: Engine;
   calls: {
     initialize: number;
-    setEnv: unknown[];
-    setStorage: unknown[];
-    setPlatform: unknown[];
-    setTimerProvider: unknown[];
-    setAsyncContext: unknown[];
-    setWaitUntil: unknown[];
-    setLogger: unknown[];
+    create: unknown[];
     handleUpgrade: Request[];
     accept: Array<{ ws: unknown; descriptor: unknown }>;
     handleHibernationWake: unknown[];
@@ -155,13 +149,7 @@ export interface FakeEngine {
 export function makeFakeEngine(): FakeEngine {
   const calls: FakeEngine['calls'] = {
     initialize: 0,
-    setEnv: [],
-    setStorage: [],
-    setPlatform: [],
-    setTimerProvider: [],
-    setAsyncContext: [],
-    setWaitUntil: [],
-    setLogger: [],
+    create: [],
     handleUpgrade: [],
     accept: [],
     handleHibernationWake: [],
@@ -184,27 +172,6 @@ export function makeFakeEngine(): FakeEngine {
     initialize: vi.fn(async () => {
       calls.initialize += 1;
     }),
-    setEnv: (env: unknown) => {
-      calls.setEnv.push(env);
-    },
-    setStorage: (s: unknown) => {
-      calls.setStorage.push(s);
-    },
-    setPlatform: (p: unknown) => {
-      calls.setPlatform.push(p);
-    },
-    setTimerProvider: (t: unknown) => {
-      calls.setTimerProvider.push(t);
-    },
-    setAsyncContext: (asyncContext: unknown) => {
-      calls.setAsyncContext.push(asyncContext);
-    },
-    setWaitUntil: (fn: unknown) => {
-      calls.setWaitUntil.push(fn);
-    },
-    setLogger: (logger: unknown) => {
-      calls.setLogger.push(logger);
-    },
     handleUpgrade: vi.fn(async (req: Request) => {
       calls.handleUpgrade.push(req);
       const v = typeof stagedUpgrade === 'function' ? await stagedUpgrade() : stagedUpgrade;

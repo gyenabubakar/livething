@@ -45,12 +45,7 @@ export function createPluginHooks(
     },
     generateId: (prefix?: string) => core.generateId(prefix),
     getState: () => {
-      if (!core.asyncContext) {
-        throw new Error(
-          '[wskit] hooks.getState() needs async-context support, which this adapter does not provide.',
-        );
-      }
-      const activeId = core.asyncContext.getStore();
+      const activeId = core.asyncContext.getStore()?.connectionId;
       const connection = activeId ? core.connections.get(activeId) : undefined;
 
       return connection

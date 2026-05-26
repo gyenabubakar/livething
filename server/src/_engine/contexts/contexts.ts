@@ -159,10 +159,7 @@ export function buildConnectionContext(
     cancelScheduled,
 
     setAlarm: (time) => {
-      const timers = deps.requireTimers();
-      if (timers.setAlarm) {
-        void timers.setAlarm(time);
-      }
+      void deps.getTimers()?.setAlarm?.(time);
     },
 
     ...buildNamespaceScopeExtra(connection, scope, deps),

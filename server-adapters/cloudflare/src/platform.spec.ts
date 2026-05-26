@@ -193,13 +193,6 @@ describe('createTimers', () => {
     expect(state.storage.deleteAlarm).toHaveBeenCalled();
     expect(getAlarm()).toBeNull();
   });
-
-  it('exposes global setTimeout/clearTimeout bindings', () => {
-    const { state } = fakeState();
-    const timers = createTimers(state as unknown as DurableObjectState);
-    expect(typeof timers.setTimeout).toBe('function');
-    expect(typeof timers.clearTimeout).toBe('function');
-  });
 });
 
 describe('normalizeBinary', () => {

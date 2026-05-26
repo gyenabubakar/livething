@@ -1,4 +1,6 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { describe, expect, it, vi } from 'vitest';
+import type { EngineAsyncContextStore } from '~/_engine/async-context.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import { deleteConnectionState, persistAttachment } from './hibernation.ts';
@@ -25,7 +27,7 @@ function createFakeCore(): {
 
   const core = {
     hibernationEnabled: true,
-    invocationScope: null,
+    asyncContext: new AsyncLocalStorage<EngineAsyncContextStore>(),
     options: {
       hibernation: {
         persist(wsKey: unknown, snapshot: unknown) {

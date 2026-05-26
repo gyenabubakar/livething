@@ -10,6 +10,11 @@ import {
 } from '~/_engine/runtime/connection.ts';
 import { describe, expect, it, vi } from 'vitest';
 
+type AsyncContextStore = {
+  connectionId?: string;
+  [key: PropertyKey]: unknown;
+};
+
 function deferred() {
   let resolve!: () => void;
   const promise = new Promise<void>((nextResolve) => {
@@ -42,7 +47,6 @@ describe('connection runtime', () => {
           requires: {},
           replayClaimedChannelKeys: new Set(),
         },
-        timers: undefined,
         connections: new Map(),
         wsToConnectionId: new Map(),
         channelMembers: new Map(),
@@ -117,7 +121,6 @@ describe('connection runtime', () => {
           requires: {},
           replayClaimedChannelKeys: new Set(),
         },
-        timers: undefined,
         connections: new Map(),
         wsToConnectionId: new Map(),
         channelMembers: new Map(),
@@ -202,7 +205,6 @@ describe('connection runtime', () => {
           requires: {},
           replayClaimedChannelKeys: new Set(),
         },
-        timers: undefined,
         connections: new Map(),
         wsToConnectionId: new Map(),
         channelMembers: new Map(),
@@ -284,7 +286,6 @@ describe('connection runtime', () => {
           requires: {},
           replayClaimedChannelKeys: new Set(),
         },
-        timers: undefined,
         connections: new Map(),
         wsToConnectionId: new Map(),
         channelMembers: new Map(),
@@ -360,7 +361,6 @@ describe('connection runtime', () => {
           requires: {},
           replayClaimedChannelKeys: new Set(),
         },
-        timers: undefined,
         connections: new Map(),
         wsToConnectionId: new Map(),
         channelMembers: new Map(),
@@ -406,7 +406,6 @@ describe('connection runtime', () => {
 
     const shutdownPromise = handleShutdown({
       connections: connections as never,
-      timers: { setTimeout: () => Symbol(), clearTimeout: () => undefined },
       shutdownHooks: [],
       pluginRuntimes: [],
       createShutdownContext: () => ({}),
@@ -433,6 +432,9 @@ describe('connection runtime', () => {
     const events: string[] = [];
     const closed: Array<{ code: number; reason: string }> = [];
     const cleared: unknown[] = [];
+    const clearTimeoutSpy = vi
+      .spyOn(globalThis, 'clearTimeout')
+      .mockImplementation((handle) => void cleared.push(handle));
     const connections = new Map([
       [
         'conn_1',
@@ -449,14 +451,6 @@ describe('connection runtime', () => {
 
     await handleShutdown({
       connections: connections as never,
-      timers: {
-        setTimeout() {
-          return Symbol('timeout');
-        },
-        clearTimeout(handle: unknown) {
-          cleared.push(handle);
-        },
-      },
       shutdownHooks: [
         async () => {
           events.push('server-shutdown');
@@ -486,12 +480,16 @@ describe('connection runtime', () => {
     expect(events).toEqual(['server-shutdown', 'plugin-shutdown', 'close:conn_1']);
     expect(closed).toEqual([{ code: 1001, reason: 'Server shutting down' }]);
     expect(cleared).toEqual(['alarm-handle']);
+    clearTimeoutSpy.mockRestore();
   });
 
   it('continues shutdown cleanup when a server onShutdown hook throws', async () => {
     const closed: Array<{ code: number; reason: string }> = [];
     const cancelled: string[] = [];
     const cleared: unknown[] = [];
+    const clearTimeoutSpy = vi
+      .spyOn(globalThis, 'clearTimeout')
+      .mockImplementation((handle) => void cleared.push(handle));
     const errorLog: Array<{ message: string; fields?: Record<string, unknown> }> = [];
 
     const connections = new Map([
@@ -521,14 +519,6 @@ describe('connection runtime', () => {
 
     await handleShutdown({
       connections: connections as never,
-      timers: {
-        setTimeout() {
-          return Symbol('timeout');
-        },
-        clearTimeout(handle: unknown) {
-          cleared.push(handle);
-        },
-      },
       shutdownHooks: [
         async () => {
           throw new Error('boom from onShutdown');
@@ -570,17 +560,18 @@ describe('connection runtime', () => {
       '[wskit] shutdown hook threw',
       '[wskit] plugin shutdown hook threw',
     ]);
+    clearTimeoutSpy.mockRestore();
   });
 
   it('runs lifecycle hooks inside the connection async context', async () => {
-    const asyncContext = new AsyncLocalStorage<string>();
+    const asyncContext = new AsyncLocalStorage<AsyncContextStore>();
     let seen: string | undefined;
 
     await runConnectionLifecycle(
       {
         connectHooks: [
           () => {
-            seen = asyncContext.getStore();
+            seen = asyncContext.getStore()?.connectionId;
           },
         ],
         disconnectHooks: [],
@@ -600,7 +591,7 @@ describe('connection runtime', () => {
   });
 
   it('does not leak the async context when an onConnect hook throws', async () => {
-    const asyncContext = new AsyncLocalStorage<string>();
+    const asyncContext = new AsyncLocalStorage<AsyncContextStore>();
 
     await expect(
       runConnectionLifecycle(
@@ -657,7 +648,6 @@ describe('connection runtime', () => {
       compiled: { channels: new Map(), channelFamilies: new Map() } as never,
       connections: new Map([[connection.id, connection]]) as never,
       wsToConnectionId: new Map() as never,
-      timers: undefined,
       async cancelActiveStreamsForConnection() {},
       buildConnectionContext: () => ({ id: connection.id }) as Record<PropertyKey, unknown>,
       async runConnectionLifecycle(
@@ -713,7 +703,6 @@ describe('connection runtime', () => {
       compiled: { channels: new Map(), channelFamilies: new Map() } as never,
       connections: new Map() as never,
       wsToConnectionId: new Map() as never,
-      timers: undefined,
       async cancelActiveStreamsForConnection() {
         events.push('cancel-streams');
       },
@@ -811,7 +800,9 @@ describe('connection runtime', () => {
     const logger = { error: vi.fn(), warn: vi.fn(), info: vi.fn() };
     const wsKey = Symbol('ws');
     const heartbeatHandle = Symbol('heartbeat');
-    const clearTimeout = vi.fn();
+    const clearTimeoutSpy = vi
+      .spyOn(globalThis, 'clearTimeout')
+      .mockImplementation(() => undefined);
     const connection = {
       id: 'c1',
       identity: 'c1',
@@ -845,7 +836,6 @@ describe('connection runtime', () => {
       } as never,
       connections: new Map([[connection.id, connection]]) as never,
       wsToConnectionId: new Map([[wsKey, connection.id]]) as never,
-      timers: { setTimeout: () => 0, clearTimeout } as never,
       logger,
       async cancelActiveStreamsForConnection() {
         events.push('streams-cancelled');
@@ -870,9 +860,10 @@ describe('connection runtime', () => {
 
     // Both channels were attempted, heartbeat cleared, and the throw was logged.
     expect(events).toEqual(['streams-cancelled', 'disconnect-hook', 'leave:one', 'leave:two']);
-    expect(clearTimeout).toHaveBeenCalledWith(heartbeatHandle);
+    expect(clearTimeoutSpy).toHaveBeenCalledWith(heartbeatHandle);
     expect(logger.error).toHaveBeenCalledTimes(1);
     expect(logger.error.mock.calls[0]![0]).toMatch(/leaveChannel threw during close/);
+    clearTimeoutSpy.mockRestore();
   });
 
   it('cancelActiveStreamsForConnection logs and continues when one stream cleanup throws', async () => {

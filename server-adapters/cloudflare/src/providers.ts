@@ -152,8 +152,7 @@ export function createStorage(state: DurableObjectState, logger: Logger): Storag
 }
 
 /**
- * Create a TimerProvider backed by Durable Object alarms (for persistent wake-ups)
- * and `setTimeout` (for in-memory delays).
+ * Create a TimerProvider backed by Durable Object alarms.
  */
 export function createTimers(state: DurableObjectState): TimerProvider {
   return {
@@ -166,7 +165,5 @@ export function createTimers(state: DurableObjectState): TimerProvider {
     async getAlarm() {
       return state.storage.getAlarm();
     },
-    setTimeout: globalThis.setTimeout.bind(globalThis),
-    clearTimeout: globalThis.clearTimeout.bind(globalThis),
   };
 }

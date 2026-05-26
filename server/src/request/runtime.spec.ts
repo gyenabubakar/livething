@@ -4,6 +4,15 @@ import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import { handleRequest } from './runtime.ts';
 import type { RequestPrimitive } from './request.ts';
 
+type AsyncContextStore = {
+  connectionId?: string;
+  [key: PropertyKey]: unknown;
+};
+
+function makeAsyncContext() {
+  return new AsyncLocalStorage<AsyncContextStore>();
+}
+
 function createConnection(): RuntimeConnection {
   return {
     id: 'c1',
@@ -30,6 +39,7 @@ describe('request/runtime', () => {
   it('sends the request response with scope routing and correlation metadata', async () => {
     const sendThroughPipeline = vi.fn(() => true);
     const runtime = {
+      asyncContext: makeAsyncContext(),
       buildConnectionContext: () => ({ ok: true }),
       sendThroughPipeline,
     };
@@ -65,6 +75,7 @@ describe('request/runtime', () => {
 
   it('calling ctx.respond() twice in one invocation throws', async () => {
     const runtime = {
+      asyncContext: makeAsyncContext(),
       buildConnectionContext: () => ({ ok: true }),
       sendThroughPipeline: vi.fn(() => true),
     };
@@ -93,6 +104,7 @@ describe('request/runtime', () => {
   it('does not call sendThroughPipeline when handler never calls ctx.respond()', async () => {
     const sendThroughPipeline = vi.fn(() => true);
     const runtime = {
+      asyncContext: makeAsyncContext(),
       buildConnectionContext: () => ({ ok: true }),
       sendThroughPipeline,
     };
@@ -120,7 +132,7 @@ describe('request/runtime', () => {
   });
 
   it('runs the request handler inside the connection async context, auto-scoped on throw', async () => {
-    const asyncContext = new AsyncLocalStorage<string>();
+    const asyncContext = makeAsyncContext();
     const runtime = {
       buildConnectionContext: () => ({ ok: true }),
       asyncContext,
@@ -132,7 +144,7 @@ describe('request/runtime', () => {
       __wskit: 'request',
       event: 'status',
       handler: vi.fn(async () => {
-        seen = asyncContext.getStore();
+        seen = asyncContext.getStore()?.connectionId;
         throw new Error('boom');
       }),
     } as unknown as RequestPrimitive;

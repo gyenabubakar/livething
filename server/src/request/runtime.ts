@@ -1,8 +1,8 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { runWithScopedContext } from '~/intercept/runtime.ts';
+import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { ResolvedScope, RoutingTarget, RuntimeConnection } from '~/_engine/runtime/types.ts';
-import type { AsyncContext } from '~/context.ts';
 import type { RequestPrimitive } from './request.ts';
 
 interface RequestRuntime {
@@ -11,7 +11,7 @@ interface RequestRuntime {
     scope?: ResolvedScope,
   ): Record<PropertyKey, unknown>;
 
-  asyncContext?: AsyncContext;
+  asyncContext: EngineAsyncContext;
 
   sendThroughPipeline(
     connection: RuntimeConnection,

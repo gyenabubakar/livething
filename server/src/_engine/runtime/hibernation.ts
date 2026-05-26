@@ -1,3 +1,4 @@
+import { getInvocationScope } from '~/_engine/async-context.ts';
 import * as ConnectionStore from '~/_engine/runtime/connection-store.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
@@ -10,7 +11,7 @@ type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
  *
  * - `pendingWrites.active` is on during `onConnect`, so a handler that
  *   joins ten channels writes one row at the end, not ten along the way.
- * - `core.invocationScope` is open during any engine entry point, so all
+ * - an invocation scope is open during any engine entry point, so all
  *   the row writes that handler triggers queue up and flush once at the end.
  * - The fingerprint check inside `flushDirtyAttachment` skips the SQL call
  *   when the row's data has not actually changed since the last write.
@@ -19,8 +20,9 @@ export function persistAttachment(core: EngineCore, connection: RuntimeConnectio
   if (connection.pendingWrites?.active) return;
   if (!core.hibernationEnabled) return;
 
-  if (core.invocationScope) {
-    core.invocationScope.dirtyConnections.add(connection);
+  const scope = getInvocationScope(core.asyncContext);
+  if (scope) {
+    scope.dirtyConnections.add(connection);
     return;
   }
 
@@ -65,10 +67,11 @@ export function deleteConnectionState(core: EngineCore, connectionId: string): v
   // Drop any queued write for this connection first. If we did not, the
   // scope flush after this call would write a row back for a connection we
   // just deleted, bringing it back to life on disk.
-  if (core.invocationScope) {
-    for (const connection of core.invocationScope.dirtyConnections) {
+  const scope = getInvocationScope(core.asyncContext);
+  if (scope) {
+    for (const connection of scope.dirtyConnections) {
       if (connection.id === connectionId) {
-        core.invocationScope.dirtyConnections.delete(connection);
+        scope.dirtyConnections.delete(connection);
         break;
       }
     }

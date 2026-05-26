@@ -55,7 +55,6 @@ function makeRuntime(cap: number) {
     connections: new Map(),
     pluginRuntimes: [],
     logger: { warn() {}, error() {} },
-    requireTimers: () => ({ setTimeout: () => undefined, clearTimeout() {} }),
     buildConnectionContext: () => ({}),
     sendProtocolMessage() {},
     sendReplay() {},

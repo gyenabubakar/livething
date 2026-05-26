@@ -26,14 +26,13 @@ const HEARTBEAT_KEY = Symbol('heartbeat');
  * Enable this via `heartbeat: true` (or `heartbeat: { timeoutMs }`) on the
  * contract config instead of calling this primitive directly.
  *
- * Requires the `timers` platform capability.
  */
 export function heartbeat(options: HeartbeatOptions): HeartbeatPrimitive {
   return {
     __wskit: 'heartbeat',
     __kind: 'infrastructure',
     __identity: [HEARTBEAT_KEY],
-    __requires: { timers: true },
+    __requires: {},
     timeout: options.timeout,
     __setup(engine) {
       // `installOnce` ensures the timer logic is set up only once even if the

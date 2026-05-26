@@ -9,14 +9,15 @@ import {
   StreamIdCollision,
   ValidationFailed,
 } from '@wskit/core';
+import { createAsyncContext } from '~/_engine/async-context.ts';
 import * as EngineCompile from '~/_engine/compile/compile.ts';
 import { createRegisteredHooks } from '~/_engine/registry/hooks.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
+import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type * as PublicApi from '~/context.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
-import type * as ReplayPrimitiveTypes from '~/replay/types.ts';
 import type * as ScheduledPrimitiveTypes from '~/scheduled/types.ts';
 import type * as DefineServer from '~/server-definition.ts';
 
@@ -43,22 +44,11 @@ export class EngineCore {
   // ─────── adapter-provided dependencies ───────
 
   storage?: PublicApi.StorageProvider;
-  env: Record<string, unknown> = {};
+  env: Record<string, unknown>;
   timers?: PublicApi.TimerProvider;
-  platform: unknown = {};
-  waitUntilImpl: (promise: Promise<unknown>) => void = () => {};
-  hasWaitUntil = false;
-  logger: PublicApi.Logger = {
-    info(message: string, data?: unknown) {
-      console.log(message, data ?? {});
-    },
-    warn(message: string, data?: unknown) {
-      console.warn(message, data ?? {});
-    },
-    error(message: string, data?: unknown) {
-      console.error(message, data ?? {});
-    },
-  };
+  platform: unknown;
+  waitUntilImpl: (promise: Promise<unknown>) => void;
+  logger: PublicApi.Logger;
 
   /**
    * Engine id for multi-instance setups. `undefined` means single-instance —
@@ -126,49 +116,6 @@ export class EngineCore {
   readonly installedFeatures = new Set<symbol>();
   readonly pluginRuntimes: PluginRuntime[] = [];
 
-  // The engine sets this to an open scope object whenever it is busy
-  // running one user-facing callback — a wskit handler responding to an
-  // incoming WebSocket message, a WebSocket close, a WebSocket error, or
-  // a scheduled callback fire. (The full list is the methods `wrapHandle`
-  // wraps in `_engine/engine.ts`.) The scope closes when that callback
-  // returns.
-  //
-  // While the scope is open the engine holds back two kinds of SQL writes
-  // and does them all at the end of the callback instead of one by one as
-  // they happen:
-  //
-  // - `dirtyConnections` collects connections whose hibernation row needs
-  //   saving. A handler that joins five channels would normally save the
-  //   row five times; with the scope it saves once at the end.
-  //
-  // - `pendingReplaySnapshotRows` collects snapshot-mode replay writes,
-  //   grouped by the row key the snapshot maps to. When a later send in
-  //   the same handler targets the same key, the new value replaces (or
-  //   is merged with) the old one in memory. At the end of the callback
-  //   each key writes one row. A `null` row means "delete this row at
-  //   flush time" — that comes from a reducer that decided the key
-  //   should no longer exist.
-  //
-  // `postFlush` is a clean-up callback the queue entry carries with it.
-  // The scope flusher calls it right after writing the row. Replay uses
-  // this to run its retention prune (drop the oldest rows, drop expired
-  // rows) once the new row is actually on disk and counts toward the
-  // limit.
-  //
-  // `null` here means no handler is currently running, so writes go
-  // straight to SQL the moment they are asked for, the same as before
-  // this batching layer existed.
-  invocationScope: {
-    dirtyConnections: Set<RuntimeConnection>;
-    pendingReplaySnapshotRows: Map<
-      string,
-      {
-        row: ReplayPrimitiveTypes.ReplayRow | null;
-        postFlush: (sql: Pick<PublicApi.SQLProvider, 'exec'>) => void;
-      }
-    >;
-  } | null = null;
-
   alarmHandle: unknown = null;
   idCounter = 0;
   readonly instanceNonce = Math.random().toString(36).slice(2, 8);
@@ -176,43 +123,37 @@ export class EngineCore {
    * Async-context capability from the adapter. Tracks the connection whose
    * dispatch is on the async call stack; read by a plugin's `getState()`.
    */
-  asyncContext?: PublicApi.AsyncContext;
+  asyncContext: EngineAsyncContext;
 
   constructor(handler: DefineServer.ServerDefinition, options: EngineAdapterTypes.EngineOptions) {
+    if (options.env === undefined) {
+      throw new Error(`[wskit] Adapter "${options.adapterId}" did not provide env.`);
+    }
+    if (options.platform === undefined) {
+      throw new Error(`[wskit] Adapter "${options.adapterId}" did not provide platform.`);
+    }
+    if (options.waitUntil === undefined) {
+      throw new Error(`[wskit] Adapter "${options.adapterId}" did not provide waitUntil.`);
+    }
+    if (options.logger === undefined) {
+      throw new Error(`[wskit] Adapter "${options.adapterId}" did not provide logger.`);
+    }
+    if (options.asyncContextFactory === undefined) {
+      throw new Error(
+        `[wskit] Adapter "${options.adapterId}" did not provide async-context support.`,
+      );
+    }
+
     this.options = options;
     this.primitives = handler.primitives;
     this.compiled = EngineCompile.compileHandlerDefinition(handler);
-  }
-
-  // ─────── setters ───────
-
-  setStorage(storage: PublicApi.StorageProvider): void {
-    this.storage = storage;
-  }
-
-  setEnv(env: Record<string, unknown>): void {
-    this.env = env;
-  }
-
-  setTimerProvider(timers: PublicApi.TimerProvider): void {
-    this.timers = timers;
-  }
-
-  setPlatform(platform: unknown): void {
-    this.platform = platform;
-  }
-
-  setAsyncContext(asyncContext: PublicApi.AsyncContext): void {
-    this.asyncContext = asyncContext;
-  }
-
-  setWaitUntil(waitUntil: (promise: Promise<unknown>) => void): void {
-    this.hasWaitUntil = true;
-    this.waitUntilImpl = waitUntil;
-  }
-
-  setLogger(logger: PublicApi.Logger): void {
-    this.logger = logger;
+    this.storage = options.storage;
+    this.env = options.env;
+    this.timers = options.timers;
+    this.platform = options.platform;
+    this.waitUntilImpl = options.waitUntil;
+    this.logger = options.logger;
+    this.asyncContext = createAsyncContext(options.asyncContextFactory);
   }
 
   setInstanceId(id: string): void {

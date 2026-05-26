@@ -38,47 +38,6 @@ export class Engine {
 
   // ─────── adapter configuration ───────
 
-  /** Set the storage driver. */
-  setStorage(storage: PublicApi.StorageProvider): void {
-    this.core.setStorage(storage);
-  }
-
-  /** Set the env bindings exposed to every runtime context. */
-  setEnv(env: Record<string, unknown>): void {
-    this.core.setEnv(env);
-  }
-
-  /** Set the timer implementation. */
-  setTimerProvider(timers: PublicApi.TimerProvider): void {
-    this.core.setTimerProvider(timers);
-  }
-
-  /** Set the adapter-specific platform object. */
-  setPlatform(platform: unknown): void {
-    this.core.setPlatform(platform);
-  }
-
-  /**
-   * Set the async-context capability used to track which connection's dispatch
-   * is running. Required for a plugin's `getState()` to resolve correctly.
-   */
-  setAsyncContext(asyncContext: PublicApi.AsyncContext): void {
-    this.core.setAsyncContext(asyncContext);
-  }
-
-  /** Set the adapter's `waitUntil` so tasks can outlive a single callback. */
-  setWaitUntil(waitUntil: (promise: Promise<unknown>) => void): void {
-    this.core.setWaitUntil(waitUntil);
-  }
-
-  /**
-   * Set the logger. Call once during adapter setup. Falls back to `console.*`
-   * if never called.
-   */
-  setLogger(logger: PublicApi.Logger): void {
-    this.core.setLogger(logger);
-  }
-
   /** Set the engine instance id. Only adapters running with a broker call this. */
   setInstanceId(id: string): void {
     this.core.setInstanceId(id);
@@ -155,7 +114,6 @@ export class Engine {
     const core = this.core;
     return EngineConnectionRuntime.handleShutdown({
       connections: core.connections,
-      timers: core.timers,
       shutdownHooks: core.hooks.shutdown,
       pluginRuntimes: core.pluginRuntimes,
 

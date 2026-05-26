@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { getInvocationScope } from '~/_engine/async-context.ts';
 import { sendProtocolMessage, sendReplay } from '~/_engine/runtime/wire.ts';
 import * as HeartbeatPrimitive from '~/heartbeat/runtime.ts';
 import * as OutgoingRuntime from '~/outgoing/runtime.ts';
@@ -142,7 +143,7 @@ export function createEngineAccess(
     },
     requireStorage: () => core.requireStorage(),
     requireTimers: () => core.requireTimers(),
-    getInvocationScope: () => core.invocationScope,
+    getInvocationScope: () => getInvocationScope(core.asyncContext),
     setHibernationEnabled: (enabled) => {
       core.hibernationEnabled = enabled;
     },
@@ -187,7 +188,7 @@ export function createEngineAccess(
       const connection = core.connections.get(connectionId);
       if (!connection) return;
 
-      HeartbeatPrimitive.refreshHeartbeatTimeout(core.requireTimers(), connection, timeoutMs);
+      HeartbeatPrimitive.refreshHeartbeatTimeout(connection, timeoutMs);
     },
     getScheduledRuns: () => core.scheduledRuns,
     getScheduledDlq: () => core.scheduledDlq,

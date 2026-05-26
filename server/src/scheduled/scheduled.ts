@@ -208,7 +208,7 @@ export class ScheduledBuilder<
       __wskit: 'scheduled',
       __kind: 'infrastructure',
       __identity: [SCHEDULED_KEY, this._taskId],
-      __requires: { storage: true, timers: true },
+      __requires: { storage: true },
       taskId: this._taskId,
       handler: this._handler as ScheduledHandler<TCtx, TData, THasData>,
       hasData: Boolean(this._dataSchema) as THasData,

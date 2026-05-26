@@ -15,7 +15,10 @@ vi.mock('cloudflare:workers', () => ({
   DurableObject: FakeDurableObjectBase,
 }));
 
-type AdapterSetup = (createEngine: () => unknown, options: unknown) => unknown;
+type AdapterSetup = (
+  createEngine: (runtimeOptions: unknown) => unknown,
+  options: unknown,
+) => unknown;
 
 let fake: FakeEngine;
 
@@ -26,7 +29,10 @@ vi.mock('@wskit/server/adapters', () => ({
   defineServerAdapter:
     <TOpts, TSvc>(config: { id: string; hibernation: unknown; setup: AdapterSetup }) =>
     (_handler: unknown, options: TOpts): TSvc => {
-      return config.setup(() => fake.engine, options) as TSvc;
+      return config.setup((runtimeOptions: unknown) => {
+        fake.calls.create.push(runtimeOptions);
+        return fake.engine;
+      }, options) as TSvc;
     },
 }));
 
@@ -98,6 +104,16 @@ describe('WskitDurableObject fetch / upgrade', () => {
     expect(desc.tags).toEqual([
       { __wskit: 'tag-ref', kind: 'ephemeral', group: 'role', key: 't1' },
     ]);
+    expect(fake.calls.create).toHaveLength(1);
+    expect(fake.calls.create[0]).toMatchObject({
+      env: {},
+      logger: expect.any(Object),
+      platform: expect.any(Object),
+      storage: expect.any(Object),
+      timers: expect.any(Object),
+      asyncContextFactory: expect.any(Function),
+      waitUntil: expect.any(Function),
+    });
   });
 
   it('wires addEventListener handlers that forward to the connection handle (standard mode)', async () => {
@@ -336,22 +352,24 @@ describe('engine wiring in the constructor', () => {
     const env = { KEY: 'value' };
     new Cls(state as unknown as DurableObjectState, env);
 
-    expect(fake.calls.setEnv[0]).toEqual(env);
-    expect(fake.calls.setStorage).toHaveLength(1);
-    expect(fake.calls.setPlatform).toHaveLength(1);
-    expect(fake.calls.setTimerProvider).toHaveLength(1);
-    expect(fake.calls.setWaitUntil).toHaveLength(1);
-    expect(fake.calls.setLogger).toHaveLength(1);
+    expect(fake.calls.create).toHaveLength(1);
+    const engineOptions = fake.calls.create[0] as Record<string, unknown>;
+    expect(engineOptions.env).toEqual(env);
+    expect(engineOptions.storage).toBeDefined();
+    expect(engineOptions.platform).toBeDefined();
+    expect(engineOptions.timers).toBeDefined();
+    expect(engineOptions.waitUntil).toBeTypeOf('function');
+    expect(engineOptions.logger).toBeDefined();
 
-    // The same Logger instance the adapter passes to engine.setLogger is also
+    // The same Logger instance the adapter passes into engine creation is also
     // passed into the storage providers, so kv warnings flow through one logger.
-    const adapterLogger = fake.calls.setLogger[0] as Record<string, unknown>;
+    const adapterLogger = engineOptions.logger as Record<string, unknown>;
     expect(typeof adapterLogger.info).toBe('function');
     expect(typeof adapterLogger.warn).toBe('function');
     expect(typeof adapterLogger.error).toBe('function');
 
-    // setWaitUntil wrapper forwards through to state.waitUntil
-    const wrapper = fake.calls.setWaitUntil[0] as (p: Promise<unknown>) => void;
+    // waitUntil wrapper forwards through to state.waitUntil
+    const wrapper = engineOptions.waitUntil as (p: Promise<unknown>) => void;
     const p = Promise.resolve();
     wrapper(p);
     expect(state.waitUntil).toHaveBeenCalledWith(p);

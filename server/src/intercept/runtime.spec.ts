@@ -5,6 +5,11 @@ import { intercept } from './intercept.ts';
 import { runIntercepts, runWithScopedContext } from './runtime.ts';
 import type { InterceptFrame } from './intercept.ts';
 
+type AsyncContextStore = {
+  connectionId?: string;
+  [key: PropertyKey]: unknown;
+};
+
 function createConnection(): RuntimeConnection {
   return {
     id: 'c1',
@@ -35,6 +40,12 @@ function makeFrame(event: string, payload: unknown): InterceptFrame {
   return { event, payload, kind: 'incoming', routing: {} };
 }
 
+function makeRuntime() {
+  return {
+    asyncContext: new AsyncLocalStorage<AsyncContextStore>(),
+  };
+}
+
 describe('intercept/runtime', () => {
   it('runs intercepts in order and lets them rewrite the payload', async () => {
     const connection = createConnection();
@@ -48,7 +59,7 @@ describe('intercept/runtime', () => {
       b: 2,
     }));
 
-    const next = await runIntercepts({}, connection, {
+    const next = await runIntercepts(makeRuntime(), connection, {
       intercepts: [first, second],
       frame: makeFrame('hello', {}),
       getCtx,
@@ -77,7 +88,7 @@ describe('intercept/runtime', () => {
       return undefined;
     });
 
-    await runIntercepts({}, connection, {
+    await runIntercepts(makeRuntime(), connection, {
       intercepts: [a, b],
       frame: makeFrame('e', {}),
       getCtx: countingGetCtx,
@@ -91,7 +102,7 @@ describe('intercept/runtime', () => {
     const connection = createConnection();
     let builds = 0;
 
-    const next = await runIntercepts({}, connection, {
+    const next = await runIntercepts(makeRuntime(), connection, {
       intercepts: [],
       frame: makeFrame('e', { keep: true }),
       getCtx: () => {
@@ -115,7 +126,7 @@ describe('intercept/runtime', () => {
       payload: { count: 7 },
     }));
 
-    const next = await runIntercepts({}, connection, {
+    const next = await runIntercepts(makeRuntime(), connection, {
       intercepts: [aliasing],
       frame: makeFrame('alias', { ignored: true }),
       getCtx,
@@ -132,7 +143,7 @@ describe('intercept/runtime', () => {
 
     const passthrough = intercept(() => undefined);
 
-    const next = await runIntercepts({}, connection, {
+    const next = await runIntercepts(makeRuntime(), connection, {
       intercepts: [passthrough],
       frame: makeFrame('foo', { keep: true }),
       getCtx,
@@ -148,7 +159,7 @@ describe('intercept/runtime', () => {
 
     const nuller = intercept(() => null);
 
-    const next = await runIntercepts({}, connection, {
+    const next = await runIntercepts(makeRuntime(), connection, {
       intercepts: [nuller],
       frame: makeFrame('foo', { original: true }),
       getCtx,
@@ -166,7 +177,7 @@ describe('intercept/runtime', () => {
     });
 
     await expect(
-      runIntercepts({}, connection, {
+      runIntercepts(makeRuntime(), connection, {
         intercepts: [blocker],
         frame: makeFrame('test', {}),
         getCtx,
@@ -193,7 +204,7 @@ describe('intercept/runtime', () => {
       kind: 'request',
       routing: { correlationId: 'abc-123' },
     };
-    const next = await runIntercepts({}, connection, {
+    const next = await runIntercepts(makeRuntime(), connection, {
       intercepts: [recorder, second],
       frame: start,
       getCtx,
@@ -209,7 +220,7 @@ describe('intercept/runtime', () => {
   });
 
   it('runs the scoped callback inside the connection async context, auto-scoped on throw', async () => {
-    const asyncContext = new AsyncLocalStorage<string>();
+    const asyncContext = new AsyncLocalStorage<AsyncContextStore>();
     const connection = createConnection();
 
     let seen: string | undefined;
@@ -217,7 +228,7 @@ describe('intercept/runtime', () => {
       runWithScopedContext({ asyncContext }, connection, {
         ctx: {},
         handler: async () => {
-          seen = asyncContext.getStore();
+          seen = asyncContext.getStore()?.connectionId;
           throw new Error('boom');
         },
       }),

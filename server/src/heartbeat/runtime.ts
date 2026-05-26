@@ -1,5 +1,4 @@
 import { CloseCodes } from '@wskit/core';
-import type { TimerProvider } from '~/context.ts';
 
 const DEFAULT_CONNECTION_PING_INTERVAL_MS = 30_000;
 const MAX_RECENT_LATENCIES = 5;
@@ -19,7 +18,6 @@ function qualityFromLatency(latency: number): 'excellent' | 'good' | 'degraded' 
  * inactivity window instead of stacking multiple timers.
  */
 export function refreshHeartbeatTimeout(
-  timers: TimerProvider,
   connection: {
     heartbeatTimer?: unknown;
     descriptor: { close(code?: number, reason?: string): void };
@@ -27,10 +25,10 @@ export function refreshHeartbeatTimeout(
   timeoutMs: number,
 ): void {
   if (connection.heartbeatTimer !== undefined) {
-    timers.clearTimeout(connection.heartbeatTimer);
+    clearTimeout(connection.heartbeatTimer as ReturnType<typeof setTimeout>);
   }
 
-  connection.heartbeatTimer = timers.setTimeout(() => {
+  connection.heartbeatTimer = setTimeout(() => {
     connection.descriptor.close(CloseCodes.IDLE, 'Heartbeat timeout');
   }, timeoutMs);
 }
@@ -44,7 +42,6 @@ export function refreshHeartbeatTimeout(
  * ping fires, the connection quality is downgraded to `'poor'`.
  */
 export function scheduleConnectionPing(
-  timers: TimerProvider,
   connection: {
     pingTimer?: unknown;
     pendingPingSentAt?: number;
@@ -54,17 +51,17 @@ export function scheduleConnectionPing(
   intervalMs = DEFAULT_CONNECTION_PING_INTERVAL_MS,
 ): void {
   if (connection.pingTimer !== undefined) {
-    timers.clearTimeout(connection.pingTimer);
+    clearTimeout(connection.pingTimer as ReturnType<typeof setTimeout>);
   }
 
-  connection.pingTimer = timers.setTimeout(() => {
+  connection.pingTimer = setTimeout(() => {
     if (connection.pendingPingSentAt !== undefined) {
       connection.quality = 'poor';
     }
 
     connection.pendingPingSentAt = Date.now();
     connection.descriptor.send('ping');
-    scheduleConnectionPing(timers, connection, intervalMs);
+    scheduleConnectionPing(connection, intervalMs);
   }, intervalMs);
 }
 
@@ -73,15 +70,12 @@ export function scheduleConnectionPing(
  *
  * Called when a connection closes or during shutdown cleanup.
  */
-export function stopConnectionPing(
-  timers: TimerProvider | undefined,
-  connection: {
-    pingTimer?: unknown;
-    pendingPingSentAt?: number;
-  },
-): void {
-  if (connection.pingTimer !== undefined && timers) {
-    timers.clearTimeout(connection.pingTimer);
+export function stopConnectionPing(connection: {
+  pingTimer?: unknown;
+  pendingPingSentAt?: number;
+}): void {
+  if (connection.pingTimer !== undefined) {
+    clearTimeout(connection.pingTimer as ReturnType<typeof setTimeout>);
   }
 
   connection.pingTimer = undefined;

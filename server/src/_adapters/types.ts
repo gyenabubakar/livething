@@ -1,5 +1,11 @@
 import type * as EngineModule from '~/_engine/engine.ts';
-import type { TagRef } from '~/context.ts';
+import type {
+  AsyncContextFactory,
+  Logger,
+  StorageProvider,
+  TagRef,
+  TimerProvider,
+} from '~/context.ts';
 
 /**
  * The low-level send/close callbacks an adapter provides for each WebSocket.
@@ -107,6 +113,27 @@ export interface EngineOptions {
    * unsupported.
    */
   hibernation?: HibernationApi;
+
+  /** Adapter-provided storage surface. Omit when the runtime has no durable storage. */
+  storage?: StorageProvider;
+
+  /** Env bindings exposed to every runtime context. */
+  env: Record<string, unknown>;
+
+  /** Adapter-specific platform object exposed as `ctx.platform`. */
+  platform: unknown;
+
+  /** Timer implementation for in-memory timers and durable alarms. Omit when the runtime has no timer support. */
+  timers?: TimerProvider;
+
+  /** Factory for the async-context implementation used by this runtime. */
+  asyncContextFactory: AsyncContextFactory;
+
+  /** Platform hook for background work that may outlive the current callback. */
+  waitUntil: (promise: Promise<unknown>) => void;
+
+  /** Structured logger exposed as `ctx.log`. */
+  logger: Logger;
 }
 
 /** The runtime engine created by the adapter from a compiled server definition. Handles connections, message routing, and lifecycle. */
@@ -128,5 +155,8 @@ export interface AdapterConfig<TOptions, TService> {
    */
   hibernation?: HibernationApi;
 
-  setup(createEngine: () => Engine, options: TOptions): TService;
+  setup(
+    createEngine: (runtimeOptions: Omit<EngineOptions, 'adapterId' | 'hibernation'>) => Engine,
+    options: TOptions,
+  ): TService;
 }

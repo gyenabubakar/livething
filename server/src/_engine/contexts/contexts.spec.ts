@@ -48,10 +48,7 @@ function baseDeps(overrides: Partial<Parameters<typeof buildConnectionContext>[0
     platform: {},
     waitUntilImpl: vi.fn(),
     requireStorage: () => baseStorage(),
-    requireTimers: () => ({
-      setTimeout: () => undefined,
-      clearTimeout: () => {},
-    }),
+    getTimers: () => undefined,
     scheduleTask: vi.fn(),
     cancelScheduled: vi.fn(() => ({ taskExists: true, removed: 1 })),
     broadcastToConnections: vi.fn(),
@@ -197,9 +194,7 @@ describe('ctx.setAlarm', () => {
     const connection = createConnection('c1');
     const deps = baseDeps({
       connections: new Map([[connection.id, connection]]),
-      requireTimers: () => ({
-        setTimeout: () => undefined,
-        clearTimeout: () => {},
+      getTimers: () => ({
         setAlarm,
       }),
     });
@@ -538,10 +533,7 @@ describe('lazy storage in init/shutdown/task contexts', () => {
       platform: {},
       waitUntilImpl: vi.fn(),
       requireStorage,
-      requireTimers: () => ({
-        setTimeout: () => undefined,
-        clearTimeout: () => {},
-      }),
+      getTimers: () => undefined,
       scheduleTask: vi.fn(),
       cancelScheduled: vi.fn(() => ({ taskExists: true, removed: 1 })),
       broadcastToConnections: vi.fn(),

@@ -19,9 +19,9 @@ import * as OutgoingRuntime from '~/outgoing/runtime.ts';
 import * as RequestPrimitive from '~/request/runtime.ts';
 import * as StreamPrimitive from '~/stream/runtime.ts';
 import * as v from 'valibot';
+import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as DurableStreamStorage from '~/_engine/stream-durable/storage.ts';
-import type * as PublicApi from '~/context.ts';
 import { resolveScope, routingFromWskit } from './scope.ts';
 import type * as EngineRuntimeTypes from './types.ts';
 
@@ -71,8 +71,6 @@ interface DispatchRuntime
 
   errorHooks: readonly ((ctx: any, error: unknown, event?: string) => void | Promise<void>)[];
 
-  requireTimers(): PublicApi.TimerProvider;
-
   buildConnectionContext(
     connection: EngineRuntimeTypes.RuntimeConnection,
     scope?: EngineRuntimeTypes.ResolvedScope,
@@ -96,7 +94,7 @@ interface DispatchRuntime
 
   persistAttachment(connection: EngineRuntimeTypes.RuntimeConnection): void;
 
-  asyncContext?: PublicApi.AsyncContext;
+  asyncContext: EngineAsyncContext;
 
   handleRuntimeError(
     connection: EngineRuntimeTypes.RuntimeConnection,
@@ -435,7 +433,7 @@ export async function dispatchIncoming(
         throw new Error(
           '[wskit] durable stream "' +
             durable.event +
-            '" requires storage; the adapter did not call engine.setStorage(...).',
+            '" requires storage; the adapter did not provide storage.',
         );
       }
       if (!runtime.durableStreamSchemaReady) {
@@ -526,7 +524,7 @@ async function handleDispatchError(
     }
 
     const delay = Number((error as { delay: number }).delay);
-    runtime.requireTimers().setTimeout(() => {
+    setTimeout(() => {
       void dispatchIncoming(runtime, connection, { event, payload, wskit, attempt: attempt + 1 });
     }, delay);
     return;

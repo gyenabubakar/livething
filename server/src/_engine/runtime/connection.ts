@@ -4,6 +4,7 @@ import * as ChannelPrimitive from '~/channel/runtime.ts';
 import * as HeartbeatPrimitive from '~/heartbeat/runtime.ts';
 import * as TagPrimitive from '~/tags/runtime.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
+import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as PublicApi from '~/context.ts';
 import type * as LifecycleTypes from '~/lifecycle/lifecycle.ts';
@@ -27,7 +28,6 @@ interface HibernatableWebSocket {
 interface ConnectionRuntime {
   compiled: EngineCompileTypes.CompiledServer;
 
-  timers?: { clearTimeout(handle: unknown): void; setTimeout(fn: () => void, ms: number): unknown };
   hibernationEnabled?: boolean;
 
   connections: Map<string, EngineRuntimeTypes.RuntimeConnection>;
@@ -135,7 +135,7 @@ export async function runConnectionLifecycle(
       onConnect?: (ctx: Record<PropertyKey, unknown>) => void | Promise<void>;
       onDisconnect?: (ctx: Record<PropertyKey, unknown>) => void | Promise<void>;
     }[];
-    asyncContext?: PublicApi.AsyncContext;
+    asyncContext: EngineAsyncContext;
     createPluginScopedContext(
       pluginId: string,
       ctx: Record<PropertyKey, unknown>,
@@ -236,12 +236,7 @@ export interface HandleConnectionCloseOptions {
 export async function handleConnectionClose(
   runtime: Pick<
     ConnectionRuntime,
-    | 'compiled'
-    | 'connections'
-    | 'tagMembers'
-    | 'wsToConnectionId'
-    | 'timers'
-    | 'deleteConnectionState'
+    'compiled' | 'connections' | 'tagMembers' | 'wsToConnectionId' | 'deleteConnectionState'
   > & {
     cancelActiveStreamsForConnection(connectionId: string): Promise<void>;
     buildConnectionContext(
@@ -329,12 +324,12 @@ export async function handleConnectionClose(
 
   TagPrimitive.removeConnectionFromTagIndex(runtime.tagMembers, connection);
 
-  if (connection.heartbeatTimer !== undefined && runtime.timers) {
-    runtime.timers.clearTimeout(connection.heartbeatTimer);
+  if (connection.heartbeatTimer !== undefined) {
+    clearTimeout(connection.heartbeatTimer as ReturnType<typeof setTimeout>);
     connection.heartbeatTimer = undefined;
   }
 
-  HeartbeatPrimitive.stopConnectionPing(runtime.timers, connection);
+  HeartbeatPrimitive.stopConnectionPing(connection);
 }
 
 /**
@@ -412,8 +407,8 @@ export function acceptConnection(
   runtime.persistAttachment(connection);
   connection.pendingWrites = { active: true };
 
-  if (runtime.timers && !runtime.hibernationEnabled) {
-    HeartbeatPrimitive.scheduleConnectionPing(runtime.timers, connection);
+  if (!runtime.hibernationEnabled) {
+    HeartbeatPrimitive.scheduleConnectionPing(connection);
   }
 
   const ctx = runtime.buildConnectionContext(connection);
@@ -552,8 +547,8 @@ export function wakeHibernatedConnection(
     runtime.persistAttachment(connection);
   }
 
-  if (runtime.timers && !runtime.hibernationEnabled) {
-    HeartbeatPrimitive.scheduleConnectionPing(runtime.timers, connection);
+  if (!runtime.hibernationEnabled) {
+    HeartbeatPrimitive.scheduleConnectionPing(connection);
   }
 
   connection.lifecycleReady = Promise.resolve();
@@ -670,7 +665,7 @@ export async function handleUpgrade(
  * Shut down the engine, plugin hooks, active streams, and open connections.
  */
 export async function handleShutdown(
-  runtime: Pick<ConnectionRuntime, 'connections' | 'timers'> & {
+  runtime: Pick<ConnectionRuntime, 'connections'> & {
     shutdownHooks: readonly ((ctx: unknown) => void | Promise<void>)[];
     pluginRuntimes: readonly { onShutdown?: () => void | Promise<void> }[];
     createShutdownContext(): unknown;
@@ -732,8 +727,8 @@ export async function handleShutdown(
     }),
   );
 
-  if (runtime.alarmState.current !== null && runtime.timers) {
-    runtime.timers.clearTimeout(runtime.alarmState.current);
+  if (runtime.alarmState.current !== null) {
+    clearTimeout(runtime.alarmState.current as ReturnType<typeof setTimeout>);
     runtime.alarmState.current = null;
   }
 }

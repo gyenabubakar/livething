@@ -4,6 +4,11 @@ import type { EngineCore } from '~/_engine/core.ts';
 import type { PluginRuntime, RuntimeConnection } from '~/_engine/runtime/types.ts';
 import { createPluginHooks } from './plugin-hooks.ts';
 
+type AsyncContextStore = {
+  connectionId?: string;
+  [key: PropertyKey]: unknown;
+};
+
 function createConnection(id: string): RuntimeConnection {
   return {
     id,
@@ -27,7 +32,7 @@ function createConnection(id: string): RuntimeConnection {
 }
 
 function createHooks(core: {
-  asyncContext?: AsyncLocalStorage<string>;
+  asyncContext: AsyncLocalStorage<AsyncContextStore>;
   connections: Map<string, RuntimeConnection>;
   engineInstanceId: string | undefined;
 }) {
@@ -36,26 +41,21 @@ function createHooks(core: {
 }
 
 describe('plugin hooks — getState()', () => {
-  it('throws when the adapter provides no async-context capability', () => {
-    const hooks = createHooks({ connections: new Map(), engineInstanceId: undefined });
-    expect(() => hooks.getState()).toThrow('async-context support');
-  });
-
   it('resolves the connection from the active async context', () => {
-    const asyncContext = new AsyncLocalStorage<string>();
+    const asyncContext = new AsyncLocalStorage<AsyncContextStore>();
     const hooks = createHooks({
       asyncContext,
       connections: new Map([['c1', createConnection('c1')]]),
       engineInstanceId: undefined,
     });
 
-    expect(asyncContext.run('c1', () => hooks.getState().id)).toBe('c1');
+    expect(asyncContext.run({ connectionId: 'c1' }, () => hooks.getState().id)).toBe('c1');
     // Outside any run() there is no active connection — empty placeholder.
     expect(hooks.getState().id).toBe('');
   });
 
   it('keeps interleaved connections isolated — each getState() sees its own', async () => {
-    const asyncContext = new AsyncLocalStorage<string>();
+    const asyncContext = new AsyncLocalStorage<AsyncContextStore>();
     const hooks = createHooks({
       asyncContext,
       connections: new Map([
@@ -72,11 +72,11 @@ describe('plugin hooks — getState()', () => {
     const seen: Record<string, string> = {};
 
     // A's flow suspends at the await; B's flow runs fully in that gap.
-    const runA = asyncContext.run('A', async () => {
+    const runA = asyncContext.run({ connectionId: 'A' }, async () => {
       await gateA;
       seen.A = hooks.getState().id;
     });
-    const runB = asyncContext.run('B', async () => {
+    const runB = asyncContext.run({ connectionId: 'B' }, async () => {
       seen.B = hooks.getState().id;
     });
 

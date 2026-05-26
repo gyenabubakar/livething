@@ -1,5 +1,7 @@
+import { getInvocationScope, withAsyncInvocationScope } from '~/_engine/async-context.ts';
 import { flushDirtyAttachment } from '~/_engine/runtime/hibernation.ts';
 import { deleteReplayRow, storeReplayRow } from '~/replay/runtime.ts';
+import type { InvocationScopeState } from '~/_engine/async-context.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 
 /**
@@ -39,42 +41,33 @@ export async function withInvocationScope<T>(
   core: EngineCore,
   fn: () => Promise<T> | T,
 ): Promise<T> {
-  const isOuter = core.invocationScope === null;
-  if (isOuter) {
-    core.invocationScope = {
-      dirtyConnections: new Set(),
-      pendingReplaySnapshotRows: new Map(),
-    };
-  }
+  const existing = getInvocationScope(core.asyncContext);
+  if (existing) return await fn();
+
+  const scope: InvocationScopeState = {
+    dirtyConnections: new Set(),
+    pendingReplaySnapshotRows: new Map(),
+  };
+
   try {
-    return await fn();
+    return await withAsyncInvocationScope(core.asyncContext, scope, fn);
   } finally {
-    if (isOuter) {
-      const scope = core.invocationScope!;
+    for (const connection of scope.dirtyConnections) {
+      flushDirtyAttachment(core, connection);
+    }
 
-      // Drop the scope reference before the flush. If we left it set, every
-      // flush call below would see the scope is still open and re-add the
-      // connection or row to the list we are walking, which would loop
-      // forever.
-      core.invocationScope = null;
+    if (scope.pendingReplaySnapshotRows.size > 0) {
+      const sql = core.storageOrUndefined()?.sql;
 
-      for (const connection of scope.dirtyConnections) {
-        flushDirtyAttachment(core, connection);
-      }
-
-      if (scope.pendingReplaySnapshotRows.size > 0) {
-        const sql = core.storageOrUndefined()?.sql;
-
-        if (sql) {
-          for (const [rowKey, entry] of scope.pendingReplaySnapshotRows) {
-            if (entry.row === null) deleteReplayRow(sql, rowKey);
-            else storeReplayRow(sql, entry.row);
-            // Run the per-row clean-up the queue entry carried with it
-            // (replay's retention prune, for example). It runs AFTER the
-            // write above so it sees the row actually on disk and counts
-            // it when deciding whether to drop the oldest rows.
-            entry.postFlush(sql);
-          }
+      if (sql) {
+        for (const [rowKey, entry] of scope.pendingReplaySnapshotRows) {
+          if (entry.row === null) deleteReplayRow(sql, rowKey);
+          else storeReplayRow(sql, entry.row);
+          // Run the per-row clean-up the queue entry carried with it
+          // (replay's retention prune, for example). It runs AFTER the
+          // write above so it sees the row actually on disk and counts
+          // it when deciding whether to drop the oldest rows.
+          entry.postFlush(sql);
         }
       }
     }

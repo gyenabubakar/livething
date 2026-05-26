@@ -244,12 +244,6 @@ describe('defer retry behavior', () => {
         incoming: new Map([['work', { event: 'work', handler, validator: undefined }]]),
       } as any,
       connections: new Map([[connection.id, connection]]),
-      requireTimers() {
-        return {
-          setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
-          clearTimeout: (h: unknown) => clearTimeout(h as ReturnType<typeof setTimeout>),
-        } as any;
-      },
       async handleRuntimeError(_c, error) {
         errors.push(error);
       },
@@ -282,12 +276,6 @@ describe('defer retry behavior', () => {
           errors.push(error);
         },
       ],
-      requireTimers() {
-        return {
-          setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
-          clearTimeout: (h: unknown) => clearTimeout(h as ReturnType<typeof setTimeout>),
-        } as any;
-      },
     });
 
     await dispatchIncoming(runtime, connection, {

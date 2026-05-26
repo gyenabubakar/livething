@@ -6,11 +6,6 @@ import { createPlatform } from './platform.ts';
 import { createStorage, createTimers } from './providers.ts';
 import { normalizeBinary } from './utils.ts';
 
-// One async-context store per isolate. The engine uses it to track which
-// connection's dispatch is on the async call stack so a module's `getState()`
-// resolves correctly even when interleaved handlers run.
-const connectionAsyncContext = new AsyncLocalStorage<string>();
-
 /**
  * The instance shape of a `serve()`-produced Durable Object.
  *
@@ -31,6 +26,10 @@ export type CloudflareDurableObjectClass<Env = unknown> = new (
   ctx: DurableObjectState,
   env: Env,
 ) => WskitDurableObjectInstance<Env>;
+
+function createAsyncContext<TStore>() {
+  return new AsyncLocalStorage<TStore>();
+}
 
 const buildServe = defineServerAdapter<undefined, CloudflareDurableObjectClass>({
   id: 'cloudflare',
@@ -54,8 +53,6 @@ const buildServe = defineServerAdapter<undefined, CloudflareDurableObjectClass>(
       constructor(ctx: DurableObjectState, env: Env) {
         super(ctx, env);
 
-        this.engine = createEngine();
-
         const logger: Logger = {
           info(message: string, data?: Record<string, unknown>) {
             console.log(message, data ?? {});
@@ -68,14 +65,16 @@ const buildServe = defineServerAdapter<undefined, CloudflareDurableObjectClass>(
           },
         };
 
-        this.engine.setLogger(logger);
-        this.engine.setEnv((env ?? {}) as Record<string, unknown>);
-        this.engine.setPlatform(createPlatform(ctx, env));
-        this.engine.setStorage(createStorage(ctx, logger));
-        this.engine.setTimerProvider(createTimers(ctx));
-        this.engine.setAsyncContext(connectionAsyncContext);
-        this.engine.setWaitUntil((promise: Promise<unknown>) => {
-          ctx.waitUntil?.(promise);
+        this.engine = createEngine({
+          logger,
+          env: (env ?? {}) as Record<string, unknown>,
+          platform: createPlatform(ctx, env),
+          storage: createStorage(ctx, logger),
+          timers: createTimers(ctx),
+          asyncContextFactory: createAsyncContext,
+          waitUntil: (promise: Promise<unknown>) => {
+            ctx.waitUntil?.(promise);
+          },
         });
 
         this.ready = ctx.blockConcurrencyWhile(async () => {

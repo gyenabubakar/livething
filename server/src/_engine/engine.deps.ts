@@ -94,7 +94,7 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
     platform: core.platform,
     waitUntilImpl: core.waitUntilImpl,
     requireStorage: () => core.requireStorage(),
-    requireTimers: () => core.requireTimers(),
+    getTimers: () => core.timers,
     scheduleTask: (taskId, time, data) =>
       Scheduling.scheduleTask(core, createTaskContext, { taskId, time, data }),
     cancelScheduled: (taskId, filter) =>
@@ -291,7 +291,7 @@ function buildDispatchRuntime(core: EngineCore) {
     errorHooks: core.hooks.error,
     incomingDedupCap: core.incomingDedupCap,
 
-    requireTimers: () => core.requireTimers(),
+    getTimers: () => core.timers,
 
     buildConnectionContext: buildCtx,
 
@@ -370,7 +370,6 @@ function buildConnectionRuntime(core: EngineCore) {
   const buildCtx = buildConnectionContext(core);
   return {
     compiled: core.compiled,
-    timers: core.timers,
     hibernationEnabled: core.hibernationEnabled,
     connections: core.connections,
     channelMembers: core.channelMembers,
@@ -479,7 +478,6 @@ export function handleConnectionClose(
       connections: core.connections,
       tagMembers: core.tagMembers,
       wsToConnectionId: core.wsToConnectionId,
-      timers: core.timers,
       cancelActiveStreamsForConnection: (connectionId) =>
         EngineConnectionRuntime.cancelActiveStreamsForConnection(
           { activeStreams: core.activeStreams },

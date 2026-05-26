@@ -696,47 +696,47 @@ export function cancelScheduledRuns(
 }
 
 /**
- * Ask the adapter timer API to wake the engine when the next queued task is due.
+ * Ask the adapter alarm API to wake the engine when the next queued task is due.
  *
  * If the adapter supports a native alarm API, that is used. Otherwise this
- * falls back to an in-memory timeout.
+ * falls back to an in-memory timeout driven by the ambient runtime.
  */
 export function rescheduleScheduledAlarm(
-  runtime: Pick<ScheduledRuntimeAccess, 'getScheduledRuns' | 'requireTimers'> & {
+  runtime: Pick<ScheduledRuntimeAccess, 'getScheduledRuns' | 'getTimers'> & {
     getAlarmHandle(): unknown | null;
     setAlarmHandle(handle: unknown | null): void;
     onAlarm(): Promise<void>;
   },
 ): void {
-  const timers = runtime.requireTimers();
+  const timers = runtime.getTimers();
   const nextRun = [...runtime.getScheduledRuns().values()].sort((a, b) => a.time - b.time)[0];
 
   if (!nextRun) {
     if (runtime.getAlarmHandle() !== null) {
-      timers.clearTimeout(runtime.getAlarmHandle());
+      clearTimeout(runtime.getAlarmHandle() as ReturnType<typeof setTimeout>);
       runtime.setAlarmHandle(null);
     }
     // Native durable alarms (e.g. Cloudflare DOs) survive past the queue
     // emptying. Cancel them too so the platform doesn't wake the DO at an
     // old alarm time to find nothing to run. Adapters without durable
     // alarms omit deleteAlarm and the call no-ops.
-    if (timers.deleteAlarm) {
+    if (timers?.deleteAlarm) {
       void timers.deleteAlarm();
     }
     return;
   }
 
-  if (timers.setAlarm) {
+  if (timers?.setAlarm) {
     void timers.setAlarm(nextRun.time);
     return;
   }
 
   if (runtime.getAlarmHandle() !== null) {
-    timers.clearTimeout(runtime.getAlarmHandle());
+    clearTimeout(runtime.getAlarmHandle() as ReturnType<typeof setTimeout>);
   }
 
   runtime.setAlarmHandle(
-    timers.setTimeout(
+    setTimeout(
       () => {
         void runtime.onAlarm();
       },

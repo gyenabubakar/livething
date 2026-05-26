@@ -11,6 +11,11 @@ import type {
 import { bufferStreamNudge, cancelStream, runStream } from './runtime.ts';
 import type { RunStreamOptions } from './runtime.ts';
 
+type AsyncContextStore = {
+  connectionId?: string;
+  [key: PropertyKey]: unknown;
+};
+
 function createConnection(id = 'c1'): RuntimeConnection {
   return {
     id,
@@ -82,7 +87,7 @@ function createStreamRuntime() {
           targetIds: conns.map((c) => c.id),
         });
       },
-      asyncContext: new AsyncLocalStorage<string>(),
+      asyncContext: new AsyncLocalStorage<AsyncContextStore>(),
       persistAttachment: vi.fn(),
       wskitStampHooks: [],
       logger: { warn: vi.fn() },
@@ -659,9 +664,9 @@ describe('stream/runtime', () => {
     const stream = {
       stream: { nudges: [], broadcast: false },
       generator: async function* () {
-        idsObservedFromBody.push(runtime.asyncContext.getStore());
+        idsObservedFromBody.push(runtime.asyncContext.getStore()?.connectionId);
         yield { token: 'a' };
-        idsObservedFromBody.push(runtime.asyncContext.getStore());
+        idsObservedFromBody.push(runtime.asyncContext.getStore()?.connectionId);
         yield { token: 'b' };
       },
     };

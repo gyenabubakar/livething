@@ -1,4 +1,5 @@
 import * as EngineModule from '~/_engine/engine.ts';
+import type * as AdapterTypes from '~/_adapters/types.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
 import type { AdapterConfig } from './types.ts';
 
@@ -12,10 +13,13 @@ import type { AdapterConfig } from './types.ts';
  */
 export function defineServerAdapter<TOptions, TService>(config: AdapterConfig<TOptions, TService>) {
   return function serve(handler: ServerDefinition, options: TOptions): TService {
-    function createEngine() {
+    function createEngine(
+      runtimeOptions: Omit<AdapterTypes.EngineOptions, 'adapterId' | 'hibernation'>,
+    ) {
       return new EngineModule.Engine(handler, {
         adapterId: config.id,
         hibernation: config.hibernation,
+        ...runtimeOptions,
       });
     }
 

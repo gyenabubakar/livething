@@ -119,13 +119,12 @@ export interface StorageProvider {
 }
 
 /**
- * Timer and alarm APIs provided by the adapter.
+ * Durable alarm APIs provided by the adapter.
  *
- * `setTimeout`/`clearTimeout` behave like their browser equivalents and are
- * available on all platforms. The alarm methods (`setAlarm`, `deleteAlarm`,
- * `getAlarm`) are only available on platforms that support durable alarms
- * (such as Cloudflare Durable Objects). Durable alarms survive hibernation
- * — in-memory timers do not.
+ * Plain JavaScript timers (`setTimeout` / `clearTimeout`) come from the
+ * runtime directly and are not adapter-provided. This interface only models
+ * durable alarm support on platforms that have it (such as Cloudflare Durable
+ * Objects). Durable alarms survive hibernation — in-memory timers do not.
  *
  * Prefer `ctx.schedule(...)` for most use cases — it is higher-level and
  * survives restarts. Use these methods only when you need low-level control.
@@ -139,12 +138,6 @@ export interface TimerProvider {
 
   /** Read the time of the current durable alarm, or `null` if none is set. */
   getAlarm?(): Promise<number | null>;
-
-  /** Schedule a callback after a delay in milliseconds. Not durable — lost on restart. */
-  setTimeout(callback: () => void, delayMs: number): unknown;
-
-  /** Cancel a scheduled timeout before it fires. */
-  clearTimeout(handle: unknown): void;
 }
 
 /**
@@ -153,16 +146,19 @@ export interface TimerProvider {
  * connections interleave at `await` points.
  *
  * `AsyncLocalStorage` from `node:async_hooks` satisfies this interface
- * directly — an adapter provides `new AsyncLocalStorage<string>()`. When an
- * adapter does not provide it, a plugin's `getState()` throws when called.
+ * directly. Adapters provide a factory for creating one, and the engine
+ * decides the store shape it wants to carry.
  */
-export interface AsyncContext {
-  /** Run `callback` with `connectionId` recorded as the active connection. */
-  run<R>(connectionId: string, callback: () => R): R;
+export interface AsyncContext<TStore = unknown> {
+  /** Run `callback` with `store` recorded as the active async state. */
+  run<R>(store: TStore, callback: () => R): R;
 
-  /** The active connection id on the current async call stack, or `undefined`. */
-  getStore(): string | undefined;
+  /** The active async state on the current call stack, or `undefined`. */
+  getStore(): TStore | undefined;
 }
+
+/** Factory the adapter provides so the engine can create its own async context instance. */
+export type AsyncContextFactory = <TStore>() => AsyncContext<TStore>;
 
 /**
  * Structured logger available as `ctx.log`.

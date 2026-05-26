@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { defineServerAdapter } from '~/_adapters/define.ts';
 import { dispatchRuntime, outgoingRuntime } from '~/_engine/engine.deps.ts';
 import { bench, describe } from 'vitest';
@@ -10,7 +11,22 @@ function makeCore(): EngineCore {
     id: 'bench',
     hibernation: { persist() {}, restore: () => undefined },
     setup(createEngine) {
-      core = createEngine().core;
+      core = createEngine({
+        env: {},
+        platform: {},
+        timers: {
+          setAlarm: async () => {},
+          deleteAlarm: async () => {},
+          getAlarm: async () => null,
+        },
+        asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
+        waitUntil: () => {},
+        logger: {
+          info() {},
+          warn() {},
+          error() {},
+        },
+      }).core;
       return {};
     },
   });

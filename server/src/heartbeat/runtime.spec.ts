@@ -9,39 +9,45 @@ import {
 describe('heartbeat/runtime', () => {
   it('refreshes the heartbeat timeout by clearing the previous timer first', () => {
     const callbackByHandle = new Map<string, () => void>();
-    const timers = {
-      setTimeout: vi.fn((callback: () => void) => {
-        callbackByHandle.set('next', callback);
-        return 'next';
-      }),
-      clearTimeout: vi.fn(),
-    };
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
+      callback: Parameters<typeof setTimeout>[0],
+    ) => {
+      callbackByHandle.set('next', callback as () => void);
+      return 'next' as unknown as ReturnType<typeof setTimeout>;
+    }) as unknown as typeof setTimeout);
+    const clearTimeoutSpy = vi
+      .spyOn(globalThis, 'clearTimeout')
+      .mockImplementation(() => undefined);
     const close = vi.fn();
     const connection = {
       heartbeatTimer: 'old',
       descriptor: { close },
     };
 
-    refreshHeartbeatTimeout(timers, connection, 5_000);
+    refreshHeartbeatTimeout(connection, 5_000);
 
-    expect(timers.clearTimeout).toHaveBeenCalledWith('old');
+    expect(clearTimeoutSpy).toHaveBeenCalledWith('old');
     expect(connection.heartbeatTimer).toBe('next');
 
     callbackByHandle.get('next')?.();
     expect(close).toHaveBeenCalledWith(4004, 'Heartbeat timeout');
+    setTimeoutSpy.mockRestore();
+    clearTimeoutSpy.mockRestore();
   });
 
   it('schedules connection pings, downgrades missed pongs to poor, and can stop cleanly', () => {
     const callbackByHandle = new Map<string, () => void>();
     let nextHandle = 0;
-    const timers = {
-      setTimeout: vi.fn((callback: () => void) => {
-        const handle = `timer-${nextHandle++}`;
-        callbackByHandle.set(handle, callback);
-        return handle;
-      }),
-      clearTimeout: vi.fn(),
-    };
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
+      callback: Parameters<typeof setTimeout>[0],
+    ) => {
+      const handle = `timer-${nextHandle++}`;
+      callbackByHandle.set(handle, callback as () => void);
+      return handle as unknown as ReturnType<typeof setTimeout>;
+    }) as unknown as typeof setTimeout);
+    const clearTimeoutSpy = vi
+      .spyOn(globalThis, 'clearTimeout')
+      .mockImplementation(() => undefined);
     const send = vi.fn();
     const connection = {
       pingTimer: undefined as unknown,
@@ -53,7 +59,7 @@ describe('heartbeat/runtime', () => {
     const now = vi.spyOn(Date, 'now');
     now.mockReturnValue(1_000);
 
-    scheduleConnectionPing(timers, connection, 30_000);
+    scheduleConnectionPing(connection, 30_000);
     callbackByHandle.get('timer-0')?.();
 
     expect(send).toHaveBeenCalledWith('ping');
@@ -66,12 +72,14 @@ describe('heartbeat/runtime', () => {
     expect(connection.quality).toBe('poor');
     expect(connection.pendingPingSentAt).toBe(31_000);
 
-    stopConnectionPing(timers, connection);
+    stopConnectionPing(connection);
 
-    expect(timers.clearTimeout).toHaveBeenCalledWith('timer-1');
+    expect(clearTimeoutSpy).toHaveBeenCalledWith('timer-1');
     expect(connection.pingTimer).toBeUndefined();
     expect(connection.pendingPingSentAt).toBeUndefined();
     now.mockRestore();
+    setTimeoutSpy.mockRestore();
+    clearTimeoutSpy.mockRestore();
   });
 
   it('records a rolling average latency and derives connection quality from it', () => {
@@ -146,18 +154,25 @@ describe('heartbeat/runtime', () => {
   });
 
   it('refreshHeartbeatTimeout does not call clearTimeout when no previous timer exists', () => {
-    const timers = {
-      setTimeout: vi.fn(() => 'new-handle'),
-      clearTimeout: vi.fn(),
-    };
+    const setTimeoutSpy = vi
+      .spyOn(globalThis, 'setTimeout')
+      .mockImplementation(
+        (() =>
+          'new-handle' as unknown as ReturnType<typeof setTimeout>) as unknown as typeof setTimeout,
+      );
+    const clearTimeoutSpy = vi
+      .spyOn(globalThis, 'clearTimeout')
+      .mockImplementation(() => undefined);
     const connection = {
       heartbeatTimer: undefined as unknown,
       descriptor: { close: vi.fn() },
     };
 
-    refreshHeartbeatTimeout(timers, connection, 5_000);
+    refreshHeartbeatTimeout(connection, 5_000);
 
-    expect(timers.clearTimeout).not.toHaveBeenCalled();
+    expect(clearTimeoutSpy).not.toHaveBeenCalled();
     expect(connection.heartbeatTimer).toBe('new-handle');
+    setTimeoutSpy.mockRestore();
+    clearTimeoutSpy.mockRestore();
   });
 });

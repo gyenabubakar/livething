@@ -54,8 +54,8 @@ export interface ScheduledRuntimeAccess {
   /** Read persistent storage. Throws if storage was not provided by the adapter. */
   requireStorage(): StorageProvider;
 
-  /** Read timers/alarm APIs. Throws if timers were not provided by the adapter. */
-  requireTimers(): TimerProvider;
+  /** Read durable alarm APIs. Undefined when the adapter has no native alarm support. */
+  getTimers(): TimerProvider | undefined;
 
   /** Create a framework-generated id, usually for one queued task run. */
   generateId(prefix?: string): string;

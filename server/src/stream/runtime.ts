@@ -9,10 +9,11 @@ import {
 } from '~/_engine/stream-common/active-stream.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import { DeferExhausted } from '~/errors/errors.ts';
+import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type { AnyGenerate } from '~/_engine/compile/types.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { ActiveStream, ResolvedScope, RuntimeConnection } from '~/_engine/runtime/types.ts';
-import type { AsyncContext, Logger } from '~/context.ts';
+import type { Logger } from '~/context.ts';
 
 /**
  * The small runtime surface stream helpers need from the engine.
@@ -51,7 +52,7 @@ interface StreamRuntime {
     },
   ): boolean;
 
-  asyncContext?: AsyncContext;
+  asyncContext: EngineAsyncContext;
 
   handleRuntimeError(
     connection: RuntimeConnection,

@@ -12,6 +12,7 @@
  * `bootSchema` hook and only run the sentinel SELECT.
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { defineServerAdapter } from '~/_adapters/define.ts';
 import { contract } from '~/_api/contract.ts';
 import { implement } from '~/_api/implement.ts';
@@ -90,17 +91,11 @@ function makeFakeStorage(opts?: { warmedSchemaVersion?: string }) {
 
 function makeNoopTimers() {
   return {
-    setTimeout() {
-      return 0 as unknown as ReturnType<typeof setTimeout>;
-    },
-    clearTimeout() {},
-    setInterval() {
-      return 0 as unknown as ReturnType<typeof setInterval>;
-    },
-    clearInterval() {},
     setAlarm() {},
-    clearAlarm() {},
-    now: () => Date.now(),
+    deleteAlarm() {},
+    getAlarm() {
+      return null;
+    },
   };
 }
 
@@ -112,7 +107,19 @@ function buildEngine(handler: ServerDefinition): Engine {
     id: 'roundtrip-bench',
     hibernation: { persist() {}, restore: () => undefined },
     setup(createEngine) {
-      captured = createEngine();
+      captured = createEngine({
+        storage: undefined,
+        env: {},
+        platform: {},
+        timers: makeNoopTimers() as never,
+        asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
+        waitUntil: () => {},
+        logger: {
+          info() {},
+          warn() {},
+          error() {},
+        },
+      });
       return {};
     },
   });
@@ -124,11 +131,7 @@ function buildEngine(handler: ServerDefinition): Engine {
 async function initWithFakeStorage(handler: ServerDefinition, warm = false) {
   const { storage, calls } = makeFakeStorage(warm ? { warmedSchemaVersion: '1' } : {});
   const engine = buildEngine(handler);
-  engine.setStorage(storage as never);
-  engine.setEnv({});
-  engine.setPlatform({});
-  engine.setTimerProvider(makeNoopTimers() as never);
-  engine.setWaitUntil(() => {});
+  engine.core.storage = storage as never;
   await engine.initialize();
   return { execCount: calls.length, calls };
 }

@@ -1,13 +1,13 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { withConnectionContext } from '~/_engine/async-context.ts';
+import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
-import type { AsyncContext } from '~/context.ts';
 import type { InterceptFrame, InterceptPrimitive } from './intercept.ts';
 
 export type { InterceptFrame, InterceptRouting } from './intercept.ts';
 
 interface InterceptRuntime {
-  asyncContext?: AsyncContext;
+  asyncContext: EngineAsyncContext;
 }
 
 /** Returns the dispatch-shared connection context, building it on first call. */

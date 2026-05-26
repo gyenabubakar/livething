@@ -169,7 +169,7 @@ export function createRuntime(tasksInput: ReturnType<typeof scheduled>[]) {
         },
       },
     }),
-    requireTimers: () => ({
+    getTimers: () => ({
       async setAlarm(timeMs: number) {
         alarmTimes.push(timeMs);
       },
@@ -177,10 +177,6 @@ export function createRuntime(tasksInput: ReturnType<typeof scheduled>[]) {
       async getAlarm() {
         return alarmTimes.at(-1) ?? null;
       },
-      setTimeout() {
-        return Symbol('timeout');
-      },
-      clearTimeout() {},
     }),
     generateId(prefix = 'id') {
       return `${prefix}-${nextId++}`;
