@@ -48,7 +48,7 @@ export class Engine {
     this.core.setEnv(env);
   }
 
-  /** Set the timer/alarm implementation. */
+  /** Set the timer implementation. */
   setTimerProvider(timers: PublicApi.TimerProvider): void {
     this.core.setTimerProvider(timers);
   }
@@ -158,18 +158,22 @@ export class Engine {
       timers: core.timers,
       shutdownHooks: core.hooks.shutdown,
       pluginRuntimes: core.pluginRuntimes,
+
       createShutdownContext: () => this.createShutdownContext(),
+
       cancelActiveStreamsForConnection: (connectionId) =>
         EngineConnectionRuntime.cancelActiveStreamsForConnection(
           { activeStreams: core.activeStreams },
           connectionId,
         ),
+
       handleConnectionClose: (connection) =>
         EngineDeps.handleConnectionClose(core, {
           connection,
           code: CloseCodes.GOING_AWAY,
           reason: 'Server shutting down',
         }),
+
       alarmState: {
         get current() {
           return core.alarmHandle;
@@ -178,11 +182,12 @@ export class Engine {
           core.alarmHandle = value;
         },
       },
+
       logger: core.logger,
     });
   }
 
-  /** Run alarm hooks after a timer wake-up. Scheduled tasks drain via this path. */
+  /** Run scheduled hooks after a timer wake-up. Scheduled tasks drain via this path. */
   async handleAlarm(): Promise<void> {
     await withInvocationScope(this.core, () =>
       Initialize.handleAlarm(this.core, EngineDeps.engineAccessDeps(this.core)),
@@ -203,8 +208,10 @@ export class Engine {
   /** Build the helper bag passed to every `onUpgrade` hook. @internal */
   private buildUpgradeHelpers(): LifecycleTypes.UpgradeHelpers {
     if (!this.core.usesTags()) return {};
+
     const isDeclared = (kind: 'ephemeral' | 'persistent', group: string) =>
       this.core.declaredTagGroups[kind].has(group);
+
     function buildRefFactory(kind: 'ephemeral' | 'persistent') {
       return (group: string) => {
         if (!isDeclared(kind, group)) {
@@ -212,6 +219,7 @@ export class Engine {
             `[wskit] tag group '${group}' is not declared under tagGroups.${kind}. Add it to your contract's tagGroups config or check for a typo.`,
           );
         }
+
         return {
           ref: (key: string): PublicApi.TagRef => ({
             __wskit: 'tag-ref',
@@ -222,6 +230,7 @@ export class Engine {
         };
       };
     }
+
     return {
       tags: {
         ephemeral: buildRefFactory('ephemeral'),

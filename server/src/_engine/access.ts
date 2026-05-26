@@ -16,12 +16,12 @@ import type * as ValidationTypes from '~/types.ts';
  * transforms, scoped channel hooks, and context extensions without getting the
  * full engine instance directly.
  *
- * This interface is consumed by two audiences: (1) platform adapter authors
- * (e.g. the Cloudflare Durable Object adapter), who use the lifecycle entry
- * points, hook registration, and connection helpers; (2) built-in primitives
- * (`replay`, `sequence`, `dedup`, etc.), which use the setup-time capability
- * toggles. Adapter authors can ignore the toggle methods — they are marked
- * `@internal` and used only during primitive __setup.
+ * This interface is consumed by two audiences: (1) platform adapter authors,
+ * who use the lifecycle entry points, hook registration, and connection
+ * helpers; (2) built-in primitives (`replay`, `sequence`, `dedup`, etc.),
+ * which use the setup-time capability toggles. Adapter authors can ignore
+ * the toggle methods — they are marked `@internal` and used only during
+ * primitive __setup.
  */
 export interface EngineAccess {
   /**
@@ -281,7 +281,7 @@ export interface EngineAccess {
   /**
    * Read the scope object the engine keeps open while it is running one
    * of its user-facing callbacks (an incoming WebSocket message, a close,
-   * a WebSocket error, or a scheduled alarm fire). Replay reads this so
+   * a WebSocket error, or a scheduled callback fire). Replay reads this so
    * it can hold snapshot-mode writes in memory and collapse many sends
    * that target the same key into one row write at the end of the
    * callback.
@@ -470,13 +470,12 @@ export interface EngineAccess {
   /**
    * Let a background task continue even after the current callback returns.
    *
-   * Adapters can map this to a platform primitive such as Durable Objects
-   * `waitUntil`.
+   * Adapters can map this to a platform primitive such as `waitUntil`.
    */
   waitUntil(promise: Promise<unknown>): void;
 
   /**
-   * Recompute the next alarm from the current scheduled-run table.
+   * Recompute the next scheduled callback from the current scheduled-run table.
    */
   rescheduleAlarm(): void;
 

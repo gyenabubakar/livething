@@ -66,8 +66,8 @@ export async function initialize(core: EngineCore, accessDeps: EngineAccessDeps)
   }
 
   // Schema-init hooks (CREATE TABLE IF NOT EXISTS) only run when the marker
-  // row says storage is not on the current schema version. On a fresh DO the
-  // SELECT throws and we treat it as not-initialized.
+  // row says storage is not on the current schema version. On a fresh
+  // instance the SELECT throws and we treat it as not-initialized.
   const storageForSchema = core.storage;
   if (core.hooks.bootSchema.length > 0) {
     const initialized = storageForSchema ? isSchemaInitialized(storageForSchema.sql) : false;
@@ -109,7 +109,7 @@ export async function initialize(core: EngineCore, accessDeps: EngineAccessDeps)
   core.initialized = true;
 }
 
-/** Adapter alarm entry. Runs `initialize` first, then walks alarm hooks. */
+/** Adapter scheduled-callback entry. Runs `initialize` first, then walks scheduled hooks. */
 export async function handleAlarm(core: EngineCore, accessDeps: EngineAccessDeps): Promise<void> {
   await initialize(core, accessDeps);
   for (const hook of core.hooks.alarm) {

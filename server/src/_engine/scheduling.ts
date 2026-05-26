@@ -26,8 +26,8 @@ function buildAccess(
 
 /**
  * Install the scheduled runtime on first use (idempotent). Adds a schema-init
- * hook for the tables, a boot hook that loads the queue, and an alarm hook
- * that drains due runs.
+ * hook for the tables, a boot hook that loads the queue, and a scheduled
+ * callback hook that drains due runs.
  */
 export function ensureScheduledRuntime(core: EngineCore, createTaskContext: () => unknown): void {
   if (core.installedFeatures.has(SCHEDULED_RUNTIME_KEY)) return;
@@ -80,7 +80,7 @@ export function cancelScheduled(
 /**
  * Set the adapter timer to wake when the next task is due.
  *
- * `onAlarm` walks alarm hooks directly. By the time a timer fires the engine
+ * Walks scheduled hooks directly. By the time a timer fires the engine
  * is already initialized, so the init gate in `handleAlarm` isn't needed.
  */
 export function rescheduleAlarm(core: EngineCore): void {

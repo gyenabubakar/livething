@@ -11,7 +11,7 @@ export interface EngineAccessDeps {
   ensureScheduledRuntime(): void;
   /** Build a fresh task context for scheduled task handlers. */
   createTaskContext(): unknown;
-  /** Recompute the next adapter alarm from the queued-run table. */
+  /** Recompute the next scheduled callback from the queued-run table. */
   rescheduleAlarm(): void;
 }
 

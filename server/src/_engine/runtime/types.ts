@@ -167,7 +167,7 @@ export interface RegisteredEngineHooks {
 
   // -- Scheduled work ---------------------------------------------------------
 
-  /** Runs when the adapter fires a scheduled alarm. */
+  /** Runs when the adapter fires a scheduled callback. */
   alarm: (() => void | Promise<void>)[];
 
   // -- Channel membership -----------------------------------------------------

@@ -6,8 +6,8 @@ import type { SQLProvider } from '~/context.ts';
  * the full schema-init pile; later wakes read one row and skip the rest.
  *
  * Bump `CURRENT_SCHEMA_VERSION` whenever an `ensure*Schema` adds, drops, or
- * rewrites a table or index. Bumping forces every existing DO to re-run the
- * schema-init hooks on its next wake (a migration).
+ * rewrites a table or index. Bumping forces every existing engine instance
+ * to re-run the schema-init hooks on its next wake (a migration).
  */
 
 const CURRENT_SCHEMA_VERSION = '1';
@@ -18,7 +18,7 @@ interface SqlExec {
 
 /**
  * Returns `true` when storage records the current schema version. On a fresh
- * DO the meta table does not exist yet — the SELECT throws and we return
+ * fresh instance the meta table does not exist yet — the SELECT throws and we return
  * `false`. One round trip on the warm-boot path; the meta table itself is
  * only created when schema-init actually runs.
  */

@@ -77,8 +77,9 @@ export class EngineCore {
   incomingDedupCap = 0;
   initialized = false;
   /**
-   * True after a cold-boot schema run (fresh DO). The first `autoRejoinIdentity`
-   * call clears it so subsequent connections query normally.
+   * True after a cold-boot schema run (first wake with no prior schema). The
+   * first `autoRejoinIdentity` call clears it so subsequent connections query
+   * normally.
    */
   freshBoot = false;
 
@@ -128,7 +129,7 @@ export class EngineCore {
   // The engine sets this to an open scope object whenever it is busy
   // running one user-facing callback — a wskit handler responding to an
   // incoming WebSocket message, a WebSocket close, a WebSocket error, or
-  // a scheduled alarm fire. (The full list is the methods `wrapHandle`
+  // a scheduled callback fire. (The full list is the methods `wrapHandle`
   // wraps in `_engine/engine.ts`.) The scope closes when that callback
   // returns.
   //

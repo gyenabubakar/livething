@@ -120,9 +120,11 @@ function buildScopeRouting(scope: ResolvedScope): Record<string, unknown> {
 /** Build the `__wskit` routing block from a stored stream row. */
 function buildRowRouting(row: Storage.DurableStreamRow): Record<string, unknown> {
   const wskit: Record<string, unknown> = {};
+
   if (row.namespace) wskit.namespace = row.namespace;
   if (row.channelKey) wskit.channel = row.channelKey;
   if (row.channelScope) wskit.channelScope = row.channelScope;
+
   return wskit;
 }
 
@@ -167,6 +169,7 @@ function sendChunkFrames(connection: RuntimeConnection, opts: SendChunkFramesOpt
       chunk.messageId !== null
         ? `{"event":${eventJson},"payload":${chunk.payload},"__wskit":${wskitPrefix}${chunk.seq},"messageId":${JSON.stringify(chunk.messageId)}}}`
         : `{"event":${eventJson},"payload":${chunk.payload},"__wskit":${wskitPrefix}${chunk.seq}}}`;
+
     connection.descriptor.send(wire);
   }
 }
@@ -184,18 +187,17 @@ function ensureUniqueStreamId(
 ): void {
   const { streamId, storageIdentity } = opts;
   if (runtime.activeStreams.has(streamId)) throw StreamIdCollision();
+
   // Same stream id already active under this storage identity on another socket.
   const row = Storage.readStream(runtime.sql, storageIdentity, streamId);
+
   if (row && row.status === 'active') throw StreamIdCollision();
 }
 
 export interface RunDurableStreamOptions {
   scope: ResolvedScope;
-
   def: DurableStreamRuntimeDef;
-
   payload: unknown;
-
   wskit: Protocol.WskitProtocol | undefined;
 }
 
@@ -207,6 +209,7 @@ export async function runDurableStream(
 ): Promise<void> {
   const { scope, def, payload, wskit } = opts;
   const creatorIdentity = connection.identity ?? connection.id;
+
   // Broadcast streams key the row by scope so every subscriber finds the same row.
   const storageIdentity = def.broadcast ? computeBroadcastScopeKey(scope) : creatorIdentity;
 
@@ -282,10 +285,14 @@ export function findResumeRow(
   opts: { resumeScope: ResolvedScope; streamId: string },
 ): Storage.DurableStreamRow | null {
   const { resumeScope, streamId } = opts;
+
   const realIdentity = connection.identity ?? connection.id;
+
   const single = Storage.readStream(runtime.sql, realIdentity, streamId);
   if (single) return single;
+
   const scopeKey = computeBroadcastScopeKey(resumeScope);
+
   return Storage.readStream(runtime.sql, scopeKey, streamId);
 }
 
@@ -328,6 +335,7 @@ export async function resumeDurableStream(
     });
     return;
   }
+
   if (
     row.status === 'ended' &&
     row.endedAt != null &&
@@ -387,7 +395,9 @@ export async function resumeDurableStream(
       live.connection = connection;
       live.connectionId = connection.id;
       live.detached = false;
+
       if (!connection.activeStreamIds) connection.activeStreamIds = new Set();
+
       connection.activeStreamIds.add(streamId);
       runtime.persistAttachment(connection);
 
@@ -396,12 +406,15 @@ export async function resumeDurableStream(
         payload: {},
         wskit: { ...scopeMarkers, streamId },
       });
+
       const chunks = Storage.readChunksSince(runtime.sql, {
         identity: storageIdentity,
         streamId,
         since: lastKnownSeq,
       });
+
       sendChunkFrames(connection, { eventName: def.event, chunks, scopeMarkers, streamId });
+
       return;
     }
   }
@@ -409,6 +422,7 @@ export async function resumeDurableStream(
   // Close any stale in-memory entry for this stream, but don't wait on it.
   if (!isPeerSubscriber) {
     const existing = runtime.activeStreams.get(streamId);
+
     if (existing) {
       existing.closed = true;
       try {
@@ -425,9 +439,11 @@ export async function resumeDurableStream(
       streamId,
       since: lastKnownSeq,
     });
+
     sendChunkFrames(connection, { eventName: def.event, chunks, scopeMarkers, streamId });
     if (isPeerSubscriber) {
       const caughtUpSeq = chunks.length > 0 ? chunks[chunks.length - 1]!.seq : lastKnownSeq;
+
       Storage.setCaughtUpSeq(runtime.sql, {
         storageIdentity,
         streamId,
@@ -452,6 +468,7 @@ export async function resumeDurableStream(
   if (row.kind === 'recorded') {
     // Recorded streams have no cursor — they can't resume, so end the stream.
     Storage.markEnded(runtime.sql, { identity: storageIdentity, streamId, now: Date.now() });
+
     runtime.sendProtocolMessage(connection, {
       event: '__streamEnd__',
       payload: {},
@@ -568,6 +585,7 @@ async function runGenerator(
         iterator.next(nextInput),
       );
       if (result.done) break;
+
       // Connection closed mid-advance: dropping this chunk keeps a resumable
       // cursor from moving past a row the client never received.
       if (activeStream.closed && def.kind === 'resumable') break;
@@ -577,6 +595,7 @@ async function runGenerator(
 
       // Persist before wire so a send failure can't leave durable state ahead.
       const now = Date.now();
+
       // Broadcast streams record every chunk so late joiners can catch up.
       const recordsChunks = def.kind === 'recorded' || def.broadcast === true;
       if (recordsChunks) {
@@ -588,6 +607,7 @@ async function runGenerator(
           payload: JSON.stringify(chunkValue ?? null),
           now,
         });
+
         if (def.maxChunks) {
           const count = Storage.countChunks(runtime.sql, identity, streamId);
           if (count > def.maxChunks) {
@@ -596,6 +616,7 @@ async function runGenerator(
               streamId,
               keepNewest: def.maxChunks,
             });
+
             try {
               await iterator.throw(StreamAborted({ reason: 'buffer-full' }));
             } catch (err) {
@@ -706,6 +727,7 @@ async function runGenerator(
           return sub !== null && sub.unsubscribedAt === null;
         },
       });
+
       const endWskit = { ...buildScopeRouting(scope), streamId, seq };
       for (const target of peerTargets) {
         runtime.sendProtocolMessage(target, {
@@ -725,10 +747,12 @@ async function runGenerator(
     Storage.markEnded(runtime.sql, { identity, streamId, now: Date.now() });
   } finally {
     activeStream.closed = true;
+
     // Don't remove a slot a resume run has already taken over.
     if (runtime.activeStreams.get(streamId) === activeStream) {
       runtime.activeStreams.delete(streamId);
     }
+
     connection.activeStreamIds?.delete(streamId);
     runtime.persistAttachment(connection);
   }
@@ -784,5 +808,6 @@ export async function cancelDurableStream(
       connection.activeStreamIds?.delete(streamId);
     }
   }
+
   Storage.deleteStream(runtime.sql, row.identity, streamId);
 }

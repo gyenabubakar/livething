@@ -226,6 +226,7 @@ class ReplayInstaller {
     const scope = this.engine.getInvocationScope();
     const replayScope = readReplayScope(wireMessage.wskit);
     const retention = this.opts.retention;
+
     function runPrune(sqlForPrune: Pick<SQLProvider, 'exec'>): void {
       pruneExpiredReplayRows(sqlForPrune, retention, Date.now());
       pruneReplayScopeRows(sqlForPrune, retention, replayScope);

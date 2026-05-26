@@ -368,6 +368,7 @@ export function persistReplayMessage(
 ): ReplayRow | null {
   const { options, event, payload, wskit, now, scope, postFlush } = opts;
   function noopPostFlush(): void {}
+
   const row = buildReplayRow(event, { options, payload, wskit, now });
 
   if ((options.type ?? 'history') === 'history') {
@@ -385,6 +386,7 @@ export function persistReplayMessage(
   if (scope) {
     const nextValue: ReplaySnapshotValue = { event, payload };
     const queued = scope.pendingReplaySnapshotRows.get(row.rowKey);
+
     const previousValue =
       queued !== undefined
         ? queued.row === null
@@ -394,7 +396,9 @@ export function persistReplayMessage(
             const fromDisk = sql.transaction((tx) => getReplayRowByKey(tx, row.rowKey));
             return fromDisk ? toReplaySnapshotValue(fromDisk) : null;
           })();
+
     const reduced = options.reduce ? options.reduce(previousValue, nextValue) : nextValue;
+
     if (!reduced) {
       scope.pendingReplaySnapshotRows.set(row.rowKey, {
         row: null,
@@ -402,21 +406,25 @@ export function persistReplayMessage(
       });
       return null;
     }
+
     const snapshotRow: ReplayRow = {
       ...row,
       event: reduced.event,
       payload: JSON.stringify(reduced.payload),
     };
+
     scope.pendingReplaySnapshotRows.set(row.rowKey, {
       row: snapshotRow,
       postFlush: postFlush ?? noopPostFlush,
     });
+
     return snapshotRow;
   }
 
   return sql.transaction((tx) => {
     const previousRow = getReplayRowByKey(tx, row.rowKey);
     const nextValue: ReplaySnapshotValue = { event, payload };
+
     const reduced = options.reduce
       ? options.reduce(previousRow ? toReplaySnapshotValue(previousRow) : null, nextValue)
       : nextValue;

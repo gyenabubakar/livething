@@ -5,7 +5,7 @@ import type { EngineCore } from '~/_engine/core.ts';
 /**
  * Wrap one user-facing engine callback (the engine's handler for an
  * incoming WebSocket message, a WebSocket close, a WebSocket error, or a
- * scheduled alarm fire) so its SQL writes batch up and run at the end of
+ * scheduled callback fire) so its SQL writes batch up and run at the end of
  * the callback instead of one by one as the callback works.
  *
  * While the callback is running, two kinds of writes go into in-memory
@@ -27,7 +27,7 @@ import type { EngineCore } from '~/_engine/core.ts';
  * one row write, not fifty.
  *
  * If the same callback synchronously calls back into another callback the
- * engine has also wrapped (for example an alarm fire that immediately
+ * engine has also wrapped (for example a scheduled callback that immediately
  * closes a connection), the inner call shares the outer lists and does
  * NOT flush. Only the outermost call flushes. That way a long chain still
  * ends with one write per touched connection / key.
@@ -51,16 +51,20 @@ export async function withInvocationScope<T>(
   } finally {
     if (isOuter) {
       const scope = core.invocationScope!;
+
       // Drop the scope reference before the flush. If we left it set, every
       // flush call below would see the scope is still open and re-add the
       // connection or row to the list we are walking, which would loop
       // forever.
       core.invocationScope = null;
+
       for (const connection of scope.dirtyConnections) {
         flushDirtyAttachment(core, connection);
       }
+
       if (scope.pendingReplaySnapshotRows.size > 0) {
         const sql = core.storageOrUndefined()?.sql;
+
         if (sql) {
           for (const [rowKey, entry] of scope.pendingReplaySnapshotRows) {
             if (entry.row === null) deleteReplayRow(sql, rowKey);

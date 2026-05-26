@@ -124,9 +124,9 @@ interface DispatchRuntime
   ): Promise<void>;
 
   /**
-   * Tracks whether `ensureDurableStreamSchema` has already run in this DO
-   * instance lifetime. Flipped to `true` on first stream start or resume so
-   * subsequent operations skip the redundant DDL check.
+   * Tracks whether `ensureDurableStreamSchema` has already run in this
+   * engine instance lifetime. Flipped to `true` on first stream start or
+   * resume so subsequent operations skip the redundant DDL check.
    */
   durableStreamSchemaReady: boolean;
 }
