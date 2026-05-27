@@ -122,11 +122,11 @@ describe('matches — happy path', () => {
     expect(matches(testContract, '@chat::send', frame)).toBe(true);
   });
 
-  it('matches a channel-family event regardless of channelScope value', () => {
+  it('matches a channel-family event with concrete channel name + family scope', () => {
     const frame = makeFrame(
       'join',
       { user: 'alice' },
-      { routing: { channel: 'rooms', channelScope: 'room:42' } },
+      { routing: { channel: 'room:42', channelScope: 'rooms' } },
     );
     expect(matches(testContract, '@rooms::join', frame)).toBe(true);
   });
@@ -156,6 +156,24 @@ describe('matches — sad path', () => {
   it('returns false when channel scope mismatches', () => {
     const frame = makeFrame('send', { text: 'hi' }, { routing: { channel: 'other' } });
     expect(matches(testContract, '@chat::send', frame)).toBe(false);
+  });
+
+  it('returns false when a channel-family frame carries the wrong family key', () => {
+    const frame = makeFrame(
+      'join',
+      { user: 'alice' },
+      { routing: { channel: 'room:42', channelScope: 'other-family' } },
+    );
+    expect(matches(testContract, '@rooms::join', frame)).toBe(false);
+  });
+
+  it('returns false when a channel-family frame carries a concrete name outside the regex', () => {
+    const frame = makeFrame(
+      'join',
+      { user: 'alice' },
+      { routing: { channel: 'lobby', channelScope: 'rooms' } },
+    );
+    expect(matches(testContract, '@rooms::join', frame)).toBe(false);
   });
 
   it('returns false when namespace scope mismatches', () => {

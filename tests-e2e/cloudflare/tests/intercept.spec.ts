@@ -34,6 +34,16 @@ test.describe('intercept', () => {
     await expect(page.getByTestId('echoed')).toContainText('ch:ch-pre-rewritten');
   });
 
+  test('dynamic channel-family intercept rewrites within the family scope via matches()', async ({
+    page,
+  }, testInfo) => {
+    await openPage(page, `test-${testInfo.testId}`);
+    await page.getByTestId('subscribe-dynamic-room').click();
+    await expect(page.getByTestId('dynamic-subscribed')).toHaveText('yes');
+    await page.getByTestId('send-dyn-pre').click();
+    await expect(page.getByTestId('echoed')).toContainText('dyn:dyn-pre-rewritten');
+  });
+
   test('intercept returning void passes message through unchanged', async ({ page }, testInfo) => {
     await openPage(page, `test-${testInfo.testId}`);
     await page.getByTestId('send-top-passthrough').click();
@@ -63,6 +73,19 @@ test.describe('intercept', () => {
     // Positive signal: a normal ch rewrite still works after a block.
     await page.getByTestId('send-ch-pre').click();
     await expect(page.getByTestId('echoed')).toContainText('ch:ch-pre-rewritten');
+  });
+
+  test('dynamic channel-family intercept Block prevents the handler from running', async ({
+    page,
+  }, testInfo) => {
+    await openPage(page, `test-${testInfo.testId}`);
+    await page.getByTestId('subscribe-dynamic-room').click();
+    await expect(page.getByTestId('dynamic-subscribed')).toHaveText('yes');
+    await page.getByTestId('send-dyn-pre-block').click();
+    await page.waitForTimeout(200);
+    await expect(page.getByTestId('echoed')).toHaveText('');
+    await page.getByTestId('send-dyn-pre').click();
+    await expect(page.getByTestId('echoed')).toContainText('dyn:dyn-pre-rewritten');
   });
 
   test('a frame with both namespace and channel is rejected with invalid-scope-markers', async ({

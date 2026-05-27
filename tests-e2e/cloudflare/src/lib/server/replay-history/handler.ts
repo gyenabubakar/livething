@@ -103,7 +103,7 @@ export const replayHandler = implement(replayContract)
     );
   })
   .request('get-token', (ctx) => {
-    return { token: `secret-for-${ctx.meta.username}` };
+    ctx.respond({ token: `secret-for-${ctx.meta.username}` });
   })
   .on('trigger-bad-replay', (ctx) => {
     let undeclared = '';

@@ -36,7 +36,7 @@ export const namespaceHandler = implement(namespaceContract)
         ctx.namespace.broadcast('ns-message', { text: payload.text }, { excludeSelf: false });
       })
       .request('get-ns-info', (ctx) => {
-        return { namespace: ctx.namespace.name };
+        ctx.respond({ namespace: ctx.namespace.name });
       })
       .stream('start-ns-stream', async function* (_ctx, payload) {
         for (let i = 0; i < payload.count; i++) {

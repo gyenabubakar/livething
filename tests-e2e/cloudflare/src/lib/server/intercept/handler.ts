@@ -7,6 +7,7 @@ import {
   namespace,
   nudge,
   outgoing,
+  scope,
   stream,
   t,
 } from '@wskit/server';
@@ -62,6 +63,10 @@ export const interceptContract = contract<Env>('intercept')({
           nudges: [nudge('ch-hint', HintNudgePayload)],
         }),
       ],
+    }),
+
+    channel(scope('rooms', /^room:.+$/), {
+      definitions: [incoming('echo', EchoPayload), outgoing('echoed', EchoedPayload)],
     }),
   ],
 });
@@ -161,6 +166,18 @@ export const interceptHandler = implement(interceptContract)
         }
         const hint = nudges.find((n) => n.event === 'ch-hint');
         yield { saw: hint ? (hint.payload as { text: string }).text : 'no-hint' };
+      }),
+  )
+  .channel('rooms', (ch) =>
+    ch
+      .intercept((_ctx, frame) => {
+        if (matches(interceptContract, '@rooms::echo', frame)) {
+          if (frame.payload.text === 'dyn-pre') return { text: 'dyn-pre-rewritten' };
+          if (frame.payload.text === 'dyn-pre-block') throw Block;
+        }
+      })
+      .on('echo', (ctx, payload) => {
+        ctx.channel.send('echoed', { text: `dyn:${payload.text}` });
       }),
   )
   .build();

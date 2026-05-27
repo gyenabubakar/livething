@@ -165,7 +165,20 @@ export function matches<TContract extends Contract<any, any>, TKey extends strin
     if (frame.routing.channel !== undefined) return false;
     if (frame.routing.namespace !== undefined) return false;
   } else if (parsed.scope === 'channel') {
-    if (frame.routing.channel !== parsed.name) return false;
+    const channelDef = (contract.definitions as readonly Definition[]).find(
+      (def): def is Extract<Definition, { _: 'channel' }> =>
+        def._ === 'channel' &&
+        (typeof def.pattern === 'string' ? def.pattern : def.pattern.key) === parsed.name,
+    );
+    if (!channelDef) return false;
+
+    if (typeof channelDef.pattern === 'string') {
+      if (frame.routing.channel !== parsed.name) return false;
+    } else {
+      if (frame.routing.channelScope !== parsed.name) return false;
+      if (typeof frame.routing.channel !== 'string') return false;
+      if (!channelDef.pattern.pattern.test(frame.routing.channel)) return false;
+    }
   } else if (parsed.scope === 'namespace') {
     if (frame.routing.namespace !== parsed.name) return false;
   }
