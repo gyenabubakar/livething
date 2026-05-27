@@ -12,8 +12,7 @@ export interface RespondMethod<TResponse = unknown> {
 
 /**
  * Handler function for a request/response pair. Receives `ctx.respond(value)`
- * to send the reply. You can also return the value directly — the implementer
- * accepts both forms.
+ * to send the reply.
  */
 export type RequestHandler<TCtx = any, TPayload = unknown, TResponse = unknown> = (
   ctx: TCtx & RespondMethod<TResponse>,

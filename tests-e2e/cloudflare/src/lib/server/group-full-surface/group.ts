@@ -1,6 +1,8 @@
-import { group, matches } from '@wskit/server';
+import { group, localKey, matches } from '@wskit/server';
 import { RejectUpgrade } from '@wskit/server/errors';
 import { groupFullSurfaceContract } from './contract.ts';
+
+const GroupRequestKey = localKey<{ tag: string }>('group-request');
 
 export const fullSurfaceGroup = group(groupFullSurfaceContract, (g) =>
   g
@@ -52,6 +54,7 @@ export const fullSurfaceGroup = group(groupFullSurfaceContract, (g) =>
     })
 
     .intercept((ctx, frame) => {
+      ctx.provide(GroupRequestKey, { tag: 'group' });
       ctx.send('pre-intercept-marker', { event: frame.event });
       if (matches(groupFullSurfaceContract, 'chat', frame)) {
         ctx.send('post-intercept-marker', { text: frame.payload.text });
@@ -135,8 +138,12 @@ export const fullSurfaceGroup = group(groupFullSurfaceContract, (g) =>
       ctx.send('replay-marker', { note: payload.note });
     })
 
-    .request('lookup', (_ctx, payload) => {
-      return { found: true, hit: payload.id };
+    .request('lookup', (ctx, payload) => {
+      ctx.respond({
+        found: true,
+        hit: payload.id,
+        tag: ctx.inject(GroupRequestKey)?.tag ?? 'none',
+      });
     })
 
     .stream('feed', async function* () {

@@ -47,8 +47,8 @@ describe('Implementer — duplicate-handler detection', () => {
     const c = makeContract();
     expect(() =>
       implement(c)
-        .request('lookup', () => ({}))
-        .request('lookup', () => ({})),
+        .request('lookup', (ctx) => ctx.respond({}))
+        .request('lookup', (ctx) => ctx.respond({})),
     ).toThrow(/Duplicate request handler for 'lookup'/);
   });
 
@@ -167,7 +167,7 @@ describe('Implementer.use(group) — duplicate detection across boundaries', () 
       ],
     });
     const g1 = group(c, (gb) => gb.on('chat', () => {}));
-    const g2 = group(c, (gb) => gb.request('lookup', () => ({})));
+    const g2 = group(c, (gb) => gb.request('lookup', (ctx) => ctx.respond({})));
     expect(() => implement(c).use(g1).use(g2).build()).not.toThrow();
   });
 });

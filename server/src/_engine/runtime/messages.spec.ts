@@ -6,6 +6,7 @@ import {
 } from '~/_engine/runtime/messages.ts';
 import { resolveScope } from '~/_engine/runtime/scope.ts';
 import { addChannelMembership } from '~/channel/runtime.ts';
+import { localKey } from '~/local-key/local-key.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import type { CompiledServer } from '~/_engine/compile/types.ts';
@@ -802,6 +803,108 @@ describe('message runtime', () => {
     expect(handleRuntimeError).toHaveBeenCalledTimes(1);
     const [, { routing }] = handleRuntimeError.mock.calls[0]!;
     expect(routing).toEqual({ correlationId: 'corr-42' });
+  });
+
+  it('request handlers reuse the intercept ctx so inject sees values provided earlier in the dispatch', async () => {
+    const providedKey = localKey<{ tag: string }>('provided');
+    const connection = createConnection('conn_1');
+    connection.descriptor.send = vi.fn();
+    const locals = new Map<unknown, unknown>();
+    const sharedCtx = {
+      id: connection.id,
+      provide(key: unknown, value: unknown) {
+        locals.set(key, value);
+      },
+      inject(key: unknown) {
+        return locals.get(key);
+      },
+    };
+
+    const runtime = {
+      compiled: {
+        outgoing: new Map(),
+        incoming: new Map(),
+        requests: new Map([
+          [
+            'lookup',
+            {
+              event: 'lookup',
+              validator: undefined,
+              responseValidator: undefined,
+              handler: (ctx: typeof sharedCtx & { respond: (value: unknown) => void }) => {
+                ctx.respond({
+                  tag: (ctx.inject(providedKey) as { tag: string } | undefined)?.tag ?? 'none',
+                });
+              },
+            },
+          ],
+        ]),
+        streams: new Map(),
+        resumableStreams: new Map(),
+        recordedStreams: new Map(),
+        intercepts: [
+          {
+            handler: (ctx: typeof sharedCtx) => {
+              ctx.provide(providedKey, { tag: 'top' });
+            },
+          },
+        ],
+        namespaces: new Map(),
+        channels: new Map(),
+        channelFamilies: new Map(),
+        scheduled: new Map(),
+        plugins: [],
+        requires: {},
+        replayClaimedChannelKeys: new Set(),
+      },
+      connections: new Map([[connection.id, connection]]),
+      toConnectionInfo() {
+        return { id: connection.id };
+      },
+      activeStreams: new Map(),
+      protocolHandlers: new Map(),
+      incomingHooks: [],
+      outgoingHooks: [],
+      wskitStampHooks: [],
+      beforeSendHooks: [],
+      afterSendHooks: [],
+      pluginRuntimes: [],
+      errorHooks: [],
+      buildConnectionContext() {
+        return sharedCtx;
+      },
+      sendProtocolMessage() {},
+      sendReplay() {},
+      persistAttachment() {},
+      async handleRuntimeError() {},
+      async handleValidationError() {},
+      async handleSubscribe() {},
+      async handleUnsubscribe() {},
+      waitUntil() {},
+      logger: { warn() {}, error() {} },
+      generateId() {
+        return 'id_1';
+      },
+    };
+
+    await dispatchIncoming(
+      runtime as unknown as Parameters<typeof dispatchIncoming>[0],
+      connection,
+      {
+        event: 'lookup',
+        payload: {},
+        wskit: { correlationId: 'corr-ctx', channelScope: null },
+      },
+    );
+
+    expect(connection.descriptor.send).toHaveBeenCalledTimes(1);
+    expect(
+      JSON.parse((connection.descriptor.send as ReturnType<typeof vi.fn>).mock.calls[0]![0]),
+    ).toEqual({
+      event: 'lookup',
+      payload: { tag: 'top' },
+      __wskit: { correlationId: 'corr-ctx' },
+    });
   });
 
   it('does not fall back to top-level handlers for events sent inside a channel scope', async () => {

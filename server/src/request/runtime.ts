@@ -6,11 +6,6 @@ import type { ResolvedScope, RoutingTarget, RuntimeConnection } from '~/_engine/
 import type { RequestPrimitive } from './request.ts';
 
 interface RequestRuntime {
-  buildConnectionContext(
-    connection: RuntimeConnection,
-    scope?: ResolvedScope,
-  ): Record<PropertyKey, unknown>;
-
   asyncContext: EngineAsyncContext;
 
   sendThroughPipeline(
@@ -21,6 +16,8 @@ interface RequestRuntime {
 
 export interface HandleRequestOptions {
   connection: RuntimeConnection;
+
+  ctx: Record<PropertyKey, unknown>;
 
   scope: ResolvedScope;
 
@@ -51,9 +48,9 @@ export async function handleRequest(
   let response: unknown;
   let responded = false;
   await runWithScopedContext(runtime, connection, {
-    ctx: runtime.buildConnectionContext(connection, scope),
+    ctx: options.ctx,
     handler: (ctx) => {
-      (ctx as Record<PropertyKey, unknown>).respond = (value: unknown) => {
+      ctx.respond = (value: unknown) => {
         if (responded) {
           throw new Error('[wskit] ctx.respond() was already called for this request invocation.');
         }

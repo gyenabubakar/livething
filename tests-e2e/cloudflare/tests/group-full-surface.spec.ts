@@ -50,6 +50,7 @@ test.describe('group full surface', () => {
     });
     expect(res.payload.found).toBe(true);
     expect(res.payload.hit).toBe('abc');
+    expect(res.payload.tag).toBe('group');
   });
 
   test('group.stream yields chunks', async ({ page }, testInfo) => {

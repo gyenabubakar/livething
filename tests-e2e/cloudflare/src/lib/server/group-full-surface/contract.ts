@@ -15,7 +15,7 @@ import * as v from 'valibot';
 
 const ChatPayload = v.object({ text: v.string() });
 const LookupReq = v.object({ id: v.string() });
-const LookupRes = v.object({ found: v.boolean(), hit: v.string() });
+const LookupRes = v.object({ found: v.boolean(), hit: v.string(), tag: v.string() });
 const FeedChunk = v.object({ idx: v.number() });
 const PaginateChunk = v.object({ row: v.number() });
 const TokenChunk = v.object({ token: v.string() });

@@ -76,8 +76,8 @@ export class ChannelImplement<C extends Contract, ChC = any, TCheck = unknown> {
   }
 
   /**
-   * Attach a request/response handler scoped to this channel. Return a value
-   * or call `ctx.respond(value)`.
+   * Attach a request/response handler scoped to this channel. Call
+   * `ctx.respond(value)`.
    */
   request<E extends keyof FieldOf<ChC, 'requests'> & string>(
     event: E,
@@ -86,10 +86,7 @@ export class ChannelImplement<C extends Contract, ChC = any, TCheck = unknown> {
         respond(value: FieldOf<ChC, 'requests'>[E] extends { response: infer R } ? R : void): void;
       },
       payload: FieldOf<ChC, 'requests'>[E] extends { payload: infer P } ? P : never,
-    ) =>
-      | (FieldOf<ChC, 'requests'>[E] extends { response: infer R } ? R : void)
-      | void
-      | Promise<(FieldOf<ChC, 'requests'>[E] extends { response: infer R } ? R : void) | void>,
+    ) => void | Promise<void>,
   ): this {
     setOnce(this._bag.requestHandlers, event, {
       value: handler as any,

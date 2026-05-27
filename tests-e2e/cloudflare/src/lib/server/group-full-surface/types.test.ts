@@ -132,6 +132,7 @@ describe('GroupFullSurfaceClient — requests', () => {
     expectTypeOf<GroupFullSurfaceClient['requests']['lookup']['response']>().toEqualTypeOf<{
       found: boolean;
       hit: string;
+      tag: string;
     }>();
   });
 });

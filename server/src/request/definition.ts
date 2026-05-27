@@ -4,8 +4,8 @@ import type { Validator } from '~/types.ts';
 
 /**
  * Contract-side declaration of a request/response pair. Produced by `request()`.
- * The matching handler returns a value (or calls `ctx.respond()`) of the
- * declared response type.
+ * The matching handler calls `ctx.respond()` with a value of the declared
+ * response type.
  */
 export interface RequestDef<
   TName extends string = string,
@@ -19,8 +19,8 @@ export interface RequestDef<
 }
 
 /**
- * Declare a request/response pair. The handler returns or calls `ctx.respond()`
- * with a value matching the declared response schema.
+ * Declare a request/response pair. The handler calls `ctx.respond()` with a
+ * value matching the declared response schema.
  */
 export function request<TName extends string, TPayload = unknown, TResponse = unknown>(
   name: TName,

@@ -13,13 +13,7 @@ export function compileRequestDef(
       `[wskit] No handler registered for request('${def.name}'). Call implement(c).request('${def.name}', ...).`,
     );
   }
-  // The runtime expects the handler to send the reply via ctx.respond().
-  // Users can also just return the value, so we forward it for them here.
-  async function adapted(ctx: any, payload: any): Promise<void> {
-    const result = await (handler as any)(ctx, payload);
-    if (result !== undefined) ctx.respond(result);
-  }
-  return requestFactory(def.name, adapted, {
+  return requestFactory(def.name, handler as any, {
     validator: def.payload,
     responseSchema: def.response,
   });

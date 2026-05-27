@@ -40,7 +40,6 @@ describe('request/runtime', () => {
     const sendThroughPipeline = vi.fn(() => true);
     const runtime = {
       asyncContext: makeAsyncContext(),
-      buildConnectionContext: () => ({ ok: true }),
       sendThroughPipeline,
     };
     const connection = createConnection();
@@ -54,6 +53,7 @@ describe('request/runtime', () => {
 
     await handleRequest(runtime, {
       connection,
+      ctx: { ok: true },
       scope: { channelName: 'room-1', channelScope: 'rooms' },
       event: 'status',
       request,
@@ -76,7 +76,6 @@ describe('request/runtime', () => {
   it('calling ctx.respond() twice in one invocation throws', async () => {
     const runtime = {
       asyncContext: makeAsyncContext(),
-      buildConnectionContext: () => ({ ok: true }),
       sendThroughPipeline: vi.fn(() => true),
     };
     const connection = createConnection();
@@ -92,6 +91,7 @@ describe('request/runtime', () => {
     await expect(
       handleRequest(runtime, {
         connection,
+        ctx: { ok: true },
         scope: {},
         event: 'status',
         request,
@@ -105,7 +105,6 @@ describe('request/runtime', () => {
     const sendThroughPipeline = vi.fn(() => true);
     const runtime = {
       asyncContext: makeAsyncContext(),
-      buildConnectionContext: () => ({ ok: true }),
       sendThroughPipeline,
     };
     const connection = createConnection();
@@ -121,6 +120,7 @@ describe('request/runtime', () => {
 
     await handleRequest(runtime, {
       connection,
+      ctx: { ok: true },
       scope: {},
       event: 'status',
       request,
@@ -134,7 +134,6 @@ describe('request/runtime', () => {
   it('runs the request handler inside the connection async context, auto-scoped on throw', async () => {
     const asyncContext = makeAsyncContext();
     const runtime = {
-      buildConnectionContext: () => ({ ok: true }),
       asyncContext,
       sendThroughPipeline: vi.fn(() => true),
     };
@@ -152,6 +151,7 @@ describe('request/runtime', () => {
     await expect(
       handleRequest(runtime, {
         connection,
+        ctx: { ok: true },
         scope: {},
         event: 'status',
         request,
@@ -162,5 +162,55 @@ describe('request/runtime', () => {
 
     expect(seen).toBe('c1');
     expect(asyncContext.getStore()).toBeUndefined();
+  });
+
+  it('reuses the dispatch-shared ctx so request handlers can inject intercept-provided locals', async () => {
+    const sendThroughPipeline = vi.fn(() => true);
+    const runtime = {
+      asyncContext: makeAsyncContext(),
+      sendThroughPipeline,
+    };
+    const connection = createConnection();
+    const shared = new Map<PropertyKey, unknown>();
+    const key = Symbol('provided');
+    const ctx = {
+      provide(localKey: PropertyKey, value: unknown) {
+        shared.set(localKey, value);
+      },
+      inject(localKey: PropertyKey) {
+        return shared.get(localKey);
+      },
+    };
+    ctx.provide(key, { tag: 'top' });
+    const request = {
+      __wskit: 'request',
+      event: 'status',
+      handler: vi.fn(async (requestCtx: typeof ctx & { respond: (value: unknown) => void }) => {
+        requestCtx.respond({
+          tag: (requestCtx.inject(key) as { tag: string } | undefined)?.tag ?? 'none',
+        });
+      }),
+    } as unknown as RequestPrimitive;
+
+    await handleRequest(runtime, {
+      connection,
+      ctx,
+      scope: {},
+      event: 'status',
+      request,
+      payload: {},
+      wskit: { correlationId: 'req-2', channelScope: null },
+    });
+
+    expect(sendThroughPipeline).toHaveBeenCalledWith(connection, {
+      routing: {
+        namespace: undefined,
+        channel: undefined,
+        channelScope: undefined,
+        correlationId: 'req-2',
+      },
+      event: 'status',
+      payload: { tag: 'top' },
+    });
   });
 });

@@ -408,13 +408,12 @@ export async function dispatchIncoming(
     if (request) {
       await RequestPrimitive.handleRequest(
         {
-          buildConnectionContext: runtime.buildConnectionContext,
           asyncContext: runtime.asyncContext,
           sendThroughPipeline: (nextConnection, nextOpts) => {
             return OutgoingRuntime.sendThroughPipeline(runtime, nextConnection, nextOpts);
           },
         },
-        { connection, scope, event, request, payload: payloadValue, wskit },
+        { connection, ctx: getCtx(), scope, event, request, payload: payloadValue, wskit },
       );
       return;
     }

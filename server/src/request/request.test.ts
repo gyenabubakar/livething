@@ -8,7 +8,9 @@ import type { RequestPrimitive } from '~/request/request.ts';
 // 1. Event name preserved as literal
 // ===========================================================================
 
-const getHistory = request('get-history', async () => {});
+const getHistory = request('get-history', async (ctx) => {
+  ctx.respond(undefined);
+});
 const _eventLiteral: 'get-history' = getHistory.event;
 void _eventLiteral;
 
@@ -38,9 +40,10 @@ void _responseType;
 // 3. Without validator — payload is unknown
 // ===========================================================================
 
-const noValidator = request('get-presence', async (_ctx, _payload) => {
+const noValidator = request('get-presence', async (ctx, _payload) => {
   const _unknown: unknown = _payload;
   void _unknown;
+  ctx.respond(undefined);
 });
 
 const _noValType: RequestPrimitive<'get-presence', unknown, unknown> = noValidator;
@@ -55,9 +58,10 @@ declare const limitSchema: StandardSchemaV1<unknown, { limit: number }>;
 
 const withSchema = request(
   'get-history',
-  async (_ctx, payload) => {
+  async (ctx, payload) => {
     const _limit: number = payload.limit;
     void _limit;
+    ctx.respond(undefined);
   },
   { validator: limitSchema },
 );
@@ -75,6 +79,7 @@ type RequestCtx = {
 
 const withCtx = request<'ping', unknown, unknown, RequestCtx>('ping', async (ctx) => {
   ctx.log('pong');
+  ctx.respond(undefined);
 });
 
 const _ctxType: RequestPrimitive<'ping', unknown, unknown, RequestCtx> = withCtx;

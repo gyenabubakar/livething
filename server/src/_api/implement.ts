@@ -95,7 +95,7 @@ type RequestResponseOf<
 type RequestHandlerFor<C extends Contract, E extends keyof C['requests']> = (
   ctx: Ctx<C> & { respond(value: RequestResponseOf<C, E>): void },
   payload: C['requests'][E] extends { payload: infer P } ? P : never,
-) => RequestResponseOf<C, E> | void | Promise<RequestResponseOf<C, E> | void>;
+) => void | Promise<void>;
 
 type StreamGeneratorFor<C extends Contract, E extends keyof C['streams']> = (
   ctx: Ctx<C> & {
@@ -175,7 +175,7 @@ export class GroupBuilder<C extends Contract> {
     return this;
   }
 
-  /** Attach a handler for one request/response pair. Return a value or call `ctx.respond(...)`. */
+  /** Attach a handler for one request/response pair. Call `ctx.respond(...)`. */
   request<E extends keyof C['requests'] & string>(
     event: E,
     handler: RequestHandlerFor<C, E>,
@@ -536,12 +536,12 @@ export class Implementer<C extends Contract> {
 
   /**
    * Attach a handler for one request/response pair. The client awaits the
-   * response. Either return the response value or call `ctx.respond(value)`.
+   * response. Call `ctx.respond(value)`.
    *
    * @example
    * ```ts
-   * implement(chat).request('get-history', (ctx, { since }) => {
-   *   return db.findMessagesSince(since);
+   * implement(chat).request('get-history', async (ctx, { since }) => {
+   *   ctx.respond(await db.findMessagesSince(since));
    * });
    * ```
    */

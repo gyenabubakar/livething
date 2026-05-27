@@ -59,8 +59,8 @@ export class NamespaceImplement<C extends Contract, NsC = any> {
   }
 
   /**
-   * Attach a request/response handler scoped to this namespace. Return a
-   * value or call `ctx.respond(value)`.
+   * Attach a request/response handler scoped to this namespace. Call
+   * `ctx.respond(value)`.
    */
   request<E extends keyof FieldOf<NsC, 'requests'> & string>(
     event: E,
@@ -69,10 +69,7 @@ export class NamespaceImplement<C extends Contract, NsC = any> {
         respond(value: FieldOf<NsC, 'requests'>[E] extends { response: infer R } ? R : void): void;
       },
       payload: FieldOf<NsC, 'requests'>[E] extends { payload: infer P } ? P : never,
-    ) =>
-      | (FieldOf<NsC, 'requests'>[E] extends { response: infer R } ? R : void)
-      | void
-      | Promise<(FieldOf<NsC, 'requests'>[E] extends { response: infer R } ? R : void) | void>,
+    ) => void | Promise<void>,
   ): this {
     setOnce(this._bag.requestHandlers, event, {
       value: handler as any,

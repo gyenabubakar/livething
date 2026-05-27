@@ -66,7 +66,9 @@ const mediumHandler = implement(mediumContract)
   .on('noop', () => {})
   .on('join', () => {})
   .on('leave', () => {})
-  .request('whoami', (ctx) => ({ id: ctx.identity }))
+  .request('whoami', (ctx) => {
+    ctx.respond({ id: ctx.identity });
+  })
   .stream('tail', async function* () {
     yield { n: 1 };
   })
@@ -139,7 +141,7 @@ const heavyContract = contract<Record<string, unknown>>('bench-heavy')({
 const heavyImpl: any = implement(heavyContract as any);
 for (const def of heavyContract.definitions as readonly any[]) {
   if (def._ === 'incoming') heavyImpl.on(def.name, () => {});
-  if (def._ === 'request') heavyImpl.request(def.name, () => ({}));
+  if (def._ === 'request') heavyImpl.request(def.name, (ctx: any) => ctx.respond({}));
   if (def._ === 'stream')
     heavyImpl.stream(def.name, async function* () {
       yield { n: 1 };
@@ -165,7 +167,7 @@ for (const def of heavyContract.definitions as readonly any[]) {
     heavyImpl.namespace(def.name, (ns: any) => {
       for (const child of def.definitions as readonly any[]) {
         if (child._ === 'incoming') ns.on(child.name, () => {});
-        if (child._ === 'request') ns.request(child.name, () => ({}));
+        if (child._ === 'request') ns.request(child.name, (ctx: any) => ctx.respond({}));
       }
       return ns;
     });

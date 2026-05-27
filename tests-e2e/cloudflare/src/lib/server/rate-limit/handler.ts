@@ -87,7 +87,9 @@ export const rateLimitHandler = implement(rateLimitContract)
   .on('expensive', (ctx) => {
     ctx.send('expensive-done', {});
   })
-  .request('echo-req', (_ctx, payload) => ({ text: payload.text }))
+  .request('echo-req', (ctx, payload) => {
+    ctx.respond({ text: payload.text });
+  })
   .channel('inherit-room', (ch) =>
     ch.on('send', (ctx, p) => {
       ctx.channel.broadcast('msg', p, { excludeSelf: false });
