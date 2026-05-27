@@ -306,6 +306,27 @@ describe('outgoing/runtime sendThroughPipeline', () => {
       }),
     ).not.toThrow();
   });
+
+  it('throws a clear error when the payload serializes to undefined (toJSON returns undefined)', () => {
+    // assertPayloadRecord only checks the in-memory shape, so an object whose
+    // toJSON returns undefined passes that gate. Without the serialize-time
+    // guard the unicast wire frame silently drops its payload key — the
+    // client receives `{"event":"foo","__wskit":{...}}` and has no signal
+    // that the payload was lost. The guard turns it into a loud server-side
+    // error pointing at the offending event name.
+    const runtime = createRuntime();
+    const connection = createConnection();
+    const bad = { toJSON: () => undefined } as unknown as Record<string, unknown>;
+
+    expect(() =>
+      sendThroughPipeline(runtime, connection, {
+        routing: undefined,
+        event: 'foo',
+        payload: bad,
+      }),
+    ).toThrow(/did not serialize to JSON/);
+    expect(connection.descriptor.send).not.toHaveBeenCalled();
+  });
 });
 
 describe('broadcastToConnections — fanout resilience', () => {
@@ -386,6 +407,34 @@ describe('broadcastToConnections — fanout resilience', () => {
     ).not.toThrow();
 
     expect(errorLogs).toHaveLength(1);
+  });
+
+  it('drops the broadcast and logs once when the payload serializes to undefined (toJSON returns undefined)', () => {
+    // Pre-fix the splice path produced `"payload":undefined` on the wire —
+    // invalid JSON that broke every recipient's parser. The serialize-time
+    // guard fails preparation, the existing catch logs one error, and no
+    // peer receives the frame.
+    const errorLogs: Array<{ message: string; data?: unknown }> = [];
+    const runtime = createRuntime({
+      logger: {
+        warn() {},
+        error(message: string, data?: unknown) {
+          errorLogs.push({ message, data });
+        },
+      },
+    });
+    const sent: string[] = [];
+    const a = peer('A', (frame) => sent.push(frame));
+    const b = peer('B', (frame) => sent.push(frame));
+    const bad = { toJSON: () => undefined } as unknown as Record<string, unknown>;
+
+    expect(() =>
+      broadcastToConnections(runtime, [a, b], { event: 'foo', payload: bad }),
+    ).not.toThrow();
+
+    expect(sent).toEqual([]);
+    expect(errorLogs).toHaveLength(1);
+    expect((errorLogs[0]!.data as { error: string }).error).toMatch(/did not serialize to JSON/);
   });
 
   it('produces a wire frame that parses to event, payload, and __wskit', () => {

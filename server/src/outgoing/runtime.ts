@@ -107,6 +107,28 @@ export function assertPayloadRecord(payload: unknown): asserts payload is Record
   }
 }
 
+/**
+ * Serialize the payload once and confirm the result is actually a JSON string.
+ *
+ * `JSON.stringify` returns the JS value `undefined` (not a string) when the
+ * input ultimately serializes to nothing — most commonly an object whose
+ * `toJSON()` returns `undefined`. The in-memory `assertPayloadRecord` check
+ * passes for such objects because the shape is still `{}`, so without this
+ * guard the bad value reaches the wire: broadcast splices the literal text
+ * `undefined` into a hand-built frame (invalid JSON for every recipient),
+ * and unicast silently drops the `payload` key.
+ */
+function serializePayloadOrThrow(event: string, payload: Record<string, unknown>): string {
+  const json = JSON.stringify(payload);
+  if (typeof json !== 'string') {
+    throw new Error(
+      `[wskit] Outgoing payload for "${event}" did not serialize to JSON. ` +
+        `A toJSON() method that returns undefined is the usual cause.`,
+    );
+  }
+  return json;
+}
+
 // ───── Section: outgoing hook pipeline ─────
 
 /** Run global + plugin `onOutgoing` hooks and return the (possibly rewritten) message. */
@@ -228,6 +250,7 @@ export function sendThroughPipeline(
   applyWskitStampers(runtime.wskitStampHooks, message.event, wskit);
 
   const finalPayload = message.payload as Record<string, unknown>;
+  const payloadJson = serializePayloadOrThrow(message.event, finalPayload);
 
   const wireMessage: EngineRuntimeTypes.WireOutgoingMessage = {
     connectionId: connection.id,
@@ -242,7 +265,7 @@ export function sendThroughPipeline(
   }
 
   connection.descriptor.send(
-    JSON.stringify({ event: message.event, payload: finalPayload, __wskit: wskit }),
+    `{"event":${JSON.stringify(message.event)},"payload":${payloadJson},"__wskit":${JSON.stringify(wskit)}}`,
   );
 
   invokeAfterSendHooks(runtime, wireMessage);
@@ -317,7 +340,7 @@ function prepareBroadcast(
 
   const finalPayload = message.payload as Record<string, unknown>;
   const eventJson = JSON.stringify(message.event);
-  const payloadJson = JSON.stringify(finalPayload);
+  const payloadJson = serializePayloadOrThrow(message.event, finalPayload);
   const baseWskit = buildWskit(routing);
   const hasBeforeSend = runtime.beforeSendHooks.length > 0;
 
