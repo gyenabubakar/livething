@@ -58,7 +58,7 @@ export const replayContract = contract<Env>('replay-test')({
     stream('start-tiny-stream', { payload: StartTinyStream, chunk: TinyChunk }),
 
     namespace('admin', {
-      definitions: [outgoing('chat-msg', ChatMsg)],
+      definitions: [outgoing('chat-msg', ChatMsg), incoming('send-admin-msg', SendMsg)],
     }),
 
     channel('replay-room', {
@@ -143,6 +143,11 @@ export const replayHandler = implement(replayContract)
   .stream('start-tiny-stream', async function* () {
     yield { value: 'one' };
   })
+  .namespace('admin', (ns) =>
+    ns.on('send-admin-msg', (ctx, payload) => {
+      ctx.namespace.send('chat-msg', { text: payload.text, from: ctx.meta.username });
+    }),
+  )
   .channel('replay-room', (ch) =>
     ch
       .on('send-room-msg', (ctx, payload) => {

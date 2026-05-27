@@ -1,7 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/types.ts';
 import {
-  assertReplayScopeServable,
   ensureReplaySchema,
   isChannelReplayAuthorized,
   loadReplayRows,
@@ -269,8 +268,6 @@ class ReplayInstaller {
       return false;
     }
 
-    assertReplayScopeServable(this.channelKey, scope);
-
     const connection = (ctx as Record<PropertyKey, unknown>)[ENGINE_INTERNAL_CONNECTION] as
       | RuntimeConnection
       | undefined;
@@ -294,12 +291,14 @@ class ReplayInstaller {
       this.engine.sendReplay(connectionId, {
         channelName: row.channel,
         channelScope: row.channelScope,
+        namespace: row.namespace,
         event: row.event,
         payload: rowPayload,
         wire: {
           seq: row.seq,
           messageId: row.messageId,
           channel: row.channel ?? undefined,
+          namespace: row.namespace,
         },
       });
     }

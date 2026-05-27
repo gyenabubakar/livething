@@ -439,9 +439,10 @@ export interface EngineAccess {
     options: {
       channelName: string | null;
       channelScope: string | null;
+      namespace?: string | null;
       event: string;
       payload: unknown;
-      wire: { seq: number; messageId: string; channel?: string };
+      wire: { seq: number; messageId: string; channel?: string; namespace?: string | null };
     },
   ): void;
 

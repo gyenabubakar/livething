@@ -1,9 +1,7 @@
-import { ValidationFailed } from '@wskit/core';
 import { createChannelMembershipKey } from '~/channel/runtime.ts';
 import { describe, expect, it, vi } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import {
-  assertReplayScopeServable,
   buildLoadReplayQuery,
   buildReplayRow,
   ensureReplaySchema,
@@ -600,33 +598,17 @@ describe('buildLoadReplayQuery', () => {
 
   it('produces the unscoped top-level query when no channelName is provided', () => {
     const query = buildLoadReplayQuery(0, { channelScope: null });
-    expect(query.sql).toMatch(/namespace IS NULL/);
+    expect(query.sql).not.toMatch(/WHERE[^;]*namespace/);
     expect(query.sql).toMatch(/channel IS NULL/);
     expect(query.sql).toMatch(/channelScope IS NULL/);
     expect(query.params).toEqual([0]);
   });
-});
 
-describe('assertReplayScopeServable', () => {
-  it('throws ValidationFailed when top-level replay receives a namespace request', () => {
-    let captured: unknown;
-    try {
-      assertReplayScopeServable(undefined, { namespaceName: 'admin' });
-    } catch (error) {
-      captured = error;
-    }
-    expect(ValidationFailed.matches(captured)).toBe(true);
-  });
-
-  it('passes through when top-level replay receives a non-namespace request', () => {
-    expect(() => assertReplayScopeServable(undefined, {})).not.toThrow();
-  });
-
-  it('passes through for channel-level replay regardless of namespace marker', () => {
-    // Resolve order in the engine prevents namespace and channel markers from
-    // both being set on the same incoming frame, but the helper does not
-    // depend on that — channel replay simply does not gate on namespace.
-    expect(() => assertReplayScopeServable('rooms', {})).not.toThrow();
-    expect(() => assertReplayScopeServable('rooms', { namespaceName: 'admin' })).not.toThrow();
+  it('returns namespace-tagged rows alongside untagged rows for the top-level query', () => {
+    // Top-level replay covers namespace traffic too — the load query must not
+    // filter `namespace IS NULL`, otherwise namespace-stamped rows become dead
+    // data (written by shouldStoreReplayMessage, never read back).
+    const query = buildLoadReplayQuery(0, { channelScope: null });
+    expect(query.sql).not.toMatch(/namespace IS NULL/);
   });
 });

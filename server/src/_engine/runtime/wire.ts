@@ -54,11 +54,13 @@ export interface SendReplayOptions {
 
   channelScope: string | null;
 
+  namespace?: string | null;
+
   event: string;
 
   payload: unknown;
 
-  wire: { seq: number; messageId: string; channel?: string };
+  wire: { seq: number; messageId: string; channel?: string; namespace?: string | null };
 }
 
 /** Send one replay entry with its stored wire metadata reattached. */
@@ -67,16 +69,18 @@ export function sendReplay(
   connection: RuntimeConnection,
   options: SendReplayOptions,
 ): void {
-  const { channelName, channelScope, event, payload, wire } = options;
+  const { channelName, channelScope, namespace, event, payload, wire } = options;
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
     throw new Error('[wskit] Outgoing payload must be a plain object.');
   }
 
   const resolvedChannel = channelName ?? wire.channel ?? null;
+  const resolvedNamespace = namespace ?? wire.namespace ?? null;
   const wskit: Record<string, unknown> = {
     seq: wire.seq,
     messageId: wire.messageId,
   };
+  if (resolvedNamespace !== null) wskit.namespace = resolvedNamespace;
   if (resolvedChannel !== null) wskit.channel = resolvedChannel;
   if (channelScope !== null) wskit.channelScope = channelScope;
 

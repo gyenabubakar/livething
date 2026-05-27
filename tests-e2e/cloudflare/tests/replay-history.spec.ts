@@ -148,40 +148,47 @@ test.describe('replay handler', () => {
     expect(liveChunks[0]!.payload.value).toBe('one');
   });
 
-  test('__replay__ with a namespace against top-level replay surfaces __error__', async ({
-    page,
-  }) => {
-    // The fixture registers a namespace called "admin" but only declares
-    // top-level replay — namespace replay does not exist as a primitive
-    // (issue #8 tracks that work). Pre-fix the protocol handler accepted
-    // the request, dropped the namespace marker, and read the unscoped
-    // store. The client either got zero rows (when the namespace had its
-    // own traffic) or top-level rows mis-tagged as namespace history.
-    // Post-fix the handler rejects the request with a typed validation
-    // error so the client learns the request cannot be served.
-    const errors = await page.evaluate(async () => {
+  test('top-level __replay__ resends namespace-tagged outgoing frames', async ({ page }) => {
+    // Top-level replay covers every outgoing frame that is not channel-scoped,
+    // including frames the server emits inside a namespace handler via
+    // `ctx.namespace.send(...)`. The stored row carries `namespace` so the
+    // replayed frame keeps its `__wskit.namespace` marker and the client can
+    // dispatch it into the right namespace handler on reconnect.
+    const tag = `ns-replay-${Date.now()}`;
+    const replayed = await page.evaluate(async (tag) => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       if (!ws) throw new Error('socket not exposed');
-      const got: { event: string; payload: Record<string, unknown> }[] = [];
+
+      // Trigger a namespace outgoing through the admin handler.
+      ws.send(
+        JSON.stringify({
+          event: 'send-admin-msg',
+          payload: { text: tag },
+          __wskit: { namespace: 'admin' },
+        }),
+      );
+      await new Promise((r) => setTimeout(r, 300));
+
+      const got: {
+        event: string;
+        payload: Record<string, unknown>;
+        __wskit?: Record<string, unknown>;
+      }[] = [];
       const original = ws.onmessage;
       ws.onmessage = (ev) => {
         if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
         if (typeof original === 'function') original.call(ws, ev);
       };
-      ws.send(
-        JSON.stringify({
-          event: '__replay__',
-          payload: { lastKnownSeq: 0 },
-          __wskit: { namespace: 'admin' },
-        }),
-      );
-      await new Promise((r) => setTimeout(r, 300));
+      ws.send(JSON.stringify({ event: '__replay__', payload: { lastKnownSeq: 0 }, __wskit: {} }));
+      await new Promise((r) => setTimeout(r, 400));
       ws.onmessage = original;
-      return got.filter((m) => m.event === '__error__');
-    });
+      return got.filter(
+        (m) => m.event === 'chat-msg' && (m.payload as { text?: string }).text === tag,
+      );
+    }, tag);
 
-    expect(errors.length).toBeGreaterThan(0);
-    expect(errors[0]!.payload.code).toBe('validation-failed');
+    expect(replayed.length).toBeGreaterThan(0);
+    expect(replayed[0]!.__wskit?.namespace).toBe('admin');
   });
 
   test('sequence numbers present', async ({ page }) => {

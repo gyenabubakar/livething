@@ -1,4 +1,3 @@
-import { ValidationFailed } from '@wskit/core';
 import { ENGINE_SCOPE_META } from '~/_engine/contexts/types.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import type { EngineScopeMeta } from '~/_engine/contexts/types.ts';
@@ -114,32 +113,6 @@ export function readReplayScope(wskit: Record<string, unknown>): ReplayPayloadSc
     channel: typeof wskit.channel === 'string' ? wskit.channel : null,
     channelScope: typeof wskit.channelScope === 'string' ? wskit.channelScope : null,
   };
-}
-
-/**
- * Reject a `__replay__` request whose namespace lands on a top-level replay
- * primitive that does not own namespace traffic.
- *
- * Namespace-scoped replay is not implemented yet (issue #8 tracks that work).
- * Without this guard, a top-level `__replay__` carrying a namespace reads the
- * unscoped store under `WHERE namespace IS NULL`, returning either zero rows
- * or — worse — top-level rows to a client that expected namespace history.
- */
-export function assertReplayScopeServable(
-  channelKey: string | undefined,
-  scope: { namespaceName?: string },
-): void {
-  if (!channelKey && scope.namespaceName) {
-    throw ValidationFailed({
-      event: '__replay__',
-      issues: [
-        {
-          message: `replay is not configured for namespace "${scope.namespaceName}"`,
-          path: ['namespace'],
-        },
-      ],
-    });
-  }
 }
 
 /**
@@ -621,8 +594,7 @@ export function buildLoadReplayQuery(
         snapshotKey,
         createdAt
       FROM __wskit_replay
-      WHERE namespace IS NULL
-        AND channel IS NULL
+      WHERE channel IS NULL
         AND channelScope IS NULL
         AND seq > ?
       ORDER BY seq ASC

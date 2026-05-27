@@ -129,8 +129,12 @@ describe('ReplayClient — namespaces', () => {
     }>();
   });
 
-  it('admin outgoing is empty', () => {
-    expectTypeOf<keyof ReplayClient['namespaces']['admin']['outgoing']>().toBeNever();
+  it('admin outgoing has send-admin-msg', () => {
+    expectTypeOf<
+      ReplayClient['namespaces']['admin']['outgoing']['send-admin-msg']
+    >().toEqualTypeOf<{
+      text: string;
+    }>();
   });
 });
 

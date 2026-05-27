@@ -534,9 +534,10 @@ describe('replay', () => {
         {
           channelName: 'room-1',
           channelScope: 'rooms',
+          namespace: null,
           event: 'message',
           payload: { text: 'history' },
-          wire: { seq: 5, messageId: 'msg-1', channel: 'room-1' },
+          wire: { seq: 5, messageId: 'msg-1', channel: 'room-1', namespace: null },
         },
       ],
     ]);

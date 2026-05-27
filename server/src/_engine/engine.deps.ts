@@ -305,9 +305,10 @@ function buildDispatchRuntime(core: EngineCore) {
       opts: {
         channelName: string | null;
         channelScope: string | null;
+        namespace?: string | null;
         event: string;
         payload: unknown;
-        wire: { seq: number; messageId: string; channel?: string };
+        wire: { seq: number; messageId: string; channel?: string; namespace?: string | null };
       },
     ) => sendReplay(core, connection, opts),
 
