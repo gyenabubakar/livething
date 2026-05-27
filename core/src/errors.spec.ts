@@ -8,6 +8,7 @@ import {
   InvalidScopeMarkers,
   NamespaceNotFound,
   RateLimited,
+  RequestNoResponse,
   StreamAborted,
   StreamAlreadyActive,
   StreamIdCollision,
@@ -397,6 +398,7 @@ describe.each([
   { name: 'InternalError', def: InternalError, code: 'internal-error' as const },
   { name: 'InvalidScopeMarkers', def: InvalidScopeMarkers, code: 'invalid-scope-markers' as const },
   { name: 'NamespaceNotFound', def: NamespaceNotFound, code: 'namespace-not-found' as const },
+  { name: 'RequestNoResponse', def: RequestNoResponse, code: 'request-no-response' as const },
   { name: 'StreamIdCollision', def: StreamIdCollision, code: 'stream-id-collision' as const },
 ])('$name (code-only built-in)', ({ def, code }) => {
   it('has the documented code', () => {
@@ -652,6 +654,7 @@ describe('built-in error codes', () => {
       InternalError: InternalError.code,
       InvalidScopeMarkers: InvalidScopeMarkers.code,
       NamespaceNotFound: NamespaceNotFound.code,
+      RequestNoResponse: RequestNoResponse.code,
       StreamAborted: StreamAborted.code,
       StreamAlreadyActive: StreamAlreadyActive.code,
       StreamIdCollision: StreamIdCollision.code,
@@ -662,6 +665,7 @@ describe('built-in error codes', () => {
       InternalError: 'internal-error',
       InvalidScopeMarkers: 'invalid-scope-markers',
       NamespaceNotFound: 'namespace-not-found',
+      RequestNoResponse: 'request-no-response',
       StreamAborted: 'stream-aborted',
       StreamAlreadyActive: 'stream-already-active',
       StreamIdCollision: 'stream-id-collision',

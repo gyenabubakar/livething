@@ -101,7 +101,12 @@ describe('request/runtime', () => {
     ).rejects.toThrow('[wskit] ctx.respond() was already called');
   });
 
-  it('does not call sendThroughPipeline when handler never calls ctx.respond()', async () => {
+  it('throws RequestNoResponse when handler exits without calling ctx.respond()', async () => {
+    // Pre-fix the runtime swallowed the missing-respond case silently — the
+    // client's request promise hung until its own timeout, with no log, no
+    // error, and no breadcrumb. The throw lets the outer dispatcher route a
+    // correlated `__error__` back through handleRuntimeError using the
+    // originating correlationId.
     const sendThroughPipeline = vi.fn(() => true);
     const runtime = {
       asyncContext: makeAsyncContext(),
@@ -112,21 +117,21 @@ describe('request/runtime', () => {
       __wskit: 'request',
       event: 'status',
       handler: vi.fn(async () => {
-        // Never calls ctx.respond() — leave the request hanging on the
-        // client. Pushing `undefined` through the pipeline would fail the
-        // payload-must-be-an-object check and surface as a spurious _error.
+        // Intentionally never calls ctx.respond().
       }),
     } as unknown as RequestPrimitive;
 
-    await handleRequest(runtime, {
-      connection,
-      ctx: { ok: true },
-      scope: {},
-      event: 'status',
-      request,
-      payload: {},
-      wskit: undefined,
-    });
+    await expect(
+      handleRequest(runtime, {
+        connection,
+        ctx: { ok: true },
+        scope: {},
+        event: 'status',
+        request,
+        payload: {},
+        wskit: { correlationId: 'req-1', channelScope: null },
+      }),
+    ).rejects.toMatchObject({ code: 'request-no-response' });
 
     expect(sendThroughPipeline).not.toHaveBeenCalled();
   });

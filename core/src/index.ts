@@ -10,6 +10,7 @@ export {
   InvalidScopeMarkers,
   NamespaceNotFound,
   RateLimited,
+  RequestNoResponse,
   StreamAborted,
   StreamAlreadyActive,
   StreamIdCollision,

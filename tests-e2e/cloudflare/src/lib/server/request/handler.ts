@@ -44,7 +44,9 @@ export const requestHandler = implement(requestContract)
     ctx.respond({ now: 'fixed-now-string' });
   })
   .request('no-response', () => {
-    // Intentionally never call ctx.respond - request should hang
+    // Intentionally never call ctx.respond - server should surface a
+    // correlated __error__ with code "request-no-response" so the
+    // client's pending promise rejects instead of hanging.
   })
   .request('double-response', (ctx) => {
     ctx.respond({ count: 1 });

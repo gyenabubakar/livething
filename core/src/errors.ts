@@ -345,6 +345,25 @@ export const ChannelNotSubscribed = error('channel-not-subscribed');
 export const InternalError = error('internal-error');
 
 /**
+ * Sent to the client when a `request(...)` handler returned without calling
+ * `ctx.respond(...)`. The client's pending request promise rejects with this
+ * code instead of hanging until its own timeout. The server-side cause is
+ * almost always a missing `ctx.respond` on some code path inside the handler.
+ *
+ * @example
+ * ```ts
+ * try {
+ *   await client.request('whoami', {});
+ * } catch (err) {
+ *   if (RequestNoResponse.matches(err)) {
+ *     // server handler exited without ctx.respond — surface to logs / retry
+ *   }
+ * }
+ * ```
+ */
+export const RequestNoResponse = error('request-no-response');
+
+/**
  * Sent to the client when an in-flight stream terminates for a server-side
  * reason the client should react to. `detail.reason` describes why:
  *

@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { RequestNoResponse } from '@wskit/core';
 import { runWithScopedContext } from '~/intercept/runtime.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
@@ -61,10 +62,12 @@ export async function handleRequest(
     },
   });
 
-  // Handler that never called ctx.respond() — leave the request hanging on
-  // the client side. Pushing `undefined` through the pipeline would fail the
-  // payload-must-be-an-object check and surface as a spurious internal error.
-  if (!responded) return;
+  // Handler exited without calling ctx.respond(). Surface this as a
+  // correlated `__error__` so the client's pending request settles instead of
+  // hanging until its own timeout. The outer dispatcher catches the throw and
+  // routes it through handleRuntimeError, which carries the correlationId
+  // from `wskit` back to the originating client promise.
+  if (!responded) throw RequestNoResponse();
 
   runtime.sendThroughPipeline(connection, {
     routing: {

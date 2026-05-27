@@ -32,15 +32,20 @@ test.describe('request', () => {
     await expect(page.getByTestId('last-response')).toContainText('"channel":"room"');
   });
 
-  test('handler that never calls ctx.respond leaves request hanging (no response received)', async ({
+  test('handler that never calls ctx.respond settles via correlated __error__ with code "request-no-response"', async ({
     page,
   }, testInfo) => {
+    // Pre-fix the runtime swallowed the missing-respond case silently: the
+    // client's request promise hung until its own timeout, with no log and
+    // no breadcrumb to find the forgotten ctx.respond(). Now the runtime
+    // throws RequestNoResponse, the outer dispatcher routes it through
+    // handleRuntimeError with the originating correlationId, and the
+    // client's pending promise settles by rejecting with a typed code.
     await openPage(page, `test-${testInfo.testId}`);
     await page.getByTestId('no-response').click();
-    // Wait 2 seconds to ensure no response arrives
-    await page.waitForTimeout(2000);
-    const response = await page.getByTestId('last-response').textContent();
-    expect(response).toBe('');
+    await expect(page.getByTestId('last-response')).not.toHaveText('');
+    const text = (await page.getByTestId('last-response').textContent()) ?? '';
+    expect(text).toContain('"code":"request-no-response"');
   });
 
   test('schema-failed request settles via __error__ frame with the original correlationId', async ({
