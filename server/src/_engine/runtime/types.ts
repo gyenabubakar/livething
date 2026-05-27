@@ -289,6 +289,13 @@ export interface RuntimeConnection {
   pendingWrites?: { active: boolean };
 
   /**
+   * Set once close cleanup starts. After this flips to true, attachment
+   * persistence must no-op so channel/session teardown cannot recreate a
+   * hibernation row for a dead connection.
+   */
+  closing?: boolean;
+
+  /**
    * Fingerprint of the last connection row written to durable storage. The
    * hibernation persist path stringifies the next row, compares against this
    * value, and skips the SQL write when they match — eliminating redundant

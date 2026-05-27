@@ -266,6 +266,7 @@ export async function handleConnectionClose(
 
   await runtime.cancelActiveStreamsForConnection(connection.id);
 
+  connection.closing = true;
   runtime.connections.delete(connection.id);
   runtime.wsToConnectionId.delete(connection.wsKey);
   runtime.deleteConnectionState?.(connection.id);

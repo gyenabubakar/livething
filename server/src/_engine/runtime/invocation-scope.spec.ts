@@ -174,6 +174,24 @@ describe('withInvocationScope', () => {
     expect(writes.filter((q) => q.startsWith('DELETE'))).toHaveLength(1);
   });
 
+  it('does not recreate a deleted row when later cleanup tries to persist the closing connection', async () => {
+    const { core, writes } = createFakeCore();
+    const connection = createFakeConnection('c1');
+
+    await withInvocationScope(core, async () => {
+      connection.meta = { beforeClose: true };
+      persistAttachment(core, connection);
+      connection.closing = true;
+      deleteConnectionState(core, connection.id);
+
+      connection.meta = { afterClose: true };
+      persistAttachment(core, connection);
+    });
+
+    expect(writes.filter((q) => q.startsWith('INSERT'))).toHaveLength(0);
+    expect(writes.filter((q) => q.startsWith('DELETE'))).toHaveLength(1);
+  });
+
   it('outside any scope, persistAttachment writes immediately (back-compat)', () => {
     const { core, writes } = createFakeCore();
     const connection = createFakeConnection('c1');

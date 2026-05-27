@@ -19,6 +19,7 @@ type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
 export function persistAttachment(core: EngineCore, connection: RuntimeConnection): void {
   if (connection.pendingWrites?.active) return;
   if (!core.hibernationEnabled) return;
+  if (connection.closing) return;
 
   const scope = getInvocationScope(core.asyncContext);
   if (scope) {
@@ -37,6 +38,7 @@ export function persistAttachment(core: EngineCore, connection: RuntimeConnectio
  */
 export function flushDirtyAttachment(core: EngineCore, connection: RuntimeConnection): void {
   if (!core.hibernationEnabled) return;
+  if (connection.closing) return;
 
   const row = ConnectionStore.buildConnectionRow(connection);
   const fingerprint = JSON.stringify(row);

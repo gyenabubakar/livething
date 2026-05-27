@@ -9,6 +9,7 @@ import {
   wakeHibernatedConnection,
 } from '~/_engine/runtime/connection.ts';
 import { describe, expect, it, vi } from 'vitest';
+import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 
 type AsyncContextStore = {
   connectionId?: string;
@@ -624,7 +625,7 @@ describe('connection runtime', () => {
     // (1006).
     let observedCode: unknown;
     let observedReason: unknown;
-    const connection = {
+    const connection: EngineRuntimeTypes.RuntimeConnection = {
       id: 'c1',
       wsKey: Symbol('ws'),
       descriptor: {
@@ -864,6 +865,56 @@ describe('connection runtime', () => {
     expect(logger.error).toHaveBeenCalledTimes(1);
     expect(logger.error.mock.calls[0]![0]).toMatch(/leaveChannel threw during close/);
     clearTimeoutSpy.mockRestore();
+  });
+
+  it('marks the connection as closing before channel-leave cleanup runs', async () => {
+    const wsKey = Symbol('ws');
+    const connection = {
+      id: 'c1',
+      identity: 'c1',
+      wsKey,
+      descriptor: {
+        send() {},
+        sendBinary() {},
+        close() {},
+        bufferedAmount() {
+          return 0;
+        },
+        identity: 'c1',
+      },
+      meta: {},
+      tags: {
+        ephemeral: new Map<string, Set<string>>(),
+        persistent: new Map<string, Set<string>>(),
+      },
+      channelMemberships: new Map([['::room', { channelName: 'room', channelScope: null }]]),
+      latency: null,
+      quality: 'good' as const,
+    };
+    const observed: boolean[] = [];
+    const runtime = {
+      compiled: {
+        channels: new Map(),
+        channelFamilies: new Map(),
+      } as never,
+      connections: new Map([[connection.id, connection]]) as never,
+      wsToConnectionId: new Map([[wsKey, connection.id]]) as never,
+      deleteConnectionState() {},
+      async cancelActiveStreamsForConnection() {},
+      buildConnectionContext: () => ({ id: connection.id }),
+      async runConnectionLifecycle() {},
+      async leaveChannel(conn: EngineRuntimeTypes.RuntimeConnection) {
+        observed.push(Boolean(conn.closing));
+      },
+    };
+
+    await handleConnectionClose(runtime as never, {
+      connection: connection as never,
+      code: 1000,
+      reason: 'normal',
+    });
+
+    expect(observed).toEqual([true]);
   });
 
   it('cancelActiveStreamsForConnection logs and continues when one stream cleanup throws', async () => {
