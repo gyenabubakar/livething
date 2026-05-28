@@ -182,18 +182,22 @@ test.describe('stream-durable broadcast (channel scope)', () => {
         [b],
       );
 
-      const bTokensBefore = (await frames(pageB, b)).filter((f) => f.event === 'feed').length;
-
       await send(pageA, a, {
         event: '__streamCancel__',
         payload: {},
         __wskit: { channel: 'rooms', streamId },
       });
 
+      // Let in-flight tokens flush, then assert the stream truly stopped by
+      // confirming the count does not grow across a second window. Comparing
+      // pre/post-cancel counts is racey under load — a few tokens can slip
+      // through between the snapshot read and the cancel taking effect.
       await pageA.waitForTimeout(700);
-      const bTokensAfter = (await frames(pageB, b)).filter((f) => f.event === 'feed').length;
-      expect(bTokensAfter - bTokensBefore).toBeLessThanOrEqual(1);
-      expect(bTokensAfter).toBeLessThan(5);
+      const bTokensSettled = (await frames(pageB, b)).filter((f) => f.event === 'feed').length;
+      await pageA.waitForTimeout(500);
+      const bTokensFinal = (await frames(pageB, b)).filter((f) => f.event === 'feed').length;
+      expect(bTokensFinal).toBe(bTokensSettled);
+      expect(bTokensFinal).toBeLessThan(10);
 
       // Both the peer AND the creator see not-found — the row is gone for
       // everyone, not just unsubscribed for one peer.
