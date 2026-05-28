@@ -96,7 +96,7 @@ describe('request/runtime', () => {
         event: 'status',
         request,
         payload: {},
-        wskit: undefined,
+        wskit: { correlationId: 'req-1', channelScope: null },
       }),
     ).rejects.toThrow('[wskit] ctx.respond() was already called');
   });
@@ -161,7 +161,7 @@ describe('request/runtime', () => {
         event: 'status',
         request,
         payload: {},
-        wskit: undefined,
+        wskit: { correlationId: 'req-async', channelScope: null },
       }),
     ).rejects.toThrow('boom');
 

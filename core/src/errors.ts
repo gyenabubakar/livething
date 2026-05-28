@@ -364,6 +364,18 @@ export const InternalError = error('internal-error');
 export const RequestNoResponse = error('request-no-response');
 
 /**
+ * Sent to the client when a request frame arrived without a `correlationId`
+ * on its `__wskit` envelope. The server refuses to run the handler because
+ * the response could never be matched back to a pending client promise —
+ * any side effects (broadcasts, plugin state writes, scheduled enqueues)
+ * would happen with the client unable to learn the outcome.
+ *
+ * The client SDK stamps a `correlationId` automatically; this code only
+ * fires for hand-crafted frames or non-SDK clients.
+ */
+export const RequestNoCorrelation = error('request-no-correlation');
+
+/**
  * Sent to the client when an in-flight stream terminates for a server-side
  * reason the client should react to. `detail.reason` describes why:
  *

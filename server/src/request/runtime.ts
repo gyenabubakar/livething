@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { RequestNoResponse } from '@wskit/core';
+import { RequestNoCorrelation, RequestNoResponse } from '@wskit/core';
 import { runWithScopedContext } from '~/intercept/runtime.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
@@ -46,6 +46,13 @@ export async function handleRequest(
 ): Promise<void> {
   const { connection, scope, event, request, payload, wskit } = options;
   const correlationId = wskit?.correlationId;
+  // Refuse to run the handler when no correlationId is on the wire — the
+  // response could never settle a pending client promise, but any side
+  // effects (broadcasts, plugin state writes, scheduled enqueues) inside
+  // the handler would still happen.
+  if (typeof correlationId !== 'string' || correlationId.length === 0) {
+    throw RequestNoCorrelation();
+  }
   let response: unknown;
   let responded = false;
   await runWithScopedContext(runtime, connection, {
