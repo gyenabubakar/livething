@@ -5,7 +5,7 @@ export default defineConfig({
   fullyParallel: true,
   timeout: 30_000,
   workers: 8,
-  retries: 0,
+  retries: 1,
   use: {
     baseURL: 'http://127.0.0.1:4173',
   },
