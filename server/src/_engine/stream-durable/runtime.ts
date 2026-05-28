@@ -744,13 +744,16 @@ async function runGenerator(
       });
 
       const endWskit = { ...buildScopeRouting(scope), streamId, seq };
-      for (const target of peerTargets) {
-        runtime.sendProtocolMessage(target, {
-          event: '__streamEnd__',
-          payload: {},
-          wskit: endWskit,
-        });
-      }
+      forEachIsolated(
+        peerTargets,
+        (target) =>
+          runtime.sendProtocolMessage(target, {
+            event: '__streamEnd__',
+            payload: {},
+            wskit: endWskit,
+          }),
+        { context: `durable broadcast __streamEnd__ fan-out streamId="${streamId}"` },
+      );
     }
   } catch (error) {
     rethrowIfConfigError(error);
@@ -759,6 +762,35 @@ async function runGenerator(
       event: def.event,
       routing: { streamId },
     });
+    // For broadcast streams, also tell every subscriber the source died.
+    // Without this they keep waiting indefinitely while the creator alone
+    // sees the error frame.
+    if (def.broadcast) {
+      const peerTargets = resolveBroadcastTargets({
+        runtime,
+        excludeConnectionId: connection.id,
+        scope,
+        extraFilter: (candidate) => {
+          const sub = Storage.getSubscriber(runtime.sql, {
+            storageIdentity: identity,
+            streamId,
+            subscriberIdentity: storageIdentityOf(candidate),
+          });
+          return sub !== null && sub.unsubscribedAt === null;
+        },
+      });
+      const endWskit = { ...buildScopeRouting(scope), streamId, seq };
+      forEachIsolated(
+        peerTargets,
+        (target) =>
+          runtime.sendProtocolMessage(target, {
+            event: '__streamEnd__',
+            payload: {},
+            wskit: endWskit,
+          }),
+        { context: `durable broadcast __streamEnd__ on error streamId="${streamId}"` },
+      );
+    }
     Storage.markEnded(runtime.sql, { identity, streamId, now: Date.now() });
   } finally {
     activeStream.closed = true;
@@ -822,6 +854,36 @@ export async function cancelDurableStream(
       runtime.activeStreams.delete(streamId);
       connection.activeStreamIds?.delete(streamId);
     }
+  }
+
+  // Broadcast cancel from the creator kills the stream for everyone — tell
+  // current subscribers before the storage row is deleted, otherwise their
+  // clients keep waiting on a stream that will never produce again.
+  if (row.broadcast) {
+    const peerTargets = resolveBroadcastTargets({
+      runtime,
+      excludeConnectionId: connection.id,
+      scope: cancelScope,
+      extraFilter: (candidate) => {
+        const sub = Storage.getSubscriber(runtime.sql, {
+          storageIdentity: row.identity,
+          streamId,
+          subscriberIdentity: storageIdentityOf(candidate),
+        });
+        return sub !== null && sub.unsubscribedAt === null;
+      },
+    });
+    const endWskit = { ...buildScopeRouting(cancelScope), streamId, seq: row.lastSeq };
+    forEachIsolated(
+      peerTargets,
+      (target) =>
+        runtime.sendProtocolMessage(target, {
+          event: '__streamEnd__',
+          payload: {},
+          wskit: endWskit,
+        }),
+      { context: `durable broadcast __streamEnd__ on cancel streamId="${streamId}"` },
+    );
   }
 
   Storage.deleteStream(runtime.sql, row.identity, streamId);
