@@ -1,3 +1,4 @@
+import { assertPositiveInteger } from '~/_engine/validation.ts';
 import type { Primitive } from '~/primitive.ts';
 
 /** The TypeScript type returned by `dedup()`. */
@@ -25,7 +26,11 @@ const DEDUP_DEFAULT_INCOMING_CAP = 256;
  * Enable this via `dedup: true` on the contract config instead of calling
  * this primitive directly.
  */
-export function dedup(): DedupPrimitive {
+export function dedup(options?: { cap?: number }): DedupPrimitive {
+  if (options?.cap !== undefined) {
+    assertPositiveInteger(options.cap, 'cap', 'dedup()');
+  }
+  const cap = options?.cap ?? DEDUP_DEFAULT_INCOMING_CAP;
   return {
     __wskit: 'dedup',
     __kind: 'infrastructure',
@@ -33,7 +38,7 @@ export function dedup(): DedupPrimitive {
     __requires: {},
     __setup(engine) {
       engine.installOnce(DEDUP_KEY, () => {
-        engine.enableIncomingDedup(DEDUP_DEFAULT_INCOMING_CAP);
+        engine.enableIncomingDedup(cap);
 
         // Stamp `messageId` into every outgoing user frame's `__wskit`. The
         // pipeline already skips protocol frames before calling stampers.

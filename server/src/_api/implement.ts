@@ -4,6 +4,7 @@ import { error as coreErrorFactory } from '@wskit/core';
 import { collectUnique } from '~/_engine/compile/utils.ts';
 import { sweepDurableStreams } from '~/_engine/stream-durable/runtime.ts';
 import { ensureDurableStreamSchema } from '~/_engine/stream-durable/storage.ts';
+import { assertPositiveInteger } from '~/_engine/validation.ts';
 import { ack as ackFactory } from '~/ack/ack.ts';
 import { compileChannelDef } from '~/channel/compile.ts';
 import { ChannelImplement } from '~/channel/implement.ts';
@@ -1021,13 +1022,18 @@ export class Implementer<C extends Contract> {
         typeof config.heartbeat === 'object'
           ? config.heartbeat
           : ({} as { intervalMs?: number; timeoutMs?: number });
-      primitives.push(heartbeatFactory({ timeout: opts.timeoutMs ?? opts.intervalMs ?? 30_000 }));
+      const timeout = opts.timeoutMs ?? opts.intervalMs ?? 30_000;
+      assertPositiveInteger(timeout, 'heartbeat.timeoutMs', 'contract()');
+      primitives.push(heartbeatFactory({ timeout }));
     }
     if (config.sequence) {
       const opts = typeof config.sequence === 'object' ? config.sequence : {};
       primitives.push(sequenceFactory({ persist: opts.persist }));
     }
-    if (config.dedup) primitives.push(dedupFactory());
+    if (config.dedup) {
+      const dedupOpts = typeof config.dedup === 'object' ? config.dedup : undefined;
+      primitives.push(dedupFactory(dedupOpts));
+    }
     if (config.ack) primitives.push(ackFactory());
     if (config.replay !== undefined) {
       if (config.replay === true) {
