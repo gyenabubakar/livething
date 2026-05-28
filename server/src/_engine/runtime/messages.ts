@@ -835,10 +835,24 @@ export async function processTextMessage(
   // A stream trigger frame skips nudge buffering even with a streamId. Walk the
   // target scope so a scoped durable trigger isn't misrouted into the buffer.
   let triggerScope: EngineRuntimeTypes.ResolvedScope = {};
+  let scopeError: unknown;
   try {
     triggerScope = resolveScope(runtime.compiled, wskit);
-  } catch {
-    /* malformed routing — fall back to top-level maps */
+  } catch (error) {
+    scopeError = error;
+  }
+  // A scoped frame whose channel doesn't match the declared scope must not
+  // silently fall through to top-level nudge buffering — that lets a wrong
+  // channel deliver into a same-named top-level stream. If the frame carries
+  // a streamId and scope resolution failed, surface the resolution error to
+  // the client and stop.
+  if (scopeError && wskit?.streamId) {
+    await runtime.handleRuntimeError(connection, {
+      error: scopeError,
+      event,
+      routing: { streamId: wskit.streamId },
+    });
+    return;
   }
   const triggerScoped = triggerScope.channel ?? triggerScope.namespace;
   const isStreamTrigger = triggerScoped
