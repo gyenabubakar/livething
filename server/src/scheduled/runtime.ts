@@ -670,6 +670,19 @@ export function cancelScheduledRuns(
   taskId: string,
   filter?: Record<string, unknown>,
 ): ScheduledCancelResult {
+  // Reject explicit-undefined filter values up front. Otherwise
+  // `dataMatchesFilter` matches runs whose data is missing the key entirely,
+  // which silently cancels the wrong runs.
+  if (filter) {
+    for (const [key, value] of Object.entries(filter)) {
+      if (value === undefined) {
+        throw new Error(
+          `[wskit] ctx.cancelScheduled("${taskId}", filter): filter key "${key}" is undefined. ` +
+            `Pass a real value or omit the key — an undefined entry would match runs whose data has no "${key}" at all.`,
+        );
+      }
+    }
+  }
   const scheduledRuns = runtime.getScheduledRuns();
   const taskExists = !!runtime.getScheduledTask(taskId);
   let removed = 0;
