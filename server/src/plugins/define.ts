@@ -121,6 +121,7 @@ export interface PluginInstance<
   TApi = unknown,
   TOutgoing extends Record<string, unknown> = {},
   TErrors extends readonly ErrorDef<string, any>[] = readonly [],
+  TScheduledEntry extends { readonly name: string } = { readonly name: string },
 > extends Primitive<'plugin'> {
   readonly id: TId;
   readonly args: TArgs;
@@ -138,12 +139,14 @@ export interface PluginInstance<
 
   /**
    * Scheduled task definitions declared by the plugin via
-   * `definitions: [scheduled('job', ...)]`. The plugin's `setup()` is still
-   * responsible for wiring the handler with `hooks.scheduled('job', ...)`.
-   * Initialize cross-checks each declared task against the runtime registry
-   * and throws at boot if a handler is missing.
+   * `definitions: [scheduled('job', ...)]`. Carries the literal task name as
+   * a typed entry so the host contract can fold task ids into ctx.schedule
+   * with literal keys. The plugin's `setup()` is still responsible for
+   * wiring the handler with `hooks.scheduled('job', ...)`; initialize
+   * cross-checks each declared task against the runtime registry and throws
+   * at boot if a handler is missing.
    */
-  readonly scheduled: readonly { readonly name: string }[];
+  readonly scheduled: readonly TScheduledEntry[];
 
   readonly setupPlugin: PluginConfig<TArgs, TApi, any, TOutgoing, TErrors>['setup'];
 }
@@ -162,8 +165,9 @@ export interface PluginFactory<
   TApi = unknown,
   TOutgoing extends Record<string, unknown> = {},
   TErrors extends readonly ErrorDef<string, any>[] = readonly [],
+  TScheduledEntry extends { readonly name: string } = { readonly name: string },
 > extends PrimitiveRef {
-  (args: TArgs): PluginInstance<TId, TArgs, TApi, TOutgoing, TErrors>;
+  (args: TArgs): PluginInstance<TId, TArgs, TApi, TOutgoing, TErrors, TScheduledEntry>;
 
   /**
    * Access this plugin's API from inside a handler.

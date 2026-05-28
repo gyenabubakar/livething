@@ -1,5 +1,6 @@
 import { describe, expectTypeOf, it } from 'vitest';
-import type { PluginsClient } from './handler.ts';
+import type { Ctx } from '@wskit/server';
+import type { PluginsClient, pluginsContract } from './handler.ts';
 
 describe('PluginsClient — no-any guard', () => {
   it('no slot is any', () => {
@@ -152,6 +153,42 @@ describe('PluginsClient — empty slots', () => {
 
   it('requests is empty', () => {
     expectTypeOf<keyof PluginsClient['requests']>().toBeNever();
+  });
+});
+
+describe('PluginsClient — plugin-prefixed surface (Drizzle plugin)', () => {
+  it('plugin outgoing event lands on the client under the literal prefixed key with its inferred payload', () => {
+    expectTypeOf<PluginsClient['incoming']['__e2e:drizzle:drizzle-ready']>().toEqualTypeOf<{
+      tables: string[];
+    }>();
+  });
+
+  it('plugin error code lands on the client under its literal code', () => {
+    expectTypeOf<PluginsClient['errors']['e2e-drizzle/denied']>().not.toBeAny();
+  });
+
+  it('server-side ctx.schedule accepts the literal plugin task ids and rejects typos', () => {
+    type Handler = Ctx<typeof pluginsContract>;
+    type ScheduleArg = Parameters<Handler['schedule']>[0];
+
+    // Every declared plugin task id is a valid argument.
+    expectTypeOf<
+      '__e2e:drizzle:drizzle-vacuum' extends ScheduleArg ? true : false
+    >().toEqualTypeOf<true>();
+    expectTypeOf<
+      '__e2e:drizzle:drizzle-every-tick' extends ScheduleArg ? true : false
+    >().toEqualTypeOf<true>();
+
+    // A typo in the suffix is rejected — full literal narrowing.
+    expectTypeOf<
+      '__e2e:drizzle:drizzle-vacuumX' extends ScheduleArg ? true : false
+    >().toEqualTypeOf<false>();
+
+    // A typo in the prefix is also rejected — plugin id is locked to the
+    // literal, not widened to `${string}`.
+    expectTypeOf<
+      '__NOT-the-drizzle-plugin:drizzle-vacuum' extends ScheduleArg ? true : false
+    >().toEqualTypeOf<false>();
   });
 });
 

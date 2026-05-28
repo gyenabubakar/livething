@@ -422,7 +422,7 @@ describe('boot-time same-kind duplicate guard', () => {
     // never validated. A plugin declaring dependencies: ['persistence'] would
     // happily install on a contract with no persistence, then crash later
     // inside setup() with a stack trace that points away from the misconfig.
-    const NeedsPersistence = plugin('acme:needs-persistence')({
+    const NeedsPersistence = plugin('acme:needs-persistence', {
       dependencies: ['persistence'],
       setup: () => () => ({}),
     });
@@ -436,7 +436,7 @@ describe('boot-time same-kind duplicate guard', () => {
   });
 
   it('accepts a plugin whose dependencies are all enabled', () => {
-    const NeedsPersistence = plugin('acme:needs-persistence-ok')({
+    const NeedsPersistence = plugin('acme:needs-persistence-ok', {
       dependencies: ['persistence'],
       setup: () => () => ({}),
     });

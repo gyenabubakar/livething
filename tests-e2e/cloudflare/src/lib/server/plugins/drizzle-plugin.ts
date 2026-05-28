@@ -1,4 +1,4 @@
-import { error, outgoing, plugin, scheduled } from '@wskit/server';
+import { error, outgoing, plugin, scheduled, t } from '@wskit/server';
 import { count, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/durable-sqlite';
 import * as v from 'valibot';
@@ -36,7 +36,8 @@ export interface DrizzleApi {
 
 const taskDataSchema = v.object({ value: v.string() });
 
-export const Drizzle = plugin<{ migrate: boolean }>('e2e:drizzle')({
+export const Drizzle = plugin('e2e:drizzle', {
+  args: t<{ migrate: boolean }>(),
   requires: { storage: true },
   definitions: [
     outgoing('drizzle-ready', v.object({ tables: v.array(v.string()) })),

@@ -2,7 +2,6 @@
 
 import type { ScopeDeclaration } from '~/channel/channel.ts';
 import type { ErrorDef } from '~/errors/errors.ts';
-import type { PluginInstance } from '~/plugins/define.ts';
 import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
 import type {
   ChannelDef,
@@ -181,11 +180,13 @@ export interface ContractConfig {
    * registers its own events, scheduled tasks, and errors at boot. The
    * plugin API is accessed inside handlers via `<Plugin>.use(ctx)`.
    *
-   * Typed as a loose array of plugin instances so the const-narrowed config
-   * preserves each entry's id and outgoing schema map. InferClient reads them
-   * back to fold plugin-prefixed events into the client's incoming surface.
+   * Typed as `readonly unknown[]` so the const-narrowed config preserves
+   * each plugin instance's literal `id` and per-plugin generic types. The
+   * extractors below (`PluginOutgoingFromPlugins`, etc.) walk the tuple and
+   * fold the surface into the contract type. A loose-typed entry that is
+   * not a plugin instance simply contributes `{}` to the merged types.
    */
-  readonly plugins?: readonly PluginInstance<string, any, any, any, any>[];
+  readonly plugins?: readonly unknown[];
   readonly definitions: readonly Definition[];
 }
 
@@ -257,7 +258,7 @@ type PluginOutgoingFromPlugins<TPlugins> = UnionToIntersection<
   TPlugins extends readonly (infer P)[]
     ? P extends { readonly id: infer TId extends string; readonly outgoing: infer TOut }
       ? {
-          readonly [E in keyof TOut as E extends string ? `__${TId}:${E}` : never]: TOut[E];
+          [E in keyof TOut as E extends string ? `__${TId}:${E}` : never]: TOut[E];
         }
       : {}
     : {}
@@ -280,7 +281,7 @@ type PluginScheduledFromPlugins<TPlugins> = UnionToIntersection<
     ? P extends { readonly id: infer TId extends string; readonly scheduled: infer TSch }
       ? TSch extends readonly (infer TEntry)[]
         ? TEntry extends { readonly name: infer TName extends string }
-          ? { readonly [K in `__${TId}:${TName}`]: unknown }
+          ? { [K in `__${TId}:${TName}`]: unknown }
           : {}
         : {}
       : {}
