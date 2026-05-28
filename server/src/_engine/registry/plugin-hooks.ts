@@ -37,7 +37,7 @@ export function createPluginHooks(
     onShutdown: (handler) => {
       runtime.onShutdown = handler;
     },
-    scheduled: (name: string, callback) => {
+    scheduled: (name: string, handler) => {
       const taskId = `__${runtime.instance.id}:${name}`;
       if (core.compiled.scheduled.has(taskId)) {
         throw new Error(
@@ -45,7 +45,30 @@ export function createPluginHooks(
             `Each task name can only be wired by one hooks.scheduled(...) call per setup().`,
         );
       }
-      core.compiled.scheduled.set(taskId, createScheduled(taskId, callback) as AnyScheduled);
+      // The declaration in `definitions: [scheduled(name, { data, every, retry })]`
+      // is the single source of config. Look it up by name and apply its
+      // options when building the runtime primitive — hooks.scheduled is now
+      // just a body attachment, no builder.
+      const declared = runtime.instance.scheduled.find((s) => s.name === name) as
+        | { declaration?: { data?: unknown; every?: number; retry?: unknown } }
+        | undefined;
+      if (!declared) {
+        throw new Error(
+          `[wskit] Plugin "${runtime.instance.id}" hooks.scheduled("${name}", ...) has no matching declaration. ` +
+            `Add scheduled("${name}", { ... }) to the plugin's definitions array.`,
+        );
+      }
+      const decl = declared.declaration ?? {};
+      core.compiled.scheduled.set(
+        taskId,
+        createScheduled(taskId, (b) => {
+          let chain: any = b;
+          if (decl.data !== undefined) chain = chain.data(decl.data);
+          if (decl.retry !== undefined) chain = chain.retry(decl.retry);
+          if (decl.every !== undefined) chain = chain.every(decl.every);
+          return chain.run(handler);
+        }) as AnyScheduled,
+      );
       ensureScheduledRuntime();
       return { id: taskId };
     },

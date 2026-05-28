@@ -95,7 +95,7 @@ test.describe('scheduled', () => {
   }, testInfo) => {
     await openPage(page, `test-${testInfo.testId}`);
     await page.getByTestId('trigger-invalid-schedule-time').click();
-    await expect(page.getByTestId('schedule-guard-error')).toContainText('positive finite integer');
+    await expect(page.getByTestId('schedule-guard-error')).toContainText('positive safe integer');
     // Sanity: the bad call did not corrupt the queue. A real schedule still fires.
     await page.getByTestId('schedule-cleanup-soon').click();
     await expect(page.getByTestId('cleanup-fired')).toHaveText('yes');

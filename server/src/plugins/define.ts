@@ -4,7 +4,7 @@ import type { ConnectionInfo, InitContext, TaskContext } from '~/context.ts';
 import type { ErrorDef } from '~/errors/errors.ts';
 import type { ErrorsPrimitive } from '~/errors/primitive.ts';
 import type { Primitive, PrimitiveRef, RequiresManifest } from '~/primitive.ts';
-import type { ScheduledBuilder, ScheduledHandle } from '~/scheduled/scheduled.ts';
+import type { ScheduledHandle } from '~/scheduled/scheduled.ts';
 
 /**
  * The hook surface available to a plugin during `setup()`. Everything a
@@ -39,12 +39,14 @@ export interface PluginHooks<TCtx = any> {
   /** Run during server shutdown. */
   onShutdown(handler: () => void | Promise<void>): void;
 
-  /** Register a scheduled task owned by this plugin. */
-  scheduled<TData = never, THasData extends boolean = false>(
+  /**
+   * Attach the handler for a scheduled task this plugin declared in its
+   * `definitions: [scheduled(name, { data?, every?, retry? })]`. The
+   * declaration is the single source of config; setup only binds the body.
+   */
+  scheduled<TData = never>(
     name: string,
-    callback: (
-      builder: ScheduledBuilder<string, TaskContext>,
-    ) => ScheduledBuilder<string, TaskContext, TData, THasData, true>,
+    handler: (ctx: TaskContext, data: TData) => void | Promise<void>,
   ): ScheduledHandle<TData>;
 
   /** Create a framework-generated unique ID. */

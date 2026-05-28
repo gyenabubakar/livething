@@ -133,66 +133,54 @@ export const Drizzle = plugin('e2e:drizzle', {
       }
     });
 
-    hooks.scheduled('drizzle-vacuum', (t) =>
-      t.run(async (ctx) => {
-        ctx.broadcast('drizzle-vacuum-done', { timestamp: Date.now() });
-      }),
-    );
+    hooks.scheduled('drizzle-vacuum', async (ctx) => {
+      ctx.broadcast('drizzle-vacuum-done', { timestamp: Date.now() });
+    });
 
     let everyTickCount = 0;
-    hooks.scheduled('drizzle-every-tick', (t) =>
-      t.every(500).run(async (ctx) => {
-        everyTickCount++;
-        ctx.broadcast('plugin-every-tick', { count: everyTickCount });
-      }),
-    );
+    hooks.scheduled('drizzle-every-tick', async (ctx) => {
+      everyTickCount++;
+      ctx.broadcast('plugin-every-tick', { count: everyTickCount });
+    });
 
     let flakyAttempts = 0;
-    hooks.scheduled('drizzle-flaky', (t) =>
-      t.retry([50, 100, 200]).run(async (ctx) => {
-        flakyAttempts++;
-        if (flakyAttempts < 3) throw new Error('module flaky failure');
-        ctx.broadcast('plugin-flaky-result', { attempts: flakyAttempts });
-        flakyAttempts = 0;
-      }),
-    );
+    hooks.scheduled('drizzle-flaky', async (ctx) => {
+      flakyAttempts++;
+      if (flakyAttempts < 3) throw new Error('module flaky failure');
+      ctx.broadcast('plugin-flaky-result', { attempts: flakyAttempts });
+      flakyAttempts = 0;
+    });
 
-    hooks.scheduled('drizzle-module-always-fail', (t) =>
-      t.retry([50, 100]).run(async () => {
-        throw new Error('module permanent failure');
-      }),
-    );
+    hooks.scheduled('drizzle-module-always-fail', async () => {
+      throw new Error('module permanent failure');
+    });
 
-    hooks.scheduled('drizzle-query-dlq', (t) =>
-      t.run(async (ctx) => {
-        const rows = ctx.sql
-          .exec<{
-            taskId: string;
-            attempts: number;
-            error: string;
-          }>(
-            'SELECT taskId, attempts, error FROM __wskit_scheduled_dlq ORDER BY failedAt DESC LIMIT 1',
-          )
-          .toArray();
-        const row = rows[0];
-        if (row) {
-          const err = JSON.parse(row.error) as { message: string };
-          ctx.broadcast('plugin-dlq-result', {
-            taskId: row.taskId,
-            attempts: row.attempts,
-            error: err.message,
-          });
-        }
-      }),
-    );
-
-    hooks.scheduled('drizzle-task-with-data', (t) =>
-      t.data(taskDataSchema).run(async (ctx, data) => {
-        ctx.broadcast('plugin-task-data-result', {
-          result: `validated-data-received:${data.value}`,
+    hooks.scheduled('drizzle-query-dlq', async (ctx) => {
+      const rows = ctx.sql
+        .exec<{
+          taskId: string;
+          attempts: number;
+          error: string;
+        }>(
+          'SELECT taskId, attempts, error FROM __wskit_scheduled_dlq ORDER BY failedAt DESC LIMIT 1',
+        )
+        .toArray();
+      const row = rows[0];
+      if (row) {
+        const err = JSON.parse(row.error) as { message: string };
+        ctx.broadcast('plugin-dlq-result', {
+          taskId: row.taskId,
+          attempts: row.attempts,
+          error: err.message,
         });
-      }),
-    );
+      }
+    });
+
+    hooks.scheduled<{ value: string }>('drizzle-task-with-data', async (ctx, data) => {
+      ctx.broadcast('plugin-task-data-result', {
+        result: `validated-data-received:${data.value}`,
+      });
+    });
 
     return () => ({
       insert(data) {
