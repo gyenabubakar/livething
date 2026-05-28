@@ -17,6 +17,7 @@
  *   the scope's resolved rule, not the parent's.
  */
 
+import { assertPositiveInteger } from '~/_engine/validation.ts';
 import type { ChannelDef, Definition, NamespaceDef } from '~/_api/definitions.ts';
 import type { ScopeDeclaration } from '~/channel/channel.ts';
 import { RATE_LIMIT_DEFAULTS } from './rate-limit.ts';
@@ -54,17 +55,25 @@ function createAllocator(): RuleAllocator {
   };
 }
 
-function mergeRule(
-  parent: RuleInstance | null,
-  self: RateLimitConfig | undefined,
-  alloc: RuleAllocator,
-): RuleInstance | null {
+interface MergeRuleOptions {
+  parent: RuleInstance | null;
+  self: RateLimitConfig | undefined;
+  alloc: RuleAllocator;
+  context: string;
+}
+
+function mergeRule(opts: MergeRuleOptions): RuleInstance | null {
+  const { parent, self, alloc, context } = opts;
   if (self === undefined) return parent;
   if (!self.enabled) return null;
+  const windowMs = self.windowMs ?? parent?.windowMs ?? RATE_LIMIT_DEFAULTS.windowMs;
+  const max = self.max ?? parent?.max ?? RATE_LIMIT_DEFAULTS.max;
+  assertPositiveInteger(windowMs, 'windowMs', `rateLimit at ${context}`);
+  assertPositiveInteger(max, 'max', `rateLimit at ${context}`);
   return {
     id: alloc.next(),
-    windowMs: self.windowMs ?? parent?.windowMs ?? RATE_LIMIT_DEFAULTS.windowMs,
-    max: self.max ?? parent?.max ?? RATE_LIMIT_DEFAULTS.max,
+    windowMs,
+    max,
     per: self.per ?? parent?.per ?? RATE_LIMIT_DEFAULTS.per,
   };
 }
@@ -95,7 +104,12 @@ export function resolvePlan(input: PlanInput): ResolvedRateLimitPlan | null {
   const scopeRules = new Map<string, RuleInstance | null>();
   const eventOverrides = new Map<string, Map<string, RuleInstance | null>>();
 
-  const topRule = mergeRule(null, input.contractRateLimit, alloc);
+  const topRule = mergeRule({
+    parent: null,
+    self: input.contractRateLimit,
+    alloc,
+    context: 'top-level',
+  });
   scopeRules.set('top', topRule);
 
   function walk(
@@ -107,18 +121,28 @@ export function resolvePlan(input: PlanInput): ResolvedRateLimitPlan | null {
       if (def._ === 'namespace') {
         const ns = def as NamespaceDef;
         const selfCfg = readNamespaceRateLimit(ns);
-        const rule = mergeRule(parentRule, selfCfg, alloc);
         const key = parentKey === 'top' ? `ns:${ns.name}` : `${parentKey}:ns:${ns.name}`;
+        const rule = mergeRule({
+          parent: parentRule,
+          self: selfCfg,
+          alloc,
+          context: `namespace "${ns.name}"`,
+        });
         scopeRules.set(key, rule);
         walk(ns.definitions, rule, key);
       } else if (def._ === 'channel') {
         const ch = def as ChannelDef;
         const selfCfg = readChannelRateLimit(ch);
-        const rule = mergeRule(parentRule, selfCfg, alloc);
         const key =
           parentKey === 'top'
             ? `channel:${channelKey(ch.pattern)}`
             : `${parentKey}:channel:${channelKey(ch.pattern)}`;
+        const rule = mergeRule({
+          parent: parentRule,
+          self: selfCfg,
+          alloc,
+          context: `channel "${channelKey(ch.pattern)}"`,
+        });
         scopeRules.set(key, rule);
         walk(ch.definitions, rule, key);
       }
@@ -133,7 +157,12 @@ export function resolvePlan(input: PlanInput): ResolvedRateLimitPlan | null {
     const scopeRule = scopeRules.get(scopeKey) ?? null;
     const eventMap = new Map<string, RuleInstance | null>();
     for (const [event, cfg] of perEvent) {
-      const rule = mergeRule(scopeRule, cfg, alloc);
+      const rule = mergeRule({
+        parent: scopeRule,
+        self: cfg,
+        alloc,
+        context: `event "${event}" at scope "${scopeKey}"`,
+      });
       eventMap.set(event, rule);
       hasAnyOverride = true;
     }

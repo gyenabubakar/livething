@@ -482,7 +482,7 @@ export function pruneExpiredReplayRows(
   retention: ReplayOptions['retention'] | undefined,
   now: number,
 ): void {
-  if (!retention?.maxAgeMs) return;
+  if (retention?.maxAgeMs === undefined) return;
 
   sql.exec(
     `
@@ -503,7 +503,7 @@ export function pruneReplayScopeRows(
   retention: ReplayOptions['retention'] | undefined,
   scope: ReplayPayloadScope,
 ): void {
-  if (!retention?.maxMessages) return;
+  if (retention?.maxMessages === undefined) return;
 
   sql.exec(
     `

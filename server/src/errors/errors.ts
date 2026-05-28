@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { error } from '@wskit/core';
+import { assertPositiveInteger } from '~/_engine/validation.ts';
 import * as v from 'valibot';
 
 // ---------------------------------------------------------------------------
@@ -101,6 +102,7 @@ export function RejectUpgrade(code: number, reason: string) {
  * ```
  */
 export function Defer(delay: number) {
+  assertPositiveInteger(delay, 'delay', 'Defer()');
   return Object.freeze({ __wskit: 'defer' as const, delay });
 }
 

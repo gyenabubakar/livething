@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { assertNonReservedEventName } from '~/_engine/compile/utils.ts';
+import { assertOptionalPositiveInteger } from '~/_engine/validation.ts';
 import type { OnDisconnect } from '~/_engine/stream-durable/types.ts';
 import type { NudgeDef } from '~/stream/definition.ts';
 import type { Validator } from '~/types.ts';
@@ -146,6 +147,10 @@ export function resumableStream<
   config?: ResumableStreamConfig<TPayload, TChunk, TCursor, TNudges>,
 ): ResumableStreamDef<TName, TPayload, TChunk, TCursor, TNudges> {
   assertNonReservedEventName(name, 'resumableStream');
+  const context = `resumableStream("${name}")`;
+  assertOptionalPositiveInteger(config?.maxAgeMs, 'maxAgeMs', context);
+  assertOptionalPositiveInteger(config?.retentionAfterEndMs, 'retentionAfterEndMs', context);
+  assertOptionalPositiveInteger(config?.maxChunks, 'maxChunks', context);
   return {
     _: 'resumable-stream',
     name,

@@ -616,7 +616,7 @@ async function runGenerator(
           now,
         });
 
-        if (def.maxChunks) {
+        if (def.maxChunks !== undefined) {
           const count = Storage.countChunks(runtime.sql, identity, streamId);
           if (count > def.maxChunks) {
             Storage.trimOldestChunks(runtime.sql, {

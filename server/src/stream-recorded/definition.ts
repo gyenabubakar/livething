@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { assertNonReservedEventName } from '~/_engine/compile/utils.ts';
+import { assertOptionalPositiveInteger } from '~/_engine/validation.ts';
 import type { OnDisconnect } from '~/_engine/stream-durable/types.ts';
 import type { NudgeDef } from '~/stream/definition.ts';
 import type { Validator } from '~/types.ts';
@@ -126,6 +127,10 @@ export function recordedStream<
   config?: RecordedStreamConfig<TPayload, TChunk, TNudges>,
 ): RecordedStreamDef<TName, TPayload, TChunk, TNudges> {
   assertNonReservedEventName(name, 'recordedStream');
+  const context = `recordedStream("${name}")`;
+  assertOptionalPositiveInteger(config?.maxAgeMs, 'maxAgeMs', context);
+  assertOptionalPositiveInteger(config?.retentionAfterEndMs, 'retentionAfterEndMs', context);
+  assertOptionalPositiveInteger(config?.maxChunks, 'maxChunks', context);
   return {
     _: 'recorded-stream',
     name,
