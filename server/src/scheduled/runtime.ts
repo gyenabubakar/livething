@@ -749,12 +749,20 @@ export function rescheduleScheduledAlarm(
     clearTimeout(runtime.getAlarmHandle() as ReturnType<typeof setTimeout>);
   }
 
+  // setTimeout uses a 32-bit signed millisecond delay across Node, Deno, and
+  // Bun. Delays above 2_147_483_647 ms (~24.8 days) silently clamp to 1 ms
+  // and fire immediately, which would loop on a far-future scheduled run.
+  // Cap each setTimeout chunk to the platform max; on fire, re-enter and
+  // schedule the remaining time. The remaining-time check happens inside
+  // onAlarm — far-future runs whose time hasn't arrived yet reschedule
+  // themselves, runs whose time has arrived run.
+  const SET_TIMEOUT_MAX_DELAY = 2_147_483_647;
+  const remaining = Math.max(0, nextRun.time - Date.now());
+  const chunk = Math.min(remaining, SET_TIMEOUT_MAX_DELAY);
+
   runtime.setAlarmHandle(
-    setTimeout(
-      () => {
-        void runtime.onAlarm();
-      },
-      Math.max(0, nextRun.time - Date.now()),
-    ),
+    setTimeout(() => {
+      void runtime.onAlarm();
+    }, chunk),
   );
 }
