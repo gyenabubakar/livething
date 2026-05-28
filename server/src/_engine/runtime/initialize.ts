@@ -77,10 +77,21 @@ export async function initialize(core: EngineCore, accessDeps: EngineAccessDeps)
     // at the first call, far from the misconfig. Fail fast at boot instead.
     for (const def of pluginInstance.scheduled) {
       const prefixed = `__${pluginInstance.id}:${def.name}`;
-      if (!core.compiled.scheduled.has(prefixed)) {
+      const registered = core.compiled.scheduled.get(prefixed);
+      if (!registered) {
         throw new Error(
           `[wskit] Plugin "${pluginInstance.id}" declared scheduled task "${def.name}" in definitions ` +
             `but its setup() did not call hooks.scheduled("${def.name}", ...) to wire a handler.`,
+        );
+      }
+      // If the declaration carries a data schema, the runtime registration
+      // must also be hasData. Otherwise the typed `ctx.schedule(name, {data})`
+      // would type-check but the handler would silently ignore the payload.
+      const declaration = (def as { declaration?: { data?: unknown } }).declaration;
+      if (declaration?.data !== undefined && !registered.hasData) {
+        throw new Error(
+          `[wskit] Plugin "${pluginInstance.id}" declared scheduled task "${def.name}" with a data schema ` +
+            `but setup() registered it without .data(...). Call .data(<same schema>).run(...) inside hooks.scheduled("${def.name}", ...).`,
         );
       }
     }

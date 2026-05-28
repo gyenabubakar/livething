@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { assertNonReservedEventName } from '~/_engine/compile/utils.ts';
+import { assertNonReservedEventName, collectUnique } from '~/_engine/compile/utils.ts';
 import { assertOptionalPositiveInteger } from '~/_engine/validation.ts';
 import type { OnDisconnect } from '~/_engine/stream-durable/types.ts';
 import type { NudgeDef } from '~/stream/definition.ts';
@@ -151,13 +151,15 @@ export function resumableStream<
   assertOptionalPositiveInteger(config?.maxAgeMs, 'maxAgeMs', context);
   assertOptionalPositiveInteger(config?.retentionAfterEndMs, 'retentionAfterEndMs', context);
   assertOptionalPositiveInteger(config?.maxChunks, 'maxChunks', context);
+  const nudges = (config?.nudges ?? []) as TNudges;
+  collectUnique(nudges, (n) => n.name, { kind: 'nudge', context });
   return {
     _: 'resumable-stream',
     name,
     payload: config?.payload,
     chunk: config?.chunk,
     cursor: config?.cursor,
-    nudges: (config?.nudges ?? []) as TNudges,
+    nudges,
     allowConcurrent: config?.allowConcurrent ?? false,
     broadcast: config?.broadcast ?? false,
     onDisconnect: config?.onDisconnect ?? 'cancel-but-buffer',

@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 
+import { collectUnique } from '~/_engine/compile/utils.ts';
 import { definePlugin } from '~/plugins/define.ts';
 import type {
   ErrorContractDef,
@@ -192,25 +193,34 @@ export function plugin<
     : ExtractPluginScheduledEntry<TDefs> & { readonly name: string }
 > {
   // Split the flat `definitions` array into the per-kind buckets `definePlugin` accepts.
+  const allDefs = config.definitions ?? [];
+  const outgoingDefsRaw = allDefs.filter(
+    (d) => (d as { _?: string })._ === 'outgoing',
+  ) as readonly { name: string; schema?: unknown }[];
+  const errorDefsRaw = allDefs.filter((d) => {
+    const x = d as { _?: string; code?: string };
+    return x._ === 'error' || (x.code !== undefined && x._ === undefined);
+  }) as readonly ErrorDef<string, any>[];
+  const scheduledDefsRaw = allDefs.filter(
+    (d) => (d as { _?: string })._ === 'scheduled',
+  ) as readonly ScheduledDef<string, any>[];
+
+  collectUnique(outgoingDefsRaw, (d) => d.name, {
+    kind: 'outgoing',
+    context: `plugin("${id}")`,
+  });
+  collectUnique(errorDefsRaw, (d) => d.code, {
+    kind: 'error code',
+    context: `plugin("${id}")`,
+  });
+  const scheduledDefs = collectUnique(scheduledDefsRaw, (d) => d.id, {
+    kind: 'scheduled',
+    context: `plugin("${id}")`,
+  });
+
   const outgoingMap: Record<string, unknown> = {};
-  const errorDefs: ErrorDef<string, any>[] = [];
-
-  for (const def of config.definitions ?? []) {
-    const d = def as { _?: string; name?: string; schema?: unknown; code?: string };
-    if (d._ === 'outgoing') {
-      outgoingMap[d.name!] = d.schema;
-    } else if (d._ === 'error' || (d.code && d._ === undefined)) {
-      // ErrorContractDef or ErrorDefWithFactory — both carry `code`.
-      errorDefs.push(def as unknown as ErrorDef<string, any>);
-    }
-  }
-
-  // Stash declared scheduled task IDs on the factory so the contract type
-  // system (and the boot-time plugin dependency check) can read them off
-  // the plugin instance.
-  const scheduledDefs = (config.definitions ?? []).filter(
-    (d): d is ScheduledDef<string, any> => (d as { _?: string })._ === 'scheduled',
-  );
+  for (const d of outgoingDefsRaw) outgoingMap[d.name] = d.schema;
+  const errorDefs: ErrorDef<string, any>[] = [...errorDefsRaw];
 
   const inner = definePlugin({
     id,
@@ -227,9 +237,10 @@ export function plugin<
   // initialize reads `instance.scheduled` to confirm setup() wired a handler
   // for every declared task.
   const dependencies = (config.dependencies ?? []) as readonly string[];
-  const scheduledNames = (scheduledDefs as readonly ScheduledDef<string, any>[]).map((d) => ({
-    name: d.id,
-  }));
+  // Carry the full ScheduledDef alongside the name so initialize can
+  // cross-check the declared data schema against the runtime registration
+  // and catch a hooks.scheduled() that forgot .data(schema).
+  const scheduledNames = scheduledDefs.map((d) => ({ name: d.id, declaration: d }));
   const factory = Object.assign(
     ((args: TArgs) => {
       const instance = inner(args);

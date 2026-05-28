@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { assertNonReservedEventName } from '~/_engine/compile/utils.ts';
+import { assertNonReservedEventName, collectUnique } from '~/_engine/compile/utils.ts';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type { Validator } from '~/types.ts';
 
@@ -67,12 +67,14 @@ export function stream<
   },
 ): StreamDef<TName, TPayload, TChunk, TNudges> {
   assertNonReservedEventName(name, 'stream');
+  const nudges = (config?.nudges ?? []) as TNudges;
+  collectUnique(nudges, (n) => n.name, { kind: 'nudge', context: `stream("${name}")` });
   return {
     _: 'stream',
     name,
     payload: config?.payload,
     chunk: config?.chunk,
-    nudges: (config?.nudges ?? []) as TNudges,
+    nudges,
     broadcast: config?.broadcast ?? false,
     allowConcurrent: config?.allowConcurrent ?? false,
   };

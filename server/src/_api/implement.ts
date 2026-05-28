@@ -1,6 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 
 import { error as coreErrorFactory } from '@wskit/core';
+import { collectUnique } from '~/_engine/compile/utils.ts';
 import { sweepDurableStreams } from '~/_engine/stream-durable/runtime.ts';
 import { ensureDurableStreamSchema } from '~/_engine/stream-durable/storage.ts';
 import { ack as ackFactory } from '~/ack/ack.ts';
@@ -1078,6 +1079,10 @@ export class Implementer<C extends Contract> {
       // Each entry is either a built ErrorDefWithFactory from the core
       // `error()` factory (a function) or a plain ErrorContractDef shape
       // from contract-style declaration (has `_: 'error'`).
+      collectUnique(config.errors as readonly { code: string }[], (e) => e.code, {
+        kind: 'error code',
+        context: 'contract()',
+      });
       const errorDefs = config.errors.map((e: any) =>
         typeof e === 'function' ? e : makeRuntimeErrorDef(e.code, e.schema),
       );

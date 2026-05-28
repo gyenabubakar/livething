@@ -39,6 +39,12 @@ export function createPluginHooks(
     },
     scheduled: (name: string, callback) => {
       const taskId = `__${runtime.instance.id}:${name}`;
+      if (core.compiled.scheduled.has(taskId)) {
+        throw new Error(
+          `[wskit] Plugin "${runtime.instance.id}" registered scheduled task "${name}" more than once. ` +
+            `Each task name can only be wired by one hooks.scheduled(...) call per setup().`,
+        );
+      }
       core.compiled.scheduled.set(taskId, createScheduled(taskId, callback) as AnyScheduled);
       ensureScheduledRuntime();
       return { id: taskId };
