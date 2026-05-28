@@ -8,6 +8,7 @@ import {
 } from '@wskit/core';
 import * as EngineCompileUtils from '~/_engine/compile/utils.ts';
 import { ENGINE_ACK_ID } from '~/_engine/contexts/types.ts';
+import { forEachIsolatedAsync } from '~/_engine/runtime/isolation.ts';
 import * as Protocol from '~/_engine/runtime/protocol.ts';
 import * as DurableStreamRuntime from '~/_engine/stream-durable/runtime.ts';
 import { ensureDurableStreamSchema } from '~/_engine/stream-durable/storage.ts';
@@ -516,9 +517,13 @@ async function handleDispatchError(
         retries: attempt,
       });
       // Fire onError hooks only — DeferExhausted must not reach the client.
-      for (const hook of runtime.errorHooks) {
-        await hook(runtime.buildConnectionContext(connection), exhausted, event);
-      }
+      // Isolate per hook so an observer throw never escapes dispatch as an
+      // unhandled rejection — this code runs inside `void dispatchIncoming`.
+      await forEachIsolatedAsync(
+        runtime.errorHooks,
+        (hook) => hook(runtime.buildConnectionContext(connection), exhausted, event),
+        { context: `onError hook (DeferExhausted) event="${event}"` },
+      );
       return;
     }
 

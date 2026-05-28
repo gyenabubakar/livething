@@ -1,3 +1,4 @@
+import { forEachIsolated } from '~/_engine/runtime/isolation.ts';
 import { deleteTag, insertTag } from '~/tags/storage.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type { ConnectionInfo, SQLProvider, TagRef } from '~/context.ts';
@@ -160,9 +161,9 @@ function makeRefHandle(
     send(event: string, payload: unknown) {
       const members = runtime.tagMembers.get(tagRefIndexKey(kind, group, key));
       if (!members) return;
-      for (const target of members) {
-        runtime.sendThroughPipeline(target, event, payload);
-      }
+      forEachIsolated(members, (target) => runtime.sendThroughPipeline(target, event, payload), {
+        context: `tag ref send '${kind}:${group}/${key}' event="${event}"`,
+      });
     },
     connections() {
       const members = runtime.tagMembers.get(tagRefIndexKey(kind, group, key));
@@ -237,9 +238,9 @@ export function buildGroupHandle(
     send(event: string, payload: unknown) {
       const members = runtime.tagMembers.get(tagGroupIndexKey(kind, group));
       if (!members) return;
-      for (const target of members) {
-        runtime.sendThroughPipeline(target, event, payload);
-      }
+      forEachIsolated(members, (target) => runtime.sendThroughPipeline(target, event, payload), {
+        context: `tag group send '${kind}:${group}' event="${event}"`,
+      });
     },
 
     connections() {

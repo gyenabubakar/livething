@@ -2,6 +2,7 @@
 import { rethrowIfConfigError, StreamIdCollision, ValidationFailed } from '@wskit/core';
 import { withConnectionContext } from '~/_engine/async-context.ts';
 import { validateValue } from '~/_engine/compile/utils.ts';
+import { forEachIsolatedAsync } from '~/_engine/runtime/isolation.ts';
 import {
   assertNoConcurrentStream,
   buildActiveStream,
@@ -357,9 +358,13 @@ export async function runStream(
         },
       );
       const exhausted = DeferExhausted({ event, payload, retries: 0 });
-      for (const hook of runtime.errorHooks) {
-        await hook(runtime.buildConnectionContext(connection, scope), exhausted, event);
-      }
+      // Isolate per hook so an observer throw never blocks the __error__ frame
+      // the client is waiting for.
+      await forEachIsolatedAsync(
+        runtime.errorHooks,
+        (hook) => hook(runtime.buildConnectionContext(connection, scope), exhausted, event),
+        { context: `stream onError hook event="${event}"` },
+      );
       runtime.sendProtocolMessage(connection, {
         event: '__error__',
         payload: { code: DeferExhausted.code },

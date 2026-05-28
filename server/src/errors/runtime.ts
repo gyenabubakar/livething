@@ -1,4 +1,5 @@
 import { InternalError, WskitError } from '@wskit/core';
+import { forEachIsolatedAsync } from '~/_engine/runtime/isolation.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { ResolvedScope, RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { Logger } from '~/context.ts';
@@ -136,7 +137,9 @@ export async function notifyValidationError(
 
   const ctx = deps.buildConnectionContext(connection, scope);
 
-  for (const hook of deps.validationErrorHooks) {
-    await hook(ctx, event, validationError);
-  }
+  await forEachIsolatedAsync(
+    deps.validationErrorHooks,
+    (hook) => hook(ctx, event, validationError),
+    { context: `onValidationError hook event="${event}"` },
+  );
 }

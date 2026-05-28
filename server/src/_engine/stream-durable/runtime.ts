@@ -3,6 +3,7 @@
 import { rethrowIfConfigError, StreamAborted, StreamIdCollision } from '@wskit/core';
 import { withConnectionContext } from '~/_engine/async-context.ts';
 import { validateValue } from '~/_engine/compile/utils.ts';
+import { forEachIsolated } from '~/_engine/runtime/isolation.ts';
 import { serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
 import { storageIdentityOf } from '~/_engine/runtime/types.ts';
 import {
@@ -668,19 +669,24 @@ async function runGenerator(
           },
         });
         // The pipeline adds streamId + seq to __wskit from the routing markers.
-        for (const target of targets) {
-          runtime.sendThroughPipeline(target, {
-            routing: {
-              namespace: scope.namespace?.name,
-              channel: scope.channelName,
-              channelScope: scope.channelScope,
-              streamId,
-              seq,
-            },
-            event: def.event,
-            payload: wirePayload,
-          });
-        }
+        forEachIsolated(
+          targets,
+          (target) =>
+            runtime.sendThroughPipeline(target, {
+              routing: {
+                namespace: scope.namespace?.name,
+                channel: scope.channelName,
+                channelScope: scope.channelScope,
+                streamId,
+                seq,
+              },
+              event: def.event,
+              payload: wirePayload,
+            }),
+          {
+            context: `durable stream broadcast fan-out streamId="${streamId}" event="${def.event}"`,
+          },
+        );
       }
 
       // Detached stream has no client attached — skip the wire send, the chunk
