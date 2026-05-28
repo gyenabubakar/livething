@@ -148,7 +148,8 @@ export interface PluginConfig<TArgs, TCtx = any, TApi = unknown> {
  * });
  *
  * // Mount onto a contract:
- * const c = contract<Env>('chat')({
+ * const c = contract('chat', {
+ *   env: t<Env>(),
  *   persistence: true,
  *   plugins: [Drizzle({ migrate: true })],
  *   definitions: [...],

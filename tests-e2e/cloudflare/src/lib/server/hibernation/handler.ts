@@ -21,7 +21,8 @@ const SlowChunk = v.object({ index: v.number() });
 const GetRoomMembersPayload = v.object({});
 const RoomMembersCountPayload = v.object({ count: v.number() });
 
-export const hibernationContract = contract<Env>('hibernation')({
+export const hibernationContract = contract('hibernation', {
+  env: t<Env>(),
   hibernation: true,
   meta: t<{ username: string }>(),
   tagGroups: {

@@ -22,7 +22,8 @@ const ScopedErrorObservedPayload = v.object({
 });
 const TriggerServerSubscribeDynamicPayload = v.object({ name: v.string() });
 
-export const channelDynamicContract = contract<Env>('channel-dynamic')({
+export const channelDynamicContract = contract('channel-dynamic', {
+  env: t<Env>(),
   meta: t<{ username: string }>(),
   definitions: [
     incoming('top-only-action', v.object({})),

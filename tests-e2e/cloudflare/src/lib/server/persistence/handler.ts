@@ -9,7 +9,8 @@ const SessionEndedPayload = v.object({ channel: v.string(), username: v.string()
 const TrueLeavePayload = v.object({ channel: v.string(), username: v.string() });
 const RemoveMemberPayload = v.object({ identity: v.string() });
 
-export const persistenceContract = contract<Env>('persistence')({
+export const persistenceContract = contract('persistence', {
+  env: t<Env>(),
   persistence: true,
   meta: t<{ username: string }>(),
   definitions: [

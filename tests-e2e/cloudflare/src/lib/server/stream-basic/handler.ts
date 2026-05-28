@@ -7,7 +7,8 @@ const Token = v.object({ index: v.number() });
 
 const StreamNotFound = error('not-found', v.object({ id: v.string() }));
 
-export const streamBasicContract = contract<Env>('stream-basic')({
+export const streamBasicContract = contract('stream-basic', {
+  env: t<Env>(),
   meta: t<{ username: string }>(),
   errors: [StreamNotFound],
   definitions: [

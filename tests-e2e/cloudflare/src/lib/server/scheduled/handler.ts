@@ -6,7 +6,8 @@ import { requireUsername } from '../_shared/upgrade.ts';
 let flakyAttempts = 0;
 let defaultRetryAttempts = 0;
 
-export const scheduledContract = contract<Env>('scheduled')({
+export const scheduledContract = contract('scheduled', {
+  env: t<Env>(),
   meta: t<{ username: string }>(),
   tagGroups: { ephemeral: ['user', 'role'] },
   definitions: [

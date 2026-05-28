@@ -10,6 +10,7 @@
  */
 
 import { contract } from '~/_api/contract.ts';
+import { t } from '~/_api/definitions.ts';
 import { implement } from '~/_api/implement.ts';
 import { scope } from '~/channel/channel.ts';
 import { channel } from '~/channel/definition.ts';
@@ -29,7 +30,8 @@ const Text = v.object({ text: v.string() });
 const NumChunk = v.object({ n: v.number() });
 
 // ── Tiny: 1 incoming, 1 outgoing ──
-const tinyContract = contract<Record<string, unknown>>('bench-tiny')({
+const tinyContract = contract('bench-tiny', {
+  env: t<Record<string, unknown>>(),
   definitions: [incoming('noop', Empty), outgoing('ack', Empty)],
 });
 const tinyHandler = implement(tinyContract)
@@ -37,7 +39,8 @@ const tinyHandler = implement(tinyContract)
   .build();
 
 // ── Medium: ~10 events, 2 channels, 1 namespace ──
-const mediumContract = contract<Record<string, unknown>>('bench-medium')({
+const mediumContract = contract('bench-medium', {
+  env: t<Record<string, unknown>>(),
   persistence: true,
   hibernation: true,
   definitions: [
@@ -86,7 +89,8 @@ function channelDefs(prefix: string) {
     outgoing(`${prefix}-edited`, Text),
   ] as const;
 }
-const heavyContract = contract<Record<string, unknown>>('bench-heavy')({
+const heavyContract = contract('bench-heavy', {
+  env: t<Record<string, unknown>>(),
   persistence: true,
   hibernation: true,
   replay: true,

@@ -31,7 +31,8 @@ import {
   TriggerBigIntReplay,
 } from './events.ts';
 
-export const replayContract = contract<Env>('replay-test')({
+export const replayContract = contract('replay-test', {
+  env: t<Env>(),
   sequence: { persist: true },
   dedup: true,
   replay: {

@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { contract } from '~/_api/contract.ts';
+import { t } from '~/_api/definitions.ts';
 import { group, implement } from '~/_api/implement.ts';
 import { channel } from '~/channel/definition.ts';
 import { incoming } from '~/incoming/definition.ts';
@@ -12,7 +13,8 @@ import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 
 function makeContract() {
-  return contract<Record<string, unknown>>('app')({
+  return contract('app', {
+    env: t<Record<string, unknown>>(),
     persistence: true,
     definitions: [
       incoming('chat', v.object({ text: v.string() })),
@@ -160,7 +162,8 @@ describe('Implementer.use(group) — duplicate detection across boundaries', () 
   });
 
   it('allows two groups whose handlers do not overlap', () => {
-    const c = contract<Record<string, unknown>>('app')({
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
       definitions: [
         incoming('chat', v.object({ text: v.string() })),
         request('lookup', { payload: v.object({}), response: v.object({}) }),
@@ -174,7 +177,8 @@ describe('Implementer.use(group) — duplicate detection across boundaries', () 
 
 describe('GroupBuilder — full method surface', () => {
   it('carries resumableStream + recordedStream + customReplay + lifecycle into the implementer', () => {
-    const c = contract<Record<string, unknown>>('app')({
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
       persistence: true,
       definitions: [
         resumableStream('paginate', { payload: v.object({}), chunk: v.object({}) }),

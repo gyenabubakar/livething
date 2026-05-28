@@ -21,7 +21,8 @@ const CountResultPayload = v.object({ count: v.number() });
 const RoomMessagePayload = v.object({ text: v.string(), from: v.string() });
 const SendInRoomPayload = v.object({ text: v.string() });
 
-export const typedTagsContract = contract<Env>('typed-tags')({
+export const typedTagsContract = contract('typed-tags', {
+  env: t<Env>(),
   persistence: true,
   meta: t<{ username: string }>(),
   tagGroups: {

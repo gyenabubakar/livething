@@ -46,7 +46,8 @@ const PublicBroadcastFromTopPayload = v.object({ name: v.string(), text: v.strin
 const PublicSendDirectPayload = v.object({ name: v.string(), text: v.string() });
 const PrivateSendDirectPayload = v.object({ name: v.string(), text: v.string() });
 
-export const channelScopeIsolationContract = contract<Env>('channel-scope-isolation')({
+export const channelScopeIsolationContract = contract('channel-scope-isolation', {
+  env: t<Env>(),
   dedup: true,
   sequence: { persist: true },
   replay: true,

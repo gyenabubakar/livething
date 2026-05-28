@@ -143,7 +143,7 @@ export type Ctx<C extends Contract> = {
   readonly self: ConnectionRef;
   /** App-supplied metadata attached at upgrade time. Typed via `meta: t<...>()` on the contract. */
   readonly meta: C['meta'];
-  /** Adapter-injected environment (e.g. Cloudflare `env`). Typed by `contract<Env>(...)`. */
+  /** Adapter-injected environment (e.g. Cloudflare `env`). Typed by `env: t<Env>()` on the contract config. */
   readonly env: C['env'];
   /** Adapter-injected platform handle (e.g. Cloudflare DurableObjectState). Untyped by default. */
   readonly platform: unknown;

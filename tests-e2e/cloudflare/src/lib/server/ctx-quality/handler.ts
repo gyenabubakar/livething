@@ -3,7 +3,8 @@ import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-export const ctxQualityContract = contract<Env>('ctx-quality')({
+export const ctxQualityContract = contract('ctx-quality', {
+  env: t<Env>(),
   meta: t<{ username: string }>(),
   definitions: [
     incoming('get-quality', v.object({})),

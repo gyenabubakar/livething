@@ -38,7 +38,8 @@ const ReplayMarker = v.object({ note: v.string() });
 const ScheduledMarker = v.object({ tickCount: v.number() });
 const BadPayload = v.object({ ok: v.literal(true) });
 
-export const groupFullSurfaceContract = contract<Env>('group-full-surface')({
+export const groupFullSurfaceContract = contract('group-full-surface', {
+  env: t<Env>(),
   persistence: true,
   binary: true,
   sequence: { persist: true },

@@ -6,7 +6,8 @@ import { requireUsername } from '../_shared/upgrade.ts';
 const RoomMessage = v.object({ text: v.string() });
 const SendBatch = v.object({ count: v.number() });
 
-export const replayFamilyKeyEqualsNameContract = contract<Env>('replay-family-key-equals-name')({
+export const replayFamilyKeyEqualsNameContract = contract('replay-family-key-equals-name', {
+  env: t<Env>(),
   sequence: { persist: true },
   dedup: true,
   replay: true,

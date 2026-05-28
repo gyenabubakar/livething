@@ -20,7 +20,7 @@ const ACK_KEY = Symbol('ack');
  * ```ts
  * import { contract, incoming, implement } from '@wskit/server';
  *
- * const c = contract<Env>('chat')({
+ * const c = contract('chat', { env: t<Env>(),
  *   ack: true,
  *   definitions: [incoming('send-message', SendMessage)],
  * });

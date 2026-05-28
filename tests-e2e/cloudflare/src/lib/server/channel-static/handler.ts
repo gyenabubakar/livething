@@ -16,7 +16,8 @@ const TagAckPayload = v.object({ tag: v.string() });
 const KickByTagPayload = v.object({ tag: v.string(), reason: v.string() });
 const KickAckPayload = v.object({ tag: v.string() });
 
-export const channelStaticContract = contract<Env>('channel-static')({
+export const channelStaticContract = contract('channel-static', {
+  env: t<Env>(),
   meta: t<{ username: string }>(),
   tagGroups: {
     ephemeral: ['user', 'label'],

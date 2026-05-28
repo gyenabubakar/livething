@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { contract } from '~/_api/contract.ts';
+import { t } from '~/_api/definitions.ts';
 import { implement } from '~/_api/implement.ts';
 import { channel } from '~/channel/definition.ts';
 import { namespace } from '~/namespace/definition.ts';
@@ -9,7 +10,8 @@ import { recordedStream } from './definition.ts';
 
 describe('recordedStream build-time validation', () => {
   it('throws when recordedStream is declared without persistence: true', () => {
-    const c = contract<Record<string, unknown>>('app')({
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
       definitions: [
         recordedStream('tokens', {
           payload: v.object({}),
@@ -27,7 +29,8 @@ describe('recordedStream build-time validation', () => {
   });
 
   it('builds when declared inside a channel', () => {
-    const c = contract<Record<string, unknown>>('app')({
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
       persistence: true,
       definitions: [
         channel('rooms', {
@@ -52,7 +55,8 @@ describe('recordedStream build-time validation', () => {
   });
 
   it('builds when declared inside a namespace', () => {
-    const c = contract<Record<string, unknown>>('app')({
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
       persistence: true,
       definitions: [
         namespace('v1', {
@@ -77,7 +81,8 @@ describe('recordedStream build-time validation', () => {
   });
 
   it('builds when persistence is enabled and the stream is top-level', () => {
-    const c = contract<Record<string, unknown>>('app')({
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
       persistence: true,
       definitions: [
         recordedStream('tokens', {
@@ -96,7 +101,8 @@ describe('recordedStream build-time validation', () => {
   });
 
   it('throws at build when a recordedStream declaration has no handler', () => {
-    const c = contract<Record<string, unknown>>('app')({
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
       persistence: true,
       definitions: [
         recordedStream('tokens', {

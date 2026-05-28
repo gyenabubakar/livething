@@ -50,7 +50,8 @@ const StreamConnectionIdChunk = v.object({ id: v.string() });
 const StreamThrowOnCancelPayload = v.object({});
 const StreamThrowOnCancelChunk = v.object({ tick: v.number() });
 
-export const pluginsContract = contract<Env>('plugins-test')({
+export const pluginsContract = contract('plugins-test', {
+  env: t<Env>(),
   meta: t<{ username: string }>(),
   plugins: [Drizzle({ migrate: true })],
   definitions: [

@@ -13,7 +13,8 @@ const AttemptChunk = v.object({ attempt: v.number() });
 const BufferFullPayload = v.object({});
 const BufferChunk = v.object({ n: v.number() });
 
-export const streamDurableContract = contract<Env>('stream-durable')({
+export const streamDurableContract = contract('stream-durable', {
+  env: t<Env>(),
   persistence: true,
   meta: t<{ username: string }>(),
   definitions: [

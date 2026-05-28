@@ -1,4 +1,13 @@
-import { contract, implement, incoming, namespace, outgoing, request, stream } from '@wskit/server';
+import {
+  contract,
+  implement,
+  incoming,
+  namespace,
+  outgoing,
+  request,
+  stream,
+  t,
+} from '@wskit/server';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
@@ -11,7 +20,8 @@ const NsInfoSchema = v.object({ namespace: v.string() });
 const StartNsStreamPayload = v.object({ count: v.number() });
 const NsToken = v.object({ index: v.number() });
 
-export const namespaceContract = contract<Env>('namespace')({
+export const namespaceContract = contract('namespace', {
+  env: t<Env>(),
   definitions: [
     namespace('ns', {
       definitions: [

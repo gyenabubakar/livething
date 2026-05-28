@@ -3,7 +3,8 @@ import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-export const ctxKvContract = contract<Env>('ctx-kv')({
+export const ctxKvContract = contract('ctx-kv', {
+  env: t<Env>(),
   meta: t<{ username: string }>(),
   definitions: [
     incoming(

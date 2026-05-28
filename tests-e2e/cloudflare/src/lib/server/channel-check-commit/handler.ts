@@ -14,7 +14,8 @@ const JoinedPayload = v.object({ username: v.string() });
 const MessagePayload = v.object({ from: v.string(), text: v.string() });
 const SendPayload = v.object({ text: v.string() });
 
-export const channelCheckCommitContract = contract<Env>('channel-check-commit')({
+export const channelCheckCommitContract = contract('channel-check-commit', {
+  env: t<Env>(),
   meta: t<{ username: string }>(),
   definitions: [
     // Uses both check and commit: check validates the token, commit enforces the capacity.

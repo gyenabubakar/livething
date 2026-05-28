@@ -22,7 +22,8 @@ export const TopKey = localKey<{ tag: string }>('top');
 export const NsKey = localKey<{ tag: string }>('ns');
 export const ChannelKey = localKey<{ tag: string }>('channel');
 
-export const ctxLocalsContract = contract<Env>('ctx-locals')({
+export const ctxLocalsContract = contract('ctx-locals', {
+  env: t<Env>(),
   meta: t<{ username: string }>(),
   definitions: [
     incoming('echo', EchoPayload),

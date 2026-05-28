@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { t } from '~/_api/definitions.ts';
 import { scope } from '~/channel/channel.ts';
 import { channel } from '~/channel/definition.ts';
 import { incoming } from '~/incoming/definition.ts';
@@ -23,7 +24,8 @@ function makeFrame(event: string, payload: unknown, opts: MakeFrameOptions = {})
   return { event, payload, routing, kind };
 }
 
-const testContract = contract<Record<string, unknown>>('app')({
+const testContract = contract('app', {
+  env: t<Record<string, unknown>>(),
   definitions: [
     incoming('send-msg', v.object({ text: v.string() })),
     request('lookup', { payload: v.object({ id: v.string() }), response: v.object({}) }),

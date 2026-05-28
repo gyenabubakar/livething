@@ -3,7 +3,8 @@ import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-export const sequenceContract = contract<Env>('sequence')({
+export const sequenceContract = contract('sequence', {
+  env: t<Env>(),
   sequence: true,
   meta: t<{ username: string }>(),
   definitions: [incoming('tick', v.object({})), outgoing('tock', v.object({}))],

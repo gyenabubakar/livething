@@ -12,7 +12,8 @@ import { requireUsername } from '../_shared/upgrade.ts';
 const HelloPayload = v.object({ family: v.string(), text: v.string() });
 const BroadcastPayload = v.object({ name: v.string(), text: v.string() });
 
-export const channelKeyCollisionContract = contract<Env>('channel-key-collision')({
+export const channelKeyCollisionContract = contract('channel-key-collision', {
+  env: t<Env>(),
   meta: t<{ username: string }>(),
   definitions: [
     incoming('broadcast-a', BroadcastPayload),

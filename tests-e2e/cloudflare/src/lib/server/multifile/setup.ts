@@ -4,7 +4,8 @@
 import { channel, contract, incoming, outgoing, t } from '@wskit/server';
 import { NotificationPayload, RoomMessagePayload, SendRoomMessagePayload } from './events.ts';
 
-export const multifileContract = contract<Env>('multifile')({
+export const multifileContract = contract('multifile', {
+  env: t<Env>(),
   meta: t<{ username: string }>(),
   definitions: [
     outgoing('notification', NotificationPayload),

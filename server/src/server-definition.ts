@@ -33,7 +33,7 @@ import type { Primitive } from '~/primitive.ts';
  * ```ts
  * import { contract, incoming, outgoing, implement } from '@wskit/server';
  *
- * const chatContract = contract<Env>('chat')({
+ * const chatContract = contract('chat', { env: t<Env>(),
  *   definitions: [outgoing('message', Message), incoming('send', Send)],
  * });
  * const chat = implement(chatContract).on('send', ...).build();

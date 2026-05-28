@@ -15,6 +15,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { defineServerAdapter } from '~/_adapters/define.ts';
 import { contract } from '~/_api/contract.ts';
+import { t } from '~/_api/definitions.ts';
 import { implement } from '~/_api/implement.ts';
 import { scope } from '~/channel/channel.ts';
 import { channel } from '~/channel/definition.ts';
@@ -143,7 +144,8 @@ const Text = v.object({ text: v.string() });
 const NumChunk = v.object({ n: v.number() });
 
 const tinyHandler = implement(
-  contract<Record<string, unknown>>('rt-tiny')({
+  contract('rt-tiny', {
+    env: t<Record<string, unknown>>(),
     definitions: [incoming('noop', Empty), outgoing('ack', Empty)],
   }),
 )
@@ -151,7 +153,8 @@ const tinyHandler = implement(
   .build();
 
 const mediumHandler = implement(
-  contract<Record<string, unknown>>('rt-medium')({
+  contract('rt-medium', {
+    env: t<Record<string, unknown>>(),
     persistence: true,
     hibernation: true,
     definitions: [
@@ -198,7 +201,8 @@ function channelDefs(prefix: string) {
   ] as const;
 }
 
-const heavyContract = contract<Record<string, unknown>>('rt-heavy')({
+const heavyContract = contract('rt-heavy', {
+  env: t<Record<string, unknown>>(),
   persistence: true,
   hibernation: true,
   replay: true,

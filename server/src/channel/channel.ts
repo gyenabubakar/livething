@@ -54,7 +54,7 @@ type ChannelStatePrimitive =
  *
  * // Declare a channel family that matches `room:<anything>` subscriptions.
  * // The `key` ('rooms') is the family name used in handlers.
- * const app = contract<Env>('app')({
+ * const app = contract('app', { env: t<Env>(),
  *   definitions: [
  *     channel(scope('rooms', /^room:.+$/), {
  *       definitions: [],
@@ -180,7 +180,7 @@ const CATASTROPHIC_BACKTRACK_SHAPE = /\([^)]*[+*][^)]*\)[+*]/;
  * ```ts
  * import { contract, channel, scope } from '@wskit/server';
  *
- * const app = contract<Env>('app')({
+ * const app = contract('app', { env: t<Env>(),
  *   definitions: [
  *     channel(scope('rooms', /^room:.+$/), { definitions: [] }),
  *   ],

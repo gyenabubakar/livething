@@ -24,7 +24,8 @@ const StrictPongPayload = v.object({});
 const FastPingPayload = v.object({});
 const FastPongPayload = v.object({});
 
-export const rateLimitContract = contract<Env>('rate-limit')({
+export const rateLimitContract = contract('rate-limit', {
+  env: t<Env>(),
   rateLimit: { enabled: true, windowMs: 60_000, max: 3 },
   meta: t<{ username: string }>(),
   definitions: [

@@ -6,7 +6,8 @@ import { requireUsername } from '../_shared/upgrade.ts';
 const Note = v.object({ text: v.string() });
 const SendNote = v.object({ text: v.string() });
 
-export const replayCustomCascadeContract = contract<Env>('replay-custom-cascade')({
+export const replayCustomCascadeContract = contract('replay-custom-cascade', {
+  env: t<Env>(),
   sequence: { persist: true },
   dedup: true,
   meta: t<{ username: string }>(),

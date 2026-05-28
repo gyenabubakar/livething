@@ -13,7 +13,8 @@ const Unregistered = error('unregistered', v.object({ msg: v.string() }));
 // connection silently lose the response.
 const BigIntDetail = error('bigint-detail');
 
-export const errorsFactoryContract = contract<Env>('errors-factory')({
+export const errorsFactoryContract = contract('errors-factory', {
+  env: t<Env>(),
   meta: t<{ username: string }>(),
   errors: [NotFound, Forbidden, SimpleError, BigIntDetail],
   definitions: [

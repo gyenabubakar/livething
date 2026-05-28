@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { contract } from '~/_api/contract.ts';
+import { t } from '~/_api/definitions.ts';
 import { implement } from '~/_api/implement.ts';
 import { scope } from '~/channel/channel.ts';
 import { channel } from '~/channel/definition.ts';
@@ -15,7 +16,8 @@ import { compileHandlerDefinition } from './compile.ts';
 
 describe('boot-time cross-primitive collision guard', () => {
   it('rejects the same event used as both stream and resumableStream at top level', () => {
-    const c = contract<Record<string, unknown>>('app')({
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
       persistence: true,
       definitions: [
         stream('feed', { payload: v.object({}), chunk: v.object({}) }),
@@ -37,7 +39,8 @@ describe('boot-time cross-primitive collision guard', () => {
   });
 
   it('rejects the same event used as both resumableStream and recordedStream', () => {
-    const c = contract<Record<string, unknown>>('app')({
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
       persistence: true,
       definitions: [
         resumableStream('feed', { payload: v.object({}), chunk: v.object({}) }),
@@ -59,7 +62,8 @@ describe('boot-time cross-primitive collision guard', () => {
   });
 
   it('rejects the same event used as incoming + recordedStream', () => {
-    const c = contract<Record<string, unknown>>('app')({
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
       persistence: true,
       definitions: [
         incoming('feed', v.object({})),
@@ -79,7 +83,8 @@ describe('boot-time cross-primitive collision guard', () => {
   });
 
   it('rejects the collision inside a channel scope', () => {
-    const c = contract<Record<string, unknown>>('app')({
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
       persistence: true,
       definitions: [
         channel('rooms', {
@@ -110,7 +115,8 @@ describe('boot-time cross-primitive collision guard', () => {
   });
 
   it('rejects the collision inside a namespace scope', () => {
-    const c = contract<Record<string, unknown>>('app')({
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
       persistence: true,
       definitions: [
         namespace('v1', {
@@ -141,7 +147,8 @@ describe('boot-time cross-primitive collision guard', () => {
   });
 
   it('rejects the collision inside a channel-family scope', () => {
-    const c = contract<Record<string, unknown>>('app')({
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
       persistence: true,
       definitions: [
         channel(scope('rooms', /^room:.+$/), {
@@ -172,7 +179,8 @@ describe('boot-time cross-primitive collision guard', () => {
   });
 
   it('allows the same event in different scopes', () => {
-    const c = contract<Record<string, unknown>>('app')({
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
       persistence: true,
       definitions: [
         stream('feed', { payload: v.object({}), chunk: v.object({}) }),
@@ -200,7 +208,8 @@ describe('boot-time cross-primitive collision guard', () => {
 
 describe('namespace cannot contain a channel or another namespace', () => {
   it('build throws when a channel is declared inside a namespace via `as any`', () => {
-    const sneakyContract = contract<Record<string, unknown>>('app')({
+    const sneakyContract = contract('app', {
+      env: t<Record<string, unknown>>(),
       definitions: [
         namespace('admin', {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -214,7 +223,8 @@ describe('namespace cannot contain a channel or another namespace', () => {
   });
 
   it('build throws when a namespace is nested inside another namespace via `as any`', () => {
-    const sneakyContract = contract<Record<string, unknown>>('app')({
+    const sneakyContract = contract('app', {
+      env: t<Record<string, unknown>>(),
       definitions: [
         namespace('outer', {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -230,7 +240,8 @@ describe('namespace cannot contain a channel or another namespace', () => {
 
 describe('scope and event name syntax — reserved characters', () => {
   it('rejects a channel name starting with @', () => {
-    const c = contract<Record<string, unknown>>('app')({
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
       definitions: [channel('@chat', { definitions: [] })],
     });
     expect(() => compileHandlerDefinition(implement(c).build())).toThrow(
@@ -239,7 +250,8 @@ describe('scope and event name syntax — reserved characters', () => {
   });
 
   it('rejects a channel name starting with #', () => {
-    const c = contract<Record<string, unknown>>('app')({
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
       definitions: [channel('#chat', { definitions: [] })],
     });
     expect(() => compileHandlerDefinition(implement(c).build())).toThrow(
@@ -248,7 +260,8 @@ describe('scope and event name syntax — reserved characters', () => {
   });
 
   it('rejects a namespace name starting with @', () => {
-    const c = contract<Record<string, unknown>>('app')({
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
       definitions: [namespace('@admin', { definitions: [] })],
     });
     expect(() => compileHandlerDefinition(implement(c).build())).toThrow(
@@ -257,7 +270,8 @@ describe('scope and event name syntax — reserved characters', () => {
   });
 
   it('rejects a namespace name starting with #', () => {
-    const c = contract<Record<string, unknown>>('app')({
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
       definitions: [namespace('#admin', { definitions: [] })],
     });
     expect(() => compileHandlerDefinition(implement(c).build())).toThrow(
@@ -266,7 +280,8 @@ describe('scope and event name syntax — reserved characters', () => {
   });
 
   it('rejects a channel name containing ::', () => {
-    const c = contract<Record<string, unknown>>('app')({
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
       definitions: [channel('chat::rooms', { definitions: [] })],
     });
     expect(() => compileHandlerDefinition(implement(c).build())).toThrow(
@@ -275,7 +290,8 @@ describe('scope and event name syntax — reserved characters', () => {
   });
 
   it('rejects a namespace name containing ::', () => {
-    const c = contract<Record<string, unknown>>('app')({
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
       definitions: [namespace('admin::v1', { definitions: [] })],
     });
     expect(() => compileHandlerDefinition(implement(c).build())).toThrow(
@@ -284,7 +300,8 @@ describe('scope and event name syntax — reserved characters', () => {
   });
 
   it('rejects a channel family key starting with @', () => {
-    const c = contract<Record<string, unknown>>('app')({
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
       definitions: [channel(scope('@rooms', /^room:.+$/), { definitions: [] })],
     });
     expect(() => compileHandlerDefinition(implement(c).build())).toThrow(
@@ -293,7 +310,8 @@ describe('scope and event name syntax — reserved characters', () => {
   });
 
   it('rejects a top-level event name containing ::', () => {
-    const c = contract<Record<string, unknown>>('app')({
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
       definitions: [incoming('send::message', v.object({}))],
     });
     expect(() =>
@@ -306,7 +324,8 @@ describe('scope and event name syntax — reserved characters', () => {
   });
 
   it('rejects an event name containing :: inside a channel', () => {
-    const c = contract<Record<string, unknown>>('app')({
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
       definitions: [channel('chat', { definitions: [incoming('send::message', v.object({}))] })],
     });
     expect(() =>
@@ -319,7 +338,8 @@ describe('scope and event name syntax — reserved characters', () => {
   });
 
   it('rejects an event name containing :: inside a namespace', () => {
-    const c = contract<Record<string, unknown>>('app')({
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
       definitions: [namespace('admin', { definitions: [incoming('send::message', v.object({}))] })],
     });
     expect(() =>
@@ -332,7 +352,8 @@ describe('scope and event name syntax — reserved characters', () => {
   });
 
   it('rejects a stream event name containing ::', () => {
-    const c = contract<Record<string, unknown>>('app')({
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
       definitions: [stream('count::up', { payload: v.object({}), chunk: v.object({}) })],
     });
     expect(() =>
@@ -347,7 +368,8 @@ describe('scope and event name syntax — reserved characters', () => {
   });
 
   it('allows ordinary names with @, #, and : at non-start positions', () => {
-    const c = contract<Record<string, unknown>>('app')({
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
       definitions: [
         channel('chat@v1', { definitions: [] }),
         namespace('admin#v2', { definitions: [] }),
@@ -373,7 +395,8 @@ describe('boot-time same-kind duplicate guard', () => {
   // so the server refuses to start.
 
   it('rejects two incoming declarations with the same event name at top level', () => {
-    const c = contract<Record<string, unknown>>('app')({
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
       definitions: [incoming('same', v.object({})), incoming('same', v.object({}))],
     });
     expect(() =>
@@ -386,7 +409,8 @@ describe('boot-time same-kind duplicate guard', () => {
   });
 
   it('rejects two channel declarations with the same name', () => {
-    const c = contract<Record<string, unknown>>('app')({
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
       definitions: [
         channel('room', { definitions: [incoming('msg', v.object({}))] }),
         channel('room', { definitions: [incoming('msg2', v.object({}))] }),
@@ -402,7 +426,8 @@ describe('boot-time same-kind duplicate guard', () => {
   });
 
   it('rejects two namespace declarations with the same name', () => {
-    const c = contract<Record<string, unknown>>('app')({
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
       definitions: [
         namespace('admin', { definitions: [incoming('hello', v.object({}))] }),
         namespace('admin', { definitions: [incoming('world', v.object({}))] }),
@@ -426,7 +451,8 @@ describe('boot-time same-kind duplicate guard', () => {
       dependencies: ['persistence'],
       setup: () => () => ({}),
     });
-    const c = contract<Record<string, unknown>>('app')({
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
       plugins: [NeedsPersistence()],
       definitions: [],
     });
@@ -440,7 +466,8 @@ describe('boot-time same-kind duplicate guard', () => {
       dependencies: ['persistence'],
       setup: () => () => ({}),
     });
-    const c = contract<Record<string, unknown>>('app')({
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
       persistence: true,
       plugins: [NeedsPersistence()],
       definitions: [],
@@ -449,7 +476,8 @@ describe('boot-time same-kind duplicate guard', () => {
   });
 
   it('rejects two incoming declarations with the same event name inside a channel scope', () => {
-    const c = contract<Record<string, unknown>>('app')({
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
       definitions: [
         channel('room', {
           definitions: [incoming('msg', v.object({})), incoming('msg', v.object({}))],

@@ -5,7 +5,8 @@ import { requireUsername } from '../_shared/upgrade.ts';
 
 const Token = v.object({ token: v.string() });
 
-export const streamNudgesContract = contract<Env>('stream-nudges')({
+export const streamNudgesContract = contract('stream-nudges', {
+  env: t<Env>(),
   dedup: true,
   meta: t<{ username: string }>(),
   definitions: [

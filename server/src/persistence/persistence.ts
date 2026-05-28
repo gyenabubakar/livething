@@ -19,7 +19,7 @@ const PERSISTENCE_KEY = Symbol('persistence');
  *
  * @example
  * ```ts
- * const chat = contract<Env>('chat')({
+ * const chat = contract('chat', { env: t<Env>(),
  *   persistence: true,
  *   definitions: [
  *     channel('team-eng', { definitions: [...] }),

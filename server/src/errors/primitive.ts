@@ -38,7 +38,7 @@ const ERRORS_KEY = Symbol('errors');
  *
  * const NotFound = error('not-found', v.object({ id: v.string() }));
  *
- * const c = contract<Env>('users')({
+ * const c = contract('users', { env: t<Env>(),
  *   errors: [NotFound],
  *   definitions: [incoming('get-user', GetUser)],
  * });

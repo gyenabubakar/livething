@@ -91,7 +91,7 @@ interface RecordedStreamConfig<
  *
  * const TokenChunk = v.object({ idx: v.number() });
  *
- * const myContract = contract<Env>('ai')({
+ * const myContract = contract('ai', { env: t<Env>(),
  *   persistence: true,
  *   definitions: [
  *     recordedStream('count-tokens', {

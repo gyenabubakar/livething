@@ -81,7 +81,7 @@ export { error } from '@wskit/core';
  *
  * @example
  * ```ts
- * contract<Env>('chat')({
+ * contract('chat', { env: t<Env>(),
  *   meta: t<{ username: string }>(),
  *   definitions: [...],
  * });

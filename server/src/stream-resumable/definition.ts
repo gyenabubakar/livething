@@ -114,7 +114,7 @@ interface ResumableStreamConfig<
  * const RowChunk = v.object({ row: v.number() });
  * const PaginateCursor = v.object({ idx: v.number() });
  *
- * const myContract = contract<Env>('files')({
+ * const myContract = contract('files', { env: t<Env>(),
  *   persistence: true,
  *   definitions: [
  *     resumableStream('paginate', {

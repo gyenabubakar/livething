@@ -6,7 +6,8 @@ import { requireUsername } from '../_shared/upgrade.ts';
 
 const StreamToken = v.object({ index: v.number() });
 
-export const errorsControlFlowContract = contract<Env>('errors-control-flow')({
+export const errorsControlFlowContract = contract('errors-control-flow', {
+  env: t<Env>(),
   meta: t<{ username: string }>(),
   definitions: [
     incoming('do-echo', v.object({ text: v.string() })),

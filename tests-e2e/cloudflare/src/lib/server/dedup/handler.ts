@@ -3,7 +3,8 @@ import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-export const dedupContract = contract<Env>('dedup')({
+export const dedupContract = contract('dedup', {
+  env: t<Env>(),
   dedup: true,
   meta: t<{ username: string }>(),
   definitions: [

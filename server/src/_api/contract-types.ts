@@ -168,6 +168,13 @@ export interface ContractConfig {
    */
   readonly rateLimit?: RateLimitConfig;
 
+  /**
+   * Phantom marker for the env type the adapter injects into every handler
+   * context (e.g. Cloudflare Workers `Env`). Use `env: t<MyEnv>()` so TS can
+   * infer the env shape without an explicit generic argument on `contract()`.
+   */
+  readonly env?: TypeMarker<any>;
+
   readonly meta?: TypeMarker<any>;
   readonly tagGroups?: {
     readonly ephemeral?: readonly string[];
@@ -206,6 +213,10 @@ type FeatureFromConfig<TConfig> =
 
 type MetaFromConfig<TConfig> = TConfig extends { meta: TypeMarker<infer M> }
   ? M
+  : Record<string, unknown>;
+
+export type EnvFromConfig<TConfig> = TConfig extends { env: TypeMarker<infer E> }
+  ? E
   : Record<string, unknown>;
 
 type EphemeralTagsFromConfig<TConfig> = TConfig extends {

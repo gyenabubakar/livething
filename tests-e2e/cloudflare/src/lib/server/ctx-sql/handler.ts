@@ -15,7 +15,8 @@ function selectNotes(ctx: {
     .toArray();
 }
 
-export const ctxSqlContract = contract<Env>('ctx-sql')({
+export const ctxSqlContract = contract('ctx-sql', {
+  env: t<Env>(),
   meta: t<{ username: string }>(),
   definitions: [
     incoming('save-note', v.object({ title: v.string(), body: v.string() })),

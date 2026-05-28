@@ -229,7 +229,7 @@ function isPluginId(value: string): boolean {
  * });
  *
  * // Mount onto a contract:
- * const app = contract<Env>('app')({
+ * const app = contract('app', { env: t<Env>(),
  *   plugins: [analytics({ trackingId: '...' })],
  *   definitions: [...],
  * });

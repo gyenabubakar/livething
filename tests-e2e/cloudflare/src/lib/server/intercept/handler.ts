@@ -23,7 +23,8 @@ const InterceptedStreamChunk = v.object({ text: v.string() });
 const NudgeStreamChunk = v.object({ saw: v.string() });
 const HintNudgePayload = v.object({ text: v.string() });
 
-export const interceptContract = contract<Env>('intercept')({
+export const interceptContract = contract('intercept', {
+  env: t<Env>(),
   meta: t<{ username: string }>(),
   definitions: [
     incoming('echo', EchoPayload),

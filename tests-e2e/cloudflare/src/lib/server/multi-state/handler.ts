@@ -11,7 +11,8 @@ import { requireUsername } from '../_shared/upgrade.ts';
 const TagBatchPayload = v.object({});
 const TagBatchResult = v.object({ ok: v.boolean() });
 
-export const multiStateContract = contract<Env>('multi-state')({
+export const multiStateContract = contract('multi-state', {
+  env: t<Env>(),
   hibernation: true,
   meta: t<{ username: string }>(),
   tagGroups: {

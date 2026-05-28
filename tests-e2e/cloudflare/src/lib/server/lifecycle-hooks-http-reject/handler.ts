@@ -1,10 +1,8 @@
-import { contract, implement } from '@wskit/server';
+import { contract, implement, t } from '@wskit/server';
 import { RejectUpgrade } from '@wskit/server/errors';
 import type { InferClient } from '@wskit/server';
 
-export const rejectHttpContract = contract<Env>('reject-http-test')({
-  definitions: [],
-});
+export const rejectHttpContract = contract('reject-http-test', { env: t<Env>(), definitions: [] });
 
 export const rejectHttpHandler = implement(rejectHttpContract)
   .onUpgrade(() => {

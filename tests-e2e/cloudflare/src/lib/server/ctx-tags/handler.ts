@@ -7,7 +7,8 @@ function serializeTags(tags: readonly { group: string; key: string }[]): string 
   return tags.map((t) => `${t.group}:${t.key}`).join(',');
 }
 
-export const ctxTagsContract = contract<Env>('ctx-tags')({
+export const ctxTagsContract = contract('ctx-tags', {
+  env: t<Env>(),
   meta: t<{ username: string }>(),
   tagGroups: {
     ephemeral: ['user', 'label'],

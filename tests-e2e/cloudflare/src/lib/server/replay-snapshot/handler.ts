@@ -31,7 +31,8 @@ function reduceSnapshot(
   };
 }
 
-export const replaySnapshotContract = contract<Env>('replay-snapshot-test')({
+export const replaySnapshotContract = contract('replay-snapshot-test', {
+  env: t<Env>(),
   sequence: { persist: true },
   dedup: true,
   replay: {

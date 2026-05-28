@@ -3,7 +3,8 @@ import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-export const ctxChannelsContract = contract<Env>('ctx-channels')({
+export const ctxChannelsContract = contract('ctx-channels', {
+  env: t<Env>(),
   meta: t<{ username: string }>(),
   tagGroups: {
     ephemeral: ['user'],

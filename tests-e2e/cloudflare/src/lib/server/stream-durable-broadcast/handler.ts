@@ -17,7 +17,8 @@ const RowChunk = v.object({ row: v.number() });
 const HeadlineChunk = v.object({ headline: v.string() });
 const AttemptChunk = v.object({ attempt: v.number() });
 
-export const streamDurableBroadcastContract = contract<Env>('stream-durable-broadcast')({
+export const streamDurableBroadcastContract = contract('stream-durable-broadcast', {
+  env: t<Env>(),
   persistence: true,
   meta: t<{ username: string }>(),
   definitions: [

@@ -6,7 +6,8 @@ import { requireUsername } from '../_shared/upgrade.ts';
 const BroadcastChunkSchema = v.object({ index: v.number() });
 const RoomBroadcastChunkSchema = v.object({ index: v.number() });
 
-export const streamBroadcastContract = contract<Env>('stream-broadcast')({
+export const streamBroadcastContract = contract('stream-broadcast', {
+  env: t<Env>(),
   meta: t<{ username: string }>(),
   definitions: [
     stream('start-broadcast', {

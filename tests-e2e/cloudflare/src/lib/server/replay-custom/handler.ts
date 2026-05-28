@@ -18,7 +18,8 @@ import {
   RoomStreamPayload,
 } from './events.ts';
 
-export const replayCustomContract = contract<Env>('replay-custom-test')({
+export const replayCustomContract = contract('replay-custom-test', {
+  env: t<Env>(),
   sequence: { persist: true },
   dedup: true,
   meta: t<{ username: string }>(),

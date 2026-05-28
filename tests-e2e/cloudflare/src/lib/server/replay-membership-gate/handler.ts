@@ -8,7 +8,8 @@ const TopBeacon = v.object({ text: v.string() });
 const SendSecret = v.object({ text: v.string() });
 const SendBeacon = v.object({ text: v.string() });
 
-export const replayMembershipGateContract = contract<Env>('replay-membership-gate')({
+export const replayMembershipGateContract = contract('replay-membership-gate', {
+  env: t<Env>(),
   sequence: { persist: true },
   dedup: true,
   meta: t<{ username: string }>(),

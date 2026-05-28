@@ -3,7 +3,8 @@ import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
-export const ctxMetaContract = contract<Env>('ctx-meta')({
+export const ctxMetaContract = contract('ctx-meta', {
+  env: t<Env>(),
   meta: t<{ username: string }>(),
   definitions: [
     incoming('who-am-i', v.object({})),

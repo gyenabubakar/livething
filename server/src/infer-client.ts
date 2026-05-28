@@ -146,7 +146,7 @@ type ClientScopeMap<TScopes> = { [TKey in keyof TScopes]: ClientScope<TScopes[TK
  * import { contract, implement, incoming, outgoing } from '@wskit/server';
  *
  * // server.ts
- * const chat = contract<Env>('chat')({
+ * const chat = contract('chat', { env: t<Env>(),
  *   definitions: [
  *     outgoing('chat-message', v.object({ text: v.string() })),
  *     incoming('send-message', v.object({ text: v.string() })),

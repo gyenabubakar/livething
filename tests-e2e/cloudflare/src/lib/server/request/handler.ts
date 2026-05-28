@@ -11,7 +11,8 @@ const DoubleResponseSchema = v.object({ count: v.number() });
 const StrictEchoResponseSchema = v.strictObject({ echoed: v.string() });
 const ThrowingRequestResponseSchema = v.object({ never: v.string() });
 
-export const requestContract = contract<Env>('request')({
+export const requestContract = contract('request', {
+  env: t<Env>(),
   meta: t<{ username: string }>(),
   definitions: [
     request('get-time', { payload: v.object({}), response: TimeResponseSchema }),

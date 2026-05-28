@@ -21,7 +21,8 @@ const PausePayload = v.object({ at: v.number() });
 const TokenChunk = v.object({ token: v.string() });
 const StopPayload = v.object({});
 
-export const streamDurableScopedContract = contract<Env>('stream-durable-scoped')({
+export const streamDurableScopedContract = contract('stream-durable-scoped', {
+  env: t<Env>(),
   persistence: true,
   meta: t<{ username: string }>(),
   definitions: [

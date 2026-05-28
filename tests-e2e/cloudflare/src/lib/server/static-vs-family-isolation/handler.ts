@@ -30,7 +30,8 @@ const KickFamilyPayload = v.object({
 });
 const KickAckPayload = v.object({ where: v.string() });
 
-export const staticVsFamilyIsolationContract = contract<Env>('static-vs-family-isolation')({
+export const staticVsFamilyIsolationContract = contract('static-vs-family-isolation', {
+  env: t<Env>(),
   dedup: true,
   sequence: { persist: true },
   meta: t<{ username: string }>(),
