@@ -153,10 +153,14 @@ function assertValidScopeDeclaration(declaration: ScopeDeclaration<string>, sour
 }
 
 // Matches a group whose body contains an unbounded quantifier and which is
-// itself followed by an unbounded quantifier — (a+)+, (\w+)+, (a*)*, (a+|b)+
-// and similar shapes that send regex backtracking exponential on near-match
-// input.
-const CATASTROPHIC_BACKTRACK_SHAPE = /\([^)]*[+*][^)]*\)[+*]/;
+// itself followed by an unbounded quantifier — (a+)+, (\w+)+, (a*)*, (a+|b)+,
+// (a{1,})+, (a+){1,}, and similar shapes that send regex backtracking
+// exponential on near-match input. Catches both `+`/`*` and `{n,}`/`{n,m}`
+// quantifiers in either position.
+const UNBOUNDED_QUANTIFIER = '(?:[+*]|\\{\\d+,\\d*\\})';
+const CATASTROPHIC_BACKTRACK_SHAPE = new RegExp(
+  `\\([^)]*${UNBOUNDED_QUANTIFIER}[^)]*\\)${UNBOUNDED_QUANTIFIER}`,
+);
 
 /**
  * Create a `ScopeDeclaration` for a dynamic channel family. A dynamic channel
