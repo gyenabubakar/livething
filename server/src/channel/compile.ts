@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { setUniqueOrThrow } from '~/_engine/compile/utils.ts';
 import { channel as channelFactory, scope as scopeFactory } from '~/channel/channel.ts';
 import {
   check as checkFactory,
@@ -128,29 +129,45 @@ export function compileChannelPrimitive(primitive: ChannelPrimitiveType): Compil
     intercepts: [],
   };
 
+  const scopeLabel = `channel "${key}"`;
   for (const child of primitive.primitives) {
     switch (child.__wskit) {
-      case 'outgoing':
-        scope.outgoing.set((child as AnyOutgoing).event, child as AnyOutgoing);
+      case 'outgoing': {
+        const p = child as AnyOutgoing;
+        setUniqueOrThrow(scope.outgoing, p.event, { value: p, kind: `outgoing in ${scopeLabel}` });
         break;
-      case 'incoming':
-        scope.incoming.set((child as AnyIncoming).event, child as AnyIncoming);
+      }
+      case 'incoming': {
+        const p = child as AnyIncoming;
+        setUniqueOrThrow(scope.incoming, p.event, { value: p, kind: `incoming in ${scopeLabel}` });
         break;
-      case 'request':
-        scope.requests.set((child as AnyRequest).event, child as AnyRequest);
+      }
+      case 'request': {
+        const p = child as AnyRequest;
+        setUniqueOrThrow(scope.requests, p.event, { value: p, kind: `request in ${scopeLabel}` });
         break;
-      case 'stream-generate':
-        scope.streams.set((child as AnyGenerate).event, child as AnyGenerate);
+      }
+      case 'stream-generate': {
+        const p = child as AnyGenerate;
+        setUniqueOrThrow(scope.streams, p.event, { value: p, kind: `stream in ${scopeLabel}` });
         break;
-      case 'resumable-stream-generate':
-        scope.resumableStreams.set(
-          (child as AnyResumableStream).event,
-          child as AnyResumableStream,
-        );
+      }
+      case 'resumable-stream-generate': {
+        const p = child as AnyResumableStream;
+        setUniqueOrThrow(scope.resumableStreams, p.event, {
+          value: p,
+          kind: `resumableStream in ${scopeLabel}`,
+        });
         break;
-      case 'recorded-stream-generate':
-        scope.recordedStreams.set((child as AnyRecordedStream).event, child as AnyRecordedStream);
+      }
+      case 'recorded-stream-generate': {
+        const p = child as AnyRecordedStream;
+        setUniqueOrThrow(scope.recordedStreams, p.event, {
+          value: p,
+          kind: `recordedStream in ${scopeLabel}`,
+        });
         break;
+      }
       case 'intercept':
         scope.intercepts.push(child as AnyIntercept);
         break;

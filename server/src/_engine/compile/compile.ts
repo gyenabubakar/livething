@@ -30,54 +30,68 @@ function visitCompiledPrimitives(
       case 'replay':
         continue;
 
-      case 'outgoing':
-        compiled.outgoing.set(
-          (primitive as EngineCompileTypes.AnyOutgoing).event,
-          primitive as EngineCompileTypes.AnyOutgoing,
-        );
+      case 'outgoing': {
+        const p = primitive as EngineCompileTypes.AnyOutgoing;
+        EngineCompileUtils.setUniqueOrThrow(compiled.outgoing, p.event, {
+          value: p,
+          kind: 'outgoing',
+        });
         continue;
+      }
 
-      case 'incoming':
-        compiled.incoming.set(
-          (primitive as EngineCompileTypes.AnyIncoming).event,
-          primitive as EngineCompileTypes.AnyIncoming,
-        );
+      case 'incoming': {
+        const p = primitive as EngineCompileTypes.AnyIncoming;
+        EngineCompileUtils.setUniqueOrThrow(compiled.incoming, p.event, {
+          value: p,
+          kind: 'incoming',
+        });
         continue;
+      }
 
-      case 'request':
-        compiled.requests.set(
-          (primitive as EngineCompileTypes.AnyRequest).event,
-          primitive as EngineCompileTypes.AnyRequest,
-        );
+      case 'request': {
+        const p = primitive as EngineCompileTypes.AnyRequest;
+        EngineCompileUtils.setUniqueOrThrow(compiled.requests, p.event, {
+          value: p,
+          kind: 'request',
+        });
         continue;
+      }
 
-      case 'stream-generate':
-        compiled.streams.set(
-          (primitive as EngineCompileTypes.AnyGenerate).event,
-          primitive as EngineCompileTypes.AnyGenerate,
-        );
+      case 'stream-generate': {
+        const p = primitive as EngineCompileTypes.AnyGenerate;
+        EngineCompileUtils.setUniqueOrThrow(compiled.streams, p.event, {
+          value: p,
+          kind: 'stream',
+        });
         continue;
+      }
 
-      case 'resumable-stream-generate':
-        compiled.resumableStreams.set(
-          (primitive as EngineCompileTypes.AnyResumableStream).event,
-          primitive as EngineCompileTypes.AnyResumableStream,
-        );
+      case 'resumable-stream-generate': {
+        const p = primitive as EngineCompileTypes.AnyResumableStream;
+        EngineCompileUtils.setUniqueOrThrow(compiled.resumableStreams, p.event, {
+          value: p,
+          kind: 'resumableStream',
+        });
         continue;
+      }
 
-      case 'recorded-stream-generate':
-        compiled.recordedStreams.set(
-          (primitive as EngineCompileTypes.AnyRecordedStream).event,
-          primitive as EngineCompileTypes.AnyRecordedStream,
-        );
+      case 'recorded-stream-generate': {
+        const p = primitive as EngineCompileTypes.AnyRecordedStream;
+        EngineCompileUtils.setUniqueOrThrow(compiled.recordedStreams, p.event, {
+          value: p,
+          kind: 'recordedStream',
+        });
         continue;
+      }
 
-      case 'scheduled':
-        compiled.scheduled.set(
-          (primitive as EngineCompileTypes.AnyScheduled).taskId,
-          primitive as EngineCompileTypes.AnyScheduled,
-        );
+      case 'scheduled': {
+        const p = primitive as EngineCompileTypes.AnyScheduled;
+        EngineCompileUtils.setUniqueOrThrow(compiled.scheduled, p.taskId, {
+          value: p,
+          kind: 'scheduled',
+        });
         continue;
+      }
 
       case 'intercept':
         compiled.intercepts.push(primitive as EngineCompileTypes.AnyIntercept);
@@ -89,7 +103,10 @@ function visitCompiledPrimitives(
     }
 
     if (EngineCompileUtils.isNamespacePrimitive(primitive)) {
-      compiled.namespaces.set(primitive.pattern, compileNamespacePrimitive(primitive));
+      EngineCompileUtils.setUniqueOrThrow(compiled.namespaces, primitive.pattern, {
+        value: compileNamespacePrimitive(primitive),
+        kind: 'namespace',
+      });
       continue;
     }
 
@@ -103,7 +120,10 @@ function visitCompiledPrimitives(
               `Static channel names and family keys must be disjoint — rename one of them.`,
           );
         }
-        compiled.channels.set(primitive.pattern, compiledChannel);
+        EngineCompileUtils.setUniqueOrThrow(compiled.channels, primitive.pattern, {
+          value: compiledChannel,
+          kind: 'channel',
+        });
       } else {
         if (compiled.channels.has(primitive.pattern.key)) {
           throw new Error(
@@ -111,7 +131,10 @@ function visitCompiledPrimitives(
               `Static channel names and family keys must be disjoint — rename one of them.`,
           );
         }
-        compiled.channelFamilies.set(primitive.pattern.key, compiledChannel);
+        EngineCompileUtils.setUniqueOrThrow(compiled.channelFamilies, primitive.pattern.key, {
+          value: compiledChannel,
+          kind: 'channel family',
+        });
       }
 
       continue;
@@ -145,11 +168,53 @@ export function compileHandlerDefinition(
 
   visitCompiledPrimitives(compiled, handler.primitives);
   collectReplayClaimedScopes(handler.primitives, compiled.replayClaimedChannelKeys);
+  validateUniquePluginIds(compiled);
+  validateUniquePluginEventNames(compiled);
   validateNoCrossPrimitiveEventCollisions(compiled);
   validateNoReservedEventNames(compiled, collectPluginEventNames(compiled));
   validateScopeAndEventNameSyntax(compiled);
   validateChannelFamilyPatternsDisjointFromStaticNames(compiled);
   return compiled;
+}
+
+/**
+ * Refuse to boot when two mounted plugins share the same id. Plugin ids own a
+ * wire prefix (`__<id>:<event>`) and the plugin's `<Plugin>.use(ctx)` API
+ * lookup keys off the id. Two plugins with the same id would silently overwrite
+ * each other's prefixed event ownership and make the .use() lookup ambiguous.
+ */
+function validateUniquePluginIds(compiled: EngineCompileTypes.CompiledServer): void {
+  const seen = new Set<string>();
+  for (const plugin of compiled.plugins) {
+    if (seen.has(plugin.id)) {
+      throw new Error(
+        `[wskit] Duplicate plugin id "${plugin.id}". Each plugin id must be unique across all mounted plugins.`,
+      );
+    }
+    seen.add(plugin.id);
+  }
+}
+
+/**
+ * Refuse to boot when two plugins declare the same fully-prefixed event name
+ * (`__<id>:<event>`). With unique plugin ids the prefix already prevents this
+ * for normal cases, but a malformed plugin factory could share ids implicitly,
+ * so the check stays explicit.
+ */
+function validateUniquePluginEventNames(compiled: EngineCompileTypes.CompiledServer): void {
+  const seen = new Map<string, string>();
+  for (const plugin of compiled.plugins) {
+    for (const eventName of Object.keys(plugin.outgoing)) {
+      const prefixed = `__${plugin.id}:${eventName}`;
+      const owner = seen.get(prefixed);
+      if (owner !== undefined) {
+        throw new Error(
+          `[wskit] Duplicate plugin event "${prefixed}" declared by plugins "${owner}" and "${plugin.id}".`,
+        );
+      }
+      seen.set(prefixed, plugin.id);
+    }
+  }
 }
 
 /**

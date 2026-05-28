@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { assertSyncResult, ValidationFailed } from '@wskit/core';
+import { assertSyncResult, ValidationFailed, WskitConfigError } from '@wskit/core';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type * as ChannelPrimitive from '~/channel/channel.ts';
 import type * as NamespacePrimitive from '~/namespace/namespace.ts';
@@ -12,6 +12,29 @@ import type * as PrimitiveCore from '~/primitive.ts';
  * plugin-owned events. Called by every definition factory that takes an event
  * name.
  */
+/**
+ * Insert into a compile-time map and throw if the key already exists. Each
+ * primitive kind (incoming, outgoing, request, stream variants, scheduled,
+ * channel, namespace) owns its own slot on `CompiledServer`, and a duplicate
+ * declaration in the same slot was previously silent — the second declaration
+ * just overwrote the first. With this helper, a duplicate fails build with a
+ * clear `WskitConfigError` so the engine refuses to construct and the server
+ * doesn't start with a half-broken contract.
+ */
+export function setUniqueOrThrow<V>(
+  map: Map<string, V>,
+  key: string,
+  entry: { value: V; kind: string },
+): void {
+  if (map.has(key)) {
+    throw new WskitConfigError(
+      `[wskit] Duplicate ${entry.kind} declaration for "${key}". ` +
+        `Each name can only be declared once per scope.`,
+    );
+  }
+  map.set(key, entry.value);
+}
+
 export function assertNonReservedEventName(name: string, factory: string): void {
   if (name === 'ping' || name === 'pong') {
     throw new Error(

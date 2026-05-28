@@ -362,3 +362,74 @@ describe('scope and event name syntax — reserved characters', () => {
     ).not.toThrow();
   });
 });
+
+describe('boot-time same-kind duplicate guard', () => {
+  // Pre-fix every `.set()` in compile silently overwrote on duplicate keys.
+  // A refactor that pasted an incoming("same", ...) twice, or two channel
+  // definitions with the same name, just kept the last one with no error.
+  // Each test below configures a duplicate and asserts compile refuses to
+  // produce a CompiledServer — the engine never gets a chance to construct,
+  // so the server refuses to start.
+
+  it('rejects two incoming declarations with the same event name at top level', () => {
+    const c = contract<Record<string, unknown>>('app')({
+      definitions: [incoming('same', v.object({})), incoming('same', v.object({}))],
+    });
+    expect(() =>
+      compileHandlerDefinition(
+        implement(c)
+          .on('same', () => {})
+          .build(),
+      ),
+    ).toThrow(/Duplicate incoming declaration for "same"/);
+  });
+
+  it('rejects two channel declarations with the same name', () => {
+    const c = contract<Record<string, unknown>>('app')({
+      definitions: [
+        channel('room', { definitions: [incoming('msg', v.object({}))] }),
+        channel('room', { definitions: [incoming('msg2', v.object({}))] }),
+      ],
+    });
+    expect(() =>
+      compileHandlerDefinition(
+        implement(c)
+          .channel('room', (ch) => ch.on('msg', () => {}).on('msg2', () => {}))
+          .build(),
+      ),
+    ).toThrow(/Duplicate channel declaration for "room"/);
+  });
+
+  it('rejects two namespace declarations with the same name', () => {
+    const c = contract<Record<string, unknown>>('app')({
+      definitions: [
+        namespace('admin', { definitions: [incoming('hello', v.object({}))] }),
+        namespace('admin', { definitions: [incoming('world', v.object({}))] }),
+      ],
+    });
+    expect(() =>
+      compileHandlerDefinition(
+        implement(c)
+          .namespace('admin', (ns) => ns.on('hello', () => {}).on('world', () => {}))
+          .build(),
+      ),
+    ).toThrow(/Duplicate namespace declaration for "admin"/);
+  });
+
+  it('rejects two incoming declarations with the same event name inside a channel scope', () => {
+    const c = contract<Record<string, unknown>>('app')({
+      definitions: [
+        channel('room', {
+          definitions: [incoming('msg', v.object({})), incoming('msg', v.object({}))],
+        }),
+      ],
+    });
+    expect(() =>
+      compileHandlerDefinition(
+        implement(c)
+          .channel('room', (ch) => ch.on('msg', () => {}))
+          .build(),
+      ),
+    ).toThrow(/Duplicate incoming in channel "room" declaration for "msg"/);
+  });
+});
