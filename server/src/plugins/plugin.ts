@@ -127,7 +127,7 @@ export function plugin<TArgs = void>(id: string) {
       (d): d is ScheduledDef<string, any> => (d as { _?: string })._ === 'scheduled',
     );
 
-    const factory = definePlugin({
+    const inner = definePlugin({
       id,
       key: Symbol(id),
       requires: config.requires,
@@ -136,11 +136,28 @@ export function plugin<TArgs = void>(id: string) {
       setup: config.setup,
     }) as PluginFactory<string, TArgs, TApi, any, readonly ErrorDef<string, any>[]>;
 
-    // Attach declarative metadata so the contract layer can read it back.
-    Object.assign(factory, {
-      __wskit_plugin_dependencies: config.dependencies ?? [],
-      __wskit_plugin_scheduled: scheduledDefs,
-    });
+    // Wrap so every instance the user creates carries the contract-feature
+    // dependency list. The compile pass reads `instance.dependencies` and
+    // refuses to construct the engine when a declared feature is not enabled.
+    const dependencies = (config.dependencies ?? []) as readonly string[];
+    const factory = Object.assign(
+      ((args: TArgs) => {
+        const instance = inner(args);
+        // Mutate via cast — the field is `readonly` on the public type to
+        // discourage product code from touching it; only the wrapper writes.
+        (instance as unknown as { dependencies: readonly string[] }).dependencies = dependencies;
+        return instance;
+      }) as PluginFactory<string, TArgs, TApi, any, readonly ErrorDef<string, any>[]>,
+      {
+        // Re-export the inner factory's `.use(ctx)` and id so the wrapper is
+        // a drop-in replacement.
+        use: inner.use,
+        id: inner.id,
+        __key: inner.__key,
+        __wskit_plugin_dependencies: dependencies,
+        __wskit_plugin_scheduled: scheduledDefs,
+      },
+    );
 
     return factory;
   };

@@ -170,6 +170,7 @@ export function compileHandlerDefinition(
   collectReplayClaimedScopes(handler.primitives, compiled.replayClaimedChannelKeys);
   validateUniquePluginIds(compiled);
   validateUniquePluginEventNames(compiled);
+  validatePluginDependencies(compiled, handler.primitives);
   validateNoCrossPrimitiveEventCollisions(compiled);
   validateNoReservedEventNames(compiled, collectPluginEventNames(compiled));
   validateScopeAndEventNameSyntax(compiled);
@@ -201,6 +202,38 @@ function validateUniquePluginIds(compiled: EngineCompileTypes.CompiledServer): v
  * for normal cases, but a malformed plugin factory could share ids implicitly,
  * so the check stays explicit.
  */
+/**
+ * Refuse to boot when a plugin declares a `dependencies: [...]` feature flag
+ * that the host contract did not enable. Without this check the plugin's
+ * `setup()` would only fail later when it reached for the missing capability
+ * — often at the first request, deep inside the handler stack, with a stack
+ * trace that points away from the misconfigured contract.
+ *
+ * Walks the raw primitive list because the engine-level booleans
+ * (`core.persistenceEnabled`, etc.) are not set until each primitive's
+ * `__setup` runs, which happens after compile.
+ */
+function validatePluginDependencies(
+  compiled: EngineCompileTypes.CompiledServer,
+  primitives: readonly PrimitiveCore.Primitive[],
+): void {
+  const enabled = new Set<string>();
+  for (const primitive of primitives) {
+    enabled.add(primitive.__wskit);
+  }
+
+  for (const plugin of compiled.plugins) {
+    for (const dep of plugin.dependencies) {
+      if (!enabled.has(dep)) {
+        throw new Error(
+          `[wskit] Plugin "${plugin.id}" declares a dependency on "${dep}", ` +
+            `but the contract did not enable it. Add \`${dep}: true\` to the contract config.`,
+        );
+      }
+    }
+  }
+}
+
 function validateUniquePluginEventNames(compiled: EngineCompileTypes.CompiledServer): void {
   const seen = new Map<string, string>();
   for (const plugin of compiled.plugins) {

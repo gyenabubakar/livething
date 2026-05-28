@@ -128,6 +128,14 @@ export interface PluginInstance<
   readonly outgoing: TOutgoing;
   readonly errors?: ErrorsPrimitive<TErrors>;
 
+  /**
+   * Contract-level feature flags this plugin needs the host contract to enable
+   * (e.g. `'persistence'`, `'replay'`). Validated at build time against the
+   * compiled contract's `requires` map — a missing feature fails the build
+   * with a clear error so the engine refuses to construct.
+   */
+  readonly dependencies: readonly string[];
+
   readonly setupPlugin: PluginConfig<TArgs, TApi, any, TOutgoing, TErrors>['setup'];
 }
 
@@ -241,6 +249,7 @@ export function definePlugin<
       args: TArgs;
       outgoing: TOutgoing;
       errors?: ErrorsPrimitive<TErrors>;
+      dependencies: readonly string[];
       setupPlugin: PluginConfig<TArgs, TApi, TCtx, TOutgoing, TErrors>['setup'];
     }
   >({
@@ -254,6 +263,11 @@ export function definePlugin<
         args,
         outgoing: (config.outgoing ?? {}) as TOutgoing,
         errors: config.errors,
+        // Empty by default; the high-level `plugin()` wrapper overwrites this
+        // per instance with the user-declared contract-feature deps
+        // (e.g. ['persistence']). Kept out of PluginConfig because that field
+        // already declares the unrelated primitive-ref dependencies.
+        dependencies: [] as readonly string[],
         setupPlugin: config.setup,
       };
     },

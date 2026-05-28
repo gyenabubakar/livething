@@ -5,6 +5,7 @@ import { scope } from '~/channel/channel.ts';
 import { channel } from '~/channel/definition.ts';
 import { incoming } from '~/incoming/definition.ts';
 import { namespace } from '~/namespace/definition.ts';
+import { plugin } from '~/plugins/plugin.ts';
 import { recordedStream } from '~/stream-recorded/definition.ts';
 import { resumableStream } from '~/stream-resumable/definition.ts';
 import { stream } from '~/stream/definition.ts';
@@ -414,6 +415,37 @@ describe('boot-time same-kind duplicate guard', () => {
           .build(),
       ),
     ).toThrow(/Duplicate namespace declaration for "admin"/);
+  });
+
+  it('rejects a plugin whose dependencies are not enabled on the contract', () => {
+    // Pre-fix the dependencies array was attached to the factory function but
+    // never validated. A plugin declaring dependencies: ['persistence'] would
+    // happily install on a contract with no persistence, then crash later
+    // inside setup() with a stack trace that points away from the misconfig.
+    const NeedsPersistence = plugin('acme:needs-persistence')({
+      dependencies: ['persistence'],
+      setup: () => () => ({}),
+    });
+    const c = contract<Record<string, unknown>>('app')({
+      plugins: [NeedsPersistence()],
+      definitions: [],
+    });
+    expect(() => compileHandlerDefinition(implement(c).build())).toThrow(
+      /Plugin "acme:needs-persistence" declares a dependency on "persistence"/,
+    );
+  });
+
+  it('accepts a plugin whose dependencies are all enabled', () => {
+    const NeedsPersistence = plugin('acme:needs-persistence-ok')({
+      dependencies: ['persistence'],
+      setup: () => () => ({}),
+    });
+    const c = contract<Record<string, unknown>>('app')({
+      persistence: true,
+      plugins: [NeedsPersistence()],
+      definitions: [],
+    });
+    expect(() => compileHandlerDefinition(implement(c).build())).not.toThrow();
   });
 
   it('rejects two incoming declarations with the same event name inside a channel scope', () => {
