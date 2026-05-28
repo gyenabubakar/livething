@@ -3,6 +3,7 @@
 import { rethrowIfConfigError, StreamAborted, StreamIdCollision } from '@wskit/core';
 import { withConnectionContext } from '~/_engine/async-context.ts';
 import { validateValue } from '~/_engine/compile/utils.ts';
+import { serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
 import {
   assertNoConcurrentStream,
   buildActiveStream,
@@ -228,7 +229,10 @@ export async function runDurableStream(
     identity: storageIdentity,
     streamId,
     event: def.event,
-    payload: JSON.stringify(payload ?? null),
+    payload: serializeJsonOrThrow(
+      payload ?? null,
+      `Durable stream trigger payload for "${def.event}"`,
+    ),
     kind: def.kind,
     now,
     namespace: scope.namespace?.name ?? null,
@@ -605,7 +609,10 @@ async function runGenerator(
           streamId,
           seq,
           messageId: null,
-          payload: JSON.stringify(chunkValue ?? null),
+          payload: serializeJsonOrThrow(
+            chunkValue ?? null,
+            `Durable stream chunk for "${def.event}"`,
+          ),
           now,
         });
 
@@ -633,7 +640,7 @@ async function runGenerator(
         Storage.updateCursor(runtime.sql, {
           identity,
           streamId,
-          cursor: JSON.stringify(cursorValue),
+          cursor: serializeJsonOrThrow(cursorValue, `Durable stream cursor for "${def.event}"`),
           lastSeq: seq,
           now,
         });

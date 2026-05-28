@@ -1,3 +1,4 @@
+import { serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
 import type { SQLProvider } from '~/context.ts';
 import type { RuntimeConnection } from './types.ts';
 
@@ -93,7 +94,7 @@ export function writeConnectionRow(sql: Pick<SQLProvider, 'exec'>, row: StoredCo
     `,
     row.connection_id,
     row.identity,
-    JSON.stringify(row.meta),
+    serializeJsonOrThrow(row.meta, `Connection meta for "${row.connection_id}"`),
     JSON.stringify(row.ephemeral_tags),
     JSON.stringify(row.ephemeral_memberships),
     JSON.stringify(row.active_stream_ids),

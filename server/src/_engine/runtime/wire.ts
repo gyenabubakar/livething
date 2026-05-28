@@ -1,4 +1,5 @@
 import { InternalError } from '@wskit/core';
+import { serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 
@@ -86,7 +87,8 @@ export function sendReplay(
 
   let frame: string;
   try {
-    frame = JSON.stringify({ event, payload, __wskit: wskit });
+    const payloadJson = serializeJsonOrThrow(payload, `Replay payload for "${event}"`);
+    frame = `{"event":${JSON.stringify(event)},"payload":${payloadJson},"__wskit":${JSON.stringify(wskit)}}`;
   } catch (error) {
     core.logger.error('[wskit] Failed to serialize replay frame; sending fallback __error__', {
       event,

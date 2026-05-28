@@ -1,4 +1,5 @@
 import { validateValue } from '~/_engine/compile/utils.ts';
+import { serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
 import type {
   ScheduledCancelResult,
   ScheduledDeadLetter,
@@ -123,7 +124,9 @@ function serializeRunColumns(
     run.id,
     run.taskId,
     run.time,
-    run.data === undefined ? null : JSON.stringify(run.data),
+    run.data === undefined
+      ? null
+      : serializeJsonOrThrow(run.data, `Scheduled task data for "${run.taskId}"`),
     run.every ?? null,
     run.attempts,
     run.recurring ? 1 : 0,
@@ -140,7 +143,9 @@ function serializeDlqColumns(
     entry.taskId,
     entry.time,
     entry.failedAt,
-    entry.data === undefined ? null : JSON.stringify(entry.data),
+    entry.data === undefined
+      ? null
+      : serializeJsonOrThrow(entry.data, `Scheduled DLQ data for "${entry.taskId}"`),
     entry.attempts,
     JSON.stringify(entry.error),
   ];

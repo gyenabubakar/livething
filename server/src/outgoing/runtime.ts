@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
 import * as Protocol from '~/_engine/runtime/protocol.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
@@ -107,26 +108,8 @@ export function assertPayloadRecord(payload: unknown): asserts payload is Record
   }
 }
 
-/**
- * Serialize the payload once and confirm the result is actually a JSON string.
- *
- * `JSON.stringify` returns the JS value `undefined` (not a string) when the
- * input ultimately serializes to nothing — most commonly an object whose
- * `toJSON()` returns `undefined`. The in-memory `assertPayloadRecord` check
- * passes for such objects because the shape is still `{}`, so without this
- * guard the bad value reaches the wire: broadcast splices the literal text
- * `undefined` into a hand-built frame (invalid JSON for every recipient),
- * and unicast silently drops the `payload` key.
- */
 function serializePayloadOrThrow(event: string, payload: Record<string, unknown>): string {
-  const json = JSON.stringify(payload);
-  if (typeof json !== 'string') {
-    throw new Error(
-      `[wskit] Outgoing payload for "${event}" did not serialize to JSON. ` +
-        `A toJSON() method that returns undefined is the usual cause.`,
-    );
-  }
-  return json;
+  return serializeJsonOrThrow(payload, `Outgoing payload for "${event}"`);
 }
 
 // ───── Section: outgoing hook pipeline ─────
