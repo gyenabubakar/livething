@@ -267,6 +267,26 @@ type PluginOutgoingFromPlugins<TPlugins> = UnionToIntersection<
  * Map every plugin's declared error defs into the contract's error map shape
  * so the client SDK can match plugin error codes via the typed catalog.
  */
+/**
+ * Map every plugin's declared scheduled tasks into the contract's scheduled
+ * map under the wire-prefixed task id `__<pluginId>:<task>`. Server-side
+ * `ctx.schedule(...)` reads task ids off `Contract.scheduled`, so without
+ * this fold a plugin task id required a cast at every callsite. Data is
+ * typed as `unknown` because plugin scheduled defs do not carry data
+ * generics through the high-level `plugin()` factory.
+ */
+type PluginScheduledFromPlugins<TPlugins> = UnionToIntersection<
+  TPlugins extends readonly (infer P)[]
+    ? P extends { readonly id: infer TId extends string; readonly scheduled: infer TSch }
+      ? TSch extends readonly (infer TEntry)[]
+        ? TEntry extends { readonly name: infer TName extends string }
+          ? { readonly [K in `__${TId}:${TName}`]: unknown }
+          : {}
+        : {}
+      : {}
+    : {}
+>;
+
 type PluginErrorsFromPlugins<TPlugins> = UnionToIntersection<
   TPlugins extends readonly (infer P)[]
     ? P extends { readonly errors?: { readonly defs: infer TDefs } }
@@ -307,7 +327,8 @@ export interface Contract<TConfig = unknown, TEnv = unknown> {
   readonly recordedStreams: ContractCats<TConfig>['recordedStreams'];
   readonly channels: ContractCats<TConfig>['channels'];
   readonly namespaces: ContractCats<TConfig>['namespaces'];
-  readonly scheduled: ContractCats<TConfig>['scheduled'];
+  readonly scheduled: ContractCats<TConfig>['scheduled'] &
+    PluginScheduledFromPlugins<PluginsFromConfig<TConfig>>;
   readonly errors: ErrorMapFromConfig<TConfig> &
     PluginErrorsFromPlugins<PluginsFromConfig<TConfig>>;
   readonly features: FeatureFromConfig<TConfig>;

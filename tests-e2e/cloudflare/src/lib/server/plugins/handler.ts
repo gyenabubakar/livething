@@ -141,12 +141,9 @@ export const pluginsHandler = implement(pluginsContract)
     ctx.send('message-count', { count: db.getMessageCount() });
   })
   .on('trigger-vacuum', (ctx) => {
-    (ctx.schedule as (id: string, opts: { time: number; data?: unknown }) => void)(
-      '__e2e:drizzle:drizzle-vacuum',
-      {
-        time: Date.now() + 200,
-      },
-    );
+    ctx.schedule('__e2e:drizzle:drizzle-vacuum', {
+      time: Date.now() + 200,
+    });
   })
   .on('get-outgoing-count', (ctx) => {
     const db = Drizzle.use(ctx);
@@ -176,34 +173,16 @@ export const pluginsHandler = implement(pluginsContract)
     });
   })
   .on('trigger-plugin-every', (ctx) => {
-    (ctx.schedule as (id: string, opts: { time: number; data?: unknown }) => void)(
-      '__e2e:drizzle:drizzle-every-tick',
-      {
-        time: Date.now() + 100,
-      },
-    );
+    ctx.schedule('__e2e:drizzle:drizzle-every-tick', { time: Date.now() + 100 });
   })
   .on('trigger-plugin-flaky', (ctx) => {
-    (ctx.schedule as (id: string, opts: { time: number; data?: unknown }) => void)(
-      '__e2e:drizzle:drizzle-flaky',
-      {
-        time: Date.now() + 100,
-      },
-    );
+    ctx.schedule('__e2e:drizzle:drizzle-flaky', { time: Date.now() + 100 });
   })
   .on('trigger-plugin-always-fail', (ctx) => {
-    (ctx.schedule as (id: string, opts: { time: number; data?: unknown }) => void)(
-      '__e2e:drizzle:drizzle-module-always-fail',
-      { time: Date.now() + 100 },
-    );
+    ctx.schedule('__e2e:drizzle:drizzle-module-always-fail', { time: Date.now() + 100 });
   })
   .on('trigger-plugin-query-dlq', (ctx) => {
-    (ctx.schedule as (id: string, opts: { time: number; data?: unknown }) => void)(
-      '__e2e:drizzle:drizzle-query-dlq',
-      {
-        time: Date.now() + 100,
-      },
-    );
+    ctx.schedule('__e2e:drizzle:drizzle-query-dlq', { time: Date.now() + 100 });
   })
   .on('trigger-plugin-denied', () => {
     throw DrizzleDenied({ reason: 'test denial', op: 'insert' });
@@ -221,13 +200,10 @@ export const pluginsHandler = implement(pluginsContract)
     }
   })
   .on('trigger-plugin-task-with-data', (ctx) => {
-    (ctx.schedule as (id: string, opts: { time: number; data?: unknown }) => void)(
-      '__e2e:drizzle:drizzle-task-with-data',
-      {
-        time: Date.now() + 100,
-        data: { value: 'test-data' },
-      },
-    );
+    ctx.schedule('__e2e:drizzle:drizzle-task-with-data', {
+      time: Date.now() + 100,
+      data: { value: 'test-data' },
+    });
   })
   .stream('stream-connection-id', async function* (ctx, payload) {
     const db = Drizzle.use(ctx);
