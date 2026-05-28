@@ -1,3 +1,4 @@
+import { assertPositiveInteger } from '~/_engine/validation.ts';
 import type { SQLProvider } from '~/context.ts';
 
 const CREATE_SEQUENCE_TABLE_SQL = `
@@ -78,11 +79,7 @@ export function createPersistentSequenceAllocator(
   sql: SQLProvider,
   batchSize: number = DEFAULT_SEQUENCE_BATCH_SIZE,
 ): { next(): number } {
-  if (!Number.isInteger(batchSize) || batchSize < 1) {
-    throw new Error(
-      `[wskit] sequence batchSize must be a positive integer, got ${String(batchSize)}.`,
-    );
-  }
+  assertPositiveInteger(batchSize, 'batchSize', 'sequence()');
 
   // The half-open range [cursor, ceiling) is the seq numbers reserved for this
   // wake but not yet handed out. Empty when cursor === ceiling — the next

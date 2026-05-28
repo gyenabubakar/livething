@@ -41,22 +41,22 @@ describe('scheduled', () => {
     }
 
     it('rejects zero', () => {
-      expect(build(0)).toThrow(/positive finite integer/);
+      expect(build(0)).toThrow(/positive safe integer/);
     });
 
     it('rejects negative numbers', () => {
-      expect(build(-1)).toThrow(/positive finite integer/);
-      expect(build(-1000)).toThrow(/positive finite integer/);
+      expect(build(-1)).toThrow(/positive safe integer/);
+      expect(build(-1000)).toThrow(/positive safe integer/);
     });
 
     it('rejects fractional numbers', () => {
-      expect(build(1.5)).toThrow(/positive finite integer/);
+      expect(build(1.5)).toThrow(/positive safe integer/);
     });
 
     it('rejects NaN and Infinity', () => {
-      expect(build(Number.NaN)).toThrow(/positive finite integer/);
-      expect(build(Number.POSITIVE_INFINITY)).toThrow(/positive finite integer/);
-      expect(build(Number.NEGATIVE_INFINITY)).toThrow(/positive finite integer/);
+      expect(build(Number.NaN)).toThrow(/positive safe integer/);
+      expect(build(Number.POSITIVE_INFINITY)).toThrow(/positive safe integer/);
+      expect(build(Number.NEGATIVE_INFINITY)).toThrow(/positive safe integer/);
     });
 
     it('accepts positive integers', () => {
@@ -78,23 +78,23 @@ describe('scheduled', () => {
     });
 
     it('rejects zero entries', () => {
-      expect(build([0])).toThrow(/positive finite integer/);
-      expect(build([100, 0, 200])).toThrow(/positive finite integer/);
+      expect(build([0])).toThrow(/positive safe integer/);
+      expect(build([100, 0, 200])).toThrow(/positive safe integer/);
     });
 
     it('rejects negative entries', () => {
-      expect(build([-1])).toThrow(/positive finite integer/);
-      expect(build([100, -50])).toThrow(/positive finite integer/);
+      expect(build([-1])).toThrow(/positive safe integer/);
+      expect(build([100, -50])).toThrow(/positive safe integer/);
     });
 
     it('rejects fractional entries', () => {
-      expect(build([1.5])).toThrow(/positive finite integer/);
+      expect(build([1.5])).toThrow(/positive safe integer/);
     });
 
     it('rejects NaN and Infinity entries', () => {
-      expect(build([Number.NaN])).toThrow(/positive finite integer/);
-      expect(build([Number.POSITIVE_INFINITY])).toThrow(/positive finite integer/);
-      expect(build([Number.NEGATIVE_INFINITY])).toThrow(/positive finite integer/);
+      expect(build([Number.NaN])).toThrow(/positive safe integer/);
+      expect(build([Number.POSITIVE_INFINITY])).toThrow(/positive safe integer/);
+      expect(build([Number.NEGATIVE_INFINITY])).toThrow(/positive safe integer/);
     });
 
     it('accepts a non-empty array of positive integers', () => {

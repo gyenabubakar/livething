@@ -14,8 +14,24 @@ import * as v from 'valibot';
 
 // ───── Section: reusable pieces ─────
 
-/** A non-negative integer — sequence numbers and replay/resume cursors. */
-const NonNegativeInt = v.pipe(v.number(), v.integer(), v.minValue(0));
+/**
+ * A non-negative safe integer — sequence numbers and replay/resume cursors.
+ * Bounded by `Number.MAX_SAFE_INTEGER` so a client-controlled cursor cannot
+ * smuggle in a value that breaks integer math downstream.
+ */
+const NonNegativeSafeInt = v.pipe(
+  v.number(),
+  v.integer(),
+  v.minValue(0),
+  v.maxValue(Number.MAX_SAFE_INTEGER),
+);
+
+/**
+ * A bounded streamId — same upper limit the engine uses when generating
+ * server-side ids. Echoed back in error routing and used as a SQL key, so
+ * unbounded length lets a client bloat logs and storage rows.
+ */
+const StreamIdString = v.pipe(v.string(), v.minLength(1), v.maxLength(128));
 
 /**
  * Scope markers for a frame that must target a channel. `channelScope` is the
@@ -58,7 +74,7 @@ export const UnsubscribeFrame = v.object({
 
 export const ReplayFrame = v.object({
   event: v.literal('__replay__'),
-  payload: v.strictObject({ lastKnownSeq: v.optional(NonNegativeInt) }),
+  payload: v.strictObject({ lastKnownSeq: v.optional(NonNegativeSafeInt) }),
   __wskit: v.strictObject(OptionalScope),
 });
 
@@ -66,13 +82,13 @@ export const StreamCancelFrame = v.object({
   event: v.literal('__streamCancel__'),
   payload: NoPayload,
   // Scope markers let the engine find a broadcast stream's scope-keyed row.
-  __wskit: v.strictObject({ ...OptionalScope, streamId: v.string() }),
+  __wskit: v.strictObject({ ...OptionalScope, streamId: StreamIdString }),
 });
 
 export const ResumeStreamFrame = v.object({
   event: v.literal('__resumeStream__'),
-  payload: v.strictObject({ lastKnownSeq: v.optional(NonNegativeInt) }),
-  __wskit: v.strictObject({ ...OptionalScope, streamId: v.string() }),
+  payload: v.strictObject({ lastKnownSeq: v.optional(NonNegativeSafeInt) }),
+  __wskit: v.strictObject({ ...OptionalScope, streamId: StreamIdString }),
 });
 
 /** All frames the client may send into the engine, discriminated on `event`. */
@@ -95,7 +111,7 @@ export const SubscribeOkFrame = v.object({
 export const StreamOkFrame = v.object({
   event: v.literal('__streamOk__'),
   payload: NoPayload,
-  __wskit: v.strictObject({ ...OptionalScope, streamId: v.string() }),
+  __wskit: v.strictObject({ ...OptionalScope, streamId: StreamIdString }),
 });
 
 export const StreamEndFrame = v.object({
@@ -104,8 +120,8 @@ export const StreamEndFrame = v.object({
   // `seq` is the final sequence number, so the client can check for missed chunks.
   __wskit: v.strictObject({
     ...OptionalScope,
-    streamId: v.string(),
-    seq: v.optional(NonNegativeInt),
+    streamId: StreamIdString,
+    seq: v.optional(NonNegativeSafeInt),
   }),
 });
 
@@ -213,7 +229,7 @@ export const WskitProtocolSchema = v.strictObject({
   ackId: v.optional(v.string()),
   streamId: v.optional(v.string()),
   messageId: v.optional(v.string()),
-  seq: v.optional(NonNegativeInt),
+  seq: v.optional(NonNegativeSafeInt),
 });
 
 /** Any non-protocol frame: an app event with an optional `__wskit` block. */

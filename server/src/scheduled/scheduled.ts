@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { assertPositiveInteger } from '~/_engine/validation.ts';
 import type { TaskContext } from '~/context.ts';
 import type { Primitive } from '~/primitive.ts';
 import type { Validator } from '~/types.ts';
@@ -137,11 +138,7 @@ export class ScheduledBuilder<
       : ScheduledBuilder<TTaskId, TCtx, TData, THasData, THasRun>,
     everyMs: number,
   ): this {
-    if (!Number.isInteger(everyMs) || everyMs <= 0) {
-      throw new Error(
-        `[wskit] .every(ms) requires a positive finite integer (milliseconds). Got ${String(everyMs)}.`,
-      );
-    }
+    assertPositiveInteger(everyMs, '.every(ms)', `scheduled("${this._taskId}")`);
     if (this._dataSchema !== undefined) {
       throw new Error(
         `[wskit] scheduled("${this._taskId}") cannot combine .every(...) with .data(...). Recurring tasks have no caller to supply the payload.`,
@@ -169,11 +166,7 @@ export class ScheduledBuilder<
         throw new Error('[wskit] .retry([...]) requires at least one entry.');
       }
       for (const entry of retry) {
-        if (!Number.isInteger(entry) || (entry as number) <= 0) {
-          throw new Error(
-            `[wskit] .retry([...]) requires positive finite integer milliseconds for every entry. Got ${String(entry)}.`,
-          );
-        }
+        assertPositiveInteger(entry, '.retry([ms])', `scheduled("${this._taskId}")`);
       }
     }
     this._options = { ...this._options, retry };

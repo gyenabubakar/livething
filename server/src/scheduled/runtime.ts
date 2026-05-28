@@ -1,5 +1,6 @@
 import { validateValue } from '~/_engine/compile/utils.ts';
 import { serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
+import { assertPositiveInteger } from '~/_engine/validation.ts';
 import type {
   ScheduledCancelResult,
   ScheduledDeadLetter,
@@ -634,12 +635,7 @@ export function scheduleTaskRun(
   if (!task) {
     throw new Error(`[wskit] scheduled task "${taskId}" is not registered.`);
   }
-  if (!Number.isInteger(time) || time <= 0) {
-    throw new Error(
-      `[wskit] ctx.schedule("${taskId}", ...) requires a positive finite integer ` +
-        `wall-clock millisecond timestamp for "time". Got ${String(time)}.`,
-    );
-  }
+  assertPositiveInteger(time, 'time', `ctx.schedule("${taskId}", ...)`);
   const id = runtime.generateId('task');
   let normalizedData = data;
 

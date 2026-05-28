@@ -307,7 +307,7 @@ describe('scheduled/runtime', () => {
     ]) {
       expect(() =>
         scheduleTaskRun(runtime, { taskId: 'flush', time: bad, data: undefined }),
-      ).toThrow(/requires a positive finite integer/);
+      ).toThrow(/must be a positive safe integer/);
     }
     expect([...scheduledRuns.values()]).toHaveLength(0);
   });

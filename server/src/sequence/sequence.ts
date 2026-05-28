@@ -1,3 +1,4 @@
+import { assertOptionalPositiveInteger } from '~/_engine/validation.ts';
 import {
   createPersistentSequenceAllocator,
   DEFAULT_SEQUENCE_BATCH_SIZE,
@@ -56,6 +57,7 @@ const SEQUENCE_KEY = Symbol('sequence');
  * contract config instead of calling this primitive directly.
  */
 export function sequence(options?: SequenceOptions): SequencePrimitive {
+  assertOptionalPositiveInteger(options?.batchSize, 'batchSize', 'sequence()');
   const persist = options?.persist ?? false;
   const batchSize = options?.batchSize ?? DEFAULT_SEQUENCE_BATCH_SIZE;
 
