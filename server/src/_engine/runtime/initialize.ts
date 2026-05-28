@@ -88,11 +88,24 @@ export async function initialize(core: EngineCore, accessDeps: EngineAccessDeps)
       // must also be hasData. Otherwise the typed `ctx.schedule(name, {data})`
       // would type-check but the handler would silently ignore the payload.
       const declaration = (def as { declaration?: { data?: unknown } }).declaration;
-      if (declaration?.data !== undefined && !registered.hasData) {
-        throw new Error(
-          `[wskit] Plugin "${pluginInstance.id}" declared scheduled task "${def.name}" with a data schema ` +
-            `but setup() registered it without .data(...). Call .data(<same schema>).run(...) inside hooks.scheduled("${def.name}", ...).`,
-        );
+      if (declaration?.data !== undefined) {
+        if (!registered.hasData) {
+          throw new Error(
+            `[wskit] Plugin "${pluginInstance.id}" declared scheduled task "${def.name}" with a data schema ` +
+              `but setup() registered it without .data(...). Call .data(<same schema>).run(...) inside hooks.scheduled("${def.name}", ...).`,
+          );
+        }
+        // Schema identity check — the runtime registration must reuse the
+        // SAME schema reference the declaration carries. Two different schemas
+        // for the same task would let payloads valid against the declaration
+        // fail at runtime, or vice versa, with no signal at boot.
+        if (registered.dataSchema !== declaration.data) {
+          throw new Error(
+            `[wskit] Plugin "${pluginInstance.id}" scheduled task "${def.name}" data schema mismatch. ` +
+              `definitions[] declared one schema but hooks.scheduled() registered a different one. ` +
+              `Pass the same schema reference to both — typically by sharing one exported schema constant.`,
+          );
+        }
       }
     }
   }

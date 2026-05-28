@@ -235,6 +235,27 @@ function validatePluginDependencies(
   }
 }
 
+function hasAnyReplayPrimitive(primitives: readonly PrimitiveCore.Primitive[]): boolean {
+  for (const primitive of primitives) {
+    if (primitive.__wskit === 'replay' && !(primitive as { disabled?: boolean }).disabled) {
+      return true;
+    }
+    if (
+      EngineCompileUtils.isChannelPrimitive(primitive) &&
+      hasAnyReplayPrimitive(primitive.primitives)
+    ) {
+      return true;
+    }
+    if (
+      EngineCompileUtils.isNamespacePrimitive(primitive) &&
+      hasAnyReplayPrimitive(primitive.primitives)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /**
  * Refuse to boot when replay is enabled but the primitives it relies on are
  * missing or misconfigured. Replay persists every outgoing message keyed by
@@ -245,18 +266,19 @@ function validatePluginDependencies(
  * surfaces at boot instead of on the first message.
  */
 function validateReplayDependencies(primitives: readonly PrimitiveCore.Primitive[]): void {
-  let hasReplay = false;
+  // dedup and sequence are top-level only — they have no meaning nested inside
+  // a channel/namespace. Replay primitives, however, can appear at the top
+  // level OR inside any channel/namespace block, so we walk recursively to
+  // catch nested cases that the top-level scan would miss.
   let hasDedup = false;
   let hasPersistentSequence = false;
   for (const primitive of primitives) {
-    if (primitive.__wskit === 'replay' && !(primitive as { disabled?: boolean }).disabled) {
-      hasReplay = true;
-    }
     if (primitive.__wskit === 'dedup') hasDedup = true;
     if (primitive.__wskit === 'sequence' && (primitive as { persist?: boolean }).persist) {
       hasPersistentSequence = true;
     }
   }
+  const hasReplay = hasAnyReplayPrimitive(primitives);
   if (!hasReplay) return;
   if (!hasDedup) {
     throw new Error(
