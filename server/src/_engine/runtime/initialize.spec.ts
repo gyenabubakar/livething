@@ -207,6 +207,7 @@ const heavyContract = contract('rt-heavy', {
   hibernation: true,
   replay: true,
   sequence: { persist: true },
+  dedup: true,
   definitions: [
     incoming('a', Empty),
     incoming('b', Empty),

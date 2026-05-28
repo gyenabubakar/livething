@@ -60,8 +60,11 @@ const REPLAY_KEY = Symbol('replay');
  * Handlers also get `ctx.sendReplay()` for manually replaying a stored
  * message (e.g. in response to a "load older history" request).
  *
- * `sequence` and `dedup` are enabled automatically if you haven't already
- * registered them. Requires the `storage` platform capability.
+ * Replay requires `dedup: true` and `sequence: { persist: true }` on the
+ * contract — dedup stamps the `messageId` replay keys off, and persistent
+ * sequence keeps `seq` stable across restarts so stored rows order
+ * correctly. The build fails fast if either is missing. Also requires the
+ * `storage` platform capability.
  *
  * Enable this via `replay: true` (or `replay: { retention: { maxAgeMs } }`)
  * on the contract config instead of calling this primitive directly.

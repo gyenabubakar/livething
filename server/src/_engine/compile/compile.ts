@@ -171,6 +171,7 @@ export function compileHandlerDefinition(
   validateUniquePluginIds(compiled);
   validateUniquePluginEventNames(compiled);
   validatePluginDependencies(compiled, handler.primitives);
+  validateReplayDependencies(handler.primitives);
   validateNoCrossPrimitiveEventCollisions(compiled);
   validateNoReservedEventNames(compiled, collectPluginEventNames(compiled));
   validateScopeAndEventNameSyntax(compiled);
@@ -231,6 +232,41 @@ function validatePluginDependencies(
         );
       }
     }
+  }
+}
+
+/**
+ * Refuse to boot when replay is enabled but the primitives it relies on are
+ * missing or misconfigured. Replay persists every outgoing message keyed by
+ * `messageId` (stamped by dedup) and `seq` (allocated by sequence). Without
+ * dedup the first persisted send throws "missing messageId" at runtime;
+ * without `sequence: { persist: true }` the seq column is unstable across
+ * restarts and replay cannot order rows. Fail fast at compile so the misconfig
+ * surfaces at boot instead of on the first message.
+ */
+function validateReplayDependencies(primitives: readonly PrimitiveCore.Primitive[]): void {
+  let hasReplay = false;
+  let hasDedup = false;
+  let hasPersistentSequence = false;
+  for (const primitive of primitives) {
+    if (primitive.__wskit === 'replay' && !(primitive as { disabled?: boolean }).disabled) {
+      hasReplay = true;
+    }
+    if (primitive.__wskit === 'dedup') hasDedup = true;
+    if (primitive.__wskit === 'sequence' && (primitive as { persist?: boolean }).persist) {
+      hasPersistentSequence = true;
+    }
+  }
+  if (!hasReplay) return;
+  if (!hasDedup) {
+    throw new Error(
+      `[wskit] contract uses replay but did not enable dedup. Replay persists every outgoing message keyed by messageId, which dedup stamps. Add \`dedup: true\` to the contract config.`,
+    );
+  }
+  if (!hasPersistentSequence) {
+    throw new Error(
+      `[wskit] contract uses replay but sequence is not persistent. Replay orders stored rows by seq, which only survives restarts when sequence persists. Add \`sequence: { persist: true }\` to the contract config.`,
+    );
   }
 }
 
