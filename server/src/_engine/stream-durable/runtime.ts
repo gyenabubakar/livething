@@ -4,6 +4,7 @@ import { rethrowIfConfigError, StreamAborted, StreamIdCollision } from '@wskit/c
 import { withConnectionContext } from '~/_engine/async-context.ts';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import { serializeJsonOrThrow } from '~/_engine/runtime/json-guard.ts';
+import { storageIdentityOf } from '~/_engine/runtime/types.ts';
 import {
   assertNoConcurrentStream,
   buildActiveStream,
@@ -210,7 +211,7 @@ export async function runDurableStream(
   opts: RunDurableStreamOptions,
 ): Promise<void> {
   const { scope, def, payload, wskit } = opts;
-  const creatorIdentity = connection.identity ?? connection.id;
+  const creatorIdentity = storageIdentityOf(connection);
 
   // Broadcast streams key the row by scope so every subscriber finds the same row.
   const storageIdentity = def.broadcast ? computeBroadcastScopeKey(scope) : creatorIdentity;
@@ -256,7 +257,7 @@ export async function runDurableStream(
       Storage.seedSubscriber(runtime.sql, {
         storageIdentity,
         streamId,
-        subscriberIdentity: member.identity ?? member.id,
+        subscriberIdentity: storageIdentityOf(member),
       });
     }
   }
@@ -291,7 +292,7 @@ export function findResumeRow(
 ): Storage.DurableStreamRow | null {
   const { resumeScope, streamId } = opts;
 
-  const realIdentity = connection.identity ?? connection.id;
+  const realIdentity = storageIdentityOf(connection);
 
   const single = Storage.readStream(runtime.sql, realIdentity, streamId);
   if (single) return single;
@@ -357,7 +358,7 @@ export async function resumeDurableStream(
   }
 
   const storageIdentity = row.identity;
-  const realIdentityForGuard = connection.identity ?? connection.id;
+  const realIdentityForGuard = storageIdentityOf(connection);
   if (
     row.broadcast &&
     Storage.isUnsubscribed(runtime.sql, {
@@ -661,7 +662,7 @@ async function runGenerator(
             const sub = Storage.getSubscriber(runtime.sql, {
               storageIdentity: identity,
               streamId,
-              subscriberIdentity: candidate.identity ?? candidate.id,
+              subscriberIdentity: storageIdentityOf(candidate),
             });
             return sub !== null && sub.unsubscribedAt === null && seq > sub.caughtUpSeq;
           },
@@ -730,7 +731,7 @@ async function runGenerator(
           const sub = Storage.getSubscriber(runtime.sql, {
             storageIdentity: identity,
             streamId,
-            subscriberIdentity: candidate.identity ?? candidate.id,
+            subscriberIdentity: storageIdentityOf(candidate),
           });
           return sub !== null && sub.unsubscribedAt === null;
         },
@@ -786,7 +787,7 @@ export async function cancelDurableStream(
   opts: { streamId: string; cancelScope: ResolvedScope },
 ): Promise<void> {
   const { streamId, cancelScope } = opts;
-  const realIdentity = connection.identity ?? connection.id;
+  const realIdentity = storageIdentityOf(connection);
   const row = findResumeRow(runtime, connection, { resumeScope: cancelScope, streamId });
   if (!row) return;
 

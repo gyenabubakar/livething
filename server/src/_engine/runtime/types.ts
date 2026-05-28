@@ -205,8 +205,10 @@ export interface RuntimeConnection {
   /**
    * Stable string identifying the user-equivalent entity behind this socket.
    * Returned from `onUpgrade` and reused as the row key for any per-user
-   * durable state. Required even when no persistence wrapper is active so
-   * the engine can index live connections by identity in storage and logs.
+   * durable state. Empty string means "no identity supplied" — runtime code
+   * that needs a storage key must use `storageIdentityOf(connection)` to fall
+   * back to the connection's own id so anonymous connections never share a
+   * row with each other.
    */
   identity: string;
 
@@ -459,4 +461,16 @@ export interface ConnectionMembersRuntime {
     connection: RuntimeConnection,
     opts: { routing: RoutingTarget | undefined; event: string; payload: unknown },
   ): boolean;
+}
+
+/**
+ * Resolve the storage row key for one connection. Returns the connection's
+ * identity when it was supplied at upgrade, or its engine-assigned `id` when
+ * not. Anonymous connections (no `onUpgrade`, or an upgrade that returned no
+ * identity) all default to `identity: ''` at the adapter boundary — using
+ * that empty string as a real key would collapse every anonymous user onto
+ * one row and let them read each other's private durable streams.
+ */
+export function storageIdentityOf(connection: Pick<RuntimeConnection, 'id' | 'identity'>): string {
+  return connection.identity || connection.id;
 }
