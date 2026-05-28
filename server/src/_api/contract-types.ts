@@ -2,6 +2,7 @@
 
 import type { ScopeDeclaration } from '~/channel/channel.ts';
 import type { ErrorDef } from '~/errors/errors.ts';
+import type { PluginInstance } from '~/plugins/define.ts';
 import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
 import type {
   ChannelDef,
@@ -179,8 +180,12 @@ export interface ContractConfig {
    * calling a plugin factory — `Drizzle({ migrate: true })` etc. The plugin
    * registers its own events, scheduled tasks, and errors at boot. The
    * plugin API is accessed inside handlers via `<Plugin>.use(ctx)`.
+   *
+   * Typed as a loose array of plugin instances so the const-narrowed config
+   * preserves each entry's id and outgoing schema map. InferClient reads them
+   * back to fold plugin-prefixed events into the client's incoming surface.
    */
-  readonly plugins?: readonly any[];
+  readonly plugins?: readonly PluginInstance<string, any, any, any, any>[];
   readonly definitions: readonly Definition[];
 }
 
@@ -231,6 +236,58 @@ type DefinitionsFromConfig<TConfig> = TConfig extends { definitions: infer D }
   : readonly [];
 
 // ---------------------------------------------------------------------------
+// Plugin extractors — fold each mounted plugin's wire surface into the
+// contract's outgoing and errors maps so InferClient sees plugin-prefixed
+// events alongside the contract's own. Plugin scheduled tasks are server-side
+// only (the client never schedules them) and intentionally stay out.
+// ---------------------------------------------------------------------------
+
+type PluginsFromConfig<TConfig> = TConfig extends { plugins: infer P }
+  ? P extends readonly any[]
+    ? P
+    : readonly []
+  : readonly [];
+
+/**
+ * Map every plugin's `outgoing` record into a `__<pluginId>:<event>` keyed
+ * record, then merge across the whole tuple. A plugin id of `'acme:drizzle'`
+ * with `outgoing: { 'tx-committed': Tx }` produces `{ '__acme:drizzle:tx-committed': Tx }`.
+ */
+type PluginOutgoingFromPlugins<TPlugins> = UnionToIntersection<
+  TPlugins extends readonly (infer P)[]
+    ? P extends { readonly id: infer TId extends string; readonly outgoing: infer TOut }
+      ? {
+          readonly [E in keyof TOut as E extends string ? `__${TId}:${E}` : never]: TOut[E];
+        }
+      : {}
+    : {}
+>;
+
+/**
+ * Map every plugin's declared error defs into the contract's error map shape
+ * so the client SDK can match plugin error codes via the typed catalog.
+ */
+type PluginErrorsFromPlugins<TPlugins> = UnionToIntersection<
+  TPlugins extends readonly (infer P)[]
+    ? P extends { readonly errors?: { readonly defs: infer TDefs } }
+      ? TDefs extends readonly any[]
+        ? {
+            readonly [D in TDefs[number] as D extends { code: infer C extends string }
+              ? C
+              : never]: D extends ErrorDef<string, infer DT> ? DT : unknown;
+          }
+        : {}
+      : {}
+    : {}
+>;
+
+type UnionToIntersection<U> = (U extends unknown ? (x: U) => void : never) extends (
+  x: infer I,
+) => void
+  ? I
+  : never;
+
+// ---------------------------------------------------------------------------
 // Contract — the final type produced by contract()
 // ---------------------------------------------------------------------------
 
@@ -242,7 +299,8 @@ export interface Contract<TConfig = unknown, TEnv = unknown> {
   readonly name: string;
 
   readonly incoming: ContractCats<TConfig>['incoming'];
-  readonly outgoing: ContractCats<TConfig>['outgoing'];
+  readonly outgoing: ContractCats<TConfig>['outgoing'] &
+    PluginOutgoingFromPlugins<PluginsFromConfig<TConfig>>;
   readonly requests: ContractCats<TConfig>['requests'];
   readonly streams: ContractCats<TConfig>['streams'];
   readonly resumableStreams: ContractCats<TConfig>['resumableStreams'];
@@ -250,7 +308,8 @@ export interface Contract<TConfig = unknown, TEnv = unknown> {
   readonly channels: ContractCats<TConfig>['channels'];
   readonly namespaces: ContractCats<TConfig>['namespaces'];
   readonly scheduled: ContractCats<TConfig>['scheduled'];
-  readonly errors: ErrorMapFromConfig<TConfig>;
+  readonly errors: ErrorMapFromConfig<TConfig> &
+    PluginErrorsFromPlugins<PluginsFromConfig<TConfig>>;
   readonly features: FeatureFromConfig<TConfig>;
   readonly meta: MetaFromConfig<TConfig>;
   readonly env: TEnv;

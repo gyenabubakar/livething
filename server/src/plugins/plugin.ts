@@ -137,15 +137,23 @@ export function plugin<TArgs = void>(id: string) {
     }) as PluginFactory<string, TArgs, TApi, any, readonly ErrorDef<string, any>[]>;
 
     // Wrap so every instance the user creates carries the contract-feature
-    // dependency list. The compile pass reads `instance.dependencies` and
-    // refuses to construct the engine when a declared feature is not enabled.
+    // dependency list AND the declared scheduled-task list. compile reads
+    // `instance.dependencies` to validate the contract enabled each feature;
+    // initialize reads `instance.scheduled` to confirm setup() wired a handler
+    // for every declared task.
     const dependencies = (config.dependencies ?? []) as readonly string[];
+    const scheduledNames = scheduledDefs.map((d) => ({ name: d.id }));
     const factory = Object.assign(
       ((args: TArgs) => {
         const instance = inner(args);
-        // Mutate via cast — the field is `readonly` on the public type to
-        // discourage product code from touching it; only the wrapper writes.
-        (instance as unknown as { dependencies: readonly string[] }).dependencies = dependencies;
+        // Mutate via cast — the fields are `readonly` on the public type to
+        // discourage product code from touching them; only the wrapper writes.
+        const writable = instance as unknown as {
+          dependencies: readonly string[];
+          scheduled: readonly { readonly name: string }[];
+        };
+        writable.dependencies = dependencies;
+        writable.scheduled = scheduledNames;
         return instance;
       }) as PluginFactory<string, TArgs, TApi, any, readonly ErrorDef<string, any>[]>,
       {

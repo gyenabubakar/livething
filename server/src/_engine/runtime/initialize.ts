@@ -68,6 +68,22 @@ export async function initialize(core: EngineCore, accessDeps: EngineAccessDeps)
       createPluginHooks(core, runtime, accessDeps.ensureScheduledRuntime),
     );
     core.pluginRuntimes.push(runtime);
+
+    // A plugin can declare scheduled tasks in `definitions: [scheduled(...)]`,
+    // which is the type-level source. Runtime registration happens in setup()
+    // via `hooks.scheduled(name, ...)`. If the plugin declared a task but
+    // never wired its handler, the prefixed task id is missing from the
+    // engine's scheduled map — ctx.schedule(...) would throw "not registered"
+    // at the first call, far from the misconfig. Fail fast at boot instead.
+    for (const def of pluginInstance.scheduled) {
+      const prefixed = `__${pluginInstance.id}:${def.name}`;
+      if (!core.compiled.scheduled.has(prefixed)) {
+        throw new Error(
+          `[wskit] Plugin "${pluginInstance.id}" declared scheduled task "${def.name}" in definitions ` +
+            `but its setup() did not call hooks.scheduled("${def.name}", ...) to wire a handler.`,
+        );
+      }
+    }
   }
 
   // Schema-init hooks (CREATE TABLE IF NOT EXISTS) only run when the marker

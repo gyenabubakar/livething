@@ -136,6 +136,15 @@ export interface PluginInstance<
    */
   readonly dependencies: readonly string[];
 
+  /**
+   * Scheduled task definitions declared by the plugin via
+   * `definitions: [scheduled('job', ...)]`. The plugin's `setup()` is still
+   * responsible for wiring the handler with `hooks.scheduled('job', ...)`.
+   * Initialize cross-checks each declared task against the runtime registry
+   * and throws at boot if a handler is missing.
+   */
+  readonly scheduled: readonly { readonly name: string }[];
+
   readonly setupPlugin: PluginConfig<TArgs, TApi, any, TOutgoing, TErrors>['setup'];
 }
 
@@ -250,6 +259,7 @@ export function definePlugin<
       outgoing: TOutgoing;
       errors?: ErrorsPrimitive<TErrors>;
       dependencies: readonly string[];
+      scheduled: readonly { readonly name: string }[];
       setupPlugin: PluginConfig<TArgs, TApi, TCtx, TOutgoing, TErrors>['setup'];
     }
   >({
@@ -263,11 +273,12 @@ export function definePlugin<
         args,
         outgoing: (config.outgoing ?? {}) as TOutgoing,
         errors: config.errors,
-        // Empty by default; the high-level `plugin()` wrapper overwrites this
-        // per instance with the user-declared contract-feature deps
-        // (e.g. ['persistence']). Kept out of PluginConfig because that field
-        // already declares the unrelated primitive-ref dependencies.
+        // Empty by default; the high-level `plugin()` wrapper overwrites both
+        // dependencies and scheduled per instance with values pulled out of
+        // the user-facing definitions array. Kept out of PluginConfig because
+        // the high-level plugin() shape names them differently.
         dependencies: [] as readonly string[],
+        scheduled: [] as readonly { readonly name: string }[],
         setupPlugin: config.setup,
       };
     },
