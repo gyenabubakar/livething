@@ -21,6 +21,31 @@ import type * as PrimitiveCore from '~/primitive.ts';
  * clear `WskitConfigError` so the engine refuses to construct and the server
  * doesn't start with a half-broken contract.
  */
+/**
+ * Walk a list once and throw if any two items share the same key. Use this
+ * before any `Map.set`/`Set.add`/object-key write loop — those collapse
+ * duplicates silently and let the second declaration win without any signal.
+ * The thrown `WskitConfigError` names the kind and the duplicated key so the
+ * misconfiguration is obvious at boot.
+ */
+export function collectUnique<T>(
+  items: readonly T[],
+  keyFn: (item: T) => string,
+  where: { kind: string; context: string },
+): readonly T[] {
+  const seen = new Set<string>();
+  for (const item of items) {
+    const key = keyFn(item);
+    if (seen.has(key)) {
+      throw new WskitConfigError(
+        `[wskit] ${where.context}: duplicate ${where.kind} "${key}". Each name can only be declared once per scope.`,
+      );
+    }
+    seen.add(key);
+  }
+  return items;
+}
+
 export function setUniqueOrThrow<V>(
   map: Map<string, V>,
   key: string,

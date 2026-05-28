@@ -12,14 +12,9 @@ import { WskitConfigError } from '@wskit/core';
  * construct and the server doesn't start.
  */
 export function assertPositiveInteger(value: unknown, field: string, context: string): void {
-  if (
-    typeof value !== 'number' ||
-    !Number.isInteger(value) ||
-    value <= 0 ||
-    !Number.isFinite(value)
-  ) {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
     throw new WskitConfigError(
-      `[wskit] ${context}: '${field}' must be a positive integer, got ${typeof value === 'number' ? value : typeof value}.`,
+      `[wskit] ${context}: '${field}' must be a positive safe integer, got ${typeof value === 'number' ? value : typeof value}.`,
     );
   }
 }
@@ -36,4 +31,22 @@ export function assertOptionalPositiveInteger(
 ): void {
   if (value === undefined) return;
   assertPositiveInteger(value, field, context);
+}
+
+/**
+ * Reject string-enum config that was widened to `string` (usually via
+ * `as any`). The runtime then silently picks the `else` branch instead of
+ * the expected behavior. Throws `WskitConfigError` so the misconfiguration
+ * fails at build time with the allowed set spelled out.
+ */
+export function assertOneOf<T extends string>(
+  value: unknown,
+  allowed: readonly T[],
+  where: { field: string; context: string },
+): asserts value is T {
+  if (typeof value !== 'string' || !allowed.includes(value as T)) {
+    throw new WskitConfigError(
+      `[wskit] ${where.context}: '${where.field}' must be one of ${allowed.map((v) => `'${v}'`).join(', ')}, got ${JSON.stringify(value)}.`,
+    );
+  }
 }

@@ -1,9 +1,40 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { WskitError } from '@wskit/core';
+import { isWskitConfigError, WskitError } from '@wskit/core';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { validateValue } from './utils.ts';
+import { collectUnique, validateValue } from './utils.ts';
+
+describe('collectUnique', () => {
+  const outgoingWhere = { kind: 'outgoing', context: 'plugin("x")' };
+  const errorWhere = { kind: 'error', context: 'contract()' };
+
+  it('returns the input untouched when all keys are unique', () => {
+    const items = [{ name: 'a' }, { name: 'b' }, { name: 'c' }];
+    expect(collectUnique(items, (i) => i.name, outgoingWhere)).toBe(items);
+  });
+
+  it('throws WskitConfigError naming the duplicated key', () => {
+    let captured: unknown;
+    try {
+      collectUnique([{ name: 'ready' }, { name: 'ready' }], (i) => i.name, outgoingWhere);
+    } catch (error) {
+      captured = error;
+    }
+    expect(isWskitConfigError(captured)).toBe(true);
+    expect(String(captured)).toMatch(/duplicate outgoing "ready"/);
+  });
+
+  it('throws on the first duplicate even with later ones', () => {
+    expect(() =>
+      collectUnique(
+        [{ code: 'a' }, { code: 'b' }, { code: 'a' }, { code: 'b' }],
+        (i) => i.code,
+        errorWhere,
+      ),
+    ).toThrow(/duplicate error "a"/);
+  });
+});
 
 describe('validateValue — StandardSchema duck-type detection', () => {
   describe('valibot schema', () => {

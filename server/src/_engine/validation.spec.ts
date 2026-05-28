@@ -1,5 +1,9 @@
 import { isWskitConfigError } from '@wskit/core';
-import { assertOptionalPositiveInteger, assertPositiveInteger } from '~/_engine/validation.ts';
+import {
+  assertOneOf,
+  assertOptionalPositiveInteger,
+  assertPositiveInteger,
+} from '~/_engine/validation.ts';
 import { describe, expect, it } from 'vitest';
 
 describe('assertPositiveInteger', () => {
@@ -16,12 +20,12 @@ describe('assertPositiveInteger', () => {
       captured = error;
     }
     expect(isWskitConfigError(captured)).toBe(true);
-    expect(String(captured)).toMatch(/maxChunks.*must be a positive integer/);
+    expect(String(captured)).toMatch(/maxChunks.*must be a positive safe integer/);
   });
 
   it('rejects negative numbers — setTimeout(negative) collapses to a 0ms retry loop', () => {
     expect(() => assertPositiveInteger(-1, 'delay', 'Defer()')).toThrow(
-      /must be a positive integer/,
+      /must be a positive safe integer/,
     );
   });
 
@@ -31,6 +35,12 @@ describe('assertPositiveInteger', () => {
 
   it('rejects Infinity', () => {
     expect(() => assertPositiveInteger(Number.POSITIVE_INFINITY, 'maxAgeMs', 'replay()')).toThrow();
+  });
+
+  it('rejects values above MAX_SAFE_INTEGER — integer math silently corrupts', () => {
+    expect(() =>
+      assertPositiveInteger(Number.MAX_SAFE_INTEGER + 1, 'maxAgeMs', 'replay()'),
+    ).toThrow(/must be a positive safe integer/);
   });
 
   it('rejects non-integer numbers (1.5 would round oddly in retention math)', () => {
@@ -55,5 +65,31 @@ describe('assertOptionalPositiveInteger', () => {
 
   it('accepts a positive integer', () => {
     expect(() => assertOptionalPositiveInteger(10, 'x', 'test')).not.toThrow();
+  });
+});
+
+describe('assertOneOf', () => {
+  const allowed = ['strict', 'best-effort'] as const;
+
+  const where = { field: 'durability', context: 'replay()' };
+
+  it('accepts an allowed value', () => {
+    expect(() => assertOneOf('strict', allowed, where)).not.toThrow();
+  });
+
+  it('rejects a typo that would silently pick the else branch', () => {
+    let captured: unknown;
+    try {
+      assertOneOf('oops', allowed, where);
+    } catch (error) {
+      captured = error;
+    }
+    expect(isWskitConfigError(captured)).toBe(true);
+    expect(String(captured)).toMatch(/durability.*must be one of 'strict', 'best-effort'/);
+  });
+
+  it('rejects non-strings', () => {
+    expect(() => assertOneOf(42 as unknown, allowed, where)).toThrow();
+    expect(() => assertOneOf(undefined, allowed, where)).toThrow();
   });
 });
