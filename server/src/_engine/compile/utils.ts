@@ -61,6 +61,11 @@ export function setUniqueOrThrow<V>(
 }
 
 export function assertNonReservedEventName(name: string, factory: string): void {
+  if (typeof name !== 'string' || name.length === 0) {
+    throw new Error(
+      `[wskit] ${factory}() requires a non-empty event name. An empty name would crash the dispatch path the first time a frame arrived.`,
+    );
+  }
   if (name === 'ping' || name === 'pong') {
     throw new Error(
       `[wskit] '${name}' is a reserved heartbeat frame name. Pick a different name for ${factory}().`,

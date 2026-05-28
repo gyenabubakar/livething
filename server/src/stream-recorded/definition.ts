@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { assertNonReservedEventName, collectUnique } from '~/_engine/compile/utils.ts';
-import { assertOptionalPositiveInteger } from '~/_engine/validation.ts';
+import { assertOneOf, assertOptionalPositiveInteger } from '~/_engine/validation.ts';
 import type { OnDisconnect } from '~/_engine/stream-durable/types.ts';
 import type { NudgeDef } from '~/stream/definition.ts';
 import type { Validator } from '~/types.ts';
@@ -131,6 +131,12 @@ export function recordedStream<
   assertOptionalPositiveInteger(config?.maxAgeMs, 'maxAgeMs', context);
   assertOptionalPositiveInteger(config?.retentionAfterEndMs, 'retentionAfterEndMs', context);
   assertOptionalPositiveInteger(config?.maxChunks, 'maxChunks', context);
+  if (config?.onDisconnect !== undefined) {
+    assertOneOf(config.onDisconnect, ['cancel-but-buffer', 'keep-running'] as const, {
+      field: 'onDisconnect',
+      context,
+    });
+  }
   const nudges = (config?.nudges ?? []) as TNudges;
   collectUnique(nudges, (n) => n.name, { kind: 'nudge', context });
   return {

@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { ENGINE_INTERNAL_CONNECTION } from '~/_engine/contexts/types.ts';
-import { assertOptionalPositiveInteger } from '~/_engine/validation.ts';
+import { assertOneOf, assertOptionalPositiveInteger } from '~/_engine/validation.ts';
 import {
   ensureReplaySchema,
   isChannelReplayAuthorized,
@@ -90,6 +90,18 @@ export function replay(options?: ReplayOptions | false): ReplayPrimitive {
   if (opts.retention) {
     assertOptionalPositiveInteger(opts.retention.maxAgeMs, 'retention.maxAgeMs', 'replay()');
     assertOptionalPositiveInteger(opts.retention.maxMessages, 'retention.maxMessages', 'replay()');
+  }
+  if (opts.durability !== undefined) {
+    assertOneOf(opts.durability, ['strict', 'best-effort'] as const, {
+      field: 'durability',
+      context: 'replay()',
+    });
+  }
+  if (opts.type !== undefined) {
+    assertOneOf(opts.type, ['history', 'snapshot'] as const, {
+      field: 'type',
+      context: 'replay()',
+    });
   }
 
   return {
