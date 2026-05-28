@@ -635,11 +635,20 @@ async function handleResumeStream(
   }
 
   // Routing markers let a non-creator resume a broadcast stream by its scope key.
-  let resumeScope: EngineRuntimeTypes.ResolvedScope = {};
+  // Malformed markers used to fall back to a top-level lookup, which then
+  // matched and resumed an unrelated top-level stream with the same id.
+  // Surface the routing failure as a typed __error__ tied to the streamId
+  // instead — the client gets a clear signal and no other stream is touched.
+  let resumeScope: EngineRuntimeTypes.ResolvedScope;
   try {
     resumeScope = resolveScope(runtime.compiled, frame.__wskit);
-  } catch {
-    /* malformed routing markers — fall back to top-level lookup */
+  } catch (error) {
+    await runtime.handleRuntimeError(connection, {
+      error,
+      event: frame.event,
+      routing: routingFromWskit(frame.__wskit),
+    });
+    return;
   }
   const durableRuntime = runtime as unknown as DurableStreamRuntime.DurableStreamRuntime;
   const row = DurableStreamRuntime.findResumeRow(durableRuntime, connection, {
@@ -689,12 +698,23 @@ async function dispatchProtocolFrame(
         await StreamPrimitive.cancelStream(runtime, connection, frame.__wskit.streamId);
         if (runtime.sql) {
           // A broadcast stream's row is keyed by scope, so we need the cancel
-          // frame's routing markers to find it.
-          let cancelScope: EngineRuntimeTypes.ResolvedScope = {};
+          // frame's routing markers to find it. A malformed scope marker (e.g.
+          // a channel name that does not match its declared family pattern)
+          // used to fall back to a top-level lookup, which then matched and
+          // cancelled the caller's unrelated top-level stream with the same
+          // id. Surface the routing failure as a typed __error__ tied to the
+          // streamId instead — the client gets a clear signal and no other
+          // stream is touched.
+          let cancelScope: EngineRuntimeTypes.ResolvedScope;
           try {
             cancelScope = resolveScope(runtime.compiled, frame.__wskit);
-          } catch {
-            /* malformed routing — fall back to a top-level lookup */
+          } catch (error) {
+            await runtime.handleRuntimeError(connection, {
+              error,
+              event: frame.event,
+              routing: routingFromWskit(frame.__wskit),
+            });
+            return;
           }
           await DurableStreamRuntime.cancelDurableStream(
             runtime as unknown as DurableStreamRuntime.DurableStreamRuntime,
