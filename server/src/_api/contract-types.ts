@@ -316,16 +316,17 @@ type PluginScheduledFromPlugins<TPlugins> = UnionToIntersection<
     : {}
 >;
 
+// A plugin declares errors in an `errors: { name: error(...) }` map. The engine
+// namespaces each code to `__<id>:<name>`, so the contract's error map keys
+// them that way too — that's what a client receives on the wire.
 type PluginErrorsFromPlugins<TPlugins> = UnionToIntersection<
   TPlugins extends readonly (infer P)[]
-    ? P extends { readonly errors?: { readonly defs: infer TDefs } }
-      ? TDefs extends readonly any[]
-        ? {
-            readonly [D in TDefs[number] as D extends { code: infer C extends string }
-              ? C
-              : never]: D extends ErrorDef<string, infer DT> ? DT : unknown;
-          }
-        : {}
+    ? P extends { readonly id: infer TId extends string; readonly errors: infer TErrors }
+      ? {
+          [K in keyof TErrors as K extends string
+            ? `__${TId}:${K}`
+            : never]: TErrors[K] extends ErrorDef<string, infer DT> ? DT : unknown;
+        }
       : {}
     : {}
 >;

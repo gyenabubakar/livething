@@ -128,6 +128,14 @@ export interface ErrorDefWithFactory<TCode extends string, TDetail> extends Erro
   TDetail
 > {
   (detail: TDetail): WskitError<TCode, TDetail>;
+
+  /**
+   * The detail schema this error was created with, if any. Kept so the engine
+   * can rebuild a copy of the error under a namespaced code (plugin errors are
+   * re-emitted as `__pluginId:code`) without the caller re-supplying the
+   * schema. Internal — product code never reads this.
+   */
+  readonly schema?: StandardSchemaV1;
 }
 
 // ---------------------------------------------------------------------------
@@ -206,6 +214,19 @@ export function error<TCode extends string, TSchema extends StandardSchemaV1>(
 ): ErrorDefWithFactory<TCode, StandardSchemaV1.InferOutput<TSchema>>;
 export function error(code: string, schema?: StandardSchemaV1): ErrorDefWithFactory<string, any> {
   assertValidWSKitIdentifier(code, 'error code');
+  return buildErrorFactory(code, schema);
+}
+
+/**
+ * Build an error factory without checking the code against the identifier
+ * rules. `error()` validates first and delegates here; `namespaceError()` uses
+ * it to mint the engine-added `__pluginId:code` form (which is allowed to start
+ * with `__` because the engine, not the developer, adds that prefix).
+ */
+function buildErrorFactory(
+  code: string,
+  schema?: StandardSchemaV1,
+): ErrorDefWithFactory<string, any> {
   const validate: ValidateFn<any> | undefined = !schema
     ? undefined
     : (value: unknown) => {
@@ -222,8 +243,24 @@ export function error(code: string, schema?: StandardSchemaV1): ErrorDefWithFact
     return new WskitError(code, validate ? validate(detail) : undefined);
   }
   factory.code = code;
+  factory.schema = schema;
   factory.matches = createMatchesFn(code, validate);
   return factory as ErrorDefWithFactory<string, any>;
+}
+
+/**
+ * Rebuild an error under a namespaced code, reusing the original's detail
+ * schema. The engine calls this so a plugin's `error('denied')` is re-emitted
+ * as `__acme:analytics:denied` — same detail validation, namespaced code so it
+ * can't collide with a handler's own error of the same name.
+ *
+ * @internal Engine use only; not part of the public authoring surface.
+ */
+export function namespaceError(
+  code: string,
+  def: ErrorDefWithFactory<string, any>,
+): ErrorDefWithFactory<string, any> {
+  return buildErrorFactory(code, def.schema);
 }
 
 // ---------------------------------------------------------------------------

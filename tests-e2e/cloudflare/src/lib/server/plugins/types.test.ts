@@ -163,8 +163,12 @@ describe('PluginsClient — plugin-prefixed surface (Drizzle plugin)', () => {
     }>();
   });
 
-  it('plugin error code lands on the client under its literal code', () => {
-    expectTypeOf<PluginsClient['errors']['e2e-drizzle/denied']>().not.toBeAny();
+  it('plugin error code lands on the client under its namespaced code', () => {
+    expectTypeOf<PluginsClient['errors']['__e2e:drizzle:denied']>().not.toBeAny();
+    expectTypeOf<PluginsClient['errors']['__e2e:drizzle:denied']>().toEqualTypeOf<{
+      reason: string;
+      op: string;
+    }>();
   });
 
   it('server-side ctx.schedule accepts the literal plugin task ids and rejects typos', () => {

@@ -72,6 +72,9 @@ export function createPluginHooks(
       ensureScheduledRuntime();
       return { id: taskId };
     },
+    // The plugin's own namespaced error factories (codes already prefixed with
+    // `__<id>:`). Throw them from inside hooks: `throw hooks.errors.denied(...)`.
+    errors: ((runtime.instance as { errors?: Record<string, unknown> }).errors ?? {}) as any,
     generateId: (prefix?: string) => core.generateId(prefix),
     getState: () => {
       const activeId = core.asyncContext.getStore()?.connectionId;

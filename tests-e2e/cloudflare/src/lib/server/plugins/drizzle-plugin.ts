@@ -8,11 +8,6 @@ import * as schema from './schema.ts';
 import { pluginMeta, records } from './schema.ts';
 import type { InsertRecord } from './schema.ts';
 
-export const DrizzleDenied = error(
-  'e2e-drizzle/denied',
-  v.object({ reason: v.string(), op: v.string() }),
-);
-
 interface LastConnectionState {
   id: string;
   username: string | null;
@@ -39,9 +34,11 @@ const taskDataSchema = v.object({ value: v.string() });
 export const Drizzle = plugin('e2e:drizzle', {
   args: t<{ migrate: boolean }>(),
   requires: { storage: true },
+  errors: {
+    denied: error('denied', v.object({ reason: v.string(), op: v.string() })),
+  },
   definitions: [
     outgoing('drizzle-ready', v.object({ tables: v.array(v.string()) })),
-    DrizzleDenied,
     scheduled('drizzle-vacuum'),
     scheduled('drizzle-every-tick', { every: 500 }),
     scheduled('drizzle-flaky', { retry: [50, 100, 200] }),

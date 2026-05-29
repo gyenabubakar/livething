@@ -1,5 +1,6 @@
 export {
   error,
+  namespaceError,
   WskitError,
   CloseCodes,
   Block,

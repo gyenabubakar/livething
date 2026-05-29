@@ -184,7 +184,7 @@ test.describe('plugins handler', () => {
     }, room);
 
     const payload = err.payload as { code: string; detail?: { reason?: string; op?: string } };
-    expect(payload.code).toBe('e2e-drizzle/denied');
+    expect(payload.code).toBe('__e2e:drizzle:denied');
     expect(payload.detail?.reason).toBe('test denial');
     expect(payload.detail?.op).toBe('insert');
   });
