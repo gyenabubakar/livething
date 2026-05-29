@@ -402,20 +402,20 @@ export interface EngineAccess {
   /**
    * Refresh the idle timeout for one live connection.
    *
-   * Built-in primitives such as `heartbeat()` use this instead of reaching
+   * Built-in primitives such as `keepalive()` use this instead of reaching
    * into the engine's connection map directly.
    */
   refreshConnectionIdleTimeout(connectionId: string, timeoutMs: number): void;
 
   /**
-   * Set the keepalive ping interval (ms) used for new connections. `heartbeat()`
+   * Set the keepalive ping interval (ms) used for new connections. `keepalive()`
    * calls this so the ping fires often enough that a quiet-but-alive client
    * always answers within the close window. Only the engine's own keepalive
    * pinger reads it; left unset, the pinger uses its built-in default.
    *
    * @internal
    */
-  setHeartbeatPingInterval(intervalMs: number): void;
+  setKeepalivePingInterval(intervalMs: number): void;
 
   /**
    * Access the engine's in-memory table of queued scheduled runs.

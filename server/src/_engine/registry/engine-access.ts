@@ -1,7 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { getInvocationScope } from '~/_engine/async-context.ts';
 import { sendProtocolMessage, sendReplay } from '~/_engine/runtime/wire.ts';
-import * as HeartbeatPrimitive from '~/heartbeat/runtime.ts';
+import * as KeepalivePrimitive from '~/keepalive/runtime.ts';
 import * as OutgoingRuntime from '~/outgoing/runtime.ts';
 import type * as EngineAccessModule from '~/_engine/access.ts';
 import type { EngineCore } from '~/_engine/core.ts';
@@ -191,10 +191,10 @@ export function createEngineAccess(
       const connection = core.connections.get(connectionId);
       if (!connection) return;
 
-      HeartbeatPrimitive.refreshHeartbeatTimeout(connection, timeoutMs);
+      KeepalivePrimitive.refreshIdleTimeout(connection, timeoutMs);
     },
-    setHeartbeatPingInterval: (intervalMs) => {
-      core.heartbeatPingIntervalMs = intervalMs;
+    setKeepalivePingInterval: (intervalMs) => {
+      core.keepalivePingIntervalMs = intervalMs;
     },
     getScheduledRuns: () => core.scheduledRuns,
     getScheduledDlq: () => core.scheduledDlq,

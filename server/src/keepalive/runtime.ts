@@ -17,19 +17,19 @@ function qualityFromLatency(latency: number): 'excellent' | 'good' | 'degraded' 
  * The previous timeout is cleared first so each new frame extends the same
  * inactivity window instead of stacking multiple timers.
  */
-export function refreshHeartbeatTimeout(
+export function refreshIdleTimeout(
   connection: {
-    heartbeatTimer?: unknown;
+    keepaliveTimer?: unknown;
     descriptor: { close(code?: number, reason?: string): void };
   },
   timeoutMs: number,
 ): void {
-  if (connection.heartbeatTimer !== undefined) {
-    clearTimeout(connection.heartbeatTimer as ReturnType<typeof setTimeout>);
+  if (connection.keepaliveTimer !== undefined) {
+    clearTimeout(connection.keepaliveTimer as ReturnType<typeof setTimeout>);
   }
 
-  connection.heartbeatTimer = setTimeout(() => {
-    connection.descriptor.close(CloseCodes.IDLE, 'Heartbeat timeout');
+  connection.keepaliveTimer = setTimeout(() => {
+    connection.descriptor.close(CloseCodes.IDLE, 'Keepalive timeout');
   }, timeoutMs);
 }
 

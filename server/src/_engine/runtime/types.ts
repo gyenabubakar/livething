@@ -62,7 +62,7 @@ export type { IncomingProtocolEvent } from './protocol.ts';
 export interface RegisteredEngineHooks {
   // -- Message pipeline hooks -------------------------------------------------
 
-  /** Fires on every text/binary frame — used by heartbeat to reset idle timers. */
+  /** Fires on every text/binary frame — used by keepalive to reset idle timers. */
   activity: ((connectionId: string) => void | Promise<void>)[];
 
   /** Runs before routing — can observe or rewrite the payload (event is locked). */
@@ -255,8 +255,8 @@ export interface RuntimeConnection {
   /** Resolves once the onConnect lifecycle hook has finished running. */
   lifecycleReady?: Promise<void>;
 
-  /** Handle for the heartbeat timeout timer. */
-  heartbeatTimer?: unknown;
+  /** Handle for the keepalive idle timer. */
+  keepaliveTimer?: unknown;
 
   /** Handle for the next scheduled ping timer. */
   pingTimer?: unknown;

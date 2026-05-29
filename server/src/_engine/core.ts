@@ -71,11 +71,10 @@ export class EngineCore {
   incomingDedupCap = 0;
   /**
    * Ping interval (ms) for the per-connection keepalive ping, set by
-   * `heartbeat()` to half its `timeout` (clamped) so a quiet-but-alive client
-   * always answers within the close window. `undefined` means no heartbeat was
-   * configured — the keepalive ping falls back to its built-in default.
+   * `keepalive()` to the configured `pingIntervalMs`. `undefined` means no
+   * keepalive was configured — the ping falls back to its built-in default.
    */
-  heartbeatPingIntervalMs: number | undefined = undefined;
+  keepalivePingIntervalMs: number | undefined = undefined;
   initialized = false;
   /**
    * True after a cold-boot schema run (first wake with no prior schema). The

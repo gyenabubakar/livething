@@ -1,13 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   recordConnectionLatency,
-  refreshHeartbeatTimeout,
+  refreshIdleTimeout,
   scheduleConnectionPing,
   stopConnectionPing,
 } from './runtime.ts';
 
-describe('heartbeat/runtime', () => {
-  it('refreshes the heartbeat timeout by clearing the previous timer first', () => {
+describe('keepalive/runtime', () => {
+  it('refreshes the keepalive timeout by clearing the previous timer first', () => {
     const callbackByHandle = new Map<string, () => void>();
     const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
       callback: Parameters<typeof setTimeout>[0],
@@ -20,17 +20,17 @@ describe('heartbeat/runtime', () => {
       .mockImplementation(() => undefined);
     const close = vi.fn();
     const connection = {
-      heartbeatTimer: 'old',
+      keepaliveTimer: 'old',
       descriptor: { close },
     };
 
-    refreshHeartbeatTimeout(connection, 5_000);
+    refreshIdleTimeout(connection, 5_000);
 
     expect(clearTimeoutSpy).toHaveBeenCalledWith('old');
-    expect(connection.heartbeatTimer).toBe('next');
+    expect(connection.keepaliveTimer).toBe('next');
 
     callbackByHandle.get('next')?.();
-    expect(close).toHaveBeenCalledWith(4004, 'Heartbeat timeout');
+    expect(close).toHaveBeenCalledWith(4004, 'Keepalive timeout');
     setTimeoutSpy.mockRestore();
     clearTimeoutSpy.mockRestore();
   });
@@ -183,7 +183,7 @@ describe('heartbeat/runtime', () => {
     expect(connection.quality).toBe('good');
   });
 
-  it('refreshHeartbeatTimeout does not call clearTimeout when no previous timer exists', () => {
+  it('refreshIdleTimeout does not call clearTimeout when no previous timer exists', () => {
     const setTimeoutSpy = vi
       .spyOn(globalThis, 'setTimeout')
       .mockImplementation(
@@ -194,14 +194,14 @@ describe('heartbeat/runtime', () => {
       .spyOn(globalThis, 'clearTimeout')
       .mockImplementation(() => undefined);
     const connection = {
-      heartbeatTimer: undefined as unknown,
+      keepaliveTimer: undefined as unknown,
       descriptor: { close: vi.fn() },
     };
 
-    refreshHeartbeatTimeout(connection, 5_000);
+    refreshIdleTimeout(connection, 5_000);
 
     expect(clearTimeoutSpy).not.toHaveBeenCalled();
-    expect(connection.heartbeatTimer).toBe('new-handle');
+    expect(connection.keepaliveTimer).toBe('new-handle');
     setTimeoutSpy.mockRestore();
     clearTimeoutSpy.mockRestore();
   });

@@ -1,32 +1,35 @@
-import { heartbeat } from '~/heartbeat/heartbeat.ts';
+import { keepalive } from '~/keepalive/keepalive.ts';
 import { describe, expect, it } from 'vitest';
 import type { EngineAccess } from '~/_engine/access.ts';
 
-describe('heartbeat', () => {
-  it('produces correct tag, kind, and timeout', () => {
-    const p = heartbeat({ timeout: 30_000 });
-    expect(p.__wskit).toBe('heartbeat');
+const OPTS = { pingIntervalMs: 15_000, idleTimeoutMs: 30_000 };
+
+describe('keepalive', () => {
+  it('produces correct tag, kind, and option fields', () => {
+    const p = keepalive(OPTS);
+    expect(p.__wskit).toBe('keepalive');
     expect(p.__kind).toBe('infrastructure');
-    expect(p.timeout).toBe(30_000);
+    expect(p.pingIntervalMs).toBe(15_000);
+    expect(p.idleTimeoutMs).toBe(30_000);
   });
 
   it('uses singleton identity', () => {
-    const p = heartbeat({ timeout: 30_000 });
+    const p = keepalive(OPTS);
     expect(p.__identity).toHaveLength(1);
-    expect(p.__identity[0]).toBe(heartbeat.__key);
+    expect(p.__identity[0]).toBe(keepalive.__key);
   });
 
   it('instances have no required adapter capabilities', () => {
-    const p = heartbeat({ timeout: 30_000 });
-    expect(p.__requires).toEqual({});
+    expect(keepalive(OPTS).__requires).toEqual({});
   });
 
-  it('registers connect and activity hooks through setup', () => {
+  it('registers hooks, sets the ping interval, and refreshes with idleTimeoutMs', () => {
     const connectHandlers: Array<NonNullable<Parameters<EngineAccess['onConnect']>[0]>> = [];
     const activityHandlers: Array<
       NonNullable<Parameters<EngineAccess['onConnectionActivity']>[0]>
     > = [];
     const refreshed: Array<{ connectionId: string; timeoutMs: number }> = [];
+    let pingIntervalMs: number | undefined;
     const installs = new Set<symbol>();
 
     const engine = {
@@ -41,7 +44,9 @@ describe('heartbeat', () => {
       onConnectionActivity(handler) {
         activityHandlers.push(handler);
       },
-      setHeartbeatPingInterval() {},
+      setKeepalivePingInterval(intervalMs: number) {
+        pingIntervalMs = intervalMs;
+      },
       refreshConnectionIdleTimeout(connectionId: string, timeoutMs: number) {
         refreshed.push({ connectionId, timeoutMs });
       },
@@ -51,17 +56,19 @@ describe('heartbeat', () => {
       | 'onConnect'
       | 'onConnectionActivity'
       | 'refreshConnectionIdleTimeout'
-      | 'setHeartbeatPingInterval'
+      | 'setKeepalivePingInterval'
     > as EngineAccess;
 
-    heartbeat({ timeout: 30_000 }).__setup?.(engine);
+    keepalive(OPTS).__setup?.(engine);
 
+    expect(pingIntervalMs).toBe(15_000);
     expect(connectHandlers).toHaveLength(1);
     expect(activityHandlers).toHaveLength(1);
 
     void connectHandlers[0]!({ id: 'conn-1' });
     void activityHandlers[0]!('conn-1');
 
+    // Both the connect and the activity hook refresh with idleTimeoutMs.
     expect(refreshed).toEqual([
       { connectionId: 'conn-1', timeoutMs: 30_000 },
       { connectionId: 'conn-1', timeoutMs: 30_000 },
@@ -83,7 +90,7 @@ describe('heartbeat', () => {
         connectHandlers.push(handler);
       },
       onConnectionActivity() {},
-      setHeartbeatPingInterval() {},
+      setKeepalivePingInterval() {},
       refreshConnectionIdleTimeout(connectionId: string) {
         refreshed.push(connectionId);
       },
@@ -93,61 +100,34 @@ describe('heartbeat', () => {
       | 'onConnect'
       | 'onConnectionActivity'
       | 'refreshConnectionIdleTimeout'
-      | 'setHeartbeatPingInterval'
+      | 'setKeepalivePingInterval'
     > as EngineAccess;
 
-    heartbeat({ timeout: 30_000 }).__setup?.(engine);
+    keepalive(OPTS).__setup?.(engine);
     void connectHandlers[0]!({ id: '' });
 
     expect(refreshed).toHaveLength(0);
   });
 
-  describe('keepalive ping interval', () => {
-    function setIntervalFor(timeout: number): number | undefined {
-      let pingIntervalMs: number | undefined;
-      const installs = new Set<symbol>();
-      const engine = {
-        installOnce(key, install) {
-          if (installs.has(key)) return;
-          installs.add(key);
-          install();
-        },
-        onConnect() {},
-        onConnectionActivity() {},
-        refreshConnectionIdleTimeout() {},
-        setHeartbeatPingInterval(intervalMs: number) {
-          pingIntervalMs = intervalMs;
-        },
-      } as Pick<
-        EngineAccess,
-        | 'installOnce'
-        | 'onConnect'
-        | 'onConnectionActivity'
-        | 'refreshConnectionIdleTimeout'
-        | 'setHeartbeatPingInterval'
-      > as EngineAccess;
-
-      heartbeat({ timeout }).__setup?.(engine);
-      return pingIntervalMs;
-    }
-
-    it('pings at half the timeout when that lands inside the clamp range', () => {
-      expect(setIntervalFor(20_000)).toBe(10_000);
-      expect(setIntervalFor(60_000)).toBe(30_000);
+  describe('validation', () => {
+    it('rejects a non-positive or non-integer pingIntervalMs', () => {
+      expect(() => keepalive({ pingIntervalMs: 0, idleTimeoutMs: 30_000 })).toThrow();
+      expect(() => keepalive({ pingIntervalMs: -5, idleTimeoutMs: 30_000 })).toThrow();
+      expect(() => keepalive({ pingIntervalMs: 1.5, idleTimeoutMs: 30_000 })).toThrow();
     });
 
-    it('caps the interval at 30s for a large timeout (still well under the window)', () => {
-      expect(setIntervalFor(600_000)).toBe(30_000);
+    it('rejects a non-positive or non-integer idleTimeoutMs', () => {
+      expect(() => keepalive({ pingIntervalMs: 1_000, idleTimeoutMs: 0 })).toThrow();
+      expect(() => keepalive({ pingIntervalMs: 1_000, idleTimeoutMs: -5 })).toThrow();
     });
 
-    it('floors the interval at 1s for a tiny timeout', () => {
-      expect(setIntervalFor(1_000)).toBe(1_000);
+    it('rejects pingIntervalMs that is not strictly less than idleTimeoutMs', () => {
+      expect(() => keepalive({ pingIntervalMs: 30_000, idleTimeoutMs: 30_000 })).toThrow(
+        /must be less than/,
+      );
+      expect(() => keepalive({ pingIntervalMs: 40_000, idleTimeoutMs: 30_000 })).toThrow(
+        /must be less than/,
+      );
     });
-  });
-
-  it('rejects a non-positive or non-integer timeout', () => {
-    expect(() => heartbeat({ timeout: 0 })).toThrow();
-    expect(() => heartbeat({ timeout: -5 })).toThrow();
-    expect(() => heartbeat({ timeout: 1.5 })).toThrow();
   });
 });

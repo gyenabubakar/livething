@@ -14,7 +14,7 @@ import * as DurableStreamRuntime from '~/_engine/stream-durable/runtime.ts';
 import { ensureDurableStreamSchema } from '~/_engine/stream-durable/storage.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import * as ErrorsPrimitive from '~/errors/errors.ts';
-import * as HeartbeatPrimitive from '~/heartbeat/runtime.ts';
+import * as KeepalivePrimitive from '~/keepalive/runtime.ts';
 import * as InterceptPrimitive from '~/intercept/runtime.ts';
 import * as OutgoingRuntime from '~/outgoing/runtime.ts';
 import * as RequestPrimitive from '~/request/runtime.ts';
@@ -780,7 +780,7 @@ export async function processTextMessage(
   }
 
   if (data === 'pong') {
-    HeartbeatPrimitive.recordConnectionLatency(connection);
+    KeepalivePrimitive.recordConnectionLatency(connection);
     return;
   }
 

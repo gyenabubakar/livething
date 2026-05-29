@@ -2,13 +2,22 @@ import { describe, expect, it } from 'vitest';
 import { contract } from './contract.ts';
 
 describe('contract config validation', () => {
-  it('rejects invalid heartbeat config at contract creation', () => {
+  it('rejects invalid keepalive config at contract creation', () => {
     expect(() =>
       contract('app', {
-        heartbeat: { timeoutMs: 0 },
+        keepalive: { pingIntervalMs: 0, idleTimeoutMs: 30_000 },
         definitions: [],
       }),
-    ).toThrow(/heartbeat\.timeoutMs/);
+    ).toThrow(/keepalive\.pingIntervalMs/);
+  });
+
+  it('rejects keepalive whose ping interval is not less than the idle timeout', () => {
+    expect(() =>
+      contract('app', {
+        keepalive: { pingIntervalMs: 30_000, idleTimeoutMs: 30_000 },
+        definitions: [],
+      }),
+    ).toThrow(/must be less than/);
   });
 
   it('rejects invalid replay config at contract creation', () => {

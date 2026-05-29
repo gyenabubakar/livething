@@ -260,7 +260,7 @@ describe('connection runtime', () => {
     expect(events).toEqual(['lifecycle:connect', 'close']);
   });
 
-  it('forwards the configured heartbeat ping interval to the keepalive pinger', () => {
+  it('forwards the configured keepalive ping interval to the keepalive pinger', () => {
     vi.useFakeTimers();
 
     const compiled = {
@@ -280,12 +280,12 @@ describe('connection runtime', () => {
       replayClaimedChannelKeys: new Set<string>(),
     };
 
-    // Heartbeat set a 5s interval: the keepalive ping must fire at 5s, not before.
+    // Keepalive set a 5s interval: the keepalive ping must fire at 5s, not before.
     const sentA: string[] = [];
     acceptConnection(
       {
         compiled,
-        heartbeatPingIntervalMs: 5_000,
+        keepalivePingIntervalMs: 5_000,
         connections: new Map(),
         wsToConnectionId: new Map(),
         channelMembers: new Map(),
@@ -321,7 +321,7 @@ describe('connection runtime', () => {
     vi.advanceTimersByTime(1);
     expect(sentA).toContain('ping');
 
-    // No heartbeat configured: the pinger falls back to its 30s default, so a
+    // No keepalive configured: the pinger falls back to its 30s default, so a
     // ping must NOT have gone out at the 5s mark.
     const sentB: string[] = [];
     acceptConnection(
@@ -901,7 +901,7 @@ describe('connection runtime', () => {
 
   it('handleConnectionClose continues channel-leave fan-out when a disconnect hook throws', async () => {
     // Pre-fix a throwing onDisconnect aborted the close sequence —
-    // channel members never received `_memberLeave`, the heartbeat
+    // channel members never received `_memberLeave`, the keepalive
     // timer leaked. handleConnectionClose now contains the throw and
     // proceeds with the remaining cleanup.
     const events: string[] = [];
@@ -965,15 +965,15 @@ describe('connection runtime', () => {
     expect(logger.error.mock.calls[0]![0]).toMatch(/disconnect lifecycle hook threw/);
   });
 
-  it('handleConnectionClose continues to subsequent channels and heartbeat cleanup when one leaveChannel throws', async () => {
+  it('handleConnectionClose continues to subsequent channels and keepalive cleanup when one leaveChannel throws', async () => {
     // Pre-fix a throwing leaveChannel (e.g. an onUnsubscribe hook that
     // rejects) aborted the for-loop. Subsequent channel leaves and the
-    // heartbeat timer cleanup never ran. The close path now contains
+    // keepalive timer cleanup never ran. The close path now contains
     // the throw per membership and proceeds.
     const events: string[] = [];
     const logger = { error: vi.fn(), warn: vi.fn(), info: vi.fn() };
     const wsKey = Symbol('ws');
-    const heartbeatHandle = Symbol('heartbeat');
+    const keepaliveHandle = Symbol('keepalive');
     const clearTimeoutSpy = vi
       .spyOn(globalThis, 'clearTimeout')
       .mockImplementation(() => undefined);
@@ -1001,7 +1001,7 @@ describe('connection runtime', () => {
       ]),
       latency: null,
       quality: 'good' as const,
-      heartbeatTimer: heartbeatHandle as unknown as number,
+      keepaliveTimer: keepaliveHandle as unknown as number,
     };
     const runtime = {
       compiled: {
@@ -1032,9 +1032,9 @@ describe('connection runtime', () => {
       }),
     ).resolves.toBeUndefined();
 
-    // Both channels were attempted, heartbeat cleared, and the throw was logged.
+    // Both channels were attempted, keepalive cleared, and the throw was logged.
     expect(events).toEqual(['streams-cancelled', 'disconnect-hook', 'leave:one', 'leave:two']);
-    expect(clearTimeoutSpy).toHaveBeenCalledWith(heartbeatHandle);
+    expect(clearTimeoutSpy).toHaveBeenCalledWith(keepaliveHandle);
     expect(logger.error).toHaveBeenCalledTimes(1);
     expect(logger.error.mock.calls[0]![0]).toMatch(/leaveChannel threw during close/);
     clearTimeoutSpy.mockRestore();

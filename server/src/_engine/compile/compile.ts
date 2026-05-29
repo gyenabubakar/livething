@@ -466,7 +466,7 @@ function validateNoReservedEventNames(
   function check(event: string, scopeLabel: string): void {
     if (event === 'ping' || event === 'pong') {
       throw new Error(
-        `[wskit] '${event}' is a reserved heartbeat frame name (used by ${scopeLabel}). ` +
+        `[wskit] '${event}' is a reserved keepalive frame name (used by ${scopeLabel}). ` +
           `Pick a different name for your event.`,
       );
     }

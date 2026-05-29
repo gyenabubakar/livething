@@ -23,13 +23,17 @@ function validateTagDefs(tags: ContractConfig['tags']): void {
 }
 
 function validateContractConfig(config: ContractConfig): void {
-  if (config.heartbeat) {
-    const opts =
-      typeof config.heartbeat === 'object'
-        ? config.heartbeat
-        : ({} as { intervalMs?: number; timeoutMs?: number });
-    const timeout = opts.timeoutMs ?? opts.intervalMs ?? 30_000;
-    assertPositiveInteger(timeout, 'heartbeat.timeoutMs', 'contract()');
+  if (config.keepalive) {
+    const { pingIntervalMs, idleTimeoutMs } = config.keepalive;
+    assertPositiveInteger(pingIntervalMs, 'keepalive.pingIntervalMs', 'contract()');
+    assertPositiveInteger(idleTimeoutMs, 'keepalive.idleTimeoutMs', 'contract()');
+    if (pingIntervalMs >= idleTimeoutMs) {
+      throw new Error(
+        `[wskit] keepalive.pingIntervalMs (${pingIntervalMs}) must be less than ` +
+          `keepalive.idleTimeoutMs (${idleTimeoutMs}): the keepalive ping has to fire before ` +
+          `the idle window closes, or a live client would be dropped.`,
+      );
+    }
   }
 
   if (typeof config.sequence === 'object' && config.sequence !== null) {

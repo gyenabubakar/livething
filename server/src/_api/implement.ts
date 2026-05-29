@@ -4,16 +4,15 @@ import { error as coreErrorFactory } from '@wskit/core';
 import { collectUnique } from '~/_engine/compile/utils.ts';
 import { sweepDurableStreams } from '~/_engine/stream-durable/runtime.ts';
 import { ensureDurableStreamSchema } from '~/_engine/stream-durable/storage.ts';
-import { assertPositiveInteger } from '~/_engine/validation.ts';
 import { ack as ackFactory } from '~/ack/ack.ts';
 import { compileChannelDef } from '~/channel/compile.ts';
 import { ChannelImplement } from '~/channel/implement.ts';
 import { dedup as dedupFactory } from '~/dedup/dedup.ts';
 import { errors as errorsFactory } from '~/errors/primitive.ts';
-import { heartbeat as heartbeatFactory } from '~/heartbeat/heartbeat.ts';
 import { hibernation as hibernationFactory } from '~/hibernation/hibernation.ts';
 import { compileIncomingDef } from '~/incoming/compile.ts';
 import { intercept as interceptFactory } from '~/intercept/intercept.ts';
+import { keepalive as keepaliveFactory } from '~/keepalive/keepalive.ts';
 import {
   onBinary,
   onConnect,
@@ -1017,14 +1016,8 @@ export class Implementer<C extends Contract> {
     }
 
     if (config.hibernation) primitives.push(hibernationFactory(true));
-    if (config.heartbeat) {
-      const opts =
-        typeof config.heartbeat === 'object'
-          ? config.heartbeat
-          : ({} as { intervalMs?: number; timeoutMs?: number });
-      const timeout = opts.timeoutMs ?? opts.intervalMs ?? 30_000;
-      assertPositiveInteger(timeout, 'heartbeat.timeoutMs', 'contract()');
-      primitives.push(heartbeatFactory({ timeout }));
+    if (config.keepalive) {
+      primitives.push(keepaliveFactory(config.keepalive));
     }
     if (config.sequence) {
       const opts = typeof config.sequence === 'object' ? config.sequence : {};
@@ -1154,7 +1147,7 @@ export class Implementer<C extends Contract> {
             config.sequence ? 'sequence' : undefined,
             config.dedup ? 'dedup' : undefined,
             config.hibernation ? 'hibernation' : undefined,
-            config.heartbeat ? 'heartbeat' : undefined,
+            config.keepalive ? 'keepalive' : undefined,
             config.binary ? 'binary' : undefined,
           ].filter((feature): feature is string => feature !== undefined),
         ),

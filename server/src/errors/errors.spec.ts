@@ -27,9 +27,9 @@ describe('CloseCodes', () => {
   });
 
   it('Disconnect(CloseCodes.IDLE, ...) produces code 4004', () => {
-    const dc = Disconnect(CloseCodes.IDLE, 'Heartbeat timeout');
+    const dc = Disconnect(CloseCodes.IDLE, 'Keepalive timeout');
     expect(dc.code).toBe(4004);
-    expect(dc.reason).toBe('Heartbeat timeout');
+    expect(dc.reason).toBe('Keepalive timeout');
   });
 });
 

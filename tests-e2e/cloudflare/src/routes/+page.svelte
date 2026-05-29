@@ -14,7 +14,7 @@
 		'dedup',
 		'errors-control-flow',
 		'errors-factory',
-		'heartbeat',
+		'keepalive',
 		'hibernation',
 		'incoming',
 		'intercept',

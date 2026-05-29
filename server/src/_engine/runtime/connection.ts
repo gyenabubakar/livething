@@ -1,7 +1,7 @@
 import { CloseCodes, StreamAborted } from '@wskit/core';
 import { withConnectionContext } from '~/_engine/async-context.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
-import * as HeartbeatPrimitive from '~/heartbeat/runtime.ts';
+import * as KeepalivePrimitive from '~/keepalive/runtime.ts';
 import * as TagPrimitive from '~/tags/runtime.ts';
 import type * as EngineAdapterTypes from '~/_adapters/types.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
@@ -31,10 +31,10 @@ interface ConnectionRuntime {
   hibernationEnabled?: boolean;
 
   /**
-   * Keepalive ping interval (ms) for new connections, set by `heartbeat()`.
-   * `undefined` when no heartbeat is configured — the pinger uses its default.
+   * Keepalive ping interval (ms) for new connections, set by `keepalive()`.
+   * `undefined` when no keepalive is configured — the pinger uses its default.
    */
-  heartbeatPingIntervalMs?: number;
+  keepalivePingIntervalMs?: number;
 
   connections: Map<string, EngineRuntimeTypes.RuntimeConnection>;
   channelMembers: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>;
@@ -294,7 +294,7 @@ export async function handleConnectionClose(
   try {
     // A user-supplied onDisconnect hook (or a plugin's onDisconnect) may
     // throw. Contain the throw so the rest of the close cleanup —
-    // channel leaves (which broadcast `__memberLeave__` to peers), heartbeat
+    // channel leaves (which broadcast `__memberLeave__` to peers), keepalive
     // timer teardown — still runs. Otherwise channel members never see
     // the leave and timers leak.
     await runtime.runConnectionLifecycle('disconnect', ctx);
@@ -315,7 +315,7 @@ export async function handleConnectionClose(
     // leaveChannel already contains user-hook throws. This outer guard is
     // defense-in-depth: any unexpected throw from broadcast or persist on
     // one membership must not block later memberships from leaving and
-    // must not block heartbeat cleanup below.
+    // must not block keepalive cleanup below.
     try {
       await runtime.leaveChannel(connection, {
         channel: resolved,
@@ -338,12 +338,12 @@ export async function handleConnectionClose(
 
   TagPrimitive.removeConnectionFromTagIndex(runtime.tagMembers, connection);
 
-  if (connection.heartbeatTimer !== undefined) {
-    clearTimeout(connection.heartbeatTimer as ReturnType<typeof setTimeout>);
-    connection.heartbeatTimer = undefined;
+  if (connection.keepaliveTimer !== undefined) {
+    clearTimeout(connection.keepaliveTimer as ReturnType<typeof setTimeout>);
+    connection.keepaliveTimer = undefined;
   }
 
-  HeartbeatPrimitive.stopConnectionPing(connection);
+  KeepalivePrimitive.stopConnectionPing(connection);
 }
 
 /**
@@ -430,7 +430,7 @@ export function acceptConnection(
   connection.pendingWrites = { active: true };
 
   if (!runtime.hibernationEnabled) {
-    HeartbeatPrimitive.scheduleConnectionPing(connection, runtime.heartbeatPingIntervalMs);
+    KeepalivePrimitive.scheduleConnectionPing(connection, runtime.keepalivePingIntervalMs);
   }
 
   const ctx = runtime.buildConnectionContext(connection);
@@ -574,7 +574,7 @@ export function wakeHibernatedConnection(
   }
 
   if (!runtime.hibernationEnabled) {
-    HeartbeatPrimitive.scheduleConnectionPing(connection, runtime.heartbeatPingIntervalMs);
+    KeepalivePrimitive.scheduleConnectionPing(connection, runtime.keepalivePingIntervalMs);
   }
 
   connection.lifecycleReady = Promise.resolve();
@@ -734,7 +734,7 @@ export async function handleShutdown(
   // Send the wire-level close frame first so clients see GOING_AWAY
   // promptly, then drive the per-connection cleanup chain ourselves
   // (onDisconnect hooks, __memberLeave__ broadcasts, channel leaves,
-  // heartbeat timer teardown). The cleanup must be awaited so the adapter
+  // keepalive timer teardown). The cleanup must be awaited so the adapter
   // instance is not evicted before it lands and leaves channel peers with
   // ghost members.
   for (const connection of draining) {

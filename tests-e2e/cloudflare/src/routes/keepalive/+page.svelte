@@ -16,7 +16,7 @@
 		// socket never replies, so the server sees a client that has gone away.
 		const autoPong = url.searchParams.get('autopong') === '1';
 		ws = new WebSocket(
-			`${protocol}//${location.host}/ws/heartbeat?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
+			`${protocol}//${location.host}/ws/keepalive?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
 		ws.onopen = () => {
 			status = 'connected';
@@ -38,7 +38,7 @@
 	}
 </script>
 
-<h1>heartbeat feature</h1>
+<h1>keepalive feature</h1>
 <input data-testid="username" bind:value={username} />
 <button data-testid="connect" onclick={connect}>Connect</button>
 <button data-testid="send-echo" onclick={sendEcho}>Send Echo</button>

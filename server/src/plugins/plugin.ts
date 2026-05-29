@@ -24,7 +24,7 @@ export type PluginDependency =
   | 'sequence'
   | 'dedup'
   | 'hibernation'
-  | 'heartbeat'
+  | 'keepalive'
   | 'binary';
 
 /**

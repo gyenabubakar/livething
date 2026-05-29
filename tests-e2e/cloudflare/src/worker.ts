@@ -37,7 +37,7 @@ export { CtxKvServer } from './lib/server/ctx-kv/durable-object.ts';
 export { CtxTagsServer } from './lib/server/ctx-tags/durable-object.ts';
 export { CtxQualityServer } from './lib/server/ctx-quality/durable-object.ts';
 export { CtxMetaServer } from './lib/server/ctx-meta/durable-object.ts';
-export { HeartbeatServer } from './lib/server/heartbeat/durable-object.ts';
+export { KeepaliveServer } from './lib/server/keepalive/durable-object.ts';
 export { ProtocolPingsServer } from './lib/server/protocol-pings/durable-object.ts';
 export { MultifileServer } from './lib/server/multifile/durable-object.ts';
 export { RateLimitServer } from './lib/server/rate-limit/durable-object.ts';
@@ -82,7 +82,7 @@ const FEATURE_ROUTES: Record<string, keyof Env> = {
   '/ws/ctx-tags': 'CTX_TAGS_SERVER',
   '/ws/ctx-quality': 'CTX_QUALITY_SERVER',
   '/ws/ctx-meta': 'CTX_META_SERVER',
-  '/ws/heartbeat': 'HEARTBEAT_SERVER',
+  '/ws/keepalive': 'KEEPALIVE_SERVER',
   '/ws/protocol-pings': 'PROTOCOL_PINGS_SERVER',
   '/ws/multifile': 'MULTIFILE_SERVER',
   '/ws/rate-limit': 'RATE_LIMIT_SERVER',

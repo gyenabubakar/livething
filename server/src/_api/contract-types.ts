@@ -122,9 +122,11 @@ export type NamespaceContract<TDefs extends readonly Definition[] = readonly Def
 // ContractConfig — the shape passed to contract()
 // ---------------------------------------------------------------------------
 
-export interface HeartbeatOptions {
-  readonly intervalMs?: number;
-  readonly timeoutMs?: number;
+export interface KeepaliveOptions {
+  /** How often the server sends a keepalive ping, in ms. Must be < idleTimeoutMs. */
+  readonly pingIntervalMs: number;
+  /** Max silence (any frame resets it) before the connection is closed, in ms. */
+  readonly idleTimeoutMs: number;
 }
 
 /**
@@ -160,7 +162,7 @@ export interface ContractConfig {
   readonly sequence?: boolean | { persist?: boolean; batchSize?: number };
   readonly dedup?: boolean | { cap?: number };
   readonly hibernation?: boolean;
-  readonly heartbeat?: boolean | HeartbeatOptions;
+  readonly keepalive?: KeepaliveOptions;
   readonly binary?: boolean;
   /**
    * Top-level rate-limit rule. Applies to every event in every scope unless a
@@ -219,7 +221,7 @@ type FeatureFromConfig<TConfig> =
   | (TConfig extends { sequence: true | { persist?: boolean } } ? 'sequence' : never)
   | (TConfig extends { dedup: true | { cap?: number } } ? 'dedup' : never)
   | (TConfig extends { hibernation: true } ? 'hibernation' : never)
-  | (TConfig extends { heartbeat: true | HeartbeatOptions } ? 'heartbeat' : never)
+  | (TConfig extends { keepalive: KeepaliveOptions } ? 'keepalive' : never)
   | (TConfig extends { binary: true } ? 'binary' : never);
 
 type MetaFromConfig<TConfig> = TConfig extends { meta: TypeMarker<infer M> }

@@ -12,7 +12,7 @@ import type * as PrimitiveCore from '~/primitive.ts';
 
 /**
  * Throw at declaration time if an event name clashes with the wskit wire
- * protocol. `ping`/`pong` are the raw heartbeat frames; the `__` prefix is
+ * protocol. `ping`/`pong` are the raw keepalive frames; the `__` prefix is
  * reserved for protocol events (`__subscribe__`, `__error__`, ...) and
  * plugin-owned events. Called by every definition factory that takes an event
  * name.
@@ -69,7 +69,7 @@ export function assertNonReservedEventName(name: string, factory: string): void 
   assertValidWSKitIdentifier(name, `${factory}() event name`);
   if (name === 'ping' || name === 'pong') {
     throw new Error(
-      `[wskit] '${name}' is a reserved heartbeat frame name. Pick a different name for ${factory}().`,
+      `[wskit] '${name}' is a reserved keepalive frame name. Pick a different name for ${factory}().`,
     );
   }
 }
