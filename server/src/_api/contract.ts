@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 
+import { assertValidWSKitIdentifier } from '@wskit/core';
 import { collectUnique } from '~/_engine/compile/utils.ts';
 import {
   assertOneOf,
@@ -8,21 +9,12 @@ import {
 } from '~/_engine/validation.ts';
 import type { Contract, ContractConfig, EnvFromConfig } from './contract-types.ts';
 
-const RESERVED_TAG_GROUP_NAME_PATTERN = /^__.+__$/;
-
 function validateTagGroupNames(kind: string, names: readonly string[] | undefined): void {
   if (!names || names.length === 0) return;
 
   const seen = new Set<string>();
   for (const name of names) {
-    if (typeof name !== 'string' || name.length === 0) {
-      throw new Error(`[wskit] contract(): tagGroups.${kind} names must be non-empty strings.`);
-    }
-    if (RESERVED_TAG_GROUP_NAME_PATTERN.test(name)) {
-      throw new Error(
-        `[wskit] contract(): tagGroups.${kind} name '${name}' matches the reserved /^__.+__$/ pattern.`,
-      );
-    }
+    assertValidWSKitIdentifier(name, `contract(): tagGroups.${kind} name`);
     if (seen.has(name)) {
       throw new Error(`[wskit] contract(): tagGroups.${kind} name '${name}' is declared twice.`);
     }

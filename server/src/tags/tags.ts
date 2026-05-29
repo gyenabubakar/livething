@@ -1,3 +1,4 @@
+import { assertValidWSKitIdentifier } from '@wskit/core';
 import type { Primitive } from '~/primitive.ts';
 import type { TagKind } from '~/tags/types.ts';
 
@@ -14,22 +15,13 @@ const TAG_GROUPS_EPHEMERAL_KEY = Symbol('tag-groups-ephemeral');
 /** @internal */
 const TAG_GROUPS_PERSISTENT_KEY = Symbol('tag-groups-persistent');
 
-const RESERVED_NAME_PATTERN = /^__.+__$/;
-
 function validateGroupNames(kind: TagKind, names: readonly string[]): void {
   if (names.length === 0) {
     throw new Error(`[wskit] tagGroups('${kind}', ...) requires at least one group name.`);
   }
   const seen = new Set<string>();
   for (const name of names) {
-    if (typeof name !== 'string' || name.length === 0) {
-      throw new Error(`[wskit] tagGroups('${kind}', ...) names must be non-empty strings.`);
-    }
-    if (RESERVED_NAME_PATTERN.test(name)) {
-      throw new Error(
-        `[wskit] tagGroups('${kind}', ...): '${name}' matches the reserved /^__.+__$/ pattern.`,
-      );
-    }
+    assertValidWSKitIdentifier(name, `tagGroups('${kind}', ...) name`);
     if (seen.has(name)) {
       throw new Error(
         `[wskit] tagGroups('${kind}', ...): '${name}' declared twice in the same call.`,

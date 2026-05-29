@@ -23,3 +23,4 @@ export {
   rethrowIfConfigError,
   assertSyncResult,
 } from './sync-guard.ts';
+export { isValidWSKitIdentifier, assertValidWSKitIdentifier } from './identifier.ts';

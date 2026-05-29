@@ -1,6 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import * as v from 'valibot';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
+import { assertValidWSKitIdentifier } from './identifier.ts';
 import { assertSyncResult } from './sync-guard.ts';
 
 // ---------------------------------------------------------------------------
@@ -204,6 +205,7 @@ export function error<TCode extends string, TSchema extends StandardSchemaV1>(
   schema: TSchema,
 ): ErrorDefWithFactory<TCode, StandardSchemaV1.InferOutput<TSchema>>;
 export function error(code: string, schema?: StandardSchemaV1): ErrorDefWithFactory<string, any> {
+  assertValidWSKitIdentifier(code, 'error code');
   const validate: ValidateFn<any> | undefined = !schema
     ? undefined
     : (value: unknown) => {

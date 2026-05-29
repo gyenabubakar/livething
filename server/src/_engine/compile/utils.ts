@@ -1,5 +1,10 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { assertSyncResult, ValidationFailed, WskitConfigError } from '@wskit/core';
+import {
+  assertSyncResult,
+  assertValidWSKitIdentifier,
+  ValidationFailed,
+  WskitConfigError,
+} from '@wskit/core';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type * as ChannelPrimitive from '~/channel/channel.ts';
 import type * as NamespacePrimitive from '~/namespace/namespace.ts';
@@ -61,20 +66,10 @@ export function setUniqueOrThrow<V>(
 }
 
 export function assertNonReservedEventName(name: string, factory: string): void {
-  if (typeof name !== 'string' || name.length === 0) {
-    throw new Error(
-      `[wskit] ${factory}() requires a non-empty event name. An empty name would crash the dispatch path the first time a frame arrived.`,
-    );
-  }
+  assertValidWSKitIdentifier(name, `${factory}() event name`);
   if (name === 'ping' || name === 'pong') {
     throw new Error(
       `[wskit] '${name}' is a reserved heartbeat frame name. Pick a different name for ${factory}().`,
-    );
-  }
-  if (name.startsWith('__')) {
-    throw new Error(
-      `[wskit] '${name}' starts with the reserved double-underscore prefix. ` +
-        `That prefix is reserved for wskit protocol and plugin events. Pick a different name for ${factory}().`,
     );
   }
 }
