@@ -11,7 +11,7 @@ import type { AdapterConfig } from './types.ts';
  * the engine. The first argument to `setup` is a factory for the engine —
  * call it to get an engine instance to attach to.
  */
-export function defineServerAdapter<TOptions, TService>(config: AdapterConfig<TOptions, TService>) {
+export function adapter<TOptions, TService>(config: AdapterConfig<TOptions, TService>) {
   return function serve(handler: ServerDefinition, options: TOptions): TService {
     function createEngine(
       runtimeOptions: Omit<

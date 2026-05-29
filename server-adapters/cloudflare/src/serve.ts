@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { defineServerAdapter } from '@wskit/server/adapters';
+import { adapter } from '@wskit/server/adapters';
 import { DurableObject } from 'cloudflare:workers';
 import type { ConnectionHandle, Engine, Logger, ServerDefinition } from '@wskit/server/adapters';
 import { createPlatform } from './platform.ts';
@@ -31,7 +31,7 @@ function createAsyncContext<TStore>() {
   return new AsyncLocalStorage<TStore>();
 }
 
-const buildServe = defineServerAdapter<undefined, CloudflareDurableObjectClass>({
+const buildServe = adapter<undefined, CloudflareDurableObjectClass>({
   id: 'cloudflare',
   // Persist per-socket snapshots through Cloudflare's attachment slot so the
   // engine never reaches into platform-specific WebSocket APIs directly.

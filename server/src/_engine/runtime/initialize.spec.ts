@@ -13,7 +13,7 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { defineServerAdapter } from '~/_adapters/define.ts';
+import { adapter } from '~/_adapters/define.ts';
 import { contract } from '~/_api/contract.ts';
 import { t } from '~/_api/definitions.ts';
 import { implement } from '~/_api/implement.ts';
@@ -104,7 +104,7 @@ function makeNoopTimers() {
 // instance instead of returning a DO class.
 function buildEngine(handler: ServerDefinition): Engine {
   let captured: Engine | undefined;
-  const serve = defineServerAdapter({
+  const serve = adapter({
     id: 'roundtrip-bench',
     hibernation: { persist() {}, restore: () => undefined },
     asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),

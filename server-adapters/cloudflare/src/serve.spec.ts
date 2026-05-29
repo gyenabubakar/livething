@@ -22,11 +22,11 @@ type AdapterSetup = (
 
 let fake: FakeEngine;
 
-// Each serve() call re-invokes defineServerAdapter.setup. We capture the
+// Each serve() call re-invokes adapter.setup. We capture the
 // createEngine factory so every DO instance shares the same fake engine
 // we can assert against.
 vi.mock('@wskit/server/adapters', () => ({
-  defineServerAdapter:
+  adapter:
     <TOpts, TSvc>(config: { id: string; hibernation: unknown; setup: AdapterSetup }) =>
     (_handler: unknown, options: TOpts): TSvc => {
       return config.setup((runtimeOptions: unknown) => {

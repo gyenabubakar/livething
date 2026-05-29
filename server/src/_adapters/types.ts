@@ -80,7 +80,7 @@ export interface UpgradeDecision {
  * `restore(wsKey)` returns the most recent snapshot the platform held onto.
  *
  * Adapters that support hibernation declare this object on their
- * `defineServerAdapter` config; adapters that don't omit it. The presence of
+ * `adapter` config; adapters that don't omit it. The presence of
  * the object is the capability signal — there is no separate boolean flag.
  *
  * Cloudflare implementation:
@@ -140,7 +140,7 @@ export interface EngineOptions {
 export type Engine = EngineModule.Engine;
 
 /**
- * The configuration object returned by `defineServerAdapter`.
+ * The configuration object returned by `adapter`.
  *
  * Platform adapters (like the Cloudflare adapter) use this to wire up the
  * engine to the platform's WebSocket lifecycle.

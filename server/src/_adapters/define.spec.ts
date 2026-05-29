@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Engine } from '~/_engine/engine.ts';
 import type { AsyncContextFactory, Logger, TimerProvider } from '~/context.ts';
 import type { ServerDefinition } from '~/server-definition.ts';
-import { defineServerAdapter } from './define.ts';
+import { adapter } from './define.ts';
 import type { EngineOptions } from './types.ts';
 
 const noopHibernation = {
@@ -25,7 +25,7 @@ function makeAsyncContextFactory(): AsyncContextFactory {
   };
 }
 
-describe('defineServerAdapter', () => {
+describe('adapter', () => {
   function runtimeOptions(): RuntimeOptions {
     const timers: TimerProvider = {
       setAlarm: vi.fn(async () => {}),
@@ -49,7 +49,7 @@ describe('defineServerAdapter', () => {
 
   it('passes runtime-aware engine factory and options to setup', () => {
     const setup = vi.fn(() => ({ ok: true }));
-    const serve = defineServerAdapter({
+    const serve = adapter({
       id: 'test',
       hibernation: noopHibernation,
       asyncContextFactory: makeAsyncContextFactory(),
@@ -80,7 +80,7 @@ describe('defineServerAdapter', () => {
   it('passes the adapter hibernation API straight through to engine options', () => {
     let capturedFactory: ((runtimeOptions: RuntimeOptions) => Engine) | undefined;
     const api = { persist: vi.fn(), restore: vi.fn(() => ({ id: 'restored' })) };
-    const serve = defineServerAdapter({
+    const serve = adapter({
       id: 'cf',
       hibernation: api,
       asyncContextFactory: makeAsyncContextFactory(),
@@ -96,7 +96,7 @@ describe('defineServerAdapter', () => {
 
   it('omits hibernation in engine options when the adapter does not provide one', () => {
     let capturedFactory: ((runtimeOptions: RuntimeOptions) => Engine) | undefined;
-    const serve = defineServerAdapter({
+    const serve = adapter({
       id: 'no-hib',
       asyncContextFactory: makeAsyncContextFactory(),
       setup(createEngine) {
@@ -112,7 +112,7 @@ describe('defineServerAdapter', () => {
 
   it('factory creates independent engine instances', () => {
     let capturedFactory: ((runtimeOptions: RuntimeOptions) => Engine) | undefined;
-    const serve = defineServerAdapter({
+    const serve = adapter({
       id: 'multi',
       asyncContextFactory: makeAsyncContextFactory(),
       setup(createEngine) {
