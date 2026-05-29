@@ -1,9 +1,11 @@
+import { validateValue } from '~/_engine/compile/utils.ts';
 import { deleteMembership, listMembershipsByIdentity } from '~/persistence/storage.ts';
 import { addConnectionTag } from '~/tags/runtime.ts';
 import { listTagsByIdentity } from '~/tags/storage.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type { SendProtocolMessageOptions } from '~/_engine/runtime/wire.ts';
 import type { Logger, SQLProvider } from '~/context.ts';
+import type { Validator } from '~/types.ts';
 
 export interface RejoinSubscribeOptions {
   channelName: string;
@@ -47,6 +49,9 @@ export interface RejoinRuntime {
     opts: SendProtocolMessageOptions,
   ): void;
 
+  /** Returns a persistent tag group's validator, or undefined when it has none. */
+  getTagGroupSchema?(group: string): Validator | undefined;
+
   logger?: Pick<Logger, 'error'>;
 }
 
@@ -79,13 +84,34 @@ export interface RejoinRuntime {
  * means a tag dropped for the whole identity while this socket slept does not
  * come back.
  */
-export function restorePersistentTags(
-  sql: Pick<SQLProvider, 'exec'>,
-  tagMembers: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>,
-  connection: EngineRuntimeTypes.RuntimeConnection,
-): void {
+export interface RestorePersistentTagsOptions {
+  sql: Pick<SQLProvider, 'exec'>;
+  tagMembers: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>;
+  connection: EngineRuntimeTypes.RuntimeConnection;
+  /** Returns a group's validator, or undefined when it has none. */
+  getSchema?: (group: string) => Validator | undefined;
+  logger?: Pick<Logger, 'error'>;
+}
+
+export function restorePersistentTags(opts: RestorePersistentTagsOptions): void {
+  const { sql, tagMembers, connection } = opts;
   if (!connection.identity) return;
   for (const tag of listTagsByIdentity(sql, connection.identity)) {
+    const schema = opts.getSchema?.(tag.group);
+    if (schema) {
+      try {
+        validateValue(schema, tag.key, `tag persistent:${tag.group}`);
+      } catch (error) {
+        // A stored value that no longer matches the group's schema (e.g. the
+        // schema tightened across a deploy). Drop it and move on rather than
+        // crashing the wake/rejoin.
+        opts.logger?.error('[wskit] dropped a stored persistent tag that failed validation', {
+          group: tag.group,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        continue;
+      }
+    }
     addConnectionTag(tagMembers, connection, {
       kind: 'persistent',
       group: tag.group,
@@ -102,7 +128,13 @@ export async function autoRejoinIdentity(
 
   // Restore persistent tags first — channel auto-rejoin's check hook
   // can read them via `ctx.tags.persistent(...)`.
-  restorePersistentTags(runtime.sql, runtime.tagMembers, connection);
+  restorePersistentTags({
+    sql: runtime.sql,
+    tagMembers: runtime.tagMembers,
+    connection,
+    getSchema: runtime.getTagGroupSchema,
+    logger: runtime.logger,
+  });
 
   const rows = listMembershipsByIdentity(runtime.sql, connection.identity);
   if (rows.length === 0) return;

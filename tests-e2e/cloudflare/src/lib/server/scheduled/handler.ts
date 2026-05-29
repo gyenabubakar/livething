@@ -9,7 +9,7 @@ let defaultRetryAttempts = 0;
 export const scheduledContract = contract('scheduled', {
   env: t<Env>(),
   meta: t<{ username: string }>(),
-  tagGroups: { ephemeral: ['user', 'role'] },
+  tags: (ephemeral) => [ephemeral('user', t<string>()), ephemeral('role', t<string>())],
   definitions: [
     incoming('schedule-cleanup', v.object({ delayMs: v.number() })),
     incoming('cancel-cleanup', v.object({})),

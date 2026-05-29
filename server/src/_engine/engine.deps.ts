@@ -158,6 +158,7 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
     usesTags: core.usesTags(),
     persistenceEnabled: core.persistenceEnabled,
     isTagGroupDeclared: (kind, group) => core.isTagGroupDeclared(kind, group),
+    getTagGroupSchema: (kind, group) => core.getTagGroupSchema(kind, group),
   };
 }
 
@@ -396,11 +397,13 @@ function buildConnectionRuntime(core: EngineCore) {
     ...(core.persistenceEnabled
       ? {
           reloadPersistentTags: (connection: RuntimeConnection) =>
-            RejoinPersistence.restorePersistentTags(
-              core.requireStorage().sql,
-              core.tagMembers,
+            RejoinPersistence.restorePersistentTags({
+              sql: core.requireStorage().sql,
+              tagMembers: core.tagMembers,
               connection,
-            ),
+              getSchema: (group) => core.getTagGroupSchema('persistent', group),
+              logger: core.logger,
+            }),
         }
       : {}),
 

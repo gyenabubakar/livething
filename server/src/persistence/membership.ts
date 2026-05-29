@@ -183,6 +183,7 @@ export async function autoRejoinIdentity(
         return subscribeFromServer(ref, opts);
       },
       sendProtocolMessage: (target, opts) => sendProtocolMessage(core, target, opts),
+      getTagGroupSchema: (group) => core.getTagGroupSchema('persistent', group),
       logger: core.logger,
     },
     connection,

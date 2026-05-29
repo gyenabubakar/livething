@@ -193,6 +193,7 @@ export function buildConnectionContext(
           {
             tagMembers: deps.tagMembers,
             isTagGroupDeclared: deps.isTagGroupDeclared,
+            getTagGroupSchema: deps.getTagGroupSchema,
             toConnectionInfo: deps.toConnectionInfo,
             sendThroughPipeline: (target, event, payload) =>
               deps.sendThroughPipeline(target, { routing: undefined, event, payload }),

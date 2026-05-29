@@ -52,9 +52,7 @@ export const channelScopeIsolationContract = contract('channel-scope-isolation',
   sequence: { persist: true },
   replay: true,
   meta: t<{ username: string }>(),
-  tagGroups: {
-    ephemeral: ['user', 'label'],
-  },
+  tags: (ephemeral) => [ephemeral('user', t<string>()), ephemeral('label', t<string>())],
   definitions: [
     incoming('public-members', PublicMembersPayload),
     incoming('private-members', PrivateMembersPayload),

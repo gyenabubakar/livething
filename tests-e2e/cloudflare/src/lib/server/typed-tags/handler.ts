@@ -25,10 +25,11 @@ export const typedTagsContract = contract('typed-tags', {
   env: t<Env>(),
   persistence: true,
   meta: t<{ username: string }>(),
-  tagGroups: {
-    ephemeral: ['user', 'role'],
-    persistent: ['favorite'],
-  },
+  tags: (ephemeral, persistent) => [
+    ephemeral('user', t<string>()),
+    ephemeral('role', t<string>()),
+    persistent('favorite', t<string>()),
+  ],
   definitions: [
     incoming('add-tag', TagPayload),
     incoming('remove-tag', TagPayload),

@@ -3,6 +3,7 @@
 import type { ScopeDeclaration } from '~/channel/channel.ts';
 import type { ErrorDef } from '~/errors/errors.ts';
 import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
+import type { TagsConfig } from '~/tags/tags.ts';
 import type {
   ChannelDef,
   Definition,
@@ -176,10 +177,20 @@ export interface ContractConfig {
   readonly env?: TypeMarker<any>;
 
   readonly meta?: TypeMarker<any>;
-  readonly tagGroups?: {
-    readonly ephemeral?: readonly string[];
-    readonly persistent?: readonly string[];
-  };
+  /**
+   * Declare tag groups and the type of each group's value. Each builder call
+   * names a group and gives its value type via `t<T>()` (type only) or a
+   * Standard Schema (type plus runtime validation on `add()`).
+   *
+   * ```ts
+   * tags: (ephemeral, persistent) => [
+   *   ephemeral('user', t<string>()),
+   *   ephemeral('role', t<'admin' | 'moderator' | 'viewer'>()),
+   *   persistent('favourite', t<string>()),
+   * ]
+   * ```
+   */
+  readonly tags?: TagsConfig;
   readonly errors?: readonly any[];
   /**
    * Plugin instances mounted onto this server. Each entry is the result of
@@ -219,17 +230,23 @@ export type EnvFromConfig<TConfig> = TConfig extends { env: TypeMarker<infer E> 
   ? E
   : Record<string, unknown>;
 
-type EphemeralTagsFromConfig<TConfig> = TConfig extends {
-  tagGroups: { ephemeral: readonly (infer E)[] };
-}
-  ? E
+type TagDefsFromConfig<TConfig> = TConfig extends { tags: (...args: any[]) => infer R }
+  ? R extends readonly any[]
+    ? R[number]
+    : never
   : never;
 
-type PersistentTagsFromConfig<TConfig> = TConfig extends {
-  tagGroups: { persistent: readonly (infer P)[] };
-}
-  ? P
-  : never;
+type EphemeralTagMapFromConfig<TConfig> = {
+  [D in TagDefsFromConfig<TConfig> as D extends { kind: 'ephemeral'; name: infer N extends string }
+    ? N
+    : never]: D extends { _value?: infer V } ? (V extends string ? V : string) : string;
+};
+
+type PersistentTagMapFromConfig<TConfig> = {
+  [D in TagDefsFromConfig<TConfig> as D extends { kind: 'persistent'; name: infer N extends string }
+    ? N
+    : never]: D extends { _value?: infer V } ? (V extends string ? V : string) : string;
+};
 
 type ErrorMapFromConfig<TConfig> = TConfig extends { errors: infer TErrors }
   ? TErrors extends readonly any[]
@@ -347,8 +364,8 @@ export interface Contract<TConfig = unknown, TEnv = unknown> {
   readonly meta: MetaFromConfig<TConfig>;
   readonly env: TEnv;
   readonly tagGroups: {
-    ephemeral: EphemeralTagsFromConfig<TConfig>;
-    persistent: PersistentTagsFromConfig<TConfig>;
+    ephemeral: EphemeralTagMapFromConfig<TConfig>;
+    persistent: PersistentTagMapFromConfig<TConfig>;
   };
 
   readonly definitions: DefinitionsFromConfig<TConfig>;

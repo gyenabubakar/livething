@@ -10,9 +10,7 @@ function serializeTags(tags: readonly { group: string; key: string }[]): string 
 export const ctxTagsContract = contract('ctx-tags', {
   env: t<Env>(),
   meta: t<{ username: string }>(),
-  tagGroups: {
-    ephemeral: ['user', 'label'],
-  },
+  tags: (ephemeral) => [ephemeral('user', t<string>()), ephemeral('label', t<string>())],
   definitions: [
     incoming('tag-self', v.object({ tag: v.string() })),
     incoming('untag-self', v.object({ tag: v.string() })),

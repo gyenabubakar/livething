@@ -1,8 +1,10 @@
+import { validateValue } from '~/_engine/compile/utils.ts';
 import { forEachIsolated } from '~/_engine/runtime/isolation.ts';
 import { deleteTag, insertTag } from '~/tags/storage.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type { ConnectionInfo, SQLProvider, TagRef } from '~/context.ts';
 import type { GroupHandle, TagKind, TagRefHandle, TagsApi } from '~/tags/types.ts';
+import type { Validator } from '~/types.ts';
 
 type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
 
@@ -14,6 +16,9 @@ export interface TagsRuntime {
   tagMembers: Map<string, Set<RuntimeConnection>>;
 
   isTagGroupDeclared(kind: TagKind, group: string): boolean;
+
+  /** The runtime validator for a tag group, or `undefined` when it has none. */
+  getTagGroupSchema(kind: TagKind, group: string): Validator | undefined;
 
   toConnectionInfo(connection: RuntimeConnection): ConnectionInfo<Record<string, unknown>>;
 
@@ -213,6 +218,12 @@ export function buildGroupHandle(
     group,
 
     add(key: string) {
+      // Validate the value when the group declared a schema. A t<>() group has
+      // no schema and skips this. Throws ValidationFailed on a bad value before
+      // any state changes.
+      const schema = runtime.getTagGroupSchema(kind, group);
+      if (schema) validateValue(schema, key, `tag ${kind}:${group}`);
+
       if (kind === 'ephemeral') {
         if (!addConnectionTag(runtime.tagMembers, connection, { kind, group, key })) return;
         runtime.persistAttachment(connection);

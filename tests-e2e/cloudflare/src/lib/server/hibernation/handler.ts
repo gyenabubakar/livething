@@ -25,9 +25,7 @@ export const hibernationContract = contract('hibernation', {
   env: t<Env>(),
   hibernation: true,
   meta: t<{ username: string }>(),
-  tagGroups: {
-    ephemeral: ['user', 'label'],
-  },
+  tags: (ephemeral) => [ephemeral('user', t<string>()), ephemeral('label', t<string>())],
   definitions: [
     incoming('save-note', SaveNotePayload),
     incoming('get-notes', GetNotesPayload),

@@ -5,6 +5,7 @@ import type * as ChannelRuntime from '~/channel/runtime.ts';
 import type * as PublicApi from '~/context.ts';
 import type * as OutgoingRuntime from '~/outgoing/runtime.ts';
 import type { ScheduledCancelResult } from '~/scheduled/types.ts';
+import type { Validator } from '~/types.ts';
 
 /**
  * Hidden scope markers attached to live connection contexts for engine-owned
@@ -157,6 +158,9 @@ export interface ContextCommonDeps {
    * runtime throws when a handler accesses an undeclared group.
    */
   isTagGroupDeclared(kind: 'ephemeral' | 'persistent', group: string): boolean;
+
+  /** The runtime validator for a tag group, or `undefined` when it has none. */
+  getTagGroupSchema(kind: 'ephemeral' | 'persistent', group: string): Validator | undefined;
 }
 
 /**
