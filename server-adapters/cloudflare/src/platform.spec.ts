@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createPlatform } from './platform.ts';
-import { createSql, createStorage, createTimers } from './providers.ts';
+import { createSql, createStorage, createTimers } from './providers/index.ts';
 import { normalizeBinary } from './utils.ts';
 
 function fakeCursor<T>(rows: T[]) {

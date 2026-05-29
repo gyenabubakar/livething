@@ -15,11 +15,9 @@ export const multiStateContract = contract('multi-state', {
   env: t<Env>(),
   hibernation: true,
   meta: t<{ username: string }>(),
-  tagGroups: {
-    // `user` is consumed by `requireUsername` from `_shared/upgrade.ts`;
-    // `batch` is what the multi-state handlers under test add and remove.
-    ephemeral: ['user', 'batch'],
-  },
+  // `user` is consumed by `requireUsername` from `_shared/upgrade.ts`;
+  // `batch` is what the multi-state handlers under test add and remove.
+  tags: (ephemeral) => [ephemeral('user', t<string>()), ephemeral('batch', t<string>())],
   definitions: [
     incoming('add-five-tags', TagBatchPayload),
     incoming('remove-five-tags', TagBatchPayload),

@@ -90,7 +90,7 @@ function createStreamRuntime() {
       asyncContext: new AsyncLocalStorage<AsyncContextStore>(),
       persistAttachment: vi.fn(),
       wskitStampHooks: [],
-      logger: { warn: vi.fn() },
+      logger: { warn: vi.fn(), error: vi.fn() },
       errorHooks: [] as readonly ((
         ctx: unknown,
         error: unknown,
@@ -379,7 +379,7 @@ describe('stream/runtime', () => {
     expect(broadcasts).toHaveLength(0);
   });
 
-  it('Defer thrown from a stream handler logs a warning, fires onError hooks, and sends __error__ with defer-exhausted code', async () => {
+  it('Defer thrown from a stream handler logs an error, fires onError hooks, and sends __error__ with internal-error code', async () => {
     const { runtime, protocolMessages } = createStreamRuntime();
     const connection = createConnection();
     const handleRuntimeError = vi.fn();
@@ -401,10 +401,10 @@ describe('stream/runtime', () => {
     });
 
     expect(handleRuntimeError).not.toHaveBeenCalled();
-    expect((runtime.logger.warn as ReturnType<typeof vi.fn>).mock.calls[0]![0]).toMatch(/Defer/);
+    expect((runtime.logger.error as ReturnType<typeof vi.fn>).mock.calls[0]![0]).toMatch(/Defer/);
     const errMsg = protocolMessages.find((m) => m.event === '__error__');
     expect(errMsg).toBeDefined();
-    expect(errMsg!.payload.code).toBe('defer-exhausted');
+    expect(errMsg!.payload.code).toBe('internal-error');
     expect(errMsg!.wskit.streamId).toBe('stream_1');
   });
 
@@ -900,7 +900,7 @@ describe('stream/runtime', () => {
     expect(runtime.activeStreams.has('existing_1')).toBe(true);
   });
 
-  it('Defer thrown inside a stream fires onError hooks and sends an __error__ with code defer-exhausted', async () => {
+  it('Defer thrown inside a stream fires onError hooks and sends an __error__ with code internal-error', async () => {
     const { runtime, protocolMessages } = createStreamRuntime();
     const connection = createConnection();
 
@@ -932,12 +932,11 @@ describe('stream/runtime', () => {
     expect(hookCalls).toHaveLength(1);
     expect(hookCalls[0]!.event).toBe('feed');
     const err = hookCalls[0]!.error as { code?: string; detail?: { retries?: number } };
-    expect(err.code).toBe('defer-exhausted');
-    expect(err.detail?.retries).toBe(0);
+    expect(err.code).toBe('internal-error');
 
     const wire = protocolMessages.find((m) => m.event === '__error__');
     expect(wire).toBeDefined();
-    expect(wire!.payload.code).toBe('defer-exhausted');
+    expect(wire!.payload.code).toBe('internal-error');
     expect(wire!.wskit.streamId).toBe('stream_1');
     expect(wire!.payload.detail).toBeUndefined();
   });

@@ -1,6 +1,7 @@
 import {
   ChannelNotFound,
   ChannelNotSubscribed,
+  InternalError,
   InvalidScopeMarkers,
   NamespaceNotFound,
   RateLimited,
@@ -22,6 +23,7 @@ import type * as PublicApi from '~/context.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
 import type * as ScheduledPrimitiveTypes from '~/scheduled/types.ts';
 import type * as DefineServer from '~/server-definition.ts';
+import type { Validator } from '~/types.ts';
 
 type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
 type PluginRuntime = EngineRuntimeTypes.PluginRuntime;
@@ -92,7 +94,18 @@ export class EngineCore {
   };
   readonly tagGroupsRegistered = { ephemeral: false, persistent: false };
 
+  /**
+   * Per-group runtime validators, keyed `${kind}:${group}`. Present only for
+   * groups declared with a Standard Schema; groups declared with a `t<>()`
+   * marker (or no type) have no entry and skip runtime validation.
+   */
+  readonly tagGroupSchemas = new Map<string, Validator>();
+
   readonly declaredErrorCodes = new Set<string>([
+    // The engine's own fallback code for any non-WskitError. It is always a
+    // valid code to surface, so declaring it here keeps an explicit
+    // `throw InternalError()` from logging a spurious "not declared" warning.
+    InternalError.code,
     ValidationFailed.code,
     ChannelNotFound.code,
     ChannelNotSubscribed.code,
@@ -219,6 +232,11 @@ export class EngineCore {
 
   isTagGroupDeclared(kind: 'ephemeral' | 'persistent', group: string): boolean {
     return this.declaredTagGroups[kind].has(group);
+  }
+
+  /** The runtime validator for a tag group, or `undefined` when it has none. */
+  getTagGroupSchema(kind: 'ephemeral' | 'persistent', group: string): Validator | undefined {
+    return this.tagGroupSchemas.get(`${kind}:${group}`);
   }
 
   getDeclaredTagGroups(kind: 'ephemeral' | 'persistent'): ReadonlySet<string> {

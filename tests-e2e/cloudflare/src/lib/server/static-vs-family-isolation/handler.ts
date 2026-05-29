@@ -35,9 +35,7 @@ export const staticVsFamilyIsolationContract = contract('static-vs-family-isolat
   dedup: true,
   sequence: { persist: true },
   meta: t<{ username: string }>(),
-  tagGroups: {
-    ephemeral: ['user', 'label'],
-  },
+  tags: (ephemeral) => [ephemeral('user', t<string>()), ephemeral('label', t<string>())],
   definitions: [
     incoming('tag-self', TagSelfPayload),
     incoming('observe-static', ObserveStaticPayload),

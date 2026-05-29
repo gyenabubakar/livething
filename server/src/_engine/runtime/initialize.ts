@@ -50,11 +50,13 @@ export async function initialize(core: EngineCore, accessDeps: EngineAccessDeps)
   validateEngineRequirements(core);
 
   for (const pluginInstance of core.compiled.plugins) {
-    // Plugins can declare typed errors via `definitions: [error('acme/denied',
-    // schema)]`. Register each declared code so handleRuntimeError no longer
-    // logs the "not declared" warning and the client sees a known code.
-    if (pluginInstance.errors?.defs) {
-      for (const def of pluginInstance.errors.defs) {
+    // Plugins declare errors in their `errors: { name: error(...) }` map; the
+    // engine namespaced each code to `__<id>:<name>`. Register the prefixed
+    // code so handleRuntimeError recognises it (no "not declared" warning) and
+    // the client sees the namespaced code.
+    const pluginErrors = (pluginInstance as { errors?: Record<string, { code: string }> }).errors;
+    if (pluginErrors) {
+      for (const def of Object.values(pluginErrors)) {
         core.declaredErrorCodes.add(def.code);
       }
     }

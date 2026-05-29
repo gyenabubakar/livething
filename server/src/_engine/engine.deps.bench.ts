@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { defineServerAdapter } from '~/_adapters/define.ts';
+import { adapter } from '~/_adapters/define.ts';
 import { dispatchRuntime, outgoingRuntime } from '~/_engine/engine.deps.ts';
 import { bench, describe } from 'vitest';
 import type { EngineCore } from '~/_engine/core.ts';
@@ -7,9 +7,10 @@ import type { ServerDefinition } from '~/server-definition.ts';
 
 function makeCore(): EngineCore {
   let core: EngineCore | undefined;
-  const serve = defineServerAdapter({
+  const serve = adapter({
     id: 'bench',
     hibernation: { persist() {}, restore: () => undefined },
+    asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
     setup(createEngine) {
       core = createEngine({
         env: {},
@@ -19,7 +20,6 @@ function makeCore(): EngineCore {
           deleteAlarm: async () => {},
           getAlarm: async () => null,
         },
-        asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
         waitUntil: () => {},
         logger: {
           info() {},

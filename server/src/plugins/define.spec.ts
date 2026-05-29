@@ -1,7 +1,6 @@
 import { error } from '~/errors/errors.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
-import type { ErrorsPrimitive } from '~/errors/primitive.ts';
 import { definePlugin, PLUGIN_API_MAP } from './define.ts';
 
 const Forbidden = error('forbidden', v.object({ reason: v.string() }));
@@ -11,7 +10,9 @@ describe('definePlugin', () => {
     const key = Symbol('analytics');
     const dependency = { __key: Symbol('dep') };
     const setup = vi.fn(() => () => ({ track() {} }));
-    const errorsPrimitive = { __wskit: 'errors', defs: [Forbidden] } as unknown as ErrorsPrimitive;
+    // definePlugin receives the already-namespaced error factory map (the
+    // high-level plugin() wrapper builds it; here we pass one directly).
+    const errorsMap = { forbidden: Forbidden };
 
     const analytics = definePlugin({
       id: 'acme:analytics',
@@ -19,7 +20,7 @@ describe('definePlugin', () => {
       dependencies: [dependency],
       requires: { storage: true, timers: true },
       outgoing: { flushed: v.object({ ok: v.boolean() }) },
-      errors: errorsPrimitive,
+      errors: errorsMap,
       setup,
     });
 
@@ -31,7 +32,7 @@ describe('definePlugin', () => {
     expect(instance.id).toBe('acme:analytics');
     expect(instance.args).toEqual({ sampleRate: 1 });
     expect(instance.outgoing).toEqual({ flushed: expect.anything() });
-    expect(instance.errors).toBe(errorsPrimitive);
+    expect(instance.errors).toBe(errorsMap);
     expect(instance.__requires).toEqual({ storage: true, timers: true });
     expect(instance.setupPlugin).toBe(setup);
   });

@@ -1,9 +1,9 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { defineServerAdapter } from '@wskit/server/adapters';
+import { adapter } from '@wskit/server/adapters';
 import { DurableObject } from 'cloudflare:workers';
 import type { ConnectionHandle, Engine, Logger, ServerDefinition } from '@wskit/server/adapters';
 import { createPlatform } from './platform.ts';
-import { createStorage, createTimers } from './providers.ts';
+import { createStorage, createTimers } from './providers/index.ts';
 import { normalizeBinary } from './utils.ts';
 
 /**
@@ -31,7 +31,7 @@ function createAsyncContext<TStore>() {
   return new AsyncLocalStorage<TStore>();
 }
 
-const buildServe = defineServerAdapter<undefined, CloudflareDurableObjectClass>({
+const buildServe = adapter<undefined, CloudflareDurableObjectClass>({
   id: 'cloudflare',
   // Persist per-socket snapshots through Cloudflare's attachment slot so the
   // engine never reaches into platform-specific WebSocket APIs directly.
@@ -43,6 +43,9 @@ const buildServe = defineServerAdapter<undefined, CloudflareDurableObjectClass>(
       return (wsKey as WebSocket).deserializeAttachment();
     },
   },
+  // Static capability, declared once next to hibernation — it needs no
+  // per-instance state, so it does not belong in the per-DO createEngine call.
+  asyncContextFactory: createAsyncContext,
 
   setup(createEngine) {
     return class WskitDurableObject<Env = unknown> extends DurableObject<Env> {
@@ -71,7 +74,6 @@ const buildServe = defineServerAdapter<undefined, CloudflareDurableObjectClass>(
           platform: createPlatform(ctx, env),
           storage: createStorage(ctx, logger),
           timers: createTimers(ctx),
-          asyncContextFactory: createAsyncContext,
           waitUntil: (promise: Promise<unknown>) => {
             ctx.waitUntil?.(promise);
           },
@@ -86,6 +88,12 @@ const buildServe = defineServerAdapter<undefined, CloudflareDurableObjectClass>(
           // short-circuits and the empty set is a no-op.
           const surviving = new Set<string>();
           if (this.engine.usesHibernation()) {
+            // Answer the app-level keepalive ping at the edge so a hibernated
+            // DO is not woken just to reply "pong". wskit's client sends the
+            // literal text "ping"; the runtime replies "pong" without booting
+            // this object. Server-side latency stats pause while hibernated,
+            // which is expected.
+            this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
             for (const ws of this.ctx.getWebSockets()) {
               const attachment = (ws as WebSocket).deserializeAttachment() as {
                 id?: string;

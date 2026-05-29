@@ -1,32 +1,24 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 
+import { assertValidWSKitIdentifier } from '@wskit/core';
 import { collectUnique } from '~/_engine/compile/utils.ts';
 import {
   assertOneOf,
   assertOptionalPositiveInteger,
   assertPositiveInteger,
 } from '~/_engine/validation.ts';
+import { resolveTagGroupDefs } from '~/tags/tags.ts';
 import type { Contract, ContractConfig, EnvFromConfig } from './contract-types.ts';
 
-const RESERVED_TAG_GROUP_NAME_PATTERN = /^__.+__$/;
-
-function validateTagGroupNames(kind: string, names: readonly string[] | undefined): void {
-  if (!names || names.length === 0) return;
-
-  const seen = new Set<string>();
-  for (const name of names) {
-    if (typeof name !== 'string' || name.length === 0) {
-      throw new Error(`[wskit] contract(): tagGroups.${kind} names must be non-empty strings.`);
+function validateTagDefs(tags: ContractConfig['tags']): void {
+  if (!tags) return;
+  const seen = { ephemeral: new Set<string>(), persistent: new Set<string>() };
+  for (const def of resolveTagGroupDefs(tags)) {
+    assertValidWSKitIdentifier(def.name, `contract(): ${def.kind} tag group name`);
+    if (seen[def.kind].has(def.name)) {
+      throw new Error(`[wskit] contract(): ${def.kind} tag group '${def.name}' is declared twice.`);
     }
-    if (RESERVED_TAG_GROUP_NAME_PATTERN.test(name)) {
-      throw new Error(
-        `[wskit] contract(): tagGroups.${kind} name '${name}' matches the reserved /^__.+__$/ pattern.`,
-      );
-    }
-    if (seen.has(name)) {
-      throw new Error(`[wskit] contract(): tagGroups.${kind} name '${name}' is declared twice.`);
-    }
-    seen.add(name);
+    seen[def.kind].add(def.name);
   }
 }
 
@@ -77,8 +69,7 @@ function validateContractConfig(config: ContractConfig): void {
     });
   }
 
-  validateTagGroupNames('ephemeral', config.tagGroups?.ephemeral);
-  validateTagGroupNames('persistent', config.tagGroups?.persistent);
+  validateTagDefs(config.tags);
 }
 
 /**

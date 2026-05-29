@@ -2,7 +2,7 @@ import { contract, implement, incoming, outgoing, stream, t } from '@wskit/serve
 import { RejectUpgrade } from '@wskit/server/errors';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
-import { Drizzle, DrizzleDenied } from './drizzle-plugin.ts';
+import { Drizzle } from './drizzle-plugin.ts';
 import {
   DeleteRecord,
   DisconnectCount,
@@ -186,11 +186,11 @@ export const pluginsHandler = implement(pluginsContract)
     ctx.schedule('__e2e:drizzle:drizzle-query-dlq', { time: Date.now() + 100 });
   })
   .on('trigger-plugin-denied', () => {
-    throw DrizzleDenied({ reason: 'test denial', op: 'insert' });
+    throw Drizzle.errors.denied({ reason: 'test denial', op: 'insert' });
   })
   .on('trigger-plugin-error', (ctx) => {
     try {
-      throw DrizzleDenied({ reason: 'test denial', op: 'insert' });
+      throw Drizzle.errors.denied({ reason: 'test denial', op: 'insert' });
     } catch (err: unknown) {
       const error = err as { code: string; detail?: { reason: string } };
       const reason = error.detail?.reason ?? 'unknown';

@@ -40,16 +40,16 @@ interface TypedSendApi<TOutgoing> {
  * Address for every connection holding any key under one group. Built via
  * `ctx.tags.ephemeral(group)` / `ctx.tags.persistent(group)`.
  */
-export interface GroupHandle {
+export interface GroupHandle<TValue extends string = string> {
   readonly __wskit: 'group-handle';
   readonly kind: 'ephemeral' | 'persistent';
   readonly group: string;
-  /** Add a key for the current connection under this group. */
-  add(key: string): void;
-  /** Remove a key from the current connection under this group. */
-  remove(key: string): void;
-  /** Return a handle to every connection holding a specific key under this group. */
-  ref(key: string): TagRefHandle;
+  /** Add a value for the current connection under this group. */
+  add(key: TValue): void;
+  /** Remove a value from the current connection under this group. */
+  remove(key: TValue): void;
+  /** Return a handle to every connection holding a specific value under this group. */
+  ref(key: TValue): TagRefHandle;
 }
 
 /**
@@ -70,9 +70,12 @@ export interface TagRefHandle extends TagRef {
  * Typed tag groups. Group names are strictly the ones declared on the
  * contract — passing an undeclared name is a type error and a runtime throw.
  */
-export interface TagsApi<TEphemeral extends string = never, TPersistent extends string = never> {
-  ephemeral(group: TEphemeral): GroupHandle;
-  persistent(group: TPersistent): GroupHandle;
+export interface TagsApi<
+  TEphemeral extends Record<string, string> = Record<string, string>,
+  TPersistent extends Record<string, string> = Record<string, string>,
+> {
+  ephemeral<G extends keyof TEphemeral & string>(group: G): GroupHandle<TEphemeral[G]>;
+  persistent<G extends keyof TPersistent & string>(group: G): GroupHandle<TPersistent[G]>;
   /** Snapshot of every tag currently attached to this connection. */
   list(): readonly { kind: 'ephemeral' | 'persistent'; group: string; key: string }[];
 }
@@ -225,10 +228,7 @@ export type Ctx<C extends Contract> = {
       ? ChannelsManager<string, string, Record<string, Record<string, unknown>>, C['meta']>
       : TypedChannelsManager<C['channels'], C['meta']>;
     /** Tag groups declared on the contract — attach/find connections by labelled keys. */
-    readonly tags: TagsApi<
-      C['tagGroups']['ephemeral'] extends string ? C['tagGroups']['ephemeral'] : never,
-      C['tagGroups']['persistent'] extends string ? C['tagGroups']['persistent'] : never
-    >;
+    readonly tags: TagsApi<C['tagGroups']['ephemeral'], C['tagGroups']['persistent']>;
   };
 
 // ---------------------------------------------------------------------------

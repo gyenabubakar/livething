@@ -4,6 +4,7 @@ import {
   removeConnectionFromTagIndex,
   removeConnectionTag,
 } from '~/tags/runtime.ts';
+import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { TagsRuntime } from '~/tags/runtime.ts';
@@ -37,6 +38,7 @@ function createRuntime(
   return {
     tagMembers,
     isTagGroupDeclared: () => true,
+    getTagGroupSchema: () => undefined,
     toConnectionInfo: (connection: RuntimeConnection) => ({ id: connection.id }),
     sendThroughPipeline: (connection: RuntimeConnection) => {
       sent.push(connection.id);
@@ -126,6 +128,7 @@ function createPersistentRuntime(
   return {
     tagMembers,
     isTagGroupDeclared: () => true,
+    getTagGroupSchema: () => undefined,
     toConnectionInfo: (connection: RuntimeConnection) => ({ id: connection.id }),
     sendThroughPipeline: () => {},
     persistAttachment: () => {},
@@ -179,5 +182,43 @@ describe('persistent tag durability ordering', () => {
     ).toThrow('sql down');
 
     expect(conn.tags.persistent.get('role')?.has('admin')).toBe(true);
+  });
+});
+
+function runtimeWithSchema(schema: unknown): TagsRuntime {
+  return {
+    tagMembers: new Map(),
+    isTagGroupDeclared: () => true,
+    getTagGroupSchema: () => schema,
+    toConnectionInfo: (connection: RuntimeConnection) => ({ id: connection.id }),
+    sendThroughPipeline: () => {},
+    persistAttachment: () => {},
+    persistenceEnabled: false,
+    requireStorage: () => ({ sql: { exec: () => {} } }),
+  } as unknown as TagsRuntime;
+}
+
+describe('tag value validation', () => {
+  it('accepts a value that matches the group schema', () => {
+    const conn = createConnection('u1');
+    const runtime = runtimeWithSchema(v.picklist(['admin', 'viewer']));
+    buildGroupHandle(runtime, conn, { kind: 'ephemeral', group: 'role' }).add('viewer');
+    expect(conn.tags.ephemeral.get('role')?.has('viewer')).toBe(true);
+  });
+
+  it('rejects a value that fails the group schema, before any state change', () => {
+    const conn = createConnection('u1');
+    const runtime = runtimeWithSchema(v.picklist(['admin', 'viewer']));
+    expect(() =>
+      buildGroupHandle(runtime, conn, { kind: 'ephemeral', group: 'role' }).add('nope'),
+    ).toThrow();
+    expect(conn.tags.ephemeral.get('role')?.has('nope') ?? false).toBe(false);
+  });
+
+  it('skips validation when the group has no schema (t<>() marker)', () => {
+    const conn = createConnection('u1');
+    const runtime = runtimeWithSchema(undefined);
+    buildGroupHandle(runtime, conn, { kind: 'ephemeral', group: 'free' }).add('anything');
+    expect(conn.tags.ephemeral.get('free')?.has('anything')).toBe(true);
   });
 });

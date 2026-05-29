@@ -1,4 +1,4 @@
-export { defineServerAdapter } from './define.ts';
+export { adapter } from './define.ts';
 export type {
   AdapterConfig,
   ConnectionDescriptor,

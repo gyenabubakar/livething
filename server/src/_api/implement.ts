@@ -39,7 +39,7 @@ import { sequence as sequenceFactory } from '~/sequence/sequence.ts';
 import { compileRecordedStreamDef } from '~/stream-recorded/compile.ts';
 import { compileResumableStreamDef } from '~/stream-resumable/compile.ts';
 import { compileStreamDef } from '~/stream/compile.ts';
-import { tagGroups as tagGroupsFactory } from '~/tags/tags.ts';
+import { resolveTagGroupDefs, tagGroups as tagGroupsFactory } from '~/tags/tags.ts';
 import type { InterceptFrame } from '~/intercept/intercept.ts';
 import type {
   BinaryHandler,
@@ -1073,11 +1073,16 @@ export class Implementer<C extends Contract> {
     if (rateLimitPlan) primitives.push(rateLimitFactory(rateLimitPlan));
 
     // ── Tag groups ───────────────────────────────────────────────────────────
-    if (config.tagGroups?.ephemeral && config.tagGroups.ephemeral.length > 0) {
-      primitives.push(tagGroupsFactory('ephemeral', config.tagGroups.ephemeral));
-    }
-    if (config.tagGroups?.persistent && config.tagGroups.persistent.length > 0) {
-      primitives.push(tagGroupsFactory('persistent', config.tagGroups.persistent));
+    if (config.tags) {
+      const tagDefs = resolveTagGroupDefs(config.tags);
+      const ephemeral = tagDefs
+        .filter((def) => def.kind === 'ephemeral')
+        .map((def) => ({ name: def.name, schema: def.schema }));
+      const persistent = tagDefs
+        .filter((def) => def.kind === 'persistent')
+        .map((def) => ({ name: def.name, schema: def.schema }));
+      if (ephemeral.length > 0) primitives.push(tagGroupsFactory('ephemeral', ephemeral));
+      if (persistent.length > 0) primitives.push(tagGroupsFactory('persistent', persistent));
     }
 
     // ── Errors ───────────────────────────────────────────────────────────────

@@ -19,9 +19,7 @@ const KickAckPayload = v.object({ tag: v.string() });
 export const channelStaticContract = contract('channel-static', {
   env: t<Env>(),
   meta: t<{ username: string }>(),
-  tagGroups: {
-    ephemeral: ['user', 'label'],
-  },
+  tags: (ephemeral) => [ephemeral('user', t<string>()), ephemeral('label', t<string>())],
   definitions: [
     incoming('tag-self', TagSelfPayload),
     incoming('kick-by-tag', KickByTagPayload),

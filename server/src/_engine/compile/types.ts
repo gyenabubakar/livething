@@ -45,7 +45,7 @@ export type AnyPlugin = DefinePlugin.PluginInstance<
   any,
   any,
   Record<string, unknown>,
-  readonly any[]
+  DefinePlugin.PluginErrorMap
 >;
 /** Widened `.namespace()` primitive type for the compile layer. */
 export type NamespacePrimitiveType = NamespacePrimitive.NamespacePrimitive;

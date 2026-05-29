@@ -6,6 +6,7 @@ import type * as ErrorsPrimitive from '~/errors/errors.ts';
 import type * as LifecycleTypes from '~/lifecycle/lifecycle.ts';
 import type * as ReplayPrimitiveTypes from '~/replay/types.ts';
 import type * as ScheduledPrimitive from '~/scheduled/types.ts';
+import type { TagGroupRegistration } from '~/tags/tags.ts';
 import type * as ValidationTypes from '~/types.ts';
 
 /**
@@ -350,7 +351,10 @@ export interface EngineAccess {
    *
    * @internal
    */
-  registerTagGroups(kind: 'ephemeral' | 'persistent', groups: readonly string[]): void;
+  registerTagGroups(
+    kind: 'ephemeral' | 'persistent',
+    groups: readonly TagGroupRegistration[],
+  ): void;
 
   /**
    * Record a per-channel `.persistent(enabled)` override. The engine reads

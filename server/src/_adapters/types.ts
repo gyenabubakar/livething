@@ -1,4 +1,4 @@
-import type * as EngineModule from '~/_engine/engine.ts';
+import type { Engine as EngineClass } from '~/_engine/engine.ts';
 import type {
   AsyncContextFactory,
   Logger,
@@ -80,7 +80,7 @@ export interface UpgradeDecision {
  * `restore(wsKey)` returns the most recent snapshot the platform held onto.
  *
  * Adapters that support hibernation declare this object on their
- * `defineServerAdapter` config; adapters that don't omit it. The presence of
+ * `adapter` config; adapters that don't omit it. The presence of
  * the object is the capability signal — there is no separate boolean flag.
  *
  * Cloudflare implementation:
@@ -137,10 +137,10 @@ export interface EngineOptions {
 }
 
 /** The runtime engine created by the adapter from a compiled server definition. Handles connections, message routing, and lifecycle. */
-export type Engine = EngineModule.Engine;
+export type Engine = EngineClass;
 
 /**
- * The configuration object returned by `defineServerAdapter`.
+ * The configuration object returned by `adapter`.
  *
  * Platform adapters (like the Cloudflare adapter) use this to wire up the
  * engine to the platform's WebSocket lifecycle.
@@ -155,8 +155,18 @@ export interface AdapterConfig<TOptions, TService> {
    */
   hibernation?: HibernationApi;
 
+  /**
+   * Factory for the async-context implementation this runtime uses. Declared
+   * here, alongside `hibernation`, because it is a static capability of the
+   * adapter — it does not depend on any per-instance state, so it is set once
+   * at definition time rather than rebuilt inside every `createEngine` call.
+   */
+  asyncContextFactory: AsyncContextFactory;
+
   setup(
-    createEngine: (runtimeOptions: Omit<EngineOptions, 'adapterId' | 'hibernation'>) => Engine,
+    createEngine: (
+      runtimeOptions: Omit<EngineOptions, 'adapterId' | 'hibernation' | 'asyncContextFactory'>,
+    ) => Engine,
     options: TOptions,
   ): TService;
 }

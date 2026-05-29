@@ -1,17 +1,36 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { definePrimitive } from '~/primitive.ts';
 import type { ConnectionInfo, InitContext, TaskContext } from '~/context.ts';
-import type { ErrorDef } from '~/errors/errors.ts';
-import type { ErrorsPrimitive } from '~/errors/primitive.ts';
+import type { ErrorDefWithFactory } from '~/errors/errors.ts';
 import type { Primitive, PrimitiveRef, RequiresManifest } from '~/primitive.ts';
 import type { ScheduledHandle } from '~/scheduled/scheduled.ts';
+
+/** A map of a plugin's own error factories, keyed by a short name. */
+export type PluginErrorMap = Record<string, ErrorDefWithFactory<string, any>>;
 
 /**
  * The hook surface available to a plugin during `setup()`. Everything a
  * plugin can register — lifecycle hooks, message observers, scheduled tasks,
  * and helpers — is exposed here.
  */
-export interface PluginHooks<TCtx = any> {
+export interface PluginHooks<TCtx = any, TErrors extends PluginErrorMap = PluginErrorMap> {
+  /**
+   * The plugin's own errors, ready to throw. These are the factories you
+   * declared in the plugin's `errors: { ... }` map, but the engine has already
+   * namespaced their codes to `__<pluginId>:<name>`, so throwing one can never
+   * collide with a handler's error of the same name.
+   *
+   * ```ts
+   * setup(args, hooks) {
+   *   hooks.onConnect((ctx) => {
+   *     if (overQuota) throw hooks.errors.denied({ reason: 'quota' });
+   *   });
+   *   return (ctx) => ({ ... });
+   * }
+   * ```
+   */
+  readonly errors: TErrors;
+
   /**
    * Observe or rewrite the payload of an incoming message before the handler
    * runs. Return a value to replace the payload; return `void` to leave it as
@@ -80,7 +99,7 @@ export interface PluginConfig<
   TApi,
   TCtx = any,
   TOutgoing extends Record<string, unknown> = {},
-  TErrors extends readonly ErrorDef<string, any>[] = readonly [],
+  TErrors extends PluginErrorMap = {},
 > {
   /**
    * A unique identifier in `"author:name"` lowercase format.
@@ -101,7 +120,7 @@ export interface PluginConfig<
   readonly outgoing?: TOutgoing;
 
   /** Typed errors this plugin may throw. */
-  readonly errors?: ErrorsPrimitive<TErrors>;
+  readonly errors?: TErrors;
 
   /**
    * Called once during engine initialization.
@@ -109,7 +128,10 @@ export interface PluginConfig<
    * Use `hooks` to register lifecycle callbacks and message transforms.
    * Return a context factory that builds the per-connection API object.
    */
-  readonly setup: (args: TArgs, hooks: PluginHooks<TCtx>) => PluginContextFactory<TCtx, TApi>;
+  readonly setup: (
+    args: TArgs,
+    hooks: PluginHooks<TCtx, TErrors>,
+  ) => PluginContextFactory<TCtx, TApi>;
 }
 
 /**
@@ -122,14 +144,15 @@ export interface PluginInstance<
   TArgs = unknown,
   TApi = unknown,
   TOutgoing extends Record<string, unknown> = {},
-  TErrors extends readonly ErrorDef<string, any>[] = readonly [],
+  TErrors extends PluginErrorMap = {},
   TScheduledEntry extends { readonly name: string } = { readonly name: string },
 > extends Primitive<'plugin'> {
   readonly id: TId;
   readonly args: TArgs;
 
   readonly outgoing: TOutgoing;
-  readonly errors?: ErrorsPrimitive<TErrors>;
+  /** Namespaced error factories (empty map when the plugin declares none). */
+  readonly errors: TErrors;
 
   /**
    * Contract-level feature flags this plugin needs the host contract to enable
@@ -166,7 +189,7 @@ export interface PluginFactory<
   TArgs = unknown,
   TApi = unknown,
   TOutgoing extends Record<string, unknown> = {},
-  TErrors extends readonly ErrorDef<string, any>[] = readonly [],
+  TErrors extends PluginErrorMap = {},
   TScheduledEntry extends { readonly name: string } = { readonly name: string },
 > extends PrimitiveRef {
   (args: TArgs): PluginInstance<TId, TArgs, TApi, TOutgoing, TErrors, TScheduledEntry>;
@@ -184,6 +207,13 @@ export interface PluginFactory<
   use<TCtx>(ctx: TCtx): TApi;
 
   readonly id: TId;
+
+  /**
+   * The plugin's namespaced error factories, for matching from outside the
+   * plugin. `MyPlugin.errors.denied.matches(err)` recognises an error the
+   * plugin threw, regardless of where it was caught.
+   */
+  readonly errors: TErrors;
 }
 
 /**
@@ -246,7 +276,7 @@ export function definePlugin<
   TApi,
   TCtx = any,
   const TOutgoing extends Record<string, unknown> = {},
-  const TErrors extends readonly ErrorDef<string, any>[] = readonly [],
+  const TErrors extends PluginErrorMap = {},
 >(
   config: PluginConfig<TArgs, TApi, TCtx, TOutgoing, TErrors>,
 ): PluginFactory<string, TArgs, TApi, TOutgoing, TErrors> {
@@ -263,7 +293,7 @@ export function definePlugin<
       id: string;
       args: TArgs;
       outgoing: TOutgoing;
-      errors?: ErrorsPrimitive<TErrors>;
+      errors: TErrors;
       dependencies: readonly string[];
       scheduled: readonly { readonly name: string }[];
       setupPlugin: PluginConfig<TArgs, TApi, TCtx, TOutgoing, TErrors>['setup'];
@@ -278,7 +308,7 @@ export function definePlugin<
         id: config.id,
         args,
         outgoing: (config.outgoing ?? {}) as TOutgoing,
-        errors: config.errors,
+        errors: (config.errors ?? {}) as TErrors,
         // Empty by default; the high-level `plugin()` wrapper overwrites both
         // dependencies and scheduled per instance with values pulled out of
         // the user-facing definitions array. Kept out of PluginConfig because
@@ -311,6 +341,7 @@ export function definePlugin<
       },
       id: config.id,
       __key: config.key,
+      errors: (config.errors ?? {}) as TErrors,
     },
   );
 }

@@ -6,9 +6,7 @@ import { requireUsername } from '../_shared/upgrade.ts';
 export const ctxChannelsContract = contract('ctx-channels', {
   env: t<Env>(),
   meta: t<{ username: string }>(),
-  tagGroups: {
-    ephemeral: ['user'],
-  },
+  tags: (ephemeral) => [ephemeral('user', t<string>())],
   definitions: [
     incoming('get-members', v.object({ channel: v.string() })),
     incoming('get-member-id', v.object({ channel: v.string() })),

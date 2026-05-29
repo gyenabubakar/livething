@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { assertValidWSKitIdentifier } from '@wskit/core';
 import {
   compileChannelPrimitive,
   validateChannelFamilyPatternsDisjointFromStaticNames,
@@ -312,6 +313,7 @@ function validateUniquePluginEventNames(compiled: EngineCompileTypes.CompiledSer
  */
 function validateScopeAndEventNameSyntax(compiled: EngineCompileTypes.CompiledServer): void {
   function checkScopeName(name: string, kind: 'channel' | 'namespace'): void {
+    assertValidWSKitIdentifier(name, `${kind} name`);
     if (name.startsWith('@') || name.startsWith('#')) {
       throw new Error(
         `[wskit] ${kind} name '${name}' starts with a reserved prefix character ('@' or '#'). ` +

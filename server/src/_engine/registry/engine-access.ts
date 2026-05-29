@@ -165,12 +165,15 @@ export function createEngineAccess(
       }
       core.tagGroupsRegistered[kind] = true;
       if (kind === 'persistent' && !core.persistenceEnabled) {
-        const sample = groups[0];
+        const sample = groups[0]?.name;
         throw new Error(
           `[wskit] persistent tag group '${sample}' requires persistence. Set 'persistence: true' in your contract, or move '${sample}' to the 'ephemeral' kind.`,
         );
       }
-      for (const group of groups) core.declaredTagGroups[kind].add(group);
+      for (const group of groups) {
+        core.declaredTagGroups[kind].add(group.name);
+        if (group.schema) core.tagGroupSchemas.set(`${kind}:${group.name}`, group.schema);
+      }
     },
     isDurableMembershipPairPersistent: (channelName, channelScope) =>
       core.isDurableMembershipPairPersistent(channelName, channelScope),

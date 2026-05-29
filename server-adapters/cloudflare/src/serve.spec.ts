@@ -22,11 +22,11 @@ type AdapterSetup = (
 
 let fake: FakeEngine;
 
-// Each serve() call re-invokes defineServerAdapter.setup. We capture the
+// Each serve() call re-invokes adapter.setup. We capture the
 // createEngine factory so every DO instance shares the same fake engine
 // we can assert against.
 vi.mock('@wskit/server/adapters', () => ({
-  defineServerAdapter:
+  adapter:
     <TOpts, TSvc>(config: { id: string; hibernation: unknown; setup: AdapterSetup }) =>
     (_handler: unknown, options: TOpts): TSvc => {
       return config.setup((runtimeOptions: unknown) => {
@@ -111,7 +111,6 @@ describe('WskitDurableObject fetch / upgrade', () => {
       platform: expect.any(Object),
       storage: expect.any(Object),
       timers: expect.any(Object),
-      asyncContextFactory: expect.any(Function),
       waitUntil: expect.any(Function),
     });
   });
@@ -166,6 +165,34 @@ describe('WskitDurableObject fetch / upgrade', () => {
     expect(server.accept).not.toHaveBeenCalled();
     // addEventListener path NOT used under hibernation
     expect(server.addEventListener).not.toHaveBeenCalled();
+  });
+
+  it('registers a ping/pong auto-response under hibernation so keepalives do not wake the DO', async () => {
+    const Cls = buildClass({ hibernation: true });
+    const state = makeFakeDOState();
+    fake.stageUpgrade({});
+
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+    await instance.fetch(upgradeRequest());
+
+    expect(state.setWebSocketAutoResponse).toHaveBeenCalledTimes(1);
+    const pair = state.setWebSocketAutoResponse.mock.calls[0]![0] as {
+      request: string;
+      response: string;
+    };
+    expect(pair.request).toBe('ping');
+    expect(pair.response).toBe('pong');
+  });
+
+  it('does not register an auto-response in standard (non-hibernation) mode', async () => {
+    const Cls = buildClass({ hibernation: false });
+    const state = makeFakeDOState();
+    fake.stageUpgrade({});
+
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+    await instance.fetch(upgradeRequest());
+
+    expect(state.setWebSocketAutoResponse).not.toHaveBeenCalled();
   });
 });
 

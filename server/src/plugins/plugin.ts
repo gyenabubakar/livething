@@ -1,27 +1,17 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 
+import { namespaceError } from '@wskit/core';
 import { collectUnique } from '~/_engine/compile/utils.ts';
 import { definePlugin } from '~/plugins/define.ts';
-import type {
-  ErrorContractDef,
-  OutgoingDef,
-  ScheduledDef,
-  TypeMarker,
-} from '~/_api/definitions.ts';
-import type { ErrorDef } from '~/errors/errors.ts';
-import type { ErrorsPrimitive } from '~/errors/primitive.ts';
+import type { OutgoingDef, ScheduledDef, TypeMarker } from '~/_api/definitions.ts';
 import type {
   PluginContextFactory,
+  PluginErrorMap,
   PluginFactory,
   PluginHooks,
   PluginInstance,
 } from '~/plugins/define.ts';
 import type { RequiresManifest } from '~/primitive.ts';
-
-// `error('code', schema?)` from @wskit/core returns this — a callable factory
-// PLUS code metadata. Plugins accept either this or a contract-style
-// ErrorContractDef.
-type ErrorLike = { readonly code: string; readonly schema?: unknown } | ErrorDef<string, any>;
 
 /**
  * Feature flags a plugin can declare a dependency on. Boot checks that the
@@ -38,15 +28,13 @@ export type PluginDependency =
   | 'binary';
 
 /**
- * Definitions a plugin is allowed to declare. Plugins expose outgoing events,
- * scheduled tasks, and errors — they do not register incoming handlers
- * (use `hooks.onIncoming` for cross-cutting message observation).
+ * Definitions a plugin is allowed to declare. Plugins expose outgoing events
+ * and scheduled tasks here — they do not register incoming handlers (use
+ * `hooks.onIncoming` for cross-cutting message observation). Errors are
+ * declared separately in the `errors: { ... }` map so the engine can namespace
+ * their codes.
  */
-type PluginDefinition =
-  | OutgoingDef<string, any>
-  | ScheduledDef<string, any>
-  | ErrorContractDef<string, any>
-  | ErrorLike;
+type PluginDefinition = OutgoingDef<string, any> | ScheduledDef<string, any>;
 
 /** Collapse a union into an intersection — used to fold per-def records into one map. */
 type UnionToIntersection<U> = (U extends unknown ? (x: U) => void : never) extends (
@@ -66,17 +54,6 @@ type ExtractPluginOutgoing<TDefs> = TDefs extends readonly (infer D)[]
       D extends OutgoingDef<infer TName, infer TPayload> ? { [K in TName]: TPayload } : {}
     >
   : {};
-
-/**
- * Extract the union of declared error definitions from a plugin's definitions
- * tuple so the contract's error map can include plugin error codes with their
- * detail types.
- */
-type ExtractPluginErrors<TDefs> = TDefs extends readonly (infer D)[]
-  ? D extends ErrorDef<string, any>
-    ? D
-    : never
-  : never;
 
 /**
  * Extract the union of `{ name: <literal task name> }` entries from a
@@ -112,6 +89,13 @@ export interface PluginConfig<TArgs, TCtx = any, TApi = unknown> {
    */
   readonly definitions?: readonly PluginDefinition[];
   /**
+   * The plugin's own errors, declared with short names. The engine namespaces
+   * each code to `__<id>:<name>` so it can't clash with a handler's error of
+   * the same name. Throw them via `hooks.errors.<name>(...)`, and match them
+   * from outside with `MyPlugin.errors.<name>.matches(err)`.
+   */
+  readonly errors?: PluginErrorMap;
+  /**
    * Wire the plugin into the engine and return the per-connection API
    * factory. The return type of `(ctx) => api` is inferred and surfaces
    * through `<Plugin>.use(ctx)`.
@@ -127,20 +111,24 @@ export interface PluginConfig<TArgs, TCtx = any, TApi = unknown> {
  * import { plugin, outgoing, scheduled, error, t } from '@wskit/server';
  * import * as v from 'valibot';
  *
- * const Denied = error('drizzle/denied', v.object({ reason: v.string() }));
- *
  * export const Drizzle = plugin('acme:drizzle', {
  *   args: t<{ migrate: boolean }>(),
  *   requires: { storage: true },
  *   dependencies: ['persistence'],
+ *   // Errors are declared here with short names. The engine namespaces each
+ *   // code to `__acme:drizzle:<name>`, so it can't clash with a handler's own.
+ *   errors: {
+ *     denied: error('denied', v.object({ reason: v.string() })),
+ *   },
  *   definitions: [
  *     outgoing('drizzle-ready', v.object({ tables: v.array(v.string()) })),
  *     scheduled('drizzle-vacuum', { every: 60_000 }),
- *     Denied,
  *   ],
  *   setup(args, hooks) {
  *     hooks.onInit((ctx) => { ... });
  *     hooks.scheduled('drizzle-vacuum', (t) => t.run(async (ctx) => { ... }));
+ *     // Throw the plugin's own error from a hook:
+ *     hooks.onConnect((ctx) => { if (blocked) throw hooks.errors.denied({ reason: 'blocked' }); });
  *     return (ctx) => ({
  *       insert: (row) => { ... },
  *       findAll: () => { ... },
@@ -156,6 +144,8 @@ export interface PluginConfig<TArgs, TCtx = any, TApi = unknown> {
  *   definitions: [...],
  * });
  *
+ * // Match the plugin's error from anywhere: Drizzle.errors.denied.matches(err)
+ *
  * // Use inside a handler:
  * implement(c).on('insert-record', (ctx, payload) => {
  *   const db = Drizzle.use(ctx);
@@ -168,18 +158,24 @@ export function plugin<
   TArgs = void,
   TApi = unknown,
   const TDefs extends readonly PluginDefinition[] = readonly [],
+  TErrors extends PluginErrorMap = {},
 >(
   id: TId,
   // Every type parameter is inferred from the call site — never given as an
   // explicit generic argument. TId comes from the `id` literal. TArgs comes
   // from the `args: t<T>()` field (the same TypeMarker the contract uses for
   // `meta`). TApi falls out of setup's return value. TDefs is the
-  // const-narrowed definitions tuple. Inferring everything keeps the call
-  // shape generic-free, so partial generic args can't cut off inference for
-  // the remaining ones.
-  config: Omit<PluginConfig<TArgs, any, TApi>, 'definitions' | 'setup' | 'args'> & {
+  // const-narrowed definitions tuple. TErrors is the const-narrowed errors map.
+  // Inferring everything keeps the call shape generic-free, so partial generic
+  // args can't cut off inference for the remaining ones.
+  config: Omit<PluginConfig<TArgs, any, TApi>, 'definitions' | 'setup' | 'args' | 'errors'> & {
     readonly args?: TypeMarker<TArgs>;
     readonly definitions?: TDefs;
+    readonly errors?: TErrors;
+    // `hooks` is typed loosely here on purpose: mentioning TErrors in this
+    // parameter position makes it compete with the `errors` map to infer
+    // TErrors, which collapses it to `{}`. Inside setup, `hooks.errors.<name>`
+    // is still callable; the fully-typed factories are on `Plugin.errors`.
     readonly setup: (args: TArgs, hooks: PluginHooks<any>) => PluginContextFactory<any, TApi>;
   },
 ): PluginFactory<
@@ -187,7 +183,7 @@ export function plugin<
   TArgs,
   TApi,
   ExtractPluginOutgoing<TDefs>,
-  readonly ExtractPluginErrors<TDefs>[],
+  TErrors,
   ExtractPluginScheduledEntry<TDefs> extends never
     ? { readonly name: string }
     : ExtractPluginScheduledEntry<TDefs> & { readonly name: string }
@@ -197,20 +193,12 @@ export function plugin<
   const outgoingDefsRaw = allDefs.filter(
     (d) => (d as { _?: string })._ === 'outgoing',
   ) as readonly { name: string; schema?: unknown }[];
-  const errorDefsRaw = allDefs.filter((d) => {
-    const x = d as { _?: string; code?: string };
-    return x._ === 'error' || (x.code !== undefined && x._ === undefined);
-  }) as readonly ErrorDef<string, any>[];
   const scheduledDefsRaw = allDefs.filter(
     (d) => (d as { _?: string })._ === 'scheduled',
   ) as readonly ScheduledDef<string, any>[];
 
   collectUnique(outgoingDefsRaw, (d) => d.name, {
     kind: 'outgoing',
-    context: `plugin("${id}")`,
-  });
-  collectUnique(errorDefsRaw, (d) => d.code, {
-    kind: 'error code',
     context: `plugin("${id}")`,
   });
   const scheduledDefs = collectUnique(scheduledDefsRaw, (d) => d.id, {
@@ -220,16 +208,24 @@ export function plugin<
 
   const outgoingMap: Record<string, unknown> = {};
   for (const d of outgoingDefsRaw) outgoingMap[d.name] = d.schema;
-  const errorDefs: ErrorDef<string, any>[] = [...errorDefsRaw];
+
+  // Namespace each declared error to `__<id>:<name>`, reusing its detail
+  // schema. The author throws/matches via these factories; the prefixed code
+  // is what reaches the wire and the declared-error set, so it can never
+  // collide with a handler's error of the same short name.
+  const prefixedErrors: PluginErrorMap = {};
+  for (const [name, def] of Object.entries(config.errors ?? {})) {
+    prefixedErrors[name] = namespaceError(`__${id}:${name}`, def);
+  }
 
   const inner = definePlugin({
     id,
     key: Symbol(id),
     requires: config.requires,
     outgoing: outgoingMap as any,
-    errors: errorDefs.length > 0 ? ({ defs: errorDefs } as ErrorsPrimitive<any>) : undefined,
-    setup: config.setup,
-  }) as PluginFactory<string, TArgs, TApi, any, readonly ErrorDef<string, any>[]>;
+    errors: prefixedErrors,
+    setup: config.setup as any,
+  }) as PluginFactory<string, TArgs, TApi, any, PluginErrorMap>;
 
   // Wrap so every instance the user creates carries the contract-feature
   // dependency list AND the declared scheduled-task list. compile reads
@@ -259,7 +255,7 @@ export function plugin<
         TArgs,
         TApi,
         ExtractPluginOutgoing<TDefs>,
-        readonly ExtractPluginErrors<TDefs>[],
+        TErrors,
         ExtractPluginScheduledEntry<TDefs> extends never
           ? { readonly name: string }
           : ExtractPluginScheduledEntry<TDefs> & { readonly name: string }
@@ -269,17 +265,18 @@ export function plugin<
       TArgs,
       TApi,
       ExtractPluginOutgoing<TDefs>,
-      readonly ExtractPluginErrors<TDefs>[],
+      TErrors,
       ExtractPluginScheduledEntry<TDefs> extends never
         ? { readonly name: string }
         : ExtractPluginScheduledEntry<TDefs> & { readonly name: string }
     >,
     {
-      // Re-export the inner factory's `.use(ctx)` and id so the wrapper is
-      // a drop-in replacement.
+      // Re-export the inner factory's `.use(ctx)`, id, and namespaced errors so
+      // the wrapper is a drop-in replacement.
       use: inner.use,
       id: inner.id as TId,
       __key: inner.__key,
+      errors: prefixedErrors as TErrors,
       __wskit_plugin_dependencies: dependencies,
       __wskit_plugin_scheduled: scheduledDefs,
     },

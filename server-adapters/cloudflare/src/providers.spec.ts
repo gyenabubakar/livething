@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createKv, createSql } from './providers.ts';
+import { createKv, createSql } from './providers/index.ts';
 
 type KvEntry = { value: unknown; expiresAt?: number };
 

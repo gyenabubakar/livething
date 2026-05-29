@@ -6,9 +6,7 @@ import { requireUsername } from '../_shared/upgrade.ts';
 export const ctxSendContract = contract('ctx-send', {
   env: t<Env>(),
   meta: t<{ username: string }>(),
-  tagGroups: {
-    ephemeral: ['user', 'label'],
-  },
+  tags: (ephemeral) => [ephemeral('user', t<string>()), ephemeral('label', t<string>())],
   definitions: [
     incoming('do-broadcast', v.object({ text: v.string() })),
     incoming('do-broadcast-exclude-self', v.object({ text: v.string() })),
