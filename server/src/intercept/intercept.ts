@@ -6,7 +6,7 @@ import type { Primitive } from '~/primitive.ts';
  *
  * `kind`, `event`, and `routing` are read-only views of the dispatched frame.
  * `payload` is the raw, unvalidated payload — narrow it with
- * `contract.matches(...)` or `contract.unsafeCast(...)` to get a typed shape.
+ * `matches(contract, ...)` or `unsafeCast(contract, ...)` from `@wskit/server` to get a typed shape.
  *
  * The event name is locked from the moment the message hits the dispatcher —
  * an intercept cannot rewrite routing. The return value of the handler
@@ -97,12 +97,14 @@ const INTERCEPT_KEY = Symbol('intercept');
  *
  * @example
  * ```ts
+ * import { matches } from '@wskit/server';
+ *
  * // Log all messages
  * intercept((ctx, frame) => { console.log(frame.kind, frame.event); });
  *
  * // Narrow + transform a specific event's payload
  * intercept((ctx, frame) => {
- *   if (myContract.matches('send-message', frame)) {
+ *   if (matches(myContract, 'send-message', frame)) {
  *     return { ...frame.payload, text: sanitise(frame.payload.text) };
  *   }
  * });

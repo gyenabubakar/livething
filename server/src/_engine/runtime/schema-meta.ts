@@ -18,7 +18,7 @@ interface SqlExec {
 
 /**
  * Returns `true` when storage records the current schema version. On a fresh
- * fresh instance the meta table does not exist yet — the SELECT throws and we return
+ * instance the meta table does not exist yet — the SELECT throws and we return
  * `false`. One round trip on the warm-boot path; the meta table itself is
  * only created when schema-init actually runs.
  */

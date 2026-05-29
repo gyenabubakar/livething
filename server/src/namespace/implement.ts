@@ -124,8 +124,8 @@ export class NamespaceImplement<C extends Contract, NsC = any> {
    * frame, `Disconnect` to close the connection, or return a new value to
    * replace the payload.
    *
-   * Use `contract.matches(...)` or `contract.unsafeCast(...)` inside the
-   * handler to narrow `frame.payload` to a typed shape per event.
+   * Use `matches(contract, ...)` or `unsafeCast(contract, ...)` from
+   * `@wskit/server` inside the handler to narrow `frame.payload` to a typed shape per event.
    */
   intercept(handler: (ctx: NamespaceCtx<NsC, C>, frame: InterceptFrame) => any): this {
     if (this._bag.intercept) {

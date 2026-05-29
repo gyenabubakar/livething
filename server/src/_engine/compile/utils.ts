@@ -11,22 +11,6 @@ import type * as NamespacePrimitive from '~/namespace/namespace.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
 
 /**
- * Throw at declaration time if an event name clashes with the wskit wire
- * protocol. `ping`/`pong` are the raw keepalive frames; the `__` prefix is
- * reserved for protocol events (`__subscribe__`, `__error__`, ...) and
- * plugin-owned events. Called by every definition factory that takes an event
- * name.
- */
-/**
- * Insert into a compile-time map and throw if the key already exists. Each
- * primitive kind (incoming, outgoing, request, stream variants, scheduled,
- * channel, namespace) owns its own slot on `CompiledServer`, and a duplicate
- * declaration in the same slot was previously silent — the second declaration
- * just overwrote the first. With this helper, a duplicate fails build with a
- * clear `WskitConfigError` so the engine refuses to construct and the server
- * doesn't start with a half-broken contract.
- */
-/**
  * Walk a list once and throw if any two items share the same key. Use this
  * before any `Map.set`/`Set.add`/object-key write loop — those collapse
  * duplicates silently and let the second declaration win without any signal.
@@ -51,6 +35,15 @@ export function collectUnique<T>(
   return items;
 }
 
+/**
+ * Insert into a compile-time map and throw if the key already exists. Each
+ * primitive kind (incoming, outgoing, request, stream variants, scheduled,
+ * channel, namespace) owns its own slot on `CompiledServer`, and a duplicate
+ * declaration in the same slot was previously silent — the second declaration
+ * just overwrote the first. With this helper, a duplicate fails build with a
+ * clear `WskitConfigError` so the engine refuses to construct and the server
+ * doesn't start with a half-broken contract.
+ */
 export function setUniqueOrThrow<V>(
   map: Map<string, V>,
   key: string,
@@ -65,6 +58,13 @@ export function setUniqueOrThrow<V>(
   map.set(key, entry.value);
 }
 
+/**
+ * Throw at declaration time if an event name clashes with the wskit wire
+ * protocol. `ping`/`pong` are the raw keepalive frames; the `__` prefix is
+ * reserved for protocol events (`__subscribe__`, `__error__`, ...) and
+ * plugin-owned events. Called by every definition factory that takes an event
+ * name.
+ */
 export function assertNonReservedEventName(name: string, factory: string): void {
   assertValidWSKitIdentifier(name, `${factory}() event name`);
   if (name === 'ping' || name === 'pong') {

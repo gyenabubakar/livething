@@ -5,10 +5,13 @@ import type { Validator } from '~/types.ts';
 
 /**
  * Declares one client→server event that can be sent to a running stream as a
- * mid-stream signal. Created by `nudge()` and collected by `StreamBuilder`.
+ * mid-stream signal. Created by `nudge()` and collected into a `StreamPrimitive` by `stream()`.
  *
  * A good beginner mental model is "a nudge is a control message for a stream
  * that is already running".
+ *
+ * This is the internal primitive shape. The contract-side `nudge()` users call
+ * (in a `stream(...)` definition's `nudges` list) lives in `~/stream/definition.ts`.
  */
 export interface NudgeDeclaration<TEvent extends string = string, TPayload = unknown> {
   /** The event name the client sends to nudge the stream. */
@@ -73,8 +76,10 @@ export function nudge<TEvent extends string, TSchema extends StandardSchemaV1>(
  *
  * @example
  * ```ts
- * s.nudge(nudge('pause'))
- * s.nudge(nudge('speed-up', v.object({ factor: v.number() })))
+ * import * as v from 'valibot';
+ *
+ * const pause = nudge('pause');
+ * const speedUp = nudge('speed-up', v.object({ factor: v.number() }));
  * ```
  */
 export function nudge(event: string, validator?: Validator): NudgeDeclaration {
@@ -111,8 +116,8 @@ export interface StreamNudgesApi<TNudges extends readonly NudgeDeclaration[]> {
   /**
    * Parse the raw value returned from a stream `yield` into typed nudge messages.
    *
-   * Call this inside `.generate(...)` after a `yield` when the stream declared
-   * one or more `.nudge(...)` controls.
+   * Call this inside the stream generator after a `yield` when the stream
+   * declared one or more nudges in its `nudges` list.
    */
   nudges(value: unknown): StreamNudgeMessages<TNudges>;
 }
@@ -156,7 +161,8 @@ export interface StreamStartDeclaration<TEvent extends string = string, TPayload
 
 /**
  * The primitive type produced by `stream()`. Describes the trigger event, the
- * chunk type declared by `.chunk(...)`, the nudges, and the broadcast flag.
+ * chunk type declared by the contract `stream(...)` config, the nudges, and the
+ * broadcast flag.
  * The engine uses this to set up stream routing and dispatch.
  *
  * `_TChunks` is used only by the type system (for the `generate()` pairing) and
@@ -227,9 +233,9 @@ const GENERATE_KEY = Symbol('generate');
  * stream, which nudges it accepts, and whether chunks are broadcast.
  *
  * This primitive must be paired with a `generate()` primitive before the engine
- * can run the stream. In practice you rarely call `stream()` directly — the
- * `StreamBuilder` (from `.stream()` on the server builder) calls `stream()`
- * after you declare `.chunk(...)`, then pairs it with `generate()`.
+ * can run the stream. You never call `stream()` directly — the implementer's
+ * compile step (`compileStreamDef`) calls it from a contract-side `stream(...)`
+ * declaration, then pairs it with `generate()` and the registered handler.
  *
  * @param startDecl Trigger event name, optional validator, and broadcast flag.
  * @param nudges    Zero or more nudge declarations from `nudge()`.
@@ -260,8 +266,9 @@ export function stream<
  * Creates a generate primitive. Pairs a `StreamPrimitive` with the
  * `AsyncGenerator` function that produces chunks.
  *
- * In practice you rarely call `generate()` directly. The `StreamBuilder`
- * calls it via `.chunk(...).generate(handler)`.
+ * You never call `generate()` directly. The implementer's compile step
+ * (`compileStreamDef`) calls it, pairing the stream declaration with the
+ * generator registered via `implement(c).stream(name, ...)`.
  *
  * @param streamDecl The stream declaration to attach the generator to.
  * @param generator  The `AsyncGenerator` that yields chunks to the client.
@@ -290,9 +297,9 @@ export function generate<TBaseCtx, TStream extends StreamPrimitive, TNext = any>
  * Create a `StreamStartDeclaration` — a plain object that captures the trigger
  * event name, an optional payload validator, and the broadcast flag.
  *
- * This is a convenience factory used by `StreamBuilder` internally. You do not
- * need to call it when using the builder API — it is exposed for advanced use
- * cases where you build streams from lower-level primitives.
+ * This is an internal convenience factory. You do not need it when declaring
+ * streams the normal way (`stream(name, { payload, chunk, nudges })` on the
+ * contract) — it is exposed for building streams from lower-level primitives.
  */
 export function start<TEvent extends string>(
   name: TEvent,
@@ -303,9 +310,9 @@ export function start<TEvent extends string>(
  * Create a `StreamStartDeclaration` — a plain object that captures the trigger
  * event name, an optional payload validator, and the broadcast flag.
  *
- * This is a convenience factory used by `StreamBuilder` internally. You do not
- * need to call it when using the builder API — it is exposed for advanced use
- * cases where you build streams from lower-level primitives.
+ * This is an internal convenience factory. You do not need it when declaring
+ * streams the normal way (`stream(name, { payload, chunk, nudges })` on the
+ * contract) — it is exposed for building streams from lower-level primitives.
  */
 export function start<TEvent extends string, TSchema extends StandardSchemaV1>(
   name: TEvent,
@@ -316,9 +323,9 @@ export function start<TEvent extends string, TSchema extends StandardSchemaV1>(
  * Create a `StreamStartDeclaration` — a plain object that captures the trigger
  * event name, an optional payload validator, and the broadcast flag.
  *
- * This is a convenience factory used by `StreamBuilder` internally. You do not
- * need to call it when using the builder API — it is exposed for advanced use
- * cases where you build streams from lower-level primitives.
+ * This is an internal convenience factory. You do not need it when declaring
+ * streams the normal way (`stream(name, { payload, chunk, nudges })` on the
+ * contract) — it is exposed for building streams from lower-level primitives.
  */
 export function start(
   name: string,

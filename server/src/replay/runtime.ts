@@ -187,7 +187,7 @@ export function buildReplayRow(event: string, params: BuildReplayRowOptions): Re
   const messageId = wskit.messageId;
 
   if (typeof seq !== 'number' || typeof messageId !== 'string') {
-    throw new Error('[wskit] replay() requires sequence() and dedup() in the same scope.');
+    throw new Error('[wskit] replay requires `sequence` and `dedup` enabled in the same scope.');
   }
 
   const scope = readReplayScope(wskit);

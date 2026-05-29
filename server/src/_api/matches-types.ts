@@ -1,8 +1,8 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 
 /**
- * Type-level machinery behind `contract.matches(key, frame)` and
- * `contract.unsafeCast(key, frame)`.
+ * Type-level machinery behind `matches(contract, key, frame)` and
+ * `unsafeCast(contract, key, frame)`.
  *
  * The key grammar is `[<@channel | #namespace>::]event` — kind is derivable
  * from the event lookup so it's not in the key. Given a contract `TContract`
@@ -121,7 +121,7 @@ type RoutingFor<TParsed extends ParsedKey> = TParsed extends { scope: 'channel';
 
 /**
  * The narrowed `InterceptFrame` shape produced by a successful
- * `contract.matches(key, frame)` or `contract.unsafeCast(key, frame)` call.
+ * `matches(contract, key, frame)` or `unsafeCast(contract, key, frame)` call.
  *
  * When the contract is fully known and the key matches a declared event,
  * `payload`, `kind`, and `routing` are all narrowed to the exact shapes

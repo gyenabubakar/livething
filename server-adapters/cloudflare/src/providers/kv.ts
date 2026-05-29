@@ -19,11 +19,9 @@ async function readFreshKvEntry(
  * Create a KVProvider backed by Durable Object SQLite with built-in TTL (time-to-live)
  * support for automatic key expiry.
  *
- * When `kv.set()` is called with `ttl: 0`, the provider emits a warning that
- * includes the key name, since `0` is treated as "no expiry" rather than
- * "expire immediately". If your key names encode sensitive data (for example
- * `session:${userId}`), the key name will appear in the warning output — use
- * a non-zero ttl or omit it to avoid the warning.
+ * When `kv.set()` is called with `ttl: 0`, the provider emits a warning
+ * (without the key name) since `0` is treated as "no expiry" rather than
+ * "expire immediately". Use a positive ttl or omit it to avoid the warning.
  */
 export function createKv(state: DurableObjectState, logger: Logger): KVProvider {
   return {

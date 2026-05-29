@@ -86,10 +86,13 @@ export async function sendRuntimeError(
 ): Promise<void> {
   const { error, event, routing } = options;
   if (error instanceof WskitError && !deps.declaredErrorCodes.has(error.code)) {
-    deps.logger.warn('[wskit] Thrown WskitError was not declared with errors(...)', {
-      code: error.code,
-      event,
-    });
+    deps.logger.warn(
+      '[wskit] Thrown WskitError was not declared in the contract errors: [...] list',
+      {
+        code: error.code,
+        event,
+      },
+    );
   }
 
   const scope = routing ? deps.resolveScopeFromRouting?.(routing) : undefined;

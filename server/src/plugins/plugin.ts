@@ -126,7 +126,7 @@ export interface PluginConfig<TArgs, TCtx = any, TApi = unknown> {
  *   ],
  *   setup(args, hooks) {
  *     hooks.onInit((ctx) => { ... });
- *     hooks.scheduled('drizzle-vacuum', (t) => t.run(async (ctx) => { ... }));
+ *     hooks.scheduled('drizzle-vacuum', async (ctx) => { ... });
  *     // Throw the plugin's own error from a hook:
  *     hooks.onConnect((ctx) => { if (blocked) throw hooks.errors.denied({ reason: 'blocked' }); });
  *     return (ctx) => ({

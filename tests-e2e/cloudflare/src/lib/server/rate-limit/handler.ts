@@ -35,7 +35,7 @@ export const rateLimitContract = contract('rate-limit', {
     outgoing('expensive-done', ExpensiveDonePayload),
 
     // Top-level request — per-handler override max=1; used to prove that an
-    // _error frame on rate-limited rejection preserves _correlationId.
+    // __error__ frame on rate-limited rejection preserves correlationId.
     request('echo-req', { payload: EchoReqPayload, response: EchoResPayload }),
 
     // Channel with no rateLimit — inherits the top-level rule (shares bucket).

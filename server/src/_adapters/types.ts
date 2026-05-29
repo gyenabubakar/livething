@@ -108,8 +108,8 @@ export interface EngineOptions {
   /**
    * Adapter-provided hibernation persistence mechanism. Present when the
    * adapter supports hibernation; omitted otherwise. The engine validates at
-   * `initialize()` that this is present whenever the handler called
-   * `.hibernation()` and throws a clear error if the combination is
+   * `initialize()` that this is present whenever the contract set
+   * `hibernation: true` and throws a clear error if the combination is
    * unsupported.
    */
   hibernation?: HibernationApi;
@@ -150,8 +150,8 @@ export interface AdapterConfig<TOptions, TService> {
 
   /**
    * Adapter-provided hibernation persistence. Adapters that don't support
-   * hibernation omit this field; the engine then rejects any handler that
-   * registered `.hibernation()` at `initialize()` time.
+   * hibernation omit this field; the engine then rejects any contract that
+   * set `hibernation: true` at `initialize()` time.
    */
   hibernation?: HibernationApi;
 

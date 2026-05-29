@@ -177,7 +177,7 @@ const buildServe = adapter<undefined, CloudflareDurableObjectClass>({
         const server = pair[1];
         const descriptor = this.createConnectionDescriptor(server, result);
 
-        // Hibernation is opt-in at the handler level via `.hibernation()`.
+        // Hibernation is opt-in via `hibernation: true` on the contract.
         // Tags are intentionally NOT forwarded into Cloudflare's per-socket
         // tag store. wskit already persists tags inside its hibernation
         // attachment, so the runtime is the source of truth on wake. The
@@ -292,9 +292,9 @@ const buildServe = adapter<undefined, CloudflareDurableObjectClass>({
  *
  * Export the returned class from your Worker so the Cloudflare runtime can
  * instantiate one DO per `idFromName(...)`. Each DO instance owns its own
- * WebSocket connections, storage, and scheduled alarm. By default the DO
- * uses the Cloudflare WebSocket Hibernation API when the handler calls
- * `.hibernation()`.
+ * WebSocket connections, storage, and scheduled alarm. The DO uses the
+ * Cloudflare WebSocket Hibernation API when the contract sets
+ * `hibernation: true`.
  *
  * The returned value is a class, not an instance. Export it from your worker
  * module like `export const Room = serve(handler);` — Cloudflare instantiates

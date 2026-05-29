@@ -71,7 +71,7 @@ type ChannelStatePrimitive =
  * ```
  */
 export interface ScopeDeclaration<TKey extends string = string> {
-  /** Identifier for this channel family. Used with `ctx.channels.members(key)`. */
+  /** Identifier for this channel family. Used with `ctx.channels.get(key, name)` lookups. */
   readonly key: TKey;
   /** Regular expression matched against the subscription path. */
   readonly pattern: RegExp;

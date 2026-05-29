@@ -11,8 +11,8 @@ const PERSISTENCE_KEY = Symbol('persistence');
 /**
  * Activates per-user durable state. At boot the engine creates the
  * identity-keyed tables and starts writing channel memberships across
- * reconnects. Channels persist by default; set `persistent: false` inside
- * a channel sub-builder to opt out per channel.
+ * reconnects. Channels persist by default; set `persistent: false` in a
+ * channel's definition config to opt out per channel.
  *
  * Enable this via `persistence: true` on the contract config instead of
  * calling this primitive directly.

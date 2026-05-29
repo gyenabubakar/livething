@@ -65,7 +65,7 @@ export const streamBasicHandler = implement(streamBasicContract)
   })
 
   .stream('start-empty', async function* () {
-    // Generator yields nothing; immediately sends _streamEnd
+    // Generator yields nothing; immediately sends __streamEnd__
   })
 
   .build();

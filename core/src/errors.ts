@@ -170,10 +170,10 @@ function createMatchesFn<TCode extends string, TDetail>(
  * the handler never fires (or stops executing if thrown mid-handler).
  *
  * ```ts
- * intercept(async (ctx, message) => {
- *   if (isBanned(ctx.meta.userId)) throw Block;
- *   return message;
- * });
+ * implement(contract)
+ *   .intercept((ctx, frame) => {
+ *     if (isBanned(ctx.meta.userId)) throw Block;
+ *   })
  * ```
  */
 export const Block = Object.freeze({ __wskit: 'block' as const });
@@ -532,8 +532,8 @@ export const RateLimited = error(
  * `streamId` is carried in `detail.streamId` so the client can decide
  * whether to wait for it, cancel it, or surface the conflict to the user.
  *
- * Opt out per-stream with `.allowConcurrent()` on the stream builder if the
- * use case genuinely needs parallel runs of the same event (e.g. fan-out
+ * Opt out per-stream with `allowConcurrent: true` on the `stream()` definition
+ * if the use case genuinely needs parallel runs of the same event (e.g. fan-out
  * searches).
  *
  * @example

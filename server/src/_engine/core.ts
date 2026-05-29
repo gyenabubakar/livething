@@ -245,7 +245,7 @@ export class EngineCore {
   /**
    * Does a `(channelName, channelScope)` pair from a durable row still match a
    * persistent channel? Used by boot reconcile to find orphan rows from
-   * removed or `.persistent(false)` channels.
+   * removed or `persistent: false` channels.
    */
   isDurableMembershipPairPersistent(channelName: string, channelScope: string | null): boolean {
     if (!this.persistenceEnabled) return false;

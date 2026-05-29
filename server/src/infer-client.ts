@@ -143,7 +143,7 @@ type ClientScopeMap<TScopes> = { [TKey in keyof TScopes]: ClientScope<TScopes[TK
  *
  * ```ts
  * import * as v from 'valibot';
- * import { contract, implement, incoming, outgoing } from '@wskit/server';
+ * import { contract, implement, incoming, outgoing, t } from '@wskit/server';
  *
  * // server.ts
  * const chat = contract('chat', { env: t<Env>(),
@@ -159,9 +159,11 @@ type ClientScopeMap<TScopes> = { [TKey in keyof TScopes]: ClientScope<TScopes[TK
  * export type MyClient = InferClient<typeof myServer>;
  *
  * // client.ts
+ * import { defineClient, connect } from '@wskit/client';
  * import type { MyClient } from './server';
- * const ws = createClient<MyClient>(...);
- * ws.send('send-message', { text: 'hello' }); // fully typed
+ * const socket = defineClient<MyClient>(connect('wss://example.com/ws'));
+ * socket.connect();
+ * socket.send('send-message', { text: 'hello' }); // fully typed
  * ```
  *
  * The contract records all event/request/stream/channel/error shapes.

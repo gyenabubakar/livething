@@ -16,11 +16,11 @@ import type { StandardSchemaV1 } from '@standard-schema/spec';
  * ```ts
  * import * as v from 'valibot';
  *
- * incoming(
- *   'send-message',
- *   (ctx, payload) => { /* payload is { text: string } *\/ },
- *   { validator: v.object({ text: v.string() }) },
- * );
+ * incoming('send-message', v.object({ text: v.string() }));
+ * request('get-user', {
+ *   payload: v.object({ id: v.string() }),
+ *   response: v.object({ name: v.string() }),
+ * });
  * ```
  */
 export type Validator<T = any> = StandardSchemaV1<unknown, T>;

@@ -185,7 +185,7 @@ export function purgeMembershipsByIdentity(sql: Pick<SQLProvider, 'exec'>, ident
 
 /**
  * Delete every membership row for one channel. Used by boot-time cleanup
- * when a channel is removed or marked `.persistent(false)` between deploys.
+ * when a channel is removed or marked `persistent: false` between deploys.
  */
 export function deleteMembershipsByChannel(
   sql: Pick<SQLProvider, 'exec'>,

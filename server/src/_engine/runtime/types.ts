@@ -333,7 +333,7 @@ export interface ActiveStream {
   /**
    * The trigger event name that started this stream. Used to enforce
    * per-connection per-event exclusivity (one active stream per event per
-   * connection by default) unless the stream opted in via `.allowConcurrent()`.
+   * connection by default) unless the stream set `allowConcurrent: true`.
    */
   event: string;
 

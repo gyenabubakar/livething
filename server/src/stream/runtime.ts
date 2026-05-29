@@ -240,7 +240,7 @@ export async function runStream(
   options: RunStreamOptions,
 ): Promise<void> {
   const { scope, event, stream, payload, wskit } = options;
-  // One active stream per event per connection, unless `.allowConcurrent()`.
+  // One active stream per event per connection, unless `allowConcurrent: true`.
   assertNoConcurrentStream(runtime, connection, {
     event,
     allowConcurrent: stream.stream.allowConcurrent,

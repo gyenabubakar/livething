@@ -490,7 +490,7 @@ export interface ChannelsManager<
  * trims it down.
  *
  * `ConnectionContext` is passed to handlers registered with: `incoming`,
- * `request`, `generate`, `onConnect`, `onDisconnect`, `onError`, `onBinary`,
+ * `request`, `stream`, `onConnect`, `onDisconnect`, `onError`, `onBinary`,
  * and `onValidationError`.
  *
  * @template Env      Environment variables exposed by the adapter.

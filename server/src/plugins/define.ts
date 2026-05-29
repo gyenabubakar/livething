@@ -180,7 +180,7 @@ export interface PluginInstance<
  * The return type of `definePlugin`.
  *
  * It is both a factory function and a `PrimitiveRef`:
- * - Call it with args to create a plugin instance to pass into `server(...).use(...)`
+ * - Call it with args to create a plugin instance to mount via `plugins: [...]` on the contract
  * - Use `.use(ctx)` inside handlers to access the plugin's API
  * - Reference it in `dependencies: [myPlugin]` to declare a dependency
  */
@@ -198,7 +198,7 @@ export interface PluginFactory<
    * Access this plugin's API from inside a handler.
    *
    * ```ts
-   * incoming(sendMessage, async (ctx, payload) => {
+   * implement(c).on('send-message', async (ctx, payload) => {
    *   const analytics = MyPlugin.use(ctx);
    *   analytics.track('message-sent');
    * })

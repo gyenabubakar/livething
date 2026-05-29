@@ -705,7 +705,9 @@ export class Implementer<C extends Contract> {
    * @example
    * ```ts
    * implement(chat).namespace('admin', ns =>
-   *   ns.on('kick', (ctx, p) => ctx.kick(p.userId))
+   *   ns.on('kick-user', (ctx, p) => {
+   *     ctx.namespace.broadcast('kicked', { userId: p.userId });
+   *   })
    * );
    * ```
    */
@@ -898,15 +900,18 @@ export class Implementer<C extends Contract> {
    * payload rewriting. Throw `Block` to drop the frame, `Disconnect` to close
    * the connection, or return a new value to replace the payload.
    *
-   * Use `contract.matches(...)` or `contract.unsafeCast(...)` inside the
-   * handler to narrow `frame.payload` to a typed shape per event.
+   * Use `matches(contract, ...)` or `unsafeCast(contract, ...)` from
+   * `@wskit/server` inside the handler to narrow `frame.payload` to a typed
+   * shape per event.
    *
    * @example
    * ```ts
+   * import { matches } from '@wskit/server';
+   *
    * implement(chat)
    *   .intercept((ctx, frame) => {
    *     if (isBanned(ctx.identity)) throw Disconnect(4003, 'banned');
-   *     if (chat.matches('send-msg', frame)) audit(frame.payload);
+   *     if (matches(chat, 'send-msg', frame)) audit(frame.payload);
    *   });
    * ```
    */

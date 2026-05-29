@@ -98,20 +98,18 @@ const ON_SESSION_END_KEY = Symbol('onSessionEnd');
  *
  * @example
  * ```ts
- * import { Block, error } from '@wskit/server/errors';
- *
- * const Forbidden = error('forbidden');
+ * import { Block } from '@wskit/server/errors';
  *
  * implement(chat).channel('private-room', (ch) =>
  *   ch
  *     .check(async (ctx, data?: { token: string }) => {
  *       const user = await db.verifyToken(data?.token);
- *       if (!user) throw Block(Forbidden());
+ *       if (!user) throw Forbidden({ reason: 'Invalid token' });
  *       return user; // available in commit() below
  *     })
  *     .commit((ctx, user) => {
  *       if (ctx.channels.get('private-room').members().length >= 50) {
- *         throw Block(error('room-full')());
+ *         throw Block;
  *       }
  *     }),
  * );
@@ -200,8 +198,9 @@ export function onSubscribe<TCtx>(handler: SubscribeHandler<TCtx>): SubscribePri
 
 /**
  * Creates an `onUnsubscribe` lifecycle primitive for a channel. The handler
- * runs when a client unsubscribes or disconnects while subscribed. Use this
- * for cleanup, presence tracking, or releasing locks.
+ * runs only on a TRUE leave — `__unsubscribe__`, kick, or `removeMember`.
+ * Not fired on plain disconnect of a persistent channel (`onSessionEnd` fires there instead).
+ * Use this for cleanup, presence tracking, or releasing locks.
  */
 export function onUnsubscribe<TCtx>(handler: UnsubscribeHandler<TCtx>): UnsubscribePrimitive<TCtx> {
   return {

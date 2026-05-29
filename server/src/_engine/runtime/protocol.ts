@@ -55,9 +55,10 @@ const OptionalScope = {
 };
 
 /**
- * Scope markers for `__replay__`. Replay has two scopes only — top-level and
- * channel — so there is no `namespace` marker: namespace messages come back as
- * part of a top-level replay. The strict object rejects a stray `namespace`.
+ * Scope markers for `__replay__`. Replay stores live at two scopes — top-level
+ * and channel — so there is no `namespace` marker: a namespace is a scope but
+ * has no replay store of its own, so its messages come back as part of a
+ * top-level replay. The strict object rejects a stray `namespace`.
  */
 const ReplayScope = {
   channel: v.optional(v.string()),

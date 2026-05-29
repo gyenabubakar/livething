@@ -18,7 +18,7 @@ const ACK_KEY = Symbol('ack');
  *
  * @example
  * ```ts
- * import { contract, incoming, implement } from '@wskit/server';
+ * import { contract, incoming, implement, t } from '@wskit/server';
  *
  * const c = contract('chat', { env: t<Env>(),
  *   ack: true,

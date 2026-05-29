@@ -20,11 +20,6 @@ export function assertPositiveInteger(value: unknown, field: string, context: st
 }
 
 /**
- * Same shape as `assertPositiveInteger` but skips when `value` is undefined.
- * Use for optional config fields where "not set" is a real, separate state
- * from "set to a bad value."
- */
-/**
  * Same shape as `assertPositiveInteger` but accepts zero. Use for cursor-like
  * values where zero is meaningful (e.g. `lastKnownSeq: 0` meaning "give me
  * everything from the start"). Still rejects unsafe integers above
@@ -38,6 +33,11 @@ export function assertNonNegativeSafeInteger(value: unknown, field: string, cont
   }
 }
 
+/**
+ * Same shape as `assertPositiveInteger` but skips when `value` is undefined.
+ * Use for optional config fields where "not set" is a real, separate state
+ * from "set to a bad value."
+ */
 export function assertOptionalPositiveInteger(
   value: unknown,
   field: string,

@@ -73,7 +73,9 @@ export class Engine {
   /** Rebuild a connection handle for a websocket woken from hibernation. */
   handleHibernationWake(wsKey: unknown): ConnectionHandle {
     if (!this.usesHibernation()) {
-      throw new Error('[wskit] hibernation() is not enabled for this handler.');
+      throw new Error(
+        '[wskit] hibernation is not enabled for this handler. Set `hibernation: true` on the contract.',
+      );
     }
     const handle = EngineConnectionRuntime.wakeHibernatedConnection(
       EngineDeps.connectionRuntime(this.core),
@@ -174,7 +176,7 @@ export class Engine {
       return (group: string) => {
         if (!isDeclared(kind, group)) {
           throw new Error(
-            `[wskit] tag group '${group}' is not declared under tagGroups.${kind}. Add it to your contract's tagGroups config or check for a typo.`,
+            `[wskit] tag group '${group}' is not declared under tags (${kind}). Add it to your contract's tags: builder or check for a typo.`,
           );
         }
 

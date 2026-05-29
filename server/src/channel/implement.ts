@@ -157,7 +157,7 @@ export class ChannelImplement<C extends Contract, ChC = any, TCheck = unknown> {
    * ```ts
    * ch.check(async (ctx, data?: { token: string }) => {
    *   const user = await db.verifyToken(data?.token);
-   *   if (!user) throw Block(Forbidden());
+   *   if (!user) throw Forbidden({ reason: 'Invalid token' });
    *   return user; // available in commit() below
    * })
    * ```
@@ -186,7 +186,7 @@ export class ChannelImplement<C extends Contract, ChC = any, TCheck = unknown> {
    * ```ts
    * ch.commit((ctx, user) => {
    *   if (ctx.channels.get('room').members().length >= 50) {
-   *     throw Block(CapacityReached());
+   *     throw CapacityReached();
    *   }
    * })
    * ```
@@ -244,8 +244,8 @@ export class ChannelImplement<C extends Contract, ChC = any, TCheck = unknown> {
    * frame, `Disconnect` to close the connection, or return a new value to
    * replace the payload.
    *
-   * Use `contract.matches(...)` or `contract.unsafeCast(...)` inside the
-   * handler to narrow `frame.payload` to a typed shape per event.
+   * Use `matches(contract, ...)` or `unsafeCast(contract, ...)` from
+   * `@wskit/server` inside the handler to narrow `frame.payload` to a typed shape per event.
    */
   intercept(handler: (ctx: ChannelCtx<ChC, C>, frame: InterceptFrame) => any): this {
     if (this._bag.intercept) {

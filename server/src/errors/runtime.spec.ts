@@ -172,7 +172,9 @@ describe('errors runtime', () => {
       { error: new WskitError('quota-exceeded', { limit: 1 }), event: 'charge-card' },
     );
 
-    expect(warnings).toEqual(['[wskit] Thrown WskitError was not declared with errors(...)']);
+    expect(warnings).toEqual([
+      '[wskit] Thrown WskitError was not declared in the contract errors: [...] list',
+    ]);
     expect(sent).toEqual([
       {
         event: '__error__',

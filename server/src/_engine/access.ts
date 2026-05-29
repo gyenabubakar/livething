@@ -357,7 +357,7 @@ export interface EngineAccess {
   ): void;
 
   /**
-   * Record a per-channel `.persistent(enabled)` override. The engine reads
+   * Record a per-channel `persistent` override. The engine reads
    * this back at runtime via `isChannelPersistent(channelKey)` to decide
    * whether to write a durable membership row on subscribe.
    *
@@ -395,7 +395,7 @@ export interface EngineAccess {
    * Register the application's declared error definitions.
    *
    * The engine uses this registry only for runtime checks such as warning when
-   * a thrown `WskitError` was never declared with `errors(...)`.
+   * a thrown `WskitError` was never declared in the contract's `errors: [...]`.
    */
   registerErrorDefinitions(defs: readonly ErrorsPrimitive.ErrorDef<string, unknown>[]): void;
 

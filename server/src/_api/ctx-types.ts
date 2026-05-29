@@ -124,7 +124,7 @@ interface ScheduleApi<TScheduled> {
   cancelScheduled<I extends keyof TScheduled & string>(
     taskId: I,
     filter?: Record<string, unknown>,
-  ): { cancelledRunIds: string[]; taskExists: boolean };
+  ): void;
 }
 
 // ---------------------------------------------------------------------------
@@ -155,8 +155,8 @@ export type Ctx<C extends Contract> = {
   readonly bufferedAmount: number;
   /** Last measured round-trip latency in ms, or `null` if not yet known. */
   readonly latency: number | null;
-  /** Coarse health bucket derived from latency. */
-  readonly quality: 'excellent' | 'good' | 'degraded' | 'poor';
+  /** Coarse health bucket derived from latency. `null` when hibernation is enabled (no server-side ping is sent). */
+  readonly quality: 'excellent' | 'good' | 'degraded' | 'poor' | null;
   /** Set inside `onDisconnect` — the close code reported by the socket. */
   readonly closeCode?: number;
   /** Set inside `onDisconnect` — the close reason string reported by the socket. */

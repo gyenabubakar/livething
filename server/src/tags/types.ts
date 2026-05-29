@@ -29,7 +29,7 @@ export interface GroupHandle<Meta = Record<string, unknown>> {
   readonly __wskit: 'group-handle';
   /** Whether this group is ephemeral or persistent. */
   readonly kind: TagKind;
-  /** Group name as declared in the contract's tagGroups config. */
+  /** Group name as declared in the contract's `tags:` builder. */
   readonly group: string;
 
   /** Add `key` to the current connection's set under this group. */
@@ -57,7 +57,7 @@ export interface GroupHandle<Meta = Record<string, unknown>> {
 /**
  * The surface attached to `ctx.tags`. Two methods — one per kind — return a
  * typed group handle. `ephemeral(name)` only accepts group names declared
- * under `tagGroups.ephemeral` on the contract; likewise for `persistent`.
+ * under the `tags:` builder (`ephemeral` kind); likewise for `persistent`.
  */
 export interface TagsApi<
   TEphemeralGroups extends string = string,

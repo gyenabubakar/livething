@@ -185,8 +185,8 @@ interface ChannelRuntime {
   /**
    * Whether the given channel-key should write durable memberships. Returns
    * `false` when persistence is disabled at the server level OR the channel
-   * called `.persistent(false)`. The runtime gates every persistence write
-   * through this so persistence-disabled servers pay no SQL cost.
+   * set `persistent: false` in its definition. The runtime gates every
+   * persistence write through this so persistence-disabled servers pay no SQL cost.
    */
   isChannelPersistent(channelKey: string): boolean;
 

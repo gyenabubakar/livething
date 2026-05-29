@@ -32,7 +32,7 @@ function validateRequires(core: EngineCore): void {
 /** Throw if the adapter is missing engine-internal guarantees the primitives need. */
 function validateEngineRequirements(core: EngineCore): void {
   if (core.replayEnabled && !core.sequencePersistent) {
-    throw new Error('[wskit] replay() requires sequence({ persist: true }) for durable replay.');
+    throw new Error('[wskit] replay requires `sequence: { persist: true }` for durable replay.');
   }
 }
 

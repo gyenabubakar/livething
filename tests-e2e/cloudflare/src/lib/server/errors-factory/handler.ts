@@ -9,7 +9,7 @@ const SimpleError = error('simple-error');
 const Unregistered = error('unregistered', v.object({ msg: v.string() }));
 // A WskitError whose detail carries a value JSON.stringify cannot
 // serialize. Used by the e2e that pins the dispatcher fallback path:
-// the client must still receive an _error frame instead of having the
+// the client must still receive an __error__ frame instead of having the
 // connection silently lose the response.
 const BigIntDetail = error('bigint-detail');
 

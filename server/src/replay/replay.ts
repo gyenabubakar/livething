@@ -72,6 +72,8 @@ const REPLAY_KEY = Symbol('replay');
  * @example
  * ```ts
  * const chat = contract('chat', { env: t<Env>(),
+ *   sequence: { persist: true },
+ *   dedup: true,
  *   replay: { retention: { maxAgeMs: 7 * 24 * 60 * 60 * 1000 } },
  *   definitions: [...],
  * });
