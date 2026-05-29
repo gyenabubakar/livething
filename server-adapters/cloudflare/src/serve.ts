@@ -88,6 +88,12 @@ const buildServe = defineServerAdapter<undefined, CloudflareDurableObjectClass>(
           // short-circuits and the empty set is a no-op.
           const surviving = new Set<string>();
           if (this.engine.usesHibernation()) {
+            // Answer the app-level keepalive ping at the edge so a hibernated
+            // DO is not woken just to reply "pong". wskit's client sends the
+            // literal text "ping"; the runtime replies "pong" without booting
+            // this object. Server-side latency stats pause while hibernated,
+            // which is expected.
+            this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
             for (const ws of this.ctx.getWebSockets()) {
               const attachment = (ws as WebSocket).deserializeAttachment() as {
                 id?: string;

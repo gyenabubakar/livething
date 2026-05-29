@@ -166,6 +166,34 @@ describe('WskitDurableObject fetch / upgrade', () => {
     // addEventListener path NOT used under hibernation
     expect(server.addEventListener).not.toHaveBeenCalled();
   });
+
+  it('registers a ping/pong auto-response under hibernation so keepalives do not wake the DO', async () => {
+    const Cls = buildClass({ hibernation: true });
+    const state = makeFakeDOState();
+    fake.stageUpgrade({});
+
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+    await instance.fetch(upgradeRequest());
+
+    expect(state.setWebSocketAutoResponse).toHaveBeenCalledTimes(1);
+    const pair = state.setWebSocketAutoResponse.mock.calls[0]![0] as {
+      request: string;
+      response: string;
+    };
+    expect(pair.request).toBe('ping');
+    expect(pair.response).toBe('pong');
+  });
+
+  it('does not register an auto-response in standard (non-hibernation) mode', async () => {
+    const Cls = buildClass({ hibernation: false });
+    const state = makeFakeDOState();
+    fake.stageUpgrade({});
+
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+    await instance.fetch(upgradeRequest());
+
+    expect(state.setWebSocketAutoResponse).not.toHaveBeenCalled();
+  });
 });
 
 describe('handleRejectedUpgrade', () => {

@@ -1,6 +1,17 @@
 import { vi } from 'vitest';
 import type { ConnectionHandle, Engine, UpgradeDecision } from '@wskit/server/adapters';
 
+// `WebSocketRequestResponsePair` is a Cloudflare Workers runtime global with no
+// import. Node test runs lack it, so provide a minimal stand-in the adapter can
+// construct when it wires setWebSocketAutoResponse under hibernation.
+const globalScope = globalThis as { WebSocketRequestResponsePair?: unknown };
+globalScope.WebSocketRequestResponsePair ??= class {
+  constructor(
+    public readonly request: string,
+    public readonly response: string,
+  ) {}
+};
+
 /**
  * Minimal mock WebSocket with the methods the adapter exercises:
  * accept/send/close and addEventListener for standard mode.
@@ -62,6 +73,7 @@ export type FakeDOState = {
   blockConcurrencyWhile: ReturnType<typeof vi.fn>;
   acceptWebSocket: ReturnType<typeof vi.fn>;
   getWebSockets: ReturnType<typeof vi.fn>;
+  setWebSocketAutoResponse: ReturnType<typeof vi.fn>;
   storage: {
     get: ReturnType<typeof vi.fn>;
     put: ReturnType<typeof vi.fn>;
@@ -89,6 +101,7 @@ function baseFakeState(): FakeDOState {
     blockConcurrencyWhile: vi.fn(async <T>(fn: () => Promise<T>) => fn()),
     acceptWebSocket: vi.fn(),
     getWebSockets: vi.fn(() => [] as unknown[]),
+    setWebSocketAutoResponse: vi.fn(),
     storage: {
       get: vi.fn(async (key: string) => storageMap.get(key)),
       put: vi.fn(async (key: string, value: unknown) => {
