@@ -3,7 +3,7 @@ import { defineServerAdapter } from '@wskit/server/adapters';
 import { DurableObject } from 'cloudflare:workers';
 import type { ConnectionHandle, Engine, Logger, ServerDefinition } from '@wskit/server/adapters';
 import { createPlatform } from './platform.ts';
-import { createStorage, createTimers } from './providers.ts';
+import { createStorage, createTimers } from './providers/index.ts';
 import { normalizeBinary } from './utils.ts';
 
 /**
