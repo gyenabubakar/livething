@@ -37,24 +37,39 @@ type SubscribeFromServerFn = (
  * Write a durable channel-membership row. The caller should check
  * `isChannelPersistent(...)` first — we still gate on `persistenceEnabled`
  * here as a safety net.
+ *
+ * Skips the write for an empty identity. A durable membership row exists only
+ * to auto-rejoin the same identity on a future reconnect, which needs a stable
+ * identity to match against. An anonymous connection (no `onUpgrade` identity)
+ * has none, so the row could never be rejoined — and rejoin (`rejoin.ts`)
+ * already bails on an empty identity. Writing it anyway would leak a row that
+ * is never read and never cleaned. This mirrors the persistent-tag rule, which
+ * also skips durable writes when there is no identity.
  */
 export function persistMembership(core: EngineCore, key: MembershipKey): void {
   if (!core.persistenceEnabled) return;
+  if (!key.identity) return;
   PersistenceStorage.insertMembership(core.requireStorage().sql, key);
 }
 
 /**
  * Delete a durable channel-membership row. Called on a real leave (client
- * `__unsubscribe__`, `removeMember`, kick) of a persistent channel.
+ * `__unsubscribe__`, `removeMember`, kick) of a persistent channel. No-op for
+ * an empty identity — nothing was ever written for one (see persistMembership).
  */
 export function deleteDurableMembership(core: EngineCore, key: MembershipKey): void {
   if (!core.persistenceEnabled) return;
+  if (!key.identity) return;
   PersistenceStorage.deleteMembership(core.requireStorage().sql, key);
 }
 
-/** True when a durable membership row exists for this identity and channel scope. */
+/**
+ * True when a durable membership row exists for this identity and channel scope.
+ * Always false for an empty identity — anonymous connections never get a row.
+ */
 export function hasDurableMembership(core: EngineCore, key: MembershipKey): boolean {
   if (!core.persistenceEnabled) return false;
+  if (!key.identity) return false;
   return PersistenceStorage.membershipExists(core.requireStorage().sql, key);
 }
 
