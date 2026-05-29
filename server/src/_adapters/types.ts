@@ -1,4 +1,4 @@
-import type * as EngineModule from '~/_engine/engine.ts';
+import type { Engine as EngineClass } from '~/_engine/engine.ts';
 import type {
   AsyncContextFactory,
   Logger,
@@ -137,7 +137,7 @@ export interface EngineOptions {
 }
 
 /** The runtime engine created by the adapter from a compiled server definition. Handles connections, message routing, and lifecycle. */
-export type Engine = EngineModule.Engine;
+export type Engine = EngineClass;
 
 /**
  * The configuration object returned by `adapter`.
