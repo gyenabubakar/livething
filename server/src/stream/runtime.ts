@@ -1,5 +1,10 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { rethrowIfConfigError, StreamIdCollision, ValidationFailed } from '@wskit/core';
+import {
+  InternalError,
+  rethrowIfConfigError,
+  StreamIdCollision,
+  ValidationFailed,
+} from '@wskit/core';
 import { withConnectionContext } from '~/_engine/async-context.ts';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import { forEachIsolatedAsync } from '~/_engine/runtime/isolation.ts';
@@ -9,7 +14,6 @@ import {
   installCtxNudges,
 } from '~/_engine/stream-common/active-stream.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
-import { DeferExhausted } from '~/errors/errors.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type { AnyGenerate } from '~/_engine/compile/types.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
@@ -28,7 +32,7 @@ interface StreamRuntime {
 
   generateId(prefix?: string): string;
 
-  logger: Pick<Logger, 'warn'>;
+  logger: Pick<Logger, 'warn' | 'error'>;
 
   errorHooks: readonly ((ctx: unknown, error: unknown, event?: string) => void | Promise<void>)[];
 
@@ -350,24 +354,28 @@ export async function runStream(
       typeof streamError === 'object' &&
       (streamError as { __wskit?: string }).__wskit === 'defer'
     ) {
-      runtime.logger.warn(
+      // Defer makes no sense in a stream: a generator that already yielded
+      // chunks cannot be retried from the start. Treat it as a programming
+      // mistake — log an error and surface it to the client as a plain
+      // internal error, not a defer-exhausted one (nothing was ever retried).
+      runtime.logger.error(
         '[wskit] Defer thrown inside a stream handler — streams cannot be retried',
         {
           event,
           streamId,
         },
       );
-      const exhausted = DeferExhausted({ event, payload, retries: 0 });
+      const internal = InternalError();
       // Isolate per hook so an observer throw never blocks the __error__ frame
       // the client is waiting for.
       await forEachIsolatedAsync(
         runtime.errorHooks,
-        (hook) => hook(runtime.buildConnectionContext(connection, scope), exhausted, event),
+        (hook) => hook(runtime.buildConnectionContext(connection, scope), internal, event),
         { context: `stream onError hook event="${event}"` },
       );
       runtime.sendProtocolMessage(connection, {
         event: '__error__',
-        payload: { code: DeferExhausted.code },
+        payload: { code: InternalError.code },
         wskit: routing as Record<string, unknown>,
       });
     } else {
