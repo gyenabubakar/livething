@@ -1,7 +1,15 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { assertNonReservedEventName } from '~/_engine/compile/utils.ts';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
+import type { TypeMarker } from '~/_api/definitions.ts';
 import type { Validator } from '~/types.ts';
+
+/** A `t<T>()` marker carries only a compile-time type — no runtime validator. */
+function isTypeMarker(value: unknown): value is TypeMarker<unknown> {
+  return (
+    !!value && typeof value === 'object' && (value as { __wskit_t?: unknown }).__wskit_t === 't'
+  );
+}
 
 /**
  * Contract-side declaration of a server→client event. Produced by `outgoing()`
@@ -14,8 +22,12 @@ export interface OutgoingDef<TName extends string = string, TPayload = unknown> 
 }
 
 /**
- * Declare a server→client event with an optional schema. The event name and
- * payload type flow into `InferClient` so the generated client SDK is typed.
+ * Declare a server→client event with its payload type.
+ *
+ * Outgoing payloads are not validated at runtime, so pick whichever you prefer:
+ * a `t<MyType>()` marker (type only, zero runtime cost) or a Standard Schema
+ * (valibot/zod/etc.) when you already have one. Either way the payload type
+ * flows into `InferClient` so the generated client SDK is typed.
  */
 export function outgoing<TName extends string>(name: TName): OutgoingDef<TName, unknown>;
 export function outgoing<TName extends string, TSchema extends StandardSchemaV1>(
@@ -24,9 +36,14 @@ export function outgoing<TName extends string, TSchema extends StandardSchemaV1>
 ): OutgoingDef<TName, StandardSchemaV1.InferOutput<TSchema>>;
 export function outgoing<TName extends string, TPayload>(
   name: TName,
-  schema: Validator<TPayload>,
+  marker: TypeMarker<TPayload>,
 ): OutgoingDef<TName, TPayload>;
-export function outgoing(name: string, schema?: Validator): OutgoingDef {
+export function outgoing(
+  name: string,
+  schema?: StandardSchemaV1 | TypeMarker<unknown>,
+): OutgoingDef {
   assertNonReservedEventName(name, 'outgoing');
-  return { _: 'outgoing', name, schema };
+  // A t<>() marker has no runtime validator — keep schema undefined for it.
+  const validator = schema && !isTypeMarker(schema) ? (schema as Validator) : undefined;
+  return { _: 'outgoing', name, schema: validator };
 }
