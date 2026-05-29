@@ -55,17 +55,18 @@ function isDeclaredPluginEvent(compiled: CompiledServer, event: string): boolean
 /**
  * Check whether an outgoing event was declared in the correct scope.
  *
- * Protocol frames (`__x__`) are engine traffic and always allowed — the engine
- * fans out `__memberJoin__` and the rest through this pipeline. Plugin events
- * (`__pluginId:event`) are checked against plugin declarations. Everything else
- * must appear in the scope's outgoing or stream maps.
+ * Real protocol events — the fixed set the engine sends, like `__memberJoin__`
+ * — are allowed. An unknown `__x__` name is not, so it cannot slip past the
+ * scope check by looking protocol-shaped. Plugin events (`__pluginId:event`)
+ * are checked against plugin declarations. Everything else must appear in the
+ * scope's outgoing or stream maps.
  */
 export function isDeclaredOutgoingEvent(
   compiled: EngineCompileTypes.CompiledServer,
   event: string,
   routing?: EngineRuntimeTypes.RoutingTarget,
 ): boolean {
-  if (Protocol.isProtocolEventName(event)) return true;
+  if (Protocol.OUTGOING_PROTOCOL_EVENT_NAMES.has(event)) return true;
   if (event.startsWith('__')) return isDeclaredPluginEvent(compiled, event);
 
   if (routing?.namespace) {

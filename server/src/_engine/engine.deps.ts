@@ -9,6 +9,7 @@ import { sendProtocolMessage, sendReplay } from '~/_engine/runtime/wire.ts';
 import * as Scheduling from '~/_engine/scheduling.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import * as MembershipPersistence from '~/persistence/membership.ts';
+import * as RejoinPersistence from '~/persistence/rejoin.ts';
 import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
@@ -390,6 +391,19 @@ function buildConnectionRuntime(core: EngineCore) {
     deleteConnectionState: (connectionId: string) =>
       EngineHibernation.deleteConnectionState(core, connectionId),
 
+    // Hibernation snapshots only carry ephemeral tags, so the wake path reloads
+    // persistent tags by identity. Wired only when persistence is on.
+    ...(core.persistenceEnabled
+      ? {
+          reloadPersistentTags: (connection: RuntimeConnection) =>
+            RejoinPersistence.restorePersistentTags(
+              core.requireStorage().sql,
+              core.tagMembers,
+              connection,
+            ),
+        }
+      : {}),
+
     buildConnectionContext: buildCtx,
 
     runConnectionLifecycle: (kind: 'connect' | 'disconnect', ctx: Record<PropertyKey, unknown>) => {
@@ -511,6 +525,7 @@ export function handleBinaryMessage(
         ),
       activityHooks: core.hooks.activity,
       binaryHooks: core.hooks.binary,
+      logger: core.logger,
     },
     connection,
     data,

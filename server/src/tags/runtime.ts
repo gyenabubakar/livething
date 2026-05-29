@@ -204,31 +204,43 @@ export function buildGroupHandle(
   const { kind, group } = groupRef;
   assertGroupDeclared(runtime, kind, group);
 
+  // True when a persistent-tag change also needs a durable SQL write.
+  const persistsDurably = runtime.persistenceEnabled && connection.identity.length > 0;
+
   return {
     __wskit: 'group-handle',
     kind,
     group,
 
     add(key: string) {
-      if (!addConnectionTag(runtime.tagMembers, connection, { kind, group, key })) return;
       if (kind === 'ephemeral') {
+        if (!addConnectionTag(runtime.tagMembers, connection, { kind, group, key })) return;
         runtime.persistAttachment(connection);
         return;
       }
-      if (runtime.persistenceEnabled && connection.identity) {
+      // Skip if already held (matches addConnectionTag's idempotency).
+      if (readBag(connection, kind).get(group)?.has(key)) return;
+      // Durable write before the live mutation, so a failed SQL write cannot
+      // leave the tag live with nothing saved.
+      if (persistsDurably) {
         insertTag(runtime.requireStorage().sql, { identity: connection.identity, group, key });
       }
+      addConnectionTag(runtime.tagMembers, connection, { kind, group, key });
     },
 
     remove(key: string) {
-      if (!removeConnectionTag(runtime.tagMembers, connection, { kind, group, key })) return;
       if (kind === 'ephemeral') {
+        if (!removeConnectionTag(runtime.tagMembers, connection, { kind, group, key })) return;
         runtime.persistAttachment(connection);
         return;
       }
-      if (runtime.persistenceEnabled && connection.identity) {
+      // Skip if not held (matches removeConnectionTag's guard).
+      if (!readBag(connection, kind).get(group)?.has(key)) return;
+      // Durable delete before the live mutation, for the same reason as add().
+      if (persistsDurably) {
         deleteTag(runtime.requireStorage().sql, { identity: connection.identity, group, key });
       }
+      removeConnectionTag(runtime.tagMembers, connection, { kind, group, key });
     },
 
     has(key: string): boolean {

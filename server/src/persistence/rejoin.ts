@@ -71,6 +71,29 @@ export interface RejoinRuntime {
  *
  * @internal
  */
+/**
+ * Put an identity's saved persistent tags back into the live tag index.
+ *
+ * Runs on a fresh connect (via auto-rejoin) and on a hibernation wake, where
+ * the per-connection snapshot only carries ephemeral tags. Reading by identity
+ * means a tag dropped for the whole identity while this socket slept does not
+ * come back.
+ */
+export function restorePersistentTags(
+  sql: Pick<SQLProvider, 'exec'>,
+  tagMembers: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>,
+  connection: EngineRuntimeTypes.RuntimeConnection,
+): void {
+  if (!connection.identity) return;
+  for (const tag of listTagsByIdentity(sql, connection.identity)) {
+    addConnectionTag(tagMembers, connection, {
+      kind: 'persistent',
+      group: tag.group,
+      key: tag.key,
+    });
+  }
+}
+
 export async function autoRejoinIdentity(
   runtime: RejoinRuntime,
   connection: EngineRuntimeTypes.RuntimeConnection,
@@ -79,14 +102,7 @@ export async function autoRejoinIdentity(
 
   // Restore persistent tags first — channel auto-rejoin's check hook
   // can read them via `ctx.tags.persistent(...)`.
-  const tagRows = listTagsByIdentity(runtime.sql, connection.identity);
-  for (const tag of tagRows) {
-    addConnectionTag(runtime.tagMembers, connection, {
-      kind: 'persistent',
-      group: tag.group,
-      key: tag.key,
-    });
-  }
+  restorePersistentTags(runtime.sql, runtime.tagMembers, connection);
 
   const rows = listMembershipsByIdentity(runtime.sql, connection.identity);
   if (rows.length === 0) return;

@@ -99,6 +99,8 @@ export interface ServerDefinition<
 > {
   readonly __wskit: 'server';
   readonly primitives: TPrimitives;
+  /** Runtime feature flags copied from the contract config for compile-time validation. */
+  readonly __features?: ReadonlySet<string>;
   /**
    * Type-only field — never set at runtime.
    *

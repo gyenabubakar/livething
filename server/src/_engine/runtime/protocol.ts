@@ -54,6 +54,16 @@ const OptionalScope = {
   namespace: v.optional(v.string()),
 };
 
+/**
+ * Scope markers for `__replay__`. Replay has two scopes only — top-level and
+ * channel — so there is no `namespace` marker: namespace messages come back as
+ * part of a top-level replay. The strict object rejects a stray `namespace`.
+ */
+const ReplayScope = {
+  channel: v.optional(v.string()),
+  channelScope: v.nullish(v.string(), null),
+};
+
 /** An empty payload — protocol events that carry no app data. */
 const NoPayload = v.strictObject({});
 
@@ -75,7 +85,7 @@ export const UnsubscribeFrame = v.object({
 export const ReplayFrame = v.object({
   event: v.literal('__replay__'),
   payload: v.strictObject({ lastKnownSeq: v.optional(NonNegativeSafeInt) }),
-  __wskit: v.strictObject(OptionalScope),
+  __wskit: v.strictObject(ReplayScope),
 });
 
 export const StreamCancelFrame = v.object({
@@ -287,3 +297,25 @@ export function isProtocolEventName(name: unknown): name is `__${string}__` {
     typeof name === 'string' && name.length > 4 && name.startsWith('__') && name.endsWith('__')
   );
 }
+
+/** Pull the `event` literal out of each option of a protocol variant schema. */
+function collectVariantEventNames(variant: typeof OutgoingProtocolFrame): string[] {
+  const names: string[] = [];
+  for (const option of variant.options) {
+    const eventSchema = option.entries.event;
+    if (eventSchema.type === 'literal' && typeof eventSchema.literal === 'string') {
+      names.push(eventSchema.literal);
+    }
+  }
+  return names;
+}
+
+/**
+ * The exact set of protocol event names the engine itself sends to clients,
+ * built from the outgoing protocol frame schemas. Use this — not the `__x__`
+ * shape — to decide whether an outgoing event is real engine traffic, so an
+ * undeclared `__madeUp__` cannot pass as a protocol frame.
+ */
+export const OUTGOING_PROTOCOL_EVENT_NAMES: ReadonlySet<string> = new Set(
+  collectVariantEventNames(OutgoingProtocolFrame),
+);

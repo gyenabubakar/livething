@@ -118,3 +118,66 @@ describe('tag member index', () => {
     expect(tagMembers.size).toBe(0);
   });
 });
+
+function createPersistentRuntime(
+  tagMembers: Map<string, Set<RuntimeConnection>>,
+  exec: (query: string, ...params: unknown[]) => unknown,
+): TagsRuntime {
+  return {
+    tagMembers,
+    isTagGroupDeclared: () => true,
+    toConnectionInfo: (connection: RuntimeConnection) => ({ id: connection.id }),
+    sendThroughPipeline: () => {},
+    persistAttachment: () => {},
+    persistenceEnabled: true,
+    requireStorage: () => ({ sql: { exec } }),
+  } as unknown as TagsRuntime;
+}
+
+describe('persistent tag durability ordering', () => {
+  it('add writes the durable row and then updates the live index', () => {
+    const tagMembers = new Map<string, Set<RuntimeConnection>>();
+    const conn = createConnection('u1');
+    const calls: unknown[][] = [];
+    const runtime = createPersistentRuntime(tagMembers, (_query, ...params) => {
+      calls.push(params);
+    });
+
+    buildGroupHandle(runtime, conn, { kind: 'persistent', group: 'role' }).add('admin');
+
+    expect(calls).toHaveLength(1);
+    expect(conn.tags.persistent.get('role')?.has('admin')).toBe(true);
+  });
+
+  it('add: a failed durable write leaves no live tag', () => {
+    // The durable write runs first, so when it throws the live index must be
+    // untouched — otherwise the connection looks tagged with nothing saved.
+    const tagMembers = new Map<string, Set<RuntimeConnection>>();
+    const conn = createConnection('u1');
+    const runtime = createPersistentRuntime(tagMembers, () => {
+      throw new Error('sql down');
+    });
+
+    expect(() =>
+      buildGroupHandle(runtime, conn, { kind: 'persistent', group: 'role' }).add('admin'),
+    ).toThrow('sql down');
+
+    expect(conn.tags.persistent.get('role')?.has('admin') ?? false).toBe(false);
+    expect(tagMembers.size).toBe(0);
+  });
+
+  it('remove: a failed durable delete keeps the live tag', () => {
+    const tagMembers = new Map<string, Set<RuntimeConnection>>();
+    const conn = createConnection('u1');
+    addConnectionTag(tagMembers, conn, { kind: 'persistent', group: 'role', key: 'admin' });
+    const runtime = createPersistentRuntime(tagMembers, () => {
+      throw new Error('sql down');
+    });
+
+    expect(() =>
+      buildGroupHandle(runtime, conn, { kind: 'persistent', group: 'role' }).remove('admin'),
+    ).toThrow('sql down');
+
+    expect(conn.tags.persistent.get('role')?.has('admin')).toBe(true);
+  });
+});

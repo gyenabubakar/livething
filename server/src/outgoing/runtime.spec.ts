@@ -170,6 +170,29 @@ describe('outgoing/runtime sendThroughPipeline', () => {
     ).toThrow(/Outgoing event "_anything" was not declared/);
   });
 
+  it('accepts a real protocol event but rejects an unknown __x__ name', () => {
+    // Only the engine's actual protocol names are waved through. A made-up
+    // __x__ name must not pass as protocol traffic and skip the scope check.
+    const runtime = createRuntime();
+    const connection = createConnection();
+
+    expect(() =>
+      sendThroughPipeline(runtime, connection, {
+        routing: undefined,
+        event: '__memberJoin__',
+        payload: { connectionId: 'c1' },
+      }),
+    ).not.toThrow();
+
+    expect(() =>
+      sendThroughPipeline(runtime, connection, {
+        routing: undefined,
+        event: '__madeUp__',
+        payload: { x: 1 },
+      }),
+    ).toThrow(/Outgoing event "__madeUp__" was not declared in the active scope/);
+  });
+
   it('accepts an event declared in a namespace scope when namespace routing is provided', () => {
     const runtime = createRuntime({
       compiled: {

@@ -217,7 +217,7 @@ describe('ctx.setAlarm', () => {
 });
 
 describe('ctx.broadcastBinary', () => {
-  it('pushes bytes to every connection descriptor', () => {
+  it('skips self by default', () => {
     const self = createConnection('self');
     const peer = createConnection('peer');
     const deps = baseDeps({
@@ -231,11 +231,11 @@ describe('ctx.broadcastBinary', () => {
     const bytes = new Uint8Array([1, 2, 3]).buffer;
     ctx.broadcastBinary(bytes);
 
-    expect(self.descriptor.sendBinary).toHaveBeenCalledWith(bytes);
+    expect(self.descriptor.sendBinary).not.toHaveBeenCalled();
     expect(peer.descriptor.sendBinary).toHaveBeenCalledWith(bytes);
   });
 
-  it('excludeSelf:true skips the originator', () => {
+  it('includes self when excludeSelf is false', () => {
     const self = createConnection('self');
     const peer = createConnection('peer');
     const deps = baseDeps({
@@ -247,9 +247,9 @@ describe('ctx.broadcastBinary', () => {
 
     const ctx = buildConnectionContext(deps, self);
     const bytes = new Uint8Array([9]).buffer;
-    ctx.broadcastBinary(bytes, { excludeSelf: true });
+    ctx.broadcastBinary(bytes, { excludeSelf: false });
 
-    expect(self.descriptor.sendBinary).not.toHaveBeenCalled();
+    expect(self.descriptor.sendBinary).toHaveBeenCalledWith(bytes);
     expect(peer.descriptor.sendBinary).toHaveBeenCalledWith(bytes);
   });
 });

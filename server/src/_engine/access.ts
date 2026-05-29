@@ -84,7 +84,11 @@ export interface EngineAccess {
    * Observe one fully prepared outgoing wire message before it is sent.
    *
    * The framework metadata — `seq`, `messageId`, scope routing markers — lives
-   * on `message.wskit` by this point. Throw to stop the send.
+   * on `message.wskit` by this point. This is an internal observer hook for
+   * framework features such as replay storage; it is not a payload rewrite
+   * hook. Throw to stop the send.
+   *
+   * @internal
    */
   onBeforeSend(handler: (message: EngineRuntimeTypes.WireOutgoingMessage) => void): void;
 

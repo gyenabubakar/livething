@@ -580,6 +580,9 @@ export function buildLoadReplayQuery(
     };
   }
 
+  // Top-level replay returns every non-channel row regardless of namespace.
+  // Namespace messages come back here too; each row still carries its
+  // namespace so the client routes it to the right handler.
   return {
     sql: `
       SELECT

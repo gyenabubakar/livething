@@ -386,6 +386,74 @@ describe('connection runtime', () => {
     expect(sent).toHaveLength(0);
   });
 
+  it('wakeHibernatedConnection reloads persistent tags (snapshot only carries ephemeral)', () => {
+    // The hibernation snapshot only stores ephemeral tags. Persistent tags are
+    // identity-scoped in durable storage, so the wake path must reload them or
+    // the woken socket silently falls out of every persistent tag fan-out.
+    const wsKey = {
+      send() {},
+      close() {},
+    };
+
+    const tagMembers = new Map();
+    const reloaded: string[] = [];
+
+    wakeHibernatedConnection(
+      {
+        compiled: {
+          outgoing: new Map(),
+          incoming: new Map(),
+          requests: new Map(),
+          streams: new Map(),
+          resumableStreams: new Map(),
+          recordedStreams: new Map(),
+          intercepts: [],
+          namespaces: new Map(),
+          channels: new Map(),
+          channelFamilies: new Map(),
+          scheduled: new Map(),
+          plugins: [],
+          requires: {},
+          replayClaimedChannelKeys: new Set(),
+        },
+        connections: new Map(),
+        wsToConnectionId: new Map(),
+        channelMembers: new Map(),
+        tagMembers,
+        generateId() {
+          return 'conn_1';
+        },
+        persistAttachment() {},
+        restoreAttachment: () => ({ id: 'conn_1' }),
+        readConnectionState: () => ({
+          connection_id: 'conn_1',
+          identity: 'user-1',
+          meta: {},
+          ephemeral_tags: [],
+          ephemeral_memberships: [],
+          active_stream_ids: [],
+        }),
+        reloadPersistentTags(connection) {
+          // Stand in for the durable reload wired in engine.deps.ts.
+          reloaded.push(connection.identity);
+          tagMembers.set('persistent:role/admin', new Set([connection]));
+        },
+        buildConnectionContext(connection) {
+          return { id: connection.id };
+        },
+        async runConnectionLifecycle() {},
+        async processTextMessage() {},
+        async handleBinaryMessage() {},
+        async handleConnectionClose() {},
+        async handleRuntimeError() {},
+      },
+      wsKey,
+    );
+
+    expect(reloaded).toEqual(['user-1']);
+    expect(tagMembers.get('persistent:role/admin')?.size).toBe(1);
+  });
+
   it('awaits handleConnectionClose for every connection before resolving', async () => {
     // Pin F4: pre-fix the shutdown loop called descriptor.close and
     // returned without awaiting the per-connection cleanup chain. The
@@ -1049,6 +1117,36 @@ describe('connection runtime', () => {
       );
 
       expect(hook).toHaveBeenCalledTimes(1);
+      expect(handleRuntimeError).not.toHaveBeenCalled();
+    });
+
+    it('logs activity hook failures and still runs binary hooks', async () => {
+      const handleRuntimeError = vi.fn(async () => {});
+      const binaryHook = vi.fn(async () => {});
+      const error = vi.fn();
+      const connection = makeConnection();
+
+      await handleBinaryMessage(
+        {
+          buildConnectionContext: () => ({ id: 'conn_1' }),
+          handleRuntimeError,
+          activityHooks: [
+            vi.fn(async () => {
+              throw new Error('activity failed');
+            }),
+          ],
+          binaryHooks: [binaryHook],
+          logger: { error },
+        } as never,
+        connection as never,
+        new ArrayBuffer(2),
+      );
+
+      expect(error).toHaveBeenCalledWith(
+        '[wskit] connection activity hook threw',
+        expect.objectContaining({ connectionId: 'conn_1' }),
+      );
+      expect(binaryHook).toHaveBeenCalledTimes(1);
       expect(handleRuntimeError).not.toHaveBeenCalled();
     });
   });

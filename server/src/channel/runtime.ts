@@ -424,16 +424,19 @@ async function runSubscribeFlow(
     }
   }
 
-  // Commit membership before snapshotting the member list. Otherwise two
+  // Write the durable membership row first. If the SQL write throws, the
+  // connection must not already be a live member of a channel it was never
+  // saved into.
+  if (runtime.isChannelPersistent(scope.channel.key)) {
+    runtime.persistMembership(connection.identity, scope.channelName, scope.channelScope);
+  }
+
+  // Commit live membership before snapshotting the member list. Otherwise two
   // concurrent subscribes both snapshot empty and miss each other.
   addChannelMembership(runtime.channelMembers, connection, scope);
 
   // ── Phase 3: post-commit (async) ─────────────────────────────────────────
   runtime.persistAttachment(connection);
-
-  if (runtime.isChannelPersistent(scope.channel.key)) {
-    runtime.persistMembership(connection.identity, scope.channelName, scope.channelScope);
-  }
 
   // Snapshot the members of this exact scope, self excluded, straight from
   // the index — no throwaway ConnectionInfo objects.

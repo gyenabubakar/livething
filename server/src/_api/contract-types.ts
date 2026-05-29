@@ -156,7 +156,7 @@ export interface ContractConfig {
   readonly ack?: boolean;
   readonly replay?: ReplayConfig;
   readonly persistence?: boolean;
-  readonly sequence?: boolean | { persist?: boolean };
+  readonly sequence?: boolean | { persist?: boolean; batchSize?: number };
   readonly dedup?: boolean | { cap?: number };
   readonly hibernation?: boolean;
   readonly heartbeat?: boolean | HeartbeatOptions;

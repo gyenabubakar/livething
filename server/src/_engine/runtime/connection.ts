@@ -92,6 +92,13 @@ interface ConnectionRuntime {
    * `acceptConnection` between the initial row write and `onConnect`.
    */
   autoRejoinIdentity?(connection: EngineRuntimeTypes.RuntimeConnection): Promise<void>;
+
+  /**
+   * Reload identity-scoped persistent tags into the live index on wake. The
+   * hibernation snapshot only carries ephemeral tags. Present only when
+   * persistence is enabled.
+   */
+  reloadPersistentTags?(connection: EngineRuntimeTypes.RuntimeConnection): void;
 }
 
 /** Wrap a `RuntimeConnection` into the `ConnectionHandle` callbacks the adapter uses. */
@@ -348,12 +355,20 @@ export async function handleBinaryMessage(
       ctx: Record<PropertyKey, unknown>,
       data: ArrayBuffer,
     ) => void | Promise<void>)[];
+    logger?: Pick<PublicApi.Logger, 'error'>;
   },
   connection: EngineRuntimeTypes.RuntimeConnection,
   data: ArrayBuffer,
 ): Promise<void> {
   for (const hook of runtime.activityHooks) {
-    await hook(connection.id);
+    try {
+      await hook(connection.id);
+    } catch (error) {
+      runtime.logger?.error('[wskit] connection activity hook threw', {
+        connectionId: connection.id,
+        error,
+      });
+    }
   }
   if (runtime.binaryHooks.length === 0) return;
   const ctx = runtime.buildConnectionContext(connection);
@@ -540,6 +555,10 @@ export function wakeHibernatedConnection(
       channelScope: membership.channelScope,
     });
   }
+
+  // The snapshot above only holds ephemeral tags. Persistent tags are
+  // identity-scoped, so reload them from durable storage on wake.
+  runtime.reloadPersistentTags?.(connection);
 
   // Re-persist so the row reflects the cleared active_stream_ids (the wake
   // path drained them above) and the attachment carries the correct id

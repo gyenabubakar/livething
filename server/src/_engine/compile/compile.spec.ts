@@ -475,6 +475,38 @@ describe('boot-time same-kind duplicate guard', () => {
     expect(() => compileHandlerDefinition(implement(c).build())).not.toThrow();
   });
 
+  it('rejects replay:false for a plugin that depends on replay', () => {
+    const NeedsReplay = plugin('acme:needs-replay', {
+      dependencies: ['replay'],
+      setup: () => () => ({}),
+    });
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
+      replay: false,
+      plugins: [NeedsReplay()],
+      definitions: [],
+    });
+
+    expect(() => compileHandlerDefinition(implement(c).build())).toThrow(
+      /Plugin "acme:needs-replay" declares a dependency on "replay"/,
+    );
+  });
+
+  it('accepts binary:true for a plugin that depends on binary even without onBinary', () => {
+    const NeedsBinary = plugin('acme:needs-binary', {
+      dependencies: ['binary'],
+      setup: () => () => ({}),
+    });
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
+      binary: true,
+      plugins: [NeedsBinary()],
+      definitions: [],
+    });
+
+    expect(() => compileHandlerDefinition(implement(c).build())).not.toThrow();
+  });
+
   it('rejects two incoming declarations with the same event name inside a channel scope', () => {
     const c = contract('app', {
       env: t<Record<string, unknown>>(),

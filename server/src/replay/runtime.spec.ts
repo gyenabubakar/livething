@@ -41,10 +41,7 @@ function createReplaySql() {
     calls.push({ query: normalized, params });
 
     if (normalized.startsWith('SELECT rowKey, messageId, seq, event, payload, namespace')) {
-      if (
-        normalized.includes('channelScope IS NULL') &&
-        normalized.includes('WHERE channel IS ?')
-      ) {
+      if (normalized.includes('channelScope IS NULL') && normalized.includes('channel IS ?')) {
         const [channel, since] = params;
         return new FakeSqlResult<TRow>(
           [...rows.values()]
@@ -58,7 +55,7 @@ function createReplaySql() {
             .map((row) => ({ ...row })),
         );
       }
-      if (normalized.includes('WHERE channel IS ?')) {
+      if (normalized.includes('channel IS ?')) {
         const [channel, channelScope, since] = params;
         return new FakeSqlResult<TRow>(
           [...rows.values()]
@@ -73,15 +70,12 @@ function createReplaySql() {
         );
       }
 
+      // Top-level: every non-channel row regardless of namespace.
       const [since] = params;
       return new FakeSqlResult<TRow>(
         [...rows.values()]
           .filter(
-            (row) =>
-              row.namespace === null &&
-              row.channel === null &&
-              row.channelScope === null &&
-              row.seq > Number(since),
+            (row) => row.channel === null && row.channelScope === null && row.seq > Number(since),
           )
           .sort((a, b) => a.seq - b.seq)
           .map((row) => ({ ...row })),
@@ -569,6 +563,43 @@ describe('replay/runtime', () => {
     });
     expect(result.map((row) => row.seq)).toEqual([1, 2]);
   });
+
+  it('top-level replay returns non-channel rows from every namespace, each keeping its namespace', () => {
+    // Replay has two scopes only: top-level and channel. Namespace messages
+    // fold into the top-level replay so one "catch me up since seq N" request
+    // returns the whole gap. Each row still carries its namespace so the client
+    // routes it to the right handler.
+    const { rows, sql } = createReplaySql();
+
+    rows.set('n1', {
+      rowKey: 'n1',
+      messageId: 'msg_n1',
+      seq: 1,
+      event: 'notice',
+      payload: '{}',
+      namespace: 'admin',
+      channel: null,
+      channelScope: null,
+      snapshotKey: null,
+      createdAt: 100,
+    });
+    rows.set('n2', {
+      rowKey: 'n2',
+      messageId: 'msg_n2',
+      seq: 2,
+      event: 'notice',
+      payload: '{}',
+      namespace: 'public',
+      channel: null,
+      channelScope: null,
+      snapshotKey: null,
+      createdAt: 110,
+    });
+
+    const result = loadReplayRows(sql, 0, { channelScope: null });
+    expect(result.map((row) => row.seq)).toEqual([1, 2]);
+    expect(result.map((row) => row.namespace)).toEqual(['admin', 'public']);
+  });
 });
 
 describe('buildLoadReplayQuery', () => {
@@ -596,19 +627,13 @@ describe('buildLoadReplayQuery', () => {
     expect(query.params).toEqual(['rooms', 'rooms', 0]);
   });
 
-  it('produces the unscoped top-level query when no channelName is provided', () => {
+  it('produces the top-level query that ignores namespace when no channelName is provided', () => {
+    // Namespace is not a replay request dimension: top-level replay returns
+    // every non-channel row regardless of namespace.
     const query = buildLoadReplayQuery(0, { channelScope: null });
-    expect(query.sql).not.toMatch(/WHERE[^;]*namespace/);
+    expect(query.sql).not.toMatch(/namespace IS \?/);
     expect(query.sql).toMatch(/channel IS NULL/);
     expect(query.sql).toMatch(/channelScope IS NULL/);
     expect(query.params).toEqual([0]);
-  });
-
-  it('returns namespace-tagged rows alongside untagged rows for the top-level query', () => {
-    // Top-level replay covers namespace traffic too — the load query must not
-    // filter `namespace IS NULL`, otherwise namespace-stamped rows become dead
-    // data (written by shouldStoreReplayMessage, never read back).
-    const query = buildLoadReplayQuery(0, { channelScope: null });
-    expect(query.sql).not.toMatch(/namespace IS NULL/);
   });
 });

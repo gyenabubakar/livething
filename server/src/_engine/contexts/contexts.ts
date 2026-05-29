@@ -58,7 +58,7 @@ function buildMessagingApi(
 
     broadcastBinary: (data, options) => {
       for (const target of deps.connections.values()) {
-        if (options?.excludeSelf && target.id === connection.id) continue;
+        if ((options?.excludeSelf ?? true) && target.id === connection.id) continue;
         target.descriptor.sendBinary(data);
       }
     },

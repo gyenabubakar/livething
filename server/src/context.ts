@@ -561,7 +561,10 @@ export interface ConnectionContext<
   /** Send a raw binary frame to the current connection. */
   sendBinary(data: ArrayBuffer | ArrayBufferView): boolean;
 
-  /** Broadcast a raw binary frame to all connections. */
+  /**
+   * Broadcast a raw binary frame to all live connections except the caller.
+   * Pass `{ excludeSelf: false }` to include the calling connection as well.
+   */
   broadcastBinary(data: ArrayBuffer | ArrayBufferView, options?: { excludeSelf?: boolean }): void;
 
   /** Close the current WebSocket connection. */

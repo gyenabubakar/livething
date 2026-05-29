@@ -367,6 +367,31 @@ describe('processTextMessage protocol branches', () => {
     expect(connection.descriptor.send).toHaveBeenCalledWith('pong');
   });
 
+  it('logs activity hook failures and continues routing text frames', async () => {
+    const connection = createConnection();
+    const error = vi.fn();
+    const runtime = baseDispatchRuntime({
+      connections: new Map([[connection.id, connection]]),
+      logger: { warn: vi.fn(), error },
+    });
+    const runtimeWithActivity = {
+      ...runtime,
+      activityHooks: [
+        vi.fn(async () => {
+          throw new Error('activity failed');
+        }),
+      ],
+    } as any;
+
+    await processTextMessage(runtimeWithActivity, connection, 'ping');
+
+    expect(error).toHaveBeenCalledWith(
+      '[wskit] connection activity hook threw',
+      expect.objectContaining({ connectionId: connection.id }),
+    );
+    expect(connection.descriptor.send).toHaveBeenCalledWith('pong');
+  });
+
   it('cancels an active stream on __streamCancel__', async () => {
     const connection = createConnection();
     const generator = {

@@ -1028,7 +1028,7 @@ export class Implementer<C extends Contract> {
     }
     if (config.sequence) {
       const opts = typeof config.sequence === 'object' ? config.sequence : {};
-      primitives.push(sequenceFactory({ persist: opts.persist }));
+      primitives.push(sequenceFactory({ persist: opts.persist, batchSize: opts.batchSize }));
     }
     if (config.dedup) {
       const dedupOpts = typeof config.dedup === 'object' ? config.dedup : undefined;
@@ -1138,6 +1138,22 @@ export class Implementer<C extends Contract> {
     return Object.freeze({
       __wskit: 'server' as const,
       primitives: Object.freeze(primitives) as readonly Primitive[],
+      __features: Object.freeze(
+        new Set(
+          [
+            config.ack ? 'ack' : undefined,
+            config.replay === true || (typeof config.replay === 'object' && config.replay !== null)
+              ? 'replay'
+              : undefined,
+            config.persistence ? 'persistence' : undefined,
+            config.sequence ? 'sequence' : undefined,
+            config.dedup ? 'dedup' : undefined,
+            config.hibernation ? 'hibernation' : undefined,
+            config.heartbeat ? 'heartbeat' : undefined,
+            config.binary ? 'binary' : undefined,
+          ].filter((feature): feature is string => feature !== undefined),
+        ),
+      ),
     });
   }
 

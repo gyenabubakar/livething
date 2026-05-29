@@ -212,7 +212,11 @@ export type Ctx<C extends Contract> = {
   ): void;
   /** Send a raw binary frame to this connection. Requires `binary: true` on the contract. */
   sendBinary(data: ArrayBuffer | ArrayBufferView): boolean;
-  /** Send a raw binary frame to every other connection. Requires `binary: true` on the contract. */
+  /**
+   * Send a raw binary frame to every other connection by default. Requires
+   * `binary: true` on the contract. Pass `{ excludeSelf: false }` to include
+   * this connection too.
+   */
   broadcastBinary(data: ArrayBuffer | ArrayBufferView, options?: { excludeSelf?: boolean }): void;
 } & TypedSendApi<C['outgoing']> &
   ScheduleApi<C['scheduled']> & {

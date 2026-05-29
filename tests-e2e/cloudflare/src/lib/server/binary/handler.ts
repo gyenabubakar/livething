@@ -31,7 +31,7 @@ export const binaryHandler = implement(binaryContract)
     ctx.send('binary-hook-error-observed', { message });
   })
   .on('broadcast-all', (ctx, payload) => {
-    ctx.broadcastBinary(new Uint8Array(payload.size).buffer);
+    ctx.broadcastBinary(new Uint8Array(payload.size).buffer, { excludeSelf: false });
   })
   .on('broadcast-exclude-self', (ctx, payload) => {
     ctx.broadcastBinary(new Uint8Array(payload.size).buffer, { excludeSelf: true });

@@ -1,6 +1,85 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 
+import { collectUnique } from '~/_engine/compile/utils.ts';
+import {
+  assertOneOf,
+  assertOptionalPositiveInteger,
+  assertPositiveInteger,
+} from '~/_engine/validation.ts';
 import type { Contract, ContractConfig, EnvFromConfig } from './contract-types.ts';
+
+const RESERVED_TAG_GROUP_NAME_PATTERN = /^__.+__$/;
+
+function validateTagGroupNames(kind: string, names: readonly string[] | undefined): void {
+  if (!names || names.length === 0) return;
+
+  const seen = new Set<string>();
+  for (const name of names) {
+    if (typeof name !== 'string' || name.length === 0) {
+      throw new Error(`[wskit] contract(): tagGroups.${kind} names must be non-empty strings.`);
+    }
+    if (RESERVED_TAG_GROUP_NAME_PATTERN.test(name)) {
+      throw new Error(
+        `[wskit] contract(): tagGroups.${kind} name '${name}' matches the reserved /^__.+__$/ pattern.`,
+      );
+    }
+    if (seen.has(name)) {
+      throw new Error(`[wskit] contract(): tagGroups.${kind} name '${name}' is declared twice.`);
+    }
+    seen.add(name);
+  }
+}
+
+function validateContractConfig(config: ContractConfig): void {
+  if (config.heartbeat) {
+    const opts =
+      typeof config.heartbeat === 'object'
+        ? config.heartbeat
+        : ({} as { intervalMs?: number; timeoutMs?: number });
+    const timeout = opts.timeoutMs ?? opts.intervalMs ?? 30_000;
+    assertPositiveInteger(timeout, 'heartbeat.timeoutMs', 'contract()');
+  }
+
+  if (typeof config.sequence === 'object' && config.sequence !== null) {
+    assertOptionalPositiveInteger(config.sequence.batchSize, 'batchSize', 'sequence()');
+  }
+
+  if (typeof config.dedup === 'object' && config.dedup !== null) {
+    assertOptionalPositiveInteger(config.dedup.cap, 'cap', 'dedup()');
+  }
+
+  if (typeof config.replay === 'object' && config.replay !== null) {
+    const replay = config.replay;
+    assertOptionalPositiveInteger(replay.retention?.maxAgeMs, 'retention.maxAgeMs', 'replay()');
+    assertOptionalPositiveInteger(
+      replay.retention?.maxMessages,
+      'retention.maxMessages',
+      'replay()',
+    );
+    if (replay.durability !== undefined) {
+      assertOneOf(replay.durability, ['strict', 'best-effort'] as const, {
+        field: 'durability',
+        context: 'replay()',
+      });
+    }
+    if (replay.type !== undefined) {
+      assertOneOf(replay.type, ['history', 'snapshot'] as const, {
+        field: 'type',
+        context: 'replay()',
+      });
+    }
+  }
+
+  if (config.errors && config.errors.length > 0) {
+    collectUnique(config.errors as readonly { code: string }[], (e) => e.code, {
+      kind: 'error code',
+      context: 'contract()',
+    });
+  }
+
+  validateTagGroupNames('ephemeral', config.tagGroups?.ephemeral);
+  validateTagGroupNames('persistent', config.tagGroups?.persistent);
+}
 
 /**
  * Create a wskit contract — the declarative half of a server.
@@ -32,6 +111,7 @@ export function contract<const TConfig extends ContractConfig = ContractConfig>(
   name: string,
   config: TConfig,
 ): Contract<TConfig, EnvFromConfig<TConfig>> {
+  validateContractConfig(config);
   return Object.freeze({
     __wskit_contract: true as const,
     __config: config,

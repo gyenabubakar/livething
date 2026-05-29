@@ -763,7 +763,14 @@ export async function processTextMessage(
   data: string,
 ): Promise<void> {
   for (const hook of runtime.activityHooks) {
-    await hook(connection.id);
+    try {
+      await hook(connection.id);
+    } catch (error) {
+      runtime.logger.error('[wskit] connection activity hook threw', {
+        connectionId: connection.id,
+        error,
+      });
+    }
   }
 
   // `ping` / `pong` stay raw text frames — never envelope-wrapped.
