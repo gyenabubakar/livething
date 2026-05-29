@@ -10,7 +10,7 @@ const noopHibernation = {
   restore: vi.fn(() => undefined),
 };
 
-type RuntimeOptions = Omit<EngineOptions, 'adapterId' | 'hibernation'>;
+type RuntimeOptions = Omit<EngineOptions, 'adapterId' | 'hibernation' | 'asyncContextFactory'>;
 
 function makeAsyncContextFactory(): AsyncContextFactory {
   return function createAsyncContext<TStore>() {
@@ -42,7 +42,6 @@ describe('defineServerAdapter', () => {
       env: { KEY: 'value' },
       platform: { kind: 'test' },
       timers,
-      asyncContextFactory: makeAsyncContextFactory(),
       waitUntil: vi.fn(),
       logger,
     };
@@ -50,7 +49,12 @@ describe('defineServerAdapter', () => {
 
   it('passes runtime-aware engine factory and options to setup', () => {
     const setup = vi.fn(() => ({ ok: true }));
-    const serve = defineServerAdapter({ id: 'test', hibernation: noopHibernation, setup });
+    const serve = defineServerAdapter({
+      id: 'test',
+      hibernation: noopHibernation,
+      asyncContextFactory: makeAsyncContextFactory(),
+      setup,
+    });
 
     const handler = { __wskit: 'server', primitives: [] } as unknown as ServerDefinition;
     const result = serve(handler, { port: 3000 });
@@ -79,6 +83,7 @@ describe('defineServerAdapter', () => {
     const serve = defineServerAdapter({
       id: 'cf',
       hibernation: api,
+      asyncContextFactory: makeAsyncContextFactory(),
       setup(createEngine) {
         capturedFactory = createEngine;
         return {};
@@ -93,6 +98,7 @@ describe('defineServerAdapter', () => {
     let capturedFactory: ((runtimeOptions: RuntimeOptions) => Engine) | undefined;
     const serve = defineServerAdapter({
       id: 'no-hib',
+      asyncContextFactory: makeAsyncContextFactory(),
       setup(createEngine) {
         capturedFactory = createEngine;
         return {};
@@ -108,6 +114,7 @@ describe('defineServerAdapter', () => {
     let capturedFactory: ((runtimeOptions: RuntimeOptions) => Engine) | undefined;
     const serve = defineServerAdapter({
       id: 'multi',
+      asyncContextFactory: makeAsyncContextFactory(),
       setup(createEngine) {
         capturedFactory = createEngine;
         return {};

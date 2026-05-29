@@ -14,11 +14,15 @@ import type { AdapterConfig } from './types.ts';
 export function defineServerAdapter<TOptions, TService>(config: AdapterConfig<TOptions, TService>) {
   return function serve(handler: ServerDefinition, options: TOptions): TService {
     function createEngine(
-      runtimeOptions: Omit<AdapterTypes.EngineOptions, 'adapterId' | 'hibernation'>,
+      runtimeOptions: Omit<
+        AdapterTypes.EngineOptions,
+        'adapterId' | 'hibernation' | 'asyncContextFactory'
+      >,
     ) {
       return new EngineModule.Engine(handler, {
         adapterId: config.id,
         hibernation: config.hibernation,
+        asyncContextFactory: config.asyncContextFactory,
         ...runtimeOptions,
       });
     }

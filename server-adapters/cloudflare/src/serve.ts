@@ -43,6 +43,9 @@ const buildServe = defineServerAdapter<undefined, CloudflareDurableObjectClass>(
       return (wsKey as WebSocket).deserializeAttachment();
     },
   },
+  // Static capability, declared once next to hibernation — it needs no
+  // per-instance state, so it does not belong in the per-DO createEngine call.
+  asyncContextFactory: createAsyncContext,
 
   setup(createEngine) {
     return class WskitDurableObject<Env = unknown> extends DurableObject<Env> {
@@ -71,7 +74,6 @@ const buildServe = defineServerAdapter<undefined, CloudflareDurableObjectClass>(
           platform: createPlatform(ctx, env),
           storage: createStorage(ctx, logger),
           timers: createTimers(ctx),
-          asyncContextFactory: createAsyncContext,
           waitUntil: (promise: Promise<unknown>) => {
             ctx.waitUntil?.(promise);
           },

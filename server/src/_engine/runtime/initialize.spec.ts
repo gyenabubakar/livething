@@ -107,13 +107,13 @@ function buildEngine(handler: ServerDefinition): Engine {
   const serve = defineServerAdapter({
     id: 'roundtrip-bench',
     hibernation: { persist() {}, restore: () => undefined },
+    asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
     setup(createEngine) {
       captured = createEngine({
         storage: undefined,
         env: {},
         platform: {},
         timers: makeNoopTimers() as never,
-        asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
         waitUntil: () => {},
         logger: {
           info() {},

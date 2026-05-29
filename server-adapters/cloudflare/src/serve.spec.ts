@@ -111,7 +111,6 @@ describe('WskitDurableObject fetch / upgrade', () => {
       platform: expect.any(Object),
       storage: expect.any(Object),
       timers: expect.any(Object),
-      asyncContextFactory: expect.any(Function),
       waitUntil: expect.any(Function),
     });
   });

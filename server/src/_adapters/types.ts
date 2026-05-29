@@ -155,8 +155,18 @@ export interface AdapterConfig<TOptions, TService> {
    */
   hibernation?: HibernationApi;
 
+  /**
+   * Factory for the async-context implementation this runtime uses. Declared
+   * here, alongside `hibernation`, because it is a static capability of the
+   * adapter — it does not depend on any per-instance state, so it is set once
+   * at definition time rather than rebuilt inside every `createEngine` call.
+   */
+  asyncContextFactory: AsyncContextFactory;
+
   setup(
-    createEngine: (runtimeOptions: Omit<EngineOptions, 'adapterId' | 'hibernation'>) => Engine,
+    createEngine: (
+      runtimeOptions: Omit<EngineOptions, 'adapterId' | 'hibernation' | 'asyncContextFactory'>,
+    ) => Engine,
     options: TOptions,
   ): TService;
 }

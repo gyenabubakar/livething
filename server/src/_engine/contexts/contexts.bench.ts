@@ -11,6 +11,7 @@ function makeCore(): EngineCore {
   const serve = defineServerAdapter({
     id: 'bench',
     hibernation: { persist() {}, restore: () => undefined },
+    asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
     setup(createEngine) {
       core = createEngine({
         env: {},
@@ -20,7 +21,6 @@ function makeCore(): EngineCore {
           deleteAlarm: async () => {},
           getAlarm: async () => null,
         },
-        asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
         waitUntil: () => {},
         logger: {
           info() {},
