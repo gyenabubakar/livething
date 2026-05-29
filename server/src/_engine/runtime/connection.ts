@@ -30,6 +30,12 @@ interface ConnectionRuntime {
 
   hibernationEnabled?: boolean;
 
+  /**
+   * Keepalive ping interval (ms) for new connections, set by `heartbeat()`.
+   * `undefined` when no heartbeat is configured — the pinger uses its default.
+   */
+  heartbeatPingIntervalMs?: number;
+
   connections: Map<string, EngineRuntimeTypes.RuntimeConnection>;
   channelMembers: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>;
   tagMembers: Map<string, Set<EngineRuntimeTypes.RuntimeConnection>>;
@@ -424,7 +430,7 @@ export function acceptConnection(
   connection.pendingWrites = { active: true };
 
   if (!runtime.hibernationEnabled) {
-    HeartbeatPrimitive.scheduleConnectionPing(connection);
+    HeartbeatPrimitive.scheduleConnectionPing(connection, runtime.heartbeatPingIntervalMs);
   }
 
   const ctx = runtime.buildConnectionContext(connection);
@@ -568,7 +574,7 @@ export function wakeHibernatedConnection(
   }
 
   if (!runtime.hibernationEnabled) {
-    HeartbeatPrimitive.scheduleConnectionPing(connection);
+    HeartbeatPrimitive.scheduleConnectionPing(connection, runtime.heartbeatPingIntervalMs);
   }
 
   connection.lifecycleReady = Promise.resolve();

@@ -82,6 +82,36 @@ describe('heartbeat/runtime', () => {
     clearTimeoutSpy.mockRestore();
   });
 
+  it('stops pinging without throwing when the send races a socket close', () => {
+    const callbackByHandle = new Map<string, () => void>();
+    let nextHandle = 0;
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
+      callback: Parameters<typeof setTimeout>[0],
+    ) => {
+      const handle = `t-${nextHandle++}`;
+      callbackByHandle.set(handle, callback as () => void);
+      return handle as unknown as ReturnType<typeof setTimeout>;
+    }) as unknown as typeof setTimeout);
+    const send = vi.fn(() => {
+      throw new Error("Can't call WebSocket send() after close().");
+    });
+    const connection = {
+      pingTimer: undefined as unknown,
+      pendingPingSentAt: undefined as number | undefined,
+      descriptor: { send },
+      quality: 'good' as const,
+    };
+
+    scheduleConnectionPing(connection, 1_000);
+    // Fire the ping timer; the socket closed in the meantime, so send throws.
+    expect(() => callbackByHandle.get('t-0')?.()).not.toThrow();
+    expect(send).toHaveBeenCalledWith('ping');
+    // The throw must stop the loop: no follow-up timer beyond the original.
+    expect(nextHandle).toBe(1);
+
+    setTimeoutSpy.mockRestore();
+  });
+
   it('records a rolling average latency and derives connection quality from it', () => {
     const connection = {
       latency: null,

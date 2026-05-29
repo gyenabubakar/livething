@@ -60,7 +60,17 @@ export function scheduleConnectionPing(
     }
 
     connection.pendingPingSentAt = Date.now();
-    connection.descriptor.send('ping');
+    // The ping timer can fire in the same tick the socket is closing — most
+    // visibly when the ping interval is half the idle timeout, so a ping lands
+    // exactly on the close deadline. Sending on an already-closed socket throws
+    // ("send() after close"); swallow it and stop the loop instead of leaking
+    // an uncaught error. Close cleanup clears the timer too, but this guards
+    // the race where the close has happened but cleanup has not run yet.
+    try {
+      connection.descriptor.send('ping');
+    } catch {
+      return;
+    }
     scheduleConnectionPing(connection, intervalMs);
   }, intervalMs);
 }

@@ -373,6 +373,7 @@ function buildConnectionRuntime(core: EngineCore) {
   return {
     compiled: core.compiled,
     hibernationEnabled: core.hibernationEnabled,
+    heartbeatPingIntervalMs: core.heartbeatPingIntervalMs,
     connections: core.connections,
     channelMembers: core.channelMembers,
     tagMembers: core.tagMembers,

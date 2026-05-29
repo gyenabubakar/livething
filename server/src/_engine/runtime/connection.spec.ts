@@ -260,6 +260,111 @@ describe('connection runtime', () => {
     expect(events).toEqual(['lifecycle:connect', 'close']);
   });
 
+  it('forwards the configured heartbeat ping interval to the keepalive pinger', () => {
+    vi.useFakeTimers();
+
+    const compiled = {
+      outgoing: new Map(),
+      incoming: new Map(),
+      requests: new Map(),
+      streams: new Map(),
+      resumableStreams: new Map(),
+      recordedStreams: new Map(),
+      intercepts: [],
+      namespaces: new Map(),
+      channels: new Map(),
+      channelFamilies: new Map(),
+      scheduled: new Map(),
+      plugins: [],
+      requires: {},
+      replayClaimedChannelKeys: new Set<string>(),
+    };
+
+    // Heartbeat set a 5s interval: the keepalive ping must fire at 5s, not before.
+    const sentA: string[] = [];
+    acceptConnection(
+      {
+        compiled,
+        heartbeatPingIntervalMs: 5_000,
+        connections: new Map(),
+        wsToConnectionId: new Map(),
+        channelMembers: new Map(),
+        tagMembers: new Map(),
+        generateId() {
+          return 'conn_ping_a';
+        },
+        persistAttachment() {},
+        buildConnectionContext(connection) {
+          return { id: connection.id };
+        },
+        async runConnectionLifecycle() {},
+        async processTextMessage() {},
+        async handleBinaryMessage() {},
+        async handleConnectionClose() {},
+        async handleRuntimeError() {},
+      },
+      Symbol('ws-a'),
+      {
+        send(data: string) {
+          sentA.push(data);
+        },
+        sendBinary() {},
+        close() {},
+        bufferedAmount() {
+          return 0;
+        },
+        identity: 'ping-test',
+      },
+    );
+    vi.advanceTimersByTime(4_999);
+    expect(sentA).not.toContain('ping');
+    vi.advanceTimersByTime(1);
+    expect(sentA).toContain('ping');
+
+    // No heartbeat configured: the pinger falls back to its 30s default, so a
+    // ping must NOT have gone out at the 5s mark.
+    const sentB: string[] = [];
+    acceptConnection(
+      {
+        compiled,
+        connections: new Map(),
+        wsToConnectionId: new Map(),
+        channelMembers: new Map(),
+        tagMembers: new Map(),
+        generateId() {
+          return 'conn_ping_b';
+        },
+        persistAttachment() {},
+        buildConnectionContext(connection) {
+          return { id: connection.id };
+        },
+        async runConnectionLifecycle() {},
+        async processTextMessage() {},
+        async handleBinaryMessage() {},
+        async handleConnectionClose() {},
+        async handleRuntimeError() {},
+      },
+      Symbol('ws-b'),
+      {
+        send(data: string) {
+          sentB.push(data);
+        },
+        sendBinary() {},
+        close() {},
+        bufferedAmount() {
+          return 0;
+        },
+        identity: 'ping-test',
+      },
+    );
+    vi.advanceTimersByTime(5_000);
+    expect(sentB).not.toContain('ping');
+    vi.advanceTimersByTime(25_000);
+    expect(sentB).toContain('ping');
+
+    vi.useRealTimers();
+  });
+
   it('wakeHibernatedConnection sends __error__ for each orphaned stream ID in the attachment', () => {
     const sent: string[] = [];
     const wsKey = {

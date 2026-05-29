@@ -9,12 +9,20 @@
 		status = 'connecting';
 		closeCode = null;
 		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-		const room = new URL(location.href).searchParams.get('room') ?? 'default';
+		const url = new URL(location.href);
+		const room = url.searchParams.get('room') ?? 'default';
+		// With ?autopong=1 the page answers the server's keepalive "ping" text
+		// frame with "pong" — a live-but-app-silent client. Without it, the raw
+		// socket never replies, so the server sees a client that has gone away.
+		const autoPong = url.searchParams.get('autopong') === '1';
 		ws = new WebSocket(
 			`${protocol}//${location.host}/ws/heartbeat?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
 		);
 		ws.onopen = () => {
 			status = 'connected';
+		};
+		ws.onmessage = (ev) => {
+			if (autoPong && ev.data === 'ping') ws?.send('pong');
 		};
 		ws.onclose = (ev) => {
 			closeCode = ev.code;

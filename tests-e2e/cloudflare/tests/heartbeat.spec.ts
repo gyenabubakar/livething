@@ -1,34 +1,58 @@
 import { expect, test } from '@playwright/test';
 
+// heartbeat is a LIVENESS check: the server pings, and a client that keeps
+// answering (or sends anything) is kept open. Only a client that stops
+// responding entirely is closed. The handler uses heartbeat({ timeoutMs: 2000 }),
+// so the keepalive ping fires at ~1s and the close window is 2s.
 test.describe('heartbeat', () => {
-  test('idle connection is closed with CloseCodes.IDLE (4004) after timeout', async ({
+  test('an unresponsive connection (no pong, no messages) is closed with 4004 after the timeout', async ({
     page,
   }, testInfo) => {
     const room = `test-${testInfo.testId}`;
+    // No ?autopong — the raw socket never answers the keepalive ping, so the
+    // server sees a client that has gone away.
     await page.goto(`/heartbeat?room=${room}`);
     await expect(page.getByTestId('status')).toHaveText('disconnected');
     await page.getByTestId('connect').click();
     await expect(page.getByTestId('status')).toHaveText('connected');
 
-    // Stay silent. Handler has heartbeat({ timeout: 1_000 }); wait > timeout.
+    // Send nothing and never pong. The 2s close window elapses → closed.
     await expect(page.getByTestId('status')).toHaveText('disconnected', { timeout: 10_000 });
     await expect(page.getByTestId('close-code')).toHaveText('4004');
   });
 
-  test('activity resets the idle timer, keeping connection alive', async ({ page }, testInfo) => {
+  test('a quiet but responsive connection (pongs only, no app messages) stays open past the timeout', async ({
+    page,
+  }, testInfo) => {
     const room = `test-${testInfo.testId}`;
+    // ?autopong=1 makes the page answer the keepalive ping with "pong" — a live
+    // client that simply has nothing to say. It must NOT be closed.
+    await page.goto(`/heartbeat?room=${room}&autopong=1`);
+    await page.getByTestId('connect').click();
+    await expect(page.getByTestId('status')).toHaveText('connected');
+
+    // Wait well past the 2s window without sending a single app message. The
+    // automatic pongs keep the connection alive.
+    await page.waitForTimeout(3_500);
+    await expect(page.getByTestId('status')).toHaveText('connected');
+  });
+
+  test('app messages keep the connection alive across the timeout window', async ({
+    page,
+  }, testInfo) => {
+    const room = `test-${testInfo.testId}`;
+    // No autopong — the only thing keeping this socket alive is the app
+    // messages, proving an app frame resets the close window on its own.
     await page.goto(`/heartbeat?room=${room}`);
     await page.getByTestId('connect').click();
     await expect(page.getByTestId('status')).toHaveText('connected');
 
-    // Handler timeout is 1_000 ms. Send a message at 300 ms, then wait another 300 ms.
-    // If activity resets timer, total silence is never 1_000 ms, so connection stays.
-    // Using 300 ms (30 % of timeout) gives a 2× load buffer before timing out.
-    await page.waitForTimeout(300);
-    await page.getByTestId('send-echo').click();
-    await page.waitForTimeout(300);
+    // Window is 2s. Send an echo every 1.2s (gap < window) for >2× the window.
+    for (let i = 0; i < 3; i++) {
+      await page.waitForTimeout(1_200);
+      await page.getByTestId('send-echo').click();
+    }
 
-    // Should still be connected (total silence never reached 1_000 ms).
     await expect(page.getByTestId('status')).toHaveText('connected');
   });
 });

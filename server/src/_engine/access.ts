@@ -404,6 +404,16 @@ export interface EngineAccess {
   refreshConnectionIdleTimeout(connectionId: string, timeoutMs: number): void;
 
   /**
+   * Set the keepalive ping interval (ms) used for new connections. `heartbeat()`
+   * calls this so the ping fires often enough that a quiet-but-alive client
+   * always answers within the close window. Only the engine's own keepalive
+   * pinger reads it; left unset, the pinger uses its built-in default.
+   *
+   * @internal
+   */
+  setHeartbeatPingInterval(intervalMs: number): void;
+
+  /**
    * Access the engine's in-memory table of queued scheduled runs.
    */
   getScheduledRuns(): Map<string, ScheduledPrimitive.ScheduledRun>;

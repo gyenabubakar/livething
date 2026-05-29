@@ -41,12 +41,17 @@ describe('heartbeat', () => {
       onConnectionActivity(handler) {
         activityHandlers.push(handler);
       },
+      setHeartbeatPingInterval() {},
       refreshConnectionIdleTimeout(connectionId: string, timeoutMs: number) {
         refreshed.push({ connectionId, timeoutMs });
       },
     } as Pick<
       EngineAccess,
-      'installOnce' | 'onConnect' | 'onConnectionActivity' | 'refreshConnectionIdleTimeout'
+      | 'installOnce'
+      | 'onConnect'
+      | 'onConnectionActivity'
+      | 'refreshConnectionIdleTimeout'
+      | 'setHeartbeatPingInterval'
     > as EngineAccess;
 
     heartbeat({ timeout: 30_000 }).__setup?.(engine);
@@ -78,17 +83,71 @@ describe('heartbeat', () => {
         connectHandlers.push(handler);
       },
       onConnectionActivity() {},
+      setHeartbeatPingInterval() {},
       refreshConnectionIdleTimeout(connectionId: string) {
         refreshed.push(connectionId);
       },
     } as Pick<
       EngineAccess,
-      'installOnce' | 'onConnect' | 'onConnectionActivity' | 'refreshConnectionIdleTimeout'
+      | 'installOnce'
+      | 'onConnect'
+      | 'onConnectionActivity'
+      | 'refreshConnectionIdleTimeout'
+      | 'setHeartbeatPingInterval'
     > as EngineAccess;
 
     heartbeat({ timeout: 30_000 }).__setup?.(engine);
     void connectHandlers[0]!({ id: '' });
 
     expect(refreshed).toHaveLength(0);
+  });
+
+  describe('keepalive ping interval', () => {
+    function setIntervalFor(timeout: number): number | undefined {
+      let pingIntervalMs: number | undefined;
+      const installs = new Set<symbol>();
+      const engine = {
+        installOnce(key, install) {
+          if (installs.has(key)) return;
+          installs.add(key);
+          install();
+        },
+        onConnect() {},
+        onConnectionActivity() {},
+        refreshConnectionIdleTimeout() {},
+        setHeartbeatPingInterval(intervalMs: number) {
+          pingIntervalMs = intervalMs;
+        },
+      } as Pick<
+        EngineAccess,
+        | 'installOnce'
+        | 'onConnect'
+        | 'onConnectionActivity'
+        | 'refreshConnectionIdleTimeout'
+        | 'setHeartbeatPingInterval'
+      > as EngineAccess;
+
+      heartbeat({ timeout }).__setup?.(engine);
+      return pingIntervalMs;
+    }
+
+    it('pings at half the timeout when that lands inside the clamp range', () => {
+      expect(setIntervalFor(20_000)).toBe(10_000);
+      expect(setIntervalFor(60_000)).toBe(30_000);
+    });
+
+    it('caps the interval at 30s for a large timeout (still well under the window)', () => {
+      expect(setIntervalFor(600_000)).toBe(30_000);
+    });
+
+    it('floors the interval at 1s for a tiny timeout', () => {
+      expect(setIntervalFor(1_000)).toBe(1_000);
+    });
+  });
+
+  it('rejects a non-positive or non-integer timeout', () => {
+    expect(() => heartbeat({ timeout: 0 })).toThrow();
+    expect(() => heartbeat({ timeout: -5 })).toThrow();
+    expect(() => heartbeat({ timeout: 1.5 })).toThrow();
   });
 });

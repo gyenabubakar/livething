@@ -190,6 +190,9 @@ export function createEngineAccess(
 
       HeartbeatPrimitive.refreshHeartbeatTimeout(connection, timeoutMs);
     },
+    setHeartbeatPingInterval: (intervalMs) => {
+      core.heartbeatPingIntervalMs = intervalMs;
+    },
     getScheduledRuns: () => core.scheduledRuns,
     getScheduledDlq: () => core.scheduledDlq,
     getScheduledTask: (taskId) => core.compiled.scheduled.get(taskId),
