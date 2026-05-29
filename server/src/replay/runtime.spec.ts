@@ -1,4 +1,6 @@
+import { ReplayFrame } from '~/_engine/runtime/protocol.ts';
 import { createChannelMembershipKey } from '~/channel/runtime.ts';
+import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import {
@@ -635,5 +637,37 @@ describe('buildLoadReplayQuery', () => {
     expect(query.sql).toMatch(/channel IS NULL/);
     expect(query.sql).toMatch(/channelScope IS NULL/);
     expect(query.params).toEqual([0]);
+  });
+});
+
+describe('ReplayFrame schema', () => {
+  it('accepts a top-level replay frame with no scope markers', () => {
+    const result = v.safeParse(ReplayFrame, {
+      event: '__replay__',
+      payload: { lastKnownSeq: 5 },
+      __wskit: {},
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts a channel-scoped replay frame', () => {
+    const result = v.safeParse(ReplayFrame, {
+      event: '__replay__',
+      payload: {},
+      __wskit: { channel: 'room', channelScope: 'rooms' },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects a replay frame that carries a namespace marker', () => {
+    // Replay has no namespace dimension: namespace messages fold into the
+    // top-level replay. A stray namespace marker must fail validation, not be
+    // silently ignored.
+    const result = v.safeParse(ReplayFrame, {
+      event: '__replay__',
+      payload: {},
+      __wskit: { namespace: 'admin' },
+    });
+    expect(result.success).toBe(false);
   });
 });

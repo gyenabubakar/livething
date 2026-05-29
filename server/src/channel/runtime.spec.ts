@@ -447,6 +447,31 @@ describe('channel runtime', () => {
     expect([...connection.channelMemberships.values()]).toHaveLength(0);
   });
 
+  it('persistMembership throwing rejects the subscribe and adds no live membership', async () => {
+    // The durable membership write runs before the live commit, so a storage
+    // failure must leave the connection out of the channel entirely — not live
+    // in a channel with nothing saved.
+    const connection = createConnection('conn_1');
+    const { runtime, connections } = createRuntime();
+    connections.set(connection.id, connection);
+
+    await expect(
+      subscribeConnection(
+        {
+          ...runtime,
+          isChannelPersistent: () => true,
+          persistMembership: () => {
+            throw new Error('storage down');
+          },
+        },
+        connection,
+        { channelName: 'room:general', channelScope: 'rooms', data: undefined },
+      ),
+    ).rejects.toThrow('storage down');
+
+    expect([...connection.channelMemberships.values()]).toHaveLength(0);
+  });
+
   it('async commit handler is detected at runtime and throws', async () => {
     const connection = createConnection('conn_1');
     const { runtime, connections } = createRuntime();
