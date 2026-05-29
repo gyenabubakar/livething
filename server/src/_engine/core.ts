@@ -1,6 +1,7 @@
 import {
   ChannelNotFound,
   ChannelNotSubscribed,
+  InternalError,
   InvalidScopeMarkers,
   NamespaceNotFound,
   RateLimited,
@@ -94,6 +95,10 @@ export class EngineCore {
   readonly tagGroupSchemas = new Map<string, Validator>();
 
   readonly declaredErrorCodes = new Set<string>([
+    // The engine's own fallback code for any non-WskitError. It is always a
+    // valid code to surface, so declaring it here keeps an explicit
+    // `throw InternalError()` from logging a spurious "not declared" warning.
+    InternalError.code,
     ValidationFailed.code,
     ChannelNotFound.code,
     ChannelNotSubscribed.code,

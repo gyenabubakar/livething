@@ -13,6 +13,7 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { InternalError } from '@wskit/core';
 import { adapter } from '~/_adapters/define.ts';
 import { contract } from '~/_api/contract.ts';
 import { t } from '~/_api/definitions.ts';
@@ -360,5 +361,12 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
     // Compared to cold (11): saves 5 schema hooks + 1 mark = 6 round trips
     // skipped. Remaining: 1 sentinel SELECT + 4 cleanup/state-restore.
     expect(execCount).toBe(5);
+  });
+});
+
+describe('engine declaredErrorCodes', () => {
+  it('includes the internal-error fallback code', () => {
+    const engine = buildEngine(tinyHandler);
+    expect(engine.core.declaredErrorCodes.has(InternalError.code)).toBe(true);
   });
 });
