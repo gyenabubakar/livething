@@ -131,11 +131,12 @@ function createReplaySql() {
     }
 
     if (normalized.startsWith('DELETE FROM __wskit_replay WHERE rowKey IN (')) {
-      const [namespace, channel, channelScope, offset] = params;
+      // Limit keys on channel/channelScope only — never namespace. A null
+      // channel binds the top-level store (all non-channel rows together).
+      const [channel, channelScope, offset] = params;
       const doomed = [...rows.values()]
         .filter(
           (row) =>
-            row.namespace === ((namespace as string | null) ?? null) &&
             row.channel === ((channel as string | null) ?? null) &&
             row.channelScope === ((channelScope as string | null) ?? null),
         )
@@ -483,6 +484,46 @@ describe('replay/runtime', () => {
         (row) => row.seq,
       ),
     ).toEqual([4, 5]);
+  });
+
+  it('top-level maxMessages counts every namespace as one scope, not per namespace', () => {
+    const { rows, sql } = createReplaySql();
+
+    // Two top-level rows (no namespace) and two namespace rows. All four belong
+    // to the single top-level scope. With maxMessages: 2 the trim must keep the
+    // two newest across ALL of them, regardless of namespace.
+    function make(key: string, seq: number, namespace: string | null): ReplayRow {
+      return {
+        rowKey: key,
+        messageId: `msg_${key}`,
+        seq,
+        event: 'message',
+        payload: '{}',
+        namespace,
+        channel: null,
+        channelScope: null,
+        snapshotKey: null,
+        createdAt: seq,
+      };
+    }
+    rows.set('a', make('a', 1, null));
+    rows.set('b', make('b', 2, 'admin'));
+    rows.set('c', make('c', 3, 'public'));
+    rows.set('d', make('d', 4, null));
+
+    pruneReplayScopeRows(
+      sql,
+      { maxMessages: 2 },
+      { namespace: null, channel: null, channelScope: null },
+    );
+
+    // Only the two newest by seq survive: 3 and 4. A per-namespace trim would
+    // have kept all four (one or two per namespace).
+    const surviving = loadReplayRows(sql, 0, { channelScope: null } as {
+      channelName?: string;
+      channelScope: string | null;
+    }).map((row) => row.seq);
+    expect(surviving).toEqual([3, 4]);
   });
 
   describe('isChannelReplayAuthorized', () => {

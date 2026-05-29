@@ -243,6 +243,11 @@ class ReplayInstaller {
 
     const { sql } = this.engine.requireStorage();
     const scope = this.engine.getInvocationScope();
+    // `replayScope` carries this frame's namespace/channel markers. For the
+    // row-count limit, only `channel`/`channelScope` pick the store: there are
+    // two replay stores (top-level and per-channel), and a namespace has none
+    // of its own — its rows live in the top-level store. So
+    // `pruneReplayScopeRows` keys on channel only, never namespace.
     const replayScope = readReplayScope(wireMessage.wskit);
     const retention = this.opts.retention;
 

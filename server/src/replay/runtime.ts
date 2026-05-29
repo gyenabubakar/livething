@@ -57,10 +57,20 @@ export function ensureReplaySchema(sql: {
  * Decide whether one replay primitive instance owns the current scope.
  *
  * Channel replay handles only its own concrete channel or channel-family key.
- * Server-level replay handles every scope EXCEPT those claimed by another
- * replay primitive — channels that set their own `replay: true` or opted out
- * via `replay: false`. That cascade behavior lets the top-level replay capture
- * and serve every unclaimed channel.
+ * Server-level (top-level) replay handles every scope EXCEPT those claimed by
+ * another replay primitive — channels that set their own `replay: true` or
+ * opted out via `replay: false`. That cascade lets the top-level replay STORE
+ * messages from every unclaimed channel.
+ *
+ * Storing is not the same as serving: a channel-scoped replay request still
+ * goes through the channel membership check (`isChannelReplayAuthorized`), so a
+ * non-member never gets a channel's history back even though the top-level
+ * store holds it. The cascade only decides which replay instance owns the
+ * stored rows, not who is allowed to read them.
+ *
+ * A namespace is a scope in wskit, but it has no replay store of its own, so
+ * namespace traffic is handled here by the top-level store (no per-namespace
+ * branch on purpose).
  */
 export function matchesReplayScope(
   channelKey: string | undefined,
@@ -426,6 +436,10 @@ function buildReplayRowKey(
   const { messageId, snapshotKey } = ids;
   if (type === 'history') return messageId;
 
+  // Snapshot keys include the namespace so the same snapshotKey emitted from
+  // two different namespaces stays as two distinct current-values. This does
+  // not give the namespace its own replay store — a top-level snapshot replay
+  // still reads/returns all of them together (same two-store model as history).
   return [
     'snapshot',
     scope.namespace ?? '',
@@ -494,7 +508,23 @@ export function pruneExpiredReplayRows(
 }
 
 /**
- * Trim one replay scope down to the configured maximum row count.
+ * Trim one replay store down to the configured maximum row count.
+ *
+ * Replay has exactly two replay stores: the top-level one and one per channel.
+ * A namespace is a scope in wskit, but it has no replay store of its own — a
+ * namespace's messages live in the top-level store and come back as part of a
+ * top-level replay (see `buildLoadReplayQuery`). So the limit must be matched
+ * to that read by keying ONLY on `channel`/`channelScope`, never on namespace:
+ *
+ * - Top-level store (`channel` is null): keep the newest N across every
+ *   non-channel row, namespace included. Keying on namespace here would keep N
+ *   rows per namespace and let one top-level replay hand back far more than N.
+ * - Channel store: keep the newest N for that one `(channel, channelScope)`.
+ *
+ * Both cases fall out of the same query: a null `channel`/`channelScope` binds
+ * to the top-level rows, a real channel binds to that channel's rows. Ordering
+ * by `seq` is safe across namespaces because the sequence counter is global
+ * (one counter for the whole server), so "newest N by seq" is well-defined.
  */
 export function pruneReplayScopeRows(
   sql: {
@@ -511,14 +541,12 @@ export function pruneReplayScopeRows(
       WHERE rowKey IN (
         SELECT rowKey
         FROM __wskit_replay
-        WHERE namespace IS ?
-          AND channel IS ?
+        WHERE channel IS ?
           AND channelScope IS ?
         ORDER BY seq DESC
         LIMIT -1 OFFSET ?
       )
     `,
-    scope.namespace,
     scope.channel,
     scope.channelScope,
     retention.maxMessages,
@@ -581,8 +609,13 @@ export function buildLoadReplayQuery(
   }
 
   // Top-level replay returns every non-channel row regardless of namespace.
-  // Namespace messages come back here too; each row still carries its
-  // namespace so the client routes it to the right handler.
+  // This is BY DESIGN, not a leak. A namespace is a scope in wskit, but it has
+  // no replay store of its own: there are only two replay stores, top-level and
+  // per-channel. A namespace's messages live in the top-level store, so a
+  // top-level replay returns them too. Each row still carries its namespace so
+  // the client routes it to the right handler. The limit in
+  // `pruneReplayScopeRows` matches this read (it counts the whole top-level
+  // store as one), so `maxMessages` bounds what this read returns.
   return {
     sql: `
       SELECT
