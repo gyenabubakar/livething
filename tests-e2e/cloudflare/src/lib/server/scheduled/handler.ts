@@ -14,6 +14,7 @@ export const scheduledContract = contract('scheduled', {
     incoming('schedule-cleanup', v.object({ delayMs: v.number() })),
     incoming('cancel-cleanup', v.object({})),
     incoming('start-heartbeat', v.object({})),
+    incoming('cancel-heartbeat', v.object({})),
     incoming('trigger-flaky-task', v.object({})),
     incoming('trigger-default-retry-task', v.object({})),
     incoming('trigger-always-fail', v.object({})),
@@ -156,6 +157,10 @@ export const scheduledHandler = implement(scheduledContract)
   })
   .on('start-heartbeat', (ctx) => {
     ctx.schedule('heartbeat-tick', { time: Date.now() + 100 });
+  })
+  .on('cancel-heartbeat', (ctx) => {
+    ctx.cancelScheduled('heartbeat-tick');
+    ctx.send('cleanup-cancelled', {});
   })
   .on('trigger-flaky-task', (ctx) => {
     flakyAttempts = 0;

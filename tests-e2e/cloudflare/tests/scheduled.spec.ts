@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import { connect, frames, installRig, send, waitForFrame } from './_ws-rig.ts';
 
 test.describe('scheduled', () => {
   async function openPage(page: Page, room: string, username = 'testuser') {
@@ -214,5 +215,56 @@ test.describe('scheduled', () => {
     await expect(page.getByTestId('schedule-unknown-task-result')).toContainText(
       'is not registered',
     );
+  });
+
+  test('cancelScheduled on a recurring task stops further runs', async ({ page }, testInfo) => {
+    const room = `sched-x-${testInfo.testId}`;
+    await page.goto('/scheduled');
+    await installRig(page);
+    const a = await connect(page, { path: '/ws/scheduled', username: 'alice', room });
+
+    await send(page, a, { event: 'start-heartbeat', payload: {} });
+    // Recurring tick is every: 300ms; wait for at least two ticks.
+    await expect(async () => {
+      const ticks = (await frames(page, a)).filter((f) => f.event === 'heartbeat-tick');
+      expect(ticks.length).toBeGreaterThanOrEqual(2);
+    }).toPass({ timeout: 10_000 });
+
+    await send(page, a, { event: 'cancel-heartbeat', payload: {} });
+    await waitForFrame(page, a, { match: (f) => f.event === 'cleanup-cancelled' });
+
+    const countAtCancel = (await frames(page, a)).filter(
+      (f) => f.event === 'heartbeat-tick',
+    ).length;
+    // Wait past several tick intervals (300ms each) to prove the cancel stuck.
+    await page.waitForTimeout(1200);
+    const countAfter = (await frames(page, a)).filter((f) => f.event === 'heartbeat-tick').length;
+    expect(countAfter).toBe(countAtCancel);
+  });
+
+  test('scheduled queue survives a restart and the task still fires', async ({
+    page,
+    request,
+  }, testInfo) => {
+    const room = `sched-x-${testInfo.testId}`;
+    await page.goto('/scheduled');
+    await installRig(page);
+    const a = await connect(page, { path: '/ws/scheduled', username: 'alice', room });
+
+    // Schedule far enough out that the restart lands before it fires.
+    await send(page, a, { event: 'schedule-cleanup', payload: { delayMs: 1500 } });
+
+    // restart() aborts the DO: in-memory state and socket `a` are dropped,
+    // but the durable scheduled queue + alarm survive in storage.
+    const res = await request.get(`/ws/scheduled/restart?room=${room}`);
+    expect(res.status()).toBe(204);
+
+    // Re-connect a fresh socket to the same room; the DO re-initializes from
+    // storage and the queued cleanup eventually fires its broadcast.
+    const b = await connect(page, { path: '/ws/scheduled', username: 'bob', room });
+    await waitForFrame(page, b, {
+      match: (f) => f.event === 'cleanup-done',
+      timeoutMs: 8000,
+    });
   });
 });

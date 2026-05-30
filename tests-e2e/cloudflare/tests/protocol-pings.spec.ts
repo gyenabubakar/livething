@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { connect, installRig, send, waitForFrame } from './_ws-rig.ts';
 
 test.describe('protocol pings', () => {
   test.beforeEach(async ({ page }, testInfo) => {
@@ -62,5 +63,31 @@ test.describe('protocol pings', () => {
 
     await page.getByTestId('json-ping').click();
     await expect(page.getByTestId('last-message')).toHaveText(/"event":"pong"/);
+  });
+
+  test('protocol-shaped but undeclared event (__bogus__) returns a typed __error__ and keeps the connection alive', async ({
+    page,
+  }, testInfo) => {
+    // '__bogus__' has the protocol-event shape (__x__), so the gateway routes
+    // it to the protocol dispatcher, where it fails to match any known
+    // IncomingProtocolFrame variant. The engine surfaces that as a typed
+    // __error__ with code 'validation-failed' and returns — it never closes the
+    // socket. Liveness is proven by a follow-up JSON ping → pong round-trip.
+    await installRig(page);
+    const room = `protocol-bogus-${testInfo.testId}`;
+    const sock = await connect(page, { path: '/ws/protocol-pings', username: 'alice', room });
+
+    await send(page, sock, { event: '__bogus__', payload: {} });
+    const err = await waitForFrame(page, sock, {
+      match: (f) => f.event === '__error__',
+    });
+    expect(err.payload.code).toBe('validation-failed');
+
+    // Connection stays alive: a JSON ping still gets a JSON pong.
+    await send(page, sock, { event: 'ping', payload: {} });
+    const pong = await waitForFrame(page, sock, {
+      match: (f) => f.event === 'pong',
+    });
+    expect(pong.event).toBe('pong');
   });
 });

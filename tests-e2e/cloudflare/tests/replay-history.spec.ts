@@ -373,6 +373,144 @@ test.describe('replay handler', () => {
     expect(frame!.__wskit?.channelScope).toBe('fams');
   });
 
+  test('channel replay:false opts out of the cascade: optout-room stores nothing, replay-room does', async ({
+    page,
+  }) => {
+    // The contract enables built-in replay at the top level, which normally
+    // cascades into every channel that did not configure its own replay.
+    // `optout-room` declares `replay: false`, which claims the channel scope
+    // with a DISABLED replay primitive: the top-level store skips it (it is in
+    // the claimed-scope set) and no channel-level store/handler is installed
+    // for it. So __replay__ for optout-room returns nothing while the control
+    // `replay-room` (replay: true) returns its stored rows. Both clients are
+    // live members of both channels, so the membership gate passes for both
+    // requests — the only thing suppressing optout-room rows is the opt-out.
+    const result = await page.evaluate(async () => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      if (!ws) throw new Error('socket not exposed');
+
+      function waitFor(predicate: (m: Record<string, unknown>) => boolean, timeoutMs: number) {
+        return new Promise<void>((resolve, reject) => {
+          const prior = ws!.onmessage;
+          const timer = setTimeout(() => {
+            ws!.onmessage = prior;
+            reject(new Error('timeout waiting for frame'));
+          }, timeoutMs);
+          ws!.onmessage = (ev) => {
+            if (typeof prior === 'function') prior.call(ws!, ev);
+            if (typeof ev.data === 'string') {
+              const m = JSON.parse(ev.data) as Record<string, unknown>;
+              if (predicate(m)) {
+                clearTimeout(timer);
+                ws!.onmessage = prior;
+                resolve();
+              }
+            }
+          };
+        });
+      }
+
+      function subscribedOk(channel: string) {
+        return (m: Record<string, unknown>) =>
+          m.event === '__subscribeOk__' &&
+          (m.__wskit as Record<string, unknown> | undefined)?.channel === channel;
+      }
+
+      // Subscribe to both channels and confirm membership before publishing.
+      ws.send(
+        JSON.stringify({
+          event: '__subscribe__',
+          payload: {},
+          __wskit: { channel: 'optout-room' },
+        }),
+      );
+      await waitFor(subscribedOk('optout-room'), 4000);
+      ws.send(
+        JSON.stringify({
+          event: '__subscribe__',
+          payload: {},
+          __wskit: { channel: 'replay-room' },
+        }),
+      );
+      await waitFor(subscribedOk('replay-room'), 4000);
+
+      // Publish one message to each channel. ctx.channel.send delivers the
+      // frame back to this publisher, so we can confirm both lands live.
+      ws.send(
+        JSON.stringify({
+          event: 'send-room-msg',
+          payload: { text: 'optout-live' },
+          __wskit: { channel: 'optout-room' },
+        }),
+      );
+      await waitFor(
+        (m) =>
+          m.event === 'room-msg' &&
+          (m.payload as { text?: string }).text === 'optout-live' &&
+          (m.__wskit as Record<string, unknown> | undefined)?.channel === 'optout-room',
+        4000,
+      );
+      ws.send(
+        JSON.stringify({
+          event: 'send-room-msg',
+          payload: { text: 'control-live' },
+          __wskit: { channel: 'replay-room' },
+        }),
+      );
+      await waitFor(
+        (m) =>
+          m.event === 'room-msg' &&
+          (m.payload as { text?: string }).text === 'control-live' &&
+          (m.__wskit as Record<string, unknown> | undefined)?.channel === 'replay-room',
+        4000,
+      );
+
+      // Now capture only the frames that arrive during the replay window.
+      const replayed: {
+        event: string;
+        payload: Record<string, unknown>;
+        __wskit?: Record<string, unknown>;
+      }[] = [];
+      const original = ws.onmessage;
+      ws.onmessage = (ev) => {
+        if (typeof ev.data === 'string') replayed.push(JSON.parse(ev.data));
+        if (typeof original === 'function') original.call(ws, ev);
+      };
+
+      ws.send(
+        JSON.stringify({
+          event: '__replay__',
+          payload: { lastKnownSeq: 0 },
+          __wskit: { channel: 'optout-room' },
+        }),
+      );
+      await new Promise((r) => setTimeout(r, 500));
+
+      ws.send(
+        JSON.stringify({
+          event: '__replay__',
+          payload: { lastKnownSeq: 0 },
+          __wskit: { channel: 'replay-room' },
+        }),
+      );
+      await new Promise((r) => setTimeout(r, 500));
+
+      ws.onmessage = original;
+      return replayed.filter((m) => m.event === 'room-msg');
+    });
+
+    const optoutReplayed = result.filter((m) => m.__wskit?.channel === 'optout-room');
+    const controlReplayed = result.filter((m) => m.__wskit?.channel === 'replay-room');
+
+    // The opt-out channel stored nothing, so its __replay__ returns no rows.
+    expect(optoutReplayed).toEqual([]);
+    // The control channel (replay: true) returns its stored history.
+    expect(controlReplayed.length).toBeGreaterThan(0);
+    expect(
+      controlReplayed.some((m) => (m.payload as { text?: string }).text === 'control-live'),
+    ).toBe(true);
+  });
+
   test('non-member channel replay request is silently denied (no rows replayed)', async ({
     browser,
   }, testInfo) => {

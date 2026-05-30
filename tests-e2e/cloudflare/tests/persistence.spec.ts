@@ -402,6 +402,115 @@ test.describe('persistence', () => {
     expect(rejoined).toBeUndefined();
   });
 
+  test('anonymous connection does NOT auto-rejoin on reconnect (no durable membership row)', async ({
+    page,
+  }, testInfo) => {
+    // Anonymous upgrade (`&anon`, no username) yields an empty identity. The
+    // engine keys durable membership rows by identity, so an empty-identity
+    // subscribe writes NO durable row — there is nothing to auto-rejoin from on
+    // reconnect. Mirrors 'removeMember … no auto-rejoin': subscribe, get
+    // __subscribeOk__, drop, reconnect, and assert no rejoin __subscribeOk__.
+    //
+    // Inline raw WebSocket via page.evaluate because the shared local rig
+    // hardcodes a username-only URL with no `&anon` support.
+    const room = `persist-anon-${testInfo.testId}`;
+
+    function connectAnon(id: string) {
+      return page.evaluate(
+        ([sid, r]) => {
+          const url = `${location.origin.replace(/^http/, 'ws')}/ws/persistence?room=${encodeURIComponent(
+            r,
+          )}&anon`;
+          const ws = new WebSocket(url);
+          const w = window as unknown as {
+            __anon?: Map<string, { ws: WebSocket; frames: WireFrame[] }>;
+          };
+          w.__anon ??= new Map();
+          const frames: WireFrame[] = [];
+          w.__anon.set(sid, { ws, frames });
+          ws.addEventListener('message', (ev) => {
+            if (typeof ev.data === 'string') {
+              try {
+                frames.push(JSON.parse(ev.data));
+              } catch {
+                // ignore
+              }
+            }
+          });
+          return new Promise<void>((resolve, reject) => {
+            ws.addEventListener('open', () => resolve());
+            ws.addEventListener('error', () => reject(new Error('ws error')));
+          });
+        },
+        [id, room] as const,
+      );
+    }
+
+    function sendAnon(id: string, frame: WireFrame) {
+      return page.evaluate(
+        ([sid, f]) => {
+          const w = window as unknown as {
+            __anon?: Map<string, { ws: WebSocket; frames: WireFrame[] }>;
+          };
+          w.__anon?.get(sid)?.ws.send(JSON.stringify(f as WireFrame));
+        },
+        [id, frame] as const,
+      );
+    }
+
+    function closeAnon(id: string) {
+      return page.evaluate((sid) => {
+        const w = window as unknown as {
+          __anon?: Map<string, { ws: WebSocket; frames: WireFrame[] }>;
+        };
+        w.__anon?.get(sid)?.ws.close();
+      }, id);
+    }
+
+    function framesAnon(id: string) {
+      return page.evaluate((sid) => {
+        const w = window as unknown as {
+          __anon?: Map<string, { ws: WebSocket; frames: WireFrame[] }>;
+        };
+        return w.__anon?.get(sid)?.frames ?? [];
+      }, id);
+    }
+
+    // First anonymous connection: manually subscribe to the persistent channel.
+    await connectAnon('a1');
+    await sendAnon('a1', {
+      event: '__subscribe__',
+      payload: {},
+      __wskit: { channel: 'archive-room' },
+    });
+    // The channel check (ban:<empty>) passes for an empty identity, so the
+    // manual subscribe still returns __subscribeOk__.
+    const start = Date.now();
+    let subscribed = false;
+    while (Date.now() - start < 2000) {
+      const all = await framesAnon('a1');
+      if (all.some((f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'archive-room')) {
+        subscribed = true;
+        break;
+      }
+      await page.waitForTimeout(50);
+    }
+    expect(subscribed).toBe(true);
+
+    await closeAnon('a1');
+    await page.waitForTimeout(150);
+
+    // Reconnect anonymously. With no durable row, the engine has nothing to
+    // auto-rejoin, so no __subscribeOk__ for archive-room should arrive.
+    await connectAnon('a2');
+    await page.waitForTimeout(400);
+    const a2Frames = await framesAnon('a2');
+    const rejoined = a2Frames.find(
+      (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'archive-room',
+    );
+    expect(rejoined).toBeUndefined();
+  });
+
   test('presence frames carry member meta', async ({ page }, testInfo) => {
     const room = `persist-meta-${testInfo.testId}`;
 

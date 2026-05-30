@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { connect, frames, installRig, send, waitForFrame } from './_ws-rig.ts';
 
 test.describe('rate-limit', () => {
   test.beforeEach(async ({ page }, testInfo) => {
@@ -174,5 +175,89 @@ test.describe('rate-limit', () => {
     await page.getByTestId('fast-ping').click();
     await expect(page.getByTestId('fast-pong-count')).toHaveText('3');
     await expect(page.getByTestId('rate-limited-count')).toHaveText('1');
+  });
+
+  test('custom `per` key groups two connections of the same user into one shared budget', async ({
+    page,
+  }, testInfo) => {
+    // 'shared-tick' has a per-handler override: max=2, per: ctx => ctx.meta.username.
+    // Two sockets opened with the SAME username resolve to the same bucket key,
+    // so they share one budget — unlike the default per-connection (ctx.id)
+    // isolation proved by the per-connection-isolation test above.
+    const room = `shared-${testInfo.testId}`;
+    await page.goto('/rate-limit');
+    await installRig(page);
+
+    const a = await connect(page, { path: '/ws/rate-limit', username: 'shared-user', room });
+    const b = await connect(page, { path: '/ws/rate-limit', username: 'shared-user', room });
+
+    // A spends the whole shared budget (max=2).
+    await send(page, a, { event: 'shared-tick', payload: {} });
+    await send(page, a, { event: 'shared-tick', payload: {} });
+    await waitForFrame(page, a, {
+      match: (f) => f.event === 'shared-done',
+    });
+    await expect
+      .poll(async () => (await frames(page, a)).filter((f) => f.event === 'shared-done').length)
+      .toBe(2);
+
+    // B shares A's budget — its first frame is already over the cap.
+    await send(page, b, { event: 'shared-tick', payload: {} });
+    const err = await waitForFrame(page, b, { match: (f) => f.event === '__error__' });
+    expect((err.payload as { code?: string }).code).toBe('rate-limited');
+
+    // B produced no accepted frame: the budget was shared, not per-connection.
+    const bShared = (await frames(page, b)).filter((f) => f.event === 'shared-done');
+    expect(bShared).toHaveLength(0);
+  });
+
+  test('channel scope rule caps the whole channel across its events (shared scope bucket)', async ({
+    page,
+  }, testInfo) => {
+    // 'tight-room' channel declares its own scope rule rateLimit { max: 2 } — not
+    // a per-handler override. Its two events ('alpha', 'beta') therefore draw
+    // from one channel-scope bucket. Two events of ANY mix pass; the third is
+    // rejected, proving the scope cap is enforced across distinct events.
+    const room = `tight-${testInfo.testId}`;
+    await page.goto('/rate-limit');
+    await installRig(page);
+
+    const c = await connect(page, { path: '/ws/rate-limit', username: 'tight-user', room });
+    await send(page, c, {
+      event: '__subscribe__',
+      payload: {},
+      __wskit: { channel: 'tight-room' },
+    });
+    await waitForFrame(page, c, {
+      match: (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'tight-room',
+    });
+
+    // Two frames across two different events both pass (scope bucket max=2).
+    await send(page, c, {
+      event: 'alpha',
+      payload: { text: 'a' },
+      __wskit: { channel: 'tight-room' },
+    });
+    await send(page, c, {
+      event: 'beta',
+      payload: { text: 'b' },
+      __wskit: { channel: 'tight-room' },
+    });
+    await expect
+      .poll(async () => (await frames(page, c)).filter((f) => f.event === 'tight-broadcast').length)
+      .toBe(2);
+
+    // Third frame on a third event-call exhausts the shared scope bucket.
+    await send(page, c, {
+      event: 'alpha',
+      payload: { text: 'c' },
+      __wskit: { channel: 'tight-room' },
+    });
+    const err = await waitForFrame(page, c, { match: (f) => f.event === '__error__' });
+    expect((err.payload as { code?: string }).code).toBe('rate-limited');
+
+    // Still only two broadcasts: the third event was rejected, not delivered.
+    const broadcasts = (await frames(page, c)).filter((f) => f.event === 'tight-broadcast');
+    expect(broadcasts).toHaveLength(2);
   });
 });

@@ -180,6 +180,31 @@ describe('ReplayClient — channels', () => {
       text: string;
     }>();
   });
+
+  it('has optout-room channel', () => {
+    expectTypeOf<ReplayClient['channels']>().toHaveProperty('optout-room');
+  });
+
+  it('optout-room incoming has room-msg', () => {
+    expectTypeOf<ReplayClient['channels']['optout-room']['incoming']['room-msg']>().toEqualTypeOf<{
+      text: string;
+      from: string;
+    }>();
+  });
+
+  it('optout-room outgoing has send-room-msg', () => {
+    expectTypeOf<
+      ReplayClient['channels']['optout-room']['outgoing']['send-room-msg']
+    >().toEqualTypeOf<{
+      text: string;
+    }>();
+  });
+
+  it('exactly three channels', () => {
+    expectTypeOf<keyof ReplayClient['channels']>().toEqualTypeOf<
+      'replay-room' | 'fams' | 'optout-room'
+    >();
+  });
 });
 
 describe('ReplayClient — builtin errors', () => {

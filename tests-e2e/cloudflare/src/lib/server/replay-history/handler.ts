@@ -74,6 +74,11 @@ export const replayContract = contract('replay-test', {
     channel(scope('fams', /^fam-.+$/), {
       definitions: [outgoing('room-msg', RoomMsg), incoming('send-room-msg', SendRoomMsg)],
     }),
+
+    channel('optout-room', {
+      replay: false,
+      definitions: [outgoing('room-msg', RoomMsg), incoming('send-room-msg', SendRoomMsg)],
+    }),
   ],
 });
 
@@ -169,6 +174,14 @@ export const replayHandler = implement(replayContract)
     ch.on('send-room-msg', (ctx, payload) => {
       const from = ctx.meta.username;
       const msg = { text: payload.text, from };
+      ctx.channel.broadcast('room-msg', msg);
+    }),
+  )
+  .channel('optout-room', (ch) =>
+    ch.on('send-room-msg', (ctx, payload) => {
+      const from = ctx.meta.username;
+      const msg = { text: payload.text, from };
+      ctx.channel.send('room-msg', msg);
       ctx.channel.broadcast('room-msg', msg);
     }),
   )

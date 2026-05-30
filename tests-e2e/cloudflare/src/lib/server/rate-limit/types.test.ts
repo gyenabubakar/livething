@@ -22,8 +22,14 @@ describe('RateLimitClient — top-level incoming (server outgoing)', () => {
     expectTypeOf<RateLimitClient['incoming']['expensive-done']>().toEqualTypeOf<{}>();
   });
 
-  it('exactly two events in top-level incoming', () => {
-    expectTypeOf<keyof RateLimitClient['incoming']>().toEqualTypeOf<'tock' | 'expensive-done'>();
+  it('has shared-done with empty payload', () => {
+    expectTypeOf<RateLimitClient['incoming']['shared-done']>().toEqualTypeOf<{}>();
+  });
+
+  it('exactly three events in top-level incoming', () => {
+    expectTypeOf<keyof RateLimitClient['incoming']>().toEqualTypeOf<
+      'tock' | 'expensive-done' | 'shared-done'
+    >();
   });
 });
 
@@ -36,8 +42,14 @@ describe('RateLimitClient — top-level outgoing (server incoming)', () => {
     expectTypeOf<RateLimitClient['outgoing']['expensive']>().toEqualTypeOf<{}>();
   });
 
-  it('exactly two events in top-level outgoing', () => {
-    expectTypeOf<keyof RateLimitClient['outgoing']>().toEqualTypeOf<'tick' | 'expensive'>();
+  it('has shared-tick with empty payload', () => {
+    expectTypeOf<RateLimitClient['outgoing']['shared-tick']>().toEqualTypeOf<{}>();
+  });
+
+  it('exactly three events in top-level outgoing', () => {
+    expectTypeOf<keyof RateLimitClient['outgoing']>().toEqualTypeOf<
+      'tick' | 'expensive' | 'shared-tick'
+    >();
   });
 });
 
@@ -97,6 +109,25 @@ describe('RateLimitClient — channels', () => {
 
   it('rooms outgoing has chatter', () => {
     expectTypeOf<RateLimitClient['channels']['rooms']['outgoing']['chatter']>().toEqualTypeOf<{
+      text: string;
+    }>();
+  });
+
+  it('has tight-room channel', () => {
+    expectTypeOf<RateLimitClient['channels']>().toHaveProperty('tight-room');
+  });
+
+  it('tight-room incoming has tight-broadcast', () => {
+    expectTypeOf<
+      RateLimitClient['channels']['tight-room']['incoming']['tight-broadcast']
+    >().toEqualTypeOf<{ text: string }>();
+  });
+
+  it('tight-room outgoing has alpha and beta', () => {
+    expectTypeOf<RateLimitClient['channels']['tight-room']['outgoing']['alpha']>().toEqualTypeOf<{
+      text: string;
+    }>();
+    expectTypeOf<RateLimitClient['channels']['tight-room']['outgoing']['beta']>().toEqualTypeOf<{
       text: string;
     }>();
   });

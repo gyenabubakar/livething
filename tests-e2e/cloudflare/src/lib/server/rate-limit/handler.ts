@@ -23,6 +23,9 @@ const StrictPingPayload = v.object({});
 const StrictPongPayload = v.object({});
 const FastPingPayload = v.object({});
 const FastPongPayload = v.object({});
+const SharedTickPayload = v.object({});
+const SharedDonePayload = v.object({});
+const TightMsgPayload = v.object({ text: v.string() });
 
 export const rateLimitContract = contract('rate-limit', {
   env: t<Env>(),
@@ -33,6 +36,24 @@ export const rateLimitContract = contract('rate-limit', {
     incoming('expensive', ExpensivePayload),
     outgoing('tock', TockPayload),
     outgoing('expensive-done', ExpensiveDonePayload),
+
+    // Custom `per` key shares one budget across every socket of the same user.
+    // The per-handler override below sets `per: (ctx) => ctx.meta.username`, so
+    // two connections with the same username draw from a single bucket — unlike
+    // the default per-connection (`ctx.id`) isolation.
+    incoming('shared-tick', SharedTickPayload),
+    outgoing('shared-done', SharedDonePayload),
+
+    // Channel whose OWN scope rule (not a per-handler override) caps the whole
+    // channel. Both events below share the channel-scope bucket.
+    channel('tight-room', {
+      rateLimit: { enabled: true, max: 2 },
+      definitions: [
+        incoming('alpha', TightMsgPayload),
+        incoming('beta', TightMsgPayload),
+        outgoing('tight-broadcast', TightMsgPayload),
+      ],
+    }),
 
     // Top-level request — per-handler override max=1; used to prove that an
     // __error__ frame on rate-limited rejection preserves correlationId.
@@ -81,12 +102,16 @@ export const rateLimitHandler = implement(rateLimitContract)
   .onUpgrade((request) => requireUsername(request))
   .rateLimit('expensive', { enabled: true, max: 1 })
   .rateLimit('echo-req', { enabled: true, max: 1 })
+  .rateLimit('shared-tick', { enabled: true, max: 2, per: (ctx) => ctx.meta.username })
   .on('tick', (ctx) => {
     tockCounter += 1;
     ctx.send('tock', { n: tockCounter });
   })
   .on('expensive', (ctx) => {
     ctx.send('expensive-done', {});
+  })
+  .on('shared-tick', (ctx) => {
+    ctx.send('shared-done', {});
   })
   .request('echo-req', (ctx, payload) => {
     ctx.respond({ text: payload.text });
@@ -105,6 +130,15 @@ export const rateLimitHandler = implement(rateLimitContract)
     ch.rateLimit('chatter', { enabled: true, max: 1 }).on('chatter', (ctx, p) => {
       ctx.channel.broadcast('chatter-broadcast', p, { excludeSelf: false });
     }),
+  )
+  .channel('tight-room', (ch) =>
+    ch
+      .on('alpha', (ctx, p) => {
+        ctx.channel.broadcast('tight-broadcast', p, { excludeSelf: false });
+      })
+      .on('beta', (ctx, p) => {
+        ctx.channel.broadcast('tight-broadcast', p, { excludeSelf: false });
+      }),
   )
   .namespace('strict', (ns) =>
     ns.on('strict-ping', (ctx) => {

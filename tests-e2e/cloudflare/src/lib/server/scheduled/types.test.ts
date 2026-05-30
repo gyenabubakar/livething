@@ -122,6 +122,10 @@ describe('ScheduledClient — outgoing (server incoming)', () => {
     expectTypeOf<ScheduledClient['outgoing']['start-heartbeat']>().toEqualTypeOf<{}>();
   });
 
+  it('has cancel-heartbeat with empty payload', () => {
+    expectTypeOf<ScheduledClient['outgoing']['cancel-heartbeat']>().toEqualTypeOf<{}>();
+  });
+
   it('has trigger-flaky-task with empty payload', () => {
     expectTypeOf<ScheduledClient['outgoing']['trigger-flaky-task']>().toEqualTypeOf<{}>();
   });

@@ -120,9 +120,18 @@ describe('InterceptClient — channels', () => {
   });
 });
 
-describe('InterceptClient — empty slots', () => {
-  it('requests is empty', () => {
-    expectTypeOf<keyof InterceptClient['requests']>().toBeNever();
+describe('InterceptClient — top-level requests', () => {
+  it('only intercept-req in top-level requests', () => {
+    expectTypeOf<keyof InterceptClient['requests']>().toEqualTypeOf<'intercept-req'>();
+  });
+
+  it('intercept-req has correct payload and response', () => {
+    expectTypeOf<InterceptClient['requests']['intercept-req']['payload']>().toEqualTypeOf<{
+      text: string;
+    }>();
+    expectTypeOf<InterceptClient['requests']['intercept-req']['response']>().toEqualTypeOf<{
+      text: string;
+    }>();
   });
 });
 

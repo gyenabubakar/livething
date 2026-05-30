@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import { connect, installRig, send, waitForFrame } from './_ws-rig.ts';
 
 test.describe('intercept', () => {
   async function openPage(page: Page, room: string) {
@@ -183,5 +184,31 @@ test.describe('intercept', () => {
     await expect(page.getByTestId('ch-nudge-stream-end')).toHaveText('yes');
     await expect(page.getByTestId('ch-nudge-chunks')).toContainText('no-hint');
     await expect(page.getByTestId('ch-nudge-chunks')).not.toContainText('ch-hint-block');
+  });
+
+  // ── request intercepts ────────────────────────────────────────────────────
+
+  test('top-level intercept rewrites a request payload before the request handler runs', async ({
+    page,
+  }, testInfo) => {
+    // Drive the wire directly with the shared rig: send a request frame
+    // (kind === 'request') carrying a correlationId. The top-level intercept
+    // matches 'intercept-req' and rewrites 'req-pre' → 'req-pre-rewritten'. The
+    // handler echoes whatever payload it received, and the response comes back
+    // as the same event name with the same correlationId — so the rewritten
+    // text in the reply proves the intercept ran on the request frame.
+    const room = `intercept-req-${testInfo.testId}`;
+    await page.goto('/intercept');
+    await installRig(page);
+    const sock = await connect(page, { path: '/ws/intercept', username: 'alice', room });
+    await send(page, sock, {
+      event: 'intercept-req',
+      payload: { text: 'req-pre' },
+      __wskit: { correlationId: 'req-1' },
+    });
+    const reply = await waitForFrame(page, sock, {
+      match: (f) => f.event === 'intercept-req' && f.__wskit?.correlationId === 'req-1',
+    });
+    expect(reply.payload.text).toBe('req-pre-rewritten');
   });
 });
