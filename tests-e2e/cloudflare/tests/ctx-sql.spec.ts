@@ -3,7 +3,7 @@ import { connect, installRig, send, waitForFrame } from './_ws-rig.ts';
 
 test.describe('ctx-sql', () => {
   test.beforeEach(async ({ page }, testInfo) => {
-    const room = `test-${testInfo.testId}`;
+    const room = `test-${testInfo.testId}-${Date.now()}`;
     await page.goto(`/ctx-sql?room=${room}`);
     await page.getByTestId('connect').click();
     await expect(page.getByTestId('status')).toHaveText('connected');

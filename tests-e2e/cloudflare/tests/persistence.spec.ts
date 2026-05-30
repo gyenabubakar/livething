@@ -102,7 +102,7 @@ test.describe('persistence', () => {
   test('persistent channel auto-rejoins on reconnect with _memberOnline (no _memberJoin to existing peers)', async ({
     page,
   }, testInfo) => {
-    const room = `persist-rejoin-${testInfo.testId}`;
+    const room = `persist-rejoin-${testInfo.testId}-${Date.now()}`;
 
     // Alice opens, subscribes to archive-room, then disconnects.
     const alice1 = await connect(page, 'alice', room);
@@ -167,7 +167,7 @@ test.describe('persistence', () => {
   test('.persistent(false) channel does NOT auto-rejoin on reconnect', async ({
     page,
   }, testInfo) => {
-    const room = `persist-ephemeral-${testInfo.testId}`;
+    const room = `persist-ephemeral-${testInfo.testId}-${Date.now()}`;
 
     const alice1 = await connect(page, 'alice', room);
     await send(page, alice1, {
@@ -194,7 +194,7 @@ test.describe('persistence', () => {
   test('removeMember drops the durable row and kicks the live socket', async ({
     page,
   }, testInfo) => {
-    const room = `persist-removemember-${testInfo.testId}`;
+    const room = `persist-removemember-${testInfo.testId}-${Date.now()}`;
 
     const alice1 = await connect(page, 'alice', room);
     await send(page, alice1, {
@@ -232,7 +232,7 @@ test.describe('persistence', () => {
   test('plain disconnect on persistent channel broadcasts _memberOffline but NOT _memberLeave', async ({
     page,
   }, testInfo) => {
-    const room = `persist-disconnect-${testInfo.testId}`;
+    const room = `persist-disconnect-${testInfo.testId}-${Date.now()}`;
 
     const alice1 = await connect(page, 'alice', room);
     await send(page, alice1, {
@@ -269,7 +269,7 @@ test.describe('persistence', () => {
   });
 
   test('auto-rejoin sends __subscribeOk__ with source "server"', async ({ page }, testInfo) => {
-    const room = `persist-source-${testInfo.testId}`;
+    const room = `persist-source-${testInfo.testId}-${Date.now()}`;
 
     // First connect: subscribe so alice has a durable membership row.
     const alice1 = await connect(page, 'alice', room);
@@ -300,7 +300,7 @@ test.describe('persistence', () => {
   test('plain disconnect fires onSessionEnd (session-ended) but NOT onUnsubscribe (true-leave)', async ({
     page,
   }, testInfo) => {
-    const room = `persist-sessionend-${testInfo.testId}`;
+    const room = `persist-sessionend-${testInfo.testId}-${Date.now()}`;
 
     const alice = await connect(page, 'alice', room);
     const bob = await connect(page, 'bob', room);
@@ -335,7 +335,7 @@ test.describe('persistence', () => {
   test('removeMember fires onUnsubscribe (true-leave) but NOT onSessionEnd (session-ended)', async ({
     page,
   }, testInfo) => {
-    const room = `persist-removeonly-${testInfo.testId}`;
+    const room = `persist-removeonly-${testInfo.testId}-${Date.now()}`;
 
     const alice = await connect(page, 'alice', room);
     const admin = await connect(page, 'admin', room);
@@ -369,7 +369,7 @@ test.describe('persistence', () => {
   test('auto-rejoin re-runs the channel check; a now-failing check prevents rejoin', async ({
     page,
   }, testInfo) => {
-    const room = `persist-rejoincheck-${testInfo.testId}`;
+    const room = `persist-rejoincheck-${testInfo.testId}-${Date.now()}`;
 
     const alice1 = await connect(page, 'alice', room);
     await send(page, alice1, {
@@ -413,7 +413,7 @@ test.describe('persistence', () => {
     //
     // Inline raw WebSocket via page.evaluate because the shared local rig
     // hardcodes a username-only URL with no `&anon` support.
-    const room = `persist-anon-${testInfo.testId}`;
+    const room = `persist-anon-${testInfo.testId}-${Date.now()}`;
 
     function connectAnon(id: string) {
       return page.evaluate(
@@ -512,7 +512,7 @@ test.describe('persistence', () => {
   });
 
   test('presence frames carry member meta', async ({ page }, testInfo) => {
-    const room = `persist-meta-${testInfo.testId}`;
+    const room = `persist-meta-${testInfo.testId}-${Date.now()}`;
 
     const alice = await connect(page, 'alice', room);
     await send(page, alice, {

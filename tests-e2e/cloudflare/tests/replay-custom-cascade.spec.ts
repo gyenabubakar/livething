@@ -4,7 +4,7 @@ test.describe('replay-custom-cascade', () => {
   test('top-level custom replay receives channel info on cascaded sends and serves filtered replay back', async ({
     page,
   }, testInfo) => {
-    const room = `cascade-${testInfo.testId}`;
+    const room = `cascade-${testInfo.testId}-${Date.now()}`;
     await page.goto(`/replay-custom-cascade?room=${room}`);
 
     const handle = await page.evaluateHandle(
@@ -158,7 +158,7 @@ test.describe('replay-custom-cascade', () => {
     // channelScope=null. Replay frames went out with channel='room-7' but
     // no channelScope='rooms', so the client's family-channel router could
     // not route them.
-    const room = `cascade-fam-${testInfo.testId}`;
+    const room = `cascade-fam-${testInfo.testId}-${Date.now()}`;
     await page.goto(`/replay-custom-cascade?room=${room}`);
 
     const handle = await page.evaluateHandle(
