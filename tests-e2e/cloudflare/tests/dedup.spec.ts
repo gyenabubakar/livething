@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { connect, installRig, send, waitForFrame } from './_ws-rig.ts';
 
 test.describe('dedup', () => {
   test.beforeEach(async ({ page }, testInfo) => {
@@ -89,5 +90,35 @@ test.describe('dedup', () => {
     await page.getByTestId('echo-plain').click();
     await expect(page.getByTestId('count-plain')).toHaveText('1');
     await expect(page.getByTestId('count-dup-hi')).toHaveText('1');
+  });
+
+  test('dedup is per-connection — the same messageId on two connections both dispatch', async ({
+    page,
+  }, testInfo) => {
+    // The dedup cache is scoped to a connection, so an identical messageId on a
+    // different connection is NOT treated as a duplicate — both handlers run.
+    await installRig(page);
+    const room = `dedup-iso-${testInfo.testId}`;
+    const a = await connect(page, { path: '/ws/dedup', username: 'alice', room });
+    const b = await connect(page, { path: '/ws/dedup', username: 'bob', room });
+
+    const sharedMsgId = 'shared-cross-conn-id';
+    await send(page, a, {
+      event: 'do-echo',
+      payload: { text: 'from-alice' },
+      __wskit: { messageId: sharedMsgId },
+    });
+    await send(page, b, {
+      event: 'do-echo',
+      payload: { text: 'from-bob' },
+      __wskit: { messageId: sharedMsgId },
+    });
+
+    await waitForFrame(page, a, {
+      match: (f) => f.event === 'echoed' && f.payload.text === 'from-alice',
+    });
+    await waitForFrame(page, b, {
+      match: (f) => f.event === 'echoed' && f.payload.text === 'from-bob',
+    });
   });
 });

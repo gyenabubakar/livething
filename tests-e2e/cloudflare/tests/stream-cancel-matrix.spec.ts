@@ -272,4 +272,61 @@ test.describe('stream-cancel matrix', () => {
     expect(err.payload.code).toBe('stream-aborted');
     expect((err.payload.detail as { reason: string }).reason).toBe('not-found');
   });
+
+  test('cancel is idempotent — a second _streamCancel for the same id does not crash the connection', async ({
+    page,
+  }, testInfo) => {
+    const room = `scm-idem-${testInfo.testId}`;
+    await pageWithRig(page, '/stream-basic');
+    const a = await connect(page, { path: '/ws/stream-basic', username: 'alice', room: room });
+
+    await send(page, a, {
+      event: 'start-tokens',
+      payload: { count: 10 },
+      __wskit: { streamId: 'tok-1' },
+    });
+    await waitForFrame(page, a, { match: (f) => f.event === '__streamOk__' });
+    await page.waitForFunction(
+      ([sid]) =>
+        (window.__wskitFrames!(sid as string) ?? []).some((f) => f.event === 'start-tokens'),
+      [a],
+    );
+
+    await send(page, a, { event: '__streamCancel__', payload: {}, __wskit: { streamId: 'tok-1' } });
+    await page.waitForTimeout(150);
+    // Second cancel of the now-dead id is a no-op, not a crash.
+    await send(page, a, { event: '__streamCancel__', payload: {}, __wskit: { streamId: 'tok-1' } });
+    await page.waitForTimeout(150);
+
+    // Connection still alive — a fresh stream starts normally.
+    await send(page, a, {
+      event: 'start-empty',
+      payload: {},
+      __wskit: { streamId: 'alive-check' },
+    });
+    await waitForFrame(page, a, {
+      match: (f) => f.event === '__streamOk__' && f.__wskit?.streamId === 'alive-check',
+    });
+  });
+
+  test('cancel for a never-started id does not crash the connection', async ({
+    page,
+  }, testInfo) => {
+    const room = `scm-never-${testInfo.testId}`;
+    await pageWithRig(page, '/stream-basic');
+    const a = await connect(page, { path: '/ws/stream-basic', username: 'alice', room: room });
+
+    await send(page, a, {
+      event: '__streamCancel__',
+      payload: {},
+      __wskit: { streamId: 'no-such-stream' },
+    });
+    await page.waitForTimeout(150);
+
+    // Connection still alive — a fresh stream starts normally.
+    await send(page, a, { event: 'start-empty', payload: {}, __wskit: { streamId: 'ck' } });
+    await waitForFrame(page, a, {
+      match: (f) => f.event === '__streamOk__' && f.__wskit?.streamId === 'ck',
+    });
+  });
 });

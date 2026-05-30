@@ -285,6 +285,60 @@ test.describe('stream-durable broadcast (channel scope)', () => {
       await ctxB.close();
     }
   });
+
+  test('creator nudge on a broadcast stream stops the fan-out for every peer', async ({
+    browser,
+  }, testInfo) => {
+    const room = `sdbc-nudge-${testInfo.testId}`;
+    // Unique per run so a prior ended/retained row never blocks the next start.
+    const streamId = `feed-nudged-${Date.now()}`;
+    const { ctxA, ctxB, pageA, pageB } = await newPair(browser);
+    try {
+      const a = await connect(pageA, { path: WS_PATH, username: 'alice', room: room });
+      const b = await connect(pageB, { path: WS_PATH, username: 'bob', room: room });
+      await send(pageA, a, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
+      await waitForFrame(pageA, a, { match: (f) => f.event === '__subscribeOk__' });
+      await send(pageB, b, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
+      await waitForFrame(pageB, b, { match: (f) => f.event === '__subscribeOk__' });
+
+      // Alice (creator) starts the broadcast stream; both see chunks fan out.
+      await send(pageA, a, {
+        event: 'feed-nudged',
+        payload: {},
+        __wskit: { channel: 'rooms', streamId },
+      });
+      await waitForFrame(pageA, a, {
+        match: (f) => f.event === 'feed-nudged' && typeof f.payload?.token === 'string',
+      });
+      await waitForFrame(pageB, b, {
+        match: (f) => f.event === 'feed-nudged' && typeof f.payload?.token === 'string',
+      });
+
+      // The creator nudges 'stop'. Because the generator runs on the creator's
+      // connection and fans out to peers, the stop ends the stream for everyone.
+      await send(pageA, a, {
+        event: 'stop',
+        payload: {},
+        __wskit: { channel: 'rooms', streamId },
+      });
+
+      await waitForFrame(pageA, a, {
+        match: (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
+      });
+      await waitForFrame(pageB, b, {
+        match: (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
+      });
+
+      // The nudge stopped it early — far fewer than the 20 it would otherwise
+      // produce — and bob (the peer) stopped receiving too.
+      const tokensB = (await frames(pageB, b)).filter((f) => f.event === 'feed-nudged');
+      expect(tokensB.length).toBeGreaterThanOrEqual(1);
+      expect(tokensB.length).toBeLessThan(20);
+    } finally {
+      await ctxA.close();
+      await ctxB.close();
+    }
+  });
 });
 
 test.describe('stream-durable broadcast (namespace scope)', () => {

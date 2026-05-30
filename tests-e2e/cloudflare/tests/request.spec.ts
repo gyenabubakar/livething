@@ -146,4 +146,36 @@ test.describe('request', () => {
     await page.getByTestId('get-time').click();
     await expect(page.getByTestId('last-response')).toContainText('fixed-now-string');
   });
+
+  test('a request frame with no correlationId at all surfaces __error__ code "request-no-correlation"', async ({
+    page,
+  }, testInfo) => {
+    // A request handler needs a correlationId to route its response. A frame
+    // that omits __wskit.correlationId entirely cannot be answered, so the
+    // server rejects it with a typed code instead of running the handler and
+    // dropping the reply on the floor.
+    await openPage(page, `test-${testInfo.testId}`);
+
+    const errors = await page.evaluate(async () => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      if (!ws) throw new Error('socket not exposed');
+      const got: { event: string; payload: Record<string, unknown> }[] = [];
+      const original = ws.onmessage;
+      ws.onmessage = (ev) => {
+        if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
+        if (typeof original === 'function') original.call(ws, ev);
+      };
+      ws.send(JSON.stringify({ event: 'get-time', payload: {} }));
+      await new Promise((r) => setTimeout(r, 300));
+      ws.onmessage = original;
+      return got.filter((m) => m.event === '__error__');
+    });
+
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0]!.payload.code).toBe('request-no-correlation');
+
+    // Connection is alive — a properly correlated request still works.
+    await page.getByTestId('get-time').click();
+    await expect(page.getByTestId('last-response')).toContainText('fixed-now-string');
+  });
 });

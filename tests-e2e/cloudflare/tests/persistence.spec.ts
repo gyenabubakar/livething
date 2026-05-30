@@ -267,4 +267,102 @@ test.describe('persistence', () => {
     );
     expect(leave).toBeUndefined();
   });
+
+  test('auto-rejoin sends __subscribeOk__ with source "server"', async ({ page }, testInfo) => {
+    const room = `persist-source-${testInfo.testId}`;
+
+    // First connect: subscribe so alice has a durable membership row.
+    const alice1 = await connect(page, 'alice', room);
+    await send(page, alice1, {
+      event: '__subscribe__',
+      payload: {},
+      __wskit: { channel: 'archive-room' },
+    });
+    await waitForFrame(
+      page,
+      alice1,
+      (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'archive-room',
+    );
+    await close(page, alice1);
+    await page.waitForTimeout(200);
+
+    // Reconnect: the engine auto-rejoins alice and the __subscribeOk__ it sends
+    // is unsolicited, so source must be 'server' (not 'client').
+    const alice2 = await connect(page, 'alice', room);
+    const ok = await waitForFrame(
+      page,
+      alice2,
+      (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'archive-room',
+    );
+    expect(ok.payload.source).toBe('server');
+  });
+
+  test('plain disconnect fires onSessionEnd (session-ended) but NOT onUnsubscribe (true-leave)', async ({
+    page,
+  }, testInfo) => {
+    const room = `persist-sessionend-${testInfo.testId}`;
+
+    const alice = await connect(page, 'alice', room);
+    const bob = await connect(page, 'bob', room);
+    for (const c of [alice, bob]) {
+      await send(page, c, {
+        event: '__subscribe__',
+        payload: {},
+        __wskit: { channel: 'archive-room' },
+      });
+      await waitForFrame(
+        page,
+        c,
+        (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'archive-room',
+      );
+    }
+
+    const beforeLen = (await frames(page, bob)).length;
+    await close(page, alice);
+    await page.waitForTimeout(400);
+
+    const after = (await frames(page, bob)).slice(beforeLen);
+    const sessionEnded = after.find(
+      (f) => f.event === 'session-ended' && f.__wskit?.channel === 'archive-room',
+    );
+    expect(sessionEnded).toBeTruthy();
+    expect(sessionEnded!.payload.username).toBe('alice');
+
+    // true-leave is reserved for explicit unsubscribe/removeMember, not a drop.
+    expect(after.find((f) => f.event === 'true-leave')).toBeUndefined();
+  });
+
+  test('removeMember fires onUnsubscribe (true-leave) but NOT onSessionEnd (session-ended)', async ({
+    page,
+  }, testInfo) => {
+    const room = `persist-removeonly-${testInfo.testId}`;
+
+    const alice = await connect(page, 'alice', room);
+    const admin = await connect(page, 'admin', room);
+    await send(page, alice, {
+      event: '__subscribe__',
+      payload: {},
+      __wskit: { channel: 'archive-room' },
+    });
+    await waitForFrame(
+      page,
+      alice,
+      (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'archive-room',
+    );
+
+    const beforeLen = (await frames(page, alice)).length;
+    await send(page, admin, { event: 'remove-member', payload: { identity: 'alice' } });
+
+    // true-leave fires while alice is still connected.
+    await waitForFrame(
+      page,
+      alice,
+      (f) => f.event === 'true-leave' && f.payload.channel === 'archive-room',
+    );
+
+    await page.waitForTimeout(200);
+    const after = (await frames(page, alice)).slice(beforeLen);
+    // onSessionEnd must NOT fire — alice was removed from the channel, not disconnected.
+    expect(after.filter((f) => f.event === 'session-ended')).toHaveLength(0);
+  });
 });

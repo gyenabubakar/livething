@@ -153,4 +153,52 @@ test.describe('stream-nudges matrix', () => {
     expect(chunks).toBeLessThan(20);
     expect(chunks).toBeGreaterThanOrEqual(1);
   });
+
+  test('a peer cannot nudge another connection’s stream — gets validation-failed, owner unaffected', async ({
+    page,
+  }, testInfo) => {
+    // A nudge frame must reference a live stream owned by the SAME connection.
+    // Bob sending a 'stop' with alice's streamId must be rejected with
+    // validation-failed, and alice's generator must keep producing — one
+    // client cannot steer another's stream.
+    const room = `snm-cross-${testInfo.testId}`;
+    await openRig(page);
+    const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
+    const b = await connect(page, { path: WS_PATH, username: 'bob', room: room });
+    for (const c of [a, b]) {
+      await send(page, c, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
+      await waitForFrame(page, c, { match: (f) => f.event === '__subscribeOk__' });
+    }
+
+    await send(page, a, { event: 'channel-tokens', payload: {}, __wskit: { channel: 'rooms' } });
+    const ok = await waitForFrame(page, a, { match: (f) => f.event === '__streamOk__' });
+    const streamId = ok.__wskit?.streamId as string;
+    await page.waitForFunction(
+      ([sid]) =>
+        (window.__wskitFrames!(sid as string) ?? []).some((f) => f.event === 'channel-tokens'),
+      [a],
+    );
+
+    // Bob tries to stop alice's stream by its id.
+    const tokensWhenNudged = await countChunks(page, a, 'channel-tokens');
+    await send(page, b, {
+      event: 'stop',
+      payload: {},
+      __wskit: { channel: 'rooms', streamId },
+    });
+
+    // Bob is told the stream is not his.
+    const err = await waitForFrame(page, b, {
+      match: (f) => f.event === '__error__' && f.payload.code === 'validation-failed',
+    });
+    expect(err.__wskit?.streamId).toBe(streamId);
+
+    // Alice's stream is unaffected — it keeps producing past the nudge point.
+    await page.waitForFunction(
+      ([sid, cnt]) =>
+        (window.__wskitFrames!(sid as string) ?? []).filter((f) => f.event === 'channel-tokens')
+          .length > (cnt as number),
+      [a, tokensWhenNudged],
+    );
+  });
 });

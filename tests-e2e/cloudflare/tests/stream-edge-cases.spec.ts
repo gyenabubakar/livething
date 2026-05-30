@@ -54,7 +54,9 @@ test.describe('stream edge cases', () => {
     await send(page, a, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
     await waitForFrame(page, a, { match: (f) => f.event === '__subscribeOk__' });
 
-    const streamId = 'attempt-broadcast-1';
+    // Unique per run: this stream sleeps 60s and never ends, so a fixed id
+    // would leave an active durable row behind that collides on the next run.
+    const streamId = `attempt-broadcast-${Date.now()}`;
     await send(page, a, {
       event: 'attempt-broadcast',
       payload: {},
@@ -143,6 +145,47 @@ test.describe('stream edge cases', () => {
     await waitForFrame(page, b, {
       match: (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
     });
+  });
+
+  test('default allowConcurrent (false) — second start of the same event → _error stream-already-active', async ({
+    page,
+  }, testInfo) => {
+    // start-tokens is a plain stream() with no allowConcurrent flag, so the
+    // default (false) applies. While the first run is still producing, a
+    // second start of the same event on the same connection must be rejected
+    // with stream-already-active — the counterpart to the allowConcurrent:true
+    // case proven in stream-config-options.
+    const room = `sec-saa-${testInfo.testId}`;
+    await openRig(page, '/stream-basic');
+    const a = await connect(page, { path: '/ws/stream-basic', username: 'alice', room: room });
+
+    await send(page, a, {
+      event: 'start-tokens',
+      payload: { count: 10 },
+      __wskit: { streamId: 'first' },
+    });
+    await waitForFrame(page, a, {
+      match: (f) => f.event === '__streamOk__' && f.__wskit?.streamId === 'first',
+    });
+    // Wait for at least one chunk so the generator is definitely running.
+    await page.waitForFunction(
+      ([sid]) =>
+        (window.__wskitFrames!(sid as string) ?? []).some((f) => f.event === 'start-tokens'),
+      [a],
+    );
+
+    await send(page, a, {
+      event: 'start-tokens',
+      payload: { count: 10 },
+      __wskit: { streamId: 'second' },
+    });
+    const err = await waitForFrame(page, a, {
+      match: (f) => f.event === '__error__' && f.payload.code === 'stream-already-active',
+    });
+    expect(err.payload.code).toBe('stream-already-active');
+
+    // Connection is alive — cancel the first stream.
+    await send(page, a, { event: '__streamCancel__', payload: {}, __wskit: { streamId: 'first' } });
   });
 
   test('dev-supplied _streamId on a namespace-scoped durable stream pins the resume key', async ({

@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import { connect, frames, installRig, send } from './_ws-rig.ts';
 
 async function tickAndReadSeq(page: Page, prev: number): Promise<number> {
   await page.getByTestId('tick').click();
@@ -48,6 +49,40 @@ test.describe('sequence', () => {
     }
     for (let i = 1; i < history.length; i++) {
       expect(history[i]).toBeGreaterThan(history[i - 1]);
+    }
+  });
+
+  test('the seq counter is shared across connections to the same DO', async ({
+    page,
+  }, testInfo) => {
+    // Two connections land on the same durable object, so they draw from one
+    // sequence counter — seq numbers stay globally monotonic across both.
+    const room = `seq-shared-${testInfo.testId}`;
+    await page.goto('/sequence');
+    await installRig(page);
+
+    const a = await connect(page, { path: '/ws/sequence', username: 'alice', room });
+    const b = await connect(page, { path: '/ws/sequence', username: 'bob', room });
+
+    const seqs: number[] = [];
+    for (let i = 0; i < 4; i++) {
+      const conn = i % 2 === 0 ? a : b;
+      const before = (await frames(page, conn)).filter((f) => f.event === 'tock').length;
+      await send(page, conn, { event: 'tick', payload: {} });
+      await page.waitForFunction(
+        ([sid, cnt]) =>
+          (window.__wskitFrames!(sid as string) ?? []).filter((f) => f.event === 'tock').length >
+          (cnt as number),
+        [conn, before],
+      );
+      const tocks = (await frames(page, conn)).filter(
+        (f) => f.event === 'tock' && typeof f.__wskit?.seq === 'number',
+      );
+      seqs.push(tocks[tocks.length - 1]!.__wskit!.seq as number);
+    }
+
+    for (let i = 1; i < seqs.length; i++) {
+      expect(seqs[i]).toBeGreaterThan(seqs[i - 1]!);
     }
   });
 });

@@ -3,6 +3,7 @@ import {
   contract,
   implement,
   namespace,
+  nudge,
   recordedStream,
   resumableStream,
   t,
@@ -48,6 +49,15 @@ export const streamDurableBroadcastContract = contract('stream-durable-broadcast
           maxAgeMs: 60_000,
           retentionAfterEndMs: 30_000,
         }),
+        recordedStream('feed-nudged', {
+          payload: Empty,
+          chunk: TokenChunk,
+          broadcast: true,
+          maxChunks: 100,
+          maxAgeMs: 60_000,
+          retentionAfterEndMs: 30_000,
+          nudges: [nudge('stop', Empty)],
+        }),
       ],
     }),
     namespace('v1', {
@@ -86,6 +96,16 @@ export const streamDurableBroadcastHandler = implement(streamDurableBroadcastCon
       .resumableStream('attempt-broadcast', async function* (ctx) {
         yield ctx.stream.withCursor({ attempt: ctx.stream.attempt }, { idx: 1 });
         await new Promise((r) => setTimeout(r, 60_000));
+      })
+      .recordedStream('feed-nudged', async function* (ctx) {
+        // A broadcast stream the creator can steer with a 'stop' nudge — the
+        // generator runs on the creator's connection, so its nudge ends the
+        // fan-out for every subscribed peer, not just the creator.
+        for (let i = 1; i <= 20; i += 1) {
+          const nudges = ctx.nudges(yield { token: `t${i}` });
+          if (nudges.some((n: { event: string }) => n.event === 'stop')) return;
+          await new Promise((r) => setTimeout(r, 100));
+        }
       }),
   )
 

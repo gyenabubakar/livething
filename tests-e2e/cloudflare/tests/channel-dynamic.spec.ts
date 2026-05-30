@@ -659,4 +659,116 @@ test.describe('channel-dynamic', () => {
     expect(ok!.__wskit?.channelScope).toBe('room');
     expect(ok!.payload.source).toBe('server');
   });
+
+  test('auth-race stress: N concurrent subscribes with awaited checks — rejected users never become members, allowed set is complete and symmetric', async ({
+    page,
+  }, testInfo) => {
+    // Stress the check → commit pattern. Every allowed connection uses a
+    // 'slow-user' name so its check awaits 50ms — all of them sit in the await
+    // window at once, maximizing interleaving. The rejected ones use
+    // 'async-banned-user' so their rejection also resolves inside that window.
+    //
+    // Invariants proven under that concurrency:
+    //  1. Auth gate holds: every banned subscribe is rejected (no __subscribeOk__).
+    //  2. No leak: a rejected connection never appears in anyone's member view.
+    //  3. Complete + symmetric: each allowed connection sees every OTHER allowed
+    //     one (no lost-update on the member set), and the union of all seen ids
+    //     is exactly the allowed set — so nothing extra crept in.
+    const room = `auth-stress-${testInfo.testId}`;
+    const channel = 'room:stress';
+    const ALLOWED = 6;
+    const BANNED = 3;
+    await page.goto(`/channel-dynamic?room=${room}`);
+
+    const result = await page.evaluate(
+      async ({ room, channel, allowedCount, bannedCount }) => {
+        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        type Msg = {
+          event: string;
+          payload: Record<string, unknown>;
+          __wskit?: Record<string, unknown>;
+        };
+        type Sock = { ws: WebSocket; messages: Msg[] };
+
+        function open(username: string): Promise<Sock> {
+          return new Promise((resolve, reject) => {
+            const ws = new WebSocket(
+              `${proto}//${location.host}/ws/channel-dynamic?username=${encodeURIComponent(
+                username,
+              )}&room=${encodeURIComponent(room)}`,
+            );
+            const messages: Msg[] = [];
+            ws.onmessage = (ev) => {
+              if (typeof ev.data === 'string') messages.push(JSON.parse(ev.data));
+            };
+            ws.onopen = () => resolve({ ws, messages });
+            ws.onerror = (e) => reject(e);
+          });
+        }
+
+        const allowed = await Promise.all(
+          Array.from({ length: allowedCount }, (_, i) => open(`slow-user-${i}`)),
+        );
+        // The check rejects the exact username 'async-banned-user'; membership is
+        // per-connection, so several connections can share it — each is rejected
+        // independently inside the same awaited-check window.
+        const banned = await Promise.all(
+          Array.from({ length: bannedCount }, () => open('async-banned-user')),
+        );
+
+        // Fire every __subscribe__ as close to simultaneous as possible.
+        const frame = JSON.stringify({
+          event: '__subscribe__',
+          payload: {},
+          __wskit: { channel, channelScope: 'room' },
+        });
+        for (const s of [...allowed, ...banned]) s.ws.send(frame);
+
+        function seenIds(s: Sock): Set<string> {
+          const ids = new Set<string>();
+          for (const m of s.messages) {
+            if (m.event === '__memberSync__') {
+              const members = (m.payload.members as { connectionId: string }[] | undefined) ?? [];
+              for (const mb of members) ids.add(mb.connectionId);
+            }
+            if (m.event === '__memberJoin__') ids.add(String(m.payload.connectionId));
+          }
+          return ids;
+        }
+
+        // Poll until settled (all allowed ok, all banned errored) AND the member
+        // views are complete, or a deadline passes.
+        const deadline = Date.now() + 6000;
+        while (Date.now() < deadline) {
+          const settled =
+            allowed.every((s) => s.messages.some((m) => m.event === '__subscribeOk__')) &&
+            banned.every((s) => s.messages.some((m) => m.event === '__error__'));
+          const complete = allowed.every((s) => seenIds(s).size >= allowedCount - 1);
+          if (settled && complete) break;
+          await new Promise((r) => setTimeout(r, 50));
+        }
+
+        const allowedOk = allowed.map((s) => s.messages.some((m) => m.event === '__subscribeOk__'));
+        const bannedOk = banned.map((s) => s.messages.some((m) => m.event === '__subscribeOk__'));
+        const bannedErr = banned.map((s) => s.messages.some((m) => m.event === '__error__'));
+        const seenCounts = allowed.map((s) => seenIds(s).size);
+        const unionSeen = new Set<string>();
+        for (const s of allowed) for (const id of seenIds(s)) unionSeen.add(id);
+
+        return { allowedOk, bannedOk, bannedErr, seenCounts, unionSize: unionSeen.size };
+      },
+      { room, channel, allowedCount: ALLOWED, bannedCount: BANNED },
+    );
+
+    // 1. Auth gate: every allowed joined, every banned was rejected.
+    expect(result.allowedOk).toEqual(Array(ALLOWED).fill(true));
+    expect(result.bannedOk).toEqual(Array(BANNED).fill(false));
+    expect(result.bannedErr).toEqual(Array(BANNED).fill(true));
+
+    // 2 + 3. Each allowed sees every OTHER allowed (complete + symmetric), and
+    // the union of all seen ids is exactly the allowed set — no banned leaked in,
+    // no membership lost to a race.
+    expect(result.seenCounts).toEqual(Array(ALLOWED).fill(ALLOWED - 1));
+    expect(result.unionSize).toBe(ALLOWED);
+  });
 });
