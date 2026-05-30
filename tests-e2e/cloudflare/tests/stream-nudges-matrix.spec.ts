@@ -201,4 +201,130 @@ test.describe('stream-nudges matrix', () => {
       [a, tokensWhenNudged],
     );
   });
+
+  test('recordedStream in a namespace — nudge stops the generator mid-flight', async ({
+    page,
+  }, testInfo) => {
+    const room = `snm-rec-ns-${testInfo.testId}`;
+    await openRig(page);
+    const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
+
+    const streamId = 'logs-nudged-1';
+    await send(page, a, {
+      event: 'logs-nudged',
+      payload: {},
+      __wskit: { namespace: 'v1', streamId },
+    });
+    await waitForFrame(page, a, { match: (f) => f.event === '__streamOk__' });
+    await page.waitForFunction(
+      ([sid]) =>
+        (window.__wskitFrames!(sid as string) ?? []).filter(
+          (f) => f.event === 'logs-nudged' && typeof f.payload?.line === 'string',
+        ).length >= 1,
+      [a],
+    );
+
+    await send(page, a, { event: 'stop', payload: {}, __wskit: { namespace: 'v1', streamId } });
+    await waitForFrame(page, a, {
+      match: (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
+    });
+
+    const chunks = await countChunks(page, a, 'logs-nudged');
+    expect(chunks).toBeLessThan(20);
+    expect(chunks).toBeGreaterThanOrEqual(1);
+  });
+
+  test('resumableStream in a channel — nudge stops the generator mid-flight', async ({
+    page,
+  }, testInfo) => {
+    const room = `snm-res-ch-${testInfo.testId}`;
+    await openRig(page);
+    const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
+    await send(page, a, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
+    await waitForFrame(page, a, { match: (f) => f.event === '__subscribeOk__' });
+
+    const streamId = 'paused-feed-1';
+    await send(page, a, {
+      event: 'paused-feed',
+      payload: {},
+      __wskit: { channel: 'rooms', streamId },
+    });
+    await waitForFrame(page, a, { match: (f) => f.event === '__streamOk__' });
+    await page.waitForFunction(
+      ([sid]) =>
+        (window.__wskitFrames!(sid as string) ?? []).filter(
+          (f) => f.event === 'paused-feed' && typeof f.payload?.row === 'number',
+        ).length >= 1,
+      [a],
+    );
+
+    await send(page, a, {
+      event: 'pause',
+      payload: { at: 1 },
+      __wskit: { channel: 'rooms', streamId },
+    });
+    await waitForFrame(page, a, {
+      match: (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
+    });
+
+    const chunks = await countChunks(page, a, 'paused-feed');
+    expect(chunks).toBeLessThan(20);
+    expect(chunks).toBeGreaterThanOrEqual(1);
+  });
+
+  test('top-level recordedStream — nudge stops the generator mid-flight', async ({
+    page,
+  }, testInfo) => {
+    const room = `snm-rec-top-${testInfo.testId}`;
+    await openRig(page);
+    const a = await connect(page, { path: '/ws/stream-durable', username: 'alice', room: room });
+
+    const streamId = 'count-tokens-nudged-1';
+    await send(page, a, { event: 'count-tokens-nudged', payload: {}, __wskit: { streamId } });
+    await waitForFrame(page, a, { match: (f) => f.event === '__streamOk__' });
+    await page.waitForFunction(
+      ([sid]) =>
+        (window.__wskitFrames!(sid as string) ?? []).filter(
+          (f) => f.event === 'count-tokens-nudged' && typeof f.payload?.idx === 'number',
+        ).length >= 1,
+      [a],
+    );
+
+    await send(page, a, { event: 'stop', payload: {}, __wskit: { streamId } });
+    await waitForFrame(page, a, {
+      match: (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
+    });
+
+    const chunks = await countChunks(page, a, 'count-tokens-nudged');
+    expect(chunks).toBeLessThan(20);
+    expect(chunks).toBeGreaterThanOrEqual(1);
+  });
+
+  test('top-level resumableStream — nudge stops the generator mid-flight', async ({
+    page,
+  }, testInfo) => {
+    const room = `snm-res-top-${testInfo.testId}`;
+    await openRig(page);
+    const a = await connect(page, { path: '/ws/stream-durable', username: 'alice', room: room });
+
+    const streamId = 'paginate-nudged-1';
+    await send(page, a, { event: 'paginate-nudged', payload: {}, __wskit: { streamId } });
+    await waitForFrame(page, a, { match: (f) => f.event === '__streamOk__' });
+    await page.waitForFunction(
+      ([sid]) =>
+        (window.__wskitFrames!(sid as string) ?? []).filter(
+          (f) => f.event === 'paginate-nudged' && typeof f.payload?.row === 'number',
+        ).length >= 1,
+      [a],
+    );
+
+    await send(page, a, { event: 'stop', payload: {}, __wskit: { streamId } });
+    await waitForFrame(page, a, {
+      match: (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
+    });
+
+    const chunks = await countChunks(page, a, 'paginate-nudged');
+    expect(chunks).toBeLessThan(20);
+    expect(chunks).toBeGreaterThanOrEqual(1);
+  });
 });

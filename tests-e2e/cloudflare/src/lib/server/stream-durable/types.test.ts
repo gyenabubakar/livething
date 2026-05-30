@@ -69,9 +69,14 @@ describe('StreamDurableClient — streams', () => {
     }>();
   });
 
-  it('exactly four streams', () => {
+  it('has the declared streams', () => {
     expectTypeOf<keyof StreamDurableClient['streams']>().toEqualTypeOf<
-      'count-tokens' | 'paginate' | 'attempt-stream' | 'buffer-full-demo'
+      | 'count-tokens'
+      | 'paginate'
+      | 'attempt-stream'
+      | 'buffer-full-demo'
+      | 'count-tokens-nudged'
+      | 'paginate-nudged'
     >();
   });
 });

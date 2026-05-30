@@ -125,6 +125,14 @@ export const streamDurableScopedContract = contract('stream-durable-scoped', {
           maxAgeMs: 60_000,
           retentionAfterEndMs: 30_000,
         }),
+        recordedStream('logs-nudged', {
+          payload: Empty,
+          chunk: LineChunk,
+          nudges: [nudge('stop', StopPayload)],
+          maxChunks: 100,
+          maxAgeMs: 60_000,
+          retentionAfterEndMs: 30_000,
+        }),
       ],
     }),
   ],
@@ -233,6 +241,13 @@ export const streamDurableScopedHandler = implement(streamDurableScopedContract)
         const startAt = (ctx.stream.cursor as { idx: number } | null)?.idx ?? 0;
         for (let i = startAt + 1; i <= 20; i += 1) {
           const nudges = ctx.nudges(yield ctx.stream.withCursor({ row: i }, { idx: i }));
+          if (nudges.some((n: { event: string }) => n.event === 'stop')) return;
+          await new Promise((r) => setTimeout(r, 100));
+        }
+      })
+      .recordedStream('logs-nudged', async function* (ctx) {
+        for (let i = 1; i <= 20; i += 1) {
+          const nudges = ctx.nudges(yield { line: `line-${i}` });
           if (nudges.some((n: { event: string }) => n.event === 'stop')) return;
           await new Promise((r) => setTimeout(r, 100));
         }
