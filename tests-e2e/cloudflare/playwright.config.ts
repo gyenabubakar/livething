@@ -4,8 +4,11 @@ export default defineConfig({
   testDir: 'tests',
   fullyParallel: true,
   timeout: 30_000,
-  workers: 6,
-  retries: 0,
+  // One shared dev stack serves every worker, so heavy parallelism can drop a
+  // request ("Network connection lost"). Fewer workers eases contention and
+  // retries clear the rare transient drop.
+  workers: 4,
+  retries: 2,
   use: {
     baseURL: 'http://127.0.0.1:4173',
   },
