@@ -42,13 +42,15 @@ describe('CtxSqlClient — incoming (server outgoing)', () => {
     expectTypeOf<CtxSqlClient['incoming']['sql-reuse-result']>().toEqualTypeOf<{ error: string }>();
   });
 
-  it('exactly five events in incoming', () => {
+  it('has the declared incoming events', () => {
     expectTypeOf<keyof CtxSqlClient['incoming']>().toEqualTypeOf<
       | 'notes-list'
       | 'sql-one-result'
       | 'sql-one-empty-result'
       | 'sql-raw-result'
       | 'sql-reuse-result'
+      | 'snapshot-result'
+      | 'env-result'
     >();
   });
 });

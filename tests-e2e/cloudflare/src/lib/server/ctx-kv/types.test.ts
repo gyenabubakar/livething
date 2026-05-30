@@ -21,8 +21,8 @@ describe('CtxKvClient — incoming (server outgoing)', () => {
     }>();
   });
 
-  it('only kv-result in incoming', () => {
-    expectTypeOf<keyof CtxKvClient['incoming']>().toEqualTypeOf<'kv-result'>();
+  it('has the declared incoming events', () => {
+    expectTypeOf<keyof CtxKvClient['incoming']>().toEqualTypeOf<'kv-result' | 'kv-list-result'>();
   });
 });
 
@@ -50,9 +50,9 @@ describe('CtxKvClient — outgoing (server incoming)', () => {
     }>();
   });
 
-  it('exactly four events in outgoing', () => {
+  it('has the declared outgoing events', () => {
     expectTypeOf<keyof CtxKvClient['outgoing']>().toEqualTypeOf<
-      'kv-set' | 'kv-get' | 'kv-delete' | 'kv-set-get'
+      'kv-set' | 'kv-get' | 'kv-delete' | 'kv-set-get' | 'kv-list-probe' | 'kv-ttl-zero-probe'
     >();
   });
 });

@@ -14,8 +14,11 @@ export const ctxKvContract = contract('ctx-kv', {
     incoming('kv-get', v.object({ key: v.string() })),
     incoming('kv-delete', v.object({ key: v.string() })),
     incoming('kv-set-get', v.object({ key: v.string(), value: v.string() })),
+    incoming('kv-list-probe', v.object({ prefix: v.string() })),
+    incoming('kv-ttl-zero-probe', v.object({ key: v.string(), value: v.string() })),
 
     outgoing('kv-result', v.object({ key: v.string(), value: v.nullable(v.string()) })),
+    outgoing('kv-list-result', v.object({ keys: v.array(v.string()) })),
   ],
 });
 
@@ -40,6 +43,19 @@ export const ctxKvHandler = implement(ctxKvContract)
   })
   .on('kv-set-get', async (ctx, payload) => {
     await ctx.kv.set(payload.key, payload.value);
+    const value = (await ctx.kv.get(payload.key)) as string | null;
+    ctx.send('kv-result', { key: payload.key, value });
+  })
+  .on('kv-list-probe', async (ctx, payload) => {
+    await ctx.kv.set(`${payload.prefix}:a`, '1');
+    await ctx.kv.set(`${payload.prefix}:b`, '2');
+    await ctx.kv.set('other-prefix:c', '3');
+    const keys = await ctx.kv.list(payload.prefix);
+    ctx.send('kv-list-result', { keys });
+  })
+  .on('kv-ttl-zero-probe', async (ctx, payload) => {
+    // ttl: 0 means "no expiry" — the value must still be readable afterwards.
+    await ctx.kv.set(payload.key, payload.value, { ttl: 0 });
     const value = (await ctx.kv.get(payload.key)) as string | null;
     ctx.send('kv-result', { key: payload.key, value });
   })
