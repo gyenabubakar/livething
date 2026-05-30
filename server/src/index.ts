@@ -32,7 +32,7 @@ export type {
   Ctx,
   Definition,
   FrameFor,
-  GroupHandle,
+  TagGroupHandle,
   NamespaceContract,
   NamespaceCtx,
   TagRefHandle,

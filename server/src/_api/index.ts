@@ -56,7 +56,7 @@ export type {
 export type {
   ChannelCtx,
   Ctx,
-  GroupHandle,
+  TagGroupHandle,
   NamespaceCtx,
   TagsApi,
   TagRefHandle,

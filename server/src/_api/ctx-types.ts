@@ -40,7 +40,7 @@ interface TypedSendApi<TOutgoing> {
  * Address for every connection holding any key under one group. Built via
  * `ctx.tags.ephemeral(group)` / `ctx.tags.persistent(group)`.
  */
-export interface GroupHandle<TValue extends string = string> {
+export interface TagGroupHandle<TValue extends string = string> {
   readonly __wskit: 'group-handle';
   readonly kind: 'ephemeral' | 'persistent';
   readonly group: string;
@@ -82,8 +82,8 @@ export interface TagsApi<
   TEphemeral extends Record<string, string> = Record<string, string>,
   TPersistent extends Record<string, string> = Record<string, string>,
 > {
-  ephemeral<G extends keyof TEphemeral & string>(group: G): GroupHandle<TEphemeral[G]>;
-  persistent<G extends keyof TPersistent & string>(group: G): GroupHandle<TPersistent[G]>;
+  ephemeral<G extends keyof TEphemeral & string>(group: G): TagGroupHandle<TEphemeral[G]>;
+  persistent<G extends keyof TPersistent & string>(group: G): TagGroupHandle<TPersistent[G]>;
   /** Snapshot of every tag currently attached to this connection. */
   list(): readonly { kind: 'ephemeral' | 'persistent'; group: string; key: string }[];
 }
@@ -266,7 +266,7 @@ export type ChannelCtx<TChannelContract, C extends Contract> = Omit<Ctx<C>, 'cha
     ): void;
     members(): ConnectionInfo<C['meta']>[];
     subscribe(ref: ConnectionRef, payload?: unknown): Promise<void>;
-    kick(target: ConnectionRef | TagRef | GroupHandle, reason: string): Promise<void>;
+    kick(target: ConnectionRef | TagRef | TagGroupHandle, reason: string): Promise<void>;
     removeMember(identity: string): Promise<void>;
     sendReplay(
       event: keyof ChannelOutgoingOf<TChannelContract> & string,

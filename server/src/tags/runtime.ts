@@ -3,7 +3,7 @@ import { forEachIsolated } from '~/_engine/runtime/isolation.ts';
 import { deleteTag, insertTag } from '~/tags/storage.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type { ConnectionInfo, SQLProvider, TagRef } from '~/context.ts';
-import type { GroupHandle, TagKind, TagRefHandle, TagsApi } from '~/tags/types.ts';
+import type { TagGroupHandle, TagKind, TagRefHandle, TagsApi } from '~/tags/types.ts';
 import type { Validator } from '~/types.ts';
 
 type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
@@ -205,7 +205,7 @@ export function buildGroupHandle(
   runtime: TagsRuntime,
   connection: RuntimeConnection,
   groupRef: TagGroupRef,
-): GroupHandle {
+): TagGroupHandle {
   const { kind, group } = groupRef;
   assertGroupDeclared(runtime, kind, group);
 

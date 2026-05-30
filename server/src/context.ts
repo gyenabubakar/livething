@@ -415,7 +415,7 @@ export interface ChannelHandle<
    *
    * - `ConnectionRef` — kick that one socket.
    * - `TagRef` — kick every socket holding the given `(kind, group, key)`.
-   * - `GroupHandle` (returned by `ctx.tags.ephemeral(...)` / `.persistent(...)`)
+   * - `TagGroupHandle` (returned by `ctx.tags.ephemeral(...)` / `.persistent(...)`)
    *   — kick every socket with any key under the group.
    *
    * Sends `__kicked__` to each removed socket, fires `onUnsubscribe`, and

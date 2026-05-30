@@ -4,7 +4,7 @@ import type { ConnectionInfo, TagRef } from '~/context.ts';
 export type TagKind = 'ephemeral' | 'persistent';
 
 /**
- * A `TagRef` returned from a `GroupHandle.ref(key)` call. Same data as a
+ * A `TagRef` returned from a `TagGroupHandle.ref(key)` call. Same data as a
  * plain `TagRef` plus the methods that act on the group of connections
  * matching that exact `(kind, group, key)`. Anywhere a plain `TagRef` is
  * accepted (`onUpgrade` return, `ConnectionInfo.tags`, `channelHandle.kick`),
@@ -24,7 +24,7 @@ export interface TagRefHandle<Meta = Record<string, unknown>> extends TagRef {
  * Carries every operation that targets the group as a whole and builds refs
  * for one specific key inside the group.
  */
-export interface GroupHandle<Meta = Record<string, unknown>> {
+export interface TagGroupHandle<Meta = Record<string, unknown>> {
   /** Brand tag so the type cannot be confused with a plain object. */
   readonly __wskit: 'group-handle';
   /** Whether this group is ephemeral or persistent. */
@@ -64,8 +64,8 @@ export interface TagsApi<
   TPersistentGroups extends string = string,
   Meta = Record<string, unknown>,
 > {
-  ephemeral(group: TEphemeralGroups): GroupHandle<Meta>;
-  persistent(group: TPersistentGroups): GroupHandle<Meta>;
+  ephemeral(group: TEphemeralGroups): TagGroupHandle<Meta>;
+  persistent(group: TPersistentGroups): TagGroupHandle<Meta>;
   /** Every tag ref currently attached to the current connection. */
   list(): readonly TagRef[];
 }
