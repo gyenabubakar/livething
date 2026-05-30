@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { connect, installRig, send, waitForFrame } from './_ws-rig.ts';
 
 test.describe('ctx-channels', () => {
   test('ctx.channels.members returns the count after a client joins', async ({
@@ -183,5 +184,20 @@ test.describe('ctx-channels', () => {
 
     await ctxA.close();
     await ctxB.close();
+  });
+
+  test('kick by a ConnectionRef (ctx.self) delivers __kicked__ to that socket', async ({
+    page,
+  }, testInfo) => {
+    await page.goto('/ctx-channels');
+    await installRig(page);
+    const room = `cc-ref-${testInfo.testId}`;
+    const a = await connect(page, { path: '/ws/ctx-channels', username: 'user1', room });
+    await send(page, a, { event: '__subscribe__', payload: {}, __wskit: { channel: 'room' } });
+    await waitForFrame(page, a, { match: (f) => f.event === '__subscribeOk__' });
+
+    await send(page, a, { event: 'kick-self-by-ref', payload: {} });
+    const kicked = await waitForFrame(page, a, { match: (f) => f.event === '__kicked__' });
+    expect(kicked.payload.reason).toBe('self kick by ref');
   });
 });

@@ -365,4 +365,68 @@ test.describe('persistence', () => {
     // onSessionEnd must NOT fire — alice was removed from the channel, not disconnected.
     expect(after.filter((f) => f.event === 'session-ended')).toHaveLength(0);
   });
+
+  test('auto-rejoin re-runs the channel check; a now-failing check prevents rejoin', async ({
+    page,
+  }, testInfo) => {
+    const room = `persist-rejoincheck-${testInfo.testId}`;
+
+    const alice1 = await connect(page, 'alice', room);
+    await send(page, alice1, {
+      event: '__subscribe__',
+      payload: {},
+      __wskit: { channel: 'archive-room' },
+    });
+    await waitForFrame(
+      page,
+      alice1,
+      (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'archive-room',
+    );
+
+    // An admin bans alice; the ban is durable, so it is visible when alice's
+    // auto-rejoin re-runs the channel check on reconnect.
+    const admin = await connect(page, 'admin', room);
+    await send(page, admin, { event: 'ban', payload: { identity: 'alice' } });
+    await page.waitForTimeout(150);
+
+    await close(page, alice1);
+    await page.waitForTimeout(200);
+
+    // Alice reconnects. Auto-rejoin re-runs the check, which now throws, so she
+    // is NOT brought back into the channel — no __subscribeOk__ arrives.
+    const alice2 = await connect(page, 'alice', room);
+    await page.waitForTimeout(400);
+    const rejoined = (await frames(page, alice2)).find(
+      (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'archive-room',
+    );
+    expect(rejoined).toBeUndefined();
+  });
+
+  test('presence frames carry member meta', async ({ page }, testInfo) => {
+    const room = `persist-meta-${testInfo.testId}`;
+
+    const alice = await connect(page, 'alice', room);
+    await send(page, alice, {
+      event: '__subscribe__',
+      payload: {},
+      __wskit: { channel: 'archive-room' },
+    });
+    await waitForFrame(page, alice, (f) => f.event === '__subscribeOk__');
+
+    // Bob joins after alice, so bob's initial __memberSync__ lists alice with
+    // her meta (the { username } set by the upgrade).
+    const bob = await connect(page, 'bob', room);
+    await send(page, bob, {
+      event: '__subscribe__',
+      payload: {},
+      __wskit: { channel: 'archive-room' },
+    });
+    const sync = await waitForFrame(
+      page,
+      bob,
+      (f) => f.event === '__memberSync__' && f.__wskit?.channel === 'archive-room',
+    );
+    const members = sync.payload.members as { connectionId: string; meta: { username?: string } }[];
+    expect(members.some((m) => m.meta?.username === 'alice')).toBe(true);
+  });
 });

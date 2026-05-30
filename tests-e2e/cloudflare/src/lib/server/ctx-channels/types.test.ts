@@ -59,9 +59,9 @@ describe('CtxChannelsClient — top-level outgoing (server incoming)', () => {
     expectTypeOf<CtxChannelsClient['outgoing']['kick-nonmember']>().toEqualTypeOf<{}>();
   });
 
-  it('exactly four events in outgoing', () => {
+  it('has the declared outgoing events', () => {
     expectTypeOf<keyof CtxChannelsClient['outgoing']>().toEqualTypeOf<
-      'get-members' | 'get-member-id' | 'kick-in-channel' | 'kick-nonmember'
+      'get-members' | 'get-member-id' | 'kick-in-channel' | 'kick-nonmember' | 'kick-self-by-ref'
     >();
   });
 });

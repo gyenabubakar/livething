@@ -33,8 +33,8 @@ describe('PersistenceClient — outgoing (server incoming)', () => {
     }>();
   });
 
-  it('only remove-member in outgoing', () => {
-    expectTypeOf<keyof PersistenceClient['outgoing']>().toEqualTypeOf<'remove-member'>();
+  it('has the declared top-level outgoing events', () => {
+    expectTypeOf<keyof PersistenceClient['outgoing']>().toEqualTypeOf<'remove-member' | 'ban'>();
   });
 });
 

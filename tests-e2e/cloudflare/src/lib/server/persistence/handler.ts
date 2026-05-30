@@ -16,6 +16,7 @@ export const persistenceContract = contract('persistence', {
   definitions: [
     outgoing('true-leave', TrueLeavePayload),
     incoming('remove-member', RemoveMemberPayload),
+    incoming('ban', RemoveMemberPayload),
 
     channel('archive-room', {
       definitions: [
@@ -46,8 +47,19 @@ export const persistenceHandler = implement(persistenceContract)
     await ctx.channels.get('archive-room').removeMember(payload.identity);
   })
 
+  // Durable ban: stored under the room's DO so it survives the banned user's
+  // disconnect and is visible when their auto-rejoin re-runs the check.
+  .on('ban', async (ctx, payload) => {
+    await ctx.kv.set(`ban:${payload.identity}`, '1');
+  })
+
   .channel('archive-room', (ch) =>
     ch
+      .check(async (ctx) => {
+        if (await ctx.kv.get(`ban:${ctx.meta.username}`)) {
+          throw new Error('banned from archive-room');
+        }
+      })
       .on('send-message', (ctx, payload) => {
         ctx.channel.broadcast('room-message', {
           text: payload.text,

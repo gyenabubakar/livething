@@ -15,6 +15,7 @@ export const ctxChannelsContract = contract('ctx-channels', {
       v.object({ channel: v.string(), tag: v.string(), reason: v.string() }),
     ),
     incoming('kick-nonmember', v.object({})),
+    incoming('kick-self-by-ref', v.object({})),
 
     outgoing('members-result', v.object({ channel: v.string(), count: v.number() })),
     outgoing('member-id-result', v.object({ id: v.string() })),
@@ -53,6 +54,10 @@ export const ctxChannelsHandler = implement(ctxChannelsContract)
     await ctx.channels
       .get('room')
       .kick(ctx.tags.ephemeral('user').ref('user3'), 'Non-existent user');
+  })
+  // Kick by a ConnectionRef (the caller's own socket) rather than a tag.
+  .on('kick-self-by-ref', async (ctx) => {
+    await ctx.channels.get('room').kick(ctx.self, 'self kick by ref');
   })
   .channel('room', (ch) =>
     ch.on('send-room-message', (ctx, payload) => {
