@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 
-import { WskitError } from '@wskit/core';
+import { WSKitError } from '@wskit/core';
 import {
   Block,
   CloseCodes,
@@ -37,29 +37,29 @@ void _vf;
 // ===========================================================================
 
 const dc = Disconnect(4009, 'banned');
-const _dcWskit: 'disconnect' = dc.__wskit;
+const _dcWSKit: 'disconnect' = dc.__wskit;
 const _dcCode: number = dc.code;
 const _dcReason: string = dc.reason;
-void [_dcWskit, _dcCode, _dcReason];
+void [_dcWSKit, _dcCode, _dcReason];
 
 // ===========================================================================
 // 3. RejectUpgrade — frozen factory with code and reason
 // ===========================================================================
 
 const ru = RejectUpgrade(4002, 'Invalid token');
-const _ruWskit: 'reject-upgrade' = ru.__wskit;
+const _ruWSKit: 'reject-upgrade' = ru.__wskit;
 const _ruCode: number = ru.code;
 const _ruReason: string = ru.reason;
-void [_ruWskit, _ruCode, _ruReason];
+void [_ruWSKit, _ruCode, _ruReason];
 
 // ===========================================================================
 // 4. Defer — frozen factory with delay
 // ===========================================================================
 
 const df = Defer(1000);
-const _dfWskit: 'defer' = df.__wskit;
+const _dfWSKit: 'defer' = df.__wskit;
 const _dfDelay: number = df.delay;
-void [_dfWskit, _dfDelay];
+void [_dfWSKit, _dfDelay];
 
 // ===========================================================================
 // 5. DeferExhausted — built-in error def with factory
@@ -82,8 +82,8 @@ if (DeferExhausted.matches(unknownErr)) {
 }
 
 // ===========================================================================
-// 6. DeferExhausted is a WskitError
+// 6. DeferExhausted is a WSKitError
 // ===========================================================================
 
-const _isWskitErr: boolean = deErr instanceof WskitError;
-void _isWskitErr;
+const _isWSKitErr: boolean = deErr instanceof WSKitError;
+void _isWSKitErr;

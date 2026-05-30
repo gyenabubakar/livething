@@ -47,7 +47,7 @@ export interface WireOutgoingMessage {
 /**
  * Reserved websocket events that can arrive from the client into the engine.
  *
- * These are the protocol-level messages wskit itself understands before app
+ * These are the protocol-level messages WSKit itself understands before app
  * handlers run. Built-in primitives can hook into these names through
  * `onProtocolMessage(...)`.
  */

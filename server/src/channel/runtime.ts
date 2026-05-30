@@ -482,7 +482,7 @@ async function runSubscribeFlow(
     try {
       await hook(ctx);
     } catch (error) {
-      const routing: Protocol.WskitRouting = { channel: scope.channelName };
+      const routing: Protocol.WSKitRouting = { channel: scope.channelName };
       if (scope.channelScope !== null) routing.channelScope = scope.channelScope;
       await runtime.handleRuntimeError(connection, { error, event: '__subscribe__', routing });
       return;

@@ -75,7 +75,7 @@ export interface DurableStreamRuntime {
 
   handleRuntimeError(
     connection: RuntimeConnection,
-    opts: { error: unknown; event?: string; routing?: Protocol.WskitRouting },
+    opts: { error: unknown; event?: string; routing?: Protocol.WSKitRouting },
   ): Promise<void>;
 }
 
@@ -179,7 +179,7 @@ function sendChunkFrames(connection: RuntimeConnection, opts: SendChunkFramesOpt
 }
 
 /** Read a client-supplied `streamId` from the trigger frame's `__wskit`. */
-function readSuppliedStreamId(wskit: Protocol.WskitProtocol | undefined): string | undefined {
+function readSuppliedStreamId(wskit: Protocol.WSKitProtocol | undefined): string | undefined {
   const value = wskit?.streamId;
   if (typeof value !== 'string' || value.length === 0 || value.length > 256) return undefined;
   return value;
@@ -202,7 +202,7 @@ export interface RunDurableStreamOptions {
   scope: ResolvedScope;
   def: DurableStreamRuntimeDef;
   payload: unknown;
-  wskit: Protocol.WskitProtocol | undefined;
+  wskit: Protocol.WSKitProtocol | undefined;
 }
 
 /** Start a fresh durable stream from a client trigger frame. */
@@ -743,14 +743,14 @@ async function runGenerator(
         },
       });
 
-      const endWskit = { ...buildScopeRouting(scope), streamId, seq };
+      const endWSKit = { ...buildScopeRouting(scope), streamId, seq };
       forEachIsolated(
         peerTargets,
         (target) =>
           runtime.sendProtocolMessage(target, {
             event: '__streamEnd__',
             payload: {},
-            wskit: endWskit,
+            wskit: endWSKit,
           }),
         { context: `durable broadcast __streamEnd__ fan-out streamId="${streamId}"` },
       );
@@ -779,14 +779,14 @@ async function runGenerator(
           return sub !== null && sub.unsubscribedAt === null;
         },
       });
-      const endWskit = { ...buildScopeRouting(scope), streamId, seq };
+      const endWSKit = { ...buildScopeRouting(scope), streamId, seq };
       forEachIsolated(
         peerTargets,
         (target) =>
           runtime.sendProtocolMessage(target, {
             event: '__streamEnd__',
             payload: {},
-            wskit: endWskit,
+            wskit: endWSKit,
           }),
         { context: `durable broadcast __streamEnd__ on error streamId="${streamId}"` },
       );
@@ -873,14 +873,14 @@ export async function cancelDurableStream(
         return sub !== null && sub.unsubscribedAt === null;
       },
     });
-    const endWskit = { ...buildScopeRouting(cancelScope), streamId, seq: row.lastSeq };
+    const endWSKit = { ...buildScopeRouting(cancelScope), streamId, seq: row.lastSeq };
     forEachIsolated(
       peerTargets,
       (target) =>
         runtime.sendProtocolMessage(target, {
           event: '__streamEnd__',
           payload: {},
-          wskit: endWskit,
+          wskit: endWSKit,
         }),
       { context: `durable broadcast __streamEnd__ on cancel streamId="${streamId}"` },
     );

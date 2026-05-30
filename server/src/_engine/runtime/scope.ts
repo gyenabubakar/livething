@@ -10,7 +10,7 @@ import type * as EngineRuntimeTypes from './types.ts';
  */
 export function resolveScope(
   compiled: EngineCompileTypes.CompiledServer,
-  wskit: Protocol.WskitProtocol | undefined,
+  wskit: Protocol.WSKitProtocol | undefined,
 ): EngineRuntimeTypes.ResolvedScope {
   if (!wskit) return {};
 
@@ -56,11 +56,11 @@ export function resolveScope(
  * along on a server-side `__error__` frame and the client can correlate the
  * failure with its pending operation.
  */
-export function routingFromWskit(
-  wskit: Protocol.WskitRouting | undefined,
-): Protocol.WskitRouting | undefined {
+export function routingFromWSKit(
+  wskit: Protocol.WSKitRouting | undefined,
+): Protocol.WSKitRouting | undefined {
   if (!wskit) return undefined;
-  const routing: Protocol.WskitRouting = {};
+  const routing: Protocol.WSKitRouting = {};
   if (wskit.correlationId !== undefined) routing.correlationId = wskit.correlationId;
   if (wskit.ackId !== undefined) routing.ackId = wskit.ackId;
   if (wskit.streamId !== undefined) routing.streamId = wskit.streamId;

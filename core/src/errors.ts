@@ -9,12 +9,12 @@ import { assertSyncResult } from './sync-guard.ts';
 // ---------------------------------------------------------------------------
 
 /**
- * WebSocket close codes used by wskit. These tell the client *why* the
+ * WebSocket close codes used by WSKit. These tell the client *why* the
  * connection was closed — the client's reconnection logic reads them to
  * decide whether to retry.
  *
  * 1000–1015 are standard WebSocket codes. 4000–4999 are application-defined
- * (reserved for your app's own meanings). wskit claims a handful of 4xxx
+ * (reserved for your app's own meanings). WSKit claims a handful of 4xxx
  * codes for common scenarios.
  *
  * ```ts
@@ -45,12 +45,12 @@ export const CloseCodes = Object.freeze({
 });
 
 // ---------------------------------------------------------------------------
-// WskitError
+// WSKitError
 // ---------------------------------------------------------------------------
 
 /**
- * The error type for all wskit application errors. Both server-thrown errors
- * and client-side errors (`Timeout`, `Disconnected`) are `WskitError` instances.
+ * The error type for all WSKit application errors. Both server-thrown errors
+ * and client-side errors (`Timeout`, `Disconnected`) are `WSKitError` instances.
  *
  * - `code` — a lowercase-kebab string identifying the error (e.g. `'forbidden'`)
  * - `detail` — typed payload with extra information (e.g. `{ reason: string }`)
@@ -67,13 +67,13 @@ export const CloseCodes = Object.freeze({
  * }
  * ```
  */
-export class WskitError<TCode extends string = string, TDetail = unknown> extends Error {
+export class WSKitError<TCode extends string = string, TDetail = unknown> extends Error {
   readonly code: TCode;
   readonly detail: TDetail;
 
   constructor(code: TCode, detail: TDetail) {
-    super(`WskitError: ${code}`);
-    this.name = 'WskitError';
+    super(`WSKitError: ${code}`);
+    this.name = 'WSKitError';
     this.code = code;
     this.detail = detail;
   }
@@ -97,7 +97,7 @@ export interface ErrorDef<TCode extends string = string, TDetail = void> {
   readonly code: TCode;
 
   /**
-   * Type guard that checks if an unknown value is a `WskitError` with this
+   * Type guard that checks if an unknown value is a `WSKitError` with this
    * error's code. If the error was created with a validator, `.matches()` also
    * runs the validator on the detail to confirm the shape is correct.
    *
@@ -108,26 +108,26 @@ export interface ErrorDef<TCode extends string = string, TDetail = void> {
    * }
    * ```
    */
-  matches(err: unknown): err is WskitError<TCode, TDetail>;
+  matches(err: unknown): err is WSKitError<TCode, TDetail>;
 }
 
 /**
  * An error definition with a factory — created when `error()` receives a
- * detail schema. Call it to create a `WskitError`:
+ * detail schema. Call it to create a `WSKitError`:
  *
  * ```ts
  * import * as v from 'valibot';
  *
  * const Forbidden = error('forbidden', v.object({ reason: v.string() }));
  *
- * throw Forbidden({ reason: 'Not a member' }); // WskitError<'forbidden', { reason: string }>
+ * throw Forbidden({ reason: 'Not a member' }); // WSKitError<'forbidden', { reason: string }>
  * ```
  */
 export interface ErrorDefWithFactory<TCode extends string, TDetail> extends ErrorDef<
   TCode,
   TDetail
 > {
-  (detail: TDetail): WskitError<TCode, TDetail>;
+  (detail: TDetail): WSKitError<TCode, TDetail>;
 
   /**
    * The detail schema this error was created with, if any. Kept so the engine
@@ -145,9 +145,9 @@ export interface ErrorDefWithFactory<TCode extends string, TDetail> extends Erro
 function createMatchesFn<TCode extends string, TDetail>(
   code: TCode,
   validate?: ValidateFn<TDetail>,
-): (err: unknown) => err is WskitError<TCode, TDetail> {
-  return (err: unknown): err is WskitError<TCode, TDetail> => {
-    if (!(err instanceof WskitError)) return false;
+): (err: unknown) => err is WSKitError<TCode, TDetail> {
+  return (err: unknown): err is WSKitError<TCode, TDetail> => {
+    if (!(err instanceof WSKitError)) return false;
     if (err.code !== code) return false;
     if (!validate) return true;
     try {
@@ -163,7 +163,7 @@ function createMatchesFn<TCode extends string, TDetail>(
 // Control flow errors
 // ---------------------------------------------------------------------------
 //
-// These are signals to the wskit engine — they're not sent to the client.
+// These are signals to the WSKit engine — they're not sent to the client.
 // Throw them from handlers, intercepts, or hooks to control message flow.
 /**
  * Drop the current message silently. No error is sent to the client,
@@ -240,7 +240,7 @@ function buildErrorFactory(
       };
 
   function factory(detail?: any) {
-    return new WskitError(code, validate ? validate(detail) : undefined);
+    return new WSKitError(code, validate ? validate(detail) : undefined);
   }
   factory.code = code;
   factory.schema = schema;
@@ -269,7 +269,7 @@ export function namespaceError(
 
 /**
  * Sent to the client when a message payload fails schema validation. You
- * don't need to define or register this error yourself — wskit sends it
+ * don't need to define or register this error yourself — WSKit sends it
  * automatically whenever an incoming payload doesn't match its schema.
  *
  * @example
@@ -335,7 +335,7 @@ export const NamespaceNotFound = error('namespace-not-found');
 /**
  * The error you get when an incoming frame carries more than one scope
  * marker at once — for example both `__wskit.namespace` and
- * `__wskit.channel`. wskit routes a frame to exactly one scope, so a
+ * `__wskit.channel`. WSKit routes a frame to exactly one scope, so a
  * frame that names two scopes is ambiguous and the server rejects it
  * instead of silently picking one.
  *
@@ -370,7 +370,7 @@ export const InvalidScopeMarkers = error('invalid-scope-markers');
 export const ChannelNotSubscribed = error('channel-not-subscribed');
 
 /**
- * Sent to the client when an unhandled server-side error occurs that wskit
+ * Sent to the client when an unhandled server-side error occurs that WSKit
  * doesn't know how to classify. The server logs the real error; the client
  * receives this opaque code so internal details are never leaked.
  *

@@ -69,12 +69,12 @@ function installSequence(
   options?: { persist?: boolean },
   sql = new FakeSqlProvider(),
 ): {
-  stampHandlers: Array<NonNullable<Parameters<EngineAccess['onWskitStamp']>[0]>>;
+  stampHandlers: Array<NonNullable<Parameters<EngineAccess['onWSKitStamp']>[0]>>;
   bootHandlers: Array<NonNullable<Parameters<EngineAccess['onBootSchema']>[0]>>;
-  hook: NonNullable<Parameters<EngineAccess['onWskitStamp']>[0]>;
+  hook: NonNullable<Parameters<EngineAccess['onWSKitStamp']>[0]>;
   sql: FakeSqlProvider;
 } {
-  const stampHandlers: Array<NonNullable<Parameters<EngineAccess['onWskitStamp']>[0]>> = [];
+  const stampHandlers: Array<NonNullable<Parameters<EngineAccess['onWSKitStamp']>[0]>> = [];
   // Sequence registers its schema-init on onBootSchema (split from onBoot
   // so warm boots can skip it).
   const bootHandlers: Array<NonNullable<Parameters<EngineAccess['onBootSchema']>[0]>> = [];
@@ -91,7 +91,7 @@ function installSequence(
     onBootSchema(handler) {
       bootHandlers.push(handler);
     },
-    onWskitStamp(handler) {
+    onWSKitStamp(handler) {
       stampHandlers.push(handler);
     },
     setSequencePersistent() {},
@@ -115,7 +115,7 @@ function installSequence(
     | 'installOnce'
     | 'onBoot'
     | 'onBootSchema'
-    | 'onWskitStamp'
+    | 'onWSKitStamp'
     | 'requireStorage'
     | 'setSequencePersistent'
   > as EngineAccess;
@@ -159,7 +159,7 @@ describe('sequence', () => {
   });
 
   it('registers its stamp hook only once', () => {
-    const stampHandlers: Array<NonNullable<Parameters<EngineAccess['onWskitStamp']>[0]>> = [];
+    const stampHandlers: Array<NonNullable<Parameters<EngineAccess['onWSKitStamp']>[0]>> = [];
     const installs = new Set<symbol>();
     const engine = {
       installOnce(key, install) {
@@ -168,13 +168,13 @@ describe('sequence', () => {
         installs.add(key);
         install();
       },
-      onWskitStamp(handler) {
+      onWSKitStamp(handler) {
         stampHandlers.push(handler);
       },
       setSequencePersistent() {},
     } as Pick<
       EngineAccess,
-      'installOnce' | 'onWskitStamp' | 'setSequencePersistent'
+      'installOnce' | 'onWSKitStamp' | 'setSequencePersistent'
     > as EngineAccess;
 
     sequence().__setup?.(engine);

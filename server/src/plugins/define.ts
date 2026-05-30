@@ -233,7 +233,7 @@ function isPluginId(value: string): boolean {
 /**
  * Create a reusable plugin primitive.
  *
- * Plugins are third-party or team-shared primitives that plug into wskit
+ * Plugins are third-party or team-shared primitives that plug into WSKit
  * through a restricted hook surface. They can observe messages, hook into
  * lifecycle events, register scheduled tasks, and expose a per-connection
  * API.
@@ -243,7 +243,7 @@ function isPluginId(value: string): boolean {
  * `'__acme:analytics:flushed'`. The prefix prevents collisions with
  * user-registered events and with events from other plugins. User code that
  * subscribes to these events directly (for example in a custom client
- * outside wskit's typed clients) sees the prefixed name on the wire — only
+ * outside WSKit's typed clients) sees the prefixed name on the wire — only
  * code reaching events through the plugin's own API sees the short form.
  *
  * ```ts

@@ -9,7 +9,7 @@ import type { StandardSchemaV1 } from '@standard-schema/spec';
  * A validator for an incoming message payload — any Standard Schema (valibot,
  * zod, arktype, or any other compliant library).
  *
- * Accepted everywhere wskit expects validation: `incoming`, `request`,
+ * Accepted everywhere WSKit expects validation: `incoming`, `request`,
  * `stream`, `nudge`, `check`. TypeScript infers the payload type
  * from the schema, so your handler is typed automatically.
  *

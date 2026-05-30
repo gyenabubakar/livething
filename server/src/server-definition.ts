@@ -73,7 +73,7 @@ export interface ServerContract {
 }
 
 /**
- * The finalized blueprint for a wskit server.
+ * The finalized blueprint for a WSKit server.
  *
  * You get a `ServerDefinition` by calling `.build()` at the end of an
  * `implement(contract)` chain. It is an immutable, frozen object that holds

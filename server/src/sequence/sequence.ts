@@ -83,7 +83,7 @@ export function sequence(options?: SequenceOptions): SequencePrimitive {
 
         // Stamp `seq` into every outgoing user frame's `__wskit`. The pipeline
         // already skips protocol frames before calling stampers.
-        engine.onWskitStamp(() => {
+        engine.onWSKitStamp(() => {
           if (persist) {
             persistentAllocator ??= createPersistentSequenceAllocator(
               engine.requireStorage().sql,

@@ -79,7 +79,7 @@ export interface EngineAccess {
    *
    * @internal
    */
-  onWskitStamp(handler: (event: string) => Record<string, unknown>): void;
+  onWSKitStamp(handler: (event: string) => Record<string, unknown>): void;
 
   /**
    * Observe one fully prepared outgoing wire message before it is sent.
@@ -395,7 +395,7 @@ export interface EngineAccess {
    * Register the application's declared error definitions.
    *
    * The engine uses this registry only for runtime checks such as warning when
-   * a thrown `WskitError` was never declared in the contract's `errors: [...]`.
+   * a thrown `WSKitError` was never declared in the contract's `errors: [...]`.
    */
   registerErrorDefinitions(defs: readonly ErrorsPrimitive.ErrorDef<string, unknown>[]): void;
 

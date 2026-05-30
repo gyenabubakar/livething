@@ -96,7 +96,7 @@ export interface ReplayOptions {
    * - an `{ event, payload }` object to store the next snapshot value
    * - `null` to delete the snapshot for that key
    *
-   * If you do not provide `reduce`, wskit uses the default "latest event wins"
+   * If you do not provide `reduce`, WSKit uses the default "latest event wins"
    * behavior.
    */
   readonly reduce?: (
@@ -107,7 +107,7 @@ export interface ReplayOptions {
 
 /**
  * The event shape a snapshot `reduce` function reads and returns. Describe
- * only the logical event and payload — wskit handles sequencing and
+ * only the logical event and payload — WSKit handles sequencing and
  * deduplication for you.
  */
 export interface ReplaySnapshotValue {

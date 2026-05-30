@@ -4,7 +4,7 @@ import {
   ChannelNotSubscribed,
   rethrowIfConfigError,
   ValidationFailed,
-  WskitError,
+  WSKitError,
 } from '@wskit/core';
 import * as EngineCompileUtils from '~/_engine/compile/utils.ts';
 import { ENGINE_ACK_ID } from '~/_engine/contexts/types.ts';
@@ -23,12 +23,12 @@ import * as v from 'valibot';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as DurableStreamStorage from '~/_engine/stream-durable/storage.ts';
-import { resolveScope, routingFromWskit } from './scope.ts';
+import { resolveScope, routingFromWSKit } from './scope.ts';
 import type * as EngineRuntimeTypes from './types.ts';
 
 type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
 
-export type { WskitRouting } from './protocol.ts';
+export type { WSKitRouting } from './protocol.ts';
 
 export {
   broadcastToChannel,
@@ -99,7 +99,7 @@ interface DispatchRuntime
 
   handleRuntimeError(
     connection: EngineRuntimeTypes.RuntimeConnection,
-    opts: { error: unknown; event?: string; routing?: Protocol.WskitRouting },
+    opts: { error: unknown; event?: string; routing?: Protocol.WSKitRouting },
   ): Promise<void>;
 
   handleValidationError(
@@ -137,7 +137,7 @@ interface DispatchRuntime
  * malformed wire frame settles as a `__error__` frame instead of crashing the
  * adapter message handler.
  */
-function toValidationFailed(event: string, error: unknown): WskitError {
+function toValidationFailed(event: string, error: unknown): WSKitError {
   if (error instanceof v.ValiError) {
     return ValidationFailed({
       event,
@@ -174,7 +174,7 @@ function toValidationFailed(event: string, error: unknown): WskitError {
  */
 function isDuplicateIncoming(
   connection: EngineRuntimeTypes.RuntimeConnection,
-  wskit: Protocol.WskitProtocol | undefined,
+  wskit: Protocol.WSKitProtocol | undefined,
   cap: number,
 ): boolean {
   const messageId = wskit?.messageId;
@@ -204,7 +204,7 @@ function isDuplicateIncoming(
  * sent so callers never have to null-check.
  */
 function buildInterceptRouting(
-  wskit: Protocol.WskitProtocol | undefined,
+  wskit: Protocol.WSKitProtocol | undefined,
 ): InterceptPrimitive.InterceptRouting {
   if (!wskit) return {};
   const routing: {
@@ -233,7 +233,7 @@ function buildInterceptRouting(
 export interface DispatchIncomingOptions {
   event: string;
   payload: unknown;
-  wskit: Protocol.WskitProtocol | undefined;
+  wskit: Protocol.WSKitProtocol | undefined;
   attempt?: number;
 }
 
@@ -242,7 +242,7 @@ interface HandleDispatchErrorOptions {
 
   payload: unknown;
 
-  wskit: Protocol.WskitProtocol | undefined;
+  wskit: Protocol.WSKitProtocol | undefined;
 
   scope: EngineRuntimeTypes.ResolvedScope;
 
@@ -274,7 +274,7 @@ export async function dispatchIncoming(
     await runtime.handleRuntimeError(connection, {
       error,
       event,
-      routing: routingFromWskit(wskit),
+      routing: routingFromWSKit(wskit),
     });
     return;
   }
@@ -388,7 +388,7 @@ export async function dispatchIncoming(
       await runtime.handleRuntimeError(connection, {
         error,
         event,
-        routing: routingFromWskit(wskit),
+        routing: routingFromWSKit(wskit),
       });
       return;
     }
@@ -484,13 +484,13 @@ async function handleDispatchError(
   rethrowIfConfigError(error);
   if (error === Block) return;
 
-  if (error instanceof WskitError && error.code === 'validation-failed') {
+  if (error instanceof WSKitError && error.code === 'validation-failed') {
     // Pass `scope` so onValidationError hooks get the right channel/namespace ctx.
     await runtime.handleValidationError(connection, { event, validationError: error, scope });
     await runtime.handleRuntimeError(connection, {
       error,
       event,
-      routing: routingFromWskit(wskit),
+      routing: routingFromWSKit(wskit),
     });
     return;
   }
@@ -536,7 +536,7 @@ async function handleDispatchError(
 
   // Keep routing markers (`correlationId`) so a thrown request error settles
   // on the client instead of hanging until timeout.
-  await runtime.handleRuntimeError(connection, { error, event, routing: routingFromWskit(wskit) });
+  await runtime.handleRuntimeError(connection, { error, event, routing: routingFromWSKit(wskit) });
 }
 
 // Find the compiled durable-stream def for a stored row, in the scope the row
@@ -651,7 +651,7 @@ async function handleResumeStream(
     await runtime.handleRuntimeError(connection, {
       error,
       event: frame.event,
-      routing: routingFromWskit(frame.__wskit),
+      routing: routingFromWSKit(frame.__wskit),
     });
     return;
   }
@@ -717,7 +717,7 @@ async function dispatchProtocolFrame(
             await runtime.handleRuntimeError(connection, {
               error,
               event: frame.event,
-              routing: routingFromWskit(frame.__wskit),
+              routing: routingFromWSKit(frame.__wskit),
             });
             return;
           }
@@ -747,7 +747,7 @@ async function dispatchProtocolFrame(
     await runtime.handleRuntimeError(connection, {
       error,
       event: frame.event,
-      routing: routingFromWskit(frame.__wskit),
+      routing: routingFromWSKit(frame.__wskit),
     });
   }
 }

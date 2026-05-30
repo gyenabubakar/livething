@@ -42,7 +42,7 @@ export function dedup(options?: { cap?: number }): DedupPrimitive {
 
         // Stamp `messageId` into every outgoing user frame's `__wskit`. The
         // pipeline already skips protocol frames before calling stampers.
-        engine.onWskitStamp(() => ({ messageId: engine.generateId('msg') }));
+        engine.onWSKitStamp(() => ({ messageId: engine.generateId('msg') }));
       });
     },
   };

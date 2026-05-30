@@ -13,7 +13,7 @@ import {
   StreamAlreadyActive,
   StreamIdCollision,
   ValidationFailed,
-  WskitError,
+  WSKitError,
 } from '~/errors.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
@@ -42,26 +42,26 @@ describe('CloseCodes', () => {
 });
 
 // ===========================================================================
-// WskitError
+// WSKitError
 // ===========================================================================
 
-describe('WskitError', () => {
+describe('WSKitError', () => {
   it('extends Error', () => {
-    const err = new WskitError('test', null);
+    const err = new WSKitError('test', null);
     expect(err).toBeInstanceOf(Error);
-    expect(err).toBeInstanceOf(WskitError);
+    expect(err).toBeInstanceOf(WSKitError);
   });
 
   it('sets code, detail, name, and message', () => {
-    const err = new WskitError('forbidden', { reason: 'nope' });
+    const err = new WSKitError('forbidden', { reason: 'nope' });
     expect(err.code).toBe('forbidden');
     expect(err.detail).toEqual({ reason: 'nope' });
-    expect(err.name).toBe('WskitError');
-    expect(err.message).toBe('WskitError: forbidden');
+    expect(err.name).toBe('WSKitError');
+    expect(err.message).toBe('WSKitError: forbidden');
   });
 
   it('has a stack trace', () => {
-    const err = new WskitError('test', null);
+    const err = new WSKitError('test', null);
     expect(err.stack).toBeDefined();
   });
 });
@@ -77,24 +77,24 @@ describe('error() code-only', () => {
     expect(NotFound.code).toBe('not-found');
   });
 
-  it('is callable and returns WskitError with no detail', () => {
+  it('is callable and returns WSKitError with no detail', () => {
     const err = NotFound();
-    expect(err).toBeInstanceOf(WskitError);
+    expect(err).toBeInstanceOf(WSKitError);
     expect(err.code).toBe('not-found');
     expect(err.detail).toBeUndefined();
   });
 
-  it('.matches() returns true for matching WskitError', () => {
-    const err = new WskitError('not-found', undefined);
+  it('.matches() returns true for matching WSKitError', () => {
+    const err = new WSKitError('not-found', undefined);
     expect(NotFound.matches(err)).toBe(true);
   });
 
   it('.matches() returns false for wrong code', () => {
-    const err = new WskitError('forbidden', undefined);
+    const err = new WSKitError('forbidden', undefined);
     expect(NotFound.matches(err)).toBe(false);
   });
 
-  it('.matches() returns false for non-WskitError', () => {
+  it('.matches() returns false for non-WSKitError', () => {
     expect(NotFound.matches(new Error('not-found'))).toBe(false);
     expect(NotFound.matches('not-found')).toBe(false);
     expect(NotFound.matches(null)).toBe(false);
@@ -114,9 +114,9 @@ describe('error() with schema', () => {
     expect(Forbidden.code).toBe('forbidden');
   });
 
-  it('is callable and returns WskitError', () => {
+  it('is callable and returns WSKitError', () => {
     const err = Forbidden({ reason: 'denied' });
-    expect(err).toBeInstanceOf(WskitError);
+    expect(err).toBeInstanceOf(WSKitError);
     expect(err.code).toBe('forbidden');
     expect(err.detail).toEqual({ reason: 'denied' });
   });
@@ -128,21 +128,21 @@ describe('error() with schema', () => {
   });
 
   it('.matches() returns true for matching error with valid detail', () => {
-    const err = new WskitError('forbidden', { reason: 'not allowed' });
+    const err = new WSKitError('forbidden', { reason: 'not allowed' });
     expect(Forbidden.matches(err)).toBe(true);
   });
 
   it('.matches() returns false for matching code but invalid detail', () => {
-    const err = new WskitError('forbidden', { wrong: true });
+    const err = new WSKitError('forbidden', { wrong: true });
     expect(Forbidden.matches(err)).toBe(false);
   });
 
   it('.matches() returns false for wrong code', () => {
-    const err = new WskitError('not-found', { reason: 'x' });
+    const err = new WSKitError('not-found', { reason: 'x' });
     expect(Forbidden.matches(err)).toBe(false);
   });
 
-  it('.matches() returns false for non-WskitError', () => {
+  it('.matches() returns false for non-WSKitError', () => {
     expect(Forbidden.matches(new Error('forbidden'))).toBe(false);
   });
 });
@@ -158,9 +158,9 @@ describe('error() with valibot', () => {
     expect(QuotaExceeded.code).toBe('quota-exceeded');
   });
 
-  it('is callable and returns WskitError with validated detail', () => {
+  it('is callable and returns WSKitError with validated detail', () => {
     const err = QuotaExceeded({ limit: 100 });
-    expect(err).toBeInstanceOf(WskitError);
+    expect(err).toBeInstanceOf(WSKitError);
     expect(err.code).toBe('quota-exceeded');
     expect(err.detail).toEqual({ limit: 100 });
   });
@@ -172,12 +172,12 @@ describe('error() with valibot', () => {
   });
 
   it('.matches() returns true for valid detail', () => {
-    const err = new WskitError('quota-exceeded', { limit: 50 });
+    const err = new WSKitError('quota-exceeded', { limit: 50 });
     expect(QuotaExceeded.matches(err)).toBe(true);
   });
 
   it('.matches() returns false for invalid detail', () => {
-    const err = new WskitError('quota-exceeded', { limit: 'nope' });
+    const err = new WSKitError('quota-exceeded', { limit: 'nope' });
     expect(QuotaExceeded.matches(err)).toBe(false);
   });
 });
@@ -185,9 +185,9 @@ describe('error() with valibot', () => {
 describe('error() with zod', () => {
   const RateLimited = error('rate-limited', z.object({ retryAfter: z.number() }));
 
-  it('is callable and returns WskitError with validated detail', () => {
+  it('is callable and returns WSKitError with validated detail', () => {
     const err = RateLimited({ retryAfter: 5000 });
-    expect(err).toBeInstanceOf(WskitError);
+    expect(err).toBeInstanceOf(WSKitError);
     expect(err.code).toBe('rate-limited');
     expect(err.detail).toEqual({ retryAfter: 5000 });
   });
@@ -198,7 +198,7 @@ describe('error() with zod', () => {
   });
 
   it('.matches() returns true for valid detail', () => {
-    const err = new WskitError('rate-limited', { retryAfter: 3000 });
+    const err = new WSKitError('rate-limited', { retryAfter: 3000 });
     expect(RateLimited.matches(err)).toBe(true);
   });
 });
@@ -228,22 +228,22 @@ describe('.matches() edge cases', () => {
   const WithDetail = error('rate-limited', v.object({ retryAfter: v.number() }));
 
   it('code-only matches regardless of detail value', () => {
-    expect(CodeOnly.matches(new WskitError('gone', undefined))).toBe(true);
-    expect(CodeOnly.matches(new WskitError('gone', null))).toBe(true);
-    expect(CodeOnly.matches(new WskitError('gone', { anything: true }))).toBe(true);
+    expect(CodeOnly.matches(new WSKitError('gone', undefined))).toBe(true);
+    expect(CodeOnly.matches(new WSKitError('gone', null))).toBe(true);
+    expect(CodeOnly.matches(new WSKitError('gone', { anything: true }))).toBe(true);
   });
 
   it('with-detail rejects when validate throws', () => {
-    expect(WithDetail.matches(new WskitError('rate-limited', {}))).toBe(false);
-    expect(WithDetail.matches(new WskitError('rate-limited', null))).toBe(false);
+    expect(WithDetail.matches(new WSKitError('rate-limited', {}))).toBe(false);
+    expect(WithDetail.matches(new WSKitError('rate-limited', null))).toBe(false);
   });
 
   it('with-detail accepts when validate passes', () => {
-    expect(WithDetail.matches(new WskitError('rate-limited', { retryAfter: 5000 }))).toBe(true);
+    expect(WithDetail.matches(new WSKitError('rate-limited', { retryAfter: 5000 }))).toBe(true);
   });
 
   it('multiple error defs do not interfere', () => {
-    const err = new WskitError('forbidden', { reason: 'x' });
+    const err = new WSKitError('forbidden', { reason: 'x' });
     expect(CodeOnly.matches(err)).toBe(false);
     expect(WithDetail.matches(err)).toBe(false);
   });
@@ -300,19 +300,19 @@ describe('ValidationFailed', () => {
     expect(ValidationFailed.code).toBe('validation-failed');
   });
 
-  it('creates WskitError with event and issues', () => {
+  it('creates WSKitError with event and issues', () => {
     const err = ValidationFailed({
       event: 'send-message',
       issues: [{ message: 'text is required', path: ['text'] }],
     });
-    expect(err).toBeInstanceOf(WskitError);
+    expect(err).toBeInstanceOf(WSKitError);
     expect(err.code).toBe('validation-failed');
     expect(err.detail.event).toBe('send-message');
     expect(err.detail.issues).toEqual([{ message: 'text is required', path: ['text'] }]);
   });
 
   it('.matches() returns true for valid validation error', () => {
-    const err = new WskitError('validation-failed', {
+    const err = new WSKitError('validation-failed', {
       event: 'join',
       issues: [{ message: 'bad' }],
     });
@@ -320,11 +320,11 @@ describe('ValidationFailed', () => {
   });
 
   it('.matches() returns false for wrong code', () => {
-    const err = new WskitError('forbidden', { event: 'x', issues: [] });
+    const err = new WSKitError('forbidden', { event: 'x', issues: [] });
     expect(ValidationFailed.matches(err)).toBe(false);
   });
 
-  it('.matches() returns false for non-WskitError', () => {
+  it('.matches() returns false for non-WSKitError', () => {
     expect(ValidationFailed.matches(new Error('validation-failed'))).toBe(false);
   });
 });
@@ -385,7 +385,7 @@ describe('ValidationFailed parser — bad payload', () => {
 // ===========================================================================
 //
 // One block per built-in. Each asserts the wire code, that the factory builds
-// a WskitError with that code, and that `.matches()` accepts/rejects the
+// a WSKitError with that code, and that `.matches()` accepts/rejects the
 // right shapes. These guards make silent renames visible in CI.
 
 describe.each([
@@ -405,19 +405,19 @@ describe.each([
     expect(def.code).toBe(code);
   });
 
-  it('factory returns a WskitError with the right code and no detail', () => {
+  it('factory returns a WSKitError with the right code and no detail', () => {
     const err = def();
-    expect(err).toBeInstanceOf(WskitError);
+    expect(err).toBeInstanceOf(WSKitError);
     expect(err.code).toBe(code);
     expect(err.detail).toBeUndefined();
   });
 
   it('.matches() accepts the right code, rejects other codes', () => {
-    expect(def.matches(new WskitError(code, undefined))).toBe(true);
-    expect(def.matches(new WskitError('something-else', undefined))).toBe(false);
+    expect(def.matches(new WSKitError(code, undefined))).toBe(true);
+    expect(def.matches(new WSKitError('something-else', undefined))).toBe(false);
   });
 
-  it('.matches() rejects non-WskitError values', () => {
+  it('.matches() rejects non-WSKitError values', () => {
     expect(def.matches(new Error(code))).toBe(false);
     expect(def.matches({ code })).toBe(false);
     expect(def.matches(null)).toBe(false);
@@ -434,15 +434,15 @@ describe('StreamAlreadyActive', () => {
     expect(StreamAlreadyActive.code).toBe('stream-already-active');
   });
 
-  it('creates WskitError with event and streamId', () => {
+  it('creates WSKitError with event and streamId', () => {
     const err = StreamAlreadyActive({ event: 'start-tokens', streamId: 'stream_42' });
-    expect(err).toBeInstanceOf(WskitError);
+    expect(err).toBeInstanceOf(WSKitError);
     expect(err.code).toBe('stream-already-active');
     expect(err.detail).toEqual({ event: 'start-tokens', streamId: 'stream_42' });
   });
 
   it('.matches() returns true for a valid detail', () => {
-    const err = new WskitError('stream-already-active', {
+    const err = new WSKitError('stream-already-active', {
       event: 'start-tokens',
       streamId: 'stream_1',
     });
@@ -450,16 +450,16 @@ describe('StreamAlreadyActive', () => {
   });
 
   it('.matches() returns false for wrong code', () => {
-    const err = new WskitError('forbidden', { event: 'x', streamId: 's' });
+    const err = new WSKitError('forbidden', { event: 'x', streamId: 's' });
     expect(StreamAlreadyActive.matches(err)).toBe(false);
   });
 
   it('.matches() returns false for matching code but invalid detail', () => {
-    const err = new WskitError('stream-already-active', { event: 'x' });
+    const err = new WSKitError('stream-already-active', { event: 'x' });
     expect(StreamAlreadyActive.matches(err)).toBe(false);
   });
 
-  it('.matches() returns false for non-WskitError', () => {
+  it('.matches() returns false for non-WSKitError', () => {
     expect(StreamAlreadyActive.matches(new Error('stream-already-active'))).toBe(false);
   });
 });
@@ -507,26 +507,26 @@ describe('StreamAborted', () => {
 
   it.each(reasons)('factory accepts reason %s', (reason) => {
     const err = StreamAborted({ reason });
-    expect(err).toBeInstanceOf(WskitError);
+    expect(err).toBeInstanceOf(WSKitError);
     expect(err.code).toBe('stream-aborted');
     expect(err.detail).toEqual({ reason });
   });
 
   it('.matches() returns true for a valid detail', () => {
-    const err = new WskitError('stream-aborted', { reason: 'cancelled' });
+    const err = new WSKitError('stream-aborted', { reason: 'cancelled' });
     expect(StreamAborted.matches(err)).toBe(true);
   });
 
   it('.matches() returns false for wrong code', () => {
-    expect(StreamAborted.matches(new WskitError('forbidden', { reason: 'cancelled' }))).toBe(false);
+    expect(StreamAborted.matches(new WSKitError('forbidden', { reason: 'cancelled' }))).toBe(false);
   });
 
   it('.matches() returns false for matching code but invalid detail', () => {
-    expect(StreamAborted.matches(new WskitError('stream-aborted', { reason: 'nope' }))).toBe(false);
-    expect(StreamAborted.matches(new WskitError('stream-aborted', undefined))).toBe(false);
+    expect(StreamAborted.matches(new WSKitError('stream-aborted', { reason: 'nope' }))).toBe(false);
+    expect(StreamAborted.matches(new WSKitError('stream-aborted', undefined))).toBe(false);
   });
 
-  it('.matches() returns false for non-WskitError', () => {
+  it('.matches() returns false for non-WSKitError', () => {
     expect(StreamAborted.matches(new Error('stream-aborted'))).toBe(false);
   });
 });
@@ -557,29 +557,29 @@ describe('RateLimited', () => {
     expect(RateLimited.code).toBe('rate-limited');
   });
 
-  it('creates WskitError with retryAfter', () => {
+  it('creates WSKitError with retryAfter', () => {
     const err = RateLimited({ retryAfter: 5 });
-    expect(err).toBeInstanceOf(WskitError);
+    expect(err).toBeInstanceOf(WSKitError);
     expect(err.code).toBe('rate-limited');
     expect(err.detail).toEqual({ retryAfter: 5 });
   });
 
   it('.matches() returns true for a valid detail', () => {
-    const err = new WskitError('rate-limited', { retryAfter: 2 });
+    const err = new WSKitError('rate-limited', { retryAfter: 2 });
     expect(RateLimited.matches(err)).toBe(true);
   });
 
   it('.matches() returns false for wrong code', () => {
-    const err = new WskitError('forbidden', { retryAfter: 2 });
+    const err = new WSKitError('forbidden', { retryAfter: 2 });
     expect(RateLimited.matches(err)).toBe(false);
   });
 
   it('.matches() returns false for matching code but invalid detail', () => {
-    const err = new WskitError('rate-limited', { retryAfter: 'soon' });
+    const err = new WSKitError('rate-limited', { retryAfter: 'soon' });
     expect(RateLimited.matches(err)).toBe(false);
   });
 
-  it('.matches() returns false for non-WskitError', () => {
+  it('.matches() returns false for non-WSKitError', () => {
     expect(RateLimited.matches(new Error('rate-limited'))).toBe(false);
   });
 });
@@ -640,7 +640,7 @@ describe('factory throw + catch + .matches() roundtrip', () => {
 // Built-in code registry
 // ===========================================================================
 //
-// One snapshot of every built-in error code wskit ships. A rename, a new
+// One snapshot of every built-in error code WSKit ships. A rename, a new
 // addition, or a deletion fails this test and forces the change to surface
 // in the diff. The map is the canonical list of wire codes the framework
 // claims; consumers (client SDK, dashboards, audit logs) can read it here.

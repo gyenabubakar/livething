@@ -1,4 +1,4 @@
-import { WskitError } from '@wskit/core';
+import { WSKitError } from '@wskit/core';
 import { describe, expect, it } from 'vitest';
 import { CloseCodes, Defer, DeferExhausted, Disconnect, RejectUpgrade } from './errors.ts';
 
@@ -100,13 +100,13 @@ describe('DeferExhausted', () => {
     expect(DeferExhausted.code).toBe('defer-exhausted');
   });
 
-  it('creates WskitError with event, payload, and retries', () => {
+  it('creates WSKitError with event, payload, and retries', () => {
     const err = DeferExhausted({
       event: 'send-message',
       payload: { text: 'hello' },
       retries: 3,
     });
-    expect(err).toBeInstanceOf(WskitError);
+    expect(err).toBeInstanceOf(WSKitError);
     expect(err.code).toBe('defer-exhausted');
     expect(err.detail.event).toBe('send-message');
     expect(err.detail.payload).toEqual({ text: 'hello' });
@@ -114,7 +114,7 @@ describe('DeferExhausted', () => {
   });
 
   it('.matches() returns true for valid DeferExhausted error', () => {
-    const err = new WskitError('defer-exhausted', {
+    const err = new WSKitError('defer-exhausted', {
       event: 'test',
       payload: null,
       retries: 1,
@@ -123,11 +123,11 @@ describe('DeferExhausted', () => {
   });
 
   it('.matches() returns false for wrong code', () => {
-    const err = new WskitError('forbidden', { event: 'x', payload: null, retries: 0 });
+    const err = new WSKitError('forbidden', { event: 'x', payload: null, retries: 0 });
     expect(DeferExhausted.matches(err)).toBe(false);
   });
 
-  it('.matches() returns false for non-WskitError', () => {
+  it('.matches() returns false for non-WSKitError', () => {
     expect(DeferExhausted.matches(new Error('defer-exhausted'))).toBe(false);
   });
 });

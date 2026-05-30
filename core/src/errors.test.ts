@@ -9,7 +9,7 @@ import {
   StreamAlreadyActive,
   StreamIdCollision,
   ValidationFailed,
-  WskitError,
+  WSKitError,
 } from '~/errors.ts';
 import * as v from 'valibot';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
@@ -44,10 +44,10 @@ void [
 CloseCodes.NEW_CODE = 5000;
 
 // ===========================================================================
-// 2. WskitError — constructor and properties
+// 2. WSKitError — constructor and properties
 // ===========================================================================
 
-const wsErr = new WskitError('forbidden', { reason: 'not a member' });
+const wsErr = new WSKitError('forbidden', { reason: 'not a member' });
 
 const _code: 'forbidden' = wsErr.code;
 const _detail: { reason: string } = wsErr.detail;
@@ -56,8 +56,8 @@ void [_code, _detail];
 const _isError: boolean = wsErr instanceof Error;
 void _isError;
 
-// WskitError with void detail (code-only)
-const wsErrVoid = new WskitError('not-found', undefined as void);
+// WSKitError with void detail (code-only)
+const wsErrVoid = new WSKitError('not-found', undefined as void);
 const _voidCode: 'not-found' = wsErrVoid.code;
 void _voidCode;
 
@@ -73,12 +73,12 @@ void _notFoundCode;
 const _notFoundDef: ErrorDef<'not-found', void> = NotFound;
 void _notFoundDef;
 
-// Code-only errors are callable — factory returns WskitError with void detail
-const _notFoundErr: WskitError<'not-found', void> = NotFound();
+// Code-only errors are callable — factory returns WSKitError with void detail
+const _notFoundErr: WSKitError<'not-found', void> = NotFound();
 void _notFoundErr;
 
 // .matches() exists
-const _matchesFn: (err: unknown) => err is WskitError<'not-found', void> = NotFound.matches;
+const _matchesFn: (err: unknown) => err is WSKitError<'not-found', void> = NotFound.matches;
 void _matchesFn;
 
 // ===========================================================================
@@ -87,7 +87,7 @@ void _matchesFn;
 
 const Forbidden = error('forbidden', v.object({ reason: v.string() }));
 
-// Callable — creates WskitError
+// Callable — creates WSKitError
 const forbiddenErr = Forbidden({ reason: 'not a member' });
 const _fCode: 'forbidden' = forbiddenErr.code;
 const _fDetail: { reason: string } = forbiddenErr.detail;
@@ -99,7 +99,7 @@ Forbidden({ wrong: true });
 // @ts-expect-error — missing detail
 Forbidden();
 
-// .matches() narrows to WskitError<'forbidden', { reason: string }>
+// .matches() narrows to WSKitError<'forbidden', { reason: string }>
 declare const unknownErr: unknown;
 if (Forbidden.matches(unknownErr)) {
   const _mc: 'forbidden' = unknownErr.code;
@@ -132,7 +132,7 @@ if (QuotaExceeded.matches(anyErr)) {
 // 6. .matches() — negative cases
 // ===========================================================================
 
-// .matches() returns false for non-WskitError — plain Error is not WskitError
+// .matches() returns false for non-WSKitError — plain Error is not WSKitError
 declare const plainError: Error;
 const _plainMatch: boolean = Forbidden.matches(plainError);
 void _plainMatch;
@@ -178,8 +178,8 @@ error('SCREAMING');
 // 9. Block — frozen singleton
 // ===========================================================================
 
-const _blockWskit: 'block' = Block.__wskit;
-void _blockWskit;
+const _blockWSKit: 'block' = Block.__wskit;
+void _blockWSKit;
 
 // @ts-expect-error — Block is frozen, cannot add properties
 Block.extra = true;
@@ -278,7 +278,7 @@ if (StreamAlreadyActive.matches(maybeSaa)) {
 const _sicCode: 'stream-id-collision' = StreamIdCollision.code;
 void _sicCode;
 
-const _sicErr: WskitError<'stream-id-collision', void> = StreamIdCollision();
+const _sicErr: WSKitError<'stream-id-collision', void> = StreamIdCollision();
 void _sicErr;
 
 declare const maybeSic: unknown;

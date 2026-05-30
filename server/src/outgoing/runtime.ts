@@ -142,7 +142,7 @@ function runOutgoingHooks(
 }
 
 /** Build the `__wskit` block for an outgoing frame from its routing target. */
-function buildWskit(
+function buildWSKit(
   routing: EngineRuntimeTypes.RoutingTarget | undefined,
 ): Record<string, unknown> {
   const wskit: Record<string, unknown> = {};
@@ -161,7 +161,7 @@ function buildWskit(
  * Run the sequence/dedup stampers and merge their output into `__wskit`. A
  * value already set from routing wins, so a durable stream's own `seq` stays.
  */
-function applyWskitStampers(
+function applyWSKitStampers(
   stampers: OutgoingRuntime['wskitStampHooks'],
   event: string,
   wskit: Record<string, unknown>,
@@ -230,8 +230,8 @@ export function sendThroughPipeline(
     );
   }
 
-  const wskit = buildWskit(routing);
-  applyWskitStampers(runtime.wskitStampHooks, message.event, wskit);
+  const wskit = buildWSKit(routing);
+  applyWSKitStampers(runtime.wskitStampHooks, message.event, wskit);
 
   const finalPayload = message.payload as Record<string, unknown>;
   const payloadJson = serializePayloadOrThrow(message.event, finalPayload);
@@ -268,7 +268,7 @@ interface PreparedBroadcast {
 
   finalPayload: Record<string, unknown>;
 
-  baseWskit: Record<string, unknown>;
+  baseWSKit: Record<string, unknown>;
 
   needsWireMessage: boolean;
 
@@ -325,14 +325,14 @@ function prepareBroadcast(
   const finalPayload = message.payload as Record<string, unknown>;
   const eventJson = JSON.stringify(message.event);
   const payloadJson = serializePayloadOrThrow(message.event, finalPayload);
-  const baseWskit = buildWskit(routing);
+  const baseWSKit = buildWSKit(routing);
   const hasBeforeSend = runtime.beforeSendHooks.length > 0;
 
   // The frame is identical for every recipient unless something stamps a
   // per-connection `__wskit` value. Stampers are skipped for protocol events,
   // so those always qualify; user events qualify only with no stampers. A
   // beforeSend hook can rewrite `__wskit` per recipient, so it disqualifies.
-  const sharedWskit =
+  const sharedWSKit =
     !hasBeforeSend &&
     (Protocol.isProtocolEventName(message.event) || runtime.wskitStampHooks.length === 0);
 
@@ -341,10 +341,10 @@ function prepareBroadcast(
     eventJson,
     payloadJson,
     finalPayload,
-    baseWskit,
+    baseWSKit,
     needsWireMessage: hasBeforeSend || runtime.afterSendHooks.length > 0,
-    sharedFrame: sharedWskit
-      ? `{"event":${eventJson},"payload":${payloadJson},"__wskit":${JSON.stringify(baseWskit)}}`
+    sharedFrame: sharedWSKit
+      ? `{"event":${eventJson},"payload":${payloadJson},"__wskit":${JSON.stringify(baseWSKit)}}`
       : undefined,
   };
 }
@@ -370,15 +370,15 @@ function sendPrepared(
         connectionId: connection.id,
         event: prepared.event,
         payload: prepared.finalPayload,
-        wskit: prepared.baseWskit,
+        wskit: prepared.baseWSKit,
         meta: connection.meta,
       });
     }
     return;
   }
 
-  const wskit = { ...prepared.baseWskit };
-  applyWskitStampers(runtime.wskitStampHooks, prepared.event, wskit);
+  const wskit = { ...prepared.baseWSKit };
+  applyWSKitStampers(runtime.wskitStampHooks, prepared.event, wskit);
 
   // The wire message only feeds before/after-send hooks — skip the
   // per-recipient allocation when no such hooks are registered.

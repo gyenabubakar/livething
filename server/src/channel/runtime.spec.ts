@@ -362,7 +362,7 @@ describe('channel runtime', () => {
     expect(members.map((m) => m.connectionId)).toEqual(['rooms-member']);
   });
 
-  it('check with an async validator throws WskitConfigError without routing through handleValidationError', async () => {
+  it('check with an async validator throws WSKitConfigError without routing through handleValidationError', async () => {
     const connection = createConnection('conn_1');
     const { runtime, connections } = createRuntime();
     connections.set(connection.id, connection);

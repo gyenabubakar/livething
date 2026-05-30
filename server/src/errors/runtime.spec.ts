@@ -1,11 +1,11 @@
-import { WskitError } from '@wskit/core';
+import { WSKitError } from '@wskit/core';
 import { describe, expect, it } from 'vitest';
 import { normalizeRuntimeError, notifyValidationError, sendRuntimeError } from './runtime.ts';
 
 describe('errors runtime', () => {
-  it('normalizes WskitError values into __error__ payload and wskit halves', () => {
+  it('normalizes WSKitError values into __error__ payload and wskit halves', () => {
     expect(
-      normalizeRuntimeError(new WskitError('forbidden', { reason: 'nope' }), {
+      normalizeRuntimeError(new WSKitError('forbidden', { reason: 'nope' }), {
         streamId: 's1',
       }),
     ).toEqual({
@@ -52,7 +52,7 @@ describe('errors runtime', () => {
     expect(sent).toEqual([{ event: '__error__', payload: { code: 'internal-error' } }]);
   });
 
-  it('runs error hooks for WskitError values too', async () => {
+  it('runs error hooks for WSKitError values too', async () => {
     const observed: string[] = [];
 
     await sendRuntimeError(
@@ -73,7 +73,7 @@ describe('errors runtime', () => {
         sendProtocolMessage() {},
       },
       { id: 'c1' } as never,
-      { error: new WskitError('forbidden', {}), event: 'echo' },
+      { error: new WSKitError('forbidden', {}), event: 'echo' },
     );
 
     expect(observed).toEqual(['hook']);
@@ -147,7 +147,7 @@ describe('errors runtime', () => {
     expect(sent).toEqual([{ event: '__error__', payload: { code: 'internal-error' } }]);
   });
 
-  it('warns when a thrown WskitError was never declared', async () => {
+  it('warns when a thrown WSKitError was never declared', async () => {
     const warnings: string[] = [];
     const sent: Array<{ event: string; payload: Record<string, unknown> }> = [];
 
@@ -169,11 +169,11 @@ describe('errors runtime', () => {
         },
       },
       { id: 'c1' } as never,
-      { error: new WskitError('quota-exceeded', { limit: 1 }), event: 'charge-card' },
+      { error: new WSKitError('quota-exceeded', { limit: 1 }), event: 'charge-card' },
     );
 
     expect(warnings).toEqual([
-      '[wskit] Thrown WskitError was not declared in the contract errors: [...] list',
+      '[wskit] Thrown WSKitError was not declared in the contract errors: [...] list',
     ]);
     expect(sent).toEqual([
       {

@@ -68,7 +68,7 @@ export function ensureReplaySchema(sql: {
  * store holds it. The cascade only decides which replay instance owns the
  * stored rows, not who is allowed to read them.
  *
- * A namespace is a scope in wskit, but it has no replay store of its own, so
+ * A namespace is a scope in WSKit, but it has no replay store of its own, so
  * namespace traffic is handled here by the top-level store (no per-namespace
  * branch on purpose).
  */
@@ -511,7 +511,7 @@ export function pruneExpiredReplayRows(
  * Trim one replay store down to the configured maximum row count.
  *
  * Replay has exactly two replay stores: the top-level one and one per channel.
- * A namespace is a scope in wskit, but it has no replay store of its own — a
+ * A namespace is a scope in WSKit, but it has no replay store of its own — a
  * namespace's messages live in the top-level store and come back as part of a
  * top-level replay (see `buildLoadReplayQuery`). So the limit must be matched
  * to that read by keying ONLY on `channel`/`channelScope`, never on namespace:
@@ -609,7 +609,7 @@ export function buildLoadReplayQuery(
   }
 
   // Top-level replay returns every non-channel row regardless of namespace.
-  // This is BY DESIGN, not a leak. A namespace is a scope in wskit, but it has
+  // This is BY DESIGN, not a leak. A namespace is a scope in WSKit, but it has
   // no replay store of its own: there are only two replay stores, top-level and
   // per-channel. A namespace's messages live in the top-level store, so a
   // top-level replay returns them too. Each row still carries its namespace so

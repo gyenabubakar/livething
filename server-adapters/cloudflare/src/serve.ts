@@ -14,7 +14,7 @@ import { normalizeBinary } from './utils.ts';
  * Worker to trigger every `onShutdown` hook and close every open WebSocket
  * connection gracefully — use it before a deploy or maintenance window.
  */
-export interface WskitDurableObjectInstance<Env = unknown> extends DurableObject<Env> {
+export interface WSKitDurableObjectInstance<Env = unknown> extends DurableObject<Env> {
   shutdown(): Promise<void>;
 }
 
@@ -25,7 +25,7 @@ export interface WskitDurableObjectInstance<Env = unknown> extends DurableObject
 export type CloudflareDurableObjectClass<Env = unknown> = new (
   ctx: DurableObjectState,
   env: Env,
-) => WskitDurableObjectInstance<Env>;
+) => WSKitDurableObjectInstance<Env>;
 
 function createAsyncContext<TStore>() {
   return new AsyncLocalStorage<TStore>();
@@ -48,7 +48,7 @@ const buildServe = adapter<undefined, CloudflareDurableObjectClass>({
   asyncContextFactory: createAsyncContext,
 
   setup(createEngine) {
-    return class WskitDurableObject<Env = unknown> extends DurableObject<Env> {
+    return class WSKitDurableObject<Env = unknown> extends DurableObject<Env> {
       private readonly engine: Engine;
       private readonly liveConnections = new Map<WebSocket, ConnectionHandle>();
       private readonly ready: Promise<void>;
@@ -89,7 +89,7 @@ const buildServe = adapter<undefined, CloudflareDurableObjectClass>({
           const surviving = new Set<string>();
           if (this.engine.usesHibernation()) {
             // Answer the app-level keepalive ping at the edge so a hibernated
-            // DO is not woken just to reply "pong". wskit's client sends the
+            // DO is not woken just to reply "pong". WSKit's client sends the
             // literal text "ping"; the runtime replies "pong" without booting
             // this object. Server-side latency stats pause while hibernated,
             // which is expected.
@@ -179,10 +179,10 @@ const buildServe = adapter<undefined, CloudflareDurableObjectClass>({
 
         // Hibernation is opt-in via `hibernation: true` on the contract.
         // Tags are intentionally NOT forwarded into Cloudflare's per-socket
-        // tag store. wskit already persists tags inside its hibernation
+        // tag store. WSKit already persists tags inside its hibernation
         // attachment, so the runtime is the source of truth on wake. The
         // tag store also caps each tag at 256 characters and the total at
-        // 10 tags, which does not match the wskit API contract — passing
+        // 10 tags, which does not match the WSKit API contract — passing
         // app tags through would crash the upgrade for any handler that
         // returns more or longer tags from onUpgrade.
         const hibernating = this.engine.usesHibernation();
@@ -288,7 +288,7 @@ const buildServe = adapter<undefined, CloudflareDurableObjectClass>({
 });
 
 /**
- * Turn a wskit handler into a Cloudflare Durable Object class.
+ * Turn a WSKit handler into a Cloudflare Durable Object class.
  *
  * Export the returned class from your Worker so the Cloudflare runtime can
  * instantiate one DO per `idFromName(...)`. Each DO instance owns its own

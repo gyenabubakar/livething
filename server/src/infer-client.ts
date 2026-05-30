@@ -59,7 +59,7 @@ type ErrorMap<TDefs> = SimplifyDeep<
 type ContractOf<TServer extends ServerDefinition> =
   TServer extends ServerDefinition<any, infer TContract> ? TContract : ServerContract;
 
-/** The set of error types that wskit always adds to every server's error map. */
+/** The set of error types that WSKit always adds to every server's error map. */
 type BuiltInErrorUnion =
   | typeof ValidationFailed
   | typeof ChannelNotFound
@@ -132,7 +132,7 @@ type ClientScope<TScope> = {
 type ClientScopeMap<TScopes> = { [TKey in keyof TScopes]: ClientScope<TScopes[TKey]> };
 
 /**
- * Read a wskit `ServerDefinition` and turn it into the full client contract type.
+ * Read a WSKit `ServerDefinition` and turn it into the full client contract type.
  *
  * Pass the type of your server definition (the value returned by `.build()`)
  * and get back a type that describes every event, request, stream, namespace,

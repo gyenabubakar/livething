@@ -5,17 +5,17 @@
  * This is a developer mistake, not a runtime input failure, so the engine
  * lets it propagate up rather than routing it through `onValidationError`.
  */
-export class WskitConfigError extends Error {
+export class WSKitConfigError extends Error {
   readonly __wskitConfig = true as const;
 
   constructor(message: string) {
     super(message);
-    this.name = 'WskitConfigError';
+    this.name = 'WSKitConfigError';
   }
 }
 
-/** Type guard for `WskitConfigError`, robust across realm boundaries. */
-export function isWskitConfigError(error: unknown): error is WskitConfigError {
+/** Type guard for `WSKitConfigError`, robust across realm boundaries. */
+export function isWSKitConfigError(error: unknown): error is WSKitConfigError {
   return (
     !!error &&
     typeof error === 'object' &&
@@ -24,7 +24,7 @@ export function isWskitConfigError(error: unknown): error is WskitConfigError {
 }
 
 /**
- * If `error` is a `WskitConfigError`, rethrow it immediately. Otherwise return
+ * If `error` is a `WSKitConfigError`, rethrow it immediately. Otherwise return
  * normally so the caller can run its own error routing.
  *
  * Use this at the start of every `catch` block that wraps validator calls or
@@ -33,17 +33,17 @@ export function isWskitConfigError(error: unknown): error is WskitConfigError {
  * the developer-facing signal that something is misconfigured.
  */
 export function rethrowIfConfigError(error: unknown): void {
-  if (isWskitConfigError(error)) throw error;
+  if (isWSKitConfigError(error)) throw error;
 }
 
 /**
  * Throw if `result` is a Promise. Used to enforce that validators (Standard
- * Schema or plain functions) run synchronously — wskit does not currently
+ * Schema or plain functions) run synchronously — WSKit does not currently
  * support async validation in the message pipeline or in `error()` factories.
  */
 export function assertSyncResult<T>(result: T | Promise<T>, label: string): T {
   if (result && typeof (result as Promise<T>).then === 'function') {
-    throw new WskitConfigError(
+    throw new WSKitConfigError(
       `[wskit] async validators are not supported (${label}). Use a sync schema or parse function.`,
     );
   }

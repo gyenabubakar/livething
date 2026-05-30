@@ -1,7 +1,7 @@
 export {
   error,
   namespaceError,
-  WskitError,
+  WSKitError,
   CloseCodes,
   Block,
   ValidationFailed,
@@ -19,8 +19,8 @@ export {
 } from './errors.ts';
 export type { ErrorDef, ErrorDefWithFactory, StreamAbortedReason } from './errors.ts';
 export {
-  WskitConfigError,
-  isWskitConfigError,
+  WSKitConfigError,
+  isWSKitConfigError,
   rethrowIfConfigError,
   assertSyncResult,
 } from './sync-guard.ts';

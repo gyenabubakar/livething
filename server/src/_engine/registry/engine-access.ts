@@ -46,7 +46,7 @@ export function createEngineAccess(
     onOutgoing: (handler) => {
       core.hooks.outgoing.push(handler);
     },
-    onWskitStamp: (handler) => {
+    onWSKitStamp: (handler) => {
       core.hooks.wskitStamp.push(handler);
     },
     onBeforeSend: (handler) => {

@@ -4,7 +4,7 @@
  *
  * Value export boundaries are checked via namespace property access so
  * Prettier cannot merge the @ts-expect-error comments away. Type-only
- * boundaries (CloudflareDurableObjectClass, WskitDurableObjectInstance)
+ * boundaries (CloudflareDurableObjectClass, WSKitDurableObjectInstance)
  * are enforced by the explicit export list in index.ts.
  */
 

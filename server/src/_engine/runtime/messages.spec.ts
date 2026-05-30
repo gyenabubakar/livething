@@ -393,7 +393,7 @@ describe('message runtime', () => {
     expect(runtimeErrors).toHaveLength(1);
   });
 
-  it('propagates WskitConfigError without routing through handleValidationError (async validator)', async () => {
+  it('propagates WSKitConfigError without routing through handleValidationError (async validator)', async () => {
     const handleValidationError = vi.fn();
     const handleRuntimeError = vi.fn();
     const handler = vi.fn();

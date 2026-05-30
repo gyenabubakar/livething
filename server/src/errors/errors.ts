@@ -12,7 +12,7 @@ import * as v from 'valibot';
 
 export {
   error,
-  WskitError,
+  WSKitError,
   CloseCodes,
   Block,
   ValidationFailed,

@@ -45,7 +45,7 @@ const REPLAY_KEY = Symbol('replay');
 
 /**
  * Enables built-in message replay. The server records every outgoing message
- * so reconnecting clients can catch up on what they missed — wskit's client
+ * so reconnecting clients can catch up on what they missed — WSKit's client
  * asks for replay automatically on reconnect, and no extra work is needed
  * from your handlers.
  *

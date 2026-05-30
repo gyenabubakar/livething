@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { WskitConfigError } from '@wskit/core';
+import { WSKitConfigError } from '@wskit/core';
 import type {
   CheckPrimitive,
   CommitPrimitive,
@@ -123,17 +123,17 @@ const CHANNEL_KEY = Symbol('channel');
  */
 function assertValidScopeDeclaration(declaration: ScopeDeclaration<string>, source: string): void {
   if (typeof declaration.key !== 'string' || declaration.key.trim() === '') {
-    throw new WskitConfigError(
+    throw new WSKitConfigError(
       `[wskit] ${source} requires a non-empty key — got ${JSON.stringify(declaration.key)}.`,
     );
   }
   if (!(declaration.pattern instanceof RegExp)) {
-    throw new WskitConfigError(
+    throw new WSKitConfigError(
       `[wskit] ${source} requires a RegExp pattern — got ${JSON.stringify(declaration.pattern)}.`,
     );
   }
   if (declaration.pattern.global || declaration.pattern.sticky) {
-    throw new WskitConfigError(
+    throw new WSKitConfigError(
       `${source} ("${declaration.key}", ...): regex flags "g" and "y" are not allowed because ` +
         `they make RegExp.prototype.test stateful, which causes scope-pattern ` +
         `checks to alternate between match and no-match for the same input. ` +
@@ -141,7 +141,7 @@ function assertValidScopeDeclaration(declaration: ScopeDeclaration<string>, sour
     );
   }
   if (CATASTROPHIC_BACKTRACK_SHAPE.test(declaration.pattern.source)) {
-    throw new WskitConfigError(
+    throw new WSKitConfigError(
       `${source} ("${declaration.key}", ...): regex source /${declaration.pattern.source}/ ` +
         `contains a nested unbounded quantifier (shapes like (...+)+, (...*)*, (...+)*, (...*)+). ` +
         `Inputs that nearly match such a pattern force the regex engine into ` +
@@ -214,7 +214,7 @@ export function channel<
 >(pattern: TPattern, ...primitives: TPrimitives): ChannelPrimitive<TPattern, TPrimitives> {
   if (typeof pattern === 'string') {
     if (pattern.trim() === '') {
-      throw new WskitConfigError(
+      throw new WSKitConfigError(
         `[wskit] channel() requires a non-empty name — got ${JSON.stringify(pattern)}.`,
       );
     }

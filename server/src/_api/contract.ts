@@ -77,7 +77,7 @@ function validateContractConfig(config: ContractConfig): void {
 }
 
 /**
- * Create a wskit contract — the declarative half of a server.
+ * Create a WSKit contract — the declarative half of a server.
  *
  * Every type is inferred from the config object — no explicit generic
  * arguments at the call site. Mark the env shape with `env: t<Env>()` (same

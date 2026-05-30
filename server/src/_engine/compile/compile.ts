@@ -455,7 +455,7 @@ function collectPluginEventNames(compiled: EngineCompileTypes.CompiledServer): R
 
 /**
  * Walk every event name registered on the compiled server and refuse boot
- * if any clash with the wskit wire protocol. Also catches the bypass case
+ * if any clash with the WSKit wire protocol. Also catches the bypass case
  * where a developer hand-rolls an event-shaped object instead of calling
  * `event(name, schema)` — the runtime guard sees the same primitives.
  */
@@ -470,7 +470,7 @@ function validateNoReservedEventNames(
           `Pick a different name for your event.`,
       );
     }
-    // The double-underscore prefix is reserved for wskit protocol events
+    // The double-underscore prefix is reserved for WSKit protocol events
     // (__subscribe__, __error__, ...) and plugin-owned events. Allow only the
     // names installed plugins actually declared — anything else with the
     // prefix is a user-declared event that would clash with the protocol.

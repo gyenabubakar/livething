@@ -27,7 +27,7 @@ interface ErrorHandlerDeps {
  */
 export function resolveScopeFromRouting(
   core: EngineCore,
-  routing: Protocol.WskitRouting,
+  routing: Protocol.WSKitRouting,
 ): ResolvedScope | undefined {
   if (routing.namespace !== undefined) {
     const namespace = core.compiled.namespaces.get(routing.namespace);

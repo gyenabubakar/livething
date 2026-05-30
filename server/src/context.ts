@@ -56,7 +56,7 @@ export interface SQLProvider {
    * Run one SQL statement. Bind values with positional `?` placeholders.
    *
    * Pass a generic row type when you know the query's result shape. The generic
-   * is a TypeScript hint only; wskit does not validate SQL rows at runtime.
+   * is a TypeScript hint only; WSKit does not validate SQL rows at runtime.
    */
   exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow>;
 

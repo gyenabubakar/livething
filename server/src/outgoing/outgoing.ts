@@ -2,7 +2,7 @@ import type { Primitive } from '~/primitive.ts';
 
 /**
  * Engine-side primitive for an outgoing event. Carries the event name and a
- * phantom payload type so wskit can type-check server-to-client sends and
+ * phantom payload type so WSKit can type-check server-to-client sends and
  * generate the matching client types.
  *
  * `_TPayload` is only used for typing. It is not stored on the primitive at

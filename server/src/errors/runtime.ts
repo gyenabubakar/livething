@@ -1,4 +1,4 @@
-import { InternalError, WskitError } from '@wskit/core';
+import { InternalError, WSKitError } from '@wskit/core';
 import { forEachIsolatedAsync } from '~/_engine/runtime/isolation.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { ResolvedScope, RuntimeConnection } from '~/_engine/runtime/types.ts';
@@ -18,7 +18,7 @@ interface RuntimeErrorDeps {
    * runtime error so the hook context can carry `ctx.namespace` or
    * `ctx.channel`. Returns undefined when no scope can be derived.
    */
-  resolveScopeFromRouting?(routing: Protocol.WskitRouting): ResolvedScope | undefined;
+  resolveScopeFromRouting?(routing: Protocol.WSKitRouting): ResolvedScope | undefined;
 
   declaredErrorCodes: ReadonlySet<string>;
 
@@ -49,18 +49,18 @@ interface ValidationErrorDeps {
 }
 
 /**
- * Split a thrown value into the `payload` and `__wskit` halves of wskit's
+ * Split a thrown value into the `payload` and `__wskit` halves of WSKit's
  * `__error__` protocol frame. `payload` carries `code` (and `detail` when the
  * error has one); `__wskit` carries the routing markers so the client can
  * correlate the failure with its pending operation.
  */
 export function normalizeRuntimeError(
   error: unknown,
-  routing?: Protocol.WskitRouting,
+  routing?: Protocol.WSKitRouting,
 ): { payload: Record<string, unknown>; wskit: Record<string, unknown> } {
   const wskit: Record<string, unknown> = { ...(routing ?? {}) };
 
-  if (error instanceof WskitError) {
+  if (error instanceof WSKitError) {
     return { payload: { code: error.code, detail: error.detail }, wskit };
   }
 
@@ -72,7 +72,7 @@ export interface SendRuntimeErrorOptions {
 
   event?: string;
 
-  routing?: Protocol.WskitRouting;
+  routing?: Protocol.WSKitRouting;
 }
 
 /**
@@ -85,9 +85,9 @@ export async function sendRuntimeError(
   options: SendRuntimeErrorOptions,
 ): Promise<void> {
   const { error, event, routing } = options;
-  if (error instanceof WskitError && !deps.declaredErrorCodes.has(error.code)) {
+  if (error instanceof WSKitError && !deps.declaredErrorCodes.has(error.code)) {
     deps.logger.warn(
-      '[wskit] Thrown WskitError was not declared in the contract errors: [...] list',
+      '[wskit] Thrown WSKitError was not declared in the contract errors: [...] list',
       {
         code: error.code,
         event,

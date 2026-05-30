@@ -3,7 +3,7 @@ import {
   assertSyncResult,
   assertValidWSKitIdentifier,
   ValidationFailed,
-  WskitConfigError,
+  WSKitConfigError,
 } from '@wskit/core';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type * as ChannelPrimitive from '~/channel/channel.ts';
@@ -14,7 +14,7 @@ import type * as PrimitiveCore from '~/primitive.ts';
  * Walk a list once and throw if any two items share the same key. Use this
  * before any `Map.set`/`Set.add`/object-key write loop — those collapse
  * duplicates silently and let the second declaration win without any signal.
- * The thrown `WskitConfigError` names the kind and the duplicated key so the
+ * The thrown `WSKitConfigError` names the kind and the duplicated key so the
  * misconfiguration is obvious at boot.
  */
 export function collectUnique<T>(
@@ -26,7 +26,7 @@ export function collectUnique<T>(
   for (const item of items) {
     const key = keyFn(item);
     if (seen.has(key)) {
-      throw new WskitConfigError(
+      throw new WSKitConfigError(
         `[wskit] ${where.context}: duplicate ${where.kind} "${key}". Each name can only be declared once per scope.`,
       );
     }
@@ -41,7 +41,7 @@ export function collectUnique<T>(
  * channel, namespace) owns its own slot on `CompiledServer`, and a duplicate
  * declaration in the same slot was previously silent — the second declaration
  * just overwrote the first. With this helper, a duplicate fails build with a
- * clear `WskitConfigError` so the engine refuses to construct and the server
+ * clear `WSKitConfigError` so the engine refuses to construct and the server
  * doesn't start with a half-broken contract.
  */
 export function setUniqueOrThrow<V>(
@@ -50,7 +50,7 @@ export function setUniqueOrThrow<V>(
   entry: { value: V; kind: string },
 ): void {
   if (map.has(key)) {
-    throw new WskitConfigError(
+    throw new WSKitConfigError(
       `[wskit] Duplicate ${entry.kind} declaration for "${key}". ` +
         `Each name can only be declared once per scope.`,
     );
@@ -59,7 +59,7 @@ export function setUniqueOrThrow<V>(
 }
 
 /**
- * Throw at declaration time if an event name clashes with the wskit wire
+ * Throw at declaration time if an event name clashes with the WSKit wire
  * protocol. `ping`/`pong` are the raw keepalive frames; the `__` prefix is
  * reserved for protocol events (`__subscribe__`, `__error__`, ...) and
  * plugin-owned events. Called by every definition factory that takes an event

@@ -28,7 +28,7 @@ export interface HandleRequestOptions {
 
   payload: unknown;
 
-  wskit: Protocol.WskitProtocol | undefined;
+  wskit: Protocol.WSKitProtocol | undefined;
 }
 
 /**

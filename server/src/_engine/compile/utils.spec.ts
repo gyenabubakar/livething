@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { isWskitConfigError, WskitError } from '@wskit/core';
+import { isWSKitConfigError, WSKitError } from '@wskit/core';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
@@ -14,14 +14,14 @@ describe('collectUnique', () => {
     expect(collectUnique(items, (i) => i.name, outgoingWhere)).toBe(items);
   });
 
-  it('throws WskitConfigError naming the duplicated key', () => {
+  it('throws WSKitConfigError naming the duplicated key', () => {
     let captured: unknown;
     try {
       collectUnique([{ name: 'ready' }, { name: 'ready' }], (i) => i.name, outgoingWhere);
     } catch (error) {
       captured = error;
     }
-    expect(isWskitConfigError(captured)).toBe(true);
+    expect(isWSKitConfigError(captured)).toBe(true);
     expect(String(captured)).toMatch(/duplicate outgoing "ready"/);
   });
 
@@ -44,15 +44,15 @@ describe('validateValue — StandardSchema duck-type detection', () => {
       expect(validateValue(schema, { name: 'Alice' }, 'test-event')).toEqual({ name: 'Alice' });
     });
 
-    it('throws ValidationFailed WskitError with issues for invalid input', () => {
+    it('throws ValidationFailed WSKitError with issues for invalid input', () => {
       let thrown: unknown;
       try {
         validateValue(schema, { name: 42 }, 'test-event');
       } catch (err) {
         thrown = err;
       }
-      expect(thrown).toBeInstanceOf(WskitError);
-      const wsErr = thrown as WskitError<'validation-failed', any>;
+      expect(thrown).toBeInstanceOf(WSKitError);
+      const wsErr = thrown as WSKitError<'validation-failed', any>;
       expect(wsErr.code).toBe('validation-failed');
       expect(Array.isArray(wsErr.detail.issues)).toBe(true);
       expect(wsErr.detail.issues.length).toBeGreaterThan(0);
@@ -67,15 +67,15 @@ describe('validateValue — StandardSchema duck-type detection', () => {
       expect(validateValue(schema, { count: 5 }, 'test-event')).toEqual({ count: 5 });
     });
 
-    it('throws ValidationFailed WskitError with issues for invalid input', () => {
+    it('throws ValidationFailed WSKitError with issues for invalid input', () => {
       let thrown: unknown;
       try {
         validateValue(schema, { count: 'not-a-number' }, 'test-event');
       } catch (err) {
         thrown = err;
       }
-      expect(thrown).toBeInstanceOf(WskitError);
-      const wsErr = thrown as WskitError<'validation-failed', any>;
+      expect(thrown).toBeInstanceOf(WSKitError);
+      const wsErr = thrown as WSKitError<'validation-failed', any>;
       expect(wsErr.code).toBe('validation-failed');
       expect(Array.isArray(wsErr.detail.issues)).toBe(true);
       expect(wsErr.detail.issues.length).toBeGreaterThan(0);

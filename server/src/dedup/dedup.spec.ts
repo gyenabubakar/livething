@@ -3,10 +3,10 @@ import { describe, expect, it } from 'vitest';
 import type { EngineAccess } from '~/_engine/access.ts';
 
 function installDedup(): {
-  stampHandlers: Array<NonNullable<Parameters<EngineAccess['onWskitStamp']>[0]>>;
-  hook: NonNullable<Parameters<EngineAccess['onWskitStamp']>[0]>;
+  stampHandlers: Array<NonNullable<Parameters<EngineAccess['onWSKitStamp']>[0]>>;
+  hook: NonNullable<Parameters<EngineAccess['onWSKitStamp']>[0]>;
 } {
-  const stampHandlers: Array<NonNullable<Parameters<EngineAccess['onWskitStamp']>[0]>> = [];
+  const stampHandlers: Array<NonNullable<Parameters<EngineAccess['onWSKitStamp']>[0]>> = [];
   const installs = new Set<symbol>();
   let nextId = 1;
 
@@ -17,7 +17,7 @@ function installDedup(): {
       installs.add(key);
       install();
     },
-    onWskitStamp(handler) {
+    onWSKitStamp(handler) {
       stampHandlers.push(handler);
     },
     generateId(prefix = 'id') {
@@ -26,7 +26,7 @@ function installDedup(): {
     enableIncomingDedup() {},
   } as Pick<
     EngineAccess,
-    'generateId' | 'installOnce' | 'onWskitStamp' | 'enableIncomingDedup'
+    'generateId' | 'installOnce' | 'onWSKitStamp' | 'enableIncomingDedup'
   > as EngineAccess;
 
   dedup().__setup?.(engine);
@@ -60,7 +60,7 @@ describe('dedup', () => {
   });
 
   it('registers its stamp hook only once', () => {
-    const stampHandlers: Array<NonNullable<Parameters<EngineAccess['onWskitStamp']>[0]>> = [];
+    const stampHandlers: Array<NonNullable<Parameters<EngineAccess['onWSKitStamp']>[0]>> = [];
     const installs = new Set<symbol>();
     let nextId = 1;
     const engine = {
@@ -70,7 +70,7 @@ describe('dedup', () => {
         installs.add(key);
         install();
       },
-      onWskitStamp(handler) {
+      onWSKitStamp(handler) {
         stampHandlers.push(handler);
       },
       generateId(prefix = 'id') {
@@ -79,7 +79,7 @@ describe('dedup', () => {
       enableIncomingDedup() {},
     } as Pick<
       EngineAccess,
-      'generateId' | 'installOnce' | 'onWskitStamp' | 'enableIncomingDedup'
+      'generateId' | 'installOnce' | 'onWSKitStamp' | 'enableIncomingDedup'
     > as EngineAccess;
 
     dedup().__setup?.(engine);

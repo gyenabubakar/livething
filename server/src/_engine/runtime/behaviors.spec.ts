@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { Block, WskitError } from '@wskit/core';
+import { Block, WSKitError } from '@wskit/core';
 import { handleUpgrade, wakeHibernatedConnection } from '~/_engine/runtime/connection.ts';
 import { dispatchIncoming, processTextMessage } from '~/_engine/runtime/messages.ts';
 import { createChannelMembershipKey } from '~/channel/runtime.ts';
@@ -507,7 +507,7 @@ describe('processTextMessage protocol branches', () => {
     const runtime = baseDispatchRuntime({
       connections: new Map([[connection.id, connection]]),
       async handleUnsubscribe() {
-        throw new WskitError('channel-not-subscribed', undefined);
+        throw new WSKitError('channel-not-subscribed', undefined);
       },
       async handleRuntimeError(_conn, { error, event, routing }: SendRuntimeErrorOptions) {
         errors.push({ error, event, routing });

@@ -1,7 +1,7 @@
 /**
  * Wire-protocol frame schemas.
  *
- * Every wskit wire frame is `{ event, payload, __wskit }`. `payload` is pure
+ * Every WSKit wire frame is `{ event, payload, __wskit }`. `payload` is pure
  * user data; `__wskit` is framework routing and correlation metadata — the two
  * never share a namespace. Protocol events (the ones the engine itself speaks)
  * are named `__x__` and each has its own valibot schema here.
@@ -232,7 +232,7 @@ export const OutgoingProtocolFrame = v.variant('event', [
  * ack ids for request-response and delivery-confirmation flows, the routing
  * markers for scoped sends, and the dedup/sequence ids the engine stamps.
  */
-export const WskitProtocolSchema = v.strictObject({
+export const WSKitProtocolSchema = v.strictObject({
   correlationId: v.optional(v.string()),
   channel: v.optional(v.string()),
   channelScope: v.nullish(v.string(), null),
@@ -247,18 +247,18 @@ export const WskitProtocolSchema = v.strictObject({
 export const UserEventFrameSchema = v.strictObject({
   event: v.string(),
   payload: v.optional(v.unknown()),
-  __wskit: v.optional(WskitProtocolSchema),
+  __wskit: v.optional(WSKitProtocolSchema),
 });
 
 // ───── Section: types ─────
 
 export type IncomingProtocolFrame = v.InferOutput<typeof IncomingProtocolFrame>;
 export type OutgoingProtocolFrame = v.InferOutput<typeof OutgoingProtocolFrame>;
-export type WskitProtocol = v.InferOutput<typeof WskitProtocolSchema>;
+export type WSKitProtocol = v.InferOutput<typeof WSKitProtocolSchema>;
 export type UserEventFrame = v.InferOutput<typeof UserEventFrameSchema>;
 
 /** A subset of `__wskit` markers — the routing carried on a server `__error__` frame. */
-export type WskitRouting = Partial<WskitProtocol>;
+export type WSKitRouting = Partial<WSKitProtocol>;
 
 export type SubscribeFrame = v.InferOutput<typeof SubscribeFrame>;
 export type UnsubscribeFrame = v.InferOutput<typeof UnsubscribeFrame>;

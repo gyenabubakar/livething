@@ -50,7 +50,7 @@ interface ChannelRuntime extends EngineRuntimeTypes.ConnectionMembersRuntime {
 
   handleRuntimeError(
     connection: EngineRuntimeTypes.RuntimeConnection,
-    opts: { error: unknown; event?: string; routing?: Protocol.WskitRouting },
+    opts: { error: unknown; event?: string; routing?: Protocol.WSKitRouting },
   ): Promise<void>;
 
   isChannelPersistent(channelKey: string): boolean;

@@ -68,7 +68,7 @@ export type PrimitiveIdentity =
  * `incoming()`, `channel()`, etc.) returns an object that extends `Primitive`.
  *
  * You rarely need to reference this type directly — use it to annotate a
- * variable or function parameter that must accept any wskit primitive.
+ * variable or function parameter that must accept any WSKit primitive.
  */
 export interface Primitive<Tag extends string = string> {
   readonly __wskit: Tag;
@@ -148,9 +148,9 @@ export interface PrimitiveFactory<
 /**
  * Create a built-in primitive factory.
  *
- * This is an internal wskit API — product developers use `definePlugin`
+ * This is an internal WSKit API — product developers use `definePlugin`
  * for custom primitives. `definePrimitive` is for the primitives that
- * ship with wskit itself (ack, incoming, channel, etc.).
+ * ship with WSKit itself (ack, incoming, channel, etc.).
  *
  * The returned factory function:
  * 1. When **called** — produces a `Primitive` instance with base fields

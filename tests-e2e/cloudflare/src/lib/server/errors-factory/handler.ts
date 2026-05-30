@@ -1,5 +1,5 @@
 import { contract, error, implement, incoming, t } from '@wskit/server';
-import { WskitError } from '@wskit/server/errors';
+import { WSKitError } from '@wskit/server/errors';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { Forbidden, NotFound } from '../_shared/errors.ts';
@@ -7,7 +7,7 @@ import { requireUsername } from '../_shared/upgrade.ts';
 
 const SimpleError = error('simple-error');
 const Unregistered = error('unregistered', v.object({ msg: v.string() }));
-// A WskitError whose detail carries a value JSON.stringify cannot
+// A WSKitError whose detail carries a value JSON.stringify cannot
 // serialize. Used by the e2e that pins the dispatcher fallback path:
 // the client must still receive an __error__ frame instead of having the
 // connection silently lose the response.
@@ -41,9 +41,9 @@ export const errorsFactoryHandler = implement(errorsFactoryContract)
     throw Unregistered({ msg: 'this error is not registered' });
   })
   .on('trigger-bigint', () => {
-    // Build a WskitError whose detail is non-serializable. The engine
+    // Build a WSKitError whose detail is non-serializable. The engine
     // must not let JSON.stringify crash the dispatcher.
-    throw new WskitError('bigint-detail', { amount: 1n });
+    throw new WSKitError('bigint-detail', { amount: 1n });
   })
   .build();
 

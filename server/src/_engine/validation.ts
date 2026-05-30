@@ -1,4 +1,4 @@
-import { WskitConfigError } from '@wskit/core';
+import { WSKitConfigError } from '@wskit/core';
 
 /**
  * Reject numeric config that would silently break runtime math or unbound a
@@ -8,12 +8,12 @@ import { WskitConfigError } from '@wskit/core';
  * `Defer(NaN)` passes through `setTimeout` as a 0ms retry loop. The accepted
  * shape is a positive integer that fits in `Number.MAX_SAFE_INTEGER`.
  *
- * Throws `WskitConfigError` so build paths fail fast — the engine refuses to
+ * Throws `WSKitConfigError` so build paths fail fast — the engine refuses to
  * construct and the server doesn't start.
  */
 export function assertPositiveInteger(value: unknown, field: string, context: string): void {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
-    throw new WskitConfigError(
+    throw new WSKitConfigError(
       `[wskit] ${context}: '${field}' must be a positive safe integer, got ${typeof value === 'number' ? value : typeof value}.`,
     );
   }
@@ -27,7 +27,7 @@ export function assertPositiveInteger(value: unknown, field: string, context: st
  */
 export function assertNonNegativeSafeInteger(value: unknown, field: string, context: string): void {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
-    throw new WskitConfigError(
+    throw new WSKitConfigError(
       `[wskit] ${context}: '${field}' must be a non-negative safe integer, got ${typeof value === 'number' ? value : typeof value}.`,
     );
   }
@@ -50,7 +50,7 @@ export function assertOptionalPositiveInteger(
 /**
  * Reject string-enum config that was widened to `string` (usually via
  * `as any`). The runtime then silently picks the `else` branch instead of
- * the expected behavior. Throws `WskitConfigError` so the misconfiguration
+ * the expected behavior. Throws `WSKitConfigError` so the misconfiguration
  * fails at build time with the allowed set spelled out.
  */
 export function assertOneOf<T extends string>(
@@ -59,7 +59,7 @@ export function assertOneOf<T extends string>(
   where: { field: string; context: string },
 ): asserts value is T {
   if (typeof value !== 'string' || !allowed.includes(value as T)) {
-    throw new WskitConfigError(
+    throw new WSKitConfigError(
       `[wskit] ${where.context}: '${where.field}' must be one of ${allowed.map((v) => `'${v}'`).join(', ')}, got ${JSON.stringify(value)}.`,
     );
   }

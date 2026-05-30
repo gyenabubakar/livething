@@ -13,7 +13,7 @@ export interface UpgradeResult {
   /**
    * Stable string identifying the user-equivalent entity behind this socket —
    * user id, session id, device id, whatever your app treats as "the same
-   * client across reconnects". wskit does not interpret it; it stores it on
+   * client across reconnects". WSKit does not interpret it; it stores it on
    * the connection and uses it as a row key for any per-user durable state.
    * Surfaced as `ctx.identity` in every handler context.
    */

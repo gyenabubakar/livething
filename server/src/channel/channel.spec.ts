@@ -1,4 +1,4 @@
-import { isWskitConfigError, WskitConfigError } from '@wskit/core';
+import { isWSKitConfigError, WSKitConfigError } from '@wskit/core';
 import { describe, expect, it } from 'vitest';
 import { channel, scope } from './channel.ts';
 
@@ -10,17 +10,17 @@ describe('scope() regex flag validation', () => {
     } catch (err) {
       thrown = err;
     }
-    expect(thrown).toBeInstanceOf(WskitConfigError);
-    expect(isWskitConfigError(thrown)).toBe(true);
+    expect(thrown).toBeInstanceOf(WSKitConfigError);
+    expect(isWSKitConfigError(thrown)).toBe(true);
     expect((thrown as Error).message).toMatch(/"g"/);
   });
 
   it('rejects the "y" (sticky) flag', () => {
-    expect(() => scope('rooms', /^room-.+$/y)).toThrow(WskitConfigError);
+    expect(() => scope('rooms', /^room-.+$/y)).toThrow(WSKitConfigError);
   });
 
   it('rejects regex with both "g" and "y"', () => {
-    expect(() => scope('rooms', /^room-.+$/gy)).toThrow(WskitConfigError);
+    expect(() => scope('rooms', /^room-.+$/gy)).toThrow(WSKitConfigError);
   });
 
   it('accepts the "i" (case-insensitive) flag', () => {
@@ -46,28 +46,28 @@ describe('scope() catastrophic-backtracking guard', () => {
     } catch (err) {
       thrown = err;
     }
-    expect(thrown).toBeInstanceOf(WskitConfigError);
+    expect(thrown).toBeInstanceOf(WSKitConfigError);
     expect((thrown as Error).message).toMatch(/nested unbounded quantifier/);
   });
 
   it('rejects (\\w+)+ shape', () => {
-    expect(() => scope('rooms', /^(\w+)+\d$/)).toThrow(WskitConfigError);
+    expect(() => scope('rooms', /^(\w+)+\d$/)).toThrow(WSKitConfigError);
   });
 
   it('rejects (a*)* shape', () => {
-    expect(() => scope('rooms', /^(a*)*b$/)).toThrow(WskitConfigError);
+    expect(() => scope('rooms', /^(a*)*b$/)).toThrow(WSKitConfigError);
   });
 
   it('rejects (a+)* shape', () => {
-    expect(() => scope('rooms', /^(a+)*b$/)).toThrow(WskitConfigError);
+    expect(() => scope('rooms', /^(a+)*b$/)).toThrow(WSKitConfigError);
   });
 
   it('rejects (a*)+ shape', () => {
-    expect(() => scope('rooms', /^(a*)+b$/)).toThrow(WskitConfigError);
+    expect(() => scope('rooms', /^(a*)+b$/)).toThrow(WSKitConfigError);
   });
 
   it('rejects (\\w+|x)+ shape', () => {
-    expect(() => scope('rooms', /^(\w+|x)+\d$/)).toThrow(WskitConfigError);
+    expect(() => scope('rooms', /^(\w+|x)+\d$/)).toThrow(WSKitConfigError);
   });
 
   it('accepts a single bounded quantifier (a+)b', () => {
@@ -85,38 +85,38 @@ describe('scope() catastrophic-backtracking guard', () => {
 
 describe('scope() / channel() empty-key rejection', () => {
   it('scope() throws when the key is the empty string', () => {
-    expect(() => scope('', /^room-.+$/)).toThrow(WskitConfigError);
+    expect(() => scope('', /^room-.+$/)).toThrow(WSKitConfigError);
   });
 
   it('scope() throws when the key is whitespace only', () => {
-    expect(() => scope('   ', /^room-.+$/)).toThrow(WskitConfigError);
+    expect(() => scope('   ', /^room-.+$/)).toThrow(WSKitConfigError);
   });
 
   it('channel() throws when the static channel name is the empty string', () => {
-    expect(() => channel('')).toThrow(WskitConfigError);
+    expect(() => channel('')).toThrow(WSKitConfigError);
   });
 
   it('channel() throws when the static channel name is whitespace only', () => {
-    expect(() => channel('   ')).toThrow(WskitConfigError);
+    expect(() => channel('   ')).toThrow(WSKitConfigError);
   });
 });
 
 describe('channel() rejects raw scope-shaped objects that bypass scope()', () => {
   it('rejects a hand-rolled object with the "g" flag', () => {
-    expect(() => channel({ key: 'rooms', pattern: /^room-.+$/g })).toThrow(WskitConfigError);
+    expect(() => channel({ key: 'rooms', pattern: /^room-.+$/g })).toThrow(WSKitConfigError);
   });
 
   it('rejects a hand-rolled object with the "y" flag', () => {
-    expect(() => channel({ key: 'rooms', pattern: /^room-.+$/y })).toThrow(WskitConfigError);
+    expect(() => channel({ key: 'rooms', pattern: /^room-.+$/y })).toThrow(WSKitConfigError);
   });
 
   it('rejects a hand-rolled object with an empty key', () => {
-    expect(() => channel({ key: '', pattern: /^room-.+$/ })).toThrow(WskitConfigError);
+    expect(() => channel({ key: '', pattern: /^room-.+$/ })).toThrow(WSKitConfigError);
   });
 
   it('rejects a hand-rolled object whose pattern is not a RegExp', () => {
     expect(() => channel({ key: 'rooms', pattern: 'not-a-regex' as unknown as RegExp })).toThrow(
-      WskitConfigError,
+      WSKitConfigError,
     );
   });
 

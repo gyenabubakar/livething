@@ -539,7 +539,7 @@ describe('stream/runtime', () => {
     expect(result).toBe(false);
   });
 
-  it('bufferStreamNudge throws WskitConfigError without routing through handleValidationError when the nudge validator is async', async () => {
+  it('bufferStreamNudge throws WSKitConfigError without routing through handleValidationError when the nudge validator is async', async () => {
     const { runtime } = createStreamRuntime();
     const connection = createConnection();
     const handleValidationError = vi.fn();
@@ -979,13 +979,13 @@ describe('stream/runtime', () => {
     };
 
     // Wrong type, empty string, and over-length string all fall back. The
-    // numeric case can never be a valid WskitProtocol field, so cast it.
-    const badWskits: NonNullable<RunStreamOptions['wskit']>[] = [
+    // numeric case can never be a valid WSKitProtocol field, so cast it.
+    const badWSKits: NonNullable<RunStreamOptions['wskit']>[] = [
       { streamId: 123, channelScope: null } as unknown as NonNullable<RunStreamOptions['wskit']>,
       { streamId: '', channelScope: null },
       { streamId: 'x'.repeat(300), channelScope: null },
     ];
-    for (const bad of badWskits) {
+    for (const bad of badWSKits) {
       protocolMessages.length = 0;
       runtime.activeStreams.clear();
       connection.activeStreamIds = undefined;

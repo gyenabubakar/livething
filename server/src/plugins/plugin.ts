@@ -104,7 +104,7 @@ export interface PluginConfig<TArgs, TCtx = any, TApi = unknown> {
 }
 
 /**
- * Create a wskit plugin.
+ * Create a WSKit plugin.
  *
  * @example
  * ```ts

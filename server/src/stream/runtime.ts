@@ -61,7 +61,7 @@ interface StreamRuntime {
 
   handleRuntimeError(
     connection: RuntimeConnection,
-    opts: { error: unknown; event?: string; routing?: Protocol.WskitRouting },
+    opts: { error: unknown; event?: string; routing?: Protocol.WSKitRouting },
   ): Promise<void>;
 
   handleValidationError(
@@ -95,7 +95,7 @@ interface StreamRuntime {
  * SQL indexing and logging. Anything else is treated as "no id supplied" and
  * the runtime generates one.
  */
-function readSuppliedStreamId(wskit: Protocol.WskitProtocol | undefined): string | undefined {
+function readSuppliedStreamId(wskit: Protocol.WSKitProtocol | undefined): string | undefined {
   const value = wskit?.streamId;
   if (typeof value !== 'string' || value.length === 0 || value.length > 256) return undefined;
   return value;
@@ -153,7 +153,7 @@ export interface BufferStreamNudgeOptions {
 
   payload: unknown;
 
-  wskit: Protocol.WskitProtocol | undefined;
+  wskit: Protocol.WSKitProtocol | undefined;
 }
 
 export async function bufferStreamNudge(
@@ -227,7 +227,7 @@ export interface RunStreamOptions {
 
   payload: unknown;
 
-  wskit?: Protocol.WskitProtocol;
+  wskit?: Protocol.WSKitProtocol;
 }
 
 /**
@@ -344,7 +344,7 @@ export async function runStream(
       });
     }
   } catch (streamError) {
-    const routing: Protocol.WskitRouting = { streamId };
+    const routing: Protocol.WSKitRouting = { streamId };
     if (scope.namespace?.name) routing.namespace = scope.namespace.name;
     if (scope.channelName) routing.channel = scope.channelName;
     if (scope.channelScope) routing.channelScope = scope.channelScope;

@@ -250,7 +250,7 @@ function buildChannelRuntime(core: EngineCore) {
 
     handleRuntimeError: (
       connection: RuntimeConnection,
-      opts: { error: unknown; event?: string; routing?: Protocol.WskitRouting },
+      opts: { error: unknown; event?: string; routing?: Protocol.WSKitRouting },
     ) =>
       EngineErrorRuntime.handleRuntimeError(
         { core, buildConnectionContext: buildCtx },
@@ -319,7 +319,7 @@ function buildDispatchRuntime(core: EngineCore) {
 
     handleRuntimeError: (
       connection: RuntimeConnection,
-      opts: { error: unknown; event?: string; routing?: Protocol.WskitRouting },
+      opts: { error: unknown; event?: string; routing?: Protocol.WSKitRouting },
     ) =>
       EngineErrorRuntime.handleRuntimeError(
         { core, buildConnectionContext: buildCtx },

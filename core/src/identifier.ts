@@ -13,7 +13,7 @@ export function isValidWSKitIdentifier(name: unknown): name is string {
 }
 
 /**
- * Throw a clear build-time error when `name` is not a valid wskit identifier.
+ * Throw a clear build-time error when `name` is not a valid WSKit identifier.
  * `kind` names the thing being checked, e.g. `"event name"` or `"error code"`,
  * so the message points the developer at the right place.
  */
