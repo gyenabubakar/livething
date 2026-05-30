@@ -31,9 +31,18 @@ describe('TypedTagsClient — incoming (server outgoing)', () => {
     expectTypeOf<TypedTagsClient['incoming']['count-result']>().toEqualTypeOf<{ count: number }>();
   });
 
-  it('exactly three events in incoming', () => {
+  it('has group-stats-result', () => {
+    expectTypeOf<TypedTagsClient['incoming']['group-stats-result']>().toEqualTypeOf<{
+      has: boolean;
+      keys: string[];
+      connections: number;
+      count: number;
+    }>();
+  });
+
+  it('exactly four events in incoming', () => {
     expectTypeOf<keyof TypedTagsClient['incoming']>().toEqualTypeOf<
-      'tags-list' | 'fan-out-echo' | 'count-result'
+      'tags-list' | 'fan-out-echo' | 'count-result' | 'group-stats-result'
     >();
   });
 });
@@ -82,9 +91,19 @@ describe('TypedTagsClient — outgoing (server incoming)', () => {
     }>();
   });
 
-  it('exactly six events in outgoing', () => {
+  it('has group-stats', () => {
+    expectTypeOf<TypedTagsClient['outgoing']['group-stats']>().toEqualTypeOf<{ key: string }>();
+  });
+
+  it('exactly seven events in outgoing', () => {
     expectTypeOf<keyof TypedTagsClient['outgoing']>().toEqualTypeOf<
-      'add-tag' | 'remove-tag' | 'list-my-tags' | 'fan-out-to-tag' | 'count-by-tag' | 'kick-by-tag'
+      | 'add-tag'
+      | 'remove-tag'
+      | 'list-my-tags'
+      | 'fan-out-to-tag'
+      | 'count-by-tag'
+      | 'kick-by-tag'
+      | 'group-stats'
     >();
   });
 });

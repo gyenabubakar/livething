@@ -236,6 +236,43 @@ test.describe('typed tags', () => {
     expect(zero.payload.count).toBe(0);
   });
 
+  test('group handle reflects has/keys/connections/count over the wire', async ({
+    page,
+  }, testInfo) => {
+    const room = `tt-groupstats-${testInfo.testId}-${Date.now()}`;
+    const alice = await connect(page, 'alice', room);
+    const bob = await connect(page, 'bob', room);
+
+    await send(page, alice, {
+      event: 'add-tag',
+      payload: { kind: 'ephemeral', group: 'role', key: 'admin' },
+    });
+    await send(page, bob, {
+      event: 'add-tag',
+      payload: { kind: 'ephemeral', group: 'role', key: 'viewer' },
+    });
+    await page.waitForTimeout(120);
+
+    // alice holds 'admin': has('admin') true; two distinct connections in the
+    // group; both active keys listed.
+    await send(page, alice, { event: 'group-stats', payload: { key: 'admin' } });
+    const stats = await waitForFrame(page, alice, (f) => f.event === 'group-stats-result');
+    expect(stats.payload.has).toBe(true);
+    expect(stats.payload.count).toBe(2);
+    expect(stats.payload.connections).toBe(2);
+    expect((stats.payload.keys as string[]).sort()).toEqual(['admin', 'viewer']);
+
+    // A key alice does not hold reports has=false but the group totals stay.
+    await send(page, alice, { event: 'group-stats', payload: { key: 'viewer' } });
+    const stats2 = await waitForFrame(
+      page,
+      alice,
+      (f) => f.event === 'group-stats-result' && f.payload.has === false,
+    );
+    expect(stats2.payload.has).toBe(false);
+    expect(stats2.payload.count).toBe(2);
+  });
+
   test('a schema-backed tag group rejects an out-of-schema value', async ({ page }, testInfo) => {
     const room = `tt-schema-${testInfo.testId}`;
     const c = await connect(page, 'alice', room);

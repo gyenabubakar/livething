@@ -121,6 +121,89 @@ describe('tag member index', () => {
   });
 });
 
+describe('group handle reflection methods', () => {
+  it('count returns the distinct connection count for the group', () => {
+    const tagMembers = new Map<string, Set<RuntimeConnection>>();
+    const sent: string[] = [];
+    const a = createConnection('a');
+    const b = createConnection('b');
+    // a holds two keys under the group; b holds one. count is the distinct
+    // connection count, not the key count.
+    addConnectionTag(tagMembers, a, { kind: 'ephemeral', group: 'team', key: 'eng' });
+    addConnectionTag(tagMembers, a, { kind: 'ephemeral', group: 'team', key: 'lead' });
+    addConnectionTag(tagMembers, b, { kind: 'ephemeral', group: 'team', key: 'sales' });
+
+    const runtime = createRuntime(tagMembers, sent);
+    expect(buildGroupHandle(runtime, a, { kind: 'ephemeral', group: 'team' }).count()).toBe(2);
+  });
+
+  it('count is zero for a group no connection holds', () => {
+    const tagMembers = new Map<string, Set<RuntimeConnection>>();
+    const conn = createConnection('a');
+    const runtime = createRuntime(tagMembers, []);
+    expect(buildGroupHandle(runtime, conn, { kind: 'ephemeral', group: 'team' }).count()).toBe(0);
+  });
+
+  it('keys lists every active key under the group across all connections', () => {
+    const tagMembers = new Map<string, Set<RuntimeConnection>>();
+    const a = createConnection('a');
+    const b = createConnection('b');
+    addConnectionTag(tagMembers, a, { kind: 'ephemeral', group: 'team', key: 'eng' });
+    addConnectionTag(tagMembers, a, { kind: 'ephemeral', group: 'team', key: 'lead' });
+    addConnectionTag(tagMembers, b, { kind: 'ephemeral', group: 'team', key: 'eng' });
+
+    const runtime = createRuntime(tagMembers, []);
+    const keys = buildGroupHandle(runtime, a, { kind: 'ephemeral', group: 'team' }).keys();
+    // 'eng' is shared but only listed once; order is not guaranteed.
+    expect([...keys].sort()).toEqual(['eng', 'lead']);
+  });
+
+  it('keys is empty for a group no connection holds', () => {
+    const tagMembers = new Map<string, Set<RuntimeConnection>>();
+    const conn = createConnection('a');
+    const runtime = createRuntime(tagMembers, []);
+    expect(buildGroupHandle(runtime, conn, { kind: 'ephemeral', group: 'team' }).keys()).toEqual(
+      [],
+    );
+  });
+
+  it('has reflects only the calling connection membership under the group', () => {
+    const tagMembers = new Map<string, Set<RuntimeConnection>>();
+    const a = createConnection('a');
+    const b = createConnection('b');
+    addConnectionTag(tagMembers, a, { kind: 'ephemeral', group: 'team', key: 'eng' });
+    addConnectionTag(tagMembers, b, { kind: 'ephemeral', group: 'team', key: 'sales' });
+
+    const runtime = createRuntime(tagMembers, []);
+    const aHandle = buildGroupHandle(runtime, a, { kind: 'ephemeral', group: 'team' });
+    // 'eng' is a's key, 'sales' belongs to b — has is per-connection.
+    expect(aHandle.has('eng')).toBe(true);
+    expect(aHandle.has('sales')).toBe(false);
+    expect(aHandle.has('missing')).toBe(false);
+  });
+
+  it('connections returns a snapshot for every connection in the group', () => {
+    const tagMembers = new Map<string, Set<RuntimeConnection>>();
+    const a = createConnection('a');
+    const b = createConnection('b');
+    addConnectionTag(tagMembers, a, { kind: 'ephemeral', group: 'team', key: 'eng' });
+    addConnectionTag(tagMembers, b, { kind: 'ephemeral', group: 'team', key: 'sales' });
+
+    const runtime = createRuntime(tagMembers, []);
+    const snaps = buildGroupHandle(runtime, a, { kind: 'ephemeral', group: 'team' }).connections();
+    expect(snaps.map((s) => s.id).sort()).toEqual(['a', 'b']);
+  });
+
+  it('connections is empty for a group no connection holds', () => {
+    const tagMembers = new Map<string, Set<RuntimeConnection>>();
+    const conn = createConnection('a');
+    const runtime = createRuntime(tagMembers, []);
+    expect(
+      buildGroupHandle(runtime, conn, { kind: 'ephemeral', group: 'team' }).connections(),
+    ).toEqual([]);
+  });
+});
+
 function createPersistentRuntime(
   tagMembers: Map<string, Set<RuntimeConnection>>,
   exec: (query: string, ...params: unknown[]) => unknown,

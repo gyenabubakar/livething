@@ -48,6 +48,14 @@ export interface GroupHandle<TValue extends string = string> {
   add(key: TValue): void;
   /** Remove a value from the current connection under this group. */
   remove(key: TValue): void;
+  /** Whether the current connection holds `key` under this group. */
+  has(key: TValue): boolean;
+  /** Active keys under this group across every connection on this server instance. */
+  keys(): readonly string[];
+  /** Snapshot of every connection on this server instance holding any key under this group. */
+  connections(): readonly ConnectionInfo[];
+  /** Number of distinct connections on this server instance holding any key under this group. */
+  count(): number;
   /** Return a handle to every connection holding a specific value under this group. */
   ref(key: TValue): TagRefHandle;
 }
