@@ -21,6 +21,12 @@ const SlowChunk = v.object({ index: v.number() });
 const GetRoomMembersPayload = v.object({});
 const RoomMembersCountPayload = v.object({ count: v.number() });
 
+const ProbeConnPayload = v.object({});
+const ConnInfoPayload = v.object({
+  quality: v.nullable(v.picklist(['excellent', 'good', 'degraded', 'poor'])),
+  latency: v.nullable(v.number()),
+});
+
 export const hibernationContract = contract('hibernation', {
   env: t<Env>(),
   hibernation: true,
@@ -32,8 +38,10 @@ export const hibernationContract = contract('hibernation', {
     incoming('tag-self', TagSelfPayload),
     incoming('send-to-tag', SendToTagPayload),
     incoming('get-room-members', GetRoomMembersPayload),
+    incoming('probe-conn', ProbeConnPayload),
 
     outgoing('notes-list', NotesListPayload),
+    outgoing('conn-info', ConnInfoPayload),
     outgoing('tag-result', TagResultPayload),
     outgoing('tagged-message', TaggedMessagePayload),
     outgoing('room-members-count', RoomMembersCountPayload),
@@ -93,6 +101,9 @@ export const hibernationHandler = implement(hibernationContract)
   })
   .on('get-room-members', (ctx) => {
     ctx.send('room-members-count', { count: ctx.channels.get('room').members().length });
+  })
+  .on('probe-conn', (ctx) => {
+    ctx.send('conn-info', { quality: ctx.quality, latency: ctx.latency });
   })
 
   .stream('start-slow-stream', async function* () {

@@ -1,202 +1,38 @@
 import { expect, test } from '@playwright/test';
+import { connect, installRig, send, waitForFrame } from './_ws-rig.ts';
 
+// Note on scope: the hibernation *wake* path (Cloudflare evicts the DO from
+// memory while keeping the socket open at the edge, then rebuilds the
+// connection from its storage row on the next message) cannot be triggered
+// deterministically in `wrangler dev` — miniflare keeps the instance alive, and
+// there is no API to force eviction. `ctx.abort()` is NOT a substitute: it
+// closes the sockets, so it exercises the reconnect/persistence path on fresh
+// sockets, not the same-socket wake restore. So "state survives a wake" is
+// covered by @server unit tests (which drive the wake code directly), and the
+// durable-storage half is proven by the sequence/persistence/durable-config
+// restart tests. What remains genuinely hibernation-specific AND deterministic
+// is the connection-quality behavior below.
 test.describe('hibernation', () => {
-  test('channel membership survives across an idle window (hibernation wake)', async ({
-    browser,
+  test('ctx.quality is null and ctx.latency is null under hibernation', async ({
+    page,
   }, testInfo) => {
-    const room = `hib-${testInfo.testId}`;
+    const room = `hib-quality-${testInfo.testId}`;
+    await page.goto('/hibernation');
+    await installRig(page);
 
-    const aliceCtx = await browser.newContext();
-    const bobCtx = await browser.newContext();
-    const alice = await aliceCtx.newPage();
-    const bob = await bobCtx.newPage();
+    const id = await connect(page, { path: '/ws/hibernation', username: 'alice', room });
 
-    await alice.goto(`/hibernation?room=${room}`);
-    await bob.goto(`/hibernation?room=${room}`);
+    // No keepalive pings are scheduled under hibernation (scheduling a per-
+    // connection timer would keep waking the DO), so latency is never measured
+    // and quality is suppressed at the context layer.
+    await send(page, id, { event: 'probe-conn', payload: {} });
 
-    await alice.getByTestId('username').fill('alice');
-    await bob.getByTestId('username').fill('bob');
+    const frame = await waitForFrame(page, id, {
+      match: (f) => f.event === 'conn-info',
+      timeoutMs: 5_000,
+    });
 
-    await alice.getByTestId('connect').click();
-    await bob.getByTestId('connect').click();
-
-    await expect(alice.getByTestId('status')).toHaveText('connected');
-    await expect(bob.getByTestId('status')).toHaveText('connected');
-
-    await alice.getByTestId('subscribe-room').click();
-    await bob.getByTestId('subscribe-room').click();
-
-    await expect(alice.getByTestId('subscribed')).toHaveText('yes');
-    await expect(bob.getByTestId('subscribed')).toHaveText('yes');
-
-    // Idle window for the DO to hibernate between subscribe and broadcast.
-    // Keep short so Playwright's default poll handles the wake naturally.
-    await alice.waitForTimeout(1_500);
-
-    await bob.getByTestId('broadcast-hello').click();
-
-    // Polls default 5s — if membership was restored on wake, alice sees it.
-    await expect(alice.getByTestId('room-messages')).toContainText('hello-after-wake');
-
-    await aliceCtx.close();
-    await bobCtx.close();
-  });
-
-  test('tags survive across hibernation wake', async ({ browser }, testInfo) => {
-    const room = `hib-tags-${testInfo.testId}`;
-
-    const aliceCtx = await browser.newContext();
-    const bobCtx = await browser.newContext();
-    const alice = await aliceCtx.newPage();
-    const bob = await bobCtx.newPage();
-
-    await alice.goto(`/hibernation?room=${room}`);
-    await bob.goto(`/hibernation?room=${room}`);
-
-    await alice.getByTestId('username').fill('alice');
-    await bob.getByTestId('username').fill('bob');
-
-    await alice.getByTestId('connect').click();
-    await bob.getByTestId('connect').click();
-
-    await expect(alice.getByTestId('status')).toHaveText('connected');
-    await expect(bob.getByTestId('status')).toHaveText('connected');
-
-    // Alice tags herself before hibernation.
-    await alice.getByTestId('tag-sleeper').click();
-    await expect(alice.getByTestId('tags')).toContainText('alice');
-    await expect(alice.getByTestId('tags')).toContainText('sleeper');
-
-    // Idle window for hibernation.
-    await alice.waitForTimeout(1_500);
-
-    // Bob tags himself after Alice's hibernation.
-    await bob.getByTestId('tag-sleeper').click();
-    await expect(bob.getByTestId('tags')).toContainText('bob');
-    await expect(bob.getByTestId('tags')).toContainText('sleeper');
-
-    // Alice is woken up by Playwright's polling (expectation on the page).
-    // If her tags survived, they will still be present.
-    await expect(alice.getByTestId('tags')).toContainText('alice');
-    await expect(alice.getByTestId('tags')).toContainText('sleeper');
-
-    await aliceCtx.close();
-    await bobCtx.close();
-  });
-
-  test('tag-based sendTo delivers across hibernation wake', async ({ browser }, testInfo) => {
-    const room = `hib-sendto-${testInfo.testId}`;
-
-    const aliceCtx = await browser.newContext();
-    const bobCtx = await browser.newContext();
-    const alice = await aliceCtx.newPage();
-    const bob = await bobCtx.newPage();
-
-    await alice.goto(`/hibernation?room=${room}`);
-    await bob.goto(`/hibernation?room=${room}`);
-
-    await alice.getByTestId('username').fill('alice');
-    await bob.getByTestId('username').fill('bob');
-
-    await alice.getByTestId('connect').click();
-    await bob.getByTestId('connect').click();
-
-    await expect(alice.getByTestId('status')).toHaveText('connected');
-    await expect(bob.getByTestId('status')).toHaveText('connected');
-
-    // Bob tags himself as sleeper before the hibernation window.
-    await bob.getByTestId('tag-sleeper').click();
-    await expect(bob.getByTestId('tags')).toContainText('sleeper');
-
-    // Idle window for hibernation.
-    await alice.waitForTimeout(1_500);
-
-    // After wake, alice sendTo('sleeper', ...) must still deliver to bob.
-    await alice.getByTestId('send-to-sleepers').click();
-    await expect(bob.getByTestId('tagged-messages')).toContainText(
-      'alice:hello-sleeper-after-wake',
-    );
-
-    await aliceCtx.close();
-    await bobCtx.close();
-  });
-
-  test('ctx.channels.members() count is correct after hibernation wake', async ({
-    browser,
-  }, testInfo) => {
-    const room = `hib-members-${testInfo.testId}`;
-
-    const aliceCtx = await browser.newContext();
-    const bobCtx = await browser.newContext();
-    const alice = await aliceCtx.newPage();
-    const bob = await bobCtx.newPage();
-
-    await alice.goto(`/hibernation?room=${room}`);
-    await bob.goto(`/hibernation?room=${room}`);
-
-    await alice.getByTestId('username').fill('alice');
-    await bob.getByTestId('username').fill('bob');
-
-    await alice.getByTestId('connect').click();
-    await bob.getByTestId('connect').click();
-
-    await expect(alice.getByTestId('status')).toHaveText('connected');
-    await expect(bob.getByTestId('status')).toHaveText('connected');
-
-    await alice.getByTestId('subscribe-room').click();
-    await bob.getByTestId('subscribe-room').click();
-
-    await expect(alice.getByTestId('subscribed')).toHaveText('yes');
-    await expect(bob.getByTestId('subscribed')).toHaveText('yes');
-
-    // Idle window for the DO to hibernate.
-    await alice.waitForTimeout(1_500);
-
-    // Bob sends a message to wake the DO, then queries members.
-    await bob.getByTestId('get-room-members').click();
-
-    // ctx.channels.members('room') must return the restored memberships post-wake.
-    await expect(bob.getByTestId('room-members-count')).not.toHaveText('-1');
-    const count = Number(await bob.getByTestId('room-members-count').textContent());
-    expect(count).toBeGreaterThanOrEqual(1);
-
-    await aliceCtx.close();
-    await bobCtx.close();
-  });
-
-  test('SQL state survives across hibernation wake', async ({ browser }, testInfo) => {
-    const room = `hib-sql-${testInfo.testId}`;
-
-    const writerCtx = await browser.newContext();
-    const readerCtx = await browser.newContext();
-    const writer = await writerCtx.newPage();
-    const reader = await readerCtx.newPage();
-
-    await writer.goto(`/hibernation?room=${room}`);
-    await reader.goto(`/hibernation?room=${room}`);
-
-    await writer.getByTestId('username').fill('writer');
-    await reader.getByTestId('username').fill('reader');
-
-    await writer.getByTestId('connect').click();
-    await reader.getByTestId('connect').click();
-
-    await expect(writer.getByTestId('status')).toHaveText('connected');
-    await expect(reader.getByTestId('status')).toHaveText('connected');
-
-    // Writer saves a note before hibernation.
-    await writer.getByTestId('save-note').click();
-    await expect(writer.getByTestId('saved-notes')).toContainText('test-note:test-content');
-
-    // Idle window for hibernation.
-    await writer.waitForTimeout(1_500);
-
-    // Reader connects to the same DO and queries notes.
-    // If SQL state survived, the note is visible.
-    await reader.getByTestId('get-notes').click();
-    await expect(reader.getByTestId('saved-notes')).toContainText('test-note:test-content');
-
-    await writerCtx.close();
-    await readerCtx.close();
+    expect(frame.payload.quality).toBeNull();
+    expect(frame.payload.latency).toBeNull();
   });
 });

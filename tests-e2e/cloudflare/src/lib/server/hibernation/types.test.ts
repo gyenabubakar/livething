@@ -39,9 +39,16 @@ describe('HibernationClient — incoming (server outgoing)', () => {
     }>();
   });
 
-  it('exactly four events in top-level incoming', () => {
+  it('has conn-info', () => {
+    expectTypeOf<HibernationClient['incoming']['conn-info']>().toEqualTypeOf<{
+      quality: 'excellent' | 'good' | 'degraded' | 'poor' | null;
+      latency: number | null;
+    }>();
+  });
+
+  it('exactly five events in top-level incoming', () => {
     expectTypeOf<keyof HibernationClient['incoming']>().toEqualTypeOf<
-      'notes-list' | 'tag-result' | 'tagged-message' | 'room-members-count'
+      'notes-list' | 'tag-result' | 'tagged-message' | 'room-members-count' | 'conn-info'
     >();
   });
 });
@@ -71,6 +78,10 @@ describe('HibernationClient — outgoing (server incoming)', () => {
 
   it('has get-room-members with empty payload', () => {
     expectTypeOf<HibernationClient['outgoing']['get-room-members']>().toEqualTypeOf<{}>();
+  });
+
+  it('has probe-conn with empty payload', () => {
+    expectTypeOf<HibernationClient['outgoing']['probe-conn']>().toEqualTypeOf<{}>();
   });
 });
 
