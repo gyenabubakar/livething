@@ -20,7 +20,7 @@ test.describe('stream-durable', () => {
   test('recorded stream: chunks buffered in storage replay on resume', async ({
     page,
   }, testInfo) => {
-    const room = `sdb-${testInfo.testId}`;
+    const room = `sdb-${testInfo.testId}-${Date.now()}`;
     const streamId = 'conv-1';
     await goConnect(page, { room: room, streamId: streamId });
 
@@ -52,7 +52,7 @@ test.describe('stream-durable', () => {
   test('resumable stream: generator re-runs from saved cursor on resume', async ({
     page,
   }, testInfo) => {
-    const room = `sdb-${testInfo.testId}`;
+    const room = `sdb-${testInfo.testId}-${Date.now()}`;
     const streamId = 'pages-1';
     await goConnect(page, { room: room, streamId: streamId });
 
@@ -82,7 +82,7 @@ test.describe('stream-durable', () => {
   test('resume of an unknown stream id surfaces stream-aborted not-found', async ({
     page,
   }, testInfo) => {
-    const room = `sdb-${testInfo.testId}`;
+    const room = `sdb-${testInfo.testId}-${Date.now()}`;
     await goConnect(page, { room: room, streamId: 'does-not-exist' });
 
     await page.getByTestId('send-resume').click();
@@ -97,7 +97,7 @@ test.describe('stream-durable', () => {
   });
 
   test('ctx.stream.attempt — 1 on first run, 2 after resume', async ({ page }, testInfo) => {
-    const room = `sdb-${testInfo.testId}`;
+    const room = `sdb-${testInfo.testId}-${Date.now()}`;
     const streamId = 'attempt-1';
     await goConnect(page, { room: room, streamId: streamId });
 
@@ -118,7 +118,7 @@ test.describe('stream-durable', () => {
   test('buffer-full path — handler catches StreamAborted and the stream ends cleanly', async ({
     page,
   }, testInfo) => {
-    const room = `sdb-${testInfo.testId}`;
+    const room = `sdb-${testInfo.testId}-${Date.now()}`;
     const streamId = 'bf-1';
     await goConnect(page, { room: room, streamId: streamId });
 
@@ -133,7 +133,7 @@ test.describe('stream-durable', () => {
   test('stream-id collision from a storage race surfaces one stream-id-collision _error', async ({
     browser,
   }, testInfo) => {
-    const room = `sdb-${testInfo.testId}`;
+    const room = `sdb-${testInfo.testId}-${Date.now()}`;
     const streamId = 'race-1';
 
     // Both contexts use the SAME username, so they share identity and both
@@ -194,7 +194,7 @@ test.describe('stream-durable', () => {
   test('cancel deletes the durable row — subsequent resume returns not-found', async ({
     page,
   }, testInfo) => {
-    const room = `sdb-${testInfo.testId}`;
+    const room = `sdb-${testInfo.testId}-${Date.now()}`;
     const streamId = 'cancel-1';
     await goConnect(page, { room: room, streamId: streamId });
 

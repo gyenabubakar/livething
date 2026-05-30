@@ -26,7 +26,7 @@ test.describe('stream-durable broadcast (channel scope)', () => {
   test('recordedStream with broadcast fans out to channel peers live', async ({
     browser,
   }, testInfo) => {
-    const room = `sdbc-${testInfo.testId}`;
+    const room = `sdbc-${testInfo.testId}-${Date.now()}`;
     const streamId = 'feed-1';
     const { ctxA, ctxB, pageA, pageB } = await newPair(browser);
     try {
@@ -67,7 +67,7 @@ test.describe('stream-durable broadcast (channel scope)', () => {
   test('late joiner catches up from the recorded buffer plus the live tail', async ({
     browser,
   }, testInfo) => {
-    const room = `sdbc-${testInfo.testId}`;
+    const room = `sdbc-${testInfo.testId}-${Date.now()}`;
     const streamId = 'feed-2';
     const { ctxA, ctxB, pageA, pageB } = await newPair(browser);
     try {
@@ -113,7 +113,7 @@ test.describe('stream-durable broadcast (channel scope)', () => {
   test('broadcast resumableStream — late joiner gets buffered rows plus the live tail', async ({
     browser,
   }, testInfo) => {
-    const room = `sdbc-${testInfo.testId}`;
+    const room = `sdbc-${testInfo.testId}-${Date.now()}`;
     const streamId = 'pg-1';
     const { ctxA, ctxB, pageA, pageB } = await newPair(browser);
     try {
@@ -158,7 +158,7 @@ test.describe('stream-durable broadcast (channel scope)', () => {
   });
 
   test('creator cancel kills the source for everyone', async ({ browser }, testInfo) => {
-    const room = `sdbc-${testInfo.testId}`;
+    const room = `sdbc-${testInfo.testId}-${Date.now()}`;
     const streamId = 'feed-cancel-1';
     const { ctxA, ctxB, pageA, pageB } = await newPair(browser);
     try {
@@ -227,7 +227,7 @@ test.describe('stream-durable broadcast (channel scope)', () => {
   test('non-creator cancel unsubscribes self but does not kill the source', async ({
     browser,
   }, testInfo) => {
-    const room = `sdbc-${testInfo.testId}`;
+    const room = `sdbc-${testInfo.testId}-${Date.now()}`;
     const streamId = 'feed-self-cancel-1';
     const { ctxA, ctxB, pageA, pageB } = await newPair(browser);
     try {
@@ -289,7 +289,7 @@ test.describe('stream-durable broadcast (channel scope)', () => {
   test('creator nudge on a broadcast stream stops the fan-out for every peer', async ({
     browser,
   }, testInfo) => {
-    const room = `sdbc-nudge-${testInfo.testId}`;
+    const room = `sdbc-nudge-${testInfo.testId}-${Date.now()}`;
     // Unique per run so a prior ended/retained row never blocks the next start.
     const streamId = `feed-nudged-${Date.now()}`;
     const { ctxA, ctxB, pageA, pageB } = await newPair(browser);
@@ -345,7 +345,7 @@ test.describe('stream-durable broadcast (namespace scope)', () => {
   test('namespace-scoped recordedStream fans out to every connection, peer reconnect replays from buffer', async ({
     browser,
   }, testInfo) => {
-    const room = `sdbn-${testInfo.testId}`;
+    const room = `sdbn-${testInfo.testId}-${Date.now()}`;
     const streamId = 'news-1';
     const { ctxA, ctxB, pageA, pageB } = await newPair(browser);
     try {

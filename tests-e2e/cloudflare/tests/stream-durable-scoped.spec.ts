@@ -13,7 +13,7 @@ test.describe('stream-durable scoped (channel + namespace)', () => {
   test('channel-scoped resumableStream survives reconnect via persistence auto-rejoin', async ({
     page,
   }, testInfo) => {
-    const room = `sds-${testInfo.testId}`;
+    const room = `sds-${testInfo.testId}-${Date.now()}`;
     const streamId = 'paginate-1';
 
     const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
@@ -74,7 +74,7 @@ test.describe('stream-durable scoped (channel + namespace)', () => {
   test('channel-scoped recordedStream replays missed chunks from the buffer', async ({
     page,
   }, testInfo) => {
-    const room = `sds-${testInfo.testId}`;
+    const room = `sds-${testInfo.testId}-${Date.now()}`;
     const streamId = 'history-1';
 
     const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
@@ -119,7 +119,7 @@ test.describe('stream-durable scoped (channel + namespace)', () => {
   test('namespace-scoped recordedStream replays via _namespace marker', async ({
     page,
   }, testInfo) => {
-    const room = `sds-${testInfo.testId}`;
+    const room = `sds-${testInfo.testId}-${Date.now()}`;
     const streamId = 'logs-1';
 
     const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
@@ -155,7 +155,7 @@ test.describe('stream-durable scoped (channel + namespace)', () => {
   test('non-member resume of a channel-scoped stream returns not-found', async ({
     browser,
   }, testInfo) => {
-    const room = `sds-${testInfo.testId}`;
+    const room = `sds-${testInfo.testId}-${Date.now()}`;
     const streamId = 'shared-1';
 
     const ctxA = await browser.newContext();
@@ -200,7 +200,7 @@ test.describe('stream-durable scoped (channel + namespace)', () => {
   test('nudge on a channel-scoped resumable stream pauses the generator', async ({
     page,
   }, testInfo) => {
-    const room = `sds-${testInfo.testId}`;
+    const room = `sds-${testInfo.testId}-${Date.now()}`;
     const streamId = 'paused-1';
 
     const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });

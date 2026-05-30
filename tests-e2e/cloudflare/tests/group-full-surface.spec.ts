@@ -19,7 +19,7 @@ test.describe('group full surface', () => {
   });
 
   test('group.on routes incoming and onConnect sent welcome', async ({ page }, testInfo) => {
-    const room = `gfs-on-${testInfo.testId}`;
+    const room = `gfs-on-${testInfo.testId}-${Date.now()}`;
     const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
     await waitForFrame(page, a, {
       match: (f) => f.event === 'welcome' && f.payload.username === 'alice',
@@ -36,7 +36,7 @@ test.describe('group full surface', () => {
   });
 
   test('group.request returns a value via correlation id', async ({ page }, testInfo) => {
-    const room = `gfs-req-${testInfo.testId}`;
+    const room = `gfs-req-${testInfo.testId}-${Date.now()}`;
     const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
     await waitForFrame(page, a, { match: (f) => f.event === 'welcome' });
 
@@ -54,7 +54,7 @@ test.describe('group full surface', () => {
   });
 
   test('group.stream yields chunks', async ({ page }, testInfo) => {
-    const room = `gfs-stream-${testInfo.testId}`;
+    const room = `gfs-stream-${testInfo.testId}-${Date.now()}`;
     const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
     await waitForFrame(page, a, { match: (f) => f.event === 'welcome' });
 
@@ -69,7 +69,7 @@ test.describe('group full surface', () => {
   });
 
   test('group.resumableStream and group.recordedStream both work', async ({ page }, testInfo) => {
-    const room = `gfs-streams-${testInfo.testId}`;
+    const room = `gfs-streams-${testInfo.testId}-${Date.now()}`;
     const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
     await waitForFrame(page, a, { match: (f) => f.event === 'welcome' });
 
@@ -93,7 +93,7 @@ test.describe('group full surface', () => {
   });
 
   test('group.scheduled fires and records into SQL', async ({ page }, testInfo) => {
-    const room = `gfs-sched-${testInfo.testId}`;
+    const room = `gfs-sched-${testInfo.testId}-${Date.now()}`;
     const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
     await waitForFrame(page, a, { match: (f) => f.event === 'welcome' });
 
@@ -116,7 +116,7 @@ test.describe('group full surface', () => {
   test('group.channel broadcasts send-msg as room-msg to subscribers', async ({
     page,
   }, testInfo) => {
-    const room = `gfs-ch-${testInfo.testId}`;
+    const room = `gfs-ch-${testInfo.testId}-${Date.now()}`;
     const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
     await waitForFrame(page, a, { match: (f) => f.event === 'welcome' });
     await send(page, a, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
@@ -134,7 +134,7 @@ test.describe('group full surface', () => {
   });
 
   test('group.namespace v1-ping returns v1-pong', async ({ page }, testInfo) => {
-    const room = `gfs-ns-${testInfo.testId}`;
+    const room = `gfs-ns-${testInfo.testId}-${Date.now()}`;
     const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
     await waitForFrame(page, a, { match: (f) => f.event === 'welcome' });
 
@@ -143,7 +143,7 @@ test.describe('group full surface', () => {
   });
 
   test('group.intercept (pre) fires for every message', async ({ page }, testInfo) => {
-    const room = `gfs-ipre-${testInfo.testId}`;
+    const room = `gfs-ipre-${testInfo.testId}-${Date.now()}`;
     const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
     await waitForFrame(page, a, { match: (f) => f.event === 'welcome' });
 
@@ -157,7 +157,7 @@ test.describe('group full surface', () => {
   test('group.intercept with matches() narrowing fires per-event with typed payload', async ({
     page,
   }, testInfo) => {
-    const room = `gfs-ipost-${testInfo.testId}`;
+    const room = `gfs-ipost-${testInfo.testId}-${Date.now()}`;
     const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
     await waitForFrame(page, a, { match: (f) => f.event === 'welcome' });
 
@@ -171,7 +171,7 @@ test.describe('group full surface', () => {
   test('group.rateLimit on chat — second call returns rate-limited _error', async ({
     page,
   }, testInfo) => {
-    const room = `gfs-rl-${testInfo.testId}`;
+    const room = `gfs-rl-${testInfo.testId}-${Date.now()}`;
     const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
     await waitForFrame(page, a, { match: (f) => f.event === 'welcome' });
 
@@ -182,7 +182,7 @@ test.describe('group full surface', () => {
   });
 
   test('group.customReplay round-trips a stored marker', async ({ page }, testInfo) => {
-    const room = `gfs-replay-${testInfo.testId}`;
+    const room = `gfs-replay-${testInfo.testId}-${Date.now()}`;
     const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
     await waitForFrame(page, a, { match: (f) => f.event === 'welcome' });
 
@@ -203,7 +203,7 @@ test.describe('group full surface', () => {
   test('group.onConnect sends welcome and group.onDisconnect writes to SQL', async ({
     page,
   }, testInfo) => {
-    const room = `gfs-life-${testInfo.testId}`;
+    const room = `gfs-life-${testInfo.testId}-${Date.now()}`;
 
     const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
     await waitForFrame(page, a, {
@@ -223,7 +223,7 @@ test.describe('group full surface', () => {
   });
 
   test('group.onInit ran at boot — check-init replies with ran=1', async ({ page }, testInfo) => {
-    const room = `gfs-init-${testInfo.testId}`;
+    const room = `gfs-init-${testInfo.testId}-${Date.now()}`;
     const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
     await waitForFrame(page, a, { match: (f) => f.event === 'welcome' });
 
@@ -233,7 +233,7 @@ test.describe('group full surface', () => {
   });
 
   test('group.onError, onValidationError, onBinary all fire', async ({ page }, testInfo) => {
-    const room = `gfs-err-${testInfo.testId}`;
+    const room = `gfs-err-${testInfo.testId}-${Date.now()}`;
     const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
     await waitForFrame(page, a, { match: (f) => f.event === 'welcome' });
 

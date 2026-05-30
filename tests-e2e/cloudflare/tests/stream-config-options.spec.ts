@@ -13,7 +13,7 @@ test.describe('stream config options', () => {
   test('allowConcurrent: true — two streams of the same event run on one connection', async ({
     page,
   }, testInfo) => {
-    const room = `sco-${testInfo.testId}`;
+    const room = `sco-${testInfo.testId}-${Date.now()}`;
     await openRig(page);
     const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
 
@@ -53,7 +53,7 @@ test.describe('stream config options', () => {
   test('onDisconnect: keep-running — generator keeps producing after drop, resume catches up from the buffer', async ({
     page,
   }, testInfo) => {
-    const room = `sco-${testInfo.testId}`;
+    const room = `sco-${testInfo.testId}-${Date.now()}`;
     await openRig(page);
     const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
 
@@ -106,7 +106,7 @@ test.describe('stream config options', () => {
   test('custom maxAgeMs — suspended row past the window surfaces stream-aborted expired on resume', async ({
     page,
   }, testInfo) => {
-    const room = `sco-${testInfo.testId}`;
+    const room = `sco-${testInfo.testId}-${Date.now()}`;
     await openRig(page);
     const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
 
@@ -142,7 +142,7 @@ test.describe('stream config options', () => {
   test('custom retentionAfterEndMs — ended row past the window surfaces stream-aborted not-found on resume', async ({
     page,
   }, testInfo) => {
-    const room = `sco-${testInfo.testId}`;
+    const room = `sco-${testInfo.testId}-${Date.now()}`;
     await openRig(page);
     const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
 

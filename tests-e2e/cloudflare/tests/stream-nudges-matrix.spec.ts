@@ -17,7 +17,7 @@ test.describe('stream-nudges matrix', () => {
   test('plain stream() in a channel — nudge stops the generator mid-flight', async ({
     page,
   }, testInfo) => {
-    const room = `snm-${testInfo.testId}`;
+    const room = `snm-${testInfo.testId}-${Date.now()}`;
     await openRig(page);
     const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
     await send(page, a, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
@@ -51,7 +51,7 @@ test.describe('stream-nudges matrix', () => {
   test('plain stream() in a namespace — nudge stops the generator mid-flight', async ({
     page,
   }, testInfo) => {
-    const room = `snm-${testInfo.testId}`;
+    const room = `snm-${testInfo.testId}-${Date.now()}`;
     await openRig(page);
     const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
 
@@ -83,7 +83,7 @@ test.describe('stream-nudges matrix', () => {
   test('recordedStream in a channel — nudge stops the generator mid-flight', async ({
     page,
   }, testInfo) => {
-    const room = `snm-${testInfo.testId}`;
+    const room = `snm-${testInfo.testId}-${Date.now()}`;
     await openRig(page);
     const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
     await send(page, a, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
@@ -121,7 +121,7 @@ test.describe('stream-nudges matrix', () => {
   test('resumableStream in a namespace — nudge stops the generator mid-flight', async ({
     page,
   }, testInfo) => {
-    const room = `snm-${testInfo.testId}`;
+    const room = `snm-${testInfo.testId}-${Date.now()}`;
     await openRig(page);
     const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
 
@@ -161,7 +161,7 @@ test.describe('stream-nudges matrix', () => {
     // Bob sending a 'stop' with alice's streamId must be rejected with
     // validation-failed, and alice's generator must keep producing — one
     // client cannot steer another's stream.
-    const room = `snm-cross-${testInfo.testId}`;
+    const room = `snm-cross-${testInfo.testId}-${Date.now()}`;
     await openRig(page);
     const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
     const b = await connect(page, { path: WS_PATH, username: 'bob', room: room });
@@ -205,7 +205,7 @@ test.describe('stream-nudges matrix', () => {
   test('recordedStream in a namespace — nudge stops the generator mid-flight', async ({
     page,
   }, testInfo) => {
-    const room = `snm-rec-ns-${testInfo.testId}`;
+    const room = `snm-rec-ns-${testInfo.testId}-${Date.now()}`;
     await openRig(page);
     const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
 
@@ -237,7 +237,7 @@ test.describe('stream-nudges matrix', () => {
   test('resumableStream in a channel — nudge stops the generator mid-flight', async ({
     page,
   }, testInfo) => {
-    const room = `snm-res-ch-${testInfo.testId}`;
+    const room = `snm-res-ch-${testInfo.testId}-${Date.now()}`;
     await openRig(page);
     const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
     await send(page, a, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
@@ -275,7 +275,7 @@ test.describe('stream-nudges matrix', () => {
   test('top-level recordedStream — nudge stops the generator mid-flight', async ({
     page,
   }, testInfo) => {
-    const room = `snm-rec-top-${testInfo.testId}`;
+    const room = `snm-rec-top-${testInfo.testId}-${Date.now()}`;
     await openRig(page);
     const a = await connect(page, { path: '/ws/stream-durable', username: 'alice', room: room });
 
@@ -303,7 +303,7 @@ test.describe('stream-nudges matrix', () => {
   test('top-level resumableStream — nudge stops the generator mid-flight', async ({
     page,
   }, testInfo) => {
-    const room = `snm-res-top-${testInfo.testId}`;
+    const room = `snm-res-top-${testInfo.testId}-${Date.now()}`;
     await openRig(page);
     const a = await connect(page, { path: '/ws/stream-durable', username: 'alice', room: room });
 

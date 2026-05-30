@@ -15,9 +15,9 @@ test.describe('stream-cancel matrix', () => {
   test('plain stream() in a channel — _streamCancel stops chunks, no _streamEnd follows', async ({
     page,
   }, testInfo) => {
-    const room = `scm-${testInfo.testId}`;
+    const room = `scm-${testInfo.testId}-${Date.now()}`;
     await pageWithRig(page, '/stream-broadcast');
-    const channelKey = `room:${testInfo.testId}`;
+    const channelKey = `room:${testInfo.testId}-${Date.now()}`;
     const a = await connect(page, { path: '/ws/stream-broadcast', username: 'alice', room: room });
 
     await send(page, a, {
@@ -62,7 +62,7 @@ test.describe('stream-cancel matrix', () => {
   test('plain stream() in a namespace — _streamCancel stops chunks, no _streamEnd follows', async ({
     page,
   }, testInfo) => {
-    const room = `scm-${testInfo.testId}`;
+    const room = `scm-${testInfo.testId}-${Date.now()}`;
     await pageWithRig(page, '/namespace');
     const a = await connect(page, { path: '/ws/namespace', username: 'alice', room: room });
 
@@ -100,7 +100,7 @@ test.describe('stream-cancel matrix', () => {
   test('recordedStream in a channel — _streamCancel deletes the row, resume returns not-found', async ({
     page,
   }, testInfo) => {
-    const room = `scm-${testInfo.testId}`;
+    const room = `scm-${testInfo.testId}-${Date.now()}`;
     await pageWithRig(page, '/stream-durable-scoped');
     const a = await connect(page, {
       path: '/ws/stream-durable-scoped',
@@ -145,7 +145,7 @@ test.describe('stream-cancel matrix', () => {
   test('recordedStream in a namespace — _streamCancel deletes the row, resume returns not-found', async ({
     page,
   }, testInfo) => {
-    const room = `scm-${testInfo.testId}`;
+    const room = `scm-${testInfo.testId}-${Date.now()}`;
     await pageWithRig(page, '/stream-durable-scoped');
     const a = await connect(page, {
       path: '/ws/stream-durable-scoped',
@@ -188,7 +188,7 @@ test.describe('stream-cancel matrix', () => {
   test('resumableStream in a channel — _streamCancel deletes the row, resume returns not-found', async ({
     page,
   }, testInfo) => {
-    const room = `scm-${testInfo.testId}`;
+    const room = `scm-${testInfo.testId}-${Date.now()}`;
     await pageWithRig(page, '/stream-durable-scoped');
     const a = await connect(page, {
       path: '/ws/stream-durable-scoped',
@@ -233,7 +233,7 @@ test.describe('stream-cancel matrix', () => {
   test('resumableStream in a namespace — _streamCancel deletes the row, resume returns not-found', async ({
     page,
   }, testInfo) => {
-    const room = `scm-${testInfo.testId}`;
+    const room = `scm-${testInfo.testId}-${Date.now()}`;
     await pageWithRig(page, '/stream-durable-scoped');
     const a = await connect(page, {
       path: '/ws/stream-durable-scoped',
@@ -276,7 +276,7 @@ test.describe('stream-cancel matrix', () => {
   test('cancel is idempotent — a second _streamCancel for the same id does not crash the connection', async ({
     page,
   }, testInfo) => {
-    const room = `scm-idem-${testInfo.testId}`;
+    const room = `scm-idem-${testInfo.testId}-${Date.now()}`;
     await pageWithRig(page, '/stream-basic');
     const a = await connect(page, { path: '/ws/stream-basic', username: 'alice', room: room });
 
@@ -312,7 +312,7 @@ test.describe('stream-cancel matrix', () => {
   test('cancel for a never-started id does not crash the connection', async ({
     page,
   }, testInfo) => {
-    const room = `scm-never-${testInfo.testId}`;
+    const room = `scm-never-${testInfo.testId}-${Date.now()}`;
     await pageWithRig(page, '/stream-basic');
     const a = await connect(page, { path: '/ws/stream-basic', username: 'alice', room: room });
 

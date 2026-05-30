@@ -11,7 +11,7 @@ test.describe('stream edge cases', () => {
   test('generator throws mid-stream on a durable stream — chunks land then client receives _error', async ({
     page,
   }, testInfo) => {
-    const room = `sec-${testInfo.testId}`;
+    const room = `sec-${testInfo.testId}-${Date.now()}`;
     await openRig(page, '/stream-durable-scoped');
     const a = await connect(page, {
       path: '/ws/stream-durable-scoped',
@@ -44,7 +44,7 @@ test.describe('stream edge cases', () => {
   test('ctx.stream.attempt on a broadcast resumable creator-resume equals 2 on the second run', async ({
     page,
   }, testInfo) => {
-    const room = `sec-${testInfo.testId}`;
+    const room = `sec-${testInfo.testId}-${Date.now()}`;
     await openRig(page, '/stream-durable-broadcast');
     const a = await connect(page, {
       path: '/ws/stream-durable-broadcast',
@@ -99,7 +99,7 @@ test.describe('stream edge cases', () => {
   test('dev-supplied _streamId on a channel-scoped durable stream pins the resume key', async ({
     page,
   }, testInfo) => {
-    const room = `sec-${testInfo.testId}`;
+    const room = `sec-${testInfo.testId}-${Date.now()}`;
     await openRig(page, '/stream-durable-scoped');
     const a = await connect(page, {
       path: '/ws/stream-durable-scoped',
@@ -155,7 +155,7 @@ test.describe('stream edge cases', () => {
     // second start of the same event on the same connection must be rejected
     // with stream-already-active — the counterpart to the allowConcurrent:true
     // case proven in stream-config-options.
-    const room = `sec-saa-${testInfo.testId}`;
+    const room = `sec-saa-${testInfo.testId}-${Date.now()}`;
     await openRig(page, '/stream-basic');
     const a = await connect(page, { path: '/ws/stream-basic', username: 'alice', room: room });
 
@@ -191,7 +191,7 @@ test.describe('stream edge cases', () => {
   test('dev-supplied _streamId on a namespace-scoped durable stream pins the resume key', async ({
     page,
   }, testInfo) => {
-    const room = `sec-${testInfo.testId}`;
+    const room = `sec-${testInfo.testId}-${Date.now()}`;
     await openRig(page, '/stream-durable-scoped');
     const a = await connect(page, {
       path: '/ws/stream-durable-scoped',
