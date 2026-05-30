@@ -1,7 +1,7 @@
 import { channel, contract, implement, incoming, outgoing, t } from '@wskit/server';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
-import { requireUsername } from '../_shared/upgrade.ts';
+import { allowAnonymous, requireUsername } from '../_shared/upgrade.ts';
 
 const RoomMessagePayload = v.object({ text: v.string(), from: v.string() });
 const SendMessagePayload = v.object({ text: v.string() });
@@ -33,7 +33,14 @@ export const persistenceContract = contract('persistence', {
 });
 
 export const persistenceHandler = implement(persistenceContract)
-  .onUpgrade((request) => requireUsername(request))
+  // Default path requires a username (existing tests). Connecting with `?anon`
+  // takes the anonymous path (empty identity) so anonymous-skips-membership and
+  // anonymous-replay-gate behavior can be exercised.
+  .onUpgrade((request) =>
+    new URL(request.url).searchParams.has('anon')
+      ? allowAnonymous(request)
+      : requireUsername(request),
+  )
 
   .on('remove-member', async (ctx, payload) => {
     await ctx.channels.get('archive-room').removeMember(payload.identity);

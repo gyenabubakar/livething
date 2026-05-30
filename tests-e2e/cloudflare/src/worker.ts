@@ -147,6 +147,41 @@ export default {
       return new Response(null, { status: 204 });
     }
 
+    // Test-only restart routes. `restart()` calls ctx.abort(), which discards
+    // the DO's in-memory state while durable storage survives — simulating a
+    // process restart / cross-deploy so durability is observable. The RPC never
+    // returns cleanly (the instance is torn down mid-call), so the rejection is
+    // expected and swallowed.
+    if (url.pathname === '/ws/sequence/restart') {
+      const id = env.SEQUENCE_SERVER.idFromName(room);
+      try {
+        await env.SEQUENCE_SERVER.get(id).restart();
+      } catch {
+        /* ctx.abort() tears down the instance, so the RPC stub rejects — expected. */
+      }
+      return new Response(null, { status: 204 });
+    }
+
+    if (url.pathname === '/ws/persistence/restart') {
+      const id = env.PERSISTENCE_SERVER.idFromName(room);
+      try {
+        await env.PERSISTENCE_SERVER.get(id).restart();
+      } catch {
+        /* expected — see above */
+      }
+      return new Response(null, { status: 204 });
+    }
+
+    if (url.pathname === '/ws/scheduled/restart') {
+      const id = env.SCHEDULED_SERVER.idFromName(room);
+      try {
+        await env.SCHEDULED_SERVER.get(id).restart();
+      } catch {
+        /* expected — see above */
+      }
+      return new Response(null, { status: 204 });
+    }
+
     const featureBinding = FEATURE_ROUTES[url.pathname];
     if (featureBinding) {
       const namespace = env[featureBinding] as DurableObjectNamespace;

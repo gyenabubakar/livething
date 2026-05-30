@@ -20,3 +20,23 @@ export function requireUsername(
   const tags = helpers?.tags ? [helpers.tags.ephemeral('user').ref(username)] : [];
   return { identity: username, meta: { username }, tags };
 }
+
+/**
+ * Like `requireUsername`, but never rejects: a missing `username` yields an
+ * empty identity — an anonymous connection. Used to exercise anonymous-path
+ * behavior such as persistence skipping durable membership writes when the
+ * identity is empty (`!key.identity`).
+ */
+export function allowAnonymous(
+  request: Request,
+  helpers?: {
+    tags?: {
+      ephemeral(group: string): { ref(key: string): TagRef };
+    };
+  },
+): { identity: string; meta: { username: string }; tags: readonly TagRef[] } {
+  const url = new URL(request.url);
+  const username = url.searchParams.get('username') ?? '';
+  const tags = username && helpers?.tags ? [helpers.tags.ephemeral('user').ref(username)] : [];
+  return { identity: username, meta: { username }, tags };
+}
