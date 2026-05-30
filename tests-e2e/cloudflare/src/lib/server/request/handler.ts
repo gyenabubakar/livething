@@ -26,6 +26,8 @@ export const requestContract = contract('request', {
       payload: v.object({}),
       response: ThrowingRequestResponseSchema,
     }),
+    // Schemaless request — no payload/response validators, accepts anything.
+    request('echo-anything-req'),
 
     namespace('ns', {
       definitions: [request('get-ns-info', { payload: v.object({}), response: NsInfoSchema })],
@@ -58,6 +60,9 @@ export const requestHandler = implement(requestContract)
   })
   .request('throwing-request', () => {
     throw new Error('intentional handler throw');
+  })
+  .request('echo-anything-req', (ctx, payload) => {
+    ctx.respond({ got: payload });
   })
   .namespace('ns', (ns) =>
     ns.request('get-ns-info', (ctx) => {

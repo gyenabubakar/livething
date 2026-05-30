@@ -178,4 +178,40 @@ test.describe('request', () => {
     await page.getByTestId('get-time').click();
     await expect(page.getByTestId('last-response')).toContainText('fixed-now-string');
   });
+
+  test('a schemaless request accepts any payload and echoes it back', async ({
+    page,
+  }, testInfo) => {
+    await openPage(page, `test-${testInfo.testId}`);
+
+    const got = await page.evaluate(async () => {
+      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
+      if (!ws) throw new Error('socket not exposed');
+      const responses: Record<string, unknown>[] = [];
+      const original = ws.onmessage;
+      ws.onmessage = (ev) => {
+        if (typeof ev.data === 'string') {
+          const frame = JSON.parse(ev.data);
+          if (frame.__wskit?.correlationId === 'anything-1') responses.push(frame);
+        }
+        if (typeof original === 'function') original.call(ws, ev);
+      };
+      ws.send(
+        JSON.stringify({
+          event: 'echo-anything-req',
+          payload: { deep: { list: [1, 2, 3] }, flag: true },
+          __wskit: { correlationId: 'anything-1' },
+        }),
+      );
+      await new Promise((r) => setTimeout(r, 400));
+      ws.onmessage = original;
+      return responses;
+    });
+
+    expect(got.length).toBeGreaterThan(0);
+    expect((got[0]!.payload as { got: unknown }).got).toEqual({
+      deep: { list: [1, 2, 3] },
+      flag: true,
+    });
+  });
 });

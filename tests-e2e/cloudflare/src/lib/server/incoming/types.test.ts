@@ -28,9 +28,9 @@ describe('IncomingClient — incoming (server outgoing)', () => {
     }>();
   });
 
-  it('exactly three events in incoming', () => {
+  it('has the declared incoming events', () => {
     expectTypeOf<keyof IncomingClient['incoming']>().toEqualTypeOf<
-      'echo-pong' | 'async-done' | 'validation-error-fired'
+      'echo-pong' | 'async-done' | 'validation-error-fired' | 'anything-echo'
     >();
   });
 });
@@ -44,8 +44,14 @@ describe('IncomingClient — outgoing (server incoming)', () => {
     expectTypeOf<IncomingClient['outgoing']['async-ping']>().toEqualTypeOf<{ delay: number }>();
   });
 
-  it('exactly two events in outgoing', () => {
-    expectTypeOf<keyof IncomingClient['outgoing']>().toEqualTypeOf<'echo-ping' | 'async-ping'>();
+  it('has the declared outgoing events', () => {
+    expectTypeOf<keyof IncomingClient['outgoing']>().toEqualTypeOf<
+      | 'echo-ping'
+      | 'async-ping'
+      | 'echo-anything'
+      | 'trigger-send-undeclared'
+      | 'trigger-send-bad-payload'
+    >();
   });
 });
 

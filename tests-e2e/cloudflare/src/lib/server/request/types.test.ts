@@ -66,9 +66,14 @@ describe('RequestClient — top-level requests', () => {
     expectTypeOf<RequestClient['requests']>().toHaveProperty('throwing-request');
   });
 
-  it('exactly five top-level requests', () => {
+  it('has the declared top-level requests', () => {
     expectTypeOf<keyof RequestClient['requests']>().toEqualTypeOf<
-      'get-time' | 'no-response' | 'double-response' | 'strict-echo' | 'throwing-request'
+      | 'get-time'
+      | 'no-response'
+      | 'double-response'
+      | 'strict-echo'
+      | 'throwing-request'
+      | 'echo-anything-req'
     >();
   });
 });

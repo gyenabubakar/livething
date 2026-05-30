@@ -115,4 +115,42 @@ test.describe('incoming — wire contract', () => {
     await send(page, a, { event: 'echo-ping', payload: { text: 'ok' } });
     await waitForFrame(page, a, { match: (f) => f.event === 'echo-pong' });
   });
+
+  test('a schemaless incoming event accepts any payload shape', async ({ page }, testInfo) => {
+    const room = `inc-anything-${testInfo.testId}`;
+    const a = await connect(page, { path: '/ws/incoming', username: 'alice', room });
+
+    const weird = { nested: { x: true }, list: [1, 2, 3], n: 42 };
+    await send(page, a, { event: 'echo-anything', payload: weird });
+    const echo = await waitForFrame(page, a, { match: (f) => f.event === 'anything-echo' });
+    expect(echo.payload.got).toEqual(weird);
+  });
+
+  test('ctx.send of an undeclared outgoing event surfaces internal-error', async ({
+    page,
+  }, testInfo) => {
+    const room = `inc-undeclared-${testInfo.testId}`;
+    const a = await connect(page, { path: '/ws/incoming', username: 'alice', room });
+
+    await send(page, a, { event: 'trigger-send-undeclared', payload: {} });
+    const err = await waitForFrame(page, a, {
+      match: (f) => f.event === '__error__' && f.payload.code === 'internal-error',
+    });
+    expect(err.payload.code).toBe('internal-error');
+
+    // Connection stays alive.
+    await send(page, a, { event: 'echo-ping', payload: { text: 'ok' } });
+    await waitForFrame(page, a, { match: (f) => f.event === 'echo-pong' });
+  });
+
+  test('ctx.send with a non-object payload surfaces internal-error', async ({ page }, testInfo) => {
+    const room = `inc-badpayload-${testInfo.testId}`;
+    const a = await connect(page, { path: '/ws/incoming', username: 'alice', room });
+
+    await send(page, a, { event: 'trigger-send-bad-payload', payload: {} });
+    const err = await waitForFrame(page, a, {
+      match: (f) => f.event === '__error__' && f.payload.code === 'internal-error',
+    });
+    expect(err.payload.code).toBe('internal-error');
+  });
 });
