@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import { connect, installRig, send, waitForFrame } from './_ws-rig.ts';
 
 async function openPage(page: Page, testId: string, username = 'testuser') {
   await page.goto(
@@ -174,5 +175,36 @@ test.describe('channel check/commit', () => {
     await page.getByTestId('sub-commit-only').click();
     await expect(page.getByTestId('subscribe-error')).toContainText('commit-only');
     await expect(page.getByTestId('subscribe-ok')).toHaveText('');
+  });
+
+  test('an async commit() is rejected as internal-error and the connection stays alive', async ({
+    page,
+  }, testInfo) => {
+    await page.goto('/channel-check-commit');
+    await installRig(page);
+    const room = `ccc-async-${testInfo.testId}`;
+    const a = await connect(page, { path: '/ws/channel-check-commit', username: 'alice', room });
+
+    // commit() must be synchronous; the engine rejects a returned Promise.
+    await send(page, a, {
+      event: '__subscribe__',
+      payload: {},
+      __wskit: { channel: 'async-commit' },
+    });
+    const err = await waitForFrame(page, a, {
+      match: (f) => f.event === '__error__',
+      timeoutMs: 3_000,
+    });
+    expect(err.payload.code).toBe('internal-error');
+
+    // Connection stays alive — a valid subscribe still works afterward.
+    await send(page, a, {
+      event: '__subscribe__',
+      payload: {},
+      __wskit: { channel: 'check-only' },
+    });
+    await waitForFrame(page, a, {
+      match: (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'check-only',
+    });
   });
 });

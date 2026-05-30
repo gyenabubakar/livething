@@ -37,6 +37,12 @@ export const channelCheckCommitContract = contract('channel-check-commit', {
     channel('commit-only', {
       definitions: [outgoing('joined', JoinedPayload)],
     }),
+
+    // Misuse: an async commit. commit() must be synchronous; the engine rejects
+    // a returned Promise. This fixture exists to pin the wire behavior.
+    channel('async-commit', {
+      definitions: [outgoing('joined', JoinedPayload)],
+    }),
   ],
 });
 
@@ -87,6 +93,12 @@ export const channelCheckCommitHandler = implement(channelCheckCommitContract)
       .onSubscribe((ctx) => {
         ctx.channel.broadcast('joined', { username: ctx.meta.username }, { excludeSelf: false });
       }),
+  )
+
+  .channel('async-commit', (ch) =>
+    ch.commit((async () => {
+      await new Promise((r) => setTimeout(r, 1));
+    }) as unknown as () => void),
   )
 
   .build();
