@@ -2,8 +2,9 @@ import { expect, test } from '@playwright/test';
 
 // keepalive is a LIVENESS check: the server pings, and a client that keeps
 // answering (or sends anything) is kept open. Only a client that stops
-// responding entirely is closed. The handler uses keepalive({ timeoutMs: 2000 }),
-// so the keepalive ping fires at ~1s and the close window is 2s.
+// responding entirely is closed. The handler uses
+// keepalive: { pingIntervalMs: 1000, idleTimeoutMs: 2000 }, so the keepalive
+// ping fires at ~1s and the idle/close window is 2s.
 test.describe('keepalive', () => {
   test('an unresponsive connection (no pong, no messages) is closed with 4004 after the timeout', async ({
     page,
