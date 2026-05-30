@@ -11,7 +11,7 @@ export const ctxQualityContract = contract('ctx-quality', {
     outgoing(
       'quality-result',
       v.object({
-        quality: v.string(),
+        quality: v.union([v.string(), v.null()]),
         latency: v.union([v.number(), v.null()]),
         bufferedAmount: v.number(),
       }),

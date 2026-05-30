@@ -16,7 +16,7 @@ describe('CtxQualityClient — no-any guard', () => {
 describe('CtxQualityClient — incoming (server outgoing)', () => {
   it('has quality-result with correct shape', () => {
     expectTypeOf<CtxQualityClient['incoming']['quality-result']>().toEqualTypeOf<{
-      quality: string;
+      quality: string | null;
       latency: number | null;
       bufferedAmount: number;
     }>();
