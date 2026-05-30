@@ -48,6 +48,7 @@ export { GroupFullSurfaceServer } from './lib/server/group-full-surface/durable-
 export { ChannelCheckCommitServer } from './lib/server/channel-check-commit/durable-object.ts';
 export { CtxLocalsServer } from './lib/server/ctx-locals/durable-object.ts';
 export { MultiStateServer } from './lib/server/multi-state/durable-object.ts';
+export { DurableConfigServer } from './lib/server/durable-config/durable-object.ts';
 
 const FEATURE_ROUTES: Record<string, keyof Env> = {
   '/ws/incoming': 'INCOMING_SERVER',
@@ -93,6 +94,7 @@ const FEATURE_ROUTES: Record<string, keyof Env> = {
   '/ws/channel-check-commit': 'CHANNEL_CHECK_COMMIT_SERVER',
   '/ws/ctx-locals': 'CTX_LOCALS_SERVER',
   '/ws/multi-state': 'MULTI_STATE_SERVER',
+  '/ws/durable-config': 'DURABLE_CONFIG_SERVER',
 };
 
 export default {
@@ -176,6 +178,16 @@ export default {
       const id = env.SCHEDULED_SERVER.idFromName(room);
       try {
         await env.SCHEDULED_SERVER.get(id).restart();
+      } catch {
+        /* expected — see above */
+      }
+      return new Response(null, { status: 204 });
+    }
+
+    if (url.pathname === '/ws/durable-config/restart') {
+      const id = env.DURABLE_CONFIG_SERVER.idFromName(room);
+      try {
+        await env.DURABLE_CONFIG_SERVER.get(id).restart();
       } catch {
         /* expected — see above */
       }
