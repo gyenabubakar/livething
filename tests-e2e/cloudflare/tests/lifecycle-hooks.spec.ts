@@ -92,6 +92,33 @@ test.describe('lifecycle-hooks', () => {
     expect(result).toBe('closed:4001');
   });
 
+  test('a graceful server shutdown closes connected sockets with GOING_AWAY (1001)', async ({
+    page,
+  }, testInfo) => {
+    const room = `test-${testInfo.testId}-shutdown-code`;
+    await page.goto(`/lifecycle-hooks?room=${room}`);
+
+    const result = await page.evaluate(async (currentRoom) => {
+      const ws = new WebSocket(
+        `ws://${location.host}/ws/lifecycle-hooks?username=alice&room=${encodeURIComponent(currentRoom)}`,
+      );
+      await new Promise<void>((resolve, reject) => {
+        ws.onopen = () => resolve();
+        ws.onerror = () => reject(new Error('open failed'));
+      });
+      const closed = new Promise<string>((resolve) => {
+        ws.onclose = (event) => resolve(`closed:${event.code}`);
+        setTimeout(() => resolve('timeout'), 5_000);
+      });
+      await fetch(`/ws/lifecycle-hooks/shutdown?room=${encodeURIComponent(currentRoom)}`, {
+        method: 'POST',
+      });
+      return closed;
+    }, room);
+
+    expect(result).toBe('closed:1001');
+  });
+
   test('HTTP upgrade rejection returns a 403 response (non-WS branch)', async ({
     request,
     page,
