@@ -28,6 +28,8 @@ export const typedTagsContract = contract('typed-tags', {
   tags: (ephemeral, persistent) => [
     ephemeral('user', t<string>()),
     ephemeral('role', t<string>()),
+    // Schema-backed group: values are validated on add against this picklist.
+    ephemeral('color', v.picklist(['red', 'blue', 'green'])),
     persistent('favorite', t<string>()),
   ],
   definitions: [
@@ -56,12 +58,12 @@ export const typedTagsHandler = implement(typedTagsContract)
 
   .on('add-tag', (ctx, payload) => {
     if (payload.kind === 'ephemeral')
-      ctx.tags.ephemeral(payload.group as 'user' | 'role').add(payload.key);
+      ctx.tags.ephemeral(payload.group as 'user' | 'role' | 'color').add(payload.key);
     else ctx.tags.persistent(payload.group as 'favorite').add(payload.key);
   })
   .on('remove-tag', (ctx, payload) => {
     if (payload.kind === 'ephemeral')
-      ctx.tags.ephemeral(payload.group as 'user' | 'role').remove(payload.key);
+      ctx.tags.ephemeral(payload.group as 'user' | 'role' | 'color').remove(payload.key);
     else ctx.tags.persistent(payload.group as 'favorite').remove(payload.key);
   })
   .on('list-my-tags', (ctx) => {

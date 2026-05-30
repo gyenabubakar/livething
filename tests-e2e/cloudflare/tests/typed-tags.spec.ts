@@ -235,4 +235,56 @@ test.describe('typed tags', () => {
     );
     expect(zero.payload.count).toBe(0);
   });
+
+  test('a schema-backed tag group rejects an out-of-schema value', async ({ page }, testInfo) => {
+    const room = `tt-schema-${testInfo.testId}`;
+    const c = await connect(page, 'alice', room);
+
+    // A value inside the picklist is accepted.
+    await send(page, c, {
+      event: 'add-tag',
+      payload: { kind: 'ephemeral', group: 'color', key: 'red' },
+    });
+    await send(page, c, { event: 'list-my-tags', payload: {} });
+    const list = await waitForFrame(page, c, (f) => f.event === 'tags-list');
+    expect(list.payload.tags).toContainEqual({ kind: 'ephemeral', group: 'color', key: 'red' });
+
+    // A value outside the picklist is rejected on the wire.
+    await send(page, c, {
+      event: 'add-tag',
+      payload: { kind: 'ephemeral', group: 'color', key: 'yellow' },
+    });
+    const err = await waitForFrame(
+      page,
+      c,
+      (f) => f.event === '__error__' && f.payload.code === 'validation-failed',
+    );
+    expect(err.payload.code).toBe('validation-failed');
+  });
+
+  test('a removed persistent tag is not resurrected on reconnect', async ({ page }, testInfo) => {
+    const room = `tt-rm-${testInfo.testId}`;
+    const c1 = await connect(page, 'alice', room);
+    await send(page, c1, {
+      event: 'add-tag',
+      payload: { kind: 'persistent', group: 'favorite', key: 'room-99' },
+    });
+    await page.waitForTimeout(120);
+    await send(page, c1, {
+      event: 'remove-tag',
+      payload: { kind: 'persistent', group: 'favorite', key: 'room-99' },
+    });
+    await page.waitForTimeout(120);
+    await close(page, c1);
+    await page.waitForTimeout(200);
+
+    const c2 = await connect(page, 'alice', room);
+    await send(page, c2, { event: 'list-my-tags', payload: {} });
+    const list = await waitForFrame(page, c2, (f) => f.event === 'tags-list');
+    expect(list.payload.tags).not.toContainEqual({
+      kind: 'persistent',
+      group: 'favorite',
+      key: 'room-99',
+    });
+  });
 });
