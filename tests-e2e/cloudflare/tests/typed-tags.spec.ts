@@ -201,4 +201,38 @@ test.describe('typed tags', () => {
     const bobKicked = bobFrames.find((f) => f.event === '__kicked__');
     expect(bobKicked).toBeUndefined();
   });
+
+  test('count by tag ref returns the number of connections holding that ref', async ({
+    page,
+  }, testInfo) => {
+    const room = `tt-count-${testInfo.testId}`;
+    const alice = await connect(page, 'alice', room);
+    const bob = await connect(page, 'bob', room);
+    await send(page, alice, {
+      event: 'add-tag',
+      payload: { kind: 'ephemeral', group: 'role', key: 'admin' },
+    });
+    await send(page, bob, {
+      event: 'add-tag',
+      payload: { kind: 'ephemeral', group: 'role', key: 'admin' },
+    });
+    await page.waitForTimeout(100);
+
+    await send(page, alice, { event: 'count-by-tag', payload: { group: 'role', key: 'admin' } });
+    const two = await waitForFrame(
+      page,
+      alice,
+      (f) => f.event === 'count-result' && f.payload.count === 2,
+    );
+    expect(two.payload.count).toBe(2);
+
+    // A ref nobody holds counts zero.
+    await send(page, alice, { event: 'count-by-tag', payload: { group: 'role', key: 'nobody' } });
+    const zero = await waitForFrame(
+      page,
+      alice,
+      (f) => f.event === 'count-result' && f.payload.count === 0,
+    );
+    expect(zero.payload.count).toBe(0);
+  });
 });

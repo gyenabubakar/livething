@@ -185,4 +185,23 @@ test.describe('ctx-send', () => {
     await ctxA.close();
     await ctxB.close();
   });
+
+  test('sendTo a tag ref with no matching connections delivers to nobody', async ({
+    page,
+  }, testInfo) => {
+    const room = `test-${testInfo.testId}`;
+    await page.goto(`/ctx-send?room=${room}`);
+    await page.getByTestId('connect').click();
+    await expect(page.getByTestId('status')).toHaveText('connected');
+
+    // 'vip' is a valid key in the declared 'user' group but no connection holds
+    // it, so the fan-out reaches nobody (no throw). send-to-self is the positive
+    // signal that the connection works, letting us assert the vip send delivered
+    // nothing without a flaky fixed wait.
+    await page.getByTestId('send-to-vip').click();
+    await page.getByTestId('send-to-self').click();
+    await expect(page.getByTestId('messages')).toContainText('testuser:tagged');
+    await expect(page.getByTestId('messages')).not.toContainText('vip-tagged');
+    await expect(page.getByTestId('status')).toHaveText('connected');
+  });
 });

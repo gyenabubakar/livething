@@ -35,7 +35,10 @@ export const errorsFactoryHandler = implement(errorsFactoryContract)
     throw Forbidden({ reason: 'Access denied' });
   })
   .on('trigger-simple', () => {
-    throw SimpleError;
+    // Code-only error: error('simple-error') returns a factory; call it to get
+    // the WSKitError. (Throwing the bare factory would normalize to
+    // internal-error since a function is not a WSKitError.)
+    throw SimpleError();
   })
   .on('trigger-unregistered', () => {
     throw Unregistered({ msg: 'this error is not registered' });

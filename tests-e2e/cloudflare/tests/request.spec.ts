@@ -131,4 +131,19 @@ test.describe('request', () => {
     await page.getByTestId('strict-echo').click();
     await expect(page.getByTestId('last-response')).toContainText('"echoed":"value-42"');
   });
+
+  test('calling ctx.respond twice surfaces a correlated error and keeps the connection alive', async ({
+    page,
+  }, testInfo) => {
+    // The handler calls ctx.respond twice. The second call throws, which
+    // propagates before the first reply is sent, so the client receives a
+    // correlated internal-error (not the first response) for this request.
+    await openPage(page, `test-${testInfo.testId}`);
+    await page.getByTestId('double-response').click();
+    await expect(page.getByTestId('last-response')).toContainText('internal-error');
+
+    // The connection is not torn down — a follow-up request still correlates.
+    await page.getByTestId('get-time').click();
+    await expect(page.getByTestId('last-response')).toContainText('fixed-now-string');
+  });
 });

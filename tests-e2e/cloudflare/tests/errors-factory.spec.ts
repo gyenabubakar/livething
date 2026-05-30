@@ -31,4 +31,22 @@ test.describe('errors-factory', () => {
     await page.getByTestId('trigger-not-found').click();
     await expect(page.getByTestId('error-result')).toContainText('not-found');
   });
+
+  test('a code-only error (no detail schema) delivers code with empty detail', async ({ page }) => {
+    await page.getByTestId('trigger-simple').click();
+    // error-result is `${code}:${JSON.stringify(detail ?? {})}` — a code-only
+    // error has no detail, so the detail half is `{}`.
+    await expect(page.getByTestId('error-result')).toHaveText('simple-error:{}');
+  });
+
+  test('an undeclared typed error still delivers its frame (code + detail)', async ({ page }) => {
+    // `unregistered` is NOT in the contract's errors:[...]. The engine logs a
+    // warning but still delivers the frame with the thrown code and detail —
+    // an unknown-but-thrown WSKitError is not swallowed or coerced.
+    await page.getByTestId('trigger-unregistered').click();
+    await expect(page.getByTestId('error-result')).toContainText('unregistered');
+    await expect(page.getByTestId('error-result')).toContainText('this error is not registered');
+    // The connection survives an undeclared-error throw.
+    await expect(page.getByTestId('status')).toHaveText('connected');
+  });
 });
