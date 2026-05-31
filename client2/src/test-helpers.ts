@@ -55,6 +55,11 @@ export class MockWebSocket {
     this.onmessage?.({ data });
   }
 
+  /** Simulate an inbound frame delivered exactly as given (e.g. an ArrayBuffer or Blob). */
+  emitRaw(data: unknown): void {
+    this.onmessage?.({ data });
+  }
+
   /** Simulate the server dropping the connection. */
   serverClose(code = 1006, reason = ''): void {
     this.readyState = 3;

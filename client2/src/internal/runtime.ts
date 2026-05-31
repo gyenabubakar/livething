@@ -13,6 +13,13 @@ export interface WireMessage {
 }
 
 /**
+ * An interception function. Runs after primitive `onIncoming` hooks, in
+ * declaration order, for every incoming message. Return nothing to pass
+ * through, return a new message to transform, or throw `Block` to drop it.
+ */
+export type InterceptFn = (message: WireMessage) => WireMessage | void;
+
+/**
  * The runtime side of a primitive — produced by a primitive's `setup` and
  * attached to the socket by `client()`. Hooks fire in dependency-sorted order.
  */

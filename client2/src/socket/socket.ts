@@ -1,11 +1,11 @@
-import { CloseCodes } from '@wskit/core';
+import { Block, CloseCodes, WSKitError } from '@wskit/core';
 import { MessageBuffer } from '~/socket/buffer.ts';
 import { Emitter } from '~/socket/emitter.ts';
 import { Keepalive } from '~/socket/keepalive.ts';
 import { Reconnection } from '~/socket/reconnection.ts';
 import type { SendOptions } from '~/endpoint.ts';
 import type { SocketConfig } from '~/internal/config.ts';
-import type { PrimitiveRuntime, WireMessage } from '~/internal/runtime.ts';
+import type { InterceptFn, PrimitiveRuntime, WireMessage } from '~/internal/runtime.ts';
 import type { ConnectionQuality, ConnectionState } from '~/types.ts';
 
 // ---------------------------------------------------------------------------
@@ -28,7 +28,7 @@ type SocketEvents = {
   reconnect: [];
   reconnectFailed: [];
   close: [event: CloseEvent];
-  error: [error: Event];
+  error: [error: Event | WSKitError];
   qualityChange: [quality: ConnectionQuality, latency: number];
 };
 
@@ -44,6 +44,13 @@ function defaultParse(raw: string): WireMessage | null {
     message.__wskit = parsed.__wskit as Record<string, unknown>;
   }
   return message;
+}
+
+/** Build a `WSKitError` from an `__error__` frame's `{ code, detail? }` payload. */
+function toWSKitError(payload: unknown): WSKitError {
+  const p = (payload ?? {}) as { code?: unknown; detail?: unknown };
+  const code = typeof p.code === 'string' ? p.code : 'internal-error';
+  return new WSKitError(code, p.detail);
 }
 
 function defaultSerialize(message: WireMessage): string {
@@ -102,6 +109,7 @@ export class SocketImpl {
   private readonly _parse: (raw: string) => WireMessage | null;
   private readonly _parseBinary: ((data: unknown) => WireMessage | null) | null;
   private readonly _serialize: (message: WireMessage) => string;
+  private readonly _intercepts: readonly InterceptFn[];
 
   /** @internal */
   constructor(config: SocketConfig, primitives: readonly PrimitiveRuntime[]) {
@@ -112,6 +120,7 @@ export class SocketImpl {
     this._parse = config.parse ?? defaultParse;
     this._parseBinary = config.parseBinary ?? null;
     this._serialize = config.serialize ?? defaultSerialize;
+    this._intercepts = config.intercepts ?? [];
     this._reconnection = new Reconnection(config, primitives);
     this._buffer = new MessageBuffer(config);
     this._keepalive = new Keepalive(config, {
@@ -240,7 +249,12 @@ export class SocketImpl {
     return this._emitter.on('close', callback);
   }
 
-  onError(callback: (error: Event) => void): () => void {
+  /** Protocol errors (WebSocket-level failures). */
+  onError(callback: (error: Event) => void): () => void;
+  /** Application errors — typed `WSKitError`s from fire-and-forget incoming handlers. */
+  onError(callback: (error: WSKitError) => void): () => void;
+  // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- overload impl must accept both forms
+  onError(callback: (error: any) => void): () => void {
     return this._emitter.on('error', callback);
   }
 
@@ -404,18 +418,44 @@ export class SocketImpl {
     }
 
     // Primitive onIncoming hooks — returning null consumes the message.
-    let message: WireMessage | null = parsed;
+    let message: WireMessage = parsed;
     for (const primitive of this._primitives) {
       if (!primitive.onIncoming) continue;
-      message = primitive.onIncoming(message!);
-      if (message === null) {
+      const result = primitive.onIncoming(message);
+      if (result === null) {
         this._log(`primitive '${primitive.id}' consumed '${parsed.event}'`);
         return;
       }
+      message = result;
     }
 
-    this._log(`received '${message!.event}'`, message!.payload);
-    this._dispatchMessage(message!.event, message!.payload);
+    // Unclaimed error frames surface on onError as a WSKitError. Frames carrying
+    // a routing marker (correlationId/ackId/streamId) are owned by their
+    // primitive and were consumed above — only "unrecognized" errors reach here.
+    if (message.event === '__error__') {
+      this._emitter.emit('error', toWSKitError(message.payload));
+      return;
+    }
+
+    // Intercept stage — runs last, can transform or drop (throw Block).
+    if (this._intercepts.length) {
+      for (const intercept of this._intercepts) {
+        try {
+          const result = intercept(message);
+          if (result) message = result;
+        } catch (error) {
+          if (error === Block) {
+            this._log(`intercept dropped '${message.event}'`);
+          } else {
+            this._log('intercept error — message dropped', error);
+          }
+          return;
+        }
+      }
+    }
+
+    this._log(`received '${message.event}'`, message.payload);
+    this._dispatchMessage(message.event, message.payload);
   }
 
   private _scheduleReconnect(): void {

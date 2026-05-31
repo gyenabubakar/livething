@@ -91,9 +91,13 @@ function buildSocket(
 // Collection helpers
 // ---------------------------------------------------------------------------
 
+/** Tags that may appear more than once (each call composes rather than conflicts). */
+const REPEATABLE_TAGS = new Set(['intercept']);
+
 function assertNoDuplicateTags(specs: readonly PrimitiveSpec[]): void {
   const seen = new Set<string>();
   for (const spec of specs) {
+    if (REPEATABLE_TAGS.has(spec._tag)) continue;
     if (seen.has(spec._tag)) {
       throw new WSKitConfigError(
         `[wskit] duplicate ${spec._tag}() — register each primitive at most once.`,
@@ -116,24 +120,28 @@ function assertDependenciesPresent(specs: readonly PrimitiveSpec[]): void {
   }
 }
 
-/** Topologically sort by `dependencies` (deps run before dependents). Throws on cycles. */
+/**
+ * Topologically sort by `dependencies` (deps run before dependents). Visit
+ * state is keyed by spec identity, not tag, so repeatable primitives (e.g.
+ * `intercept`) that share a tag are each preserved. Throws on cycles.
+ */
 function topoSort(specs: readonly PrimitiveSpec[]): PrimitiveSpec[] {
   const byTag = new Map(specs.map((s) => [s._tag, s]));
   const sorted: PrimitiveSpec[] = [];
-  const state = new Map<string, 'visiting' | 'done'>();
+  const state = new Map<PrimitiveSpec, 'visiting' | 'done'>();
 
   function visit(spec: PrimitiveSpec): void {
-    const status = state.get(spec._tag);
+    const status = state.get(spec);
     if (status === 'done') return;
     if (status === 'visiting') {
       throw new WSKitConfigError(`[wskit] circular primitive dependency detected at ${spec._tag}.`);
     }
-    state.set(spec._tag, 'visiting');
+    state.set(spec, 'visiting');
     for (const dep of spec.dependencies ?? []) {
       const depSpec = byTag.get(dep);
       if (depSpec) visit(depSpec);
     }
-    state.set(spec._tag, 'done');
+    state.set(spec, 'done');
     sorted.push(spec);
   }
 

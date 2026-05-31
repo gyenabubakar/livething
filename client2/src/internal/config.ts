@@ -1,4 +1,4 @@
-import type { WireMessage } from '~/internal/runtime.ts';
+import type { InterceptFn, WireMessage } from '~/internal/runtime.ts';
 
 // ---------------------------------------------------------------------------
 // Internal resolved config bag
@@ -51,6 +51,9 @@ export interface SocketConfig {
   parseBinary?: (data: unknown) => WireMessage | null;
   parse?: (raw: string) => WireMessage | null;
   serialize?: (message: WireMessage) => string;
+
+  // ── interception ──
+  intercepts?: InterceptFn[];
 
   // ── debug ──
   debug?: boolean;

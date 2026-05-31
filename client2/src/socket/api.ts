@@ -1,3 +1,4 @@
+import type { WSKitError } from '@wskit/core';
 import type { Endpoint } from '~/endpoint.ts';
 import type { CloseEvent } from '~/socket/socket.ts';
 import type {
@@ -40,8 +41,10 @@ export interface SocketConnection {
   onReconnectFailed(callback: () => void): () => void;
   /** Fires on every WebSocket close, including closes that trigger reconnection. */
   onClose(callback: (event: CloseEvent) => void): () => void;
-  /** Fires on WebSocket protocol errors. */
+  /** Fires on WebSocket protocol errors (WebSocket-level failures). */
   onError(callback: (error: Event) => void): () => void;
+  /** Fires on typed application errors (`WSKitError`) from incoming handlers. */
+  onError(callback: (error: WSKitError) => void): () => void;
   /** Fires when connection quality transitions between tiers. */
   onQualityChange(callback: (quality: ConnectionQuality, latency: number) => void): () => void;
 
