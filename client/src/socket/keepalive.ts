@@ -19,7 +19,7 @@ const DEFAULT_THRESHOLDS = { excellent: 100, good: 300, degraded: 1000 };
  * Manages the keepalive ping/pong cycle, latency measurement,
  * connection quality tiers, and missed pong detection.
  *
- * Internal module — not exported from the package. Used by Socket.
+ * Internal class — not exported from the package. Used by Socket.
  */
 export class Keepalive {
   private pingTimer: ReturnType<typeof setInterval> | null = null;

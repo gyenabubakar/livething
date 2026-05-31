@@ -1,0 +1,47 @@
+import * as v from 'valibot';
+import { describe, expect, it, vi } from 'vitest';
+import { generate, nudge, start, stream } from './stream.ts';
+
+describe('stream primitives', () => {
+  it('creates start declarations with and without a schema validator', () => {
+    const plainStart = start('ai', undefined, { broadcast: true });
+    const schemaStart = start('ai', v.object({ prompt: v.string() }));
+
+    expect(plainStart).toEqual({
+      event: 'ai',
+      validator: undefined,
+      broadcast: true,
+    });
+    expect(schemaStart.event).toBe('ai');
+    expect(schemaStart.validator).toBeDefined();
+  });
+
+  it('creates nudge declarations with and without validators', () => {
+    const plain = nudge('cancel');
+    const parsed = nudge('add-context', v.object({ text: v.string() }));
+
+    expect(plain).toEqual({ event: 'cancel', validator: undefined });
+    expect(parsed.event).toBe('add-context');
+    expect(parsed.validator).toBeDefined();
+  });
+
+  it('creates paired stream and generate primitives keyed by the trigger event', () => {
+    const streamDecl = stream(
+      start('ai', v.object({ prompt: v.string() }), { broadcast: true }),
+      nudge('cancel'),
+    );
+    const generator = vi.fn(async function* () {
+      yield { token: 'hi' };
+    });
+    const generateDecl = generate(streamDecl, generator);
+
+    expect(streamDecl.__wskit).toBe('stream');
+    expect(streamDecl.__identity[1]).toBe('ai');
+    expect(streamDecl.broadcast).toBe(true);
+    expect(streamDecl.nudges).toHaveLength(1);
+    expect(generateDecl.__wskit).toBe('stream-generate');
+    expect(generateDecl.__identity[1]).toBe('ai');
+    expect(generateDecl.stream).toBe(streamDecl);
+    expect(generateDecl.generator).toBe(generator);
+  });
+});

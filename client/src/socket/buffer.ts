@@ -20,7 +20,7 @@ interface BufferedMessage {
  * Uses a ring buffer internally so overflow eviction is O(1) instead of
  * O(n) array shifting.
  *
- * Internal module — not exported from the package. Used by Socket.
+ * Internal class — not exported from the package. Used by Socket.
  */
 export class MessageBuffer {
   private ring: (BufferedMessage | null)[];

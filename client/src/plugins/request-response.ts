@@ -82,6 +82,7 @@ export class RequestResponse extends Plugin<
    * Send a request and wait for the matching response. Called by the socket
    * when `socket.request()` is invoked.
    */
+  // oxlint-disable-next-line max-params -- TODO: enforce this rule when client library is rewritten
   sendRequest(
     event: string,
     payload: unknown,

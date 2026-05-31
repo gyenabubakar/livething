@@ -1,0 +1,13 @@
+# Build output
+**/dist/
+**/build/
+*.tsbuildinfo
+
+# Test / coverage artifacts
+**/coverage/
+**/test-results/
+**/playwright-report/
+
+# Framework-generated, not committed
+**/.svelte-kit/
+**/.wrangler/

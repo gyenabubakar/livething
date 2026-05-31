@@ -82,6 +82,7 @@ export class Ack extends Plugin<AckTypeFn> {
    * Send a message and wait for the server to acknowledge it. Called by the
    * socket when `socket.send.withAck()` is invoked.
    */
+  // oxlint-disable-next-line max-params -- TODO: enforce this rule when client library is rewritten
   sendWithAck(
     event: string,
     payload: unknown,

@@ -7,23 +7,44 @@
     "node": ">=24"
   },
   "scripts": {
+    "postinstall": "pnpm -r run build",
     "prepare": "husky",
-    "build": "pnpm -r --parallel run build",
+    "build": "pnpm -r run build",
     "dev": "pnpm -r --parallel run dev",
     "test": "pnpm -r --parallel run test",
+    "test:unit": "pnpm -r --parallel --filter \"!@wskit/monorepo\" --filter \"!@wskit/tests-e2e-cloudflare\" run test",
+    "test:e2e": "pnpm --filter @wskit/tests-e2e-cloudflare run test",
+    "bench": "pnpm -r run bench",
     "typecheck": "pnpm -r --parallel run typecheck",
-    "oxlint": "oxlint --fix .",
+    "dup": "jscpd",
+    "commitlint": "commitlint --edit",
+    "commitlint:last": "commitlint --from HEAD~1 --to HEAD --verbose",
+    "lint": "oxlint --fix .",
+    "lint:check": "oxlint .",
     "format": "prettier --cache --log-level=error --write .",
-    "clean": "pnpm -r --parallel run clean"
+    "format:check": "prettier --cache --log-level=error --check .",
+    "clean": "pnpm -r --parallel run clean",
+    "check": "pnpm format && pnpm typecheck && pnpm lint && pnpm test",
+    "check:ci": "pnpm format:check && pnpm typecheck && pnpm lint:check && pnpm test:unit"
   },
   "devDependencies": {
+    "@commitlint/cli": "^20.5.0",
+    "@commitlint/config-conventional": "^20.5.0",
     "@ianvs/prettier-plugin-sort-imports": "^4.4.2",
     "@types/node": "^24.12.0",
+    "@vitest/coverage-v8": "^4.1.4",
     "husky": "^9.1.7",
+    "jscpd": "^4.2.3",
     "lint-staged": "^15.4.3",
     "oxlint": "^0.16.10",
     "prettier": "^3.5.3",
     "typescript": "^5.8.2",
     "vitest": "^4.1.2"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "workerd"
+    ]
   }
 }

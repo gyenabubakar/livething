@@ -1,14 +1,36 @@
 import { resolve } from 'path';
 import { defineConfig } from 'vite';
 import dts from 'vite-plugin-dts';
+import { relativizeTildeImports } from '../scripts/vite-dts.ts';
 
 export default defineConfig({
-  plugins: [dts({ rollupTypes: true })],
+  plugins: [
+    dts({
+      exclude: ['**/*.spec.ts', '**/*.test.ts', '**/*.test-d.ts'],
+      beforeWriteFile: relativizeTildeImports(resolve(__dirname, 'dist')),
+    }),
+  ],
+  resolve: {
+    alias: {
+      '~': resolve(__dirname, 'src'),
+    },
+  },
   build: {
     lib: {
-      entry: resolve(__dirname, 'src/index.ts'),
+      entry: {
+        index: resolve(__dirname, 'src/index.ts'),
+        '_adapters/index': resolve(__dirname, 'src/_adapters/index.ts'),
+        errors: resolve(__dirname, 'src/errors/index.ts'),
+      },
       formats: ['es'],
-      fileName: 'index',
+    },
+    minify: true,
+    sourcemap: true,
+    rollupOptions: {
+      // @wskit/core is now a real published peer; consumers install it
+      // alongside @wskit/server. Keep it external so the server bundle does
+      // not duplicate core's runtime code.
+      external: [/^@wskit\/core(?:\/.*)?$/, /^@standard-schema\/.+$/],
     },
   },
 });

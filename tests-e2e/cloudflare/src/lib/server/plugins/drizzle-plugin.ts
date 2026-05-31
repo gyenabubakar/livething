@@ -1,0 +1,226 @@
+import { error, outgoing, plugin, scheduled, t } from '@wskit/server';
+import { count, eq } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/durable-sqlite';
+import * as v from 'valibot';
+import type { Platform } from '@wskit/server-cloudflare';
+import type { DrizzleSqliteDODatabase } from 'drizzle-orm/durable-sqlite';
+import * as schema from './schema.ts';
+import { pluginMeta, records } from './schema.ts';
+import type { InsertRecord } from './schema.ts';
+
+interface LastConnectionState {
+  id: string;
+  username: string | null;
+  tags: { group: string; key: string }[];
+}
+
+export interface DrizzleApi {
+  insert(data: Omit<InsertRecord, 'id' | 'createdAt'>): schema.Record;
+  findAll(): schema.Record[];
+  findById(id: number): schema.Record | undefined;
+  deleteById(id: number): boolean;
+  count(): number;
+  getMessageCount(): number;
+  getOutgoingCount(): number;
+  getDisconnectCount(): number;
+  getLastGeneratedId(): string | null;
+  getLastState(): LastConnectionState | null;
+  getShutdownCount(): number;
+  getCurrentConnectionId(): string | null;
+}
+
+const taskDataSchema = v.object({ value: v.string() });
+
+export const Drizzle = plugin('e2e:drizzle', {
+  args: t<{ migrate: boolean }>(),
+  requires: { storage: true },
+  errors: {
+    denied: error('denied', v.object({ reason: v.string(), op: v.string() })),
+  },
+  definitions: [
+    outgoing('drizzle-ready', v.object({ tables: v.array(v.string()) })),
+    scheduled('drizzle-vacuum'),
+    scheduled('drizzle-every-tick', { every: 500 }),
+    scheduled('drizzle-flaky', { retry: [50, 100, 200] }),
+    scheduled('drizzle-module-always-fail', { retry: [50, 100] }),
+    scheduled('drizzle-query-dlq'),
+    scheduled('drizzle-task-with-data', { data: taskDataSchema }),
+  ],
+
+  setup(args, hooks): () => DrizzleApi {
+    let db: DrizzleSqliteDODatabase<typeof schema>;
+    let messageCount = 0;
+    let outgoingCount = 0;
+    let disconnectCount = 0;
+    let lastGeneratedId: string | null = null;
+    let lastState: LastConnectionState | null = null;
+
+    hooks.onInit((ctx) => {
+      db = drizzle((ctx.platform as Platform).ctx.storage, { schema });
+
+      if (args.migrate) {
+        db.run(
+          `CREATE TABLE IF NOT EXISTS records (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            value TEXT NOT NULL,
+            created_at INTEGER NOT NULL
+          )`,
+        );
+      }
+
+      db.run(
+        `CREATE TABLE IF NOT EXISTS plugin_meta (
+          key TEXT PRIMARY KEY,
+          value INTEGER NOT NULL
+        )`,
+      );
+      db.run(`INSERT OR IGNORE INTO plugin_meta (key, value) VALUES ('shutdown_count', 0)`);
+    });
+
+    hooks.onConnect((ctx) => {
+      const state = hooks.getState();
+      lastGeneratedId = hooks.generateId('drizzle');
+      lastState = {
+        id: state.id,
+        username:
+          state.meta && typeof state.meta.username === 'string' ? state.meta.username : null,
+        tags: state.tags.map((t) => ({ group: t.group, key: t.key })),
+      };
+      ctx.send('drizzle-ready', { tables: ['records'] });
+    });
+
+    hooks.onDisconnect((_ctx) => {
+      disconnectCount++;
+    });
+
+    hooks.onShutdown(() => {
+      db.run(
+        "INSERT INTO plugin_meta (key, value) VALUES ('shutdown_count', 1) ON CONFLICT(key) DO UPDATE SET value = value + 1",
+      );
+      console.log('[drizzle-plugin] shutdown, processed', messageCount, 'messages');
+    });
+
+    hooks.onIncoming((message) => {
+      messageCount++;
+      if (
+        message.event === 'plugin-rewrite-probe' &&
+        message.payload &&
+        typeof message.payload === 'object'
+      ) {
+        return {
+          ...(message.payload as Record<string, unknown>),
+          text: `rewritten:${(message.payload as { text: string }).text}`,
+          rewritten: true,
+        };
+      }
+    });
+
+    hooks.onOutgoing((message) => {
+      outgoingCount++;
+      if (
+        message.event === '__e2e:drizzle:drizzle-ready' &&
+        message.payload &&
+        typeof message.payload === 'object'
+      ) {
+        return {
+          ...(message.payload as Record<string, unknown>),
+          hooked: true,
+        };
+      }
+    });
+
+    hooks.scheduled('drizzle-vacuum', async (ctx) => {
+      ctx.broadcast('drizzle-vacuum-done', { timestamp: Date.now() });
+    });
+
+    let everyTickCount = 0;
+    hooks.scheduled('drizzle-every-tick', async (ctx) => {
+      everyTickCount++;
+      ctx.broadcast('plugin-every-tick', { count: everyTickCount });
+    });
+
+    let flakyAttempts = 0;
+    hooks.scheduled('drizzle-flaky', async (ctx) => {
+      flakyAttempts++;
+      if (flakyAttempts < 3) throw new Error('module flaky failure');
+      ctx.broadcast('plugin-flaky-result', { attempts: flakyAttempts });
+      flakyAttempts = 0;
+    });
+
+    hooks.scheduled('drizzle-module-always-fail', async () => {
+      throw new Error('module permanent failure');
+    });
+
+    hooks.scheduled('drizzle-query-dlq', async (ctx) => {
+      const rows = ctx.sql
+        .exec<{
+          taskId: string;
+          attempts: number;
+          error: string;
+        }>(
+          'SELECT taskId, attempts, error FROM __wskit_scheduled_dlq ORDER BY failedAt DESC LIMIT 1',
+        )
+        .toArray();
+      const row = rows[0];
+      if (row) {
+        const err = JSON.parse(row.error) as { message: string };
+        ctx.broadcast('plugin-dlq-result', {
+          taskId: row.taskId,
+          attempts: row.attempts,
+          error: err.message,
+        });
+      }
+    });
+
+    hooks.scheduled<{ value: string }>('drizzle-task-with-data', async (ctx, data) => {
+      ctx.broadcast('plugin-task-data-result', {
+        result: `validated-data-received:${data.value}`,
+      });
+    });
+
+    return () => ({
+      insert(data) {
+        const [row] = db.insert(records).values(data).returning().all();
+        return row!;
+      },
+      findAll() {
+        return db.select().from(records).orderBy(records.id).all();
+      },
+      findById(id) {
+        return db.select().from(records).where(eq(records.id, id)).get();
+      },
+      deleteById(id) {
+        const deleted = db.delete(records).where(eq(records.id, id)).returning().all();
+        return deleted.length > 0;
+      },
+      count() {
+        const [row] = db.select({ value: count() }).from(records).all();
+        return row?.value ?? 0;
+      },
+      getMessageCount() {
+        return messageCount;
+      },
+      getOutgoingCount() {
+        return outgoingCount;
+      },
+      getDisconnectCount() {
+        return disconnectCount;
+      },
+      getLastGeneratedId() {
+        return lastGeneratedId;
+      },
+      getLastState() {
+        return lastState;
+      },
+      getShutdownCount() {
+        return (
+          db.select().from(pluginMeta).where(eq(pluginMeta.key, 'shutdown_count')).get()?.value ?? 0
+        );
+      },
+      getCurrentConnectionId() {
+        return hooks.getState()?.id ?? null;
+      },
+    });
+  },
+});

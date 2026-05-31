@@ -1,0 +1,18 @@
+/**
+ * Wire metadata for one replay frame.
+ *
+ * `seq`          — monotonically increasing per-connection sequence number.
+ * `messageId`    — unique id for dedup on the client.
+ * `channel`      — concrete channel name when the replay is pinned to a channel
+ *                  (omit for true top-level replays).
+ * `channelScope` — family key for dynamic channels, `null` for static channels,
+ *                  omit/`null` for true top-level replays. Pass this back
+ *                  alongside `channel` so client-side family routing keeps
+ *                  working on the resent frame.
+ */
+export interface ReplayWire {
+  readonly seq: number;
+  readonly messageId: string;
+  readonly channel?: string;
+  readonly channelScope?: string | null;
+}

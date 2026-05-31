@@ -1,0 +1,539 @@
+/* oxlint-disable @typescript-eslint/no-explicit-any */
+import { assertValidWSKitIdentifier } from '@wskit/core';
+import {
+  compileChannelPrimitive,
+  validateChannelFamilyPatternsDisjointFromStaticNames,
+} from '~/channel/compile.ts';
+import { compileNamespacePrimitive } from '~/namespace/compile.ts';
+import { collectReplayClaimedScopes } from '~/replay/compile.ts';
+import type * as PrimitiveCore from '~/primitive.ts';
+import type * as DefineServer from '~/server-definition.ts';
+import * as EngineCompileUtils from './utils.ts';
+import type * as EngineCompileTypes from './types.ts';
+
+// Walk the declarative primitive tree and fill the compiled runtime shape.
+// Per-kind work lives next to the primitive (channel/compile.ts,
+// namespace/compile.ts, intercept/compile.ts); this function dispatches.
+function visitCompiledPrimitives(
+  compiled: EngineCompileTypes.CompiledServer,
+  primitives: readonly PrimitiveCore.Primitive[],
+): void {
+  for (const primitive of primitives) {
+    EngineCompileUtils.mergeRequires(compiled.requires, primitive.__requires);
+
+    switch (primitive.__wskit) {
+      case 'ack':
+        continue;
+
+      case 'sequence':
+        continue;
+
+      case 'replay':
+        continue;
+
+      case 'outgoing': {
+        const p = primitive as EngineCompileTypes.AnyOutgoing;
+        EngineCompileUtils.setUniqueOrThrow(compiled.outgoing, p.event, {
+          value: p,
+          kind: 'outgoing',
+        });
+        continue;
+      }
+
+      case 'incoming': {
+        const p = primitive as EngineCompileTypes.AnyIncoming;
+        EngineCompileUtils.setUniqueOrThrow(compiled.incoming, p.event, {
+          value: p,
+          kind: 'incoming',
+        });
+        continue;
+      }
+
+      case 'request': {
+        const p = primitive as EngineCompileTypes.AnyRequest;
+        EngineCompileUtils.setUniqueOrThrow(compiled.requests, p.event, {
+          value: p,
+          kind: 'request',
+        });
+        continue;
+      }
+
+      case 'stream-generate': {
+        const p = primitive as EngineCompileTypes.AnyGenerate;
+        EngineCompileUtils.setUniqueOrThrow(compiled.streams, p.event, {
+          value: p,
+          kind: 'stream',
+        });
+        continue;
+      }
+
+      case 'resumable-stream-generate': {
+        const p = primitive as EngineCompileTypes.AnyResumableStream;
+        EngineCompileUtils.setUniqueOrThrow(compiled.resumableStreams, p.event, {
+          value: p,
+          kind: 'resumableStream',
+        });
+        continue;
+      }
+
+      case 'recorded-stream-generate': {
+        const p = primitive as EngineCompileTypes.AnyRecordedStream;
+        EngineCompileUtils.setUniqueOrThrow(compiled.recordedStreams, p.event, {
+          value: p,
+          kind: 'recordedStream',
+        });
+        continue;
+      }
+
+      case 'scheduled': {
+        const p = primitive as EngineCompileTypes.AnyScheduled;
+        EngineCompileUtils.setUniqueOrThrow(compiled.scheduled, p.taskId, {
+          value: p,
+          kind: 'scheduled',
+        });
+        continue;
+      }
+
+      case 'intercept':
+        compiled.intercepts.push(primitive as EngineCompileTypes.AnyIntercept);
+        continue;
+
+      case 'plugin':
+        compiled.plugins.push(primitive as EngineCompileTypes.AnyPlugin);
+        continue;
+    }
+
+    if (EngineCompileUtils.isNamespacePrimitive(primitive)) {
+      EngineCompileUtils.setUniqueOrThrow(compiled.namespaces, primitive.pattern, {
+        value: compileNamespacePrimitive(primitive),
+        kind: 'namespace',
+      });
+      continue;
+    }
+
+    if (EngineCompileUtils.isChannelPrimitive(primitive)) {
+      const compiledChannel = compileChannelPrimitive(primitive);
+
+      if (typeof primitive.pattern === 'string') {
+        if (compiled.channelFamilies.has(primitive.pattern)) {
+          throw new Error(
+            `[wskit] Channel name '${primitive.pattern}' is also registered as a channel family key. ` +
+              `Static channel names and family keys must be disjoint — rename one of them.`,
+          );
+        }
+        EngineCompileUtils.setUniqueOrThrow(compiled.channels, primitive.pattern, {
+          value: compiledChannel,
+          kind: 'channel',
+        });
+      } else {
+        if (compiled.channels.has(primitive.pattern.key)) {
+          throw new Error(
+            `[wskit] Channel family key '${primitive.pattern.key}' is also registered as a static channel name. ` +
+              `Static channel names and family keys must be disjoint — rename one of them.`,
+          );
+        }
+        EngineCompileUtils.setUniqueOrThrow(compiled.channelFamilies, primitive.pattern.key, {
+          value: compiledChannel,
+          kind: 'channel family',
+        });
+      }
+
+      continue;
+    }
+  }
+}
+
+/**
+ * Convert the public server definition into the compact structure the engine
+ * actually executes.
+ */
+export function compileHandlerDefinition(
+  handler: DefineServer.ServerDefinition,
+): EngineCompileTypes.CompiledServer {
+  const compiled: EngineCompileTypes.CompiledServer = {
+    outgoing: new Map(),
+    incoming: new Map(),
+    requests: new Map(),
+    streams: new Map(),
+    resumableStreams: new Map(),
+    recordedStreams: new Map(),
+    intercepts: [],
+    namespaces: new Map(),
+    channels: new Map(),
+    channelFamilies: new Map(),
+    scheduled: new Map(),
+    plugins: [],
+    requires: {},
+    replayClaimedChannelKeys: new Set<string>(),
+  };
+
+  visitCompiledPrimitives(compiled, handler.primitives);
+  collectReplayClaimedScopes(handler.primitives, compiled.replayClaimedChannelKeys);
+  validateUniquePluginIds(compiled);
+  validateUniquePluginEventNames(compiled);
+  validatePluginDependencies(compiled, handler.__features);
+  validateReplayDependencies(handler.primitives);
+  validateNoCrossPrimitiveEventCollisions(compiled);
+  validateNoReservedEventNames(compiled, collectPluginEventNames(compiled));
+  validateScopeAndEventNameSyntax(compiled);
+  validateChannelFamilyPatternsDisjointFromStaticNames(compiled);
+  return compiled;
+}
+
+/**
+ * Refuse to boot when two mounted plugins share the same id. Plugin ids own a
+ * wire prefix (`__<id>:<event>`) and the plugin's `<Plugin>.use(ctx)` API
+ * lookup keys off the id. Two plugins with the same id would silently overwrite
+ * each other's prefixed event ownership and make the .use() lookup ambiguous.
+ */
+function validateUniquePluginIds(compiled: EngineCompileTypes.CompiledServer): void {
+  const seen = new Set<string>();
+  for (const plugin of compiled.plugins) {
+    if (seen.has(plugin.id)) {
+      throw new Error(
+        `[wskit] Duplicate plugin id "${plugin.id}". Each plugin id must be unique across all mounted plugins.`,
+      );
+    }
+    seen.add(plugin.id);
+  }
+}
+
+/**
+ * Refuse to boot when a plugin lists a `dependencies: [...]` feature that the
+ * host contract did not turn on. Without this, the plugin's `setup()` would
+ * only fail later when it reached for the missing capability — often on the
+ * first request, deep in the handler stack, far from the real cause.
+ *
+ * Checks against `features`, the set of flags read straight from the contract
+ * config (`replay`, `persistence`, `binary`, and so on). So a flag set to
+ * `false` reads as off and a flag set to `true` reads as on, whatever handlers
+ * the contract did or did not register.
+ */
+function validatePluginDependencies(
+  compiled: EngineCompileTypes.CompiledServer,
+  features: ReadonlySet<string> | undefined,
+): void {
+  for (const plugin of compiled.plugins) {
+    for (const dep of plugin.dependencies) {
+      if (!features?.has(dep)) {
+        throw new Error(
+          `[wskit] Plugin "${plugin.id}" declares a dependency on "${dep}", ` +
+            `but the contract did not enable it. Add \`${dep}: true\` to the contract config.`,
+        );
+      }
+    }
+  }
+}
+
+function hasAnyReplayPrimitive(primitives: readonly PrimitiveCore.Primitive[]): boolean {
+  for (const primitive of primitives) {
+    if (primitive.__wskit === 'replay' && !(primitive as { disabled?: boolean }).disabled) {
+      return true;
+    }
+    if (
+      EngineCompileUtils.isChannelPrimitive(primitive) &&
+      hasAnyReplayPrimitive(primitive.primitives)
+    ) {
+      return true;
+    }
+    if (
+      EngineCompileUtils.isNamespacePrimitive(primitive) &&
+      hasAnyReplayPrimitive(primitive.primitives)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Refuse to boot when replay is enabled but the primitives it relies on are
+ * missing or misconfigured. Replay persists every outgoing message keyed by
+ * `messageId` (stamped by dedup) and `seq` (allocated by sequence). Without
+ * dedup the first persisted send throws "missing messageId" at runtime;
+ * without `sequence: { persist: true }` the seq column is unstable across
+ * restarts and replay cannot order rows. Fail fast at compile so the misconfig
+ * surfaces at boot instead of on the first message.
+ */
+function validateReplayDependencies(primitives: readonly PrimitiveCore.Primitive[]): void {
+  // dedup and sequence are top-level only — they have no meaning nested inside
+  // a channel/namespace. Replay primitives, however, can appear at the top
+  // level OR inside any channel/namespace block, so we walk recursively to
+  // catch nested cases that the top-level scan would miss.
+  let hasDedup = false;
+  let hasPersistentSequence = false;
+  for (const primitive of primitives) {
+    if (primitive.__wskit === 'dedup') hasDedup = true;
+    if (primitive.__wskit === 'sequence' && (primitive as { persist?: boolean }).persist) {
+      hasPersistentSequence = true;
+    }
+  }
+  const hasReplay = hasAnyReplayPrimitive(primitives);
+  if (!hasReplay) return;
+  if (!hasDedup) {
+    throw new Error(
+      `[wskit] contract uses replay but did not enable dedup. Replay persists every outgoing message keyed by messageId, which dedup stamps. Add \`dedup: true\` to the contract config.`,
+    );
+  }
+  if (!hasPersistentSequence) {
+    throw new Error(
+      `[wskit] contract uses replay but sequence is not persistent. Replay orders stored rows by seq, which only survives restarts when sequence persists. Add \`sequence: { persist: true }\` to the contract config.`,
+    );
+  }
+}
+
+function validateUniquePluginEventNames(compiled: EngineCompileTypes.CompiledServer): void {
+  const seen = new Map<string, string>();
+  for (const plugin of compiled.plugins) {
+    for (const eventName of Object.keys(plugin.outgoing)) {
+      const prefixed = `__${plugin.id}:${eventName}`;
+      const owner = seen.get(prefixed);
+      if (owner !== undefined) {
+        throw new Error(
+          `[wskit] Duplicate plugin event "${prefixed}" declared by plugins "${owner}" and "${plugin.id}".`,
+        );
+      }
+      seen.set(prefixed, plugin.id);
+    }
+  }
+}
+
+/**
+ * Refuse to boot when a scope or event name uses characters reserved by the
+ * `contract.matches(...)` / `contract.unsafeCast(...)` path key grammar.
+ *
+ * Path keys take the form `[<@channel | #namespace>::]event`, so:
+ * - Scope names (channel + namespace) starting with `@` or `#` would be
+ *   indistinguishable from the scope prefix.
+ * - `::` is the separator between scope name and event name, so neither side
+ *   may contain it.
+ *
+ * These rules are easier to enforce as a build-time hard error than to escape
+ * at parse time; real-world names don't need any of these characters.
+ */
+function validateScopeAndEventNameSyntax(compiled: EngineCompileTypes.CompiledServer): void {
+  function checkScopeName(name: string, kind: 'channel' | 'namespace'): void {
+    assertValidWSKitIdentifier(name, `${kind} name`);
+    if (name.startsWith('@') || name.startsWith('#')) {
+      throw new Error(
+        `[wskit] ${kind} name '${name}' starts with a reserved prefix character ('@' or '#'). ` +
+          `Those prefixes are reserved for the contract.matches(...) path key syntax — pick a different name.`,
+      );
+    }
+    if (name.includes('::')) {
+      throw new Error(
+        `[wskit] ${kind} name '${name}' contains '::', which is reserved as the separator in ` +
+          `the contract.matches(...) path key syntax — pick a different name.`,
+      );
+    }
+  }
+
+  function checkEventName(event: string, scopeLabel: string): void {
+    if (event.includes('::')) {
+      throw new Error(
+        `[wskit] Event name '${event}' in ${scopeLabel} contains '::', which is reserved as the ` +
+          `separator in the contract.matches(...) path key syntax — pick a different name.`,
+      );
+    }
+  }
+
+  function checkEventsInScope(
+    scope: {
+      outgoing: ReadonlyMap<string, unknown>;
+      incoming: ReadonlyMap<string, unknown>;
+      requests: ReadonlyMap<string, unknown>;
+      streams: ReadonlyMap<string, EngineCompileTypes.AnyGenerate>;
+      resumableStreams?: ReadonlyMap<string, EngineCompileTypes.AnyResumableStream>;
+      recordedStreams?: ReadonlyMap<string, EngineCompileTypes.AnyRecordedStream>;
+    },
+    scopeLabel: string,
+  ): void {
+    for (const event of scope.outgoing.keys()) checkEventName(event, scopeLabel);
+    for (const event of scope.incoming.keys()) checkEventName(event, scopeLabel);
+    for (const event of scope.requests.keys()) checkEventName(event, scopeLabel);
+    for (const event of scope.streams.keys()) checkEventName(event, scopeLabel);
+    if (scope.resumableStreams) {
+      for (const event of scope.resumableStreams.keys()) checkEventName(event, scopeLabel);
+    }
+    if (scope.recordedStreams) {
+      for (const event of scope.recordedStreams.keys()) checkEventName(event, scopeLabel);
+    }
+  }
+
+  checkEventsInScope(compiled, 'top-level');
+
+  for (const namespace of compiled.namespaces.values()) {
+    checkScopeName(namespace.name, 'namespace');
+    checkEventsInScope(namespace, `namespace '${namespace.name}'`);
+  }
+
+  for (const channel of compiled.channels.values()) {
+    checkScopeName(channel.key, 'channel');
+    checkEventsInScope(channel, `channel '${channel.key}'`);
+  }
+
+  for (const family of compiled.channelFamilies.values()) {
+    checkScopeName(family.key, 'channel');
+    checkEventsInScope(family, `channel family '${family.key}'`);
+  }
+}
+
+/**
+ * Refuse to boot when an event name is registered as more than one of
+ * `incoming` / `request` / `stream` / `resumableStream` / `recordedStream`
+ * within the same scope. The dispatcher picks the first match in that order,
+ * so the loser is unreachable — a client `request(...)` against a shadowed
+ * name hangs forever, and a stream trigger against a recorded-stream name
+ * shadowed by an incoming handler never starts a stream.
+ *
+ * The boot-time guard here covers the bypass case: hand-rolled primitives
+ * that go through `as any` and skip the builder.
+ */
+function validateNoCrossPrimitiveEventCollisions(
+  compiled: EngineCompileTypes.CompiledServer,
+): void {
+  function check(
+    scope: {
+      incoming: ReadonlyMap<string, unknown>;
+      requests: ReadonlyMap<string, unknown>;
+      streams: ReadonlyMap<string, unknown>;
+      resumableStreams?: ReadonlyMap<string, unknown>;
+      recordedStreams?: ReadonlyMap<string, unknown>;
+    },
+    label: string,
+  ): void {
+    const resumable = scope.resumableStreams ?? (new Map() as ReadonlyMap<string, unknown>);
+    const recorded = scope.recordedStreams ?? (new Map() as ReadonlyMap<string, unknown>);
+    const allNames = new Set<string>([
+      ...scope.incoming.keys(),
+      ...scope.requests.keys(),
+      ...scope.streams.keys(),
+      ...resumable.keys(),
+      ...recorded.keys(),
+    ]);
+    for (const event of allNames) {
+      const where: string[] = [];
+      if (scope.incoming.has(event)) where.push('incoming');
+      if (scope.requests.has(event)) where.push('request');
+      if (scope.streams.has(event)) where.push('stream');
+      if (resumable.has(event)) where.push('resumableStream');
+      if (recorded.has(event)) where.push('recordedStream');
+      if (where.length > 1) {
+        throw new Error(
+          `[wskit] Event name '${event}' is registered as both '${where[0]}' and '${where[1]}' in ${label}. ` +
+            `An event name can only belong to one of incoming/request/stream/resumableStream/recordedStream within a scope — pick a different name.`,
+        );
+      }
+    }
+  }
+
+  check(compiled, 'top-level');
+  for (const namespace of compiled.namespaces.values()) {
+    check(namespace, `namespace '${namespace.name}'`);
+  }
+  for (const channel of compiled.channels.values()) {
+    check(channel, `channel '${channel.key}'`);
+  }
+  for (const family of compiled.channelFamilies.values()) {
+    check(family, `channel family '${family.key}'`);
+  }
+}
+
+// Build the set of double-underscore outgoing event names the installed
+// plugins actually declared. Used by the reserved-name guard to allow those
+// exact names through while still rejecting any user-declared double-
+// underscore events.
+function collectPluginEventNames(compiled: EngineCompileTypes.CompiledServer): ReadonlySet<string> {
+  const names = new Set<string>();
+  for (const pluginInstance of compiled.plugins) {
+    for (const eventName of Object.keys(pluginInstance.outgoing)) {
+      names.add(EngineCompileUtils.prefixedPluginEvent(pluginInstance.id, eventName));
+    }
+  }
+  return names;
+}
+
+/**
+ * Walk every event name registered on the compiled server and refuse boot
+ * if any clash with the WSKit wire protocol. Also catches the bypass case
+ * where a developer hand-rolls an event-shaped object instead of calling
+ * `event(name, schema)` — the runtime guard sees the same primitives.
+ */
+function validateNoReservedEventNames(
+  compiled: EngineCompileTypes.CompiledServer,
+  declaredPluginEvents: ReadonlySet<string>,
+): void {
+  function check(event: string, scopeLabel: string): void {
+    if (event === 'ping' || event === 'pong') {
+      throw new Error(
+        `[wskit] '${event}' is a reserved keepalive frame name (used by ${scopeLabel}). ` +
+          `Pick a different name for your event.`,
+      );
+    }
+    // The double-underscore prefix is reserved for WSKit protocol events
+    // (__subscribe__, __error__, ...) and plugin-owned events. Allow only the
+    // names installed plugins actually declared — anything else with the
+    // prefix is a user-declared event that would clash with the protocol.
+    if (event.startsWith('__') && !declaredPluginEvents.has(event)) {
+      throw new Error(
+        `[wskit] '${event}' starts with a reserved double-underscore prefix (used by ${scopeLabel}). ` +
+          `That prefix is reserved for wskit protocol and plugin events — pick a different name.`,
+      );
+    }
+  }
+
+  function checkScope(
+    scope: {
+      outgoing: ReadonlyMap<string, unknown>;
+      incoming: ReadonlyMap<string, unknown>;
+      requests: ReadonlyMap<string, unknown>;
+      streams: ReadonlyMap<string, EngineCompileTypes.AnyGenerate>;
+      resumableStreams?: ReadonlyMap<string, EngineCompileTypes.AnyResumableStream>;
+      recordedStreams?: ReadonlyMap<string, EngineCompileTypes.AnyRecordedStream>;
+    },
+    label: string,
+  ): void {
+    for (const event of scope.outgoing.keys()) check(event, `${label} outgoing`);
+    for (const event of scope.incoming.keys()) check(event, `${label} incoming`);
+    for (const event of scope.requests.keys()) check(event, `${label} request`);
+    for (const [streamEvent, generate] of scope.streams) {
+      check(streamEvent, `${label} stream`);
+      // A stream can also declare nudges — client-to-server events that drive
+      // the active generator. A nudge name that collides with a protocol
+      // event would buffer real protocol frames into the stream's nudge
+      // queue while the stream is active. Hand-rolled / `as any` nudges
+      // bypass the friendly check on `event(...)`, so the boot-time guard
+      // has to walk the actual nudge list too.
+      for (const nudge of generate.stream.nudges) {
+        check(nudge.event, `${label} stream '${streamEvent}' nudge`);
+      }
+    }
+    if (scope.resumableStreams) {
+      for (const [streamEvent, primitive] of scope.resumableStreams) {
+        check(streamEvent, `${label} resumableStream`);
+        for (const nudge of primitive.nudges) {
+          check(nudge.event, `${label} resumableStream '${streamEvent}' nudge`);
+        }
+      }
+    }
+    if (scope.recordedStreams) {
+      for (const [streamEvent, primitive] of scope.recordedStreams) {
+        check(streamEvent, `${label} recordedStream`);
+        for (const nudge of primitive.nudges) {
+          check(nudge.event, `${label} recordedStream '${streamEvent}' nudge`);
+        }
+      }
+    }
+  }
+
+  checkScope(compiled, 'top-level');
+  for (const namespace of compiled.namespaces.values()) {
+    checkScope(namespace, `namespace '${namespace.name}'`);
+  }
+  for (const channel of compiled.channels.values()) {
+    checkScope(channel, `channel '${channel.key}'`);
+  }
+  for (const family of compiled.channelFamilies.values()) {
+    checkScope(family, `channel family '${family.key}'`);
+  }
+}

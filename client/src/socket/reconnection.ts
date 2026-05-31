@@ -15,8 +15,8 @@ export type ReconnectionOptions = Pick<
 /**
  * Manages reconnection with exponential backoff and jitter.
  *
- * Internal module — not exported from the package. Used by Socket to
- * handle automatic reconnection after connection drops.
+ * Internal class — not exported from the package. Used by Socket to
+ * handle automatic reconnection after drops.
  */
 export class Reconnection {
   private attempt = 0;

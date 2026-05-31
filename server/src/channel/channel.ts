@@ -1,0 +1,259 @@
+/* oxlint-disable @typescript-eslint/no-explicit-any */
+import { WSKitConfigError } from '@wskit/core';
+import { compileChannelTemplate } from '~/channel/template.ts';
+import type {
+  CheckPrimitive,
+  CommitPrimitive,
+  SubscribePrimitive,
+  UnsubscribePrimitive,
+} from '~/channel/lifecycle.ts';
+import type { IncomingPrimitive } from '~/incoming/incoming.ts';
+import type { InterceptPrimitive } from '~/intercept/intercept.ts';
+import type { OutgoingPrimitive } from '~/outgoing/outgoing.ts';
+import type { Primitive } from '~/primitive.ts';
+import type { CustomReplayPrimitive } from '~/replay/custom/custom.ts';
+import type { ReplayPrimitive } from '~/replay/replay.ts';
+import type { RequestPrimitive } from '~/request/request.ts';
+import type { RecordedStreamGeneratePrimitive } from '~/stream-recorded/stream-recorded.ts';
+import type { ResumableStreamGeneratePrimitive } from '~/stream-resumable/stream-resumable.ts';
+import type { GeneratePrimitive, NudgeDeclaration, StreamPrimitive } from '~/stream/stream.ts';
+
+// Internal aliases that keep the union type below readable.
+type AnyOutgoing = OutgoingPrimitive<string, any>;
+type AnyIncoming = IncomingPrimitive<string, any, any>;
+type AnyIntercept = InterceptPrimitive<any>;
+type AnyRequest = RequestPrimitive<string, any, any, any>;
+type AnyGenerate = GeneratePrimitive<
+  StreamPrimitive<string, any, any, readonly NudgeDeclaration[]>,
+  any,
+  any
+>;
+
+/**
+ * Every primitive type that is legal as a state-carrying child of a channel.
+ * State-carrying means it contributes to the type of `ctx` inside handlers
+ * (outgoing events, intercepts, incoming handlers, requests, streams, replay).
+ */
+type ChannelStatePrimitive =
+  | AnyOutgoing
+  | ReplayPrimitive
+  | CustomReplayPrimitive
+  | AnyIntercept
+  | AnyIncoming
+  | AnyRequest
+  | AnyGenerate
+  | ResumableStreamGeneratePrimitive
+  | RecordedStreamGeneratePrimitive;
+
+/**
+ * Extract the `{name}` parameters from a channel template literal type as an
+ * object of string values. Best-effort: escaped braces (`{{`/`}}`) are not
+ * modelled at the type level — the runtime parser handles them, so a template
+ * that uses literal braces may infer a param the runtime ignores (or vice
+ * versa). That trade-off keeps the type tractable; the runtime is the source of
+ * truth.
+ *
+ * @example
+ * ```ts
+ * type A = ExtractParams<'room:{id}'>;          // { id: string }
+ * type B = ExtractParams<'org:{org}/t:{tid}'>;  // { org: string; tid: string }
+ * type C = ExtractParams<'lobby'>;              // {}
+ * ```
+ */
+export type ExtractParams<S extends string> = S extends `${string}{${infer Name}}${infer Rest}`
+  ? Name extends `${string}{${string}`
+    ? ExtractParams<Rest>
+    : Name extends ''
+      ? ExtractParams<Rest>
+      : Record<Name, string> & ExtractParams<Rest>
+  : {};
+
+/**
+ * A named dynamic channel pattern used in `scope()`. Groups many matching
+ * subscription paths under one channel family.
+ *
+ * @example
+ * ```ts
+ * import { contract, implement, channel, scope } from '@wskit/server';
+ *
+ * // Declare a channel family that matches `room:<anything>` subscriptions.
+ * // The `key` ('rooms') is the family name used in handlers.
+ * const app = contract('app', { env: t<Env>(),
+ *   definitions: [
+ *     channel(scope('rooms', 'room:{id}'), {
+ *       definitions: [],
+ *     }),
+ *   ],
+ * });
+ *
+ * implement(app).channel('rooms', (ch) =>
+ *   ch.onSubscribe((ctx) => {
+ *     // ctx.channel.scope is the family key ('rooms')
+ *     // ctx.channel.name is the matched path (e.g. 'room:alpha-42')
+ *     // ctx.channel.params.id is the captured segment (e.g. 'alpha-42')
+ *   }),
+ * );
+ * ```
+ */
+export interface ScopeDeclaration<
+  TKey extends string = string,
+  // Phantom: carries the inferred `{name}` param shape so `ctx.channel.params`
+  // can be typed. Never read at runtime.
+  TParams = Record<string, string>,
+> {
+  /** Identifier for this channel family. Used with `ctx.channels.get(key, name)` lookups. */
+  readonly key: TKey;
+  /** The original template string (e.g. `'room:{id}'`). Kept for reconstruction. */
+  readonly template: string;
+  /** The compiled matcher, built only from escaped literals and named groups. */
+  readonly pattern: RegExp;
+  /** Capture names declared by the template, in order. */
+  readonly paramNames: readonly string[];
+  /** @internal phantom — the inferred param shape; never set at runtime. */
+  readonly __params?: TParams;
+}
+
+/**
+ * The argument accepted by `channel()`. Either a plain string for exact channel
+ * names (e.g. `'notifications'`) or a `ScopeDeclaration` for dynamic names
+ * that match many paths under one family (e.g. `scope('rooms', 'room:{id}')`).
+ */
+export type ChannelPattern = string | ScopeDeclaration<string>;
+
+/**
+ * Every primitive type that can appear as a lifecycle child of a channel.
+ * Lifecycle children handle subscribe and unsubscribe events.
+ */
+export type ChannelLifecycleChild =
+  | CheckPrimitive<any, any, any>
+  | CommitPrimitive<any, any>
+  | SubscribePrimitive<any>
+  | UnsubscribePrimitive<any>;
+
+/** All primitive types accepted as children of a channel. */
+export type ChannelChild = ChannelStatePrimitive | ChannelLifecycleChild;
+
+/**
+ * The TypeScript type returned by `channel()`. Holds the channel pattern and
+ * the child primitives that define the channel's behaviour.
+ */
+export interface ChannelPrimitive<
+  TPattern extends ChannelPattern = ChannelPattern,
+  TPrimitives extends readonly ChannelChild[] = readonly ChannelChild[],
+  _TChannelName extends string = string,
+  _TContract = unknown,
+> extends Primitive<'channel'> {
+  /** The pattern this channel matches against subscription paths. */
+  readonly pattern: TPattern;
+  /** The primitives that define this channel's behaviour. */
+  readonly primitives: TPrimitives;
+}
+
+/** Unique symbol. The registration ID is the pattern key, so each pattern is its own singleton. */
+const CHANNEL_KEY = Symbol('channel');
+
+/**
+ * Validate a `ScopeDeclaration` (key + pattern). Used by `scope()` for the
+ * friendly call-site error and by `channel()` so a hand-rolled scope-shaped
+ * object cannot bypass the same check.
+ */
+function assertValidScopeDeclaration(declaration: ScopeDeclaration<string>, source: string): void {
+  if (typeof declaration.key !== 'string' || declaration.key.trim() === '') {
+    throw new WSKitConfigError(
+      `[wskit] ${source} requires a non-empty key — got ${JSON.stringify(declaration.key)}.`,
+    );
+  }
+  if (!(declaration.pattern instanceof RegExp) || typeof declaration.template !== 'string') {
+    throw new WSKitConfigError(
+      `[wskit] ${source} requires a compiled template — build it with scope(key, template), ` +
+        `not a hand-rolled object.`,
+    );
+  }
+}
+
+/**
+ * Create a `ScopeDeclaration` for a dynamic channel family. A dynamic channel
+ * matches many subscription paths against one template and groups them under a
+ * single family key.
+ *
+ * Pass the result as the first argument to `channel(...)` inside `definitions`.
+ * `channel(scope('rooms', 'room:{id}'), { definitions: [...] })` creates a
+ * family that matches subscriptions like `room:general`, `room:alpha-42`, etc.
+ * The full matched string is available at `ctx.channel.name`, the family key at
+ * `ctx.channel.scope`, and each `{name}` capture at `ctx.channel.params.name`.
+ *
+ * The template grammar is just literals plus `{name}` captures (`{{`/`}}` for a
+ * literal brace). wskit compiles it to a linear-time matcher itself, so unlike a
+ * raw regex it can never trigger catastrophic backtracking.
+ *
+ * @param key      Family identifier. Passed to `implement(c).channel(key, ch => ...)`
+ *   and used in `ctx.channels.get(key, name)` lookups.
+ * @param template Pattern matched against the subscription path, e.g.
+ *   `'room:{id}'` or `'org:{org}/thread:{tid}'`. Each `{name}` matches one or
+ *   more characters; a literal must separate two adjacent params.
+ *
+ * @example
+ * ```ts
+ * import { contract, channel, scope } from '@wskit/server';
+ *
+ * const app = contract('app', { env: t<Env>(),
+ *   definitions: [
+ *     channel(scope('rooms', 'room:{id}'), { definitions: [] }),
+ *   ],
+ * });
+ * // ctx.channel.name      → 'room:alpha-42'
+ * // ctx.channel.scope     → 'rooms'
+ * // ctx.channel.params.id → 'alpha-42'
+ * ```
+ */
+export function scope<TKey extends string, const TTemplate extends string>(
+  key: TKey,
+  template: TTemplate,
+): ScopeDeclaration<TKey, ExtractParams<TTemplate>> {
+  const compiled = compileChannelTemplate(template, 'scope()');
+  const declaration: ScopeDeclaration<TKey, ExtractParams<TTemplate>> = {
+    key,
+    template: compiled.template,
+    pattern: compiled.regex,
+    paramNames: compiled.paramNames,
+  };
+  assertValidScopeDeclaration(declaration, 'scope()');
+  return declaration;
+}
+
+/**
+ * Internal primitive factory. The user-facing `channel()` for declaring a
+ * channel in a contract lives at `~/channel/definition.ts`. This factory is
+ * called by the implementer's compile step to wrap a channel's compiled
+ * child primitives.
+ *
+ * @param pattern A string (static channel name) or a `ScopeDeclaration` from
+ *   `scope()` for dynamic families that match many subscription paths.
+ */
+export function channel<
+  const TPattern extends ChannelPattern,
+  const TPrimitives extends readonly ChannelChild[],
+>(pattern: TPattern, ...primitives: TPrimitives): ChannelPrimitive<TPattern, TPrimitives> {
+  if (typeof pattern === 'string') {
+    if (pattern.trim() === '') {
+      throw new WSKitConfigError(
+        `[wskit] channel() requires a non-empty name — got ${JSON.stringify(pattern)}.`,
+      );
+    }
+  } else {
+    assertValidScopeDeclaration(pattern, 'channel()');
+  }
+  return {
+    __wskit: 'channel',
+    __kind: 'scope',
+    __identity: [CHANNEL_KEY, typeof pattern === 'string' ? pattern : pattern.key],
+    __requires: {},
+    pattern,
+    primitives: Object.freeze([...primitives]) as unknown as TPrimitives,
+  };
+}
+
+/**
+ * Symbol key used to reference this primitive in dependency declarations.
+ */
+channel.__key = CHANNEL_KEY;

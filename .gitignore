@@ -25,3 +25,8 @@ SPECIFICATION_CLIENT.md
 # Vite
 vite.config.*.timestamp-*.*
 *.bak
+
+_type_experiments
+
+ideas.md
+.playwright-mcp/
