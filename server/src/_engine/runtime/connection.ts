@@ -1,4 +1,4 @@
-import { CloseCodes, StreamAborted } from '@wskit/core';
+import { CloseCodes, StreamAborted, WSKitConfigError } from '@wskit/core';
 import { withConnectionContext } from '~/_engine/async-context.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import * as KeepalivePrimitive from '~/keepalive/runtime.ts';
@@ -10,6 +10,9 @@ import type * as PublicApi from '~/context.ts';
 import type * as LifecycleTypes from '~/lifecycle/lifecycle.ts';
 import type * as ConnectionStore from './connection-store.ts';
 import type * as EngineRuntimeTypes from './types.ts';
+
+/** Matches the wire-level channel-name cap; identity is used the same way. */
+const MAX_IDENTITY_LENGTH = 256;
 
 /**
  * Minimal subset of the WebSocket-like object the engine wraps on wake. The
@@ -98,6 +101,8 @@ interface ConnectionRuntime {
    * `acceptConnection` between the initial row write and `onConnect`.
    */
   autoRejoinIdentity?(connection: EngineRuntimeTypes.RuntimeConnection): Promise<void>;
+
+  logger?: Pick<PublicApi.Logger, 'error'>;
 
   /**
    * Reload identity-scoped persistent tags into the live index on wake. The
@@ -343,6 +348,11 @@ export async function handleConnectionClose(
     connection.keepaliveTimer = undefined;
   }
 
+  if (connection.deferTimers) {
+    for (const timer of connection.deferTimers) clearTimeout(timer);
+    connection.deferTimers.clear();
+  }
+
   KeepalivePrimitive.stopConnectionPing(connection);
 }
 
@@ -397,6 +407,15 @@ export function acceptConnection(
   wsKey: unknown,
   descriptor: EngineAdapterTypes.ConnectionDescriptor,
 ): EngineAdapterTypes.ConnectionHandle {
+  // identity becomes the durable row key for per-user state, so cap it like a
+  // wire field. Reject rather than truncate — two distinct long identities
+  // truncated to the same prefix would silently share durable state.
+  if (descriptor.identity.length > MAX_IDENTITY_LENGTH) {
+    throw new WSKitConfigError(
+      `[wskit] identity returned from onUpgrade is ${descriptor.identity.length} chars; the max is ${MAX_IDENTITY_LENGTH}. Use a stable id (user id, ULID) rather than a token as the identity.`,
+    );
+  }
+
   const connection: EngineRuntimeTypes.RuntimeConnection = {
     id: runtime.generateId('conn'),
     identity: descriptor.identity,
@@ -444,6 +463,14 @@ export function acceptConnection(
   const lifecyclePromise = runtime.autoRejoinIdentity
     ? runtime
         .autoRejoinIdentity(connection)
+        .catch((error) => {
+          // A rejoin failure (e.g. a storage hiccup) must not skip onConnect.
+          // Log it and still run the connect lifecycle so the handler fires.
+          runtime.logger?.error('[wskit] auto-rejoin failed; running onConnect anyway', {
+            connectionId: connection.id,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        })
         .then(() => runtime.runConnectionLifecycle('connect', ctx))
     : runtime.runConnectionLifecycle('connect', ctx);
 

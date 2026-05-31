@@ -10,6 +10,7 @@ const CREATE_CONNECTIONS_TABLE_SQL = `
     ephemeral_tags        TEXT NOT NULL DEFAULT '[]',
     ephemeral_memberships TEXT NOT NULL DEFAULT '[]',
     active_stream_ids     TEXT NOT NULL DEFAULT '[]',
+    -- Reserved JSON blob: lets us add per-row fields later without a migration.
     metadata              TEXT NOT NULL DEFAULT '{}'
   )
 `;
@@ -40,6 +41,8 @@ export interface StoredConnectionRow {
   ephemeral_tags: readonly StoredEphemeralTag[];
   ephemeral_memberships: readonly { channelName: string; channelScope: string | null }[];
   active_stream_ids: readonly string[];
+  /** Forward-compat blob (see the metadata column); not yet read or written. */
+  metadata?: Record<string, unknown>;
 }
 
 type RawRow = {
@@ -209,12 +212,7 @@ function parseMembershipArray(
       if (!entry || typeof entry !== 'object') return [];
       const record = entry as Record<string, unknown>;
       if (typeof record.channelName !== 'string') return [];
-      const scope =
-        typeof record.channelScope === 'string'
-          ? record.channelScope
-          : record.channelScope === null
-            ? null
-            : null;
+      const scope = typeof record.channelScope === 'string' ? record.channelScope : null;
       return [{ channelName: record.channelName, channelScope: scope }];
     });
   } catch {

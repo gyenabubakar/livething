@@ -28,6 +28,7 @@ const CREATE_STREAMS_TABLE_SQL = `
     max_chunks                INTEGER,
     max_age_ms                INTEGER,
     retention_after_end_ms    INTEGER,
+    -- Reserved JSON blob: lets us add per-row fields later without a migration.
     metadata                  TEXT NOT NULL DEFAULT '{}',
     PRIMARY KEY (identity, stream_id)
   )
@@ -46,6 +47,7 @@ const CREATE_STREAM_CHUNKS_TABLE_SQL = `
     message_id   TEXT,
     payload      TEXT NOT NULL,
     emitted_at   INTEGER NOT NULL,
+    -- Reserved JSON blob: lets us add per-row fields later without a migration.
     metadata     TEXT NOT NULL DEFAULT '{}',
     PRIMARY KEY (identity, stream_id, seq),
     FOREIGN KEY (identity, stream_id) REFERENCES __wskit_streams (identity, stream_id) ON DELETE CASCADE
@@ -61,6 +63,7 @@ const CREATE_STREAM_SUBSCRIBERS_TABLE_SQL = `
     subscriber_identity  TEXT NOT NULL,
     caught_up_seq        INTEGER NOT NULL DEFAULT 0,
     unsubscribed_at      INTEGER,
+    -- Reserved JSON blob: lets us add per-row fields later without a migration.
     metadata             TEXT NOT NULL DEFAULT '{}',
     PRIMARY KEY (identity, stream_id, subscriber_identity),
     FOREIGN KEY (identity, stream_id) REFERENCES __wskit_streams (identity, stream_id) ON DELETE CASCADE
@@ -99,6 +102,8 @@ export interface DurableStreamRow {
   maxChunks: number | null;
   maxAgeMs: number | null;
   retentionAfterEndMs: number | null;
+  /** Forward-compat blob (see the metadata column); not yet read or written. */
+  metadata?: Record<string, unknown>;
 }
 
 /** One row from `__wskit_stream_chunks`, decoded into typed fields. */
@@ -111,6 +116,8 @@ export interface DurableStreamChunkRow {
 
   payload: string;
   emittedAt: number;
+  /** Forward-compat blob (see the metadata column); not yet read or written. */
+  metadata?: Record<string, unknown>;
 }
 
 interface SqlExec {

@@ -28,6 +28,13 @@ import type * as EngineRuntimeTypes from './types.ts';
 
 type RuntimeConnection = EngineRuntimeTypes.RuntimeConnection;
 
+/**
+ * Upper bound on concurrent pending `Defer` retry timers per connection. Past
+ * this, a deferring message is exhausted instead of scheduling another timer,
+ * so a flood of distinct deferring messages can't grow timers without limit.
+ */
+const MAX_PENDING_DEFERS = 128;
+
 export type { WSKitRouting } from './protocol.ts';
 
 export {
@@ -87,9 +94,10 @@ interface DispatchRuntime
     opts: {
       channelName: string | null;
       channelScope: string | null;
+      namespace?: string | null;
       event: string;
       payload: unknown;
-      wire: { seq: number; messageId: string; channel?: string };
+      wire: { seq: number; messageId: string; channel?: string; namespace?: string | null };
     },
   ): void;
 
@@ -514,10 +522,12 @@ async function handleDispatchError(
     return;
   }
 
-  // Defer — re-queue the message after a delay. After 3 retries, give up and
-  // fire DeferExhausted instead.
+  // Defer — re-queue the message after a delay. Give up and fire
+  // DeferExhausted after 3 retries, or when this connection already has
+  // MAX_PENDING_DEFERS timers in flight.
   if (error && typeof error === 'object' && (error as { __wskit?: string }).__wskit === 'defer') {
-    if (attempt >= 3) {
+    const pendingDefers = connection.deferTimers?.size ?? 0;
+    if (attempt >= 3 || pendingDefers >= MAX_PENDING_DEFERS) {
       const exhausted = ErrorsPrimitive.DeferExhausted({
         event,
         payload,
@@ -535,9 +545,12 @@ async function handleDispatchError(
     }
 
     const delay = Number((error as { delay: number }).delay);
-    setTimeout(() => {
+    const timers = (connection.deferTimers ??= new Set());
+    const timer = setTimeout(() => {
+      timers.delete(timer);
       void dispatchIncoming(runtime, connection, { event, payload, wskit, attempt: attempt + 1 });
     }, delay);
+    timers.add(timer);
     return;
   }
 

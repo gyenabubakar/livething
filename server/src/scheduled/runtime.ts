@@ -18,6 +18,7 @@ const SCHEDULED_TABLE_SQL = `
     attempts INTEGER NOT NULL DEFAULT 0,
     recurring INTEGER NOT NULL DEFAULT 0,
     retry INTEGER NOT NULL DEFAULT 1,
+    -- Reserved JSON blob: lets us add per-row fields later without a migration.
     metadata TEXT NOT NULL DEFAULT '{}'
   )
 `;
@@ -31,6 +32,7 @@ const SCHEDULED_DLQ_TABLE_SQL = `
     data TEXT,
     attempts INTEGER NOT NULL,
     error TEXT NOT NULL,
+    -- Reserved JSON blob: lets us add per-row fields later without a migration.
     metadata TEXT NOT NULL DEFAULT '{}'
   )
 `;
@@ -46,6 +48,8 @@ type ScheduledRunRow = {
   attempts: number | null;
   recurring: number | boolean;
   retry: unknown;
+  /** Forward-compat blob (see the metadata column); not yet read or written. */
+  metadata?: Record<string, unknown>;
 };
 
 type ScheduledDeadLetterRow = {
@@ -56,6 +60,8 @@ type ScheduledDeadLetterRow = {
   data: string | null;
   attempts: number;
   error: string | null;
+  /** Forward-compat blob (see the metadata column); not yet read or written. */
+  metadata?: Record<string, unknown>;
 };
 
 const DEFAULT_BACKOFF_MS: readonly number[] = [1_000, 5_000, 25_000];

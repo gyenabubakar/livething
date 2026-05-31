@@ -127,6 +127,8 @@ export interface ReplayRow {
   channelScope: string | null;
   snapshotKey: string | null;
   createdAt: number;
+  /** Forward-compat blob (see the metadata column); not yet read or written. */
+  metadata?: Record<string, unknown>;
 }
 
 /** @internal */

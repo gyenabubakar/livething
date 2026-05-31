@@ -306,6 +306,13 @@ export interface RuntimeConnection {
    * etc). `undefined` before the first persist.
    */
   lastPersistedFingerprint?: string;
+
+  /**
+   * Pending `Defer` retry timers for this connection. Bounded by
+   * `MAX_PENDING_DEFERS` so a flood of deferring messages can't schedule
+   * unbounded timers, and cleared on close so none outlive the connection.
+   */
+  deferTimers?: Set<ReturnType<typeof setTimeout>>;
 }
 
 /**

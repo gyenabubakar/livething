@@ -71,6 +71,35 @@ describe('outgoing/runtime sendThroughPipeline', () => {
     ).toThrow(/plain object/);
   });
 
+  it("keeps a stream chunk's own seq even when a global seq stamper is active", () => {
+    // The global sequence stamper would set seq=999, but a durable stream
+    // chunk carries its own per-stream seq in routing. The chunk's seq must
+    // win, or interleaved global traffic would make chunk seqs look gappy and
+    // break the client's missed-chunk detection.
+    const runtime = createRuntime({ wskitStampHooks: [() => ({ seq: 999 })] });
+    const connection = createConnection();
+    const send = connection.descriptor.send as ReturnType<typeof vi.fn>;
+
+    sendThroughPipeline(runtime, connection, {
+      routing: { streamId: 's1', seq: 3 },
+      event: 'foo',
+      payload: { n: 1 },
+    });
+
+    const sent = JSON.parse(send.mock.calls[0]![0] as string);
+    expect(sent.__wskit.seq).toBe(3);
+    expect(sent.__wskit.streamId).toBe('s1');
+
+    // A regular message (no seq in routing) still gets the stamped global seq.
+    send.mockClear();
+    sendThroughPipeline(runtime, connection, {
+      routing: undefined,
+      event: 'foo',
+      payload: { n: 2 },
+    });
+    expect(JSON.parse(send.mock.calls[0]![0] as string).__wskit.seq).toBe(999);
+  });
+
   it('throws when payload is a primitive number', () => {
     const runtime = createRuntime();
     const connection = createConnection();

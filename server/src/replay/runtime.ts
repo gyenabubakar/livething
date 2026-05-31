@@ -23,6 +23,7 @@ const CREATE_REPLAY_TABLE_SQL = `
     channelScope TEXT,
     snapshotKey TEXT,
     createdAt INTEGER NOT NULL,
+    -- Reserved JSON blob: lets us add per-row fields later without a migration.
     metadata TEXT NOT NULL DEFAULT '{}'
   )
 `;
@@ -53,6 +54,30 @@ export function ensureReplaySchema(sql: {
   sql.exec(REPLAY_SCHEMA_SQL);
 }
 
+const EMPTY_CLAIMED_CHANNEL_KEYS: ReadonlySet<string> = new Set();
+
+/**
+ * The shared rule deciding whether a (channelScope, channelName) pair belongs
+ * to a replay instance. A channel-scoped instance (`channelKey` set) takes only
+ * its own scope; a server-level instance cascades, taking every scope except
+ * the channels another instance has claimed. Both `matchesReplayScope` (context
+ * scope) and `shouldStoreReplayMessage` (wire scope) read from this one place so
+ * the cascade rule can't drift between the read and write paths.
+ */
+function scopeMatchesReplayInstance(
+  channelKey: string | undefined,
+  scope: { channelScope?: string | null; channelName?: string | null },
+  claimedChannelKeys: ReadonlySet<string>,
+): boolean {
+  const { channelScope, channelName } = scope;
+  if (channelKey) {
+    return channelScope === channelKey || channelName === channelKey;
+  }
+  if (channelScope && claimedChannelKeys.has(channelScope)) return false;
+  if (channelName && claimedChannelKeys.has(channelName)) return false;
+  return true;
+}
+
 /**
  * Decide whether one replay primitive instance owns the current scope.
  *
@@ -77,16 +102,8 @@ export function matchesReplayScope(
   scope: { namespaceName?: string; channelName?: string; channelScope?: string | null },
   claimedChannelKeys: ReadonlySet<string> = EMPTY_CLAIMED_CHANNEL_KEYS,
 ): boolean {
-  if (channelKey) {
-    return scope.channelScope === channelKey || scope.channelName === channelKey;
-  }
-
-  if (scope.channelScope && claimedChannelKeys.has(scope.channelScope)) return false;
-  if (scope.channelName && claimedChannelKeys.has(scope.channelName)) return false;
-  return true;
+  return scopeMatchesReplayInstance(channelKey, scope, claimedChannelKeys);
 }
-
-const EMPTY_CLAIMED_CHANNEL_KEYS: ReadonlySet<string> = new Set();
 
 /**
  * Check whether a connection may receive replay rows for a channel-scoped
@@ -156,14 +173,11 @@ export function shouldStoreReplayMessage(
   if (typeof wskit.streamId === 'string') return false;
 
   const scope = readReplayScope(wskit);
-
-  if (channelKey) {
-    return scope.channelScope === channelKey || scope.channel === channelKey;
-  }
-
-  if (scope.channelScope && claimedChannelKeys.has(scope.channelScope)) return false;
-  if (scope.channel && claimedChannelKeys.has(scope.channel)) return false;
-  return true;
+  return scopeMatchesReplayInstance(
+    channelKey,
+    { channelScope: scope.channelScope, channelName: scope.channel },
+    claimedChannelKeys,
+  );
 }
 
 /**

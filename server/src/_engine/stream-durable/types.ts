@@ -13,8 +13,11 @@ export type { DurableStreamKind, OnDisconnect };
  */
 export function computeBroadcastScopeKey(scope: ResolvedScope): string {
   if (scope.channelName) {
+    // The family key and channel name both may contain ':', so a plain-string
+    // delimiter can collide (scope 'a:' + name 'b' vs scope 'a' + name ':b').
+    // JSON-encode the pair instead: distinct pairs always encode distinctly.
     return scope.channelScope
-      ? `__bcast:chf:${scope.channelScope}:${scope.channelName}__`
+      ? `__bcast:chf:${JSON.stringify([scope.channelScope, scope.channelName])}__`
       : `__bcast:ch:${scope.channelName}__`;
   }
   if (scope.namespace) return `__bcast:ns:${scope.namespace.name}__`;

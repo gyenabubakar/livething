@@ -105,6 +105,10 @@ export function addConnectionTag(
   tag: TagKey,
 ): boolean {
   const { kind, group, key } = tag;
+  // An empty key addresses no bucket. Reject it here so every path — the
+  // group handle, onUpgrade-supplied tags, and rejoin — is uniform and no
+  // phantom "" tag can be created for ref('').send() to fan out to.
+  if (key.length === 0) return false;
   const set = getOrCreateSet(connection.tags[kind], group);
   if (set.has(key)) return false;
   set.add(key);

@@ -5,6 +5,7 @@ const CREATE_SEQUENCE_TABLE_SQL = `
   CREATE TABLE IF NOT EXISTS __wskit_sequence (
     scope TEXT PRIMARY KEY,
     nextSeq INTEGER NOT NULL,
+    -- Reserved JSON blob: lets us add per-row fields later without a migration.
     metadata TEXT NOT NULL DEFAULT '{}'
   )
 `;
