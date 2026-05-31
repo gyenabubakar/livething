@@ -71,6 +71,62 @@ test.describe('stream-durable scoped (channel + namespace)', () => {
     expect([...combined].sort((x, y) => x - y)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   });
 
+  test('channel-scoped resumableStream resume rewinds to lastKnownSeq and re-sends the next row', async ({
+    page,
+  }, testInfo) => {
+    const room = `sds-${testInfo.testId}-${Date.now()}`;
+    const streamId = 'paginate-rewind-1';
+
+    const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
+    await send(page, a, { event: '__subscribe__', payload: {}, __wskit: { channel: 'rooms' } });
+    await waitForFrame(page, a, { match: (f) => f.event === '__subscribeOk__' });
+
+    await send(page, a, {
+      event: 'paginate',
+      payload: {},
+      __wskit: { channel: 'rooms', streamId },
+    });
+
+    // Receive rows 1 and 2, then drop the socket while the stream is still live.
+    await page.waitForFunction(
+      ([sid]) =>
+        (window.__wskitFrames!(sid as string) ?? []).filter(
+          (f: WireFrame) => f.event === 'paginate' && typeof f.payload?.row === 'number',
+        ).length >= 2,
+      [a],
+    );
+    await closeSocket(page, a);
+    await page.waitForTimeout(150);
+
+    // Reconnect and resume from exactly seq 2 — the highest seq this client got.
+    const b = await connect(page, { path: WS_PATH, username: 'alice', room: room });
+    await waitForFrame(page, b, {
+      match: (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'rooms',
+    });
+    await send(page, b, {
+      event: '__resumeStream__',
+      payload: { lastKnownSeq: 2 },
+      __wskit: { channel: 'rooms', streamId },
+    });
+    await waitForFrame(page, b, {
+      match: (f) =>
+        f.event === '__streamEnd__' &&
+        f.__wskit?.streamId === streamId &&
+        f.__wskit?.channel === 'rooms',
+    });
+
+    const resumedRows = (await frames(page, b))
+      .filter((f) => f.event === 'paginate' && f.__wskit?.channel === 'rooms')
+      .map((f) => f.payload.row as number);
+
+    // The server rewinds to the cursor saved at seq 2 and re-runs the generator
+    // from there, so row 3 (the one in flight when the socket dropped) is the
+    // first row the resumed socket sees — not row 4. Before the per-seq cursor
+    // fix, resume started from the server's latest cursor and skipped row 3.
+    expect(resumedRows[0]).toBe(3);
+    expect(resumedRows).toEqual([3, 4, 5, 6, 7, 8, 9, 10]);
+  });
+
   test('channel-scoped recordedStream replays missed chunks from the buffer', async ({
     page,
   }, testInfo) => {
