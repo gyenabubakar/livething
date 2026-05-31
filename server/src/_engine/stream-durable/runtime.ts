@@ -484,9 +484,26 @@ export async function resumeDurableStream(
     return;
   }
 
+  // go back to where the client actually was. It tells us the highest seq it
+  // got (lastKnownSeq); we start the generator again from the cursor saved at
+  // that point, so any rows it missed when the connection dropped get sent
+  // again (the client drops repeats by seq). Without this, resume starts from
+  // the server's latest cursor and quietly skips a row that was still on its way.
+  let startSeq = row.lastSeq;
+  let cursorRaw = row.cursor;
+  if (lastKnownSeq < row.lastSeq) {
+    const anchor = Storage.readCursorAt(runtime.sql, {
+      identity: storageIdentity,
+      streamId,
+      seq: lastKnownSeq,
+    });
+    startSeq = anchor?.seq ?? 0;
+    cursorRaw = anchor?.cursor ?? null;
+  }
+
   let cursor: unknown = null;
-  if (row.cursor) {
-    const raw = JSON.parse(row.cursor);
+  if (cursorRaw) {
+    const raw = JSON.parse(cursorRaw);
     try {
       cursor = def.cursor ? validateValue(def.cursor, raw, '__resumeStream__') : raw;
     } catch {
@@ -520,7 +537,7 @@ export async function resumeDurableStream(
     identity: storageIdentity,
     initialCursor: cursor,
     attempt: 2,
-    startSeq: row.lastSeq,
+    startSeq,
   });
 }
 
@@ -639,12 +656,24 @@ async function runGenerator(
       }
 
       if (def.kind === 'resumable' && cursorValue !== undefined) {
+        const serializedCursor = serializeJsonOrThrow(
+          cursorValue,
+          `Durable stream cursor for "${def.event}"`,
+        );
         Storage.updateCursor(runtime.sql, {
           identity,
           streamId,
-          cursor: serializeJsonOrThrow(cursorValue, `Durable stream cursor for "${def.event}"`),
+          cursor: serializedCursor,
           lastSeq: seq,
           now,
+        });
+        // Save the cursor for this seq so a client that reconnects can go back
+        // to the exact row it last got (see resumeDurableStream + readCursorAt).
+        Storage.appendStreamCursor(runtime.sql, {
+          identity,
+          streamId,
+          seq,
+          cursor: serializedCursor,
         });
       } else {
         Storage.updateLastSeq(runtime.sql, { identity, streamId, lastSeq: seq, now });

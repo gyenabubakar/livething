@@ -46,7 +46,13 @@ test.describe('surface-area gaps', () => {
       [a],
     );
     await send(page, a, { event: 'tick', payload: {} });
-    await page.waitForTimeout(150);
+    await page.waitForFunction(
+      ([sid]) =>
+        (window.__wskitFrames!(sid as string) ?? []).filter(
+          (f) => f.event === '__error__' && f.payload?.code === 'rate-limited',
+        ).length >= 1,
+      [a],
+    );
     const topErrors = (await frames(page, a)).filter(
       (f) => f.event === '__error__' && f.payload.code === 'rate-limited',
     );
@@ -65,7 +71,13 @@ test.describe('surface-area gaps', () => {
       [a],
     );
     await send(page, a, { event: 'strict-ping', payload: {}, __wskit: { namespace: 'strict' } });
-    await page.waitForTimeout(150);
+    await page.waitForFunction(
+      ([sid]) =>
+        (window.__wskitFrames!(sid as string) ?? []).filter(
+          (f) => f.event === '__error__' && f.payload?.code === 'rate-limited',
+        ).length >= 2,
+      [a],
+    );
     const allErrors = (await frames(page, a)).filter(
       (f) => f.event === '__error__' && f.payload.code === 'rate-limited',
     );
@@ -101,7 +113,13 @@ test.describe('surface-area gaps', () => {
       payload: { text: 'hi2' },
       __wskit: { channel: 'rooms' },
     });
-    await page.waitForTimeout(150);
+    await page.waitForFunction(
+      ([sid]) =>
+        (window.__wskitFrames!(sid as string) ?? []).filter(
+          (f) => f.event === '__error__' && f.payload?.code === 'rate-limited',
+        ).length >= 3,
+      [a],
+    );
     const chatErrors = (await frames(page, a)).filter(
       (f) => f.event === '__error__' && f.payload.code === 'rate-limited',
     );

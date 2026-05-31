@@ -23,7 +23,6 @@
     "dev": "vite build --watch",
     "build": "tsc && vite build",
     "test": "vitest run",
-    "test:workers": "vitest run --config vitest.workers.config.ts",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist node_modules"
@@ -32,7 +31,6 @@
     "@wskit/server": "^1.0.0-beta.0"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.16.10",
     "@cloudflare/workers-types": "^4.20250410.0",
     "@wskit/server": "workspace:*",
     "vite": "8.0.5",

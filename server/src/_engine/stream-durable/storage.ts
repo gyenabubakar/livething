@@ -70,6 +70,22 @@ const CREATE_STREAM_SUBSCRIBERS_TABLE_SQL = `
   )
 `;
 
+// One row per emitted seq of a resumable stream: the cursor saved right after
+// that row. Lets a client that reconnects go back to the exact seq it last
+// got, instead of the server's latest position. It is deleted together with
+// the stream row, so the periodic stream sweep removes it once the stream's
+// retention window passes.
+const CREATE_STREAM_CURSORS_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS __wskit_stream_cursors (
+    identity     TEXT NOT NULL,
+    stream_id    TEXT NOT NULL,
+    seq          INTEGER NOT NULL,
+    cursor       TEXT NOT NULL,
+    PRIMARY KEY (identity, stream_id, seq),
+    FOREIGN KEY (identity, stream_id) REFERENCES __wskit_streams (identity, stream_id) ON DELETE CASCADE
+  )
+`;
+
 /** Which durable-stream primitive owns the row. */
 export type DurableStreamKind = 'resumable' | 'recorded';
 
@@ -149,6 +165,7 @@ const DURABLE_STREAM_SCHEMA_SQL = [
   CREATE_STREAMS_STATUS_INDEX_SQL,
   CREATE_STREAM_CHUNKS_TABLE_SQL,
   CREATE_STREAM_SUBSCRIBERS_TABLE_SQL,
+  CREATE_STREAM_CURSORS_TABLE_SQL,
 ].join(';\n');
 
 /** Create the durable stream tables and indexes if they do not yet exist. */
@@ -280,6 +297,48 @@ export function updateCursor(
     identity,
     streamId,
   );
+}
+
+/**
+ * Save the cursor right after emitting `seq`. Uses INSERT OR REPLACE, so when a
+ * resume re-runs the generator over the same seqs it just overwrites the same
+ * rows instead of piling up duplicates.
+ */
+export function appendStreamCursor(
+  sql: SqlExec,
+  opts: StreamRef & { seq: number; cursor: string },
+): void {
+  sql.exec(
+    `INSERT OR REPLACE INTO __wskit_stream_cursors (identity, stream_id, seq, cursor)
+     VALUES (?, ?, ?, ?)`,
+    opts.identity,
+    opts.streamId,
+    opts.seq,
+    opts.cursor,
+  );
+}
+
+/**
+ * The cursor saved at the highest seq that is `<= seq`, or `null` when there is
+ * none (e.g. the client got no rows, so it starts over). Resume uses this to go
+ * back to a reconnecting client's `lastKnownSeq`.
+ */
+export function readCursorAt(
+  sql: SqlExec,
+  opts: StreamRef & { seq: number },
+): { seq: number; cursor: string } | null {
+  const rows = sql
+    .exec(
+      `SELECT seq, cursor FROM __wskit_stream_cursors
+     WHERE identity = ? AND stream_id = ? AND seq <= ?
+     ORDER BY seq DESC LIMIT 1`,
+      opts.identity,
+      opts.streamId,
+      opts.seq,
+    )
+    .toArray();
+  if (rows.length === 0) return null;
+  return { seq: Number(rows[0]!.seq), cursor: rows[0]!.cursor as string };
 }
 
 /** Persist the latest last_seq + activity timestamp. Used when no cursor is yielded. */
