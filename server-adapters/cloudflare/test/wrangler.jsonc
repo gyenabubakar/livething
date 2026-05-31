@@ -1,0 +1,10 @@
+{
+  "name": "wskit-cf-adapter-workers-test",
+  "main": "worker.ts",
+  "compatibility_date": "2025-04-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [{ "name": "SQL_TEST_DO", "class_name": "SqlTestDO" }],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SqlTestDO"] }],
+}
