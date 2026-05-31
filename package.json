@@ -12,15 +12,20 @@
     "build": "pnpm -r run build",
     "dev": "pnpm -r --parallel run dev",
     "test": "pnpm -r --parallel run test",
+    "test:unit": "pnpm -r --parallel --filter \"!@wskit/monorepo\" --filter \"!@wskit/tests-e2e-cloudflare\" run test",
+    "test:e2e": "pnpm --filter @wskit/tests-e2e-cloudflare run test",
     "bench": "pnpm -r run bench",
     "typecheck": "pnpm -r --parallel run typecheck",
     "dup": "jscpd",
     "commitlint": "commitlint --edit",
     "commitlint:last": "commitlint --from HEAD~1 --to HEAD --verbose",
-    "oxlint": "oxlint --fix .",
+    "lint": "oxlint --fix .",
+    "lint:check": "oxlint .",
     "format": "prettier --cache --log-level=error --write .",
+    "format:check": "prettier --cache --log-level=error --check .",
     "clean": "pnpm -r --parallel run clean",
-    "check": "pnpm format && pnpm typecheck && pnpm oxlint && pnpm test"
+    "check": "pnpm format && pnpm typecheck && pnpm lint && pnpm test",
+    "check:ci": "pnpm format:check && pnpm typecheck && pnpm lint:check && pnpm test:unit"
   },
   "devDependencies": {
     "@commitlint/cli": "^20.5.0",
