@@ -38,7 +38,7 @@ const testContract = contract('app', {
         request('history', { payload: v.object({ before: v.string() }), response: v.object({}) }),
       ],
     }),
-    channel(scope('rooms', /^room:.+$/), {
+    channel(scope('rooms', 'room:{id}'), {
       definitions: [incoming('join', v.object({ user: v.string() }))],
     }),
     namespace('admin', {

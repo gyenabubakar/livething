@@ -43,6 +43,10 @@ type ChannelKeyFromPattern<P> = P extends string
     ? K
     : never;
 
+// The `{name}` param shape captured by a `scope()` template. Static channels
+// (string pattern) have no params.
+type ParamsFromPattern<P> = P extends ScopeDeclaration<string, infer Params> ? Params : {};
+
 interface EmptyCats {
   readonly incoming: {};
   readonly outgoing: {};
@@ -86,7 +90,7 @@ type AddOne<Acc, D> =
                   ? Acc & {
                       readonly channels: Record<
                         ChannelKeyFromPattern<Pat>,
-                        ChannelContract<Defs, TCheckPayload>
+                        ChannelContract<Defs, TCheckPayload, ParamsFromPattern<Pat>>
                       >;
                     }
                   : D extends NamespaceDef<infer N, infer Defs>
@@ -107,11 +111,15 @@ type Categorize<TDefs extends readonly Definition[], Acc = EmptyCats> = TDefs ex
 export type ChannelContract<
   TDefs extends readonly Definition[] = readonly Definition[],
   TCheckPayload = unknown,
+  TParams = Record<string, string>,
 > = Pick<
   Categorize<TDefs>,
   'incoming' | 'outgoing' | 'requests' | 'streams' | 'resumableStreams' | 'recordedStreams'
 > &
-  (unknown extends TCheckPayload ? {} : { readonly subscribePayload: TCheckPayload });
+  (unknown extends TCheckPayload ? {} : { readonly subscribePayload: TCheckPayload }) & {
+    /** The `{name}` captures from the `scope()` template, surfaced as `ctx.channel.params`. */
+    readonly params: TParams;
+  };
 
 export type NamespaceContract<TDefs extends readonly Definition[] = readonly Definition[]> = Pick<
   Categorize<TDefs>,

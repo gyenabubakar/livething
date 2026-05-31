@@ -490,6 +490,69 @@ describe('stream/runtime', () => {
     expect(handleRuntimeError).toHaveBeenCalledTimes(1);
   });
 
+  it('bufferStreamNudge appends while under the buffer cap', async () => {
+    const { runtime } = createStreamRuntime();
+    const connection = createConnection();
+
+    const active: ActiveStream = {
+      id: 'stream_1',
+      connectionId: connection.id,
+      event: 'nudgey',
+      generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
+      nudges: new Array(255).fill({ event: 'n', payload: {} }),
+      nudgeValidators: new Map([['n', undefined]]),
+      closed: false,
+    };
+    runtime.activeStreams.set('stream_1', active);
+
+    const result = await bufferStreamNudge(
+      runtime as Parameters<typeof bufferStreamNudge>[0],
+      connection,
+      { event: 'n', payload: { k: 1 }, wskit: { streamId: 'stream_1', channelScope: null } },
+    );
+
+    expect(result).toBe(true);
+    expect(active.nudges).toHaveLength(256);
+    expect(active.closed).toBe(false);
+    expect(runtime.activeStreams.has('stream_1')).toBe(true);
+  });
+
+  it('bufferStreamNudge aborts the stream when the buffer is full', async () => {
+    const { runtime, protocolMessages } = createStreamRuntime();
+    const connection = createConnection();
+
+    const active: ActiveStream = {
+      id: 'stream_1',
+      connectionId: connection.id,
+      event: 'nudgey',
+      generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
+      // Already at the 256 cap.
+      nudges: new Array(256).fill({ event: 'n', payload: {} }),
+      nudgeValidators: new Map([['n', undefined]]),
+      closed: false,
+    };
+    runtime.activeStreams.set('stream_1', active);
+
+    const result = await bufferStreamNudge(
+      runtime as Parameters<typeof bufferStreamNudge>[0],
+      connection,
+      { event: 'n', payload: { k: 1 }, wskit: { streamId: 'stream_1', channelScope: null } },
+    );
+
+    expect(result).toBe(true);
+    // Stream torn down.
+    expect(active.closed).toBe(true);
+    expect(runtime.activeStreams.has('stream_1')).toBe(false);
+    // Client told the stream was aborted for nudge overflow.
+    const aborted = protocolMessages.find((m) => m.event === '__error__');
+    expect(aborted).toBeDefined();
+    expect(aborted!.payload).toMatchObject({
+      code: 'stream-aborted',
+      detail: { reason: 'nudge-overflow' },
+    });
+    expect(aborted!.wskit).toMatchObject({ streamId: 'stream_1' });
+  });
+
   it('bufferStreamNudge surfaces __error__ and returns true for an unknown event name on an active stream', async () => {
     const { runtime } = createStreamRuntime();
     const connection = createConnection();

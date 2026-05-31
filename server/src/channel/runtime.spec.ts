@@ -3,6 +3,7 @@ import {
   addChannelMembership,
   createChannelMembershipKey,
   leaveChannel,
+  matchScopeParams,
   subscribeConnection,
   subscribeConnectionAsServer,
   unsubscribeConnection,
@@ -56,7 +57,7 @@ function createRuntime(
   const rooms = {
     key: 'rooms' as string,
     kind: 'channel' as const,
-    pattern: scope('rooms', /^room:/) as ReturnType<typeof scope>,
+    pattern: scope('rooms', 'room:{id}') as ReturnType<typeof scope>,
     outgoing: new Map(),
     incoming: new Map(),
     requests: new Map(),
@@ -283,7 +284,7 @@ describe('channel runtime', () => {
     runtime.compiled.channelFamilies.set('lobbies', {
       ...runtime.compiled.channelFamilies.get('rooms')!,
       key: 'lobbies',
-      pattern: scope('lobbies', /^room:/),
+      pattern: scope('lobbies', 'room:{id}'),
     });
     connections.set(connection.id, connection);
 
@@ -343,7 +344,7 @@ describe('channel runtime', () => {
     runtime.compiled.channelFamilies.set('lobbies', {
       ...runtime.compiled.channelFamilies.get('rooms')!,
       key: 'lobbies',
-      pattern: scope('lobbies', /^room:/),
+      pattern: scope('lobbies', 'room:{id}'),
     });
     connections.set(roomsMember.id, roomsMember);
     connections.set(lobbiesMember.id, lobbiesMember);
@@ -1024,5 +1025,26 @@ describe('subscribeConnectionAsServer', () => {
     expect(
       protocol.some((p) => p.event === '__subscribeOk__' && p.payload.source === 'server'),
     ).toBe(true);
+  });
+});
+
+describe('matchScopeParams', () => {
+  it('returns an empty object for a static channel (string pattern)', () => {
+    expect(matchScopeParams('lobby', 'lobby')).toEqual({});
+  });
+
+  it('captures a single param from a family template', () => {
+    const decl = scope('rooms', 'room:{id}');
+    expect(matchScopeParams(decl, 'room:alpha-42')).toEqual({ id: 'alpha-42' });
+  });
+
+  it('captures multiple params separated by literals', () => {
+    const decl = scope('threads', 'org:{org}/thread:{tid}');
+    expect(matchScopeParams(decl, 'org:acme/thread:42')).toEqual({ org: 'acme', tid: '42' });
+  });
+
+  it('returns an empty object when the name does not match the family', () => {
+    const decl = scope('rooms', 'room:{id}');
+    expect(matchScopeParams(decl, 'lobby:1')).toEqual({});
   });
 });

@@ -226,6 +226,7 @@ type StreamAbortedReason =
   | 'hibernation-wake'
   | 'unsubscribed'
   | 'cursor-invalid'
+  | 'nudge-overflow'
   | 'aborted';
 
 const saErr = StreamAborted({ reason: 'hibernation-wake' });

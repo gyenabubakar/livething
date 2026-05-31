@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import { WSKitConfigError } from '@wskit/core';
+import { compileChannelTemplate } from '~/channel/template.ts';
 import type {
   CheckPrimitive,
   CommitPrimitive,
@@ -45,6 +46,29 @@ type ChannelStatePrimitive =
   | RecordedStreamGeneratePrimitive;
 
 /**
+ * Extract the `{name}` parameters from a channel template literal type as an
+ * object of string values. Best-effort: escaped braces (`{{`/`}}`) are not
+ * modelled at the type level — the runtime parser handles them, so a template
+ * that uses literal braces may infer a param the runtime ignores (or vice
+ * versa). That trade-off keeps the type tractable; the runtime is the source of
+ * truth.
+ *
+ * @example
+ * ```ts
+ * type A = ExtractParams<'room:{id}'>;          // { id: string }
+ * type B = ExtractParams<'org:{org}/t:{tid}'>;  // { org: string; tid: string }
+ * type C = ExtractParams<'lobby'>;              // {}
+ * ```
+ */
+export type ExtractParams<S extends string> = S extends `${string}{${infer Name}}${infer Rest}`
+  ? Name extends `${string}{${string}`
+    ? ExtractParams<Rest>
+    : Name extends ''
+      ? ExtractParams<Rest>
+      : Record<Name, string> & ExtractParams<Rest>
+  : {};
+
+/**
  * A named dynamic channel pattern used in `scope()`. Groups many matching
  * subscription paths under one channel family.
  *
@@ -56,7 +80,7 @@ type ChannelStatePrimitive =
  * // The `key` ('rooms') is the family name used in handlers.
  * const app = contract('app', { env: t<Env>(),
  *   definitions: [
- *     channel(scope('rooms', /^room:.+$/), {
+ *     channel(scope('rooms', 'room:{id}'), {
  *       definitions: [],
  *     }),
  *   ],
@@ -66,21 +90,33 @@ type ChannelStatePrimitive =
  *   ch.onSubscribe((ctx) => {
  *     // ctx.channel.scope is the family key ('rooms')
  *     // ctx.channel.name is the matched path (e.g. 'room:alpha-42')
+ *     // ctx.channel.params.id is the captured segment (e.g. 'alpha-42')
  *   }),
  * );
  * ```
  */
-export interface ScopeDeclaration<TKey extends string = string> {
+export interface ScopeDeclaration<
+  TKey extends string = string,
+  // Phantom: carries the inferred `{name}` param shape so `ctx.channel.params`
+  // can be typed. Never read at runtime.
+  TParams = Record<string, string>,
+> {
   /** Identifier for this channel family. Used with `ctx.channels.get(key, name)` lookups. */
   readonly key: TKey;
-  /** Regular expression matched against the subscription path. */
+  /** The original template string (e.g. `'room:{id}'`). Kept for reconstruction. */
+  readonly template: string;
+  /** The compiled matcher, built only from escaped literals and named groups. */
   readonly pattern: RegExp;
+  /** Capture names declared by the template, in order. */
+  readonly paramNames: readonly string[];
+  /** @internal phantom — the inferred param shape; never set at runtime. */
+  readonly __params?: TParams;
 }
 
 /**
  * The argument accepted by `channel()`. Either a plain string for exact channel
  * names (e.g. `'notifications'`) or a `ScopeDeclaration` for dynamic names
- * that match many paths under one family (e.g. `scope('rooms', /^room:.+$/)`).
+ * that match many paths under one family (e.g. `scope('rooms', 'room:{id}')`).
  */
 export type ChannelPattern = string | ScopeDeclaration<string>;
 
@@ -127,58 +163,34 @@ function assertValidScopeDeclaration(declaration: ScopeDeclaration<string>, sour
       `[wskit] ${source} requires a non-empty key — got ${JSON.stringify(declaration.key)}.`,
     );
   }
-  if (!(declaration.pattern instanceof RegExp)) {
+  if (!(declaration.pattern instanceof RegExp) || typeof declaration.template !== 'string') {
     throw new WSKitConfigError(
-      `[wskit] ${source} requires a RegExp pattern — got ${JSON.stringify(declaration.pattern)}.`,
-    );
-  }
-  if (declaration.pattern.global || declaration.pattern.sticky) {
-    throw new WSKitConfigError(
-      `${source} ("${declaration.key}", ...): regex flags "g" and "y" are not allowed because ` +
-        `they make RegExp.prototype.test stateful, which causes scope-pattern ` +
-        `checks to alternate between match and no-match for the same input. ` +
-        `Use the same pattern without the "g" or "y" flag.`,
-    );
-  }
-  if (CATASTROPHIC_BACKTRACK_SHAPE.test(declaration.pattern.source)) {
-    throw new WSKitConfigError(
-      `${source} ("${declaration.key}", ...): regex source /${declaration.pattern.source}/ ` +
-        `contains a nested unbounded quantifier (shapes like (...+)+, (...*)*, (...+)*, (...*)+). ` +
-        `Inputs that nearly match such a pattern force the regex engine into ` +
-        `exponential backtracking, which freezes the runtime per attempt. ` +
-        `Flatten the inner group, anchor it with a bounded quantifier, or split into ` +
-        `multiple linear-time patterns. See the scope() docs for guidance.`,
+      `[wskit] ${source} requires a compiled template — build it with scope(key, template), ` +
+        `not a hand-rolled object.`,
     );
   }
 }
 
-// Matches a group whose body contains an unbounded quantifier and which is
-// itself followed by an unbounded quantifier — (a+)+, (\w+)+, (a*)*, (a+|b)+,
-// (a{1,})+, (a+){1,}, and similar shapes that send regex backtracking
-// exponential on near-match input. Catches both `+`/`*` and `{n,}`/`{n,m}`
-// quantifiers in either position.
-const UNBOUNDED_QUANTIFIER = '(?:[+*]|\\{\\d+,\\d*\\})';
-const CATASTROPHIC_BACKTRACK_SHAPE = new RegExp(
-  `\\([^)]*${UNBOUNDED_QUANTIFIER}[^)]*\\)${UNBOUNDED_QUANTIFIER}`,
-);
-
 /**
  * Create a `ScopeDeclaration` for a dynamic channel family. A dynamic channel
- * matches many subscription paths against one regex and groups them under a
+ * matches many subscription paths against one template and groups them under a
  * single family key.
  *
  * Pass the result as the first argument to `channel(...)` inside `definitions`.
- * `channel(scope('rooms', /^room:.+$/), { definitions: [...] })` creates a
+ * `channel(scope('rooms', 'room:{id}'), { definitions: [...] })` creates a
  * family that matches subscriptions like `room:general`, `room:alpha-42`, etc.
- * The full matched string is available at `ctx.channel.name`; the family key
- * is at `ctx.channel.scope`. Slice the name yourself if you need a sub-path.
+ * The full matched string is available at `ctx.channel.name`, the family key at
+ * `ctx.channel.scope`, and each `{name}` capture at `ctx.channel.params.name`.
  *
- * @param key     Family identifier. Passed to `implement(c).channel(key, ch => ...)`
+ * The template grammar is just literals plus `{name}` captures (`{{`/`}}` for a
+ * literal brace). wskit compiles it to a linear-time matcher itself, so unlike a
+ * raw regex it can never trigger catastrophic backtracking.
+ *
+ * @param key      Family identifier. Passed to `implement(c).channel(key, ch => ...)`
  *   and used in `ctx.channels.get(key, name)` lookups.
- * @param pattern Regex matched against the subscription path. Anchor with `^`
- *   and `$` so it matches the full name. `scope()` rejects nested unbounded
- *   quantifiers like `(a+)+` and `(\w+)+` that could freeze the runtime on
- *   near-miss input via regex backtracking.
+ * @param template Pattern matched against the subscription path, e.g.
+ *   `'room:{id}'` or `'org:{org}/thread:{tid}'`. Each `{name}` matches one or
+ *   more characters; a literal must separate two adjacent params.
  *
  * @example
  * ```ts
@@ -186,15 +198,25 @@ const CATASTROPHIC_BACKTRACK_SHAPE = new RegExp(
  *
  * const app = contract('app', { env: t<Env>(),
  *   definitions: [
- *     channel(scope('rooms', /^room:.+$/), { definitions: [] }),
+ *     channel(scope('rooms', 'room:{id}'), { definitions: [] }),
  *   ],
  * });
- * // ctx.channel.name → 'room:alpha-42'
- * // ctx.channel.scope → 'rooms'
+ * // ctx.channel.name      → 'room:alpha-42'
+ * // ctx.channel.scope     → 'rooms'
+ * // ctx.channel.params.id → 'alpha-42'
  * ```
  */
-export function scope<TKey extends string>(key: TKey, pattern: RegExp): ScopeDeclaration<TKey> {
-  const declaration = { key, pattern };
+export function scope<TKey extends string, const TTemplate extends string>(
+  key: TKey,
+  template: TTemplate,
+): ScopeDeclaration<TKey, ExtractParams<TTemplate>> {
+  const compiled = compileChannelTemplate(template, 'scope()');
+  const declaration: ScopeDeclaration<TKey, ExtractParams<TTemplate>> = {
+    key,
+    template: compiled.template,
+    pattern: compiled.regex,
+    paramNames: compiled.paramNames,
+  };
   assertValidScopeDeclaration(declaration, 'scope()');
   return declaration;
 }

@@ -2,94 +2,60 @@ import { isWSKitConfigError, WSKitConfigError } from '@wskit/core';
 import { describe, expect, it } from 'vitest';
 import { channel, scope } from './channel.ts';
 
-describe('scope() regex flag validation', () => {
-  it('rejects the "g" (global) flag', () => {
+describe('scope() template compilation', () => {
+  it('builds a declaration with key, template, compiled matcher, and param names', () => {
+    const decl = scope('rooms', 'room:{id}');
+    expect(decl.key).toBe('rooms');
+    expect(decl.template).toBe('room:{id}');
+    expect(decl.pattern).toBeInstanceOf(RegExp);
+    expect(decl.paramNames).toEqual(['id']);
+  });
+
+  it('matches a concrete name and captures the param', () => {
+    const decl = scope('rooms', 'room:{id}');
+    const match = decl.pattern.exec('room:alpha-42');
+    expect(match).not.toBeNull();
+    expect(match!.groups).toMatchObject({ id: 'alpha-42' });
+  });
+
+  it('a trailing param captures the rest, separators included', () => {
+    const decl = scope('rooms', 'room:{id}');
+    expect(decl.pattern.test('room:a:b:c')).toBe(true);
+    expect(decl.pattern.exec('room:a:b:c')!.groups!.id).toBe('a:b:c');
+  });
+
+  it('rejects a name that does not match the template', () => {
+    const decl = scope('rooms', 'room:{id}');
+    expect(decl.pattern.test('lobby:1')).toBe(false);
+    expect(decl.pattern.test('room:')).toBe(false); // {id} needs >= 1 char
+  });
+
+  it('supports multiple params separated by literals', () => {
+    const decl = scope('threads', 'org:{org}/thread:{tid}');
+    expect(decl.paramNames).toEqual(['org', 'tid']);
+    const m = decl.pattern.exec('org:acme/thread:42');
+    expect(m!.groups).toMatchObject({ org: 'acme', tid: '42' });
+  });
+
+  it('rejects a malformed template (delegates to the parser)', () => {
     let thrown: unknown;
     try {
-      scope('rooms', /^room-.+$/g);
+      scope('rooms', 'room:{id');
     } catch (err) {
       thrown = err;
     }
     expect(thrown).toBeInstanceOf(WSKitConfigError);
     expect(isWSKitConfigError(thrown)).toBe(true);
-    expect((thrown as Error).message).toMatch(/"g"/);
-  });
-
-  it('rejects the "y" (sticky) flag', () => {
-    expect(() => scope('rooms', /^room-.+$/y)).toThrow(WSKitConfigError);
-  });
-
-  it('rejects regex with both "g" and "y"', () => {
-    expect(() => scope('rooms', /^room-.+$/gy)).toThrow(WSKitConfigError);
-  });
-
-  it('accepts the "i" (case-insensitive) flag', () => {
-    expect(() => scope('rooms', /^room-.+$/i)).not.toThrow();
-  });
-
-  it('accepts "m" and "s" flags', () => {
-    expect(() => scope('rooms', /^room-.+$/m)).not.toThrow();
-    expect(() => scope('rooms', /^room-.+$/s)).not.toThrow();
-  });
-
-  it('accepts a flag-free regex', () => {
-    const result = scope('rooms', /^room-.+$/);
-    expect(result).toEqual({ key: 'rooms', pattern: /^room-.+$/ });
-  });
-});
-
-describe('scope() catastrophic-backtracking guard', () => {
-  it('rejects (a+)+ shape', () => {
-    let thrown: unknown;
-    try {
-      scope('rooms', /^(a+)+b$/);
-    } catch (err) {
-      thrown = err;
-    }
-    expect(thrown).toBeInstanceOf(WSKitConfigError);
-    expect((thrown as Error).message).toMatch(/nested unbounded quantifier/);
-  });
-
-  it('rejects (\\w+)+ shape', () => {
-    expect(() => scope('rooms', /^(\w+)+\d$/)).toThrow(WSKitConfigError);
-  });
-
-  it('rejects (a*)* shape', () => {
-    expect(() => scope('rooms', /^(a*)*b$/)).toThrow(WSKitConfigError);
-  });
-
-  it('rejects (a+)* shape', () => {
-    expect(() => scope('rooms', /^(a+)*b$/)).toThrow(WSKitConfigError);
-  });
-
-  it('rejects (a*)+ shape', () => {
-    expect(() => scope('rooms', /^(a*)+b$/)).toThrow(WSKitConfigError);
-  });
-
-  it('rejects (\\w+|x)+ shape', () => {
-    expect(() => scope('rooms', /^(\w+|x)+\d$/)).toThrow(WSKitConfigError);
-  });
-
-  it('accepts a single bounded quantifier (a+)b', () => {
-    expect(() => scope('rooms', /^(a+)b$/)).not.toThrow();
-  });
-
-  it('accepts patterns where the inner group has a + but the outer is not + or *', () => {
-    expect(() => scope('rooms', /^(a+)?b$/)).not.toThrow();
-  });
-
-  it('accepts the documented family shape', () => {
-    expect(() => scope('rooms', /^room:[a-z0-9-]+$/)).not.toThrow();
   });
 });
 
 describe('scope() / channel() empty-key rejection', () => {
   it('scope() throws when the key is the empty string', () => {
-    expect(() => scope('', /^room-.+$/)).toThrow(WSKitConfigError);
+    expect(() => scope('', 'room:{id}')).toThrow(WSKitConfigError);
   });
 
   it('scope() throws when the key is whitespace only', () => {
-    expect(() => scope('   ', /^room-.+$/)).toThrow(WSKitConfigError);
+    expect(() => scope('   ', 'room:{id}')).toThrow(WSKitConfigError);
   });
 
   it('channel() throws when the static channel name is the empty string', () => {
@@ -102,25 +68,35 @@ describe('scope() / channel() empty-key rejection', () => {
 });
 
 describe('channel() rejects raw scope-shaped objects that bypass scope()', () => {
-  it('rejects a hand-rolled object with the "g" flag', () => {
-    expect(() => channel({ key: 'rooms', pattern: /^room-.+$/g })).toThrow(WSKitConfigError);
-  });
-
-  it('rejects a hand-rolled object with the "y" flag', () => {
-    expect(() => channel({ key: 'rooms', pattern: /^room-.+$/y })).toThrow(WSKitConfigError);
+  it('rejects a hand-rolled object missing the compiled template', () => {
+    expect(() =>
+      channel({ key: 'rooms', pattern: /^room:.+$/ } as unknown as ReturnType<typeof scope>),
+    ).toThrow(WSKitConfigError);
   });
 
   it('rejects a hand-rolled object with an empty key', () => {
-    expect(() => channel({ key: '', pattern: /^room-.+$/ })).toThrow(WSKitConfigError);
+    expect(() =>
+      channel({
+        key: '',
+        template: 'room:{id}',
+        pattern: /^room:(.+?)$/,
+        paramNames: ['id'],
+      } as unknown as ReturnType<typeof scope>),
+    ).toThrow(WSKitConfigError);
   });
 
   it('rejects a hand-rolled object whose pattern is not a RegExp', () => {
-    expect(() => channel({ key: 'rooms', pattern: 'not-a-regex' as unknown as RegExp })).toThrow(
-      WSKitConfigError,
-    );
+    expect(() =>
+      channel({
+        key: 'rooms',
+        template: 'room:{id}',
+        pattern: 'not-a-regex',
+        paramNames: ['id'],
+      } as unknown as ReturnType<typeof scope>),
+    ).toThrow(WSKitConfigError);
   });
 
-  it('accepts a well-formed scope-shaped object', () => {
-    expect(() => channel({ key: 'rooms', pattern: /^room-.+$/ })).not.toThrow();
+  it('accepts a declaration built through scope()', () => {
+    expect(() => channel(scope('rooms', 'room:{id}'))).not.toThrow();
   });
 });

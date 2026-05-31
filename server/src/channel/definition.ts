@@ -61,26 +61,26 @@ export function channel<
   pattern: TPattern,
   config: ChannelConfig<TDefinitions> & { check: Validator<TCheckPayload> },
 ): ChannelDef<TPattern, TDefinitions, TCheckPayload>;
-export function channel<TKey extends string, const TDefinitions extends readonly Definition[]>(
-  pattern: ScopeDeclaration<TKey>,
-  config: ChannelConfig<TDefinitions>,
-): ChannelDef<ScopeDeclaration<TKey>, TDefinitions, unknown>;
 export function channel<
-  TKey extends string,
+  TDecl extends ScopeDeclaration<string, any>,
+  const TDefinitions extends readonly Definition[],
+>(pattern: TDecl, config: ChannelConfig<TDefinitions>): ChannelDef<TDecl, TDefinitions, unknown>;
+export function channel<
+  TDecl extends ScopeDeclaration<string, any>,
   const TDefinitions extends readonly Definition[],
   TSchema extends StandardSchemaV1,
 >(
-  pattern: ScopeDeclaration<TKey>,
+  pattern: TDecl,
   config: ChannelConfig<TDefinitions> & { check: TSchema },
-): ChannelDef<ScopeDeclaration<TKey>, TDefinitions, StandardSchemaV1.InferOutput<TSchema>>;
+): ChannelDef<TDecl, TDefinitions, StandardSchemaV1.InferOutput<TSchema>>;
 export function channel<
-  TKey extends string,
+  TDecl extends ScopeDeclaration<string, any>,
   const TDefinitions extends readonly Definition[],
   TCheckPayload,
 >(
-  pattern: ScopeDeclaration<TKey>,
+  pattern: TDecl,
   config: ChannelConfig<TDefinitions> & { check: Validator<TCheckPayload> },
-): ChannelDef<ScopeDeclaration<TKey>, TDefinitions, TCheckPayload>;
+): ChannelDef<TDecl, TDefinitions, TCheckPayload>;
 export function channel(
   pattern: string | ScopeDeclaration<string>,
   config: ChannelConfig<readonly Definition[]> & { check?: Validator },

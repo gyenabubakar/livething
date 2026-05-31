@@ -435,6 +435,10 @@ export const RequestNoCorrelation = error('request-no-correlation');
  *   declared on the `resumableStream`. The row stays in place; the resuming
  *   client gets this signal so it can pick a recovery strategy (drop the
  *   stream, start fresh, surface the bug).
+ * - `'nudge-overflow'` — the client queued more nudges than the stream's buffer
+ *   holds because the generator was draining them too slowly. The stream is
+ *   torn down so the client can restart it, instead of the server buffering
+ *   nudges without bound or silently dropping them.
  * - `'aborted'` — catch-all when the framework had to tear the stream down
  *   for an internal reason that does not match any of the above.
  *
@@ -461,6 +465,7 @@ export type StreamAbortedReason =
   | 'hibernation-wake'
   | 'unsubscribed'
   | 'cursor-invalid'
+  | 'nudge-overflow'
   | 'aborted';
 
 const STREAM_ABORTED_REASONS = [
@@ -471,6 +476,7 @@ const STREAM_ABORTED_REASONS = [
   'hibernation-wake',
   'unsubscribed',
   'cursor-invalid',
+  'nudge-overflow',
   'aborted',
 ] as const;
 

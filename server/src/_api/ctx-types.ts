@@ -255,6 +255,8 @@ export type ChannelCtx<TChannelContract, C extends Contract> = Omit<Ctx<C>, 'cha
   readonly channel: {
     readonly name: string;
     readonly scope: string | null;
+    /** `{name}` captures from the matched channel, typed from the `scope()` template. */
+    readonly params: TChannelContract extends { params: infer P } ? P : Record<string, string>;
     send<E extends keyof ChannelOutgoingOf<TChannelContract> & string>(
       event: E,
       payload: ChannelOutgoingOf<TChannelContract>[E],

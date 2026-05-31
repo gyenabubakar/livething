@@ -66,13 +66,13 @@ export const channelScopeIsolationContract = contract('channel-scope-isolation',
     outgoing('private-members-result', PrivateMembersResultPayload),
     outgoing('kick-acknowledged', KickAcknowledgedPayload),
 
-    channel(scope('publicRooms', /^room:.+$/), {
+    channel(scope('publicRooms', 'room:{id}'), {
       definitions: [
         incoming('send-in-public', SendInPublicPayload),
         outgoing('room-message', RoomMessagePayload),
       ],
     }),
-    channel(scope('privateRooms', /^room:.+$/), {
+    channel(scope('privateRooms', 'room:{id}'), {
       definitions: [
         incoming('send-in-private', SendInPrivatePayload),
         outgoing('private-message', PrivateMessagePayload),

@@ -101,13 +101,15 @@ export function compileChannelDef(
     childPrimitives.push(onSessionEndFactory(impl._bag.onSessionEndHandler));
   }
 
-  // Pattern can be a plain string or a scope() declaration.
+  // Pattern can be a plain string or a scope() declaration. Rebuild a dynamic
+  // family from its template so the compiled primitive carries a freshly
+  // validated matcher and param names.
   const pattern =
     typeof def.pattern === 'string'
       ? def.pattern
       : scopeFactory(
           (def.pattern as ScopeDeclaration).key,
-          (def.pattern as ScopeDeclaration).pattern,
+          (def.pattern as ScopeDeclaration).template,
         );
   return channelFactory(pattern as any, ...(childPrimitives as any[]));
 }

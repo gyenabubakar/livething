@@ -15,7 +15,7 @@ export const streamBroadcastContract = contract('stream-broadcast', {
       chunk: BroadcastChunkSchema,
       broadcast: true,
     }),
-    channel(scope('rooms', /^room:.+$/), {
+    channel(scope('rooms', 'room:{id}'), {
       definitions: [
         stream('start-room-broadcast', {
           payload: v.object({ count: v.number() }),

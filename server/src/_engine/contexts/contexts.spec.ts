@@ -418,7 +418,7 @@ describe('ctx.channels.get(name).members()', () => {
     const resolveChannel = vi.fn((target: any) =>
       typeof target === 'string'
         ? undefined
-        : { channelName: target.name, channelScope: target.family },
+        : { channelName: target.name, channelScope: target.family, params: {} },
     );
     const deps = baseDeps({
       connections: new Map([[connection.id, connection]]),

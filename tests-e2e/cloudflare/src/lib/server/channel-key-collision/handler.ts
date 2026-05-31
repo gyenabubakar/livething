@@ -19,10 +19,10 @@ export const channelKeyCollisionContract = contract('channel-key-collision', {
     incoming('broadcast-a', BroadcastPayload),
     incoming('broadcast-b', BroadcastPayload),
 
-    channel(scope('rooms', /^private-.+$/), {
+    channel(scope('rooms', 'private-{id}'), {
       definitions: [outgoing('hello', HelloPayload)],
     }),
-    channel(scope('rooms-private', /^.+$/), {
+    channel(scope('rooms-private', '{id}'), {
       definitions: [outgoing('hello', HelloPayload)],
     }),
   ],

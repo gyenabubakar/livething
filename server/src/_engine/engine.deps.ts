@@ -135,12 +135,16 @@ function buildCommonDeps(core: EngineCore): EngineContextTypes.ContextCommonDeps
       if (typeof target === 'string') {
         const compiledChannel = core.compiled.channels.get(target);
         if (!compiledChannel) return undefined;
-        return { channelName: target, channelScope: null };
+        return { channelName: target, channelScope: null, params: {} };
       }
       const family = core.compiled.channelFamilies.get(target.family);
       if (!family) return undefined;
       if (!ChannelPrimitive.matchesScopePattern(family.pattern, target.name)) return undefined;
-      return { channelName: target.name, channelScope: target.family };
+      return {
+        channelName: target.name,
+        channelScope: target.family,
+        params: ChannelPrimitive.matchScopeParams(family.pattern, target.name),
+      };
     },
     sendReplay: (connection, opts) => {
       sendReplay(core, connection, opts);

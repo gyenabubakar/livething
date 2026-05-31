@@ -74,7 +74,7 @@ export const interceptContract = contract('intercept', {
       ],
     }),
 
-    channel(scope('rooms', /^room:.+$/), {
+    channel(scope('rooms', 'room:{id}'), {
       definitions: [incoming('echo', EchoPayload), outgoing('echoed', EchoedPayload)],
     }),
   ],

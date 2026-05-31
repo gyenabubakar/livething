@@ -54,7 +54,7 @@ const mediumContract = contract('bench-medium', {
     channel('lobby', {
       definitions: [incoming('say', Text), outgoing('said', Text)],
     }),
-    channel(scope('rooms', /^room:.+$/), {
+    channel(scope('rooms', 'room:{id}'), {
       definitions: [incoming('post', Text), outgoing('posted', Text)],
     }),
     namespace('admin', {
@@ -119,11 +119,11 @@ const heavyContract = contract('bench-heavy', {
     channel('chan-3', { definitions: channelDefs('c3') }),
     channel('chan-4', { definitions: channelDefs('c4') }),
     channel('chan-5', { definitions: channelDefs('c5') }),
-    channel(scope('rooms-1', /^r1:.+$/), { definitions: channelDefs('r1') }),
-    channel(scope('rooms-2', /^r2:.+$/), { definitions: channelDefs('r2') }),
-    channel(scope('rooms-3', /^r3:.+$/), { definitions: channelDefs('r3') }),
-    channel(scope('rooms-4', /^r4:.+$/), { definitions: channelDefs('r4') }),
-    channel(scope('rooms-5', /^r5:.+$/), { definitions: channelDefs('r5') }),
+    channel(scope('rooms-1', 'r1:{id}'), { definitions: channelDefs('r1') }),
+    channel(scope('rooms-2', 'r2:{id}'), { definitions: channelDefs('r2') }),
+    channel(scope('rooms-3', 'r3:{id}'), { definitions: channelDefs('r3') }),
+    channel(scope('rooms-4', 'r4:{id}'), { definitions: channelDefs('r4') }),
+    channel(scope('rooms-5', 'r5:{id}'), { definitions: channelDefs('r5') }),
     namespace('admin', {
       definitions: [
         incoming('kick', v.object({ id: v.string() })),

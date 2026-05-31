@@ -33,7 +33,7 @@ export const channelDynamicContract = contract('channel-dynamic', {
     outgoing('validation-observed', ValidationObservedPayload),
     outgoing('scoped-error-observed', ScopedErrorObservedPayload),
 
-    channel(scope('room', /^room:.+$/), {
+    channel(scope('room', 'room:{id}'), {
       definitions: [
         incoming('send-message', SendMessagePayload),
         incoming('echo-name', v.object({})),
@@ -44,7 +44,7 @@ export const channelDynamicContract = contract('channel-dynamic', {
       ],
     }),
 
-    channel(scope('proto-probe', /^proto:.+$/), {
+    channel(scope('proto-probe', 'proto:{id}'), {
       definitions: [],
     }),
   ],

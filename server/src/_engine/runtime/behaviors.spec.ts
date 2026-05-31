@@ -295,6 +295,36 @@ describe('defer retry behavior', () => {
     expect(err.code).toBe('defer-exhausted');
     expect(err.detail).toMatchObject({ event: 'work', payload: { id: 1 }, retries: 3 });
   });
+
+  it('does not re-run the handler when the connection closed during the defer delay', async () => {
+    const connection = createConnection();
+    let attempts = 0;
+    const handler = vi.fn(async () => {
+      attempts += 1;
+      if (attempts === 1) throw Defer(10);
+    });
+
+    const runtime = baseDispatchRuntime({
+      compiled: {
+        ...baseCompiled(),
+        incoming: new Map([['work', { event: 'work', handler, validator: undefined }]]),
+      } as any,
+      connections: new Map([[connection.id, connection]]),
+    });
+
+    await dispatchIncoming(runtime, connection, { event: 'work', payload: {}, wskit: undefined });
+    expect(handler).toHaveBeenCalledTimes(1);
+
+    // Simulate the socket closing during the 10ms defer window: the close path
+    // sets `closing` and drops the connection from the live set.
+    connection.closing = true;
+    runtime.connections.delete(connection.id);
+
+    await vi.advanceTimersByTimeAsync(10);
+
+    // The retry must be a no-op — no side effects for a gone connection.
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
 });
 
 // -------------------------------------------------------------------

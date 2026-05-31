@@ -1,4 +1,5 @@
 import { ChannelNotFound } from '@wskit/core';
+import * as ChannelRuntime from '~/channel/runtime.ts';
 import type * as EngineContextTypes from '~/_engine/contexts/types.ts';
 import type * as PublicApi from '~/context.ts';
 
@@ -20,12 +21,13 @@ type ChannelHandleDeps = Pick<
  */
 export function buildChannelHandle(
   connection: EngineContextTypes.RuntimeConnection,
-  scope: { channelName: string; channelScope: string | null },
+  scope: { channelName: string; channelScope: string | null; params?: Record<string, string> },
   deps: ChannelHandleDeps,
 ): PublicApi.ChannelHandle {
   return {
     name: scope.channelName,
     scope: scope.channelScope,
+    params: scope.params ?? {},
     send: (event: string, payload: unknown) =>
       deps.sendThroughPipeline(connection, {
         routing: { channel: scope.channelName, channelScope: scope.channelScope },
@@ -100,5 +102,6 @@ export function buildChannelScopeExtra(
   const channelName =
     scope.channelName ?? (typeof channel.pattern === 'string' ? channel.pattern : '');
   const channelScope = scope.channelScope ?? null;
-  return { channel: buildChannelHandle(connection, { channelName, channelScope }, deps) };
+  const params = ChannelRuntime.matchScopeParams(channel.pattern, channelName);
+  return { channel: buildChannelHandle(connection, { channelName, channelScope, params }, deps) };
 }

@@ -71,7 +71,7 @@ export const replayContract = contract('replay-test', {
       ],
     }),
 
-    channel(scope('fams', /^fam-.+$/), {
+    channel(scope('fams', 'fam-{id}'), {
       definitions: [outgoing('room-msg', RoomMsg), incoming('send-room-msg', SendRoomMsg)],
     }),
 

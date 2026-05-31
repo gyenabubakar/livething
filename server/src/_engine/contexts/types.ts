@@ -117,7 +117,9 @@ export interface ContextCommonDeps {
 
   resolveChannel(
     target: string | { family: string; name: string },
-  ): { channelName: string; channelScope: string | null } | undefined;
+  ):
+    | { channelName: string; channelScope: string | null; params: Record<string, string> }
+    | undefined;
 
   sendReplay(
     connection: EngineRuntimeTypes.RuntimeConnection,

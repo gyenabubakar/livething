@@ -151,7 +151,7 @@ describe('boot-time cross-primitive collision guard', () => {
       env: t<Record<string, unknown>>(),
       persistence: true,
       definitions: [
-        channel(scope('rooms', /^room:.+$/), {
+        channel(scope('rooms', 'room:{id}'), {
           definitions: [
             stream('feed', { payload: v.object({}), chunk: v.object({}) }),
             resumableStream('feed', { payload: v.object({}), chunk: v.object({}) }),
@@ -302,7 +302,7 @@ describe('scope and event name syntax — reserved characters', () => {
   it('rejects a channel family key starting with @', () => {
     const c = contract('app', {
       env: t<Record<string, unknown>>(),
-      definitions: [channel(scope('@rooms', /^room:.+$/), { definitions: [] })],
+      definitions: [channel(scope('@rooms', 'room:{id}'), { definitions: [] })],
     });
     expect(() => compileHandlerDefinition(implement(c).build())).toThrow(
       /channel name '@rooms' starts with a reserved prefix character/,

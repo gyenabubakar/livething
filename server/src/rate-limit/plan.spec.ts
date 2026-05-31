@@ -86,7 +86,7 @@ describe('resolvePlan — cascade', () => {
     const plan = resolvePlan({
       contractRateLimit: { enabled: true, max: 60 },
       definitions: [
-        channel(scope('rooms', /^room-.+$/), {
+        channel(scope('rooms', 'room-{id}'), {
           rateLimit: { enabled: true, max: 200 },
           definitions: [],
         }),

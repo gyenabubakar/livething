@@ -94,6 +94,20 @@ export function matchesScopePattern(
 }
 
 /**
+ * Extract the `{name}` captures from a concrete channel name. Returns an empty
+ * object for static channels (string pattern) and for dynamic families whose
+ * template declared no params. Surfaced as `ctx.channel.params`.
+ */
+export function matchScopeParams(
+  pattern: CompiledChannel['pattern'],
+  channelName: string,
+): Record<string, string> {
+  if (typeof pattern === 'string') return {};
+  const match = pattern.pattern.exec(channelName);
+  return match?.groups ? { ...match.groups } : {};
+}
+
+/**
  * Look up a compiled channel definition by name. Pass `null` to look up a
  * static channel by name; pass a family key to look up a dynamic channel
  * family.

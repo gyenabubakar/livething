@@ -13,7 +13,7 @@ export const replayFamilyKeyEqualsNameContract = contract('replay-family-key-equ
   replay: true,
   meta: t<{ username: string }>(),
   definitions: [
-    channel(scope('rooms', /^rooms$/), {
+    channel(scope('rooms', 'rooms'), {
       replay: true,
       definitions: [outgoing('room-message', RoomMessage), incoming('send-batch', SendBatch)],
     }),

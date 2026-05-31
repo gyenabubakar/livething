@@ -34,13 +34,37 @@ const NonNegativeSafeInt = v.pipe(
 const StreamIdString = v.pipe(v.string(), v.minLength(1), v.maxLength(128));
 
 /**
+ * A bounded channel name. Channel names can be composite
+ * (e.g. `org:123:room:abc`), so they get more headroom than the other
+ * identifiers. The matcher runs the family regex against this value, so the cap
+ * also bounds the worst-case match cost on attacker-controlled input.
+ */
+const ChannelName = v.pipe(v.string(), v.minLength(1), v.maxLength(256));
+
+/**
+ * A bounded family key / namespace name. These are short identifiers that must
+ * match a declared scope, so 128 is never legitimately exceeded.
+ */
+const ScopeKey = v.pipe(v.string(), v.maxLength(128));
+
+/**
+ * A bounded correlation / ack / message id. The client SDK stamps these as
+ * UUID/ULID-shaped strings (~26-36 chars); 128 matches the streamId cap.
+ * Capping stops a client bloating logs, the dedup ring, and storage rows.
+ */
+const WireId = v.pipe(v.string(), v.minLength(1), v.maxLength(128));
+
+/** A bounded user-event name. Short identifier; 128 is generous. */
+const EventName = v.pipe(v.string(), v.minLength(1), v.maxLength(128));
+
+/**
  * Scope markers for a frame that must target a channel. `channelScope` is the
  * family key for dynamic channels; wire-missing or wire-null both resolve to
  * `null`, matching the engine's "static channel = null" convention.
  */
 const RequiredChannelScope = {
-  channel: v.string(),
-  channelScope: v.nullish(v.string(), null),
+  channel: ChannelName,
+  channelScope: v.nullish(ScopeKey, null),
 };
 
 /**
@@ -49,9 +73,9 @@ const RequiredChannelScope = {
  * `null` when absent.
  */
 const OptionalScope = {
-  channel: v.optional(v.string()),
-  channelScope: v.nullish(v.string(), null),
-  namespace: v.optional(v.string()),
+  channel: v.optional(ChannelName),
+  channelScope: v.nullish(ScopeKey, null),
+  namespace: v.optional(ScopeKey),
 };
 
 /**
@@ -61,8 +85,8 @@ const OptionalScope = {
  * top-level replay. The strict object rejects a stray `namespace`.
  */
 const ReplayScope = {
-  channel: v.optional(v.string()),
-  channelScope: v.nullish(v.string(), null),
+  channel: v.optional(ChannelName),
+  channelScope: v.nullish(ScopeKey, null),
 };
 
 /** An empty payload — protocol events that carry no app data. */
@@ -233,19 +257,19 @@ export const OutgoingProtocolFrame = v.variant('event', [
  * markers for scoped sends, and the dedup/sequence ids the engine stamps.
  */
 export const WSKitProtocolSchema = v.strictObject({
-  correlationId: v.optional(v.string()),
-  channel: v.optional(v.string()),
-  channelScope: v.nullish(v.string(), null),
-  namespace: v.optional(v.string()),
-  ackId: v.optional(v.string()),
-  streamId: v.optional(v.string()),
-  messageId: v.optional(v.string()),
+  correlationId: v.optional(WireId),
+  channel: v.optional(ChannelName),
+  channelScope: v.nullish(ScopeKey, null),
+  namespace: v.optional(ScopeKey),
+  ackId: v.optional(WireId),
+  streamId: v.optional(StreamIdString),
+  messageId: v.optional(WireId),
   seq: v.optional(NonNegativeSafeInt),
 });
 
 /** Any non-protocol frame: an app event with an optional `__wskit` block. */
 export const UserEventFrameSchema = v.strictObject({
-  event: v.string(),
+  event: EventName,
   payload: v.optional(v.unknown()),
   __wskit: v.optional(WSKitProtocolSchema),
 });

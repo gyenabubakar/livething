@@ -15,7 +15,7 @@ export const replayCustomCascadeContract = contract('replay-custom-cascade', {
     channel('lobby', {
       definitions: [outgoing('note', Note), incoming('send-note', SendNote)],
     }),
-    channel(scope('rooms', /^room-.+$/), {
+    channel(scope('rooms', 'room-{id}'), {
       definitions: [outgoing('note', Note), incoming('send-note', SendNote)],
     }),
   ],

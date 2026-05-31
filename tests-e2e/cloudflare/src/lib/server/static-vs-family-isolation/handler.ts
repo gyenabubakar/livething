@@ -50,7 +50,7 @@ export const staticVsFamilyIsolationContract = contract('static-vs-family-isolat
     channel('general', {
       definitions: [incoming('send-in-general', SendInGeneralPayload), outgoing('msg', MsgPayload)],
     }),
-    channel(scope('rooms', /^room:.+$/), {
+    channel(scope('rooms', 'room:{id}'), {
       definitions: [incoming('send-in-room', SendInRoomPayload), outgoing('msg', MsgPayload)],
     }),
   ],

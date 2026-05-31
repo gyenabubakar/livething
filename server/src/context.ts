@@ -367,16 +367,25 @@ export interface ReplayScopeSendApi extends ScopeSendApi {
 export interface ChannelHandle<
   TOutgoing extends Record<string, unknown> = Record<string, unknown>,
   Meta = Record<string, unknown>,
+  TParams extends Record<string, string> = Record<string, string>,
 > {
   /** The concrete channel name this handle targets. */
   readonly name: string;
 
   /**
    * The channel family key when this handle was resolved from a dynamic
-   * family registered with `scope(key, pattern)`, or `null` when the handle
+   * family registered with `scope(key, template)`, or `null` when the handle
    * targets a static channel registered with a string name.
    */
   readonly scope: string | null;
+
+  /**
+   * The `{name}` captures from the matched channel name, typed from the
+   * `scope()` template (e.g. `scope('rooms', 'room:{id}')` →
+   * `params.id`). Empty object for static channels and templates with no
+   * params.
+   */
+  readonly params: TParams;
 
   /** Send a channel-scoped event to the current connection. */
   send<E extends keyof TOutgoing & string>(event: E, payload: TOutgoing[E]): boolean;

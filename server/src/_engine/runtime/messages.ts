@@ -266,6 +266,12 @@ export async function dispatchIncoming(
   // Dedup runs in `processTextMessage`. Defer retries re-enter here directly
   // and skip dedup — that is the engine replaying its own work, not a resend.
 
+  // Bail if the connection is already closing. A Defer retry is scheduled on a
+  // timer; if the socket closed during the delay, re-running the handler would
+  // fire side effects (sends, broadcasts, storage writes) for a client that is
+  // gone — and the connection is already out of the runtime maps by then.
+  if (connection.closing) return;
+
   let scope: EngineRuntimeTypes.ResolvedScope;
   try {
     scope = resolveScope(runtime.compiled, wskit);

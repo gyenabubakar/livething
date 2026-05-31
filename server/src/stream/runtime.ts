@@ -2,6 +2,7 @@
 import {
   InternalError,
   rethrowIfConfigError,
+  StreamAborted,
   StreamIdCollision,
   ValidationFailed,
 } from '@wskit/core';
@@ -143,6 +144,13 @@ export async function cancelStream(
 }
 
 /**
+ * Max nudges buffered for one active stream. When a client queues more than
+ * this (the generator is draining them too slowly), the stream is aborted
+ * instead of letting the buffer grow without bound.
+ */
+const NUDGE_BUFFER_CAP = 256;
+
+/**
  * Buffer one validated nudge for a running stream.
  *
  * Returning `true` means the event belonged to an active stream, so normal
@@ -157,7 +165,10 @@ export interface BufferStreamNudgeOptions {
 }
 
 export async function bufferStreamNudge(
-  runtime: Pick<StreamRuntime, 'activeStreams' | 'handleValidationError' | 'handleRuntimeError'>,
+  runtime: Pick<
+    StreamRuntime,
+    'activeStreams' | 'handleValidationError' | 'handleRuntimeError' | 'sendProtocolMessage'
+  > & { logger?: Pick<Logger, 'error'> },
   connection: RuntimeConnection,
   options: BufferStreamNudgeOptions,
 ): Promise<boolean> {
@@ -198,6 +209,20 @@ export async function bufferStreamNudge(
       ],
     });
     await runtime.handleRuntimeError(connection, { error, event, routing: { streamId } });
+    return true;
+  }
+
+  // The client is queueing nudges faster than the generator drains them.
+  // Growing the buffer without bound is a memory-exhaustion vector, and
+  // silently dropping nudges would corrupt the stream's input. Abort the
+  // stream so the client gets a clear signal and can restart it.
+  if (activeStream.nudges.length >= NUDGE_BUFFER_CAP) {
+    await cancelStream(runtime, connection, streamId);
+    runtime.sendProtocolMessage(connection, {
+      event: '__error__',
+      payload: { code: StreamAborted.code, detail: { reason: 'nudge-overflow' } },
+      wskit: { streamId },
+    });
     return true;
   }
 
