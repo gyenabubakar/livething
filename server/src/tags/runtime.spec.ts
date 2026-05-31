@@ -66,6 +66,22 @@ describe('tag member index', () => {
     expect(sent).toEqual(['eng']);
   });
 
+  it('add("") is a no-op so an empty key never creates a phantom bucket', () => {
+    const tagMembers = new Map<string, Set<RuntimeConnection>>();
+    const sent: string[] = [];
+    const conn = createConnection('c1');
+    const runtime = createRuntime(tagMembers, sent);
+    const group = buildGroupHandle(runtime, conn, { kind: 'ephemeral', group: 'team' });
+
+    group.add('');
+    group.remove('');
+
+    expect(group.count()).toBe(0);
+    expect(tagMembers.size).toBe(0);
+    group.ref('').send('evt', {});
+    expect(sent).toEqual([]);
+  });
+
   it('group send reaches every connection with any key in the group', () => {
     const tagMembers = new Map<string, Set<RuntimeConnection>>();
     const sent: string[] = [];

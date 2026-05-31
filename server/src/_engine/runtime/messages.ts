@@ -14,8 +14,8 @@ import * as DurableStreamRuntime from '~/_engine/stream-durable/runtime.ts';
 import { ensureDurableStreamSchema } from '~/_engine/stream-durable/storage.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import * as ErrorsPrimitive from '~/errors/errors.ts';
-import * as KeepalivePrimitive from '~/keepalive/runtime.ts';
 import * as InterceptPrimitive from '~/intercept/runtime.ts';
+import * as KeepalivePrimitive from '~/keepalive/runtime.ts';
 import * as OutgoingRuntime from '~/outgoing/runtime.ts';
 import * as RequestPrimitive from '~/request/runtime.ts';
 import * as StreamPrimitive from '~/stream/runtime.ts';
@@ -410,6 +410,7 @@ export async function dispatchIncoming(
       await RequestPrimitive.handleRequest(
         {
           asyncContext: runtime.asyncContext,
+          logger: runtime.logger,
           sendThroughPipeline: (nextConnection, nextOpts) => {
             return OutgoingRuntime.sendThroughPipeline(runtime, nextConnection, nextOpts);
           },

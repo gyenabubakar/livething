@@ -218,6 +218,11 @@ export function buildGroupHandle(
     group,
 
     add(key: string) {
+      // An empty key addresses no bucket. Guard it as a no-op so an untyped
+      // t<>() group can't create a phantom "" tag that ref('').send() would
+      // then fan out to. Runs before schema validation so the no-op is
+      // uniform regardless of how the group was declared.
+      if (key.length === 0) return;
       // Validate the value when the group declared a schema. A t<>() group has
       // no schema and skips this. Throws ValidationFailed on a bad value before
       // any state changes.
@@ -240,6 +245,9 @@ export function buildGroupHandle(
     },
 
     remove(key: string) {
+      // Symmetry with add(): an empty key was never stored, so removing it is
+      // a no-op (and must not attempt a durable delete).
+      if (key.length === 0) return;
       if (kind === 'ephemeral') {
         if (!removeConnectionTag(runtime.tagMembers, connection, { kind, group, key })) return;
         runtime.persistAttachment(connection);

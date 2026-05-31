@@ -39,13 +39,16 @@ test.describe('errors-factory', () => {
     await expect(page.getByTestId('error-result')).toHaveText('simple-error:{}');
   });
 
-  test('an undeclared typed error still delivers its frame (code + detail)', async ({ page }) => {
-    // `unregistered` is NOT in the contract's errors:[...]. The engine logs a
-    // warning but still delivers the frame with the thrown code and detail —
-    // an unknown-but-thrown WSKitError is not swallowed or coerced.
+  test('an undeclared typed error is coerced to internal-error', async ({ page }) => {
+    // `unregistered` is NOT in the contract's errors:[...], so InferClient can't
+    // type it. The engine logs a server-side warning and collapses it to
+    // internal-error rather than hand the client a code it can't narrow on. The
+    // detail is dropped too — internal-error never leaks internals.
     await page.getByTestId('trigger-unregistered').click();
-    await expect(page.getByTestId('error-result')).toContainText('unregistered');
-    await expect(page.getByTestId('error-result')).toContainText('this error is not registered');
+    await expect(page.getByTestId('error-result')).toHaveText('internal-error:{}');
+    await expect(page.getByTestId('error-result')).not.toContainText(
+      'this error is not registered',
+    );
     // The connection survives an undeclared-error throw.
     await expect(page.getByTestId('status')).toHaveText('connected');
   });

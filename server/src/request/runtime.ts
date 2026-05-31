@@ -4,10 +4,13 @@ import { runWithScopedContext } from '~/intercept/runtime.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type { ResolvedScope, RoutingTarget, RuntimeConnection } from '~/_engine/runtime/types.ts';
+import type { Logger } from '~/context.ts';
 import type { RequestPrimitive } from './request.ts';
 
 interface RequestRuntime {
   asyncContext: EngineAsyncContext;
+
+  logger: Pick<Logger, 'error'>;
 
   sendThroughPipeline(
     connection: RuntimeConnection,
@@ -60,7 +63,16 @@ export async function handleRequest(
     handler: (ctx) => {
       ctx.respond = (value: unknown) => {
         if (responded) {
-          throw new Error('[wskit] ctx.respond() was already called for this request invocation.');
+          // Calling respond() twice is a server-side programming mistake, not
+          // something the client did. The first response already settled the
+          // client's promise, so swallow the extra call and log it instead of
+          // throwing — a throw here would surface a spurious `internal-error`
+          // to a client that already got its answer.
+          runtime.logger.error(
+            '[wskit] ctx.respond() was already called for this request invocation; ignoring the extra call',
+            { event },
+          );
+          return;
         }
         responded = true;
         response = value;

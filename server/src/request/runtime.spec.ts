@@ -40,6 +40,7 @@ describe('request/runtime', () => {
     const sendThroughPipeline = vi.fn(() => true);
     const runtime = {
       asyncContext: makeAsyncContext(),
+      logger: { error: vi.fn() },
       sendThroughPipeline,
     };
     const connection = createConnection();
@@ -73,10 +74,13 @@ describe('request/runtime', () => {
     });
   });
 
-  it('calling ctx.respond() twice in one invocation throws', async () => {
+  it('calling ctx.respond() twice logs server-side and sends only the first response', async () => {
+    const sendThroughPipeline = vi.fn(() => true);
+    const error = vi.fn();
     const runtime = {
       asyncContext: makeAsyncContext(),
-      sendThroughPipeline: vi.fn(() => true),
+      logger: { error },
+      sendThroughPipeline,
     };
     const connection = createConnection();
     const request = {
@@ -88,17 +92,33 @@ describe('request/runtime', () => {
       }),
     } as unknown as RequestPrimitive;
 
-    await expect(
-      handleRequest(runtime, {
-        connection,
-        ctx: { ok: true },
-        scope: {},
-        event: 'status',
-        request,
-        payload: {},
-        wskit: { correlationId: 'req-1', channelScope: null },
-      }),
-    ).rejects.toThrow('[wskit] ctx.respond() was already called');
+    // The second respond() is a server bug, not a client concern. It must not
+    // reach the client (which already got the first response) — it's logged.
+    await handleRequest(runtime, {
+      connection,
+      ctx: { ok: true },
+      scope: {},
+      event: 'status',
+      request,
+      payload: {},
+      wskit: { correlationId: 'req-1', channelScope: null },
+    });
+
+    expect(error).toHaveBeenCalledWith(
+      '[wskit] ctx.respond() was already called for this request invocation; ignoring the extra call',
+      { event: 'status' },
+    );
+    expect(sendThroughPipeline).toHaveBeenCalledTimes(1);
+    expect(sendThroughPipeline).toHaveBeenCalledWith(connection, {
+      routing: {
+        namespace: undefined,
+        channel: undefined,
+        channelScope: undefined,
+        correlationId: 'req-1',
+      },
+      event: 'status',
+      payload: { first: true },
+    });
   });
 
   it('throws RequestNoResponse when handler exits without calling ctx.respond()', async () => {
@@ -110,6 +130,7 @@ describe('request/runtime', () => {
     const sendThroughPipeline = vi.fn(() => true);
     const runtime = {
       asyncContext: makeAsyncContext(),
+      logger: { error: vi.fn() },
       sendThroughPipeline,
     };
     const connection = createConnection();
@@ -140,6 +161,7 @@ describe('request/runtime', () => {
     const asyncContext = makeAsyncContext();
     const runtime = {
       asyncContext,
+      logger: { error: vi.fn() },
       sendThroughPipeline: vi.fn(() => true),
     };
     const connection = createConnection();
@@ -173,6 +195,7 @@ describe('request/runtime', () => {
     const sendThroughPipeline = vi.fn(() => true);
     const runtime = {
       asyncContext: makeAsyncContext(),
+      logger: { error: vi.fn() },
       sendThroughPipeline,
     };
     const connection = createConnection();

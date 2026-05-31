@@ -21,6 +21,32 @@ describe('errors runtime', () => {
     });
   });
 
+  it('collapses an undeclared WSKitError code into internal-error', () => {
+    expect(
+      normalizeRuntimeError(
+        new WSKitError('quota-exceeded', { limit: 1 }),
+        { correlationId: 'r1' },
+        new Set(['forbidden']),
+      ),
+    ).toEqual({
+      payload: { code: 'internal-error' },
+      wskit: { correlationId: 'r1' },
+    });
+  });
+
+  it('keeps a declared WSKitError code and detail', () => {
+    expect(
+      normalizeRuntimeError(
+        new WSKitError('forbidden', { reason: 'nope' }),
+        undefined,
+        new Set(['forbidden']),
+      ),
+    ).toEqual({
+      payload: { code: 'forbidden', detail: { reason: 'nope' } },
+      wskit: {},
+    });
+  });
+
   it('still sends __error__ after running error hooks', async () => {
     const sent: Array<{ event: string; payload: Record<string, unknown> }> = [];
     const observed: string[] = [];
@@ -147,7 +173,7 @@ describe('errors runtime', () => {
     expect(sent).toEqual([{ event: '__error__', payload: { code: 'internal-error' } }]);
   });
 
-  it('warns when a thrown WSKitError was never declared', async () => {
+  it('warns and sends internal-error when a thrown WSKitError was never declared', async () => {
     const warnings: string[] = [];
     const sent: Array<{ event: string; payload: Record<string, unknown> }> = [];
 
@@ -175,12 +201,9 @@ describe('errors runtime', () => {
     expect(warnings).toEqual([
       '[wskit] Thrown WSKitError was not declared in the contract errors: [...] list',
     ]);
-    expect(sent).toEqual([
-      {
-        event: '__error__',
-        payload: { code: 'quota-exceeded', detail: { limit: 1 } },
-      },
-    ]);
+    // An undeclared code can't be inferred by InferClient, so the client gets
+    // internal-error rather than a code it can't type.
+    expect(sent).toEqual([{ event: '__error__', payload: { code: 'internal-error' } }]);
   });
 
   it('builds the onError hook ctx with the scope resolved from routing markers', async () => {

@@ -57,10 +57,19 @@ interface ValidationErrorDeps {
 export function normalizeRuntimeError(
   error: unknown,
   routing?: Protocol.WSKitRouting,
+  declaredErrorCodes?: ReadonlySet<string>,
 ): { payload: Record<string, unknown>; wskit: Record<string, unknown> } {
   const wskit: Record<string, unknown> = { ...(routing ?? {}) };
 
   if (error instanceof WSKitError) {
+    // A WSKitError whose code was never declared in `errors: [...]` is not part
+    // of the contract, so `InferClient` can't type it. Handing the raw code to
+    // the client would give them a code they can't narrow on; collapse it to
+    // `internal-error` instead. (sendRuntimeError logs a dev warning so the
+    // missing declaration is still visible server-side.)
+    if (declaredErrorCodes && !declaredErrorCodes.has(error.code)) {
+      return { payload: { code: InternalError.code }, wskit };
+    }
     return { payload: { code: error.code, detail: error.detail }, wskit };
   }
 
@@ -112,7 +121,7 @@ export async function sendRuntimeError(
     }
   }
 
-  const { payload, wskit } = normalizeRuntimeError(error, routing);
+  const { payload, wskit } = normalizeRuntimeError(error, routing, deps.declaredErrorCodes);
   deps.sendProtocolMessage(connection, { event: '__error__', payload, wskit });
 }
 
