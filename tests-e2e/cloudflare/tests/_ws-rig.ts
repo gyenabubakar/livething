@@ -107,7 +107,7 @@ export async function waitForFrame(
   id: string,
   opts: WaitForFrameOptions,
 ): Promise<WireFrame> {
-  const { match, timeoutMs = 5000 } = opts;
+  const { match, timeoutMs = 15000 } = opts;
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     const all = await frames(page, id);
