@@ -1,5 +1,6 @@
 packages:
   - client
+  - client2
   - core
   - shared
   - server
