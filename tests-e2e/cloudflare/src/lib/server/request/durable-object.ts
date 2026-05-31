@@ -1,4 +1,4 @@
-import { serve } from '@wskit/server-cloudflare';
+import { server } from '@wskit/server-cloudflare';
 import { requestHandler } from './handler.ts';
 
-export const RequestServer = serve(requestHandler);
+export const RequestServer = server(requestHandler);

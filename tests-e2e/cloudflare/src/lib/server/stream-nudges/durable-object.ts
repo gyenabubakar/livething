@@ -1,4 +1,4 @@
-import { serve } from '@wskit/server-cloudflare';
+import { server } from '@wskit/server-cloudflare';
 import { streamNudgesHandler } from './handler.ts';
 
-export const StreamNudgesServer = serve(streamNudgesHandler);
+export const StreamNudgesServer = server(streamNudgesHandler);

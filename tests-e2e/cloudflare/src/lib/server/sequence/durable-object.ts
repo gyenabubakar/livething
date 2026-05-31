@@ -1,10 +1,10 @@
-import { serve } from '@wskit/server-cloudflare';
+import { server } from '@wskit/server-cloudflare';
 import { sequenceHandler } from './handler.ts';
 
-const Base = serve(sequenceHandler);
+const Base = server(sequenceHandler);
 
 /**
- * `serve()` only offers a graceful `shutdown()` that drains connections while
+ * `server()` only offers a graceful `shutdown()` that drains connections while
  * keeping in-memory state, so a reconnect hits the same live instance. To make
  * durability across a real restart observable (here: durable-sequence resuming
  * above its reserved range), this test harness adds `restart()`: `ctx.abort()`

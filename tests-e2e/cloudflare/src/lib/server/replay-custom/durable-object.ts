@@ -1,4 +1,4 @@
-import { serve } from '@wskit/server-cloudflare';
+import { server } from '@wskit/server-cloudflare';
 import { replayCustomHandler } from './handler.ts';
 
-export const ReplayCustomServer = serve(replayCustomHandler);
+export const ReplayCustomServer = server(replayCustomHandler);

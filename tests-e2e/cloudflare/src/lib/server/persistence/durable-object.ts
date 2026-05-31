@@ -1,7 +1,7 @@
-import { serve } from '@wskit/server-cloudflare';
+import { server } from '@wskit/server-cloudflare';
 import { persistenceHandler } from './handler.ts';
 
-const Base = serve(persistenceHandler);
+const Base = server(persistenceHandler);
 
 /**
  * Test-only `restart()`: `ctx.abort()` discards the in-memory instance while

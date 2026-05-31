@@ -1,4 +1,4 @@
-import { serve } from '@wskit/server-cloudflare';
+import { server } from '@wskit/server-cloudflare';
 import { replayMembershipGateHandler } from './handler.ts';
 
-export const ReplayMembershipGateServer = serve(replayMembershipGateHandler);
+export const ReplayMembershipGateServer = server(replayMembershipGateHandler);

@@ -1,4 +1,4 @@
-import { serve } from '@wskit/server-cloudflare';
+import { server } from '@wskit/server-cloudflare';
 import { ctxKvHandler } from './handler.ts';
 
-export const CtxKvServer = serve(ctxKvHandler);
+export const CtxKvServer = server(ctxKvHandler);

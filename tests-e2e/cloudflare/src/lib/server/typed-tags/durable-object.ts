@@ -1,4 +1,4 @@
-import { serve } from '@wskit/server-cloudflare';
+import { server } from '@wskit/server-cloudflare';
 import { typedTagsHandler } from './handler.ts';
 
-export const TypedTagsServer = serve(typedTagsHandler);
+export const TypedTagsServer = server(typedTagsHandler);

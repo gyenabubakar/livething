@@ -22,7 +22,7 @@ type AdapterSetup = (
 
 let fake: FakeEngine;
 
-// Each serve() call re-invokes adapter.setup. We capture the
+// Each server() call re-invokes adapter.setup. We capture the
 // createEngine factory so every DO instance shares the same fake engine
 // we can assert against.
 vi.mock('@wskit/server/adapters', () => ({
@@ -37,7 +37,7 @@ vi.mock('@wskit/server/adapters', () => ({
 }));
 
 // Import AFTER mocks are in place.
-const { serve } = await import('./serve.ts');
+const { server } = await import('./server.ts');
 
 type DOInstance = {
   fetch(req: Request): Promise<Response>;
@@ -51,7 +51,10 @@ type DOInstance = {
 function buildClass(opts?: { hibernation?: boolean }) {
   fake = makeFakeEngine();
   if (opts?.hibernation !== false) fake.setHibernation(true);
-  return serve({} as never) as unknown as new (ctx: DurableObjectState, env: unknown) => DOInstance;
+  return server({} as never) as unknown as new (
+    ctx: DurableObjectState,
+    env: unknown,
+  ) => DOInstance;
 }
 
 function upgradeRequest() {

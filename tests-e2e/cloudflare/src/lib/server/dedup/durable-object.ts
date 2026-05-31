@@ -1,4 +1,4 @@
-import { serve } from '@wskit/server-cloudflare';
+import { server } from '@wskit/server-cloudflare';
 import { dedupHandler } from './handler.ts';
 
-export const DedupServer = serve(dedupHandler);
+export const DedupServer = server(dedupHandler);

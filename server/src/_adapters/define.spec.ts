@@ -49,7 +49,7 @@ describe('adapter', () => {
 
   it('passes runtime-aware engine factory and options to setup', () => {
     const setup = vi.fn(() => ({ ok: true }));
-    const serve = adapter({
+    const server = adapter({
       id: 'test',
       hibernation: noopHibernation,
       asyncContextFactory: makeAsyncContextFactory(),
@@ -57,7 +57,7 @@ describe('adapter', () => {
     });
 
     const handler = { __wskit: 'server', primitives: [] } as unknown as ServerDefinition;
-    const result = serve(handler, { port: 3000 });
+    const result = server(handler, { port: 3000 });
     const [createEngine, options] = setup.mock.calls[0]! as unknown as [
       (runtimeOptions: RuntimeOptions) => Engine,
       { port: number },
@@ -80,7 +80,7 @@ describe('adapter', () => {
   it('passes the adapter hibernation API straight through to engine options', () => {
     let capturedFactory: ((runtimeOptions: RuntimeOptions) => Engine) | undefined;
     const api = { persist: vi.fn(), restore: vi.fn(() => ({ id: 'restored' })) };
-    const serve = adapter({
+    const server = adapter({
       id: 'cf',
       hibernation: api,
       asyncContextFactory: makeAsyncContextFactory(),
@@ -90,13 +90,13 @@ describe('adapter', () => {
       },
     });
 
-    serve({ __wskit: 'server', primitives: [] } as unknown as ServerDefinition, {} as never);
+    server({ __wskit: 'server', primitives: [] } as unknown as ServerDefinition, {} as never);
     expect(capturedFactory!(runtimeOptions()).core.options.hibernation).toBe(api);
   });
 
   it('omits hibernation in engine options when the adapter does not provide one', () => {
     let capturedFactory: ((runtimeOptions: RuntimeOptions) => Engine) | undefined;
-    const serve = adapter({
+    const server = adapter({
       id: 'no-hib',
       asyncContextFactory: makeAsyncContextFactory(),
       setup(createEngine) {
@@ -105,14 +105,14 @@ describe('adapter', () => {
       },
     });
 
-    serve({ __wskit: 'server', primitives: [] } as unknown as ServerDefinition, {} as never);
+    server({ __wskit: 'server', primitives: [] } as unknown as ServerDefinition, {} as never);
     const engine = capturedFactory!(runtimeOptions());
     expect(engine.core.options.hibernation).toBe(undefined);
   });
 
   it('factory creates independent engine instances', () => {
     let capturedFactory: ((runtimeOptions: RuntimeOptions) => Engine) | undefined;
-    const serve = adapter({
+    const server = adapter({
       id: 'multi',
       asyncContextFactory: makeAsyncContextFactory(),
       setup(createEngine) {
@@ -121,7 +121,7 @@ describe('adapter', () => {
       },
     });
 
-    serve({ __wskit: 'server', primitives: [] } as unknown as ServerDefinition, {} as never);
+    server({ __wskit: 'server', primitives: [] } as unknown as ServerDefinition, {} as never);
     const a = capturedFactory!(runtimeOptions());
     const b = capturedFactory!(runtimeOptions());
     expect(a).not.toBe(b);

@@ -1,3 +1,3 @@
 /** Public entrypoint for the Cloudflare adapter package. */
-export { serve } from './serve.ts';
+export { server } from './server.ts';
 export type { Platform } from './platform.ts';

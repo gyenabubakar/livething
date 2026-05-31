@@ -1,4 +1,4 @@
-import { serve } from '@wskit/server-cloudflare';
+import { server } from '@wskit/server-cloudflare';
 import { interceptHandler } from './handler.ts';
 
-export const InterceptServer = serve(interceptHandler);
+export const InterceptServer = server(interceptHandler);

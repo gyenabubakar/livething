@@ -12,7 +12,7 @@ import * as Adapter from './index.ts';
 import type { Platform } from './index.ts';
 
 // Expected exports are accessible.
-void Adapter.serve;
+void Adapter.server;
 
 declare const _platform: Platform;
 void _platform;

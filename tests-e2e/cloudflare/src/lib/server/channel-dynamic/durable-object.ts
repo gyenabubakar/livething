@@ -1,4 +1,4 @@
-import { serve } from '@wskit/server-cloudflare';
+import { server } from '@wskit/server-cloudflare';
 import { channelDynamicHandler } from './handler.ts';
 
-export const ChannelDynamicServer = serve(channelDynamicHandler);
+export const ChannelDynamicServer = server(channelDynamicHandler);

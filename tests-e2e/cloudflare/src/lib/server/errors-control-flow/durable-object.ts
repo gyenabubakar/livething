@@ -1,4 +1,4 @@
-import { serve } from '@wskit/server-cloudflare';
+import { server } from '@wskit/server-cloudflare';
 import { errorsControlFlowHandler } from './handler.ts';
 
-export const ErrorsControlFlowServer = serve(errorsControlFlowHandler);
+export const ErrorsControlFlowServer = server(errorsControlFlowHandler);

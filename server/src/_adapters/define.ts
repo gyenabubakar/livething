@@ -12,7 +12,7 @@ import type { AdapterConfig } from './types.ts';
  * call it to get an engine instance to attach to.
  */
 export function adapter<TOptions, TService>(config: AdapterConfig<TOptions, TService>) {
-  return function serve(handler: ServerDefinition, options: TOptions): TService {
+  return function server(handler: ServerDefinition, options: TOptions): TService {
     function createEngine(
       runtimeOptions: Omit<
         AdapterTypes.EngineOptions,

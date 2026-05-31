@@ -1,4 +1,4 @@
-import { serve } from '@wskit/server-cloudflare';
+import { server } from '@wskit/server-cloudflare';
 import { protocolPingsHandler } from './handler.ts';
 
-export const ProtocolPingsServer = serve(protocolPingsHandler);
+export const ProtocolPingsServer = server(protocolPingsHandler);

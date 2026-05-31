@@ -1,4 +1,4 @@
-import { serve } from '@wskit/server-cloudflare';
+import { server } from '@wskit/server-cloudflare';
 import { streamBasicHandler } from './handler.ts';
 
-export const StreamBasicServer = serve(streamBasicHandler);
+export const StreamBasicServer = server(streamBasicHandler);

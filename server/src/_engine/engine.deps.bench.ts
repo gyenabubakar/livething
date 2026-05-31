@@ -7,7 +7,7 @@ import type { ServerDefinition } from '~/server-definition.ts';
 
 function makeCore(): EngineCore {
   let core: EngineCore | undefined;
-  const serve = adapter({
+  const server = adapter({
     id: 'bench',
     hibernation: { persist() {}, restore: () => undefined },
     asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
@@ -30,7 +30,7 @@ function makeCore(): EngineCore {
       return {};
     },
   });
-  serve({ __wskit: 'server', primitives: [] } as unknown as ServerDefinition, {} as never);
+  server({ __wskit: 'server', primitives: [] } as unknown as ServerDefinition, {} as never);
   return core!;
 }
 

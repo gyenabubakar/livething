@@ -1,4 +1,4 @@
-import { serve } from '@wskit/server-cloudflare';
+import { server } from '@wskit/server-cloudflare';
 import { replayCustomCascadeHandler } from './handler.ts';
 
-export const ReplayCustomCascadeServer = serve(replayCustomCascadeHandler);
+export const ReplayCustomCascadeServer = server(replayCustomCascadeHandler);

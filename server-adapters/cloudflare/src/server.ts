@@ -7,7 +7,7 @@ import { createStorage, createTimers } from './providers/index.ts';
 import { normalizeBinary } from './utils.ts';
 
 /**
- * The instance shape of a `serve()`-produced Durable Object.
+ * The instance shape of a `server()`-produced Durable Object.
  *
  * In addition to the standard Durable Object lifecycle methods, the instance
  * exposes `shutdown()` as an RPC method. Call `stub.shutdown()` from your
@@ -19,7 +19,7 @@ export interface WSKitDurableObjectInstance<Env = unknown> extends DurableObject
 }
 
 /**
- * The Durable Object class type that `serve()` returns. Use this as the type
+ * The Durable Object class type that `server()` returns. Use this as the type
  * for your exported Durable Object class.
  */
 export type CloudflareDurableObjectClass<Env = unknown> = new (
@@ -297,16 +297,16 @@ const buildServe = adapter<undefined, CloudflareDurableObjectClass>({
  * `hibernation: true`.
  *
  * The returned value is a class, not an instance. Export it from your worker
- * module like `export const Room = serve(handler);` — Cloudflare instantiates
+ * module like `export const Room = server(handler);` — Cloudflare instantiates
  * it per Durable Object id.
  *
  * @example
  * ```ts
  * // src/worker.ts
- * import { serve } from '@wskit/server-cloudflare';
+ * import { server } from '@wskit/server-cloudflare';
  * import { handler } from './handler';
  *
- * export const GameRoom = serve(handler);
+ * export const GameRoom = server(handler);
  *
  * export default {
  *   async fetch(request, env) {
@@ -316,6 +316,6 @@ const buildServe = adapter<undefined, CloudflareDurableObjectClass>({
  * };
  * ```
  */
-export function serve(handler: ServerDefinition): CloudflareDurableObjectClass {
+export function server(handler: ServerDefinition): CloudflareDurableObjectClass {
   return buildServe(handler, undefined);
 }

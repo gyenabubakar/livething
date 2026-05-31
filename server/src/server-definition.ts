@@ -84,10 +84,10 @@ export interface ServerContract {
  *
  * ```typescript
  * // Cloudflare
- * export const ChatRoom = serve(chat)
+ * export const ChatRoom = server(chat)
  *
  * // Bun
- * serve(chat, { port: 3000 })
+ * server(chat, { port: 3000 })
  * ```
  *
  * @template TPrimitives - The frozen tuple of all registered primitives.

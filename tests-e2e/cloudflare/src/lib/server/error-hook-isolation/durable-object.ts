@@ -1,4 +1,4 @@
-import { serve } from '@wskit/server-cloudflare';
+import { server } from '@wskit/server-cloudflare';
 import { errorHookIsolationHandler } from './handler.ts';
 
-export const ErrorHookIsolationServer = serve(errorHookIsolationHandler);
+export const ErrorHookIsolationServer = server(errorHookIsolationHandler);

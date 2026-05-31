@@ -1,4 +1,4 @@
-import { serve } from '@wskit/server-cloudflare';
+import { server } from '@wskit/server-cloudflare';
 import { ackHandler } from './handler.ts';
 
-export const AckServer = serve(ackHandler);
+export const AckServer = server(ackHandler);

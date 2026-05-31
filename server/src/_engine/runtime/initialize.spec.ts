@@ -105,7 +105,7 @@ function makeNoopTimers() {
 // instance instead of returning a DO class.
 function buildEngine(handler: ServerDefinition): Engine {
   let captured: Engine | undefined;
-  const serve = adapter({
+  const server = adapter({
     id: 'roundtrip-bench',
     hibernation: { persist() {}, restore: () => undefined },
     asyncContextFactory: <TStore>() => new AsyncLocalStorage<TStore>(),
@@ -125,7 +125,7 @@ function buildEngine(handler: ServerDefinition): Engine {
       return {};
     },
   });
-  serve(handler, undefined as never);
+  server(handler, undefined as never);
   if (!captured) throw new Error('engine not captured');
   return captured;
 }

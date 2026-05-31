@@ -1,4 +1,4 @@
-import { serve } from '@wskit/server-cloudflare';
+import { server } from '@wskit/server-cloudflare';
 import { ctxLocalsHandler } from './handler.ts';
 
-export const CtxLocalsServer = serve(ctxLocalsHandler);
+export const CtxLocalsServer = server(ctxLocalsHandler);
