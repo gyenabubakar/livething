@@ -22,6 +22,16 @@ export { intercept } from '~/primitives/intercept.ts';
 export type { InterceptFn } from '~/primitives/intercept.ts';
 export { debug } from '~/primitives/debug.ts';
 
+export { namespaces } from '~/primitives/namespaces.ts';
+export type { NamespacesOptions } from '~/primitives/namespaces.ts';
+export { requestResponse } from '~/primitives/request-response.ts';
+export type { RequestResponseOptions } from '~/primitives/request-response.ts';
+export { ack } from '~/primitives/ack.ts';
+export type { AckOptions } from '~/primitives/ack.ts';
+export { dedup } from '~/primitives/dedup.ts';
+export type { DedupOptions } from '~/primitives/dedup.ts';
+export { replay } from '~/primitives/replay.ts';
+
 export { CloseCodes } from '@wskit/core';
 
 export type { Socket, SocketConnection } from '~/socket/api.ts';

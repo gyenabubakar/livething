@@ -1,5 +1,7 @@
-import { Block, WSKitError } from '@wskit/core';
+import { Block } from '@wskit/core';
+import { toWSKitError } from '~/internal/error-frame.ts';
 import { Emitter } from '~/socket/emitter.ts';
+import type { WSKitError } from '@wskit/core';
 import type { SendOptions } from '~/endpoint.ts';
 import type { SocketConfig } from '~/internal/config.ts';
 import type {
@@ -7,6 +9,7 @@ import type {
   PrimitiveHelpers,
   PrimitiveRuntime,
   WireMessage,
+  WSKitEnvelope,
 } from '~/internal/runtime.ts';
 import type { ConnectionQuality, ConnectionState } from '~/types.ts';
 
@@ -36,16 +39,9 @@ function defaultParse(raw: string): WireMessage | null {
   if (typeof parsed.event !== 'string') return null;
   const message: WireMessage = { event: parsed.event, payload: parsed.payload };
   if (parsed.__wskit && typeof parsed.__wskit === 'object') {
-    message.__wskit = parsed.__wskit as Record<string, unknown>;
+    message.__wskit = parsed.__wskit as WSKitEnvelope;
   }
   return message;
-}
-
-/** Turn an `__error__` frame's `{ code, detail? }` into a `WSKitError`. */
-function toWSKitError(payload: unknown): WSKitError {
-  const p = (payload ?? {}) as { code?: unknown; detail?: unknown };
-  const code = typeof p.code === 'string' ? p.code : 'internal-error';
-  return new WSKitError(code, p.detail);
 }
 
 /** Default writer: turn a message into the JSON string sent over the wire. */

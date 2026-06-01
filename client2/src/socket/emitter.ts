@@ -1,11 +1,11 @@
-/* oxlint-disable @typescript-eslint/no-explicit-any -- the listener map is generic over event args */
-
 /**
  * A tiny typed event emitter used inside the library. Each `on()` returns a
  * function that removes the listener, and empty listener sets are cleaned up.
  */
-export class Emitter<TEvents extends Record<string, any[]> = Record<string, any[]>> {
-  private listeners = new Map<string, Set<(...args: any[]) => void>>();
+export class Emitter<TEvents extends Record<string, unknown[]> = Record<string, unknown[]>> {
+  // The stored listeners all share one erased signature; the typed `on`/`emit`
+  // below keep callers honest about each event's real arguments.
+  private listeners = new Map<string, Set<(...args: unknown[]) => void>>();
 
   /** Add a listener; call the returned function to remove it. */
   on<K extends string & keyof TEvents>(
@@ -16,10 +16,11 @@ export class Emitter<TEvents extends Record<string, any[]> = Record<string, any[
       this.listeners.set(event, new Set());
     }
     const set = this.listeners.get(event)!;
-    set.add(listener);
+    const erased = listener as (...args: unknown[]) => void;
+    set.add(erased);
 
     return () => {
-      set.delete(listener);
+      set.delete(erased);
       if (set.size === 0) this.listeners.delete(event);
     };
   }

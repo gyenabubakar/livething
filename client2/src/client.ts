@@ -61,7 +61,7 @@ function buildSocket(connectCap: ConnectDescriptor, primitives: readonly Primiti
   }
 
   socket._setPrimitives(runtimes);
-  for (const runtime of runtimes) runtime.install?.(socket as unknown as Record<string, unknown>);
+  for (const runtime of runtimes) runtime.install?.(socket);
 
   return socket;
 }

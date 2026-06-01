@@ -137,7 +137,7 @@ export type RequestMethod<TContract, TMethod extends string> = TContract extends
 
 /**
  * The full endpoint type for one scope (a namespace or channel): `on`/`send`
- * plus `request()` when the scope has requests and `send.withAck()` when it has
+ * plus `request()` when the scope has requests and `sendWithAck()` when it has
  * outgoing events. (Streams and channel membership are added in later phases.)
  */
 export type ScopedEndpoint<C> = Endpoint<IncomingOf<C> & object, OutgoingOf<C> & object> &
@@ -153,13 +153,11 @@ export type ScopedEndpoint<C> = Endpoint<IncomingOf<C> & object, OutgoingOf<C> &
   (keyof OutgoingOf<C> extends never
     ? {}
     : {
-        send: {
-          withAck<E extends keyof OutgoingOf<C> & string>(
-            event: E,
-            payload: OutgoingOf<C>[E],
-            options?: { timeout?: number; ttl?: number },
-          ): Promise<void>;
-        };
+        sendWithAck<E extends keyof OutgoingOf<C> & string>(
+          event: E,
+          payload: OutgoingOf<C>[E],
+          options?: { timeout?: number; ttl?: number },
+        ): Promise<void>;
       });
 
 /**

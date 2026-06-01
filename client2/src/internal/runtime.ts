@@ -1,15 +1,43 @@
 import type { SocketConfig } from '~/internal/config.ts';
+import type { WSKitSocket } from '~/socket/socket.ts';
 import type { ConnectionQuality, ConnectionState } from '~/types.ts';
 
 /**
+ * The routing and correlation fields the framework carries beside a message, in
+ * its `__wskit` block — kept separate from `payload` so they never clash with
+ * your data. Every field is optional; a plain event has no envelope at all.
+ *
+ * These values come off the wire untyped, so this describes the *expected* shape
+ * — code that reads them still guards against malformed input (e.g. a `seq`
+ * that isn't really a number).
+ */
+export interface WSKitEnvelope {
+  /** Links a `request()` to its reply. */
+  correlationId?: string;
+  /** Links a `sendWithAck()` to its `__ack__`. */
+  ackId?: string;
+  /** Names the namespace a message belongs to (routing only). */
+  namespace?: string;
+  /** Names the channel a message belongs to. */
+  channel?: string;
+  /** The dynamic channel-family key, paired with `channel`. */
+  channelScope?: string;
+  /** Per-message sequence number from the server, used by replay. */
+  seq?: number;
+  /** Unique id from the server, used by dedup. */
+  messageId?: string;
+  /** Groups the chunks of one stream. */
+  streamId?: string;
+}
+
+/**
  * One message as it travels through the library. `payload` is your data;
- * everything the framework needs for routing (channel names, request ids, and
- * so on) lives separately in `__wskit` so it never clashes with your data.
+ * everything the framework needs for routing lives separately in `__wskit`.
  */
 export interface WireMessage {
   event: string;
   payload: unknown;
-  __wskit?: Record<string, unknown>;
+  __wskit?: WSKitEnvelope;
 }
 
 /**
@@ -43,7 +71,7 @@ export interface PrimitiveRuntime {
   /** Vote on whether to reconnect: `true`/`false` is final, `void` means "no opinion." */
   shouldReconnect?(code: number, reason: string): boolean | void;
   /** Add methods to the socket object (e.g. `socket.channel`). */
-  install?(socket: Record<string, unknown>): void;
+  install?(socket: WSKitSocket): void;
 }
 
 /**
