@@ -1,30 +1,24 @@
-import type { EmptyTypeFn, PrimitiveSpec } from '~/primitives/types.ts';
+import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
 
-/** Options for the `connect` capability. */
+/** Options for `connect()`. */
 export interface ConnectOptions {
-  /**
-   * Don't connect until something needs the connection (first `on()`, `send()`,
-   * or a primitive operation that requires a connection). Default: `false`.
-   */
+  /** Don't open the socket until something actually needs it. Default: `false`. */
   lazy?: boolean;
-  /**
-   * How long to wait with no activity before disconnecting in lazy mode (ms).
-   * `0` disables idle disconnect. Default: `10_000`.
-   */
+  /** In lazy mode, close after this many ms of no use. `0` means never. Default: `10_000`. */
   idleTimeout?: number;
-  /** Subprotocols passed to the WebSocket constructor (e.g. `['graphql-ws']`). */
+  /** Subprotocols to pass to the WebSocket (e.g. `['graphql-ws']`). */
   protocols?: string[];
 }
 
-/** The descriptor produced by `connect()`. */
-export interface ConnectDescriptor extends PrimitiveSpec<EmptyTypeFn> {
+/** What `connect()` returns. */
+export interface ConnectDescriptor extends Primitive<EmptyTypeFn> {
   readonly _tag: 'connect';
 }
 
 /**
- * The required connection capability. `url` is a string or a sync/async
- * function called on **every** connect and reconnect — useful for failover,
- * load balancing, or Durable Object migration.
+ * The one required piece of every client: where to connect. `url` can be a
+ * string, or a function that runs on every connect and reconnect — handy for
+ * failover or load balancing, where the address can change.
  *
  * ```ts
  * connect('wss://example.com/ws');

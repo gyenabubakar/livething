@@ -1,17 +1,18 @@
-import type { EmptyTypeFn, PrimitiveSpec } from '~/primitives/types.ts';
+import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
 
-/** A function returning query params, called on every connect and reconnect. */
+/** A function that returns query params; it runs on every connect and reconnect. */
 export type QueryFn = () => Record<string, string> | Promise<Record<string, string>>;
 
 /**
- * Inject query params onto the WebSocket URL on every connect and reconnect.
- * Can be async (e.g. to refresh an auth token between attempts).
+ * Adds query params to the connection URL each time it connects — the usual way
+ * to pass an auth token, since browsers can't set WebSocket headers. Because it
+ * runs again on every reconnect, a refreshed token is picked up automatically.
  *
  * ```ts
  * query(async () => ({ token: await getAuthToken(), client: 'web' }));
  * ```
  */
-export function query(fn: QueryFn): PrimitiveSpec<EmptyTypeFn> {
+export function query(fn: QueryFn): Primitive<EmptyTypeFn> {
   return {
     _tag: 'query',
     applyConfig(config) {

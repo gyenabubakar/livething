@@ -1,16 +1,13 @@
 import type { InterceptFn } from '~/internal/runtime.ts';
-import type { EmptyTypeFn, PrimitiveSpec } from '~/primitives/types.ts';
+import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
 
 export type { InterceptFn };
 
 /**
- * Filter or transform every incoming message before it reaches `.on()` handlers.
- * Return nothing to pass through, return a modified message to transform, or
- * throw `Block` to drop it. Multiple `intercept()` calls run in declaration
- * order; the first to throw `Block` stops the chain.
- *
- * Unlike server-side intercepts, client intercepts receive no context object —
- * read socket state via `getState()`, `getQuality()`, etc.
+ * Looks at every incoming message before your `on()` handlers do. Return nothing
+ * to leave it alone, return a new message to change it, or throw `Block` to drop
+ * it. You can add `intercept()` more than once; they run in the order you list
+ * them and stop at the first `Block`.
  *
  * ```ts
  * intercept((message) => {
@@ -18,7 +15,7 @@ export type { InterceptFn };
  * });
  * ```
  */
-export function intercept(fn: InterceptFn): PrimitiveSpec<EmptyTypeFn> {
+export function intercept(fn: InterceptFn): Primitive<EmptyTypeFn> {
   return {
     _tag: 'intercept',
     applyConfig(config) {

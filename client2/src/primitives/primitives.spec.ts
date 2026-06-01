@@ -1,9 +1,10 @@
 import { Block, WSKitError } from '@wskit/core';
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
-import { buffering } from '~/primitives/buffering.ts';
+import { buffering } from '~/primitives/buffering/index.ts';
 import { debug } from '~/primitives/debug.ts';
 import { intercept } from '~/primitives/intercept.ts';
+import { keepalive } from '~/primitives/keepalive/index.ts';
 import { quality } from '~/primitives/quality.ts';
 import { query } from '~/primitives/query.ts';
 import { reconnection } from '~/primitives/reconnection.ts';
@@ -137,12 +138,52 @@ describe('reconnection config', () => {
     expect(socket.getState()).toBe('closed');
   });
 
-  it('reconnects on an ordinary drop', () => {
-    const socket = client<TestContract>()(connect('wss://test'));
+  it('reconnects on an ordinary drop when registered', () => {
+    const socket = client<TestContract>()(connect('wss://test'), reconnection());
     socket.connect();
     MockWebSocket.last().open();
     MockWebSocket.last().serverClose(1006, 'dropped');
     expect(socket.getState()).toBe('reconnecting');
+  });
+
+  it('does NOT reconnect when the primitive is absent (opt-in)', () => {
+    const socket = client<TestContract>()(connect('wss://test'));
+    socket.connect();
+    MockWebSocket.last().open();
+    MockWebSocket.last().serverClose(1006, 'dropped');
+    expect(socket.getState()).toBe('closed');
+  });
+});
+
+describe('keepalive (opt-in)', () => {
+  it('sends pings on its interval and measures pong latency', () => {
+    vi.useFakeTimers();
+    try {
+      const socket = client<TestContract>()(connect('wss://test'), keepalive({ interval: 1000 }));
+      socket.connect();
+      const ws = MockWebSocket.last();
+      ws.open();
+      vi.advanceTimersByTime(1000);
+      expect(ws.sentFrames()).toContainEqual({ event: 'ping', payload: {} });
+      ws.emit({ event: 'pong', payload: {} });
+      expect(socket.getLatency()).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not send pings without the primitive', () => {
+    vi.useFakeTimers();
+    try {
+      const socket = client<TestContract>()(connect('wss://test'));
+      socket.connect();
+      const ws = MockWebSocket.last();
+      ws.open();
+      vi.advanceTimersByTime(60_000);
+      expect(ws.sentFrames().some((f) => f.event === 'ping')).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

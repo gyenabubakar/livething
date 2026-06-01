@@ -1,14 +1,18 @@
 import type { QualityThresholds } from '~/internal/config.ts';
-import type { EmptyTypeFn, PrimitiveSpec } from '~/primitives/types.ts';
+import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
 
-/** Options for the `quality` primitive. */
+/** Options for `quality()`. */
 export interface QualityOptions {
-  /** Latency upper bounds (ms) per tier. Default: `{ excellent: 50, good: 150, degraded: 500 }`. */
+  /** Latency cut-offs (ms) per tier. Default: `{ excellent: 50, good: 150, degraded: 500 }`. */
   thresholds?: QualityThresholds;
 }
 
-/** Configure connection-quality latency thresholds. */
-export function quality(options?: QualityOptions): PrimitiveSpec<EmptyTypeFn> {
+/**
+ * Sets the latency cut-offs that decide the quality tier. The `keepalive`
+ * primitive reads these when it measures pongs, so this is only useful
+ * alongside it.
+ */
+export function quality(options?: QualityOptions): Primitive<EmptyTypeFn> {
   return {
     _tag: 'quality',
     applyConfig(config) {

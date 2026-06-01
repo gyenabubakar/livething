@@ -1,27 +1,28 @@
-import type { EmptyTypeFn, PrimitiveSpec } from '~/primitives/types.ts';
+import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
 
-/** A decoded binary frame returned by `parseBinary`. */
+/** What `parseBinary` returns after decoding a binary frame. */
 export interface ParsedFrame {
   event: string;
   payload: unknown;
 }
 
-/** Binary handling with `ArrayBuffer` delivery. */
+/** Binary frames delivered as `ArrayBuffer`. */
 export interface ArrayBufferSerialization {
   binaryType: 'arraybuffer';
   parseBinary: (data: ArrayBuffer) => ParsedFrame | null;
 }
 
-/** Binary handling with `Blob` delivery. */
+/** Binary frames delivered as `Blob`. */
 export interface BlobSerialization {
   binaryType: 'blob';
   parseBinary: (data: Blob) => ParsedFrame | null;
 }
 
 /**
- * Configure binary message handling. `binaryType` and `parseBinary` are linked —
- * provide both or neither (TypeScript enforces it). Text frames always use the
- * fixed `{ event, payload }` JSON codec.
+ * Lets the client handle binary messages (Protocol Buffers, MessagePack, etc.).
+ * You set the delivery format and a decoder, and they go together — TypeScript
+ * won't let you give one without the other. Text frames always use the built-in
+ * JSON format.
  *
  * ```ts
  * serialization({ binaryType: 'arraybuffer', parseBinary: (d) => decode(d) });
@@ -29,7 +30,7 @@ export interface BlobSerialization {
  */
 export function serialization(
   options: ArrayBufferSerialization | BlobSerialization,
-): PrimitiveSpec<EmptyTypeFn> {
+): Primitive<EmptyTypeFn> {
   return {
     _tag: 'serialization',
     applyConfig(config) {

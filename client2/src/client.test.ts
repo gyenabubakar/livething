@@ -1,15 +1,9 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- type test file uses `any` for assertions */
-/**
- * Type-level tests for `client()` + the primitive inference engine.
- * Compiled by `tsc` (not run by vitest). Failures surface as build errors.
- */
+// Type-only checks for client() and the primitive inference. tsc checks these;
+// vitest never runs them. A broken assumption shows up as a build error.
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
-import type { EmptyTypeFn, PrimitiveSpec, TypeFn } from '~/primitives/types.ts';
-
-// ===========================================================================
-// Contracts
-// ===========================================================================
+import type { EmptyTypeFn, Primitive, TypeFn } from '~/primitives/types.ts';
 
 interface FullContract {
   incoming: { notification: { id: string; title: string } };
@@ -21,10 +15,7 @@ interface ReceiveOnly {
   incoming: { tick: { n: number } };
 }
 
-// ===========================================================================
-// 1. Base socket: on/send typed from the contract
-// ===========================================================================
-
+// on() and send() are typed from the contract.
 const socket = client<FullContract>()(connect('wss://example.com'));
 
 socket.on('notification', (data) => {
@@ -41,34 +32,28 @@ void sent;
 // @ts-expect-error — wrong payload shape
 socket.send('mark-read', { wrong: true });
 
-// Connection API is always present
+// The connection methods are always there.
 const _state: string = socket.getState();
 void _state;
 socket.connect();
 socket.disconnect(4001, 'bye');
 
-// ===========================================================================
-// 2. Omitting outgoing removes send()
-// ===========================================================================
-
+// With no outgoing in the contract, send() doesn't exist.
 const recv = client<ReceiveOnly>()(connect('wss://example.com'));
 recv.on('tick', (data) => {
   const _n: number = data.n;
   void _n;
 });
 
-// @ts-expect-error — no outgoing in the contract, so send() does not exist
+// @ts-expect-error — no outgoing, so send() is missing
 recv.send;
 
-// ===========================================================================
-// 3. Primitive inference: a primitive's _typeFn adds API surface
-// ===========================================================================
-
+// A primitive's _typeFn adds methods to the socket.
 interface PingApiTypeFn extends TypeFn {
   readonly _api: { ping(): number };
 }
 
-function pingPrimitive(): PrimitiveSpec<PingApiTypeFn> {
+function pingPrimitive(): Primitive<PingApiTypeFn> {
   return { _tag: 'ping-test' };
 }
 
@@ -76,24 +61,21 @@ const withApi = client<FullContract>()(connect('wss://example.com'), pingPrimiti
 const _pong: number = withApi.ping();
 void _pong;
 
-// Base API still present alongside the primitive API
+// The base API is still there next to the added one.
 withApi.on('notification', () => {});
 
-// A config-only primitive (EmptyTypeFn) adds nothing
-function noop(): PrimitiveSpec<EmptyTypeFn> {
+// A primitive with EmptyTypeFn adds nothing.
+function noop(): Primitive<EmptyTypeFn> {
   return { _tag: 'noop-test' };
 }
 const plain = client<FullContract>()(connect('wss://example.com'), noop());
 // @ts-expect-error — noop adds no methods
 plain.ping;
 
-// ===========================================================================
-// 4. ValidatePrimitives: unmet contract requirement becomes `never`
-// ===========================================================================
-
-function needsChannels(): PrimitiveSpec<EmptyTypeFn, { channels: Record<string, any> }> {
+// A primitive whose _requires isn't met is rejected right at the call.
+function needsChannels(): Primitive<EmptyTypeFn, { channels: Record<string, any> }> {
   return { _tag: 'needs-channels' };
 }
 
-// @ts-expect-error — FullContract has no `channels`, so the primitive slot is `never`
+// @ts-expect-error — FullContract has no `channels`
 client<FullContract>()(connect('wss://example.com'), needsChannels());

@@ -1,10 +1,12 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- test harness */
+
 /**
- * A controllable mock `WebSocket` for runtime tests. Install it as the global
- * `WebSocket`, drive opens/messages/closes by hand. No network, no MSW.
+ * A fake WebSocket you control by hand for tests. Install it as the global
+ * `WebSocket`, then drive opens, messages, and closes yourself — no real network.
  */
 export class MockWebSocket {
   static instances: MockWebSocket[] = [];
+  /** The most recently created fake socket. */
   static last(): MockWebSocket {
     const ws = MockWebSocket.instances.at(-1);
     if (!ws) throw new Error('no MockWebSocket instance created yet');
@@ -41,38 +43,37 @@ export class MockWebSocket {
     this.onclose?.({ code, reason, wasClean: true });
   }
 
-  // ── test drivers ──
-  /** Simulate the server accepting the connection. */
+  /** Pretend the server accepted the connection. */
   open(protocol = ''): void {
     this.readyState = 1;
     this.protocol = protocol;
     this.onopen?.({});
   }
 
-  /** Simulate an inbound frame. Pass an object (auto-JSON) or a raw string. */
+  /** Pretend a message arrived. Pass an object (auto-JSON) or a raw string. */
   emit(frame: unknown): void {
     const data = typeof frame === 'string' ? frame : JSON.stringify(frame);
     this.onmessage?.({ data });
   }
 
-  /** Simulate an inbound frame delivered exactly as given (e.g. an ArrayBuffer or Blob). */
+  /** Pretend a message arrived exactly as given (for binary like an ArrayBuffer). */
   emitRaw(data: unknown): void {
     this.onmessage?.({ data });
   }
 
-  /** Simulate the server dropping the connection. */
+  /** Pretend the server dropped the connection. */
   serverClose(code = 1006, reason = ''): void {
     this.readyState = 3;
     this.onclose?.({ code, reason, wasClean: false });
   }
 
-  /** The decoded JSON frames this socket sent. */
+  /** The frames this socket sent, decoded back from JSON. */
   sentFrames(): any[] {
     return this.sent.map((s) => (typeof s === 'string' ? JSON.parse(s) : s));
   }
 }
 
-/** Install the mock as the global WebSocket and return a restore function. */
+/** Swap in the fake WebSocket and return a function that puts the real one back. */
 export function installMockWebSocket(): () => void {
   const original = (globalThis as any).WebSocket;
   MockWebSocket.reset();

@@ -10,56 +10,56 @@ import type {
 } from '~/types.ts';
 
 /**
- * Connection-management API common to every socket, independent of the
- * contract. Contract-typed `on()` / `send()` come from `Endpoint` and are
- * intersected in by the public `Socket` type below.
+ * The connection methods every socket has, no matter the contract. The typed
+ * `on()` / `send()` come from `Endpoint` and are added in by `Socket` below.
  */
 export interface SocketConnection {
-  /** Open the WebSocket connection. Safe to call multiple times. */
+  /** Open the connection. Safe to call more than once. */
   connect(): void;
-  /** Close the connection and tear down. `code` defaults to 1000, `reason` to `''`. */
+  /** Close on purpose. Defaults to code 1000 and an empty reason. */
   disconnect(code?: number, reason?: string): void;
 
-  /** Current connection state. */
+  /** The current connection state. */
   getState(): ConnectionState;
-  /** Current connection quality based on ping latency. */
+  /** The current connection quality. */
   getQuality(): ConnectionQuality;
-  /** Last measured round-trip time in ms, or `null` if unknown. */
+  /** The last round-trip time in ms, or `null` if not measured. */
   getLatency(): number | null;
 
-  /** Subscribe to state changes (callback receives no args — read with `getState()`). */
+  /** Run a callback on every state change (read the value with `getState()`). */
   subscribe(callback: () => void): () => void;
 
-  /** Send raw binary data, bypassing the wire codec and contract typing. */
+  /** Send raw bytes, skipping the normal encoder and type checks. */
   sendBinary(data: ArrayBuffer | ArrayBufferView<ArrayBuffer> | Blob): boolean;
 
-  /** Fires on every connection open (first connect and reconnects). */
+  /** Runs on every open (first connect and reconnects). */
   onOpen(callback: () => void): () => void;
-  /** Fires only on reconnects (not the first connect). */
+  /** Runs only on reconnects. */
   onReconnect(callback: () => void): () => void;
-  /** Fires once when all reconnection attempts are exhausted. */
+  /** Runs once when reconnection gives up. */
   onReconnectFailed(callback: () => void): () => void;
-  /** Fires on every WebSocket close, including closes that trigger reconnection. */
+  /** Runs on every close. */
   onClose(callback: (event: CloseEvent) => void): () => void;
-  /** Fires on WebSocket protocol errors (WebSocket-level failures). */
+  /** Runs on a WebSocket-level error. */
   onError(callback: (error: Event) => void): () => void;
-  /** Fires on typed application errors (`WSKitError`) from incoming handlers. */
+  /** Runs on a typed server error that no request or stream claimed. */
   onError(callback: (error: WSKitError) => void): () => void;
-  /** Fires when connection quality transitions between tiers. */
+  /** Runs when the quality tier changes. */
   onQualityChange(callback: (quality: ConnectionQuality, latency: number) => void): () => void;
 
-  /** Enable or disable console debug logging at runtime. */
+  /** Turn console logging on or off at runtime. */
   setDebug(enabled: boolean): void;
 
-  /** The subprotocol the server selected during handshake, or `null`. */
+  /** The subprotocol the server picked, or `null`. */
   readonly protocol: string | null;
-  /** The underlying native WebSocket instance, or `null` when disconnected. */
+  /** The native WebSocket, or `null` when not connected. */
   readonly ws: WebSocket | null;
 }
 
 /**
- * The public socket type. Combines the connection API with contract-typed
- * `on()` / `send()`. Primitives intersect their own APIs on top via `client()`.
+ * The socket type you work with: the connection methods plus typed `on()` and
+ * `send()` for your contract. Primitives add their own methods on top through
+ * `client()`.
  */
 export type Socket<TContract extends SocketContract = SocketContract> = SocketConnection &
   Endpoint<IncomingOf<TContract> & object, OutgoingOf<TContract> & object>;

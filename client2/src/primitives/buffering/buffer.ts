@@ -1,11 +1,12 @@
-import type { SocketConfig } from '~/internal/config.ts';
 import type { WireMessage } from '~/internal/runtime.ts';
 
-/** Buffer-relevant subset of the config. */
-export type BufferConfig = Pick<
-  SocketConfig,
-  'bufferEnabled' | 'maxBufferSize' | 'bufferTTL' | 'flushInterval'
->;
+/** Settings for the buffer. */
+export interface MessageBufferOptions {
+  enabled?: boolean;
+  maxSize?: number;
+  ttl?: number | Record<string, number>;
+  flushInterval?: number;
+}
 
 interface BufferedMessage {
   message: WireMessage;
@@ -14,11 +15,12 @@ interface BufferedMessage {
 }
 
 /**
- * Queues outgoing messages while disconnected, flushes them on reconnect.
- * Supports per-message TTL, max buffer size, and throttled flushing.
+ * Holds messages you send while the socket is down and replays them in order
+ * when it comes back. A message can carry a time-to-live so a stale one (like a
+ * typing indicator) is dropped instead of sent late.
  *
- * Uses a ring buffer internally so overflow eviction is O(1) instead of O(n)
- * array shifting. Internal class — not exported. Used by Socket.
+ * It stores messages in a fixed-size ring, so when it's full the oldest one is
+ * overwritten without shifting the whole array.
  */
 export class MessageBuffer {
   private ring: (BufferedMessage | null)[];
@@ -31,18 +33,17 @@ export class MessageBuffer {
   private readonly ttlConfig: number | Record<string, number> | undefined;
   private readonly flushInterval: number;
 
-  constructor(config: BufferConfig) {
-    this.enabled = config.bufferEnabled ?? false;
-    this.maxSize = config.maxBufferSize ?? 50;
-    this.ttlConfig = config.bufferTTL;
-    this.flushInterval = config.flushInterval ?? 0;
+  constructor(options: MessageBufferOptions) {
+    this.enabled = options.enabled ?? false;
+    this.maxSize = options.maxSize ?? 50;
+    this.ttlConfig = options.ttl;
+    this.flushInterval = options.flushInterval ?? 0;
     this.ring = new Array(this.maxSize).fill(null);
   }
 
   /**
-   * Add a message to the queue. Returns `true` if accepted, `false` if
-   * buffering is disabled (the message is lost). When the buffer is full, the
-   * oldest message is silently dropped to make room.
+   * Add a message. Returns `true` if it was taken, `false` if buffering is off.
+   * If the buffer is full the oldest message is dropped to make room.
    */
   enqueue(message: WireMessage, perCallTtl?: number): boolean {
     if (!this.enabled) return false;
@@ -61,9 +62,9 @@ export class MessageBuffer {
   }
 
   /**
-   * Send all buffered messages via the provided `send` function. Messages past
-   * their TTL are dropped first. With `flushInterval` of `0`, all are sent in
-   * order synchronously; with `> 0`, one is sent every `flushInterval` ms.
+   * Send everything in the buffer, dropping anything past its TTL first. With
+   * `flushInterval` of `0` they all go at once; otherwise one goes every
+   * `flushInterval` ms, which is gentler on a rate-limited server.
    */
   flush(send: (message: WireMessage) => void, onComplete?: () => void): void {
     const messages = this.drain();
@@ -103,7 +104,7 @@ export class MessageBuffer {
     tick();
   }
 
-  /** Discard all buffered messages and cancel any in-progress flush. */
+  /** Throw away everything and stop any in-progress flush. */
   clear(): void {
     for (let i = 0; i < this.count; i++) {
       this.ring[(this.head + i) % this.maxSize] = null;
@@ -113,12 +114,10 @@ export class MessageBuffer {
     this.stopFlush();
   }
 
-  /** Number of messages currently in the buffer. */
   get size(): number {
     return this.count;
   }
 
-  /** Whether buffering is enabled. */
   get isEnabled(): boolean {
     return this.enabled;
   }
@@ -130,7 +129,7 @@ export class MessageBuffer {
     }
   }
 
-  /** Extract all messages from the ring in order, resetting the buffer. */
+  /** Pull every message out in order and reset the ring. */
   private drain(): BufferedMessage[] {
     const result: BufferedMessage[] = [];
     for (let i = 0; i < this.count; i++) {
@@ -143,13 +142,7 @@ export class MessageBuffer {
     return result;
   }
 
-  /**
-   * Resolve TTL for a message. Most specific wins:
-   * 1. Per-call ttl
-   * 2. Per-event bufferTTL[event]
-   * 3. Global bufferTTL (number)
-   * 4. null (no expiry)
-   */
+  /** Pick the TTL: a per-call value wins, then per-event, then a global number, else none. */
   private resolveTTL(event: string, perCallTtl?: number): number | null {
     if (perCallTtl !== undefined) return perCallTtl;
     if (typeof this.ttlConfig === 'number') return this.ttlConfig;

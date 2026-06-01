@@ -1,28 +1,16 @@
-/* oxlint-disable @typescript-eslint/no-explicit-any -- primitive type merging requires `any` */
+/* oxlint-disable @typescript-eslint/no-explicit-any -- merging primitive types needs `any` */
 import { WSKitConfigError } from '@wskit/core';
-import { SocketImpl } from '~/socket/socket.ts';
+import { WSKitSocket } from '~/socket/socket.ts';
 import type { ConnectDescriptor } from '~/connect.ts';
 import type { SocketConfig } from '~/internal/config.ts';
-import type { PrimitiveHelpers, PrimitiveRuntime, WireMessage } from '~/internal/runtime.ts';
-import type {
-  ApplyPrimitives,
-  PrimitiveDescriptor,
-  PrimitiveSpec,
-  ValidatePrimitives,
-} from '~/primitives/types.ts';
+import type { PrimitiveRuntime } from '~/internal/runtime.ts';
+import type { ApplyPrimitives, Primitive, ValidatePrimitives } from '~/primitives/types.ts';
 import type { Socket } from '~/socket/api.ts';
 import type { Simplify, SocketContract } from '~/types.ts';
 
 /**
- * Create a typed WebSocket client. Curried: fix the contract first, then pass a
- * `connect()` capability and a flat list of primitives. The second call infers
- * the primitives — deduplicated by tag, auto-sorted by dependency, and
- * validated against each other and the contract. Order does not matter.
- *
- * The curry is required: TypeScript has no partial type-argument inference, so
- * an explicit contract on a single call would disable inference of the
- * primitives tuple. Fixing the contract in the first call lets the second infer
- * everything.
+ * Build a typed socket. You call it in two steps: first pick the contract, then
+ * pass `connect(...)` and the primitives you want.
  *
  * ```ts
  * const socket = client<MySocket>()(
@@ -31,70 +19,57 @@ import type { Simplify, SocketContract } from '~/types.ts';
  *   channels(),
  * );
  * ```
+ *
+ * Why two steps? TypeScript can't infer some type arguments while you spell out
+ * others. Writing the contract in the first call frees the second call to infer
+ * the primitives — that's what lets `socket.channel(...)` get typed from your
+ * contract. The order of primitives doesn't matter; they're sorted by their
+ * dependencies and checked against the contract.
  */
 export function client<TContract extends SocketContract = SocketContract>() {
-  return function build<const TPrimitives extends readonly PrimitiveDescriptor<any, any>[] = []>(
+  return function build<const TPrimitives extends readonly Primitive<any, any>[] = []>(
     connectCap: ConnectDescriptor,
     ...primitives: [...TPrimitives] & ValidatePrimitives<TContract, TPrimitives>
   ): Simplify<Socket<TContract> & ApplyPrimitives<TPrimitives, TContract>> {
-    return buildSocket(connectCap, primitives as readonly PrimitiveSpec[]) as unknown as Simplify<
+    return buildSocket(connectCap, primitives as readonly Primitive[]) as unknown as Simplify<
       Socket<TContract> & ApplyPrimitives<TPrimitives, TContract>
     >;
   };
 }
 
-/** Shared runtime assembly, independent of the contract/primitive generics. */
-function buildSocket(
-  connectCap: ConnectDescriptor,
-  primitives: readonly PrimitiveSpec[],
-): SocketImpl {
+/** The actual assembly, with the types erased. */
+function buildSocket(connectCap: ConnectDescriptor, primitives: readonly Primitive[]): WSKitSocket {
   const specs = [connectCap, ...primitives];
   assertNoDuplicateTags(specs);
   assertDependenciesPresent(specs);
   const sorted = topoSort(specs);
 
-  // Build the resolved config bag from each primitive's contribution.
+  // Each primitive copies its settings into one shared config object.
   const config = {} as SocketConfig;
   for (const spec of sorted) spec.applyConfig?.(config);
   if (config.url === undefined) {
     throw new WSKitConfigError('[wskit] client() requires a connect() capability.');
   }
 
-  // `socket` is assigned right after construction, before any helper runs.
-  let socket: SocketImpl;
-  let idCounter = 0;
-  const helpers: PrimitiveHelpers = {
-    rawSend: (message: WireMessage) => socket._rawSend(message),
-    send: (message: WireMessage, options?: { ttl?: number }) => socket._send(message, options),
-    generateId: (prefix?: string) => {
-      const id = ++idCounter;
-      return prefix ? `${prefix}-${id}` : `${id}`;
-    },
-    getState: () => socket.getState(),
-    ensureConnected: () => socket._ensureConnected(),
-    lazyAcquire: () => socket._lazyAcquire(),
-    lazyRelease: () => socket._lazyRelease(),
-  };
+  // Build the engine first so each primitive's setup() can safely use it.
+  const socket = new WSKitSocket(config);
+  const helpers = socket._helpers();
 
   const runtimes: PrimitiveRuntime[] = [];
   for (const spec of sorted) {
     if (spec.setup) runtimes.push(spec.setup(helpers));
   }
 
-  socket = new SocketImpl(config, runtimes);
+  socket._setPrimitives(runtimes);
   for (const runtime of runtimes) runtime.install?.(socket as unknown as Record<string, unknown>);
 
   return socket;
 }
 
-// ---------------------------------------------------------------------------
-// Collection helpers
-// ---------------------------------------------------------------------------
-
-/** Tags that may appear more than once (each call composes rather than conflicts). */
+/** Tags allowed more than once — each call adds to the others instead of clashing. */
 const REPEATABLE_TAGS = new Set(['intercept']);
 
-function assertNoDuplicateTags(specs: readonly PrimitiveSpec[]): void {
+function assertNoDuplicateTags(specs: readonly Primitive[]): void {
   const seen = new Set<string>();
   for (const spec of specs) {
     if (REPEATABLE_TAGS.has(spec._tag)) continue;
@@ -107,7 +82,7 @@ function assertNoDuplicateTags(specs: readonly PrimitiveSpec[]): void {
   }
 }
 
-function assertDependenciesPresent(specs: readonly PrimitiveSpec[]): void {
+function assertDependenciesPresent(specs: readonly Primitive[]): void {
   const tags = new Set(specs.map((s) => s._tag));
   for (const spec of specs) {
     for (const dep of spec.dependencies ?? []) {
@@ -121,16 +96,16 @@ function assertDependenciesPresent(specs: readonly PrimitiveSpec[]): void {
 }
 
 /**
- * Topologically sort by `dependencies` (deps run before dependents). Visit
- * state is keyed by spec identity, not tag, so repeatable primitives (e.g.
- * `intercept`) that share a tag are each preserved. Throws on cycles.
+ * Order the primitives so each one runs after the primitives it depends on.
+ * We track visits by the object itself (not its tag) so repeatable primitives
+ * like `intercept`, which share a tag, are all kept. Throws if deps form a loop.
  */
-function topoSort(specs: readonly PrimitiveSpec[]): PrimitiveSpec[] {
+function topoSort(specs: readonly Primitive[]): Primitive[] {
   const byTag = new Map(specs.map((s) => [s._tag, s]));
-  const sorted: PrimitiveSpec[] = [];
-  const state = new Map<PrimitiveSpec, 'visiting' | 'done'>();
+  const sorted: Primitive[] = [];
+  const state = new Map<Primitive, 'visiting' | 'done'>();
 
-  function visit(spec: PrimitiveSpec): void {
+  function visit(spec: Primitive): void {
     const status = state.get(spec);
     if (status === 'done') return;
     if (status === 'visiting') {

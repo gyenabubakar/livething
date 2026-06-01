@@ -1,7 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- type test file */
-/**
- * Type-level tests for Phase 2 primitives. Compiled by `tsc`, not run.
- */
+// Type-only checks for the primitives. tsc checks these; vitest never runs them.
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { serialization } from '~/primitives/serialization.ts';
@@ -11,7 +9,7 @@ interface C {
   incoming: { message: { text: string } };
 }
 
-// ── serialization: binaryType and parseBinary are linked ──
+// serialization: you must give binaryType and parseBinary together.
 serialization({
   binaryType: 'arraybuffer',
   parseBinary: (d: ArrayBuffer) => ({ event: 'x', payload: d.byteLength }),
@@ -30,7 +28,7 @@ serialization({
   parseBinary: (d: Blob) => ({ event: 'x', payload: d.size }),
 });
 
-// ── onError: both the protocol form and the application form type-check ──
+// onError accepts both forms: a protocol Event and a typed WSKitError.
 const socket = client<C>()(connect('wss://example.com'));
 
 socket.onError((error: Event) => {

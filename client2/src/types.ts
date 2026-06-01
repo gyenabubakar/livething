@@ -1,51 +1,44 @@
-/* oxlint-disable @typescript-eslint/no-explicit-any -- Requires/type-fns use `any` intentionally for loose contract matching */
+/* oxlint-disable @typescript-eslint/no-explicit-any -- contract matching is intentionally loose */
 import type { Endpoint } from '~/endpoint.ts';
 
-// ---------------------------------------------------------------------------
-// Socket contract
-// ---------------------------------------------------------------------------
-
 /**
- * The shape a user defines to type their socket. Every key is optional —
- * omitting a key removes the corresponding API surface at compile time.
+ * The single interface you define to type your socket. Every key is optional —
+ * leave one out and that part of the API disappears.
  *
- * `incoming` and `outgoing` are always from the perspective of whoever holds
- * the type: the server's `outgoing` becomes the client's `incoming`.
+ * Note that `incoming`/`outgoing` are from the client's point of view: what the
+ * server sends to you is your `incoming`, what you send to the server is your
+ * `outgoing` (the mirror image of the server's contract).
  *
  * ```ts
  * interface MySocket {
  *   incoming: { notification: { title: string } };
  *   outgoing: { 'mark-read': { id: string } };
- *   namespaces: { notifications: { incoming: { alert: { message: string } } } };
  *   channels: { chat: { incoming: { message: { text: string } } } };
- *   streams: { 'ask-ai': { payload: { prompt: string }; chunks: { text: string } } };
  *   requests: { 'get-balance': { payload: { userId: string }; response: { balance: number } } };
  *   errors: { forbidden: { reason: string } };
  * }
  * ```
  */
 export interface SocketContract {
-  /** Events the server sends to the client (top-level, not in a namespace or channel). */
+  /** Events the server sends you (top-level, not inside a namespace or channel). */
   incoming?: Record<string, unknown>;
-  /** Events the client sends to the server (top-level, not in a namespace or channel). */
+  /** Events you send the server (top-level). */
   outgoing?: Record<string, unknown>;
-  /** Named namespaces — routing only, no server state. Requires the `namespaces` primitive. */
+  /** Named groups of events over the one connection. Needs the `namespaces` primitive. */
   namespaces?: Record<string, ScopeContract>;
-  /** Server-managed rooms requiring `subscribe()`. Requires the `channels` primitive. */
+  /** Server-managed rooms you subscribe to. Needs the `channels` primitive. */
   channels?: Record<string, ScopeContract>;
-  /** Streaming event pairs. Requires the `stream` primitive. */
+  /** Streaming event definitions. Needs the `stream` primitive. */
   streams?: Record<string, StreamContract>;
-  /** Request-response pairs with typed responses. Requires the `requestResponse` primitive. */
+  /** Request/response pairs. Needs the `requestResponse` primitive. */
   requests?: Record<string, RequestContract>;
-  /** Typed application errors from the server, enabling `ErrorDef.matches(err)` narrowing. */
+  /** Typed errors the server can send, so you can match on them. */
   errors?: Record<string, unknown>;
 }
 
 /**
- * A namespace's or channel's type definition. Each scope has its own
- * incoming/outgoing events, requests, and optionally streams — separate from
- * the top-level socket events. This lets the same event name (e.g.,
- * `'message'`) have different payload types in different scopes.
+ * The events for one namespace or channel. Each scope has its own events, so the
+ * same name (like `'message'`) can mean different things in different scopes.
  */
 export interface ScopeContract {
   incoming?: Record<string, unknown>;
@@ -54,22 +47,19 @@ export interface ScopeContract {
   streams?: Record<string, StreamContract>;
 }
 
-/** Backwards-friendly alias — a channel uses the same shape as any scope. */
+/** A channel uses the same shape as any scope. */
 export type ChannelContract = ScopeContract;
 
-/**
- * A request-response pair. `payload` is what the client sends, `response` is
- * what the server replies with.
- */
+/** One request/response pair: `payload` is what you send, `response` is what comes back. */
 export interface RequestContract {
   payload: unknown;
   response: unknown;
 }
 
 /**
- * A streaming event definition. `payload` triggers the stream, `chunks` is the
- * type of each streamed chunk, and `nudges` (optional) are mid-stream messages
- * the client can send to a running generator.
+ * One streaming definition: `payload` starts the stream, `chunks` is the shape
+ * of each piece you receive, and `nudges` (optional) are messages you can send
+ * to a running stream.
  */
 export interface StreamContract {
   payload: unknown;
@@ -77,43 +67,20 @@ export interface StreamContract {
   nudges?: Record<string, unknown>;
 }
 
-// ---------------------------------------------------------------------------
-// Contract extractors
-// ---------------------------------------------------------------------------
-
-/** Pull `incoming` from a contract, or `{}` if absent. */
+/** Pull one key out of a contract, or fall back to `{}` if it's missing. */
 export type IncomingOf<T> = T extends { incoming: infer I } ? I : {};
-
-/** Pull `outgoing` from a contract, or `{}` if absent. */
 export type OutgoingOf<T> = T extends { outgoing: infer O } ? O : {};
-
-/** Pull `namespaces` from a contract, or `{}` if absent. */
 export type NamespacesOf<T> = T extends { namespaces: infer N } ? N : {};
-
-/** Pull `channels` from a contract, or `{}` if absent. */
 export type ChannelsOf<T> = T extends { channels: infer C } ? C : {};
-
-/** Pull `streams` from a contract, or `{}` if absent. */
 export type StreamsOf<T> = T extends { streams: infer S } ? S : {};
-
-/** Pull `requests` from a contract, or `{}` if absent. */
 export type RequestsOf<T> = T extends { requests: infer R } ? R : {};
-
-/** Pull `errors` from a contract, or `{}` if absent. */
 export type ErrorsOf<T> = T extends { errors: infer E } ? E : {};
 
-// ---------------------------------------------------------------------------
-// Requires — lets primitives declare what they need from the contract
-// ---------------------------------------------------------------------------
-
 /**
- * Builds a constraint type from event-name lists. If a primitive uses
- * `Requires<{ incoming: ['user-joined'] }>`, the socket contract must have
- * `incoming: { 'user-joined': any }` or TypeScript errors where the primitive
- * is registered.
- *
- * `[number]` turns each array into a union of its elements (the event names).
- * Categories that weren't provided contribute `{}` (no constraint).
+ * Lets a primitive say which events the contract must have. For example
+ * `Requires<{ incoming: ['user-joined'] }>` builds a constraint that the
+ * contract's `incoming` includes `'user-joined'`, and TypeScript flags the
+ * primitive if it doesn't.
  */
 export type Requires<
   R extends {
@@ -129,59 +96,33 @@ export type Requires<
   (R['channels'] extends string[] ? { channels: Record<R['channels'][number], any> } : {}) &
   (R['requests'] extends string[] ? { requests: Record<R['requests'][number], any> } : {});
 
-// ---------------------------------------------------------------------------
-// Connection types
-// ---------------------------------------------------------------------------
-
 /**
- * The WebSocket connection state.
- *
- * - `'closed'` — not connected, not trying to connect
- * - `'connecting'` — attempting to establish a connection
- * - `'open'` — connected and ready to send/receive
- * - `'reconnecting'` — connection dropped, waiting to retry
+ * The four connection states:
+ * - `closed` — not connected and not trying
+ * - `connecting` — opening a connection
+ * - `open` — connected and ready
+ * - `reconnecting` — dropped, waiting to retry
  */
 export type ConnectionState = 'closed' | 'connecting' | 'open' | 'reconnecting';
 
 /**
- * Connection quality derived from ping/pong latency measurement.
- *
- * - `'excellent'` — latency under 50ms (configurable)
- * - `'good'` — latency 50–150ms
- * - `'degraded'` — latency 150–500ms
- * - `'poor'` — latency over 500ms or 1+ missed pongs
- * - `'disconnected'` — socket is not open
+ * Connection quality from ping/pong latency:
+ * - `excellent` under 50ms, `good` 50–150ms, `degraded` 150–500ms
+ * - `poor` over 500ms or after a missed pong
+ * - `disconnected` when the socket isn't open
  */
 export type ConnectionQuality = 'excellent' | 'good' | 'degraded' | 'poor' | 'disconnected';
 
-// ---------------------------------------------------------------------------
-// Utility types
-// ---------------------------------------------------------------------------
-
-/** Flatten intersections into a single object for readable editor tooltips. */
+/** Flatten an intersection into one object so editor tooltips read cleanly. */
 export type Simplify<T> = { [K in keyof T]: T[K] } & {};
 
-/**
- * Shorthand for primitives whose API does not depend on the contract.
- *
- * ```ts
- * const stream = definePrimitive<StaticApi<{ onStream(...): () => void }>>({ ... });
- * ```
- */
+/** Shorthand for a primitive whose API doesn't depend on the contract. */
 export type StaticApi<Api> = {
   readonly _contract: unknown;
   readonly _api: Api;
 };
 
-// ---------------------------------------------------------------------------
-// Primitive method utilities (typed against contract slices)
-// ---------------------------------------------------------------------------
-
-/**
- * A method typed against `requests`. Produces
- * `{ method(event, payload, options?): Promise<response> }` when the contract
- * has requests, `{}` otherwise.
- */
+/** Adds a `request()`-style method typed from the contract's `requests`. */
 export type RequestMethod<TContract, TMethod extends string> = TContract extends {
   requests: infer R extends Record<string, { payload: any; response: any }>;
 }
@@ -195,11 +136,9 @@ export type RequestMethod<TContract, TMethod extends string> = TContract extends
   : {};
 
 /**
- * Full endpoint type for a scoped contract (namespace, channel, room, etc.).
- * Intersects the base endpoint with conditional `request()` and
- * `send.withAck()` methods.
- *
- * NOTE: extended in later phases with `stream()` and channel membership APIs.
+ * The full endpoint type for one scope (a namespace or channel): `on`/`send`
+ * plus `request()` when the scope has requests and `send.withAck()` when it has
+ * outgoing events. (Streams and channel membership are added in later phases.)
  */
 export type ScopedEndpoint<C> = Endpoint<IncomingOf<C> & object, OutgoingOf<C> & object> &
   (C extends { requests: infer R extends Record<string, { payload: any; response: any }> }
@@ -224,11 +163,9 @@ export type ScopedEndpoint<C> = Endpoint<IncomingOf<C> & object, OutgoingOf<C> &
       });
 
 /**
- * Given a contract key holding a named map of scoped contracts, produces a
- * method that returns a fully-typed `ScopedEndpoint` for each name.
- *
- * The mapped type `[M in TMethod]` creates a computed property name from a
- * string literal — e.g. `TMethod = 'namespace'` produces `{ namespace: ... }`.
+ * Turns a contract key holding many scopes into a lookup method. For example
+ * `ScopedApi<C, 'namespaces', 'namespace'>` produces
+ * `namespace(name): ScopedEndpoint` typed for each name.
  */
 export type ScopedApi<TContract, TKey extends string, TMethod extends string> =
   TContract extends Record<TKey, infer Map extends Record<string, any>>

@@ -1,132 +1,88 @@
-/* oxlint-disable @typescript-eslint/no-explicit-any -- type-level variance requires `any` for primitive generics in conditional types */
+/* oxlint-disable @typescript-eslint/no-explicit-any -- the type-level machinery needs `any` to stay generic */
 import type { SocketConfig } from '~/internal/config.ts';
 import type { PrimitiveHelpers, PrimitiveRuntime } from '~/internal/runtime.ts';
 import type { Simplify } from '~/types.ts';
 
-// ---------------------------------------------------------------------------
-// HKT — the "type function" pattern
-// ---------------------------------------------------------------------------
-
 /**
- * Base interface for primitive type functions.
+ * A "type function" — a type that takes the socket contract and returns the API
+ * a primitive adds to the socket.
  *
- * TypeScript doesn't support higher-kinded types (a type that takes another
- * type as a parameter and returns a new type). This pattern is the workaround.
- * Think of it as a function from type to type:
- *
- * - `_contract` — the "parameter" slot. Holds `unknown` by default, but `Apply`
- *   overrides it with the actual socket contract via intersection.
- * - `_api` — the "return value". Computes the methods this primitive exposes.
- *   Because `_api` can reference `this['_contract']`, it reactively updates when
- *   `_contract` is overridden.
- *
- * For primitives whose API depends on the contract (like `channels`), `_api`
- * reads from `this['_contract']`. For static APIs, use `StaticApi<{ ... }>`.
+ * TypeScript can't pass a type to a type the way you pass a value to a function,
+ * so we fake it with two slots: `_contract` is the input and `_api` is the
+ * output. `Apply` fills in `_contract`, then reads `_api`. Because `_api` can
+ * reference `this['_contract']`, it recomputes against whatever contract is
+ * plugged in.
  */
 export interface TypeFn {
-  /** The input slot — overridden by `Apply` with the real contract. */
   readonly _contract: unknown;
-  /** The output slot — computes the primitive's API surface from `_contract`. */
   readonly _api: unknown;
 }
 
-/** A type function that adds nothing to the socket — for config-only primitives. */
+/** A type function that adds nothing — for primitives that only configure or hook. */
 export interface EmptyTypeFn extends TypeFn {
   readonly _api: {};
 }
 
 /**
- * "Call" a type function: override its `_contract` with `Contract`, read `_api`.
- *
- * Intersecting `F` with `{ _contract: Contract }` makes `_contract` resolve to
- * `Contract` for reads, then we index into `_api`, which now computes against
- * the new contract.
+ * Run a type function: plug `Contract` into its `_contract` slot and read the
+ * resulting `_api`.
  */
 export type Apply<F extends TypeFn, Contract> = (F & { readonly _contract: Contract })['_api'];
 
-// ---------------------------------------------------------------------------
-// Primitive descriptor
-// ---------------------------------------------------------------------------
-
 /**
- * The tagged object a primitive factory returns. `client()` collects these,
- * deduplicates by `_tag`, resolves dependency order, builds the internal
- * options bag, and installs runtime behavior.
+ * What a primitive factory (like `channels()` or `reconnection()`) returns.
  *
- * `_typeFn` and `_requires` are phantom (type-only) slots used by the inference
- * utilities below — they carry no runtime value.
+ * `client()` reads these to build the socket. The `_typeFn` and `_requires`
+ * fields exist only for the type system (they hold no value at runtime);
+ * `applyConfig` and `setup` are the runtime wiring.
  */
-export interface PrimitiveDescriptor<F extends TypeFn = EmptyTypeFn, TRequires = {}> {
-  /** Unique tag identifying the primitive kind (e.g. `'connect'`, `'channels'`). */
+export interface Primitive<F extends TypeFn = EmptyTypeFn, TRequires = {}> {
+  /** Names the primitive (e.g. `'connect'`, `'channels'`). Used to catch duplicates. */
   readonly _tag: string;
-  /** Other primitive tags this one depends on, for auto-sorting. */
+  /** Other primitives this one must run after. */
   readonly dependencies?: readonly string[];
-  /** Phantom slot carrying the primitive's type function. @internal */
+  /** Type-only: the API this primitive adds to the socket. */
   readonly _typeFn?: F;
-  /** Phantom slot carrying contract requirements. @internal */
+  /** Type-only: what the contract must contain for this primitive to be valid. */
   readonly _requires?: TRequires;
-  /** Arbitrary primitive configuration consumed by `client()`. @internal */
-  readonly config?: unknown;
-}
-
-/**
- * The runtime-bearing descriptor a primitive factory actually returns. Extends
- * the type-only `PrimitiveDescriptor` with the hooks `client()` uses to build
- * the socket. The extra fields are invisible to the type-inference utilities,
- * which only read `_tag` / `_typeFn` / `_requires`.
- */
-export interface PrimitiveSpec<
-  F extends TypeFn = EmptyTypeFn,
-  TRequires = {},
-> extends PrimitiveDescriptor<F, TRequires> {
-  /** Merge this primitive's settings into the resolved config bag. */
+  /** Copy this primitive's settings into the shared config the kernel reads. */
   applyConfig?: (config: SocketConfig) => void;
-  /** Build the runtime side (hooks + install) once the socket exists. */
+  /** Build the runtime behavior once the socket exists. */
   setup?: (helpers: PrimitiveHelpers) => PrimitiveRuntime;
 }
 
-// ---------------------------------------------------------------------------
-// Primitive tuple resolution
-// ---------------------------------------------------------------------------
-
 /**
- * Walk a tuple of primitives, apply each one's type function with the contract,
- * and intersect all the resulting APIs.
- *
- * `[Channels, RequestResponse, Stream]` with contract `T` produces:
- * `Apply<ChannelsTypeFn, T> & Apply<RequestResponseTypeFn, T> & Apply<StreamTypeFn, T>`.
+ * Walk the list of primitives, run each one's type function against the
+ * contract, and merge all the resulting APIs together. This is how the socket
+ * type gains `.channel()`, `.request()`, and so on.
  */
 export type ApplyPrimitives<
-  TPrimitives extends readonly PrimitiveDescriptor<any, any>[],
+  TPrimitives extends readonly Primitive<any, any>[],
   TContract,
 > = TPrimitives extends readonly [
-  infer Head extends PrimitiveDescriptor<any, any>,
-  ...infer Rest extends PrimitiveDescriptor<any, any>[],
+  infer Head extends Primitive<any, any>,
+  ...infer Rest extends Primitive<any, any>[],
 ]
   ? Apply<NonNullable<Head['_typeFn']>, TContract> & ApplyPrimitives<Rest, TContract>
   : {};
 
 /**
- * Validate that each primitive's requirements are satisfied by the contract.
- * If a primitive's `_requires` isn't met, its slot becomes `never` — nothing is
- * assignable to `never`, so TypeScript errors at the offending primitive.
+ * Check that each primitive's `_requires` is met by the contract. A primitive
+ * that isn't satisfied becomes `never` in the list, and since you can't pass a
+ * real value where `never` is expected, TypeScript flags that exact argument.
  *
- * This is a homomorphic mapped tuple (not a recursive conditional) so it
- * preserves tuple length and lets TypeScript reverse-infer `TPrimitives` from
- * a variadic rest parameter — keeping argument-count inference intact.
+ * This is a mapped tuple (not recursion) on purpose: it keeps the tuple length,
+ * which lets TypeScript still infer the primitives from a `...rest` argument.
  */
-export type ValidatePrimitives<
-  TContract,
-  TPrimitives extends readonly PrimitiveDescriptor<any, any>[],
-> = {
+export type ValidatePrimitives<TContract, TPrimitives extends readonly Primitive<any, any>[]> = {
   [I in keyof TPrimitives]: TContract extends NonNullable<TPrimitives[I]['_requires']>
     ? TPrimitives[I]
     : never;
 };
 
-/** The final socket type: base socket merged with all primitive APIs, simplified. */
+/** The final socket type: the base socket plus every primitive's API, flattened. */
 export type SocketWithPrimitives<
   TContract,
-  TPrimitives extends readonly PrimitiveDescriptor<any, any>[],
+  TPrimitives extends readonly Primitive<any, any>[],
   TBase,
 > = Simplify<TBase & ApplyPrimitives<TPrimitives, TContract>>;

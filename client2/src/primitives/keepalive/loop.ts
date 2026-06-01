@@ -1,31 +1,29 @@
-import type { QualityThresholds, SocketConfig } from '~/internal/config.ts';
+import type { QualityThresholds } from '~/internal/config.ts';
 import type { ConnectionQuality } from '~/types.ts';
 
-/** Keepalive-relevant subset of the config. */
-export type KeepaliveConfig = Pick<
-  SocketConfig,
-  'pingInterval' | 'maxMissedPongs' | 'qualityThresholds'
->;
+/** Settings for the ping loop. */
+export interface KeepaliveLoopOptions {
+  interval?: number;
+  maxMissedPongs?: number;
+  thresholds?: QualityThresholds;
+}
 
+/** The few things the loop asks the engine to do. */
 interface KeepaliveCallbacks {
-  /** Send a `ping` frame to the server. */
   sendPing: () => void;
-  /** Force-close the WebSocket after the missed-pong threshold. */
   forceClose: () => void;
-  /** Notify the socket of a quality-tier change. */
   onQualityChange: (quality: ConnectionQuality, latency: number) => void;
 }
 
-/** Client-side quality thresholds (the server uses its own). */
+/** Default latency cut-offs. The server measures quality on its own side. */
 const DEFAULT_THRESHOLDS: QualityThresholds = { excellent: 50, good: 150, degraded: 500 };
 
 /**
- * Manages the keepalive ping/pong cycle, latency measurement, connection
- * quality tiers, and missed-pong detection.
- *
- * Internal class — not exported from the package. Used by Socket.
+ * Sends pings on a timer and watches for the matching pongs. Each pong gives a
+ * round-trip time, which sets the quality tier. If too many pongs go missing the
+ * connection is treated as dead and force-closed.
  */
-export class Keepalive {
+export class KeepaliveLoop {
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private pingSentAt: number | null = null;
   private missedPongs = 0;
@@ -37,14 +35,14 @@ export class Keepalive {
   private readonly thresholds: QualityThresholds;
   private readonly callbacks: KeepaliveCallbacks;
 
-  constructor(config: KeepaliveConfig, callbacks: KeepaliveCallbacks) {
-    this.interval = config.pingInterval ?? 30_000;
-    this.maxMissedPongs = config.maxMissedPongs ?? 2;
-    this.thresholds = config.qualityThresholds ?? DEFAULT_THRESHOLDS;
+  constructor(options: KeepaliveLoopOptions, callbacks: KeepaliveCallbacks) {
+    this.interval = options.interval ?? 30_000;
+    this.maxMissedPongs = options.maxMissedPongs ?? 2;
+    this.thresholds = options.thresholds ?? DEFAULT_THRESHOLDS;
     this.callbacks = callbacks;
   }
 
-  /** Start the ping cycle. Call after the WebSocket is open. */
+  /** Begin pinging. Call once the socket is open. */
   start(): void {
     this.stop();
     if (this.interval <= 0) return;
@@ -58,7 +56,7 @@ export class Keepalive {
     }, this.interval);
   }
 
-  /** Stop the ping cycle. Call on disconnect or close. */
+  /** Stop pinging and reset. Call on close. */
   stop(): void {
     if (this.pingTimer !== null) {
       clearInterval(this.pingTimer);
@@ -70,10 +68,7 @@ export class Keepalive {
     this.quality = 'disconnected';
   }
 
-  /**
-   * Called when a `pong` is received from the server. Measures round-trip
-   * latency, resets the missed-pong counter, and recalculates the quality tier.
-   */
+  /** Call when a pong arrives: record the round-trip time and refresh quality. */
   onPong(): void {
     if (this.pingSentAt === null) return;
 
@@ -83,25 +78,22 @@ export class Keepalive {
     this.setQuality(this.qualityFromLatency(this.latency));
   }
 
-  /** Current connection quality tier. */
   getQuality(): ConnectionQuality {
     return this.quality;
   }
 
-  /** Last measured round-trip latency in ms, or `null` if unknown. */
   getLatency(): number | null {
     return this.latency;
   }
 
   private tick(): void {
+    // If the previous ping was never answered, count it as missed.
     if (this.pingSentAt !== null) {
       this.missedPongs++;
-
       if (this.missedPongs >= this.maxMissedPongs) {
         this.callbacks.forceClose();
         return;
       }
-
       this.setQuality('poor');
     }
 

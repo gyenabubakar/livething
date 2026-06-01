@@ -1,24 +1,22 @@
-import { Block, CloseCodes, WSKitError } from '@wskit/core';
-import { MessageBuffer } from '~/socket/buffer.ts';
+import { Block, WSKitError } from '@wskit/core';
 import { Emitter } from '~/socket/emitter.ts';
-import { Keepalive } from '~/socket/keepalive.ts';
-import { Reconnection } from '~/socket/reconnection.ts';
 import type { SendOptions } from '~/endpoint.ts';
 import type { SocketConfig } from '~/internal/config.ts';
-import type { InterceptFn, PrimitiveRuntime, WireMessage } from '~/internal/runtime.ts';
+import type {
+  InterceptFn,
+  PrimitiveHelpers,
+  PrimitiveRuntime,
+  WireMessage,
+} from '~/internal/runtime.ts';
 import type { ConnectionQuality, ConnectionState } from '~/types.ts';
 
-// ---------------------------------------------------------------------------
-// Close event
-// ---------------------------------------------------------------------------
-
-/** Describes a WebSocket close, passed to `onClose` handlers. */
+/** What an `onClose` handler receives. */
 export interface CloseEvent {
-  /** WebSocket close code (e.g., 1000 for normal, 4001 for app-defined). */
+  /** The numeric close code (e.g. 1000 normal, 4001 app-defined). */
   code: number;
-  /** Optional close reason from the server. */
+  /** The reason text from the server, if any. */
   reason: string;
-  /** Whether the close handshake completed properly. */
+  /** Whether the close finished cleanly. */
   wasClean: boolean;
 }
 
@@ -32,10 +30,7 @@ type SocketEvents = {
   qualityChange: [quality: ConnectionQuality, latency: number];
 };
 
-// ---------------------------------------------------------------------------
-// Default wire codec — `{ event, payload, __wskit? }` JSON
-// ---------------------------------------------------------------------------
-
+/** Default reader: turn a text frame into `{ event, payload, __wskit? }`. */
 function defaultParse(raw: string): WireMessage | null {
   const parsed = JSON.parse(raw) as Record<string, unknown>;
   if (typeof parsed.event !== 'string') return null;
@@ -46,41 +41,40 @@ function defaultParse(raw: string): WireMessage | null {
   return message;
 }
 
-/** Build a `WSKitError` from an `__error__` frame's `{ code, detail? }` payload. */
+/** Turn an `__error__` frame's `{ code, detail? }` into a `WSKitError`. */
 function toWSKitError(payload: unknown): WSKitError {
   const p = (payload ?? {}) as { code?: unknown; detail?: unknown };
   const code = typeof p.code === 'string' ? p.code : 'internal-error';
   return new WSKitError(code, p.detail);
 }
 
+/** Default writer: turn a message into the JSON string sent over the wire. */
 function defaultSerialize(message: WireMessage): string {
   return message.__wskit
     ? JSON.stringify({ event: message.event, payload: message.payload, __wskit: message.__wskit })
     : JSON.stringify({ event: message.event, payload: message.payload });
 }
 
-// ---------------------------------------------------------------------------
-// SocketImpl
-// ---------------------------------------------------------------------------
-
 /**
- * The core WebSocket client. Handles connection lifecycle, reconnection,
- * keepalive, buffering, the incoming/outgoing pipeline, and event dispatch.
- * Primitive APIs are merged onto the public type by `client()`.
+ * The connection engine behind every socket. It handles the WebSocket itself,
+ * the connection state, sending and receiving, lazy connecting, and quality.
  *
- * Developers never instantiate this directly — use `client()`.
+ * On purpose it contains no reconnection, keepalive, or buffering code — those
+ * live in their own primitives and drive the engine through `_helpers()`. That
+ * keeps unused features out of your bundle. You never build this yourself;
+ * `client()` does and hands you back a typed `Socket`.
  */
-export class SocketImpl {
-  /** The underlying native WebSocket instance. `null` when disconnected. */
+export class WSKitSocket {
+  /** The native WebSocket, or `null` when not connected. */
   ws: WebSocket | null = null;
 
-  /** The subprotocol selected by the server during handshake. `null` if none. */
+  /** The subprotocol the server picked, or `null`. */
   protocol: string | null = null;
 
   /** @internal */
   _config: SocketConfig;
-  /** @internal */
-  _primitives: readonly PrimitiveRuntime[];
+  /** @internal — set after construction, once primitives are built. */
+  _primitives: readonly PrimitiveRuntime[] = [];
   /** @internal */
   _state: ConnectionState = 'closed';
   /** @internal */
@@ -89,22 +83,27 @@ export class SocketImpl {
   _debug = false;
   /** @internal */
   _isFirstConnect = true;
-  /** @internal — tracks whether disconnect() was called to prevent reconnection */
+  /** @internal — true once disconnect() is called, so we don't reconnect. */
   _intentionalClose = false;
-  /** @internal — invalidates stale async URL/query resolutions after disconnect() */
+  /** @internal — bumped to cancel a connect attempt that's still resolving its URL. */
   _connectAttemptId = 0;
   /** @internal */
-  _reconnection: Reconnection;
-  /** @internal */
-  _keepalive: Keepalive;
-  /** @internal */
-  _buffer: MessageBuffer;
-  /** @internal — lazy mode flags */
   _lazy: boolean;
   _lazyIdleTimer: ReturnType<typeof setTimeout> | null = null;
   _lazyConsumers = 0;
-  /** @internal — direct dispatch map for on() handlers, keyed by event name */
+  /** @internal — listeners by event name. */
   _messageHandlers = new Map<string, Set<(payload: unknown) => void>>();
+
+  // Quality lives here because the getters are part of the public API, but the
+  // values come from the keepalive primitive (if you added it).
+  private _quality: ConnectionQuality = 'disconnected';
+  private _latency: number | null = null;
+
+  // Filled in by behavior primitives through _helpers().
+  private _unexpectedCloseHandler: ((code: number, reason: string) => void) | null = null;
+  private _pongHandlers: (() => void)[] = [];
+  private _outgoingFallback: ((message: WireMessage, ttl?: number) => boolean) | null = null;
+  private _idCounter = 0;
 
   private readonly _parse: (raw: string) => WireMessage | null;
   private readonly _parseBinary: ((data: unknown) => WireMessage | null) | null;
@@ -112,35 +111,22 @@ export class SocketImpl {
   private readonly _intercepts: readonly InterceptFn[];
 
   /** @internal */
-  constructor(config: SocketConfig, primitives: readonly PrimitiveRuntime[]) {
+  constructor(config: SocketConfig) {
     this._config = config;
-    this._primitives = primitives;
     this._debug = config.debug ?? false;
     this._lazy = config.lazy ?? false;
     this._parse = config.parse ?? defaultParse;
     this._parseBinary = config.parseBinary ?? null;
     this._serialize = config.serialize ?? defaultSerialize;
     this._intercepts = config.intercepts ?? [];
-    this._reconnection = new Reconnection(config, primitives);
-    this._buffer = new MessageBuffer(config);
-    this._keepalive = new Keepalive(config, {
-      sendPing: () => {
-        this._rawSend({ event: 'ping', payload: {} });
-        this._log('ping sent');
-      },
-      forceClose: () => {
-        this._log('missed pong threshold reached — force closing');
-        this.ws?.close(CloseCodes.IDLE, 'missed pong');
-      },
-      onQualityChange: (quality, latency) => {
-        this._emitter.emit('qualityChange', quality, latency);
-      },
-    });
   }
 
-  // ── Connection lifecycle ─────────────────────────────────────
+  /** @internal — attach the primitive runtimes after they're set up. */
+  _setPrimitives(primitives: readonly PrimitiveRuntime[]): void {
+    this._primitives = primitives;
+  }
 
-  /** Open the WebSocket connection. Safe to call multiple times. */
+  /** Open the connection. Calling it again while open or connecting does nothing. */
   connect(): void {
     if (this._state === 'open' || this._state === 'connecting') return;
     this._intentionalClose = false;
@@ -148,16 +134,13 @@ export class SocketImpl {
   }
 
   /**
-   * Close the connection and fully tear down the socket. Stops reconnection,
-   * clears the buffer, rejects pending primitive promises, and resets state.
-   * All `.on()` handlers remain registered — call `connect()` to reconnect.
+   * Close the connection on purpose. This is a full stop: no reconnection, the
+   * buffer is cleared, and primitives clean up. Your `on()` handlers stay, so
+   * `connect()` later picks up where you left off.
    */
   disconnect(code = 1000, reason = ''): void {
     this._intentionalClose = true;
     this._connectAttemptId++;
-    this._reconnection.stop();
-    this._keepalive.stop();
-    this._buffer.clear();
     this._clearLazyIdleTimer();
     this._lazyConsumers = 0;
 
@@ -170,36 +153,32 @@ export class SocketImpl {
       this.ws = null;
     }
     this.protocol = null;
+    this._quality = 'disconnected';
 
     for (const primitive of this._primitives) {
-      primitive.onClose?.(code, reason);
+      primitive.onClose?.(code, reason, true);
     }
 
     this._setState('closed');
     this._emitter.emit('close', { code, reason, wasClean: true });
   }
 
-  // ── State ────────────────────────────────────────────────────
-
   getState(): ConnectionState {
     return this._state;
   }
 
   getQuality(): ConnectionQuality {
-    if (this._state !== 'open') return 'disconnected';
-    return this._keepalive.getQuality();
+    return this._state === 'open' ? this._quality : 'disconnected';
   }
 
   getLatency(): number | null {
-    return this._keepalive.getLatency();
+    return this._latency;
   }
 
-  /** Subscribe to state changes. The callback receives no arguments — read with `getState()`. */
+  /** Run a callback whenever the state changes. Read the new value with `getState()`. */
   subscribe(callback: () => void): () => void {
     return this._emitter.on('state', callback);
   }
-
-  // ── Events ───────────────────────────────────────────────────
 
   on(event: string, handler: (data: unknown) => void): () => void {
     this._lazyAcquire();
@@ -221,54 +200,96 @@ export class SocketImpl {
     return this._send({ event, payload }, options);
   }
 
-  /**
-   * Send raw binary data directly over the WebSocket. Bypasses the wire codec
-   * and contract typing — you own the encoding. Returns `true` if sent.
-   */
   sendBinary(data: ArrayBuffer | ArrayBufferView<ArrayBuffer> | Blob): boolean {
     if (this._state !== 'open' || !this.ws) return false;
     this.ws.send(data);
     return true;
   }
 
-  // ── Lifecycle callbacks ──────────────────────────────────────
-
+  /** Runs on every open — the first connect and every reconnect. */
   onOpen(callback: () => void): () => void {
     return this._emitter.on('open', callback);
   }
 
+  /** Runs only on reconnects, not the first connect. */
   onReconnect(callback: () => void): () => void {
     return this._emitter.on('reconnect', callback);
   }
 
+  /** Runs once when reconnection gives up for good. */
   onReconnectFailed(callback: () => void): () => void {
     return this._emitter.on('reconnectFailed', callback);
   }
 
+  /** Runs on every close, including ones that lead to a reconnect. */
   onClose(callback: (event: CloseEvent) => void): () => void {
     return this._emitter.on('close', callback);
   }
 
-  /** Protocol errors (WebSocket-level failures). */
+  /** A WebSocket-level error. */
   onError(callback: (error: Event) => void): () => void;
-  /** Application errors — typed `WSKitError`s from fire-and-forget incoming handlers. */
+  /** A typed error the server sent that no request/stream claimed. */
   onError(callback: (error: WSKitError) => void): () => void;
-  // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- overload impl must accept both forms
+  // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- the single body serves both overloads above
   onError(callback: (error: any) => void): () => void {
     return this._emitter.on('error', callback);
   }
 
+  /** Runs when the quality tier changes. */
   onQualityChange(callback: (quality: ConnectionQuality, latency: number) => void): () => void {
     return this._emitter.on('qualityChange', callback);
   }
-
-  // ── Debug ────────────────────────────────────────────────────
 
   setDebug(enabled: boolean): void {
     this._debug = enabled;
   }
 
-  // ── Internal ─────────────────────────────────────────────────
+  /** @internal — the set of things a primitive can ask the engine to do. */
+  _helpers(): PrimitiveHelpers {
+    return {
+      config: this._config,
+      rawSend: (message) => this._rawSend(message),
+      send: (message, options) => this._send(message, options),
+      generateId: (prefix) => {
+        const id = ++this._idCounter;
+        return prefix ? `${prefix}-${id}` : `${id}`;
+      },
+      getState: () => this._state,
+      ensureConnected: () => this._ensureConnected(),
+      lazyAcquire: () => this._lazyAcquire(),
+      lazyRelease: () => this._lazyRelease(),
+      reopen: () => this._openConnection(),
+      enterReconnecting: () => this._setState('reconnecting'),
+      giveUp: () => this._setState('closed'),
+      failReconnect: () => {
+        this._setState('closed');
+        this._emitter.emit('reconnectFailed');
+      },
+      forceClose: (code, reason) => this.ws?.close(code, reason),
+      onUnexpectedClose: (handler) => {
+        this._unexpectedCloseHandler = handler;
+      },
+      runShouldReconnect: (code, reason) => this._runShouldReconnect(code, reason),
+      onPong: (handler) => this._pongHandlers.push(handler),
+      reportQuality: (quality, latency) => {
+        this._latency = latency;
+        if (this._quality === quality) return;
+        this._quality = quality;
+        this._emitter.emit('qualityChange', quality, latency);
+      },
+      registerOutgoingFallback: (handler) => {
+        this._outgoingFallback = handler;
+      },
+    };
+  }
+
+  private _runShouldReconnect(code: number, reason: string): boolean | undefined {
+    for (const primitive of this._primitives) {
+      const result = primitive.shouldReconnect?.(code, reason);
+      if (result === true || result === false) return result;
+    }
+    return undefined;
+  }
 
   private _setState(state: ConnectionState): void {
     if (this._state === state) return;
@@ -285,12 +306,12 @@ export class SocketImpl {
     try {
       const baseUrl =
         typeof this._config.url === 'function' ? await this._config.url() : this._config.url;
-      if (attemptId !== this._connectAttemptId) return; // cancelled by disconnect()
+      if (attemptId !== this._connectAttemptId) return; // a disconnect() cancelled us mid-resolve
 
       let finalUrl = baseUrl;
       if (this._config.searchParams) {
         const params = await this._config.searchParams();
-        if (attemptId !== this._connectAttemptId) return; // cancelled
+        if (attemptId !== this._connectAttemptId) return;
         const query = new URLSearchParams(params).toString();
         if (query) {
           const separator = baseUrl.includes('?') ? '&' : '?';
@@ -310,14 +331,14 @@ export class SocketImpl {
         }
         this.ws = ws;
         this.protocol = ws.protocol || null;
-        this._reconnection.reset();
+        this._quality = 'excellent';
+        this._latency = null;
         this._setState('open');
 
         const isReconnect = !this._isFirstConnect;
         this._isFirstConnect = false;
 
-        this._keepalive.start();
-
+        // Primitives go first (replay, re-subscribe, …), then your callbacks.
         for (const primitive of this._primitives) {
           const messages = primitive.onOpen?.();
           if (messages) for (const msg of messages) this._rawSend(msg);
@@ -329,11 +350,6 @@ export class SocketImpl {
           }
         }
 
-        this._buffer.flush(
-          (message) => this._rawSend(message),
-          () => this._log('buffer flush complete'),
-        );
-
         this._emitter.emit('open');
         if (isReconnect) this._emitter.emit('reconnect');
       };
@@ -342,10 +358,10 @@ export class SocketImpl {
         if (attemptId !== this._connectAttemptId) return;
         this.ws = null;
         this.protocol = null;
-        this._keepalive.stop();
+        this._quality = 'disconnected';
 
         for (const primitive of this._primitives) {
-          primitive.onClose?.(event.code, event.reason);
+          primitive.onClose?.(event.code, event.reason, false);
         }
 
         this._emitter.emit('close', {
@@ -359,15 +375,13 @@ export class SocketImpl {
           return;
         }
 
-        if (!this._reconnection.shouldReconnect(event.code, event.reason)) {
-          this._log(`reconnection suppressed (code ${event.code})`);
+        // If reconnection is installed it decides what happens next; otherwise
+        // an unexpected drop just leaves us closed.
+        if (this._unexpectedCloseHandler) {
+          this._unexpectedCloseHandler(event.code, event.reason);
+        } else {
           this._setState('closed');
-          return;
         }
-
-        this._setState('reconnecting');
-        this._log(`connection closed (code ${event.code}), reconnecting`);
-        this._scheduleReconnect();
       };
 
       ws.onerror = (event) => {
@@ -379,8 +393,11 @@ export class SocketImpl {
     } catch (error) {
       if (attemptId !== this._connectAttemptId) return;
       this._log('connection failed', error);
-      this._setState('reconnecting');
-      this._scheduleReconnect();
+      if (this._unexpectedCloseHandler) {
+        this._unexpectedCloseHandler(1006, 'connection failed');
+      } else {
+        this._setState('closed');
+      }
     }
   }
 
@@ -392,23 +409,23 @@ export class SocketImpl {
       try {
         parsed = this._parse(raw);
       } catch {
-        this._log('parse error — message dropped');
+        this._log('could not parse message — dropping it');
         return;
       }
     } else if (this._parseBinary) {
       try {
         parsed = this._parseBinary(raw);
       } catch {
-        this._log('parseBinary error — message dropped');
+        this._log('could not parse binary message — dropping it');
         return;
       }
     }
     if (!parsed) return;
 
-    // Keepalive — protocol ping/pong are answered/measured, never dispatched.
+    // Answer the server's pings and feed pongs to keepalive; never show these to handlers.
     if (parsed.event === 'pong') {
       this._log('pong received');
-      this._keepalive.onPong();
+      for (const handler of this._pongHandlers) handler();
       return;
     }
     if (parsed.event === 'ping') {
@@ -417,27 +434,25 @@ export class SocketImpl {
       return;
     }
 
-    // Primitive onIncoming hooks — returning null consumes the message.
+    // Let primitives see it first; any of them can swallow it by returning null.
     let message: WireMessage = parsed;
     for (const primitive of this._primitives) {
       if (!primitive.onIncoming) continue;
       const result = primitive.onIncoming(message);
       if (result === null) {
-        this._log(`primitive '${primitive.id}' consumed '${parsed.event}'`);
+        this._log(`primitive '${primitive.id}' handled '${parsed.event}'`);
         return;
       }
       message = result;
     }
 
-    // Unclaimed error frames surface on onError as a WSKitError. Frames carrying
-    // a routing marker (correlationId/ackId/streamId) are owned by their
-    // primitive and were consumed above — only "unrecognized" errors reach here.
+    // An error frame nobody claimed becomes an onError call instead of a normal event.
     if (message.event === '__error__') {
       this._emitter.emit('error', toWSKitError(message.payload));
       return;
     }
 
-    // Intercept stage — runs last, can transform or drop (throw Block).
+    // Your intercepts run last and can change or drop the message (throw Block to drop).
     if (this._intercepts.length) {
       for (const intercept of this._intercepts) {
         try {
@@ -447,7 +462,7 @@ export class SocketImpl {
           if (error === Block) {
             this._log(`intercept dropped '${message.event}'`);
           } else {
-            this._log('intercept error — message dropped', error);
+            this._log('intercept threw — dropping the message', error);
           }
           return;
         }
@@ -458,23 +473,7 @@ export class SocketImpl {
     this._dispatchMessage(message.event, message.payload);
   }
 
-  private _scheduleReconnect(): void {
-    this._reconnection.schedule(
-      () => {
-        this._log(`reconnect attempt ${this._reconnection.currentAttempt}`);
-        this._openConnection();
-      },
-      () => {
-        this._log('reconnection attempts exhausted');
-        this._setState('closed');
-        this._emitter.emit('reconnectFailed');
-      },
-    );
-  }
-
-  // ── Lazy mode ──────────────────────────────────────────────
-
-  /** @internal — trigger connection if lazy and not connected. */
+  /** @internal — open a lazy socket the first time something needs it. */
   _ensureConnected(): void {
     if (!this._lazy) return;
     if (this._state === 'open' || this._state === 'connecting' || this._state === 'reconnecting')
@@ -516,9 +515,11 @@ export class SocketImpl {
     }
   }
 
-  // ── Send pipeline ──────────────────────────────────────────
-
-  /** @internal — full outgoing pipeline: lazy connect → onOutgoing hooks → buffer fallback → wire. */
+  /**
+   * @internal — the full send path: open a lazy socket, let primitives adjust or
+   * cancel the message, then either write it, hand it to the buffer fallback, or
+   * drop it.
+   */
   _send(message: WireMessage, options?: SendOptions): boolean {
     this._ensureConnected();
 
@@ -527,13 +528,13 @@ export class SocketImpl {
       if (!primitive.onOutgoing) continue;
       msg = primitive.onOutgoing(msg!);
       if (msg === null) {
-        this._log('send cancelled by primitive');
+        this._log('a primitive cancelled the send');
         return false;
       }
     }
 
     if (this._state !== 'open' || !this.ws) {
-      if (this._buffer.enqueue(msg, options?.ttl)) {
+      if (this._outgoingFallback?.(msg, options?.ttl)) {
         this._log(`send('${msg.event}') buffered`);
         return true;
       }
@@ -546,13 +547,13 @@ export class SocketImpl {
     return true;
   }
 
-  /** @internal — send a raw message, bypassing onOutgoing hooks (avoids loops). */
+  /** @internal — write a message straight to the wire, skipping outgoing hooks. */
   _rawSend(message: WireMessage): void {
     if (!this.ws || this._state !== 'open') return;
     this.ws.send(this._serialize(message));
   }
 
-  /** @internal — dispatch a parsed message to on() handlers by event name. */
+  /** @internal — call every handler listening for this event. */
   _dispatchMessage(event: string, payload: unknown): void {
     const handlers = this._messageHandlers.get(event);
     if (!handlers) return;

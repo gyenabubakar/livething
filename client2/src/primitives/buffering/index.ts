@@ -1,0 +1,49 @@
+import { MessageBuffer } from '~/primitives/buffering/buffer.ts';
+import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
+
+/** Options for `buffering()`. */
+export interface BufferingOptions {
+  /** Queue sends made while disconnected. Default: `false`. */
+  enabled?: boolean;
+  /** Most messages to hold; the oldest is dropped when full. Default: `50`. */
+  maxSize?: number;
+  /** Time-to-live for queued messages: one number for all, or a per-event map. */
+  ttl?: number | Record<string, number>;
+  /** Ms between each message on flush. `0` sends them all at once. Default: `0`. */
+  flushInterval?: number;
+}
+
+/**
+ * Keeps messages you send while the socket is down and replays them in order
+ * when it reconnects. Opt-in, and it owns the buffer, so the queueing code ships
+ * only when you add it.
+ */
+export function buffering(options: BufferingOptions = {}): Primitive<EmptyTypeFn> {
+  return {
+    _tag: 'buffering',
+    setup(helpers) {
+      const buffer = new MessageBuffer({
+        enabled: options.enabled,
+        maxSize: options.maxSize,
+        ttl: options.ttl,
+        flushInterval: options.flushInterval,
+      });
+
+      // This is what the engine calls when you send while the socket is closed.
+      helpers.registerOutgoingFallback((message, ttl) => buffer.enqueue(message, ttl));
+
+      return {
+        id: 'buffering',
+        onOpen() {
+          buffer.flush((message) => helpers.rawSend(message));
+          return null;
+        },
+        onClose(_code, _reason, intentional) {
+          // A deliberate disconnect throws the queue away; an accidental drop
+          // keeps it so the messages go out on reconnect.
+          if (intentional) buffer.clear();
+        },
+      };
+    },
+  };
+}
