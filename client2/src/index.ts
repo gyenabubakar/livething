@@ -24,6 +24,14 @@ export { debug } from '~/primitives/debug.ts';
 
 export { namespaces } from '~/primitives/namespaces.ts';
 export type { NamespacesOptions } from '~/primitives/namespaces.ts';
+export { channels } from '~/primitives/channels/index.ts';
+export type {
+  ChannelsOptions,
+  ChannelEndpoint,
+  ChannelMember,
+  ScopeHandle,
+  SubscribeSource,
+} from '~/primitives/channels/index.ts';
 export { requestResponse } from '~/primitives/request-response.ts';
 export type { RequestResponseOptions } from '~/primitives/request-response.ts';
 export { ack } from '~/primitives/ack.ts';
