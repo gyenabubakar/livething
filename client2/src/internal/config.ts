@@ -26,8 +26,6 @@ export interface SocketConfig {
 
   /** Set by `quality()`, read by `keepalive()`. */
   qualityThresholds?: QualityThresholds;
-  /** Set by `reconnection()`, read by `platform()` to pause retries while offline. */
-  networkAware?: boolean;
 
   /** Returns query params to add to the URL on every connect/reconnect. */
   searchParams?: () => Record<string, string> | Promise<Record<string, string>>;

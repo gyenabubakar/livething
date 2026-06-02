@@ -1,12 +1,14 @@
-// How namespaces and channels let other primitives add methods to their
-// endpoint objects.
-//
-// A scoped endpoint (what `socket.namespace('x')` or `socket.channel('y')`
-// returns) starts with `on` and `send`. Primitives like requestResponse and ack
-// want to add `request` and `sendWithAck` to it too. They can't know the scope
-// names ahead of time, so instead they register an "augmenter": a function that
-// decorates an endpoint once it's built. The scope tells the augmenter which
-// `__wskit` markers to stamp on outgoing frames (e.g. `{ namespace: 'x' }`).
+/**
+ * How namespaces and channels let other primitives add methods to their
+ * endpoint objects.
+ *
+ * A scoped endpoint (what `socket.namespace('x')` or `socket.channel('y')`
+ * returns) starts with `on` and `send`. Primitives like requestResponse and ack
+ * want to add `request` and `sendWithAck` to it too. They can't know the scope
+ * names ahead of time, so instead they register an "augmenter": a function that
+ * decorates an endpoint once it's built. The scope tells the augmenter which
+ * `__wskit` markers to stamp on outgoing frames (e.g. `{ namespace: 'x' }`).
+ */
 
 import type { WSKitEnvelope } from '~/internal/runtime.ts';
 import type { WSKitSocket } from '~/socket/socket.ts';
@@ -31,6 +33,7 @@ export interface EndpointObject {
 export interface ScopeInfo {
   /** The `__wskit` markers that identify this scope. Never throws. */
   markers(): ScopeMarkers;
+
   /**
    * Throw if the scope can't send yet — a channel guards against sending before
    * it's subscribed. Sending methods (send, request, sendWithAck, stream) call

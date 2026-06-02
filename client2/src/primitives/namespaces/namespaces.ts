@@ -1,18 +1,8 @@
 import { applyAugmenters } from '~/internal/scoped.ts';
 import type { EndpointObject, ScopeMarkers } from '~/internal/scoped.ts';
-import type { Primitive, TypeFn } from '~/primitives/types.ts';
-import type { ScopeContract, ScopedApi } from '~/types.ts';
-
-/** Adds `socket.namespace(name)` typed from the contract's `namespaces`. */
-export interface NamespacesTypeFn extends TypeFn {
-  readonly _api: ScopedApi<this['_contract'], 'namespaces', 'namespace'>;
-}
-
-/** Options for `namespaces()`. */
-export interface NamespacesOptions {
-  /** Buffer TTL for namespace events: one number for all, or a per-event map. */
-  ttl?: number | Record<string, number>;
-}
+import type { NamespacesOptions, NamespacesTypeFn } from '~/primitives/namespaces/types.ts';
+import type { Primitive } from '~/primitives/types.ts';
+import type { ScopeContract } from '~/types.ts';
 
 type Handler = (data: unknown) => void;
 

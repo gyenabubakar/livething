@@ -1,22 +1,9 @@
+import type {
+  ArrayBufferSerialization,
+  BlobSerialization,
+  ParsedFrame,
+} from '~/primitives/serialization/types.ts';
 import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
-
-/** What `parseBinary` returns after decoding a binary frame. */
-export interface ParsedFrame {
-  event: string;
-  payload: unknown;
-}
-
-/** Binary frames delivered as `ArrayBuffer`. */
-export interface ArrayBufferSerialization {
-  binaryType: 'arraybuffer';
-  parseBinary: (data: ArrayBuffer) => ParsedFrame | null;
-}
-
-/** Binary frames delivered as `Blob`. */
-export interface BlobSerialization {
-  binaryType: 'blob';
-  parseBinary: (data: Blob) => ParsedFrame | null;
-}
 
 /**
  * Lets the client handle binary messages (Protocol Buffers, MessagePack, etc.).

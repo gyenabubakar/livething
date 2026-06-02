@@ -1,30 +1,12 @@
-/* oxlint-disable @typescript-eslint/no-explicit-any -- request typing needs `any` to stay generic */
 import { Disconnected, Timeout } from '~/errors.ts';
 import { toWSKitError } from '~/internal/error-frame.ts';
 import { getAugmenters } from '~/internal/scoped.ts';
 import type { ScopeMarkers } from '~/internal/scoped.ts';
-import type { Primitive, TypeFn } from '~/primitives/types.ts';
-
-/** Adds `socket.request(...)` typed from the contract's `requests`. */
-export interface RequestResponseTypeFn extends TypeFn {
-  readonly _api: this['_contract'] extends {
-    requests: infer R extends Record<string, { payload: any; response: any }>;
-  }
-    ? {
-        request<K extends keyof R & string>(
-          event: K,
-          payload: R[K]['payload'],
-          options?: { timeout?: number },
-        ): Promise<R[K]['response']>;
-      }
-    : {};
-}
-
-/** Options for `requestResponse()`. */
-export interface RequestResponseOptions {
-  /** Default wait for a reply, in ms. Override per call. Default: `10_000`. */
-  timeout?: number;
-}
+import type {
+  RequestResponseOptions,
+  RequestResponseTypeFn,
+} from '~/primitives/request-response/types.ts';
+import type { Primitive } from '~/primitives/types.ts';
 
 interface Pending {
   resolve: (value: unknown) => void;

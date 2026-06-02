@@ -39,6 +39,16 @@ export type Apply<F extends TypeFn, Contract> = (F & { readonly _contract: Contr
 export interface Primitive<F extends TypeFn = EmptyTypeFn, TRequires = {}> {
   /** Names the primitive (e.g. `'connect'`, `'channels'`). Used to catch duplicates. */
   readonly _tag: string;
+  /**
+   * Set by `plugin()` — marks this spec as a plugin, not a built-in primitive.
+   * Plugins live in their own identity space (keyed by `key` + `registrationId`)
+   * and always run after every primitive.
+   */
+  readonly _plugin?: {
+    readonly key: symbol;
+    readonly id: string;
+    readonly registrationId?: string;
+  };
   /** Other primitives this one must run after. */
   readonly dependencies?: readonly string[];
   /** Type-only: the API this primitive adds to the socket. */

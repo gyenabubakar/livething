@@ -2,7 +2,7 @@
 // Type-only checks for the primitives. tsc checks these; vitest never runs them.
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
-import { serialization } from '~/primitives/serialization.ts';
+import { serialization } from '~/primitives/serialization/index.ts';
 import type { WSKitError } from '@wskit/core';
 
 interface C {

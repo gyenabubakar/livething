@@ -1,9 +1,9 @@
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
-import { ack } from '~/primitives/ack.ts';
+import { ack } from '~/primitives/ack/index.ts';
 import { channels } from '~/primitives/channels/index.ts';
-import { reconnection } from '~/primitives/reconnection.ts';
-import { requestResponse } from '~/primitives/request-response.ts';
+import { reconnection } from '~/primitives/reconnection/index.ts';
+import { requestResponse } from '~/primitives/request-response/index.ts';
 import { stream } from '~/primitives/stream/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';

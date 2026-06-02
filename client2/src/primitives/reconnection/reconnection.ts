@@ -1,21 +1,5 @@
+import type { ReconnectionOptions } from '~/primitives/reconnection/types.ts';
 import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
-
-/** Options for `reconnection()`. */
-export interface ReconnectionOptions {
-  /** How many times to retry before giving up. Use `Infinity` for no limit. Default: `10`. */
-  maxAttempts?: number;
-  /** Longest wait between attempts, in ms. Default: `30_000`. */
-  maxDelay?: number;
-  /**
-   * Decide whether to retry after a close. Return `true`/`false` to settle it,
-   * or `undefined` to fall through to `nonRetryableCodes` and the default.
-   */
-  shouldReconnect?: (code: number, reason: string) => boolean | void;
-  /** Close codes that should never trigger a retry (e.g. "banned"). */
-  nonRetryableCodes?: number[];
-  /** Pause retries while the device is offline (needs a platform adapter). Default: `true`. */
-  networkAware?: boolean;
-}
 
 /**
  * Adds automatic reconnection. Without it, a dropped socket simply stays closed —
@@ -26,16 +10,16 @@ export function reconnection(options: ReconnectionOptions = {}): Primitive<Empty
   const maxAttempts = options.maxAttempts ?? 10;
   const maxDelay = options.maxDelay ?? 30_000;
   const nonRetryable = new Set(options.nonRetryableCodes ?? []);
+  const networkAware = options.networkAware ?? true;
 
   return {
     _tag: 'reconnection',
-    applyConfig(config) {
-      // platform() reads this to pause retries while offline (wired up later).
-      config.networkAware = options.networkAware ?? true;
-    },
     setup(helpers) {
       let attempt = 0;
       let timer: ReturnType<typeof setTimeout> | null = null;
+      // Tracks the device's reachability when a platform adapter reports it.
+      // Stays `true` (timer-only) when nothing supplies an `online` signal.
+      let online = true;
 
       function clearTimer(): void {
         if (timer !== null) {
@@ -49,30 +33,70 @@ export function reconnection(options: ReconnectionOptions = {}): Primitive<Empty
       function decide(code: number, reason: string): boolean {
         const fromHooks = helpers.runShouldReconnect(code, reason);
         if (fromHooks === true || fromHooks === false) return fromHooks;
+
         const fromCallback = options.shouldReconnect?.(code, reason);
         if (fromCallback === true || fromCallback === false) return fromCallback;
+
         if (nonRetryable.has(code)) return false;
+
         return true;
       }
 
-      helpers.onUnexpectedClose((code, reason) => {
-        if (!decide(code, reason)) {
-          helpers.giveUp();
-          return;
-        }
+      function scheduleRetry(): void {
         if (attempt >= maxAttempts) {
+          helpers.log.info(`reconnection exhausted after ${maxAttempts} attempts`);
           helpers.failReconnect();
           return;
         }
+
         const delay = backoffDelay(attempt, maxDelay);
         attempt++;
+
+        helpers.log.info(`reconnecting — attempt ${attempt} in ${Math.round(delay)}ms`);
         helpers.enterReconnecting();
         clearTimer();
+
         timer = setTimeout(() => {
           timer = null;
           helpers.reopen();
         }, delay);
+      }
+
+      helpers.onUnexpectedClose((code, reason) => {
+        if (!decide(code, reason)) {
+          helpers.log.info(`reconnection suppressed for close code ${code}`);
+          helpers.giveUp();
+          return;
+        }
+        // Offline: don't waste attempts on a doomed retry. Sit in `reconnecting`
+        // and let the `online` signal kick off a fresh attempt when it returns.
+        if (networkAware && !online) {
+          helpers.log.info('offline — pausing reconnection until the network returns');
+          helpers.enterReconnecting();
+          return;
+        }
+        scheduleRetry();
       });
+
+      // Pause/resume around the device's network, when a platform adapter feeds
+      // us the signal. With no adapter this never fires and we stay timer-only.
+      if (networkAware) {
+        helpers.onSignal('online', (value) => {
+          online = value;
+          if (!value) {
+            clearTimer();
+            return;
+          }
+
+          // Back online — reset the backoff and retry now if we were waiting.
+          if (helpers.getState() === 'reconnecting') {
+            helpers.log.info('back online — resuming reconnection');
+            attempt = 0;
+            clearTimer();
+            helpers.reopen();
+          }
+        });
+      }
 
       return {
         id: 'reconnection',

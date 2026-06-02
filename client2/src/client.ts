@@ -39,10 +39,18 @@ export function client<TContract extends SocketContract = SocketContract>() {
 
 /** The actual assembly, with the types erased. */
 function buildSocket(connectCap: ConnectDescriptor, primitives: readonly Primitive[]): WSKitSocket {
-  const specs = [connectCap, ...primitives];
-  assertNoDuplicateTags(specs);
-  assertDependenciesPresent(specs);
-  const sorted = topoSort(specs);
+  // Plugins live in their own identity space and always run after primitives.
+  const pluginSpecs = primitives.filter((spec) => spec._plugin !== undefined);
+  const primitiveSpecs = [connectCap, ...primitives.filter((spec) => spec._plugin === undefined)];
+
+  assertNoDuplicateTags(primitiveSpecs);
+  assertUniquePluginIdentity(pluginSpecs);
+  assertDependenciesPresent([...primitiveSpecs, ...pluginSpecs]);
+
+  // Primitives run first, in dependency order; plugins run after, in
+  // registration order. The kernel iterates this one list for every hook, so
+  // "primitives before plugins" holds for onOpen/onIncoming/onOutgoing/onClose.
+  const sorted = [...topoSort(primitiveSpecs), ...pluginSpecs];
 
   // Each primitive copies its settings into one shared config object.
   const config = {} as SocketConfig;
@@ -79,6 +87,47 @@ function assertNoDuplicateTags(specs: readonly Primitive[]): void {
       );
     }
     seen.add(spec._tag);
+  }
+}
+
+/**
+ * Plugins are de-duplicated by identity — `key` plus optional `registrationId` —
+ * not by their human `id`. Registering the same singleton twice (or two
+ * instances with the same `registrationId`) throws. Two *different* plugins that
+ * happen to share an `id` only warn, since the `id` is just a log label.
+ */
+function assertUniquePluginIdentity(pluginSpecs: readonly Primitive[]): void {
+  const registrationsByKey = new Map<symbol, Set<string | undefined>>();
+  const keysById = new Map<string, Set<symbol>>();
+
+  for (const spec of pluginSpecs) {
+    const { key, id, registrationId } = spec._plugin!;
+
+    let registrations = registrationsByKey.get(key);
+    if (!registrations) {
+      registrations = new Set();
+      registrationsByKey.set(key, registrations);
+    }
+    if (registrations.has(registrationId)) {
+      throw new WSKitConfigError(
+        registrationId === undefined
+          ? `[wskit] plugin '${id}' is registered more than once. Add a registrationId to allow multiple instances.`
+          : `[wskit] plugin '${id}' is registered twice with the same registrationId '${registrationId}'.`,
+      );
+    }
+    registrations.add(registrationId);
+
+    let keys = keysById.get(id);
+    if (!keys) {
+      keys = new Set();
+      keysById.set(id, keys);
+    }
+    keys.add(key);
+    if (keys.size === 2) {
+      console.warn(
+        `[wskit] two different plugins share the id '${id}'. Ids show up in logs — consider a unique colon-form id.`,
+      );
+    }
   }
 }
 

@@ -17,7 +17,7 @@ export function dedup(options: DedupOptions = {}): Primitive<EmptyTypeFn> {
 
   return {
     _tag: 'dedup',
-    setup() {
+    setup(helpers) {
       const seen = new Map<string, number>();
 
       return {
@@ -34,7 +34,10 @@ export function dedup(options: DedupOptions = {}): Primitive<EmptyTypeFn> {
             seen.delete(key);
           }
 
-          if (seen.has(id)) return null;
+          if (seen.has(id)) {
+            helpers.log.info(`dropped duplicate '${message.event}' (messageId ${id})`);
+            return null;
+          }
           seen.set(id, now);
           return message;
         },

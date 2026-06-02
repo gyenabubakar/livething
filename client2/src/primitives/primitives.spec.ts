@@ -7,8 +7,8 @@ import { intercept } from '~/primitives/intercept.ts';
 import { keepalive } from '~/primitives/keepalive/index.ts';
 import { quality } from '~/primitives/quality.ts';
 import { query } from '~/primitives/query.ts';
-import { reconnection } from '~/primitives/reconnection.ts';
-import { serialization } from '~/primitives/serialization.ts';
+import { reconnection } from '~/primitives/reconnection/index.ts';
+import { serialization } from '~/primitives/serialization/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 

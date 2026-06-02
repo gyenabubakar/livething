@@ -1,4 +1,4 @@
-import { Block } from '@wskit/core';
+import { Block, WSKitConfigError } from '@wskit/core';
 import { toWSKitError } from '~/internal/error-frame.ts';
 import { Emitter } from '~/socket/emitter.ts';
 import type { WSKitError } from '@wskit/core';
@@ -99,7 +99,17 @@ export class WSKitSocket {
   private _unexpectedCloseHandler: ((code: number, reason: string) => void) | null = null;
   private _pongHandlers: (() => void)[] = [];
   private _outgoingFallback: ((message: WireMessage, ttl?: number) => boolean) | null = null;
+  private _signalHandlers = new Map<string, Set<(value: boolean) => void>>();
   private _idCounter = 0;
+  /**
+   * @internal — plugin APIs, built lazily on first `Plugin.use(socket)`. Keyed
+   * by the plugin's `key`, then by `registrationId` (or `undefined` for a
+   * singleton), so a repeatable plugin can hold several instances at once.
+   */
+  private _plugins = new Map<
+    symbol,
+    Map<string | undefined, { build: (socket: WSKitSocket) => unknown; api?: unknown }>
+  >();
 
   private readonly _parse: (raw: string) => WireMessage | null;
   private readonly _parseBinary: ((data: unknown) => WireMessage | null) | null;
@@ -122,6 +132,34 @@ export class WSKitSocket {
     this._primitives = primitives;
   }
 
+  /** @internal — record how to build a plugin's API; the api is built on first use. */
+  _registerPlugin(
+    key: symbol,
+    registrationId: string | undefined,
+    build: (socket: WSKitSocket) => unknown,
+  ): void {
+    let byRegistration = this._plugins.get(key);
+    if (!byRegistration) {
+      byRegistration = new Map();
+      this._plugins.set(key, byRegistration);
+    }
+    byRegistration.set(registrationId, { build });
+  }
+
+  /** @internal — get a plugin's API for this socket, building and caching it once. */
+  _usePlugin(key: symbol, registrationId: string | undefined): unknown {
+    const entry = this._plugins.get(key)?.get(registrationId);
+    if (!entry) {
+      throw new WSKitConfigError(
+        registrationId === undefined
+          ? '[wskit] this plugin is not registered on this socket. Pass it to client().'
+          : `[wskit] no plugin instance with registrationId '${registrationId}' is registered on this socket.`,
+      );
+    }
+    if (!('api' in entry)) entry.api = entry.build(this);
+    return entry.api;
+  }
+
   /** Open the connection. Calling it again while open or connecting does nothing. */
   connect(): void {
     if (this._state === 'open' || this._state === 'connecting') return;
@@ -138,7 +176,6 @@ export class WSKitSocket {
     this._intentionalClose = true;
     this._connectAttemptId++;
     this._clearLazyIdleTimer();
-    this._lazyConsumers = 0;
 
     if (this.ws) {
       this.ws.onopen = null;
@@ -151,11 +188,18 @@ export class WSKitSocket {
     this.protocol = null;
     this._quality = 'disconnected';
 
+    // Primitives reject their pending work here, and each pending op releases
+    // its own lazy hold. We do NOT zero `_lazyConsumers`: `on()` handlers stay
+    // registered across a disconnect, so they remain real consumers — wiping the
+    // count would make a later unsubscribe wrongly idle-close a socket that still
+    // has live listeners (e.g. after a background-disconnect/reconnect).
     for (const primitive of this._primitives) {
       primitive.onClose?.(code, reason, true);
     }
 
     this._setState('closed');
+    // Clear again in case a pending-op release above started an idle timer.
+    this._clearLazyIdleTimer();
     this._emitter.emit('close', { code, reason, wasClean: true });
   }
 
@@ -244,38 +288,84 @@ export class WSKitSocket {
   _helpers(): PrimitiveHelpers {
     return {
       config: this._config,
+
+      log: {
+        info: (...args) => this._logAt('log', ...args),
+        warn: (...args) => this._logAt('warn', ...args),
+        error: (...args) => this._logAt('error', ...args),
+      },
+
       rawSend: (message) => this._rawSend(message),
+
       send: (message, options) => this._send(message, options),
+
       generateId: (prefix) => {
         const id = ++this._idCounter;
         return prefix ? `${prefix}-${id}` : `${id}`;
       },
+
       getState: () => this._state,
+
       ensureConnected: () => this._ensureConnected(),
+
       lazyAcquire: () => this._lazyAcquire(),
+
       lazyRelease: () => this._lazyRelease(),
+
       reopen: () => this._openConnection(),
+
       enterReconnecting: () => this._setState('reconnecting'),
+
       giveUp: () => this._setState('closed'),
+
       failReconnect: () => {
         this._setState('closed');
         this._emitter.emit('reconnectFailed');
       },
+
       forceClose: (code, reason) => this.ws?.close(code, reason),
+
       onUnexpectedClose: (handler) => {
         this._unexpectedCloseHandler = handler;
       },
+
       runShouldReconnect: (code, reason) => this._runShouldReconnect(code, reason),
+
       onPong: (handler) => this._pongHandlers.push(handler),
+
       reportQuality: (quality, latency) => {
         this._latency = latency;
         if (this._quality === quality) return;
         this._quality = quality;
         this._emitter.emit('qualityChange', quality, latency);
       },
+
       registerOutgoingFallback: (handler) => {
         this._outgoingFallback = handler;
       },
+
+      emitSignal: (name, value) => {
+        const set = this._signalHandlers.get(name);
+        if (set) for (const handler of [...set]) handler(value);
+      },
+
+      onSignal: (name, handler) => {
+        let set = this._signalHandlers.get(name);
+        if (!set) {
+          set = new Set();
+          this._signalHandlers.set(name, set);
+        }
+
+        set.add(handler);
+
+        return () => {
+          set.delete(handler);
+        };
+      },
+
+      disconnect: (code, reason) => this.disconnect(code, reason),
+
+      connect: () => this.connect(),
     };
   }
 
@@ -325,6 +415,7 @@ export class WSKitSocket {
           ws.close();
           return;
         }
+
         this.ws = ws;
         this.protocol = ws.protocol || null;
         this._quality = 'excellent';
@@ -339,6 +430,7 @@ export class WSKitSocket {
           const messages = primitive.onOpen?.();
           if (messages) for (const msg of messages) this._rawSend(msg);
         }
+
         if (isReconnect) {
           for (const primitive of this._primitives) {
             const messages = primitive.onReconnect?.();
@@ -388,7 +480,9 @@ export class WSKitSocket {
       ws.onmessage = (event) => this._handleMessage(event);
     } catch (error) {
       if (attemptId !== this._connectAttemptId) return;
+
       this._log('connection failed', error);
+
       if (this._unexpectedCloseHandler) {
         this._unexpectedCloseHandler(1006, 'connection failed');
       } else {
@@ -430,6 +524,16 @@ export class WSKitSocket {
       return;
     }
 
+    this._processIncoming(parsed);
+  }
+
+  /**
+   * @internal — the pipeline a parsed message runs through: primitive
+   * `onIncoming` hooks, then the error-frame check, then your intercepts, then
+   * top-level dispatch. Split out from `_handleMessage` so testing's `inject()`
+   * can push a message through the exact same path without a live socket.
+   */
+  _processIncoming(parsed: WireMessage): void {
     // Let primitives see it first; any of them can swallow it by returning null.
     let message: WireMessage = parsed;
     for (const primitive of this._primitives) {
@@ -565,7 +669,12 @@ export class WSKitSocket {
   }
 
   private _log(...args: unknown[]): void {
+    this._logAt('log', ...args);
+  }
+
+  /** @internal — the one place the debug gate and `[wskit]` prefix live. */
+  private _logAt(level: 'log' | 'warn' | 'error', ...args: unknown[]): void {
     if (!this._debug) return;
-    console.log('[wskit]', ...args);
+    console[level]('[wskit]', ...args);
   }
 }

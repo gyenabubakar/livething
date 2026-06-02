@@ -30,6 +30,7 @@ export function keepalive(options: KeepaliveOptions = {}): Primitive<EmptyTypeFn
           sendPing: () => helpers.rawSend({ event: 'ping', payload: {} }),
           forceClose: () => helpers.forceClose(CloseCodes.IDLE, 'missed pong'),
           onQualityChange: (quality, latency) => helpers.reportQuality(quality, latency),
+          log: (message) => helpers.log.info(message),
         },
       );
 

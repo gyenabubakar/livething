@@ -1,9 +1,19 @@
 import { resolve } from 'path';
 import dts from 'vite-plugin-dts';
 import { defineConfig } from 'vitest/config';
+import { relativizeTildeImports } from '../scripts/vite-dts.ts';
 
 export default defineConfig({
-  plugins: [dts({ rollupTypes: true })],
+  // Per-file declarations (not rollupTypes): api-extractor only rolls a single
+  // entry, leaving the other subpaths' .d.ts empty. Emitting per file gives every
+  // subpath (errors, adapters, platform, testing) real types. `rootDir: src` in
+  // tsconfig lands them at dist root, mirroring the JS entries.
+  plugins: [
+    dts({
+      exclude: ['**/*.spec.ts', '**/*.test.ts', 'src/test-helpers.ts'],
+      beforeWriteFile: relativizeTildeImports(resolve(__dirname, 'dist')),
+    }),
+  ],
   resolve: {
     alias: {
       '~': resolve(__dirname, 'src'),
@@ -13,6 +23,10 @@ export default defineConfig({
     lib: {
       entry: {
         index: resolve(__dirname, 'src/index.ts'),
+        errors: resolve(__dirname, 'src/errors.ts'),
+        adapters: resolve(__dirname, 'src/adapters.ts'),
+        platform: resolve(__dirname, 'src/platform.ts'),
+        testing: resolve(__dirname, 'src/testing.ts'),
       },
       formats: ['es'],
     },

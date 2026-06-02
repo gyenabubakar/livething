@@ -30,11 +30,16 @@ export function buffering(options: BufferingOptions = {}): Primitive<EmptyTypeFn
       });
 
       // This is what the engine calls when you send while the socket is closed.
-      helpers.registerOutgoingFallback((message, ttl) => buffer.enqueue(message, ttl));
+      helpers.registerOutgoingFallback((message, ttl) => {
+        const buffered = buffer.enqueue(message, ttl);
+        if (buffered) helpers.log.info(`buffered '${message.event}' while offline`);
+        return buffered;
+      });
 
       return {
         id: 'buffering',
         onOpen() {
+          helpers.log.info('flushing buffered messages');
           buffer.flush((message) => helpers.rawSend(message));
           return null;
         },
