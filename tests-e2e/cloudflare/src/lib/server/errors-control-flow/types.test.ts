@@ -111,11 +111,11 @@ describe('ErrorsControlFlowClient — streams', () => {
   });
 });
 
-describe('ErrorsControlFlowClient — stream resumable flags', () => {
-  it('start-defer-stream is not resumable', () => {
+describe('ErrorsControlFlowClient — stream kind', () => {
+  it('start-defer-stream is ephemeral', () => {
     expectTypeOf<
-      ErrorsControlFlowClient['streams']['start-defer-stream']['resumable']
-    >().toEqualTypeOf<false>();
+      ErrorsControlFlowClient['streams']['start-defer-stream']['kind']
+    >().toEqualTypeOf<'ephemeral'>();
   });
 });
 

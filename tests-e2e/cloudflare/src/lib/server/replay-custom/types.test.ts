@@ -126,11 +126,11 @@ describe('ReplayCustomClient — channels', () => {
   });
 });
 
-describe('ReplayCustomClient — stream resumable flags', () => {
-  it('room-stream is not resumable', () => {
+describe('ReplayCustomClient — stream kind', () => {
+  it('room-stream is ephemeral', () => {
     expectTypeOf<
-      ReplayCustomClient['channels']['custom-room']['streams']['room-stream']['resumable']
-    >().toEqualTypeOf<false>();
+      ReplayCustomClient['channels']['custom-room']['streams']['room-stream']['kind']
+    >().toEqualTypeOf<'ephemeral'>();
   });
 });
 

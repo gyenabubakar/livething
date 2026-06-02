@@ -81,18 +81,20 @@ describe('StreamDurableClient — streams', () => {
   });
 });
 
-describe('StreamDurableClient — stream resumable flags', () => {
-  it('all streams are resumable', () => {
+describe('StreamDurableClient — stream kind', () => {
+  it('all streams are persistent', () => {
     expectTypeOf<
-      StreamDurableClient['streams']['attempt-stream']['resumable']
-    >().toEqualTypeOf<true>();
-    expectTypeOf<StreamDurableClient['streams']['paginate']['resumable']>().toEqualTypeOf<true>();
+      StreamDurableClient['streams']['attempt-stream']['kind']
+    >().toEqualTypeOf<'persistent'>();
     expectTypeOf<
-      StreamDurableClient['streams']['buffer-full-demo']['resumable']
-    >().toEqualTypeOf<true>();
+      StreamDurableClient['streams']['paginate']['kind']
+    >().toEqualTypeOf<'persistent'>();
     expectTypeOf<
-      StreamDurableClient['streams']['count-tokens']['resumable']
-    >().toEqualTypeOf<true>();
+      StreamDurableClient['streams']['buffer-full-demo']['kind']
+    >().toEqualTypeOf<'persistent'>();
+    expectTypeOf<
+      StreamDurableClient['streams']['count-tokens']['kind']
+    >().toEqualTypeOf<'persistent'>();
   });
 });
 

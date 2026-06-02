@@ -98,22 +98,24 @@ describe('StreamBasicClient — streams', () => {
   });
 });
 
-describe('StreamBasicClient — stream resumable flags', () => {
-  it('all streams are not resumable', () => {
-    expectTypeOf<StreamBasicClient['streams']['start-boom']['resumable']>().toEqualTypeOf<false>();
+describe('StreamBasicClient — stream kind', () => {
+  it('all streams are ephemeral', () => {
+    expectTypeOf<StreamBasicClient['streams']['start-boom']['kind']>().toEqualTypeOf<'ephemeral'>();
     expectTypeOf<
-      StreamBasicClient['streams']['start-boom-immediate']['resumable']
-    >().toEqualTypeOf<false>();
+      StreamBasicClient['streams']['start-boom-immediate']['kind']
+    >().toEqualTypeOf<'ephemeral'>();
     expectTypeOf<
-      StreamBasicClient['streams']['start-cancel-observe']['resumable']
-    >().toEqualTypeOf<false>();
-    expectTypeOf<StreamBasicClient['streams']['start-empty']['resumable']>().toEqualTypeOf<false>();
+      StreamBasicClient['streams']['start-cancel-observe']['kind']
+    >().toEqualTypeOf<'ephemeral'>();
     expectTypeOf<
-      StreamBasicClient['streams']['start-tokens']['resumable']
-    >().toEqualTypeOf<false>();
+      StreamBasicClient['streams']['start-empty']['kind']
+    >().toEqualTypeOf<'ephemeral'>();
     expectTypeOf<
-      StreamBasicClient['streams']['start-typed-error']['resumable']
-    >().toEqualTypeOf<false>();
+      StreamBasicClient['streams']['start-tokens']['kind']
+    >().toEqualTypeOf<'ephemeral'>();
+    expectTypeOf<
+      StreamBasicClient['streams']['start-typed-error']['kind']
+    >().toEqualTypeOf<'ephemeral'>();
   });
 });
 

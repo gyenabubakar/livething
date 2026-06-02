@@ -120,20 +120,20 @@ describe('StreamDurableBroadcastClient — namespaces', () => {
   });
 });
 
-describe('StreamDurableBroadcastClient — stream resumable flags', () => {
-  it('all streams are resumable', () => {
+describe('StreamDurableBroadcastClient — stream kind', () => {
+  it('all streams are persistent', () => {
     expectTypeOf<
-      StreamDurableBroadcastClient['channels']['rooms']['streams']['attempt-broadcast']['resumable']
-    >().toEqualTypeOf<true>();
+      StreamDurableBroadcastClient['channels']['rooms']['streams']['attempt-broadcast']['kind']
+    >().toEqualTypeOf<'persistent'>();
     expectTypeOf<
-      StreamDurableBroadcastClient['channels']['rooms']['streams']['paginate']['resumable']
-    >().toEqualTypeOf<true>();
+      StreamDurableBroadcastClient['channels']['rooms']['streams']['paginate']['kind']
+    >().toEqualTypeOf<'persistent'>();
     expectTypeOf<
-      StreamDurableBroadcastClient['channels']['rooms']['streams']['feed']['resumable']
-    >().toEqualTypeOf<true>();
+      StreamDurableBroadcastClient['channels']['rooms']['streams']['feed']['kind']
+    >().toEqualTypeOf<'persistent'>();
     expectTypeOf<
-      StreamDurableBroadcastClient['namespaces']['v1']['streams']['news']['resumable']
-    >().toEqualTypeOf<true>();
+      StreamDurableBroadcastClient['namespaces']['v1']['streams']['news']['kind']
+    >().toEqualTypeOf<'persistent'>();
   });
 });
 

@@ -105,11 +105,11 @@ describe('NamespaceClient — namespaces', () => {
   });
 });
 
-describe('NamespaceClient — stream resumable flags', () => {
-  it('start-ns-stream is not resumable', () => {
+describe('NamespaceClient — stream kind', () => {
+  it('start-ns-stream is ephemeral', () => {
     expectTypeOf<
-      NamespaceClient['namespaces']['ns']['streams']['start-ns-stream']['resumable']
-    >().toEqualTypeOf<false>();
+      NamespaceClient['namespaces']['ns']['streams']['start-ns-stream']['kind']
+    >().toEqualTypeOf<'ephemeral'>();
   });
 });
 

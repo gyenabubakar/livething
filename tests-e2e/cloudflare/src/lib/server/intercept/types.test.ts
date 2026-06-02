@@ -88,11 +88,11 @@ describe('InterceptClient — namespaces', () => {
   });
 });
 
-describe('InterceptClient — stream resumable flags', () => {
-  it('intercepted-stream is not resumable', () => {
+describe('InterceptClient — stream kind', () => {
+  it('intercepted-stream is ephemeral', () => {
     expectTypeOf<
-      InterceptClient['namespaces']['ns']['streams']['intercepted-stream']['resumable']
-    >().toEqualTypeOf<false>();
+      InterceptClient['namespaces']['ns']['streams']['intercepted-stream']['kind']
+    >().toEqualTypeOf<'ephemeral'>();
   });
 });
 
@@ -146,8 +146,8 @@ describe('InterceptClient — nudge-stream', () => {
     }>();
   });
 
-  it('nudge-stream is not resumable', () => {
-    expectTypeOf<InterceptClient['streams']['nudge-stream']['resumable']>().toEqualTypeOf<false>();
+  it('nudge-stream is ephemeral', () => {
+    expectTypeOf<InterceptClient['streams']['nudge-stream']['kind']>().toEqualTypeOf<'ephemeral'>();
   });
 });
 

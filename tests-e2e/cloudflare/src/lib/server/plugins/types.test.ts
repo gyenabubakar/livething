@@ -128,17 +128,17 @@ describe('PluginsClient — streams', () => {
   });
 });
 
-describe('PluginsClient — stream resumable flags', () => {
-  it('stream-connection-id is not resumable', () => {
+describe('PluginsClient — stream kind', () => {
+  it('stream-connection-id is ephemeral', () => {
     expectTypeOf<
-      PluginsClient['streams']['stream-connection-id']['resumable']
-    >().toEqualTypeOf<false>();
+      PluginsClient['streams']['stream-connection-id']['kind']
+    >().toEqualTypeOf<'ephemeral'>();
   });
 
-  it('stream-throw-on-cancel is not resumable', () => {
+  it('stream-throw-on-cancel is ephemeral', () => {
     expectTypeOf<
-      PluginsClient['streams']['stream-throw-on-cancel']['resumable']
-    >().toEqualTypeOf<false>();
+      PluginsClient['streams']['stream-throw-on-cancel']['kind']
+    >().toEqualTypeOf<'ephemeral'>();
   });
 });
 

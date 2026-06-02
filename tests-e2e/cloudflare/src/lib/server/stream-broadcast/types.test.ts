@@ -96,17 +96,17 @@ describe('StreamBroadcastClient — channels', () => {
   });
 });
 
-describe('StreamBroadcastClient — stream resumable flags', () => {
-  it('all streams are not resumable', () => {
+describe('StreamBroadcastClient — stream kind', () => {
+  it('all streams are ephemeral', () => {
     expectTypeOf<
-      StreamBroadcastClient['streams']['start-broadcast']['resumable']
-    >().toEqualTypeOf<false>();
+      StreamBroadcastClient['streams']['start-broadcast']['kind']
+    >().toEqualTypeOf<'ephemeral'>();
     expectTypeOf<
-      StreamBroadcastClient['channels']['rooms']['streams']['start-room-broadcast']['resumable']
-    >().toEqualTypeOf<false>();
+      StreamBroadcastClient['channels']['rooms']['streams']['start-room-broadcast']['kind']
+    >().toEqualTypeOf<'ephemeral'>();
     expectTypeOf<
-      StreamBroadcastClient['channels']['rooms']['streams']['start-room-stream']['resumable']
-    >().toEqualTypeOf<false>();
+      StreamBroadcastClient['channels']['rooms']['streams']['start-room-stream']['kind']
+    >().toEqualTypeOf<'ephemeral'>();
   });
 });
 

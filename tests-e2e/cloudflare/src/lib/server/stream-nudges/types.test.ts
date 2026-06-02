@@ -83,11 +83,11 @@ describe('StreamNudgesClient — streams', () => {
   });
 });
 
-describe('StreamNudgesClient — stream resumable flags', () => {
-  it('start-nudge-stream is not resumable', () => {
+describe('StreamNudgesClient — stream kind', () => {
+  it('start-nudge-stream is ephemeral', () => {
     expectTypeOf<
-      StreamNudgesClient['streams']['start-nudge-stream']['resumable']
-    >().toEqualTypeOf<false>();
+      StreamNudgesClient['streams']['start-nudge-stream']['kind']
+    >().toEqualTypeOf<'ephemeral'>();
   });
 });
 

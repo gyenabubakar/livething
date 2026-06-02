@@ -137,11 +137,11 @@ describe('ChannelStaticClient — empty slots', () => {
   });
 });
 
-describe('ChannelStaticClient — stream resumable flags', () => {
-  it('start-channel-stream is not resumable', () => {
+describe('ChannelStaticClient — stream kind', () => {
+  it('start-channel-stream is ephemeral', () => {
     expectTypeOf<
-      ChannelStaticClient['channels']['room']['streams']['start-channel-stream']['resumable']
-    >().toEqualTypeOf<false>();
+      ChannelStaticClient['channels']['room']['streams']['start-channel-stream']['kind']
+    >().toEqualTypeOf<'ephemeral'>();
   });
 });
 

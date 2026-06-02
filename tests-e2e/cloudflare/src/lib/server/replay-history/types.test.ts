@@ -109,11 +109,11 @@ describe('ReplayClient — streams', () => {
   });
 });
 
-describe('ReplayClient — stream resumable flags', () => {
-  it('start-tiny-stream is not resumable', () => {
+describe('ReplayClient — stream kind', () => {
+  it('start-tiny-stream is ephemeral', () => {
     expectTypeOf<
-      ReplayClient['streams']['start-tiny-stream']['resumable']
-    >().toEqualTypeOf<false>();
+      ReplayClient['streams']['start-tiny-stream']['kind']
+    >().toEqualTypeOf<'ephemeral'>();
   });
 });
 

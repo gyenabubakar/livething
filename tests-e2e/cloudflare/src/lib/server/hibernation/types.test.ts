@@ -108,11 +108,11 @@ describe('HibernationClient — streams', () => {
   });
 });
 
-describe('HibernationClient — stream resumable flags', () => {
-  it('start-slow-stream is not resumable', () => {
+describe('HibernationClient — stream kind', () => {
+  it('start-slow-stream is ephemeral', () => {
     expectTypeOf<
-      HibernationClient['streams']['start-slow-stream']['resumable']
-    >().toEqualTypeOf<false>();
+      HibernationClient['streams']['start-slow-stream']['kind']
+    >().toEqualTypeOf<'ephemeral'>();
   });
 });
 

@@ -180,19 +180,21 @@ describe('GroupFullSurfaceClient — streams', () => {
   });
 });
 
-describe('GroupFullSurfaceClient — stream resumable flags', () => {
-  it('feed is not resumable', () => {
-    expectTypeOf<GroupFullSurfaceClient['streams']['feed']['resumable']>().toEqualTypeOf<false>();
+describe('GroupFullSurfaceClient — stream kind', () => {
+  it('feed is ephemeral', () => {
+    expectTypeOf<GroupFullSurfaceClient['streams']['feed']['kind']>().toEqualTypeOf<'ephemeral'>();
   });
 
-  it('paginate is resumable', () => {
+  it('paginate is persistent', () => {
     expectTypeOf<
-      GroupFullSurfaceClient['streams']['paginate']['resumable']
-    >().toEqualTypeOf<true>();
+      GroupFullSurfaceClient['streams']['paginate']['kind']
+    >().toEqualTypeOf<'persistent'>();
   });
 
-  it('tokens is resumable', () => {
-    expectTypeOf<GroupFullSurfaceClient['streams']['tokens']['resumable']>().toEqualTypeOf<true>();
+  it('tokens is persistent', () => {
+    expectTypeOf<
+      GroupFullSurfaceClient['streams']['tokens']['kind']
+    >().toEqualTypeOf<'persistent'>();
   });
 });
 
