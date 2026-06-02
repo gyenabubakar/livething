@@ -12,6 +12,7 @@ import {
   installCtxNudges,
   resolveBroadcastTargets,
 } from '~/_engine/stream-common/active-stream.ts';
+import { normalizeRuntimeError } from '~/errors/runtime.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type {
@@ -39,6 +40,8 @@ export interface DurableStreamRuntime {
 
   errorHooks: readonly ((ctx: unknown, error: unknown, event?: string) => void | Promise<void>)[];
 
+  declaredErrorCodes: ReadonlySet<string>;
+
   buildConnectionContext(
     connection: RuntimeConnection,
     scope?: ResolvedScope,
@@ -53,16 +56,6 @@ export interface DurableStreamRuntime {
     connection: RuntimeConnection,
     opts: { routing: RoutingTarget | undefined; event: string; payload: unknown },
   ): boolean;
-
-  broadcastToConnections(
-    connections: readonly RuntimeConnection[],
-    opts: {
-      event: string;
-      payload: unknown;
-      options?: { namespace?: string; channel?: string; channelScope?: string | null };
-      excludeConnectionId?: string;
-    },
-  ): void;
 
   asyncContext: EngineAsyncContext;
 
@@ -113,8 +106,8 @@ export interface DurableStreamRuntimeDef {
 }
 
 /** Build the `__wskit` routing block for a durable-stream frame from a live scope. */
-function buildScopeRouting(scope: ResolvedScope): Record<string, unknown> {
-  const wskit: Record<string, unknown> = {};
+function buildScopeRouting(scope: ResolvedScope): Partial<Protocol.WSKitProtocol> {
+  const wskit: Partial<Protocol.WSKitProtocol> = {};
   if (scope.namespace?.name) wskit.namespace = scope.namespace.name;
   if (scope.channelName) wskit.channel = scope.channelName;
   if (scope.channelScope) wskit.channelScope = scope.channelScope;
@@ -122,8 +115,8 @@ function buildScopeRouting(scope: ResolvedScope): Record<string, unknown> {
 }
 
 /** Build the `__wskit` routing block from a stored stream row. */
-function buildRowRouting(row: Storage.DurableStreamRow): Record<string, unknown> {
-  const wskit: Record<string, unknown> = {};
+function buildRowRouting(row: Storage.DurableStreamRow): Partial<Protocol.WSKitProtocol> {
+  const wskit: Partial<Protocol.WSKitProtocol> = {};
 
   if (row.namespace) wskit.namespace = row.namespace;
   if (row.channelKey) wskit.channel = row.channelKey;
@@ -166,7 +159,9 @@ function sendChunkFrames(connection: RuntimeConnection, opts: SendChunkFramesOpt
   const eventJson = JSON.stringify(eventName);
   // Serialize the constant part of __wskit (scope fields + streamId), strip the
   // closing "}" so we can append ,"seq":N} per chunk without a full re-serialize.
-  const wskitPrefix = JSON.stringify({ ...scopeMarkers, streamId }).slice(0, -1) + ',"seq":';
+  const wskitPrefix =
+    JSON.stringify({ ...scopeMarkers, streamId, streamKind: 'persistent' }).slice(0, -1) +
+    ',"seq":';
 
   for (const chunk of chunks) {
     const wire =
@@ -181,7 +176,7 @@ function sendChunkFrames(connection: RuntimeConnection, opts: SendChunkFramesOpt
 /** Read a client-supplied `streamId` from the trigger frame's `__wskit`. */
 function readSuppliedStreamId(wskit: Protocol.WSKitProtocol | undefined): string | undefined {
   const value = wskit?.streamId;
-  if (typeof value !== 'string' || value.length === 0 || value.length > 256) return undefined;
+  if (typeof value !== 'string' || value.length === 0) return undefined;
   return value;
 }
 
@@ -266,7 +261,7 @@ export async function runDurableStream(
   runtime.sendProtocolMessage(connection, {
     event: '__streamOk__',
     payload: {},
-    wskit: { ...buildScopeRouting(scope), streamId },
+    wskit: { ...buildScopeRouting(scope), streamId, streamKind: 'persistent' },
   });
 
   await runGenerator(runtime, connection, {
@@ -411,7 +406,7 @@ export async function resumeDurableStream(
       runtime.sendProtocolMessage(connection, {
         event: '__streamOk__',
         payload: {},
-        wskit: { ...scopeMarkers, streamId },
+        wskit: { ...scopeMarkers, streamId, streamKind: 'persistent' },
       });
 
       const chunks = Storage.readChunksSince(runtime.sql, {
@@ -519,7 +514,7 @@ export async function resumeDurableStream(
   runtime.sendProtocolMessage(connection, {
     event: '__streamOk__',
     payload: {},
-    wskit: { ...scopeMarkers, streamId },
+    wskit: { ...scopeMarkers, streamId, streamKind: 'persistent' },
   });
 
   runtime.sql.exec(
@@ -708,6 +703,7 @@ async function runGenerator(
                 channelScope: scope.channelScope,
                 streamId,
                 seq,
+                streamKind: 'persistent',
               },
               event: def.event,
               payload: wirePayload,
@@ -729,6 +725,7 @@ async function runGenerator(
             channelScope: scope.channelScope,
             streamId,
             seq,
+            streamKind: 'persistent',
           },
           event: def.event,
           payload: wirePayload,
@@ -786,14 +783,18 @@ async function runGenerator(
     }
   } catch (error) {
     rethrowIfConfigError(error);
+    const routing: Protocol.WSKitRouting = { streamId, streamTerminated: true };
+    if (scope.namespace?.name) routing.namespace = scope.namespace.name;
+    if (scope.channelName) routing.channel = scope.channelName;
+    if (scope.channelScope) routing.channelScope = scope.channelScope;
     await runtime.handleRuntimeError(connection, {
       error,
       event: def.event,
-      routing: { streamId },
+      routing,
     });
-    // For broadcast streams, also tell every subscriber the source died.
-    // Without this they keep waiting indefinitely while the creator alone
-    // sees the error frame.
+    // For broadcast streams, tell every subscriber the source died — with the
+    // same terminal __error__ the creator gets (not a misleading clean end), so
+    // their onError fires instead of them waiting indefinitely.
     if (def.broadcast) {
       const peerTargets = resolveBroadcastTargets({
         runtime,
@@ -808,16 +809,11 @@ async function runGenerator(
           return sub !== null && sub.unsubscribedAt === null;
         },
       });
-      const endWSKit = { ...buildScopeRouting(scope), streamId, seq };
+      const { payload, wskit } = normalizeRuntimeError(error, routing, runtime.declaredErrorCodes);
       forEachIsolated(
         peerTargets,
-        (target) =>
-          runtime.sendProtocolMessage(target, {
-            event: '__streamEnd__',
-            payload: {},
-            wskit: endWSKit,
-          }),
-        { context: `durable broadcast __streamEnd__ on error streamId="${streamId}"` },
+        (target) => runtime.sendProtocolMessage(target, { event: '__error__', payload, wskit }),
+        { context: `durable broadcast __error__ on error streamId="${streamId}"` },
       );
     }
     Storage.markEnded(runtime.sql, { identity, streamId, now: Date.now() });

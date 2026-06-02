@@ -34,6 +34,14 @@ const NonNegativeSafeInt = v.pipe(
 const StreamIdString = v.pipe(v.string(), v.minLength(1), v.maxLength(128));
 
 /**
+ * Whether a stream survives a reconnect. `ephemeral` is a plain `stream` — its
+ * generator dies on disconnect. `persistent` is a `resumableStream` /
+ * `recordedStream` — the client auto-resumes it. Stamped on `__streamOk__` and
+ * every chunk so a subscriber knows regardless of when it joined.
+ */
+const StreamKind = v.picklist(['ephemeral', 'persistent']);
+
+/**
  * A bounded channel name. Channel names can be composite
  * (e.g. `org:123:room:abc`), so they get more headroom than the other
  * identifiers. The matcher runs the family regex against this value, so the cap
@@ -146,7 +154,13 @@ export const SubscribeOkFrame = v.object({
 export const StreamOkFrame = v.object({
   event: v.literal('__streamOk__'),
   payload: NoPayload,
-  __wskit: v.strictObject({ ...OptionalScope, streamId: StreamIdString }),
+  __wskit: v.strictObject({ ...OptionalScope, streamId: StreamIdString, streamKind: StreamKind }),
+});
+
+export const NudgeOkFrame = v.object({
+  event: v.literal('__nudgeOk__'),
+  payload: NoPayload,
+  __wskit: v.strictObject({ ...OptionalScope, streamId: StreamIdString, streamNudgeId: WireId }),
 });
 
 export const StreamEndFrame = v.object({
@@ -177,6 +191,9 @@ export const ErrorFrame = v.object({
     correlationId: v.optional(v.string()),
     ackId: v.optional(v.string()),
     streamId: v.optional(v.string()),
+    streamNudgeId: v.optional(v.string()),
+    // On a stream error: true ends the stream, false (e.g. a rejected nudge) leaves it running.
+    streamTerminated: v.optional(v.boolean()),
   }),
 });
 
@@ -238,6 +255,7 @@ export const MemberSyncFrame = v.object({
 export const OutgoingProtocolFrame = v.variant('event', [
   SubscribeOkFrame,
   StreamOkFrame,
+  NudgeOkFrame,
   StreamEndFrame,
   AckFrame,
   ErrorFrame,
@@ -263,6 +281,9 @@ export const WSKitProtocolSchema = v.strictObject({
   namespace: v.optional(ScopeKey),
   ackId: v.optional(WireId),
   streamId: v.optional(StreamIdString),
+  streamKind: v.optional(StreamKind),
+  streamNudgeId: v.optional(WireId),
+  streamTerminated: v.optional(v.boolean()),
   messageId: v.optional(WireId),
   seq: v.optional(NonNegativeSafeInt),
 });
@@ -292,6 +313,7 @@ export type ResumeStreamFrame = v.InferOutput<typeof ResumeStreamFrame>;
 
 export type SubscribeOkFrame = v.InferOutput<typeof SubscribeOkFrame>;
 export type StreamOkFrame = v.InferOutput<typeof StreamOkFrame>;
+export type NudgeOkFrame = v.InferOutput<typeof NudgeOkFrame>;
 export type StreamEndFrame = v.InferOutput<typeof StreamEndFrame>;
 export type AckFrame = v.InferOutput<typeof AckFrame>;
 export type ErrorFrame = v.InferOutput<typeof ErrorFrame>;

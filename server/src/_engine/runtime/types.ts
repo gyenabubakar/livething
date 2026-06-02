@@ -421,11 +421,18 @@ export interface RoutingTarget {
   streamId?: string;
 
   /**
-   * Sequence number to stamp on the outgoing frame as `__wskit.seq`. Used by
-   * durable streams to give resume a stable cursor; plain streams rely on
-   * the `sequence` primitive to inject this via onOutgoing instead.
+   * Sequence number to stamp on the outgoing frame as `__wskit.seq`. Durable
+   * streams use it to give resume a stable cursor; every stream chunk (plain
+   * included) carries it directly via the chunk's routing.
    */
   seq?: number;
+
+  /**
+   * Stamped on a stream's outgoing frames as `__wskit.streamKind`: `ephemeral`
+   * for a plain stream, `persistent` for a durable one. Lets a subscriber know
+   * whether the stream is resumable regardless of when it joined.
+   */
+  streamKind?: 'ephemeral' | 'persistent';
 }
 
 /**

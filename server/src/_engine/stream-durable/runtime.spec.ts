@@ -952,6 +952,42 @@ describe('durable stream runtime', () => {
     expect(protocolMessages.filter((m) => m.event === '__streamEnd__')).toHaveLength(2);
   });
 
+  it('broadcast recordedStream — a generator error fans a terminal __error__ to peers, not __streamEnd__', async () => {
+    const sql = makeSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime, protocolMessages } = createRuntime(sql);
+    const creator = createConnection('c-creator', 'u-creator');
+    const peer = createConnection('c-peer', 'u-peer');
+    runtime.connections.set(creator.id, creator);
+    runtime.connections.set(peer.id, peer);
+
+    await runDurableStream(runtime as never, creator, {
+      scope: {},
+      def: baseDef({
+        kind: 'recorded',
+        broadcast: true,
+        maxChunks: 10,
+        generator: async function* () {
+          yield { i: 1 };
+          throw new Error('boom');
+        },
+      }),
+      payload: {},
+      wskit: undefined,
+    });
+
+    // The creator's terminal error goes through handleRuntimeError, tagged terminal.
+    expect(runtime.handleRuntimeError).toHaveBeenCalledWith(
+      creator,
+      expect.objectContaining({ routing: expect.objectContaining({ streamTerminated: true }) }),
+    );
+    // Peers get a terminal __error__ (not a misleading clean __streamEnd__).
+    const peerError = protocolMessages.find((m) => m.event === '__error__');
+    expect(peerError).toBeDefined();
+    expect(peerError!.wskit).toMatchObject({ streamTerminated: true });
+    expect(protocolMessages.find((m) => m.event === '__streamEnd__')).toBeUndefined();
+  });
+
   it('broadcast recordedStream — late joiner resume replays from the scope-keyed buffer', async () => {
     const sql = makeSql();
     Storage.ensureDurableStreamSchema(sql);

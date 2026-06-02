@@ -295,6 +295,7 @@ function buildDispatchRuntime(core: EngineCore) {
     protocolHandlers: core.hooks.protocol,
     incomingHooks: core.hooks.incoming,
     errorHooks: core.hooks.error,
+    declaredErrorCodes: core.declaredErrorCodes,
     incomingDedupCap: core.incomingDedupCap,
 
     getTimers: () => core.timers,

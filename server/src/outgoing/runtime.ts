@@ -141,11 +141,15 @@ function runOutgoingHooks(
   return current;
 }
 
-/** Build the `__wskit` block for an outgoing frame from its routing target. */
+/**
+ * Build the `__wskit` block for an outgoing frame from its routing target.
+ * Returns the typed envelope so each field write is checked; the caller widens
+ * it to a loose bag only where plugin stampers add their own open-ended keys.
+ */
 function buildWSKit(
   routing: EngineRuntimeTypes.RoutingTarget | undefined,
-): Record<string, unknown> {
-  const wskit: Record<string, unknown> = {};
+): Partial<Protocol.WSKitProtocol> {
+  const wskit: Partial<Protocol.WSKitProtocol> = {};
   if (routing?.namespace) wskit.namespace = routing.namespace;
   if (routing?.channel) wskit.channel = routing.channel;
   if (routing?.channelScope !== null && routing?.channelScope !== undefined) {
@@ -154,6 +158,7 @@ function buildWSKit(
   if (routing?.correlationId) wskit.correlationId = routing.correlationId;
   if (routing?.streamId) wskit.streamId = routing.streamId;
   if (typeof routing?.seq === 'number') wskit.seq = routing.seq;
+  if (routing?.streamKind) wskit.streamKind = routing.streamKind;
   return wskit;
 }
 
@@ -230,7 +235,9 @@ export function sendThroughPipeline(
     );
   }
 
-  const wskit = buildWSKit(routing);
+  // Widen to a loose bag here: from this point plugin stampers contribute
+  // arbitrary, open-ended `__wskit` keys that no fixed type can enumerate.
+  const wskit = buildWSKit(routing) as Record<string, unknown>;
   applyWSKitStampers(runtime.wskitStampHooks, message.event, wskit);
 
   const finalPayload = message.payload as Record<string, unknown>;

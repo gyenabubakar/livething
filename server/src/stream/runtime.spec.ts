@@ -44,7 +44,12 @@ function createStreamRuntime() {
     payload: Record<string, unknown>;
     wskit: Record<string, unknown>;
   }[] = [];
-  const pipelineSends: { event: string; payload: unknown }[] = [];
+  const pipelineSends: {
+    connId: string;
+    event: string;
+    payload: unknown;
+    routing: Record<string, unknown> | undefined;
+  }[] = [];
   const broadcasts: {
     event: string;
     payload: unknown;
@@ -69,10 +74,15 @@ function createStreamRuntime() {
         protocolMessages.push({ event, payload, wskit });
       },
       sendThroughPipeline: (
-        _conn: RuntimeConnection,
-        { event, payload }: SendThroughPipelineOptions,
+        conn: RuntimeConnection,
+        { event, payload, routing }: SendThroughPipelineOptions,
       ) => {
-        pipelineSends.push({ event, payload });
+        pipelineSends.push({
+          connId: conn.id,
+          event,
+          payload,
+          routing: routing as Record<string, unknown> | undefined,
+        });
         return true;
       },
       broadcastToConnections: (
@@ -96,6 +106,7 @@ function createStreamRuntime() {
         error: unknown,
         event?: string,
       ) => void | Promise<void>)[],
+      declaredErrorCodes: new Set<string>(),
       async handleRuntimeError() {},
       async handleValidationError() {},
     },
@@ -150,8 +161,8 @@ describe('stream/runtime', () => {
     expect(streamEnd!.wskit.channelScope).toBe('rooms');
   });
 
-  it('broadcast stream sends chunks to all connections', async () => {
-    const { runtime, broadcasts, pipelineSends } = createStreamRuntime();
+  it('broadcast stream sends chunks to every connection in scope', async () => {
+    const { runtime, pipelineSends } = createStreamRuntime();
     const trigger = createConnection('trigger');
     const other = createConnection('other');
     runtime.connections.set(trigger.id, trigger);
@@ -171,16 +182,21 @@ describe('stream/runtime', () => {
       payload: {},
     });
 
-    expect(broadcasts).toHaveLength(1);
-    expect(broadcasts[0]!.event).toBe('broadcast-stream');
-    expect(broadcasts[0]!.options?.excludeSelf).toBe(true);
-    expect(broadcasts[0]!.excludeConnectionId).toBe('trigger');
-    expect(pipelineSends).toHaveLength(1);
-    expect(pipelineSends[0]!.event).toBe('broadcast-stream');
+    // One chunk → one pipeline send per connection: the peer plus the creator's
+    // own copy. Each carries streamId, seq and streamKind so onStream can group it.
+    expect(pipelineSends.map((s) => s.connId).sort()).toEqual(['other', 'trigger']);
+    for (const send of pipelineSends) {
+      expect(send.event).toBe('broadcast-stream');
+      expect(send.routing).toMatchObject({
+        streamId: 'stream_1',
+        streamKind: 'ephemeral',
+        seq: 1,
+      });
+    }
   });
 
   it('broadcast stream forwards channelScope to peer sends (dynamic channel families)', async () => {
-    const { runtime, broadcasts, pipelineSends } = createStreamRuntime();
+    const { runtime, pipelineSends } = createStreamRuntime();
     const trigger = createConnection('trigger');
     const peer = createConnection('peer');
     // Both are members of the channel family scope.
@@ -214,16 +230,22 @@ describe('stream/runtime', () => {
       payload: {},
     });
 
-    expect(broadcasts).toHaveLength(1);
-    expect(broadcasts[0]!.options?.channel).toBe('room:123');
-    expect((broadcasts[0]!.options as { channelScope?: string })?.channelScope).toBe('rooms');
-
-    // The trigger's own send should also carry channelScope for symmetry.
-    expect(pipelineSends).toHaveLength(1);
+    // Every send (peer and the creator's own) carries channelScope so the
+    // outgoing pipeline resolves the channel family rather than failing the
+    // declaration check against a non-existent static channel 'room:123'.
+    expect(pipelineSends.map((s) => s.connId).sort()).toEqual(['peer', 'trigger']);
+    for (const send of pipelineSends) {
+      expect(send.routing).toMatchObject({
+        channel: 'room:123',
+        channelScope: 'rooms',
+        streamKind: 'ephemeral',
+        seq: 1,
+      });
+    }
   });
 
   it('channel-scoped broadcast stream excludes non-members from the targets list', async () => {
-    const { runtime, broadcasts } = createStreamRuntime();
+    const { runtime, pipelineSends } = createStreamRuntime();
     const trigger = createConnection('trigger');
     const member = createConnection('member');
     const nonMember = createConnection('non-member');
@@ -256,15 +278,15 @@ describe('stream/runtime', () => {
       payload: {},
     });
 
-    expect(broadcasts).toHaveLength(1);
-    // The targets list passed to broadcastToConnections must only contain
-    // members of the channel — never the non-member.
-    expect(broadcasts[0]!.targetIds).toEqual(expect.arrayContaining(['trigger', 'member']));
-    expect(broadcasts[0]!.targetIds).not.toContain('non-member');
+    // Chunks reach channel members (the member + the creator's own copy) but
+    // never the non-member.
+    const targetIds = pipelineSends.map((s) => s.connId).sort();
+    expect(targetIds).toEqual(['member', 'trigger']);
+    expect(targetIds).not.toContain('non-member');
   });
 
   it('top-level broadcast stream still targets every connection (no membership concept)', async () => {
-    const { runtime, broadcasts } = createStreamRuntime();
+    const { runtime, pipelineSends } = createStreamRuntime();
     const trigger = createConnection('trigger');
     const other = createConnection('other');
     runtime.connections.set(trigger.id, trigger);
@@ -284,8 +306,43 @@ describe('stream/runtime', () => {
       payload: {},
     });
 
-    expect(broadcasts).toHaveLength(1);
-    expect(broadcasts[0]!.targetIds).toEqual(expect.arrayContaining(['trigger', 'other']));
+    expect(pipelineSends.map((s) => s.connId).sort()).toEqual(['other', 'trigger']);
+  });
+
+  it('a broadcast generator error fans a terminal __error__ to peers, not __streamEnd__', async () => {
+    const { runtime, protocolMessages } = createStreamRuntime();
+    const handleRuntimeError = vi.fn(async () => {});
+    runtime.handleRuntimeError = handleRuntimeError;
+    const trigger = createConnection('trigger');
+    const peer = createConnection('peer');
+    runtime.connections.set(trigger.id, trigger);
+    runtime.connections.set(peer.id, peer);
+
+    const stream = {
+      stream: { nudges: [], broadcast: true },
+      generator: async function* () {
+        yield { token: 'a' };
+        throw new Error('boom');
+      },
+    };
+
+    await runStream(runtime as Parameters<typeof runStream>[0], trigger, {
+      scope: {},
+      event: 'broadcast-stream',
+      stream: stream as never,
+      payload: {},
+    });
+
+    // The creator's terminal error goes through handleRuntimeError, tagged terminal.
+    expect(handleRuntimeError).toHaveBeenCalledWith(
+      trigger,
+      expect.objectContaining({ routing: expect.objectContaining({ streamTerminated: true }) }),
+    );
+    // The peer gets a terminal __error__ — never a misleading clean __streamEnd__.
+    const peerError = protocolMessages.find((m) => m.event === '__error__');
+    expect(peerError).toBeDefined();
+    expect(peerError!.wskit).toMatchObject({ streamTerminated: true });
+    expect(protocolMessages.find((m) => m.event === '__streamEnd__')).toBeUndefined();
   });
 
   it('__streamCancel__ from a non-owner connection is ignored', async () => {
@@ -433,7 +490,7 @@ describe('stream/runtime', () => {
     expect(handleRuntimeError).toHaveBeenCalledWith(connection, {
       error: expect.any(Error),
       event: 'nudge-event',
-      routing: { streamId: 'does-not-exist' },
+      routing: { streamId: 'does-not-exist', streamTerminated: false },
     });
   });
 
@@ -517,6 +574,62 @@ describe('stream/runtime', () => {
     expect(runtime.activeStreams.has('stream_1')).toBe(true);
   });
 
+  it('bufferStreamNudge confirms a buffered nudge with __nudgeOk__ when a streamNudgeId is present', async () => {
+    const { runtime, protocolMessages } = createStreamRuntime();
+    const connection = createConnection();
+
+    const active: ActiveStream = {
+      id: 'stream_1',
+      connectionId: connection.id,
+      event: 'nudgey',
+      generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
+      nudges: [],
+      nudgeValidators: new Map([['n', undefined]]),
+      closed: false,
+    };
+    runtime.activeStreams.set('stream_1', active);
+
+    const result = await bufferStreamNudge(
+      runtime as Parameters<typeof bufferStreamNudge>[0],
+      connection,
+      {
+        event: 'n',
+        payload: { k: 1 },
+        wskit: { streamId: 'stream_1', streamNudgeId: 'nudge-7', channelScope: null },
+      },
+    );
+
+    expect(result).toBe(true);
+    expect(active.nudges).toHaveLength(1);
+    const ok = protocolMessages.find((m) => m.event === '__nudgeOk__');
+    expect(ok).toBeDefined();
+    expect(ok!.wskit).toEqual({ streamId: 'stream_1', streamNudgeId: 'nudge-7' });
+  });
+
+  it('bufferStreamNudge sends no __nudgeOk__ for a fire-and-forget nudge (no streamNudgeId)', async () => {
+    const { runtime, protocolMessages } = createStreamRuntime();
+    const connection = createConnection();
+
+    const active: ActiveStream = {
+      id: 'stream_1',
+      connectionId: connection.id,
+      event: 'nudgey',
+      generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
+      nudges: [],
+      nudgeValidators: new Map([['n', undefined]]),
+      closed: false,
+    };
+    runtime.activeStreams.set('stream_1', active);
+
+    await bufferStreamNudge(runtime as Parameters<typeof bufferStreamNudge>[0], connection, {
+      event: 'n',
+      payload: {},
+      wskit: { streamId: 'stream_1', channelScope: null },
+    });
+
+    expect(protocolMessages.find((m) => m.event === '__nudgeOk__')).toBeUndefined();
+  });
+
   it('bufferStreamNudge aborts the stream when the buffer is full', async () => {
     const { runtime, protocolMessages } = createStreamRuntime();
     const connection = createConnection();
@@ -550,7 +663,8 @@ describe('stream/runtime', () => {
       code: 'stream-aborted',
       detail: { reason: 'nudge-overflow' },
     });
-    expect(aborted!.wskit).toMatchObject({ streamId: 'stream_1' });
+    // nudge-overflow is the one nudge failure that ends the stream.
+    expect(aborted!.wskit).toMatchObject({ streamId: 'stream_1', streamTerminated: true });
   });
 
   it('bufferStreamNudge surfaces __error__ and returns true for an unknown event name on an active stream', async () => {
@@ -582,7 +696,7 @@ describe('stream/runtime', () => {
     expect(handleRuntimeError).toHaveBeenCalledWith(connection, {
       error: expect.any(Error),
       event: 'unknown-nudge',
-      routing: { streamId: 'stream_1' },
+      routing: { streamId: 'stream_1', streamTerminated: false },
     });
   });
 
@@ -680,7 +794,7 @@ describe('stream/runtime', () => {
     expect(handleRuntimeError).toHaveBeenCalledWith(connection, {
       error: expect.any(Error),
       event: 'pause',
-      routing: { streamId: 'stream_1' },
+      routing: { streamId: 'stream_1', streamTerminated: false },
     });
     expect(activeStream.nudges).toHaveLength(0);
   });
@@ -1041,12 +1155,12 @@ describe('stream/runtime', () => {
       },
     };
 
-    // Wrong type, empty string, and over-length string all fall back. The
+    // Wrong type and empty string fall back to a generated id. (Length is bounded
+    // by the wire schema before this runs, so it isn't re-checked here.) The
     // numeric case can never be a valid WSKitProtocol field, so cast it.
     const badWSKits: NonNullable<RunStreamOptions['wskit']>[] = [
       { streamId: 123, channelScope: null } as unknown as NonNullable<RunStreamOptions['wskit']>,
       { streamId: '', channelScope: null },
-      { streamId: 'x'.repeat(300), channelScope: null },
     ];
     for (const bad of badWSKits) {
       protocolMessages.length = 0;
