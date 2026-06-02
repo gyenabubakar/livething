@@ -274,6 +274,22 @@ describe('plugin() hooks', () => {
     err.mockRestore();
   });
 
+  it('isolates a throwing lifecycle hook so it does not break the close sequence', () => {
+    const Bad = plugin({
+      id: 'test:badclose',
+      key: Symbol('test:badclose'),
+      setup(_args, hooks) {
+        hooks.onClose(() => {
+          throw new Error('boom');
+        });
+        return () => ({});
+      },
+    });
+    const { socket } = build(Bad());
+    expect(() => socket.disconnect()).not.toThrow();
+    expect(socket.getState()).toBe('closed');
+  });
+
   it('onClose fires with the code and reason', () => {
     let closed: [number, string] | null = null;
     const Closer = plugin({

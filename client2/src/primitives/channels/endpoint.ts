@@ -63,7 +63,13 @@ export function buildChannelEndpoint(ctx: ChannelContext, state: ChannelState): 
     },
     subscribe(data?: unknown) {
       helpers.ensureConnected();
-      helpers.lazyAcquire();
+      // Keep the (lazy) socket awake for the subscription's lifetime. The state
+      // drops this hold on any end — unsubscribe, kick, or a failed subscribe —
+      // not just an explicit unsubscribe(), so it can't leak.
+      state.holdLazy(
+        () => helpers.lazyAcquire(),
+        () => helpers.lazyRelease(),
+      );
       state.subscribeData = data;
       return new Promise<void>((resolve, reject) => {
         state.pending = { resolve, reject };
@@ -76,9 +82,9 @@ export function buildChannelEndpoint(ctx: ChannelContext, state: ChannelState): 
     },
     unsubscribe() {
       helpers.rawSend({ event: '__unsubscribe__', payload: {}, __wskit: channelMarkers(state) });
+      // markUnsubscribed() drops the lazy hold for us.
       state.markUnsubscribed();
       if (state.scopeKey) ctx.family(state.scopeKey).fireUnsubscribed(state.name);
-      helpers.lazyRelease();
     },
     get members(): ReadonlyMap<string, ChannelMember> {
       return state.members;

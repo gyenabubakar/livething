@@ -78,7 +78,10 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
       function startChunkTimer(state: StreamState): void {
         if (state.timer) clearTimeout(state.timer);
         if (timeout <= 0) return;
-        state.timer = setTimeout(() => finishStream(state, Timeout()), timeout);
+        state.timer = setTimeout(() => {
+          helpers.log.info(`stream '${state.streamId}' timed out`);
+          finishStream(state, Timeout());
+        }, timeout);
       }
 
       // `error` undefined means a clean end (the loop exits); an error makes it throw.
@@ -228,10 +231,12 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         if (timeout > 0) {
           const current = run;
           current.timer = setTimeout(() => {
+            helpers.log.info(`broadcast stream '${streamId}' timed out`);
             broadcastRuns.delete(streamId);
             for (const h of current.handlers) h.onTimeout?.(streamId);
           }, timeout);
         }
+        helpers.log.info(`broadcast stream '${streamId}' chunk received`);
         for (const h of run.handlers) h.onChunk(payload, streamId);
       }
 
@@ -265,6 +270,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
               return null;
             }
             case '__streamEnd__': {
+              helpers.log.info(`stream '${streamId}' completed`);
               const state = streams.get(streamId);
               if (state) finishStream(state);
               endBroadcast(streamId, (h) => h.onEnd?.(streamId, w?.seq));
@@ -318,6 +324,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
               const state = streams.get(streamId);
               if (state && (seq === undefined || seq > state.lastSeq)) {
                 if (seq !== undefined) state.lastSeq = seq;
+                helpers.log.info(`stream '${streamId}' chunk received`);
                 state.queue.push(message.payload);
                 startChunkTimer(state);
               }

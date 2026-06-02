@@ -112,6 +112,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
                 (message.payload as { source?: unknown })?.source === 'server'
                   ? 'server'
                   : 'client';
+              helpers.log.info(`channel '${name}' subscribed (${source})`);
               state.markSubscribed(source);
               notifyFamily((family) => family.fireSubscribed(name, source));
               return null;
@@ -164,6 +165,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
               // A channel-scoped stream chunk carries a streamId — it belongs to
               // the stream primitive, not channel.on(). Pass it through untouched.
               if (wskit?.streamId !== undefined) return message;
+              helpers.log.info(`routing '${message.event}' to channel '${name}'`);
               state.dispatch(message.event, message.payload);
               notifyFamily((family) => family.dispatch(message.event, message.payload, name));
               return message;

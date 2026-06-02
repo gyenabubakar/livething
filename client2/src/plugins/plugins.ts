@@ -153,11 +153,37 @@ export function plugin<TArgs = void, TApi = unknown>(
               }
             : undefined,
 
-          onOpen: open ? () => open!() ?? null : undefined,
+          onOpen: open
+            ? () => {
+                try {
+                  return open!() ?? null;
+                } catch (error) {
+                  helpers.log.error(`plugin '${def.id}' onOpen threw`, error);
+                  return null;
+                }
+              }
+            : undefined,
 
-          onReconnect: reconnect ? () => reconnect!() ?? null : undefined,
+          onReconnect: reconnect
+            ? () => {
+                try {
+                  return reconnect!() ?? null;
+                } catch (error) {
+                  helpers.log.error(`plugin '${def.id}' onReconnect threw`, error);
+                  return null;
+                }
+              }
+            : undefined,
 
-          onClose: close ? (code, reason) => close!(code, reason) : undefined,
+          onClose: close
+            ? (code, reason) => {
+                try {
+                  close!(code, reason);
+                } catch (error) {
+                  helpers.log.error(`plugin '${def.id}' onClose threw`, error);
+                }
+              }
+            : undefined,
         };
       },
     };

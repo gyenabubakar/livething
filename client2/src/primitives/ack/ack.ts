@@ -72,6 +72,7 @@ export function ack(options: AckOptions = {}): Primitive<AckTypeFn> {
           const waiter = pending.get(ackId);
           if (!waiter) return message;
 
+          helpers.log.info(`matched acknowledgement '${ackId}'`);
           if (message.event === '__error__') waiter.reject(toWSKitError(message.payload));
           else waiter.resolve();
           return null;

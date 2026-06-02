@@ -363,3 +363,52 @@ describe('scoped request and ack', () => {
     );
   });
 });
+
+describe('lazy hold lifecycle (no leak)', () => {
+  // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- test helper
+  function lazySocket(): any {
+    // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- test helper
+    const socket = (client<C>() as any)(
+      connect('wss://test', { lazy: true, idleTimeout: 1000 }),
+      channels(),
+    );
+    return socket;
+  }
+
+  it('releases the subscribe hold when the subscribe is rejected, so the socket idle-closes', async () => {
+    vi.useFakeTimers();
+    const socket = lazySocket();
+    const p = socket.channel('general').subscribe(); // lazy connect
+    MockWebSocket.last().open();
+    MockWebSocket.last().emit({
+      event: '__error__',
+      payload: { code: 'forbidden' },
+      __wskit: { channel: 'general' },
+    });
+    await expect(p).rejects.toBeDefined();
+
+    vi.advanceTimersByTime(1000);
+    expect(socket.getState()).toBe('closed'); // would stay 'open' if the hold leaked
+    vi.useRealTimers();
+  });
+
+  it('releases the subscribe hold when the channel is kicked, so the socket idle-closes', async () => {
+    vi.useFakeTimers();
+    const socket = lazySocket();
+    const room = socket.channel('general');
+    const p = room.subscribe();
+    const ws = MockWebSocket.last();
+    ws.open();
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: { source: 'client' },
+      __wskit: { channel: 'general' },
+    });
+    await p;
+
+    ws.emit({ event: '__kicked__', payload: { reason: 'bye' }, __wskit: { channel: 'general' } });
+    vi.advanceTimersByTime(1000);
+    expect(socket.getState()).toBe('closed');
+    vi.useRealTimers();
+  });
+});

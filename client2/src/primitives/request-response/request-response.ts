@@ -73,6 +73,7 @@ export function requestResponse(
           const waiter = pending.get(correlationId);
           if (!waiter) return message;
 
+          helpers.log.info(`matched response for request '${correlationId}'`);
           if (message.event === '__error__') waiter.reject(toWSKitError(message.payload));
           else waiter.resolve(message.payload);
           return null;
