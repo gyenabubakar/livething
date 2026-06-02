@@ -21,6 +21,7 @@ export {
   InternalError,
   InvalidScopeMarkers,
   NamespaceNotFound,
+  NudgeOverflow,
   RateLimited,
   StreamAborted,
   StreamAlreadyActive,
