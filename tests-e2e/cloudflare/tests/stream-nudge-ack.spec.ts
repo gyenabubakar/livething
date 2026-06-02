@@ -118,4 +118,56 @@ test.describe('stream-nudges — nudge acknowledgement', () => {
       match: (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
     });
   });
+
+  test('a DURABLE stream rejects an overflowing nudge non-terminally too', async ({
+    page,
+  }: {
+    page: Page;
+  }, testInfo) => {
+    await page.goto('/stream-durable');
+    await installRig(page);
+
+    const room = `dof-${testInfo.testId}-${Date.now()}`;
+    const streamId = 'durable-overflow-1';
+    const a = await connect(page, { path: '/ws/stream-durable', username: 'alice', room });
+
+    // A recorded (durable) stream that drains nudges between yields.
+    await send(page, a, { event: 'count-tokens-nudged', payload: {}, __wskit: { streamId } });
+    const ok = await waitForFrame(page, a, {
+      match: (f) => f.event === '__streamOk__' && f.__wskit?.streamId === streamId,
+    });
+    expect(ok.__wskit?.streamKind).toBe('persistent'); // confirm it is durable
+
+    // Burst 300 'stop' nudges in one tick — past the 256 cap, before the generator drains.
+    await page.evaluate(
+      ([id, sid]) => {
+        for (let i = 0; i < 300; i++) {
+          window.__wskitSend!(id, {
+            event: 'stop',
+            payload: {},
+            __wskit: { streamId: sid, streamNudgeId: `flood-${i}` },
+          });
+        }
+      },
+      [a, streamId] as const,
+    );
+
+    // The durable path rejects the overflow the same non-terminal way.
+    const over = await waitForFrame(page, a, {
+      match: (f) => f.event === '__error__' && f.payload.code === 'nudge-overflow',
+    });
+    expect(over.__wskit?.streamTerminated).toBe(false);
+    expect((over.payload as { detail?: { cap?: number } }).detail?.cap).toBe(256);
+
+    // The overflow did not terminate the stream — no terminal error frame...
+    const all = await frames(page, a);
+    expect(all.some((f) => f.event === '__error__' && f.__wskit?.streamTerminated === true)).toBe(
+      false,
+    );
+
+    // ...and the buffered 'stop' nudges then end it cleanly.
+    await waitForFrame(page, a, {
+      match: (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
+    });
+  });
 });
