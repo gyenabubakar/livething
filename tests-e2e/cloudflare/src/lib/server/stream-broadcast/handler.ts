@@ -34,6 +34,12 @@ export const streamBroadcastContract = contract('stream-broadcast', {
 export const streamBroadcastHandler = implement(streamBroadcastContract)
   .onUpgrade((req) => requireUsername(req))
   .stream('start-broadcast', async function* (_ctx, payload) {
+    // Negative count is a test sentinel: yield one chunk, then throw so the
+    // terminal error fans to the creator AND every peer subscriber.
+    if (payload.count < 0) {
+      yield { index: 0 };
+      throw new Error('broadcast boom');
+    }
     for (let i = 0; i < payload.count; i++) {
       yield { index: i };
       await new Promise((r) => setTimeout(r, 10));

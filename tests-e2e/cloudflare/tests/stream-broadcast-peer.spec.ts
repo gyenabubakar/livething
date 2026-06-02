@@ -62,4 +62,53 @@ test.describe('stream-broadcast — plain broadcast peer lifecycle', () => {
       await ctxB.close();
     }
   });
+
+  test('a creator-generator error fans a terminal __error__ to the creator and every peer', async ({
+    browser,
+  }: {
+    browser: Browser;
+  }, testInfo) => {
+    const ctxA = await browser.newContext();
+    const ctxB = await browser.newContext();
+    const pageA = await ctxA.newPage();
+    const pageB = await ctxB.newPage();
+    await pageA.goto('/stream-broadcast');
+    await installRig(pageA);
+    await pageB.goto('/stream-broadcast');
+    await installRig(pageB);
+    try {
+      const room = `sbe-${testInfo.testId}-${Date.now()}`;
+      const a = await connect(pageA, { path: WS_PATH, username: 'alice', room });
+      const b = await connect(pageB, { path: WS_PATH, username: 'bob', room });
+
+      // Negative count makes the generator yield one chunk then throw.
+      await send(pageA, a, { event: 'start-broadcast', payload: { count: -1 } });
+
+      // The peer is told the stream broke — a terminal __error__, not a clean end.
+      const errB = await waitForFrame(pageB, b, {
+        match: (f) => f.event === '__error__' && f.__wskit?.streamTerminated === true,
+      });
+      const streamId = errB.__wskit?.streamId;
+      expect(typeof streamId).toBe('string');
+      expect(errB.payload.code).toBe('internal-error');
+
+      // The creator gets the same terminal error for the same stream.
+      const errA = await waitForFrame(pageA, a, {
+        match: (f) =>
+          f.event === '__error__' &&
+          f.__wskit?.streamTerminated === true &&
+          f.__wskit?.streamId === streamId,
+      });
+      expect(errA.payload.code).toBe('internal-error');
+
+      // The peer must NOT also receive a misleading clean end for this stream.
+      const peerFrames = await frames(pageB, b);
+      expect(
+        peerFrames.some((f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId),
+      ).toBe(false);
+    } finally {
+      await ctxA.close();
+      await ctxB.close();
+    }
+  });
 });
