@@ -4,6 +4,7 @@ import {
   Block,
   CloseCodes,
   error,
+  NudgeOverflow,
   RateLimited,
   StreamAborted,
   StreamAlreadyActive,
@@ -226,7 +227,6 @@ type StreamAbortedReason =
   | 'hibernation-wake'
   | 'unsubscribed'
   | 'cursor-invalid'
-  | 'nudge-overflow'
   | 'aborted';
 
 const saErr = StreamAborted({ reason: 'hibernation-wake' });
@@ -236,6 +236,17 @@ void [_saErrCode, _saDetail];
 
 // @ts-expect-error — missing reason
 StreamAborted({});
+
+// 11b. NudgeOverflow — non-terminal nudge backpressure, parsed detail
+const _noCode: 'nudge-overflow' = NudgeOverflow.code;
+void _noCode;
+const noErr = NudgeOverflow({ cap: 256 });
+const _noErrCode: 'nudge-overflow' = noErr.code;
+const _noDetail: { cap: number } = noErr.detail;
+void [_noErrCode, _noDetail];
+
+// @ts-expect-error — missing cap
+NudgeOverflow({});
 
 // @ts-expect-error — unknown reason value (only literal union allowed)
 StreamAborted({ reason: 'unknown' });

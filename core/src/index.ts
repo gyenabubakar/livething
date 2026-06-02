@@ -10,6 +10,7 @@ export {
   InternalError,
   InvalidScopeMarkers,
   NamespaceNotFound,
+  NudgeOverflow,
   RateLimited,
   RequestNoCorrelation,
   RequestNoResponse,

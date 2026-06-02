@@ -435,10 +435,6 @@ export const RequestNoCorrelation = error('request-no-correlation');
  *   declared on the `resumableStream`. The row stays in place; the resuming
  *   client gets this signal so it can pick a recovery strategy (drop the
  *   stream, start fresh, surface the bug).
- * - `'nudge-overflow'` — the client queued more nudges than the stream's buffer
- *   holds because the generator was draining them too slowly. The stream is
- *   torn down so the client can restart it, instead of the server buffering
- *   nudges without bound or silently dropping them.
  * - `'aborted'` — catch-all when the framework had to tear the stream down
  *   for an internal reason that does not match any of the above.
  *
@@ -465,7 +461,6 @@ export type StreamAbortedReason =
   | 'hibernation-wake'
   | 'unsubscribed'
   | 'cursor-invalid'
-  | 'nudge-overflow'
   | 'aborted';
 
 const STREAM_ABORTED_REASONS = [
@@ -476,7 +471,6 @@ const STREAM_ABORTED_REASONS = [
   'hibernation-wake',
   'unsubscribed',
   'cursor-invalid',
-  'nudge-overflow',
   'aborted',
 ] as const;
 
@@ -484,6 +478,27 @@ export const StreamAborted = error(
   'stream-aborted',
   v.object({ reason: v.picklist(STREAM_ABORTED_REASONS) }),
 );
+
+/**
+ * Sent to the client when a nudge can't be buffered because the stream's pending
+ * nudge buffer is full (the generator is draining nudges slower than they
+ * arrive). Unlike a `StreamAborted`, this is **non-terminal**: only the
+ * offending `nudge()` rejects (with `__wskit.streamTerminated: false`), and the
+ * stream keeps running — it is backpressure, not a teardown. `detail.cap` is the
+ * buffer limit so the client can pace itself and retry.
+ *
+ * @example
+ * ```ts
+ * try {
+ *   await stream.nudge('add-context', { context });
+ * } catch (err) {
+ *   if (NudgeOverflow.matches(err)) {
+ *     // sending too fast — back off, the stream is still alive
+ *   }
+ * }
+ * ```
+ */
+export const NudgeOverflow = error('nudge-overflow', v.object({ cap: v.number() }));
 
 /**
  * Sent to the client when a stream trigger frame carries a dev-supplied

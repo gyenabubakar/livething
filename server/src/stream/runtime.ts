@@ -1,8 +1,8 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import {
   InternalError,
+  NudgeOverflow,
   rethrowIfConfigError,
-  StreamAborted,
   StreamIdCollision,
   ValidationFailed,
 } from '@wskit/core';
@@ -205,20 +205,15 @@ export async function bufferStreamNudge(
   }
 
   // The client is queueing nudges faster than the generator drains them.
-  // Growing the buffer without bound is a memory-exhaustion vector, and
-  // silently dropping nudges would corrupt the stream's input. Abort the
-  // stream so the client gets a clear signal and can restart it.
+  // Growing the buffer without bound is a memory-exhaustion vector, and silently
+  // dropping nudges would corrupt the stream's input. Reject THIS nudge as
+  // backpressure — non-terminal, so only its nudge() Promise rejects and the
+  // stream keeps running. The client can slow down and retry.
   if (activeStream.nudges.length >= NUDGE_BUFFER_CAP) {
-    await cancelStream(runtime, connection, streamId);
     runtime.sendProtocolMessage(connection, {
       event: '__error__',
-      payload: { code: StreamAborted.code, detail: { reason: 'nudge-overflow' } },
-      // nudge-overflow is the one nudge failure that DOES end the stream.
-      wskit: {
-        streamId,
-        streamTerminated: true,
-        ...(streamNudgeId !== undefined ? { streamNudgeId } : {}),
-      },
+      payload: { code: NudgeOverflow.code, detail: { cap: NUDGE_BUFFER_CAP } },
+      wskit: rejectRouting,
     });
     return true;
   }

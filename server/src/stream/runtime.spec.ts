@@ -630,7 +630,7 @@ describe('stream/runtime', () => {
     expect(protocolMessages.find((m) => m.event === '__nudgeOk__')).toBeUndefined();
   });
 
-  it('bufferStreamNudge aborts the stream when the buffer is full', async () => {
+  it('bufferStreamNudge rejects the nudge non-terminally when the buffer is full', async () => {
     const { runtime, protocolMessages } = createStreamRuntime();
     const connection = createConnection();
 
@@ -649,22 +649,29 @@ describe('stream/runtime', () => {
     const result = await bufferStreamNudge(
       runtime as Parameters<typeof bufferStreamNudge>[0],
       connection,
-      { event: 'n', payload: { k: 1 }, wskit: { streamId: 'stream_1', channelScope: null } },
+      {
+        event: 'n',
+        payload: { k: 1 },
+        wskit: { streamId: 'stream_1', streamNudgeId: 'nudge_1', channelScope: null },
+      },
     );
 
     expect(result).toBe(true);
-    // Stream torn down.
-    expect(active.closed).toBe(true);
-    expect(runtime.activeStreams.has('stream_1')).toBe(false);
-    // Client told the stream was aborted for nudge overflow.
-    const aborted = protocolMessages.find((m) => m.event === '__error__');
-    expect(aborted).toBeDefined();
-    expect(aborted!.payload).toMatchObject({
-      code: 'stream-aborted',
-      detail: { reason: 'nudge-overflow' },
+    // The stream keeps running — overflow is backpressure, not a teardown.
+    expect(active.closed).toBe(false);
+    expect(runtime.activeStreams.has('stream_1')).toBe(true);
+    // Client told only this nudge was rejected, non-terminally.
+    const rejected = protocolMessages.find((m) => m.event === '__error__');
+    expect(rejected).toBeDefined();
+    expect(rejected!.payload).toMatchObject({
+      code: 'nudge-overflow',
+      detail: { cap: 256 },
     });
-    // nudge-overflow is the one nudge failure that ends the stream.
-    expect(aborted!.wskit).toMatchObject({ streamId: 'stream_1', streamTerminated: true });
+    expect(rejected!.wskit).toMatchObject({
+      streamId: 'stream_1',
+      streamNudgeId: 'nudge_1',
+      streamTerminated: false,
+    });
   });
 
   it('bufferStreamNudge surfaces __error__ and returns true for an unknown event name on an active stream', async () => {
