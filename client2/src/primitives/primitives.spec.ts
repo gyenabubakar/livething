@@ -217,3 +217,64 @@ describe('quality + debug compose without error', () => {
     expect(socket.getState()).toBe('closed');
   });
 });
+
+describe('kernel lifecycle-hook isolation', () => {
+  // A primitive whose `hook` throws, paired with a sibling that records it ran.
+  // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- test helper
+  function pair(hook: 'onOpen' | 'onReconnect' | 'onClose'): { ran: () => boolean; specs: any[] } {
+    let siblingRan = false;
+    const thrower = {
+      _tag: `thrower-${hook}`,
+      setup: () => ({
+        id: `thrower-${hook}`,
+        [hook]: () => {
+          throw new Error('boom');
+        },
+      }),
+    };
+    const sibling = {
+      _tag: `sibling-${hook}`,
+      setup: () => ({
+        id: `sibling-${hook}`,
+        [hook]: () => {
+          siblingRan = true;
+          return null;
+        },
+      }),
+    };
+    return { ran: () => siblingRan, specs: [thrower, sibling] };
+  }
+
+  it('contains a throwing onOpen so the rest of the open sequence still runs', () => {
+    const p = pair('onOpen');
+    const { socket } = build(...p.specs); // build() opens the socket
+    expect(socket.getState()).toBe('open');
+    expect(p.ran()).toBe(true);
+  });
+
+  it('contains a throwing onClose on an unexpected drop', () => {
+    const p = pair('onClose');
+    const { ws } = build(...p.specs);
+    expect(() => ws.serverClose(1006)).not.toThrow();
+    expect(p.ran()).toBe(true);
+  });
+
+  it('contains a throwing onClose on disconnect()', () => {
+    const p = pair('onClose');
+    const { socket } = build(...p.specs);
+    expect(() => socket.disconnect()).not.toThrow();
+    expect(socket.getState()).toBe('closed');
+    expect(p.ran()).toBe(true);
+  });
+
+  it('contains a throwing onReconnect on a reconnect open', () => {
+    vi.useFakeTimers();
+    const p = pair('onReconnect');
+    const { ws } = build(...p.specs, reconnection());
+    ws.serverClose(1006); // unexpected drop → reconnection schedules a retry
+    vi.advanceTimersByTime(2000);
+    MockWebSocket.last().open(); // reconnect open fires onReconnect hooks
+    expect(p.ran()).toBe(true);
+    vi.useRealTimers();
+  });
+});

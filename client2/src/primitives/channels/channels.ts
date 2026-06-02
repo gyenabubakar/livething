@@ -155,6 +155,8 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
             case '__error__': {
               // A request/ack error carries its own id and belongs to that primitive.
               if (wskit?.correlationId !== undefined || wskit?.ackId !== undefined) return message;
+              // A stream error carries a streamId and belongs to the stream primitive.
+              if (wskit?.streamId !== undefined) return message;
               state.fireSubscriptionFailed(toWSKitError(message.payload));
               return null;
             }

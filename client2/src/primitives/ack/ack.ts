@@ -69,6 +69,7 @@ export function ack(options: AckOptions = {}): Primitive<AckTypeFn> {
         onIncoming(message) {
           const ackId = message.__wskit?.ackId;
           if (typeof ackId !== 'string') return message;
+
           const waiter = pending.get(ackId);
           if (!waiter) return message;
 

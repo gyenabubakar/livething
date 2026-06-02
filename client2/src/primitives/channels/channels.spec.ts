@@ -364,6 +364,45 @@ describe('scoped request and ack', () => {
   });
 });
 
+describe('stream-error routing (order-independent)', () => {
+  it('routes a channel-scoped stream error to the stream primitive, not to channel subscribe-failure, even when channels is registered first', async () => {
+    const { socket, ws } = build(channels(), stream());
+    // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- contract has no stream; loose for the test
+    const room = socket.channel('general') as any;
+    const p = room.subscribe();
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: { source: 'client' },
+      __wskit: { channel: 'general' },
+    });
+    await p;
+
+    const onSubFailed = vi.fn();
+    room.onSubscriptionFailed(onSubFailed);
+
+    const onChunk = vi.fn();
+    const onError = vi.fn();
+    room.onStream('ask-ai', { onChunk, onError, onEnd: vi.fn() });
+
+    // A chunk starts the broadcast run...
+    ws.emit({
+      event: 'ask-ai',
+      payload: { text: 'hi' },
+      __wskit: { channel: 'general', streamId: 's1', seq: 0 },
+    });
+    // ...then a channel-scoped stream error.
+    ws.emit({
+      event: '__error__',
+      payload: { code: 'internal-error' },
+      __wskit: { channel: 'general', streamId: 's1', streamTerminated: true },
+    });
+
+    expect(onChunk).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledTimes(1); // the stream primitive received the error
+    expect(onSubFailed).not.toHaveBeenCalled(); // channels did NOT misroute it
+  });
+});
+
 describe('lazy hold lifecycle (no leak)', () => {
   // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- test helper
   function lazySocket(): any {

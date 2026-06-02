@@ -17,8 +17,10 @@ import type { ConnectionQuality, ConnectionState } from '~/types.ts';
 export interface CloseEvent {
   /** The numeric close code (e.g. 1000 normal, 4001 app-defined). */
   code: number;
+
   /** The reason text from the server, if any. */
   reason: string;
+
   /** Whether the close finished cleanly. */
   wasClean: boolean;
 }
@@ -101,6 +103,7 @@ export class WSKitSocket {
   private _outgoingFallback: ((message: WireMessage, ttl?: number) => boolean) | null = null;
   private _signalHandlers = new Map<string, Set<(value: boolean) => void>>();
   private _idCounter = 0;
+
   /**
    * @internal — plugin APIs, built lazily on first `Plugin.use(socket)`. Keyed
    * by the plugin's `key`, then by `registrationId` (or `undefined` for a
@@ -194,7 +197,11 @@ export class WSKitSocket {
     // count would make a later unsubscribe wrongly idle-close a socket that still
     // has live listeners (e.g. after a background-disconnect/reconnect).
     for (const primitive of this._primitives) {
-      primitive.onClose?.(code, reason, true);
+      try {
+        primitive.onClose?.(code, reason, true);
+      } catch (error) {
+        this._logAt('error', `primitive '${primitive.id}' onClose threw`, error);
+      }
     }
 
     this._setState('closed');
@@ -427,14 +434,22 @@ export class WSKitSocket {
 
         // Primitives go first (replay, re-subscribe, …), then your callbacks.
         for (const primitive of this._primitives) {
-          const messages = primitive.onOpen?.();
-          if (messages) for (const msg of messages) this._rawSend(msg);
+          try {
+            const messages = primitive.onOpen?.();
+            if (messages) for (const msg of messages) this._rawSend(msg);
+          } catch (error) {
+            this._logAt('error', `primitive '${primitive.id}' onOpen threw`, error);
+          }
         }
 
         if (isReconnect) {
           for (const primitive of this._primitives) {
-            const messages = primitive.onReconnect?.();
-            if (messages) for (const msg of messages) this._rawSend(msg);
+            try {
+              const messages = primitive.onReconnect?.();
+              if (messages) for (const msg of messages) this._rawSend(msg);
+            } catch (error) {
+              this._logAt('error', `primitive '${primitive.id}' onReconnect threw`, error);
+            }
           }
         }
 
@@ -449,7 +464,11 @@ export class WSKitSocket {
         this._quality = 'disconnected';
 
         for (const primitive of this._primitives) {
-          primitive.onClose?.(event.code, event.reason, false);
+          try {
+            primitive.onClose?.(event.code, event.reason, false);
+          } catch (error) {
+            this._logAt('error', `primitive '${primitive.id}' onClose threw`, error);
+          }
         }
 
         this._emitter.emit('close', {
