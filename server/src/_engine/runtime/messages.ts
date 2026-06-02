@@ -188,7 +188,9 @@ function isDuplicateIncoming(
   cap: number,
 ): boolean {
   const messageId = wskit?.messageId;
-  if (typeof messageId !== 'string' || messageId.length === 0) return false;
+  // The wire schema bounds and non-empties `messageId` (`WireId`); absent means
+  // the client opted out of receiver-side dedup for this frame.
+  if (messageId === undefined) return false;
 
   let ring = connection.seenIncomingIds;
   if (!ring || ring.cap !== cap) {

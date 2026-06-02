@@ -173,13 +173,6 @@ function sendChunkFrames(connection: RuntimeConnection, opts: SendChunkFramesOpt
   }
 }
 
-/** Read a client-supplied `streamId` from the trigger frame's `__wskit`. */
-function readSuppliedStreamId(wskit: Protocol.WSKitProtocol | undefined): string | undefined {
-  const value = wskit?.streamId;
-  if (typeof value !== 'string' || value.length === 0) return undefined;
-  return value;
-}
-
 function ensureUniqueStreamId(
   runtime: DurableStreamRuntime,
   opts: { streamId: string; storageIdentity: string },
@@ -217,8 +210,9 @@ export async function runDurableStream(
     allowConcurrent: def.allowConcurrent,
   });
 
-  const supplied = readSuppliedStreamId(wskit);
-  const streamId = supplied ?? runtime.generateId('dstream');
+  // The wire schema already bounds and non-empties `streamId` (`StreamIdString`),
+  // so its presence is the only thing left to check.
+  const streamId = wskit?.streamId ?? runtime.generateId('dstream');
   ensureUniqueStreamId(runtime, { streamId, storageIdentity });
 
   const now = Date.now();

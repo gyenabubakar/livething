@@ -1144,7 +1144,7 @@ describe('stream/runtime', () => {
     expect(streamEnd!.wskit.streamId).toBe('conv-42');
   });
 
-  it('falls back to a generated streamId when the supplied id is malformed', async () => {
+  it('falls back to a generated streamId when no id is supplied', async () => {
     const { runtime, protocolMessages } = createStreamRuntime();
     const connection = createConnection();
 
@@ -1155,14 +1155,12 @@ describe('stream/runtime', () => {
       },
     };
 
-    // Wrong type and empty string fall back to a generated id. (Length is bounded
-    // by the wire schema before this runs, so it isn't re-checked here.) The
-    // numeric case can never be a valid WSKitProtocol field, so cast it.
-    const badWSKits: NonNullable<RunStreamOptions['wskit']>[] = [
-      { streamId: 123, channelScope: null } as unknown as NonNullable<RunStreamOptions['wskit']>,
-      { streamId: '', channelScope: null },
-    ];
-    for (const bad of badWSKits) {
+    // An absent `streamId` is the only fallback the runtime still guards — the
+    // wire schema (`v.optional(StreamIdString)`) rejects a wrong type or an
+    // empty string before this runs, so those never reach here. A missing
+    // `__wskit` and a present-but-streamId-less one both generate an id.
+    const noIdWSKits: RunStreamOptions['wskit'][] = [undefined, { channelScope: null }];
+    for (const wskit of noIdWSKits) {
       protocolMessages.length = 0;
       runtime.activeStreams.clear();
       connection.activeStreamIds = undefined;
@@ -1172,7 +1170,7 @@ describe('stream/runtime', () => {
         event: 'feed',
         stream: stream as never,
         payload: {},
-        wskit: bad,
+        wskit,
       });
 
       const streamOk = protocolMessages.find((m) => m.event === '__streamOk__');

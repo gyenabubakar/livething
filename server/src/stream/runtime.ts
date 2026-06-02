@@ -85,18 +85,6 @@ interface StreamRuntime {
   persistAttachment(connection: RuntimeConnection): void;
 }
 
-/**
- * Extract a client-supplied `streamId` from the incoming frame's `__wskit`. The
- * wire schema already bounds the length (`StreamIdString`, ≤128) before this
- * runs, so we only check it's a non-empty string; anything else means "no id
- * supplied" and the runtime generates one.
- */
-function readSuppliedStreamId(wskit: Protocol.WSKitProtocol | undefined): string | undefined {
-  const value = wskit?.streamId;
-  if (typeof value !== 'string' || value.length === 0) return undefined;
-  return value;
-}
-
 /** Build the `__wskit` routing block for a stream protocol frame. */
 function buildStreamRouting(
   streamId: string,
@@ -172,7 +160,7 @@ export async function bufferStreamNudge(
 ): Promise<boolean> {
   const { event, payload, wskit } = options;
   const streamId = wskit?.streamId;
-  if (typeof streamId !== 'string') return false;
+  if (streamId === undefined) return false;
   const streamNudgeId = wskit?.streamNudgeId;
 
   // A rejected nudge is non-terminal: the error carries streamTerminated:false and
@@ -291,9 +279,10 @@ export async function runStream(
   });
 
   // Use the client's `streamId` if it sent one. Reject collisions with another
-  // active stream on this connection.
+  // active stream on this connection. The wire schema already bounds and
+  // non-empties it (`StreamIdString`), so its presence is the only question.
   let streamId: string;
-  const suppliedId = readSuppliedStreamId(wskit);
+  const suppliedId = wskit?.streamId;
   if (suppliedId !== undefined) {
     if (runtime.activeStreams.has(suppliedId)) {
       throw StreamIdCollision();
