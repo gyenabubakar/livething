@@ -40,14 +40,20 @@ export function namespaces(
 
       function register(name: string, event: string, handler: Handler): () => void {
         let byEvent = handlers.get(name);
-        if (!byEvent) handlers.set(name, (byEvent = new Map()));
+        if (!byEvent) {
+          byEvent = new Map();
+          handlers.set(name, byEvent);
+        }
         let set = byEvent.get(event);
-        if (!set) byEvent.set(event, (set = new Set()));
+        if (!set) {
+          set = new Set();
+          byEvent.set(event, set);
+        }
         set.add(handler);
         helpers.lazyAcquire();
         return () => {
-          set!.delete(handler);
-          if (set!.size === 0) byEvent!.delete(event);
+          set.delete(handler);
+          if (set.size === 0) byEvent.delete(event);
           helpers.lazyRelease();
         };
       }
@@ -60,10 +66,13 @@ export function namespaces(
           // Leave request responses and protocol frames for their own owners.
           if (message.__wskit?.correlationId !== undefined) return message;
           if (message.event.startsWith('__')) return message;
+          // A namespace-scoped stream chunk carries a streamId — it belongs to
+          // the stream primitive, not namespace.on(). Pass it through untouched.
+          if (message.__wskit?.streamId !== undefined) return message;
 
           const set = handlers.get(name)?.get(message.event);
           if (set) for (const handler of [...set]) handler(message.payload);
-          return null;
+          return message;
         },
         install(socket) {
           // @ts-expect-error — install adds namespace() to the socket dynamically

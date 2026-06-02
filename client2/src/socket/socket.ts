@@ -465,8 +465,14 @@ export class WSKitSocket {
       }
     }
 
-    this._log(`received '${message.event}'`, message.payload);
-    this._dispatchMessage(message.event, message.payload);
+    // Top-level handlers only see top-level events. Scope- or stream-tagged
+    // frames are delivered by their primitives (channel/namespace handlers, the
+    // stream iterator), so they don't double-fire here.
+    const w = message.__wskit;
+    if (w?.channel === undefined && w?.namespace === undefined && w?.streamId === undefined) {
+      this._log(`received '${message.event}'`, message.payload);
+      this._dispatchMessage(message.event, message.payload);
+    }
   }
 
   /** @internal — open a lazy socket the first time something needs it. */

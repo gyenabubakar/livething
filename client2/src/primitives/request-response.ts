@@ -106,8 +106,13 @@ export function requestResponse(
 
           // Let namespace/channel endpoints make scoped requests too.
           getAugmenters(socket).push((endpoint, scope) => {
-            endpoint.request = (event: string, payload: unknown, opts?: { timeout?: number }) =>
-              sendRequest(event, payload, { markers: scope.markers(), timeout: opts?.timeout });
+            endpoint.request = (event: string, payload: unknown, opts?: { timeout?: number }) => {
+              scope.assertReady?.();
+              return sendRequest(event, payload, {
+                markers: scope.markers(),
+                timeout: opts?.timeout,
+              });
+            };
           });
         },
       };

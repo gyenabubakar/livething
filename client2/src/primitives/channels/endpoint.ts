@@ -34,11 +34,14 @@ export function channelMarkers(state: ChannelState): ScopeMarkers {
 export function buildChannelEndpoint(ctx: ChannelContext, state: ChannelState): EndpointObject {
   const { helpers } = ctx;
 
-  // Sending requires an active subscription; this also guards request/sendWithAck,
-  // which the augmenters build on top of these markers.
+  // Sending needs an active subscription. `markers()` is the plain identity (used
+  // for routing and listen-only methods); `assertReady` is the guard the sending
+  // methods — including augmenter-built request/sendWithAck/stream — call first.
   function markers(): ScopeMarkers {
-    if (!state.active) throw ChannelNotSubscribed();
     return channelMarkers(state);
+  }
+  function assertReady(): void {
+    if (!state.active) throw ChannelNotSubscribed();
   }
 
   const endpoint: EndpointObject = {
@@ -51,6 +54,7 @@ export function buildChannelEndpoint(ctx: ChannelContext, state: ChannelState): 
       };
     },
     send(event, payload, options) {
+      assertReady();
       const ttl = options?.ttl ?? ctx.resolveTtl(event);
       return helpers.send(
         { event, payload, __wskit: markers() },
@@ -89,7 +93,7 @@ export function buildChannelEndpoint(ctx: ChannelContext, state: ChannelState): 
     onSubscriptionFailed: state.onSubscriptionFailed,
   };
 
-  applyAugmenters(ctx.socket, endpoint, { markers });
+  applyAugmenters(ctx.socket, endpoint, { markers, assertReady });
   return endpoint;
 }
 

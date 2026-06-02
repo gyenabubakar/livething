@@ -34,7 +34,7 @@ export type Endpoint<
         /**
          * Send a message. Returns `true` if it was sent or buffered, `false` if
          * dropped. `true` means "accepted," not "the server got it" — use
-         * `send.withAck()` if you need confirmation.
+         * `sendWithAck()` if you need confirmation.
          */
         send<K extends keyof TOutgoing & string>(
           event: K,

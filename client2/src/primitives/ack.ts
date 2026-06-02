@@ -32,7 +32,7 @@ interface Pending {
 type AckOptionsArg = { timeout?: number; ttl?: number };
 
 /**
- * Lets you confirm the server received a message. `socket.send.withAck(...)`
+ * Lets you confirm the server received a message. `socket.sendWithAck(...)`
  * works like `send()` but returns a promise that resolves once the server sends
  * back its "got it." Unlike `request()`, you don't get data back — just
  * confirmation. The promise rejects on timeout, a typed error, or disconnect.
@@ -105,8 +105,10 @@ export function ack(options: AckOptions = {}): Primitive<AckTypeFn> {
             sendWithAck(event, payload, { ...opts, markers: {} });
 
           getAugmenters(socket).push((endpoint, scope) => {
-            endpoint.sendWithAck = (event: string, payload: unknown, opts?: AckOptionsArg) =>
-              sendWithAck(event, payload, { ...opts, markers: scope.markers() });
+            endpoint.sendWithAck = (event: string, payload: unknown, opts?: AckOptionsArg) => {
+              scope.assertReady?.();
+              return sendWithAck(event, payload, { ...opts, markers: scope.markers() });
+            };
           });
         },
       };

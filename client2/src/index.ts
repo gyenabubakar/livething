@@ -39,6 +39,8 @@ export type { AckOptions } from '~/primitives/ack.ts';
 export { dedup } from '~/primitives/dedup.ts';
 export type { DedupOptions } from '~/primitives/dedup.ts';
 export { replay } from '~/primitives/replay.ts';
+export { stream } from '~/primitives/stream/index.ts';
+export type { StreamOptions, StreamTriggerOptions } from '~/primitives/stream/index.ts';
 
 export { CloseCodes } from '@wskit/core';
 
@@ -66,6 +68,9 @@ export type {
   RequestMethod,
   ScopedEndpoint,
   ScopedApi,
+  StreamHandle,
+  StreamHandlers,
+  NudgesOf,
 } from '~/types.ts';
 
 // For people writing their own primitives.

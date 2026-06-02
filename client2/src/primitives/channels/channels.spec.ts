@@ -4,6 +4,7 @@ import { ack } from '~/primitives/ack.ts';
 import { channels } from '~/primitives/channels/index.ts';
 import { reconnection } from '~/primitives/reconnection.ts';
 import { requestResponse } from '~/primitives/request-response.ts';
+import { stream } from '~/primitives/stream/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -150,6 +151,26 @@ describe('routing', () => {
     await p;
     ws.emit({ event: 'message', payload: { text: 'late' }, __wskit: { channel: 'general' } });
     expect(handler).toHaveBeenCalledWith({ text: 'late' });
+  });
+
+  it('does not deliver a channel-scoped stream chunk to channel.on()', async () => {
+    const { socket, ws } = build(channels(), stream());
+    const room = socket.channel('general');
+    const handler = vi.fn();
+    room.on('feed', handler);
+    const p = room.subscribe();
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: { source: 'client' },
+      __wskit: { channel: 'general' },
+    });
+    await p;
+    ws.emit({
+      event: 'feed',
+      payload: { token: 'a' },
+      __wskit: { channel: 'general', streamId: 's1', seq: 1 },
+    });
+    expect(handler).not.toHaveBeenCalled();
   });
 });
 

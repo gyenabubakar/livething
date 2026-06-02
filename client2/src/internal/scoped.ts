@@ -27,9 +27,16 @@ export interface EndpointObject {
   [key: string]: unknown;
 }
 
-/** Tells an augmenter how to tag frames for the scope it's decorating. */
+/** Tells an augmenter about the scope it's decorating. */
 export interface ScopeInfo {
+  /** The `__wskit` markers that identify this scope. Never throws. */
   markers(): ScopeMarkers;
+  /**
+   * Throw if the scope can't send yet — a channel guards against sending before
+   * it's subscribed. Sending methods (send, request, sendWithAck, stream) call
+   * this; listen-only ones (on, onStream) don't. Absent means "always ready."
+   */
+  assertReady?(): void;
 }
 
 /** Adds methods to a freshly built scoped endpoint. */

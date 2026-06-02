@@ -50,13 +50,19 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
       function stateFor(name: string, scopeKey?: string): ChannelState {
         const key = channelKey(name, scopeKey);
         let state = states.get(key);
-        if (!state) states.set(key, (state = new ChannelState(name, scopeKey)));
+        if (!state) {
+          state = new ChannelState(name, scopeKey);
+          states.set(key, state);
+        }
         return state;
       }
 
       function familyFor(scopeKey: string): FamilyState {
         let family = families.get(scopeKey);
-        if (!family) families.set(scopeKey, (family = new FamilyState()));
+        if (!family) {
+          family = new FamilyState();
+          families.set(scopeKey, family);
+        }
         return family;
       }
 
@@ -79,8 +85,10 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
         endpointFor(name, scopeKey) {
           const key = channelKey(name, scopeKey);
           let endpoint = endpoints.get(key);
-          if (!endpoint)
-            endpoints.set(key, (endpoint = buildChannelEndpoint(ctx, stateFor(name, scopeKey))));
+          if (!endpoint) {
+            endpoint = buildChannelEndpoint(ctx, stateFor(name, scopeKey));
+            endpoints.set(key, endpoint);
+          }
           return endpoint;
         },
       };
@@ -153,9 +161,12 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
               // A normal channel event. Leave protocol frames and request replies alone.
               if (message.event.startsWith('__')) return message;
               if (wskit?.correlationId !== undefined) return message;
+              // A channel-scoped stream chunk carries a streamId — it belongs to
+              // the stream primitive, not channel.on(). Pass it through untouched.
+              if (wskit?.streamId !== undefined) return message;
               state.dispatch(message.event, message.payload);
               notifyFamily((family) => family.dispatch(message.event, message.payload, name));
-              return null;
+              return message;
             }
           }
         },
@@ -195,7 +206,10 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
           }
           channel.scope = (scopeKey: string): ScopeHandleObject => {
             let handle = scopeHandles.get(scopeKey);
-            if (!handle) scopeHandles.set(scopeKey, (handle = buildScopeHandle(ctx, scopeKey)));
+            if (!handle) {
+              handle = buildScopeHandle(ctx, scopeKey);
+              scopeHandles.set(scopeKey, handle);
+            }
             return handle;
           };
 

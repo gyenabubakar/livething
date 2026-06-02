@@ -28,6 +28,12 @@ export interface WSKitEnvelope {
   messageId?: string;
   /** Groups the chunks of one stream. */
   streamId?: string;
+  /** Whether a stream is resumable (`persistent`) or dies on disconnect (`ephemeral`). */
+  streamKind?: 'ephemeral' | 'persistent';
+  /** Correlates a nudge with its `__nudgeOk__` / `__error__` reply. */
+  streamNudgeId?: string;
+  /** On a stream `__error__`: false means non-terminal (a rejected nudge). */
+  streamTerminated?: boolean;
 }
 
 /**

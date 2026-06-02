@@ -6,6 +6,7 @@ import { namespaces } from '~/primitives/namespaces.ts';
 import { reconnection } from '~/primitives/reconnection.ts';
 import { replay } from '~/primitives/replay.ts';
 import { requestResponse } from '~/primitives/request-response.ts';
+import { stream } from '~/primitives/stream/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -148,6 +149,18 @@ describe('namespaces', () => {
   it('returns the same endpoint object for the same name', () => {
     const { socket } = build(namespaces());
     expect(socket.namespace('alerts')).toBe(socket.namespace('alerts'));
+  });
+
+  it('does not deliver a namespace-scoped stream chunk to namespace.on()', () => {
+    const { socket, ws } = build(namespaces(), stream());
+    const nsHandler = vi.fn();
+    socket.namespace('alerts').on('feed', nsHandler);
+    ws.emit({
+      event: 'feed',
+      payload: { token: 'a' },
+      __wskit: { namespace: 'alerts', streamId: 's1', seq: 1 },
+    });
+    expect(nsHandler).not.toHaveBeenCalled();
   });
 
   it('adds scoped sendWithAck when ack is registered', async () => {

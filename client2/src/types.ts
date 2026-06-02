@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- contract matching is intentionally loose */
+import type { WSKitError } from '@wskit/core';
 import type { Endpoint } from '~/endpoint.ts';
 
 /**
@@ -122,6 +123,45 @@ export type StaticApi<Api> = {
   readonly _api: Api;
 };
 
+/**
+ * The handle `stream()` returns: an async iterable of chunks you can also nudge
+ * or cancel. Breaking out of a `for await` loop cancels it for you.
+ */
+export interface StreamHandle<TChunks, TNudges = {}> extends AsyncIterable<TChunks> {
+  /**
+   * Send a mid-stream message to the running server generator. The Promise
+   * resolves when the server confirms the nudge (`__nudgeOk__`) and rejects if
+   * it's refused or `nudgeTimeout` elapses — a rejected nudge does not end the
+   * stream. After the stream ends, a nudge resolves to a no-op.
+   */
+  nudge<K extends keyof TNudges & string>(
+    event: K,
+    payload: TNudges[K],
+    options?: { timeout?: number },
+  ): Promise<void>;
+  /** Ask the server to stop. The loop exits without throwing. */
+  cancel(): void;
+  /** The id that groups this stream's chunks. */
+  readonly streamId: string;
+  /** Whether the stream is still running. */
+  readonly active: boolean;
+}
+
+/** Callbacks for a listen-only (broadcast) stream via `onStream()`. */
+export interface StreamHandlers<TChunk> {
+  /** A chunk arrived. */
+  onChunk(chunk: TChunk, streamId: string): void;
+  /** The stream finished. `finalSeq` is the last `seq`, to detect missed chunks. */
+  onEnd?(streamId: string, finalSeq?: number): void;
+  /** The stream errored (only the triggering client sees this on a broadcast). */
+  onError?(error: WSKitError, streamId: string): void;
+  /** No chunk arrived within the per-chunk timeout. */
+  onTimeout?(streamId: string): void;
+}
+
+/** Pull the `nudges` map out of one stream definition, or `{}` if it has none. */
+export type NudgesOf<S> = S extends { nudges: infer N } ? N : {};
+
 /** Adds a `request()`-style method typed from the contract's `requests`. */
 export type RequestMethod<TContract, TMethod extends string> = TContract extends {
   requests: infer R extends Record<string, { payload: any; response: any }>;
@@ -137,8 +177,8 @@ export type RequestMethod<TContract, TMethod extends string> = TContract extends
 
 /**
  * The full endpoint type for one scope (a namespace or channel): `on`/`send`
- * plus `request()` when the scope has requests and `sendWithAck()` when it has
- * outgoing events. (Streams and channel membership are added in later phases.)
+ * plus `request()` when the scope has requests, `sendWithAck()` when it has
+ * outgoing events, and the stream methods when it has streams.
  */
 export type ScopedEndpoint<C> = Endpoint<IncomingOf<C> & object, OutgoingOf<C> & object> &
   (C extends { requests: infer R extends Record<string, { payload: any; response: any }> }
@@ -158,7 +198,25 @@ export type ScopedEndpoint<C> = Endpoint<IncomingOf<C> & object, OutgoingOf<C> &
           payload: OutgoingOf<C>[E],
           options?: { timeout?: number; ttl?: number },
         ): Promise<void>;
-      });
+      }) &
+  (C extends { streams: infer S extends Record<string, { payload: any; chunks: any }> }
+    ? {
+        stream<E extends keyof S & string>(
+          event: E,
+          payload: S[E]['payload'],
+          options?: { streamId?: string },
+        ): Promise<StreamHandle<S[E]['chunks'], NudgesOf<S[E]>>>;
+        onStream<E extends keyof S & string>(
+          event: E,
+          handlers: StreamHandlers<S[E]['chunks']>,
+        ): () => void;
+        resumeStream<E extends keyof S & string>(
+          event: E,
+          streamId: string,
+          options?: { lastKnownSeq?: number },
+        ): StreamHandle<S[E]['chunks'], NudgesOf<S[E]>>;
+      }
+    : {});
 
 /**
  * Turns a contract key holding many scopes into a lookup method. For example
