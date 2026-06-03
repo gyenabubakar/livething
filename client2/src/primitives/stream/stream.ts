@@ -4,7 +4,7 @@ import { getAugmenters } from '~/internal/scoped.ts';
 import { buildStreamHandle } from '~/primitives/stream/handle.ts';
 import { StreamState } from '~/primitives/stream/state.ts';
 import type { WSKitError } from '@wskit/core';
-import type { WireMessage, WSKitEnvelope } from '~/internal/runtime.ts';
+import type { PrimitiveLogger, WireMessage, WSKitEnvelope } from '~/internal/runtime.ts';
 import type { ScopeMarkers } from '~/internal/scoped.ts';
 import type { StreamHandleDependencies } from '~/primitives/stream/handle.ts';
 import type {
@@ -56,6 +56,15 @@ function scopeMatches(
 /** The `stream-aborted` reason on an error, if any. */
 function abortReason(error: WSKitError): string | undefined {
   return (error.detail as { reason?: string } | undefined)?.reason;
+}
+
+/** Run a broadcast-stream callback in isolation so one throw can't stop the rest. */
+function callStreamHandler(log: PrimitiveLogger, run: () => void): void {
+  try {
+    run();
+  } catch (error) {
+    log.error('a stream handler threw', error);
+  }
 }
 
 /**
@@ -238,11 +247,13 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           current.timer = setTimeout(() => {
             helpers.log.info(`broadcast stream '${streamId}' timed out`);
             broadcastRuns.delete(streamId);
-            for (const handler of current.handlers) handler.onTimeout?.(streamId);
+            for (const handler of current.handlers)
+              callStreamHandler(helpers.log, () => handler.onTimeout?.(streamId));
           }, timeout);
         }
         helpers.log.info(`broadcast stream '${streamId}' chunk received`);
-        for (const handler of run.handlers) handler.onChunk(payload, streamId);
+        for (const handler of run.handlers)
+          callStreamHandler(helpers.log, () => handler.onChunk(payload, streamId));
       }
 
       function endBroadcast(
@@ -253,7 +264,8 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         if (!active) return;
         if (active.timer) clearTimeout(active.timer);
         broadcastRuns.delete(streamId);
-        for (const handler of active.handlers) notify(handler);
+        for (const handler of active.handlers)
+          callStreamHandler(helpers.log, () => notify(handler));
       }
 
       return {

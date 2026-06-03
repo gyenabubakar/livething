@@ -5,6 +5,7 @@ import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { channels } from '~/primitives/channels/index.ts';
 import { namespaces } from '~/primitives/namespaces/index.ts';
+import { stream } from '~/primitives/stream/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -102,6 +103,52 @@ describe('a throwing message handler is isolated from its siblings', () => {
         payload: {},
         __wskit: { channel: 'lobby', channelScope: 'rooms' },
       }),
+    ).not.toThrow();
+    expect(calls).toEqual(['A', 'B']);
+  });
+});
+
+describe('a throwing presence or stream callback is isolated from its siblings', () => {
+  it('channel presence: a throwing onMemberJoin still lets the other one run', () => {
+    const { socket, ws } = connected(channels());
+    const room = socket.channel('general');
+    room.subscribe();
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: { source: 'client' },
+      __wskit: { channel: 'general' },
+    });
+
+    const calls: string[] = [];
+    room.onMemberJoin(() => {
+      calls.push('A');
+      throw new Error('boom');
+    });
+    room.onMemberJoin(() => calls.push('B'));
+
+    expect(() =>
+      ws.emit({
+        event: '__memberJoin__',
+        payload: { connectionId: 'c1' },
+        __wskit: { channel: 'general' },
+      }),
+    ).not.toThrow();
+    expect(calls).toEqual(['A', 'B']);
+  });
+
+  it('stream broadcast: a throwing onChunk still lets another subscriber receive', () => {
+    const { socket, ws } = connected(stream());
+    const calls: string[] = [];
+    socket.onStream('feed', {
+      onChunk: () => {
+        calls.push('A');
+        throw new Error('boom');
+      },
+    });
+    socket.onStream('feed', { onChunk: () => calls.push('B') });
+
+    expect(() =>
+      ws.emit({ event: 'feed', payload: {}, __wskit: { streamId: 's1' } }),
     ).not.toThrow();
     expect(calls).toEqual(['A', 'B']);
   });

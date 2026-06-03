@@ -7,8 +7,13 @@ type Handler = (data: unknown) => void;
 type MemberCallback = (connectionId: string, member: ChannelMember) => void;
 type LeaveCallback = (connectionId: string) => void;
 
-/** A tiny set-of-callbacks helper: add returns an unsubscribe, `emit` calls them all. */
-function listeners<F>() {
+/**
+ * A tiny set-of-callbacks helper: `add` returns an unsubscribe, `each` runs them
+ * all in isolation — a throwing listener can't stop its siblings, and the throw
+ * is reported on the (debug-gated) log channel. `getLog` is read lazily so it can
+ * reference the owning instance's logger, which is set after the field runs.
+ */
+function listeners<F>(getLog: () => PrimitiveLogger) {
   const set = new Set<F>();
   return {
     add(callback: F): () => void {
@@ -16,7 +21,13 @@ function listeners<F>() {
       return () => set.delete(callback);
     },
     each(run: (callback: F) => void): void {
-      for (const callback of [...set]) run(callback);
+      for (const callback of [...set]) {
+        try {
+          run(callback);
+        } catch (error) {
+          getLog().error('a channel listener threw', error);
+        }
+      }
     },
   };
 }
@@ -39,14 +50,14 @@ export class ChannelState {
   readonly members = new Map<string, ChannelMember>();
   readonly handlers = new Map<string, Set<Handler>>();
 
-  private readonly subscribed = listeners<(source: SubscribeSource) => void>();
-  private readonly unsubscribed = listeners<() => void>();
-  private readonly kicked = listeners<(reason: string) => void>();
-  private readonly subFailed = listeners<(error: WSKitError) => void>();
-  private readonly memberJoin = listeners<MemberCallback>();
-  private readonly memberLeave = listeners<LeaveCallback>();
-  private readonly memberOnline = listeners<MemberCallback>();
-  private readonly memberOffline = listeners<LeaveCallback>();
+  private readonly subscribed = listeners<(source: SubscribeSource) => void>(() => this.log);
+  private readonly unsubscribed = listeners<() => void>(() => this.log);
+  private readonly kicked = listeners<(reason: string) => void>(() => this.log);
+  private readonly subFailed = listeners<(error: WSKitError) => void>(() => this.log);
+  private readonly memberJoin = listeners<MemberCallback>(() => this.log);
+  private readonly memberLeave = listeners<LeaveCallback>(() => this.log);
+  private readonly memberOnline = listeners<MemberCallback>(() => this.log);
+  private readonly memberOffline = listeners<LeaveCallback>(() => this.log);
 
   constructor(
     /** The `__wskit.channel` value. */
@@ -184,8 +195,10 @@ export class FamilyState {
     string,
     Set<(data: unknown, channelName: string) => void>
   >();
-  private readonly subscribed = listeners<(channelName: string, source: SubscribeSource) => void>();
-  private readonly unsubscribed = listeners<(channelName: string) => void>();
+  private readonly subscribed = listeners<(channelName: string, source: SubscribeSource) => void>(
+    () => this.log,
+  );
+  private readonly unsubscribed = listeners<(channelName: string) => void>(() => this.log);
 
   /** @param log debug-gated logger, used to report a throwing event handler. */
   constructor(private readonly log: PrimitiveLogger) {}
