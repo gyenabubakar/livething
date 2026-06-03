@@ -1,4 +1,5 @@
 import { Block, WSKitConfigError } from '@wskit/core';
+import { dispatchToHandlers } from '~/internal/dispatch.ts';
 import { toWSKitError } from '~/internal/error-frame.ts';
 import { Emitter } from '~/socket/emitter.ts';
 import type { WSKitError } from '@wskit/core';
@@ -7,6 +8,7 @@ import type { SocketConfig } from '~/internal/config.ts';
 import type {
   InterceptFn,
   PrimitiveHelpers,
+  PrimitiveLogger,
   PrimitiveRuntime,
   WireMessage,
   WSKitEnvelope,
@@ -77,7 +79,8 @@ export class WSKitSocket {
   _primitives: readonly PrimitiveRuntime[] = [];
   /** @internal */
   _state: ConnectionState = 'closed';
-  /** @internal */
+  /** @internal — a throwing listener is contained and logged on the debug
+   * channel (matching the message-handler dispatch path), never escapes. */
   _emitter = new Emitter<SocketEvents>((error) =>
     this._logAt('error', 'a socket listener threw', error),
   );
@@ -122,6 +125,14 @@ export class WSKitSocket {
   private readonly _parseBinary: ((data: unknown) => WireMessage | null) | null;
   private readonly _serialize: (message: WireMessage) => string;
   private readonly _intercepts: readonly InterceptFn[];
+
+  // The one debug-gated logger, shared by the primitive helpers and the kernel's
+  // own dispatch paths. `info` maps to console.log, warn/error to their levels.
+  private readonly _logger: PrimitiveLogger = {
+    info: (...args) => this._logAt('log', ...args),
+    warn: (...args) => this._logAt('warn', ...args),
+    error: (...args) => this._logAt('error', ...args),
+  };
 
   /** @internal */
   constructor(config: SocketConfig) {
@@ -319,11 +330,7 @@ export class WSKitSocket {
     return {
       config: this._config,
 
-      log: {
-        info: (...args) => this._logAt('log', ...args),
-        warn: (...args) => this._logAt('warn', ...args),
-        error: (...args) => this._logAt('error', ...args),
-      },
+      log: this._logger,
 
       rawSend: (message) => this._rawSend(message),
 
@@ -716,11 +723,7 @@ export class WSKitSocket {
 
   /** @internal — call every handler listening for this event. */
   _dispatchMessage(event: string, payload: unknown): void {
-    const handlers = this._messageHandlers.get(event);
-    if (!handlers) return;
-    for (const handler of [...handlers]) {
-      handler(payload);
-    }
+    dispatchToHandlers(this._messageHandlers.get(event), this._logger, payload);
   }
 
   private _log(...args: unknown[]): void {

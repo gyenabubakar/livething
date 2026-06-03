@@ -1,4 +1,6 @@
+import { dispatchToHandlers } from '~/internal/dispatch.ts';
 import type { WSKitError } from '@wskit/core';
+import type { PrimitiveLogger } from '~/internal/runtime.ts';
 import type { ChannelMember, SubscribeSource } from '~/primitives/channels/types.ts';
 
 type Handler = (data: unknown) => void;
@@ -50,7 +52,9 @@ export class ChannelState {
     /** The `__wskit.channel` value. */
     readonly name: string,
     /** The `__wskit.channelScope` value, for a channel inside a dynamic family. */
-    readonly scopeKey?: string,
+    readonly scopeKey: string | undefined,
+    /** Debug-gated logger, used to report a throwing event handler. */
+    private readonly log: PrimitiveLogger,
   ) {}
 
   // ── event listeners (each returns an unsubscribe) ──
@@ -79,8 +83,7 @@ export class ChannelState {
 
   /** Deliver an incoming event to this channel's handlers. */
   dispatch(event: string, payload: unknown): void {
-    const set = this.handlers.get(event);
-    if (set) for (const handler of [...set]) handler(payload);
+    dispatchToHandlers(this.handlers.get(event), this.log, payload);
   }
 
   // ── transitions the routing layer drives ──
@@ -184,6 +187,9 @@ export class FamilyState {
   private readonly subscribed = listeners<(channelName: string, source: SubscribeSource) => void>();
   private readonly unsubscribed = listeners<(channelName: string) => void>();
 
+  /** @param log debug-gated logger, used to report a throwing event handler. */
+  constructor(private readonly log: PrimitiveLogger) {}
+
   onSubscribed = this.subscribed.add;
   onUnsubscribed = this.unsubscribed.add;
 
@@ -201,8 +207,7 @@ export class FamilyState {
   }
 
   dispatch(event: string, payload: unknown, channelName: string): void {
-    const set = this.familyHandlers.get(event);
-    if (set) for (const handler of [...set]) handler(payload, channelName);
+    dispatchToHandlers(this.familyHandlers.get(event), this.log, payload, channelName);
   }
 
   fireSubscribed(channelName: string, source: SubscribeSource): void {

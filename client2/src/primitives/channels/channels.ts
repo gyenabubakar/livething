@@ -54,7 +54,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
         const key = channelKey(name, scopeKey);
         let state = states.get(key);
         if (!state) {
-          state = new ChannelState(name, scopeKey);
+          state = new ChannelState(name, scopeKey, helpers.log);
           states.set(key, state);
         }
         return state;
@@ -63,7 +63,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
       function familyFor(scopeKey: string): FamilyState {
         let family = families.get(scopeKey);
         if (!family) {
-          family = new FamilyState();
+          family = new FamilyState(helpers.log);
           families.set(scopeKey, family);
         }
         return family;

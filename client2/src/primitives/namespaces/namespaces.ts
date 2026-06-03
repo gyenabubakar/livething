@@ -1,3 +1,4 @@
+import { dispatchToHandlers } from '~/internal/dispatch.ts';
 import { applyAugmenters } from '~/internal/scoped.ts';
 import type { EndpointObject, ScopeMarkers } from '~/internal/scoped.ts';
 import type { NamespacesOptions, NamespacesTypeFn } from '~/primitives/namespaces/types.ts';
@@ -60,8 +61,7 @@ export function namespaces(
           // the stream primitive, not namespace.on(). Pass it through untouched.
           if (message.__wskit?.streamId !== undefined) return message;
 
-          const set = handlers.get(name)?.get(message.event);
-          if (set) for (const handler of [...set]) handler(message.payload);
+          dispatchToHandlers(handlers.get(name)?.get(message.event), helpers.log, message.payload);
           return message;
         },
         install(socket) {
