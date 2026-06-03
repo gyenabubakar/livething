@@ -3,6 +3,8 @@
 // stale-socket guards. Each one guards a fixed bug.
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
+import { ack } from '~/primitives/ack/index.ts';
+import { buffering } from '~/primitives/buffering/index.ts';
 import { keepalive } from '~/primitives/keepalive/index.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
@@ -180,6 +182,34 @@ describe('disconnect() is a quiet no-op when already closed', () => {
     socket.connect();
     MockWebSocket.last().open();
     expect(onReconnect).not.toHaveBeenCalled();
+  });
+});
+
+describe('disconnect() still cleans up primitives when already closed', () => {
+  it('clears the buffer even if the socket is already closed', () => {
+    const socket = c(connect('wss://test'), buffering({ enabled: true }));
+    socket.connect();
+    MockWebSocket.last().open();
+    MockWebSocket.last().serverClose(1006); // drop → closed, buffer kept (no reconnection)
+    expect(socket.getState()).toBe('closed');
+
+    socket.send('y', { v: 1 }); // buffered while closed
+    socket.disconnect(); // must discard the buffer
+    socket.connect();
+    MockWebSocket.last().open(); // onOpen flush must NOT replay 'y'
+
+    expect(
+      MockWebSocket.last()
+        .sentFrames()
+        .some((f) => f.event === 'y'),
+    ).toBe(false);
+  });
+
+  it('rejects a pending sendWithAck even if the socket is already closed', async () => {
+    const socket = c(connect('wss://test'), ack({ timeout: 100 }));
+    const pending = socket.sendWithAck('x', { v: 1 }); // pending created while closed
+    socket.disconnect(); // must reject it with Disconnected, not let it time out
+    await expect(pending).rejects.toMatchObject({ code: 'disconnected' });
   });
 });
 

@@ -204,13 +204,12 @@ export class WSKitSocket {
     this._quality = 'disconnected';
     this._latency = null;
 
-    if (!wasActive) return;
-
-    // Primitives reject their pending work here, and each pending op releases
-    // its own lazy hold. We do NOT zero `_lazyConsumers`: `on()` handlers stay
-    // registered across a disconnect, so they remain real consumers — wiping the
-    // count would make a later unsubscribe wrongly idle-close a socket that still
-    // has live listeners (e.g. after a background-disconnect/reconnect).
+    // Primitives always clean up here — clear the buffer, reject pending
+    // request/ack promises — even when we were already closed, since work may
+    // have been queued since the close. We do NOT zero `_lazyConsumers`: `on()`
+    // handlers stay registered across a disconnect, so they remain real
+    // consumers — wiping the count would make a later unsubscribe wrongly
+    // idle-close a socket that still has live listeners.
     for (const primitive of this._primitives) {
       try {
         primitive.onClose?.(code, reason, true);
@@ -218,11 +217,15 @@ export class WSKitSocket {
         this._logAt('error', `primitive '${primitive.id}' onClose threw`, error);
       }
     }
-
-    this._setState('closed');
     // Clear again in case a pending-op release above started an idle timer.
     this._clearLazyIdleTimer();
-    this._emitter.emit('close', { code, reason, wasClean: true });
+
+    // Fire the user-facing close only once: skip it when we were already closed
+    // so a redundant disconnect doesn't emit a second onClose.
+    if (wasActive) {
+      this._setState('closed');
+      this._emitter.emit('close', { code, reason, wasClean: true });
+    }
   }
 
   getState(): ConnectionState {
@@ -487,6 +490,7 @@ export class WSKitSocket {
         this.ws = null;
         this.protocol = null;
         this._quality = 'disconnected';
+        this._latency = null;
 
         for (const primitive of this._primitives) {
           try {
