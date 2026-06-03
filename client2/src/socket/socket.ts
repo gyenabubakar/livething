@@ -39,10 +39,12 @@ type SocketEvents = {
 function defaultParse(raw: string): WireMessage | null {
   const parsed = JSON.parse(raw) as Record<string, unknown>;
   if (typeof parsed.event !== 'string') return null;
+
   const message: WireMessage = { event: parsed.event, payload: parsed.payload };
   if (parsed.__wskit && typeof parsed.__wskit === 'object') {
     message.__wskit = parsed.__wskit as WSKitEnvelope;
   }
+
   return message;
 }
 
@@ -76,7 +78,9 @@ export class WSKitSocket {
   /** @internal */
   _state: ConnectionState = 'closed';
   /** @internal */
-  _emitter = new Emitter<SocketEvents>();
+  _emitter = new Emitter<SocketEvents>((error) =>
+    this._logAt('error', 'a socket listener threw', error),
+  );
   /** @internal */
   _debug = false;
   /** @internal */
@@ -178,6 +182,9 @@ export class WSKitSocket {
   disconnect(code = 1000, reason = ''): void {
     this._intentionalClose = true;
     this._connectAttemptId++;
+    // A deliberate teardown ends the session: the next connect() is a first
+    // connect again, not a reconnect (so onReconnect/replay don't fire).
+    this._isFirstConnect = true;
     this._clearLazyIdleTimer();
 
     if (this.ws) {
@@ -236,7 +243,12 @@ export class WSKitSocket {
     const set = this._messageHandlers.get(event)!;
     set.add(handler);
 
+    // Guard so calling this unsubscribe more than once releases the lazy hold
+    // only once — a second call must not steal another listener's hold.
+    let released = false;
     return () => {
+      if (released) return;
+      released = true;
       set.delete(handler);
       if (set.size === 0) this._messageHandlers.delete(event);
       this._lazyRelease();
@@ -471,32 +483,35 @@ export class WSKitSocket {
           }
         }
 
+        // Settle the state BEFORE firing onClose so a handler that reads
+        // getState() sees the resolved state ('reconnecting' or 'closed').
+        if (this._intentionalClose) {
+          this._setState('closed');
+        } else if (this._unexpectedCloseHandler) {
+          // Reconnection decides what happens next (it sets 'reconnecting' or
+          // gives up to 'closed'); without it, an unexpected drop stays closed.
+          this._unexpectedCloseHandler(event.code, event.reason);
+        } else {
+          this._setState('closed');
+        }
+
         this._emitter.emit('close', {
           code: event.code,
           reason: event.reason,
           wasClean: event.wasClean,
         });
-
-        if (this._intentionalClose) {
-          this._setState('closed');
-          return;
-        }
-
-        // If reconnection is installed it decides what happens next; otherwise
-        // an unexpected drop just leaves us closed.
-        if (this._unexpectedCloseHandler) {
-          this._unexpectedCloseHandler(event.code, event.reason);
-        } else {
-          this._setState('closed');
-        }
       };
 
       ws.onerror = (event) => {
+        if (attemptId !== this._connectAttemptId) return;
         this._log('WebSocket error');
         this._emitter.emit('error', event);
       };
 
-      ws.onmessage = (event) => this._handleMessage(event);
+      ws.onmessage = (event) => {
+        if (attemptId !== this._connectAttemptId) return;
+        this._handleMessage(event);
+      };
     } catch (error) {
       if (attemptId !== this._connectAttemptId) return;
 

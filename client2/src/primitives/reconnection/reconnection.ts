@@ -58,7 +58,9 @@ export function reconnection(options: ReconnectionOptions = {}): Primitive<Empty
 
         timer = setTimeout(() => {
           timer = null;
-          helpers.reopen();
+          // If a manual connect() (or anything else) already moved us out of
+          // 'reconnecting', this retry is stale — don't open a duplicate.
+          if (helpers.getState() === 'reconnecting') helpers.reopen();
         }, delay);
       }
 

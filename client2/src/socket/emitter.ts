@@ -7,6 +7,10 @@ export class Emitter<TEvents extends Record<string, unknown[]> = Record<string, 
   // below keep callers honest about each event's real arguments.
   private listeners = new Map<string, Set<(...args: unknown[]) => void>>();
 
+  // A throwing listener must not break the others or escape `emit()` (which runs
+  // inside the WebSocket's close/open handlers). The owner passes this to log it.
+  constructor(private onListenerError?: (error: unknown) => void) {}
+
   /** Add a listener; call the returned function to remove it. */
   on<K extends string & keyof TEvents>(
     event: K,
@@ -31,7 +35,11 @@ export class Emitter<TEvents extends Record<string, unknown[]> = Record<string, 
     if (!set) return;
     // Copy first so a listener that unsubscribes mid-emit doesn't disturb the loop.
     for (const listener of [...set]) {
-      listener(...args);
+      try {
+        listener(...args);
+      } catch (error) {
+        this.onListenerError?.(error);
+      }
     }
   }
 
