@@ -15,11 +15,11 @@ export type { InterceptFn };
  * });
  * ```
  */
-export function intercept(fn: InterceptFn): Primitive<EmptyTypeFn> {
+export function intercept(interceptor: InterceptFn): Primitive<EmptyTypeFn> {
   return {
     _tag: 'intercept',
     applyConfig(config) {
-      (config.intercepts ??= []).push(fn);
+      (config.intercepts ??= []).push(interceptor);
     },
   };
 }

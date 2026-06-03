@@ -20,9 +20,12 @@ import type { WSKitSocket } from '~/socket/socket.ts';
 function readMember(
   payload: unknown,
 ): { connectionId: string; meta?: Record<string, unknown> } | null {
-  const p = (payload ?? {}) as { connectionId?: unknown; meta?: unknown };
-  if (typeof p.connectionId !== 'string') return null;
-  return { connectionId: p.connectionId, meta: p.meta as Record<string, unknown> | undefined };
+  const fields = (payload ?? {}) as { connectionId?: unknown; meta?: unknown };
+  if (typeof fields.connectionId !== 'string') return null;
+  return {
+    connectionId: fields.connectionId,
+    meta: fields.meta as Record<string, unknown> | undefined,
+  };
 }
 
 /**
@@ -74,7 +77,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
         return names;
       }
 
-      const ctx: ChannelContext = {
+      const context: ChannelContext = {
         helpers,
         resolveTtl,
         family: familyFor,
@@ -86,7 +89,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
           const key = channelKey(name, scopeKey);
           let endpoint = endpoints.get(key);
           if (!endpoint) {
-            endpoint = buildChannelEndpoint(ctx, stateFor(name, scopeKey));
+            endpoint = buildChannelEndpoint(context, stateFor(name, scopeKey));
             endpoints.set(key, endpoint);
           }
           return endpoint;
@@ -102,8 +105,8 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
 
           const scopeKey = wskit?.channelScope;
           const state = stateFor(name, scopeKey);
-          function notifyFamily(run: (family: FamilyState) => void): void {
-            if (scopeKey) run(familyFor(scopeKey));
+          function notifyFamily(notify: (family: FamilyState) => void): void {
+            if (scopeKey) notify(familyFor(scopeKey));
           }
 
           switch (message.event) {
@@ -205,13 +208,13 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
 
           function channel(nameOrScope: string, name?: string): EndpointObject {
             return name === undefined
-              ? ctx.endpointFor(nameOrScope)
-              : ctx.endpointFor(name, nameOrScope);
+              ? context.endpointFor(nameOrScope)
+              : context.endpointFor(name, nameOrScope);
           }
           channel.scope = (scopeKey: string): ScopeHandleObject => {
             let handle = scopeHandles.get(scopeKey);
             if (!handle) {
-              handle = buildScopeHandle(ctx, scopeKey);
+              handle = buildScopeHandle(context, scopeKey);
               scopeHandles.set(scopeKey, handle);
             }
             return handle;

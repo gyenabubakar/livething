@@ -31,8 +31,8 @@ export function channelMarkers(state: ChannelState): ScopeMarkers {
 }
 
 /** Build the handle a developer interacts with for one channel. */
-export function buildChannelEndpoint(ctx: ChannelContext, state: ChannelState): EndpointObject {
-  const { helpers } = ctx;
+export function buildChannelEndpoint(context: ChannelContext, state: ChannelState): EndpointObject {
+  const { helpers } = context;
 
   // Sending needs an active subscription. `markers()` is the plain identity (used
   // for routing and listen-only methods); `assertReady` is the guard the sending
@@ -55,7 +55,7 @@ export function buildChannelEndpoint(ctx: ChannelContext, state: ChannelState): 
     },
     send(event, payload, options) {
       assertReady();
-      const ttl = options?.ttl ?? ctx.resolveTtl(event);
+      const ttl = options?.ttl ?? context.resolveTtl(event);
       return helpers.send(
         { event, payload, __wskit: markers() },
         ttl !== undefined ? { ttl } : undefined,
@@ -84,7 +84,7 @@ export function buildChannelEndpoint(ctx: ChannelContext, state: ChannelState): 
       helpers.rawSend({ event: '__unsubscribe__', payload: {}, __wskit: channelMarkers(state) });
       // markUnsubscribed() drops the lazy hold for us.
       state.markUnsubscribed();
-      if (state.scopeKey) ctx.family(state.scopeKey).fireUnsubscribed(state.name);
+      if (state.scopeKey) context.family(state.scopeKey).fireUnsubscribed(state.name);
     },
     get members(): ReadonlyMap<string, ChannelMember> {
       return state.members;
@@ -99,25 +99,25 @@ export function buildChannelEndpoint(ctx: ChannelContext, state: ChannelState): 
     onSubscriptionFailed: state.onSubscriptionFailed,
   };
 
-  applyAugmenters(ctx.socket, endpoint, { markers, assertReady });
+  applyAugmenters(context.socket, endpoint, { markers, assertReady });
   return endpoint;
 }
 
 /** The runtime shape of a scope handle — callable, with family-level methods. */
 export type ScopeHandleObject = ((name: string) => EndpointObject) & {
   on(event: string, handler: (data: unknown, channelName: string) => void): () => void;
-  onSubscribed(cb: (channelName: string, source: 'server' | 'client') => void): () => void;
-  onUnsubscribed(cb: (channelName: string) => void): () => void;
+  onSubscribed(callback: (channelName: string, source: 'server' | 'client') => void): () => void;
+  onUnsubscribed(callback: (channelName: string) => void): () => void;
   list(): string[];
 };
 
 /** Build the callable handle for a whole dynamic channel family. */
-export function buildScopeHandle(ctx: ChannelContext, scopeKey: string): ScopeHandleObject {
-  const family = ctx.family(scopeKey);
-  const handle = ((name: string) => ctx.endpointFor(name, scopeKey)) as ScopeHandleObject;
+export function buildScopeHandle(context: ChannelContext, scopeKey: string): ScopeHandleObject {
+  const family = context.family(scopeKey);
+  const handle = ((name: string) => context.endpointFor(name, scopeKey)) as ScopeHandleObject;
   handle.on = (event, handler) => family.addHandler(event, handler);
-  handle.onSubscribed = (cb) => family.onSubscribed(cb);
-  handle.onUnsubscribed = (cb) => family.onUnsubscribed(cb);
-  handle.list = () => ctx.listFamily(scopeKey);
+  handle.onSubscribed = (callback) => family.onSubscribed(callback);
+  handle.onUnsubscribed = (callback) => family.onUnsubscribed(callback);
+  handle.list = () => context.listFamily(scopeKey);
   return handle;
 }

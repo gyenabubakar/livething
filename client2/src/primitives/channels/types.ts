@@ -25,22 +25,22 @@ export type ChannelEndpoint<C> = ScopedEndpoint<C> & {
   readonly members: ReadonlyMap<string, ChannelMember>;
 
   /** Someone joined the group. */
-  onMemberJoin(cb: (connectionId: string, member: ChannelMember) => void): () => void;
+  onMemberJoin(callback: (connectionId: string, member: ChannelMember) => void): () => void;
   /** Someone left the group for good. */
-  onMemberLeave(cb: (connectionId: string) => void): () => void;
+  onMemberLeave(callback: (connectionId: string) => void): () => void;
   /** A connection became reachable (fires on reconnect too). */
-  onMemberOnline(cb: (connectionId: string, member: ChannelMember) => void): () => void;
+  onMemberOnline(callback: (connectionId: string, member: ChannelMember) => void): () => void;
   /** A connection became unreachable (disconnect or true leave). */
-  onMemberOffline(cb: (connectionId: string) => void): () => void;
+  onMemberOffline(callback: (connectionId: string) => void): () => void;
 
   /** This channel became active — `source` says who initiated it. */
-  onSubscribed(cb: (source: SubscribeSource) => void): () => void;
+  onSubscribed(callback: (source: SubscribeSource) => void): () => void;
   /** This channel left the active set on the client side. */
-  onUnsubscribed(cb: () => void): () => void;
+  onUnsubscribed(callback: () => void): () => void;
   /** The server kicked you out, with a reason. */
-  onKicked(cb: (reason: string) => void): () => void;
+  onKicked(callback: (reason: string) => void): () => void;
   /** A re-subscribe after reconnect was rejected (e.g. permissions changed). */
-  onSubscriptionFailed(cb: (error: WSKitError) => void): () => void;
+  onSubscriptionFailed(callback: (error: WSKitError) => void): () => void;
 };
 
 /**
@@ -56,9 +56,9 @@ export interface ScopeHandle<C> {
     handler: (data: IncomingOf<C>[E], channelName: string) => void,
   ): () => void;
   /** Any channel in the family became active. */
-  onSubscribed(cb: (channelName: string, source: SubscribeSource) => void): () => void;
+  onSubscribed(callback: (channelName: string, source: SubscribeSource) => void): () => void;
   /** Any channel in the family left the active set. */
-  onUnsubscribed(cb: (channelName: string) => void): () => void;
+  onUnsubscribed(callback: (channelName: string) => void): () => void;
   /** The concrete names currently active in this family. */
   list(): string[];
 }

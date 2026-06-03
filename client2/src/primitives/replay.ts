@@ -23,13 +23,13 @@ export function replay(): Primitive<EmptyTypeFn> {
         id: 'replay',
         onIncoming(message) {
           const seq = message.__wskit?.seq;
-          if (typeof seq === 'number') {
-            const channel = message.__wskit?.channel;
-            const key = channel ?? '';
-            const current = lastSeq.get(key);
-            if (!current || seq > current.seq) {
-              lastSeq.set(key, { seq, channel, channelScope: message.__wskit?.channelScope });
-            }
+          if (typeof seq !== 'number') return message;
+
+          const channel = message.__wskit?.channel;
+          const key = channel ?? '';
+          const current = lastSeq.get(key);
+          if (!current || seq > current.seq) {
+            lastSeq.set(key, { seq, channel, channelScope: message.__wskit?.channelScope });
           }
           return message;
         },

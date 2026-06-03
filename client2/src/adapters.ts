@@ -30,14 +30,14 @@ export interface ClientAdapter {
  * import { getCurrentWindow } from '@electron/remote';
  *
  * const ElectronAdapter = adapter({
- *   onVisibilityChange(cb) {
- *     const win = getCurrentWindow();
- *     const handler = () => cb(win.isFocused());
- *     win.on('focus', handler);
- *     win.on('blur', handler);
+ *   onVisibilityChange(callback) {
+ *     const currentWindow = getCurrentWindow();
+ *     const handler = () => callback(currentWindow.isFocused());
+ *     currentWindow.on('focus', handler);
+ *     currentWindow.on('blur', handler);
  *     return () => {
- *        win.off('focus', handler);
- *        win.off('blur', handler);
+ *        currentWindow.off('focus', handler);
+ *        currentWindow.off('blur', handler);
  *     };
  *   },
  * });

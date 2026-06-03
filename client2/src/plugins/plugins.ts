@@ -11,10 +11,10 @@ import type { WSKitSocket } from '~/socket/socket.ts';
  * throwaway instance. Throws a clear error rather than silently guessing from
  * the function name, so a bad dependency surfaces at definition time.
  */
-function resolveTag(fn: PrimitiveFactory): string {
-  if (typeof fn.tag === 'string') return fn.tag;
+function resolveTag(factory: PrimitiveFactory): string {
+  if (typeof factory.tag === 'string') return factory.tag;
   try {
-    return fn()._tag;
+    return factory()._tag;
   } catch {
     throw new WSKitConfigError(
       `[wskit] could not resolve a plugin dependency to a primitive tag. Dependencies must be primitive factories (e.g. [ack, channels]).`,
@@ -37,11 +37,11 @@ function resolveTag(fn: PrimitiveFactory): string {
  *   key: KEY,
  *   setup(args, hooks) {
  *     const counts = new Map<string, number>();
- *     hooks.onIncoming((m) => {
- *       counts.set(m.event, (counts.get(m.event) ?? 0) + 1);
- *       return m;
+ *     hooks.onIncoming((message) => {
+ *       counts.set(message.event, (counts.get(message.event) ?? 0) + 1);
+ *       return message;
  *     });
- *     return () => ({ count: (e: string) => counts.get(e) ?? 0 });
+ *     return () => ({ count: (event: string) => counts.get(event) ?? 0 });
  *   },
  * });
  *
@@ -93,8 +93,8 @@ export function plugin<TArgs = void, TApi = unknown>(
       setup(helpers) {
         // One slot per hook — registering the same one twice throws rather than
         // silently shadowing, so a plugin keeps all its behavior in one callback.
-        let incoming: ((m: WireMessage) => WireMessage | void) | null = null;
-        let outgoing: ((m: WireMessage) => WireMessage | void) | null = null;
+        let incoming: ((message: WireMessage) => WireMessage | void) | null = null;
+        let outgoing: ((message: WireMessage) => WireMessage | void) | null = null;
         let open: (() => WireMessage[] | void) | null = null;
         let reconnect: (() => WireMessage[] | void) | null = null;
         let close: ((code: number, reason: string) => void) | null = null;

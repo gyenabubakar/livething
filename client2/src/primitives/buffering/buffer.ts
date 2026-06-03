@@ -70,9 +70,9 @@ export class MessageBuffer {
     const messages = this.drain();
     const now = Date.now();
     const valid: BufferedMessage[] = [];
-    for (const msg of messages) {
-      if (msg.ttl === null || now - msg.queuedAt < msg.ttl) {
-        valid.push(msg);
+    for (const buffered of messages) {
+      if (buffered.ttl === null || now - buffered.queuedAt < buffered.ttl) {
+        valid.push(buffered);
       }
     }
 
@@ -82,8 +82,8 @@ export class MessageBuffer {
     }
 
     if (this.flushInterval <= 0) {
-      for (const msg of valid) {
-        send(msg.message);
+      for (const buffered of valid) {
+        send(buffered.message);
       }
       onComplete?.();
       return;
@@ -96,8 +96,8 @@ export class MessageBuffer {
         onComplete?.();
         return;
       }
-      const msg = valid[index++]!;
-      send(msg.message);
+      const buffered = valid[index++]!;
+      send(buffered.message);
       this.flushTimer = setTimeout(tick, this.flushInterval);
     };
 
@@ -133,9 +133,9 @@ export class MessageBuffer {
   private drain(): BufferedMessage[] {
     const result: BufferedMessage[] = [];
     for (let i = 0; i < this.count; i++) {
-      const idx = (this.head + i) % this.maxSize;
-      result.push(this.ring[idx]!);
-      this.ring[idx] = null;
+      const index = (this.head + i) % this.maxSize;
+      result.push(this.ring[index]!);
+      this.ring[index] = null;
     }
     this.head = 0;
     this.count = 0;

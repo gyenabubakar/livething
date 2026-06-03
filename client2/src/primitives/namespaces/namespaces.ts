@@ -76,8 +76,8 @@ export function namespaces(
 
             const endpoint: EndpointObject = {
               on: (event: string, handler: Handler) => register(name, event, handler),
-              send: (event: string, payload: unknown, opts?: { ttl?: number }) => {
-                const ttl = opts?.ttl ?? resolveTtl(event);
+              send: (event: string, payload: unknown, callOptions?: { ttl?: number }) => {
+                const ttl = callOptions?.ttl ?? resolveTtl(event);
                 return helpers.send(
                   { event, payload, __wskit: markers() },
                   ttl !== undefined ? { ttl } : undefined,

@@ -28,20 +28,27 @@ import type { Simplify, SocketContract } from '~/types.ts';
  */
 export function client<TContract extends SocketContract = SocketContract>() {
   return function build<const TPrimitives extends readonly Primitive<any, any>[] = []>(
-    connectCap: ConnectDescriptor,
+    connectDescriptor: ConnectDescriptor,
     ...primitives: [...TPrimitives] & ValidatePrimitives<TContract, TPrimitives>
   ): Simplify<Socket<TContract> & ApplyPrimitives<TPrimitives, TContract>> {
-    return buildSocket(connectCap, primitives as readonly Primitive[]) as unknown as Simplify<
-      Socket<TContract> & ApplyPrimitives<TPrimitives, TContract>
-    >;
+    return buildSocket(
+      connectDescriptor,
+      primitives as readonly Primitive[],
+    ) as unknown as Simplify<Socket<TContract> & ApplyPrimitives<TPrimitives, TContract>>;
   };
 }
 
 /** The actual assembly, with the types erased. */
-function buildSocket(connectCap: ConnectDescriptor, primitives: readonly Primitive[]): WSKitSocket {
+function buildSocket(
+  connectDescriptor: ConnectDescriptor,
+  primitives: readonly Primitive[],
+): WSKitSocket {
   // Plugins live in their own identity space and always run after primitives.
   const pluginSpecs = primitives.filter((spec) => spec._plugin !== undefined);
-  const primitiveSpecs = [connectCap, ...primitives.filter((spec) => spec._plugin === undefined)];
+  const primitiveSpecs = [
+    connectDescriptor,
+    ...primitives.filter((spec) => spec._plugin === undefined),
+  ];
 
   assertNoDuplicateTags(primitiveSpecs);
   assertUniquePluginIdentity(pluginSpecs);
@@ -132,12 +139,12 @@ function assertUniquePluginIdentity(pluginSpecs: readonly Primitive[]): void {
 }
 
 function assertDependenciesPresent(specs: readonly Primitive[]): void {
-  const tags = new Set(specs.map((s) => s._tag));
+  const tags = new Set(specs.map((spec) => spec._tag));
   for (const spec of specs) {
-    for (const dep of spec.dependencies ?? []) {
-      if (!tags.has(dep)) {
+    for (const dependency of spec.dependencies ?? []) {
+      if (!tags.has(dependency)) {
         throw new WSKitConfigError(
-          `[wskit] ${spec._tag} requires ${dep}. Register ${dep}() in client.`,
+          `[wskit] ${spec._tag} requires ${dependency}. Register ${dependency}() in client.`,
         );
       }
     }
@@ -147,7 +154,7 @@ function assertDependenciesPresent(specs: readonly Primitive[]): void {
 /**
  * Order the primitives so each one runs after the primitives it depends on.
  * We track visits by the object itself (not its tag) so repeatable primitives
- * like `intercept`, which share a tag, are all kept. Throws if deps form a loop.
+ * like `intercept`, which share a tag, are all kept. Throws if dependencies form a loop.
  */
 function topoSort(specs: readonly Primitive[]): Primitive[] {
   const byTag = new Map(specs.map((s) => [s._tag, s]));
@@ -161,9 +168,9 @@ function topoSort(specs: readonly Primitive[]): Primitive[] {
       throw new WSKitConfigError(`[wskit] circular primitive dependency detected at ${spec._tag}.`);
     }
     state.set(spec, 'visiting');
-    for (const dep of spec.dependencies ?? []) {
-      const depSpec = byTag.get(dep);
-      if (depSpec) visit(depSpec);
+    for (const dependency of spec.dependencies ?? []) {
+      const dependencySpec = byTag.get(dependency);
+      if (dependencySpec) visit(dependencySpec);
     }
     state.set(spec, 'done');
     sorted.push(spec);

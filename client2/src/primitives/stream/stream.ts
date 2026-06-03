@@ -6,7 +6,7 @@ import { StreamState } from '~/primitives/stream/state.ts';
 import type { WSKitError } from '@wskit/core';
 import type { WireMessage, WSKitEnvelope } from '~/internal/runtime.ts';
 import type { ScopeMarkers } from '~/internal/scoped.ts';
-import type { StreamHandleDeps } from '~/primitives/stream/handle.ts';
+import type { StreamHandleDependencies } from '~/primitives/stream/handle.ts';
 import type {
   StreamOptions,
   StreamPrimitive,
@@ -41,12 +41,15 @@ interface BroadcastRun {
 }
 
 /** True if a chunk's scope markers match what an `onStream` subscriber asked for. */
-function scopeMatches(scope: ScopeMarkers | undefined, w: WSKitEnvelope | undefined): boolean {
-  if (!scope) return w?.channel === undefined && w?.namespace === undefined;
+function scopeMatches(
+  scope: ScopeMarkers | undefined,
+  envelope: WSKitEnvelope | undefined,
+): boolean {
+  if (!scope) return envelope?.channel === undefined && envelope?.namespace === undefined;
   return (
-    scope.channel === w?.channel &&
-    scope.channelScope === w?.channelScope &&
-    scope.namespace === w?.namespace
+    scope.channel === envelope?.channel &&
+    scope.channelScope === envelope?.channelScope &&
+    scope.namespace === envelope?.namespace
   );
 }
 
@@ -115,7 +118,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         };
       }
 
-      const handleDeps: StreamHandleDeps = {
+      const handleDependencies: StreamHandleDependencies = {
         nudge(state, details) {
           const { event, payload } = details;
           const streamNudgeId = helpers.generateId('nudge');
@@ -124,14 +127,14 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
             payload,
             __wskit: { streamId: state.streamId, ...state.markers, streamNudgeId },
           });
-          const ms = details.timeout ?? nudgeTimeout;
+          const timeoutMs = details.timeout ?? nudgeTimeout;
           return new Promise<void>((resolve, reject) => {
             const timer =
-              ms > 0
+              timeoutMs > 0
                 ? setTimeout(() => {
                     pendingNudges.delete(streamNudgeId);
                     reject(Timeout());
-                  }, ms)
+                  }, timeoutMs)
                 : null;
             pendingNudges.set(streamNudgeId, { resolve, reject, timer });
           });
@@ -149,12 +152,12 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
       function triggerStream(
         event: string,
         payload: unknown,
-        ctx: { markers: ScopeMarkers; options?: StreamTriggerOptions },
+        context: { markers: ScopeMarkers; options?: StreamTriggerOptions },
       ): Promise<StreamHandle<unknown>> {
-        const streamId = ctx.options?.streamId ?? helpers.generateId('stream');
+        const streamId = context.options?.streamId ?? helpers.generateId('stream');
         helpers.ensureConnected();
         helpers.lazyAcquire();
-        helpers.rawSend({ event, payload, __wskit: { streamId, ...ctx.markers } });
+        helpers.rawSend({ event, payload, __wskit: { streamId, ...context.markers } });
 
         return new Promise<StreamHandle<unknown>>((resolve, reject) => {
           const timer =
@@ -170,7 +173,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
             reject,
             timer,
             event,
-            markers: ctx.markers,
+            markers: context.markers,
           });
         });
       }
@@ -178,18 +181,18 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
       function resumeStream(
         event: string,
         streamId: string,
-        ctx: { markers: ScopeMarkers; options?: { lastKnownSeq?: number } },
+        context: { markers: ScopeMarkers; options?: { lastKnownSeq?: number } },
       ): StreamHandle<unknown> {
         let state = streams.get(streamId);
         if (!state) {
-          state = new StreamState(streamId, event, ctx.markers);
+          state = new StreamState(streamId, event, context.markers);
           state.resumable = true;
           streams.set(streamId, state);
           helpers.lazyAcquire();
         }
         startChunkTimer(state);
-        helpers.rawSend(resumeFrame(state, ctx.options?.lastKnownSeq));
-        return buildStreamHandle(state, handleDeps);
+        helpers.rawSend(resumeFrame(state, context.options?.lastKnownSeq));
+        return buildStreamHandle(state, handleDependencies);
       }
 
       function subscribeBroadcast(
@@ -198,29 +201,31 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         scope: ScopeMarkers | undefined,
       ): () => void {
         helpers.lazyAcquire();
-        let subs = broadcastSubs.get(event);
-        if (!subs) {
-          subs = new Set();
-          broadcastSubs.set(event, subs);
+        let subscribers = broadcastSubs.get(event);
+        if (!subscribers) {
+          subscribers = new Set();
+          broadcastSubs.set(event, subscribers);
         }
-        const sub: BroadcastSub = { handlers, scope };
-        subs.add(sub);
+        const subscriber: BroadcastSub = { handlers, scope };
+        subscribers.add(subscriber);
         return () => {
-          subs.delete(sub);
-          if (subs.size === 0) broadcastSubs.delete(event);
+          subscribers.delete(subscriber);
+          if (subscribers.size === 0) broadcastSubs.delete(event);
           helpers.lazyRelease();
         };
       }
 
       function deliverBroadcast(message: WireMessage, streamId: string): void {
         const { event, payload } = message;
-        const w = message.__wskit;
-        const seq = w?.seq;
-        const subs = broadcastSubs.get(event);
-        if (!subs || subs.size === 0) return;
+        const envelope = message.__wskit;
+        const seq = envelope?.seq;
+        const subscribers = broadcastSubs.get(event);
+        if (!subscribers || subscribers.size === 0) return;
         let run = broadcastRuns.get(streamId);
         if (!run) {
-          const handlers = [...subs].filter((s) => scopeMatches(s.scope, w)).map((s) => s.handlers);
+          const handlers = [...subscribers]
+            .filter((subscriber) => scopeMatches(subscriber.scope, envelope))
+            .map((subscriber) => subscriber.handlers);
           if (handlers.length === 0) return;
           run = { event, lastSeq: Number.NEGATIVE_INFINITY, timer: null, handlers };
           broadcastRuns.set(streamId, run);
@@ -233,26 +238,29 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           current.timer = setTimeout(() => {
             helpers.log.info(`broadcast stream '${streamId}' timed out`);
             broadcastRuns.delete(streamId);
-            for (const h of current.handlers) h.onTimeout?.(streamId);
+            for (const handler of current.handlers) handler.onTimeout?.(streamId);
           }, timeout);
         }
         helpers.log.info(`broadcast stream '${streamId}' chunk received`);
-        for (const h of run.handlers) h.onChunk(payload, streamId);
+        for (const handler of run.handlers) handler.onChunk(payload, streamId);
       }
 
-      function endBroadcast(streamId: string, run: (h: StreamHandlers<unknown>) => void): void {
+      function endBroadcast(
+        streamId: string,
+        notify: (handlers: StreamHandlers<unknown>) => void,
+      ): void {
         const active = broadcastRuns.get(streamId);
         if (!active) return;
         if (active.timer) clearTimeout(active.timer);
         broadcastRuns.delete(streamId);
-        for (const h of active.handlers) run(h);
+        for (const handler of active.handlers) notify(handler);
       }
 
       return {
         id: 'stream',
         onIncoming(message) {
-          const w = message.__wskit;
-          const streamId = w?.streamId;
+          const envelope = message.__wskit;
+          const streamId = envelope?.streamId;
           if (typeof streamId !== 'string') return message;
 
           switch (message.event) {
@@ -263,30 +271,31 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
               triggers.delete(streamId);
               const state = new StreamState(streamId, trigger.event, trigger.markers);
               // The server tells us whether this stream is resumable.
-              state.resumable = w?.streamKind === 'persistent';
+              state.resumable = envelope?.streamKind === 'persistent';
               streams.set(streamId, state);
               startChunkTimer(state);
-              trigger.resolve(buildStreamHandle(state, handleDeps));
+              trigger.resolve(buildStreamHandle(state, handleDependencies));
               return null;
             }
             case '__streamEnd__': {
               helpers.log.info(`stream '${streamId}' completed`);
               const state = streams.get(streamId);
               if (state) finishStream(state);
-              endBroadcast(streamId, (h) => h.onEnd?.(streamId, w?.seq));
+              endBroadcast(streamId, (handlers) => handlers.onEnd?.(streamId, envelope?.seq));
               return null;
             }
             case '__nudgeOk__': {
-              settleNudge(w?.streamNudgeId, (pending) => pending.resolve());
+              settleNudge(envelope?.streamNudgeId, (pending) => pending.resolve());
               return null;
             }
             case '__error__': {
-              if (w?.correlationId !== undefined || w?.ackId !== undefined) return message;
+              if (envelope?.correlationId !== undefined || envelope?.ackId !== undefined)
+                return message;
               const error = toWSKitError(message.payload);
               // A non-terminal error (a rejected nudge) settles its nudge() Promise
               // and leaves the stream running.
-              if (w?.streamTerminated === false) {
-                settleNudge(w?.streamNudgeId, (pending) => pending.reject(error));
+              if (envelope?.streamTerminated === false) {
+                settleNudge(envelope?.streamNudgeId, (pending) => pending.reject(error));
                 return null;
               }
               // An error before __streamOk__ (e.g. stream-id-collision,
@@ -314,13 +323,13 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
                   finishStream(state, error);
                 }
               }
-              endBroadcast(streamId, (h) => h.onError?.(error, streamId));
+              endBroadcast(streamId, (handlers) => handlers.onError?.(error, streamId));
               return null;
             }
             default: {
               // A chunk. Deliver to the creator's handle and any broadcast listeners.
               if (message.event.startsWith('__')) return message;
-              const seq = w?.seq;
+              const seq = envelope?.seq;
               const state = streams.get(streamId);
               if (state && (seq === undefined || seq > state.lastSeq)) {
                 if (seq !== undefined) state.lastSeq = seq;

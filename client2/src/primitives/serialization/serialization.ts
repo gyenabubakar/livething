@@ -12,7 +12,7 @@ import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
  * JSON format.
  *
  * ```ts
- * serialization({ binaryType: 'arraybuffer', parseBinary: (d) => decode(d) });
+ * serialization({ binaryType: 'arraybuffer', parseBinary: (data) => decode(data) });
  * ```
  */
 export function serialization(

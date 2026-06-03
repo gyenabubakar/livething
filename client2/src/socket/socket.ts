@@ -251,8 +251,8 @@ export class WSKitSocket {
     if (!this._messageHandlers.has(event)) {
       this._messageHandlers.set(event, new Set());
     }
-    const set = this._messageHandlers.get(event)!;
-    set.add(handler);
+    const handlers = this._messageHandlers.get(event)!;
+    handlers.add(handler);
 
     // Guard so calling this unsubscribe more than once releases the lazy hold
     // only once — a second call must not steal another listener's hold.
@@ -260,8 +260,8 @@ export class WSKitSocket {
     return () => {
       if (released) return;
       released = true;
-      set.delete(handler);
-      if (set.size === 0) this._messageHandlers.delete(event);
+      handlers.delete(handler);
+      if (handlers.size === 0) this._messageHandlers.delete(event);
       this._lazyRelease();
     };
   }
@@ -409,9 +409,9 @@ export class WSKitSocket {
 
   private _setState(state: ConnectionState): void {
     if (this._state === state) return;
-    const prev = this._state;
+    const previous = this._state;
     this._state = state;
-    this._log(`${prev} → ${state}`);
+    this._log(`${previous} → ${state}`);
     this._emitter.emit('state', state);
   }
 
@@ -459,7 +459,7 @@ export class WSKitSocket {
         for (const primitive of this._primitives) {
           try {
             const messages = primitive.onOpen?.();
-            if (messages) for (const msg of messages) this._rawSend(msg);
+            if (messages) for (const message of messages) this._rawSend(message);
           } catch (error) {
             this._logAt('error', `primitive '${primitive.id}' onOpen threw`, error);
           }
@@ -469,7 +469,7 @@ export class WSKitSocket {
           for (const primitive of this._primitives) {
             try {
               const messages = primitive.onReconnect?.();
-              if (messages) for (const msg of messages) this._rawSend(msg);
+              if (messages) for (const message of messages) this._rawSend(message);
             } catch (error) {
               this._logAt('error', `primitive '${primitive.id}' onReconnect threw`, error);
             }
@@ -623,8 +623,12 @@ export class WSKitSocket {
     // Top-level handlers only see top-level events. Scope- or stream-tagged
     // frames are delivered by their primitives (channel/namespace handlers, the
     // stream iterator), so they don't double-fire here.
-    const w = message.__wskit;
-    if (w?.channel === undefined && w?.namespace === undefined && w?.streamId === undefined) {
+    const envelope = message.__wskit;
+    if (
+      envelope?.channel === undefined &&
+      envelope?.namespace === undefined &&
+      envelope?.streamId === undefined
+    ) {
       this._log(`received '${message.event}'`, message.payload);
       this._dispatchMessage(message.event, message.payload);
     }
@@ -680,27 +684,27 @@ export class WSKitSocket {
   _send(message: WireMessage, options?: SendOptions): boolean {
     this._ensureConnected();
 
-    let msg: WireMessage | null = message;
+    let outgoing: WireMessage | null = message;
     for (const primitive of this._primitives) {
       if (!primitive.onOutgoing) continue;
-      msg = primitive.onOutgoing(msg!);
-      if (msg === null) {
+      outgoing = primitive.onOutgoing(outgoing!);
+      if (outgoing === null) {
         this._log('a primitive cancelled the send');
         return false;
       }
     }
 
     if (this._state !== 'open' || !this.ws) {
-      if (this._outgoingFallback?.(msg, options?.ttl)) {
-        this._log(`send('${msg.event}') buffered`);
+      if (this._outgoingFallback?.(outgoing, options?.ttl)) {
+        this._log(`send('${outgoing.event}') buffered`);
         return true;
       }
       this._log(`send('${message.event}') dropped — not connected`);
       return false;
     }
 
-    this.ws.send(this._serialize(msg));
-    this._log(`send('${msg.event}')`, msg.payload);
+    this.ws.send(this._serialize(outgoing));
+    this._log(`send('${outgoing.event}')`, outgoing.payload);
     return true;
   }
 

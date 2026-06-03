@@ -32,7 +32,7 @@ export function requestResponse(
       function sendRequest(
         event: string,
         payload: unknown,
-        opts: { markers: ScopeMarkers; timeout?: number },
+        callOptions: { markers: ScopeMarkers; timeout?: number },
       ): Promise<unknown> {
         const correlationId = helpers.generateId('req');
         helpers.lazyAcquire();
@@ -46,7 +46,7 @@ export function requestResponse(
           const timer = setTimeout(() => {
             done();
             reject(Timeout());
-          }, opts.timeout ?? defaultTimeout);
+          }, callOptions.timeout ?? defaultTimeout);
 
           pending.set(correlationId, {
             resolve: (value) => {
@@ -61,7 +61,7 @@ export function requestResponse(
             },
           });
 
-          helpers.rawSend({ event, payload, __wskit: { correlationId, ...opts.markers } });
+          helpers.rawSend({ event, payload, __wskit: { correlationId, ...callOptions.markers } });
         });
       }
 
@@ -84,16 +84,20 @@ export function requestResponse(
         },
         install(socket) {
           // @ts-expect-error — install adds request() to the socket dynamically
-          socket.request = (event: string, payload: unknown, opts?: { timeout?: number }) =>
-            sendRequest(event, payload, { markers: {}, timeout: opts?.timeout });
+          socket.request = (event: string, payload: unknown, callOptions?: { timeout?: number }) =>
+            sendRequest(event, payload, { markers: {}, timeout: callOptions?.timeout });
 
           // Let namespace/channel endpoints make scoped requests too.
           getAugmenters(socket).push((endpoint, scope) => {
-            endpoint.request = (event: string, payload: unknown, opts?: { timeout?: number }) => {
+            endpoint.request = (
+              event: string,
+              payload: unknown,
+              callOptions?: { timeout?: number },
+            ) => {
               scope.assertReady?.();
               return sendRequest(event, payload, {
                 markers: scope.markers(),
-                timeout: opts?.timeout,
+                timeout: callOptions?.timeout,
               });
             };
           });

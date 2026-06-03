@@ -12,11 +12,11 @@ export type QueryFn = () => Record<string, string> | Promise<Record<string, stri
  * query(async () => ({ token: await getAuthToken(), client: 'web' }));
  * ```
  */
-export function query(fn: QueryFn): Primitive<EmptyTypeFn> {
+export function query(getParams: QueryFn): Primitive<EmptyTypeFn> {
   return {
     _tag: 'query',
     applyConfig(config) {
-      config.searchParams = fn;
+      config.searchParams = getParams;
     },
   };
 }

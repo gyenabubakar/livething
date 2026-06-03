@@ -29,7 +29,7 @@ export function ack(options: AckOptions = {}): Primitive<AckTypeFn> {
       function sendWithAck(
         event: string,
         payload: unknown,
-        opts: AckOptionsArg & { markers: ScopeMarkers },
+        callOptions: AckOptionsArg & { markers: ScopeMarkers },
       ): Promise<void> {
         const ackId = helpers.generateId('ack');
         helpers.lazyAcquire();
@@ -42,7 +42,7 @@ export function ack(options: AckOptions = {}): Primitive<AckTypeFn> {
           const timer = setTimeout(() => {
             done();
             reject(Timeout());
-          }, opts.timeout ?? defaultTimeout);
+          }, callOptions.timeout ?? defaultTimeout);
 
           pending.set(ackId, {
             resolve: () => {
@@ -58,8 +58,8 @@ export function ack(options: AckOptions = {}): Primitive<AckTypeFn> {
           });
 
           helpers.send(
-            { event, payload, __wskit: { ackId, ...opts.markers } },
-            opts.ttl !== undefined ? { ttl: opts.ttl } : undefined,
+            { event, payload, __wskit: { ackId, ...callOptions.markers } },
+            callOptions.ttl !== undefined ? { ttl: callOptions.ttl } : undefined,
           );
         });
       }
@@ -84,13 +84,17 @@ export function ack(options: AckOptions = {}): Primitive<AckTypeFn> {
         },
         install(socket) {
           // @ts-expect-error — install adds sendWithAck() to the socket dynamically
-          socket.sendWithAck = (event: string, payload: unknown, opts?: AckOptionsArg) =>
-            sendWithAck(event, payload, { ...opts, markers: {} });
+          socket.sendWithAck = (event: string, payload: unknown, callOptions?: AckOptionsArg) =>
+            sendWithAck(event, payload, { ...callOptions, markers: {} });
 
           getAugmenters(socket).push((endpoint, scope) => {
-            endpoint.sendWithAck = (event: string, payload: unknown, opts?: AckOptionsArg) => {
+            endpoint.sendWithAck = (
+              event: string,
+              payload: unknown,
+              callOptions?: AckOptionsArg,
+            ) => {
               scope.assertReady?.();
-              return sendWithAck(event, payload, { ...opts, markers: scope.markers() });
+              return sendWithAck(event, payload, { ...callOptions, markers: scope.markers() });
             };
           });
         },
