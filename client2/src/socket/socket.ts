@@ -187,6 +187,11 @@ export class WSKitSocket {
     this._isFirstConnect = true;
     this._clearLazyIdleTimer();
 
+    // Was there anything to tear down? A disconnect() on an already-closed
+    // socket must not fire a second onClose. Closing a connecting/reconnecting
+    // socket still counts (matches native close-during-connecting).
+    const wasActive = this._state !== 'closed';
+
     if (this.ws) {
       this.ws.onopen = null;
       this.ws.onclose = null;
@@ -197,6 +202,9 @@ export class WSKitSocket {
     }
     this.protocol = null;
     this._quality = 'disconnected';
+    this._latency = null;
+
+    if (!wasActive) return;
 
     // Primitives reject their pending work here, and each pending op releases
     // its own lazy hold. We do NOT zero `_lazyConsumers`: `on()` handlers stay
@@ -467,6 +475,11 @@ export class WSKitSocket {
 
         this._emitter.emit('open');
         if (isReconnect) this._emitter.emit('reconnect');
+
+        // If we opened with no consumers (e.g. the last listener unsubscribed
+        // while we were reconnecting), arm the idle timer now — onopen is the
+        // only place left that can, since _lazyRelease only fires while open.
+        if (this._lazy && this._lazyConsumers === 0) this._startLazyIdleTimer();
       };
 
       ws.onclose = (event) => {

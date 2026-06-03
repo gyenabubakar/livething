@@ -3,6 +3,7 @@
 // stale-socket guards. Each one guards a fixed bug.
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
+import { keepalive } from '~/primitives/keepalive/index.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -133,6 +134,88 @@ describe('manual connect() during reconnecting', () => {
 
       vi.advanceTimersByTime(60_000); // let the now-stale retry timer fire
       expect(MockWebSocket.instances.length).toBe(before + 1); // no duplicate
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('disconnect() is a quiet no-op when already closed', () => {
+  it('does not fire onClose a second time on a redundant disconnect', () => {
+    const socket = c(connect('wss://test'));
+    socket.connect();
+    MockWebSocket.last().open();
+    const onClose = vi.fn();
+    socket.onClose(onClose);
+    socket.disconnect();
+    socket.disconnect(); // redundant
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not fire onClose when disconnecting a socket that never connected', () => {
+    const socket = c(connect('wss://test'));
+    const onClose = vi.fn();
+    socket.onClose(onClose);
+    socket.disconnect();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('still fires onClose when closing a socket that is mid-connect (never opened)', () => {
+    const socket = c(connect('wss://test'));
+    const onClose = vi.fn();
+    socket.onClose(onClose);
+    socket.connect(); // connecting, this.ws still null
+    socket.disconnect();
+    expect(onClose).toHaveBeenCalledTimes(1); // matches native close-during-connecting
+  });
+
+  it('a deliberate disconnect after a terminal drop still resets the session', () => {
+    const onReconnect = vi.fn();
+    const socket = c(connect('wss://test')); // no reconnection → a drop is terminal
+    socket.onReconnect(onReconnect);
+    socket.connect();
+    MockWebSocket.last().open();
+    MockWebSocket.last().serverClose(1006); // terminal drop → closed, but _isFirstConnect still false
+    socket.disconnect(); // already closed, yet must still reset the session
+    socket.connect();
+    MockWebSocket.last().open();
+    expect(onReconnect).not.toHaveBeenCalled();
+  });
+});
+
+describe('lazy idle-close after a zero-consumer reconnect', () => {
+  it('idle-closes when a reconnect completes with no consumers left', () => {
+    vi.useFakeTimers();
+    try {
+      const socket = c(connect('wss://test', { lazy: true, idleTimeout: 1000 }), reconnection());
+      const unsub = socket.on('x', () => {}); // lazy connect
+      MockWebSocket.last().open();
+      MockWebSocket.last().serverClose(1006); // → reconnecting
+      unsub(); // last consumer releases mid-reconnect → count 0, no timer armed
+      vi.advanceTimersByTime(2000); // reconnection retry fires → a fresh socket
+      MockWebSocket.last().open(); // reconnect opens with 0 consumers
+      expect(socket.getState()).toBe('open');
+      vi.advanceTimersByTime(1000); // idle timeout should now elapse
+      expect(socket.getState()).toBe('closed');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('getLatency() after disconnect', () => {
+  it('returns null after a deliberate disconnect', () => {
+    vi.useFakeTimers();
+    try {
+      const socket = c(connect('wss://test'), keepalive({ interval: 1000 }));
+      socket.connect();
+      const ws = MockWebSocket.last();
+      ws.open();
+      vi.advanceTimersByTime(1000); // sends a ping
+      ws.emit({ event: 'pong', payload: {} }); // measures latency
+      expect(socket.getLatency()).not.toBeNull();
+      socket.disconnect();
+      expect(socket.getLatency()).toBeNull();
     } finally {
       vi.useRealTimers();
     }
