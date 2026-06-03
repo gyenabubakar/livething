@@ -1,20 +1,22 @@
 /**
- * Platform adapters for `@wskit/client`.
+ * Platform environments for `@wskit/client`.
  *
- * Import from `@wskit/client/adapters`. Nothing visibility- or network-aware
- * runs unless you pass an adapter to the `platform()` primitive. Browsers use
- * the prebuilt `WebAdapter`; other runtimes author one with `adapter()`.
+ * Import from `@wskit/client/environment`. Nothing visibility- or network-aware
+ * runs unless you pass an environment to the `platform()` primitive. Browsers
+ * use the prebuilt `WebEnvironment`; other runtimes author one with
+ * `environment()`. Unlike the server's transport adapter, this is optional — the
+ * socket connects, sends, receives, and reconnects fine without one.
  */
 
 /**
- * A platform adapter — the source of visibility and network signals for
- * `platform()`. An adapter declares what it supports by *implementing methods*:
- * there is no capabilities list. Implement `onVisibilityChange` to feed
- * `platform({ backgroundDisconnectMs })`; implement `onNetworkChange` to feed
- * `reconnection({ networkAware })`. Both are optional, and each takes a callback
- * and returns an unsubscribe.
+ * A platform environment — the source of visibility and network signals for
+ * `platform()`. An environment declares what it supports by *implementing
+ * methods*: there is no capabilities list. Implement `onVisibilityChange` to
+ * feed `platform({ backgroundDisconnectMs })`; implement `onNetworkChange` to
+ * feed `reconnection({ networkAware })`. Both are optional, and each takes a
+ * callback and returns an unsubscribe.
  */
-export interface ClientAdapter {
+export interface ClientEnvironment {
   /** Subscribe to app/tab visibility. `visible` is `true` when shown, `false` when hidden. */
   onVisibilityChange?(callback: (visible: boolean) => void): () => void;
 
@@ -23,13 +25,14 @@ export interface ClientAdapter {
 }
 
 /**
- * Author a platform adapter for React Native, Electron, or any custom runtime.
- * Drop a method entirely to say "this platform can't supply that signal".
+ * Author a platform environment for React Native, Electron, or any custom
+ * runtime. Drop a method entirely to say "this platform can't supply that
+ * signal".
  *
  * ```ts
  * import { getCurrentWindow } from '@electron/remote';
  *
- * const ElectronAdapter = adapter({
+ * const ElectronEnvironment = environment({
  *   onVisibilityChange(callback) {
  *     const currentWindow = getCurrentWindow();
  *     const handler = () => callback(currentWindow.isFocused());
@@ -43,18 +46,18 @@ export interface ClientAdapter {
  * });
  * ```
  */
-export function adapter(impl: ClientAdapter): ClientAdapter {
-  return impl;
+export function environment(implementation: ClientEnvironment): ClientEnvironment {
+  return implementation;
 }
 
 /**
- * The ready-made browser adapter. Reads `document.visibilitychange` for
+ * The ready-made browser environment. Reads `document.visibilitychange` for
  * visibility and `navigator.onLine` (plus the `online`/`offline` events) for
  * network. It is lazy and SSR-safe — globals are read inside the subscribe
  * calls, never at import time — and where those globals are absent (SSR, Node,
  * non-DOM runtimes) it simply provides no signals.
  */
-export const WebAdapter = adapter({
+export const WebEnvironment = environment({
   onVisibilityChange(callback) {
     if (typeof document === 'undefined') return () => undefined;
 

@@ -65,8 +65,8 @@ export type InterceptFn = (message: WireMessage) => WireMessage | void;
 
 /**
  * A platform signal one primitive publishes and another reacts to. `platform()`
- * emits these from its adapter; `reconnection()` consumes `online`. The kernel
- * just relays them, so neither primitive has to import the other.
+ * emits these from its environment; `reconnection()` consumes `online`. The
+ * kernel just relays them, so neither primitive has to import the other.
  *
  * - `online` — `true` when the device is online, `false` when offline.
  * - `visibility` — `true` when the app/tab is visible, `false` when hidden.

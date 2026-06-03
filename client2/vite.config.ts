@@ -6,7 +6,7 @@ import { relativizeTildeImports } from '../scripts/vite-dts.ts';
 export default defineConfig({
   // Per-file declarations (not rollupTypes): api-extractor only rolls a single
   // entry, leaving the other subpaths' .d.ts empty. Emitting per file gives every
-  // subpath (errors, adapters, platform, testing) real types. `rootDir: src` in
+  // subpath (errors, environment, platform, testing) real types. `rootDir: src` in
   // tsconfig lands them at dist root, mirroring the JS entries.
   plugins: [
     dts({
@@ -24,7 +24,7 @@ export default defineConfig({
       entry: {
         index: resolve(__dirname, 'src/index.ts'),
         errors: resolve(__dirname, 'src/errors.ts'),
-        adapters: resolve(__dirname, 'src/adapters.ts'),
+        environment: resolve(__dirname, 'src/environment.ts'),
         platform: resolve(__dirname, 'src/platform.ts'),
         testing: resolve(__dirname, 'src/testing.ts'),
       },

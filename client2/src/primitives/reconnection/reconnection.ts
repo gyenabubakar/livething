@@ -17,7 +17,7 @@ export function reconnection(options: ReconnectionOptions = {}): Primitive<Empty
     setup(helpers) {
       let attempt = 0;
       let timer: ReturnType<typeof setTimeout> | null = null;
-      // Tracks the device's reachability when a platform adapter reports it.
+      // Tracks the device's reachability when a platform environment reports it.
       // Stays `true` (timer-only) when nothing supplies an `online` signal.
       let online = true;
 
@@ -80,8 +80,8 @@ export function reconnection(options: ReconnectionOptions = {}): Primitive<Empty
         scheduleRetry();
       });
 
-      // Pause/resume around the device's network, when a platform adapter feeds
-      // us the signal. With no adapter this never fires and we stay timer-only.
+      // Pause/resume around the device's network, when a platform environment
+      // feeds us the signal. With none, this never fires and we stay timer-only.
       if (networkAware) {
         helpers.onSignal('online', (value) => {
           online = value;

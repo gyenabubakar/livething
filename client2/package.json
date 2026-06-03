@@ -14,9 +14,9 @@
       "types": "./dist/errors.d.ts",
       "import": "./dist/errors.js"
     },
-    "./adapters": {
-      "types": "./dist/adapters.d.ts",
-      "import": "./dist/adapters.js"
+    "./environment": {
+      "types": "./dist/environment.d.ts",
+      "import": "./dist/environment.js"
     },
     "./platform": {
       "types": "./dist/platform.d.ts",

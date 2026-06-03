@@ -15,6 +15,6 @@ export interface ReconnectionOptions {
   /** Close codes that should never trigger a retry (e.g. "banned"). */
   nonRetryableCodes?: number[];
 
-  /** Pause retries while the device is offline (needs a platform adapter). Default: `true`. */
+  /** Pause retries while the device is offline (needs a platform environment). Default: `true`. */
   networkAware?: boolean;
 }
