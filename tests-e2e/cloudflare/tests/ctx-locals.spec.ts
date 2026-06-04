@@ -1,8 +1,5 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { connect, installRig, send, waitForFrame } from './_ws-rig.ts';
-
-const WS_PATH = '/ws/ctx-locals';
 
 test.describe('ctx-locals', () => {
   async function openPage(page: Page, room: string) {
@@ -66,76 +63,26 @@ test.describe('ctx-locals', () => {
   test('top-level request handler can inject values provided by top-level intercepts', async ({
     page,
   }, testInfo) => {
-    await page.goto('/ctx-locals');
-    await installRig(page);
-    const socket = await connect(page, {
-      path: WS_PATH,
-      username: 'testuser',
-      room: `test-${testInfo.testId}`,
-    });
-
-    await send(page, socket, {
-      event: 'lookup',
-      payload: { text: 'hello' },
-      __wskit: { correlationId: 'top-1' },
-    });
-
-    const response = await waitForFrame(page, socket, {
-      match: (frame) => frame.event === 'lookup' && frame.__wskit?.correlationId === 'top-1',
-    });
-    expect(response.payload.text).toBe('hello:top:none');
+    await openPage(page, `test-${testInfo.testId}`);
+    await page.getByTestId('lookup-top').click();
+    await expect(page.getByTestId('lookup-result')).toHaveText('hello:top:none');
   });
 
   test('namespace request handler can inject values from top-level and namespace intercepts', async ({
     page,
   }, testInfo) => {
-    await page.goto('/ctx-locals');
-    await installRig(page);
-    const socket = await connect(page, {
-      path: WS_PATH,
-      username: 'testuser',
-      room: `test-${testInfo.testId}`,
-    });
-
-    await send(page, socket, {
-      event: 'lookup',
-      payload: { text: 'hello' },
-      __wskit: { correlationId: 'ns-1', namespace: 'ns' },
-    });
-
-    const response = await waitForFrame(page, socket, {
-      match: (frame) => frame.event === 'lookup' && frame.__wskit?.correlationId === 'ns-1',
-    });
-    expect(response.payload.text).toBe('hello:top:ns');
+    await openPage(page, `test-${testInfo.testId}`);
+    await page.getByTestId('lookup-ns').click();
+    await expect(page.getByTestId('lookup-result')).toHaveText('hello:top:ns');
   });
 
   test('channel request handler can inject values from top-level and channel intercepts', async ({
     page,
   }, testInfo) => {
-    await page.goto('/ctx-locals');
-    await installRig(page);
-    const socket = await connect(page, {
-      path: WS_PATH,
-      username: 'testuser',
-      room: `test-${testInfo.testId}`,
-    });
-
-    await send(page, socket, {
-      event: '__subscribe__',
-      payload: {},
-      __wskit: { channel: 'room' },
-    });
-    await waitForFrame(page, socket, { match: (frame) => frame.event === '__subscribeOk__' });
-
-    await send(page, socket, {
-      event: 'lookup',
-      payload: { text: 'hello' },
-      __wskit: { correlationId: 'channel-1', channel: 'room' },
-    });
-
-    const response = await waitForFrame(page, socket, {
-      match: (frame) => frame.event === 'lookup' && frame.__wskit?.correlationId === 'channel-1',
-    });
-    expect(response.payload.text).toBe('hello:top:channel');
+    await openPage(page, `test-${testInfo.testId}`);
+    await page.getByTestId('subscribe-room').click();
+    await expect(page.getByTestId('subscribed')).toHaveText('yes');
+    await page.getByTestId('lookup-channel').click();
+    await expect(page.getByTestId('lookup-result')).toHaveText('hello:top:channel');
   });
 });

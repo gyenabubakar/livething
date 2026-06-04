@@ -1,5 +1,4 @@
 import { expect, test } from '@playwright/test';
-import { connect, installRig, send, waitForFrame } from './_ws-rig.ts';
 
 test.describe('ctx-kv', () => {
   test.beforeEach(async ({ page }, testInfo) => {
@@ -61,37 +60,16 @@ test.describe('ctx-kv', () => {
     await page.getByTestId('set-get-atomic').click();
     await expect(page.getByTestId('value-atomic')).toHaveText('atomic-val');
   });
-});
 
-test.describe('ctx-kv — wire probes', () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto('/ctx-kv');
-    await installRig(page);
+  test('kv.list(prefix) returns only keys under that prefix', async ({ page }) => {
+    await page.getByTestId('kv-list').click();
+    await expect(page.getByTestId('kv-list-keys')).toContainText('pfx:a');
+    await expect(page.getByTestId('kv-list-keys')).toContainText('pfx:b');
+    await expect(page.getByTestId('kv-list-keys')).not.toContainText('other-prefix:c');
   });
 
-  test('kv.list(prefix) returns only keys under that prefix', async ({ page }, testInfo) => {
-    const a = await connect(page, {
-      path: '/ws/ctx-kv',
-      username: 'alice',
-      room: `kv-list-${testInfo.testId}`,
-    });
-    const prefix = `pfx-${testInfo.testId}`;
-    await send(page, a, { event: 'kv-list-probe', payload: { prefix } });
-    const res = await waitForFrame(page, a, { match: (f) => f.event === 'kv-list-result' });
-    const keys = res.payload.keys as string[];
-    expect(keys).toContain(`${prefix}:a`);
-    expect(keys).toContain(`${prefix}:b`);
-    expect(keys).not.toContain('other-prefix:c');
-  });
-
-  test('kv.set with ttl:0 stores with no expiry', async ({ page }, testInfo) => {
-    const a = await connect(page, {
-      path: '/ws/ctx-kv',
-      username: 'alice',
-      room: `kv-ttl0-${testInfo.testId}`,
-    });
-    await send(page, a, { event: 'kv-ttl-zero-probe', payload: { key: 'k0', value: 'stays' } });
-    const res = await waitForFrame(page, a, { match: (f) => f.event === 'kv-result' });
-    expect(res.payload.value).toBe('stays');
+  test('kv.set with ttl:0 stores with no expiry', async ({ page }) => {
+    await page.getByTestId('kv-ttl-zero').click();
+    await expect(page.getByTestId('value-ttl-zero')).toHaveText('stays');
   });
 });

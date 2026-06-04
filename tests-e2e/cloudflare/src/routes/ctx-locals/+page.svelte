@@ -2,6 +2,7 @@
 	let ws: WebSocket | null = $state(null);
 	let status = $state<'disconnected' | 'connecting' | 'connected'>('disconnected');
 	let echoed = $state('');
+	let lookupResult = $state('');
 	let subscribed = $state('no');
 
 	function connect() {
@@ -23,6 +24,7 @@
 			if (typeof ev.data !== 'string') return;
 			const data = JSON.parse(ev.data);
 			if (data.event === 'echoed') echoed = data.payload?.text ?? '';
+			if (data.event === 'lookup') lookupResult = data.payload?.text ?? '';
 			if (data.event === '__subscribeOk__') subscribed = 'yes';
 		};
 	}
@@ -46,6 +48,36 @@
 			JSON.stringify({ event: 'echo', payload: { text: 'hello' }, __wskit: { channel: 'room' } }),
 		);
 	}
+
+	function sendLookupTop() {
+		ws?.send(
+			JSON.stringify({
+				event: 'lookup',
+				payload: { text: 'hello' },
+				__wskit: { correlationId: 'top-1' },
+			}),
+		);
+	}
+
+	function sendLookupNs() {
+		ws?.send(
+			JSON.stringify({
+				event: 'lookup',
+				payload: { text: 'hello' },
+				__wskit: { correlationId: 'ns-1', namespace: 'ns' },
+			}),
+		);
+	}
+
+	function sendLookupChannel() {
+		ws?.send(
+			JSON.stringify({
+				event: 'lookup',
+				payload: { text: 'hello' },
+				__wskit: { correlationId: 'channel-1', channel: 'room' },
+			}),
+		);
+	}
 </script>
 
 <h1>ctx-locals feature</h1>
@@ -54,6 +86,10 @@
 <button data-testid="send-ns-echo" onclick={sendNsEcho}>Send ns echo</button>
 <button data-testid="subscribe-room" onclick={subscribeRoom}>Subscribe room</button>
 <button data-testid="send-channel-echo" onclick={sendChannelEcho}>Send channel echo</button>
+<button data-testid="lookup-top" onclick={sendLookupTop}>Lookup top</button>
+<button data-testid="lookup-ns" onclick={sendLookupNs}>Lookup ns</button>
+<button data-testid="lookup-channel" onclick={sendLookupChannel}>Lookup channel</button>
 <span data-testid="status">{status}</span>
 <span data-testid="subscribed">{subscribed}</span>
 <span data-testid="echoed">{echoed}</span>
+<span data-testid="lookup-result">{lookupResult}</span>

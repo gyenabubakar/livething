@@ -59,6 +59,9 @@
 	function kickNonmember() {
 		ws?.send(JSON.stringify({ event: 'kick-nonmember', payload: {} }));
 	}
+	function kickSelfByRef() {
+		ws?.send(JSON.stringify({ event: 'kick-self-by-ref', payload: {} }));
+	}
 	function sendRoom(text: string) {
 		ws?.send(
 			JSON.stringify({ event: 'send-room-message', payload: { text }, __wskit: { channel: 'room' } }),
@@ -78,6 +81,7 @@
 <button data-testid="kick-nonmember" onclick={kickNonmember}>
 	Kick nonmember
 </button>
+<button data-testid="kick-self-by-ref" onclick={kickSelfByRef}>Kick self by ref</button>
 <button data-testid="send-after-kick" onclick={() => sendRoom('after-kick')}>
 	Send after-kick
 </button>

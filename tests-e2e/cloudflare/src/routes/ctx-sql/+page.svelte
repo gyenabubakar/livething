@@ -7,6 +7,9 @@
 	let oneEmptyCount = $state<number | null>(null);
 	let rawRows = $state<string>('');
 	let reuseError = $state<string>('');
+	let snapshotCount = $state<number | null>(null);
+	let snapshotShapeOk = $state<boolean | null>(null);
+	let envKeyCount = $state<number | null>(null);
 
 	function connect() {
 		if (ws) return;
@@ -41,6 +44,13 @@
 			if (data.event === 'sql-reuse-result') {
 				reuseError = data.payload?.error ?? '';
 			}
+			if (data.event === 'snapshot-result') {
+				snapshotCount = data.payload?.count ?? null;
+				snapshotShapeOk = data.payload?.shapeOk ?? null;
+			}
+			if (data.event === 'env-result') {
+				envKeyCount = data.payload?.keyCount ?? null;
+			}
 		};
 	}
 
@@ -62,6 +72,21 @@
 	function sqlReuse() {
 		ws?.send(JSON.stringify({ event: 'sql-reuse-probe', payload: {} }));
 	}
+	function sqlTxCommit() {
+		ws?.send(JSON.stringify({ event: 'sql-tx-commit-probe', payload: {} }));
+	}
+	function sqlTxRollback() {
+		ws?.send(JSON.stringify({ event: 'sql-tx-rollback-probe', payload: {} }));
+	}
+	function sqlOneMulti() {
+		ws?.send(JSON.stringify({ event: 'sql-one-multi-probe', payload: {} }));
+	}
+	function connectionsSnapshot() {
+		ws?.send(JSON.stringify({ event: 'connections-snapshot-probe', payload: {} }));
+	}
+	function readEnv() {
+		ws?.send(JSON.stringify({ event: 'read-env-probe', payload: {} }));
+	}
 </script>
 
 <h1>ctx-sql feature</h1>
@@ -76,6 +101,11 @@
 <button data-testid="sql-one-empty" onclick={sqlOneEmpty}>SqlOne empty probe</button>
 <button data-testid="sql-raw" onclick={sqlRaw}>SqlRaw probe</button>
 <button data-testid="sql-reuse" onclick={sqlReuse}>SqlReuse probe</button>
+<button data-testid="sql-tx-commit" onclick={sqlTxCommit}>Tx commit probe</button>
+<button data-testid="sql-tx-rollback" onclick={sqlTxRollback}>Tx rollback probe</button>
+<button data-testid="sql-one-multi" onclick={sqlOneMulti}>One multi probe</button>
+<button data-testid="connections-snapshot" onclick={connectionsSnapshot}>Snapshot probe</button>
+<button data-testid="read-env" onclick={readEnv}>Read env probe</button>
 
 <span data-testid="status">{status}</span>
 <span data-testid="note-titles">{titles.join(',')}</span>
@@ -83,3 +113,6 @@
 <span data-testid="one-empty-count">{oneEmptyCount ?? ''}</span>
 <span data-testid="raw-rows">{rawRows}</span>
 <span data-testid="reuse-error">{reuseError}</span>
+<span data-testid="snapshot-count">{snapshotCount ?? ''}</span>
+<span data-testid="snapshot-shape-ok">{snapshotShapeOk === null ? '' : String(snapshotShapeOk)}</span>
+<span data-testid="env-key-count">{envKeyCount ?? ''}</span>

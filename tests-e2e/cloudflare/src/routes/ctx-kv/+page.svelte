@@ -5,6 +5,7 @@
 	// Most recent value observed per key, serialised as `key=value`.
 	// `null` is rendered as the literal string `null` so the test can match it.
 	let lastValueForKey = $state<Record<string, string>>({});
+	let listKeys = $state<string[]>([]);
 
 	function latest(key: string) {
 		return lastValueForKey[key] ?? '';
@@ -32,6 +33,9 @@
 				const { key, value } = data.payload ?? {};
 				lastValueForKey = { ...lastValueForKey, [key]: value === null ? 'null' : String(value) };
 			}
+			if (data.event === 'kv-list-result') {
+				listKeys = data.payload?.keys ?? [];
+			}
 		};
 	}
 
@@ -46,6 +50,12 @@
 	}
 	function kvSetGet(key: string, value: string) {
 		ws?.send(JSON.stringify({ event: 'kv-set-get', payload: { key, value } }));
+	}
+	function kvListProbe(prefix: string) {
+		ws?.send(JSON.stringify({ event: 'kv-list-probe', payload: { prefix } }));
+	}
+	function kvTtlZeroProbe(key: string, value: string) {
+		ws?.send(JSON.stringify({ event: 'kv-ttl-zero-probe', payload: { key, value } }));
 	}
 </script>
 
@@ -81,7 +91,14 @@
 	Set then get atomic
 </button>
 
+<button data-testid="kv-list" onclick={() => kvListProbe('pfx')}>List under pfx</button>
+<button data-testid="kv-ttl-zero" onclick={() => kvTtlZeroProbe('k0', 'stays')}>
+	Set k0 with ttl:0
+</button>
+
 <span data-testid="status">{status}</span>
+<span data-testid="kv-list-keys">{listKeys.join(',')}</span>
+<span data-testid="value-ttl-zero">{latest('k0')}</span>
 <span data-testid="value-basic">{latest('basic')}</span>
 <span data-testid="value-gone">{latest('gone')}</span>
 <span data-testid="value-ttl">{latest('ttl')}</span>
