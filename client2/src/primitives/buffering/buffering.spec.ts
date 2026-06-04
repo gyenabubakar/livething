@@ -1,0 +1,227 @@
+import { client } from '~/client.ts';
+import { connect } from '~/connect.ts';
+import { MessageBuffer } from '~/primitives/buffering/buffer.ts';
+import { buffering } from '~/primitives/buffering/index.ts';
+import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Primitive, ValidatePrimitives } from '~/primitives/types.ts';
+import type { SocketContract } from '~/types.ts';
+
+interface C extends SocketContract {
+  outgoing: { typing: { channelId: string } };
+}
+
+let restore: () => void;
+beforeEach(() => {
+  restore = installMockWebSocket();
+});
+afterEach(() => {
+  restore();
+  vi.useRealTimers();
+});
+
+// oxlint-disable-next-line @typescript-eslint/no-explicit-any -- forward client()'s primitive constraint
+function buildSocket<const P extends readonly Primitive<any, any>[]>(
+  ...primitives: [...P] & ValidatePrimitives<C, P>
+) {
+  return client<C>()(connect('wss://test'), ...primitives);
+}
+
+describe('MessageBuffer — ring overflow (drop-oldest)', () => {
+  it('caps at maxSize and drops the oldest when the ring overflows', () => {
+    const buffer = new MessageBuffer({ enabled: true, maxSize: 3 });
+    const send = vi.fn();
+
+    buffer.enqueue({ event: 'a', payload: 1 });
+    buffer.enqueue({ event: 'b', payload: 2 });
+    buffer.enqueue({ event: 'c', payload: 3 });
+    // Overflow: oldest ('a') is dropped
+    buffer.enqueue({ event: 'd', payload: 4 });
+
+    expect(buffer.size).toBe(3);
+    buffer.flush(send);
+
+    const events = send.mock.calls.map((c) => c[0].event);
+    expect(events).toEqual(['b', 'c', 'd']);
+    expect(events).not.toContain('a');
+  });
+
+  it('preserves order across multiple overflows', () => {
+    const buffer = new MessageBuffer({ enabled: true, maxSize: 2 });
+    const send = vi.fn();
+
+    buffer.enqueue({ event: 'a', payload: 1 });
+    buffer.enqueue({ event: 'b', payload: 2 });
+    buffer.enqueue({ event: 'c', payload: 3 }); // drops 'a'
+    buffer.enqueue({ event: 'd', payload: 4 }); // drops 'b'
+
+    expect(buffer.size).toBe(2);
+    buffer.flush(send);
+
+    const events = send.mock.calls.map((c) => c[0].event);
+    expect(events).toEqual(['c', 'd']);
+  });
+});
+
+describe('MessageBuffer — TTL expiry on flush', () => {
+  it('drops messages whose TTL elapsed and sends the ones still fresh', () => {
+    vi.useFakeTimers();
+    const buffer = new MessageBuffer({ enabled: true });
+    const send = vi.fn();
+
+    // Enqueue two messages — one expires in 500 ms, one has no TTL
+    buffer.enqueue({ event: 'typing', payload: {} }, 500);
+    buffer.enqueue({ event: 'mark-read', payload: {} });
+
+    vi.advanceTimersByTime(600);
+
+    buffer.flush(send);
+
+    const events = send.mock.calls.map((c) => c[0].event);
+    expect(events).not.toContain('typing');
+    expect(events).toContain('mark-read');
+  });
+
+  it('resolveTTL picks per-call TTL over per-event map', () => {
+    vi.useFakeTimers();
+    const buffer = new MessageBuffer({ enabled: true, ttl: { typing: 1000 } });
+    const send = vi.fn();
+
+    // Per-call TTL of 200 ms wins over the per-event 1000 ms
+    buffer.enqueue({ event: 'typing', payload: {} }, 200);
+
+    vi.advanceTimersByTime(300);
+
+    buffer.flush(send);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('resolveTTL uses per-event map when no per-call TTL is given', () => {
+    vi.useFakeTimers();
+    const buffer = new MessageBuffer({ enabled: true, ttl: { typing: 500 } });
+    const send = vi.fn();
+
+    buffer.enqueue({ event: 'typing', payload: {} }); // picks 500 ms from map
+    buffer.enqueue({ event: 'other', payload: {} }); // no TTL in map → never expires
+
+    vi.advanceTimersByTime(600);
+
+    buffer.flush(send);
+    const events = send.mock.calls.map((c) => c[0].event);
+    expect(events).not.toContain('typing');
+    expect(events).toContain('other');
+  });
+
+  it('ttl option on buffering() primitive is respected end-to-end', () => {
+    vi.useFakeTimers();
+
+    const socket = buildSocket(buffering({ enabled: true, ttl: { typing: 300 } }));
+
+    // Send while disconnected — gets buffered with a 300 ms TTL for 'typing'
+    expect(socket.send('typing', { channelId: 'x' })).toBe(true);
+
+    vi.advanceTimersByTime(400);
+
+    socket.connect();
+    const ws = MockWebSocket.last();
+    ws.open();
+
+    // The typing message should have been dropped (TTL elapsed)
+    const frames = ws.sentFrames();
+    expect(frames.some((f) => f.event === 'typing')).toBe(false);
+  });
+});
+
+describe('MessageBuffer — staggered flushInterval tick loop', () => {
+  it('sends one message per flushInterval tick and calls onComplete when done', () => {
+    vi.useFakeTimers();
+    const buffer = new MessageBuffer({ enabled: true, flushInterval: 100 });
+    const send = vi.fn();
+    const onComplete = vi.fn();
+
+    buffer.enqueue({ event: 'a', payload: 1 });
+    buffer.enqueue({ event: 'b', payload: 2 });
+    buffer.enqueue({ event: 'c', payload: 3 });
+
+    buffer.flush(send, onComplete);
+
+    // First message goes out immediately on the first tick()
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(onComplete).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(100);
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(onComplete).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(100);
+    expect(send).toHaveBeenCalledTimes(3);
+
+    vi.advanceTimersByTime(100);
+    expect(onComplete).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears the in-progress flush timer when clear() is called mid-flush', () => {
+    vi.useFakeTimers();
+    const buffer = new MessageBuffer({ enabled: true, flushInterval: 100 });
+    const send = vi.fn();
+
+    buffer.enqueue({ event: 'a', payload: 1 });
+    buffer.enqueue({ event: 'b', payload: 2 });
+
+    buffer.flush(send);
+
+    expect(send).toHaveBeenCalledTimes(1); // first tick fires immediately
+
+    buffer.clear(); // must cancel the pending timer
+
+    vi.advanceTimersByTime(500); // no further ticks should fire
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('onComplete fires even when all messages are expired (zero valid)', () => {
+    vi.useFakeTimers();
+    const buffer = new MessageBuffer({ enabled: true, flushInterval: 100 });
+    const onComplete = vi.fn();
+    const send = vi.fn();
+
+    buffer.enqueue({ event: 'typing', payload: {} }, 100);
+    vi.advanceTimersByTime(200);
+
+    buffer.flush(send, onComplete);
+
+    expect(send).not.toHaveBeenCalled();
+    expect(onComplete).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('buffering disabled — outgoing fallback returns false', () => {
+  it('send() returns false while disconnected when buffering is not enabled', () => {
+    const socket = buildSocket(buffering({ enabled: false }));
+    // Socket is not yet connected — disabled buffer must NOT queue the message
+    expect(socket.send('typing', { channelId: 'a' })).toBe(false);
+  });
+
+  it('send() returns false with default options (enabled defaults to false)', () => {
+    const socket = buildSocket(buffering());
+    expect(socket.send('typing', { channelId: 'a' })).toBe(false);
+  });
+
+  it('nothing is replayed on reconnect when buffering is disabled', () => {
+    const socket = buildSocket(buffering({ enabled: false }));
+    socket.send('typing', { channelId: 'a' });
+
+    socket.connect();
+    const ws = MockWebSocket.last();
+    ws.open();
+
+    const frames = ws.sentFrames();
+    expect(frames.some((f) => f.event === 'typing')).toBe(false);
+  });
+
+  it('MessageBuffer.enqueue returns false when not enabled', () => {
+    const buffer = new MessageBuffer({ enabled: false });
+    const result = buffer.enqueue({ event: 'typing', payload: {} });
+    expect(result).toBe(false);
+    expect(buffer.size).toBe(0);
+  });
+});

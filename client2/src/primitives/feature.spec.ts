@@ -15,7 +15,7 @@ interface C {
   outgoing: { chat: { text: string } };
   namespaces: {
     alerts: {
-      incoming: { alert: { n: number } };
+      incoming: { alert: { n: number }; feed: { token: string } };
       outgoing: { dismiss: { id: string } };
     };
   };
@@ -24,10 +24,48 @@ interface C {
   };
 }
 
-// oxlint-disable-next-line @typescript-eslint/no-explicit-any -- test helper
-function build(...primitives: any[]) {
-  // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- test helper
-  const socket = (client<C>() as any)(connect('wss://test'), ...primitives);
+function buildDedup() {
+  const socket = client<C>()(connect('wss://test'), dedup());
+  socket.connect();
+  const ws = MockWebSocket.last();
+  ws.open();
+  return { socket, ws };
+}
+
+function buildRequestResponse(options?: Parameters<typeof requestResponse>[0]) {
+  const socket = client<C>()(connect('wss://test'), requestResponse(options));
+  socket.connect();
+  const ws = MockWebSocket.last();
+  ws.open();
+  return { socket, ws };
+}
+
+function buildAck() {
+  const socket = client<C>()(connect('wss://test'), ack());
+  socket.connect();
+  const ws = MockWebSocket.last();
+  ws.open();
+  return { socket, ws };
+}
+
+function buildNamespaces() {
+  const socket = client<C>()(connect('wss://test'), namespaces());
+  socket.connect();
+  const ws = MockWebSocket.last();
+  ws.open();
+  return { socket, ws };
+}
+
+function buildNamespacesStream() {
+  const socket = client<C>()(connect('wss://test'), namespaces(), stream());
+  socket.connect();
+  const ws = MockWebSocket.last();
+  ws.open();
+  return { socket, ws };
+}
+
+function buildNamespacesAck() {
+  const socket = client<C>()(connect('wss://test'), namespaces(), ack());
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
@@ -44,7 +82,7 @@ afterEach(() => {
 
 describe('dedup', () => {
   it('drops a message whose id was already seen', () => {
-    const { socket, ws } = build(dedup());
+    const { socket, ws } = buildDedup();
     const handler = vi.fn();
     socket.on('trade', handler);
     ws.emit({ event: 'trade', payload: { id: 'a' }, __wskit: { messageId: 'm1' } });
@@ -53,7 +91,7 @@ describe('dedup', () => {
   });
 
   it('always delivers messages with no id', () => {
-    const { socket, ws } = build(dedup());
+    const { socket, ws } = buildDedup();
     const handler = vi.fn();
     socket.on('trade', handler);
     ws.emit({ event: 'trade', payload: { id: 'a' } });
@@ -64,7 +102,7 @@ describe('dedup', () => {
 
 describe('requestResponse', () => {
   it('resolves with the matching response', async () => {
-    const { socket, ws } = build(requestResponse());
+    const { socket, ws } = buildRequestResponse();
     const promise = socket.request('get-balance', { user: 'a' });
     const cid = ws.sentFrames().at(-1).__wskit.correlationId;
     expect(typeof cid).toBe('string');
@@ -73,7 +111,7 @@ describe('requestResponse', () => {
   });
 
   it('rejects with a typed error frame', async () => {
-    const { socket, ws } = build(requestResponse());
+    const { socket, ws } = buildRequestResponse();
     const promise = socket.request('get-balance', { user: 'a' });
     const cid = ws.sentFrames().at(-1).__wskit.correlationId;
     ws.emit({
@@ -85,7 +123,7 @@ describe('requestResponse', () => {
   });
 
   it('rejects with Disconnected when disconnected while waiting', async () => {
-    const { socket } = build(requestResponse());
+    const { socket } = buildRequestResponse();
     const promise = socket.request('get-balance', { user: 'a' });
     socket.disconnect();
     await expect(promise).rejects.toMatchObject({ code: 'disconnected' });
@@ -94,7 +132,7 @@ describe('requestResponse', () => {
   it('rejects with Timeout when no reply arrives', async () => {
     vi.useFakeTimers();
     try {
-      const { socket } = build(requestResponse({ timeout: 1000 }));
+      const { socket } = buildRequestResponse({ timeout: 1000 });
       const promise = socket.request('get-balance', { user: 'a' });
       const assertion = expect(promise).rejects.toMatchObject({ code: 'timeout' });
       vi.advanceTimersByTime(1000);
@@ -107,7 +145,7 @@ describe('requestResponse', () => {
 
 describe('ack', () => {
   it('resolves when the server acknowledges', async () => {
-    const { socket, ws } = build(ack());
+    const { socket, ws } = buildAck();
     const promise = socket.sendWithAck('chat', { text: 'hi' });
     const ackId = ws.sentFrames().at(-1).__wskit.ackId;
     expect(typeof ackId).toBe('string');
@@ -116,7 +154,7 @@ describe('ack', () => {
   });
 
   it('rejects with a typed error frame', async () => {
-    const { socket, ws } = build(ack());
+    const { socket, ws } = buildAck();
     const promise = socket.sendWithAck('chat', { text: 'hi' });
     const ackId = ws.sentFrames().at(-1).__wskit.ackId;
     ws.emit({ event: '__error__', payload: { code: 'rate-limited' }, __wskit: { ackId } });
@@ -126,7 +164,7 @@ describe('ack', () => {
 
 describe('namespaces', () => {
   it('routes namespaced events to namespace handlers only', () => {
-    const { socket, ws } = build(namespaces());
+    const { socket, ws } = buildNamespaces();
     const nsHandler = vi.fn();
     const topHandler = vi.fn();
     socket.namespace('alerts').on('alert', nsHandler);
@@ -137,7 +175,7 @@ describe('namespaces', () => {
   });
 
   it('tags namespace sends with __wskit.namespace', () => {
-    const { socket, ws } = build(namespaces());
+    const { socket, ws } = buildNamespaces();
     socket.namespace('alerts').send('dismiss', { id: '7' });
     expect(ws.sentFrames().at(-1)).toEqual({
       event: 'dismiss',
@@ -147,12 +185,12 @@ describe('namespaces', () => {
   });
 
   it('returns the same endpoint object for the same name', () => {
-    const { socket } = build(namespaces());
+    const { socket } = buildNamespaces();
     expect(socket.namespace('alerts')).toBe(socket.namespace('alerts'));
   });
 
   it('does not deliver a namespace-scoped stream chunk to namespace.on()', () => {
-    const { socket, ws } = build(namespaces(), stream());
+    const { socket, ws } = buildNamespacesStream();
     const nsHandler = vi.fn();
     socket.namespace('alerts').on('feed', nsHandler);
     ws.emit({
@@ -164,7 +202,7 @@ describe('namespaces', () => {
   });
 
   it('adds scoped sendWithAck when ack is registered', async () => {
-    const { socket, ws } = build(namespaces(), ack());
+    const { socket, ws } = buildNamespacesAck();
     const promise = socket.namespace('alerts').sendWithAck('dismiss', { id: '7' });
     const frame = ws.sentFrames().at(-1);
     expect(frame.__wskit.namespace).toBe('alerts');
@@ -176,10 +214,7 @@ describe('namespaces', () => {
 
 describe('replay', () => {
   it('requires dedup', () => {
-    // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- testing the runtime guard
-    expect(() => (client<C>() as any)(connect('wss://test'), replay())).toThrow(
-      /replay requires dedup/,
-    );
+    expect(() => client<C>()(connect('wss://test'), replay())).toThrow(/replay requires dedup/);
   });
 
   it('asks the server to catch up after a reconnect', () => {

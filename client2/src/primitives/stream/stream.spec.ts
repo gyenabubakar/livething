@@ -26,10 +26,16 @@ interface C {
   };
 }
 
-// oxlint-disable-next-line @typescript-eslint/no-explicit-any -- test helper
-function build(...primitives: any[]) {
-  // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- test helper
-  const socket = (client<C>() as any)(connect('wss://test'), ...primitives);
+function buildStream(s = stream()) {
+  const socket = client<C>()(connect('wss://test'), s);
+  socket.connect();
+  const ws = MockWebSocket.last();
+  ws.open();
+  return { socket, ws };
+}
+
+function buildStreamChannels() {
+  const socket = client<C>()(connect('wss://test'), stream(), channels());
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
@@ -41,10 +47,11 @@ type AskAiHandle = StreamHandle<
   { cancel: { reason: string }; 'add-context': { context: string } }
 >;
 
+type StreamSocket = ReturnType<typeof buildStream>['socket'];
+
 /** Trigger a stream and complete the server's __streamOk__ handshake. */
 async function start(
-  // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- test helper
-  socket: any,
+  socket: StreamSocket,
   ws: MockWebSocket,
   options?: { streamKind?: 'ephemeral' | 'persistent' },
 ): Promise<{ handle: AskAiHandle; sid: string }> {
@@ -75,7 +82,7 @@ afterEach(() => {
 
 describe('triggering and iterating', () => {
   it('resolves on __streamOk__ and yields chunks until __streamEnd__', async () => {
-    const { socket, ws } = build(stream());
+    const { socket, ws } = buildStream();
     const { handle, sid } = await start(socket, ws);
     ws.emit({ event: 'ask-ai', payload: { text: 'a' }, __wskit: { streamId: sid, seq: 1 } });
     ws.emit({ event: 'ask-ai', payload: { text: 'b' }, __wskit: { streamId: sid, seq: 2 } });
@@ -84,7 +91,7 @@ describe('triggering and iterating', () => {
   });
 
   it('drops chunks already delivered (per-seq dedup)', async () => {
-    const { socket, ws } = build(stream());
+    const { socket, ws } = buildStream();
     const { handle, sid } = await start(socket, ws);
     ws.emit({ event: 'ask-ai', payload: { text: 'a' }, __wskit: { streamId: sid, seq: 1 } });
     ws.emit({ event: 'ask-ai', payload: { text: 'a' }, __wskit: { streamId: sid, seq: 1 } }); // dup
@@ -94,7 +101,7 @@ describe('triggering and iterating', () => {
   });
 
   it('throws a typed error when the server sends __error__', async () => {
-    const { socket, ws } = build(stream());
+    const { socket, ws } = buildStream();
     const { handle, sid } = await start(socket, ws);
     ws.emit({
       event: '__error__',
@@ -108,7 +115,7 @@ describe('triggering and iterating', () => {
   });
 
   it('rejects the stream() promise on an error that arrives before __streamOk__', async () => {
-    const { socket, ws } = build(stream());
+    const { socket, ws } = buildStream();
     const promise = socket.stream('ask-ai', { prompt: 'hi' });
     const sid = ws.sentFrames().at(-1).__wskit.streamId as string;
     ws.emit({
@@ -120,7 +127,7 @@ describe('triggering and iterating', () => {
   });
 
   it('throws Disconnected when the socket disconnects mid-stream', async () => {
-    const { socket, ws } = build(stream());
+    const { socket, ws } = buildStream();
     const { handle } = await start(socket, ws);
     socket.disconnect();
     await expect(collect(handle)).rejects.toMatchObject({ code: 'disconnected' });
@@ -129,7 +136,7 @@ describe('triggering and iterating', () => {
   it('throws Timeout when no chunk arrives in time', async () => {
     vi.useFakeTimers();
     try {
-      const { socket, ws } = build(stream({ timeout: 1000 }));
+      const { socket, ws } = buildStream(stream({ timeout: 1000 }));
       const { handle } = await start(socket, ws);
       vi.advanceTimersByTime(1000);
       await expect(collect(handle)).rejects.toMatchObject({ code: 'timeout' });
@@ -141,7 +148,7 @@ describe('triggering and iterating', () => {
 
 describe('nudge and cancel', () => {
   it('sends a nudge tagged with the stream id and resolves on __nudgeOk__', async () => {
-    const { socket, ws } = build(stream());
+    const { socket, ws } = buildStream();
     const { handle, sid } = await start(socket, ws);
     const pending = handle.nudge('add-context', { context: 'ocean' });
     const frame = ws.sentFrames().at(-1);
@@ -159,7 +166,7 @@ describe('nudge and cancel', () => {
   });
 
   it('rejects the nudge() Promise on a non-terminal error without ending the stream', async () => {
-    const { socket, ws } = build(stream());
+    const { socket, ws } = buildStream();
     const { handle, sid } = await start(socket, ws);
     const pending = handle.nudge('add-context', { context: 'ocean' });
     const streamNudgeId = ws.sentFrames().at(-1).__wskit.streamNudgeId as string;
@@ -176,7 +183,7 @@ describe('nudge and cancel', () => {
   });
 
   it('cancel() sends __streamCancel__ and ends the loop without throwing', async () => {
-    const { socket, ws } = build(stream());
+    const { socket, ws } = buildStream();
     const { handle, sid } = await start(socket, ws);
     handle.cancel();
     expect(ws.sentFrames().at(-1)).toEqual({
@@ -188,7 +195,7 @@ describe('nudge and cancel', () => {
   });
 
   it('breaking out of the loop cancels the stream', async () => {
-    const { socket, ws } = build(stream());
+    const { socket, ws } = buildStream();
     const { handle, sid } = await start(socket, ws);
     ws.emit({ event: 'ask-ai', payload: { text: 'a' }, __wskit: { streamId: sid, seq: 1 } });
     for await (const _chunk of handle) {
@@ -201,7 +208,7 @@ describe('nudge and cancel', () => {
 
 describe('onStream (broadcast)', () => {
   it('fires onChunk then onEnd', () => {
-    const { socket, ws } = build(stream());
+    const { socket, ws } = buildStream();
     const onChunk = vi.fn();
     const onEnd = vi.fn();
     socket.onStream('ask-ai', { onChunk, onEnd });
@@ -212,7 +219,7 @@ describe('onStream (broadcast)', () => {
   });
 
   it('fires onError when the broadcast stream errors', () => {
-    const { socket, ws } = build(stream());
+    const { socket, ws } = buildStream();
     const onError = vi.fn();
     socket.onStream('ask-ai', { onChunk: () => {}, onError });
     ws.emit({ event: 'ask-ai', payload: { text: 'a' }, __wskit: { streamId: 'bs2', seq: 1 } });
@@ -253,7 +260,7 @@ describe('durable resume', () => {
   });
 
   it('resumeStream replays chunks into the returned handle and ends on __streamEnd__', async () => {
-    const { socket, ws } = build(stream());
+    const { socket, ws } = buildStream();
     const handle = socket.resumeStream('ask-ai', 'feed-1', { lastKnownSeq: 0 });
     expect(ws.sentFrames().at(-1)).toEqual({
       event: '__resumeStream__',
@@ -267,7 +274,7 @@ describe('durable resume', () => {
   });
 
   it('scoped resumeStream carries the channel markers', async () => {
-    const { socket, ws } = build(stream(), channels());
+    const { socket, ws } = buildStreamChannels();
     const room = socket.channel('rooms', 'r1');
     const sub = room.subscribe();
     ws.emit({
@@ -294,7 +301,7 @@ describe('durable resume', () => {
 
 describe('scoped streams', () => {
   it('tags a channel stream trigger with the channel markers', async () => {
-    const { socket, ws } = build(stream(), channels());
+    const { socket, ws } = buildStreamChannels();
     const room = socket.channel('rooms', 'r1');
     const sub = room.subscribe();
     ws.emit({

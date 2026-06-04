@@ -75,40 +75,58 @@ export class WSKitSocket {
 
   /** @internal */
   _config: SocketConfig;
+
   /** @internal — set after construction, once primitives are built. */
   _primitives: readonly PrimitiveRuntime[] = [];
+
   /** @internal */
   _state: ConnectionState = 'closed';
+
   /** @internal — a throwing listener is contained and logged on the debug
    * channel (matching the message-handler dispatch path), never escapes. */
   _emitter = new Emitter<SocketEvents>((error) =>
     this._logAt('error', 'a socket listener threw', error),
   );
+
   /** @internal */
   _debug = false;
+
   /** @internal */
   _isFirstConnect = true;
+
   /** @internal — true once disconnect() is called, so we don't reconnect. */
   _intentionalClose = false;
+
   /** @internal — bumped to cancel a connect attempt that's still resolving its URL. */
   _connectAttemptId = 0;
+
   /** @internal */
   _lazy: boolean;
+
   _lazyIdleTimer: ReturnType<typeof setTimeout> | null = null;
+
   _lazyConsumers = 0;
+
   /** @internal — listeners by event name. */
   _messageHandlers = new Map<string, Set<(payload: unknown) => void>>();
 
   // Quality lives here because the getters are part of the public API, but the
-  // values come from the keepalive primitive (if you added it).
-  private _quality: ConnectionQuality = 'disconnected';
+  // values come from the keepalive primitive (if you added it). `null` means
+  // "not measured yet" — getQuality() shows an optimistic default until a pong
+  // lands, and the first real measurement fires the first qualityChange.
+  private _quality: ConnectionQuality | null = null;
+
   private _latency: number | null = null;
 
   // Filled in by behavior primitives through _helpers().
   private _unexpectedCloseHandler: ((code: number, reason: string) => void) | null = null;
+
   private _pongHandlers: (() => void)[] = [];
+
   private _outgoingFallback: ((message: WireMessage, ttl?: number) => boolean) | null = null;
+
   private _signalHandlers = new Map<string, Set<(value: boolean) => void>>();
+
   private _idCounter = 0;
 
   /**
@@ -212,7 +230,7 @@ export class WSKitSocket {
       this.ws = null;
     }
     this.protocol = null;
-    this._quality = 'disconnected';
+    this._quality = null;
     this._latency = null;
 
     // Primitives always clean up here — clear the buffer, reject pending
@@ -244,7 +262,9 @@ export class WSKitSocket {
   }
 
   getQuality(): ConnectionQuality {
-    return this._state === 'open' ? this._quality : 'disconnected';
+    if (this._state !== 'open') return 'disconnected';
+    // Optimistic default while open but not yet measured (e.g. no keepalive).
+    return this._quality ?? 'excellent';
   }
 
   getLatency(): number | null {
@@ -262,6 +282,7 @@ export class WSKitSocket {
     if (!this._messageHandlers.has(event)) {
       this._messageHandlers.set(event, new Set());
     }
+
     const handlers = this._messageHandlers.get(event)!;
     handlers.add(handler);
 
@@ -270,9 +291,12 @@ export class WSKitSocket {
     let released = false;
     return () => {
       if (released) return;
+
       released = true;
       handlers.delete(handler);
+
       if (handlers.size === 0) this._messageHandlers.delete(event);
+
       this._lazyRelease();
     };
   }
@@ -309,8 +333,10 @@ export class WSKitSocket {
 
   /** A WebSocket-level error. */
   onError(callback: (error: Event) => void): () => void;
+
   /** A typed error the server sent that no request/stream claimed. */
   onError(callback: (error: WSKitError) => void): () => void;
+
   // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- the single body serves both overloads above
   onError(callback: (error: any) => void): () => void {
     return this._emitter.on('error', callback);
@@ -370,11 +396,14 @@ export class WSKitSocket {
 
       onPong: (handler) => this._pongHandlers.push(handler),
 
-      reportQuality: (quality, latency) => {
-        this._latency = latency;
+      reportLatency: (latencyMs) => {
+        this._latency = latencyMs;
+      },
+
+      reportQuality: (quality) => {
         if (this._quality === quality) return;
         this._quality = quality;
-        this._emitter.emit('qualityChange', quality, latency);
+        this._emitter.emit('qualityChange', quality, this._latency ?? 0);
       },
 
       registerOutgoingFallback: (handler) => {
@@ -455,7 +484,11 @@ export class WSKitSocket {
 
         this.ws = ws;
         this.protocol = ws.protocol || null;
-        this._quality = 'excellent';
+
+        // Quality is unknown until the first pong measures it — leaving it null
+        // lets that first measurement fire the first qualityChange. getQuality()
+        // shows an optimistic default in the meantime.
+        this._quality = null;
         this._latency = null;
         this._setState('open');
 
@@ -496,7 +529,7 @@ export class WSKitSocket {
         if (attemptId !== this._connectAttemptId) return;
         this.ws = null;
         this.protocol = null;
-        this._quality = 'disconnected';
+        this._quality = null;
         this._latency = null;
 
         for (const primitive of this._primitives) {
@@ -593,15 +626,21 @@ export class WSKitSocket {
    */
   _processIncoming(parsed: WireMessage): void {
     // Let primitives see it first; any of them can swallow it by returning null.
+    // A throw is isolated (like intercepts and lifecycle callbacks): we log it on
+    // the debug channel and skip that primitive so siblings and dispatch still run.
     let message: WireMessage = parsed;
     for (const primitive of this._primitives) {
       if (!primitive.onIncoming) continue;
-      const result = primitive.onIncoming(message);
-      if (result === null) {
-        this._log(`primitive '${primitive.id}' handled '${parsed.event}'`);
-        return;
+      try {
+        const result = primitive.onIncoming(message);
+        if (result === null) {
+          this._log(`primitive '${primitive.id}' handled '${parsed.event}'`);
+          return;
+        }
+        message = result;
+      } catch (error) {
+        this._logAt('error', `primitive '${primitive.id}' onIncoming threw`, error);
       }
-      message = result;
     }
 
     // An error frame nobody claimed becomes an onError call instead of a normal event.

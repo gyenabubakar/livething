@@ -9,6 +9,8 @@ import { keepalive } from '~/primitives/keepalive/index.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ConnectDescriptor } from '~/connect.ts';
+import type { Primitive, ValidatePrimitives } from '~/primitives/types.ts';
 
 let restore: () => void;
 beforeEach(() => {
@@ -18,12 +20,26 @@ afterEach(() => {
   restore();
 });
 
-// oxlint-disable-next-line @typescript-eslint/no-explicit-any -- loose for brevity
-const c = client<any>() as any;
+interface LooseContract {
+  incoming: Record<string, unknown>;
+  outgoing: Record<string, unknown>;
+}
+
+interface AckContract {
+  outgoing: { x: { v: number } };
+}
+
+// oxlint-disable-next-line @typescript-eslint/no-explicit-any -- forward client()'s primitive constraint
+function build<const P extends readonly Primitive<any, any>[]>(
+  descriptor: ConnectDescriptor,
+  ...primitives: [...P] & ValidatePrimitives<LooseContract, P>
+) {
+  return client<LooseContract>()(descriptor, ...primitives);
+}
 
 describe('throwing onClose listener', () => {
   it('still schedules reconnection and does not throw out of the close handler', () => {
-    const socket = c(connect('wss://test'), reconnection());
+    const socket = build(connect('wss://test'), reconnection());
     socket.connect();
     MockWebSocket.last().open();
     socket.onClose(() => {
@@ -39,7 +55,7 @@ describe('idempotent on() unsubscribe', () => {
   it('a live listener keeps the socket open even after a sibling is unsubbed twice', () => {
     vi.useFakeTimers();
     try {
-      const socket = c(connect('wss://test', { lazy: true, idleTimeout: 1000 }));
+      const socket = build(connect('wss://test', { lazy: true, idleTimeout: 1000 }));
       const unsubA = socket.on('a', () => {});
       socket.on('b', () => {}); // two consumers
       MockWebSocket.last().open();
@@ -55,7 +71,7 @@ describe('idempotent on() unsubscribe', () => {
 
 describe('state is settled before onClose fires', () => {
   it('reads "closed" inside onClose on a terminal drop (no reconnection)', () => {
-    const socket = c(connect('wss://test'));
+    const socket = build(connect('wss://test'));
     socket.connect();
     const ws = MockWebSocket.last();
     ws.open();
@@ -68,7 +84,7 @@ describe('state is settled before onClose fires', () => {
   });
 
   it('reads "reconnecting" inside onClose when reconnection is installed', () => {
-    const socket = c(connect('wss://test'), reconnection());
+    const socket = build(connect('wss://test'), reconnection());
     socket.connect();
     const ws = MockWebSocket.last();
     ws.open();
@@ -84,7 +100,7 @@ describe('state is settled before onClose fires', () => {
 describe('disconnect() resets the session', () => {
   it('does not fire onReconnect on the post-disconnect open', () => {
     const onReconnect = vi.fn();
-    const socket = c(connect('wss://test'));
+    const socket = build(connect('wss://test'));
     socket.onReconnect(onReconnect);
     socket.connect();
     MockWebSocket.last().open();
@@ -97,7 +113,7 @@ describe('disconnect() resets the session', () => {
 
 describe('superseded socket is inert', () => {
   it('ignores a message from a socket abandoned during the connecting phase', () => {
-    const socket = c(connect('wss://test'));
+    const socket = build(connect('wss://test'));
     const handler = vi.fn();
     socket.on('message', handler);
     socket.connect(); // ws1 created, state "connecting", this.ws still null
@@ -108,14 +124,13 @@ describe('superseded socket is inert', () => {
   });
 
   it('ignores an error from a socket abandoned during the connecting phase', () => {
-    const socket = c(connect('wss://test'));
+    const socket = build(connect('wss://test'));
     const onErr = vi.fn();
     socket.onError(onErr);
     socket.connect();
     const ws1 = MockWebSocket.last();
     socket.disconnect();
-    // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- fire the raw handler
-    (ws1 as any).onerror?.({});
+    ws1.onerror?.({});
     expect(onErr).not.toHaveBeenCalled();
   });
 });
@@ -124,7 +139,7 @@ describe('manual connect() during reconnecting', () => {
   it('does not let the pending retry open a duplicate connection', () => {
     vi.useFakeTimers();
     try {
-      const socket = c(connect('wss://test'), reconnection());
+      const socket = build(connect('wss://test'), reconnection());
       socket.connect();
       MockWebSocket.last().open();
       MockWebSocket.last().serverClose(1006); // → reconnecting, a retry is scheduled
@@ -144,7 +159,7 @@ describe('manual connect() during reconnecting', () => {
 
 describe('disconnect() is a quiet no-op when already closed', () => {
   it('does not fire onClose a second time on a redundant disconnect', () => {
-    const socket = c(connect('wss://test'));
+    const socket = build(connect('wss://test'));
     socket.connect();
     MockWebSocket.last().open();
     const onClose = vi.fn();
@@ -155,7 +170,7 @@ describe('disconnect() is a quiet no-op when already closed', () => {
   });
 
   it('does not fire onClose when disconnecting a socket that never connected', () => {
-    const socket = c(connect('wss://test'));
+    const socket = build(connect('wss://test'));
     const onClose = vi.fn();
     socket.onClose(onClose);
     socket.disconnect();
@@ -163,7 +178,7 @@ describe('disconnect() is a quiet no-op when already closed', () => {
   });
 
   it('still fires onClose when closing a socket that is mid-connect (never opened)', () => {
-    const socket = c(connect('wss://test'));
+    const socket = build(connect('wss://test'));
     const onClose = vi.fn();
     socket.onClose(onClose);
     socket.connect(); // connecting, this.ws still null
@@ -173,7 +188,7 @@ describe('disconnect() is a quiet no-op when already closed', () => {
 
   it('a deliberate disconnect after a terminal drop still resets the session', () => {
     const onReconnect = vi.fn();
-    const socket = c(connect('wss://test')); // no reconnection → a drop is terminal
+    const socket = build(connect('wss://test')); // no reconnection → a drop is terminal
     socket.onReconnect(onReconnect);
     socket.connect();
     MockWebSocket.last().open();
@@ -187,7 +202,7 @@ describe('disconnect() is a quiet no-op when already closed', () => {
 
 describe('disconnect() still cleans up primitives when already closed', () => {
   it('clears the buffer even if the socket is already closed', () => {
-    const socket = c(connect('wss://test'), buffering({ enabled: true }));
+    const socket = build(connect('wss://test'), buffering({ enabled: true }));
     socket.connect();
     MockWebSocket.last().open();
     MockWebSocket.last().serverClose(1006); // drop → closed, buffer kept (no reconnection)
@@ -206,7 +221,7 @@ describe('disconnect() still cleans up primitives when already closed', () => {
   });
 
   it('rejects a pending sendWithAck even if the socket is already closed', async () => {
-    const socket = c(connect('wss://test'), ack({ timeout: 100 }));
+    const socket = client<AckContract>()(connect('wss://test'), ack({ timeout: 100 }));
     const pending = socket.sendWithAck('x', { v: 1 }); // pending created while closed
     socket.disconnect(); // must reject it with Disconnected, not let it time out
     await expect(pending).rejects.toMatchObject({ code: 'disconnected' });
@@ -217,7 +232,10 @@ describe('lazy idle-close after a zero-consumer reconnect', () => {
   it('idle-closes when a reconnect completes with no consumers left', () => {
     vi.useFakeTimers();
     try {
-      const socket = c(connect('wss://test', { lazy: true, idleTimeout: 1000 }), reconnection());
+      const socket = build(
+        connect('wss://test', { lazy: true, idleTimeout: 1000 }),
+        reconnection(),
+      );
       const unsub = socket.on('x', () => {}); // lazy connect
       MockWebSocket.last().open();
       MockWebSocket.last().serverClose(1006); // → reconnecting
@@ -237,7 +255,7 @@ describe('getLatency() after disconnect', () => {
   it('returns null after a deliberate disconnect', () => {
     vi.useFakeTimers();
     try {
-      const socket = c(connect('wss://test'), keepalive({ interval: 1000 }));
+      const socket = build(connect('wss://test'), keepalive({ interval: 1000 }));
       socket.connect();
       const ws = MockWebSocket.last();
       ws.open();

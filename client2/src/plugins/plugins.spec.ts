@@ -6,16 +6,18 @@ import { ack } from '~/primitives/ack/index.ts';
 import { debug } from '~/primitives/debug.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Primitive, ValidatePrimitives } from '~/primitives/types.ts';
 
 interface C {
   incoming: { message: { text: string }; ad: { text: string } };
   outgoing: { typing: { channelId: string } };
 }
 
-// oxlint-disable-next-line @typescript-eslint/no-explicit-any -- test helper
-function build(...primitives: any[]) {
-  // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- test helper
-  const socket = (client<C>() as any)(connect('wss://test'), ...primitives);
+// oxlint-disable-next-line @typescript-eslint/no-explicit-any -- forward client()'s primitive constraint
+function build<const P extends readonly Primitive<any, any>[]>(
+  ...primitives: [...P] & ValidatePrimitives<C, P>
+) {
+  const socket = client<C>()(connect('wss://test'), ...primitives);
   socket.connect();
 
   const ws = MockWebSocket.last();
@@ -40,20 +42,16 @@ describe('plugin() definition', () => {
   it('throws when the same singleton plugin is registered twice', () => {
     const KEY = Symbol('acme:once');
     const Once = plugin({ id: 'acme:once', key: KEY, setup: () => () => ({}) });
-    expect(() =>
-      // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- test helper
-      (client<C>() as any)(connect('wss://test'), Once(), Once()),
-    ).toThrow(/registered more than once/);
+    expect(() => client<C>()(connect('wss://test'), Once(), Once())).toThrow(
+      /registered more than once/,
+    );
   });
 
   it('only warns (does not throw) when two different plugins share an id', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const A = plugin({ id: 'acme:dup', key: Symbol(), setup: () => () => ({}) });
     const B = plugin({ id: 'acme:dup', key: Symbol(), setup: () => () => ({}) });
-    expect(() =>
-      // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- test helper
-      (client<C>() as any)(connect('wss://test'), A(), B()),
-    ).not.toThrow();
+    expect(() => client<C>()(connect('wss://test'), A(), B())).not.toThrow();
     expect(warn).toHaveBeenCalledWith(expect.stringMatching(/share the id 'acme:dup'/));
     warn.mockRestore();
   });
@@ -66,8 +64,7 @@ describe('plugin() definition', () => {
       registrationId: (args) => args.tracker,
       setup: (args) => () => ({ tracker: args.tracker }),
     });
-    // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- test helper
-    const socket = (client<C>() as any)(
+    const socket = client<C>()(
       connect('wss://test'),
       Analytics({ tracker: 'ga' }),
       Analytics({ tracker: 'mixpanel' }),
@@ -85,8 +82,7 @@ describe('plugin() definition', () => {
       setup: () => () => ({}),
     });
     expect(() =>
-      // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- test helper
-      (client<C>() as any)(
+      client<C>()(
         connect('wss://test'),
         Analytics({ tracker: 'ga' }),
         Analytics({ tracker: 'ga' }),
@@ -104,10 +100,7 @@ describe('plugin() definition', () => {
         return () => ({});
       },
     });
-    expect(() =>
-      // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- test helper
-      (client<C>() as any)(connect('wss://test'), Twice()),
-    ).toThrow(/onIncoming\(\) twice/);
+    expect(() => client<C>()(connect('wss://test'), Twice())).toThrow(/onIncoming\(\) twice/);
   });
 
   it('exposes generateId and getState inside setup hooks', () => {
@@ -121,8 +114,7 @@ describe('plugin() definition', () => {
         return () => ({});
       },
     });
-    // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- test helper
-    (client<C>() as any)(connect('wss://test'), Probe());
+    client<C>()(connect('wss://test'), Probe());
     expect(captured.id).toMatch(/^p-\d+$/);
     expect(captured.state).toBe('closed');
   });
@@ -137,17 +129,11 @@ describe('plugin() dependencies (assertions)', () => {
   });
 
   it('throws when a required primitive is missing', () => {
-    expect(() =>
-      // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- test helper
-      (client<C>() as any)(connect('wss://test'), Needs()),
-    ).toThrow(/requires ack/);
+    expect(() => client<C>()(connect('wss://test'), Needs())).toThrow(/requires ack/);
   });
 
   it('builds when the required primitive is registered', () => {
-    expect(() =>
-      // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- test helper
-      (client<C>() as any)(connect('wss://test'), ack(), Needs()),
-    ).not.toThrow();
+    expect(() => client<C>()(connect('wss://test'), ack(), Needs())).not.toThrow();
   });
 });
 
@@ -312,11 +298,11 @@ describe('plugin() hooks', () => {
 describe('ordering', () => {
   it('runs primitive hooks before plugin hooks, regardless of registration order', () => {
     const order: string[] = [];
-    const fakePrimitive = {
+    const fakePrimitive: Primitive = {
       _tag: 'fake-primitive',
       setup: () => ({
         id: 'fake-primitive',
-        onIncoming: (m: { event: string; payload: unknown }) => {
+        onIncoming: (m) => {
           order.push('primitive');
           return m;
         },
@@ -335,7 +321,7 @@ describe('ordering', () => {
     });
 
     // Register the plugin FIRST to prove order is not by position.
-    const { ws } = build(P(), fakePrimitive);
+    const { ws } = build(P(), fakePrimitive as unknown as Primitive);
     ws.emit({ event: 'message', payload: { text: 'x' } });
     expect(order).toEqual(['primitive', 'plugin']);
   });
@@ -349,8 +335,7 @@ describe('Plugin.use', () => {
       key: KEY,
       setup: () => () => ({ ok: true }),
     });
-    // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- test helper
-    const other = (client<C>() as any)(connect('wss://test'));
+    const other = client<C>()(connect('wss://test'));
     expect(() => Metrics.use(other)).toThrow(/not registered/);
   });
 });

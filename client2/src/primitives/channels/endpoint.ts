@@ -63,6 +63,9 @@ export function buildChannelEndpoint(context: ChannelContext, state: ChannelStat
     },
     subscribe(data?: unknown) {
       helpers.ensureConnected();
+      // An overlapping subscribe() before the server confirms reuses the in-flight
+      // promise instead of orphaning the first and re-sending __subscribe__.
+      if (state.pending && state.pendingPromise) return state.pendingPromise;
       // Keep the (lazy) socket awake for the subscription's lifetime. The state
       // drops this hold on any end — unsubscribe, kick, or a failed subscribe —
       // not just an explicit unsubscribe(), so it can't leak.
@@ -71,7 +74,7 @@ export function buildChannelEndpoint(context: ChannelContext, state: ChannelStat
         () => helpers.lazyRelease(),
       );
       state.subscribeData = data;
-      return new Promise<void>((resolve, reject) => {
+      const promise = new Promise<void>((resolve, reject) => {
         state.pending = { resolve, reject };
         helpers.rawSend({
           event: '__subscribe__',
@@ -79,8 +82,14 @@ export function buildChannelEndpoint(context: ChannelContext, state: ChannelStat
           __wskit: channelMarkers(state),
         });
       });
+      state.pendingPromise = promise;
+      return promise;
     },
     unsubscribe() {
+      // Nothing to leave — a channel that was never subscribed (and has no
+      // in-flight subscribe) must not send a spurious __unsubscribe__ or fire
+      // onUnsubscribed.
+      if (!state.active && !state.pending) return;
       helpers.rawSend({ event: '__unsubscribe__', payload: {}, __wskit: channelMarkers(state) });
       // markUnsubscribed() drops the lazy hold for us.
       state.markUnsubscribed();

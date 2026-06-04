@@ -173,8 +173,11 @@ export interface PrimitiveHelpers {
   /** Get told when a `pong` arrives (keepalive measures latency from this). */
   onPong(handler: () => void): void;
 
-  /** Report measured quality + latency so the socket can emit `qualityChange`. */
-  reportQuality(quality: ConnectionQuality, latency: number): void;
+  /** Report the latest measured round-trip time so `getLatency()` stays fresh on every pong. */
+  reportLatency(latencyMs: number): void;
+
+  /** Report the current quality tier; the socket emits `qualityChange` only on an actual change. */
+  reportQuality(quality: ConnectionQuality): void;
 
   /**
    * Register what to do with a `send()` that runs while the socket is closed.

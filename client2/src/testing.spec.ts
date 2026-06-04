@@ -25,12 +25,6 @@ interface C {
   };
 }
 
-// oxlint-disable-next-line @typescript-eslint/no-explicit-any -- test helper
-function make(...primitives: any[]) {
-  // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- test helper
-  return (client<C>() as any)(connect('wss://test'), ...primitives);
-}
-
 let restore: () => void;
 beforeEach(() => {
   restore = installMockWebSocket();
@@ -41,7 +35,7 @@ afterEach(() => {
 
 describe('inject', () => {
   it('dispatches through the pipeline to on() handlers, even while disconnected', () => {
-    const socket = make();
+    const socket = client<C>()(connect('wss://test'));
     const handler = vi.fn();
     socket.on('message', handler);
 
@@ -51,7 +45,8 @@ describe('inject', () => {
   });
 
   it('respects intercept Block', () => {
-    const socket = make(
+    const socket = client<C>()(
+      connect('wss://test'),
       intercept((m: { event: string }) => {
         if (m.event === 'blocked') throw Block;
       }),
@@ -66,7 +61,7 @@ describe('inject', () => {
 
 describe('injectChannel', () => {
   it('routes a tagged frame to channel handlers', async () => {
-    const socket = make(channels());
+    const socket = client<C>()(connect('wss://test'), channels());
     socket.connect();
     const ws = MockWebSocket.last();
     ws.open();
@@ -90,7 +85,7 @@ describe('injectChannel', () => {
 
 describe('injectNamespace', () => {
   it('routes a tagged frame to namespace handlers, even while disconnected', () => {
-    const socket = make(namespaces());
+    const socket = client<C>()(connect('wss://test'), namespaces());
     const handler = vi.fn();
     socket.namespace('alerts').on('new-alert', handler);
 

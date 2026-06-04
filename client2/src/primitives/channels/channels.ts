@@ -199,6 +199,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
             if (state.pending) {
               state.pending.reject(Disconnected());
               state.pending = null;
+              state.pendingPromise = null;
             }
             state.clearMembersForReconnect();
           }

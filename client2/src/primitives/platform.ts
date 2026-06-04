@@ -71,7 +71,10 @@ export function platform(options: PlatformOptions): Primitive<EmptyTypeFn> {
           );
         }
 
-        if (wantsBackground && environment.onVisibilityChange) {
+        // Bind visibility whenever the environment can report it — the
+        // `visibility` signal is a general extension point. The background
+        // disconnect timer below is what's gated on `backgroundDisconnectMs`.
+        if (environment.onVisibilityChange) {
           cleanups.push(environment.onVisibilityChange(onVisibility));
         }
       }
@@ -89,6 +92,9 @@ export function platform(options: PlatformOptions): Primitive<EmptyTypeFn> {
           }
           return;
         }
+
+        // Only drop the socket while hidden if the app opted in.
+        if (!wantsBackground) return;
 
         hiddenTimer = setTimeout(() => {
           hiddenTimer = null;

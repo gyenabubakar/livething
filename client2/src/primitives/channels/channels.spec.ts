@@ -7,11 +7,12 @@ import { requestResponse } from '~/primitives/request-response/index.ts';
 import { stream } from '~/primitives/stream/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Primitive, ValidatePrimitives } from '~/primitives/types.ts';
 
 interface C {
   channels: {
     general: {
-      incoming: { message: { text: string }; typing: { who: string } };
+      incoming: { message: { text: string }; typing: { who: string }; feed: { token: string } };
       outgoing: { 'send-message': { text: string } };
       requests: { history: { payload: { before: string }; response: { items: string[] } } };
     };
@@ -24,10 +25,12 @@ interface C {
   };
 }
 
-// oxlint-disable-next-line @typescript-eslint/no-explicit-any -- test helper
-function build(...primitives: any[]) {
-  // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- test helper
-  const socket = (client<C>() as any)(connect('wss://test'), ...primitives);
+// oxlint-disable-next-line @typescript-eslint/no-explicit-any -- extra primitives' socket-level types unused in tests
+function build<const P extends readonly Primitive<any, any>[]>(
+  channelsPrimitive: ReturnType<typeof channels>,
+  ...rest: [...P] & ValidatePrimitives<C, P>
+) {
+  const socket = client<C>()(connect('wss://test'), channelsPrimitive, ...rest);
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
@@ -117,6 +120,52 @@ describe('subscribe / unsubscribe', () => {
     const promise = socket.channel('general').subscribe();
     socket.disconnect();
     await expect(promise).rejects.toMatchObject({ code: 'disconnected' });
+  });
+
+  it('reuses the in-flight promise for an overlapping subscribe (no orphan, one frame)', async () => {
+    const { socket, ws } = build(channels());
+    const room = socket.channel('general');
+
+    const first = room.subscribe();
+    const second = room.subscribe(); // before __subscribeOk__
+
+    // Same in-flight promise — not a second, orphaned one.
+    expect(second).toBe(first);
+    // Only one __subscribe__ frame went out.
+    expect(ws.sentFrames().filter((f) => f.event === '__subscribe__')).toHaveLength(1);
+
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: { source: 'client' },
+      __wskit: { channel: 'general' },
+    });
+
+    // Both awaiters settle.
+    await expect(first).resolves.toBeUndefined();
+    await expect(second).resolves.toBeUndefined();
+  });
+
+  it('subscribe again after an unsubscribe interrupted an in-flight subscribe starts fresh', async () => {
+    const { socket, ws } = build(channels());
+    const room = socket.channel('general');
+
+    room.subscribe(); // in flight — no __subscribeOk__ yet
+    room.unsubscribe(); // tears the channel down before confirmation
+
+    function countSubscribeFrames() {
+      return ws.sentFrames().filter((f) => f.event === '__subscribe__').length;
+    }
+    const before = countSubscribeFrames();
+
+    const retry = room.subscribe(); // must NOT reuse the dead attempt
+    expect(countSubscribeFrames()).toBe(before + 1);
+
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: { source: 'client' },
+      __wskit: { channel: 'general' },
+    });
+    await expect(retry).resolves.toBeUndefined();
   });
 });
 
@@ -367,8 +416,20 @@ describe('scoped request and ack', () => {
 describe('stream-error routing (order-independent)', () => {
   it('routes a channel-scoped stream error to the stream primitive, not to channel subscribe-failure, even when channels is registered first', async () => {
     const { socket, ws } = build(channels(), stream());
-    // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- contract has no stream; loose for the test
-    const room = socket.channel('general') as any;
+    // stream() augments onStream onto channel endpoints at runtime; the general channel
+    // has no streams in C, so we union-cast to access the augmented method in the test.
+    type RoomWithStream = ReturnType<(typeof socket)['channel']> & {
+      // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- broadcast stream chunks are untyped; 'general' has no streams in C
+      onStream(
+        event: string,
+        handlers: {
+          onChunk(chunk: any, id: string): void;
+          onError?(error: any, id: string): void;
+          onEnd?: (id: string, seq?: number) => void;
+        },
+      ): () => void;
+    };
+    const room = socket.channel('general') as unknown as RoomWithStream;
     const p = room.subscribe();
     ws.emit({
       event: '__subscribeOk__',
@@ -404,14 +465,8 @@ describe('stream-error routing (order-independent)', () => {
 });
 
 describe('lazy hold lifecycle (no leak)', () => {
-  // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- test helper
-  function lazySocket(): any {
-    // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- test helper
-    const socket = (client<C>() as any)(
-      connect('wss://test', { lazy: true, idleTimeout: 1000 }),
-      channels(),
-    );
-    return socket;
+  function lazySocket() {
+    return client<C>()(connect('wss://test', { lazy: true, idleTimeout: 1000 }), channels());
   }
 
   it('releases the subscribe hold when the subscribe is rejected, so the socket idle-closes', async () => {

@@ -1,4 +1,3 @@
-/* oxlint-disable @typescript-eslint/no-explicit-any -- test stubs for DOM globals */
 import { environment, WebEnvironment } from '~/environment.ts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -45,14 +44,14 @@ describe('WebEnvironment — with DOM globals', () => {
         listeners[type] = (listeners[type] ?? []).filter((registered) => registered !== handler);
       },
     };
-    (globalThis as any).document = {
+    (globalThis as unknown as Record<string, unknown>).document = {
       get visibilityState() {
         return state.visibility;
       },
       addEventListener: target.addEventListener,
       removeEventListener: target.removeEventListener,
     };
-    (globalThis as any).window = target;
+    (globalThis as unknown as Record<string, unknown>).window = target;
     return {
       listeners,
       fire(type: string) {
@@ -62,8 +61,8 @@ describe('WebEnvironment — with DOM globals', () => {
         state.visibility = visibility;
       },
       restore() {
-        delete (globalThis as any).document;
-        delete (globalThis as any).window;
+        delete (globalThis as unknown as Record<string, unknown>).document;
+        delete (globalThis as unknown as Record<string, unknown>).window;
       },
     };
   }

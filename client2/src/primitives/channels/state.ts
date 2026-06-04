@@ -44,6 +44,8 @@ export class ChannelState {
   subscribeData: unknown;
   /** The pending `subscribe()` promise, if a call is waiting for confirmation. */
   pending: { resolve: () => void; reject: (err: unknown) => void } | null = null;
+  /** The in-flight `subscribe()` promise, reused so overlapping calls don't orphan the first. */
+  pendingPromise: Promise<void> | null = null;
   /** Drops the lazy "keep awake" hold taken by `subscribe()`. Held until the subscription ends. */
   private lazyRelease: (() => void) | null = null;
 
@@ -119,6 +121,7 @@ export class ChannelState {
     if (source === 'client' && this.pending) {
       this.pending.resolve();
       this.pending = null;
+      this.pendingPromise = null;
     }
     this.subscribed.each((callback) => callback(source));
   }
@@ -127,8 +130,12 @@ export class ChannelState {
   markUnsubscribed(): void {
     this.active = false;
     this.members.clear();
-    // The subscription is over (unsubscribe or kick) — drop its lazy hold.
+    // The subscription is over (unsubscribe or kick) — drop its lazy hold and any
+    // in-flight subscribe(), so a later subscribe() starts a fresh attempt instead
+    // of reusing this dead one.
     this.releaseLazy();
+    this.pending = null;
+    this.pendingPromise = null;
     this.unsubscribed.each((callback) => callback());
   }
 
@@ -144,6 +151,7 @@ export class ChannelState {
     if (this.pending) {
       this.pending.reject(error);
       this.pending = null;
+      this.pendingPromise = null;
     } else {
       this.subFailed.each((callback) => callback(error));
     }

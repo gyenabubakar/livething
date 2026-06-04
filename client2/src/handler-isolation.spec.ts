@@ -9,6 +9,48 @@ import { stream } from '~/primitives/stream/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+interface C {
+  incoming: { message: unknown };
+  namespaces: { alerts: { incoming: { 'new-alert': unknown } } };
+  channels: {
+    general: { incoming: { message: unknown } };
+    rooms: { [room: string]: { incoming: { message: unknown } } };
+  };
+  streams: { feed: { payload: unknown; chunks: unknown } };
+}
+
+function connectedBase() {
+  const socket = client<C>()(connect('wss://test'));
+  socket.connect();
+  const ws = MockWebSocket.last();
+  ws.open();
+  return { socket, ws };
+}
+
+function connectedNs() {
+  const socket = client<C>()(connect('wss://test'), namespaces());
+  socket.connect();
+  const ws = MockWebSocket.last();
+  ws.open();
+  return { socket, ws };
+}
+
+function connectedCh() {
+  const socket = client<C>()(connect('wss://test'), channels());
+  socket.connect();
+  const ws = MockWebSocket.last();
+  ws.open();
+  return { socket, ws };
+}
+
+function connectedSt() {
+  const socket = client<C>()(connect('wss://test'), stream());
+  socket.connect();
+  const ws = MockWebSocket.last();
+  ws.open();
+  return { socket, ws };
+}
+
 let restore: () => void;
 beforeEach(() => {
   restore = installMockWebSocket();
@@ -17,19 +59,9 @@ afterEach(() => {
   restore();
 });
 
-// oxlint-disable-next-line @typescript-eslint/no-explicit-any -- loose for brevity
-function connected(...primitives: any[]) {
-  // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- loose for brevity
-  const socket = (client<any>() as any)(connect('wss://test'), ...primitives);
-  socket.connect();
-  const ws = MockWebSocket.last();
-  ws.open();
-  return { socket, ws };
-}
-
 describe('a throwing message handler is isolated from its siblings', () => {
   it('top level: a throwing on() handler still lets the other one run', () => {
-    const { socket, ws } = connected();
+    const { socket, ws } = connectedBase();
     const calls: string[] = [];
     socket.on('message', () => {
       calls.push('A');
@@ -42,7 +74,7 @@ describe('a throwing message handler is isolated from its siblings', () => {
   });
 
   it('namespace: a throwing handler still lets the other one run', () => {
-    const { socket, ws } = connected(namespaces());
+    const { socket, ws } = connectedNs();
     const alerts = socket.namespace('alerts');
     const calls: string[] = [];
     alerts.on('new-alert', () => {
@@ -58,7 +90,7 @@ describe('a throwing message handler is isolated from its siblings', () => {
   });
 
   it('channel: a throwing handler still lets the other one run', () => {
-    const { socket, ws } = connected(channels());
+    const { socket, ws } = connectedCh();
     const room = socket.channel('general');
     room.subscribe();
     ws.emit({
@@ -81,7 +113,7 @@ describe('a throwing message handler is isolated from its siblings', () => {
   });
 
   it('channel family: a throwing family handler still lets the other one run', () => {
-    const { socket, ws } = connected(channels());
+    const { socket, ws } = connectedCh();
     const rooms = socket.channel.scope('rooms');
     socket.channel('rooms', 'lobby').subscribe();
     ws.emit({
@@ -110,7 +142,7 @@ describe('a throwing message handler is isolated from its siblings', () => {
 
 describe('a throwing presence or stream callback is isolated from its siblings', () => {
   it('channel presence: a throwing onMemberJoin still lets the other one run', () => {
-    const { socket, ws } = connected(channels());
+    const { socket, ws } = connectedCh();
     const room = socket.channel('general');
     room.subscribe();
     ws.emit({
@@ -137,7 +169,7 @@ describe('a throwing presence or stream callback is isolated from its siblings',
   });
 
   it('stream broadcast: a throwing onChunk still lets another subscriber receive', () => {
-    const { socket, ws } = connected(stream());
+    const { socket, ws } = connectedSt();
     const calls: string[] = [];
     socket.onStream('feed', {
       onChunk: () => {
@@ -158,7 +190,7 @@ describe('a throwing handler is reported on the debug channel', () => {
   it('stays silent with debug off and logs once debug is on', () => {
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
-      const { socket, ws } = connected();
+      const { socket, ws } = connectedBase();
       socket.on('message', () => {
         throw new Error('boom');
       });

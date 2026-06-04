@@ -12,9 +12,15 @@ export interface KeepaliveLoopOptions {
 interface KeepaliveCallbacks {
   sendPing: () => void;
   forceClose: () => void;
-  onQualityChange: (quality: ConnectionQuality, latency: number) => void;
+  /** Report the latest single round-trip time so `getLatency()` stays fresh every pong. */
+  reportLatency: (latencyMs: number) => void;
+  /** Report a new quality tier (fired only when the tier actually changes). */
+  onQualityChange: (quality: ConnectionQuality) => void;
   log: (message: string) => void;
 }
+
+/** How many recent samples the quality tier is averaged over, to smooth out spikes. */
+const QUALITY_WINDOW = 5;
 
 /** Default latency cut-offs. The server measures quality on its own side. */
 const DEFAULT_THRESHOLDS: QualityThresholds = { excellent: 50, good: 150, degraded: 500 };
@@ -29,6 +35,7 @@ export class KeepaliveLoop {
   private pingSentAt: number | null = null;
   private missedPongs = 0;
   private latency: number | null = null;
+  private samples: number[] = [];
   private quality: ConnectionQuality = 'disconnected';
 
   private readonly interval: number;
@@ -50,7 +57,8 @@ export class KeepaliveLoop {
 
     this.missedPongs = 0;
     this.pingSentAt = null;
-    this.setQuality('excellent');
+    // No optimistic seed — the socket shows a default until the first pong, which
+    // then fires the first qualityChange with a real measurement.
 
     this.pingTimer = setInterval(() => {
       this.tick();
@@ -66,6 +74,7 @@ export class KeepaliveLoop {
     this.pingSentAt = null;
     this.missedPongs = 0;
     this.latency = null;
+    this.samples = [];
     this.quality = 'disconnected';
   }
 
@@ -73,10 +82,15 @@ export class KeepaliveLoop {
   onPong(): void {
     if (this.pingSentAt === null) return;
 
-    this.latency = Date.now() - this.pingSentAt;
+    const latency = Date.now() - this.pingSentAt;
     this.pingSentAt = null;
     this.missedPongs = 0;
-    this.setQuality(this.qualityFromLatency(this.latency));
+    this.latency = latency;
+    this.recordSample(latency);
+    // getLatency() reflects the latest single ping; the quality tier uses the
+    // rolling average so one slow pong doesn't flip the indicator.
+    this.callbacks.reportLatency(latency);
+    this.setQuality(this.qualityFromLatency(this.averageLatency()));
   }
 
   getQuality(): ConnectionQuality {
@@ -104,6 +118,18 @@ export class KeepaliveLoop {
     this.callbacks.sendPing();
   }
 
+  /** Keep at most the last `QUALITY_WINDOW` samples (a moving window). */
+  private recordSample(latencyMs: number): void {
+    this.samples.push(latencyMs);
+    if (this.samples.length > QUALITY_WINDOW) this.samples.shift();
+  }
+
+  /** Average of the samples collected so far (fewer than the full window early on). */
+  private averageLatency(): number {
+    const total = this.samples.reduce((sum, ms) => sum + ms, 0);
+    return total / this.samples.length;
+  }
+
   private qualityFromLatency(latency: number): ConnectionQuality {
     if (latency < this.thresholds.excellent) return 'excellent';
     if (latency < this.thresholds.good) return 'good';
@@ -114,6 +140,6 @@ export class KeepaliveLoop {
   private setQuality(next: ConnectionQuality): void {
     if (this.quality === next) return;
     this.quality = next;
-    this.callbacks.onQualityChange(next, this.latency ?? 0);
+    this.callbacks.onQualityChange(next);
   }
 }

@@ -11,6 +11,7 @@ import { reconnection } from '~/primitives/reconnection/index.ts';
 import { serialization } from '~/primitives/serialization/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Primitive, ValidatePrimitives } from '~/primitives/types.ts';
 
 interface TestContract {
   incoming: { message: { text: string }; ad: { id: string } };
@@ -25,11 +26,12 @@ afterEach(() => {
   restore();
 });
 
-/** Build a connected socket with the given primitives (loosely typed for brevity). */
-// oxlint-disable-next-line @typescript-eslint/no-explicit-any -- test helper
-function build(...primitives: any[]) {
-  // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- test helper
-  const socket = (client<TestContract>() as any)(connect('wss://test'), ...primitives);
+/** Build a connected socket with the given primitives. */
+// oxlint-disable-next-line @typescript-eslint/no-explicit-any -- forward client()'s primitive constraint
+function build<const P extends readonly Primitive<any, any>[]>(
+  ...primitives: [...P] & ValidatePrimitives<TestContract, P>
+) {
+  const socket = client<TestContract>()(connect('wss://test'), ...primitives);
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
@@ -220,8 +222,10 @@ describe('quality + debug compose without error', () => {
 
 describe('kernel lifecycle-hook isolation', () => {
   // A primitive whose `hook` throws, paired with a sibling that records it ran.
-  // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- test helper
-  function pair(hook: 'onOpen' | 'onReconnect' | 'onClose'): { ran: () => boolean; specs: any[] } {
+  function pair(hook: 'onOpen' | 'onReconnect' | 'onClose'): {
+    ran: () => boolean;
+    specs: Primitive[];
+  } {
     let siblingRan = false;
     const thrower = {
       _tag: `thrower-${hook}`,

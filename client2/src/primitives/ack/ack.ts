@@ -79,8 +79,9 @@ export function ack(options: AckOptions = {}): Primitive<AckTypeFn> {
           return null;
         },
         onClose() {
+          // Each reject() runs done(), which deletes its own entry, so the map
+          // empties itself as we go.
           for (const waiter of pending.values()) waiter.reject(Disconnected());
-          pending.clear();
         },
         install(socket) {
           // @ts-expect-error — install adds sendWithAck() to the socket dynamically

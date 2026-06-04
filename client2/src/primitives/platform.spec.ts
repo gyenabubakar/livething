@@ -5,6 +5,7 @@ import { platform } from '~/primitives/platform.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Primitive, ValidatePrimitives } from '~/primitives/types.ts';
 
 interface C {
   incoming: { message: { text: string } };
@@ -35,10 +36,11 @@ function mockEnvironment() {
   };
 }
 
-// oxlint-disable-next-line @typescript-eslint/no-explicit-any -- test helper
-function build(...primitives: any[]) {
-  // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- test helper
-  const socket = (client<C>() as any)(connect('wss://test'), ...primitives);
+// oxlint-disable-next-line @typescript-eslint/no-explicit-any -- forward client()'s primitive constraint
+function build<const P extends readonly Primitive<any, any>[]>(
+  ...primitives: [...P] & ValidatePrimitives<C, P>
+) {
+  const socket = client<C>()(connect('wss://test'), ...primitives);
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
@@ -94,8 +96,7 @@ describe('background disconnect', () => {
   it('throws WSKitConfigError when backgroundDisconnectMs is set but the environment has no onVisibilityChange', () => {
     const netOnly = environment({ onNetworkChange: () => () => undefined });
     expect(() =>
-      // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- test helper
-      (client<C>() as any)(
+      client<C>()(
         connect('wss://test'),
         platform({ environment: netOnly, backgroundDisconnectMs: 1000 }),
       ),
@@ -104,8 +105,7 @@ describe('background disconnect', () => {
 
   it('keeps the lazy consumer count across a background disconnect/reconnect', () => {
     const m = mockEnvironment();
-    // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- test helper
-    const socket = (client<C>() as any)(
+    const socket = client<C>()(
       connect('wss://test', { lazy: true, idleTimeout: 1000 }),
       platform({ environment: m.environment, backgroundDisconnectMs: 500 }),
     );
