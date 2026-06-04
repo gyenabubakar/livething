@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- contract matching is intentionally loose */
 import type { WSKitError } from '@wskit/core';
-import type { Endpoint } from '~/endpoint.ts';
+import type { Messaging } from '~/messaging.ts';
 
 /**
  * The single interface you define to type your socket. Every key is optional —
@@ -188,11 +188,11 @@ export type RequestMethod<TContract, TMethod extends string> = TContract extends
   : {};
 
 /**
- * The full endpoint type for one scope (a namespace or channel): `on`/`send`
+ * The full messaging type for one scope (a namespace or channel): `on`/`send`
  * plus `request()` when the scope has requests, `sendWithAck()` when it has
  * outgoing events, and the stream methods when it has streams.
  */
-export type ScopedEndpoint<C> = Endpoint<IncomingOf<C> & object, OutgoingOf<C> & object> &
+export type ScopedMessaging<C> = Messaging<IncomingOf<C> & object, OutgoingOf<C> & object> &
   (C extends { requests: infer R extends Record<string, { payload: any; response: any }> }
     ? {
         request<E extends keyof R & string>(
@@ -233,9 +233,9 @@ export type ScopedEndpoint<C> = Endpoint<IncomingOf<C> & object, OutgoingOf<C> &
 /**
  * Turns a contract key holding many scopes into a lookup method. For example
  * `ScopedApi<C, 'namespaces', 'namespace'>` produces
- * `namespace(name): ScopedEndpoint` typed for each name.
+ * `namespace(name): ScopedMessaging` typed for each name.
  */
 export type ScopedApi<TContract, TKey extends string, TMethod extends string> =
   TContract extends Record<TKey, infer Map extends Record<string, any>>
-    ? { [M in TMethod]: <K extends keyof Map & string>(name: K) => ScopedEndpoint<Map[K]> }
+    ? { [M in TMethod]: <K extends keyof Map & string>(name: K) => ScopedMessaging<Map[K]> }
     : {};

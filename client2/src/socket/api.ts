@@ -1,5 +1,5 @@
 import type { WSKitError } from '@wskit/core';
-import type { Endpoint } from '~/endpoint.ts';
+import type { Messaging } from '~/messaging.ts';
 import type { CloseEvent } from '~/socket/socket.ts';
 import type {
   ConnectionQuality,
@@ -11,7 +11,7 @@ import type {
 
 /**
  * The connection methods every socket has, no matter the contract. The typed
- * `on()` / `send()` come from `Endpoint` and are added in by `Socket` below.
+ * `on()` / `send()` come from `Messaging` and are added in by `Socket` below.
  */
 export interface SocketConnection {
   /** Open the connection. Safe to call more than once. */
@@ -62,4 +62,4 @@ export interface SocketConnection {
  * `client()`.
  */
 export type Socket<TContract extends SocketContract = SocketContract> = SocketConnection &
-  Endpoint<IncomingOf<TContract> & object, OutgoingOf<TContract> & object>;
+  Messaging<IncomingOf<TContract> & object, OutgoingOf<TContract> & object>;

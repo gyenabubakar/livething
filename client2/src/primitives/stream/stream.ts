@@ -405,8 +405,8 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
             resumeOptions?: { lastKnownSeq?: number },
           ) => resumeStream(event, streamId, { markers: {}, options: resumeOptions });
 
-          getAugmenters(socket).push((endpoint, scope) => {
-            endpoint.stream = (
+          getAugmenters(socket).push((messaging, scope) => {
+            messaging.stream = (
               event: string,
               payload: unknown,
               triggerOptions?: StreamTriggerOptions,
@@ -417,9 +417,9 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
                 options: triggerOptions,
               });
             };
-            endpoint.onStream = (event: string, handlers: StreamHandlers<unknown>) =>
+            messaging.onStream = (event: string, handlers: StreamHandlers<unknown>) =>
               subscribeBroadcast(event, handlers, scope.markers());
-            endpoint.resumeStream = (
+            messaging.resumeStream = (
               event: string,
               streamId: string,
               resumeOptions?: { lastKnownSeq?: number },

@@ -87,9 +87,9 @@ export function requestResponse(
           socket.request = (event: string, payload: unknown, callOptions?: { timeout?: number }) =>
             sendRequest(event, payload, { markers: {}, timeout: callOptions?.timeout });
 
-          // Let namespace/channel endpoints make scoped requests too.
-          getAugmenters(socket).push((endpoint, scope) => {
-            endpoint.request = (
+          // Let namespace/channel messaging objects make scoped requests too.
+          getAugmenters(socket).push((messaging, scope) => {
+            messaging.request = (
               event: string,
               payload: unknown,
               callOptions?: { timeout?: number },

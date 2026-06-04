@@ -416,7 +416,7 @@ describe('scoped request and ack', () => {
 describe('stream-error routing (order-independent)', () => {
   it('routes a channel-scoped stream error to the stream primitive, not to channel subscribe-failure, even when channels is registered first', async () => {
     const { socket, ws } = build(channels(), stream());
-    // stream() augments onStream onto channel endpoints at runtime; the general channel
+    // stream() augments onStream onto channel messaging objects at runtime; the general channel
     // has no streams in C, so we union-cast to access the augmented method in the test.
     type RoomWithStream = ReturnType<(typeof socket)['channel']> & {
       onStream(

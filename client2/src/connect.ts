@@ -22,7 +22,7 @@ export interface ConnectDescriptor extends Primitive<EmptyTypeFn> {
  *
  * ```ts
  * connect('wss://example.com/ws');
- * connect(() => getRegionalEndpoint(), { lazy: true });
+ * connect(() => getRegionalUrl(), { lazy: true });
  * ```
  */
 export function connect(

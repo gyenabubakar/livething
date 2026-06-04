@@ -3,7 +3,6 @@ import { dispatchToHandlers } from '~/internal/dispatch.ts';
 import { toWSKitError } from '~/internal/error-frame.ts';
 import { Emitter } from '~/socket/emitter.ts';
 import type { WSKitError } from '@wskit/core';
-import type { SendOptions } from '~/endpoint.ts';
 import type { SocketConfig } from '~/internal/config.ts';
 import type {
   InterceptFn,
@@ -13,6 +12,7 @@ import type {
   WireMessage,
   WSKitEnvelope,
 } from '~/internal/runtime.ts';
+import type { SendOptions } from '~/messaging.ts';
 import type { ConnectionQuality, ConnectionState } from '~/types.ts';
 
 /** What an `onClose` handler receives. */

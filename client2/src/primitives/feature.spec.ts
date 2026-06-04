@@ -184,7 +184,7 @@ describe('namespaces', () => {
     });
   });
 
-  it('returns the same endpoint object for the same name', () => {
+  it('returns the same messaging object for the same name', () => {
     const { socket } = buildNamespaces();
     expect(socket.namespace('alerts')).toBe(socket.namespace('alerts'));
   });

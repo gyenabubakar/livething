@@ -1,14 +1,14 @@
 import { Disconnected } from '~/errors.ts';
 import { toWSKitError } from '~/internal/error-frame.ts';
 import {
-  buildChannelEndpoint,
+  buildChannelMessaging,
   buildScopeHandle,
   channelMarkers,
-} from '~/primitives/channels/endpoint.ts';
+} from '~/primitives/channels/messaging.ts';
 import { channelKey, ChannelState, FamilyState } from '~/primitives/channels/state.ts';
 import type { WireMessage } from '~/internal/runtime.ts';
-import type { EndpointObject } from '~/internal/scoped.ts';
-import type { ChannelContext, ScopeHandleObject } from '~/primitives/channels/endpoint.ts';
+import type { MessagingObject } from '~/internal/scoped.ts';
+import type { ChannelContext, ScopeHandleObject } from '~/primitives/channels/messaging.ts';
 import type {
   ChannelsOptions,
   ChannelsPrimitive,
@@ -39,7 +39,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
     _tag: 'channels',
     setup(helpers) {
       const states = new Map<string, ChannelState>();
-      const endpoints = new Map<string, EndpointObject>();
+      const cache = new Map<string, MessagingObject>();
       const families = new Map<string, FamilyState>();
       const scopeHandles = new Map<string, ScopeHandleObject>();
       let socket: WSKitSocket; // assigned in install, before any handle is built
@@ -85,14 +85,14 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
         get socket() {
           return socket;
         },
-        endpointFor(name, scopeKey) {
+        messagingFor(name, scopeKey) {
           const key = channelKey(name, scopeKey);
-          let endpoint = endpoints.get(key);
-          if (!endpoint) {
-            endpoint = buildChannelEndpoint(context, stateFor(name, scopeKey));
-            endpoints.set(key, endpoint);
+          let messaging = cache.get(key);
+          if (!messaging) {
+            messaging = buildChannelMessaging(context, stateFor(name, scopeKey));
+            cache.set(key, messaging);
           }
-          return endpoint;
+          return messaging;
         },
       };
 
@@ -207,10 +207,10 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
         install(installedSocket) {
           socket = installedSocket;
 
-          function channel(nameOrScope: string, name?: string): EndpointObject {
+          function channel(nameOrScope: string, name?: string): MessagingObject {
             return name === undefined
-              ? context.endpointFor(nameOrScope)
-              : context.endpointFor(name, nameOrScope);
+              ? context.messagingFor(nameOrScope)
+              : context.messagingFor(name, nameOrScope);
           }
           channel.scope = (scopeKey: string): ScopeHandleObject => {
             let handle = scopeHandles.get(scopeKey);

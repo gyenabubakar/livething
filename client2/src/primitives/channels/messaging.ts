@@ -1,13 +1,13 @@
 import { ChannelNotSubscribed } from '@wskit/core';
 import { applyAugmenters } from '~/internal/scoped.ts';
 import type { PrimitiveHelpers } from '~/internal/runtime.ts';
-import type { EndpointObject, ScopeMarkers } from '~/internal/scoped.ts';
+import type { MessagingObject, ScopeMarkers } from '~/internal/scoped.ts';
 import type { ChannelState, FamilyState } from '~/primitives/channels/state.ts';
 import type { ChannelMember } from '~/primitives/channels/types.ts';
 import type { WSKitSocket } from '~/socket/socket.ts';
 
 /**
- * The bits of the channels primitive that the endpoint and scope-handle builders
+ * The bits of the channels primitive that the messaging and scope-handle builders
  * need. `index.ts` owns the stores and hands this in, so the builders stay free
  * of bookkeeping.
  */
@@ -15,8 +15,8 @@ export interface ChannelContext {
   socket: WSKitSocket;
   helpers: PrimitiveHelpers;
   resolveTtl(event: string): number | undefined;
-  /** Get (or create) the endpoint for one channel — cached, so the same name returns the same object. */
-  endpointFor(name: string, scopeKey?: string): EndpointObject;
+  /** Get (or create) the messaging for one channel — cached, so the same name returns the same object. */
+  messagingFor(name: string, scopeKey?: string): MessagingObject;
   /** Get (or create) the family-level state for a dynamic family. */
   family(scopeKey: string): FamilyState;
   /** The concrete names currently active in a family. */
@@ -31,7 +31,10 @@ export function channelMarkers(state: ChannelState): ScopeMarkers {
 }
 
 /** Build the handle a developer interacts with for one channel. */
-export function buildChannelEndpoint(context: ChannelContext, state: ChannelState): EndpointObject {
+export function buildChannelMessaging(
+  context: ChannelContext,
+  state: ChannelState,
+): MessagingObject {
   const { helpers } = context;
 
   // Sending needs an active subscription. `markers()` is the plain identity (used
@@ -44,7 +47,7 @@ export function buildChannelEndpoint(context: ChannelContext, state: ChannelStat
     if (!state.active) throw ChannelNotSubscribed();
   }
 
-  const endpoint: EndpointObject = {
+  const messaging: MessagingObject = {
     on(event, handler) {
       helpers.lazyAcquire();
       const remove = state.addHandler(event, handler);
@@ -108,12 +111,12 @@ export function buildChannelEndpoint(context: ChannelContext, state: ChannelStat
     onSubscriptionFailed: state.onSubscriptionFailed,
   };
 
-  applyAugmenters(context.socket, endpoint, { markers, assertReady });
-  return endpoint;
+  applyAugmenters(context.socket, messaging, { markers, assertReady });
+  return messaging;
 }
 
 /** The runtime shape of a scope handle — callable, with family-level methods. */
-export type ScopeHandleObject = ((name: string) => EndpointObject) & {
+export type ScopeHandleObject = ((name: string) => MessagingObject) & {
   on(event: string, handler: (data: unknown, channelName: string) => void): () => void;
   onSubscribed(callback: (channelName: string, source: 'server' | 'client') => void): () => void;
   onUnsubscribed(callback: (channelName: string) => void): () => void;
@@ -123,7 +126,7 @@ export type ScopeHandleObject = ((name: string) => EndpointObject) & {
 /** Build the callable handle for a whole dynamic channel family. */
 export function buildScopeHandle(context: ChannelContext, scopeKey: string): ScopeHandleObject {
   const family = context.family(scopeKey);
-  const handle = ((name: string) => context.endpointFor(name, scopeKey)) as ScopeHandleObject;
+  const handle = ((name: string) => context.messagingFor(name, scopeKey)) as ScopeHandleObject;
   handle.on = (event, handler) => family.addHandler(event, handler);
   handle.onSubscribed = (callback) => family.onSubscribed(callback);
   handle.onUnsubscribed = (callback) => family.onUnsubscribed(callback);

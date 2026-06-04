@@ -180,7 +180,7 @@ describe('_send: return value — true when buffered, false when dropped', () =>
   });
 
   it('channel.send throws ChannelNotSubscribed before reaching _send when unsubscribed', () => {
-    // Channel enforces subscription at the endpoint level — the _send false-return
+    // Channel enforces subscription at the messaging level — the _send false-return
     // path is unreachable for channels without a prior subscribe(). This is the
     // actual current behavior: the guard throws, not returns false.
     const socket = client<TestContract>()(connect('wss://test'), channels());

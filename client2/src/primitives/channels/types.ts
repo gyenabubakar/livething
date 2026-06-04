@@ -1,7 +1,7 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- contract matching needs `any` to stay generic */
 import type { WSKitError } from '@wskit/core';
 import type { Primitive, TypeFn } from '~/primitives/types.ts';
-import type { IncomingOf, ScopedEndpoint } from '~/types.ts';
+import type { IncomingOf, ScopedMessaging } from '~/types.ts';
 
 /** One member of a channel. `meta` is the connection's metadata set on the server. */
 export interface ChannelMember {
@@ -12,10 +12,10 @@ export interface ChannelMember {
 export type SubscribeSource = 'server' | 'client';
 
 /**
- * A channel handle: an endpoint (on/send/request/sendWithAck) plus the
+ * A channel handle: an messaging (on/send/request/sendWithAck) plus the
  * server-managed-room controls — subscribing, membership, and presence.
  */
-export type ChannelEndpoint<C> = ScopedEndpoint<C> & {
+export type ChannelMessaging<C> = ScopedMessaging<C> & {
   /**
    * Join the channel. Resolves once the server confirms; rejects on auth failure
    * or disconnect. When the channel declares a `subscribePayload` (the server set
@@ -56,7 +56,7 @@ export type ChannelEndpoint<C> = ScopedEndpoint<C> & {
  */
 export interface ScopeHandle<C> {
   /** Get the channel handle for one concrete name in this family. */
-  (name: string): ChannelEndpoint<C>;
+  (name: string): ChannelMessaging<C>;
   /** Listen across every channel in the family; the second arg is which one. */
   on<E extends keyof IncomingOf<C> & string>(
     event: E,
@@ -90,8 +90,11 @@ type FamilyValue<F> = F extends Record<string, infer V> ? V : never;
  * whole family.
  */
 export interface ChannelMethod<C> {
-  <K extends FixedKeys<C> & string>(name: K): ChannelEndpoint<C[K]>;
-  <K extends FamilyKeys<C> & string>(scopeKey: K, name: string): ChannelEndpoint<FamilyValue<C[K]>>;
+  <K extends FixedKeys<C> & string>(name: K): ChannelMessaging<C[K]>;
+  <K extends FamilyKeys<C> & string>(
+    scopeKey: K,
+    name: string,
+  ): ChannelMessaging<FamilyValue<C[K]>>;
   scope<K extends FamilyKeys<C> & string>(scopeKey: K): ScopeHandle<FamilyValue<C[K]>>;
 }
 

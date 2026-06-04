@@ -1,7 +1,7 @@
 export { channels } from '~/primitives/channels/channels.ts';
 export type {
   ChannelsOptions,
-  ChannelEndpoint,
+  ChannelMessaging,
   ChannelMember,
   ScopeHandle,
   SubscribeSource,

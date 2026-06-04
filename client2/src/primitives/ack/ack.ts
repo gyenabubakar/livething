@@ -88,8 +88,8 @@ export function ack(options: AckOptions = {}): Primitive<AckTypeFn> {
           socket.sendWithAck = (event: string, payload: unknown, callOptions?: AckOptionsArg) =>
             sendWithAck(event, payload, { ...callOptions, markers: {} });
 
-          getAugmenters(socket).push((endpoint, scope) => {
-            endpoint.sendWithAck = (
+          getAugmenters(socket).push((messaging, scope) => {
+            messaging.sendWithAck = (
               event: string,
               payload: unknown,
               callOptions?: AckOptionsArg,

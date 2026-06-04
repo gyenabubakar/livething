@@ -12,11 +12,11 @@ export interface SendOptions {
  * and later namespaces and channels.
  *
  * `on()` only appears when the contract has `incoming` events, and `send()` only
- * when it has `outgoing` events. If a contract has neither, the endpoint is
+ * when it has `outgoing` events. If a contract has neither, the messaging is
  * empty. That's why `socket.send(...)` is a compile error when you never
  * declared anything to send.
  */
-export type Endpoint<
+export type Messaging<
   TIncoming extends object = {},
   TOutgoing extends object = {},
 > = (keyof TIncoming extends never

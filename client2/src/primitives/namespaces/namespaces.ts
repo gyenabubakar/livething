@@ -1,6 +1,6 @@
 import { dispatchToHandlers } from '~/internal/dispatch.ts';
 import { applyAugmenters } from '~/internal/scoped.ts';
-import type { EndpointObject, ScopeMarkers } from '~/internal/scoped.ts';
+import type { MessagingObject, ScopeMarkers } from '~/internal/scoped.ts';
 import type { NamespacesOptions, NamespacesTypeFn } from '~/primitives/namespaces/types.ts';
 import type { Primitive } from '~/primitives/types.ts';
 import type { ScopeContract } from '~/types.ts';
@@ -10,7 +10,7 @@ type Handler = (data: unknown) => void;
 /**
  * Splits one connection into named groups of events. A namespace is just
  * routing — there's no server-side membership and nothing to subscribe to.
- * Calling `socket.namespace('chat')` hands you an endpoint whose `on`/`send`
+ * Calling `socket.namespace('chat')` hands you an messaging whose `on`/`send`
  * are scoped to that name, tagged on the wire with `__wskit.namespace`.
  */
 export function namespaces(
@@ -21,7 +21,7 @@ export function namespaces(
     setup(helpers) {
       // namespace name -> event name -> handlers
       const handlers = new Map<string, Map<string, Set<Handler>>>();
-      const endpoints = new Map<string, EndpointObject>();
+      const cache = new Map<string, MessagingObject>();
 
       function resolveTtl(event: string): number | undefined {
         if (typeof options.ttl === 'number') return options.ttl;
@@ -67,14 +67,14 @@ export function namespaces(
         install(socket) {
           // @ts-expect-error — install adds namespace() to the socket dynamically
           socket.namespace = (name: string) => {
-            const existing = endpoints.get(name);
+            const existing = cache.get(name);
             if (existing) return existing;
 
             function markers(): ScopeMarkers {
               return { namespace: name };
             }
 
-            const endpoint: EndpointObject = {
+            const messaging: MessagingObject = {
               on: (event: string, handler: Handler) => register(name, event, handler),
               send: (event: string, payload: unknown, callOptions?: { ttl?: number }) => {
                 const ttl = callOptions?.ttl ?? resolveTtl(event);
@@ -85,10 +85,10 @@ export function namespaces(
               },
             };
 
-            applyAugmenters(socket, endpoint, { markers });
-            endpoints.set(name, endpoint);
+            applyAugmenters(socket, messaging, { markers });
+            cache.set(name, messaging);
 
-            return endpoint;
+            return messaging;
           };
         },
       };

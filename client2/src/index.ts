@@ -31,7 +31,7 @@ export type { NamespacesOptions } from '~/primitives/namespaces/index.ts';
 export { channels } from '~/primitives/channels/index.ts';
 export type {
   ChannelsOptions,
-  ChannelEndpoint,
+  ChannelMessaging,
   ChannelMember,
   ScopeHandle,
   SubscribeSource,
@@ -50,7 +50,7 @@ export { CloseCodes } from '@wskit/core';
 
 export type { Socket, SocketConnection } from '~/socket/api.ts';
 export type { CloseEvent } from '~/socket/socket.ts';
-export type { Endpoint, SendOptions } from '~/endpoint.ts';
+export type { Messaging, SendOptions } from '~/messaging.ts';
 export type {
   SocketContract,
   ScopeContract,
@@ -70,7 +70,7 @@ export type {
   Simplify,
   StaticApi,
   RequestMethod,
-  ScopedEndpoint,
+  ScopedMessaging,
   ScopedApi,
   StreamHandle,
   StreamHandlers,
