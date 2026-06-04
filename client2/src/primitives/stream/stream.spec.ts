@@ -21,7 +21,9 @@ interface C {
       [r: string]: {
         incoming: { msg: { text: string } };
         outgoing: { say: { text: string } };
-        streams: { 'ask-ai': { payload: { prompt: string }; chunk: { text: string }; kind: 'persistent' } };
+        streams: {
+          'ask-ai': { payload: { prompt: string }; chunk: { text: string }; kind: 'persistent' };
+        };
       };
     };
   };

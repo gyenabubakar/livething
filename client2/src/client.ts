@@ -40,7 +40,10 @@ export function client<TContract extends SocketContract = SocketContract>() {
       ApplyPrimitives<TPrimitives, TContract> &
       MissingPrimitiveStubs<TContract, TPrimitives>
   > {
-    return buildSocket(connectDescriptor, primitives as readonly Primitive[]) as unknown as Simplify<
+    return buildSocket(
+      connectDescriptor,
+      primitives as readonly Primitive[],
+    ) as unknown as Simplify<
       Socket<TContract> &
         ApplyPrimitives<TPrimitives, TContract> &
         MissingPrimitiveStubs<TContract, TPrimitives>

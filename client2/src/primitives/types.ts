@@ -133,38 +133,36 @@ type SectionDeclared<TContract, Section extends string> = Section extends keyof 
  * When the primitive IS installed, nothing is added and the real method (from
  * `ApplyPrimitives`) stands alone — so the happy path is untouched.
  */
-export type MissingPrimitiveStubs<
-  TContract,
-  TPrimitives extends readonly Primitive<any, any>[],
-> = ApplyPrimitives<TPrimitives, TContract> extends infer Api
-  ? (SectionDeclared<TContract, 'channels'> extends true
-      ? 'channel' extends keyof Api
-        ? {}
-        : {
-            channel: NeedsPrimitive<'[wskit] socket.channel needs the channels() primitive — add channels() to client()'>;
-          }
-      : {}) &
-      (SectionDeclared<TContract, 'namespaces'> extends true
-        ? 'namespace' extends keyof Api
+export type MissingPrimitiveStubs<TContract, TPrimitives extends readonly Primitive<any, any>[]> =
+  ApplyPrimitives<TPrimitives, TContract> extends infer Api
+    ? (SectionDeclared<TContract, 'channels'> extends true
+        ? 'channel' extends keyof Api
           ? {}
           : {
-              namespace: NeedsPrimitive<'[wskit] socket.namespace needs the namespaces() primitive — add namespaces() to client()'>;
+              channel: NeedsPrimitive<'[wskit] socket.channel needs the channels() primitive — add channels() to client()'>;
             }
         : {}) &
-      (SectionDeclared<TContract, 'requests'> extends true
-        ? 'request' extends keyof Api
-          ? {}
-          : {
-              request: NeedsPrimitive<'[wskit] socket.request needs the requestResponse() primitive — add requestResponse() to client()'>;
-            }
-        : {}) &
-      (SectionDeclared<TContract, 'streams'> extends true
-        ? 'onStream' extends keyof Api
-          ? {}
-          : {
-              stream: NeedsPrimitive<'[wskit] socket.stream needs the stream() primitive — add stream() to client()'>;
-              onStream: NeedsPrimitive<'[wskit] socket.onStream needs the stream() primitive — add stream() to client()'>;
-              resumeStream: NeedsPrimitive<'[wskit] socket.resumeStream needs the stream() primitive — add stream() to client()'>;
-            }
-        : {})
-  : {};
+        (SectionDeclared<TContract, 'namespaces'> extends true
+          ? 'namespace' extends keyof Api
+            ? {}
+            : {
+                namespace: NeedsPrimitive<'[wskit] socket.namespace needs the namespaces() primitive — add namespaces() to client()'>;
+              }
+          : {}) &
+        (SectionDeclared<TContract, 'requests'> extends true
+          ? 'request' extends keyof Api
+            ? {}
+            : {
+                request: NeedsPrimitive<'[wskit] socket.request needs the requestResponse() primitive — add requestResponse() to client()'>;
+              }
+          : {}) &
+        (SectionDeclared<TContract, 'streams'> extends true
+          ? 'onStream' extends keyof Api
+            ? {}
+            : {
+                stream: NeedsPrimitive<'[wskit] socket.stream needs the stream() primitive — add stream() to client()'>;
+                onStream: NeedsPrimitive<'[wskit] socket.onStream needs the stream() primitive — add stream() to client()'>;
+                resumeStream: NeedsPrimitive<'[wskit] socket.resumeStream needs the stream() primitive — add stream() to client()'>;
+              }
+          : {})
+    : {};
