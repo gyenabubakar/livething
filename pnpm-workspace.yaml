@@ -2,7 +2,6 @@ packages:
   - client
   - client2
   - core
-  - shared
   - server
   - server-adapters/*
   - tests-e2e/*
