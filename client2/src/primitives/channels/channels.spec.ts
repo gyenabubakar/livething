@@ -419,12 +419,11 @@ describe('stream-error routing (order-independent)', () => {
     // stream() augments onStream onto channel endpoints at runtime; the general channel
     // has no streams in C, so we union-cast to access the augmented method in the test.
     type RoomWithStream = ReturnType<(typeof socket)['channel']> & {
-      // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- broadcast stream chunks are untyped; 'general' has no streams in C
       onStream(
         event: string,
         handlers: {
-          onChunk(chunk: any, id: string): void;
-          onError?(error: any, id: string): void;
+          onChunk(chunk: unknown, id: string): void;
+          onError?(error: unknown, id: string): void;
           onEnd?: (id: string, seq?: number) => void;
         },
       ): () => void;

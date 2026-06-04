@@ -16,8 +16,15 @@ export type SubscribeSource = 'server' | 'client';
  * server-managed-room controls — subscribing, membership, and presence.
  */
 export type ChannelEndpoint<C> = ScopedEndpoint<C> & {
-  /** Join the channel. Resolves once the server confirms; rejects on auth failure or disconnect. */
-  subscribe(data?: unknown): Promise<void>;
+  /**
+   * Join the channel. Resolves once the server confirms; rejects on auth failure
+   * or disconnect. When the channel declares a `subscribePayload` (the server set
+   * a `check` validator) the payload is required and typed; otherwise it's an
+   * optional, untyped value.
+   */
+  subscribe(
+    ...args: C extends { subscribePayload: infer P } ? [data: P] : [data?: unknown]
+  ): Promise<void>;
   /** Leave the channel. Fire-and-forget — there's no server confirmation. */
   unsubscribe(): void;
 

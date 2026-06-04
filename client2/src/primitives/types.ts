@@ -96,3 +96,75 @@ export type SocketWithPrimitives<
   TPrimitives extends readonly Primitive<any, any>[],
   TBase,
 > = Simplify<TBase & ApplyPrimitives<TPrimitives, TContract>>;
+
+/**
+ * A type-level error. The method exists but is deliberately NOT callable, so
+ * calling it fails on the method itself (not on an argument) with:
+ *   "This expression is not callable. Type '{ error: "[wskit] …" }' has no call
+ *    signatures."
+ * The wrapping object keeps the message from widening to `string`, and using it
+ * as a value (not a key) keeps punctuation like the em-dash intact.
+ */
+type NeedsPrimitive<Message extends string> = { error: Message };
+
+/**
+ * True when the contract genuinely declares this section with named events. It
+ * must be a required key (an optional `channels?:` is excluded, because the
+ * primitive's own `_requires` won't accept an optional section — so suggesting
+ * it would be a dead end), it must be non-empty, and it must not be the base
+ * `SocketContract`'s bare index signature (so the default contract never gets a
+ * spurious stub).
+ */
+type SectionDeclared<TContract, Section extends string> = Section extends keyof TContract
+  ? {} extends Pick<TContract, Section>
+    ? false
+    : keyof NonNullable<TContract[Section]> extends never
+      ? false
+      : string extends keyof NonNullable<TContract[Section]>
+        ? false
+        : true
+  : false;
+
+/**
+ * For a contract section that needs a primitive you forgot to install, add a
+ * stub method whose call signature carries a readable "add X() to client()"
+ * message. The check is whether the installed API already provides the method
+ * (not which `_tag`s were passed), so it works no matter what else is installed.
+ * When the primitive IS installed, nothing is added and the real method (from
+ * `ApplyPrimitives`) stands alone — so the happy path is untouched.
+ */
+export type MissingPrimitiveStubs<
+  TContract,
+  TPrimitives extends readonly Primitive<any, any>[],
+> = ApplyPrimitives<TPrimitives, TContract> extends infer Api
+  ? (SectionDeclared<TContract, 'channels'> extends true
+      ? 'channel' extends keyof Api
+        ? {}
+        : {
+            channel: NeedsPrimitive<'[wskit] socket.channel needs the channels() primitive — add channels() to client()'>;
+          }
+      : {}) &
+      (SectionDeclared<TContract, 'namespaces'> extends true
+        ? 'namespace' extends keyof Api
+          ? {}
+          : {
+              namespace: NeedsPrimitive<'[wskit] socket.namespace needs the namespaces() primitive — add namespaces() to client()'>;
+            }
+        : {}) &
+      (SectionDeclared<TContract, 'requests'> extends true
+        ? 'request' extends keyof Api
+          ? {}
+          : {
+              request: NeedsPrimitive<'[wskit] socket.request needs the requestResponse() primitive — add requestResponse() to client()'>;
+            }
+        : {}) &
+      (SectionDeclared<TContract, 'streams'> extends true
+        ? 'onStream' extends keyof Api
+          ? {}
+          : {
+              stream: NeedsPrimitive<'[wskit] socket.stream needs the stream() primitive — add stream() to client()'>;
+              onStream: NeedsPrimitive<'[wskit] socket.onStream needs the stream() primitive — add stream() to client()'>;
+              resumeStream: NeedsPrimitive<'[wskit] socket.resumeStream needs the stream() primitive — add stream() to client()'>;
+            }
+        : {})
+  : {};

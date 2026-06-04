@@ -16,7 +16,7 @@ interface C {
     general: { incoming: { message: unknown } };
     rooms: { [room: string]: { incoming: { message: unknown } } };
   };
-  streams: { feed: { payload: unknown; chunks: unknown } };
+  streams: { feed: { payload: unknown; chunk: unknown } };
 }
 
 function connectedBase() {

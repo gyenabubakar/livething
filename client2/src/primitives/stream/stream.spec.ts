@@ -11,7 +11,8 @@ interface C {
   streams: {
     'ask-ai': {
       payload: { prompt: string };
-      chunks: { text: string };
+      chunk: { text: string };
+      kind: 'persistent';
       nudges: { cancel: { reason: string }; 'add-context': { context: string } };
     };
   };
@@ -20,7 +21,7 @@ interface C {
       [r: string]: {
         incoming: { msg: { text: string } };
         outgoing: { say: { text: string } };
-        streams: { 'ask-ai': { payload: { prompt: string }; chunks: { text: string } } };
+        streams: { 'ask-ai': { payload: { prompt: string }; chunk: { text: string }; kind: 'persistent' } };
       };
     };
   };

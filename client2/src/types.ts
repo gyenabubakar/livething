@@ -58,13 +58,16 @@ export interface RequestContract {
 }
 
 /**
- * One streaming definition: `payload` starts the stream, `chunks` is the shape
- * of each piece you receive, and `nudges` (optional) are messages you can send
- * to a running stream.
+ * One streaming definition, matching the shape `InferClient` produces from a
+ * `@wskit/server` definition: `payload` starts the stream, `chunk` is the shape
+ * of each piece you receive, `kind` marks a durable (`'persistent'`) stream you
+ * can resume versus a plain (`'ephemeral'`) one, and `nudges` (optional) are
+ * messages you can send to a running stream.
  */
 export interface StreamContract {
   payload: unknown;
-  chunks: unknown;
+  chunk: unknown;
+  kind?: 'ephemeral' | 'persistent';
   nudges?: Record<string, unknown>;
 }
 
@@ -162,6 +165,15 @@ export interface StreamHandlers<TChunk> {
 /** Pull the `nudges` map out of one stream definition, or `{}` if it has none. */
 export type NudgesOf<S> = S extends { nudges: infer N } ? N : {};
 
+/**
+ * The stream names whose `kind` is `'persistent'` — the only streams you can
+ * resume. A contract from `InferClient` stamps every stream with a `kind`, so a
+ * plain (`'ephemeral'`) stream is not a valid `resumeStream()` argument.
+ */
+export type PersistentStreamKeys<S> = {
+  [K in keyof S]: S[K] extends { kind: 'persistent' } ? K : never;
+}[keyof S];
+
 /** Adds a `request()`-style method typed from the contract's `requests`. */
 export type RequestMethod<TContract, TMethod extends string> = TContract extends {
   requests: infer R extends Record<string, { payload: any; response: any }>;
@@ -199,22 +211,22 @@ export type ScopedEndpoint<C> = Endpoint<IncomingOf<C> & object, OutgoingOf<C> &
           options?: { timeout?: number; ttl?: number },
         ): Promise<void>;
       }) &
-  (C extends { streams: infer S extends Record<string, { payload: any; chunks: any }> }
+  (C extends { streams: infer S extends Record<string, { payload: any; chunk: any }> }
     ? {
         stream<E extends keyof S & string>(
           event: E,
           payload: S[E]['payload'],
           options?: { streamId?: string },
-        ): Promise<StreamHandle<S[E]['chunks'], NudgesOf<S[E]>>>;
+        ): Promise<StreamHandle<S[E]['chunk'], NudgesOf<S[E]>>>;
         onStream<E extends keyof S & string>(
           event: E,
-          handlers: StreamHandlers<S[E]['chunks']>,
+          handlers: StreamHandlers<S[E]['chunk']>,
         ): () => void;
-        resumeStream<E extends keyof S & string>(
+        resumeStream<E extends PersistentStreamKeys<S> & string>(
           event: E,
           streamId: string,
           options?: { lastKnownSeq?: number },
-        ): StreamHandle<S[E]['chunks'], NudgesOf<S[E]>>;
+        ): StreamHandle<S[E]['chunk'], NudgesOf<S[E]>>;
       }
     : {});
 

@@ -4,7 +4,12 @@ import { WSKitSocket } from '~/socket/socket.ts';
 import type { ConnectDescriptor } from '~/connect.ts';
 import type { SocketConfig } from '~/internal/config.ts';
 import type { PrimitiveRuntime } from '~/internal/runtime.ts';
-import type { ApplyPrimitives, Primitive, ValidatePrimitives } from '~/primitives/types.ts';
+import type {
+  ApplyPrimitives,
+  MissingPrimitiveStubs,
+  Primitive,
+  ValidatePrimitives,
+} from '~/primitives/types.ts';
 import type { Socket } from '~/socket/api.ts';
 import type { Simplify, SocketContract } from '~/types.ts';
 
@@ -30,11 +35,16 @@ export function client<TContract extends SocketContract = SocketContract>() {
   return function build<const TPrimitives extends readonly Primitive<any, any>[] = []>(
     connectDescriptor: ConnectDescriptor,
     ...primitives: [...TPrimitives] & ValidatePrimitives<TContract, TPrimitives>
-  ): Simplify<Socket<TContract> & ApplyPrimitives<TPrimitives, TContract>> {
-    return buildSocket(
-      connectDescriptor,
-      primitives as readonly Primitive[],
-    ) as unknown as Simplify<Socket<TContract> & ApplyPrimitives<TPrimitives, TContract>>;
+  ): Simplify<
+    Socket<TContract> &
+      ApplyPrimitives<TPrimitives, TContract> &
+      MissingPrimitiveStubs<TContract, TPrimitives>
+  > {
+    return buildSocket(connectDescriptor, primitives as readonly Primitive[]) as unknown as Simplify<
+      Socket<TContract> &
+        ApplyPrimitives<TPrimitives, TContract> &
+        MissingPrimitiveStubs<TContract, TPrimitives>
+    >;
   };
 }
 

@@ -14,7 +14,8 @@ interface C {
   streams: {
     'ask-ai': {
       payload: { prompt: string };
-      chunks: { text: string };
+      chunk: { text: string };
+      kind: 'persistent';
       nudges: never;
     };
   };

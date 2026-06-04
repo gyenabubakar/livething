@@ -28,7 +28,8 @@ afterEach(() => {
 function buildSocket<const P extends readonly Primitive<any, any>[]>(
   ...primitives: [...P] & ValidatePrimitives<TestContract, P>
 ): WSKitSocket {
-  return client<TestContract>()(connect('wss://test'), ...primitives) as WSKitSocket;
+  // The test reaches into internal members, so it works against the class type.
+  return client<TestContract>()(connect('wss://test'), ...primitives) as unknown as WSKitSocket;
 }
 
 // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- forward client()'s primitive constraint

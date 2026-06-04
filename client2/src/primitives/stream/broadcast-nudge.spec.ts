@@ -11,7 +11,7 @@ interface C {
   streams: {
     'ask-ai': {
       payload: { prompt: string };
-      chunks: { text: string };
+      chunk: { text: string };
       nudges: { hint: { value: string } };
     };
   };
@@ -20,7 +20,7 @@ interface C {
       [r: string]: {
         incoming: { msg: { text: string } };
         outgoing: { say: { text: string } };
-        streams: { 'ask-ai': { payload: { prompt: string }; chunks: { text: string } } };
+        streams: { 'ask-ai': { payload: { prompt: string }; chunk: { text: string } } };
       };
     };
   };

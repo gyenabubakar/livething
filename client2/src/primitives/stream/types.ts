@@ -1,6 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any -- contract matching needs `any` to stay generic */
 import type { Primitive, TypeFn } from '~/primitives/types.ts';
-import type { NudgesOf, StreamHandle, StreamHandlers } from '~/types.ts';
+import type { NudgesOf, PersistentStreamKeys, StreamHandle, StreamHandlers } from '~/types.ts';
 
 /** Options for the `stream()` primitive. */
 export interface StreamOptions {
@@ -25,23 +25,23 @@ export interface StreamTriggerOptions {
  */
 export interface StreamTypeFn extends TypeFn {
   readonly _api: this['_contract'] extends {
-    streams: infer S extends Record<string, { payload: any; chunks: any }>;
+    streams: infer S extends Record<string, { payload: any; chunk: any }>;
   }
     ? {
         stream<K extends keyof S & string>(
           event: K,
           payload: S[K]['payload'],
           options?: StreamTriggerOptions,
-        ): Promise<StreamHandle<S[K]['chunks'], NudgesOf<S[K]>>>;
+        ): Promise<StreamHandle<S[K]['chunk'], NudgesOf<S[K]>>>;
         onStream<K extends keyof S & string>(
           event: K,
-          handlers: StreamHandlers<S[K]['chunks']>,
+          handlers: StreamHandlers<S[K]['chunk']>,
         ): () => void;
-        resumeStream<K extends keyof S & string>(
+        resumeStream<K extends PersistentStreamKeys<S> & string>(
           event: K,
           streamId: string,
           options?: { lastKnownSeq?: number },
-        ): StreamHandle<S[K]['chunks'], NudgesOf<S[K]>>;
+        ): StreamHandle<S[K]['chunk'], NudgesOf<S[K]>>;
       }
     : {};
 }
