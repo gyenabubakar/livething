@@ -1,44 +1,31 @@
-/* oxlint-disable @typescript-eslint/no-explicit-any -- plugin type merging requires `any` */
-import { MessageBuffer } from '~/socket/buffer.ts';
+import { Block, WSKitConfigError } from '@wskit/core';
+import { dispatchToHandlers } from '~/internal/dispatch.ts';
+import { toWSKitError } from '~/internal/error-frame.ts';
 import { Emitter } from '~/socket/emitter.ts';
-import { Keepalive } from '~/socket/keepalive.ts';
-import { Platform } from '~/socket/platform.ts';
-import { Reconnection } from '~/socket/reconnection.ts';
-import type { SendOptions } from '~/endpoint.ts';
-import type { MiddlewareFn, MiddlewareMessage } from '~/middleware.ts';
-import type { FullSocketOptions } from '~/options.ts';
-import type { Plugin } from '~/plugins/base.ts';
+import type { WSKitError } from '@wskit/core';
+import type { SocketConfig } from '~/internal/config.ts';
 import type {
-  ConnectionQuality,
-  ConnectionState,
-  IncomingOf,
-  OutgoingOf,
-  SocketContract,
-} from '~/types.ts';
+  InterceptFn,
+  PrimitiveHelpers,
+  PrimitiveLogger,
+  PrimitiveRuntime,
+  WireMessage,
+  WSKitEnvelope,
+} from '~/internal/runtime.ts';
+import type { SendOptions } from '~/messaging.ts';
+import type { ConnectionQuality, ConnectionState } from '~/types.ts';
 
-// ---------------------------------------------------------------------------
-// Close event
-// ---------------------------------------------------------------------------
-
-/**
- * Describes a WebSocket close, passed to `onClose` handlers.
- *
- * - `code` — numeric close code (e.g., 1000 = normal, 1006 = abnormal, 4001 = app-defined)
- * - `reason` — optional string from the server (e.g., "token expired")
- * - `wasClean` — `true` if the close handshake completed properly
- */
+/** What an `onClose` handler receives. */
 export interface CloseEvent {
-  /** WebSocket close code (e.g., 1000 for normal, 4001 for app-defined). */
+  /** The numeric close code (e.g. 1000 normal, 4001 app-defined). */
   code: number;
-  /** Optional close reason from the server. */
+
+  /** The reason text from the server, if any. */
   reason: string;
-  /** Whether the close handshake completed properly. */
+
+  /** Whether the close finished cleanly. */
   wasClean: boolean;
 }
-
-// ---------------------------------------------------------------------------
-// Internal event map
-// ---------------------------------------------------------------------------
 
 type SocketEvents = {
   state: [state: ConnectionState];
@@ -46,163 +33,193 @@ type SocketEvents = {
   reconnect: [];
   reconnectFailed: [];
   close: [event: CloseEvent];
-  error: [error: Event];
+  error: [error: Event | WSKitError];
   qualityChange: [quality: ConnectionQuality, latency: number];
 };
 
-// ---------------------------------------------------------------------------
-// Socket class
-// ---------------------------------------------------------------------------
-
-/** Default message parser: expects `{ event, payload }` JSON. */
-function defaultParse(raw: string): { event: string; payload: unknown } | null {
+/** Default reader: turn a text frame into `{ event, payload, __wskit? }`. */
+function defaultParse(raw: string): WireMessage | null {
   const parsed = JSON.parse(raw) as Record<string, unknown>;
   if (typeof parsed.event !== 'string') return null;
-  return { event: parsed.event, payload: parsed.payload };
+
+  const message: WireMessage = { event: parsed.event, payload: parsed.payload };
+  if (parsed.__wskit && typeof parsed.__wskit === 'object') {
+    message.__wskit = parsed.__wskit as WSKitEnvelope;
+  }
+
+  return message;
 }
 
-/** Default message serializer: `{ event, payload }` as JSON. */
-function defaultSerialize(event: string, payload: unknown): string {
-  return JSON.stringify({ event, payload });
+/** Default writer: turn a message into the JSON string sent over the wire. */
+function defaultSerialize(message: WireMessage): string {
+  return message.__wskit
+    ? JSON.stringify({ event: message.event, payload: message.payload, __wskit: message.__wskit })
+    : JSON.stringify({ event: message.event, payload: message.payload });
 }
 
 /**
- * The core WebSocket client. Handles connection lifecycle, reconnection,
- * keepalive, buffering, middleware, and event dispatch. Plugin APIs are
- * merged onto the type by `createSocket`.
+ * The connection engine behind every socket. It handles the WebSocket itself,
+ * the connection state, sending and receiving, lazy connecting, and quality.
  *
- * Developers never instantiate this directly — use `createSocket()`.
+ * On purpose it contains no reconnection, keepalive, or buffering code — those
+ * live in their own primitives and drive the engine through `_helpers()`. That
+ * keeps unused features out of your bundle. You never build this yourself;
+ * `client()` does and hands you back a typed `Socket`.
  */
-export class Socket<TContract extends SocketContract> {
-  /** The underlying native WebSocket instance. `null` when disconnected. */
+export class WSKitSocket {
+  /** The native WebSocket, or `null` when not connected. */
   ws: WebSocket | null = null;
 
-  /** The subprotocol selected by the server during handshake. `null` if none. */
+  /** The subprotocol the server picked, or `null`. */
   protocol: string | null = null;
 
   /** @internal */
-  _url: string | (() => string | Promise<string>);
-  /** @internal */
-  _options: FullSocketOptions<TContract>;
-  /** @internal */
-  _plugins: readonly Plugin<any, any>[];
+  _config: SocketConfig;
+
+  /** @internal — set after construction, once primitives are built. */
+  _primitives: readonly PrimitiveRuntime[] = [];
+
   /** @internal */
   _state: ConnectionState = 'closed';
-  /** @internal */
-  _emitter = new Emitter<SocketEvents>();
-  /** @internal */
-  _middleware: MiddlewareFn[] = [];
+
+  /** @internal — a throwing listener is contained and logged on the debug
+   * channel (matching the message-handler dispatch path), never escapes. */
+  _emitter = new Emitter<SocketEvents>((error) =>
+    this._logAt('error', 'a socket listener threw', error),
+  );
+
   /** @internal */
   _debug = false;
+
   /** @internal */
   _isFirstConnect = true;
-  /** @internal — tracks whether disconnect() was called to prevent reconnection */
+
+  /** @internal — true once disconnect() is called, so we don't reconnect. */
   _intentionalClose = false;
-  /**
-   * @internal — cancel in-flight async URL/searchParams resolution.
-   * Async operations (URL resolution, searchParams) can overlap with disconnect().
-   * This counter invalidates stale callbacks: if disconnect() was called while we
-   * were resolving the URL, the attemptId won't match and we bail out.
-   */
+
+  /** @internal — bumped to cancel a connect attempt that's still resolving its URL. */
   _connectAttemptId = 0;
+
   /** @internal */
-  _reconnection: Reconnection;
-  /** @internal */
-  _keepalive: Keepalive;
-  /** @internal */
-  _buffer: MessageBuffer;
-  /** @internal */
-  _platform: Platform;
-  /** @internal — whether platform listeners have been bound */
-  _platformBound = false;
-  /** @internal — inactivity disconnect timer */
-  _inactivityTimer: ReturnType<typeof setTimeout> | null = null;
-  /** @internal — lazy mode: whether to defer connection */
   _lazy: boolean;
-  /** @internal — lazy mode: idle disconnect timer */
+
   _lazyIdleTimer: ReturnType<typeof setTimeout> | null = null;
-  /** @internal — lazy mode: number of active consumers (on() listeners, pending requests, etc.) */
+
   _lazyConsumers = 0;
-  /** @internal — direct dispatch map for on() handlers, keyed by event name */
+
+  /** @internal — listeners by event name. */
   _messageHandlers = new Map<string, Set<(payload: unknown) => void>>();
 
-  private readonly _pongMessage: string;
-  private readonly _parse: (raw: string) => { event: string; payload: unknown } | null;
-  private readonly _parseBinary:
-    | ((data: unknown) => { event: string; payload: unknown } | null)
-    | null;
-  private readonly _serialize: (event: string, payload: unknown) => string;
+  // Quality lives here because the getters are part of the public API, but the
+  // values come from the keepalive primitive (if you added it). `null` means
+  // "not measured yet" — getQuality() shows an optimistic default until a pong
+  // lands, and the first real measurement fires the first qualityChange.
+  private _quality: ConnectionQuality | null = null;
+
+  private _latency: number | null = null;
+
+  // Filled in by behavior primitives through _helpers().
+  private _unexpectedCloseHandler: ((code: number, reason: string) => void) | null = null;
+
+  private _pongHandlers: (() => void)[] = [];
+
+  private _outgoingFallback: ((message: WireMessage, ttl?: number) => boolean) | null = null;
+
+  private _signalHandlers = new Map<string, Set<(value: boolean) => void>>();
+
+  private _idCounter = 0;
+
+  /**
+   * @internal — plugin APIs, built lazily on first `Plugin.use(socket)`. Keyed
+   * by the plugin's `key`, then by `registrationId` (or `undefined` for a
+   * singleton), so a repeatable plugin can hold several instances at once.
+   */
+  private _plugins = new Map<
+    symbol,
+    Map<string | undefined, { build: (socket: WSKitSocket) => unknown; api?: unknown }>
+  >();
+
+  private readonly _parse: (raw: string) => WireMessage | null;
+  private readonly _parseBinary: ((data: unknown) => WireMessage | null) | null;
+  private readonly _serialize: (message: WireMessage) => string;
+  private readonly _intercepts: readonly InterceptFn[];
+
+  // The one debug-gated logger, shared by the primitive helpers and the kernel's
+  // own dispatch paths. `info` maps to console.log, warn/error to their levels.
+  private readonly _logger: PrimitiveLogger = {
+    info: (...args) => this._logAt('log', ...args),
+    warn: (...args) => this._logAt('warn', ...args),
+    error: (...args) => this._logAt('error', ...args),
+  };
 
   /** @internal */
-  constructor(
-    url: string | (() => string | Promise<string>),
-    options: FullSocketOptions<TContract>,
-    plugins: readonly Plugin<any, any>[],
-  ) {
-    this._url = url;
-    this._options = options;
-    this._plugins = plugins;
-    this._debug = options.debug ?? false;
-    this._lazy = options.lazy ?? false;
-    this._pongMessage = options.pongMessage ?? 'pong';
-    this._parse = options.parse ?? defaultParse;
-    this._parseBinary =
-      (
-        options as {
-          parseBinary?: (data: unknown) => { event: string; payload: unknown } | null;
-        }
-      ).parseBinary ?? null;
-    this._serialize = options.serialize ?? defaultSerialize;
-    this._reconnection = new Reconnection(options, plugins);
-    this._buffer = new MessageBuffer(options);
-    this._platform = new Platform(options);
-    this._keepalive = new Keepalive(options, {
-      sendPing: (message) => {
-        if (!this.ws || this._state !== 'open') return;
-        this.ws.send(message);
-        this._log('ping sent');
-      },
-      forceClose: () => {
-        this._log('missed pong threshold reached — force closing');
-        if (this.ws) {
-          this.ws.close(4000, 'missed pong');
-        }
-      },
-      onQualityChange: (quality, latency) => {
-        this._emitter.emit('qualityChange', quality, latency);
-      },
-    });
+  constructor(config: SocketConfig) {
+    this._config = config;
+    this._debug = config.debug ?? false;
+    this._lazy = config.lazy ?? false;
+    this._parse = config.parse ?? defaultParse;
+    this._parseBinary = config.parseBinary ?? null;
+    this._serialize = config.serialize ?? defaultSerialize;
+    this._intercepts = config.intercepts ?? [];
   }
 
-  // ── Connection lifecycle ─────────────────────────────────────
+  /** @internal — attach the primitive runtimes after they're set up. */
+  _setPrimitives(primitives: readonly PrimitiveRuntime[]): void {
+    this._primitives = primitives;
+  }
 
-  /** Open the WebSocket connection. Safe to call multiple times. */
+  /** @internal — record how to build a plugin's API; the api is built on first use. */
+  _registerPlugin(
+    key: symbol,
+    registrationId: string | undefined,
+    build: (socket: WSKitSocket) => unknown,
+  ): void {
+    let byRegistration = this._plugins.get(key);
+    if (!byRegistration) {
+      byRegistration = new Map();
+      this._plugins.set(key, byRegistration);
+    }
+    byRegistration.set(registrationId, { build });
+  }
+
+  /** @internal — get a plugin's API for this socket, building and caching it once. */
+  _usePlugin(key: symbol, registrationId: string | undefined): unknown {
+    const entry = this._plugins.get(key)?.get(registrationId);
+    if (!entry) {
+      throw new WSKitConfigError(
+        registrationId === undefined
+          ? '[wskit] this plugin is not registered on this socket. Pass it to client().'
+          : `[wskit] no plugin instance with registrationId '${registrationId}' is registered on this socket.`,
+      );
+    }
+    if (!('api' in entry)) entry.api = entry.build(this);
+    return entry.api;
+  }
+
+  /** Open the connection. Calling it again while open or connecting does nothing. */
   connect(): void {
     if (this._state === 'open' || this._state === 'connecting') return;
     this._intentionalClose = false;
-    this._bindPlatform();
     this._openConnection();
   }
 
   /**
-   * Close the connection and fully tear down the socket.
-   *
-   * Stops reconnection, clears the message buffer, rejects all pending
-   * `request()` and `send.withAck()` promises, and detaches platform listeners.
-   * All `.on()` handlers remain registered — call `connect()` to reconnect.
-   *
-   * @param code WebSocket close code. Default: `1000` (normal closure).
-   * @param reason Close reason string sent to the server. Default: `''`.
+   * Close the connection on purpose. This is a full stop: no reconnection, the
+   * buffer is cleared, and primitives clean up. Your `on()` handlers stay, so
+   * `connect()` later picks up where you left off.
    */
   disconnect(code = 1000, reason = ''): void {
     this._intentionalClose = true;
     this._connectAttemptId++;
-    this._reconnection.stop();
-    this._keepalive.stop();
-    this._buffer.clear();
+    // A deliberate teardown ends the session: the next connect() is a first
+    // connect again, not a reconnect (so onReconnect/replay don't fire).
+    this._isFirstConnect = true;
     this._clearLazyIdleTimer();
-    this._lazyConsumers = 0;
-    this._unbindPlatform();
+
+    // Was there anything to tear down? A disconnect() on an already-closed
+    // socket must not fire a second onClose. Closing a connecting/reconnecting
+    // socket still counts (matches native close-during-connecting).
+    const wasActive = this._state !== 'closed';
 
     if (this.ws) {
       this.ws.onopen = null;
@@ -212,264 +229,327 @@ export class Socket<TContract extends SocketContract> {
       this.ws.close(code, reason);
       this.ws = null;
     }
-
     this.protocol = null;
+    this._quality = null;
+    this._latency = null;
 
-    // Notify plugins
-    for (const plugin of this._plugins) {
-      plugin.onClose?.(code, reason);
+    // Primitives always clean up here — clear the buffer, reject pending
+    // request/ack promises — even when we were already closed, since work may
+    // have been queued since the close. We do NOT zero `_lazyConsumers`: `on()`
+    // handlers stay registered across a disconnect, so they remain real
+    // consumers — wiping the count would make a later unsubscribe wrongly
+    // idle-close a socket that still has live listeners.
+    for (const primitive of this._primitives) {
+      try {
+        primitive.onClose?.(code, reason, true);
+      } catch (error) {
+        this._logAt('error', `primitive '${primitive.id}' onClose threw`, error);
+      }
     }
+    // Clear again in case a pending-op release above started an idle timer.
+    this._clearLazyIdleTimer();
 
-    this._setState('closed');
-    this._emitter.emit('close', { code, reason, wasClean: true });
+    // Fire the user-facing close only once: skip it when we were already closed
+    // so a redundant disconnect doesn't emit a second onClose.
+    if (wasActive) {
+      this._setState('closed');
+      this._emitter.emit('close', { code, reason, wasClean: true });
+    }
   }
 
-  // ── State ────────────────────────────────────────────────────
-
-  /** Current connection state. */
   getState(): ConnectionState {
     return this._state;
   }
 
-  /** Current connection quality based on ping latency. */
   getQuality(): ConnectionQuality {
     if (this._state !== 'open') return 'disconnected';
-    return this._keepalive.getQuality();
+    // Optimistic default while open but not yet measured (e.g. no keepalive).
+    return this._quality ?? 'excellent';
   }
 
-  /** Last measured round-trip time in milliseconds, or `null` if unknown. */
   getLatency(): number | null {
-    return this._keepalive.getLatency();
+    return this._latency;
   }
 
-  /**
-   * Subscribe to state changes. The callback receives no arguments —
-   * read the new state with `getState()`. Returns an unsubscribe function.
-   */
+  /** Run a callback whenever the state changes. Read the new value with `getState()`. */
   subscribe(callback: () => void): () => void {
     return this._emitter.on('state', callback);
   }
 
-  // ── Event callbacks ──────────────────────────────────────────
-
-  /** Listen for incoming events. Typed against `TContract['incoming']`. Returns an unsubscribe function. */
-  on<K extends keyof IncomingOf<TContract> & string>(
-    event: K,
-    handler: (data: IncomingOf<TContract>[K]) => void,
-  ): () => void {
+  on(event: string, handler: (data: unknown) => void): () => void {
     this._lazyAcquire();
 
     if (!this._messageHandlers.has(event)) {
       this._messageHandlers.set(event, new Set());
     }
-    const set = this._messageHandlers.get(event)!;
-    set.add(handler as (payload: unknown) => void);
 
+    const handlers = this._messageHandlers.get(event)!;
+    handlers.add(handler);
+
+    // Guard so calling this unsubscribe more than once releases the lazy hold
+    // only once — a second call must not steal another listener's hold.
+    let released = false;
     return () => {
-      set.delete(handler as (payload: unknown) => void);
-      if (set.size === 0) this._messageHandlers.delete(event);
+      if (released) return;
+
+      released = true;
+      handlers.delete(handler);
+
+      if (handlers.size === 0) this._messageHandlers.delete(event);
+
       this._lazyRelease();
     };
   }
 
-  /** Send an outgoing event. Typed against `TContract['outgoing']`. Returns `true` if sent or buffered. */
-  send<K extends keyof OutgoingOf<TContract> & string>(
-    event: K,
-    payload: OutgoingOf<TContract>[K],
-    options?: SendOptions,
-  ): boolean {
-    return this._send(event, payload, options);
+  send(event: string, payload: unknown, options?: SendOptions): boolean {
+    return this._send({ event, payload }, options);
   }
 
-  /**
-   * @internal — untyped send that runs the full pipeline: lazy connect →
-   * onOutgoing hooks → buffer fallback → WebSocket. Used by `send()` and
-   * exposed to plugins via `helpers.send`.
-   *
-   * See also `_rawSend` which bypasses onOutgoing hooks — used by plugins to
-   * avoid infinite loops (e.g., an onOpen hook sending a message that re-triggers
-   * onOutgoing). Plugins that want buffer support use `helpers.send` (calls _send).
-   */
-  _send(event: string, payload: unknown, options?: SendOptions): boolean {
-    this._ensureConnected();
-
-    let msg: { event: string; payload: unknown } | null = { event, payload };
-    for (const plugin of this._plugins) {
-      if (!plugin.onOutgoing) continue;
-      msg = plugin.onOutgoing(msg.event, msg.payload);
-      if (msg === null) {
-        this._log('send cancelled by plugin');
-        return false;
-      }
-    }
-
-    if (this._state !== 'open' || !this.ws) {
-      if (this._buffer.enqueue(msg.event, msg.payload, options?.ttl)) {
-        this._log(`send('${msg.event}') buffered`);
-        return true;
-      }
-      this._log(`send('${event}') dropped — not connected`);
-      return false;
-    }
-
-    this.ws.send(this._serialize(msg.event, msg.payload));
-    this._log(`send('${msg.event}')`, msg.payload);
+  sendBinary(data: ArrayBuffer | ArrayBufferView<ArrayBuffer> | Blob): boolean {
+    if (this._state !== 'open' || !this.ws) return false;
+    this.ws.send(data);
     return true;
   }
 
-  /**
-   * Send raw binary data directly over the WebSocket. Bypasses the `serialize`
-   * option and contract typing — you handle the encoding.
-   */
-  sendBinary(data: ArrayBuffer | ArrayBufferView<ArrayBuffer> | Blob): void {
-    if (this._state !== 'open' || !this.ws) return;
-    this.ws.send(data);
-  }
-
-  // ── Lifecycle callbacks ──────────────────────────────────────
-
-  /** Fires on every connection open (first connect and reconnects). */
+  /** Runs on every open — the first connect and every reconnect. */
   onOpen(callback: () => void): () => void {
     return this._emitter.on('open', callback);
   }
 
-  /** Fires only on reconnects (not the first connect). */
+  /** Runs only on reconnects, not the first connect. */
   onReconnect(callback: () => void): () => void {
     return this._emitter.on('reconnect', callback);
   }
 
-  /** Fires when all reconnection attempts are exhausted. */
+  /** Runs once when reconnection gives up for good. */
   onReconnectFailed(callback: () => void): () => void {
     return this._emitter.on('reconnectFailed', callback);
   }
 
-  /** Fires on every WebSocket close, including closes that trigger reconnection. */
+  /** Runs on every close, including ones that lead to a reconnect. */
   onClose(callback: (event: CloseEvent) => void): () => void {
     return this._emitter.on('close', callback);
   }
 
-  /** Fires on WebSocket protocol errors. Not called on normal disconnection. */
-  onError(callback: (error: Event) => void): () => void {
+  /** A WebSocket-level error. */
+  onError(callback: (error: Event) => void): () => void;
+
+  /** A typed error the server sent that no request/stream claimed. */
+  onError(callback: (error: WSKitError) => void): () => void;
+
+  // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- the single body serves both overloads above
+  onError(callback: (error: any) => void): () => void {
     return this._emitter.on('error', callback);
   }
 
-  /**
-   * Fires when connection quality transitions between tiers
-   * (e.g., `'good'` → `'degraded'`). Callback receives the new quality
-   * tier and the current round-trip latency in milliseconds.
-   */
+  /** Runs when the quality tier changes. */
   onQualityChange(callback: (quality: ConnectionQuality, latency: number) => void): () => void {
     return this._emitter.on('qualityChange', callback);
   }
 
-  // ── Middleware ────────────────────────────────────────────────
-
-  /** Add incoming message middleware. Runs in registration order. */
-  use(middleware: MiddlewareFn): void {
-    this._middleware.push(middleware);
-  }
-
-  // ── Debug ────────────────────────────────────────────────────
-
-  /** Enable or disable console debug logging for connection events, message flow, and plugin activity. */
   setDebug(enabled: boolean): void {
     this._debug = enabled;
   }
 
-  // ── Internal ─────────────────────────────────────────────────
+  /** @internal — the set of things a primitive can ask the engine to do. */
+  _helpers(): PrimitiveHelpers {
+    return {
+      config: this._config,
 
-  /** @internal */
+      log: this._logger,
+
+      rawSend: (message) => this._rawSend(message),
+
+      send: (message, options) => this._send(message, options),
+
+      generateId: (prefix) => {
+        const id = ++this._idCounter;
+        return prefix ? `${prefix}-${id}` : `${id}`;
+      },
+
+      getState: () => this._state,
+
+      ensureConnected: () => this._ensureConnected(),
+
+      lazyAcquire: () => this._lazyAcquire(),
+
+      lazyRelease: () => this._lazyRelease(),
+
+      reopen: () => this._openConnection(),
+
+      enterReconnecting: () => this._setState('reconnecting'),
+
+      giveUp: () => this._setState('closed'),
+
+      failReconnect: () => {
+        this._setState('closed');
+        this._emitter.emit('reconnectFailed');
+      },
+
+      forceClose: (code, reason) => this.ws?.close(code, reason),
+
+      onUnexpectedClose: (handler) => {
+        this._unexpectedCloseHandler = handler;
+      },
+
+      runShouldReconnect: (code, reason) => this._runShouldReconnect(code, reason),
+
+      onPong: (handler) => this._pongHandlers.push(handler),
+
+      reportLatency: (latencyMs) => {
+        this._latency = latencyMs;
+      },
+
+      reportQuality: (quality) => {
+        if (this._quality === quality) return;
+        this._quality = quality;
+        this._emitter.emit('qualityChange', quality, this._latency ?? 0);
+      },
+
+      registerOutgoingFallback: (handler) => {
+        this._outgoingFallback = handler;
+      },
+
+      emitSignal: (name, value) => {
+        const set = this._signalHandlers.get(name);
+        if (set) for (const handler of [...set]) handler(value);
+      },
+
+      onSignal: (name, handler) => {
+        let set = this._signalHandlers.get(name);
+        if (!set) {
+          set = new Set();
+          this._signalHandlers.set(name, set);
+        }
+
+        set.add(handler);
+
+        return () => {
+          set.delete(handler);
+        };
+      },
+
+      disconnect: (code, reason) => this.disconnect(code, reason),
+
+      connect: () => this.connect(),
+    };
+  }
+
+  private _runShouldReconnect(code: number, reason: string): boolean | undefined {
+    for (const primitive of this._primitives) {
+      const result = primitive.shouldReconnect?.(code, reason);
+      if (result === true || result === false) return result;
+    }
+    return undefined;
+  }
+
   private _setState(state: ConnectionState): void {
     if (this._state === state) return;
-    const prev = this._state;
+    const previous = this._state;
     this._state = state;
-    this._log(`${prev} → ${state}`);
+    this._log(`${previous} → ${state}`);
     this._emitter.emit('state', state);
   }
 
-  /** @internal — resolve the URL (string or async function) and open the WebSocket */
   private async _openConnection(): Promise<void> {
     const attemptId = ++this._connectAttemptId;
     this._setState('connecting');
 
     try {
-      // Resolve dynamic URL
-      const baseUrl = typeof this._url === 'function' ? await this._url() : this._url;
-      if (attemptId !== this._connectAttemptId) return; // cancelled by disconnect()
+      const baseUrl =
+        typeof this._config.url === 'function' ? await this._config.url() : this._config.url;
+      if (attemptId !== this._connectAttemptId) return; // a disconnect() cancelled us mid-resolve
 
-      // Append searchParams
       let finalUrl = baseUrl;
-      if (this._options.searchParams) {
-        const params = await this._options.searchParams();
-        if (attemptId !== this._connectAttemptId) return; // cancelled
-        const separator = baseUrl.includes('?') ? '&' : '?';
-        finalUrl = `${baseUrl}${separator}${params.toString()}`;
+      if (this._config.searchParams) {
+        const params = await this._config.searchParams();
+        if (attemptId !== this._connectAttemptId) return;
+        const query = new URLSearchParams(params).toString();
+        if (query) {
+          const separator = baseUrl.includes('?') ? '&' : '?';
+          finalUrl = `${baseUrl}${separator}${query}`;
+        }
       }
 
       this._log(`connecting to ${finalUrl}`);
 
-      const ws = new WebSocket(finalUrl, this._options.protocols);
-      if ('binaryType' in this._options && this._options.binaryType) {
-        ws.binaryType = this._options.binaryType;
-      }
+      const ws = new WebSocket(finalUrl, this._config.protocols);
+      if (this._config.binaryType) ws.binaryType = this._config.binaryType;
 
       ws.onopen = () => {
         if (attemptId !== this._connectAttemptId) {
           ws.close();
           return;
         }
+
         this.ws = ws;
         this.protocol = ws.protocol || null;
-        this._reconnection.reset();
+
+        // Quality is unknown until the first pong measures it — leaving it null
+        // lets that first measurement fire the first qualityChange. getQuality()
+        // shows an optimistic default in the meantime.
+        this._quality = null;
+        this._latency = null;
         this._setState('open');
 
         const isReconnect = !this._isFirstConnect;
         this._isFirstConnect = false;
 
-        this._keepalive.start();
-
-        // Plugin onOpen hooks (fire on every open)
-        for (const plugin of this._plugins) {
-          const messages = plugin.onOpen?.();
-          if (!messages) continue;
-          for (const msg of messages) {
-            this._rawSend(msg.event, msg.payload);
+        // Primitives go first (replay, re-subscribe, …), then your callbacks.
+        for (const primitive of this._primitives) {
+          try {
+            const messages = primitive.onOpen?.();
+            if (messages) for (const message of messages) this._rawSend(message);
+          } catch (error) {
+            this._logAt('error', `primitive '${primitive.id}' onOpen threw`, error);
           }
         }
 
-        // Plugin onReconnect hooks (fire only on reconnect)
         if (isReconnect) {
-          for (const plugin of this._plugins) {
-            const messages = plugin.onReconnect?.();
-            if (!messages) continue;
-            for (const msg of messages) {
-              this._rawSend(msg.event, msg.payload);
+          for (const primitive of this._primitives) {
+            try {
+              const messages = primitive.onReconnect?.();
+              if (messages) for (const message of messages) this._rawSend(message);
+            } catch (error) {
+              this._logAt('error', `primitive '${primitive.id}' onReconnect threw`, error);
             }
           }
         }
 
-        // Flush buffered messages
-        this._buffer.flush(
-          (event, payload) => this._rawSend(event, payload),
-          () => this._log('buffer flush complete'),
-        );
-
-        // Socket callbacks
         this._emitter.emit('open');
-        if (isReconnect) {
-          this._emitter.emit('reconnect');
-        }
+        if (isReconnect) this._emitter.emit('reconnect');
+
+        // If we opened with no consumers (e.g. the last listener unsubscribed
+        // while we were reconnecting), arm the idle timer now — onopen is the
+        // only place left that can, since _lazyRelease only fires while open.
+        if (this._lazy && this._lazyConsumers === 0) this._startLazyIdleTimer();
       };
 
       ws.onclose = (event) => {
         if (attemptId !== this._connectAttemptId) return;
         this.ws = null;
         this.protocol = null;
-        this._keepalive.stop();
+        this._quality = null;
+        this._latency = null;
 
-        // Notify plugins
-        for (const plugin of this._plugins) {
-          plugin.onClose?.(event.code, event.reason);
+        for (const primitive of this._primitives) {
+          try {
+            primitive.onClose?.(event.code, event.reason, false);
+          } catch (error) {
+            this._logAt('error', `primitive '${primitive.id}' onClose threw`, error);
+          }
+        }
+
+        // Settle the state BEFORE firing onClose so a handler that reads
+        // getState() sees the resolved state ('reconnecting' or 'closed').
+        if (this._intentionalClose) {
+          this._setState('closed');
+        } else if (this._unexpectedCloseHandler) {
+          // Reconnection decides what happens next (it sets 'reconnecting' or
+          // gives up to 'closed'); without it, an unexpected drop stays closed.
+          this._unexpectedCloseHandler(event.code, event.reason);
+        } else {
+          this._setState('closed');
         }
 
         this._emitter.emit('close', {
@@ -477,252 +557,147 @@ export class Socket<TContract extends SocketContract> {
           reason: event.reason,
           wasClean: event.wasClean,
         });
-
-        if (this._intentionalClose) {
-          this._setState('closed');
-          return;
-        }
-
-        if (!this._reconnection.shouldReconnect(event.code, event.reason)) {
-          this._log(`reconnection suppressed (code ${event.code})`);
-          this._setState('closed');
-          return;
-        }
-
-        this._setState('reconnecting');
-        this._log(`connection closed (code ${event.code}), reconnecting`);
-        this._scheduleReconnect();
       };
 
       ws.onerror = (event) => {
+        if (attemptId !== this._connectAttemptId) return;
         this._log('WebSocket error');
         this._emitter.emit('error', event);
       };
 
       ws.onmessage = (event) => {
+        if (attemptId !== this._connectAttemptId) return;
         this._handleMessage(event);
       };
     } catch (error) {
       if (attemptId !== this._connectAttemptId) return;
+
       this._log('connection failed', error);
-      this._setState('reconnecting');
-      this._scheduleReconnect();
+
+      if (this._unexpectedCloseHandler) {
+        this._unexpectedCloseHandler(1006, 'connection failed');
+      } else {
+        this._setState('closed');
+      }
     }
   }
 
-  /** @internal — handle an incoming WebSocket message through the full pipeline */
   private _handleMessage(event: MessageEvent): void {
     const raw = event.data;
 
-    // Handle pong messages
-    if (raw === this._pongMessage) {
-      this._log('pong received');
-      this._keepalive.onPong();
-      return;
-    }
-
-    if (raw === 'ping') {
-      this._log('ping received');
-      this.ws?.send('pong');
-      return;
-    }
-
-    // Parse: text or binary
-    let parsed: { event: string; payload: unknown } | null = null;
-
+    let parsed: WireMessage | null = null;
     if (typeof raw === 'string') {
       try {
         parsed = this._parse(raw);
       } catch {
-        this._log('parse error — message dropped');
+        this._log('could not parse message — dropping it');
         return;
       }
     } else if (this._parseBinary) {
       try {
         parsed = this._parseBinary(raw);
       } catch {
-        this._log('parseBinary error — message dropped');
+        this._log('could not parse binary message — dropping it');
         return;
       }
     }
-
     if (!parsed) return;
 
-    // Middleware chain — each middleware returns one of three values:
-    //   null      → drop the message entirely (stop processing)
-    //   new msg   → replace the message with the returned value
-    //   undefined → pass through unchanged (undefined and void mean "no change", null means "drop")
-    let msg: MiddlewareMessage | null = parsed;
-    for (const mw of this._middleware) {
-      const result = mw(msg!);
-      if (result === null) {
-        this._log(`middleware dropped '${msg!.event}'`);
-        return;
-      }
-      if (result !== undefined) {
-        msg = result;
-      }
-    }
-
-    // Plugin onIncoming hooks — same null = "consumed" convention as middleware.
-    // When a plugin returns null, it means the plugin fully handled the message
-    // (e.g., an ack plugin matching a response to a pending request), so we exit
-    // the loop and skip dispatch to on() handlers.
-    let pluginMsg: { event: string; payload: unknown } | null = msg;
-    for (const plugin of this._plugins) {
-      if (!plugin.onIncoming) continue;
-      pluginMsg = plugin.onIncoming(pluginMsg!);
-      if (pluginMsg === null) {
-        this._log(`plugin '${plugin.id}' consumed '${msg!.event}'`);
-        return;
-      }
-    }
-
-    // Dispatch to on() handlers
-    this._log(`received '${pluginMsg!.event}'`, pluginMsg!.payload);
-    this._dispatchMessage(pluginMsg!.event, pluginMsg!.payload);
-  }
-
-  /** @internal — schedule a reconnection attempt via the Reconnection class */
-  private _scheduleReconnect(): void {
-    const scheduled = this._reconnection.schedule(
-      () => {
-        this._log(`reconnect attempt ${this._reconnection.currentAttempt}`);
-        this._openConnection();
-      },
-      () => {
-        this._log('reconnection attempts exhausted');
-        this._setState('closed');
-        this._emitter.emit('reconnectFailed');
-      },
-    );
-
-    if (scheduled) {
-      this._log(`reconnect scheduled (attempt ${this._reconnection.currentAttempt})`);
-    }
-  }
-
-  /**
-   * @internal — bind platform event listeners (network online/offline, app visibility).
-   * Called once on first connect(); unbound on disconnect(). Idempotent — the
-   * `_platformBound` flag prevents double-binding across reconnects.
-   *
-   * The inactivity handler (onInactive) starts a timer when the app goes to the
-   * background. If the user doesn't return within `inactiveTimeout` ms, the socket
-   * closes cleanly to save resources. Returning (onActive) cancels the timer and
-   * reconnects if needed.
-   */
-  private _bindPlatform(): void {
-    if (this._platformBound) return;
-    this._platformBound = true;
-
-    const inactiveTimeout = this._options.inactiveTimeout ?? 0;
-
-    this._platform.bind({
-      onNetworkOnline: () => {
-        this._log('network online');
-        if (this._state === 'reconnecting') {
-          this._reconnection.resume(
-            () => {
-              this._log('reconnect attempt (network resumed)');
-              this._openConnection();
-            },
-            () => {
-              this._log('reconnection attempts exhausted');
-              this._setState('closed');
-              this._emitter.emit('reconnectFailed');
-            },
-          );
-        }
-      },
-      onNetworkOffline: () => {
-        this._log('network offline');
-        if (this._state === 'reconnecting') {
-          this._reconnection.pause();
-        }
-      },
-      onActive: () => {
-        this._log('app active');
-        this._clearInactivityTimer();
-        if (this._state === 'closed' && !this._intentionalClose) {
-          this.connect();
-        }
-      },
-      onInactive: () => {
-        this._log('app inactive');
-        if (inactiveTimeout > 0 && this._state === 'open') {
-          this._inactivityTimer = setTimeout(() => {
-            this._log('inactivity timeout — disconnecting');
-            this._intentionalClose = false;
-            this._keepalive.stop();
-            this._reconnection.stop();
-            if (this.ws) {
-              this.ws.onopen = null;
-              this.ws.onclose = null;
-              this.ws.onerror = null;
-              this.ws.onmessage = null;
-              this.ws.close(1000, 'inactive');
-              this.ws = null;
-            }
-            this.protocol = null;
-            this._setState('closed');
-            this._emitter.emit('close', { code: 1000, reason: 'inactive', wasClean: true });
-          }, inactiveTimeout);
-        }
-      },
-    });
-  }
-
-  /** @internal — unbind platform listeners and clear inactivity timer */
-  private _unbindPlatform(): void {
-    this._platform.unbind();
-    this._platformBound = false;
-    this._clearInactivityTimer();
-  }
-
-  /** @internal */
-  private _clearInactivityTimer(): void {
-    if (this._inactivityTimer !== null) {
-      clearTimeout(this._inactivityTimer);
-      this._inactivityTimer = null;
-    }
-  }
-
-  // ── Lazy mode ──────────────────────────────────────────────
-  //
-  // Consumer tracking model: every on() listener and pending request/ack is a
-  // "consumer". The socket stays open as long as consumers > 0. When the last
-  // consumer leaves and the socket is lazy, an idle timer starts. If no new
-  // consumers arrive before it fires, the socket disconnects automatically.
-
-  /**
-   * @internal — trigger connection if in lazy mode and not connected.
-   * Called by `send()` and exposed to plugins via `helpers.ensureConnected`.
-   */
-  _ensureConnected(): void {
-    if (!this._lazy) return;
-    if (this._state === 'open' || this._state === 'connecting' || this._state === 'reconnecting') {
+    // Answer the server's pings and feed pongs to keepalive; never show these to handlers.
+    if (parsed.event === 'pong') {
+      this._log('pong received');
+      for (const handler of this._pongHandlers) handler();
       return;
     }
+    if (parsed.event === 'ping') {
+      this._log('ping received');
+      this._rawSend({ event: 'pong', payload: {} });
+      return;
+    }
+
+    this._processIncoming(parsed);
+  }
+
+  /**
+   * @internal — the pipeline a parsed message runs through: primitive
+   * `onIncoming` hooks, then the error-frame check, then your intercepts, then
+   * top-level dispatch. Split out from `_handleMessage` so testing's `inject()`
+   * can push a message through the exact same path without a live socket.
+   */
+  _processIncoming(parsed: WireMessage): void {
+    // Let primitives see it first; any of them can swallow it by returning null.
+    // A throw is isolated (like intercepts and lifecycle callbacks): we log it on
+    // the debug channel and skip that primitive so siblings and dispatch still run.
+    let message: WireMessage = parsed;
+    for (const primitive of this._primitives) {
+      if (!primitive.onIncoming) continue;
+      try {
+        const result = primitive.onIncoming(message);
+        if (result === null) {
+          this._log(`primitive '${primitive.id}' handled '${parsed.event}'`);
+          return;
+        }
+        message = result;
+      } catch (error) {
+        this._logAt('error', `primitive '${primitive.id}' onIncoming threw`, error);
+      }
+    }
+
+    // An error frame nobody claimed becomes an onError call instead of a normal event.
+    if (message.event === '__error__') {
+      this._emitter.emit('error', toWSKitError(message.payload));
+      return;
+    }
+
+    // Your intercepts run last and can change or drop the message (throw Block to drop).
+    if (this._intercepts.length) {
+      for (const intercept of this._intercepts) {
+        try {
+          const result = intercept(message);
+          if (result) message = result;
+        } catch (error) {
+          if (error === Block) {
+            this._log(`intercept dropped '${message.event}'`);
+          } else {
+            this._log('intercept threw — dropping the message', error);
+          }
+          return;
+        }
+      }
+    }
+
+    // Top-level handlers only see top-level events. Scope- or stream-tagged
+    // frames are delivered by their primitives (channel/namespace handlers, the
+    // stream iterator), so they don't double-fire here.
+    const envelope = message.__wskit;
+    if (
+      envelope?.channel === undefined &&
+      envelope?.namespace === undefined &&
+      envelope?.streamId === undefined
+    ) {
+      this._log(`received '${message.event}'`, message.payload);
+      this._dispatchMessage(message.event, message.payload);
+    }
+  }
+
+  /** @internal — open a lazy socket the first time something needs it. */
+  _ensureConnected(): void {
+    if (!this._lazy) return;
+    if (this._state === 'open' || this._state === 'connecting' || this._state === 'reconnecting')
+      return;
     this._clearLazyIdleTimer();
     this._log('lazy connect triggered');
     this.connect();
   }
 
-  /**
-   * @internal — increment lazy consumer count and trigger connection.
-   * Called when `on()` registers a listener or a plugin acquires a consumer.
-   */
+  /** @internal */
   _lazyAcquire(): void {
     this._lazyConsumers++;
     this._clearLazyIdleTimer();
     this._ensureConnected();
   }
 
-  /**
-   * @internal — decrement lazy consumer count and start idle timer if zero.
-   * Called when an `on()` listener unsubscribes or a plugin releases a consumer.
-   */
+  /** @internal */
   _lazyRelease(): void {
     this._lazyConsumers = Math.max(0, this._lazyConsumers - 1);
     if (this._lazy && this._lazyConsumers === 0 && this._state === 'open') {
@@ -730,10 +705,9 @@ export class Socket<TContract extends SocketContract> {
     }
   }
 
-  /** @internal */
   private _startLazyIdleTimer(): void {
     this._clearLazyIdleTimer();
-    const timeout = this._options.lazyIdleTimeout ?? 10_000;
+    const timeout = this._config.idleTimeout ?? 10_000;
     if (timeout <= 0) return;
     this._lazyIdleTimer = setTimeout(() => {
       this._log('lazy idle timeout — disconnecting');
@@ -741,7 +715,6 @@ export class Socket<TContract extends SocketContract> {
     }, timeout);
   }
 
-  /** @internal */
   private _clearLazyIdleTimer(): void {
     if (this._lazyIdleTimer !== null) {
       clearTimeout(this._lazyIdleTimer);
@@ -750,27 +723,55 @@ export class Socket<TContract extends SocketContract> {
   }
 
   /**
-   * @internal — send a raw message, bypassing plugin onOutgoing hooks.
-   * Used by plugins and internal code (buffer flush, onOpen hooks) to avoid
-   * infinite loops that would occur if outgoing hooks re-triggered themselves.
+   * @internal — the full send path: open a lazy socket, let primitives adjust or
+   * cancel the message, then either write it, hand it to the buffer fallback, or
+   * drop it.
    */
-  _rawSend(event: string, payload: unknown): void {
-    if (!this.ws || this._state !== 'open') return;
-    this.ws.send(this._serialize(event, payload));
-  }
+  _send(message: WireMessage, options?: SendOptions): boolean {
+    this._ensureConnected();
 
-  /** @internal — dispatch a parsed message to on() handlers by event name */
-  _dispatchMessage(event: string, payload: unknown): void {
-    const handlers = this._messageHandlers.get(event);
-    if (!handlers) return;
-    for (const handler of handlers) {
-      handler(payload);
+    let outgoing: WireMessage | null = message;
+    for (const primitive of this._primitives) {
+      if (!primitive.onOutgoing) continue;
+      outgoing = primitive.onOutgoing(outgoing!);
+      if (outgoing === null) {
+        this._log('a primitive cancelled the send');
+        return false;
+      }
     }
+
+    if (this._state !== 'open' || !this.ws) {
+      if (this._outgoingFallback?.(outgoing, options?.ttl)) {
+        this._log(`send('${outgoing.event}') buffered`);
+        return true;
+      }
+      this._log(`send('${message.event}') dropped — not connected`);
+      return false;
+    }
+
+    this.ws.send(this._serialize(outgoing));
+    this._log(`send('${outgoing.event}')`, outgoing.payload);
+    return true;
   }
 
-  /** @internal */
+  /** @internal — write a message straight to the wire, skipping outgoing hooks. */
+  _rawSend(message: WireMessage): void {
+    if (!this.ws || this._state !== 'open') return;
+    this.ws.send(this._serialize(message));
+  }
+
+  /** @internal — call every handler listening for this event. */
+  _dispatchMessage(event: string, payload: unknown): void {
+    dispatchToHandlers(this._messageHandlers.get(event), this._logger, payload);
+  }
+
   private _log(...args: unknown[]): void {
+    this._logAt('log', ...args);
+  }
+
+  /** @internal — the one place the debug gate and `[wskit]` prefix live. */
+  private _logAt(level: 'log' | 'warn' | 'error', ...args: unknown[]): void {
     if (!this._debug) return;
-    console.log('[better-ws]', ...args);
+    console[level]('[wskit]', ...args);
   }
 }

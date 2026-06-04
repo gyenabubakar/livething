@@ -1,45 +1,10 @@
-/**
- * Thrown when a pending `request()` or `send.withAck()` is rejected
- * because the socket disconnected before a response arrived.
- *
- * ```ts
- * import { DisconnectedError } from '@wskit/client';
- *
- * try {
- *   await socket.request('get-balance', { userId });
- * } catch (err) {
- *   if (err instanceof DisconnectedError) {
- *     // handle disconnect — retry, show offline UI, etc.
- *   }
- * }
- * ```
- */
-export class DisconnectedError extends Error {
-  constructor() {
-    super('Disconnected');
-    this.name = 'DisconnectedError';
-  }
-}
+import { error } from '@wskit/core';
 
-/**
- * Thrown when a `request()` or `send.withAck()` does not receive a
- * response within the configured timeout.
- *
- * ```ts
- * import { TimeoutError } from '@wskit/client';
- *
- * try {
- *   await socket.request('slow-query', data, { timeout: 5000 });
- * } catch (err) {
- *   if (err instanceof TimeoutError) {
- *     // handle timeout — show retry prompt, etc.
- *   }
- * }
- * ```
- */
-export class TimeoutError extends Error {
-  constructor(operation: string, ms: number) {
-    super(`${operation} timed out after ${ms}ms`);
-    this.name = 'TimeoutError';
-  }
-}
+/** A pending `request()` or `sendWithAck()` timed out. */
+export const Timeout = error('timeout');
+
+/** `disconnect()` was called while a `request()` or `sendWithAck()` was waiting. */
+export const Disconnected = error('disconnected');
+
+// Re-exported from @wskit/core so apps have one import for every runtime error.
+export { error, WSKitError, Block, ValidationFailed } from '@wskit/core';

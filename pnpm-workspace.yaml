@@ -1,6 +1,5 @@
 packages:
   - client
-  - client2
   - core
   - server
   - server-adapters/*

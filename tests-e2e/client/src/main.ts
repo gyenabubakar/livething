@@ -6,12 +6,12 @@ import {
   platform,
   reconnection,
   serialization,
-} from '@wskit/client2';
-import { WebEnvironment } from '@wskit/client2/environment';
-import * as errorsEntry from '@wskit/client2/errors';
-import * as platformEntry from '@wskit/client2/platform';
-import * as testingEntry from '@wskit/client2/testing';
-import type { Primitive, Socket } from '@wskit/client2';
+} from '@wskit/client';
+import { WebEnvironment } from '@wskit/client/environment';
+import * as errorsEntry from '@wskit/client/errors';
+import * as platformEntry from '@wskit/client/platform';
+import * as testingEntry from '@wskit/client/testing';
+import type { Primitive, Socket } from '@wskit/client';
 
 // The page imports the BUILT client (dist via the package exports), so loading
 // and connecting at all is itself the bundle smoke test. The extra subpath

@@ -1,148 +1,104 @@
 import { Emitter } from '~/socket/emitter.ts';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
-type TestEvents = {
-  message: [text: string, from: string];
+type Events = {
+  open: [];
+  message: [data: string];
   close: [code: number];
-  ping: [];
 };
 
-describe('Emitter', () => {
-  it('calls listener when event is emitted', () => {
-    const emitter = new Emitter<TestEvents>();
-    const listener = vi.fn();
-
-    emitter.on('message', listener);
-    emitter.emit('message', 'hello', 'alice');
-
-    expect(listener).toHaveBeenCalledWith('hello', 'alice');
+describe('Emitter.listenerCount', () => {
+  it('returns 0 for an event with no listeners', () => {
+    const emitter = new Emitter<Events>();
+    expect(emitter.listenerCount('open')).toBe(0);
   });
 
-  it('supports multiple listeners for the same event', () => {
-    const emitter = new Emitter<TestEvents>();
-    const a = vi.fn();
-    const b = vi.fn();
-
-    emitter.on('message', a);
-    emitter.on('message', b);
-    emitter.emit('message', 'hi', 'bob');
-
-    expect(a).toHaveBeenCalledOnce();
-    expect(b).toHaveBeenCalledOnce();
+  it('returns 1 after one listener is added', () => {
+    const emitter = new Emitter<Events>();
+    emitter.on('open', () => {});
+    expect(emitter.listenerCount('open')).toBe(1);
   });
 
-  it('does not call listeners for other events', () => {
-    const emitter = new Emitter<TestEvents>();
-    const messageListener = vi.fn();
-    const closeListener = vi.fn();
-
-    emitter.on('message', messageListener);
-    emitter.on('close', closeListener);
-    emitter.emit('message', 'hi', 'bob');
-
-    expect(messageListener).toHaveBeenCalledOnce();
-    expect(closeListener).not.toHaveBeenCalled();
+  it('returns the correct count when multiple listeners are added to one event', () => {
+    const emitter = new Emitter<Events>();
+    emitter.on('message', () => {});
+    emitter.on('message', () => {});
+    emitter.on('message', () => {});
+    expect(emitter.listenerCount('message')).toBe(3);
   });
 
-  it('returns an unsubscribe function', () => {
-    const emitter = new Emitter<TestEvents>();
-    const listener = vi.fn();
+  it('returns 0 for an unrelated event when another event has listeners', () => {
+    const emitter = new Emitter<Events>();
+    emitter.on('open', () => {});
+    expect(emitter.listenerCount('close')).toBe(0);
+  });
 
-    const unsub = emitter.on('message', listener);
+  it('decrements by 1 after a listener is removed via the unsubscribe function', () => {
+    const emitter = new Emitter<Events>();
+    emitter.on('message', () => {});
+    const unsub = emitter.on('message', () => {});
+    expect(emitter.listenerCount('message')).toBe(2);
     unsub();
-    emitter.emit('message', 'hi', 'bob');
-
-    expect(listener).not.toHaveBeenCalled();
+    expect(emitter.listenerCount('message')).toBe(1);
   });
 
-  it('calling unsubscribe twice is safe', () => {
-    const emitter = new Emitter<TestEvents>();
-    const unsub = emitter.on('message', vi.fn());
-
+  it('returns 0 after the last listener for an event is removed', () => {
+    const emitter = new Emitter<Events>();
+    const unsub = emitter.on('open', () => {});
     unsub();
-    expect(() => unsub()).not.toThrow();
+    // The empty set is deleted from the map, so count must read 0 not undefined.
+    expect(emitter.listenerCount('open')).toBe(0);
+  });
+});
+
+describe('Emitter.clear', () => {
+  it('wipes all listeners so no handlers fire after clear()', () => {
+    const emitter = new Emitter<Events>();
+    let called = false;
+    emitter.on('open', () => {
+      called = true;
+    });
+    emitter.clear();
+    emitter.emit('open');
+    expect(called).toBe(false);
   });
 
-  it('does not crash when emitting with no listeners', () => {
-    const emitter = new Emitter<TestEvents>();
-    expect(() => emitter.emit('message', 'hi', 'bob')).not.toThrow();
+  it('resets listenerCount to 0 for every registered event', () => {
+    const emitter = new Emitter<Events>();
+    emitter.on('open', () => {});
+    emitter.on('message', () => {});
+    emitter.on('close', () => {});
+    emitter.clear();
+    expect(emitter.listenerCount('open')).toBe(0);
+    expect(emitter.listenerCount('message')).toBe(0);
+    expect(emitter.listenerCount('close')).toBe(0);
   });
 
-  it('supports zero-arg events', () => {
-    const emitter = new Emitter<TestEvents>();
-    const listener = vi.fn();
-
-    emitter.on('ping', listener);
-    emitter.emit('ping');
-
-    expect(listener).toHaveBeenCalledWith();
+  it('is safe to call on an already-empty emitter', () => {
+    const emitter = new Emitter<Events>();
+    expect(() => emitter.clear()).not.toThrow();
+    expect(emitter.listenerCount('open')).toBe(0);
   });
 
-  it('clear removes all listeners', () => {
-    const emitter = new Emitter<TestEvents>();
-    const a = vi.fn();
-    const b = vi.fn();
-
-    emitter.on('message', a);
-    emitter.on('close', b);
+  it('new listeners added after clear() work normally', () => {
+    const emitter = new Emitter<Events>();
+    emitter.on('open', () => {});
     emitter.clear();
 
-    emitter.emit('message', 'hi', 'bob');
-    emitter.emit('close', 1000);
-
-    expect(a).not.toHaveBeenCalled();
-    expect(b).not.toHaveBeenCalled();
+    let called = false;
+    emitter.on('open', () => {
+      called = true;
+    });
+    emitter.emit('open');
+    expect(called).toBe(true);
+    expect(emitter.listenerCount('open')).toBe(1);
   });
 
-  it('listenerCount returns correct count', () => {
-    const emitter = new Emitter<TestEvents>();
-
-    expect(emitter.listenerCount('message')).toBe(0);
-
-    const unsub1 = emitter.on('message', vi.fn());
-    emitter.on('message', vi.fn());
-
-    expect(emitter.listenerCount('message')).toBe(2);
-
-    unsub1();
-    expect(emitter.listenerCount('message')).toBe(1);
-  });
-
-  it('unsubscribing one listener does not affect others', () => {
-    const emitter = new Emitter<TestEvents>();
-    const a = vi.fn();
-    const b = vi.fn();
-
-    const unsubA = emitter.on('message', a);
-    emitter.on('message', b);
-
-    unsubA();
-    emitter.emit('message', 'hi', 'bob');
-
-    expect(a).not.toHaveBeenCalled();
-    expect(b).toHaveBeenCalledOnce();
-  });
-
-  it('listeners fire in registration order', () => {
-    const emitter = new Emitter<TestEvents>();
-    const order: number[] = [];
-
-    emitter.on('ping', () => order.push(1));
-    emitter.on('ping', () => order.push(2));
-    emitter.on('ping', () => order.push(3));
-
-    emitter.emit('ping');
-
-    expect(order).toEqual([1, 2, 3]);
-  });
-
-  it('cleans up empty listener sets after unsubscribe', () => {
-    const emitter = new Emitter<TestEvents>();
-    const unsub = emitter.on('message', vi.fn());
-
-    expect(emitter.listenerCount('message')).toBe(1);
-
-    unsub();
+  it('calling clear() twice in a row is safe', () => {
+    const emitter = new Emitter<Events>();
+    emitter.on('message', () => {});
+    emitter.clear();
+    expect(() => emitter.clear()).not.toThrow();
     expect(emitter.listenerCount('message')).toBe(0);
   });
 });

@@ -6,13 +6,13 @@
   "scripts": {
     "dev:ui": "vite",
     "dev:ws": "node server/ws-server.mjs",
-    "build:client": "pnpm --filter @wskit/client2 run build",
+    "build:client": "pnpm --filter @wskit/client run build",
     "test:e2e": "pnpm run build:client && playwright test",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf node_modules test-results playwright-report"
   },
   "dependencies": {
-    "@wskit/client2": "workspace:*",
+    "@wskit/client": "workspace:*",
     "@wskit/core": "workspace:*"
   },
   "devDependencies": {
