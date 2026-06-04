@@ -21,7 +21,7 @@ test('pauses reconnection while offline and reconnects on the online event', asy
     return ((await res.json()) as { count: number }).count;
   }
 
-  await page.goto(`/?path=echo&room=${room}&platform=1`);
+  await page.goto(`/tests/puppet/index.html?path=echo&room=${room}&platform=1`);
   await page.getByTestId('connect').click();
   await expect(page.getByTestId('state')).toHaveText('open');
   expect(await serverCount()).toBe(1);

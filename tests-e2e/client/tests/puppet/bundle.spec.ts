@@ -4,7 +4,7 @@ import { expect, test } from '@playwright/test';
 test('the built bundle and all subpath exports resolve in the browser', async ({
   page,
 }, testInfo) => {
-  await page.goto(`/?path=echo&room=${testInfo.testId}`);
+  await page.goto(`/tests/puppet/index.html?path=echo&room=${testInfo.testId}`);
   await expect(page.getByTestId('app-ready')).toHaveText('yes');
   await expect(page.getByTestId('subpaths-ok')).toHaveText('yes');
 });

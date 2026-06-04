@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 test('opens a real socket, round-trips a sent event, and disconnects', async ({
   page,
 }, testInfo) => {
-  await page.goto(`/?path=echo&room=${testInfo.testId}`);
+  await page.goto(`/tests/puppet/index.html?path=echo&room=${testInfo.testId}`);
   // The built bundle loaded and wired up the page.
   await expect(page.getByTestId('app-ready')).toHaveText('yes');
 

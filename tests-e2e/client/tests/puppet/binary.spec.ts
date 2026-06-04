@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 // Real ArrayBuffer over a real socket, decoded back through the serialization
 // primitive's parseBinary — a path the Node unit tests can't exercise.
 test('round-trips a binary frame through a real socket', async ({ page }, testInfo) => {
-  await page.goto(`/?path=echo&room=${testInfo.testId}&binary=1`);
+  await page.goto(`/tests/puppet/index.html?path=echo&room=${testInfo.testId}&binary=1`);
   await page.getByTestId('connect').click();
   await expect(page.getByTestId('state')).toHaveText('open');
 

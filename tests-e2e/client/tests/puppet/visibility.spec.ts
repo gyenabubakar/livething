@@ -5,7 +5,9 @@ import { expect, test } from '@playwright/test';
 test('drops the socket after the tab is hidden and reopens it when shown', async ({
   page,
 }, testInfo) => {
-  await page.goto(`/?path=accept&room=${testInfo.testId}&platform=1&bgMs=200`);
+  await page.goto(
+    `/tests/puppet/index.html?path=accept&room=${testInfo.testId}&platform=1&bgMs=200`,
+  );
   await page.getByTestId('connect').click();
   await expect(page.getByTestId('state')).toHaveText('open');
 

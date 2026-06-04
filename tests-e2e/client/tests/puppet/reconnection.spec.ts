@@ -5,7 +5,7 @@ test('reconnects over a real socket after the server drops it', async ({
   request,
 }, testInfo) => {
   const room = testInfo.testId;
-  await page.goto(`/?path=drop-once&room=${room}&reconnect=1`);
+  await page.goto(`/tests/puppet/index.html?path=drop-once&room=${room}&reconnect=1`);
   await page.getByTestId('connect').click();
 
   // First open, server terminates the socket, reconnection opens a second one.

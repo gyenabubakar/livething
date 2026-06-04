@@ -4,7 +4,7 @@ import { expect, test } from '@playwright/test';
 test('buffers a send made while disconnected and flushes it on connect', async ({
   page,
 }, testInfo) => {
-  await page.goto(`/?path=echo&room=${testInfo.testId}&buffering=1`);
+  await page.goto(`/tests/puppet/index.html?path=echo&room=${testInfo.testId}&buffering=1`);
 
   // Not connected yet — the send must be queued, not dropped.
   await expect(page.getByTestId('state')).toHaveText('closed');

@@ -5,9 +5,10 @@
   "type": "module",
   "scripts": {
     "dev:ui": "vite",
-    "dev:ws": "node server/ws-server.mjs",
+    "dev:ws": "node tests/puppet/ws-server.mjs",
     "build:client": "pnpm --filter @wskit/client run build",
     "test:e2e": "pnpm run build:client && playwright test",
+    "test:e2e:cloudflare": "pnpm run build:client && WSKIT_E2E_SERVER_COMMAND='pnpm --filter @wskit/tests-e2e-server-cloudflare run dev:worker' WSKIT_E2E_SERVER_PORT=8787 playwright test",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf node_modules test-results playwright-report"
   },
@@ -18,6 +19,8 @@
   "devDependencies": {
     "@playwright/test": "1.59.1",
     "@types/ws": "^8.5.12",
+    "@wskit/tests-e2e-handlers": "workspace:*",
+    "@wskit/tests-e2e-server-cloudflare": "workspace:*",
     "typescript": "^6.0.2",
     "vite": "^8.0.7",
     "ws": "^8.18.0"

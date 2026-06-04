@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 
 // Lazy connect + idle timeout under real timers.
 test('opens on first use and idle-closes after the timeout', async ({ page }, testInfo) => {
-  await page.goto(`/?path=accept&room=${testInfo.testId}&lazy=1&idleMs=500`);
+  await page.goto(`/tests/puppet/index.html?path=accept&room=${testInfo.testId}&lazy=1&idleMs=500`);
 
   // Nothing has needed the socket yet, so lazy keeps it closed.
   await expect(page.getByTestId('state')).toHaveText('closed');

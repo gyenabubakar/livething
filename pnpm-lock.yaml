@@ -127,6 +127,12 @@ importers:
       '@types/ws':
         specifier: ^8.5.12
         version: 8.18.1
+      '@wskit/tests-e2e-handlers':
+        specifier: workspace:*
+        version: link:../handlers
+      '@wskit/tests-e2e-server-cloudflare':
+        specifier: workspace:*
+        version: link:../server-cloudflare
       typescript:
         specifier: ^6.0.2
         version: 6.0.2

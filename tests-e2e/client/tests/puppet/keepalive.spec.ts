@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 test('measures latency and reports excellent quality when the server pongs', async ({
   page,
 }, testInfo) => {
-  await page.goto(`/?path=pong&room=${testInfo.testId}&keepalive=1`);
+  await page.goto(`/tests/puppet/index.html?path=pong&room=${testInfo.testId}&keepalive=1`);
   await page.getByTestId('connect').click();
   await expect(page.getByTestId('state')).toHaveText('open');
 
@@ -14,7 +14,7 @@ test('measures latency and reports excellent quality when the server pongs', asy
 test('force-closes the socket after missed pongs when the server is silent', async ({
   page,
 }, testInfo) => {
-  await page.goto(`/?path=silent&room=${testInfo.testId}&keepalive=1`);
+  await page.goto(`/tests/puppet/index.html?path=silent&room=${testInfo.testId}&keepalive=1`);
   await page.getByTestId('connect').click();
   await expect(page.getByTestId('state')).toHaveText('open');
 
