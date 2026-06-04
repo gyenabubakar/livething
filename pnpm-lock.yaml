@@ -158,23 +158,7 @@ importers:
         specifier: ^8.18.0
         version: 8.18.0
 
-  tests-e2e/cloudflare:
-    dependencies:
-      '@wskit/core':
-        specifier: workspace:*
-        version: link:../../core
-      '@wskit/server':
-        specifier: workspace:*
-        version: link:../../server
-      '@wskit/server-cloudflare':
-        specifier: workspace:*
-        version: link:../../server-adapters/cloudflare
-      drizzle-orm:
-        specifier: ^0.45.2
-        version: 0.45.2(@cloudflare/workers-types@4.20260412.1)
-      valibot:
-        specifier: ^1.3.1
-        version: 1.3.1(typescript@6.0.2)
+  tests-e2e/client-raw:
     devDependencies:
       '@playwright/test':
         specifier: 1.59.1
@@ -200,6 +184,50 @@ importers:
       vite:
         specifier: ^8.0.7
         version: 8.0.8(@types/node@24.12.0)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.22.3)(yaml@2.8.3)
+
+  tests-e2e/handlers:
+    dependencies:
+      '@wskit/core':
+        specifier: workspace:*
+        version: link:../../core
+      '@wskit/server':
+        specifier: workspace:*
+        version: link:../../server
+      valibot:
+        specifier: ^1.3.1
+        version: 1.3.1(typescript@6.0.2)
+    devDependencies:
+      typescript:
+        specifier: ^6.0.2
+        version: 6.0.2
+      vitest:
+        specifier: ^4.1.2
+        version: 4.1.2(@types/node@24.12.0)(msw@2.12.14(@types/node@24.12.0)(typescript@6.0.2))(vite@8.0.8(@types/node@24.12.0)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.22.3)(yaml@2.8.3))
+
+  tests-e2e/server-cloudflare:
+    dependencies:
+      '@wskit/core':
+        specifier: workspace:*
+        version: link:../../core
+      '@wskit/server':
+        specifier: workspace:*
+        version: link:../../server
+      '@wskit/server-cloudflare':
+        specifier: workspace:*
+        version: link:../../server-adapters/cloudflare
+      '@wskit/tests-e2e-handlers':
+        specifier: workspace:*
+        version: link:../handlers
+      drizzle-orm:
+        specifier: ^0.45.2
+        version: 0.45.2(@cloudflare/workers-types@4.20260412.1)
+      valibot:
+        specifier: ^1.3.1
+        version: 1.3.1(typescript@6.0.2)
+    devDependencies:
+      typescript:
+        specifier: ^6.0.2
+        version: 6.0.2
       wrangler:
         specifier: ^4.14.0
         version: 4.81.1(@cloudflare/workers-types@4.20260412.1)
@@ -5955,6 +5983,15 @@ snapshots:
       msw: 2.12.14(@types/node@24.12.0)(typescript@5.9.3)
       vite: 8.0.8(@types/node@24.12.0)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.22.3)(yaml@2.8.3)
 
+  '@vitest/mocker@4.1.2(msw@2.12.14(@types/node@24.12.0)(typescript@6.0.2))(vite@8.0.8(@types/node@24.12.0)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.22.3)(yaml@2.8.3))':
+    dependencies:
+      '@vitest/spy': 4.1.2
+      estree-walker: 3.0.3
+      magic-string: 0.30.21
+    optionalDependencies:
+      msw: 2.12.14(@types/node@24.12.0)(typescript@6.0.2)
+      vite: 8.0.8(@types/node@24.12.0)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.22.3)(yaml@2.8.3)
+
   '@vitest/pretty-format@4.1.2':
     dependencies:
       tinyrainbow: 3.1.0
@@ -7538,6 +7575,33 @@ snapshots:
     dependencies:
       '@vitest/expect': 4.1.2
       '@vitest/mocker': 4.1.2(msw@2.12.14(@types/node@24.12.0)(typescript@5.9.3))(vite@8.0.8(@types/node@24.12.0)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.22.3)(yaml@2.8.3))
+      '@vitest/pretty-format': 4.1.2
+      '@vitest/runner': 4.1.2
+      '@vitest/snapshot': 4.1.2
+      '@vitest/spy': 4.1.2
+      '@vitest/utils': 4.1.2
+      es-module-lexer: 2.0.0
+      expect-type: 1.3.0
+      magic-string: 0.30.21
+      obug: 2.1.1
+      pathe: 2.0.3
+      picomatch: 4.0.4
+      std-env: 4.0.0
+      tinybench: 2.9.0
+      tinyexec: 1.0.4
+      tinyglobby: 0.2.15
+      tinyrainbow: 3.1.0
+      vite: 8.0.8(@types/node@24.12.0)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.22.3)(yaml@2.8.3)
+      why-is-node-running: 2.3.0
+    optionalDependencies:
+      '@types/node': 24.12.0
+    transitivePeerDependencies:
+      - msw
+
+  vitest@4.1.2(@types/node@24.12.0)(msw@2.12.14(@types/node@24.12.0)(typescript@6.0.2))(vite@8.0.8(@types/node@24.12.0)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.22.3)(yaml@2.8.3)):
+    dependencies:
+      '@vitest/expect': 4.1.2
+      '@vitest/mocker': 4.1.2(msw@2.12.14(@types/node@24.12.0)(typescript@6.0.2))(vite@8.0.8(@types/node@24.12.0)(esbuild@0.28.0)(jiti@2.6.1)(terser@5.46.1)(tsx@4.22.3)(yaml@2.8.3))
       '@vitest/pretty-format': 4.1.2
       '@vitest/runner': 4.1.2
       '@vitest/snapshot': 4.1.2

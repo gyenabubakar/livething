@@ -7,8 +7,9 @@
     "dev:ui": "vite",
     "dev:ws": "node server/ws-server.mjs",
     "build:client": "pnpm --filter @wskit/client2 run build",
-    "test": "pnpm run build:client && playwright test",
-    "typecheck": "tsc --noEmit"
+    "test:e2e": "pnpm run build:client && playwright test",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf node_modules test-results playwright-report"
   },
   "dependencies": {
     "@wskit/client2": "workspace:*",
