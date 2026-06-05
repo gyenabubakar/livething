@@ -11,10 +11,9 @@ interface C {
       outgoing: { 'send-message': { text: string } };
     };
     rooms: {
-      [room: string]: {
-        incoming: { message: { text: string } };
-        outgoing: { 'send-message': { text: string } };
-      };
+      addressing: 'dynamic';
+      incoming: { message: { text: string } };
+      outgoing: { 'send-message': { text: string } };
     };
   };
 }

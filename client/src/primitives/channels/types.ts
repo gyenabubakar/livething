@@ -70,19 +70,18 @@ export interface ScopeHandle<C> {
   list(): string[];
 }
 
-// A family is a channel entry written with an index signature, like
-// `rooms: { [roomName: string]: {...} }`. A fixed channel has named keys
-// (`incoming`, `outgoing`, …), so `string extends keyof` tells the two apart.
-type IsFamily<T> = string extends keyof T ? true : false;
+// A dynamic family is marked `addressing: 'dynamic'` on its contract entry —
+// InferClient stamps it from a `scope('key', 'tmpl-{id}')` declaration. A fixed
+// channel is `addressing: 'fixed'` (or carries no marker at all). All concrete
+// names in a family share one event contract, so the family entry IS that
+// contract plus the marker.
+type IsFamily<T> = T extends { addressing: 'dynamic' } ? true : false;
 
 /** Keys of the channels map that are single, fixed channels. */
 type FixedKeys<C> = { [K in keyof C]: IsFamily<C[K]> extends true ? never : K }[keyof C];
 
 /** Keys of the channels map that are dynamic families. */
 type FamilyKeys<C> = { [K in keyof C]: IsFamily<C[K]> extends true ? K : never }[keyof C];
-
-/** The per-channel contract inside a family. */
-type FamilyValue<F> = F extends Record<string, infer V> ? V : never;
 
 /**
  * The `channel` method: `channel(name)` for a fixed channel, `channel(scope,
@@ -91,11 +90,8 @@ type FamilyValue<F> = F extends Record<string, infer V> ? V : never;
  */
 export interface ChannelMethod<C> {
   <K extends FixedKeys<C> & string>(name: K): ChannelMessaging<C[K]>;
-  <K extends FamilyKeys<C> & string>(
-    scopeKey: K,
-    name: string,
-  ): ChannelMessaging<FamilyValue<C[K]>>;
-  scope<K extends FamilyKeys<C> & string>(scopeKey: K): ScopeHandle<FamilyValue<C[K]>>;
+  <K extends FamilyKeys<C> & string>(scopeKey: K, name: string): ChannelMessaging<C[K]>;
+  scope<K extends FamilyKeys<C> & string>(scopeKey: K): ScopeHandle<C[K]>;
 }
 
 /** Adds `socket.channel(...)` typed from the contract's `channels`. */

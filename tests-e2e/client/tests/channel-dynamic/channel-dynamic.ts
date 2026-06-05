@@ -1,24 +1,6 @@
 import { channels, client, connect } from '@wskit/client';
+import type { ChannelDynamicClient } from '@wskit/tests-e2e-handlers/channel-dynamic';
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
-
-// GAP: InferClient collapses the server's scope('room','room:{id}') family into a
-// FIXED 'room' channel, so the handler's ChannelDynamicClient cannot type the
-// dynamic-family API (channel(scope, name) / channel.scope). Until that gap is
-// closed, this page types the family locally to drive the real dynamic channel;
-// the event shapes mirror the handler's contract exactly.
-interface RoomFamilyEvents {
-  incoming: {
-    'room-message': { channel: string; text: string; from: string; kind: string };
-    'name-result': { name: string; suffix: string };
-  };
-  outgoing: {
-    'send-message': { text: string };
-    'echo-name': Record<string, never>;
-  };
-}
-interface ChannelDynamicContract {
-  channels: { room: { [name: string]: RoomFamilyEvents } };
-}
 
 // Drives @wskit/client's channels() against the real `channel-dynamic` handler,
 // exercising the dynamic-family surface: socket.channel(scope, name) and the
@@ -43,7 +25,7 @@ export function setup(): void {
     <span data-testid="name-result"></span>
   `);
 
-  const socket = client<ChannelDynamicContract>()(connect(wsUrl('channel-dynamic')), channels());
+  const socket = client<ChannelDynamicClient>()(connect(wsUrl('channel-dynamic')), channels());
 
   const rooms = socket.channel.scope('room');
   const general = socket.channel('room', 'room:general');

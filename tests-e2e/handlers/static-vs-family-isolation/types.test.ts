@@ -86,6 +86,15 @@ describe('StaticVsFamilyIsolationClient — channels', () => {
     expectTypeOf<StaticVsFamilyIsolationClient['channels']>().toHaveProperty('rooms');
   });
 
+  it('addressing discriminator: static general is fixed, scope() rooms is dynamic', () => {
+    expectTypeOf<
+      StaticVsFamilyIsolationClient['channels']['general']['addressing']
+    >().toEqualTypeOf<'fixed'>();
+    expectTypeOf<
+      StaticVsFamilyIsolationClient['channels']['rooms']['addressing']
+    >().toEqualTypeOf<'dynamic'>();
+  });
+
   it('general incoming has msg (server outgoing)', () => {
     expectTypeOf<
       StaticVsFamilyIsolationClient['channels']['general']['incoming']['msg']

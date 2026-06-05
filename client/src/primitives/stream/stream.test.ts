@@ -16,12 +16,11 @@ interface C {
   };
   channels: {
     rooms: {
-      [r: string]: {
-        incoming: { msg: { text: string } };
-        outgoing: { say: { text: string } };
-        streams: {
-          'ask-ai': { payload: { prompt: string }; chunk: { text: string }; kind: 'persistent' };
-        };
+      addressing: 'dynamic';
+      incoming: { msg: { text: string } };
+      outgoing: { say: { text: string } };
+      streams: {
+        'ask-ai': { payload: { prompt: string }; chunk: { text: string }; kind: 'persistent' };
       };
     };
   };

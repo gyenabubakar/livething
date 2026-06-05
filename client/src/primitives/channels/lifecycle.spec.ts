@@ -13,18 +13,16 @@ interface C {
       requests: Record<string, never>;
     };
     rooms: {
-      [room: string]: {
-        incoming: { update: { body: string } };
-        outgoing: { post: { body: string } };
-        requests: Record<string, never>;
-      };
+      addressing: 'dynamic';
+      incoming: { update: { body: string } };
+      outgoing: { post: { body: string } };
+      requests: Record<string, never>;
     };
     lobbies: {
-      [lobby: string]: {
-        incoming: { update: { body: string } };
-        outgoing: { post: { body: string } };
-        requests: Record<string, never>;
-      };
+      addressing: 'dynamic';
+      incoming: { update: { body: string } };
+      outgoing: { post: { body: string } };
+      requests: Record<string, never>;
     };
   };
 }

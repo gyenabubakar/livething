@@ -47,6 +47,12 @@ type ChannelKeyFromPattern<P> = P extends string
 // (string pattern) have no params.
 type ParamsFromPattern<P> = P extends ScopeDeclaration<string, infer Params> ? Params : {};
 
+// 'dynamic' for a `scope()` family (one entry matches many concrete names),
+// 'fixed' for a string-pattern channel. This is the reliable family signal:
+// a scope() template may declare zero `{name}` params, so non-empty params
+// alone can't tell the two apart.
+type AddressingFromPattern<P> = P extends ScopeDeclaration<string> ? 'dynamic' : 'fixed';
+
 interface EmptyCats {
   readonly incoming: {};
   readonly outgoing: {};
@@ -90,7 +96,12 @@ type AddOne<Acc, D> =
                   ? Acc & {
                       readonly channels: Record<
                         ChannelKeyFromPattern<Pat>,
-                        ChannelContract<Defs, TCheckPayload, ParamsFromPattern<Pat>>
+                        ChannelContract<
+                          Defs,
+                          TCheckPayload,
+                          ParamsFromPattern<Pat>,
+                          AddressingFromPattern<Pat>
+                        >
                       >;
                     }
                   : D extends NamespaceDef<infer N, infer Defs>
@@ -112,6 +123,7 @@ export type ChannelContract<
   TDefs extends readonly Definition[] = readonly Definition[],
   TCheckPayload = unknown,
   TParams = Record<string, string>,
+  TAddressing extends 'fixed' | 'dynamic' = 'fixed' | 'dynamic',
 > = Pick<
   Categorize<TDefs>,
   'incoming' | 'outgoing' | 'requests' | 'streams' | 'resumableStreams' | 'recordedStreams'
@@ -119,6 +131,12 @@ export type ChannelContract<
   (unknown extends TCheckPayload ? {} : { readonly subscribePayload: TCheckPayload }) & {
     /** The `{name}` captures from the `scope()` template, surfaced as `ctx.channel.params`. */
     readonly params: TParams;
+    /**
+     * Whether this channel is a single fixed channel or a dynamic `scope()`
+     * family. Read by `InferClient` to give the client the right channel API
+     * shape; never used at runtime.
+     */
+    readonly __addressing: TAddressing;
   };
 
 export type NamespaceContract<TDefs extends readonly Definition[] = readonly Definition[]> = Pick<

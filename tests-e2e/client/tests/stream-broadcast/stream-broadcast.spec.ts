@@ -61,9 +61,33 @@ test.describe('stream-broadcast (conformance)', () => {
     await peer.close();
   });
 
-  // NOTE: a channel-scoped broadcast (the 'rooms' scope('rooms','room:{id}')
-  // family) is not covered here — InferClient collapses that dynamic family into
-  // a fixed channel, so the typed client can't address it (same gap worked around
-  // in channel-dynamic). Top-level broadcast fan-out + terminal error are proven
-  // above; channel membership scoping is proven in channel-static.
+  test('a channel-scoped broadcast fans out to a subscribed peer in the same room', async ({
+    browser,
+  }, testInfo) => {
+    const room = `sb-room-${testInfo.testId}`;
+    const trigger = await browser.newContext();
+    const peer = await browser.newContext();
+    const a = await trigger.newPage();
+    const b = await peer.newPage();
+    await open(a, room, 'alice');
+    await open(b, room, 'bob');
+
+    // Both join the same concrete channel in the dynamic 'rooms' family.
+    await a.getByTestId('sub-room').click();
+    await expect(a.getByTestId('room-sub-ok')).toHaveText('yes');
+    await b.getByTestId('sub-room').click();
+    await expect(b.getByTestId('room-sub-ok')).toHaveText('yes');
+
+    await b.getByTestId('listen-room').click();
+
+    await a.getByTestId('start-room-3').click();
+    await expect(a.getByTestId('room-trigger-chunks')).toHaveText('0,1,2');
+    await expect(a.getByTestId('room-trigger-end')).toHaveText('yes');
+
+    await expect(b.getByTestId('room-peer-chunks')).toHaveText('0,1,2');
+    await expect(b.getByTestId('room-peer-end')).toHaveText('yes');
+
+    await trigger.close();
+    await peer.close();
+  });
 });

@@ -132,6 +132,20 @@ type ClientScope<TScope> = {
 type ClientScopeMap<TScopes> = { [TKey in keyof TScopes]: ClientScope<TScopes[TKey]> };
 
 /**
+ * Like `ClientScopeMap`, but channel-aware: each channel scope is stamped with
+ * an `addressing` discriminator — `'dynamic'` for a `scope()` family, `'fixed'`
+ * for a string-pattern channel. The client's `channels` primitive reads it to
+ * decide between `channel(name)` and `channel(scope, name)` / `channel.scope`.
+ */
+type ClientChannelMap<TChannels> = {
+  [TKey in keyof TChannels]: ClientScope<TChannels[TKey]> & {
+    addressing: TChannels[TKey] extends { __addressing: infer A extends 'fixed' | 'dynamic' }
+      ? A
+      : 'fixed';
+  };
+};
+
+/**
  * Read a WSKit `ServerDefinition` and turn it into the full client contract type.
  *
  * Pass the type of your server definition (the value returned by `.build()`)
@@ -188,7 +202,7 @@ export type InferClient<TServer extends ServerDefinition> = SimplifyDeep<{
   /** Per-namespace sub-contracts, each flipped into the client's perspective. */
   namespaces: ClientScopeMap<Slot<ContractOf<TServer>, 'namespaces'>>;
   /** Per-channel sub-contracts, each flipped into the client's perspective. */
-  channels: ClientScopeMap<Slot<ContractOf<TServer>, 'channels'>>;
+  channels: ClientChannelMap<Slot<ContractOf<TServer>, 'channels'>>;
   /** Built-in engine errors (e.g. `validation-failed`) merged with developer-defined errors. */
   errors: ErrorMap<BuiltInErrorUnion> & Slot<ContractOf<TServer>, 'errors'>;
 }>;

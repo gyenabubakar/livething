@@ -14,7 +14,7 @@ interface C {
   namespaces: { alerts: { incoming: { 'new-alert': unknown } } };
   channels: {
     general: { incoming: { message: unknown } };
-    rooms: { [room: string]: { incoming: { message: unknown } } };
+    rooms: { addressing: 'dynamic'; incoming: { message: unknown } };
   };
   streams: { feed: { payload: unknown; chunk: unknown } };
 }
