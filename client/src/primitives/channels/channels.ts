@@ -116,6 +116,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
                   ? 'server'
                   : 'client';
               helpers.log.info(`channel '${name}' subscribed (${source})`);
+              state.persistent = wskit?.channelPersistent === true;
               state.markSubscribed(source);
               notifyFamily((family) => family.fireSubscribed(name, source));
               return null;
@@ -184,7 +185,8 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
           // so when no channel uses a function we return nothing and the reconnect
           // stays synchronous.
           const dynamic = [...states.values()].filter(
-            (state) => state.active && typeof state.subscribeData === 'function',
+            (state) =>
+              state.active && !state.persistent && typeof state.subscribeData === 'function',
           );
           if (dynamic.length === 0) return;
           return (async () => {
@@ -203,9 +205,12 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
         onReconnect() {
           // Re-join every channel we were subscribed to. The server confirms with
           // __subscribeOk__ (and a fresh __memberSync__ repopulates members).
+          // Persistent channels are skipped — the server auto-rejoins them from
+          // the durable membership and pushes an unsolicited __subscribeOk__, so
+          // a client re-subscribe would double the subscribe flow.
           const resubscribes: WireMessage[] = [];
           for (const state of states.values()) {
-            if (state.active) {
+            if (state.active && !state.persistent) {
               resubscribes.push({
                 event: '__subscribe__',
                 payload: state.resolvedSubscribeData ?? {},

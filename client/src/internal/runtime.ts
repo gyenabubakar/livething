@@ -27,6 +27,9 @@ export interface WSKitEnvelope {
   /** The dynamic channel-family key, paired with `channel`. */
   channelScope?: string;
 
+  /** On `__subscribeOk__`: true when the channel auto-rejoins on reconnect (server-driven), so the client must not re-subscribe it. */
+  channelPersistent?: boolean;
+
   /** Per-message sequence number from the server, used by replay. */
   seq?: number;
 

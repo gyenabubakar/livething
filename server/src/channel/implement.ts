@@ -30,6 +30,7 @@ export interface ChannelHandlerBag {
     (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>
   >;
   checkHandler?: (ctx: any, data?: any) => unknown | Promise<unknown>;
+  revalidateHandler?: (ctx: any) => void | Promise<void>;
   commitHandler?: (ctx: any, checkResult: unknown) => void;
   onSubscribeHandler?: (ctx: any) => void | Promise<void>;
   onUnsubscribeHandler?: (ctx: any) => void | Promise<void>;
@@ -172,6 +173,31 @@ export class ChannelImplement<C extends Contract, ChC = any, TCheck = unknown> {
     }
     this._bag.checkHandler = handler as any;
     return this as any as ChannelImplement<C, ChC, TResult>;
+  }
+
+  /**
+   * Re-authorize an existing durable membership when a reconnecting identity is
+   * auto-rejoined to this persistent channel.
+   *
+   * Runs only on auto-rejoin — never on a first subscribe — so it receives no
+   * subscribe payload. Throw to revoke: the durable membership is dropped and the
+   * connection is not restored. First-subscribe authorization stays in `.check()`.
+   *
+   * @example
+   * ```ts
+   * ch.revalidate(async (ctx) => {
+   *   if (await db.isBanned(ctx.meta.userId)) throw Forbidden();
+   * })
+   * ```
+   */
+  revalidate(handler: (ctx: ChannelCtx<ChC, C>) => void | Promise<void>): this {
+    if (this._bag.revalidateHandler) {
+      throw new Error(
+        '[wskit] Duplicate .revalidate() on this channel. Only one revalidate hook can be attached.',
+      );
+    }
+    this._bag.revalidateHandler = handler as any;
+    return this;
   }
 
   /**

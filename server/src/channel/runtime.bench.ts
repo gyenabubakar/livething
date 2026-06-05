@@ -59,6 +59,7 @@ function createRuntime(memberCount: number) {
     connections,
     channelMembers,
     checkHooks: new Map(),
+    revalidateHooks: new Map(),
     commitHooks: new Map(),
     subscribeHooks: new Map(),
     unsubscribeHooks: new Map(),

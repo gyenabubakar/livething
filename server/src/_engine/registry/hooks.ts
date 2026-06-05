@@ -24,6 +24,7 @@ export function createRegisteredHooks(): EngineRuntimeTypes.RegisteredEngineHook
     validationError: [],
     alarm: [],
     check: new Map(),
+    revalidate: new Map(),
     commit: new Map(),
     subscribe: new Map(),
     unsubscribe: new Map(),

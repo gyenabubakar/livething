@@ -7,6 +7,7 @@ import {
   onSessionEnd as onSessionEndFactory,
   onSubscribe,
   onUnsubscribe,
+  revalidate as revalidateFactory,
 } from '~/channel/lifecycle.ts';
 import { matchesScopePattern } from '~/channel/runtime.ts';
 import { intercept as interceptFactory } from '~/intercept/intercept.ts';
@@ -87,6 +88,9 @@ export function compileChannelDef(
         def.checkValidator ? { validator: def.checkValidator as any } : undefined,
       ),
     );
+  }
+  if (impl?._bag.revalidateHandler) {
+    childPrimitives.push(revalidateFactory(impl._bag.revalidateHandler));
   }
   if (impl?._bag.commitHandler) {
     childPrimitives.push(commitFactory(impl._bag.commitHandler));

@@ -225,6 +225,13 @@ export interface EngineAccess {
   ): void;
 
   /**
+   * Register the re-authorization phase that runs on auto-rejoin only. The
+   * handler runs when a reconnecting identity is restored to a persistent
+   * channel; throwing revokes the membership. No subscribe payload is passed.
+   */
+  onRevalidate(handler: (ctx: unknown) => void | Promise<void>): void;
+
+  /**
    * Register the sync commit phase for a channel subscribe guard.
    *
    * Receives the value returned by the paired `onCheck` handler. Must be

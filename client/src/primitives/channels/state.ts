@@ -41,6 +41,12 @@ export class ChannelState {
   /** True once the server has confirmed the subscription. */
   active = false;
   /**
+   * True when the server marks this channel persistent (it auto-rejoins on
+   * reconnect). The client then leaves rejoin to the server and does not
+   * re-subscribe this channel itself. Set from `__subscribeOk__`.
+   */
+  persistent = false;
+  /**
    * What was passed to `subscribe()` — a value, or a function re-run on each
    * reconnect to refresh a rotating payload (e.g. an auth token).
    */

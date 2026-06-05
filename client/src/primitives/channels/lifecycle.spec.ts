@@ -87,6 +87,82 @@ describe('channels-reconnect-resubscribe-failure-surfaces', () => {
   });
 });
 
+describe('channels-reconnect-skips-persistent', () => {
+  it('does not re-subscribe a persistent channel on reconnect; the server auto-rejoins it', () => {
+    vi.useFakeTimers();
+    try {
+      const socket = client<C>()(connect('wss://test'), channels(), reconnection());
+      socket.connect();
+      const first = MockWebSocket.last();
+      first.open();
+
+      const persistent = socket.channel('general');
+      const ephemeral = socket.channel('rooms', 'room:1');
+      persistent.subscribe();
+      ephemeral.subscribe();
+
+      // The server marks 'general' persistent on its __subscribeOk__; 'rooms' is not.
+      first.emit({
+        event: '__subscribeOk__',
+        payload: { source: 'client' },
+        __wskit: { channel: 'general', channelPersistent: true },
+      });
+      first.emit({
+        event: '__subscribeOk__',
+        payload: { source: 'client' },
+        __wskit: { channel: 'room:1', channelScope: 'rooms', channelPersistent: false },
+      });
+
+      first.serverClose(1006, 'drop');
+      vi.advanceTimersByTime(1500);
+      const second = MockWebSocket.last();
+      second.open();
+
+      const resubscribes = second.sentFrames().filter((f) => f.event === '__subscribe__');
+      // Only the non-persistent channel is re-subscribed by the client.
+      expect(resubscribes.map((f) => f.__wskit?.channel)).toEqual(['room:1']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not refresh a function subscribe payload on reconnect for a persistent channel', async () => {
+    vi.useFakeTimers();
+    try {
+      const socket = client<C>()(connect('wss://test'), channels(), reconnection());
+      socket.connect();
+      const first = MockWebSocket.last();
+      first.open();
+
+      let calls = 0;
+      const room = socket.channel('general');
+      void room.subscribe(() => ({ token: `tok-${++calls}` }));
+
+      await vi.advanceTimersByTimeAsync(0);
+      expect(calls).toBe(1);
+      // The server confirms AND marks the channel persistent.
+      first.emit({
+        event: '__subscribeOk__',
+        payload: { source: 'client' },
+        __wskit: { channel: 'general', channelPersistent: true },
+      });
+
+      first.serverClose(1006, 'drop');
+      await vi.advanceTimersByTimeAsync(1500);
+      const second = MockWebSocket.last();
+      second.open();
+      await vi.advanceTimersByTimeAsync(0);
+
+      // onBeforeReopen did not re-run the function (no point — the client won't
+      // re-subscribe), and onReconnect sent no __subscribe__: the server auto-rejoins.
+      expect(calls).toBe(1);
+      expect(second.sentFrames().some((f) => f.event === '__subscribe__')).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe('channels-reconnect-refreshes-function-subscribe-payload', () => {
   it('re-invokes a function subscribe payload on reconnect, sending a fresh value', async () => {
     vi.useFakeTimers();

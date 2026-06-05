@@ -160,6 +160,8 @@ interface ChannelRuntime {
     }[]
   >;
 
+  revalidateHooks: ReadonlyMap<string, readonly ((ctx: any) => void | Promise<void>)[]>;
+
   commitHooks: ReadonlyMap<
     string,
     readonly { handler: (ctx: any, checkResult: unknown) => void }[]
@@ -396,52 +398,71 @@ async function runSubscribeFlow(
   const scope: ResolvedChannelScope = opts;
   const ctx = runtime.buildConnectionContext(connection, scope);
 
-  // ── Phase 1: check (async, concurrent) ───────────────────────────────────
+  // ── Phase 1: gate (async) ────────────────────────────────────────────────
+  // First subscribe runs `check` with the subscribe payload. Auto-rejoin runs
+  // `revalidate` instead — no payload, revocation only — so a payload-gated
+  // `check` is never handed an undefined payload on reconnect.
   let checkResult: unknown;
-  const checkHook = runtime.checkHooks.get(scope.channel.key)?.[0];
-  if (checkHook) {
-    let validatedData: unknown = data;
-    if (checkHook.validator) {
-      try {
-        validatedData = validateValue(checkHook.validator, data, '__subscribe__');
-      } catch (error) {
-        rethrowIfConfigError(error);
-        await runtime.handleValidationError(connection, {
-          event: '__subscribe__',
-          validationError: error,
-          scope,
-        });
-        throw error;
-      }
+  if (rejoining) {
+    const revalidateHook = runtime.revalidateHooks.get(scope.channel.key)?.[0];
+    if (revalidateHook) {
+      // A throw propagates to auto-rejoin, which drops the durable row and
+      // notifies the client — the revocation path.
+      await revalidateHook(ctx);
     }
-    checkResult = await checkHook.handler(ctx, validatedData);
+  } else {
+    const checkHook = runtime.checkHooks.get(scope.channel.key)?.[0];
+    if (checkHook) {
+      let validatedData: unknown = data;
+      if (checkHook.validator) {
+        try {
+          validatedData = validateValue(checkHook.validator, data, '__subscribe__');
+        } catch (error) {
+          rethrowIfConfigError(error);
+          await runtime.handleValidationError(connection, {
+            event: '__subscribe__',
+            validationError: error,
+            scope,
+          });
+          throw error;
+        }
+      }
+      checkResult = await checkHook.handler(ctx, validatedData);
+    }
   }
 
   // ── Phase 2: commit then membership write ────────────────────────────────
+  const isPersistent = runtime.isChannelPersistent(scope.channel.key);
+
   // Re-check durable membership here — a leave that finished after phase 1
   // may have already cleared the row.
   if (
     rejoining &&
-    runtime.isChannelPersistent(scope.channel.key) &&
+    isPersistent &&
     !runtime.hasDurableMembership(connection.identity, scope.channelName, scope.channelScope)
   ) {
     return;
   }
 
-  const commitHook = runtime.commitHooks.get(scope.channel.key)?.[0];
-  if (commitHook) {
-    const r: unknown = commitHook.handler(ctx, checkResult);
-    if (r instanceof Promise) {
-      throw new Error(
-        '[wskit] commit() must be synchronous. Remove the async keyword from your commit handler.',
-      );
+  // commit is the first-subscribe capacity/final gate. Auto-rejoin skips it — a
+  // returning member already holds a seat and must not be re-counted against a
+  // cap that filled while they were away.
+  if (!rejoining) {
+    const commitHook = runtime.commitHooks.get(scope.channel.key)?.[0];
+    if (commitHook) {
+      const r: unknown = commitHook.handler(ctx, checkResult);
+      if (r instanceof Promise) {
+        throw new Error(
+          '[wskit] commit() must be synchronous. Remove the async keyword from your commit handler.',
+        );
+      }
     }
   }
 
   // Write the durable membership row first. If the SQL write throws, the
   // connection must not already be a live member of a channel it was never
   // saved into.
-  if (runtime.isChannelPersistent(scope.channel.key)) {
+  if (isPersistent) {
     runtime.persistMembership(connection.identity, scope.channelName, scope.channelScope);
   }
 
@@ -465,8 +486,14 @@ async function runSubscribeFlow(
   const wskit = buildChannelRouting(scope);
 
   // Send confirmation before running onSubscribe, so a throwing hook cannot
-  // delay or block it from reaching the client.
-  runtime.sendProtocolMessage(connection, { event: '__subscribeOk__', payload: { source }, wskit });
+  // delay or block it from reaching the client. The persistent flag tells the
+  // client to leave this channel to server-driven auto-rejoin on reconnect
+  // rather than re-subscribing it itself.
+  runtime.sendProtocolMessage(connection, {
+    event: '__subscribeOk__',
+    payload: { source },
+    wskit: { ...wskit, channelPersistent: isPersistent },
+  });
 
   // One snapshot frame with the whole member list, in place of a
   // __memberJoin__ + __memberOnline__ pair per existing peer.
@@ -492,14 +519,19 @@ async function runSubscribeFlow(
     channelScope: scope.channelScope,
   });
 
-  for (const hook of runtime.subscribeHooks.get(scope.channel.key) ?? []) {
-    try {
-      await hook(ctx);
-    } catch (error) {
-      const routing: Protocol.WSKitRouting = { channel: scope.channelName };
-      if (scope.channelScope !== null) routing.channelScope = scope.channelScope;
-      await runtime.handleRuntimeError(connection, { error, event: '__subscribe__', routing });
-      return;
+  // Auto-rejoin does not fire onSubscribe — the user already joined once, and
+  // the rejoin only restores a fresh socket. Re-running join side-effects (a
+  // welcome push, a "X joined" broadcast) on every reconnect would be wrong.
+  if (!rejoining) {
+    for (const hook of runtime.subscribeHooks.get(scope.channel.key) ?? []) {
+      try {
+        await hook(ctx);
+      } catch (error) {
+        const routing: Protocol.WSKitRouting = { channel: scope.channelName };
+        if (scope.channelScope !== null) routing.channelScope = scope.channelScope;
+        await runtime.handleRuntimeError(connection, { error, event: '__subscribe__', routing });
+        return;
+      }
     }
   }
 }

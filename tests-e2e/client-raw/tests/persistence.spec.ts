@@ -366,7 +366,7 @@ test.describe('persistence', () => {
     expect(after.filter((f) => f.event === 'session-ended')).toHaveLength(0);
   });
 
-  test('auto-rejoin re-runs the channel check; a now-failing check prevents rejoin', async ({
+  test('auto-rejoin runs the channel revalidate hook; a now-failing revalidate prevents rejoin', async ({
     page,
   }, testInfo) => {
     const room = `persist-rejoincheck-${testInfo.testId}-${Date.now()}`;
@@ -384,7 +384,7 @@ test.describe('persistence', () => {
     );
 
     // An admin bans alice; the ban is durable, so it is visible when alice's
-    // auto-rejoin re-runs the channel check on reconnect.
+    // auto-rejoin runs the channel revalidate hook on reconnect.
     const admin = await connect(page, 'admin', room);
     await send(page, admin, { event: 'ban', payload: { identity: 'alice' } });
     await page.waitForTimeout(150);
@@ -392,14 +392,64 @@ test.describe('persistence', () => {
     await close(page, alice1);
     await page.waitForTimeout(200);
 
-    // Alice reconnects. Auto-rejoin re-runs the check, which now throws, so she
-    // is NOT brought back into the channel — no __subscribeOk__ arrives.
+    // Alice reconnects. Auto-rejoin runs the revalidate hook, which now throws,
+    // so she is NOT brought back into the channel — no __subscribeOk__ arrives.
     const alice2 = await connect(page, 'alice', room);
     await page.waitForTimeout(400);
     const rejoined = (await frames(page, alice2)).find(
       (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'archive-room',
     );
     expect(rejoined).toBeUndefined();
+  });
+
+  test('auto-rejoin does NOT re-run commit; a returning member keeps its seat past a full capacity gate', async ({
+    page,
+  }, testInfo) => {
+    const room = `persist-capacity-${testInfo.testId}-${Date.now()}`;
+
+    // capacity-room caps live members at 1. Alice takes the seat.
+    const alice1 = await connect(page, 'alice', room);
+    await send(page, alice1, {
+      event: '__subscribe__',
+      payload: {},
+      __wskit: { channel: 'capacity-room' },
+    });
+    await waitForFrame(
+      page,
+      alice1,
+      (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'capacity-room',
+    );
+
+    // Alice drops; her durable membership stays but she is offline (live count 0).
+    await close(page, alice1);
+    await page.waitForTimeout(200);
+
+    // Bob takes the now-free live seat.
+    const bob = await connect(page, 'bob', room);
+    await send(page, bob, {
+      event: '__subscribe__',
+      payload: {},
+      __wskit: { channel: 'capacity-room' },
+    });
+    await waitForFrame(
+      page,
+      bob,
+      (f) => f.event === '__subscribeOk__' && f.__wskit?.channel === 'capacity-room',
+    );
+
+    // Alice reconnects. If commit ran on auto-rejoin it would see Bob in the seat
+    // and reject (capacity full); because commit is skipped on rejoin, Alice is
+    // restored and receives the server-sourced __subscribeOk__.
+    const alice2 = await connect(page, 'alice', room);
+    const rejoined = await waitForFrame(
+      page,
+      alice2,
+      (f) =>
+        f.event === '__subscribeOk__' &&
+        f.__wskit?.channel === 'capacity-room' &&
+        f.payload?.source === 'server',
+    );
+    expect(rejoined.payload.source).toBe('server');
   });
 
   test('anonymous connection does NOT auto-rejoin on reconnect (no durable membership row)', async ({

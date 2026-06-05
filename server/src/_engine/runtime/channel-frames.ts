@@ -20,6 +20,8 @@ interface ChannelRuntime extends EngineRuntimeTypes.ConnectionMembersRuntime {
     }[]
   >;
 
+  revalidateHooks: ReadonlyMap<string, readonly ((ctx: any) => void | Promise<void>)[]>;
+
   commitHooks: ReadonlyMap<
     string,
     readonly { handler: (ctx: any, checkResult: unknown) => void }[]

@@ -259,6 +259,13 @@ describe('GroupBuilder — full method surface', () => {
     ).toThrow(/Duplicate .customReplay\(\) on this channel/);
   });
 
+  it('rejects a second .revalidate on a channel sub-builder', () => {
+    const c = makeContract();
+    expect(() =>
+      implement(c).channel('rooms', (ch) => ch.revalidate(() => {}).revalidate(() => {})),
+    ).toThrow(/Duplicate .revalidate\(\) on this channel/);
+  });
+
   it('rejects a second .onUpgrade inside one group', () => {
     const c = makeContract();
     expect(() =>

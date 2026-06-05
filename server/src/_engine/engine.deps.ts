@@ -223,6 +223,7 @@ function buildChannelRuntime(core: EngineCore) {
     ...memberRuntime(core),
 
     checkHooks: core.hooks.check,
+    revalidateHooks: core.hooks.revalidate,
     commitHooks: core.hooks.commit,
     subscribeHooks: core.hooks.subscribe,
     unsubscribeHooks: core.hooks.unsubscribe,

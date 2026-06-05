@@ -148,7 +148,12 @@ export const IncomingProtocolFrame = v.variant('event', [
 export const SubscribeOkFrame = v.object({
   event: v.literal('__subscribeOk__'),
   payload: v.strictObject({ source: v.picklist(['client', 'server']) }),
-  __wskit: v.strictObject(RequiredChannelScope),
+  // `channelPersistent` tells the client whether this channel auto-rejoins on
+  // reconnect (server-driven) so it knows not to re-subscribe it itself.
+  __wskit: v.strictObject({
+    ...RequiredChannelScope,
+    channelPersistent: v.optional(v.boolean()),
+  }),
 });
 
 export const StreamOkFrame = v.object({

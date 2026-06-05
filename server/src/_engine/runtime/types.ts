@@ -174,6 +174,8 @@ export interface RegisteredEngineHooks {
 
   /** Async check phase per channel key — runs before a subscription is confirmed. */
   check: Map<string, ChannelCheckHook[]>;
+  /** Re-authorization phase per channel key — runs only on auto-rejoin, for revocation. */
+  revalidate: Map<string, ((ctx: any) => void | Promise<void>)[]>;
   /** Sync commit phase per channel key — runs immediately before membership is written. */
   commit: Map<string, ChannelCommitHook[]>;
 

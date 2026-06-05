@@ -21,8 +21,10 @@ describe('PersistenceClient — incoming (server outgoing)', () => {
     }>();
   });
 
-  it('only true-leave in top-level incoming', () => {
-    expectTypeOf<keyof PersistenceClient['incoming']>().toEqualTypeOf<'true-leave'>();
+  it('has the declared top-level incoming events', () => {
+    expectTypeOf<keyof PersistenceClient['incoming']>().toEqualTypeOf<
+      'true-leave' | 'subscribe-flow-ran'
+    >();
   });
 });
 
@@ -34,7 +36,9 @@ describe('PersistenceClient — outgoing (server incoming)', () => {
   });
 
   it('has the declared top-level outgoing events', () => {
-    expectTypeOf<keyof PersistenceClient['outgoing']>().toEqualTypeOf<'remove-member' | 'ban'>();
+    expectTypeOf<keyof PersistenceClient['outgoing']>().toEqualTypeOf<
+      'remove-member' | 'ban' | 'server-drop'
+    >();
   });
 });
 

@@ -82,6 +82,7 @@ function createRuntime(
       connections,
       channelMembers,
       checkHooks: new Map(),
+      revalidateHooks: new Map(),
       commitHooks: new Map(),
       subscribeHooks: new Map(),
       unsubscribeHooks: new Map(),
@@ -191,7 +192,7 @@ describe('channel runtime', () => {
         connectionId: 'conn_2',
         event: '__subscribeOk__',
         payload: { source: 'client' },
-        wskit: { channel: 'room:general', channelScope: 'rooms' },
+        wskit: { channel: 'room:general', channelScope: 'rooms', channelPersistent: false },
       },
       {
         connectionId: 'conn_2',
@@ -753,7 +754,7 @@ describe('subscribeConnectionAsServer', () => {
         connectionId: 'target',
         event: '__subscribeOk__',
         payload: { source: 'server' },
-        wskit: { channel: 'room:general', channelScope: 'rooms' },
+        wskit: { channel: 'room:general', channelScope: 'rooms', channelPersistent: false },
       },
       {
         connectionId: 'target',
@@ -803,6 +804,117 @@ describe('subscribeConnectionAsServer', () => {
       false,
     );
     expect(protocol).toEqual([]);
+  });
+
+  it('marks the channel persistent on __subscribeOk__ when the channel is persistent', async () => {
+    const { protocol, connections, runtime } = createRuntime();
+    const target = createConnection('target', { userId: 't' });
+    connections.set(target.id, target);
+
+    const persistentRuntime = { ...runtime, isChannelPersistent: () => true };
+
+    await subscribeConnectionAsServer(persistentRuntime, target, {
+      channelName: 'room:general',
+      channelScope: 'rooms',
+      payload: undefined,
+    });
+
+    const ok = protocol.find((p) => p.event === '__subscribeOk__');
+    expect(ok?.wskit).toEqual({
+      channel: 'room:general',
+      channelScope: 'rooms',
+      channelPersistent: true,
+    });
+  });
+
+  it('runs revalidate (not check) on rejoin', async () => {
+    const { connections, runtime } = createRuntime();
+    const target = createConnection('target', { userId: 't' });
+    connections.set(target.id, target);
+
+    const checkHook = vi.fn();
+    const revalidateHook = vi.fn();
+    const rejoinRuntime = {
+      ...runtime,
+      isChannelPersistent: () => true,
+      hasDurableMembership: () => true,
+      checkHooks: new Map([['rooms', [{ handler: checkHook, validator: undefined }]]]),
+      revalidateHooks: new Map([['rooms', [revalidateHook]]]),
+    };
+
+    await subscribeConnectionAsServer(rejoinRuntime, target, {
+      channelName: 'room:general',
+      channelScope: 'rooms',
+      payload: undefined,
+      rejoining: true,
+    });
+
+    expect(revalidateHook).toHaveBeenCalledTimes(1);
+    expect(checkHook).not.toHaveBeenCalled();
+    expect(target.channelMemberships.has(createChannelMembershipKey('room:general', 'rooms'))).toBe(
+      true,
+    );
+  });
+
+  it('does not run commit or fire onSubscribe on rejoin', async () => {
+    const { connections, runtime } = createRuntime();
+    const target = createConnection('target', { userId: 't' });
+    connections.set(target.id, target);
+
+    const commitHook = vi.fn();
+    const onSubscribeHook = vi.fn();
+    const rejoinRuntime = {
+      ...runtime,
+      isChannelPersistent: () => true,
+      hasDurableMembership: () => true,
+      commitHooks: new Map([['rooms', [{ handler: commitHook }]]]),
+      subscribeHooks: new Map([['rooms', [onSubscribeHook]]]),
+    };
+
+    await subscribeConnectionAsServer(rejoinRuntime, target, {
+      channelName: 'room:general',
+      channelScope: 'rooms',
+      payload: undefined,
+      rejoining: true,
+    });
+
+    expect(commitHook).not.toHaveBeenCalled();
+    expect(onSubscribeHook).not.toHaveBeenCalled();
+  });
+
+  it('a throwing revalidate rejects rejoin and does not commit membership', async () => {
+    const { connections, runtime } = createRuntime();
+    const target = createConnection('target', { userId: 't' });
+    connections.set(target.id, target);
+
+    const rejoinRuntime = {
+      ...runtime,
+      isChannelPersistent: () => true,
+      hasDurableMembership: () => true,
+      revalidateHooks: new Map([
+        [
+          'rooms',
+          [
+            () => {
+              throw new Error('revoked');
+            },
+          ],
+        ],
+      ]),
+    };
+
+    await expect(
+      subscribeConnectionAsServer(rejoinRuntime, target, {
+        channelName: 'room:general',
+        channelScope: 'rooms',
+        payload: undefined,
+        rejoining: true,
+      }),
+    ).rejects.toThrow('revoked');
+
+    expect(target.channelMemberships.has(createChannelMembershipKey('room:general', 'rooms'))).toBe(
+      false,
+    );
   });
 
   it('runs check with the supplied payload', async () => {
@@ -929,7 +1041,7 @@ describe('subscribeConnectionAsServer', () => {
         connectionId: 'target',
         event: '__subscribeOk__',
         payload: { source: 'server' },
-        wskit: { channel: 'lobby' },
+        wskit: { channel: 'lobby', channelPersistent: false },
       },
       {
         connectionId: 'target',

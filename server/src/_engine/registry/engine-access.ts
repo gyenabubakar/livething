@@ -110,6 +110,12 @@ export function createEngineAccess(
         hookName: 'onCheck',
       });
     },
+    onRevalidate: (handler) => {
+      pushChannelHook(core.hooks.revalidate, scope?.channelKey, {
+        hook: handler,
+        hookName: 'onRevalidate',
+      });
+    },
     onCommit: (handler) => {
       pushChannelHook(core.hooks.commit, scope?.channelKey, {
         hook: { handler },
@@ -237,7 +243,13 @@ export function createEngineAccess(
 
 interface PushChannelHookOptions<T> {
   hook: T;
-  hookName: 'onCheck' | 'onCommit' | 'onSubscribe' | 'onUnsubscribe' | 'onSessionEnd';
+  hookName:
+    | 'onCheck'
+    | 'onRevalidate'
+    | 'onCommit'
+    | 'onSubscribe'
+    | 'onUnsubscribe'
+    | 'onSessionEnd';
 }
 
 /**
