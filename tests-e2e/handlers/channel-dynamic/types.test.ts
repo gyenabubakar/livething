@@ -63,6 +63,15 @@ describe('ChannelDynamicClient — top-level outgoing (server incoming)', () => 
 });
 
 describe('ChannelDynamicClient — channels', () => {
+  it('addressing: room and proto-probe are dynamic families', () => {
+    expectTypeOf<
+      ChannelDynamicClient['channels']['room']['addressing']
+    >().toEqualTypeOf<'dynamic'>();
+    expectTypeOf<
+      ChannelDynamicClient['channels']['proto-probe']['addressing']
+    >().toEqualTypeOf<'dynamic'>();
+  });
+
   it('has room channel', () => {
     expectTypeOf<ChannelDynamicClient['channels']>().toHaveProperty('room');
   });

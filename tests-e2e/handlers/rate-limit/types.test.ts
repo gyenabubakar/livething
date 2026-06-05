@@ -69,6 +69,17 @@ describe('RateLimitClient — top-level requests', () => {
 });
 
 describe('RateLimitClient — channels', () => {
+  it('addressing: every rate-limit channel is static', () => {
+    expectTypeOf<
+      RateLimitClient['channels']['inherit-room']['addressing']
+    >().toEqualTypeOf<'static'>();
+    expectTypeOf<RateLimitClient['channels']['no-limit']['addressing']>().toEqualTypeOf<'static'>();
+    expectTypeOf<RateLimitClient['channels']['rooms']['addressing']>().toEqualTypeOf<'static'>();
+    expectTypeOf<
+      RateLimitClient['channels']['tight-room']['addressing']
+    >().toEqualTypeOf<'static'>();
+  });
+
   it('has inherit-room channel', () => {
     expectTypeOf<RateLimitClient['channels']>().toHaveProperty('inherit-room');
   });

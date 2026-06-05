@@ -36,6 +36,15 @@ describe('ReplayCustomCascadeClient — top-level slots are empty', () => {
 });
 
 describe('ReplayCustomCascadeClient — channels', () => {
+  it('addressing: lobby is static, rooms is a dynamic family', () => {
+    expectTypeOf<
+      ReplayCustomCascadeClient['channels']['lobby']['addressing']
+    >().toEqualTypeOf<'static'>();
+    expectTypeOf<
+      ReplayCustomCascadeClient['channels']['rooms']['addressing']
+    >().toEqualTypeOf<'dynamic'>();
+  });
+
   it('has lobby channel', () => {
     expectTypeOf<ReplayCustomCascadeClient['channels']>().toHaveProperty('lobby');
   });

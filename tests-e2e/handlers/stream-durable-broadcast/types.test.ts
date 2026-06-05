@@ -14,6 +14,12 @@ describe('StreamDurableBroadcastClient — no-any guard', () => {
 });
 
 describe('StreamDurableBroadcastClient — channels', () => {
+  it('addressing: rooms is a static channel', () => {
+    expectTypeOf<
+      StreamDurableBroadcastClient['channels']['rooms']['addressing']
+    >().toEqualTypeOf<'static'>();
+  });
+
   it('has rooms channel', () => {
     expectTypeOf<StreamDurableBroadcastClient['channels']>().toHaveProperty('rooms');
   });

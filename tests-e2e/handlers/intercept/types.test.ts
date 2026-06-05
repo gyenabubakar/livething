@@ -97,6 +97,11 @@ describe('InterceptClient — stream kind', () => {
 });
 
 describe('InterceptClient — channels', () => {
+  it('addressing: room is static, rooms is a dynamic family', () => {
+    expectTypeOf<InterceptClient['channels']['room']['addressing']>().toEqualTypeOf<'static'>();
+    expectTypeOf<InterceptClient['channels']['rooms']['addressing']>().toEqualTypeOf<'dynamic'>();
+  });
+
   it('has room channel', () => {
     expectTypeOf<InterceptClient['channels']>().toHaveProperty('room');
   });

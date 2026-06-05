@@ -71,8 +71,8 @@ export interface ScopeHandle<C> {
 }
 
 // A dynamic family is marked `addressing: 'dynamic'` on its contract entry —
-// InferClient stamps it from a `scope('key', 'tmpl-{id}')` declaration. A fixed
-// channel is `addressing: 'fixed'` (or carries no marker at all). All concrete
+// InferClient stamps it from a `scope('key', 'tmpl-{id}')` declaration. A static
+// channel is `addressing: 'static'` (or carries no marker at all). All concrete
 // names in a family share one event contract, so the family entry IS that
 // contract plus the marker.
 type IsFamily<T> = T extends { addressing: 'dynamic' } ? true : false;

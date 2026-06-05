@@ -86,10 +86,10 @@ describe('StaticVsFamilyIsolationClient — channels', () => {
     expectTypeOf<StaticVsFamilyIsolationClient['channels']>().toHaveProperty('rooms');
   });
 
-  it('addressing discriminator: static general is fixed, scope() rooms is dynamic', () => {
+  it('addressing discriminator: static general is static, scope() rooms is dynamic', () => {
     expectTypeOf<
       StaticVsFamilyIsolationClient['channels']['general']['addressing']
-    >().toEqualTypeOf<'fixed'>();
+    >().toEqualTypeOf<'static'>();
     expectTypeOf<
       StaticVsFamilyIsolationClient['channels']['rooms']['addressing']
     >().toEqualTypeOf<'dynamic'>();

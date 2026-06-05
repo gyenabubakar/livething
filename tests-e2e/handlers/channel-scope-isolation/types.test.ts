@@ -99,6 +99,15 @@ describe('ChannelScopeIsolationClient — top-level outgoing (server incoming)',
 });
 
 describe('ChannelScopeIsolationClient — channels', () => {
+  it('addressing: publicRooms and privateRooms are dynamic families', () => {
+    expectTypeOf<
+      ChannelScopeIsolationClient['channels']['publicRooms']['addressing']
+    >().toEqualTypeOf<'dynamic'>();
+    expectTypeOf<
+      ChannelScopeIsolationClient['channels']['privateRooms']['addressing']
+    >().toEqualTypeOf<'dynamic'>();
+  });
+
   it('has publicRooms channel', () => {
     expectTypeOf<ChannelScopeIsolationClient['channels']>().toHaveProperty('publicRooms');
   });

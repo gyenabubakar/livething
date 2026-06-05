@@ -36,6 +36,12 @@ describe('ReplayFamilyKeyEqualsNameClient — top-level slots are empty', () => 
 });
 
 describe('ReplayFamilyKeyEqualsNameClient — channels', () => {
+  it('addressing: rooms is a dynamic family even when key equals the matched name', () => {
+    expectTypeOf<
+      ReplayFamilyKeyEqualsNameClient['channels']['rooms']['addressing']
+    >().toEqualTypeOf<'dynamic'>();
+  });
+
   it('has rooms channel', () => {
     expectTypeOf<ReplayFamilyKeyEqualsNameClient['channels']>().toHaveProperty('rooms');
   });

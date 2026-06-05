@@ -30,6 +30,10 @@ describe('MultifileClient — outgoing is empty (no top-level server incoming)',
 });
 
 describe('MultifileClient — channels', () => {
+  it('addressing: lobby is a static channel', () => {
+    expectTypeOf<MultifileClient['channels']['lobby']['addressing']>().toEqualTypeOf<'static'>();
+  });
+
   it('has lobby channel', () => {
     expectTypeOf<MultifileClient['channels']>().toHaveProperty('lobby');
   });

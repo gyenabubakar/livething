@@ -133,15 +133,15 @@ type ClientScopeMap<TScopes> = { [TKey in keyof TScopes]: ClientScope<TScopes[TK
 
 /**
  * Like `ClientScopeMap`, but channel-aware: each channel scope is stamped with
- * an `addressing` discriminator — `'dynamic'` for a `scope()` family, `'fixed'`
+ * an `addressing` discriminator — `'dynamic'` for a `scope()` family, `'static'`
  * for a string-pattern channel. The client's `channels` primitive reads it to
  * decide between `channel(name)` and `channel(scope, name)` / `channel.scope`.
  */
 type ClientChannelMap<TChannels> = {
   [TKey in keyof TChannels]: ClientScope<TChannels[TKey]> & {
-    addressing: TChannels[TKey] extends { __addressing: infer A extends 'fixed' | 'dynamic' }
+    addressing: TChannels[TKey] extends { __addressing: infer A extends 'static' | 'dynamic' }
       ? A
-      : 'fixed';
+      : 'static';
   };
 };
 

@@ -139,6 +139,12 @@ describe('ReplayClient — namespaces', () => {
 });
 
 describe('ReplayClient — channels', () => {
+  it('addressing: replay-room and optout-room are static, fams is a dynamic family', () => {
+    expectTypeOf<ReplayClient['channels']['replay-room']['addressing']>().toEqualTypeOf<'static'>();
+    expectTypeOf<ReplayClient['channels']['optout-room']['addressing']>().toEqualTypeOf<'static'>();
+    expectTypeOf<ReplayClient['channels']['fams']['addressing']>().toEqualTypeOf<'dynamic'>();
+  });
+
   it('has replay-room channel', () => {
     expectTypeOf<ReplayClient['channels']>().toHaveProperty('replay-room');
   });

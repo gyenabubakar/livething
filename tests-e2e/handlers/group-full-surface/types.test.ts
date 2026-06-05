@@ -199,6 +199,12 @@ describe('GroupFullSurfaceClient — stream kind', () => {
 });
 
 describe('GroupFullSurfaceClient — channels', () => {
+  it('addressing: rooms is a static channel', () => {
+    expectTypeOf<
+      GroupFullSurfaceClient['channels']['rooms']['addressing']
+    >().toEqualTypeOf<'static'>();
+  });
+
   it('has rooms channel', () => {
     expectTypeOf<GroupFullSurfaceClient['channels']>().toHaveProperty('rooms');
   });

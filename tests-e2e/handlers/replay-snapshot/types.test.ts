@@ -78,6 +78,12 @@ describe('ReplaySnapshotClient — outgoing (server incoming)', () => {
 });
 
 describe('ReplaySnapshotClient — channels', () => {
+  it('addressing: snapshot-room is a static channel', () => {
+    expectTypeOf<
+      ReplaySnapshotClient['channels']['snapshot-room']['addressing']
+    >().toEqualTypeOf<'static'>();
+  });
+
   it('has snapshot-room channel', () => {
     expectTypeOf<ReplaySnapshotClient['channels']>().toHaveProperty('snapshot-room');
   });

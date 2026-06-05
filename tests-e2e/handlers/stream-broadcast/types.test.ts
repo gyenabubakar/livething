@@ -45,6 +45,12 @@ describe('StreamBroadcastClient — top-level streams', () => {
 });
 
 describe('StreamBroadcastClient — channels', () => {
+  it('addressing: rooms is a dynamic family', () => {
+    expectTypeOf<
+      StreamBroadcastClient['channels']['rooms']['addressing']
+    >().toEqualTypeOf<'dynamic'>();
+  });
+
   it('has rooms channel', () => {
     expectTypeOf<StreamBroadcastClient['channels']>().toHaveProperty('rooms');
   });

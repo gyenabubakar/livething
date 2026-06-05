@@ -34,6 +34,10 @@ describe('DedupClient — outgoing (server incoming)', () => {
 });
 
 describe('DedupClient — channels', () => {
+  it('addressing: room is a static channel', () => {
+    expectTypeOf<DedupClient['channels']['room']['addressing']>().toEqualTypeOf<'static'>();
+  });
+
   it('has room channel', () => {
     expectTypeOf<DedupClient['channels']>().toHaveProperty('room');
   });

@@ -120,6 +120,12 @@ describe('ErrorsControlFlowClient — stream kind', () => {
 });
 
 describe('ErrorsControlFlowClient — channels', () => {
+  it('addressing: chat is a static channel', () => {
+    expectTypeOf<
+      ErrorsControlFlowClient['channels']['chat']['addressing']
+    >().toEqualTypeOf<'static'>();
+  });
+
   it('has chat channel', () => {
     expectTypeOf<ErrorsControlFlowClient['channels']>().toHaveProperty('chat');
   });

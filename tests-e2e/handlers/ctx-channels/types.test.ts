@@ -67,6 +67,10 @@ describe('CtxChannelsClient — top-level outgoing (server incoming)', () => {
 });
 
 describe('CtxChannelsClient — channels', () => {
+  it('addressing: room is a static channel', () => {
+    expectTypeOf<CtxChannelsClient['channels']['room']['addressing']>().toEqualTypeOf<'static'>();
+  });
+
   it('has room channel', () => {
     expectTypeOf<CtxChannelsClient['channels']>().toHaveProperty('room');
   });

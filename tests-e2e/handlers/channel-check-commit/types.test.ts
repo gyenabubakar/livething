@@ -11,6 +11,18 @@ describe('ChannelCheckCommitClient — no-any guard', () => {
 });
 
 describe('ChannelCheckCommitClient — channel shape', () => {
+  it('addressing: room, check-only and commit-only are static channels', () => {
+    expectTypeOf<
+      ChannelCheckCommitClient['channels']['room']['addressing']
+    >().toEqualTypeOf<'static'>();
+    expectTypeOf<
+      ChannelCheckCommitClient['channels']['check-only']['addressing']
+    >().toEqualTypeOf<'static'>();
+    expectTypeOf<
+      ChannelCheckCommitClient['channels']['commit-only']['addressing']
+    >().toEqualTypeOf<'static'>();
+  });
+
   it('has room channel', () => {
     expectTypeOf<ChannelCheckCommitClient['channels']>().toHaveProperty('room');
   });

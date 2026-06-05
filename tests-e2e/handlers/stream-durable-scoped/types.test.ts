@@ -74,6 +74,12 @@ describe('StreamDurableScopedClient — top-level streams', () => {
 });
 
 describe('StreamDurableScopedClient — channels.rooms streams', () => {
+  it('addressing: rooms is a static channel', () => {
+    expectTypeOf<
+      StreamDurableScopedClient['channels']['rooms']['addressing']
+    >().toEqualTypeOf<'static'>();
+  });
+
   it('rooms has paginate (resumableStream — no cursor)', () => {
     expectTypeOf<StreamDurableScopedClient['channels']['rooms']['streams']>().toHaveProperty(
       'paginate',

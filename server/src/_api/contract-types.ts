@@ -48,10 +48,10 @@ type ChannelKeyFromPattern<P> = P extends string
 type ParamsFromPattern<P> = P extends ScopeDeclaration<string, infer Params> ? Params : {};
 
 // 'dynamic' for a `scope()` family (one entry matches many concrete names),
-// 'fixed' for a string-pattern channel. This is the reliable family signal:
+// 'static' for a string-pattern channel. This is the reliable family signal:
 // a scope() template may declare zero `{name}` params, so non-empty params
 // alone can't tell the two apart.
-type AddressingFromPattern<P> = P extends ScopeDeclaration<string> ? 'dynamic' : 'fixed';
+type AddressingFromPattern<P> = P extends ScopeDeclaration<string> ? 'dynamic' : 'static';
 
 interface EmptyCats {
   readonly incoming: {};
@@ -123,7 +123,7 @@ export type ChannelContract<
   TDefs extends readonly Definition[] = readonly Definition[],
   TCheckPayload = unknown,
   TParams = Record<string, string>,
-  TAddressing extends 'fixed' | 'dynamic' = 'fixed' | 'dynamic',
+  TAddressing extends 'static' | 'dynamic' = 'static' | 'dynamic',
 > = Pick<
   Categorize<TDefs>,
   'incoming' | 'outgoing' | 'requests' | 'streams' | 'resumableStreams' | 'recordedStreams'
@@ -132,7 +132,7 @@ export type ChannelContract<
     /** The `{name}` captures from the `scope()` template, surfaced as `ctx.channel.params`. */
     readonly params: TParams;
     /**
-     * Whether this channel is a single fixed channel or a dynamic `scope()`
+     * Whether this channel is a single static channel or a dynamic `scope()`
      * family. Read by `InferClient` to give the client the right channel API
      * shape; never used at runtime.
      */

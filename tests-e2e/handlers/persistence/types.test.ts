@@ -39,6 +39,15 @@ describe('PersistenceClient — outgoing (server incoming)', () => {
 });
 
 describe('PersistenceClient — channels', () => {
+  it('addressing: archive-room and typing-indicator are static channels', () => {
+    expectTypeOf<
+      PersistenceClient['channels']['archive-room']['addressing']
+    >().toEqualTypeOf<'static'>();
+    expectTypeOf<
+      PersistenceClient['channels']['typing-indicator']['addressing']
+    >().toEqualTypeOf<'static'>();
+  });
+
   it('has archive-room channel', () => {
     expectTypeOf<PersistenceClient['channels']>().toHaveProperty('archive-room');
   });

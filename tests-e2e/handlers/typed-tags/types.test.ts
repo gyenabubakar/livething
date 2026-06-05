@@ -109,6 +109,10 @@ describe('TypedTagsClient — outgoing (server incoming)', () => {
 });
 
 describe('TypedTagsClient — channels', () => {
+  it('addressing: room is a static channel', () => {
+    expectTypeOf<TypedTagsClient['channels']['room']['addressing']>().toEqualTypeOf<'static'>();
+  });
+
   it('has room channel', () => {
     expectTypeOf<TypedTagsClient['channels']>().toHaveProperty('room');
   });

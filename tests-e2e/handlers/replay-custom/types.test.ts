@@ -56,6 +56,12 @@ describe('ReplayCustomClient — outgoing (server incoming)', () => {
 });
 
 describe('ReplayCustomClient — channels', () => {
+  it('addressing: custom-room is a static channel', () => {
+    expectTypeOf<
+      ReplayCustomClient['channels']['custom-room']['addressing']
+    >().toEqualTypeOf<'static'>();
+  });
+
   it('has custom-room channel', () => {
     expectTypeOf<ReplayCustomClient['channels']>().toHaveProperty('custom-room');
   });

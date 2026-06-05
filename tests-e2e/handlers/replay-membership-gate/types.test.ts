@@ -38,6 +38,12 @@ describe('ReplayMembershipGateClient — outgoing (server incoming)', () => {
 });
 
 describe('ReplayMembershipGateClient — channels', () => {
+  it('addressing: private is a static channel', () => {
+    expectTypeOf<
+      ReplayMembershipGateClient['channels']['private']['addressing']
+    >().toEqualTypeOf<'static'>();
+  });
+
   it('has private channel', () => {
     expectTypeOf<ReplayMembershipGateClient['channels']>().toHaveProperty('private');
   });

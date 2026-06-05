@@ -33,6 +33,15 @@ describe('ChannelKeyCollisionClient — top-level outgoing (server incoming)', (
 });
 
 describe('ChannelKeyCollisionClient — channel families', () => {
+  it('addressing: both keys are dynamic families', () => {
+    expectTypeOf<
+      ChannelKeyCollisionClient['channels']['rooms']['addressing']
+    >().toEqualTypeOf<'dynamic'>();
+    expectTypeOf<
+      ChannelKeyCollisionClient['channels']['rooms-private']['addressing']
+    >().toEqualTypeOf<'dynamic'>();
+  });
+
   it('has both families', () => {
     expectTypeOf<keyof ChannelKeyCollisionClient['channels']>().toEqualTypeOf<
       'rooms' | 'rooms-private'

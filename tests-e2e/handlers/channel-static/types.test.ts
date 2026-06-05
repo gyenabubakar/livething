@@ -51,6 +51,13 @@ describe('ChannelStaticClient — top-level outgoing (server incoming)', () => {
 });
 
 describe('ChannelStaticClient — channels', () => {
+  it('addressing: room and room2 are static channels', () => {
+    expectTypeOf<ChannelStaticClient['channels']['room']['addressing']>().toEqualTypeOf<'static'>();
+    expectTypeOf<
+      ChannelStaticClient['channels']['room2']['addressing']
+    >().toEqualTypeOf<'static'>();
+  });
+
   it('has room channel', () => {
     expectTypeOf<ChannelStaticClient['channels']>().toHaveProperty('room');
   });

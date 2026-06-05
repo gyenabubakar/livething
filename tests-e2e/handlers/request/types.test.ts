@@ -106,6 +106,10 @@ describe('RequestClient — namespaces', () => {
 });
 
 describe('RequestClient — channels', () => {
+  it('addressing: room is a static channel', () => {
+    expectTypeOf<RequestClient['channels']['room']['addressing']>().toEqualTypeOf<'static'>();
+  });
+
   it('has room channel', () => {
     expectTypeOf<RequestClient['channels']>().toHaveProperty('room');
   });
