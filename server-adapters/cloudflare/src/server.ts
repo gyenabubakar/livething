@@ -189,6 +189,13 @@ const buildServe = adapter<undefined, CloudflareDurableObjectClass>({
         if (hibernating) {
           this.ctx.acceptWebSocket(server);
         } else {
+          // On compatibility_date >= 2026-03-17 the runtime delivers binary
+          // frames to the message event as Blob, whose bytes only read back
+          // asynchronously. The engine works in ArrayBuffer synchronously, so
+          // ask for ArrayBuffer delivery — set before accept(), as the runtime
+          // requires, and a no-op on older dates. Hibernation always delivers
+          // ArrayBuffer, so it needs no equivalent.
+          server.binaryType = 'arraybuffer';
           server.accept();
         }
 
@@ -299,6 +306,14 @@ const buildServe = adapter<undefined, CloudflareDurableObjectClass>({
  * The returned value is a class, not an instance. Export it from your worker
  * module like `export const Room = server(handler);` — Cloudflare instantiates
  * it per Durable Object id.
+ *
+ * **WSKit requires `compatibility_date` `2026-04-07` or later** in
+ * `wrangler.jsonc`. On that date the Workers runtime completes a
+ * client-initiated WebSocket close handshake itself; on earlier dates it does
+ * not, so a client that calls `socket.disconnect()` (or `ws.close()`) can hang
+ * until a timeout instead of closing promptly. Server-initiated closes are
+ * unaffected. (Binary frames, which that date also switches to `Blob`, are kept
+ * on `ArrayBuffer` by the adapter, so no extra flag is needed.)
  *
  * @example
  * ```ts

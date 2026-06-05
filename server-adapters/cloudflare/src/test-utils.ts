@@ -23,12 +23,18 @@ export interface FakeWebSocket {
   addEventListener: ReturnType<typeof vi.fn>;
   listeners: Map<string, Array<(event: unknown) => void>>;
   dispatch: (type: string, event: unknown) => void;
+  /** Settable like the real socket; the adapter sets it before accept(). */
+  binaryType?: string;
+  /** The `binaryType` value captured at the moment `accept()` ran. */
+  binaryTypeAtAccept?: string;
 }
 
 export function makeFakeWebSocket(): FakeWebSocket {
   const listeners = new Map<string, Array<(event: unknown) => void>>();
   const ws: FakeWebSocket = {
-    accept: vi.fn(),
+    accept: vi.fn(() => {
+      ws.binaryTypeAtAccept = ws.binaryType;
+    }),
     send: vi.fn(),
     close: vi.fn(),
     listeners,

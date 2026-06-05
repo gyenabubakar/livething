@@ -96,6 +96,9 @@ describe('WSKitDurableObject fetch / upgrade', () => {
     const [client, server] = pairs[0]!;
     expect((res as unknown as { webSocket: unknown }).webSocket).toBe(client);
     expect(server.accept).toHaveBeenCalledTimes(1);
+    // Binary frames must arrive as ArrayBuffer; the adapter must request that
+    // before accept() (newer runtimes default standard sockets to Blob).
+    expect(server.binaryTypeAtAccept).toBe('arraybuffer');
     expect(state.acceptWebSocket).not.toHaveBeenCalled();
     // descriptor passed into engine.accept carried meta/tags
     expect(fake.calls.accept).toHaveLength(1);
@@ -166,6 +169,9 @@ describe('WSKitDurableObject fetch / upgrade', () => {
     // No second argument: tags do not flow into Cloudflare's tag store.
     expect(state.acceptWebSocket.mock.calls[0]!).toHaveLength(1);
     expect(server.accept).not.toHaveBeenCalled();
+    // Hibernation delivers binary as ArrayBuffer already, so the adapter leaves
+    // binaryType alone here.
+    expect(server.binaryType).toBeUndefined();
     // addEventListener path NOT used under hibernation
     expect(server.addEventListener).not.toHaveBeenCalled();
   });
