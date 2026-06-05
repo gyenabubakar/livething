@@ -1,4 +1,5 @@
 import { ENGINE_SCOPE_META } from '~/_engine/contexts/types.ts';
+import * as Protocol from '~/_engine/runtime/protocol.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import type { EngineScopeMeta } from '~/_engine/contexts/types.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
@@ -169,6 +170,10 @@ export function shouldStoreReplayMessage(
 ): boolean {
   const { channelKey, wskit, exclude, claimedChannelKeys = EMPTY_CLAIMED_CHANNEL_KEYS } = options;
   if (exclude.has(event)) return false;
+  // Protocol/control frames (presence, subscribe-ok, errors, …) are bookkeeping,
+  // not user messages — they carry no sequence number, so storing them throws.
+  // They're re-derived on reconnect (e.g. __memberSync__), so never record them.
+  if (Protocol.isProtocolEventName(event)) return false;
   if (typeof wskit.correlationId === 'string') return false;
   if (typeof wskit.streamId === 'string') return false;
 

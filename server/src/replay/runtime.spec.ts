@@ -290,6 +290,33 @@ describe('replay/runtime', () => {
     ).toBe(true);
   });
 
+  it('skips protocol/control frames — presence and other __…__ events are bookkeeping, not replayable', () => {
+    // Presence on a replay-enabled channel: must not be recorded (it carries no
+    // seq, so storing it would throw). It's re-derived via __memberSync__ on
+    // reconnect, so dropping it from replay loses nothing.
+    expect(
+      shouldStoreReplayMessage('__memberOffline__', {
+        channelKey: 'rooms',
+        wskit: { channel: 'room-1', channelScope: 'rooms' },
+        exclude: new Set(),
+      }),
+    ).toBe(false);
+    // A few more protocol frames at the top level.
+    for (const event of ['__memberJoin__', '__subscribeOk__', '__error__', '__streamEnd__']) {
+      expect(
+        shouldStoreReplayMessage(event, { channelKey: undefined, wskit: {}, exclude: new Set() }),
+      ).toBe(false);
+    }
+    // Sanity: a normal user event with the same scope is still captured.
+    expect(
+      shouldStoreReplayMessage('room-msg', {
+        channelKey: 'rooms',
+        wskit: { channel: 'room-1', channelScope: 'rooms' },
+        exclude: new Set(),
+      }),
+    ).toBe(true);
+  });
+
   it('builds replay rows from pure payloads and wskit metadata', () => {
     const payload = { text: 'hello' };
     const wskit = {
