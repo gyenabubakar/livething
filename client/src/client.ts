@@ -165,9 +165,10 @@ function assertDependenciesPresent(specs: readonly Primitive[]): void {
 }
 
 /**
- * Order the primitives so each one runs after the primitives it depends on.
- * We track visits by the object itself (not its tag) so repeatable primitives
- * like `intercept`, which share a tag, are all kept. Throws if dependencies form a loop.
+ * Order the primitives so each one runs after the primitives it depends on,
+ * plus any `optionalAfter` ones that happen to be present. We track visits by
+ * the object itself (not its tag) so repeatable primitives like `intercept`,
+ * which share a tag, are all kept. Throws if dependencies form a loop.
  */
 function topoSort(specs: readonly Primitive[]): Primitive[] {
   const byTag = new Map(specs.map((s) => [s._tag, s]));
@@ -181,7 +182,7 @@ function topoSort(specs: readonly Primitive[]): Primitive[] {
       throw new WSKitConfigError(`[wskit] circular primitive dependency detected at ${spec._tag}.`);
     }
     state.set(spec, 'visiting');
-    for (const dependency of spec.dependencies ?? []) {
+    for (const dependency of [...(spec.dependencies ?? []), ...(spec.optionalAfter ?? [])]) {
       const dependencySpec = byTag.get(dependency);
       if (dependencySpec) visit(dependencySpec);
     }

@@ -74,6 +74,7 @@ describe('RequestClient — top-level requests', () => {
       | 'strict-echo'
       | 'throwing-request'
       | 'echo-anything-req'
+      | 'hang'
     >();
   });
 });

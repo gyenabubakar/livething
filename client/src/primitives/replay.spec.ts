@@ -153,10 +153,12 @@ describe('replay — per-channel scope catch-up', () => {
 
       expect(replayFrames).toHaveLength(2);
 
-      // Top-level replay has no __wskit block
+      // Top-level replay carries an empty __wskit block (the server's replay
+      // frame requires the envelope, even with no scope markers).
       expect(replayFrames).toContainEqual({
         event: '__replay__',
         payload: { lastKnownSeq: 4 },
+        __wskit: {},
       });
       // Channel replay
       expect(replayFrames).toContainEqual({

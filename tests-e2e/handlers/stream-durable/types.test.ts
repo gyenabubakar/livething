@@ -103,8 +103,8 @@ describe('StreamDurableClient — empty slots', () => {
     expectTypeOf<keyof StreamDurableClient['incoming']>().toBeNever();
   });
 
-  it('outgoing is empty', () => {
-    expectTypeOf<keyof StreamDurableClient['outgoing']>().toBeNever();
+  it('outgoing has only the test-support server-drop event', () => {
+    expectTypeOf<keyof StreamDurableClient['outgoing']>().toEqualTypeOf<'server-drop'>();
   });
 
   it('requests is empty', () => {

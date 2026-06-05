@@ -907,10 +907,12 @@ export class Implementer<C extends Contract> {
    * @example
    * ```ts
    * import { matches } from '@wskit/server';
+   * import { Disconnect } from '@wskit/server/errors';
+   * import { CloseCodes } from '@wskit/core';
    *
    * implement(chat)
    *   .intercept((ctx, frame) => {
-   *     if (isBanned(ctx.identity)) throw Disconnect(4003, 'banned');
+   *     if (isBanned(ctx.identity)) throw Disconnect(CloseCodes.BANNED, 'banned');
    *     if (matches(chat, 'send-msg', frame)) audit(frame.payload);
    *   });
    * ```

@@ -1,5 +1,13 @@
-import { contract, implement, nudge, recordedStream, resumableStream, t } from '@wskit/server';
-import { StreamAborted } from '@wskit/server/errors';
+import {
+  contract,
+  implement,
+  incoming,
+  nudge,
+  recordedStream,
+  resumableStream,
+  t,
+} from '@wskit/server';
+import { Disconnect, StreamAborted } from '@wskit/server/errors';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
@@ -65,6 +73,10 @@ export const streamDurableContract = contract('stream-durable', {
       maxAgeMs: 60_000,
       retentionAfterEndMs: 30_000,
     }),
+
+    // Test support: a client triggers a server-initiated close with a retryable
+    // code so it reconnects in-session and a durable stream auto-resumes.
+    incoming('server-drop', v.object({})),
   ],
 });
 
@@ -119,6 +131,10 @@ export const streamDurableHandler = implement(streamDurableContract)
       if (nudges.some((n: { event: string }) => n.event === 'stop')) return;
       await new Promise((r) => setTimeout(r, 100));
     }
+  })
+
+  .on('server-drop', () => {
+    throw Disconnect(4500, 'test drop');
   })
 
   .build();

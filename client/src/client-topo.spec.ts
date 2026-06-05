@@ -1,5 +1,6 @@
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
+import { channels } from '~/primitives/channels/index.ts';
 import { dedup } from '~/primitives/dedup.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
 import { replay } from '~/primitives/replay.ts';
@@ -10,6 +11,15 @@ import type { Primitive, ValidatePrimitives } from '~/primitives/types.ts';
 interface C {
   incoming: { msg: { text: string } };
   outgoing: { chat: { text: string } };
+}
+
+interface ChannelContract {
+  channels: {
+    general: {
+      incoming: { message: { text: string } };
+      outgoing: { 'send-message': { text: string } };
+    };
+  };
 }
 
 // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- forward client()'s primitive constraint
@@ -153,5 +163,70 @@ describe('topoSort — dependency ordering', () => {
     // would have recorded 99 here.
     expect(spySeen).toEqual([7]);
     expect(handler).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('topoSort — optionalAfter ordering', () => {
+  // On reconnect, a channel's __subscribe__ must reach the server before its
+  // __replay__, or the membership gate drops the replay. replay() declares
+  // `optionalAfter: ['channels']`, so the order must hold no matter how the
+  // caller lists the two primitives.
+  // Registration order is the unit under test, so primitives arrive as a plain
+  // array — cast the builder to a rest-param signature and surface the bits the
+  // test drives (connect / channel).
+  type TestSocket = {
+    connect(): void;
+    channel(name: string): { subscribe(): Promise<void> };
+  };
+  function subscribeThenReconnect(primitives: readonly Primitive[]): string[] {
+    const build = client<ChannelContract>() as unknown as (
+      c: ReturnType<typeof connect>,
+      ...rest: readonly Primitive[]
+    ) => TestSocket;
+    const socket = build(connect('wss://test'), ...primitives);
+    socket.connect();
+    const ws = MockWebSocket.last();
+    ws.open();
+
+    const room = socket.channel('general');
+    void room.subscribe();
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: { source: 'client' },
+      __wskit: { channel: 'general' },
+    });
+
+    // A channel-scoped frame with a seq, so replay records a high-water mark for
+    // 'general' and will emit a channel __replay__ on reconnect.
+    ws.emit({
+      event: 'message',
+      payload: { text: 'hi' },
+      __wskit: { channel: 'general', seq: 3, messageId: 'm-1' },
+    });
+
+    ws.serverClose(1006, 'dropped');
+    vi.advanceTimersByTime(1500);
+    const ws2 = MockWebSocket.last();
+    ws2.open();
+
+    return ws2.sentFrames().map((f: { event: string }) => f.event);
+  }
+
+  it('sends channel __subscribe__ before __replay__ when channels is listed first', () => {
+    const events = subscribeThenReconnect([channels(), dedup(), replay(), reconnection()]);
+    const sub = events.indexOf('__subscribe__');
+    const rep = events.indexOf('__replay__');
+    expect(sub).toBeGreaterThanOrEqual(0);
+    expect(rep).toBeGreaterThanOrEqual(0);
+    expect(sub).toBeLessThan(rep);
+  });
+
+  it('sends channel __subscribe__ before __replay__ even when replay is listed first', () => {
+    const events = subscribeThenReconnect([replay(), dedup(), channels(), reconnection()]);
+    const sub = events.indexOf('__subscribe__');
+    const rep = events.indexOf('__replay__');
+    expect(sub).toBeGreaterThanOrEqual(0);
+    expect(rep).toBeGreaterThanOrEqual(0);
+    expect(sub).toBeLessThan(rep);
   });
 });

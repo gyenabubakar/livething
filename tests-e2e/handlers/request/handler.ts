@@ -28,6 +28,9 @@ export const requestContract = contract('request', {
     }),
     // Schemaless request — no payload/response validators, accepts anything.
     request('echo-anything-req'),
+    // Test support: a request the server never answers (the handler hangs), so a
+    // client can observe disconnect() rejecting a still-pending request.
+    request('hang', { payload: v.object({}), response: v.object({ never: v.string() }) }),
 
     namespace('ns', {
       definitions: [request('get-ns-info', { payload: v.object({}), response: NsInfoSchema })],
@@ -63,6 +66,9 @@ export const requestHandler = implement(requestContract)
   })
   .request('echo-anything-req', (ctx, payload) => {
     ctx.respond({ got: payload });
+  })
+  .request('hang', async () => {
+    await new Promise<void>(() => {});
   })
   .namespace('ns', (ns) =>
     ns.request('get-ns-info', (ctx) => {

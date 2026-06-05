@@ -1,5 +1,6 @@
 import { channel, contract, implement, incoming, outgoing, stream, t } from '@wskit/server';
 import { Block, Defer, DeferExhausted, Disconnect, ValidationFailed } from '@wskit/server/errors';
+import { CloseCodes } from '@wskit/core';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
@@ -76,7 +77,7 @@ export const errorsControlFlowHandler = implement(errorsControlFlowContract)
     });
   })
   .on('force-disconnect', () => {
-    throw Disconnect(4009, 'force disconnect');
+    throw Disconnect(CloseCodes.BANNED, 'force disconnect');
   })
   .stream('start-defer-stream', async function* () {
     throw Defer(25);

@@ -10,8 +10,9 @@ import {
   stream,
   t,
 } from '@wskit/server';
-import { RejectUpgrade } from '@wskit/server/errors';
+import { Disconnect, RejectUpgrade } from '@wskit/server/errors';
 import type { InferClient } from '@wskit/server';
+import * as v from 'valibot';
 import {
   ChatMsg,
   Cursor,
@@ -49,6 +50,9 @@ export const replayContract = contract('replay-test', {
     incoming('trigger-bad-replay', TriggerBadReplay),
     incoming('inject-family-replay', InjectFamilyReplay),
     incoming('trigger-bigint-replay', TriggerBigIntReplay),
+    // Test support: a server-initiated retryable close so the client reconnects
+    // in-session and replay() fires.
+    incoming('server-drop', v.object({})),
 
     outgoing('chat-msg', ChatMsg),
     outgoing('cursor', Cursor),
@@ -145,6 +149,9 @@ export const replayHandler = implement(replayContract)
       { text: 'after-bigint-row', from: 'system' },
       { seq: 2, messageId: 'after-bigint-row' },
     );
+  })
+  .on('server-drop', () => {
+    throw Disconnect(4500, 'test drop');
   })
   .stream('start-tiny-stream', async function* () {
     yield { value: 'one' };

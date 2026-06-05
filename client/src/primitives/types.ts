@@ -51,6 +51,12 @@ export interface Primitive<F extends TypeFn = EmptyTypeFn, TRequires = {}> {
   };
   /** Other primitives this one must run after. */
   readonly dependencies?: readonly string[];
+  /**
+   * Other primitives this one should run after when they're present, without
+   * requiring them. Unlike `dependencies`, a missing entry is fine — it only
+   * affects ordering, never the presence check.
+   */
+  readonly optionalAfter?: readonly string[];
   /** Type-only: the API this primitive adds to the socket. */
   readonly _typeFn?: F;
   /** Type-only: what the contract must contain for this primitive to be valid. */

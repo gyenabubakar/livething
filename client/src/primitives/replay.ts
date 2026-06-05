@@ -14,6 +14,9 @@ export function replay(): Primitive<EmptyTypeFn> {
   return {
     _tag: 'replay',
     dependencies: ['dedup'],
+    // Re-subscribe must reach the server before a channel's __replay__, or the
+    // membership gate drops it. Order after channels when it's present.
+    optionalAfter: ['channels'],
     setup() {
       // Highest seq seen per scope. The '' key is the top level; channel names
       // are their own keys so each channel catches up on its own.
@@ -47,7 +50,7 @@ export function replay(): Primitive<EmptyTypeFn> {
             requests.push({
               event: '__replay__',
               payload: { lastKnownSeq: info.seq },
-              __wskit: info.channel ? wskit : undefined,
+              __wskit: wskit,
             });
           }
           return requests;

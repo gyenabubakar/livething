@@ -235,6 +235,7 @@ describe('replay', () => {
       expect(second.sentFrames()).toContainEqual({
         event: '__replay__',
         payload: { lastKnownSeq: 5 },
+        __wskit: {},
       });
     } finally {
       vi.useRealTimers();

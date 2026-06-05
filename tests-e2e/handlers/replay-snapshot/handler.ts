@@ -1,6 +1,7 @@
 import { channel, contract, implement, incoming, outgoing, t } from '@wskit/server';
-import { RejectUpgrade } from '@wskit/server/errors';
+import { Disconnect, RejectUpgrade } from '@wskit/server/errors';
 import type { InferClient } from '@wskit/server';
+import * as v from 'valibot';
 import {
   BurstCounter,
   BurstDone,
@@ -48,6 +49,9 @@ export const replaySnapshotContract = contract('replay-snapshot-test', {
     incoming('delete-doc', DeleteDoc),
     incoming('increment-counter', IncrementCounter),
     incoming('burst-counter', BurstCounter),
+    // Test support: lets a client trigger a server-initiated close with a
+    // retryable code so the client reconnects in-session and replay() fires.
+    incoming('server-drop', v.object({})),
 
     outgoing('doc-snapshot', DocSnapshot),
     outgoing('doc-deleted', DocDeleted),
@@ -100,6 +104,9 @@ export const replaySnapshotHandler = implement(replaySnapshotContract)
       ctx.send('counter-snapshot', { key: payload.key, total: 1 });
     }
     ctx.send('burst-done', { key: payload.key, sent: payload.count });
+  })
+  .on('server-drop', () => {
+    throw Disconnect(4500, 'test drop');
   })
   .channel('snapshot-room', (ch) =>
     ch.on('update-room-doc', (ctx, payload) => {

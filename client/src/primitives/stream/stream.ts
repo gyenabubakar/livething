@@ -79,6 +79,9 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
 
   return {
     _tag: 'stream',
+    // A channel-scoped stream resume frame hits the same membership gate as
+    // replay, so re-subscribe must go out first. Order after channels when present.
+    optionalAfter: ['channels'],
     setup(helpers) {
       const streams = new Map<string, StreamState>();
       const triggers = new Map<string, Trigger>();
