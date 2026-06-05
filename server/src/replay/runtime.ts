@@ -344,6 +344,15 @@ export interface PersistReplayMessageOptions {
    * this callback.
    */
   postFlush?: (sql: Pick<SQLProvider, 'exec'>) => void;
+
+  /**
+   * Validate the value a `reduce` produced against the public contract before
+   * it is stored. Only the reducer can introduce a shape the live send didn't
+   * already check, so this runs solely on reduced values. It should throw if
+   * the event/payload doesn't conform — keeping the replay-from-storage path
+   * trusted. Not called when no `reduce` is configured.
+   */
+  validateReduced?: (event: string, payload: Record<string, unknown>) => void;
 }
 
 /**
@@ -368,7 +377,7 @@ export function persistReplayMessage(
   },
   opts: PersistReplayMessageOptions,
 ): ReplayRow | null {
-  const { options, event, payload, wskit, now, scope, postFlush } = opts;
+  const { options, event, payload, wskit, now, scope, postFlush, validateReduced } = opts;
   function noopPostFlush(): void {}
 
   const row = buildReplayRow(event, { options, payload, wskit, now });
@@ -409,6 +418,8 @@ export function persistReplayMessage(
       return null;
     }
 
+    if (options.reduce) validateReduced?.(reduced.event, reduced.payload);
+
     const snapshotRow: ReplayRow = {
       ...row,
       event: reduced.event,
@@ -435,6 +446,8 @@ export function persistReplayMessage(
       deleteReplayRow(tx, row.rowKey);
       return null;
     }
+
+    if (options.reduce) validateReduced?.(reduced.event, reduced.payload);
 
     const snapshotRow: ReplayRow = {
       ...row,

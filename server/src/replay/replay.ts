@@ -266,6 +266,17 @@ class ReplayInstaller {
       now: Date.now(),
       scope,
       postFlush: runPrune,
+      // A reducer can return any { event, payload }; the live send only checked
+      // the original frame. Validate the reduced value here so the stored row
+      // conforms to the contract and the replay-from-storage path stays trusted.
+      validateReduced: this.opts.reduce
+        ? (event, payload) =>
+            this.engine.assertReplaySendContract(event, payload, {
+              channel: replayScope.channel ?? undefined,
+              channelScope: replayScope.channelScope,
+              namespace: replayScope.namespace ?? undefined,
+            })
+        : undefined,
     });
 
     // Only snapshot writes that ran inside an open handler scope get queued

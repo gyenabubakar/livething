@@ -234,6 +234,69 @@ describe('replay', () => {
     expect(sql.rows.size).toBe(0);
   });
 
+  it('validates the reduced value against the contract before storing it', () => {
+    const sql = new FakeReplaySql();
+    const seen: Array<{ event: string; payload: Record<string, unknown> }> = [];
+
+    persistReplayMessage(sql, {
+      options: {
+        type: 'snapshot',
+        snapshotKey: (_event, payload) => String(payload.id),
+        reduce: (_previous, next) => ({ event: 'doc-snapshot', payload: next.payload }),
+      },
+      event: 'doc-title-set',
+      payload: { id: 'doc-1', title: 'Draft' },
+      wskit: { seq: 1, messageId: 'm1' },
+      now: 1,
+      validateReduced: (event, payload) => seen.push({ event, payload }),
+    });
+
+    // The reducer's output — not the raw frame — is what gets validated.
+    expect(seen).toEqual([{ event: 'doc-snapshot', payload: { id: 'doc-1', title: 'Draft' } }]);
+  });
+
+  it('does not store the row when reduced-value validation throws', () => {
+    const sql = new FakeReplaySql();
+
+    expect(() =>
+      persistReplayMessage(sql, {
+        options: {
+          type: 'snapshot',
+          snapshotKey: (_event, payload) => String(payload.id),
+          reduce: (_previous, next) => ({ event: 'not-declared', payload: next.payload }),
+        },
+        event: 'doc-title-set',
+        payload: { id: 'doc-1', title: 'Draft' },
+        wskit: { seq: 1, messageId: 'm1' },
+        now: 1,
+        validateReduced: () => {
+          throw new Error('not a declared outgoing event');
+        },
+      }),
+    ).toThrow(/not a declared outgoing event/);
+
+    expect(sql.rows.size).toBe(0);
+  });
+
+  it('does not validate when no reducer is configured (live send already checked it)', () => {
+    const sql = new FakeReplaySql();
+    let called = false;
+
+    persistReplayMessage(sql, {
+      options: { type: 'snapshot', snapshotKey: (_event, payload) => String(payload.id) },
+      event: 'doc-snapshot',
+      payload: { id: 'doc-1', title: 'Draft' },
+      wskit: { seq: 1, messageId: 'm1' },
+      now: 1,
+      validateReduced: () => {
+        called = true;
+      },
+    });
+
+    expect(called).toBe(false);
+    expect(sql.rows.size).toBe(1);
+  });
+
   it('adds top-level sendReplay through a context extender', () => {
     const extenders: Array<NonNullable<Parameters<EngineAccess['extendContext']>[0]>> = [];
     const engine = {
