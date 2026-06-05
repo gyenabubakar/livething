@@ -11,7 +11,7 @@ describe('ChannelCheckCommitClient — no-any guard', () => {
 });
 
 describe('ChannelCheckCommitClient — channel shape', () => {
-  it('addressing: room, check-only and commit-only are static channels', () => {
+  it('addressing: room, check-only, commit-only and nonce-room are static channels', () => {
     expectTypeOf<
       ChannelCheckCommitClient['channels']['room']['addressing']
     >().toEqualTypeOf<'static'>();
@@ -21,6 +21,19 @@ describe('ChannelCheckCommitClient — channel shape', () => {
     expectTypeOf<
       ChannelCheckCommitClient['channels']['commit-only']['addressing']
     >().toEqualTypeOf<'static'>();
+    expectTypeOf<
+      ChannelCheckCommitClient['channels']['nonce-room']['addressing']
+    >().toEqualTypeOf<'static'>();
+  });
+
+  it('nonce-room exposes subscribePayload from its check validator', () => {
+    expectTypeOf<
+      ChannelCheckCommitClient['channels']['nonce-room']['subscribePayload']
+    >().toEqualTypeOf<{ token: string }>();
+  });
+
+  it('server-drop is a client-sendable (top-level outgoing) event', () => {
+    expectTypeOf<ChannelCheckCommitClient['outgoing']>().toHaveProperty('server-drop');
   });
 
   it('has room channel', () => {

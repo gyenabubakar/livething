@@ -98,6 +98,14 @@ export interface PrimitiveRuntime {
   /** See an outgoing message. Return it (maybe changed), or `null` to cancel the send. */
   onOutgoing?(message: WireMessage): WireMessage | null;
 
+  /**
+   * Runs in the connecting phase, before the socket opens, on every (re)connect.
+   * Awaited, so a primitive can resolve async state it needs ready by the time
+   * the socket opens — e.g. `channels` refreshes a function-based subscribe
+   * payload (a rotating token) so the reconnect re-subscribe carries a fresh one.
+   */
+  onBeforeReopen?(): void | Promise<void>;
+
   /** Runs every time the socket opens. Return messages to send right away. */
   onOpen?(): WireMessage[] | null;
 

@@ -177,6 +177,29 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
             }
           }
         },
+        onBeforeReopen() {
+          // Refresh function-based subscribe payloads (e.g. a rotating token) so
+          // the reconnect re-subscribe carries a fresh value, not the snapshot from
+          // the first subscribe. Value payloads already hold their resolved form,
+          // so when no channel uses a function we return nothing and the reconnect
+          // stays synchronous.
+          const dynamic = [...states.values()].filter(
+            (state) => state.active && typeof state.subscribeData === 'function',
+          );
+          if (dynamic.length === 0) return;
+          return (async () => {
+            for (const state of dynamic) {
+              try {
+                state.resolvedSubscribeData = await (state.subscribeData as () => unknown)();
+              } catch (error) {
+                helpers.log.error(
+                  `channel '${state.name}' subscribe payload refresh threw; re-subscribing with the last value`,
+                  error,
+                );
+              }
+            }
+          })();
+        },
         onReconnect() {
           // Re-join every channel we were subscribed to. The server confirms with
           // __subscribeOk__ (and a fresh __memberSync__ repopulates members).
@@ -185,7 +208,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
             if (state.active) {
               resubscribes.push({
                 event: '__subscribe__',
-                payload: state.subscribeData ?? {},
+                payload: state.resolvedSubscribeData ?? {},
                 __wskit: channelMarkers(state),
               });
             }

@@ -471,6 +471,32 @@ export class WSKitSocket {
         }
       }
 
+      // On a reconnect, let primitives resolve async state before the socket
+      // opens (e.g. channels refreshing a rotating subscribe token). Skipped on
+      // the first connect — nothing is subscribed yet — so that path stays
+      // synchronous. Awaited in order, then re-check the attempt so a
+      // disconnect() mid-resolve still cancels us.
+      // Skipped on the first connect — nothing is subscribed yet. A primitive
+      // returns a promise only when it has async work (channels refreshing a
+      // function subscribe payload); otherwise this stays synchronous so a plain
+      // reconnect keeps its existing timing. Re-check the attempt after awaiting
+      // so a disconnect() mid-resolve still cancels us.
+      if (!this._isFirstConnect) {
+        let awaited = false;
+        for (const primitive of this._primitives) {
+          try {
+            const result = primitive.onBeforeReopen?.();
+            if (result) {
+              awaited = true;
+              await result;
+            }
+          } catch (error) {
+            this._logAt('error', `primitive '${primitive.id}' onBeforeReopen threw`, error);
+          }
+        }
+        if (awaited && attemptId !== this._connectAttemptId) return;
+      }
+
       this._log(`connecting to ${finalUrl}`);
 
       const ws = new WebSocket(finalUrl, this._config.protocols);

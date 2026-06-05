@@ -66,9 +66,11 @@ export function buildChannelMessaging(
     },
     subscribe(data?: unknown) {
       helpers.ensureConnected();
+
       // An overlapping subscribe() before the server confirms reuses the in-flight
       // promise instead of orphaning the first and re-sending __subscribe__.
       if (state.pending && state.pendingPromise) return state.pendingPromise;
+
       // Keep the (lazy) socket awake for the subscription's lifetime. The state
       // drops this hold on any end — unsubscribe, kick, or a failed subscribe —
       // not just an explicit unsubscribe(), so it can't leak.
@@ -76,16 +78,38 @@ export function buildChannelMessaging(
         () => helpers.lazyAcquire(),
         () => helpers.lazyRelease(),
       );
+
       state.subscribeData = data;
+
       const promise = new Promise<void>((resolve, reject) => {
         state.pending = { resolve, reject };
+      });
+
+      state.pendingPromise = promise;
+
+      function sendSubscribe(resolved: unknown): void {
+        state.resolvedSubscribeData = resolved;
         helpers.rawSend({
           event: '__subscribe__',
-          payload: data ?? {},
+          payload: resolved ?? {},
           __wskit: channelMarkers(state),
         });
-      });
-      state.pendingPromise = promise;
+      }
+
+      if (typeof data === 'function') {
+        // A function payload (e.g. a rotating token) — resolve it, then send.
+        // Value payloads stay on the synchronous path. Reject the subscribe if
+        // resolving the payload throws.
+        void Promise.resolve((data as () => unknown)()).then(sendSubscribe, (err) => {
+          state.pending?.reject(err);
+          state.pending = null;
+          state.pendingPromise = null;
+          state.releaseLazy();
+        });
+      } else {
+        sendSubscribe(data);
+      }
+
       return promise;
     },
     unsubscribe() {

@@ -21,9 +21,15 @@ export type ChannelMessaging<C> = ScopedMessaging<C> & {
    * or disconnect. When the channel declares a `subscribePayload` (the server set
    * a `check` validator) the payload is required and typed; otherwise it's an
    * optional, untyped value.
+   *
+   * Pass a function instead of a value to regenerate the payload on every
+   * reconnect — the way to keep a rotating credential (e.g. a per-channel auth
+   * token) fresh, since the client re-subscribes automatically after a drop.
    */
   subscribe(
-    ...args: C extends { subscribePayload: infer P } ? [data: P] : [data?: unknown]
+    ...args: C extends { subscribePayload: infer P }
+      ? [data: P | (() => P | Promise<P>)]
+      : [data?: unknown]
   ): Promise<void>;
   /** Leave the channel. Fire-and-forget — there's no server confirmation. */
   unsubscribe(): void;

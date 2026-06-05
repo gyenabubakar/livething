@@ -40,8 +40,16 @@ function listeners<F>(getLog: () => PrimitiveLogger) {
 export class ChannelState {
   /** True once the server has confirmed the subscription. */
   active = false;
-  /** The payload passed to `subscribe()`, resent when re-subscribing after a reconnect. */
+  /**
+   * What was passed to `subscribe()` — a value, or a function re-run on each
+   * reconnect to refresh a rotating payload (e.g. an auth token).
+   */
   subscribeData: unknown;
+  /**
+   * The concrete payload to (re)send: `subscribeData` itself for a value, or the
+   * latest result of calling it for a function. Refreshed before each reconnect.
+   */
+  resolvedSubscribeData: unknown;
   /** The pending `subscribe()` promise, if a call is waiting for confirmation. */
   pending: { resolve: () => void; reject: (err: unknown) => void } | null = null;
   /** The in-flight `subscribe()` promise, reused so overlapping calls don't orphan the first. */

@@ -87,6 +87,48 @@ describe('channels-reconnect-resubscribe-failure-surfaces', () => {
   });
 });
 
+describe('channels-reconnect-refreshes-function-subscribe-payload', () => {
+  it('re-invokes a function subscribe payload on reconnect, sending a fresh value', async () => {
+    vi.useFakeTimers();
+    try {
+      const socket = client<C>()(connect('wss://test'), channels(), reconnection());
+      socket.connect();
+      const first = MockWebSocket.last();
+      first.open();
+
+      let calls = 0;
+      const room = socket.channel('general');
+      void room.subscribe(() => ({ token: `tok-${++calls}` }));
+
+      // A function payload resolves asynchronously before the first __subscribe__.
+      await vi.advanceTimersByTimeAsync(0);
+      expect(first.sentFrames().find((f) => f.event === '__subscribe__')?.payload).toEqual({
+        token: 'tok-1',
+      });
+      first.emit({
+        event: '__subscribeOk__',
+        payload: { source: 'client' },
+        __wskit: { channel: 'general' },
+      });
+
+      // Drop, then let reconnection reopen — onBeforeReopen re-runs the function.
+      first.serverClose(1006, 'drop');
+      await vi.advanceTimersByTimeAsync(1500);
+      const second = MockWebSocket.last();
+      second.open();
+      await vi.advanceTimersByTimeAsync(0);
+
+      // The re-subscribe carries the refreshed token, not the stale tok-1.
+      expect(second.sentFrames().find((f) => f.event === '__subscribe__')?.payload).toEqual({
+        token: 'tok-2',
+      });
+      expect(calls).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe('channels-onclose-keeps-active-clears-members', () => {
   it('clears members on drop but keeps state.active so send() does not throw', async () => {
     const { socket, ws } = build();
