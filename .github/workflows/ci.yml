@@ -84,8 +84,8 @@ jobs:
 
       # One step per adapter (node/deno/bun to come). The client-library suite
       # is adapter-independent and runs once.
-      - name: e2e — client library
-        run: pnpm test:e2e:client
+      - name: e2e — client library (puppet)
+        run: pnpm test:e2e:client-puppet
 
       - name: e2e — cloudflare adapter
         run: pnpm test:e2e:cloudflare
