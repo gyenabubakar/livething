@@ -14,6 +14,7 @@ import type {
   StreamAborted,
   StreamAlreadyActive,
   StreamIdCollision,
+  UnsupportedProtocol,
   ValidationFailed,
 } from '~/errors/errors.ts';
 import type { ServerContract, ServerDefinition } from '~/server-definition.ts';
@@ -87,7 +88,8 @@ type BuiltInErrorUnion =
   | typeof StreamAborted
   | typeof StreamAlreadyActive
   | typeof StreamIdCollision
-  | typeof NudgeOverflow;
+  | typeof NudgeOverflow
+  | typeof UnsupportedProtocol;
 
 /**
  * Read one slot off a contract type, falling back to `{}` when the contract

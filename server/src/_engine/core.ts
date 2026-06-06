@@ -11,6 +11,7 @@ import {
   StreamAborted,
   StreamAlreadyActive,
   StreamIdCollision,
+  UnsupportedProtocol,
   ValidationFailed,
 } from '@wskit/core';
 import { createAsyncContext } from '~/_engine/async-context.ts';
@@ -118,6 +119,7 @@ export class EngineCore {
     StreamAborted.code,
     StreamAlreadyActive.code,
     StreamIdCollision.code,
+    UnsupportedProtocol.code,
   ]);
 
   // ─────── runtime maps ───────

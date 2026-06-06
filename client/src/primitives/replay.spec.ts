@@ -169,6 +169,55 @@ describe('replay — per-channel scope catch-up', () => {
     });
   });
 
+  describe('unsupported-protocol warning', () => {
+    it('warns every time the server reports replay is unsupported, and still passes the error to onError', () => {
+      const { socket, ws } = build(dedup(), replay(), reconnection());
+      socket.setDebug(true);
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const onError = vi.fn();
+      socket.onError(onError);
+
+      const errorFrame = {
+        event: '__error__',
+        payload: { code: 'unsupported-protocol', detail: { event: '__replay__' } },
+        __wskit: {},
+      };
+
+      ws.emit(errorFrame);
+      ws.emit(errorFrame);
+
+      const replayWarns = warn.mock.calls.filter((args) =>
+        String(args[1] ?? '').includes('replay()'),
+      );
+      expect(replayWarns).toHaveLength(2);
+      // The error still surfaces to onError — the primitive only warns, it does
+      // not swallow the frame.
+      expect(onError).toHaveBeenCalledTimes(2);
+      expect((onError.mock.calls[0]![0] as { code?: string }).code).toBe('unsupported-protocol');
+
+      warn.mockRestore();
+    });
+
+    it('does not warn for an unsupported-protocol error scoped to a different protocol event', () => {
+      const { socket, ws } = build(dedup(), replay(), reconnection());
+      socket.setDebug(true);
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      ws.emit({
+        event: '__error__',
+        payload: { code: 'unsupported-protocol', detail: { event: '__resumeStream__' } },
+        __wskit: { streamId: 's-1' },
+      });
+
+      const replayWarns = warn.mock.calls.filter((args) =>
+        String(args[1] ?? '').includes('replay()'),
+      );
+      expect(replayWarns).toHaveLength(0);
+
+      warn.mockRestore();
+    });
+  });
+
   describe('high-water mark is monotone', () => {
     it('does not lower the stored seq when a lower seq arrives later', () => {
       const { ws } = build(dedup(), replay(), reconnection());

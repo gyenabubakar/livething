@@ -1220,6 +1220,135 @@ describe('message runtime', () => {
     expect(event).toBe('__unsubscribe__');
     expect((error as { code?: string }).code).toBe('validation-failed');
   });
+
+  it('replies UnsupportedProtocol for a __replay__ frame when no replay handler owns the scope', async () => {
+    // Replay off (or off for this scope) means no `__replay__` handler is
+    // registered. Instead of silently dropping the frame, the server tells the
+    // client the protocol feature is unsupported.
+    const connection = createConnection('conn_1');
+    const handleRuntimeError = vi.fn();
+
+    const runtime = {
+      compiled: {
+        outgoing: new Map(),
+        incoming: new Map(),
+        requests: new Map(),
+        streams: new Map(),
+        resumableStreams: new Map(),
+        recordedStreams: new Map(),
+        intercepts: [],
+        namespaces: new Map(),
+        channels: new Map(),
+        channelFamilies: new Map(),
+        scheduled: new Map(),
+        plugins: [],
+        requires: {},
+        replayClaimedChannelKeys: new Set(),
+      },
+      connections: new Map([[connection.id, connection]]),
+      activeStreams: new Map(),
+      protocolHandlers: new Map(),
+      incomingHooks: [],
+      pluginRuntimes: [],
+      errorHooks: [],
+      activityHooks: [],
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      buildConnectionContext() {
+        return { id: connection.id };
+      },
+      sendProtocolMessage() {},
+      sendReplay() {},
+      persistAttachment() {},
+      handleRuntimeError,
+      async handleValidationError() {},
+      async handleSubscribe() {},
+      async handleUnsubscribe() {},
+      waitUntil() {},
+      generateId() {
+        return 'id_1';
+      },
+    };
+
+    await processTextMessage(
+      runtime as unknown as Parameters<typeof processTextMessage>[0],
+      connection,
+      JSON.stringify({ event: '__replay__', payload: {}, __wskit: {} }),
+    );
+
+    expect(handleRuntimeError).toHaveBeenCalledTimes(1);
+    const [, { error, event }] = handleRuntimeError.mock.calls[0]!;
+    expect(event).toBe('__replay__');
+    expect((error as { code?: string }).code).toBe('unsupported-protocol');
+    expect((error as { detail?: { event?: string } }).detail?.event).toBe('__replay__');
+  });
+
+  it('replies UnsupportedProtocol for a __resumeStream__ frame when the adapter has no storage', async () => {
+    // No storage means durable streams aren't supported at all. The reply names
+    // the unsupported protocol event and keeps the streamId so the client's
+    // stream layer surfaces it to the resuming consumer.
+    const connection = createConnection('conn_1');
+    const sent: Array<{
+      event: string;
+      payload: Record<string, unknown>;
+      wskit: Record<string, unknown>;
+    }> = [];
+
+    const runtime = {
+      compiled: {
+        outgoing: new Map(),
+        incoming: new Map(),
+        requests: new Map(),
+        streams: new Map(),
+        resumableStreams: new Map(),
+        recordedStreams: new Map(),
+        intercepts: [],
+        namespaces: new Map(),
+        channels: new Map(),
+        channelFamilies: new Map(),
+        scheduled: new Map(),
+        plugins: [],
+        requires: {},
+        replayClaimedChannelKeys: new Set(),
+      },
+      connections: new Map([[connection.id, connection]]),
+      activeStreams: new Map(),
+      protocolHandlers: new Map(),
+      incomingHooks: [],
+      pluginRuntimes: [],
+      errorHooks: [],
+      activityHooks: [],
+      // no `sql` → storage absent
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      buildConnectionContext() {
+        return { id: connection.id };
+      },
+      sendProtocolMessage(_connection: RuntimeConnection, message: (typeof sent)[number]) {
+        sent.push(message);
+      },
+      sendReplay() {},
+      persistAttachment() {},
+      async handleRuntimeError() {},
+      async handleValidationError() {},
+      async handleSubscribe() {},
+      async handleUnsubscribe() {},
+      waitUntil() {},
+      generateId() {
+        return 'id_1';
+      },
+    };
+
+    await processTextMessage(
+      runtime as unknown as Parameters<typeof processTextMessage>[0],
+      connection,
+      JSON.stringify({ event: '__resumeStream__', payload: {}, __wskit: { streamId: 's-1' } }),
+    );
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.event).toBe('__error__');
+    expect(sent[0]!.payload.code).toBe('unsupported-protocol');
+    expect((sent[0]!.payload.detail as { event?: string }).event).toBe('__resumeStream__');
+    expect(sent[0]!.wskit.streamId).toBe('s-1');
+  });
 });
 
 // ── nudge intercept ───────────────────────────────────────────────────────────

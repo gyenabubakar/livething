@@ -352,6 +352,34 @@ export const NamespaceNotFound = error('namespace-not-found');
  */
 export const InvalidScopeMarkers = error('invalid-scope-markers');
 
+const UNSUPPORTED_PROTOCOL_EVENTS = v.picklist(['__replay__', '__resumeStream__']);
+
+export type UnsupportedProtocolEvent = v.InferInput<typeof UNSUPPORTED_PROTOCOL_EVENTS>;
+
+/**
+ * Sent to the client when it uses a protocol feature the server doesn't
+ * support. WSKit's client may send protocol frames like `__replay__` or
+ * `__resumeStream__` on reconnect; if the server never enabled the matching
+ * feature (no `replay`, or no durable streams because the adapter has no
+ * storage), it replies with this code instead of silently ignoring the frame.
+ * `detail.event` is the protocol event that was rejected.
+ *
+ * This almost always means a config mismatch: the client opted into a feature
+ * the server didn't enable. Turn the feature on server-side, or drop the
+ * matching client primitive.
+ *
+ * @example
+ * ```ts
+ * if (UnsupportedProtocol.matches(err)) {
+ *   console.warn('server does not support', err.detail.event);
+ * }
+ * ```
+ */
+export const UnsupportedProtocol = error(
+  'unsupported-protocol',
+  v.object({ event: UNSUPPORTED_PROTOCOL_EVENTS }),
+);
+
 /**
  * Thrown when a client sends a message to a channel it isn't subscribed to,
  * or tries to unsubscribe from a channel it never joined.

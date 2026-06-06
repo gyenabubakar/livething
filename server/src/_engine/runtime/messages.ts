@@ -3,6 +3,7 @@ import {
   Block,
   ChannelNotSubscribed,
   rethrowIfConfigError,
+  UnsupportedProtocol,
   ValidationFailed,
   WSKitError,
 } from '@wskit/core';
@@ -651,9 +652,13 @@ async function handleResumeStream(
   const lastKnownSeq = frame.payload.lastKnownSeq ?? 0;
 
   if (!runtime.sql) {
+    // No storage means durable streams aren't supported at all. Say so, rather
+    // than implying this particular stream merely expired or went missing.
+    // streamId stays on the envelope so the client correlates the error to the
+    // stream it tried to resume and surfaces it to that consumer.
     runtime.sendProtocolMessage(connection, {
       event: '__error__',
-      payload: { code: 'stream-aborted', detail: { reason: 'not-found' as const } },
+      payload: { code: UnsupportedProtocol.code, detail: { event: '__resumeStream__' } },
       wskit: { streamId },
     });
     return;
@@ -764,6 +769,13 @@ async function dispatchProtocolFrame(
           const handled = await handler(ctx, frame);
           if (handled) return;
         }
+        // No replay handler owns this scope — replay is off, or off for this
+        // channel. Tell the client instead of silently dropping the request.
+        await runtime.handleRuntimeError(connection, {
+          error: UnsupportedProtocol({ event: '__replay__' }),
+          event: '__replay__',
+          routing: routingFromWSKit(frame.__wskit),
+        });
         return;
       }
     }

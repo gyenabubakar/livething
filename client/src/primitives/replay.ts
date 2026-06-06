@@ -1,3 +1,4 @@
+import { UnsupportedProtocol } from '@wskit/core';
 import type { WireMessage, WSKitEnvelope } from '~/internal/runtime.ts';
 import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
 
@@ -17,7 +18,7 @@ export function replay(): Primitive<EmptyTypeFn> {
     // Re-subscribe must reach the server before a channel's __replay__, or the
     // membership gate drops it. Order after channels when it's present.
     optionalAfter: ['channels'],
-    setup() {
+    setup(helpers) {
       // Highest seq seen per scope. The '' key is the top level; channel names
       // are their own keys so each channel catches up on its own.
       const lastSeq = new Map<string, { seq: number; channel?: string; channelScope?: string }>();
@@ -25,6 +26,25 @@ export function replay(): Primitive<EmptyTypeFn> {
       return {
         id: 'replay',
         onIncoming(message) {
+          // The server replied that it doesn't support replay (replay off, or
+          // off for this scope). Warn every time so the misconfig stays visible;
+          // the error still passes through to the socket's onError below.
+          if (message.event === '__error__') {
+            const payload = message.payload as
+              | { code?: string; detail?: { event?: string } }
+              | null
+              | undefined;
+            if (
+              payload?.code === UnsupportedProtocol.code &&
+              payload.detail?.event === '__replay__'
+            ) {
+              helpers.log.warn(
+                "replay() is on the client, but the server doesn't support replay — reconnect catch-up won't work. Enable replay on the server, or remove replay() from the client.",
+              );
+            }
+            return message;
+          }
+
           const seq = message.__wskit?.seq;
           if (typeof seq !== 'number') return message;
 

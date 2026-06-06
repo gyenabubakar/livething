@@ -18,8 +18,14 @@ export {
   StreamAborted,
   StreamAlreadyActive,
   StreamIdCollision,
+  UnsupportedProtocol,
 } from './errors.ts';
-export type { ErrorDef, ErrorDefWithFactory, StreamAbortedReason } from './errors.ts';
+export type {
+  ErrorDef,
+  ErrorDefWithFactory,
+  StreamAbortedReason,
+  UnsupportedProtocolEvent,
+} from './errors.ts';
 export {
   WSKitConfigError,
   isWSKitConfigError,
