@@ -207,6 +207,30 @@ describe('serialization (binary)', () => {
     ws.emitRaw(new ArrayBuffer(4));
     expect(handler).toHaveBeenCalledWith({ text: 'binary' });
   });
+
+  it('decodes incoming binary delivered as a Blob (binaryType: blob)', async () => {
+    const handler = vi.fn();
+    let sawBlob = false;
+    const socket = client<TestContract>()(
+      connect('wss://test'),
+      serialization({
+        binaryType: 'blob',
+        parseBinary: (data: Blob) => {
+          sawBlob = data instanceof Blob;
+          return { event: 'message', payload: { text: `bytes:${data.size}` } };
+        },
+      }),
+    );
+    socket.connect();
+    const ws = MockWebSocket.last();
+    ws.open();
+    expect(ws.binaryType).toBe('blob');
+    socket.on('message', handler);
+
+    ws.emitRaw(new Blob(['ab']));
+    expect(sawBlob).toBe(true);
+    expect(handler).toHaveBeenCalledWith({ text: 'bytes:2' });
+  });
 });
 
 describe('quality + debug compose without error', () => {

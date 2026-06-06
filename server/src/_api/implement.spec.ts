@@ -275,3 +275,23 @@ describe('GroupBuilder — full method surface', () => {
     ).toThrow(/Duplicate \.onUpgrade\(\) on this group/);
   });
 });
+
+describe('Implementer — onBinary requires `binary: true`', () => {
+  it('throws at build when an onBinary handler is attached but binary is off', () => {
+    const c = makeContract(); // no `binary: true`
+    expect(() =>
+      implement(c)
+        .onBinary(() => {})
+        .build(),
+    ).toThrow(/onBinary handler registered but `binary: true` is not set/);
+  });
+
+  it('builds cleanly when the contract enables binary', () => {
+    const c = contract('app', { binary: true, definitions: [] });
+    expect(() =>
+      implement(c)
+        .onBinary(() => {})
+        .build(),
+    ).not.toThrow();
+  });
+});

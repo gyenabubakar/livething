@@ -331,3 +331,29 @@ describe('searchParams URL separator', () => {
     expect(MockWebSocket.last().url).toBe('wss://host/ws?env=prod&token=xyz');
   });
 });
+
+describe('query() re-resolves on reconnect (auth token refresh)', () => {
+  it('sends the freshly resolved token on the reconnect attempt, not the stale one', async () => {
+    vi.useFakeTimers();
+    let token = 'first';
+    const socket = c(
+      connect('wss://host/ws'),
+      query(() => ({ token })),
+      reconnection({ maxAttempts: 1 }),
+    );
+
+    socket.connect();
+    await vi.advanceTimersByTimeAsync(0); // flush async url + searchParams resolution
+    expect(MockWebSocket.last().url).toBe('wss://host/ws?token=first');
+    MockWebSocket.last().open();
+
+    // Rotate the token, then force an unexpected drop so reconnection retries.
+    token = 'second';
+    MockWebSocket.last().serverClose(1006);
+    await vi.advanceTimersByTimeAsync(2000); // fire the retry + re-resolve query()
+
+    // The reconnect picked up the new token — proving query() runs on every
+    // open, not just the first connect.
+    expect(MockWebSocket.last().url).toBe('wss://host/ws?token=second');
+  });
+});
