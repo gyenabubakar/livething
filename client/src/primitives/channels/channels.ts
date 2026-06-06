@@ -210,7 +210,12 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
           // a client re-subscribe would double the subscribe flow.
           const resubscribes: WireMessage[] = [];
           for (const state of states.values()) {
-            if (state.active && !state.persistent) {
+            if (!state.active) continue;
+            // Awaiting a post-reconnect subscribe outcome: the server auto-rejoins
+            // persistent channels, the client re-subscribes the rest. A rejected
+            // outcome (rejoin-rejected, or a failed re-subscribe) clears it.
+            state.rejoining = true;
+            if (!state.persistent) {
               resubscribes.push({
                 event: '__subscribe__',
                 payload: state.resolvedSubscribeData ?? {},

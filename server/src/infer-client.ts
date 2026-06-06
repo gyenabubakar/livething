@@ -5,6 +5,7 @@ import type {
   ErrorDef,
   InternalError,
   NamespaceNotFound,
+  RejoinRejected,
   ValidationFailed,
 } from '~/errors/errors.ts';
 import type { ServerContract, ServerDefinition } from '~/server-definition.ts';
@@ -64,6 +65,7 @@ type BuiltInErrorUnion =
   | typeof ValidationFailed
   | typeof ChannelNotFound
   | typeof ChannelNotSubscribed
+  | typeof RejoinRejected
   | typeof NamespaceNotFound
   | typeof InternalError;
 

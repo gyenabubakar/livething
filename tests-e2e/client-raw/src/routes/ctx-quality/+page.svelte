@@ -23,6 +23,12 @@
 		};
 		ws.onmessage = (ev) => {
 			if (typeof ev.data !== 'string') return;
+			// Answer the server's raw keepalive "ping" so a latency/quality
+			// measurement actually completes (raw "ping" isn't JSON).
+			if (ev.data === 'ping') {
+				ws?.send('pong');
+				return;
+			}
 			const data = JSON.parse(ev.data);
 			if (data.event === 'quality-result') {
 				quality = data.payload?.quality ?? '';

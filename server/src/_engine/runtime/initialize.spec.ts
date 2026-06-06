@@ -370,3 +370,50 @@ describe('engine declaredErrorCodes', () => {
     expect(engine.core.declaredErrorCodes.has(InternalError.code)).toBe(true);
   });
 });
+
+describe('revalidate requires a persistent channel', () => {
+  const channelDefs = { definitions: [outgoing('said', Text)] };
+
+  it('throws at boot when a non-persistent channel has a .revalidate() hook', async () => {
+    const handler = implement(
+      contract('rt-revalidate-no-persist', {
+        env: t<Record<string, unknown>>(),
+        definitions: [channel('room', channelDefs)],
+      }),
+    )
+      .channel('room', (ch) => ch.revalidate(() => {}))
+      .build();
+
+    await expect(initWithFakeStorage(handler)).rejects.toThrow(
+      /Channel "room" has a \.revalidate\(\) hook but is not persistent/,
+    );
+  });
+
+  it('throws when a `persistent: false` channel has a .revalidate() hook', async () => {
+    const handler = implement(
+      contract('rt-revalidate-optout', {
+        env: t<Record<string, unknown>>(),
+        persistence: true,
+        definitions: [channel('room', { persistent: false, ...channelDefs })],
+      }),
+    )
+      .channel('room', (ch) => ch.revalidate(() => {}))
+      .build();
+
+    await expect(initWithFakeStorage(handler)).rejects.toThrow(/is not persistent/);
+  });
+
+  it('boots fine when a persistent channel has a .revalidate() hook', async () => {
+    const handler = implement(
+      contract('rt-revalidate-persist', {
+        env: t<Record<string, unknown>>(),
+        persistence: true,
+        definitions: [channel('room', channelDefs)],
+      }),
+    )
+      .channel('room', (ch) => ch.revalidate(() => {}))
+      .build();
+
+    await expect(initWithFakeStorage(handler)).resolves.toBeDefined();
+  });
+});

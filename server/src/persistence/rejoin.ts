@@ -1,3 +1,4 @@
+import { RejoinRejected } from '@wskit/core';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import { deleteMembership, listMembershipsByIdentity } from '~/persistence/storage.ts';
 import { addConnectionTag } from '~/tags/runtime.ts';
@@ -60,11 +61,14 @@ export interface RejoinRuntime {
  *
  * Runs once per accept, BEFORE `onConnect` fires, so user handlers see the
  * connection already in its old channels. For each durable membership the
- * engine re-runs the `check` hook. On pass the connection is committed
- * via the server-subscribe primitive (`source: 'server'`, fires `__subscribeOk__`
- * and `__memberJoin__` syncs the same way a fresh subscribe does). On reject
- * the durable row is dropped and an `__error__` scoped to the channel is sent
- * to the new socket so the client knows that one channel did not restore.
+ * engine re-runs the `revalidate` hook. On pass the connection is committed
+ * via the server-subscribe primitive (`source: 'server'`), which sends
+ * `__subscribeOk__` to the rejoining socket; `__memberJoin__` peer broadcasts
+ * are suppressed because the identity is still a member — peers see
+ * `__memberOnline__` for the new socket's presence instead. On reject the
+ * durable row is dropped and a `rejoin-rejected` `__error__` scoped to the
+ * channel is sent to the new socket so the client knows that one channel did
+ * not restore.
  *
  * Rows for channels that no longer exist (renamed or removed between
  * deploys) are skipped silently — boot cleanup is where those dead rows
@@ -163,7 +167,7 @@ export async function autoRejoinIdentity(
       runtime.sendProtocolMessage(connection, {
         event: '__error__',
         payload: {
-          code: 'rejoin-rejected',
+          code: RejoinRejected.code,
           detail: { message: error instanceof Error ? error.message : String(error) },
         },
         wskit,

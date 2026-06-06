@@ -151,6 +151,7 @@ export function compileHandlerDefinition(
   handler: DefineServer.ServerDefinition,
 ): EngineCompileTypes.CompiledServer {
   const compiled: EngineCompileTypes.CompiledServer = {
+    binary: handler.__features?.has('binary') ?? false,
     outgoing: new Map(),
     incoming: new Map(),
     requests: new Map(),

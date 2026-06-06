@@ -42,7 +42,7 @@ describe('keepalive — missed pong force close', () => {
 
     vi.advanceTimersByTime(1000); // tick 2 — pingSentAt still set → missedPongs becomes 1, quality 'poor'
     expect(socket.getQuality()).toBe('poor');
-    expect(ws.sentFrames().filter((f) => f.event === 'ping').length).toBe(2);
+    expect(ws.sent.filter((s) => s === 'ping').length).toBe(2);
   });
 
   it('force-closes the socket with CloseCodes.IDLE once missedPongs reaches maxMissedPongs', () => {
@@ -78,7 +78,7 @@ describe('keepalive — missed pong force close', () => {
 
     vi.advanceTimersByTime(1000); // ping 1
     vi.advanceTimersByTime(1000); // missedPongs=1, ping 2
-    ws.emit({ event: 'pong', payload: {} }); // pong resets counter
+    ws.emit('pong'); // pong resets counter
     vi.advanceTimersByTime(1000); // tick: pingSentAt was reset by pong, no miss counted
 
     expect(socket.getState()).toBe('open');
@@ -95,7 +95,7 @@ describe('keepalive — quality tier transitions', () => {
 
     vi.advanceTimersByTime(1000); // ping sent
     vi.advanceTimersByTime(50); // 50ms passes — pong arrives within excellent threshold
-    ws.emit({ event: 'pong', payload: {} });
+    ws.emit('pong');
 
     expect(socket.getQuality()).toBe('excellent');
   });
@@ -110,7 +110,7 @@ describe('keepalive — quality tier transitions', () => {
 
     vi.advanceTimersByTime(1000);
     vi.advanceTimersByTime(100); // exactly at excellent threshold → good
-    ws.emit({ event: 'pong', payload: {} });
+    ws.emit('pong');
 
     expect(socket.getQuality()).toBe('good');
   });
@@ -124,7 +124,7 @@ describe('keepalive — quality tier transitions', () => {
 
     vi.advanceTimersByTime(1000);
     vi.advanceTimersByTime(200); // >= good (150), < degraded (500) → degraded
-    ws.emit({ event: 'pong', payload: {} });
+    ws.emit('pong');
 
     expect(socket.getQuality()).toBe('degraded');
   });
@@ -138,7 +138,7 @@ describe('keepalive — quality tier transitions', () => {
 
     vi.advanceTimersByTime(1000);
     vi.advanceTimersByTime(600); // >= degraded (500) → poor
-    ws.emit({ event: 'pong', payload: {} });
+    ws.emit('pong');
 
     expect(socket.getQuality()).toBe('poor');
   });
@@ -156,12 +156,12 @@ describe('keepalive — quality tier transitions', () => {
     // First pong fires once (unknown → excellent). The second, same-tier pong must not.
     vi.advanceTimersByTime(1000); // ping 1
     vi.advanceTimersByTime(10); // 10ms elapsed
-    ws.emit({ event: 'pong', payload: {} }); // latency 10ms < 1000 → excellent
+    ws.emit('pong'); // latency 10ms < 1000 → excellent
     const callsAfterFirst = onChange.mock.calls.length;
 
     vi.advanceTimersByTime(990); // ping 2 fires (interval from tick, total 2000ms from open)
     vi.advanceTimersByTime(10);
-    ws.emit({ event: 'pong', payload: {} }); // same tier excellent — no second fire
+    ws.emit('pong'); // same tier excellent — no second fire
 
     expect(onChange.mock.calls.length).toBe(callsAfterFirst);
   });
@@ -173,7 +173,7 @@ describe('keepalive — interval zero disables pings', () => {
     const { ws } = build(keepalive({ interval: 0 }));
 
     vi.advanceTimersByTime(60_000);
-    const pings = ws.sentFrames().filter((f) => f.event === 'ping');
+    const pings = ws.sent.filter((s) => s === 'ping');
     expect(pings.length).toBe(0);
   });
 
@@ -219,7 +219,7 @@ describe('keepalive — quality at open and the first measurement', () => {
 
     vi.advanceTimersByTime(1000); // ping
     vi.advanceTimersByTime(20); // 20ms < 50 → excellent
-    ws.emit({ event: 'pong', payload: {} });
+    ws.emit('pong');
 
     expect(onChange).toHaveBeenCalledWith('excellent', 20);
   });
@@ -338,13 +338,13 @@ describe('quality change event and latency refresh', () => {
     // Ping 1 → pong at 10ms (excellent)
     vi.advanceTimersByTime(1000);
     vi.advanceTimersByTime(10);
-    ws.emit({ event: 'pong', payload: {} });
+    ws.emit('pong');
     expect(socket.getLatency()).toBe(10);
 
     // Ping 2 → pong at 25ms — still excellent (same tier), but latency updates.
     vi.advanceTimersByTime(990);
     vi.advanceTimersByTime(25);
-    ws.emit({ event: 'pong', payload: {} });
+    ws.emit('pong');
     expect(socket.getLatency()).toBe(25);
   });
 
@@ -361,14 +361,14 @@ describe('quality change event and latency refresh', () => {
     // First pong fires (unknown → excellent).
     vi.advanceTimersByTime(1000);
     vi.advanceTimersByTime(10);
-    ws.emit({ event: 'pong', payload: {} });
+    ws.emit('pong');
 
     const callsAfterFirst = onChange.mock.calls.length;
 
     // Second pong — also excellent, latency just slightly different → no extra fire.
     vi.advanceTimersByTime(990);
     vi.advanceTimersByTime(15);
-    ws.emit({ event: 'pong', payload: {} });
+    ws.emit('pong');
 
     expect(onChange.mock.calls.length).toBe(callsAfterFirst); // no extra fire
   });
@@ -386,13 +386,13 @@ describe('quality change event and latency refresh', () => {
     // First pong — excellent (under 50ms)
     vi.advanceTimersByTime(1000);
     vi.advanceTimersByTime(10);
-    ws.emit({ event: 'pong', payload: {} });
+    ws.emit('pong');
     const callsAfterExcellent = onChange.mock.calls.length;
 
     // Second pong — tier changes to good (>= 50ms)
     vi.advanceTimersByTime(990);
     vi.advanceTimersByTime(100); // 100ms >= excellent(50) → good
-    ws.emit({ event: 'pong', payload: {} });
+    ws.emit('pong');
 
     expect(onChange.mock.calls.length).toBeGreaterThan(callsAfterExcellent);
     expect(onChange).toHaveBeenLastCalledWith('good', expect.any(Number));
@@ -413,7 +413,7 @@ describe('keepalive — quality uses a rolling average of the last samples', () 
       const nextTick = now - (now % 1000) + 1000;
       vi.advanceTimersByTime(nextTick - now); // ping fires here
       vi.advanceTimersByTime(latency); // round trip
-      ws.emit({ event: 'pong', payload: {} });
+      ws.emit('pong');
       now = nextTick + latency;
     }
 
@@ -442,7 +442,7 @@ describe('keepalive — quality uses a rolling average of the last samples', () 
       const nextTick = now - (now % 1000) + 1000;
       vi.advanceTimersByTime(nextTick - now);
       vi.advanceTimersByTime(latency);
-      ws.emit({ event: 'pong', payload: {} });
+      ws.emit('pong');
       now = nextTick + latency;
     }
 

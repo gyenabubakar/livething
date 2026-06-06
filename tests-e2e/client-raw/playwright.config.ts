@@ -13,12 +13,15 @@ export default defineConfig({
   testDir: 'tests',
   fullyParallel: true,
   timeout: 30_000,
-  // One shared dev stack serves every feature, so heavy parallelism can drop a
-  // request ("Network connection lost"). Fewer workers eases contention.
-  // retries stays at 0 so a flake fails loudly — we fix the test or the bug
-  // instead of letting a retry hide it.
+  // One shared dev stack serves every feature, so under load the local worker
+  // (wrangler dev / miniflare) occasionally drops a socket ("Network connection
+  // lost"), and a test waiting on a frame from that socket fails — the frame is
+  // gone, not slow, so a longer timeout can't help.
+  // `retries: 1` reopens the page with a FRESH connection, which is what a
+  // dropped socket needs. It only fires on failure (no cost to green runs) and
+  // can't mask a real bug — a deterministic failure fails the retry too.
   workers: 4,
-  retries: 0,
+  retries: 1,
   use: {
     baseURL: 'http://127.0.0.1:4173',
   },

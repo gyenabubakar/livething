@@ -67,9 +67,22 @@ export class MockWebSocket {
     this.onclose?.({ code, reason, wasClean: false });
   }
 
-  /** The frames this socket sent, decoded back from JSON. */
+  /**
+   * The JSON frames this socket sent, decoded back from JSON. Raw control
+   * frames like the bare text `"ping"`/`"pong"` aren't JSON — they're skipped
+   * here; assert those against `sent` directly.
+   */
   sentFrames(): any[] {
-    return this.sent.map((s) => (typeof s === 'string' ? JSON.parse(s) : s));
+    return this.sent
+      .map((s) => {
+        if (typeof s !== 'string') return s;
+        try {
+          return JSON.parse(s);
+        } catch {
+          return undefined;
+        }
+      })
+      .filter((f) => f !== undefined);
   }
 }
 

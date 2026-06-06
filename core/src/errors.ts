@@ -370,6 +370,22 @@ export const InvalidScopeMarkers = error('invalid-scope-markers');
 export const ChannelNotSubscribed = error('channel-not-subscribed');
 
 /**
+ * Sent to the client when the server rejects a persistent channel's auto-rejoin
+ * on reconnect — the channel's `revalidate` hook threw. The durable membership
+ * is dropped and this error is delivered scoped to the channel, so the client
+ * knows the rejoin failed and clears the channel instead of staying stuck
+ * "subscribed" to a membership the server no longer has.
+ *
+ * @example
+ * ```ts
+ * room.onSubscriptionFailed((err) => {
+ *   if (RejoinRejected.matches(err)) showToast('You were removed from this room.');
+ * });
+ * ```
+ */
+export const RejoinRejected = error('rejoin-rejected');
+
+/**
  * Sent to the client when an unhandled server-side error occurs that WSKit
  * doesn't know how to classify. The server logs the real error; the client
  * receives this opaque code so internal details are never leaked.

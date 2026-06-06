@@ -454,8 +454,10 @@ export interface ChannelHandle<
    * (true leave semantics) followed by `onSessionEnd` for each. Broadcasts
    * `__memberLeave__` then `__memberOffline__` to remaining members.
    *
-   * No-op when persistence is disabled — the durable row never existed,
-   * so use `kick(tag, reason)` to drop sockets in that case.
+   * When persistence is disabled there is no durable row to delete, but any
+   * live connections with this identity are still made to leave (their
+   * `onUnsubscribe`/`onSessionEnd` hooks fire and `__memberLeave__` is
+   * broadcast). Use `kick(tag, reason)` if you only want to drop sockets.
    *
    * No-op when no live connection has the given identity and no durable
    * row exists. Otherwise, removes whichever pieces are present.

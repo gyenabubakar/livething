@@ -47,6 +47,14 @@ export class ChannelState {
    */
   persistent = false;
   /**
+   * True while a reconnect is awaiting this channel's subscribe outcome — the
+   * client's reconnect re-subscribe (non-persistent) or the server's auto-rejoin
+   * (persistent). A channel-scoped `__error__` during this window is a rejected
+   * (re)subscribe, so the channel is cleared; outside it the same frame is a
+   * message error and the subscription is left intact.
+   */
+  rejoining = false;
+  /**
    * What was passed to `subscribe()` — a value, or a function re-run on each
    * reconnect to refresh a rotating payload (e.g. an auth token).
    */
@@ -132,6 +140,7 @@ export class ChannelState {
   /** Mark active and tell `onSubscribed` listeners who started it. */
   markSubscribed(source: SubscribeSource): void {
     this.active = true;
+    this.rejoining = false;
     if (source === 'client' && this.pending) {
       this.pending.resolve();
       this.pending = null;
@@ -143,6 +152,7 @@ export class ChannelState {
   /** Mark inactive, clear members, and tell `onUnsubscribed` listeners. */
   markUnsubscribed(): void {
     this.active = false;
+    this.rejoining = false;
     this.members.clear();
     // The subscription is over (unsubscribe or kick) — drop its lazy hold and any
     // in-flight subscribe(), so a later subscribe() starts a fresh attempt instead
@@ -161,6 +171,16 @@ export class ChannelState {
     // The subscription failed (rejected subscribe, or a reconnect re-subscribe) —
     // it's no longer a consumer, so drop its lazy hold.
     this.releaseLazy();
+    // Only clear the channel when a (re)subscribe was actually in flight: a live
+    // subscribe() with a pending promise, or a reconnect rejoin (`rejoining`).
+    // A channel-scoped `__error__` outside that window is a message error — keep
+    // `active` so one bad send doesn't unsubscribe a healthy channel.
+    if (this.pending !== null || this.rejoining) {
+      this.active = false;
+      this.persistent = false;
+      this.rejoining = false;
+      this.members.clear();
+    }
     // A live subscribe() call rejects; a reconnect re-subscribe surfaces here instead.
     if (this.pending) {
       this.pending.reject(error);

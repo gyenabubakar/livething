@@ -360,6 +360,8 @@ export class WSKitSocket {
 
       rawSend: (message) => this._rawSend(message),
 
+      sendPing: () => this.ws?.send('ping'),
+
       send: (message, options) => this._send(message, options),
 
       generateId: (prefix) => {
@@ -611,6 +613,18 @@ export class WSKitSocket {
   private _handleMessage(event: MessageEvent): void {
     const raw = event.data;
 
+    if (raw === 'ping') {
+      this._log('ping received');
+      this.ws?.send('pong');
+      return;
+    }
+
+    if (raw === 'pong') {
+      this._log('pong received');
+      for (const handler of this._pongHandlers) handler();
+      return;
+    }
+
     let parsed: WireMessage | null = null;
     if (typeof raw === 'string') {
       try {
@@ -628,18 +642,6 @@ export class WSKitSocket {
       }
     }
     if (!parsed) return;
-
-    // Answer the server's pings and feed pongs to keepalive; never show these to handlers.
-    if (parsed.event === 'pong') {
-      this._log('pong received');
-      for (const handler of this._pongHandlers) handler();
-      return;
-    }
-    if (parsed.event === 'ping') {
-      this._log('ping received');
-      this._rawSend({ event: 'pong', payload: {} });
-      return;
-    }
 
     this._processIncoming(parsed);
   }
@@ -709,10 +711,14 @@ export class WSKitSocket {
   /** @internal — open a lazy socket the first time something needs it. */
   _ensureConnected(): void {
     if (!this._lazy) return;
+
     if (this._state === 'open' || this._state === 'connecting' || this._state === 'reconnecting')
       return;
+
     this._clearLazyIdleTimer();
+
     this._log('lazy connect triggered');
+
     this.connect();
   }
 
@@ -733,8 +739,10 @@ export class WSKitSocket {
 
   private _startLazyIdleTimer(): void {
     this._clearLazyIdleTimer();
+
     const timeout = this._config.idleTimeout ?? 10_000;
     if (timeout <= 0) return;
+
     this._lazyIdleTimer = setTimeout(() => {
       this._log('lazy idle timeout — disconnecting');
       this.disconnect();
@@ -759,7 +767,9 @@ export class WSKitSocket {
     let outgoing: WireMessage | null = message;
     for (const primitive of this._primitives) {
       if (!primitive.onOutgoing) continue;
+
       outgoing = primitive.onOutgoing(outgoing!);
+
       if (outgoing === null) {
         this._log('a primitive cancelled the send');
         return false;
@@ -771,12 +781,21 @@ export class WSKitSocket {
         this._log(`send('${outgoing.event}') buffered`);
         return true;
       }
+
       this._log(`send('${message.event}') dropped — not connected`);
+
       return false;
     }
 
     this.ws.send(this._serialize(outgoing));
     this._log(`send('${outgoing.event}')`, outgoing.payload);
+
+    // A send counts as activity. In lazy mode with no other holds the idle
+    // timer is running; restart it so send-only usage isn't idle-closed
+    // mid-stream (matches the "no recent send()" idle condition in the spec).
+    if (this._lazy && this._lazyConsumers === 0 && this._state === 'open') {
+      this._startLazyIdleTimer();
+    }
     return true;
   }
 

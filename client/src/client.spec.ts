@@ -99,15 +99,15 @@ describe('messaging (__wskit wire format)', () => {
 
   it('auto-answers server ping with pong and never dispatches it', () => {
     const { ws } = connected();
-    ws.emit({ event: 'ping', payload: {} });
-    expect(ws.sentFrames()).toContainEqual({ event: 'pong', payload: {} });
+    ws.emit('ping');
+    expect(ws.sent).toContain('pong');
   });
 
   it('does not dispatch protocol pong to handlers', () => {
     const { socket, ws } = connected();
     const handler = vi.fn();
     socket.on('message', handler);
-    ws.emit({ event: 'pong', payload: {} });
+    ws.emit('pong');
     expect(handler).not.toHaveBeenCalled();
   });
 });

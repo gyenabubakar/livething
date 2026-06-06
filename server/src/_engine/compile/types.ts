@@ -109,6 +109,9 @@ export interface CompiledChannel {
  * so the runtime can answer questions quickly while messages are flowing.
  */
 export interface CompiledServer {
+  /** Whether the contract enabled raw binary frames via `binary: true`. */
+  binary: boolean;
+
   outgoing: Map<string, AnyOutgoing>;
 
   incoming: Map<string, AnyIncoming>;

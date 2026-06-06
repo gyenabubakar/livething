@@ -166,8 +166,8 @@ describe('keepalive (opt-in)', () => {
       const ws = MockWebSocket.last();
       ws.open();
       vi.advanceTimersByTime(1000);
-      expect(ws.sentFrames()).toContainEqual({ event: 'ping', payload: {} });
-      ws.emit({ event: 'pong', payload: {} });
+      expect(ws.sent).toContain('ping');
+      ws.emit('pong');
       expect(socket.getLatency()).not.toBeNull();
     } finally {
       vi.useRealTimers();

@@ -260,7 +260,7 @@ describe('getLatency() after disconnect', () => {
       const ws = MockWebSocket.last();
       ws.open();
       vi.advanceTimersByTime(1000); // sends a ping
-      ws.emit({ event: 'pong', payload: {} }); // measures latency
+      ws.emit('pong'); // raw pong measures latency
       expect(socket.getLatency()).not.toBeNull();
       socket.disconnect();
       expect(socket.getLatency()).toBeNull();

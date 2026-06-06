@@ -21,6 +21,7 @@ type MessagingDeps = Pick<
 function buildMessagingApi(
   connection: EngineContextTypes.RuntimeConnection,
   deps: MessagingDeps,
+  binaryEnabled: boolean,
 ): Pick<
   EngineContextTypes.ConnectionContext<Record<string, unknown>, Record<string, unknown>, unknown>,
   'broadcast' | 'broadcastBinary' | 'close' | 'send' | 'sendBinary' | 'sendToConnection'
@@ -52,11 +53,19 @@ function buildMessagingApi(
     },
 
     sendBinary: (data) => {
+      if (!binaryEnabled) {
+        throw new Error('[wskit] ctx.sendBinary() requires `binary: true` on the contract config.');
+      }
       connection.descriptor.sendBinary(data);
       return true;
     },
 
     broadcastBinary: (data, options) => {
+      if (!binaryEnabled) {
+        throw new Error(
+          '[wskit] ctx.broadcastBinary() requires `binary: true` on the contract config.',
+        );
+      }
       for (const target of deps.connections.values()) {
         if ((options?.excludeSelf ?? true) && target.id === connection.id) continue;
         target.descriptor.sendBinary(data);
@@ -123,7 +132,7 @@ export function buildConnectionContext(
 
     meta: connection.meta,
 
-    ...buildMessagingApi(connection, deps),
+    ...buildMessagingApi(connection, deps, deps.compiled.binary),
 
     getConnections: () => {
       return [...deps.connections.values()].map((target) => deps.toConnectionInfo(target));
@@ -144,7 +153,10 @@ export function buildConnectionContext(
     },
 
     get quality() {
-      return deps.hibernationEnabled ? null : connection.quality;
+      // Quality has no meaning until the first ping/pong lands; mirror `latency`,
+      // which stays null until measured. Also null in hibernation (no pings sent).
+      if (deps.hibernationEnabled || connection.latency === null) return null;
+      return connection.quality;
     },
 
     // Built on first access — most handlers never touch `ctx.channels`.
@@ -234,7 +246,7 @@ export function toConnectionInfo(
     tags: TagsRuntime.buildConnectionTagRefs(connection),
     channels: [...connection.channelMemberships.values()].map((m) => m.channelName),
     latency: connection.latency,
-    quality: hibernationEnabled ? null : connection.quality,
+    quality: hibernationEnabled || connection.latency === null ? null : connection.quality,
     bufferedAmount: connection.descriptor.bufferedAmount(),
     ref: () => buildConnectionRef(connection.id, connection.identity, instanceId),
   };

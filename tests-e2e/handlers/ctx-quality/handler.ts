@@ -6,6 +6,10 @@ import { requireUsername } from '../_shared/upgrade.ts';
 export const ctxQualityContract = contract('ctx-quality', {
   env: t<Env>(),
   meta: t<{ username: string }>(),
+  // Ping fast so a pong round-trip completes inside the test window — quality
+  // and latency stay null until the first measurement, so the e2e needs a real
+  // ping/pong to see them populated.
+  keepalive: { pingIntervalMs: 1_000, idleTimeoutMs: 10_000 },
   definitions: [
     incoming('get-quality', v.object({})),
     outgoing(

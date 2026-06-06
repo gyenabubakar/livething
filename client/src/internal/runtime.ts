@@ -142,6 +142,14 @@ export interface PrimitiveHelpers {
   /** Send a message straight to the wire, skipping `onOutgoing` (so you don't loop). */
   rawSend(message: WireMessage): void;
 
+  /**
+   * Send a bare `"ping"` text frame straight to the wire. Raw (not JSON) so the
+   * server's raw-pong path and the Cloudflare hibernation auto-response pair
+   * (`'ping'`/`'pong'`) both recognize it — a JSON ping would wake a hibernated
+   * Durable Object instead of being answered at the edge.
+   */
+  sendPing(): void;
+
   /** Send a message through the normal path (`onOutgoing` → fallback → wire). */
   send(message: WireMessage, options?: { ttl?: number }): boolean;
 

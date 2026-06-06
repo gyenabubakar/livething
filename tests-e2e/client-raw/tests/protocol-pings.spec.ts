@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { connect, installRig, send, waitForFrame } from './_ws-rig.ts';
+import { connect, frames, installRig, send, waitForFrame } from './_ws-rig.ts';
 
 test.describe('protocol pings', () => {
   test.beforeEach(async ({ page }, testInfo) => {
@@ -15,9 +15,19 @@ test.describe('protocol pings', () => {
     await expect(page.getByTestId('last-message')).toHaveText('pong');
   });
 
-  test('JSON {event:ping} returns JSON {event:pong}', async ({ page }) => {
+  test('JSON {event:ping} is no longer answered — raw text is the only ping form', async ({
+    page,
+  }) => {
+    // The server speaks only raw "ping"/"pong" now (matches the documented wire
+    // format and the Cloudflare hibernation auto-response). A JSON ping is
+    // treated like any unknown frame: ignored, no pong.
     await page.getByTestId('json-ping').click();
-    await expect(page.getByTestId('last-message')).toHaveText(/"event":"pong"/);
+    await page.waitForTimeout(200);
+    await expect(page.getByTestId('last-message')).not.toHaveText(/pong/);
+
+    // Raw ping still works.
+    await page.getByTestId('raw-ping').click();
+    await expect(page.getByTestId('last-message')).toHaveText('pong');
   });
 
   test('invalid JSON message does not crash connection', async ({ page }) => {
@@ -56,13 +66,10 @@ test.describe('protocol pings', () => {
   });
 
   test('pings work without any incoming handler registered', async ({ page }) => {
-    // The handler does not register any .on() handlers — only lifycycle
-    // Pings are protocol-level and should work regardless
+    // The handler registers no .on() handlers — only lifecycle. The raw ping is
+    // protocol-level and works regardless.
     await page.getByTestId('raw-ping').click();
     await expect(page.getByTestId('last-message')).toHaveText('pong');
-
-    await page.getByTestId('json-ping').click();
-    await expect(page.getByTestId('last-message')).toHaveText(/"event":"pong"/);
   });
 
   test('protocol-shaped but undeclared event (__bogus__) returns a typed __error__ and keeps the connection alive', async ({
@@ -83,11 +90,12 @@ test.describe('protocol pings', () => {
     });
     expect(err.payload.code).toBe('validation-failed');
 
-    // Connection stays alive: a JSON ping still gets a JSON pong.
-    await send(page, sock, { event: 'ping', payload: {} });
-    const pong = await waitForFrame(page, sock, {
-      match: (f) => f.event === 'pong',
-    });
-    expect(pong.event).toBe('pong');
+    // Connection stays alive: a second bogus frame is still processed and
+    // produces a second typed __error__ (raw ping/pong isn't JSON, so it can't
+    // be the liveness probe here on the JSON-frame rig).
+    await send(page, sock, { event: '__bogus__', payload: {} });
+    await expect
+      .poll(async () => (await frames(page, sock)).filter((f) => f.event === '__error__').length)
+      .toBe(2);
   });
 });

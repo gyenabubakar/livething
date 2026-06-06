@@ -797,7 +797,6 @@ export async function processTextMessage(
     }
   }
 
-  // `ping` / `pong` stay raw text frames — never envelope-wrapped.
   if (data === 'ping') {
     connection.descriptor.send('pong');
     return;
@@ -816,7 +815,6 @@ export async function processTextMessage(
     return;
   }
 
-  // Drop anything that is not a plain object with a string `event`.
   if (
     !parsed ||
     typeof parsed !== 'object' ||
@@ -828,12 +826,6 @@ export async function processTextMessage(
   }
 
   const event = (parsed as { event: string }).event;
-
-  // A JSON `{ event: 'ping' }` frame answers with a JSON `{ event: 'pong' }`.
-  if (event === 'ping') {
-    connection.descriptor.send(JSON.stringify({ event: 'pong' }));
-    return;
-  }
 
   // Protocol frames skip dedup and nudge buffering — a retried one must still
   // reach its handler.

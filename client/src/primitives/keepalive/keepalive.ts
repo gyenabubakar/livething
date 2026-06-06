@@ -27,7 +27,7 @@ export function keepalive(options: KeepaliveOptions = {}): Primitive<EmptyTypeFn
           thresholds: helpers.config.qualityThresholds,
         },
         {
-          sendPing: () => helpers.rawSend({ event: 'ping', payload: {} }),
+          sendPing: () => helpers.sendPing(),
           forceClose: () => helpers.forceClose(CloseCodes.IDLE, 'missed pong'),
           reportLatency: (latencyMs) => helpers.reportLatency(latencyMs),
           onQualityChange: (quality) => helpers.reportQuality(quality),

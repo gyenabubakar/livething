@@ -23,6 +23,7 @@ export {
   NamespaceNotFound,
   NudgeOverflow,
   RateLimited,
+  RejoinRejected,
   StreamAborted,
   StreamAlreadyActive,
   StreamIdCollision,

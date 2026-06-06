@@ -263,3 +263,28 @@ describe('lazy idleTimeout:0 never idle-closes', () => {
     expect(socket.getState()).toBe('open');
   });
 });
+
+describe('lazy idle window resets on send', () => {
+  it('a send refreshes the idle countdown so send-only usage is not idle-closed', () => {
+    vi.useFakeTimers();
+    const socket = c(connect('wss://test', { lazy: true, idleTimeout: 10_000 }));
+    const raw = socket as unknown as { send(event: string, payload: unknown): boolean };
+
+    // No listeners ever — a send is what triggers the lazy connect.
+    raw.send('ping', {});
+    MockWebSocket.last().open();
+
+    // Idle timer is armed (zero consumers). Advance most of the window.
+    vi.advanceTimersByTime(8_000);
+    expect(socket.getState()).toBe('open');
+
+    // A fresh send must restart the 10s window.
+    raw.send('ping', {});
+    vi.advanceTimersByTime(8_000); // 16s since open, but only 8s since the last send
+    expect(socket.getState()).toBe('open');
+
+    // No further sends — now the window elapses and the socket idle-closes.
+    vi.advanceTimersByTime(10_000);
+    expect(socket.getState()).not.toBe('open');
+  });
+});

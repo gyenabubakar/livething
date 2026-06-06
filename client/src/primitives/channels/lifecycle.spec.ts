@@ -81,9 +81,46 @@ describe('channels-reconnect-resubscribe-failure-surfaces', () => {
 
       // Because pending is null, the else branch fires onSubscriptionFailed listeners.
       expect(onSubFailed).toHaveBeenCalledWith(expect.objectContaining({ code: 'forbidden' }));
+
+      // The rejected re-subscribe also clears the channel: it is no longer active,
+      // so send() throws instead of silently sending into a channel the server
+      // has no membership for, and onReconnect won't keep retrying it.
+      expect(() => room.send('send-message', { text: 'x' })).toThrow();
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('keeps the channel active when a channel-scoped __error__ arrives in steady state (a message error, not a (re)subscribe)', () => {
+    const socket = client<C>()(connect('wss://test'), channels(), reconnection());
+    socket.connect();
+    const ws = MockWebSocket.last();
+    ws.open();
+
+    const room = socket.channel('general');
+    room.subscribe();
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: { source: 'client' },
+      __wskit: { channel: 'general' },
+    });
+
+    const onSubFailed = vi.fn();
+    room.onSubscriptionFailed(onSubFailed);
+
+    // A channel-scoped error while steadily subscribed (no pending subscribe, no
+    // reconnect) — e.g. a bad send. The listener fires, but the subscription
+    // must survive: one bad message can't unsubscribe a healthy channel.
+    ws.emit({
+      event: '__error__',
+      payload: { code: 'validation-failed' },
+      __wskit: { channel: 'general' },
+    });
+
+    expect(onSubFailed).toHaveBeenCalledWith(
+      expect.objectContaining({ code: 'validation-failed' }),
+    );
+    expect(() => room.send('send-message', { text: 'x' })).not.toThrow();
   });
 });
 

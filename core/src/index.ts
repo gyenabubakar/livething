@@ -12,6 +12,7 @@ export {
   NamespaceNotFound,
   NudgeOverflow,
   RateLimited,
+  RejoinRejected,
   RequestNoCorrelation,
   RequestNoResponse,
   StreamAborted,

@@ -37,6 +37,25 @@ function validateEngineRequirements(core: EngineCore): void {
 }
 
 /**
+ * Throw if a channel registered a `.revalidate()` hook but is not persistent.
+ * `revalidate` only runs on auto-rejoin, which only happens for persistent
+ * channels — so on a non-persistent channel it is dead code, and almost always
+ * means the author meant to enable persistence or use `.check()` instead.
+ */
+function validateRevalidateRequiresPersistence(core: EngineCore): void {
+  for (const channelKey of core.hooks.revalidate.keys()) {
+    if (!core.isChannelPersistent(channelKey)) {
+      throw new Error(
+        `[wskit] Channel "${channelKey}" has a .revalidate() hook but is not persistent, so it would ` +
+          `never run — revalidate fires only on auto-rejoin, which only happens for persistent channels. ` +
+          `Enable persistence (contract \`persistence: true\`, and do not set \`persistent: false\` on this ` +
+          `channel), or remove the .revalidate() hook (use \`.check()\` for first-subscribe authorization).`,
+      );
+    }
+  }
+}
+
+/**
  * One-time startup. Validate capabilities, install primitives and plugins,
  * then run boot hooks and init hooks.
  */
@@ -48,6 +67,7 @@ export async function initialize(core: EngineCore, accessDeps: EngineAccessDeps)
     accessDeps.ensureScheduledRuntime();
   }
   validateEngineRequirements(core);
+  validateRevalidateRequiresPersistence(core);
 
   for (const pluginInstance of core.compiled.plugins) {
     // Plugins declare errors in their `errors: { name: error(...) }` map; the

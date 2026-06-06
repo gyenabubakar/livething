@@ -133,14 +133,16 @@ describe('incoming pipeline — defaultParse event field validation', () => {
 });
 
 describe('incoming pipeline — server ping auto-pong', () => {
-  it('sends a pong and does NOT dispatch the ping to any on() handler', () => {
+  it('answers a raw "ping" with a raw "pong" and does NOT dispatch it to any on() handler', () => {
     const pingHandler = vi.fn();
     const { socket, ws } = connected();
     socket.on('ping', pingHandler);
 
-    ws.emit({ event: 'ping', payload: {} });
+    ws.emit('ping');
 
-    expect(ws.sentFrames()).toContainEqual({ event: 'pong', payload: {} });
+    // The reply is the bare text "pong" — the only form the server records and
+    // the form the Cloudflare hibernation auto-response uses.
+    expect(ws.sent).toContain('pong');
     expect(pingHandler).not.toHaveBeenCalled();
   });
 });

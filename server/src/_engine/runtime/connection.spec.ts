@@ -33,6 +33,7 @@ describe('connection runtime', () => {
     const handle = acceptConnection(
       {
         compiled: {
+          binary: false,
           outgoing: new Map(),
           incoming: new Map(),
           requests: new Map(),
@@ -107,6 +108,7 @@ describe('connection runtime', () => {
     const handle = acceptConnection(
       {
         compiled: {
+          binary: false,
           outgoing: new Map(),
           incoming: new Map(),
           requests: new Map(),
@@ -191,6 +193,7 @@ describe('connection runtime', () => {
     const handle = acceptConnection(
       {
         compiled: {
+          binary: false,
           outgoing: new Map(),
           incoming: new Map(),
           requests: new Map(),
@@ -264,6 +267,7 @@ describe('connection runtime', () => {
     vi.useFakeTimers();
 
     const compiled = {
+      binary: false,
       outgoing: new Map(),
       incoming: new Map(),
       requests: new Map(),
@@ -377,6 +381,7 @@ describe('connection runtime', () => {
     wakeHibernatedConnection(
       {
         compiled: {
+          binary: false,
           outgoing: new Map(),
           incoming: new Map(),
           requests: new Map(),
@@ -452,6 +457,7 @@ describe('connection runtime', () => {
     wakeHibernatedConnection(
       {
         compiled: {
+          binary: false,
           outgoing: new Map(),
           incoming: new Map(),
           requests: new Map(),
@@ -506,6 +512,7 @@ describe('connection runtime', () => {
     wakeHibernatedConnection(
       {
         compiled: {
+          binary: false,
           outgoing: new Map(),
           incoming: new Map(),
           requests: new Map(),

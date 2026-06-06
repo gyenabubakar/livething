@@ -221,6 +221,7 @@ describe('ctx.broadcastBinary', () => {
     const self = createConnection('self');
     const peer = createConnection('peer');
     const deps = baseDeps({
+      compiled: { binary: true } as any,
       connections: new Map([
         [self.id, self],
         [peer.id, peer],
@@ -239,6 +240,7 @@ describe('ctx.broadcastBinary', () => {
     const self = createConnection('self');
     const peer = createConnection('peer');
     const deps = baseDeps({
+      compiled: { binary: true } as any,
       connections: new Map([
         [self.id, self],
         [peer.id, peer],
@@ -251,6 +253,58 @@ describe('ctx.broadcastBinary', () => {
 
     expect(self.descriptor.sendBinary).toHaveBeenCalledWith(bytes);
     expect(peer.descriptor.sendBinary).toHaveBeenCalledWith(bytes);
+  });
+});
+
+describe('binary gating without `binary: true`', () => {
+  it('ctx.sendBinary throws when binary is not enabled', () => {
+    const connection = createConnection('a');
+    const deps = baseDeps({ compiled: { binary: false } as any });
+    const ctx = buildConnectionContext(deps, connection);
+
+    expect(() => ctx.sendBinary(new Uint8Array([1]).buffer)).toThrow(/requires `binary: true`/);
+    expect(connection.descriptor.sendBinary).not.toHaveBeenCalled();
+  });
+
+  it('ctx.broadcastBinary throws when binary is not enabled', () => {
+    const self = createConnection('self');
+    const peer = createConnection('peer');
+    const deps = baseDeps({
+      compiled: { binary: false } as any,
+      connections: new Map([
+        [self.id, self],
+        [peer.id, peer],
+      ]),
+    });
+    const ctx = buildConnectionContext(deps, self);
+
+    expect(() => ctx.broadcastBinary(new Uint8Array([1]).buffer)).toThrow(
+      /requires `binary: true`/,
+    );
+    expect(peer.descriptor.sendBinary).not.toHaveBeenCalled();
+  });
+});
+
+describe('ctx.quality', () => {
+  it('is null until the first ping/pong measurement, then reflects connection.quality', () => {
+    const connection = createConnection('a');
+    const ctx = buildConnectionContext(baseDeps(), connection);
+
+    expect(ctx.latency).toBeNull();
+    expect(ctx.quality).toBeNull();
+
+    connection.latency = 42;
+    connection.quality = 'excellent';
+    expect(ctx.quality).toBe('excellent');
+  });
+
+  it('is null in hibernation even after a measurement', () => {
+    const connection = createConnection('a');
+    connection.latency = 42;
+    connection.quality = 'excellent';
+    const ctx = buildConnectionContext(baseDeps({ hibernationEnabled: true }), connection);
+
+    expect(ctx.quality).toBeNull();
   });
 });
 

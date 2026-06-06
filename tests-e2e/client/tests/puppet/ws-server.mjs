@@ -42,9 +42,32 @@ wss.on('connection', (ws, req) => {
   // accept: stay open, say nothing. silent: same, used to starve keepalive.
   if (behavior === 'accept' || behavior === 'silent') return;
 
+  // server-ping: act like the wskit server keepalive — send a bare "ping" text
+  // frame and expect the client to auto-reply with a bare "pong" (the only pong
+  // form the real server records, see server messages.ts: `data === 'pong'`).
+  // On a correct raw pong, send back an `echoed` frame so the test can see the
+  // round-trip completed. A JSON pong, or no pong at all, yields nothing.
+  if (behavior === 'server-ping') {
+    ws.on('message', (data, isBinary) => {
+      if (isBinary) return;
+      if (data.toString() === 'pong') {
+        ws.send(JSON.stringify({ event: 'echoed', payload: { text: 'pong-confirmed' } }));
+      }
+    });
+    ws.send('ping');
+    return;
+  }
+
   ws.on('message', (data, isBinary) => {
     if (isBinary) {
       ws.send(data, { binary: true });
+      return;
+    }
+    // Keepalive: the wskit client sends a bare "ping" text frame (raw, so the
+    // CF hibernation auto-response can answer it). The `pong` behavior answers
+    // with a bare "pong", mirroring the real server; others ignore it.
+    if (data.toString() === 'ping') {
+      if (behavior === 'pong') ws.send('pong');
       return;
     }
     let frame;
@@ -59,10 +82,8 @@ wss.on('connection', (ws, req) => {
       ws.terminate();
       return;
     }
-    if (behavior === 'pong') {
-      if (frame.event === 'ping') ws.send(JSON.stringify({ event: 'pong', payload: {} }));
-      return;
-    }
+    // pong server only answers pings — never echoes app frames.
+    if (behavior === 'pong') return;
     // echo: bounce the payload back under a fixed event name.
     ws.send(JSON.stringify({ event: 'echoed', payload: frame.payload }));
   });
