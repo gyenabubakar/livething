@@ -1404,7 +1404,7 @@ describe('nudge intercepts', () => {
     expect(activeStream.nudges[0]!.payload).toEqual({ passthrough: true });
   });
 
-  it('non-Block error in a nudge intercept calls handleRuntimeError with streamId routing', async () => {
+  it('non-Block error in a nudge intercept rejects the nudge without terminating the stream', async () => {
     const connection = createConnection('conn_1');
     const activeStream = makeActiveStream(connection.id, 'nudge-event');
     const activeStreams = new Map([['stream_1', activeStream]]);
@@ -1423,14 +1423,20 @@ describe('nudge intercepts', () => {
       JSON.stringify({
         event: 'nudge-event',
         payload: {},
-        __wskit: { streamId: 'stream_1', channelScope: null },
+        __wskit: { streamId: 'stream_1', streamNudgeId: 'nudge_1', channelScope: null },
       }),
     );
 
     expect(activeStream.nudges).toHaveLength(0);
     expect(handleRuntimeError).toHaveBeenCalledTimes(1);
     const [, { routing }] = handleRuntimeError.mock.calls[0]!;
-    expect((routing as { streamId?: string }).streamId).toBe('stream_1');
+    // The error must carry the full non-terminal envelope: streamTerminated:false
+    // keeps the stream live, streamNudgeId lets the client reject the right nudge().
+    expect(routing).toEqual({
+      streamId: 'stream_1',
+      streamTerminated: false,
+      streamNudgeId: 'nudge_1',
+    });
   });
 
   it('Block in namespace intercept drops a nudge sent with namespace routing', async () => {

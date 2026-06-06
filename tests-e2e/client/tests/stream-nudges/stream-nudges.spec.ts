@@ -65,6 +65,27 @@ test.describe('stream-nudges (conformance)', () => {
     await expect(page.getByTestId('stream-end')).toHaveText('yes');
   });
 
+  test('a nudge intercept throwing a typed error rejects nudge() but the stream runs to completion', async ({
+    page,
+  }, testInfo) => {
+    await open(page, `sn-reject-${testInfo.testId}`);
+    await start(page);
+
+    await page.getByTestId('reject-nudge').click();
+    // nudge() rejects with the typed code the intercept threw.
+    await expect(page.getByTestId('nudge-error')).toHaveText('nudge-rejected');
+    await expect(page.getByTestId('nudge-ok')).toHaveText('');
+
+    // The thrown intercept is non-terminal: the chunk loop runs to the end.
+    await expect(page.getByTestId('stream-end')).toHaveText('yes');
+    await expect(page.getByTestId('active')).toHaveText('false');
+
+    // All ten words arrived — the stream completed naturally, not cut short.
+    const tokens = (await page.getByTestId('tokens').textContent()) ?? '';
+    const wordCount = tokens.trim().split(/\s+/).filter(Boolean).length;
+    expect(wordCount).toBe(10);
+  });
+
   test('cancelling the handle ends the stream', async ({ page }, testInfo) => {
     await open(page, `sn-cancel-${testInfo.testId}`);
     await start(page);

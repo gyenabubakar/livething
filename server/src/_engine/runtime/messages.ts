@@ -944,10 +944,18 @@ export async function processTextMessage(
             );
             return;
           }
+          // A thrown nudge intercept is non-terminal: tag the error with
+          // streamTerminated:false and the streamNudgeId so the client's nudge()
+          // Promise rejects while the stream stays live and keeps emitting chunks.
+          const rejectRouting: Protocol.WSKitRouting = {
+            streamId: wskit.streamId,
+            streamTerminated: false,
+          };
+          if (wskit.streamNudgeId !== undefined) rejectRouting.streamNudgeId = wskit.streamNudgeId;
           await runtime.handleRuntimeError(connection, {
             error,
             event,
-            routing: { streamId: wskit.streamId },
+            routing: rejectRouting,
           });
           return;
         }

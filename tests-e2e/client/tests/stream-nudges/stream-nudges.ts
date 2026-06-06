@@ -10,6 +10,7 @@ export function setup(): void {
     <button data-testid="connect">connect</button>
     <button data-testid="start">start</button>
     <button data-testid="speed-up">speed-up</button>
+    <button data-testid="reject-nudge">reject-nudge</button>
     <button data-testid="pause">pause</button>
     <button data-testid="malformed-pause">malformed-pause</button>
     <button data-testid="cancel">cancel</button>
@@ -55,6 +56,18 @@ export function setup(): void {
     if (!handle) return;
     try {
       await handle.nudge('speed-up', { factor: 4 });
+      el('nudge-ok').textContent = 'yes';
+    } catch (err) {
+      el('nudge-error').textContent = errorCode(err);
+    }
+  });
+
+  // factor 0 makes the server's nudge intercept throw a typed error. The
+  // nudge() Promise must reject with that code while the stream keeps running.
+  button('reject-nudge', async () => {
+    if (!handle) return;
+    try {
+      await handle.nudge('speed-up', { factor: 0 });
       el('nudge-ok').textContent = 'yes';
     } catch (err) {
       el('nudge-error').textContent = errorCode(err);

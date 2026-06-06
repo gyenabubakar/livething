@@ -1,14 +1,20 @@
-import { contract, implement, incoming, nudge, outgoing, stream, t } from '@wskit/server';
+import { contract, error, implement, incoming, nudge, outgoing, stream, t } from '@wskit/server';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const Token = v.object({ token: v.string() });
 
+// A typed error a nudge intercept can throw. The client must see nudge() reject
+// with this code while the stream keeps running (regression: a thrown nudge
+// intercept used to terminate the stream and hang the nudge() Promise).
+export const NudgeRejected = error('nudge-rejected');
+
 export const streamNudgesContract = contract('stream-nudges', {
   env: t<Env>(),
   dedup: true,
   meta: t<{ username: string }>(),
+  errors: [NudgeRejected],
   definitions: [
     incoming('pause', v.object({ leak: v.optional(v.string()) })),
     outgoing('pause-top-level-fired', v.object({ leak: v.string() })),
@@ -27,6 +33,15 @@ export const streamNudgesContract = contract('stream-nudges', {
 
 export const streamNudgesHandler = implement(streamNudgesContract)
   .onUpgrade((req) => requireUsername(req))
+  // A speed-up nudge with factor 0 is rejected by the intercept with a typed
+  // error. Everything else passes through untouched, so the other nudge tests
+  // are unaffected.
+  .intercept((_ctx, frame) => {
+    if (frame.kind === 'nudge' && frame.event === 'speed-up') {
+      const p = frame.payload as { factor?: number };
+      if (p.factor === 0) throw NudgeRejected();
+    }
+  })
   .on('pause', (ctx, payload) => {
     ctx.send('pause-top-level-fired', { leak: payload.leak ?? '<empty>' });
   })
