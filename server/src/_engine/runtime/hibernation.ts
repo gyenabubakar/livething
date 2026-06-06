@@ -63,12 +63,14 @@ export function readConnectionState(
   return ConnectionStore.readConnectionRow(core.requireStorage().sql, connectionId);
 }
 
-/** Delete one connection row. Called after disconnect hooks run. */
+/**
+ * Delete a connection's saved hibernation state — the record the engine reads to
+ * rebuild it when a hibernated object wakes. No-op without hibernation.
+ */
 export function deleteConnectionState(core: EngineCore, connectionId: string): void {
   if (!core.hibernationEnabled) return;
-  // Drop any queued write for this connection first. If we did not, the
-  // scope flush after this call would write a row back for a connection we
-  // just deleted, bringing it back to life on disk.
+  // Drop this connection's pending row write first — without it, the write that
+  // runs when this engine call finishes would re-create the row we just deleted.
   const scope = getInvocationScope(core.asyncContext);
   if (scope) {
     for (const connection of scope.dirtyConnections) {
