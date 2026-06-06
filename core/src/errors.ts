@@ -383,7 +383,7 @@ export const ChannelNotSubscribed = error('channel-not-subscribed');
  * });
  * ```
  */
-export const RejoinRejected = error('rejoin-rejected');
+export const RejoinRejected = error('rejoin-rejected', v.object({ message: v.string() }));
 
 /**
  * Sent to the client when an unhandled server-side error occurs that WSKit
