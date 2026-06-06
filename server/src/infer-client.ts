@@ -4,8 +4,16 @@ import type {
   ChannelNotSubscribed,
   ErrorDef,
   InternalError,
+  InvalidScopeMarkers,
   NamespaceNotFound,
+  NudgeOverflow,
+  RateLimited,
   RejoinRejected,
+  RequestNoCorrelation,
+  RequestNoResponse,
+  StreamAborted,
+  StreamAlreadyActive,
+  StreamIdCollision,
   ValidationFailed,
 } from '~/errors/errors.ts';
 import type { ServerContract, ServerDefinition } from '~/server-definition.ts';
@@ -60,14 +68,26 @@ type ErrorMap<TDefs> = SimplifyDeep<
 type ContractOf<TServer extends ServerDefinition> =
   TServer extends ServerDefinition<any, infer TContract> ? TContract : ServerContract;
 
-/** The set of error types that WSKit always adds to every server's error map. */
+/**
+ * The set of framework error types WSKit can send to any client, so they are
+ * always present in a server's typed error map for `.matches()`. Mirrors the
+ * exhaustive client-receivable error-code table in the client spec.
+ */
 type BuiltInErrorUnion =
   | typeof ValidationFailed
   | typeof ChannelNotFound
   | typeof ChannelNotSubscribed
   | typeof RejoinRejected
   | typeof NamespaceNotFound
-  | typeof InternalError;
+  | typeof InternalError
+  | typeof InvalidScopeMarkers
+  | typeof RateLimited
+  | typeof RequestNoCorrelation
+  | typeof RequestNoResponse
+  | typeof StreamAborted
+  | typeof StreamAlreadyActive
+  | typeof StreamIdCollision
+  | typeof NudgeOverflow;
 
 /**
  * Read one slot off a contract type, falling back to `{}` when the contract

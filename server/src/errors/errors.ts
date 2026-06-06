@@ -24,6 +24,8 @@ export {
   NudgeOverflow,
   RateLimited,
   RejoinRejected,
+  RequestNoCorrelation,
+  RequestNoResponse,
   StreamAborted,
   StreamAlreadyActive,
   StreamIdCollision,
