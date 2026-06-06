@@ -11,8 +11,8 @@ import {
   t,
 } from '@wskit/server';
 import { Disconnect, RejectUpgrade } from '@wskit/server/errors';
-import type { InferClient } from '@wskit/server';
 import * as v from 'valibot';
+import type { InferClient } from '@wskit/server';
 import {
   ChatMsg,
   Cursor,
