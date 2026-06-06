@@ -91,6 +91,56 @@ describe('channels-reconnect-resubscribe-failure-surfaces', () => {
     }
   });
 
+  it('clears a PERSISTENT channel when the server rejects its auto-rejoin with rejoin-rejected', () => {
+    vi.useFakeTimers();
+    try {
+      const socket = client<C>()(connect('wss://test'), channels(), reconnection());
+      socket.connect();
+      const first = MockWebSocket.last();
+      first.open();
+
+      const room = socket.channel('general');
+      room.subscribe();
+      // Server confirms AND marks the channel persistent (durable membership).
+      first.emit({
+        event: '__subscribeOk__',
+        payload: { source: 'client' },
+        __wskit: { channel: 'general', channelPersistent: true },
+      });
+
+      // Drop → reconnect. A persistent channel is auto-rejoined by the server, so
+      // the client must NOT send its own __subscribe__ on reopen.
+      first.serverClose(1006, 'drop');
+      vi.advanceTimersByTime(1500);
+      const second = MockWebSocket.last();
+      second.open();
+
+      const clientResubscribes = second
+        .sentFrames()
+        .filter((f) => f.event === '__subscribe__' && f.__wskit?.channel === 'general');
+      expect(clientResubscribes).toHaveLength(0);
+
+      const onSubFailed = vi.fn();
+      room.onSubscriptionFailed(onSubFailed);
+
+      // Server refuses the auto-rejoin (revalidate threw) → rejoin-rejected.
+      second.emit({
+        event: '__error__',
+        payload: { code: 'rejoin-rejected' },
+        __wskit: { channel: 'general' },
+      });
+
+      expect(onSubFailed).toHaveBeenCalledWith(
+        expect.objectContaining({ code: 'rejoin-rejected' }),
+      );
+      // The channel is cleared: send() throws, and it won't be retried on the next
+      // reconnect — no permanent "active locally, gone on the server" divergence.
+      expect(() => room.send('send-message', { text: 'x' })).toThrow();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('keeps the channel active when a channel-scoped __error__ arrives in steady state (a message error, not a (re)subscribe)', () => {
     const socket = client<C>()(connect('wss://test'), channels(), reconnection());
     socket.connect();

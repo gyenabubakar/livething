@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { allocatePersistentSequence, ensureSequenceSchema } from './runtime.ts';
+import {
+  allocatePersistentSequence,
+  createPersistentSequenceAllocator,
+  ensureSequenceSchema,
+} from './runtime.ts';
 
 class FakeSqlResult<TRow = unknown> {
   constructor(private readonly row: Record<string, unknown> | null) {}
@@ -100,5 +104,58 @@ describe('sequence/runtime', () => {
     expect(allocatePersistentSequence(sql)).toBe(43);
     // No INSERT should happen when the row already exists.
     expect(queries.some((q) => q.startsWith('INSERT INTO __wskit_sequence'))).toBe(false);
+  });
+});
+
+describe('createPersistentSequenceAllocator (batched)', () => {
+  function writeCount(calls: string[]): number {
+    return calls.filter(
+      (q) => q.includes('__wskit_sequence') && (q.includes('INSERT') || q.includes('UPDATE')),
+    ).length;
+  }
+
+  it('serves a whole batch from memory, hitting SQL only once per batch', () => {
+    const { calls, sql } = createSql();
+    const alloc = createPersistentSequenceAllocator(sql, 3); // batchSize 3
+
+    // First next() reserves [1..4) in one write and serves from memory after.
+    expect(alloc.next()).toBe(1);
+    expect(alloc.next()).toBe(2);
+    expect(alloc.next()).toBe(3);
+    expect(writeCount(calls)).toBe(1); // the whole first batch was one SQL write
+
+    // The 4th call exhausts the batch and refills with exactly one more write.
+    expect(alloc.next()).toBe(4);
+    expect(writeCount(calls)).toBe(2);
+    expect(alloc.next()).toBe(5);
+    expect(writeCount(calls)).toBe(2); // still serving the second batch from memory
+  });
+
+  it('respects a custom batchSize for when the refill happens', () => {
+    const { calls, sql } = createSql();
+    const alloc = createPersistentSequenceAllocator(sql, 2);
+
+    expect(alloc.next()).toBe(1);
+    expect(alloc.next()).toBe(2);
+    expect(writeCount(calls)).toBe(1);
+    expect(alloc.next()).toBe(3); // batch of 2 exhausted → refill
+    expect(writeCount(calls)).toBe(2);
+  });
+
+  it('a restart resumes above the reserved range — monotonic with a gap (crash safety)', () => {
+    const { sql } = createSql();
+    const before = createPersistentSequenceAllocator(sql, 100);
+
+    // Reserving the batch bumps the stored row to 101 BEFORE any number is given
+    // out, then hands out 1, 2, 3 from memory.
+    expect(before.next()).toBe(1);
+    expect(before.next()).toBe(2);
+    expect(before.next()).toBe(3);
+
+    // Simulate a crash: the in-memory tail (4..100) is lost. A fresh allocator
+    // reads the persisted row, which already jumped past the whole batch.
+    const after = createPersistentSequenceAllocator(sql, 100);
+    expect(after.next()).toBe(101); // never reuses 4..100 — strictly increasing
+    expect(after.next()).toBe(102);
   });
 });

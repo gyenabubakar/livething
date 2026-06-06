@@ -4,6 +4,7 @@ import { connect } from '~/connect.ts';
 import { plugin } from '~/plugins/plugins.ts';
 import { ack } from '~/primitives/ack/index.ts';
 import { debug } from '~/primitives/debug.ts';
+import { reconnection } from '~/primitives/reconnection/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Primitive, ValidatePrimitives } from '~/primitives/types.ts';
@@ -234,6 +235,37 @@ describe('plugin() hooks', () => {
 
     const { ws } = build(Opener());
     expect(ws.sentFrames()).toContainEqual({ event: 'hello', payload: { n: 1 } });
+  });
+
+  it('a plugin-authored onReconnect fires on reconnect (not first open) and sends its messages', () => {
+    vi.useFakeTimers();
+    try {
+      const onReconnect = vi.fn(() => [{ event: 'rejoined', payload: { n: 1 } }]);
+      const Rejoiner = plugin({
+        id: 'test:rejoiner',
+        key: Symbol('test:rejoiner'),
+        setup(_args, hooks) {
+          hooks.onReconnect(onReconnect);
+          return () => ({});
+        },
+      });
+
+      const { ws: first } = build(reconnection(), Rejoiner());
+      // The first open is not a reconnect.
+      expect(onReconnect).not.toHaveBeenCalled();
+
+      // Drop → the reconnection primitive schedules a retry; the new socket's
+      // open is a reconnect, so the plugin's onReconnect must fire.
+      first.serverClose(1006, 'drop');
+      vi.advanceTimersByTime(1500);
+      const second = MockWebSocket.last();
+      second.open();
+
+      expect(onReconnect).toHaveBeenCalledTimes(1);
+      expect(second.sentFrames()).toContainEqual({ event: 'rejoined', payload: { n: 1 } });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('logs onIncoming errors only when debug is on', () => {

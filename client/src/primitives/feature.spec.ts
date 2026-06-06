@@ -110,6 +110,25 @@ describe('requestResponse', () => {
     await expect(promise).resolves.toEqual({ balance: 10 });
   });
 
+  it('resolves two concurrent requests independently, matched by correlationId out of order', async () => {
+    const { socket, ws } = buildRequestResponse();
+    const p1 = socket.request('get-balance', { user: 'a' });
+    const p2 = socket.request('get-balance', { user: 'b' });
+
+    const frames = ws.sentFrames();
+    const cid1 = frames.at(-2).__wskit.correlationId;
+    const cid2 = frames.at(-1).__wskit.correlationId;
+    expect(cid1).not.toBe(cid2);
+
+    // Reply to the SECOND request first — arrival order must not matter; each
+    // promise settles by its own correlationId.
+    ws.emit({ event: 'get-balance', payload: { balance: 2 }, __wskit: { correlationId: cid2 } });
+    ws.emit({ event: 'get-balance', payload: { balance: 1 }, __wskit: { correlationId: cid1 } });
+
+    await expect(p1).resolves.toEqual({ balance: 1 });
+    await expect(p2).resolves.toEqual({ balance: 2 });
+  });
+
   it('rejects with a typed error frame', async () => {
     const { socket, ws } = buildRequestResponse();
     const promise = socket.request('get-balance', { user: 'a' });
