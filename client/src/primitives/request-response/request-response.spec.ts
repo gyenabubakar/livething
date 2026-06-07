@@ -74,6 +74,22 @@ describe('requestResponse', () => {
     await expect(promise).rejects.toMatchObject({ code: 'disconnected' });
   });
 
+  it('sends a request made before open once the socket opens, instead of dropping it', async () => {
+    const socket = client<C>()(connect('wss://test'), requestResponse());
+    socket.connect();
+    const ws = MockWebSocket.last(); // connecting, NOT open yet
+
+    const promise = socket.request('get-balance', { user: 'a' });
+    expect(ws.sentFrames()).toHaveLength(0); // nothing on the wire while connecting
+
+    ws.open(); // now the queued request flushes
+    const cid = ws.sentFrames().at(-1).__wskit.correlationId;
+    expect(typeof cid).toBe('string');
+
+    ws.emit({ event: 'get-balance', payload: { balance: 7 }, __wskit: { correlationId: cid } });
+    await expect(promise).resolves.toEqual({ balance: 7 });
+  });
+
   it('rejects with Timeout when no reply arrives', async () => {
     vi.useFakeTimers();
     try {

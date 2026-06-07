@@ -1,6 +1,7 @@
 import { Disconnected, Timeout } from '~/errors.ts';
 import { toWSKitError } from '~/internal/error-frame.ts';
 import { getAugmenters } from '~/internal/scoped.ts';
+import type { WireMessage } from '~/internal/runtime.ts';
 import type { ScopeMarkers } from '~/internal/scoped.ts';
 import type {
   RequestResponseOptions,
@@ -28,6 +29,10 @@ export function requestResponse(
     _tag: 'requestResponse',
     setup(helpers) {
       const pending = new Map<string, Pending>();
+      // Frames for requests made before the socket is open. rawSend drops while
+      // closed, so we hold them here and send on onOpen — otherwise the request
+      // would be silently dropped and only fail by timing out.
+      const outbox = new Map<string, WireMessage>();
 
       function sendRequest(
         event: string,
@@ -41,6 +46,7 @@ export function requestResponse(
         return new Promise((resolve, reject) => {
           function done(): void {
             pending.delete(correlationId);
+            outbox.delete(correlationId);
             helpers.lazyRelease();
           }
           const timer = setTimeout(() => {
@@ -61,12 +67,25 @@ export function requestResponse(
             },
           });
 
-          helpers.rawSend({ event, payload, __wskit: { correlationId, ...callOptions.markers } });
+          const frame: WireMessage = {
+            event,
+            payload,
+            __wskit: { correlationId, ...callOptions.markers },
+          };
+          // Send now if the wire is open; otherwise queue it for onOpen.
+          if (helpers.getState() === 'open') helpers.rawSend(frame);
+          else outbox.set(correlationId, frame);
         });
       }
 
       return {
         id: 'requestResponse',
+        onOpen() {
+          if (outbox.size === 0) return null;
+          const frames = [...outbox.values()];
+          outbox.clear();
+          return frames;
+        },
         onIncoming(message) {
           const correlationId = message.__wskit?.correlationId;
           if (typeof correlationId !== 'string') return message;
@@ -81,6 +100,7 @@ export function requestResponse(
         onClose() {
           for (const waiter of pending.values()) waiter.reject(Disconnected());
           pending.clear();
+          outbox.clear();
         },
         install(socket) {
           // @ts-expect-error — install adds request() to the socket dynamically
