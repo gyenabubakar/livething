@@ -47,7 +47,7 @@ export function environment(implementation: ClientEnvironment): ClientEnvironmen
  * calls, never at import time — and where those globals are absent (SSR, Node,
  * non-DOM runtimes) it simply provides no signals.
  */
-export const WebEnvironment = environment({
+export const WebEnvironment = /* @__PURE__ */ environment({
   onVisibilityChange(callback) {
     if (typeof document === 'undefined') return () => undefined;
 
