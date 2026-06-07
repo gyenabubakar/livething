@@ -44,9 +44,12 @@ export function buffering(options: BufferingOptions = {}): Primitive<EmptyTypeFn
           return null;
         },
         onClose(_code, _reason, intentional) {
-          // A deliberate disconnect throws the queue away; an accidental drop
-          // keeps it so the messages go out on reconnect.
+          // A deliberate disconnect throws the queue away. An accidental drop
+          // keeps the queue so the messages go out on reconnect, but still stops
+          // any in-progress staggered flush — otherwise its timer would keep
+          // firing into a closed socket and silently lose those messages.
           if (intentional) buffer.clear();
+          else buffer.stopFlush();
         },
       };
     },

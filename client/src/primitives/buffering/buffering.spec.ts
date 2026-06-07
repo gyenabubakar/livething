@@ -4,6 +4,7 @@ import { MessageBuffer } from '~/primitives/buffering/buffer.ts';
 import { buffering } from '~/primitives/buffering/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { WireMessage } from '~/internal/runtime.ts';
 import type { Primitive, ValidatePrimitives } from '~/primitives/types.ts';
 import type { SocketContract } from '~/types.ts';
 
@@ -176,6 +177,37 @@ describe('MessageBuffer — staggered flushInterval tick loop', () => {
 
     vi.advanceTimersByTime(500); // no further ticks should fire
     expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps unsent messages when stopped mid-flush, instead of losing them', () => {
+    vi.useFakeTimers();
+    const buffer = new MessageBuffer({ enabled: true, flushInterval: 100 });
+    const delivered: string[] = [];
+    let wireOpen = true;
+    function send(m: WireMessage): void {
+      if (wireOpen) delivered.push(m.event);
+    }
+
+    buffer.enqueue({ event: 'm1', payload: {} });
+    buffer.enqueue({ event: 'm2', payload: {} });
+    buffer.enqueue({ event: 'm3', payload: {} });
+
+    buffer.flush(send); // m1 goes out immediately
+    expect(delivered).toEqual(['m1']);
+
+    // Socket drops mid-flush: stop the drip and confirm m2/m3 stay buffered.
+    wireOpen = false;
+    buffer.stopFlush();
+    vi.advanceTimersByTime(500); // no further ticks
+    expect(delivered).toEqual(['m1']);
+    expect(buffer.size).toBe(2);
+
+    // On reconnect they flush successfully.
+    wireOpen = true;
+    buffer.flush(send);
+    expect(delivered).toEqual(['m1', 'm2']); // m2 immediate
+    vi.advanceTimersByTime(100);
+    expect(delivered).toEqual(['m1', 'm2', 'm3']);
   });
 
   it('onComplete fires even when all messages are expired (zero valid)', () => {

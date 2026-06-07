@@ -65,38 +65,36 @@ export class MessageBuffer {
    * Send everything in the buffer, dropping anything past its TTL first. With
    * `flushInterval` of `0` they all go at once; otherwise one goes every
    * `flushInterval` ms, which is gentler on a rate-limited server.
+   *
+   * A message leaves the buffer only when it's actually handed to `send`, never
+   * up front. So if the socket drops mid-flush, `stopFlush()` leaves the
+   * not-yet-sent messages in the buffer and they go out on the next flush.
    */
   flush(send: (message: WireMessage) => void, onComplete?: () => void): void {
-    const messages = this.drain();
-    const now = Date.now();
-    const valid: BufferedMessage[] = [];
-    for (const buffered of messages) {
-      if (buffered.ttl === null || now - buffered.queuedAt < buffered.ttl) {
-        valid.push(buffered);
-      }
-    }
+    this.dropExpired();
 
-    if (valid.length === 0) {
+    if (this.count === 0) {
       onComplete?.();
       return;
     }
 
     if (this.flushInterval <= 0) {
-      for (const buffered of valid) {
+      let buffered = this.dequeue();
+      while (buffered) {
         send(buffered.message);
+        buffered = this.dequeue();
       }
       onComplete?.();
       return;
     }
 
-    let index = 0;
     const tick = (): void => {
-      if (index >= valid.length) {
+      const buffered = this.dequeue();
+      if (!buffered) {
         this.flushTimer = null;
         onComplete?.();
         return;
       }
-      const buffered = valid[index++]!;
       send(buffered.message);
       this.flushTimer = setTimeout(tick, this.flushInterval);
     };
@@ -122,10 +120,34 @@ export class MessageBuffer {
     return this.enabled;
   }
 
-  private stopFlush(): void {
+  /** Stop an in-progress staggered flush, leaving any unsent messages in place. */
+  stopFlush(): void {
     if (this.flushTimer !== null) {
       clearTimeout(this.flushTimer);
       this.flushTimer = null;
+    }
+  }
+
+  /** Remove and return the oldest message, or `null` when the buffer is empty. */
+  private dequeue(): BufferedMessage | null {
+    if (this.count === 0) return null;
+    const buffered = this.ring[this.head]!;
+    this.ring[this.head] = null;
+    this.head = (this.head + 1) % this.maxSize;
+    this.count--;
+    return buffered;
+  }
+
+  /** Drop messages past their TTL, keeping the rest in order. */
+  private dropExpired(): void {
+    const now = Date.now();
+    const kept = this.drain().filter(
+      (buffered) => buffered.ttl === null || now - buffered.queuedAt < buffered.ttl,
+    );
+    for (const buffered of kept) {
+      const tail = (this.head + this.count) % this.maxSize;
+      this.ring[tail] = buffered;
+      this.count++;
     }
   }
 
