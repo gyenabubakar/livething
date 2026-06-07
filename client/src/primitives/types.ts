@@ -4,14 +4,14 @@ import type { PrimitiveHelpers, PrimitiveRuntime } from '~/internal/runtime.ts';
 import type { Simplify } from '~/types.ts';
 
 /**
- * A "type function" — a type that takes the socket contract and returns the API
+ * A "type function" — a type that takes a socket contract and returns the API
  * a primitive adds to the socket.
  *
- * TypeScript can't pass a type to a type the way you pass a value to a function,
- * so we fake it with two slots: `_contract` is the input and `_api` is the
- * output. `Apply` fills in `_contract`, then reads `_api`. Because `_api` can
- * reference `this['_contract']`, it recomputes against whatever contract is
- * plugged in.
+ * TypeScript can't pass a type as an argument to another type the way you pass
+ * a value to a function. We work around that with two slots: `_contract` (the
+ * input) and `_api` (the output). `Apply` fills `_contract` in and then reads
+ * `_api`. Because `_api` can reference `this['_contract']`, it changes based on
+ * whatever contract is plugged in.
  */
 export interface TypeFn {
   readonly _contract: unknown;
@@ -24,25 +24,24 @@ export interface EmptyTypeFn extends TypeFn {
 }
 
 /**
- * Run a type function: plug `Contract` into its `_contract` slot and read the
- * resulting `_api`.
+ * Run a type function: set `_contract` to `Contract` and read back `_api`.
  */
 export type Apply<F extends TypeFn, Contract> = (F & { readonly _contract: Contract })['_api'];
 
 /**
  * What a primitive factory (like `channels()` or `reconnection()`) returns.
  *
- * `client()` reads these to build the socket. The `_typeFn` and `_requires`
- * fields exist only for the type system (they hold no value at runtime);
- * `applyConfig` and `setup` are the runtime wiring.
+ * `client()` reads these to build the socket. `_typeFn` and `_requires` are
+ * type-only fields (no runtime value); `applyConfig` and `setup` are what
+ * actually run.
  */
 export interface Primitive<F extends TypeFn = EmptyTypeFn, TRequires = {}> {
   /** Names the primitive (e.g. `'connect'`, `'channels'`). Used to catch duplicates. */
   readonly _tag: string;
   /**
-   * Set by `plugin()` — marks this spec as a plugin, not a built-in primitive.
-   * Plugins live in their own identity space (keyed by `key` + `registrationId`)
-   * and always run after every primitive.
+   * Set by `plugin()` — marks this as a plugin, not a built-in primitive.
+   * Plugins are tracked by `key` + `registrationId` and always run after all
+   * primitives.
    */
   readonly _plugin?: {
     readonly key: symbol;
@@ -52,9 +51,8 @@ export interface Primitive<F extends TypeFn = EmptyTypeFn, TRequires = {}> {
   /** Other primitives this one must run after. */
   readonly dependencies?: readonly string[];
   /**
-   * Other primitives this one should run after when they're present, without
-   * requiring them. Unlike `dependencies`, a missing entry is fine — it only
-   * affects ordering, never the presence check.
+   * Like `dependencies`, but optional — run after these if they're present,
+   * don't fail if they're not. Only affects ordering.
    */
   readonly optionalAfter?: readonly string[];
   /** Type-only: the API this primitive adds to the socket. */
@@ -68,9 +66,8 @@ export interface Primitive<F extends TypeFn = EmptyTypeFn, TRequires = {}> {
 }
 
 /**
- * Walk the list of primitives, run each one's type function against the
- * contract, and merge all the resulting APIs together. This is how the socket
- * type gains `.channel()`, `.request()`, and so on.
+ * Run each primitive's type function against the contract and merge the
+ * results. This is how the socket type gains `.channel()`, `.request()`, etc.
  */
 export type ApplyPrimitives<
   TPrimitives extends readonly Primitive<any, any>[],
@@ -83,12 +80,12 @@ export type ApplyPrimitives<
   : {};
 
 /**
- * Check that each primitive's `_requires` is met by the contract. A primitive
- * that isn't satisfied becomes `never` in the list, and since you can't pass a
- * real value where `never` is expected, TypeScript flags that exact argument.
+ * Check that each primitive's `_requires` is satisfied by the contract. A
+ * primitive whose requirement isn't met becomes `never`, so TypeScript will
+ * flag that exact argument at the call site.
  *
- * This is a mapped tuple (not recursion) on purpose: it keeps the tuple length,
- * which lets TypeScript still infer the primitives from a `...rest` argument.
+ * Uses a mapped tuple instead of recursion to preserve the tuple length,
+ * which lets TypeScript infer the primitives from a `...rest` argument.
  */
 export type ValidatePrimitives<TContract, TPrimitives extends readonly Primitive<any, any>[]> = {
   [I in keyof TPrimitives]: TContract extends NonNullable<TPrimitives[I]['_requires']>
@@ -104,22 +101,21 @@ export type SocketWithPrimitives<
 > = Simplify<TBase & ApplyPrimitives<TPrimitives, TContract>>;
 
 /**
- * A type-level error. The method exists but is deliberately NOT callable, so
- * calling it fails on the method itself (not on an argument) with:
- *   "This expression is not callable. Type '{ error: "[wskit] …" }' has no call
- *    signatures."
- * The wrapping object keeps the message from widening to `string`, and using it
- * as a value (not a key) keeps punctuation like the em-dash intact.
+ * A type-level error hint. The method exists but is not callable, so calling
+ * it shows a message like:
+ *   "This expression is not callable. Type '{ error: "[wskit] …" }' has no
+ *    call signatures."
+ * The object wrapper stops TypeScript from widening the message to `string`,
+ * and putting it as a value (not a key) keeps the em-dash and other punctuation.
  */
 type NeedsPrimitive<Message extends string> = { error: Message };
 
 /**
- * True when the contract genuinely declares this section with named events. It
- * must be a required key (an optional `channels?:` is excluded, because the
- * primitive's own `_requires` won't accept an optional section — so suggesting
- * it would be a dead end), it must be non-empty, and it must not be the base
- * `SocketContract`'s bare index signature (so the default contract never gets a
- * spurious stub).
+ * True when the contract actually declares this section with named events.
+ * - Excludes optional sections (e.g. `channels?:`) because `_requires` won't
+ *   accept them, so a stub there would just mislead.
+ * - Excludes empty sections and bare index signatures (`[key: string]: ...`)
+ *   so the default contract never gets a spurious stub.
  */
 type SectionDeclared<TContract, Section extends string> = Section extends keyof TContract
   ? {} extends Pick<TContract, Section>
@@ -132,43 +128,61 @@ type SectionDeclared<TContract, Section extends string> = Section extends keyof 
   : false;
 
 /**
- * For a contract section that needs a primitive you forgot to install, add a
- * stub method whose call signature carries a readable "add X() to client()"
- * message. The check is whether the installed API already provides the method
- * (not which `_tag`s were passed), so it works no matter what else is installed.
- * When the primitive IS installed, nothing is added and the real method (from
- * `ApplyPrimitives`) stands alone — so the happy path is untouched.
+ * True when the contract declares at least one scoped section that needs a
+ * primitive. A plain incoming/outgoing contract declares none, so the whole
+ * stub computation below is skipped — no `ApplyPrimitives` re-binding and no
+ * per-section checks on the common case.
+ */
+type AnyScopedSectionDeclared<TContract> =
+  SectionDeclared<TContract, 'channels'> extends true
+    ? true
+    : SectionDeclared<TContract, 'namespaces'> extends true
+      ? true
+      : SectionDeclared<TContract, 'requests'> extends true
+        ? true
+        : SectionDeclared<TContract, 'streams'> extends true
+          ? true
+          : false;
+
+/**
+ * If a contract section needs a primitive that wasn't installed, add a stub
+ * method that shows a clear "add X() to client()" error when called. The check
+ * is whether the method already exists in the API (not which `_tag`s were
+ * passed), so it's independent of install order. When the primitive is present,
+ * nothing is added — the real method stands alone.
  */
 export type MissingPrimitiveStubs<TContract, TPrimitives extends readonly Primitive<any, any>[]> =
-  ApplyPrimitives<TPrimitives, TContract> extends infer Api
-    ? (SectionDeclared<TContract, 'channels'> extends true
-        ? 'channel' extends keyof Api
-          ? {}
-          : {
-              channel: NeedsPrimitive<'[wskit] socket.channel needs the channels() primitive — add channels() to client()'>;
-            }
-        : {}) &
-        (SectionDeclared<TContract, 'namespaces'> extends true
-          ? 'namespace' extends keyof Api
+  AnyScopedSectionDeclared<TContract> extends false
+    ? {}
+    : ApplyPrimitives<TPrimitives, TContract> extends infer Api
+      ? (SectionDeclared<TContract, 'channels'> extends true
+          ? 'channel' extends keyof Api
             ? {}
             : {
-                namespace: NeedsPrimitive<'[wskit] socket.namespace needs the namespaces() primitive — add namespaces() to client()'>;
+                channel: NeedsPrimitive<'[wskit] socket.channel needs the channels() primitive — add channels() to client()'>;
               }
           : {}) &
-        (SectionDeclared<TContract, 'requests'> extends true
-          ? 'request' extends keyof Api
-            ? {}
-            : {
-                request: NeedsPrimitive<'[wskit] socket.request needs the requestResponse() primitive — add requestResponse() to client()'>;
-              }
-          : {}) &
-        (SectionDeclared<TContract, 'streams'> extends true
-          ? 'onStream' extends keyof Api
-            ? {}
-            : {
-                stream: NeedsPrimitive<'[wskit] socket.stream needs the stream() primitive — add stream() to client()'>;
-                onStream: NeedsPrimitive<'[wskit] socket.onStream needs the stream() primitive — add stream() to client()'>;
-                resumeStream: NeedsPrimitive<'[wskit] socket.resumeStream needs the stream() primitive — add stream() to client()'>;
-              }
-          : {})
-    : {};
+          (SectionDeclared<TContract, 'namespaces'> extends true
+            ? 'namespace' extends keyof Api
+              ? {}
+              : {
+                  namespace: NeedsPrimitive<'[wskit] socket.namespace needs the namespaces() primitive — add namespaces() to client()'>;
+                }
+            : {}) &
+          (SectionDeclared<TContract, 'requests'> extends true
+            ? 'request' extends keyof Api
+              ? {}
+              : {
+                  request: NeedsPrimitive<'[wskit] socket.request needs the requestResponse() primitive — add requestResponse() to client()'>;
+                }
+            : {}) &
+          (SectionDeclared<TContract, 'streams'> extends true
+            ? 'onStream' extends keyof Api
+              ? {}
+              : {
+                  stream: NeedsPrimitive<'[wskit] socket.stream needs the stream() primitive — add stream() to client()'>;
+                  onStream: NeedsPrimitive<'[wskit] socket.onStream needs the stream() primitive — add stream() to client()'>;
+                  resumeStream: NeedsPrimitive<'[wskit] socket.resumeStream needs the stream() primitive — add stream() to client()'>;
+                }
+            : {})
+      : {};

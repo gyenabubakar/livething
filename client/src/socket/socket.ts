@@ -58,13 +58,13 @@ function defaultSerialize(message: WireMessage): string {
 }
 
 /**
- * The connection engine behind every socket. It handles the WebSocket itself,
- * the connection state, sending and receiving, lazy connecting, and quality.
+ * The core connection class behind every socket. It owns the WebSocket, the
+ * connection state, sending, receiving, lazy connecting, and quality tracking.
  *
- * On purpose it contains no reconnection, keepalive, or buffering code — those
- * live in their own primitives and drive the engine through `_helpers()`. That
- * keeps unused features out of your bundle. You never build this yourself;
- * `client()` does and hands you back a typed `Socket`.
+ * Reconnection, keepalive, and buffering are separate add-on modules (primitives)
+ * that plug in through `_helpers()`. This keeps code you don't use out of your
+ * bundle. You never create this directly — `client()` creates it and returns a
+ * typed `Socket`.
  */
 export class WSKitSocket {
   /** The native WebSocket, or `null` when not connected. */
@@ -76,14 +76,14 @@ export class WSKitSocket {
   /** @internal */
   _config: SocketConfig;
 
-  /** @internal — set after construction, once primitives are built. */
+  /** @internal — set after construction, once add-on modules are ready. */
   _primitives: readonly PrimitiveRuntime[] = [];
 
   /** @internal */
   _state: ConnectionState = 'closed';
 
-  /** @internal — a throwing listener is contained and logged on the debug
-   * channel (matching the message-handler dispatch path), never escapes. */
+  /** @internal — if a listener throws, the error is caught, logged, and never
+   * re-thrown (same behavior as message-handler dispatch). */
   _emitter = new Emitter<SocketEvents>((error) =>
     this._logAt('error', 'a socket listener threw', error),
   );
@@ -97,7 +97,7 @@ export class WSKitSocket {
   /** @internal — true once disconnect() is called, so we don't reconnect. */
   _intentionalClose = false;
 
-  /** @internal — bumped to cancel a connect attempt that's still resolving its URL. */
+  /** @internal — incremented to cancel an in-progress connect attempt (e.g. still resolving the URL). */
   _connectAttemptId = 0;
 
   /** @internal */
@@ -110,15 +110,15 @@ export class WSKitSocket {
   /** @internal — listeners by event name. */
   _messageHandlers = new Map<string, Set<(payload: unknown) => void>>();
 
-  // Quality lives here because the getters are part of the public API, but the
-  // values come from the keepalive primitive (if you added it). `null` means
-  // "not measured yet" — getQuality() shows an optimistic default until a pong
-  // lands, and the first real measurement fires the first qualityChange.
+  // Quality lives here because the getters are public API, but the values are
+  // supplied by the keepalive add-on (if you added it). `null` means "not
+  // measured yet" — getQuality() returns a best-case default until the first
+  // pong arrives, and that first real measurement fires the first qualityChange.
   private _quality: ConnectionQuality | null = null;
 
   private _latency: number | null = null;
 
-  // Filled in by behavior primitives through _helpers().
+  // Filled in by add-on modules through _helpers().
   private _unexpectedCloseHandler: ((code: number, reason: string) => void) | null = null;
 
   private _pongHandlers: (() => void)[] = [];
@@ -130,9 +130,9 @@ export class WSKitSocket {
   private _idCounter = 0;
 
   /**
-   * @internal — plugin APIs, built lazily on first `Plugin.use(socket)`. Keyed
-   * by the plugin's `key`, then by `registrationId` (or `undefined` for a
-   * singleton), so a repeatable plugin can hold several instances at once.
+   * @internal — plugin APIs, created on first use. Keyed by the plugin's `key`,
+   * then by `registrationId` (or `undefined` for a one-instance plugin), so a
+   * plugin that can be registered multiple times keeps each instance separate.
    */
   private _plugins = new Map<
     symbol,
@@ -144,8 +144,8 @@ export class WSKitSocket {
   private readonly _serialize: (message: WireMessage) => string;
   private readonly _intercepts: readonly InterceptFn[];
 
-  // The one debug-gated logger, shared by the primitive helpers and the kernel's
-  // own dispatch paths. `info` maps to console.log, warn/error to their levels.
+  // Shared logger for add-on modules and internal dispatch paths. Calls are
+  // no-ops when debug mode is off. `info` maps to console.log, warn/error to their levels.
   private readonly _logger: PrimitiveLogger = {
     info: (...args) => this._logAt('log', ...args),
     warn: (...args) => this._logAt('warn', ...args),
@@ -205,14 +205,14 @@ export class WSKitSocket {
 
   /**
    * Close the connection on purpose. This is a full stop: no reconnection, the
-   * buffer is cleared, and primitives clean up. Your `on()` handlers stay, so
-   * `connect()` later picks up where you left off.
+   * outgoing buffer is cleared, and add-on modules clean up. Your `on()` handlers
+   * stay, so calling `connect()` later picks up where you left off.
    */
   disconnect(code = 1000, reason = ''): void {
     this._intentionalClose = true;
     this._connectAttemptId++;
-    // A deliberate teardown ends the session: the next connect() is a first
-    // connect again, not a reconnect (so onReconnect/replay don't fire).
+    // A deliberate teardown resets the session: the next connect() is treated
+    // as a first connect, not a reconnect (so onReconnect/replay don't fire).
     this._isFirstConnect = true;
     this._clearLazyIdleTimer();
 
@@ -233,12 +233,12 @@ export class WSKitSocket {
     this._quality = null;
     this._latency = null;
 
-    // Primitives always clean up here — clear the buffer, reject pending
-    // request/ack promises — even when we were already closed, since work may
-    // have been queued since the close. We do NOT zero `_lazyConsumers`: `on()`
-    // handlers stay registered across a disconnect, so they remain real
-    // consumers — wiping the count would make a later unsubscribe wrongly
-    // idle-close a socket that still has live listeners.
+    // Add-on modules always clean up here — clear the buffer, reject pending
+    // request/ack promises — even when already closed, since work may have
+    // been queued since then. We do NOT zero `_lazyConsumers`: `on()` handlers
+    // survive a disconnect, so they still count as consumers. Wiping the count
+    // would let a later unsubscribe wrongly idle-close a socket that still has
+    // live listeners.
     for (const primitive of this._primitives) {
       try {
         primitive.onClose?.(code, reason, true);
@@ -263,7 +263,7 @@ export class WSKitSocket {
 
   getQuality(): ConnectionQuality {
     if (this._state !== 'open') return 'disconnected';
-    // Optimistic default while open but not yet measured (e.g. no keepalive).
+    // Best-case default while open but not yet measured (e.g. keepalive not added).
     return this._quality ?? 'excellent';
   }
 
@@ -351,7 +351,7 @@ export class WSKitSocket {
     this._debug = enabled;
   }
 
-  /** @internal — the set of things a primitive can ask the engine to do. */
+  /** @internal — the set of actions an add-on module can call on the core engine. */
   _helpers(): PrimitiveHelpers {
     return {
       config: this._config,
@@ -473,16 +473,12 @@ export class WSKitSocket {
         }
       }
 
-      // On a reconnect, let primitives resolve async state before the socket
-      // opens (e.g. channels refreshing a rotating subscribe token). Skipped on
-      // the first connect — nothing is subscribed yet — so that path stays
-      // synchronous. Awaited in order, then re-check the attempt so a
-      // disconnect() mid-resolve still cancels us.
-      // Skipped on the first connect — nothing is subscribed yet. A primitive
-      // returns a promise only when it has async work (channels refreshing a
-      // function subscribe payload); otherwise this stays synchronous so a plain
-      // reconnect keeps its existing timing. Re-check the attempt after awaiting
-      // so a disconnect() mid-resolve still cancels us.
+      // On a reconnect, let add-on modules do any async work before the socket
+      // opens (e.g. channels refreshing a subscribe token). Skipped on the first
+      // connect since nothing is subscribed yet. Each module returns a Promise only
+      // when it has real async work, so a basic reconnect stays synchronous.
+      // After awaiting, re-check the attempt id so a disconnect() that happened
+      // mid-resolve still cancels us.
       if (!this._isFirstConnect) {
         let awaited = false;
         for (const primitive of this._primitives) {
@@ -514,8 +510,8 @@ export class WSKitSocket {
         this.protocol = ws.protocol || null;
 
         // Quality is unknown until the first pong measures it — leaving it null
-        // lets that first measurement fire the first qualityChange. getQuality()
-        // shows an optimistic default in the meantime.
+        // ensures that first measurement fires a qualityChange event. getQuality()
+        // returns a best-case default in the meantime.
         this._quality = null;
         this._latency = null;
         this._setState('open');
@@ -523,7 +519,7 @@ export class WSKitSocket {
         const isReconnect = !this._isFirstConnect;
         this._isFirstConnect = false;
 
-        // Primitives go first (replay, re-subscribe, …), then your callbacks.
+        // Add-on modules run first (e.g. replay, re-subscribe), then your callbacks.
         for (const primitive of this._primitives) {
           try {
             const messages = primitive.onOpen?.();
@@ -547,9 +543,9 @@ export class WSKitSocket {
         this._emitter.emit('open');
         if (isReconnect) this._emitter.emit('reconnect');
 
-        // If we opened with no consumers (e.g. the last listener unsubscribed
-        // while we were reconnecting), arm the idle timer now — onopen is the
-        // only place left that can, since _lazyRelease only fires while open.
+        // If we opened with no active listeners (e.g. the last one unsubscribed
+        // while reconnecting), start the idle timer now — onopen is the only
+        // place that can, because _lazyRelease only runs while the socket is open.
         if (this._lazy && this._lazyConsumers === 0) this._startLazyIdleTimer();
       };
 
@@ -568,13 +564,13 @@ export class WSKitSocket {
           }
         }
 
-        // Settle the state BEFORE firing onClose so a handler that reads
-        // getState() sees the resolved state ('reconnecting' or 'closed').
+        // Update the state BEFORE firing onClose so a handler that reads
+        // getState() sees the final state ('reconnecting' or 'closed').
         if (this._intentionalClose) {
           this._setState('closed');
         } else if (this._unexpectedCloseHandler) {
-          // Reconnection decides what happens next (it sets 'reconnecting' or
-          // gives up to 'closed'); without it, an unexpected drop stays closed.
+          // The reconnection module decides what to do next (sets 'reconnecting'
+          // or gives up to 'closed'); without it, an unexpected drop stays closed.
           this._unexpectedCloseHandler(event.code, event.reason);
         } else {
           this._setState('closed');
@@ -647,15 +643,15 @@ export class WSKitSocket {
   }
 
   /**
-   * @internal — the pipeline a parsed message runs through: primitive
+   * @internal — the pipeline a parsed message runs through: add-on module
    * `onIncoming` hooks, then the error-frame check, then your intercepts, then
    * top-level dispatch. Split out from `_handleMessage` so testing's `inject()`
-   * can push a message through the exact same path without a live socket.
+   * can push a message through the same path without a live socket.
    */
   _processIncoming(parsed: WireMessage): void {
-    // Let primitives see it first; any of them can swallow it by returning null.
-    // A throw is isolated (like intercepts and lifecycle callbacks): we log it on
-    // the debug channel and skip that primitive so siblings and dispatch still run.
+    // Let add-on modules see it first; any of them can consume it by returning null.
+    // A throw is isolated (same as intercepts and lifecycle callbacks): we log it
+    // and skip that module so the rest of the pipeline still runs.
     let message: WireMessage = parsed;
     for (const primitive of this._primitives) {
       if (!primitive.onIncoming) continue;
@@ -671,7 +667,7 @@ export class WSKitSocket {
       }
     }
 
-    // An error frame nobody claimed becomes an onError call instead of a normal event.
+    // An `__error__` frame no module claimed becomes an onError call instead of a normal event.
     if (message.event === '__error__') {
       this._emitter.emit('error', toWSKitError(message.payload));
       return;
@@ -694,21 +690,23 @@ export class WSKitSocket {
       }
     }
 
-    // Top-level handlers only see top-level events. Scope- or stream-tagged
-    // frames are delivered by their primitives (channel/namespace handlers, the
-    // stream iterator), so they don't double-fire here.
+    // Top-level handlers only see top-level events. Messages tagged with a
+    // channel, namespace, or stream id are delivered by the matching add-on
+    // module, so they don't fire here too.
     const envelope = message.__wskit;
     if (
       envelope?.channel === undefined &&
       envelope?.namespace === undefined &&
       envelope?.streamId === undefined
     ) {
-      this._log(`received '${message.event}'`, message.payload);
+      // Guard the log so the message string and args aren't built on every
+      // frame when debug is off (they would be, even though _logAt no-ops).
+      if (this._debug) this._log(`received '${message.event}'`, message.payload);
       this._dispatchMessage(message.event, message.payload);
     }
   }
 
-  /** @internal — open a lazy socket the first time something needs it. */
+  /** @internal — open the socket on demand if lazy mode is on and it's not already open. */
   _ensureConnected(): void {
     if (!this._lazy) return;
 
@@ -757,9 +755,9 @@ export class WSKitSocket {
   }
 
   /**
-   * @internal — the full send path: open a lazy socket, let primitives adjust or
-   * cancel the message, then either write it, hand it to the buffer fallback, or
-   * drop it.
+   * @internal — the full send path: open the socket if lazy, let add-on modules
+   * adjust or cancel the message, then either write it, hand it to the outgoing
+   * buffer, or drop it.
    */
   _send(message: WireMessage, options?: SendOptions): boolean {
     this._ensureConnected();
@@ -788,11 +786,11 @@ export class WSKitSocket {
     }
 
     this.ws.send(this._serialize(outgoing));
-    this._log(`send('${outgoing.event}')`, outgoing.payload);
+    if (this._debug) this._log(`send('${outgoing.event}')`, outgoing.payload);
 
-    // A send counts as activity. In lazy mode with no other holds the idle
-    // timer is running; restart it so send-only usage isn't idle-closed
-    // mid-stream (matches the "no recent send()" idle condition in the spec).
+    // A send counts as activity. In lazy mode with no active listeners the idle
+    // timer is running; restart it so a send-only client isn't closed mid-stream
+    // (matches the "no recent send()" idle condition in the spec).
     if (this._lazy && this._lazyConsumers === 0 && this._state === 'open') {
       this._startLazyIdleTimer();
     }
@@ -814,7 +812,7 @@ export class WSKitSocket {
     this._logAt('log', ...args);
   }
 
-  /** @internal — the one place the debug gate and `[wskit]` prefix live. */
+  /** @internal — all log output goes through here; checks debug mode and adds the `[wskit]` prefix. */
   private _logAt(level: 'log' | 'warn' | 'error', ...args: unknown[]): void {
     if (!this._debug) return;
     console[level]('[wskit]', ...args);

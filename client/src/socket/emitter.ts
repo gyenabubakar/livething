@@ -3,12 +3,13 @@
  * function that removes the listener, and empty listener sets are cleaned up.
  */
 export class Emitter<TEvents extends Record<string, unknown[]> = Record<string, unknown[]>> {
-  // The stored listeners all share one erased signature; the typed `on`/`emit`
-  // below keep callers honest about each event's real arguments.
+  // All listeners are stored with a loose signature internally; the typed `on`/`emit`
+  // methods enforce the correct argument types at the call site.
   private listeners = new Map<string, Set<(...args: unknown[]) => void>>();
 
-  // A throwing listener must not break the others or escape `emit()` (which runs
-  // inside the WebSocket's close/open handlers). The owner passes this to log it.
+  // A listener that throws must not stop the rest from running or bubble out of
+  // `emit()` (which runs inside WebSocket event handlers). The caller passes this
+  // to log such errors.
   constructor(private onListenerError?: (error: unknown) => void) {}
 
   /** Add a listener; call the returned function to remove it. */
@@ -33,8 +34,11 @@ export class Emitter<TEvents extends Record<string, unknown[]> = Record<string, 
   emit<K extends keyof TEvents & string>(event: K, ...args: TEvents[K]): void {
     const set = this.listeners.get(event);
     if (!set) return;
-    // Copy first so a listener that unsubscribes mid-emit doesn't disturb the loop.
-    for (const listener of [...set]) {
+    // Copy before iterating only when there's more than one listener, so a
+    // listener that removes itself mid-loop can't skip the next one. With 0-1
+    // listeners the Set iterates safely on its own — no copy needed.
+    const snapshot = set.size <= 1 ? set : [...set];
+    for (const listener of snapshot) {
       try {
         listener(...args);
       } catch (error) {

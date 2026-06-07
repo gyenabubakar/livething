@@ -1,11 +1,15 @@
 /**
- * A one-way queue that bridges "chunks arrive from the socket" with "a `for
- * await` loop pulls them." Chunks are buffered until the loop asks for the next
- * one; if the loop is already waiting, the chunk is handed over straight away.
- * `end()` finishes the loop, `abort()` makes it throw.
+ * A one-way queue between "chunks arriving from the socket" and a `for await`
+ * loop. Chunks are buffered until the loop asks for the next one; if the loop
+ * is already waiting, the chunk is delivered immediately.
+ * `end()` finishes the loop cleanly, `abort()` makes it throw.
  */
 export class StreamQueue<T> {
   private chunks: T[] = [];
+  // Read position into `chunks`. Pulling advances `head` instead of shift()ing,
+  // so each pull is O(1) and draining a backlog is O(n), not O(n²). The consumed
+  // front is compacted away once it passes half the array.
+  private head = 0;
   private resolveNext: ((result: IteratorResult<T>) => void) | null = null;
   private rejectNext: ((error: unknown) => void) | null = null;
   private done = false;
@@ -20,6 +24,19 @@ export class StreamQueue<T> {
     } else {
       this.chunks.push(chunk);
     }
+  }
+
+  /** Pull the next buffered chunk without re-indexing the array. */
+  private take(): T {
+    const chunk = this.chunks[this.head]!;
+    this.head++;
+    // Once over half the array is consumed, drop the front so a drained queue
+    // doesn't hold the whole backing array forever.
+    if (this.head > this.chunks.length >> 1) {
+      this.chunks = this.chunks.slice(this.head);
+      this.head = 0;
+    }
+    return chunk;
   }
 
   /** The stream finished — the loop ends after draining what's buffered. */
@@ -45,8 +62,8 @@ export class StreamQueue<T> {
 
   /** Pull the next result, waiting if nothing is ready yet. */
   next(): Promise<IteratorResult<T>> {
-    if (this.chunks.length > 0) {
-      return Promise.resolve({ value: this.chunks.shift()!, done: false });
+    if (this.head < this.chunks.length) {
+      return Promise.resolve({ value: this.take(), done: false });
     }
     if (this.error) return Promise.reject(this.error);
     if (this.done) return Promise.resolve({ value: undefined, done: true });

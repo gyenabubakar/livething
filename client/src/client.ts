@@ -11,7 +11,7 @@ import type {
   ValidatePrimitives,
 } from '~/primitives/types.ts';
 import type { Socket } from '~/socket/api.ts';
-import type { Simplify, SocketContract } from '~/types.ts';
+import type { SocketContract } from '~/types.ts';
 
 /**
  * Build a typed socket. You call it in two steps: first pick the contract, then
@@ -35,19 +35,15 @@ export function client<TContract extends SocketContract = SocketContract>() {
   return function build<const TPrimitives extends readonly Primitive<any, any>[] = []>(
     connectDescriptor: ConnectDescriptor,
     ...primitives: [...TPrimitives] & ValidatePrimitives<TContract, TPrimitives>
-  ): Simplify<
-    Socket<TContract> &
-      ApplyPrimitives<TPrimitives, TContract> &
-      MissingPrimitiveStubs<TContract, TPrimitives>
-  > {
+  ): Socket<TContract> &
+    ApplyPrimitives<TPrimitives, TContract> &
+    MissingPrimitiveStubs<TContract, TPrimitives> {
     return buildSocket(
       connectDescriptor,
       primitives as readonly Primitive[],
-    ) as unknown as Simplify<
-      Socket<TContract> &
-        ApplyPrimitives<TPrimitives, TContract> &
-        MissingPrimitiveStubs<TContract, TPrimitives>
-    >;
+    ) as unknown as Socket<TContract> &
+      ApplyPrimitives<TPrimitives, TContract> &
+      MissingPrimitiveStubs<TContract, TPrimitives>;
   };
 }
 
@@ -56,7 +52,7 @@ function buildSocket(
   connectDescriptor: ConnectDescriptor,
   primitives: readonly Primitive[],
 ): WSKitSocket {
-  // Plugins live in their own identity space and always run after primitives.
+  // Plugins are tracked separately and always run after primitives.
   const pluginSpecs = primitives.filter((spec) => spec._plugin !== undefined);
   const primitiveSpecs = [
     connectDescriptor,
@@ -68,7 +64,7 @@ function buildSocket(
   assertDependenciesPresent([...primitiveSpecs, ...pluginSpecs]);
 
   // Primitives run first, in dependency order; plugins run after, in
-  // registration order. The kernel iterates this one list for every hook, so
+  // registration order. The socket walks this one list for every hook, so
   // "primitives before plugins" holds for onOpen/onIncoming/onOutgoing/onClose.
   const sorted = [...topoSort(primitiveSpecs), ...pluginSpecs];
 
@@ -79,7 +75,7 @@ function buildSocket(
     throw new WSKitConfigError('[wskit] client() requires a connect() capability.');
   }
 
-  // Build the engine first so each primitive's setup() can safely use it.
+  // Build the socket first so each primitive's setup() can safely use it.
   const socket = new WSKitSocket(config);
   const helpers = socket._helpers();
 
@@ -111,10 +107,10 @@ function assertNoDuplicateTags(specs: readonly Primitive[]): void {
 }
 
 /**
- * Plugins are de-duplicated by identity — `key` plus optional `registrationId` —
- * not by their human `id`. Registering the same singleton twice (or two
- * instances with the same `registrationId`) throws. Two *different* plugins that
- * happen to share an `id` only warn, since the `id` is just a log label.
+ * Plugins are de-duplicated by `key` plus optional `registrationId`, not by
+ * their human-readable `id`. Registering the same plugin twice (or two instances
+ * with the same `registrationId`) throws. Two different plugins that share an
+ * `id` only warn, since the `id` is just a log label.
  */
 function assertUniquePluginIdentity(pluginSpecs: readonly Primitive[]): void {
   const registrationsByKey = new Map<symbol, Set<string | undefined>>();
@@ -165,10 +161,10 @@ function assertDependenciesPresent(specs: readonly Primitive[]): void {
 }
 
 /**
- * Order the primitives so each one runs after the primitives it depends on,
- * plus any `optionalAfter` ones that happen to be present. We track visits by
- * the object itself (not its tag) so repeatable primitives like `intercept`,
- * which share a tag, are all kept. Throws if dependencies form a loop.
+ * Sort primitives so each one runs after the ones it depends on, plus any
+ * `optionalAfter` ones that are present. Visits are tracked by object (not tag)
+ * so repeatable primitives like `intercept`, which share a tag, are all kept.
+ * Throws if dependencies form a cycle.
  */
 function topoSort(specs: readonly Primitive[]): Primitive[] {
   const byTag = new Map(specs.map((s) => [s._tag, s]));

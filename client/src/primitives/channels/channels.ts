@@ -16,7 +16,7 @@ import type {
 } from '~/primitives/channels/types.ts';
 import type { WSKitSocket } from '~/socket/socket.ts';
 
-/** Read a `{ connectionId, meta? }` payload defensively (it comes off the wire). */
+/** Parse a `{ connectionId, meta? }` payload from an untrusted wire message — returns null if the shape is wrong. */
 function readMember(
   payload: unknown,
 ): { connectionId: string; meta?: Record<string, unknown> } | null {
@@ -30,9 +30,9 @@ function readMember(
 
 /**
  * Server-managed rooms. Unlike namespaces, a channel must be subscribed before
- * you can send or receive on it; the server tracks membership and scopes
- * broadcasts to subscribers. This primitive owns all the per-channel state —
- * subscriptions, members, presence — and routes the channel wire frames.
+ * you can send or receive on it; the server tracks membership and limits
+ * broadcasts to subscribers only. This primitive owns all per-channel state —
+ * subscriptions, members, presence — and routes incoming channel messages.
  */
 export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
   return {
@@ -171,7 +171,8 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
               // A channel-scoped stream chunk carries a streamId — it belongs to
               // the stream primitive, not channel.on(). Pass it through untouched.
               if (wskit?.streamId !== undefined) return message;
-              helpers.log.info(`routing '${message.event}' to channel '${name}'`);
+              if (helpers.config.debug)
+                helpers.log.info(`routing '${message.event}' to channel '${name}'`);
               state.dispatch(message.event, message.payload);
               notifyFamily((family) => family.dispatch(message.event, message.payload, name));
               return message;
@@ -179,11 +180,10 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
           }
         },
         onBeforeReopen() {
-          // Refresh function-based subscribe payloads (e.g. a rotating token) so
-          // the reconnect re-subscribe carries a fresh value, not the snapshot from
-          // the first subscribe. Value payloads already hold their resolved form,
-          // so when no channel uses a function we return nothing and the reconnect
-          // stays synchronous.
+          // Re-run function payloads (e.g. a token factory) before reconnecting, so
+          // the re-subscribe sends a fresh value instead of the one from the original
+          // subscribe call. Plain value payloads don't need refreshing, so when no
+          // channel uses a function this returns nothing and reconnect stays synchronous.
           const dynamic = [...states.values()].filter(
             (state) =>
               state.active && !state.persistent && typeof state.subscribeData === 'function',
@@ -203,17 +203,17 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
           })();
         },
         onReconnect() {
-          // Re-join every channel we were subscribed to. The server confirms with
-          // __subscribeOk__ (and a fresh __memberSync__ repopulates members).
-          // Persistent channels are skipped — the server auto-rejoins them from
-          // the durable membership and pushes an unsolicited __subscribeOk__, so
-          // a client re-subscribe would double the subscribe flow.
+          // Re-join every channel we were subscribed to before the disconnect. The
+          // server confirms with __subscribeOk__ (and a fresh __memberSync__ fills
+          // the member list back in). Persistent channels are skipped — the server
+          // re-adds those automatically and sends its own __subscribeOk__, so sending
+          // a client subscribe on top would run the subscribe flow twice.
           const resubscribes: WireMessage[] = [];
           for (const state of states.values()) {
             if (!state.active) continue;
-            // Awaiting a post-reconnect subscribe outcome: the server auto-rejoins
-            // persistent channels, the client re-subscribes the rest. A rejected
-            // outcome (rejoin-rejected, or a failed re-subscribe) clears it.
+            // Mark the channel as waiting for its subscribe confirmation after
+            // reconnect. Persistent channels wait for the server's auto-rejoin;
+            // others wait for the client's re-subscribe reply. A failure clears this.
             state.rejoining = true;
             if (!state.persistent) {
               resubscribes.push({
@@ -226,8 +226,8 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
           return resubscribes.length ? resubscribes : null;
         },
         onClose() {
-          // A drop clears members and fails any in-flight subscribe, but keeps the
-          // channel in the active set so it re-subscribes on reconnect.
+          // On disconnect: clear members and reject any pending subscribe() calls,
+          // but keep the channel active so it re-subscribes when reconnected.
           for (const state of states.values()) {
             if (state.pending) {
               state.pending.reject(Disconnected());
