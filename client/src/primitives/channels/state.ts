@@ -272,8 +272,3 @@ export class FamilyState {
     this.unsubscribed.each((callback) => callback(channelName));
   }
 }
-
-/** Build the routing key for a channel — scope-qualified so families don't clash. */
-export function channelKey(name: string, scopeKey?: string): string {
-  return scopeKey ? `${scopeKey} ${name}` : name;
-}

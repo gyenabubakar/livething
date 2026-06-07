@@ -1,11 +1,12 @@
 import { Disconnected } from '~/errors.ts';
+import { channelKey } from '~/internal/channel-key.ts';
 import { toWSKitError } from '~/internal/error-frame.ts';
 import {
   buildChannelMessaging,
   buildScopeHandle,
   channelMarkers,
 } from '~/primitives/channels/messaging.ts';
-import { channelKey, ChannelState, FamilyState } from '~/primitives/channels/state.ts';
+import { ChannelState, FamilyState } from '~/primitives/channels/state.ts';
 import type { WireMessage } from '~/internal/runtime.ts';
 import type { MessagingObject } from '~/internal/scoped.ts';
 import type { ChannelContext, ScopeHandleObject } from '~/primitives/channels/messaging.ts';
@@ -51,7 +52,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
       }
 
       function stateFor(name: string, scopeKey?: string): ChannelState {
-        const key = channelKey(name, scopeKey);
+        const key = channelKey(scopeKey, name);
         let state = states.get(key);
         if (!state) {
           state = new ChannelState(name, scopeKey, helpers.log);
@@ -86,7 +87,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
           return socket;
         },
         messagingFor(name, scopeKey) {
-          const key = channelKey(name, scopeKey);
+          const key = channelKey(scopeKey, name);
           let messaging = cache.get(key);
           if (!messaging) {
             messaging = buildChannelMessaging(context, stateFor(name, scopeKey));

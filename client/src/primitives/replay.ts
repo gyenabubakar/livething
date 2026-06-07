@@ -1,3 +1,4 @@
+import { channelKey } from '~/internal/channel-key.ts';
 import type { WireMessage, WSKitEnvelope } from '~/internal/runtime.ts';
 import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
 
@@ -51,10 +52,13 @@ export function replay(): Primitive<EmptyTypeFn> {
           if (typeof seq !== 'number') return message;
 
           const channel = message.__wskit?.channel;
-          const key = channel ?? '';
+          const channelScope = message.__wskit?.channelScope;
+          // Key by scope + name so two channels that share a name in different
+          // families each catch up on their own, instead of collapsing into one.
+          const key = channel === undefined ? '' : channelKey(channelScope, channel);
           const current = lastSeq.get(key);
           if (!current || seq > current.seq) {
-            lastSeq.set(key, { seq, channel, channelScope: message.__wskit?.channelScope });
+            lastSeq.set(key, { seq, channel, channelScope });
           }
           return message;
         },

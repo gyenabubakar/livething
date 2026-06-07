@@ -75,6 +75,38 @@ describe('replay — per-channel scope catch-up', () => {
       );
       expect(topLevelReplay).toBeUndefined();
     });
+
+    it('tracks two channels that share a name in different scopes separately', () => {
+      const { ws } = build(dedup(), replay(), reconnection());
+
+      // Same channel name 'lobby' in two different families (scopes).
+      ws.emit({
+        event: 'msg',
+        payload: { text: 'a' },
+        __wskit: { channel: 'lobby', channelScope: 'rooms', seq: 5 },
+      });
+      ws.emit({
+        event: 'msg',
+        payload: { text: 'b' },
+        __wskit: { channel: 'lobby', channelScope: 'tenants', seq: 9 },
+      });
+
+      const second = reconnectAfterDrop(ws);
+      const replayFrames = second.sentFrames().filter((f) => f.event === '__replay__');
+
+      // Each scope must get its own catch-up — they must not collapse into one.
+      expect(replayFrames).toHaveLength(2);
+      expect(replayFrames).toContainEqual({
+        event: '__replay__',
+        payload: { lastKnownSeq: 5 },
+        __wskit: { channel: 'lobby', channelScope: 'rooms' },
+      });
+      expect(replayFrames).toContainEqual({
+        event: '__replay__',
+        payload: { lastKnownSeq: 9 },
+        __wskit: { channel: 'lobby', channelScope: 'tenants' },
+      });
+    });
   });
 
   describe('channelScope included in catch-up request', () => {
