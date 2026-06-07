@@ -1,14 +1,4 @@
 /**
- * Platform environments for `@wskit/client`.
- *
- * Import from `@wskit/client/environment`. Nothing visibility- or network-aware
- * runs unless you pass an environment to the `platform()` primitive. Browsers
- * use the prebuilt `WebEnvironment`; other runtimes author one with
- * `environment()`. Unlike the server's transport adapter, this is optional — the
- * socket connects, sends, receives, and reconnects fine without one.
- */
-
-/**
  * A platform environment — the source of visibility and network signals for
  * `platform()`. An environment declares what it supports by *implementing
  * methods*: there is no capabilities list. Implement `onVisibilityChange` to

@@ -3,7 +3,7 @@ import type { StreamHandle } from '~/types.ts';
 
 /** What the handle calls back into the primitive for, so it stays free of bookkeeping. */
 export interface StreamHandleDependencies {
-  /** Send a mid-stream nudge; resolves on `__nudgeOk__`, rejects on a rejected nudge or timeout. */
+  /** Send a nudge event while the stream is running; resolves when the server confirms, rejects on error or timeout. */
   nudge(
     state: StreamState,
     details: { event: string; payload: unknown; timeout?: number },

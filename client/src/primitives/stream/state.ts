@@ -7,7 +7,7 @@ export class StreamState {
   readonly queue = new StreamQueue<unknown>();
   /** Still running? Goes false on end, error, cancel, or a terminal disconnect. */
   active = true;
-  /** Highest `seq` delivered, so a resume that rewinds doesn't yield a chunk twice. */
+  /** Highest `seq` delivered so far, so chunks already seen are skipped after a resume. */
   lastSeq = Number.NEGATIVE_INFINITY;
   /** The per-chunk timeout, reset on every chunk. */
   timer: ReturnType<typeof setTimeout> | null = null;

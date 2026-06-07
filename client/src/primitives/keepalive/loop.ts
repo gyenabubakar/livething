@@ -57,8 +57,8 @@ export class KeepaliveLoop {
 
     this.missedPongs = 0;
     this.pingSentAt = null;
-    // No optimistic seed — the socket shows a default until the first pong, which
-    // then fires the first qualityChange with a real measurement.
+    // No initial quality guess — the socket stays at the default until the first
+    // pong arrives and fires a qualityChange with a real measurement.
 
     this.pingTimer = setInterval(() => {
       this.tick();

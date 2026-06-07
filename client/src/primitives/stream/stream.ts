@@ -68,10 +68,10 @@ function callStreamHandler(log: PrimitiveLogger, run: () => void): void {
 }
 
 /**
- * Streaming / chunked messages. `socket.stream()` triggers a stream and hands
- * back an async iterable of chunks; `socket.onStream()` listens to broadcast
- * streams. The primitive groups frames by `__wskit.streamId`, drops chunks it
- * has already delivered (by `seq`), and resumes durable streams on reconnect.
+ * Streaming / chunked messages. `socket.stream()` starts a stream and returns
+ * an async iterable of chunks; `socket.onStream()` subscribes to server-pushed
+ * broadcast streams. Chunks are matched by `streamId`, duplicates are dropped
+ * by `seq`, and resumable streams restart automatically on reconnect.
  */
 export function stream(options: StreamOptions = {}): StreamPrimitive {
   const timeout = options.timeout ?? 30_000;
@@ -79,8 +79,8 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
 
   return {
     _tag: 'stream',
-    // A channel-scoped stream resume frame hits the same membership gate as
-    // replay, so re-subscribe must go out first. Order after channels when present.
+    // A channel-scoped resume frame requires channel membership to be set up
+    // first (same as replaying missed messages). Run after channels when present.
     optionalAfter: ['channels'],
     setup(helpers) {
       const streams = new Map<string, StreamState>();

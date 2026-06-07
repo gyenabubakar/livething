@@ -21,8 +21,7 @@ export interface PlatformOptions {
  * `backgroundDisconnectMs`, drops the socket while the app is hidden and reopens
  * it on return.
  *
- * The kernel stays free of any platform code — this primitive only ships when
- * you register it.
+ * Platform code only loads when you register this primitive — it's not built in.
  */
 export function platform(options: PlatformOptions): Primitive<EmptyTypeFn> {
   const { environment, backgroundDisconnectMs } = options;

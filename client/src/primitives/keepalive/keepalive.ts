@@ -11,10 +11,10 @@ export interface KeepaliveOptions {
 }
 
 /**
- * Adds client pings so a quiet connection isn't dropped by proxies, measures
- * latency to drive quality, and closes a connection that stops answering. It's
- * opt-in: without it the client still replies to the server's pings (the engine
- * does that), but sends none of its own. Its code ships only when you add it.
+ * Adds client pings so a quiet connection isn't dropped by proxies, tracks
+ * round-trip latency to report connection quality, and closes a connection
+ * that stops answering. It's opt-in: without it the client still replies to
+ * the server's pings (the engine handles that), but sends none of its own.
  */
 export function keepalive(options: KeepaliveOptions = {}): Primitive<EmptyTypeFn> {
   return {

@@ -15,8 +15,8 @@ export function replay(): Primitive<EmptyTypeFn> {
   return {
     _tag: 'replay',
     dependencies: ['dedup'],
-    // Re-subscribe must reach the server before a channel's __replay__, or the
-    // membership gate drops it. Order after channels when it's present.
+    // The re-subscribe message must arrive before __replay__, or the server
+    // rejects it (not yet a member). Order after channels when it's present.
     optionalAfter: ['channels'],
     setup(helpers) {
       // Highest seq seen per scope. The '' key is the top level; channel names

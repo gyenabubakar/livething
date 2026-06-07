@@ -6,10 +6,10 @@ import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
 import type { WSKitSocket } from '~/socket/socket.ts';
 
 /**
- * Resolve a primitive factory to its tag for dependency assertion. Prefers a
- * static `tag` if the factory exposes one; otherwise reads the real `_tag` off a
- * throwaway instance. Throws a clear error rather than silently guessing from
- * the function name, so a bad dependency surfaces at definition time.
+ * Get the tag string from a primitive factory so we can check dependencies.
+ * Reads the static `tag` property if present; otherwise creates a throwaway
+ * instance and reads `_tag` from it. Throws a clear error if neither works,
+ * so a bad dependency is caught when the plugin is defined, not at runtime.
  */
 function resolveTag(factory: PrimitiveFactory): string {
   if (typeof factory.tag === 'string') return factory.tag;
@@ -23,11 +23,11 @@ function resolveTag(factory: PrimitiveFactory): string {
 }
 
 /**
- * Author a reusable client feature. Unlike built-in primitives, a plugin can't
- * add methods to the socket — its API is reached through `Plugin.use(socket)`,
- * which keeps type inference fast. It can still hook the message pipeline and
- * lifecycle. The client `plugin` mirrors the server's, minus server-only pieces
- * (scheduling, migrations).
+ * Define a reusable client feature. Unlike built-in primitives, a plugin can't
+ * add methods directly to the socket — its API is accessed via `Plugin.use(socket)`,
+ * which keeps TypeScript inference fast. It can still hook into the message pipeline
+ * and lifecycle events. The client `plugin` mirrors the server's, minus server-only
+ * features (scheduling, migrations).
  *
  * ```ts
  * const KEY = Symbol('acme:metrics');
@@ -91,8 +91,8 @@ export function plugin<TArgs = void, TApi = unknown>(
       _plugin: { key: def.key, id: def.id, registrationId },
       dependencies,
       setup(helpers) {
-        // One slot per hook — registering the same one twice throws rather than
-        // silently shadowing, so a plugin keeps all its behavior in one callback.
+        // Each hook can only be registered once — doing it twice throws instead of
+        // quietly replacing the first one, so all the plugin's logic stays in one callback.
         let incoming: ((message: WireMessage) => WireMessage | void) | null = null;
         let outgoing: ((message: WireMessage) => WireMessage | void) | null = null;
         let open: (() => WireMessage[] | void) | null = null;

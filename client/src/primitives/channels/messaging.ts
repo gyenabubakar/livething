@@ -7,9 +7,9 @@ import type { ChannelMember } from '~/primitives/channels/types.ts';
 import type { WSKitSocket } from '~/socket/socket.ts';
 
 /**
- * The bits of the channels primitive that the messaging and scope-handle builders
- * need. `index.ts` owns the stores and hands this in, so the builders stay free
- * of bookkeeping.
+ * The shared context passed to the messaging and scope-handle builders.
+ * It gives them access to the socket, helpers, and state lookups without
+ * them needing to manage those stores themselves.
  */
 export interface ChannelContext {
   socket: WSKitSocket;
@@ -23,7 +23,7 @@ export interface ChannelContext {
   listFamily(scopeKey: string): string[];
 }
 
-/** The `__wskit` markers for a channel, with no active-state check (used by subscribe/unsubscribe/reconnect). */
+/** The routing fields (`__wskit`) that identify this channel on outgoing frames. */
 export function channelMarkers(state: ChannelState): ScopeMarkers {
   return state.scopeKey
     ? { channel: state.name, channelScope: state.scopeKey }
@@ -37,9 +37,9 @@ export function buildChannelMessaging(
 ): MessagingObject {
   const { helpers } = context;
 
-  // Sending needs an active subscription. `markers()` is the plain identity (used
-  // for routing and listen-only methods); `assertReady` is the guard the sending
-  // methods — including augmenter-built request/sendWithAck/stream — call first.
+  // `markers()` returns the routing fields stamped on every outgoing frame.
+  // `assertReady` throws if the channel isn't subscribed yet — all sending methods
+  // (including request/sendWithAck/stream added by other primitives) call it first.
   function markers(): ScopeMarkers {
     return channelMarkers(state);
   }
@@ -67,13 +67,13 @@ export function buildChannelMessaging(
     subscribe(data?: unknown) {
       helpers.ensureConnected();
 
-      // An overlapping subscribe() before the server confirms reuses the in-flight
-      // promise instead of orphaning the first and re-sending __subscribe__.
+      // If subscribe() is called again before the server replies, return the same
+      // promise instead of sending a second __subscribe__ and abandoning the first.
       if (state.pending && state.pendingPromise) return state.pendingPromise;
 
-      // Keep the (lazy) socket awake for the subscription's lifetime. The state
-      // drops this hold on any end — unsubscribe, kick, or a failed subscribe —
-      // not just an explicit unsubscribe(), so it can't leak.
+      // Prevent the socket from going idle while subscribed. This hold is released
+      // on any ending path — unsubscribe, kick, or a failed subscribe — so it
+      // never leaks even if the caller never explicitly unsubscribes.
       state.holdLazy(
         () => helpers.lazyAcquire(),
         () => helpers.lazyRelease(),
@@ -97,9 +97,8 @@ export function buildChannelMessaging(
       }
 
       if (typeof data === 'function') {
-        // A function payload (e.g. a rotating token) — resolve it, then send.
-        // Value payloads stay on the synchronous path. Reject the subscribe if
-        // resolving the payload throws.
+        // Call the function to get the payload, then send. Plain values go through
+        // the synchronous path below. If the function throws, reject the subscribe promise.
         void Promise.resolve((data as () => unknown)()).then(sendSubscribe, (err) => {
           state.pending?.reject(err);
           state.pending = null;
@@ -113,12 +112,11 @@ export function buildChannelMessaging(
       return promise;
     },
     unsubscribe() {
-      // Nothing to leave — a channel that was never subscribed (and has no
-      // in-flight subscribe) must not send a spurious __unsubscribe__ or fire
-      // onUnsubscribed.
+      // If the channel was never subscribed (and no subscribe is in flight),
+      // do nothing — don't send __unsubscribe__ or fire onUnsubscribed.
       if (!state.active && !state.pending) return;
       helpers.rawSend({ event: '__unsubscribe__', payload: {}, __wskit: channelMarkers(state) });
-      // markUnsubscribed() drops the lazy hold for us.
+      // markUnsubscribed() releases the idle-prevention hold for us.
       state.markUnsubscribed();
       if (state.scopeKey) context.family(state.scopeKey).fireUnsubscribed(state.name);
     },
@@ -139,7 +137,7 @@ export function buildChannelMessaging(
   return messaging;
 }
 
-/** The runtime shape of a scope handle — callable, with family-level methods. */
+/** The runtime type of a scope handle: a callable function with family-level listener methods. */
 export type ScopeHandleObject = ((name: string) => MessagingObject) & {
   on(event: string, handler: (data: unknown, channelName: string) => void): () => void;
   onSubscribed(callback: (channelName: string, source: 'server' | 'client') => void): () => void;

@@ -3,9 +3,9 @@ import type { WSKitSocket } from '~/socket/socket.ts';
 import type { ConnectionQuality, ConnectionState } from '~/types.ts';
 
 /**
- * The routing and correlation fields the framework carries beside a message, in
- * its `__wskit` block — kept separate from `payload` so they never clash with
- * your data. Every field is optional; a plain event has no envelope at all.
+ * The internal fields the library attaches to each message inside a `__wskit`
+ * block — kept separate from `payload` so they never clash with your data.
+ * Every field is optional; a plain event has no envelope at all.
  *
  * These values come off the wire untyped, so this describes the *expected* shape
  * — code that reads them still guards against malformed input (e.g. a `seq`
@@ -27,7 +27,7 @@ export interface WSKitEnvelope {
   /** The dynamic channel-family key, paired with `channel`. */
   channelScope?: string;
 
-  /** On `__subscribeOk__`: true when the channel auto-rejoins on reconnect (server-driven), so the client must not re-subscribe it. */
+  /** Set to `true` on `__subscribeOk__` when the server manages rejoining the channel on reconnect, so the client should not re-subscribe it. */
   channelPersistent?: boolean;
 
   /** Per-message sequence number from the server, used by replay. */
@@ -67,9 +67,8 @@ export interface WireMessage {
 export type InterceptFn = (message: WireMessage) => WireMessage | void;
 
 /**
- * A platform signal one primitive publishes and another reacts to. `platform()`
- * emits these from its environment; `reconnection()` consumes `online`. The
- * kernel just relays them, so neither primitive has to import the other.
+ * A signal that one primitive can broadcast and another can listen to.
+ * The socket just passes them through, so neither primitive has to import the other.
  *
  * - `online` — `true` when the device is online, `false` when offline.
  * - `visibility` — `true` when the app/tab is visible, `false` when hidden.
@@ -77,9 +76,9 @@ export type InterceptFn = (message: WireMessage) => WireMessage | void;
 export type PlatformSignal = 'online' | 'visibility';
 
 /**
- * Debug logging for primitives. Every call is gated on whether `debug()` is on
- * and prefixed with `[wskit]`, so call sites never repeat that check. The three
- * levels map to `console.log` / `console.warn` / `console.error`.
+ * A logger for primitives. Every call is gated on whether debug mode is on
+ * and prefixed with `[wskit]`, so call sites never repeat that check.
+ * The three levels map to `console.log` / `console.warn` / `console.error`.
  */
 export interface PrimitiveLogger {
   info(...args: unknown[]): void;
@@ -88,8 +87,8 @@ export interface PrimitiveLogger {
 }
 
 /**
- * The running half of a primitive. A primitive's `setup` returns one of these,
- * and the kernel calls these hooks at the right moments.
+ * The runtime hooks a primitive exposes. A primitive's `setup` returns one of
+ * these, and the socket calls each hook at the right moment.
  */
 export interface PrimitiveRuntime {
   /** A name for debug logs. */
@@ -102,10 +101,10 @@ export interface PrimitiveRuntime {
   onOutgoing?(message: WireMessage): WireMessage | null;
 
   /**
-   * Runs in the connecting phase, before the socket opens, on every (re)connect.
-   * Awaited, so a primitive can resolve async state it needs ready by the time
-   * the socket opens — e.g. `channels` refreshes a function-based subscribe
-   * payload (a rotating token) so the reconnect re-subscribe carries a fresh one.
+   * Runs just before the socket opens, on every reconnect (skipped on the first connect).
+   * Awaited, so a primitive can finish any async work it needs before the
+   * socket opens — e.g. `channels` can refresh a rotating auth token
+   * so the re-subscribe message carries a fresh one.
    */
   onBeforeReopen?(): void | Promise<void>;
 
@@ -130,9 +129,9 @@ export interface PrimitiveRuntime {
 }
 
 /**
- * Everything a primitive can ask the kernel to do. Behavior primitives
+ * Everything a primitive can ask the socket to do. Behavior primitives
  * (reconnection, keepalive, buffering, …) keep their own logic and drive the
- * kernel through these calls. Because the kernel never imports those primitives,
+ * socket through these calls. Because the socket never imports those primitives,
  * the ones you don't use are dropped from your bundle.
  */
 export interface PrimitiveHelpers {
@@ -143,17 +142,16 @@ export interface PrimitiveHelpers {
   rawSend(message: WireMessage): void;
 
   /**
-   * Send a bare `"ping"` text frame straight to the wire. Raw (not JSON) so the
-   * server's raw-pong path and the Cloudflare hibernation auto-response pair
-   * (`'ping'`/`'pong'`) both recognize it — a JSON ping would wake a hibernated
-   * Durable Object instead of being answered at the edge.
+   * Send a bare `"ping"` text frame straight to the wire. Sent as plain text
+   * (not JSON) so the server's pong handler and Cloudflare's built-in ping/pong
+   * response both recognize it — a JSON-encoded ping would not match those paths.
    */
   sendPing(): void;
 
   /** Send a message through the normal path (`onOutgoing` → fallback → wire). */
   send(message: WireMessage, options?: { ttl?: number }): boolean;
 
-  /** Make a unique id. The counter is shared, so ids never clash across primitives. */
+  /** Make a unique id. The counter is shared across all primitives, so ids never collide. */
   generateId(prefix?: string): string;
 
   /** The current connection state. */
@@ -186,26 +184,26 @@ export interface PrimitiveHelpers {
   /** Register who handles an unexpected close — this is how reconnection takes over. */
   onUnexpectedClose(handler: (code: number, reason: string) => void): void;
 
-  /** Ask every primitive's `shouldReconnect`; the first real `true`/`false` wins. */
+  /** Ask each primitive whether to reconnect; the first `true` or `false` answer wins. */
   runShouldReconnect(code: number, reason: string): boolean | undefined;
 
-  /** Get told when a `pong` arrives (keepalive measures latency from this). */
+  /** Register a callback that runs when a `pong` frame arrives. */
   onPong(handler: () => void): void;
 
-  /** Report the latest measured round-trip time so `getLatency()` stays fresh on every pong. */
+  /** Update the last measured round-trip time so `getLatency()` returns the latest value. */
   reportLatency(latencyMs: number): void;
 
-  /** Report the current quality tier; the socket emits `qualityChange` only on an actual change. */
+  /** Update the connection quality tier; the socket fires `qualityChange` only when the tier actually changes. */
   reportQuality(quality: ConnectionQuality): void;
 
   /**
-   * Register what to do with a `send()` that runs while the socket is closed.
-   * Return `true` if you took the message (e.g. buffered it), `false` to drop it.
-   * With no fallback registered, such sends are dropped.
+   * Register a handler for sends that happen while the socket is closed.
+   * Return `true` if you kept the message (e.g. added it to a buffer), `false` to drop it.
+   * If no fallback is registered, those sends are silently dropped.
    */
   registerOutgoingFallback(handler: (message: WireMessage, ttl?: number) => boolean): void;
 
-  /** Debug logging, gated on `debug()` and prefixed — use freely, no guard needed. */
+  /** Debug logger, already gated on debug mode and prefixed — use freely, no guard needed. */
   readonly log: PrimitiveLogger;
 
   /** Publish a platform signal (e.g. `platform()` reporting online/offline). */

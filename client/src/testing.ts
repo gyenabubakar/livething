@@ -1,17 +1,9 @@
-/**
- * Testing utilities for `@wskit/client`.
- *
- * Import from `@wskit/client/testing` — in test files only, or behind an
- * `import.meta.env.DEV` check. Never needed in production; build tools drop the
- * dev-only import so this entry point isn't bundled.
- */
-
 import type { WireMessage } from '~/internal/runtime.ts';
 import type { Socket } from '~/socket/api.ts';
 import type { WSKitSocket } from '~/socket/socket.ts';
 import type { ChannelsOf, IncomingOf, NamespacesOf, SocketContract } from '~/types.ts';
 
-/** Feed a built frame through the real incoming pipeline, with or without a live socket. */
+/** Push a message object through the real incoming pipeline, even if the socket is disconnected. */
 function deliver(socket: object, message: WireMessage): void {
   (socket as unknown as WSKitSocket)._processIncoming(message);
 }

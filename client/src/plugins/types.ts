@@ -6,14 +6,14 @@ import type { ConnectionState } from '~/types.ts';
 /** A primitive factory you can name as a plugin dependency, e.g. `dependencies: [ack]`. */
 export type PrimitiveFactory = {
   (...args: any[]): Primitive<any, any>;
-  /** Optional static tag, read in place of constructing the primitive to learn it. */
+  /** Optional static tag. When present, the tag is read from here instead of creating a throwaway instance. */
   readonly tag?: string;
 };
 
 /**
- * The hooks a plugin wires into during `setup`. They mirror a primitive's
- * lifecycle. Each slot takes one callback — registering the same hook twice
- * throws, so a plugin can't silently shadow its own behavior.
+ * The hooks a plugin can register in `setup`. They follow the same lifecycle as
+ * a built-in primitive. Each hook can only be set once — registering the same
+ * one twice throws, so a plugin can't accidentally overwrite its own handler.
  */
 export interface PluginHooks {
   /** See an incoming message. Return it (maybe changed) to pass on; throw `Block` to drop. */
@@ -41,25 +41,26 @@ export interface PluginHooks {
 /** What you pass to `plugin()`. */
 export interface PluginDef<TArgs, TApi> {
   /**
-   * The plugin's human-readable name, shown in logs and errors. A colon form
-   * like `'acme:metrics'` is recommended to keep it clear of primitive names.
-   * It is NOT the identity — that's `key` (+ `registrationId`). Two *different*
-   * plugins sharing an id only warns.
+   * A human-readable name shown in logs and errors. A namespaced form like
+   * `'acme:metrics'` is recommended to avoid clashing with primitive names.
+   * This is NOT what uniquely identifies a plugin — that's `key` (+ `registrationId`).
+   * Two different plugins sharing the same `id` only produces a warning.
    */
   id: string;
 
   /**
-   * The plugin's identity — the `Symbol` that `key`s its API on each socket and
-   * decides duplicates. The same plugin can't be registered twice under one key
-   * unless it also supplies a `registrationId` (see below).
+   * A `Symbol` that uniquely identifies this plugin. The socket uses it to
+   * store and look up the plugin's API. The same plugin can't be registered
+   * twice on one socket unless it also provides a `registrationId` (see below).
    */
   key: symbol;
 
   /**
-   * Makes the plugin repeatable. Given the same args the developer passed, it
-   * returns a stable string id, so the same plugin can be registered more than
-   * once (e.g. two analytics configs). Two registrations that compute the same
-   * id throw; different ids are kept as separate instances. Omit for a singleton.
+   * Makes the plugin repeatable. Given the args the caller passes, return a
+   * stable string that identifies this particular instance, so the same plugin
+   * can be registered more than once (e.g. two analytics configs). Two
+   * registrations with the same computed id throw; different ids are kept as
+   * separate instances. Leave this out for a one-per-socket (singleton) plugin.
    */
   registrationId?: (args: TArgs) => string;
 
@@ -71,9 +72,10 @@ export interface PluginDef<TArgs, TApi> {
 }
 
 /**
- * What `plugin()` returns: call it with args to register (flat, alongside
- * primitives), and read its API off a socket with `.use(socket)`. For a
- * repeatable plugin, pass the `registrationId` to pick which instance.
+ * What `plugin()` returns. Call it with args to register the plugin (passed
+ * alongside primitives to `client()`), and call `.use(socket)` to get its API
+ * from a socket it was registered on. For a repeatable plugin, pass the
+ * `registrationId` to `.use()` to pick a specific instance.
  */
 export interface PluginFactory<TArgs, TApi> {
   (args: TArgs): Primitive<EmptyTypeFn>;

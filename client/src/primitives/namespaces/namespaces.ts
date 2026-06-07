@@ -8,10 +8,11 @@ import type { ScopeContract } from '~/types.ts';
 type Handler = (data: unknown) => void;
 
 /**
- * Splits one connection into named groups of events. A namespace is just
- * routing — there's no server-side membership and nothing to subscribe to.
- * Calling `socket.namespace('chat')` hands you an messaging whose `on`/`send`
- * are scoped to that name, tagged on the wire with `__wskit.namespace`.
+ * Splits one connection into named groups of events. A namespace is pure
+ * client-side routing — the server doesn't track who's in a namespace and
+ * there's nothing to join. Calling `socket.namespace('chat')` gives you an
+ * object whose `on`/`send` are scoped to that name, tagged on the wire with
+ * `__wskit.namespace`.
  */
 export function namespaces(
   options: NamespacesOptions = {},

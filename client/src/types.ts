@@ -58,8 +58,7 @@ export interface RequestContract {
 }
 
 /**
- * One streaming definition, matching the shape `InferClient` produces from a
- * `@wskit/server` definition: `payload` starts the stream, `chunk` is the shape
+ * One streaming definition: `payload` starts the stream, `chunk` is the shape
  * of each piece you receive, `kind` marks a durable (`'persistent'`) stream you
  * can resume versus a plain (`'ephemeral'`) one, and `nudges` (optional) are
  * messages you can send to a running stream.
@@ -167,8 +166,7 @@ export type NudgesOf<S> = S extends { nudges: infer N } ? N : {};
 
 /**
  * The stream names whose `kind` is `'persistent'` — the only streams you can
- * resume. A contract from `InferClient` stamps every stream with a `kind`, so a
- * plain (`'ephemeral'`) stream is not a valid `resumeStream()` argument.
+ * resume. A plain (`'ephemeral'`) stream is not a valid `resumeStream()` argument.
  */
 export type PersistentStreamKeys<S> = {
   [K in keyof S]: S[K] extends { kind: 'persistent' } ? K : never;

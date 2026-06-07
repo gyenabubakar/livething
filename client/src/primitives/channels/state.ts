@@ -8,10 +8,10 @@ type MemberCallback = (connectionId: string, member: ChannelMember) => void;
 type LeaveCallback = (connectionId: string) => void;
 
 /**
- * A tiny set-of-callbacks helper: `add` returns an unsubscribe, `each` runs them
- * all in isolation — a throwing listener can't stop its siblings, and the throw
- * is reported on the (debug-gated) log channel. `getLog` is read lazily so it can
- * reference the owning instance's logger, which is set after the field runs.
+ * Manages a set of callbacks. `add` registers one and returns an unsubscribe
+ * function. `each` calls all of them: if one throws, the error is logged and the
+ * rest still run. `getLog` is a function so it can reference the owning class's
+ * logger, which is set after this field is initialized.
  */
 function listeners<F>(getLog: () => PrimitiveLogger) {
   const set = new Set<F>();
@@ -47,11 +47,11 @@ export class ChannelState {
    */
   persistent = false;
   /**
-   * True while a reconnect is awaiting this channel's subscribe outcome — the
-   * client's reconnect re-subscribe (non-persistent) or the server's auto-rejoin
-   * (persistent). A channel-scoped `__error__` during this window is a rejected
-   * (re)subscribe, so the channel is cleared; outside it the same frame is a
-   * message error and the subscription is left intact.
+   * True while waiting for a subscribe confirmation after reconnect — either the
+   * server's auto-rejoin (persistent channel) or the client's re-subscribe reply
+   * (non-persistent). A channel `__error__` during this time means the rejoin
+   * failed and the channel is cleared; the same error outside this window is just
+   * a message error and the subscription stays active.
    */
   rejoining = false;
   /**
@@ -68,7 +68,7 @@ export class ChannelState {
   pending: { resolve: () => void; reject: (err: unknown) => void } | null = null;
   /** The in-flight `subscribe()` promise, reused so overlapping calls don't orphan the first. */
   pendingPromise: Promise<void> | null = null;
-  /** Drops the lazy "keep awake" hold taken by `subscribe()`. Held until the subscription ends. */
+  /** Releases the idle-prevention hold taken by `subscribe()`. Held until the subscription ends. */
   private lazyRelease: (() => void) | null = null;
 
   readonly members = new Map<string, ChannelMember>();
@@ -123,14 +123,14 @@ export class ChannelState {
 
   // ── transitions the routing layer drives ──
 
-  /** Take a lazy "keep the socket awake" hold for this subscription's lifetime (at most one). */
+  /** Prevent the socket from going idle for this subscription's lifetime. Only takes effect once. */
   holdLazy(acquire: () => void, release: () => void): void {
     if (this.lazyRelease) return;
     acquire();
     this.lazyRelease = release;
   }
 
-  /** Drop the lazy hold if one is held. Safe to call more than once. */
+  /** Release the idle-prevention hold if one is active. Safe to call more than once. */
   releaseLazy(): void {
     const release = this.lazyRelease;
     this.lazyRelease = null;
@@ -154,9 +154,9 @@ export class ChannelState {
     this.active = false;
     this.rejoining = false;
     this.members.clear();
-    // The subscription is over (unsubscribe or kick) — drop its lazy hold and any
-    // in-flight subscribe(), so a later subscribe() starts a fresh attempt instead
-    // of reusing this dead one.
+    // The subscription ended (unsubscribed or kicked) — release the idle-prevention
+    // hold and clear any in-flight subscribe(), so a later subscribe() starts fresh
+    // rather than reusing the stale pending state.
     this.releaseLazy();
     this.pending = null;
     this.pendingPromise = null;
@@ -168,20 +168,19 @@ export class ChannelState {
   }
 
   fireSubscriptionFailed(error: WSKitError): void {
-    // The subscription failed (rejected subscribe, or a reconnect re-subscribe) —
-    // it's no longer a consumer, so drop its lazy hold.
+    // The subscription failed — release the idle-prevention hold.
     this.releaseLazy();
-    // Only clear the channel when a (re)subscribe was actually in flight: a live
-    // subscribe() with a pending promise, or a reconnect rejoin (`rejoining`).
-    // A channel-scoped `__error__` outside that window is a message error — keep
-    // `active` so one bad send doesn't unsubscribe a healthy channel.
+    // Only deactivate the channel if a subscribe was actually in flight: either a
+    // live subscribe() call (pending !== null) or a reconnect rejoin (rejoining).
+    // A channel __error__ outside that window is a message error — leave the channel
+    // active so one bad send doesn't drop the subscription.
     if (this.pending !== null || this.rejoining) {
       this.active = false;
       this.persistent = false;
       this.rejoining = false;
       this.members.clear();
     }
-    // A live subscribe() call rejects; a reconnect re-subscribe surfaces here instead.
+    // If there's a live subscribe() promise, reject it. Otherwise fire the failure event.
     if (this.pending) {
       this.pending.reject(error);
       this.pending = null;
@@ -242,7 +241,7 @@ export class FamilyState {
   );
   private readonly unsubscribed = listeners<(channelName: string) => void>(() => this.log);
 
-  /** @param log debug-gated logger, used to report a throwing event handler. */
+  /** @param log logger used to report a throwing event handler. */
   constructor(private readonly log: PrimitiveLogger) {}
 
   onSubscribed = this.subscribed.add;
