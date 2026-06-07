@@ -220,7 +220,12 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         }
         const subscriber: BroadcastSub = { handlers, scope };
         subscribers.add(subscriber);
+        // Guard so calling this unsubscribe more than once releases the lazy hold
+        // only once — a second call must not steal another listener's hold.
+        let released = false;
         return () => {
+          if (released) return;
+          released = true;
           subscribers.delete(subscriber);
           if (subscribers.size === 0) broadcastSubs.delete(event);
           helpers.lazyRelease();

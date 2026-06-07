@@ -43,7 +43,12 @@ export function namespaces(
         }
         set.add(handler);
         helpers.lazyAcquire();
+        // Guard so calling this unsubscribe more than once releases the lazy hold
+        // only once — a second call must not steal another listener's hold.
+        let released = false;
         return () => {
+          if (released) return;
+          released = true;
           set.delete(handler);
           if (set.size === 0) byEvent.delete(event);
           helpers.lazyRelease();

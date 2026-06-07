@@ -98,6 +98,23 @@ describe('unsubscribe cleanup + lazyRelease', () => {
     vi.advanceTimersByTime(1000);
     expect(socket.getState()).toBe('closed');
   });
+
+  it('does not over-release when an unsubscribe is called twice', () => {
+    vi.useFakeTimers();
+
+    const socket = lazyBuild();
+    const ns = socket.namespace('chat');
+    const unsubA = ns.on('msg', vi.fn());
+    ns.on('msg', vi.fn()); // a second, still-active listener
+    MockWebSocket.last().open();
+
+    unsubA();
+    unsubA(); // second call must be a no-op, not steal the other listener's hold
+
+    vi.advanceTimersByTime(1000);
+    // One listener is still alive, so the socket must stay open.
+    expect(socket.getState()).toBe('open');
+  });
 });
 
 describe('passthrough guards (correlationId / __ prefix / streamId)', () => {

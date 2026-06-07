@@ -51,7 +51,12 @@ export function buildChannelMessaging(
     on(event, handler) {
       helpers.lazyAcquire();
       const remove = state.addHandler(event, handler);
+      // Guard so calling this unsubscribe more than once releases the lazy hold
+      // only once — a second call must not steal another listener's hold.
+      let released = false;
       return () => {
+        if (released) return;
+        released = true;
         remove();
         helpers.lazyRelease();
       };
