@@ -97,6 +97,10 @@ export function platform(options: PlatformOptions): Primitive<EmptyTypeFn> {
 
         hiddenTimer = setTimeout(() => {
           hiddenTimer = null;
+          // If the socket already died on its own (e.g. a network blip) we have
+          // nothing to drop. Don't mark it as our background drop — otherwise
+          // foreground would reconnect a socket we never closed.
+          if (helpers.getState() !== 'open') return;
           backgrounded = true;
           selfDisconnecting = true;
           helpers.log.info(`hidden ${backgroundDisconnectMs}ms — disconnecting`);
@@ -119,11 +123,17 @@ export function platform(options: PlatformOptions): Primitive<EmptyTypeFn> {
           return null;
         },
         onClose(_code, _reason, intentional) {
-          // Only a real user disconnect() detaches the environment. Our own
-          // background drop keeps listening so it can reopen on return.
-          if (intentional && !selfDisconnecting) {
+          // Our own background drop keeps listening so it can reopen on return.
+          if (selfDisconnecting) return;
+
+          if (intentional) {
+            // A real user disconnect() detaches the environment.
             backgrounded = false;
             unbind();
+          } else {
+            // An accidental drop: cancel the pending background countdown so it
+            // can't fire on an already-dead socket and set a stale flag.
+            clearHiddenTimer();
           }
         },
       };

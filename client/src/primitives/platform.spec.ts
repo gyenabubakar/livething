@@ -93,6 +93,22 @@ describe('background disconnect', () => {
     expect(socket.getState()).toBe('closed');
   });
 
+  it('does not reconnect on foreground when the socket dropped on its own while hidden', () => {
+    const m = mockEnvironment();
+    const { socket, ws } = build(
+      platform({ environment: m.environment, backgroundDisconnectMs: 1000 }),
+    );
+
+    m.setVisible(false); // start the countdown
+    ws.serverClose(1006, 'network blip'); // accidental drop before the timer fires
+    expect(socket.getState()).toBe('closed');
+
+    vi.advanceTimersByTime(1000); // countdown fires on an already-dead socket
+
+    m.setVisible(true); // returning must NOT trigger a platform reconnect
+    expect(socket.getState()).toBe('closed');
+  });
+
   it('throws WSKitConfigError when backgroundDisconnectMs is set but the environment has no onVisibilityChange', () => {
     const netOnly = environment({ onNetworkChange: () => () => undefined });
     expect(() =>
