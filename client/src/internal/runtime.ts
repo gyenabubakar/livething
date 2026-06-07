@@ -1,6 +1,6 @@
 import type { SocketConfig } from '~/internal/config.ts';
 import type { WSKitSocket } from '~/socket/socket.ts';
-import type { ConnectionQuality, ConnectionState } from '~/types.ts';
+import type { ConnectionState } from '~/types.ts';
 
 /**
  * The internal fields the library attaches to each message inside a `__wskit`
@@ -101,6 +101,14 @@ export interface PrimitiveRuntime {
   onOutgoing?(message: WireMessage): WireMessage | null;
 
   /**
+   * Rewrite the connection URL before each connect (first connect and every
+   * reconnect). Gets the URL so far and returns the next one — primitives chain,
+   * each seeing the previous result. `query()` uses this to append params. Async
+   * is awaited, so a basic connect with no URL hooks stays synchronous.
+   */
+  resolveUrl?(url: string): string | Promise<string>;
+
+  /**
    * Runs just before the socket opens, on every reconnect (skipped on the first connect).
    * Awaited, so a primitive can finish any async work it needs before the
    * socket opens — e.g. `channels` can refresh a rotating auth token
@@ -189,12 +197,6 @@ export interface PrimitiveHelpers {
 
   /** Register a callback that runs when a `pong` frame arrives. */
   onPong(handler: () => void): void;
-
-  /** Update the last measured round-trip time so `getLatency()` returns the latest value. */
-  reportLatency(latencyMs: number): void;
-
-  /** Update the connection quality tier; the socket fires `qualityChange` only when the tier actually changes. */
-  reportQuality(quality: ConnectionQuality): void;
 
   /**
    * Register a handler for sends that happen while the socket is closed.

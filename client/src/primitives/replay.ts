@@ -1,4 +1,3 @@
-import { UnsupportedProtocol } from '@wskit/core';
 import type { WireMessage, WSKitEnvelope } from '~/internal/runtime.ts';
 import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
 
@@ -34,8 +33,11 @@ export function replay(): Primitive<EmptyTypeFn> {
               | { code?: string; detail?: { event?: string } }
               | null
               | undefined;
+            // Compared as a literal (not imported from core) so this primitive
+            // doesn't pull the UnsupportedProtocol ErrorDef and its valibot
+            // schema into the bundle just to read one code string.
             if (
-              payload?.code === UnsupportedProtocol.code &&
+              payload?.code === 'unsupported-protocol' &&
               payload.detail?.event === '__replay__'
             ) {
               helpers.log.warn(

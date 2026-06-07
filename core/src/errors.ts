@@ -282,7 +282,7 @@ export function namespaceError(
  *
  * Detail contains the event name and the Standard Schema issues array.
  */
-export const ValidationFailed = error(
+export const ValidationFailed = /* @__PURE__ */ error(
   'validation-failed',
   v.object({
     event: v.string(),
@@ -312,7 +312,7 @@ export const ValidationFailed = error(
  * }
  * ```
  */
-export const ChannelNotFound = error('channel-not-found');
+export const ChannelNotFound = /* @__PURE__ */ error('channel-not-found');
 
 /**
  * The error you get when you target a namespace the server doesn't
@@ -330,7 +330,7 @@ export const ChannelNotFound = error('channel-not-found');
  * }
  * ```
  */
-export const NamespaceNotFound = error('namespace-not-found');
+export const NamespaceNotFound = /* @__PURE__ */ error('namespace-not-found');
 
 /**
  * The error you get when an incoming frame carries more than one scope
@@ -350,7 +350,7 @@ export const NamespaceNotFound = error('namespace-not-found');
  * }
  * ```
  */
-export const InvalidScopeMarkers = error('invalid-scope-markers');
+export const InvalidScopeMarkers = /* @__PURE__ */ error('invalid-scope-markers');
 
 const UNSUPPORTED_PROTOCOL_EVENTS = v.picklist(['__replay__', '__resumeStream__']);
 
@@ -375,7 +375,7 @@ export type UnsupportedProtocolEvent = v.InferInput<typeof UNSUPPORTED_PROTOCOL_
  * }
  * ```
  */
-export const UnsupportedProtocol = error(
+export const UnsupportedProtocol = /* @__PURE__ */ error(
   'unsupported-protocol',
   v.object({ event: UNSUPPORTED_PROTOCOL_EVENTS }),
 );
@@ -395,7 +395,7 @@ export const UnsupportedProtocol = error(
  * }
  * ```
  */
-export const ChannelNotSubscribed = error('channel-not-subscribed');
+export const ChannelNotSubscribed = /* @__PURE__ */ error('channel-not-subscribed');
 
 /**
  * Sent to the client when the server rejects a persistent channel's auto-rejoin
@@ -411,7 +411,10 @@ export const ChannelNotSubscribed = error('channel-not-subscribed');
  * });
  * ```
  */
-export const RejoinRejected = error('rejoin-rejected', v.object({ message: v.string() }));
+export const RejoinRejected = /* @__PURE__ */ error(
+  'rejoin-rejected',
+  v.object({ message: v.string() }),
+);
 
 /**
  * Sent to the client when an unhandled server-side error occurs that WSKit
@@ -425,7 +428,7 @@ export const RejoinRejected = error('rejoin-rejected', v.object({ message: v.str
  * }
  * ```
  */
-export const InternalError = error('internal-error');
+export const InternalError = /* @__PURE__ */ error('internal-error');
 
 /**
  * Sent to the client when a `request(...)` handler returned without calling
@@ -444,7 +447,7 @@ export const InternalError = error('internal-error');
  * }
  * ```
  */
-export const RequestNoResponse = error('request-no-response');
+export const RequestNoResponse = /* @__PURE__ */ error('request-no-response');
 
 /**
  * Sent to the client when a request frame arrived without a `correlationId`
@@ -456,7 +459,7 @@ export const RequestNoResponse = error('request-no-response');
  * The client SDK stamps a `correlationId` automatically; this code only
  * fires for hand-crafted frames or non-SDK clients.
  */
-export const RequestNoCorrelation = error('request-no-correlation');
+export const RequestNoCorrelation = /* @__PURE__ */ error('request-no-correlation');
 
 /**
  * Sent to the client when an in-flight stream terminates for a server-side
@@ -518,7 +521,7 @@ const STREAM_ABORTED_REASONS = [
   'aborted',
 ] as const;
 
-export const StreamAborted = error(
+export const StreamAborted = /* @__PURE__ */ error(
   'stream-aborted',
   v.object({ reason: v.picklist(STREAM_ABORTED_REASONS) }),
 );
@@ -542,7 +545,7 @@ export const StreamAborted = error(
  * }
  * ```
  */
-export const NudgeOverflow = error('nudge-overflow', v.object({ cap: v.number() }));
+export const NudgeOverflow = /* @__PURE__ */ error('nudge-overflow', v.object({ cap: v.number() }));
 
 /**
  * Sent to the client when a stream trigger frame carries a dev-supplied
@@ -561,7 +564,7 @@ export const NudgeOverflow = error('nudge-overflow', v.object({ cap: v.number() 
  * }
  * ```
  */
-export const StreamIdCollision = error('stream-id-collision');
+export const StreamIdCollision = /* @__PURE__ */ error('stream-id-collision');
 
 /**
  * Sent to the client when an incoming frame is rejected because the connection
@@ -584,7 +587,7 @@ export const StreamIdCollision = error('stream-id-collision');
  * }
  * ```
  */
-export const RateLimited = error(
+export const RateLimited = /* @__PURE__ */ error(
   'rate-limited',
   v.object({ retryAfter: v.pipe(v.number(), v.finite(), v.minValue(0)) }),
 );
@@ -612,7 +615,7 @@ export const RateLimited = error(
  * }
  * ```
  */
-export const StreamAlreadyActive = error(
+export const StreamAlreadyActive = /* @__PURE__ */ error(
   'stream-already-active',
   v.object({ event: v.string(), streamId: v.string() }),
 );

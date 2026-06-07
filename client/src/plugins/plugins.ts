@@ -23,6 +23,51 @@ function resolveTag(factory: PrimitiveFactory): string {
 }
 
 /**
+ * Plugin APIs per socket, built on first `use()`. Keyed by the plugin's `key`,
+ * then by `registrationId` (`undefined` for a one-instance plugin), so a
+ * repeatable plugin keeps each instance separate. Held in a module-scoped
+ * WeakMap rather than on the socket so the core socket carries no plugin code —
+ * it's only here when `plugin()` is in the bundle. Keyed weakly by socket, so a
+ * dropped socket takes its plugin entries with it.
+ */
+type PluginEntry = { build: (socket: WSKitSocket) => unknown; api?: unknown };
+const pluginRegistries = new WeakMap<object, Map<symbol, Map<string | undefined, PluginEntry>>>();
+
+function registerPlugin(
+  socket: WSKitSocket,
+  entry: {
+    key: symbol;
+    registrationId: string | undefined;
+    build: (socket: WSKitSocket) => unknown;
+  },
+): void {
+  let byKey = pluginRegistries.get(socket);
+  if (!byKey) {
+    byKey = new Map();
+    pluginRegistries.set(socket, byKey);
+  }
+  let byRegistration = byKey.get(entry.key);
+  if (!byRegistration) {
+    byRegistration = new Map();
+    byKey.set(entry.key, byRegistration);
+  }
+  byRegistration.set(entry.registrationId, { build: entry.build });
+}
+
+function usePlugin(socket: object, key: symbol, registrationId: string | undefined): unknown {
+  const entry = pluginRegistries.get(socket)?.get(key)?.get(registrationId);
+  if (!entry) {
+    throw new WSKitConfigError(
+      registrationId === undefined
+        ? '[wskit] this plugin is not registered on this socket. Pass it to client().'
+        : `[wskit] no plugin instance with registrationId '${registrationId}' is registered on this socket.`,
+    );
+  }
+  if (!('api' in entry)) entry.api = entry.build(socket as WSKitSocket);
+  return entry.api;
+}
+
+/**
  * Define a reusable client feature. Unlike built-in primitives, a plugin can't
  * add methods directly to the socket — its API is accessed via `Plugin.use(socket)`,
  * which keeps TypeScript inference fast. It can still hook into the message pipeline
@@ -123,7 +168,7 @@ export function plugin<TArgs = void, TApi = unknown>(
         return {
           id: registrationId ? `${def.id}#${registrationId}` : def.id,
 
-          install: (socket) => socket._registerPlugin(def.key, registrationId, build),
+          install: (socket) => registerPlugin(socket, { key: def.key, registrationId, build }),
 
           onIncoming: incoming
             ? (message) => {
@@ -190,7 +235,7 @@ export function plugin<TArgs = void, TApi = unknown>(
   }) as PluginFactory<TArgs, TApi>;
 
   factory.use = (socket: object, registrationId?: string): TApi =>
-    (socket as WSKitSocket)._usePlugin(def.key, registrationId) as TApi;
+    usePlugin(socket, def.key, registrationId) as TApi;
 
   return factory;
 }

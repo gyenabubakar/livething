@@ -6,7 +6,8 @@ import { quality } from '~/primitives/quality.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Primitive, ValidatePrimitives } from '~/primitives/types.ts';
+import type { ApplyPrimitives, Primitive, ValidatePrimitives } from '~/primitives/types.ts';
+import type { Socket } from '~/socket/api.ts';
 import type { WSKitSocket } from '~/socket/socket.ts';
 import type { SocketContract } from '~/types.ts';
 
@@ -25,7 +26,10 @@ afterEach(() => {
 function build<const P extends readonly Primitive<any, any>[]>(
   ...primitives: [...P] & ValidatePrimitives<C, P>
 ) {
-  const socket = client<C>()(connect('wss://test'), ...primitives);
+  // The generic wrapper can't carry each primitive's added API through inference,
+  // so we assert it; ApplyPrimitives<P, C> still resolves at each call site.
+  const socket = client<C>()(connect('wss://test'), ...primitives) as unknown as Socket<C> &
+    ApplyPrimitives<P, C>;
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
@@ -275,7 +279,7 @@ describe('helpers.forceClose', () => {
 
     // Null the socket's ws while the interval is still running — this simulates
     // the ws being torn down externally without the loop being stopped.
-    (socket as WSKitSocket).ws = null;
+    (socket as unknown as WSKitSocket).ws = null;
 
     // Tick 2: pingSentAt !== null → missedPongs becomes 1 (< 2), loop continues.
     // Tick 3: missedPongs becomes 2 (>= maxMissedPongs) → forceClose() fires,

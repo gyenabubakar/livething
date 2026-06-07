@@ -34,7 +34,6 @@ export class KeepaliveLoop {
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private pingSentAt: number | null = null;
   private missedPongs = 0;
-  private latency: number | null = null;
   private samples: number[] = [];
   private quality: ConnectionQuality = 'disconnected';
 
@@ -73,7 +72,6 @@ export class KeepaliveLoop {
     }
     this.pingSentAt = null;
     this.missedPongs = 0;
-    this.latency = null;
     this.samples = [];
     this.quality = 'disconnected';
   }
@@ -85,20 +83,11 @@ export class KeepaliveLoop {
     const latency = Date.now() - this.pingSentAt;
     this.pingSentAt = null;
     this.missedPongs = 0;
-    this.latency = latency;
     this.recordSample(latency);
-    // getLatency() reflects the latest single ping; the quality tier uses the
+    // reportLatency reflects the latest single ping; the quality tier uses the
     // rolling average so one slow pong doesn't flip the indicator.
     this.callbacks.reportLatency(latency);
     this.setQuality(this.qualityFromLatency(this.averageLatency()));
-  }
-
-  getQuality(): ConnectionQuality {
-    return this.quality;
-  }
-
-  getLatency(): number | null {
-    return this.latency;
   }
 
   private tick(): void {

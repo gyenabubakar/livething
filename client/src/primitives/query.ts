@@ -15,8 +15,23 @@ export type QueryFn = () => Record<string, string> | Promise<Record<string, stri
 export function query(getParams: QueryFn): Primitive<EmptyTypeFn> {
   return {
     _tag: 'query',
-    applyConfig(config) {
-      config.searchParams = getParams;
+    setup() {
+      function append(baseUrl: string, params: Record<string, string>): string {
+        const search = new URLSearchParams(params).toString();
+        if (!search) return baseUrl;
+        const separator = baseUrl.includes('?') ? '&' : '?';
+        return `${baseUrl}${separator}${search}`;
+      }
+
+      return {
+        id: 'query',
+        resolveUrl(baseUrl) {
+          const params = getParams();
+          return params instanceof Promise
+            ? params.then((resolved) => append(baseUrl, resolved))
+            : append(baseUrl, params);
+        },
+      };
     },
   };
 }

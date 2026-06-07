@@ -10,7 +10,8 @@ import { reconnection } from '~/primitives/reconnection/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ConnectDescriptor } from '~/connect.ts';
-import type { Primitive, ValidatePrimitives } from '~/primitives/types.ts';
+import type { ApplyPrimitives, Primitive, ValidatePrimitives } from '~/primitives/types.ts';
+import type { Socket } from '~/socket/api.ts';
 
 let restore: () => void;
 beforeEach(() => {
@@ -33,8 +34,11 @@ interface AckContract {
 function build<const P extends readonly Primitive<any, any>[]>(
   descriptor: ConnectDescriptor,
   ...primitives: [...P] & ValidatePrimitives<LooseContract, P>
-) {
-  return client<LooseContract>()(descriptor, ...primitives);
+): Socket<LooseContract> & ApplyPrimitives<P, LooseContract> {
+  // The generic wrapper can't carry each primitive's added API through inference,
+  // so we assert it; ApplyPrimitives<P, …> still resolves at each call site.
+  return client<LooseContract>()(descriptor, ...primitives) as unknown as Socket<LooseContract> &
+    ApplyPrimitives<P, LooseContract>;
 }
 
 describe('throwing onClose listener', () => {

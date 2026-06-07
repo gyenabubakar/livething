@@ -1,4 +1,4 @@
-import { Block, WSKitConfigError } from '@wskit/core';
+import { Block } from '@wskit/core';
 import { dispatchToHandlers } from '~/internal/dispatch.ts';
 import { toWSKitError } from '~/internal/error-frame.ts';
 import { Emitter } from '~/socket/emitter.ts';
@@ -13,7 +13,7 @@ import type {
   WSKitEnvelope,
 } from '~/internal/runtime.ts';
 import type { SendOptions } from '~/messaging.ts';
-import type { ConnectionQuality, ConnectionState } from '~/types.ts';
+import type { ConnectionState } from '~/types.ts';
 
 /** What an `onClose` handler receives. */
 export interface CloseEvent {
@@ -34,7 +34,6 @@ type SocketEvents = {
   reconnectFailed: [];
   close: [event: CloseEvent];
   error: [error: Event | WSKitError];
-  qualityChange: [quality: ConnectionQuality, latency: number];
 };
 
 /** Default reader: turn a text frame into `{ event, payload, __wskit? }`. */
@@ -59,7 +58,7 @@ function defaultSerialize(message: WireMessage): string {
 
 /**
  * The core connection class behind every socket. It owns the WebSocket, the
- * connection state, sending, receiving, lazy connecting, and quality tracking.
+ * connection state, sending, receiving, and lazy connecting.
  *
  * Reconnection, keepalive, and buffering are separate add-on modules (primitives)
  * that plug in through `_helpers()`. This keeps code you don't use out of your
@@ -110,14 +109,6 @@ export class WSKitSocket {
   /** @internal — listeners by event name. */
   _messageHandlers = new Map<string, Set<(payload: unknown) => void>>();
 
-  // Quality lives here because the getters are public API, but the values are
-  // supplied by the keepalive add-on (if you added it). `null` means "not
-  // measured yet" — getQuality() returns a best-case default until the first
-  // pong arrives, and that first real measurement fires the first qualityChange.
-  private _quality: ConnectionQuality | null = null;
-
-  private _latency: number | null = null;
-
   // Filled in by add-on modules through _helpers().
   private _unexpectedCloseHandler: ((code: number, reason: string) => void) | null = null;
 
@@ -128,16 +119,6 @@ export class WSKitSocket {
   private _signalHandlers = new Map<string, Set<(value: boolean) => void>>();
 
   private _idCounter = 0;
-
-  /**
-   * @internal — plugin APIs, created on first use. Keyed by the plugin's `key`,
-   * then by `registrationId` (or `undefined` for a one-instance plugin), so a
-   * plugin that can be registered multiple times keeps each instance separate.
-   */
-  private _plugins = new Map<
-    symbol,
-    Map<string | undefined, { build: (socket: WSKitSocket) => unknown; api?: unknown }>
-  >();
 
   private readonly _parse: (raw: string) => WireMessage | null;
   private readonly _parseBinary: ((data: unknown) => WireMessage | null) | null;
@@ -166,34 +147,6 @@ export class WSKitSocket {
   /** @internal — attach the primitive runtimes after they're set up. */
   _setPrimitives(primitives: readonly PrimitiveRuntime[]): void {
     this._primitives = primitives;
-  }
-
-  /** @internal — record how to build a plugin's API; the api is built on first use. */
-  _registerPlugin(
-    key: symbol,
-    registrationId: string | undefined,
-    build: (socket: WSKitSocket) => unknown,
-  ): void {
-    let byRegistration = this._plugins.get(key);
-    if (!byRegistration) {
-      byRegistration = new Map();
-      this._plugins.set(key, byRegistration);
-    }
-    byRegistration.set(registrationId, { build });
-  }
-
-  /** @internal — get a plugin's API for this socket, building and caching it once. */
-  _usePlugin(key: symbol, registrationId: string | undefined): unknown {
-    const entry = this._plugins.get(key)?.get(registrationId);
-    if (!entry) {
-      throw new WSKitConfigError(
-        registrationId === undefined
-          ? '[wskit] this plugin is not registered on this socket. Pass it to client().'
-          : `[wskit] no plugin instance with registrationId '${registrationId}' is registered on this socket.`,
-      );
-    }
-    if (!('api' in entry)) entry.api = entry.build(this);
-    return entry.api;
   }
 
   /** Open the connection. Calling it again while open or connecting does nothing. */
@@ -230,8 +183,6 @@ export class WSKitSocket {
       this.ws = null;
     }
     this.protocol = null;
-    this._quality = null;
-    this._latency = null;
 
     // Add-on modules always clean up here — clear the buffer, reject pending
     // request/ack promises — even when already closed, since work may have
@@ -259,16 +210,6 @@ export class WSKitSocket {
 
   getState(): ConnectionState {
     return this._state;
-  }
-
-  getQuality(): ConnectionQuality {
-    if (this._state !== 'open') return 'disconnected';
-    // Best-case default while open but not yet measured (e.g. keepalive not added).
-    return this._quality ?? 'excellent';
-  }
-
-  getLatency(): number | null {
-    return this._latency;
   }
 
   /** Run a callback whenever the state changes. Read the new value with `getState()`. */
@@ -342,11 +283,6 @@ export class WSKitSocket {
     return this._emitter.on('error', callback);
   }
 
-  /** Runs when the quality tier changes. */
-  onQualityChange(callback: (quality: ConnectionQuality, latency: number) => void): () => void {
-    return this._emitter.on('qualityChange', callback);
-  }
-
   setDebug(enabled: boolean): void {
     this._debug = enabled;
   }
@@ -397,16 +333,6 @@ export class WSKitSocket {
       runShouldReconnect: (code, reason) => this._runShouldReconnect(code, reason),
 
       onPong: (handler) => this._pongHandlers.push(handler),
-
-      reportLatency: (latencyMs) => {
-        this._latency = latencyMs;
-      },
-
-      reportQuality: (quality) => {
-        if (this._quality === quality) return;
-        this._quality = quality;
-        this._emitter.emit('qualityChange', quality, this._latency ?? 0);
-      },
 
       registerOutgoingFallback: (handler) => {
         this._outgoingFallback = handler;
@@ -462,14 +388,18 @@ export class WSKitSocket {
         typeof this._config.url === 'function' ? await this._config.url() : this._config.url;
       if (attemptId !== this._connectAttemptId) return; // a disconnect() cancelled us mid-resolve
 
+      // Let add-on modules rewrite the URL before connecting (e.g. query() adds
+      // params). They chain, each seeing the previous result. Only async hooks
+      // are awaited, so a connect with no URL hooks stays synchronous.
       let finalUrl = baseUrl;
-      if (this._config.searchParams) {
-        const params = await this._config.searchParams();
-        if (attemptId !== this._connectAttemptId) return;
-        const query = new URLSearchParams(params).toString();
-        if (query) {
-          const separator = baseUrl.includes('?') ? '&' : '?';
-          finalUrl = `${baseUrl}${separator}${query}`;
+      for (const primitive of this._primitives) {
+        if (!primitive.resolveUrl) continue;
+        const result = primitive.resolveUrl(finalUrl);
+        if (result instanceof Promise) {
+          finalUrl = await result;
+          if (attemptId !== this._connectAttemptId) return;
+        } else {
+          finalUrl = result;
         }
       }
 
@@ -508,12 +438,6 @@ export class WSKitSocket {
 
         this.ws = ws;
         this.protocol = ws.protocol || null;
-
-        // Quality is unknown until the first pong measures it — leaving it null
-        // ensures that first measurement fires a qualityChange event. getQuality()
-        // returns a best-case default in the meantime.
-        this._quality = null;
-        this._latency = null;
         this._setState('open');
 
         const isReconnect = !this._isFirstConnect;
@@ -553,8 +477,6 @@ export class WSKitSocket {
         if (attemptId !== this._connectAttemptId) return;
         this.ws = null;
         this.protocol = null;
-        this._quality = null;
-        this._latency = null;
 
         for (const primitive of this._primitives) {
           try {

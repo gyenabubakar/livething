@@ -11,7 +11,7 @@ import { WebEnvironment } from '@wskit/client/environment';
 import * as errorsEntry from '@wskit/client/errors';
 import * as platformEntry from '@wskit/client/platform';
 import * as testingEntry from '@wskit/client/testing';
-import type { Primitive, Socket } from '@wskit/client';
+import type { Primitive, QualityApi, Socket } from '@wskit/client';
 
 // The page imports the BUILT client (dist via the package exports), so loading
 // and connecting at all is itself the bundle smoke test. The extra subpath
@@ -90,10 +90,12 @@ const connectOptions = {
 // The primitive set is chosen at runtime from query params, so it can't be the
 // const tuple client()'s inference wants. We only ever use base Socket methods
 // here, so build with the primitives applied and read it back as Socket.
+// keepalive (and so the quality API) is only present on some pages, so the
+// quality methods are optional here.
 const socket = client<Contract>()(
   connect(url, connectOptions),
   ...(primitives as unknown as []),
-) as Socket<Contract>;
+) as Socket<Contract> & Partial<QualityApi>;
 
 function el(id: string): HTMLElement {
   return document.querySelector(`[data-testid="${id}"]`) as HTMLElement;
@@ -103,14 +105,14 @@ let openCount = 0;
 
 function render(): void {
   el('state').textContent = socket.getState();
-  el('quality').textContent = socket.getQuality();
-  const latency = socket.getLatency();
+  el('quality').textContent = socket.getQuality?.() ?? '';
+  const latency = socket.getLatency?.() ?? null;
   el('latency').textContent = latency === null ? '' : String(latency);
   el('open-count').textContent = String(openCount);
 }
 
 socket.subscribe(render);
-socket.onQualityChange(render);
+socket.onQualityChange?.(render);
 socket.onOpen(() => {
   openCount += 1;
   render();

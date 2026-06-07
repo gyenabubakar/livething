@@ -218,7 +218,7 @@ describe('connect-failed catch — reconnection handoff', () => {
       reconnection(),
     );
     socket.connect();
-    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(socket.getState()).toBe('reconnecting');
   });
 
@@ -228,7 +228,7 @@ describe('connect-failed catch — reconnection handoff', () => {
       query(() => Promise.reject(new Error('token error'))),
     );
     socket.connect();
-    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(socket.getState()).toBe('closed');
   });
 

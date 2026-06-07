@@ -5,7 +5,7 @@ export type { ConnectOptions, ConnectDescriptor } from '~/connect.ts';
 export { reconnection } from '~/primitives/reconnection/index.ts';
 export type { ReconnectionOptions } from '~/primitives/reconnection/index.ts';
 export { keepalive } from '~/primitives/keepalive/index.ts';
-export type { KeepaliveOptions } from '~/primitives/keepalive/index.ts';
+export type { KeepaliveOptions, QualityApi } from '~/primitives/keepalive/index.ts';
 export { quality } from '~/primitives/quality.ts';
 export type { QualityOptions } from '~/primitives/quality.ts';
 export { buffering } from '~/primitives/buffering/index.ts';

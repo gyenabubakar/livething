@@ -1,13 +1,7 @@
 import type { WSKitError } from '@wskit/core';
 import type { Messaging } from '~/messaging.ts';
 import type { CloseEvent } from '~/socket/socket.ts';
-import type {
-  ConnectionQuality,
-  ConnectionState,
-  IncomingOf,
-  OutgoingOf,
-  SocketContract,
-} from '~/types.ts';
+import type { ConnectionState, IncomingOf, OutgoingOf, SocketContract } from '~/types.ts';
 
 /**
  * The connection methods every socket has, no matter the contract. The typed
@@ -21,10 +15,6 @@ export interface SocketConnection {
 
   /** The current connection state. */
   getState(): ConnectionState;
-  /** The current connection quality. */
-  getQuality(): ConnectionQuality;
-  /** The last round-trip time in ms, or `null` if not measured. */
-  getLatency(): number | null;
 
   /** Run a callback on every state change (read the value with `getState()`). */
   subscribe(callback: () => void): () => void;
@@ -44,8 +34,6 @@ export interface SocketConnection {
   onError(callback: (error: Event) => void): () => void;
   /** Runs on a typed server error that no request or stream claimed. */
   onError(callback: (error: WSKitError) => void): () => void;
-  /** Runs when the quality tier changes. */
-  onQualityChange(callback: (quality: ConnectionQuality, latency: number) => void): () => void;
 
   /** Turn console logging on or off at runtime. */
   setDebug(enabled: boolean): void;

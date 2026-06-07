@@ -27,9 +27,6 @@ export interface SocketConfig {
   /** Set by `quality()`, read by `keepalive()`. */
   qualityThresholds?: QualityThresholds;
 
-  /** Returns query params to add to the URL on every connect/reconnect. */
-  searchParams?: () => Record<string, string> | Promise<Record<string, string>>;
-
   /** Format the server delivers binary frames in. */
   binaryType?: 'arraybuffer' | 'blob';
   /** Decode a binary frame into a message, or `null` to ignore it. */
