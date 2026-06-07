@@ -35,7 +35,7 @@ describe('WebEnvironment — no DOM globals (SSR / Node)', () => {
 describe('WebEnvironment — with DOM globals', () => {
   function stubDom() {
     const listeners: Record<string, ((e?: unknown) => void)[]> = {};
-    const state = { visibility: 'visible' as 'visible' | 'hidden' };
+    const state = { visibility: 'visible' as 'visible' | 'hidden', onLine: true };
     const target = {
       addEventListener(type: string, handler: () => void) {
         (listeners[type] ??= []).push(handler);
@@ -52,8 +52,21 @@ describe('WebEnvironment — with DOM globals', () => {
       removeEventListener: target.removeEventListener,
     };
     (globalThis as unknown as Record<string, unknown>).window = target;
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      get() {
+        return {
+          get onLine() {
+            return state.onLine;
+          },
+        };
+      },
+    });
     return {
       listeners,
+      setOnLine(value: boolean) {
+        state.onLine = value;
+      },
       fire(type: string) {
         for (const handler of listeners[type] ?? []) handler();
       },
@@ -63,6 +76,7 @@ describe('WebEnvironment — with DOM globals', () => {
       restore() {
         delete (globalThis as unknown as Record<string, unknown>).document;
         delete (globalThis as unknown as Record<string, unknown>).window;
+        delete (globalThis as unknown as Record<string, unknown>).navigator;
       },
     };
   }
@@ -75,6 +89,9 @@ describe('WebEnvironment — with DOM globals', () => {
     const callback = vi.fn();
     const unsubscribe = WebEnvironment.onVisibilityChange!(callback);
 
+    // Reports the current state immediately on subscribe.
+    expect(callback).toHaveBeenNthCalledWith(1, true);
+
     dom.setVisibility('hidden');
     dom.fire('visibilitychange');
     expect(callback).toHaveBeenLastCalledWith(false);
@@ -85,13 +102,16 @@ describe('WebEnvironment — with DOM globals', () => {
 
     unsubscribe();
     dom.fire('visibilitychange');
-    expect(callback).toHaveBeenCalledTimes(2);
+    expect(callback).toHaveBeenCalledTimes(3); // initial + 2 changes
   });
 
   it('onNetworkChange uses the online / offline events', () => {
     dom = stubDom();
     const callback = vi.fn();
     const unsubscribe = WebEnvironment.onNetworkChange!(callback);
+
+    // Reports the current state immediately on subscribe (stub starts online).
+    expect(callback).toHaveBeenNthCalledWith(1, true);
 
     dom.fire('offline');
     expect(callback).toHaveBeenLastCalledWith(false);
@@ -101,6 +121,15 @@ describe('WebEnvironment — with DOM globals', () => {
 
     unsubscribe();
     dom.fire('offline');
-    expect(callback).toHaveBeenCalledTimes(2);
+    expect(callback).toHaveBeenCalledTimes(3); // initial + 2 changes
+  });
+
+  it('onNetworkChange reports offline immediately when the client starts offline', () => {
+    dom = stubDom();
+    dom.setOnLine(false);
+    const callback = vi.fn();
+    WebEnvironment.onNetworkChange!(callback);
+
+    expect(callback).toHaveBeenNthCalledWith(1, false);
   });
 });

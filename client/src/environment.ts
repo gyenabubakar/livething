@@ -56,6 +56,7 @@ export const WebEnvironment = /* @__PURE__ */ environment({
     }
 
     document.addEventListener('visibilitychange', handler);
+    handler(); // report the current state now, not just on the next change
 
     return () => document.removeEventListener('visibilitychange', handler);
   },
@@ -73,6 +74,9 @@ export const WebEnvironment = /* @__PURE__ */ environment({
 
     window.addEventListener('online', onOnline);
     window.addEventListener('offline', onOffline);
+    // Report the current state now, so a client that starts offline knows it,
+    // instead of assuming online until the next change.
+    callback(navigator.onLine);
 
     return () => {
       window.removeEventListener('online', onOnline);
