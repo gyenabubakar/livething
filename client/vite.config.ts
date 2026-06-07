@@ -10,7 +10,13 @@ export default defineConfig({
   // tsconfig lands them at dist root, mirroring the JS entries.
   plugins: [
     dts({
-      exclude: ['**/*.spec.ts', '**/*.test.ts', 'src/test-helpers.ts'],
+      exclude: [
+        '**/*.spec.ts',
+        '**/*.test.ts',
+        '**/*.test-d.ts',
+        '**/*.bench.ts',
+        'src/test-helpers.ts',
+      ],
       beforeWriteFile: relativizeTildeImports(resolve(__dirname, 'dist')),
     }),
   ],
