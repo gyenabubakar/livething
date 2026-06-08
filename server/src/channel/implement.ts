@@ -2,6 +2,11 @@
 import { setOnce } from '~/_api/handler-maps.ts';
 import type { Contract } from '~/_api/contract-types.ts';
 import type { ChannelCtx } from '~/_api/ctx-types.ts';
+import type {
+  PlainStreamGenerator,
+  RecordedStreamGenerator,
+  ResumableStreamGenerator,
+} from '~/_api/stream-handler-types.ts';
 import type { InterceptFrame } from '~/intercept/intercept.ts';
 import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
 import type { CustomReplayOptions } from '~/replay/custom/custom.ts';
@@ -100,16 +105,7 @@ export class ChannelImplement<C extends Contract, ChC = any, TCheck = unknown> {
   /** Attach the generator for a server-pushed stream scoped to this channel. */
   stream<E extends keyof FieldOf<ChC, 'streams'> & string>(
     event: E,
-    generator: (
-      ctx: ChannelCtx<ChC, C> & {
-        nudges(v: unknown): readonly { event: string; payload: unknown }[];
-      },
-      payload: FieldOf<ChC, 'streams'>[E] extends { payload: infer P } ? P : never,
-    ) => AsyncGenerator<
-      FieldOf<ChC, 'streams'>[E] extends { chunk: infer Ch } ? Ch : unknown,
-      void,
-      unknown
-    >,
+    generator: PlainStreamGenerator<ChannelCtx<ChC, C>, FieldOf<ChC, 'streams'>[E]>,
   ): this {
     setOnce(this._bag.streamGenerators, event, {
       value: generator as any,
@@ -122,7 +118,7 @@ export class ChannelImplement<C extends Contract, ChC = any, TCheck = unknown> {
   /** Attach the generator for a resumable stream scoped to this channel. */
   resumableStream<E extends keyof FieldOf<ChC, 'resumableStreams'> & string>(
     event: E,
-    generator: (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>,
+    generator: ResumableStreamGenerator<ChannelCtx<ChC, C>, FieldOf<ChC, 'resumableStreams'>[E]>,
   ): this {
     setOnce(this._bag.resumableStreamGenerators, event, {
       value: generator,
@@ -135,7 +131,7 @@ export class ChannelImplement<C extends Contract, ChC = any, TCheck = unknown> {
   /** Attach the generator for a recorded stream scoped to this channel. */
   recordedStream<E extends keyof FieldOf<ChC, 'recordedStreams'> & string>(
     event: E,
-    generator: (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>,
+    generator: RecordedStreamGenerator<ChannelCtx<ChC, C>, FieldOf<ChC, 'recordedStreams'>[E]>,
   ): this {
     setOnce(this._bag.recordedStreamGenerators, event, {
       value: generator,

@@ -2,6 +2,11 @@
 import { setOnce } from '~/_api/handler-maps.ts';
 import type { Contract } from '~/_api/contract-types.ts';
 import type { NamespaceCtx } from '~/_api/ctx-types.ts';
+import type {
+  PlainStreamGenerator,
+  RecordedStreamGenerator,
+  ResumableStreamGenerator,
+} from '~/_api/stream-handler-types.ts';
 import type { FieldOf } from '~/channel/implement.ts';
 import type { InterceptFrame } from '~/intercept/intercept.ts';
 import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
@@ -82,7 +87,7 @@ export class NamespaceImplement<C extends Contract, NsC = any> {
   /** Attach the generator for a server-pushed stream scoped to this namespace. */
   stream<E extends keyof FieldOf<NsC, 'streams'> & string>(
     event: E,
-    generator: (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>,
+    generator: PlainStreamGenerator<NamespaceCtx<NsC, C>, FieldOf<NsC, 'streams'>[E]>,
   ): this {
     setOnce(this._bag.streamGenerators, event, {
       value: generator as any,
@@ -95,7 +100,7 @@ export class NamespaceImplement<C extends Contract, NsC = any> {
   /** Attach the generator for a resumable stream scoped to this namespace. */
   resumableStream<E extends keyof FieldOf<NsC, 'resumableStreams'> & string>(
     event: E,
-    generator: (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>,
+    generator: ResumableStreamGenerator<NamespaceCtx<NsC, C>, FieldOf<NsC, 'resumableStreams'>[E]>,
   ): this {
     setOnce(this._bag.resumableStreamGenerators, event, {
       value: generator,
@@ -108,7 +113,7 @@ export class NamespaceImplement<C extends Contract, NsC = any> {
   /** Attach the generator for a recorded stream scoped to this namespace. */
   recordedStream<E extends keyof FieldOf<NsC, 'recordedStreams'> & string>(
     event: E,
-    generator: (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>,
+    generator: RecordedStreamGenerator<NamespaceCtx<NsC, C>, FieldOf<NsC, 'recordedStreams'>[E]>,
   ): this {
     setOnce(this._bag.recordedStreamGenerators, event, {
       value: generator,

@@ -71,6 +71,11 @@ import type {
   StreamDef,
 } from './definitions.ts';
 import type { HandlerMaps } from './handler-maps.ts';
+import type {
+  PlainStreamGenerator,
+  RecordedStreamGenerator,
+  ResumableStreamGenerator,
+} from './stream-handler-types.ts';
 
 export { ChannelImplement } from '~/channel/implement.ts';
 export { NamespaceImplement } from '~/namespace/implement.ts';
@@ -99,14 +104,16 @@ type RequestHandlerFor<C extends Contract, E extends keyof C['requests']> = (
 ) => void | Promise<void>;
 
 type StreamGeneratorFor<C extends Contract, E extends keyof C['streams']> = (
-  ctx: Ctx<C> & {
-    nudges(value: unknown): readonly {
-      event: string;
-      payload: unknown;
-    }[];
-  },
-  payload: C['streams'][E] extends { payload: infer P } ? P : never,
-) => AsyncGenerator<C['streams'][E] extends { chunk: infer Ch } ? Ch : unknown, void, unknown>;
+  ...args: Parameters<PlainStreamGenerator<Ctx<C>, C['streams'][E]>>
+) => ReturnType<PlainStreamGenerator<Ctx<C>, C['streams'][E]>>;
+
+type ResumableStreamGeneratorFor<C extends Contract, E extends keyof C['resumableStreams']> = (
+  ...args: Parameters<ResumableStreamGenerator<Ctx<C>, C['resumableStreams'][E]>>
+) => ReturnType<ResumableStreamGenerator<Ctx<C>, C['resumableStreams'][E]>>;
+
+type RecordedStreamGeneratorFor<C extends Contract, E extends keyof C['recordedStreams']> = (
+  ...args: Parameters<RecordedStreamGenerator<Ctx<C>, C['recordedStreams'][E]>>
+) => ReturnType<RecordedStreamGenerator<Ctx<C>, C['recordedStreams'][E]>>;
 
 type ScheduledHandlerFor<C extends Contract, I extends keyof C['scheduled']> = (
   ctx: any,
@@ -205,7 +212,7 @@ export class GroupBuilder<C extends Contract> {
   /** Attach the generator for a resumable stream. Same surface as `Implementer.resumableStream`. */
   resumableStream<E extends keyof C['resumableStreams'] & string>(
     event: E,
-    generator: (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>,
+    generator: ResumableStreamGeneratorFor<C, E>,
   ): this {
     setOnce(this._reg.resumableStreams, event, {
       value: generator,
@@ -218,7 +225,7 @@ export class GroupBuilder<C extends Contract> {
   /** Attach the generator for a recorded stream. Same surface as `Implementer.recordedStream`. */
   recordedStream<E extends keyof C['recordedStreams'] & string>(
     event: E,
-    generator: (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>,
+    generator: RecordedStreamGeneratorFor<C, E>,
   ): this {
     setOnce(this._reg.recordedStreams, event, {
       value: generator,
@@ -606,7 +613,7 @@ export class Implementer<C extends Contract> {
    */
   resumableStream<E extends keyof C['resumableStreams'] & string>(
     event: E,
-    generator: (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>,
+    generator: ResumableStreamGeneratorFor<C, E>,
   ): this {
     setOnce(this._bag.resumableStreamGenerators, event, {
       value: generator,
@@ -637,7 +644,7 @@ export class Implementer<C extends Contract> {
    */
   recordedStream<E extends keyof C['recordedStreams'] & string>(
     event: E,
-    generator: (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>,
+    generator: RecordedStreamGeneratorFor<C, E>,
   ): this {
     setOnce(this._bag.recordedStreamGenerators, event, {
       value: generator,
