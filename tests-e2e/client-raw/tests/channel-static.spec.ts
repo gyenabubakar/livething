@@ -15,14 +15,21 @@ test.describe('channel-static', () => {
     await expect(page.getByTestId('subscribe-ok-count')).toHaveText('1');
   });
 
-  test('two _subscribe calls are idempotent and both ack', async ({ page }, testInfo) => {
+  test('a second _subscribe for an existing member is a no-op (no extra ack)', async ({
+    page,
+  }, testInfo) => {
     await openPage(page, `test-${testInfo.testId}`);
     await page.getByTestId('subscribe-room').click();
     await expect(page.getByTestId('subscribe-ok-count')).toHaveText('1');
+
+    // The server trusts no client: a duplicate __subscribe__ for a channel it is
+    // already a member of must be answered with nothing. Subscribing to a second
+    // channel right after proves it — frames are ordered, so a stray ack for the
+    // duplicate would have to arrive before room2's. The count goes straight to 2.
     await page.getByTestId('subscribe-room').click();
+    await page.getByTestId('subscribe-room2').click();
     await expect(page.getByTestId('subscribe-ok-count')).toHaveText('2');
-    // Each _subscribeOk frame must carry the requested _channel name back.
-    await expect(page.getByTestId('subscribe-ok-channels')).toHaveText('room,room');
+    await expect(page.getByTestId('subscribe-ok-channels')).toHaveText('room,room2');
   });
 
   test('subscribing to an unknown channel emits _error with code channel-not-found', async ({

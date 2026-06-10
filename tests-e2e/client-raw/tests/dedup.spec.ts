@@ -44,9 +44,10 @@ test.describe('dedup', () => {
     await expect(page.getByTestId('count-no-id')).toHaveText('2');
   });
 
-  test('protocol frames (__subscribe__) are not deduplicated', async ({ page }) => {
-    // Gateway dedup only runs on user-event frames; protocol frames bypass it.
-    // Two identical __subscribe__ frames must each get their own __subscribeOk__.
+  test('a duplicate __subscribe__ is idempotent server-side (one ack)', async ({ page }) => {
+    // Subscribe is idempotent by membership, not by the messageId dedup cache:
+    // the first __subscribe__ joins and acks, the second sees an existing member
+    // and answers nothing. Two identical frames must yield exactly one ack.
     const subscribeOkCount = await page.evaluate(async () => {
       const ws = (window as unknown as { __ws?: WebSocket }).__ws;
       if (!ws) throw new Error('socket not exposed');
@@ -71,7 +72,7 @@ test.describe('dedup', () => {
       return acks;
     });
 
-    expect(subscribeOkCount).toBe(2);
+    expect(subscribeOkCount).toBe(1);
   });
 
   test('incoming messageId dedup drops a resent frame on a connection', async ({ page }) => {
