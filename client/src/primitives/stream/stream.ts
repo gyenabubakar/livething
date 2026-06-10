@@ -62,7 +62,7 @@ function callStreamHandler(log: PrimitiveLogger, run: () => void): void {
   try {
     run();
   } catch (error) {
-    log.error('a stream handler threw', error);
+    log.report(error);
   }
 }
 

@@ -1,6 +1,6 @@
 // A throwing message handler must not stop its siblings (the other handlers for
-// the same event) at any scope. The throw is reported on the debug log channel,
-// so it stays quiet unless debug logging is on.
+// the same event) at any scope. The throw is surfaced on the `error` event, or
+// the console when nothing is listening — never silently swallowed.
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { channels } from '~/primitives/channels/index.ts';
@@ -62,6 +62,7 @@ afterEach(() => {
 describe('a throwing message handler is isolated from its siblings', () => {
   it('top level: a throwing on() handler still lets the other one run', () => {
     const { socket, ws } = connectedBase();
+    socket.onError(() => {});
     const calls: string[] = [];
     socket.on('message', () => {
       calls.push('A');
@@ -75,6 +76,7 @@ describe('a throwing message handler is isolated from its siblings', () => {
 
   it('namespace: a throwing handler still lets the other one run', () => {
     const { socket, ws } = connectedNs();
+    socket.onError(() => {});
     const alerts = socket.namespace('alerts');
     const calls: string[] = [];
     alerts.on('new-alert', () => {
@@ -91,6 +93,7 @@ describe('a throwing message handler is isolated from its siblings', () => {
 
   it('channel: a throwing handler still lets the other one run', () => {
     const { socket, ws } = connectedCh();
+    socket.onError(() => {});
     const room = socket.channel('general');
     room.subscribe();
     ws.emit({
@@ -114,6 +117,7 @@ describe('a throwing message handler is isolated from its siblings', () => {
 
   it('channel family: a throwing family handler still lets the other one run', () => {
     const { socket, ws } = connectedCh();
+    socket.onError(() => {});
     const rooms = socket.channel.scope('rooms');
     socket.channel('rooms', 'lobby').subscribe();
     ws.emit({
@@ -143,6 +147,7 @@ describe('a throwing message handler is isolated from its siblings', () => {
 describe('a throwing presence or stream callback is isolated from its siblings', () => {
   it('channel presence: a throwing onMemberJoin still lets the other one run', () => {
     const { socket, ws } = connectedCh();
+    socket.onError(() => {});
     const room = socket.channel('general');
     room.subscribe();
     ws.emit({
@@ -170,6 +175,7 @@ describe('a throwing presence or stream callback is isolated from its siblings',
 
   it('stream broadcast: a throwing onChunk still lets another subscriber receive', () => {
     const { socket, ws } = connectedSt();
+    socket.onError(() => {});
     const calls: string[] = [];
     socket.onStream('feed', {
       onChunk: () => {
@@ -186,27 +192,60 @@ describe('a throwing presence or stream callback is isolated from its siblings',
   });
 });
 
-describe('a throwing handler is reported on the debug channel', () => {
-  it('stays silent with debug off and logs once debug is on', () => {
-    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+describe('a throwing handler is surfaced, not swallowed', () => {
+  it('surfaces the raw thrown value on the error event', () => {
+    const { socket, ws } = connectedBase();
+    const boom = new Error('boom');
+    const onError = vi.fn();
+    socket.onError(onError);
+    socket.on('message', () => {
+      throw boom;
+    });
+
+    ws.emit({ event: 'message', payload: {} });
+    expect(onError).toHaveBeenCalledWith(boom);
+  });
+
+  it('rethrows out-of-band to the global handler when nothing is listening', () => {
+    const scheduled: Array<() => void> = [];
+    const queue = vi.spyOn(globalThis, 'queueMicrotask').mockImplementation((cb) => {
+      scheduled.push(cb);
+    });
     try {
       const { socket, ws } = connectedBase();
+      const boom = new Error('boom');
       socket.on('message', () => {
-        throw new Error('boom');
+        throw boom;
       });
 
-      ws.emit({ event: 'message', payload: {} }); // debug off → no log
-      expect(errorLog).not.toHaveBeenCalled();
-
-      socket.setDebug(true);
-      ws.emit({ event: 'message', payload: {} }); // debug on → logged
-      expect(errorLog).toHaveBeenCalledWith(
-        '[wskit]',
-        'a message handler threw',
-        expect.any(Error),
-      );
+      ws.emit({ event: 'message', payload: {} }); // no error listener → rethrow out-of-band
+      expect(scheduled).toHaveLength(1);
+      expect(scheduled[0]).toThrow(boom);
     } finally {
-      errorLog.mockRestore();
+      queue.mockRestore();
+    }
+  });
+
+  it('does not loop when an error listener itself throws', () => {
+    const scheduled: Array<() => void> = [];
+    const queue = vi.spyOn(globalThis, 'queueMicrotask').mockImplementation((cb) => {
+      scheduled.push(cb);
+    });
+    try {
+      const { socket, ws } = connectedBase();
+      socket.onError(() => {
+        throw new Error('listener boom');
+      });
+      socket.on('message', () => {
+        throw new Error('handler boom');
+      });
+
+      // The handler throw surfaces on the error listener, whose own throw is
+      // rethrown out-of-band exactly once — no re-entry into the error path.
+      expect(() => ws.emit({ event: 'message', payload: {} })).not.toThrow();
+      expect(scheduled).toHaveLength(1);
+    } finally {
+      queue.mockRestore();
     }
   });
 });

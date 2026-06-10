@@ -2,7 +2,6 @@ import { Block } from '@wskit/core';
 import { dispatchToHandlers } from '~/internal/dispatch.ts';
 import { toWSKitError } from '~/internal/error-frame.ts';
 import { Emitter } from '~/socket/emitter.ts';
-import type { WSKitError } from '@wskit/core';
 import type { SocketConfig } from '~/internal/config.ts';
 import type {
   InterceptFn,
@@ -33,7 +32,7 @@ type SocketEvents = {
   reconnect: [];
   reconnectFailed: [];
   close: [event: CloseEvent];
-  error: [error: Event | WSKitError];
+  error: [error: unknown];
 };
 
 /** Default reader: turn a text frame into `{ event, payload, __wskit? }`. */
@@ -81,11 +80,20 @@ export class WSKitSocket {
   /** @internal */
   _state: ConnectionState = 'closed';
 
-  /** @internal — if a listener throws, the error is caught, logged, and never
-   * re-thrown (same behavior as message-handler dispatch). */
-  _emitter = new Emitter<SocketEvents>((error) =>
-    this._logAt('error', 'a socket listener threw', error),
-  );
+  /** @internal — if a listener throws, the error is caught and surfaced (never
+   * re-thrown). A throwing `error` listener can't re-enter the error path, so it
+   * goes straight to the console instead of looping. */
+  _emitter = new Emitter<SocketEvents>((error, event) => {
+    // A thrown 'error' listener must not re-enter the error path. Rethrow it
+    // out-of-band straight to the host's global handler instead of re-emitting.
+    if (event === 'error') {
+      queueMicrotask(() => {
+        throw error;
+      });
+      return;
+    }
+    this._reportError(error);
+  });
 
   /** @internal */
   _debug = false;
@@ -130,6 +138,7 @@ export class WSKitSocket {
     info: (...args) => this._logAt('log', ...args),
     warn: (...args) => this._logAt('warn', ...args),
     error: (...args) => this._logAt('error', ...args),
+    report: (error) => this._reportError(error),
   };
 
   /** @internal */
@@ -192,7 +201,7 @@ export class WSKitSocket {
       try {
         primitive.onClose?.(code, reason, true);
       } catch (error) {
-        this._logAt('error', `primitive '${primitive.id}' onClose threw`, error);
+        this._reportError(error);
       }
     }
     // Clear again in case a pending-op release above started an idle timer.
@@ -264,14 +273,13 @@ export class WSKitSocket {
     return this._emitter.on('close', callback);
   }
 
-  /** A WebSocket-level error. */
-  onError(callback: (error: Event) => void): () => void;
-
-  /** A typed error the server sent that no request/stream claimed. */
-  onError(callback: (error: WSKitError) => void): () => void;
-
-  // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- the single body serves both overloads above
-  onError(callback: (error: any) => void): () => void {
+  /**
+   * An error worth knowing about: a WebSocket-level `Event`, a typed server error
+   * (`WSKitError`) that no request or stream claimed, or any value thrown by one of
+   * your handlers, listeners, or a plugin/primitive hook — surfaced here instead of
+   * swallowed. With no listener attached, thrown values fall back to `console.error`.
+   */
+  onError(callback: (error: unknown) => void): () => void {
     return this._emitter.on('error', callback);
   }
 
@@ -410,7 +418,7 @@ export class WSKitSocket {
               if (attemptId !== this._connectAttemptId) return;
             }
           } catch (error) {
-            this._logAt('error', `primitive '${primitive.id}' onBeforeReopen threw`, error);
+            this._reportError(error);
           }
         }
       }
@@ -439,7 +447,7 @@ export class WSKitSocket {
             const messages = primitive.onOpen?.();
             if (messages) for (const message of messages) this._rawSend(message);
           } catch (error) {
-            this._logAt('error', `primitive '${primitive.id}' onOpen threw`, error);
+            this._reportError(error);
           }
         }
 
@@ -449,7 +457,7 @@ export class WSKitSocket {
               const messages = primitive.onReconnect?.();
               if (messages) for (const message of messages) this._rawSend(message);
             } catch (error) {
-              this._logAt('error', `primitive '${primitive.id}' onReconnect threw`, error);
+              this._reportError(error);
             }
           }
         }
@@ -472,7 +480,7 @@ export class WSKitSocket {
           try {
             primitive.onClose?.(event.code, event.reason, false);
           } catch (error) {
-            this._logAt('error', `primitive '${primitive.id}' onClose threw`, error);
+            this._reportError(error);
           }
         }
         this._clearLazyIdleTimer();
@@ -519,7 +527,7 @@ export class WSKitSocket {
           try {
             primitive.onClose?.(1006, 'connection failed', false);
           } catch (closeError) {
-            this._logAt('error', `primitive '${primitive.id}' onClose threw`, closeError);
+            this._reportError(closeError);
           }
         }
         this._setState('closed');
@@ -581,7 +589,7 @@ export class WSKitSocket {
         }
         message = result;
       } catch (error) {
-        this._logAt('error', `primitive '${primitive.id}' onIncoming threw`, error);
+        this._reportError(error);
       }
     }
 
@@ -606,7 +614,7 @@ export class WSKitSocket {
           // A real error is isolated like an onIncoming throw above: log it and
           // skip this intercept so the message and the remaining intercepts still
           // run — a bug in one intercept must not silently swallow messages.
-          this._logAt('error', 'intercept threw — skipping it', error);
+          this._reportError(error);
         }
       }
     }
@@ -737,5 +745,20 @@ export class WSKitSocket {
   private _logAt(level: 'log' | 'warn' | 'error', ...args: unknown[]): void {
     if (!this._debug) return;
     console[level]('[wskit]', ...args);
+  }
+
+  /**
+   * @internal — surface a caught throw on the `error` event. With no listener,
+   * rethrow it out-of-band so it reaches the host's global error handler
+   * (`window.onerror`, error trackers) without unwinding the dispatch loop.
+   */
+  private _reportError(error: unknown): void {
+    if (this._emitter.listenerCount('error') > 0) {
+      this._emitter.emit('error', error);
+    } else {
+      queueMicrotask(() => {
+        throw error;
+      });
+    }
   }
 }

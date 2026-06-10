@@ -188,6 +188,7 @@ describe('incoming pipeline — primitive onIncoming throw is isolated', () => {
     });
 
     const { socket, ws } = connected(throwing, second);
+    socket.onError(() => {});
     socket.on('test', topHandler);
 
     // The throw is caught: it does NOT escape onmessage. The throwing primitive
@@ -208,6 +209,7 @@ describe('incoming pipeline — primitive onIncoming throw is isolated', () => {
     });
 
     const { socket, ws } = connected(conditional);
+    socket.onError(() => {});
     socket.on('test', topHandler);
 
     // First frame: the throw is contained and the frame still reaches dispatch.
@@ -221,26 +223,36 @@ describe('incoming pipeline — primitive onIncoming throw is isolated', () => {
     expect(topHandler).toHaveBeenCalledWith({ n: 2 });
   });
 
-  it('reports the throw on the debug channel (silent unless debug is on)', () => {
-    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+  it('surfaces the throw on the error event', () => {
+    const boom = new Error('boom');
+    const throwing = incomingPrimitive(() => {
+      throw boom;
+    });
+    const { socket, ws } = connected(throwing);
+    const onError = vi.fn();
+    socket.onError(onError);
+
+    ws.emit({ event: 'test', payload: {} });
+    expect(onError).toHaveBeenCalledWith(boom);
+  });
+
+  it('rethrows out-of-band to the global handler when nothing is listening', () => {
+    const scheduled: Array<() => void> = [];
+    const queue = vi.spyOn(globalThis, 'queueMicrotask').mockImplementation((cb) => {
+      scheduled.push(cb);
+    });
     try {
+      const boom = new Error('boom');
       const throwing = incomingPrimitive(() => {
-        throw new Error('boom');
+        throw boom;
       });
-      const { socket, ws } = connected(throwing);
+      const { ws } = connected(throwing);
 
-      ws.emit({ event: 'test', payload: {} }); // debug off → silent
-      expect(errorLog).not.toHaveBeenCalled();
-
-      socket.setDebug(true);
-      ws.emit({ event: 'test', payload: {} });
-      expect(errorLog).toHaveBeenCalledWith(
-        '[wskit]',
-        expect.stringContaining('onIncoming threw'),
-        expect.any(Error),
-      );
+      ws.emit({ event: 'test', payload: {} }); // no error listener → rethrow out-of-band
+      expect(scheduled).toHaveLength(1);
+      expect(scheduled[0]).toThrow(boom);
     } finally {
-      errorLog.mockRestore();
+      queue.mockRestore();
     }
   });
 });

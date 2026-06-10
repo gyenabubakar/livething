@@ -183,7 +183,7 @@ export function plugin<TArgs = void, TApi = unknown>(
               return result ?? message;
             } catch (error) {
               if (error !== Block) {
-                helpers.log.error(`plugin '${def.id}' onIncoming threw`, error);
+                helpers.log.report(error);
               }
               return null;
             }
@@ -196,7 +196,7 @@ export function plugin<TArgs = void, TApi = unknown>(
               return result ?? message;
             } catch (error) {
               if (error !== Block) {
-                helpers.log.error(`plugin '${def.id}' onOutgoing threw`, error);
+                helpers.log.report(error);
               }
               return null;
             }
@@ -207,7 +207,7 @@ export function plugin<TArgs = void, TApi = unknown>(
             try {
               return open() ?? null;
             } catch (error) {
-              helpers.log.error(`plugin '${def.id}' onOpen threw`, error);
+              helpers.log.report(error);
               return null;
             }
           },
@@ -217,7 +217,7 @@ export function plugin<TArgs = void, TApi = unknown>(
             try {
               return reconnect() ?? null;
             } catch (error) {
-              helpers.log.error(`plugin '${def.id}' onReconnect threw`, error);
+              helpers.log.report(error);
               return null;
             }
           },
@@ -227,7 +227,7 @@ export function plugin<TArgs = void, TApi = unknown>(
             try {
               close(code, reason);
             } catch (error) {
-              helpers.log.error(`plugin '${def.id}' onClose threw`, error);
+              helpers.log.report(error);
             }
           },
         };

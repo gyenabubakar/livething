@@ -32,6 +32,9 @@ function build<const P extends readonly Primitive<any, any>[]>(
   ...primitives: [...P] & ValidatePrimitives<TestContract, P>
 ) {
   const socket = client<TestContract>()(connect('wss://test'), ...primitives);
+  // Some tests here deliberately throw inside a hook; sink the error so the
+  // no-listener out-of-band rethrow doesn't fail the suite.
+  socket.onError(() => {});
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();

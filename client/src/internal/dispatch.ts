@@ -1,10 +1,10 @@
 import type { PrimitiveLogger } from '~/internal/runtime.ts';
 
 /**
- * Call every handler with the given arguments. If one handler throws, the error
- * is logged and the remaining handlers still run. The error is reported through
- * `log` (only visible when debug mode is on). Used everywhere an event fans out
- * to user `on()` handlers: top level, channels, and namespaces.
+ * Call every handler with the given arguments. If one handler throws, it is
+ * surfaced on the socket's `error` event (via `log.report`) and the remaining
+ * handlers still run. Used everywhere an event fans out to user `on()` handlers:
+ * top level, channels, and namespaces.
  */
 export function dispatchToHandlers<A extends unknown[]>(
   handlers: Iterable<(...args: A) => void> | undefined,
@@ -17,7 +17,7 @@ export function dispatchToHandlers<A extends unknown[]>(
     try {
       handler(...args);
     } catch (error) {
-      log.error('a message handler threw', error);
+      log.report(error);
     }
   }
 }

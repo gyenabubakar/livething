@@ -9,8 +9,8 @@ export class Emitter<TEvents extends Record<string, unknown[]> = Record<string, 
 
   // A listener that throws must not stop the rest from running or bubble out of
   // `emit()` (which runs inside WebSocket event handlers). The caller passes this
-  // to log such errors.
-  constructor(private onListenerError?: (error: unknown) => void) {}
+  // to handle such errors; the event name lets it avoid re-entering the same event.
+  constructor(private onListenerError?: (error: unknown, event: string) => void) {}
 
   /** Add a listener; call the returned function to remove it. */
   on<K extends string & keyof TEvents>(
@@ -39,7 +39,7 @@ export class Emitter<TEvents extends Record<string, unknown[]> = Record<string, 
       try {
         listener(...args);
       } catch (error) {
-        this.onListenerError?.(error);
+        this.onListenerError?.(error, event);
       }
     }
   }

@@ -3,7 +3,6 @@ import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { plugin } from '~/plugins/plugins.ts';
 import { ack } from '~/primitives/ack/index.ts';
-import { debug } from '~/primitives/debug.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -268,28 +267,49 @@ describe('plugin() hooks', () => {
     }
   });
 
-  it('logs onIncoming errors only when debug is on', () => {
+  it('surfaces a throwing onIncoming on the error event', () => {
+    const boom = new Error('boom');
     const Bad = plugin({
       id: 'test:bad',
       key: Symbol('test:bad'),
       setup(_args, hooks) {
         hooks.onIncoming(() => {
-          throw new Error('boom');
+          throw boom;
         });
         return () => ({});
       },
     });
-    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
-    const off = build(Bad());
-    off.ws.emit({ event: 'message', payload: {} });
-    expect(err).not.toHaveBeenCalled(); // debug off → silent
+    const { socket, ws } = build(Bad());
+    const onError = vi.fn();
+    socket.onError(onError);
+    ws.emit({ event: 'message', payload: {} });
+    expect(onError).toHaveBeenCalledWith(boom);
+  });
 
-    const on = build(Bad(), debug(true));
-    on.ws.emit({ event: 'message', payload: {} });
-    expect(err).toHaveBeenCalled(); // debug on → logged
+  it('rethrows a throwing onIncoming out-of-band when nothing is listening', () => {
+    const boom = new Error('boom');
+    const Bad = plugin({
+      id: 'test:bad',
+      key: Symbol('test:bad'),
+      setup(_args, hooks) {
+        hooks.onIncoming(() => {
+          throw boom;
+        });
+        return () => ({});
+      },
+    });
+    const scheduled: Array<() => void> = [];
+    const queue = vi.spyOn(globalThis, 'queueMicrotask').mockImplementation((cb) => {
+      scheduled.push(cb);
+    });
 
-    err.mockRestore();
+    const { ws } = build(Bad());
+    ws.emit({ event: 'message', payload: {} }); // no error listener → rethrow out-of-band
+    expect(scheduled).toHaveLength(1);
+    expect(scheduled[0]).toThrow(boom);
+
+    queue.mockRestore();
   });
 
   it('isolates a throwing lifecycle hook so it does not break the close sequence', () => {
@@ -304,6 +324,7 @@ describe('plugin() hooks', () => {
       },
     });
     const { socket } = build(Bad());
+    socket.onError(() => {});
     expect(() => socket.disconnect()).not.toThrow();
     expect(socket.getState()).toBe('closed');
   });

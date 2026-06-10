@@ -61,6 +61,7 @@ describe('primitive onClose throw isolation on serverClose', () => {
     const { primitive: siblingPrimitive, closeLog } = makePrimitive('sibling');
 
     const socket = c(connect('wss://test'), throwingPrimitive, siblingPrimitive);
+    socket.onError(() => {});
     socket.connect();
     MockWebSocket.last().open();
     MockWebSocket.last().serverClose(1006, 'drop');
@@ -73,6 +74,7 @@ describe('primitive onClose throw isolation on serverClose', () => {
     const { primitive: throwingPrimitive } = makePrimitive('thrower', { throwOnClose: true });
 
     const socket = c(connect('wss://test'), throwingPrimitive);
+    socket.onError(() => {});
     socket.connect();
     MockWebSocket.last().open();
     MockWebSocket.last().serverClose(1006);
@@ -85,6 +87,7 @@ describe('primitive onClose throw isolation on serverClose', () => {
     const { primitive: throwingPrimitive } = makePrimitive('thrower', { throwOnClose: true });
 
     const socket = c(connect('wss://test'), throwingPrimitive, reconnection());
+    socket.onError(() => {});
     socket.connect();
     MockWebSocket.last().open();
     MockWebSocket.last().serverClose(1006);
@@ -97,6 +100,7 @@ describe('primitive onClose throw isolation on serverClose', () => {
     const onClose = vi.fn();
 
     const socket = c(connect('wss://test'), throwingPrimitive);
+    socket.onError(() => {});
     socket.connect();
     MockWebSocket.last().open();
     socket.onClose(onClose);
@@ -113,6 +117,7 @@ describe('primitive onClose throw isolation on disconnect()', () => {
     const { primitive: siblingPrimitive, closeLog } = makePrimitive('sibling');
 
     const socket = c(connect('wss://test'), throwingPrimitive, siblingPrimitive);
+    socket.onError(() => {});
     socket.connect();
     MockWebSocket.last().open();
     socket.disconnect();
@@ -126,6 +131,7 @@ describe('primitive onClose throw isolation on disconnect()', () => {
     const onClose = vi.fn();
 
     const socket = c(connect('wss://test'), throwingPrimitive);
+    socket.onError(() => {});
     socket.connect();
     MockWebSocket.last().open();
     socket.onClose(onClose);
@@ -139,6 +145,7 @@ describe('primitive onClose throw isolation on disconnect()', () => {
     const { primitive: throwingPrimitive } = makePrimitive('thrower', { throwOnClose: true });
 
     const socket = c(connect('wss://test'), throwingPrimitive);
+    socket.onError(() => {});
     socket.connect();
     MockWebSocket.last().open();
     socket.disconnect();

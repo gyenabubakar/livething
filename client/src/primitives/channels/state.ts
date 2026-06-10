@@ -25,7 +25,7 @@ function listeners<F>(getLog: () => PrimitiveLogger) {
         try {
           run(callback);
         } catch (error) {
-          getLog().error('a channel listener threw', error);
+          getLog().report(error);
         }
       }
     },

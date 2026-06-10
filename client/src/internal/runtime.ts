@@ -80,14 +80,20 @@ export type InterceptFn = (message: WireMessage) => WireMessage | void;
 export type PlatformSignal = 'online' | 'visibility';
 
 /**
- * A logger for primitives. Every call is gated on whether debug mode is on
- * and prefixed with `[wskit]`, so call sites never repeat that check.
- * The three levels map to `console.log` / `console.warn` / `console.error`.
+ * A logger for primitives. `info` / `warn` / `error` are debug breadcrumbs:
+ * gated on whether debug mode is on and prefixed with `[wskit]`, so call sites
+ * never repeat that check. They map to `console.log` / `console.warn` / `console.error`.
  */
 export interface PrimitiveLogger {
   info(...args: unknown[]): void;
   warn(...args: unknown[]): void;
   error(...args: unknown[]): void;
+  /**
+   * Surface a value thrown by user code (a handler, listener, or hook) on the
+   * public `error` event so it isn't swallowed. Not gated by debug mode; falls
+   * back to `console.error` when nothing is listening.
+   */
+  report(error: unknown): void;
 }
 
 /**

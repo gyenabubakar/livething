@@ -38,8 +38,14 @@ function build<const P extends readonly Primitive<any, any>[]>(
 ): Socket<LooseContract> & ApplyPrimitives<P, LooseContract> {
   // The generic wrapper can't carry each primitive's added API through inference,
   // so we assert it; ApplyPrimitives<P, …> still resolves at each call site.
-  return client<LooseContract>()(descriptor, ...primitives) as unknown as Socket<LooseContract> &
-    ApplyPrimitives<P, LooseContract>;
+  const socket = client<LooseContract>()(
+    descriptor,
+    ...primitives,
+  ) as unknown as Socket<LooseContract> & ApplyPrimitives<P, LooseContract>;
+  // A couple of tests here deliberately throw inside a close listener; sink the
+  // error so the no-listener out-of-band rethrow doesn't fail the suite.
+  socket.onError(() => {});
+  return socket;
 }
 
 describe('throwing onClose listener', () => {
