@@ -4,7 +4,6 @@ export { ReplaySnapshotServer } from './replay-snapshot.ts';
 export { PluginsServer } from './plugins.ts';
 export { RejectHttpServer } from './lifecycle-hooks-http-reject.ts';
 export { AckServer } from './ack.ts';
-export { BinaryServer } from './binary.ts';
 export { IncomingServer } from './incoming.ts';
 export { RequestServer } from './request.ts';
 export { StreamBasicServer } from './stream-basic.ts';
@@ -136,11 +135,6 @@ export default {
     if (url.pathname === '/ws/ack') {
       const id = env.ACK_SERVER.idFromName(room);
       return env.ACK_SERVER.get(id).fetch(request);
-    }
-
-    if (url.pathname === '/ws/binary') {
-      const id = env.BINARY_SERVER.idFromName(room);
-      return env.BINARY_SERVER.get(id).fetch(request);
     }
 
     if (url.pathname === '/ws/lifecycle-hooks/shutdown') {

@@ -90,9 +90,6 @@ export function createEngineAccess(
       }
       core.hooks.builderUpgrade = handler;
     },
-    onBinary: (handler) => {
-      core.hooks.binary.push(handler);
-    },
     onValidationError: (handler) => {
       core.hooks.validationError.push(handler);
     },

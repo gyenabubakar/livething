@@ -81,35 +81,15 @@ describe('incoming pipeline — malformed text frame', () => {
 });
 
 describe('incoming pipeline — binary frame', () => {
-  it('drops the frame silently when parseBinary returns null', () => {
+  it('throws loudly when a binary frame arrives', () => {
     const handler = vi.fn();
-    const binarySpec = configPrimitive((config) => {
-      config.parseBinary = () => null;
-    });
-    const { socket, ws } = connected(binarySpec);
+    const { socket, ws } = connected();
     socket.on('anything', handler);
 
-    const buffer = new ArrayBuffer(4);
-    ws.emitRaw(buffer);
-
+    expect(() => ws.emitRaw(new ArrayBuffer(4))).toThrow(
+      '[wskit] binary frames are not supported yet',
+    );
     expect(handler).not.toHaveBeenCalled();
-    expect(socket.getState()).toBe('open');
-  });
-
-  it('drops the frame silently when parseBinary throws', () => {
-    const handler = vi.fn();
-    const binarySpec = configPrimitive((config) => {
-      config.parseBinary = () => {
-        throw new Error('decode error');
-      };
-    });
-    const { socket, ws } = connected(binarySpec);
-    socket.on('anything', handler);
-
-    ws.emitRaw(new ArrayBuffer(4));
-
-    expect(handler).not.toHaveBeenCalled();
-    expect(socket.getState()).toBe('open');
   });
 });
 

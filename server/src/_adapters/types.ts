@@ -16,8 +16,6 @@ import type {
 export interface ConnectionDescriptor {
   send(data: string): void;
 
-  sendBinary(data: ArrayBuffer | ArrayBufferView): void;
-
   close(code?: number, reason?: string): void;
 
   bufferedAmount(): number;
@@ -42,8 +40,6 @@ export interface ConnectionDescriptor {
  */
 export interface ConnectionHandle {
   handleMessage(data: string): Promise<void>;
-
-  handleBinary(data: ArrayBuffer): Promise<void>;
 
   handleClose(code: number, reason: string): Promise<void>;
 

@@ -21,10 +21,9 @@ type MessagingDeps = Pick<
 function buildMessagingApi(
   connection: EngineContextTypes.RuntimeConnection,
   deps: MessagingDeps,
-  binaryEnabled: boolean,
 ): Pick<
   EngineContextTypes.ConnectionContext<Record<string, unknown>, Record<string, unknown>, unknown>,
-  'broadcast' | 'broadcastBinary' | 'close' | 'send' | 'sendBinary' | 'sendToConnection'
+  'broadcast' | 'close' | 'send' | 'sendToConnection'
 > {
   return {
     send: (event, payload) =>
@@ -50,26 +49,6 @@ function buildMessagingApi(
       }
       deps.sendThroughPipeline(target, { routing: undefined, event, payload });
       return true;
-    },
-
-    sendBinary: (data) => {
-      if (!binaryEnabled) {
-        throw new Error('[wskit] ctx.sendBinary() requires `binary: true` on the contract config.');
-      }
-      connection.descriptor.sendBinary(data);
-      return true;
-    },
-
-    broadcastBinary: (data, options) => {
-      if (!binaryEnabled) {
-        throw new Error(
-          '[wskit] ctx.broadcastBinary() requires `binary: true` on the contract config.',
-        );
-      }
-      for (const target of deps.connections.values()) {
-        if ((options?.excludeSelf ?? true) && target.id === connection.id) continue;
-        target.descriptor.sendBinary(data);
-      }
     },
 
     close: (code, reason) => connection.descriptor.close(code, reason),
@@ -132,7 +111,7 @@ export function buildConnectionContext(
 
     meta: connection.meta,
 
-    ...buildMessagingApi(connection, deps, deps.compiled.binary),
+    ...buildMessagingApi(connection, deps),
 
     getConnections: () => {
       return [...deps.connections.values()].map((target) => deps.toConnectionInfo(target));

@@ -10,7 +10,6 @@ function createConnection(id: string): RuntimeConnection {
     wsKey: Symbol(id),
     descriptor: {
       send: vi.fn(),
-      sendBinary() {},
       close() {},
       bufferedAmount() {
         return 0;

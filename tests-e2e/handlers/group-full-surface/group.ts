@@ -49,10 +49,6 @@ export const fullSurfaceGroup = group(groupFullSurfaceContract, (g) =>
       ctx.send('validation-marker', { event });
     })
 
-    .onBinary((ctx, data) => {
-      ctx.send('binary-marker', { size: data.byteLength });
-    })
-
     .intercept((ctx, frame) => {
       ctx.provide(GroupRequestKey, { tag: 'group' });
       ctx.send('pre-intercept-marker', { event: frame.event });

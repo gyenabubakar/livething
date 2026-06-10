@@ -12,7 +12,6 @@ function createConnection(id: string) {
     wsKey: Symbol(id),
     descriptor: {
       send() {},
-      sendBinary() {},
       close() {},
       bufferedAmount() {
         return 0;

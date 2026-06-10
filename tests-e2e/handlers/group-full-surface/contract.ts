@@ -30,7 +30,6 @@ const GoodbyePayload = v.object({ username: v.string() });
 const InitMarker = v.object({ ran: v.number() });
 const ErrorMarker = v.object({ event: v.optional(v.string()), msg: v.string() });
 const ValidationMarker = v.object({ event: v.string() });
-const BinaryMarker = v.object({ size: v.number() });
 const PreInterceptMarker = v.object({ event: v.string() });
 const PostInterceptMarker = v.object({ text: v.string() });
 const RlMarker = v.object({ at: v.number() });
@@ -41,7 +40,6 @@ const BadPayload = v.object({ ok: v.literal(true) });
 export const groupFullSurfaceContract = contract('group-full-surface', {
   env: t<Env>(),
   persistence: true,
-  binary: true,
   sequence: { persist: true },
   dedup: true,
   meta: t<{ username: string }>(),
@@ -75,7 +73,6 @@ export const groupFullSurfaceContract = contract('group-full-surface', {
     outgoing('init-marker', InitMarker),
     outgoing('error-marker', ErrorMarker),
     outgoing('validation-marker', ValidationMarker),
-    outgoing('binary-marker', BinaryMarker),
     outgoing('pre-intercept-marker', PreInterceptMarker),
     outgoing('post-intercept-marker', PostInterceptMarker),
     outgoing('rl-marker', RlMarker),

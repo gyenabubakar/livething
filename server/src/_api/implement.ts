@@ -14,7 +14,6 @@ import { compileIncomingDef } from '~/incoming/compile.ts';
 import { intercept as interceptFactory } from '~/intercept/intercept.ts';
 import { keepalive as keepaliveFactory } from '~/keepalive/keepalive.ts';
 import {
-  onBinary,
   onConnect,
   onDisconnect,
   onError,
@@ -41,7 +40,6 @@ import { compileStreamDef } from '~/stream/compile.ts';
 import { resolveTagGroupDefs, tagGroups as tagGroupsFactory } from '~/tags/tags.ts';
 import type { InterceptFrame } from '~/intercept/intercept.ts';
 import type {
-  BinaryHandler,
   ConnectHandler,
   DisconnectHandler,
   ErrorHandler,
@@ -149,7 +147,6 @@ interface GroupRegistrations {
     onShutdown?: ShutdownHandler;
     onError?: ErrorHandler;
     onValidationError?: ValidationErrorHandler;
-    onBinary?: BinaryHandler;
   };
 }
 
@@ -367,13 +364,6 @@ export class GroupBuilder<C extends Contract> {
     this._reg.lifecycle.onValidationError = handler as ValidationErrorHandler;
     return this;
   }
-
-  /** Attach the binary-frame hook. Same surface as `Implementer.onBinary`. */
-  onBinary(handler: (ctx: Ctx<C>, data: ArrayBuffer | Uint8Array) => void | Promise<void>): this {
-    assertLifecycleOnce(this._reg.lifecycle, 'onBinary', 'this group');
-    this._reg.lifecycle.onBinary = handler as BinaryHandler;
-    return this;
-  }
 }
 
 function mergeLifecycleHook(
@@ -386,8 +376,7 @@ function mergeLifecycleHook(
     | 'onDisconnect'
     | 'onShutdown'
     | 'onError'
-    | 'onValidationError'
-    | 'onBinary',
+    | 'onValidationError',
 ): void {
   const incoming = source[hook];
   if (!incoming) return;
@@ -406,8 +395,7 @@ type LifecycleHookName =
   | 'onDisconnect'
   | 'onShutdown'
   | 'onError'
-  | 'onValidationError'
-  | 'onBinary';
+  | 'onValidationError';
 
 function assertLifecycleOnce(
   lifecycle: Partial<Record<LifecycleHookName, unknown>>,
@@ -488,7 +476,6 @@ interface ImplementerBag {
     onShutdown?: ShutdownHandler;
     onError?: ErrorHandler;
     onValidationError?: ValidationErrorHandler;
-    onBinary?: BinaryHandler;
   };
 }
 
@@ -800,7 +787,6 @@ export class Implementer<C extends Contract> {
     mergeLifecycleHook(this._bag.lifecycle, g._reg.lifecycle, 'onShutdown');
     mergeLifecycleHook(this._bag.lifecycle, g._reg.lifecycle, 'onError');
     mergeLifecycleHook(this._bag.lifecycle, g._reg.lifecycle, 'onValidationError');
-    mergeLifecycleHook(this._bag.lifecycle, g._reg.lifecycle, 'onBinary');
     return this;
   }
 
@@ -886,16 +872,6 @@ export class Implementer<C extends Contract> {
   ): this {
     assertLifecycleOnce(this._bag.lifecycle, 'onValidationError', 'the implementer');
     this._bag.lifecycle.onValidationError = handler as ValidationErrorHandler;
-    return this;
-  }
-
-  /**
-   * Handle raw binary frames the client sends. Requires `binary: true` on the
-   * contract. Build-time check rejects this method if the flag is off.
-   */
-  onBinary(handler: (ctx: Ctx<C>, data: ArrayBuffer) => void | Promise<void>): this {
-    assertLifecycleOnce(this._bag.lifecycle, 'onBinary', 'the implementer');
-    this._bag.lifecycle.onBinary = handler as BinaryHandler;
     return this;
   }
 
@@ -996,12 +972,6 @@ export class Implementer<C extends Contract> {
 
     // Catch handlers attached for features that aren't switched on. Easy to
     // mess up and silently never fire, so we fail loud at build time.
-    if (this._bag.lifecycle.onBinary && !config.binary) {
-      throw new Error(
-        '[wskit] onBinary handler registered but `binary: true` is not set on the contract. ' +
-          'Add `binary: true` to your contract config, or remove the onBinary handler.',
-      );
-    }
     if (this._bag.customReplayHooks && config.replay !== undefined) {
       throw new Error(
         '[wskit] .customReplay(...) is registered alongside `replay:` on the contract. ' +
@@ -1128,7 +1098,6 @@ export class Implementer<C extends Contract> {
     if (this._bag.lifecycle.onError) primitives.push(onError(this._bag.lifecycle.onError));
     if (this._bag.lifecycle.onValidationError)
       primitives.push(onValidationError(this._bag.lifecycle.onValidationError));
-    if (this._bag.lifecycle.onBinary) primitives.push(onBinary(this._bag.lifecycle.onBinary));
 
     // ── Intercept ────────────────────────────────────────────────────────────
     if (this._bag.intercept) primitives.push(interceptFactory(this._bag.intercept));
@@ -1162,7 +1131,6 @@ export class Implementer<C extends Contract> {
             config.dedup ? 'dedup' : undefined,
             config.hibernation ? 'hibernation' : undefined,
             config.keepalive ? 'keepalive' : undefined,
-            config.binary ? 'binary' : undefined,
           ].filter((feature): feature is string => feature !== undefined),
         ),
       ),

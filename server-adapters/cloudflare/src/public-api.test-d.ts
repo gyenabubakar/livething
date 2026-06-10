@@ -27,6 +27,3 @@ Adapter.createStorage;
 
 // @ts-expect-error — createTimers is internal
 Adapter.createTimers;
-
-// @ts-expect-error — normalizeBinary is internal
-Adapter.normalizeBinary;

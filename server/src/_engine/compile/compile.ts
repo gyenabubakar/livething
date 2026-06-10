@@ -151,7 +151,6 @@ export function compileHandlerDefinition(
   handler: DefineServer.ServerDefinition,
 ): EngineCompileTypes.CompiledServer {
   const compiled: EngineCompileTypes.CompiledServer = {
-    binary: handler.__features?.has('binary') ?? false,
     outgoing: new Map(),
     incoming: new Map(),
     requests: new Map(),
@@ -206,7 +205,7 @@ function validateUniquePluginIds(compiled: EngineCompileTypes.CompiledServer): v
  * first request, deep in the handler stack, far from the real cause.
  *
  * Checks against `features`, the set of flags read straight from the contract
- * config (`replay`, `persistence`, `binary`, and so on). So a flag set to
+ * config (`replay`, `persistence`, and so on). So a flag set to
  * `false` reads as off and a flag set to `true` reads as on, whatever handlers
  * the contract did or did not register.
  */

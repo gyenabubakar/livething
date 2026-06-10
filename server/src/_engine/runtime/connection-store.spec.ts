@@ -92,7 +92,6 @@ function fakeConnection(overrides: Partial<RuntimeConnection> = {}): RuntimeConn
     wsKey: Symbol('ws'),
     descriptor: {
       send() {},
-      sendBinary() {},
       close() {},
       bufferedAmount: () => 0,
       identity: 'user-1',

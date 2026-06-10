@@ -423,9 +423,6 @@ function buildConnectionRuntime(core: EngineCore) {
     processTextMessage: (connection: RuntimeConnection, data: string) =>
       EngineMessageRuntime.processTextMessage(dispatchRuntime(core), connection, data),
 
-    handleBinaryMessage: (connection: RuntimeConnection, data: ArrayBuffer) =>
-      handleBinaryMessage(core, connection, data),
-
     handleConnectionClose: (connection: RuntimeConnection, code: number, reason: string) =>
       handleConnectionClose(core, { connection, code, reason }),
 
@@ -514,30 +511,5 @@ export function handleConnectionClose(
       logger: core.logger,
     },
     opts,
-  );
-}
-
-/** Route one binary frame into the optional binary lifecycle hook. */
-export function handleBinaryMessage(
-  core: EngineCore,
-  connection: RuntimeConnection,
-  data: ArrayBuffer,
-): Promise<void> {
-  const buildCtx = buildConnectionContext(core);
-  return EngineConnectionRuntime.handleBinaryMessage(
-    {
-      buildConnectionContext: buildCtx,
-      handleRuntimeError: (targetConnection, error, event) =>
-        EngineErrorRuntime.handleRuntimeError(
-          { core, buildConnectionContext: buildCtx },
-          targetConnection,
-          { error, event },
-        ),
-      activityHooks: core.hooks.activity,
-      binaryHooks: core.hooks.binary,
-      logger: core.logger,
-    },
-    connection,
-    data,
   );
 }

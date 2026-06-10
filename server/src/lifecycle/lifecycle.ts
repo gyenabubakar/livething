@@ -77,9 +77,6 @@ export type UpgradeHandler = (
   helpers: UpgradeHelpers,
 ) => UpgradeResult | Promise<UpgradeResult>;
 
-/** Handler type for `implement(contract).onBinary(...)`. */
-export type BinaryHandler<TCtx = any> = (ctx: TCtx, data: ArrayBuffer) => void | Promise<void>;
-
 /** Handler type for `implement(contract).onValidationError(...)`. */
 export type ValidationErrorHandler<TCtx = any> = (
   ctx: TCtx,
@@ -117,11 +114,6 @@ export interface UpgradePrimitive extends Primitive<'onUpgrade'> {
   readonly handler: UpgradeHandler;
 }
 
-/** The TypeScript type returned by `onBinary()`. */
-export interface BinaryPrimitive<TCtx = any> extends Primitive<'onBinary'> {
-  readonly handler: BinaryHandler<TCtx>;
-}
-
 /** The TypeScript type returned by `onValidationError()`. */
 export interface ValidationErrorPrimitive<TCtx = any> extends Primitive<'onValidationError'> {
   readonly handler: ValidationErrorHandler<TCtx>;
@@ -133,7 +125,6 @@ const ON_DISCONNECT_KEY = Symbol('onDisconnect');
 const ON_SHUTDOWN_KEY = Symbol('onShutdown');
 const ON_ERROR_KEY = Symbol('onError');
 const ON_UPGRADE_KEY = Symbol('onUpgrade');
-const ON_BINARY_KEY = Symbol('onBinary');
 const ON_VALIDATION_ERROR_KEY = Symbol('onValidationError');
 
 /** @internal */
@@ -218,17 +209,6 @@ export const onUpgrade = Object.assign(
     handler: UpgradeHandler,
   ) => UpgradePrimitive,
   { __key: ON_UPGRADE_KEY },
-);
-
-/**
- * Creates an `onBinary` lifecycle primitive. Prefer `implement(contract).onBinary(...)`
- * — this factory is used internally by the implementer.
- */
-export const onBinary = Object.assign(
-  makeLifecycle('onBinary', ON_BINARY_KEY, (e, h) => e.onBinary(h)) as <TCtx>(
-    handler: BinaryHandler<TCtx>,
-  ) => BinaryPrimitive<TCtx>,
-  { __key: ON_BINARY_KEY },
 );
 
 /**

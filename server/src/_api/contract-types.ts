@@ -189,7 +189,6 @@ export interface ContractConfig {
   readonly dedup?: boolean | { cap?: number };
   readonly hibernation?: boolean;
   readonly keepalive?: KeepaliveOptions;
-  readonly binary?: boolean;
   /**
    * Top-level rate-limit rule. Applies to every event in every scope unless a
    * channel, namespace, or per-handler override replaces it. `{ enabled: false }`
@@ -247,8 +246,7 @@ type FeatureFromConfig<TConfig> =
   | (TConfig extends { sequence: true | { persist?: boolean } } ? 'sequence' : never)
   | (TConfig extends { dedup: true | { cap?: number } } ? 'dedup' : never)
   | (TConfig extends { hibernation: true } ? 'hibernation' : never)
-  | (TConfig extends { keepalive: KeepaliveOptions } ? 'keepalive' : never)
-  | (TConfig extends { binary: true } ? 'binary' : never);
+  | (TConfig extends { keepalive: KeepaliveOptions } ? 'keepalive' : never);
 
 type MetaFromConfig<TConfig> = TConfig extends { meta: TypeMarker<infer M> }
   ? M

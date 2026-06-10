@@ -501,7 +501,7 @@ export interface ChannelsManager<
  * trims it down.
  *
  * `ConnectionContext` is passed to handlers registered with: `incoming`,
- * `request`, `stream`, `onConnect`, `onDisconnect`, `onError`, `onBinary`,
+ * `request`, `stream`, `onConnect`, `onDisconnect`, `onError`,
  * and `onValidationError`.
  *
  * @template Env      Environment variables exposed by the adapter.
@@ -519,8 +519,7 @@ export interface ChannelsManager<
  *
  * Mental model, grouped by purpose:
  * - **identity** — `id`, `identity`, `self`, `meta`, `tags` (when `tagGroups` is set on the contract)
- * - **messaging** — `send`, `broadcast`, `sendToConnection`, `sendBinary`,
- *   `broadcastBinary`
+ * - **messaging** — `send`, `broadcast`, `sendToConnection`
  * - **scope helpers** — `namespace`, `channel`, `channels`
  * - **durability / platform** — `schedule`, `cancelScheduled`, `sql`, `kv`,
  *   `env`, `log`, `platform`, `waitUntil`
@@ -568,15 +567,6 @@ export interface ConnectionContext<
 
   /** Send an event to one specific connection by its ID. Returns `false` if the connection is gone. */
   sendToConnection(connectionId: string, event: string, payload: unknown): boolean;
-
-  /** Send a raw binary frame to the current connection. */
-  sendBinary(data: ArrayBuffer | ArrayBufferView): boolean;
-
-  /**
-   * Broadcast a raw binary frame to all live connections except the caller.
-   * Pass `{ excludeSelf: false }` to include the calling connection as well.
-   */
-  broadcastBinary(data: ArrayBuffer | ArrayBufferView, options?: { excludeSelf?: boolean }): void;
 
   /** Close the current WebSocket connection. */
   close(code?: number, reason?: string): void;

@@ -121,7 +121,6 @@ export class WSKitSocket {
   private _idCounter = 0;
 
   private readonly _parse: (raw: string) => WireMessage | null;
-  private readonly _parseBinary: ((data: unknown) => WireMessage | null) | null;
   private readonly _serialize: (message: WireMessage) => string;
   private readonly _intercepts: readonly InterceptFn[];
 
@@ -139,7 +138,6 @@ export class WSKitSocket {
     this._debug = config.debug ?? false;
     this._lazy = config.lazy ?? false;
     this._parse = config.parse ?? defaultParse;
-    this._parseBinary = config.parseBinary ?? null;
     this._serialize = config.serialize ?? defaultSerialize;
     this._intercepts = config.intercepts ?? [];
   }
@@ -244,12 +242,6 @@ export class WSKitSocket {
 
   send(event: string, payload: unknown, options?: SendOptions): boolean {
     return this._send({ event, payload }, options);
-  }
-
-  sendBinary(data: ArrayBuffer | ArrayBufferView<ArrayBuffer> | Blob): boolean {
-    if (this._state !== 'open' || !this.ws) return false;
-    this.ws.send(data);
-    return true;
   }
 
   /** Runs on every open — the first connect and every reconnect. */
@@ -543,21 +535,17 @@ export class WSKitSocket {
       return;
     }
 
+    // TODO: binary support is planned
+    if (typeof raw !== 'string') {
+      throw new Error('[wskit] binary frames are not supported yet');
+    }
+
     let parsed: WireMessage | null = null;
-    if (typeof raw === 'string') {
-      try {
-        parsed = this._parse(raw);
-      } catch {
-        this._log('could not parse message — dropping it');
-        return;
-      }
-    } else if (this._parseBinary) {
-      try {
-        parsed = this._parseBinary(raw);
-      } catch {
-        this._log('could not parse binary message — dropping it');
-        return;
-      }
+    try {
+      parsed = this._parse(raw);
+    } catch {
+      this._log('could not parse message — dropping it');
+      return;
     }
     if (!parsed) return;
 

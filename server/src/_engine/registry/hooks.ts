@@ -20,7 +20,6 @@ export function createRegisteredHooks(): EngineRuntimeTypes.RegisteredEngineHook
     error: [],
     upgrade: [],
     builderUpgrade: undefined,
-    binary: [],
     validationError: [],
     alarm: [],
     check: new Map(),

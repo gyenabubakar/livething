@@ -22,7 +22,6 @@ function createConnection(id = 'conn_1', meta: Record<string, unknown> = {}) {
     wsKey: Symbol(id),
     descriptor: {
       send() {},
-      sendBinary() {},
       close() {},
       bufferedAmount() {
         return 0;

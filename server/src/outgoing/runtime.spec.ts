@@ -15,7 +15,6 @@ function createConnection(id = 'c1'): RuntimeConnection {
     wsKey: Symbol(id),
     descriptor: {
       send: vi.fn(),
-      sendBinary() {},
       close() {},
       bufferedAmount() {
         return 0;
@@ -389,7 +388,6 @@ describe('broadcastToConnections — fanout resilience', () => {
       wsKey: Symbol(id),
       descriptor: {
         send,
-        sendBinary() {},
         close() {},
         bufferedAmount() {
           return 0;
@@ -533,7 +531,6 @@ describe('broadcastToChannel — fanout resilience', () => {
       wsKey: Symbol(id),
       descriptor: {
         send,
-        sendBinary() {},
         close() {},
         bufferedAmount() {
           return 0;

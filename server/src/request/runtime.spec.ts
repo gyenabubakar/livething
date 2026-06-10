@@ -20,7 +20,6 @@ function createConnection(): RuntimeConnection {
     wsKey: 'ws1',
     descriptor: {
       send() {},
-      sendBinary() {},
       close() {},
       bufferedAmount() {
         return 0;

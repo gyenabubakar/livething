@@ -45,12 +45,6 @@ describe('GroupFullSurfaceClient — incoming (server outgoing)', () => {
     }>();
   });
 
-  it('has binary-marker', () => {
-    expectTypeOf<GroupFullSurfaceClient['incoming']['binary-marker']>().toEqualTypeOf<{
-      size: number;
-    }>();
-  });
-
   it('has pre-intercept-marker', () => {
     expectTypeOf<GroupFullSurfaceClient['incoming']['pre-intercept-marker']>().toEqualTypeOf<{
       event: string;
@@ -263,7 +257,6 @@ describe('GroupFullSurfaceClient — exact key sets', () => {
       | 'init-marker'
       | 'error-marker'
       | 'validation-marker'
-      | 'binary-marker'
       | 'pre-intercept-marker'
       | 'post-intercept-marker'
       | 'rl-marker'

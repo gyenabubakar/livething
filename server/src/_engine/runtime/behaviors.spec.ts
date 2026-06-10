@@ -15,7 +15,6 @@ function createConnection(id = 'conn_1'): RuntimeConnection {
     wsKey: Symbol(id),
     descriptor: {
       send: vi.fn(),
-      sendBinary: vi.fn(),
       close: vi.fn(),
       bufferedAmount() {
         return 0;
@@ -586,7 +585,6 @@ describe('wakeHibernatedConnection — channel memberships restore', () => {
       },
       async runConnectionLifecycle() {},
       async processTextMessage() {},
-      async handleBinaryMessage() {},
       async handleConnectionClose() {},
       async handleRuntimeError() {},
     };

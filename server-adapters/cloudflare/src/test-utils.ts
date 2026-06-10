@@ -23,18 +23,12 @@ export interface FakeWebSocket {
   addEventListener: ReturnType<typeof vi.fn>;
   listeners: Map<string, Array<(event: unknown) => void>>;
   dispatch: (type: string, event: unknown) => void;
-  /** Settable like the real socket; the adapter sets it before accept(). */
-  binaryType?: string;
-  /** The `binaryType` value captured at the moment `accept()` ran. */
-  binaryTypeAtAccept?: string;
 }
 
 export function makeFakeWebSocket(): FakeWebSocket {
   const listeners = new Map<string, Array<(event: unknown) => void>>();
   const ws: FakeWebSocket = {
-    accept: vi.fn(() => {
-      ws.binaryTypeAtAccept = ws.binaryType;
-    }),
+    accept: vi.fn(),
     send: vi.fn(),
     close: vi.fn(),
     listeners,
@@ -159,7 +153,6 @@ export interface FakeEngine {
   setHibernation: (enabled: boolean) => void;
   connectionHandle: {
     handleMessage: ReturnType<typeof vi.fn>;
-    handleBinary: ReturnType<typeof vi.fn>;
     handleClose: ReturnType<typeof vi.fn>;
     handleError: ReturnType<typeof vi.fn>;
   };
@@ -182,7 +175,6 @@ export function makeFakeEngine(): FakeEngine {
 
   const connectionHandle: FakeEngine['connectionHandle'] = {
     handleMessage: vi.fn(async () => {}),
-    handleBinary: vi.fn(async () => {}),
     handleClose: vi.fn(async () => {}),
     handleError: vi.fn(async () => {}),
   };

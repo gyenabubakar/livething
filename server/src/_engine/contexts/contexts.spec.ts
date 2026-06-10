@@ -16,7 +16,6 @@ function createConnection(id: string): RuntimeConnection {
     wsKey: Symbol(id),
     descriptor: {
       send: vi.fn(),
-      sendBinary: vi.fn(),
       close: vi.fn(),
       bufferedAmount() {
         return 0;
@@ -213,75 +212,6 @@ describe('ctx.setAlarm', () => {
 
     const ctx = buildConnectionContext(deps, connection);
     expect(() => ctx.setAlarm(1)).not.toThrow();
-  });
-});
-
-describe('ctx.broadcastBinary', () => {
-  it('skips self by default', () => {
-    const self = createConnection('self');
-    const peer = createConnection('peer');
-    const deps = baseDeps({
-      compiled: { binary: true } as any,
-      connections: new Map([
-        [self.id, self],
-        [peer.id, peer],
-      ]),
-    });
-
-    const ctx = buildConnectionContext(deps, self);
-    const bytes = new Uint8Array([1, 2, 3]).buffer;
-    ctx.broadcastBinary(bytes);
-
-    expect(self.descriptor.sendBinary).not.toHaveBeenCalled();
-    expect(peer.descriptor.sendBinary).toHaveBeenCalledWith(bytes);
-  });
-
-  it('includes self when excludeSelf is false', () => {
-    const self = createConnection('self');
-    const peer = createConnection('peer');
-    const deps = baseDeps({
-      compiled: { binary: true } as any,
-      connections: new Map([
-        [self.id, self],
-        [peer.id, peer],
-      ]),
-    });
-
-    const ctx = buildConnectionContext(deps, self);
-    const bytes = new Uint8Array([9]).buffer;
-    ctx.broadcastBinary(bytes, { excludeSelf: false });
-
-    expect(self.descriptor.sendBinary).toHaveBeenCalledWith(bytes);
-    expect(peer.descriptor.sendBinary).toHaveBeenCalledWith(bytes);
-  });
-});
-
-describe('binary gating without `binary: true`', () => {
-  it('ctx.sendBinary throws when binary is not enabled', () => {
-    const connection = createConnection('a');
-    const deps = baseDeps({ compiled: { binary: false } as any });
-    const ctx = buildConnectionContext(deps, connection);
-
-    expect(() => ctx.sendBinary(new Uint8Array([1]).buffer)).toThrow(/requires `binary: true`/);
-    expect(connection.descriptor.sendBinary).not.toHaveBeenCalled();
-  });
-
-  it('ctx.broadcastBinary throws when binary is not enabled', () => {
-    const self = createConnection('self');
-    const peer = createConnection('peer');
-    const deps = baseDeps({
-      compiled: { binary: false } as any,
-      connections: new Map([
-        [self.id, self],
-        [peer.id, peer],
-      ]),
-    });
-    const ctx = buildConnectionContext(deps, self);
-
-    expect(() => ctx.broadcastBinary(new Uint8Array([1]).buffer)).toThrow(
-      /requires `binary: true`/,
-    );
-    expect(peer.descriptor.sendBinary).not.toHaveBeenCalled();
   });
 });
 

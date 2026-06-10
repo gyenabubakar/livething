@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createPlatform } from './platform.ts';
 import { createSql, createStorage, createTimers } from './providers/index.ts';
-import { normalizeBinary } from './utils.ts';
 
 function fakeCursor<T>(rows: T[]) {
   return {
@@ -192,26 +191,5 @@ describe('createTimers', () => {
     await timers.deleteAlarm!();
     expect(state.storage.deleteAlarm).toHaveBeenCalled();
     expect(getAlarm()).toBeNull();
-  });
-});
-
-describe('normalizeBinary', () => {
-  it('returns ArrayBuffer input unchanged', () => {
-    const ab = new ArrayBuffer(4);
-    expect(normalizeBinary(ab)).toBe(ab);
-  });
-
-  it('slices Uint8Array views to a plain ArrayBuffer containing just the view bytes', () => {
-    const backing = new Uint8Array([1, 2, 3, 4, 5]);
-    const view = new Uint8Array(backing.buffer, 1, 3);
-    const out = normalizeBinary(view);
-    expect(out).toBeInstanceOf(ArrayBuffer);
-    expect(new Uint8Array(out)).toEqual(new Uint8Array([2, 3, 4]));
-  });
-
-  it('encodes strings as UTF-8 ArrayBuffers', () => {
-    const out = normalizeBinary('hi');
-    expect(out).toBeInstanceOf(ArrayBuffer);
-    expect(new Uint8Array(out)).toEqual(new Uint8Array([0x68, 0x69]));
   });
 });

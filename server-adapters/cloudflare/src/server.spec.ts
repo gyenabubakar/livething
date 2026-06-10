@@ -96,9 +96,6 @@ describe('WSKitDurableObject fetch / upgrade', () => {
     const [client, server] = pairs[0]!;
     expect((res as unknown as { webSocket: unknown }).webSocket).toBe(client);
     expect(server.accept).toHaveBeenCalledTimes(1);
-    // Binary frames must arrive as ArrayBuffer; the adapter must request that
-    // before accept() (newer runtimes default standard sockets to Blob).
-    expect(server.binaryTypeAtAccept).toBe('arraybuffer');
     expect(state.acceptWebSocket).not.toHaveBeenCalled();
     // descriptor passed into engine.accept carried meta/tags
     expect(fake.calls.accept).toHaveLength(1);
@@ -133,10 +130,6 @@ describe('WSKitDurableObject fetch / upgrade', () => {
     server.dispatch('message', { data: 'hi' });
     expect(fake.connectionHandle.handleMessage).toHaveBeenCalledWith('hi');
 
-    const buf = new Uint8Array([1, 2, 3]).buffer;
-    server.dispatch('message', { data: buf });
-    expect(fake.connectionHandle.handleBinary).toHaveBeenCalledTimes(1);
-
     server.dispatch('close', { code: 1000, reason: 'bye' });
     expect(fake.connectionHandle.handleClose).toHaveBeenCalledWith(1000, 'bye');
 
@@ -169,9 +162,6 @@ describe('WSKitDurableObject fetch / upgrade', () => {
     // No second argument: tags do not flow into Cloudflare's tag store.
     expect(state.acceptWebSocket.mock.calls[0]!).toHaveLength(1);
     expect(server.accept).not.toHaveBeenCalled();
-    // Hibernation delivers binary as ArrayBuffer already, so the adapter leaves
-    // binaryType alone here.
-    expect(server.binaryType).toBeUndefined();
     // addEventListener path NOT used under hibernation
     expect(server.addEventListener).not.toHaveBeenCalled();
   });
@@ -282,20 +272,6 @@ describe('hibernation wake callbacks', () => {
 
     expect(fake.calls.handleHibernationWake).toEqual([ws]);
     expect(fake.connectionHandle.handleMessage).toHaveBeenCalledWith('hello');
-  });
-
-  it('webSocketMessage forwards binary payloads through normalizeBinary', async () => {
-    const Cls = buildClass({ hibernation: true });
-    const state = makeFakeDOState();
-    const instance = new Cls(state as unknown as DurableObjectState, {});
-
-    const ws = {} as unknown as WebSocket;
-    const view = new Uint8Array([7, 8, 9]);
-    await instance.webSocketMessage(ws, view as ArrayBufferView);
-
-    expect(fake.connectionHandle.handleBinary).toHaveBeenCalledTimes(1);
-    const arg = fake.connectionHandle.handleBinary.mock.calls[0]![0] as ArrayBuffer;
-    expect(new Uint8Array(arg)).toEqual(view);
   });
 
   it('webSocketClose invokes connection.handleClose with code and reason', async () => {

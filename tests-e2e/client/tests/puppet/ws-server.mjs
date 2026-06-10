@@ -48,8 +48,7 @@ wss.on('connection', (ws, req) => {
   // On a correct raw pong, send back an `echoed` frame so the test can see the
   // round-trip completed. A JSON pong, or no pong at all, yields nothing.
   if (behavior === 'server-ping') {
-    ws.on('message', (data, isBinary) => {
-      if (isBinary) return;
+    ws.on('message', (data) => {
       if (data.toString() === 'pong') {
         ws.send(JSON.stringify({ event: 'echoed', payload: { text: 'pong-confirmed' } }));
       }
@@ -58,11 +57,7 @@ wss.on('connection', (ws, req) => {
     return;
   }
 
-  ws.on('message', (data, isBinary) => {
-    if (isBinary) {
-      ws.send(data, { binary: true });
-      return;
-    }
+  ws.on('message', (data) => {
     // Keepalive: the wskit client sends a bare "ping" text frame (raw, so the
     // CF hibernation auto-response can answer it). The `pong` behavior answers
     // with a bare "pong", mirroring the real server; others ignore it.

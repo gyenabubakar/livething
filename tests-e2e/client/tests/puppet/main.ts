@@ -1,12 +1,4 @@
-import {
-  buffering,
-  client,
-  connect,
-  keepalive,
-  platform,
-  reconnection,
-  serialization,
-} from '@wskit/client';
+import { buffering, client, connect, keepalive, platform, reconnection } from '@wskit/client';
 import { WebEnvironment } from '@wskit/client/environment';
 import * as errorsEntry from '@wskit/client/errors';
 import * as platformEntry from '@wskit/client/platform';
@@ -21,7 +13,7 @@ const subpathsOk = [errorsEntry, platformEntry, testingEntry].every(
 );
 
 interface Contract {
-  incoming: { echoed: { text?: string }; 'bin-echo': { bytes: number[] } };
+  incoming: { echoed: { text?: string } };
   outgoing: { hello: { text: string }; drop: Record<string, never> };
 }
 
@@ -31,7 +23,6 @@ const room = params.get('room') ?? 'default';
 const useKeepalive = params.get('keepalive') === '1';
 const usePlatform = params.get('platform') === '1';
 const useReconnect = params.get('reconnect') === '1' || usePlatform;
-const useBinary = params.get('binary') === '1';
 const useBuffering = params.get('buffering') === '1';
 const useLazy = params.get('lazy') === '1';
 const idleMs = params.get('idleMs');
@@ -61,18 +52,6 @@ const primitives: Primitive[] = [];
 if (useReconnect) primitives.push(reconnection({ networkAware: usePlatform, maxDelay: 500 }));
 if (useKeepalive) primitives.push(keepalive({ interval: 100, maxMissedPongs: 2 }));
 if (useBuffering) primitives.push(buffering({ enabled: true }));
-if (useBinary) {
-  primitives.push(
-    serialization({
-      binaryType: 'arraybuffer',
-      // The puppet server echoes the raw bytes; decode them back into a frame.
-      parseBinary: (data) => ({
-        event: 'bin-echo',
-        payload: { bytes: Array.from(new Uint8Array(data)) },
-      }),
-    }),
-  );
-}
 if (usePlatform) {
   primitives.push(
     platform({
@@ -125,9 +104,6 @@ if (!useLazy) {
     el('last-event').textContent = 'echoed';
     el('last-payload').textContent = JSON.stringify(payload);
   });
-  socket.on('bin-echo', (payload) => {
-    el('binary-echo').textContent = payload.bytes.join(',');
-  });
 }
 
 (window as unknown as { __drop(): void }).__drop = () => socket.send('drop', {});
@@ -135,9 +111,6 @@ if (!useLazy) {
 el('connect').addEventListener('click', () => socket.connect());
 el('disconnect').addEventListener('click', () => socket.disconnect());
 el('send-hello').addEventListener('click', () => socket.send('hello', { text: 'hi' }));
-el('send-binary').addEventListener('click', () =>
-  socket.sendBinary(new Uint8Array([1, 2, 3, 4]).buffer),
-);
 
 el('subpaths-ok').textContent = subpathsOk ? 'yes' : 'no';
 el('app-ready').textContent = 'yes';

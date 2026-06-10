@@ -221,14 +221,6 @@ export type Ctx<C extends Contract> = {
     payload: unknown,
     wire: { seq: number; messageId: string; channel?: string; channelScope?: string | null },
   ): void;
-  /** Send a raw binary frame to this connection. Requires `binary: true` on the contract. */
-  sendBinary(data: ArrayBuffer | ArrayBufferView): boolean;
-  /**
-   * Send a raw binary frame to every other connection by default. Requires
-   * `binary: true` on the contract. Pass `{ excludeSelf: false }` to include
-   * this connection too.
-   */
-  broadcastBinary(data: ArrayBuffer | ArrayBufferView, options?: { excludeSelf?: boolean }): void;
 } & TypedSendApi<C['outgoing']> &
   ScheduleApi<C['scheduled']> & {
     /** Look up channel handles by name. Each handle lets you send/broadcast into one channel. */

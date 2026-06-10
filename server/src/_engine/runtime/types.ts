@@ -62,7 +62,7 @@ export type { IncomingProtocolEvent } from './protocol.ts';
 export interface RegisteredEngineHooks {
   // -- Message pipeline hooks -------------------------------------------------
 
-  /** Fires on every text/binary frame — used by keepalive to reset idle timers. */
+  /** Fires on every text frame — used by keepalive to reset idle timers. */
   activity: ((connectionId: string) => void | Promise<void>)[];
 
   /** Runs before routing — can observe or rewrite the payload (event is locked). */
@@ -158,9 +158,6 @@ export interface RegisteredEngineHooks {
             tags?: readonly TagRef[];
           }>)
     | undefined;
-
-  /** Handles raw binary frames that bypass the JSON pipeline. */
-  binary: ((ctx: any, data: ArrayBuffer) => void | Promise<void>)[];
 
   /** Observes incoming payloads that fail schema validation. */
   validationError: ((ctx: any, event: string, validationError: unknown) => void | Promise<void>)[];

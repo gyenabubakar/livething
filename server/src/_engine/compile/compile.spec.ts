@@ -492,21 +492,6 @@ describe('boot-time same-kind duplicate guard', () => {
     );
   });
 
-  it('accepts binary:true for a plugin that depends on binary even without onBinary', () => {
-    const NeedsBinary = plugin('acme:needs-binary', {
-      dependencies: ['binary'],
-      setup: () => () => ({}),
-    });
-    const c = contract('app', {
-      env: t<Record<string, unknown>>(),
-      binary: true,
-      plugins: [NeedsBinary()],
-      definitions: [],
-    });
-
-    expect(() => compileHandlerDefinition(implement(c).build())).not.toThrow();
-  });
-
   it('rejects two incoming declarations with the same event name inside a channel scope', () => {
     const c = contract('app', {
       env: t<Record<string, unknown>>(),

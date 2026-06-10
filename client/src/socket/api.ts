@@ -19,9 +19,6 @@ export interface SocketConnection {
   /** Run a callback on every state change (read the value with `getState()`). */
   subscribe(callback: () => void): () => void;
 
-  /** Send raw bytes, skipping the normal encoder and type checks. */
-  sendBinary(data: ArrayBuffer | ArrayBufferView<ArrayBuffer> | Blob): boolean;
-
   /** Runs on every open (first connect and reconnects). */
   onOpen(callback: () => void): () => void;
   /** Runs only on reconnects. */

@@ -43,68 +43,6 @@ function openedSocket<const P extends readonly Primitive<any, any>[]>(
   return { socket, ws };
 }
 
-describe('sendBinary', () => {
-  it('returns false and does not call ws.send when the socket is closed', () => {
-    const socket = buildSocket();
-    const data = new ArrayBuffer(4);
-    const result = socket.sendBinary(data);
-    expect(result).toBe(false);
-    expect(MockWebSocket.instances).toHaveLength(0);
-  });
-
-  it('returns false when state is connecting (ws not yet assigned)', () => {
-    const socket = buildSocket();
-    socket.connect();
-    // State is 'connecting' at this point — ws is still being set up
-    expect(socket._state).toBe('connecting');
-    const data = new ArrayBuffer(4);
-    const result = socket.sendBinary(data);
-    expect(result).toBe(false);
-  });
-
-  it('sends raw binary directly to ws.send and returns true when open', () => {
-    const { socket, ws } = openedSocket();
-    const data = new ArrayBuffer(8);
-    const view = new Uint8Array(data);
-    view[0] = 42;
-
-    const result = socket.sendBinary(data);
-
-    expect(result).toBe(true);
-    expect(ws.sent).toHaveLength(1);
-    expect(ws.sent[0]).toBe(data);
-  });
-
-  it('bypasses JSON serialization — the sent value is the raw binary, not a string', () => {
-    const { socket, ws } = openedSocket();
-    const blob = new Blob(['hello']);
-
-    socket.sendBinary(blob);
-
-    expect(typeof ws.sent[0]).not.toBe('string');
-    expect(ws.sent[0]).toBe(blob);
-  });
-
-  it('does not route binary through onOutgoing hooks', () => {
-    let outgoingCalled = false;
-    const fakePrimitive: PrimitiveRuntime = {
-      id: 'spy',
-      onOutgoing(message) {
-        outgoingCalled = true;
-        return message;
-      },
-    };
-    const socket = buildSocket();
-    socket._setPrimitives([fakePrimitive]);
-    socket.connect();
-    MockWebSocket.last().open();
-
-    socket.sendBinary(new ArrayBuffer(4));
-
-    expect(outgoingCalled).toBe(false);
-  });
-});
-
 describe('_send: onOutgoing null cancels before buffering fallback', () => {
   it('returns false immediately when onOutgoing cancels — does not queue the message', () => {
     const cancellingPrimitive: PrimitiveRuntime = {

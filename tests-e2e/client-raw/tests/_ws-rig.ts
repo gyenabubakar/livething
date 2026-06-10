@@ -20,7 +20,6 @@ interface RigWindow {
     room: string,
   ) => Promise<{ id: string; frames: WireFrame[] }>;
   __wskitSend?: (id: string, frame: WireFrame) => void;
-  __wskitSendBinary?: (id: string, bytes: number[]) => void;
   __wskitClose?: (id: string) => void;
   __wskitFrames?: (id: string) => WireFrame[];
 }
@@ -58,7 +57,6 @@ export async function installRig(page: Page) {
       });
     };
     window.__wskitSend = (id, frame) => sockets.get(id)?.send(JSON.stringify(frame));
-    window.__wskitSendBinary = (id, bytes) => sockets.get(id)?.send(new Uint8Array(bytes));
     window.__wskitClose = (id) => sockets.get(id)?.close();
     window.__wskitFrames = (id) => frames.get(id) ?? [];
   });
@@ -80,13 +78,6 @@ export async function connect(page: Page, opts: ConnectOptions): Promise<string>
 
 export async function send(page: Page, id: string, frame: WireFrame) {
   await page.evaluate(([sid, f]) => window.__wskitSend!(sid, f as WireFrame), [id, frame] as const);
-}
-
-export async function sendBinary(page: Page, id: string, bytes: number[]) {
-  await page.evaluate(([sid, b]) => window.__wskitSendBinary!(sid, b as number[]), [
-    id,
-    bytes,
-  ] as const);
 }
 
 export async function closeSocket(page: Page, id: string) {

@@ -24,8 +24,7 @@ export type PluginDependency =
   | 'sequence'
   | 'dedup'
   | 'hibernation'
-  | 'keepalive'
-  | 'binary';
+  | 'keepalive';
 
 /**
  * Definitions a plugin is allowed to declare. Plugins expose outgoing events

@@ -56,7 +56,7 @@ export class MockWebSocket {
     this.onmessage?.({ data });
   }
 
-  /** Pretend a message arrived exactly as given (for binary like an ArrayBuffer). */
+  /** Pretend a message arrived exactly as given (e.g. a raw string or ArrayBuffer). */
   emitRaw(data: unknown): void {
     this.onmessage?.({ data });
   }

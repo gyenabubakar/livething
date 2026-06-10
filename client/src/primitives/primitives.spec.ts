@@ -190,7 +190,7 @@ describe('keepalive (opt-in)', () => {
 });
 
 describe('serialization (binary)', () => {
-  it('decodes incoming binary via parseBinary', () => {
+  it('applies binaryType to the socket but throws when a binary frame arrives', () => {
     const handler = vi.fn();
     const socket = client<TestContract>()(
       connect('wss://test'),
@@ -204,32 +204,10 @@ describe('serialization (binary)', () => {
     ws.open();
     expect(ws.binaryType).toBe('arraybuffer');
     socket.on('message', handler);
-    ws.emitRaw(new ArrayBuffer(4));
-    expect(handler).toHaveBeenCalledWith({ text: 'binary' });
-  });
-
-  it('decodes incoming binary delivered as a Blob (binaryType: blob)', async () => {
-    const handler = vi.fn();
-    let sawBlob = false;
-    const socket = client<TestContract>()(
-      connect('wss://test'),
-      serialization({
-        binaryType: 'blob',
-        parseBinary: (data: Blob) => {
-          sawBlob = data instanceof Blob;
-          return { event: 'message', payload: { text: `bytes:${data.size}` } };
-        },
-      }),
+    expect(() => ws.emitRaw(new ArrayBuffer(4))).toThrow(
+      '[wskit] binary frames are not supported yet',
     );
-    socket.connect();
-    const ws = MockWebSocket.last();
-    ws.open();
-    expect(ws.binaryType).toBe('blob');
-    socket.on('message', handler);
-
-    ws.emitRaw(new Blob(['ab']));
-    expect(sawBlob).toBe(true);
-    expect(handler).toHaveBeenCalledWith({ text: 'bytes:2' });
+    expect(handler).not.toHaveBeenCalled();
   });
 });
 

@@ -105,7 +105,7 @@ export interface EngineAccess {
   /**
    * Observe activity from one live connection before normal routing continues.
    *
-   * This runs for each text or binary websocket frame the server receives.
+   * This runs for each text websocket frame the server receives.
    */
   onConnectionActivity(handler: (connectionId: string) => void | Promise<void>): void;
 
@@ -178,11 +178,6 @@ export interface EngineAccess {
           tags?: readonly ContextApi.TagRef[];
         }>,
   ): void;
-
-  /**
-   * Observe binary websocket messages.
-   */
-  onBinary(handler: (ctx: unknown, data: ArrayBuffer) => void | Promise<void>): void;
 
   /**
    * Observe validation failures for incoming payloads.

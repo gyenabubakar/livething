@@ -1,13 +1,5 @@
 import { expect, test } from '@playwright/test';
-import {
-  closeSocket,
-  connect,
-  frames,
-  installRig,
-  send,
-  sendBinary,
-  waitForFrame,
-} from './_ws-rig.ts';
+import { closeSocket, connect, frames, installRig, send, waitForFrame } from './_ws-rig.ts';
 import type { WireFrame } from './_ws-rig.ts';
 
 const WS_PATH = '/ws/group-full-surface';
@@ -232,7 +224,7 @@ test.describe('group full surface', () => {
     expect(marker.payload.ran).toBe(1);
   });
 
-  test('group.onError, onValidationError, onBinary all fire', async ({ page }, testInfo) => {
+  test('group.onError and onValidationError fire', async ({ page }, testInfo) => {
     const room = `gfs-err-${testInfo.testId}-${Date.now()}`;
     const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
     await waitForFrame(page, a, { match: (f) => f.event === 'welcome' });
@@ -250,9 +242,5 @@ test.describe('group full surface', () => {
       match: (f) => f.event === 'validation-marker' && f.payload.event === 'bad-payload',
     });
     expect(valMarker.payload.event).toBe('bad-payload');
-
-    await sendBinary(page, a, [1, 2, 3, 4, 5, 6, 7, 8]);
-    const binMarker = await waitForFrame(page, a, { match: (f) => f.event === 'binary-marker' });
-    expect(binMarker.payload.size).toBe(8);
   });
 });

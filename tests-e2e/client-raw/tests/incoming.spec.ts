@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { connect, frames, installRig, send, waitForFrame } from './_ws-rig.ts';
+import { connect, installRig, send, waitForFrame } from './_ws-rig.ts';
 
 test.describe('incoming', () => {
   async function openPage(page: Page, room: string) {
@@ -79,23 +79,6 @@ test.describe('incoming — wire contract', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/incoming');
     await installRig(page);
-  });
-
-  test('a binary frame to a handler with no onBinary is silently dropped; connection stays alive', async ({
-    page,
-  }, testInfo) => {
-    const room = `inc-bin-${testInfo.testId}`;
-    const a = await connect(page, { path: '/ws/incoming', username: 'alice', room });
-
-    await page.evaluate((sid) => window.__wskitSendBinary!(sid, [0x01, 0x02, 0x03]), a);
-    await page.waitForTimeout(200);
-
-    const errors = (await frames(page, a)).filter((f) => f.event === '__error__');
-    expect(errors).toHaveLength(0);
-
-    // Positive signal: a follow-up text frame still works.
-    await send(page, a, { event: 'echo-ping', payload: { text: 'alive' } });
-    await waitForFrame(page, a, { match: (f) => f.event === 'echo-pong' });
   });
 
   test('a bad payload emits an _error frame with code validation-failed', async ({
