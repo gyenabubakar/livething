@@ -102,3 +102,24 @@ describe('Emitter.clear', () => {
     expect(emitter.listenerCount('message')).toBe(0);
   });
 });
+
+describe('Emitter.emit — mid-emit mutation isolation', () => {
+  it('[BUG emitter-set-mutation] a listener added inside another listener during emit must not run in the same emit cycle', () => {
+    const emitter = new Emitter<Events>();
+    let fn2CallCount = 0;
+
+    emitter.on('open', () => {
+      emitter.on('open', () => {
+        fn2CallCount++;
+      });
+    });
+
+    // First emit: only the original listener should run; fn2 must NOT be called yet.
+    emitter.emit('open');
+    expect(fn2CallCount).toBe(0);
+
+    // Second emit: fn2 was registered before this call, so it must run now.
+    emitter.emit('open');
+    expect(fn2CallCount).toBe(1);
+  });
+});

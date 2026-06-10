@@ -289,6 +289,7 @@ export const WSKitProtocolSchema = v.strictObject({
   streamKind: v.optional(StreamKind),
   streamNudgeId: v.optional(WireId),
   streamTerminated: v.optional(v.boolean()),
+  eventName: v.optional(EventName),
   messageId: v.optional(WireId),
   seq: v.optional(NonNegativeSafeInt),
 });

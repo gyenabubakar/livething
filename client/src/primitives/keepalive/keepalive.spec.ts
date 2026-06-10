@@ -246,7 +246,7 @@ describe('keepalive — quality at open and the first measurement', () => {
     vi.advanceTimersByTime(1000); // ping 1 sent
     vi.advanceTimersByTime(1000); // missed pong → missedPongs=1, setQuality('poor')
 
-    expect(onChange).toHaveBeenCalledWith('poor', 0);
+    expect(onChange).toHaveBeenCalledWith('poor', null);
   });
 });
 
@@ -400,6 +400,54 @@ describe('quality change event and latency refresh', () => {
 
     expect(onChange.mock.calls.length).toBeGreaterThan(callsAfterExcellent);
     expect(onChange).toHaveBeenLastCalledWith('good', expect.any(Number));
+  });
+});
+
+describe('[BUG keepalive-forceclose] forceClose is called exactly once even when onclose is delayed', () => {
+  it('[BUG keepalive-forceclose] interval stops after forceClose — ws.close not called again on next tick', () => {
+    vi.useFakeTimers();
+    const { ws } = build(keepalive({ interval: 1000, maxMissedPongs: 2 }));
+
+    const closeSpy = vi.spyOn(ws, 'close').mockImplementation((code, reason) => {
+      // Simulate a delayed close event: set readyState but do NOT call onclose yet.
+      // This means loop.stop() is NOT called, so the interval keeps firing if the bug exists.
+      ws.readyState = 3;
+      // Store args for later assertion but don't fire onclose now.
+      void code;
+      void reason;
+    });
+
+    vi.advanceTimersByTime(1000); // ping 1 sent, pingSentAt set
+    vi.advanceTimersByTime(1000); // tick 2: missed pong → missedPongs=1 (<2), poor, ping 2 sent
+    vi.advanceTimersByTime(1000); // tick 3: missed pong → missedPongs=2 (>=2), forceClose fires
+
+    // At this point ws.close has been called once. The interval has NOT been cleared yet
+    // because onclose hasn't fired (loop.stop() never ran).
+    const callsAfterForceClose = closeSpy.mock.calls.length;
+
+    // Advance past another full interval — the loop should have stopped itself after
+    // calling forceClose, so ws.close must NOT be called again.
+    vi.advanceTimersByTime(1000); // tick 4: should be silent — bug causes a second forceClose here
+
+    expect(closeSpy).toHaveBeenCalledTimes(callsAfterForceClose); // still exactly 1 call
+  });
+});
+
+describe('[BUG quality-fake-latency] onQualityChange reports null latency when no pong was received', () => {
+  it('[BUG quality-fake-latency] latency passed to onQualityChange is null when going poor via missed pongs', () => {
+    vi.useFakeTimers();
+    const { socket } = build(keepalive({ interval: 1000, maxMissedPongs: 2 }));
+
+    // Cast to accept null so the test can actually check the runtime value even though
+    // the declared type is (quality, latency: number) — the correct type is number|null.
+    const onChange = vi.fn<(q: string, l: number | null) => void>();
+    (socket.onQualityChange as (cb: (q: string, l: number | null) => void) => () => void)(onChange);
+
+    vi.advanceTimersByTime(1000); // ping 1 sent, pingSentAt set
+    // No pong ever arrives — so latency is null throughout.
+    vi.advanceTimersByTime(1000); // tick 2: missedPongs=1, quality → 'poor', onQualityChange fires
+
+    expect(onChange).toHaveBeenCalledWith('poor', null); // correct: no measurement → null, not 0
   });
 });
 

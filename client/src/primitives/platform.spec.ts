@@ -160,6 +160,42 @@ describe('background disconnect', () => {
   });
 });
 
+describe('manual connect while already hidden', () => {
+  it('[BUG platform-bg-on-connect] manual socket.connect() while hidden must not be auto-dropped by background timer', () => {
+    // Build an environment that is already hidden and reports that state
+    // immediately to any subscriber (mirrors WebEnvironment behaviour).
+    let visCb: ((v: boolean) => void) | null = null;
+    const visUnsub = vi.fn();
+    const env = environment({
+      onVisibilityChange(cb) {
+        visCb = cb;
+        // Report current state (hidden) right away, just like WebEnvironment.
+        cb(false);
+        return visUnsub;
+      },
+    });
+
+    const socket = client<C>()(
+      connect('wss://test'),
+      platform({ environment: env, backgroundDisconnectMs: 1000 }),
+    );
+
+    // Manually connect and open the socket while the tab is already hidden.
+    socket.connect();
+    MockWebSocket.last().open();
+    // The socket is open — the user explicitly connected it.
+    expect(socket.getState()).toBe('open');
+
+    // Advance past backgroundDisconnectMs. The socket was manually opened
+    // while hidden; the platform primitive must NOT drop it.
+    vi.advanceTimersByTime(1000);
+    expect(socket.getState()).toBe('open');
+
+    // Silence TS — visCb is set inside the subscribe callback above.
+    void visCb;
+  });
+});
+
 describe('network-aware reconnection (reconnection + platform online signal)', () => {
   it('pauses reconnect while offline, resumes immediately on online', () => {
     const m = mockEnvironment();

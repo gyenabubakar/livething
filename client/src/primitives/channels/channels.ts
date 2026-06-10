@@ -17,6 +17,8 @@ import type {
 } from '~/primitives/channels/types.ts';
 import type { WSKitSocket } from '~/socket/socket.ts';
 
+const PERSISTENT_REJOIN_FALLBACK_MS = 5000;
+
 /** Parse a `{ connectionId, meta? }` payload from an untrusted wire message — returns null if the shape is wrong. */
 function readMember(
   payload: unknown,
@@ -222,6 +224,16 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
                 payload: state.resolvedSubscribeData ?? {},
                 __wskit: channelMarkers(state),
               });
+            } else {
+              const rejoining = state;
+              setTimeout(() => {
+                if (!rejoining.active || !rejoining.rejoining) return;
+                helpers.rawSend({
+                  event: '__subscribe__',
+                  payload: rejoining.resolvedSubscribeData ?? {},
+                  __wskit: channelMarkers(rejoining),
+                });
+              }, PERSISTENT_REJOIN_FALLBACK_MS);
             }
           }
           return resubscribes.length ? resubscribes : null;

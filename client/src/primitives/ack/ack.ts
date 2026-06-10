@@ -57,10 +57,15 @@ export function ack(options: AckOptions = {}): Primitive<AckTypeFn> {
             },
           });
 
-          helpers.send(
+          const delivered = helpers.send(
             { event, payload, __wskit: { ackId, ...callOptions.markers } },
             callOptions.ttl !== undefined ? { ttl: callOptions.ttl } : undefined,
           );
+          if (!delivered) {
+            clearTimeout(timer);
+            done();
+            reject(Disconnected());
+          }
         });
       }
 
@@ -71,7 +76,7 @@ export function ack(options: AckOptions = {}): Primitive<AckTypeFn> {
           if (typeof ackId !== 'string') return message;
 
           const waiter = pending.get(ackId);
-          if (!waiter) return message;
+          if (!waiter) return null;
 
           helpers.log.info(`matched acknowledgement '${ackId}'`);
           if (message.event === '__error__') waiter.reject(toWSKitError(message.payload));

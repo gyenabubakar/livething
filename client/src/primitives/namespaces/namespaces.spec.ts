@@ -1,6 +1,7 @@
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { namespaces } from '~/primitives/namespaces/index.ts';
+import { requestResponse } from '~/primitives/request-response/index.ts';
 import { WSKitSocket } from '~/socket/socket.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -221,5 +222,74 @@ describe('ttl resolution', () => {
     expect(options).toEqual({ ttl: 100 });
 
     sendSpy.mockRestore();
+  });
+});
+
+describe('[BUG namespace-error-leak] __error__ tagged with a namespace must not fire the global error handler', () => {
+  it('[BUG namespace-error-leak] global onError is not called for a namespace-scoped __error__ frame', () => {
+    const { socket, ws } = build();
+    const globalErrorHandler = vi.fn();
+    socket.onError(globalErrorHandler);
+
+    ws.emit({
+      event: '__error__',
+      payload: { code: 'forbidden', message: 'not allowed' },
+      __wskit: { namespace: 'chat' },
+    });
+
+    // Correct behavior: the error belongs to the namespace, so the global
+    // handler must NOT be called. Today the namespaces primitive passes the
+    // frame through (because it starts with '__'), and _processIncoming then
+    // fires the global error emitter — the test fails on today's code.
+    expect(globalErrorHandler).not.toHaveBeenCalled();
+  });
+});
+
+describe('[BUG namespace-cache-augmenters] namespace cached before augmenters are registered must still have .request', () => {
+  it('[BUG namespace-cache-augmenters] namespace() called by an early-installed primitive still gains .request from requestResponse', () => {
+    // All setups run, then all installs run in spec order. A primitive whose
+    // install() calls socket.namespace('chat') BEFORE requestResponse.install has
+    // pushed its augmenter builds and caches the messaging object without
+    // .request. Because the object is cached, every later socket.namespace('chat')
+    // returns that same broken object. Correct behavior: the cached namespace must
+    // still expose .request once requestResponse is installed.
+    interface ChatC {
+      namespaces: {
+        chat: {
+          incoming: { msg: { text: string } };
+          outgoing: { msg: { text: string } };
+        };
+      };
+    }
+
+    // A probe primitive that touches namespace('chat') during the install phase,
+    // before requestResponse (registered after it) pushes its augmenter.
+    const earlyProbe = {
+      _tag: 'early-ns-probe',
+      setup() {
+        return {
+          id: 'early-ns-probe',
+          install(socket: unknown) {
+            (socket as { namespace(name: string): unknown }).namespace('chat');
+          },
+        };
+      },
+    };
+
+    const socket = client<ChatC>()(
+      connect('wss://test'),
+      namespaces(),
+      earlyProbe as never,
+      requestResponse(),
+    ) as unknown as {
+      connect(): void;
+      namespace(name: string): Record<string, unknown>;
+    };
+    socket.connect();
+    MockWebSocket.last().open();
+
+    // The cache was populated by the probe before the request augmenter existed.
+    const ns = socket.namespace('chat');
+    expect(typeof ns.request).toBe('function');
   });
 });

@@ -199,3 +199,35 @@ describe('_rawSend: dropped while socket is not open', () => {
     expect(ws.sentFrames()).toContainEqual({ event: 'direct', payload: { x: 1 } });
   });
 });
+
+describe('[BUG droplog-name] dropped send debug log uses the renamed event name', () => {
+  it('debug drop log contains the outgoing (renamed) event, not the original', () => {
+    const renamingPrimitive: PrimitiveRuntime = {
+      id: 'renamer',
+      onOutgoing(message) {
+        return { ...message, event: 'renamed-action' };
+      },
+    };
+
+    const socket = buildSocket();
+    socket._setPrimitives([renamingPrimitive]);
+    socket.setDebug(true);
+
+    const captured: unknown[][] = [];
+    const origLog = console.log;
+    console.log = (...args: unknown[]) => {
+      captured.push([...args]);
+    };
+    socket.send('action', { id: 1 });
+    console.log = origLog;
+
+    const dropCalls = captured.filter((args) =>
+      args.some((a) => typeof a === 'string' && a.includes('dropped')),
+    );
+    expect(dropCalls.length).toBeGreaterThan(0);
+
+    const dropLine = dropCalls[0]!.join(' ');
+    expect(dropLine).toContain('renamed-action');
+    expect(dropLine).not.toContain("send('action')");
+  });
+});

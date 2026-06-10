@@ -281,6 +281,73 @@ describe('broadcast scope and seq deduplication', () => {
   });
 });
 
+describe('[BUG stream-broadcast-frozen] late onStream subscriber receives subsequent chunks', () => {
+  it('[BUG stream-broadcast-frozen] subscriber added after first chunk receives later chunks', () => {
+    const { socket, ws } = buildWithStream();
+
+    const firstChunks = vi.fn();
+    const lateChunks = vi.fn();
+
+    socket.onStream('ask-ai', { onChunk: firstChunks });
+
+    // First chunk — this causes deliverBroadcast to snapshot handlers into broadcastRun.
+    ws.emit({
+      event: 'ask-ai',
+      payload: { text: 'chunk1' },
+      __wskit: { streamId: 'bsf1', seq: 1 },
+    });
+    expect(firstChunks).toHaveBeenCalledTimes(1);
+
+    // Late subscriber added AFTER the broadcastRun was created.
+    socket.onStream('ask-ai', { onChunk: lateChunks });
+
+    // Subsequent chunks must reach both subscribers.
+    ws.emit({
+      event: 'ask-ai',
+      payload: { text: 'chunk2' },
+      __wskit: { streamId: 'bsf1', seq: 2 },
+    });
+
+    expect(firstChunks).toHaveBeenCalledTimes(2);
+    expect(lateChunks).toHaveBeenCalledTimes(1);
+    expect(lateChunks).toHaveBeenCalledWith({ text: 'chunk2' }, 'bsf1');
+  });
+});
+
+describe('[BUG stream-broadcast-noend] pre-chunk error/end fires onError and onEnd', () => {
+  it('[BUG stream-broadcast-noend] onEnd fires when __streamEnd__ arrives before any chunk', () => {
+    const { socket, ws } = buildWithStream();
+
+    const onEnd = vi.fn();
+    socket.onStream('ask-ai', { onChunk: vi.fn(), onEnd });
+
+    // No chunk emitted — the end frame carries eventName so it still routes.
+    ws.emit({
+      event: '__streamEnd__',
+      payload: {},
+      __wskit: { streamId: 'bsne1', eventName: 'ask-ai' },
+    });
+
+    expect(onEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it('[BUG stream-broadcast-noend] onError fires when __error__ arrives before any chunk', () => {
+    const { socket, ws } = buildWithStream();
+
+    const onError = vi.fn();
+    socket.onStream('ask-ai', { onChunk: vi.fn(), onError });
+
+    // No chunk emitted — the error frame carries eventName so it still routes.
+    ws.emit({
+      event: '__error__',
+      payload: { code: 'stream-ended', message: 'ended' },
+      __wskit: { streamId: 'bsne2', eventName: 'ask-ai' },
+    });
+
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('deliverBroadcast with no matching scope', () => {
   it('does not fire onEnd on a mismatched-scope subscriber when __streamEnd__ arrives', async () => {
     const { socket, ws } = buildWithStreamAndChannels();

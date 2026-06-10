@@ -359,6 +359,38 @@ describe('ordering', () => {
   });
 });
 
+describe('async hook registration', () => {
+  it('[BUG plugin-async-hooks] onIncoming registered after an await inside setup runs when a message arrives', async () => {
+    const seen: string[] = [];
+
+    const AsyncHook = plugin({
+      id: 'test:async-hook',
+      key: Symbol('test:async-hook'),
+      setup(_args, hooks) {
+        // Register the hook AFTER a microtask (simulates `await someAsyncInit()`)
+        Promise.resolve().then(() => {
+          hooks.onIncoming((m) => {
+            seen.push(m.event);
+            return m;
+          });
+        });
+        return () => ({});
+      },
+    });
+
+    const { ws } = build(AsyncHook());
+
+    // Let the Promise.resolve().then() microtask run so the hook is registered.
+    await Promise.resolve();
+
+    ws.emit({ event: 'message', payload: { text: 'hello' } });
+
+    // Correct behavior: the late-registered hook should have seen the message.
+    // Today it is silently dropped, so seen stays empty and this assertion fails.
+    expect(seen).toEqual(['message']);
+  });
+});
+
 describe('Plugin.use', () => {
   it('throws when the plugin is not registered on the socket', () => {
     const KEY = Symbol('acme:metrics');

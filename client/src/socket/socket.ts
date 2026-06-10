@@ -402,19 +402,17 @@ export class WSKitSocket {
       // After awaiting, re-check the attempt id so a disconnect() that happened
       // mid-resolve still cancels us.
       if (!this._isFirstConnect) {
-        let awaited = false;
         for (const primitive of this._primitives) {
           try {
             const result = primitive.onBeforeReopen?.();
             if (result) {
-              awaited = true;
               await result;
+              if (attemptId !== this._connectAttemptId) return;
             }
           } catch (error) {
             this._logAt('error', `primitive '${primitive.id}' onBeforeReopen threw`, error);
           }
         }
-        if (awaited && attemptId !== this._connectAttemptId) return;
       }
 
       this._log(`connecting to ${finalUrl}`);
@@ -477,6 +475,7 @@ export class WSKitSocket {
             this._logAt('error', `primitive '${primitive.id}' onClose threw`, error);
           }
         }
+        this._clearLazyIdleTimer();
 
         // Update the state BEFORE firing onClose so a handler that reads
         // getState() sees the final state ('reconnecting' or 'closed').
@@ -511,11 +510,20 @@ export class WSKitSocket {
       if (attemptId !== this._connectAttemptId) return;
 
       this._log('connection failed', error);
+      this._emitter.emit('error', toWSKitError(error));
 
       if (this._unexpectedCloseHandler) {
         this._unexpectedCloseHandler(1006, 'connection failed');
       } else {
+        for (const primitive of this._primitives) {
+          try {
+            primitive.onClose?.(1006, 'connection failed', false);
+          } catch (closeError) {
+            this._logAt('error', `primitive '${primitive.id}' onClose threw`, closeError);
+          }
+        }
         this._setState('closed');
+        this._emitter.emit('close', { code: 1006, reason: 'connection failed', wasClean: false });
       }
     }
   }
@@ -591,11 +599,14 @@ export class WSKitSocket {
           if (result) message = result;
         } catch (error) {
           if (error === Block) {
+            // An intentional drop: stop the chain and drop the message.
             this._log(`intercept dropped '${message.event}'`);
-          } else {
-            this._log('intercept threw — dropping the message', error);
+            return;
           }
-          return;
+          // A real error is isolated like an onIncoming throw above: log it and
+          // skip this intercept so the message and the remaining intercepts still
+          // run — a bug in one intercept must not silently swallow messages.
+          this._logAt('error', 'intercept threw — skipping it', error);
         }
       }
     }
@@ -690,7 +701,7 @@ export class WSKitSocket {
         return true;
       }
 
-      this._log(`send('${message.event}') dropped — not connected`);
+      this._log(`send('${outgoing.event}') dropped — not connected`);
 
       return false;
     }

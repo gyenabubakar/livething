@@ -62,6 +62,13 @@ export function namespaces(
           if (typeof name !== 'string') return message;
           // Leave request responses and protocol frames for their own owners.
           if (message.__wskit?.correlationId !== undefined) return message;
+          if (
+            message.event === '__error__' &&
+            message.__wskit?.ackId === undefined &&
+            message.__wskit?.streamId === undefined
+          ) {
+            return null;
+          }
           if (message.event.startsWith('__')) return message;
           // A namespace-scoped stream chunk carries a streamId — it belongs to
           // the stream primitive, not namespace.on(). Pass it through untouched.
@@ -73,11 +80,14 @@ export function namespaces(
         install(socket) {
           // @ts-expect-error — install adds namespace() to the socket dynamically
           socket.namespace = (name: string) => {
-            const existing = cache.get(name);
-            if (existing) return existing;
-
             function markers(): ScopeMarkers {
               return { namespace: name };
+            }
+
+            const existing = cache.get(name);
+            if (existing) {
+              applyAugmenters(socket, existing, { markers });
+              return existing;
             }
 
             const messaging: MessagingObject = {

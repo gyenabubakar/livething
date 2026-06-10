@@ -32,7 +32,7 @@ function build<const P extends readonly Primitive<any, any>[]>(
 }
 
 describe('intercept — non-Block throw drops message', () => {
-  it('drops the message and does not invoke the top-level handler when an intercept throws a plain Error', () => {
+  it('keeps the message and still dispatches to the top-level handler when an intercept throws a plain Error', () => {
     const handler = vi.fn();
     const { socket, ws } = build(
       intercept(() => {
@@ -41,10 +41,12 @@ describe('intercept — non-Block throw drops message', () => {
     );
     socket.on('message', handler);
     ws.emit({ event: 'message', payload: { text: 'hello' } });
-    expect(handler).not.toHaveBeenCalled();
+    // A plain Error is an accidental bug, not an intentional Block, so it is
+    // isolated: the message survives and reaches the handler.
+    expect(handler).toHaveBeenCalledTimes(1);
   });
 
-  it('does not run a later intercept after an earlier one throws a plain Error', () => {
+  it('still runs a later intercept (and dispatches) after an earlier one throws a plain Error', () => {
     const laterIntercept = vi.fn();
     const handler = vi.fn();
     const { socket, ws } = build(
@@ -55,8 +57,9 @@ describe('intercept — non-Block throw drops message', () => {
     );
     socket.on('message', handler);
     ws.emit({ event: 'message', payload: { text: 'hello' } });
-    expect(laterIntercept).not.toHaveBeenCalled();
-    expect(handler).not.toHaveBeenCalled();
+    // Only Block stops the chain; a plain Error skips just the throwing intercept.
+    expect(laterIntercept).toHaveBeenCalledTimes(1);
+    expect(handler).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -131,6 +134,21 @@ describe('intercept — transform chains to next intercept', () => {
     // Second delivery — duplicate, dedup swallows it before intercepts run
     ws.emit({ event: 'message', payload: { text: 'hi' }, __wskit: { messageId: 'msg-1' } });
     expect(interceptFn).not.toHaveBeenCalled();
+  });
+});
+
+describe('[BUG intercept-throw] non-Block throw must not stop the chain', () => {
+  it('[BUG intercept-throw] intercept B still runs when intercept A throws a plain TypeError (non-Block)', () => {
+    const interceptB = vi.fn();
+    const { socket, ws } = build(
+      intercept(() => {
+        throw new TypeError('non-block error');
+      }),
+      intercept(interceptB),
+    );
+    socket.on('message', () => {});
+    ws.emit({ event: 'message', payload: { text: 'hello' } });
+    expect(interceptB).toHaveBeenCalledTimes(1);
   });
 });
 

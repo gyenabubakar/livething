@@ -97,6 +97,7 @@ export class KeepaliveLoop {
       this.callbacks.log(`missed pong ${this.missedPongs}/${this.maxMissedPongs}`);
       if (this.missedPongs >= this.maxMissedPongs) {
         this.callbacks.log('connection looks dead — force closing');
+        this.stop();
         this.callbacks.forceClose();
         return;
       }

@@ -92,6 +92,44 @@ describe('createKv', () => {
   });
 });
 
+describe('createKv — list isolation', () => {
+  it('[BUG cf-kv-list] list returns only keys written via kv, not raw storage keys under the same prefix', async () => {
+    const { kv, state } = (() => {
+      const storageMap = new Map<string, unknown>();
+      const s = {
+        storage: {
+          get: vi.fn(async (key: string) => storageMap.get(key)),
+          put: vi.fn(async (key: string, value: unknown) => {
+            storageMap.set(key, value);
+          }),
+          delete: vi.fn(async (key: string) => {
+            storageMap.delete(key);
+          }),
+          list: vi.fn(async ({ prefix }: { prefix?: string } = {}) => {
+            const filtered = new Map<string, unknown>();
+            for (const [key, value] of storageMap) {
+              if (!prefix || key.startsWith(prefix)) {
+                filtered.set(key, value);
+              }
+            }
+            return filtered;
+          }),
+        },
+      } as unknown as DurableObjectState;
+      const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+      return { kv: createKv(s, logger), state: s };
+    })();
+
+    await kv.set('p:a', 'via-kv');
+    await state.storage.put('p:b', 'raw');
+
+    const keys = await kv.list('p:');
+
+    expect(keys).toContain('p:a');
+    expect(keys).not.toContain('p:b');
+  });
+});
+
 describe('createSql.exec — one-shot result contract', () => {
   function fakeCursor(rows: Record<string, unknown>[] = []) {
     const iter = rows[Symbol.iterator]();

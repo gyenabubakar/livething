@@ -18,7 +18,9 @@ export interface QualityApi {
   /** The last round-trip time in ms, or `null` if not measured yet. */
   getLatency(): number | null;
   /** Runs when the quality tier changes. */
-  onQualityChange(callback: (quality: ConnectionQuality, latency: number) => void): () => void;
+  onQualityChange(
+    callback: (quality: ConnectionQuality, latency: number | null) => void,
+  ): () => void;
 }
 
 interface KeepaliveTypeFn extends TypeFn {
@@ -43,7 +45,7 @@ export function keepalive(options: KeepaliveOptions = {}): Primitive<KeepaliveTy
       // getQuality() can return the optimistic default until then.
       let quality: ConnectionQuality | null = null;
       let latency: number | null = null;
-      const listeners = new Set<(quality: ConnectionQuality, latency: number) => void>();
+      const listeners = new Set<(quality: ConnectionQuality, latency: number | null) => void>();
 
       const loop = new KeepaliveLoop(
         {
@@ -60,7 +62,7 @@ export function keepalive(options: KeepaliveOptions = {}): Primitive<KeepaliveTy
           // The loop fires this only when the tier actually changes.
           onQualityChange: (next) => {
             quality = next;
-            for (const listener of [...listeners]) listener(next, latency ?? 0);
+            for (const listener of [...listeners]) listener(next, latency);
           },
           log: (message) => helpers.log.info(message),
         },

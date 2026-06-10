@@ -5,6 +5,7 @@ import { reconnection } from '~/primitives/reconnection/index.ts';
 import { stream } from '~/primitives/stream/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { WSKitSocket } from '~/socket/socket.ts';
 import type { StreamHandle } from '~/types.ts';
 
 interface C {
@@ -317,5 +318,30 @@ describe('scoped streams', () => {
     expect(frame.event).toBe('ask-ai');
     expect(frame.__wskit).toMatchObject({ channel: 'r1', channelScope: 'rooms' });
     expect(typeof frame.__wskit.streamId).toBe('string');
+  });
+});
+
+describe('lazy consumer leak on failed send', () => {
+  it('[BUG trigger-leak-rawsend] lazyConsumers returns to 0 when the trigger send throws', () => {
+    const socket = client<C>()(connect('wss://test', { lazy: true, idleTimeout: 0 }), stream());
+    socket.connect();
+    const ws = MockWebSocket.last();
+    ws.open();
+
+    // Make the underlying ws.send throw on the very next call (the trigger frame).
+    const original = ws.send.bind(ws);
+    let calls = 0;
+    ws.send = (data: unknown) => {
+      calls++;
+      if (calls === 1) throw new Error('network error');
+      original(data);
+    };
+
+    // socket.stream() calls lazyAcquire then rawSend — rawSend throws, so the
+    // Promise (and its lazyRelease) is never created. The correct behavior is
+    // that lazyAcquire is rolled back and _lazyConsumers stays at 0.
+    expect(() => socket.stream('ask-ai', { prompt: 'hi' })).toThrow('network error');
+
+    expect((socket as unknown as WSKitSocket)._lazyConsumers).toBe(0);
   });
 });

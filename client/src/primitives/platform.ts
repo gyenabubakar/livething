@@ -48,6 +48,7 @@ export function platform(options: PlatformOptions): Primitive<EmptyTypeFn> {
       // True only during our own disconnect() call, so onClose can tell a
       // background drop apart from a real user disconnect().
       let selfDisconnecting = false;
+      let reportingInitialVisibility = false;
       let hiddenTimer: ReturnType<typeof setTimeout> | null = null;
 
       function clearHiddenTimer(): void {
@@ -74,7 +75,9 @@ export function platform(options: PlatformOptions): Primitive<EmptyTypeFn> {
         // `visibility` signal is a general extension point. The background
         // disconnect timer below is what's gated on `backgroundDisconnectMs`.
         if (environment.onVisibilityChange) {
+          reportingInitialVisibility = true;
           cleanups.push(environment.onVisibilityChange(onVisibility));
+          reportingInitialVisibility = false;
         }
       }
 
@@ -94,6 +97,8 @@ export function platform(options: PlatformOptions): Primitive<EmptyTypeFn> {
 
         // Only drop the socket while hidden if the app opted in.
         if (!wantsBackground) return;
+
+        if (reportingInitialVisibility) return;
 
         hiddenTimer = setTimeout(() => {
           hiddenTimer = null;

@@ -39,6 +39,10 @@ export interface WSKitEnvelope {
   /** Groups the chunks of one stream. */
   streamId?: string;
 
+  /** The user event a broadcast stream carries, so an end/error frame that
+   * arrives before any chunk can still be routed to the right subscriber. */
+  eventName?: string;
+
   /** Whether a stream is resumable (`persistent`) or dies on disconnect (`ephemeral`). */
   streamKind?: 'ephemeral' | 'persistent';
 

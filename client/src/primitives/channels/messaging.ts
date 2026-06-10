@@ -72,6 +72,8 @@ export function buildChannelMessaging(
     subscribe(data?: unknown) {
       helpers.ensureConnected();
 
+      if (state.active) return Promise.resolve();
+
       // If subscribe() is called again before the server replies, return the same
       // promise instead of sending a second __subscribe__ and abandoning the first.
       if (state.pending && state.pendingPromise) return state.pendingPromise;
@@ -91,8 +93,11 @@ export function buildChannelMessaging(
       });
 
       state.pendingPromise = promise;
+      const thisPending = state.pending;
+      void promise.catch(() => undefined);
 
       function sendSubscribe(resolved: unknown): void {
+        if (state.pending !== thisPending) return;
         state.resolvedSubscribeData = resolved;
         helpers.rawSend({
           event: '__subscribe__',

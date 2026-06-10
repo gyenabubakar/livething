@@ -1139,6 +1139,89 @@ describe('subscribeConnectionAsServer', () => {
   });
 });
 
+describe('channel runtime bug tests', () => {
+  it('[BUG server-concurrent-subscribe] two concurrent client subscribes for same connection+channel fire subscribeOk and memberJoin exactly once each', async () => {
+    const connection = createConnection('conn_1', { who: 'me' });
+    const { runtime, connections, protocol, broadcasts } = createRuntime();
+    connections.set(connection.id, connection);
+
+    let releaseGate!: () => void;
+    const gate = new Promise<void>((r) => (releaseGate = r));
+
+    const onSubscribeHook = vi.fn();
+    const runtimeWithHook = {
+      ...runtime,
+      checkHooks: new Map([
+        [
+          'rooms',
+          [
+            {
+              handler: async () => {
+                await gate;
+              },
+              validator: undefined,
+            },
+          ],
+        ],
+      ]),
+      subscribeHooks: new Map([['rooms', [onSubscribeHook]]]),
+    };
+
+    const subA = subscribeConnection(runtimeWithHook, connection, {
+      channelName: 'room:general',
+      channelScope: 'rooms',
+      data: undefined,
+    });
+    const subB = subscribeConnection(runtimeWithHook, connection, {
+      channelName: 'room:general',
+      channelScope: 'rooms',
+      data: undefined,
+    });
+
+    releaseGate();
+    await Promise.all([subA, subB]);
+
+    const subscribeOkCount = protocol.filter((p) => p.event === '__subscribeOk__').length;
+    const memberJoinCount = broadcasts.filter((b) => b.event === '__memberJoin__').length;
+    const memberships = [...connection.channelMemberships.values()].filter(
+      (m) => m.channelName === 'room:general',
+    );
+
+    expect(subscribeOkCount).toBe(1);
+    expect(memberJoinCount).toBe(1);
+    expect(onSubscribeHook).toHaveBeenCalledTimes(1);
+    expect(memberships).toHaveLength(1);
+  });
+
+  it('[BUG server-leavechannel-undef] disconnect leave with undefined channel on a persistent connection does not broadcast __memberLeave__', async () => {
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
+    const connection = createConnection('conn_1');
+    addChannelMembership(channelMembers, connection, {
+      channelName: 'room:general',
+      channelScope: 'rooms',
+    });
+
+    const { runtime, broadcasts } = createRuntime(channelMembers);
+    const persistentRuntime = {
+      ...runtime,
+      // Simulate the channel definition being gone (hot-reload / upgrade).
+      // isChannelPersistent is not called when channel is undefined, but we still
+      // pass it to indicate intent. The fallback path in leaveChannel uses '' as key.
+      isChannelPersistent: (key: string) => key === '' || key === 'rooms',
+    };
+
+    await leaveChannel(persistentRuntime as never, connection, {
+      channel: undefined,
+      channelName: 'room:general',
+      channelScope: 'rooms',
+      disconnect: true,
+    });
+
+    const memberLeaveCount = broadcasts.filter((b) => b.event === '__memberLeave__').length;
+    expect(memberLeaveCount).toBe(0);
+  });
+});
+
 describe('matchScopeParams', () => {
   it('returns an empty object for a static channel (string pattern)', () => {
     expect(matchScopeParams('lobby', 'lobby')).toEqual({});
@@ -1157,5 +1240,44 @@ describe('matchScopeParams', () => {
   it('returns an empty object when the name does not match the family', () => {
     const decl = scope('rooms', 'room:{id}');
     expect(matchScopeParams(decl, 'lobby:1')).toEqual({});
+  });
+});
+
+// The server trusts no client. A duplicate or hostile subscribe/unsubscribe
+// frame must never push the server into wrong state or duplicate side effects.
+describe('server self-defense against untrusted client frames', () => {
+  it('[BUG server-subscribe-idempotent] a sequential second subscribe for an existing member is a no-op', async () => {
+    const connection = createConnection('conn_1', { who: 'me' });
+    const { runtime, connections, protocol, broadcasts } = createRuntime();
+    connections.set(connection.id, connection);
+
+    const onSubscribeHook = vi.fn();
+    const runtimeWithHook = {
+      ...runtime,
+      subscribeHooks: new Map([['rooms', [onSubscribeHook]]]),
+    };
+
+    // First subscribe — the connection becomes a member.
+    await subscribeConnection(runtimeWithHook, connection, {
+      channelName: 'room:general',
+      channelScope: 'rooms',
+      data: undefined,
+    });
+
+    // A SECOND subscribe for the same channel from the same connection must be
+    // ignored server-side: no extra __subscribeOk__, no extra __memberJoin__,
+    // no extra onSubscribe — exactly like subscribeConnectionAsServer already does.
+    await subscribeConnection(runtimeWithHook, connection, {
+      channelName: 'room:general',
+      channelScope: 'rooms',
+      data: undefined,
+    });
+
+    const subscribeOkCount = protocol.filter((p) => p.event === '__subscribeOk__').length;
+    const memberJoinCount = broadcasts.filter((b) => b.event === '__memberJoin__').length;
+
+    expect(subscribeOkCount).toBe(1);
+    expect(memberJoinCount).toBe(1);
+    expect(onSubscribeHook).toHaveBeenCalledTimes(1);
   });
 });

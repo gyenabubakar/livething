@@ -253,6 +253,115 @@ describe('connect-failed catch — reconnection handoff', () => {
   });
 });
 
+describe('[BUG openconn-catch-close] url-function rejection fires close event (no reconnection)', () => {
+  it('[BUG openconn-catch-close] onClose fires when url function rejects and no reconnection is present', async () => {
+    const urlFn = vi.fn().mockRejectedValue(new Error('DNS failed'));
+    const socket = c(connect(urlFn));
+    const onClose = vi.fn();
+    socket.onClose(onClose);
+
+    socket.connect();
+    await Promise.resolve();
+
+    // State goes to 'closed' (existing behaviour) — that part is fine.
+    expect(socket.getState()).toBe('closed');
+    // BUG: the catch path calls _setState('closed') but never emits 'close'.
+    // Correct behaviour: onClose must fire so callers know the attempt ended.
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('[BUG openconn-catch-error] url-function rejection surfaces error event (with reconnection)', () => {
+  it('[BUG openconn-catch-error] onError fires when url function rejects and reconnection is present', async () => {
+    const urlFn = vi.fn().mockRejectedValue(new Error('DNS failed'));
+    const socket = c(connect(urlFn), reconnection());
+    const onError = vi.fn();
+    socket.onError(onError);
+
+    socket.connect();
+    await Promise.resolve();
+
+    // State goes to 'reconnecting' (existing behaviour) — the reconnection handoff works.
+    expect(socket.getState()).toBe('reconnecting');
+    // BUG: the catch path forwards (1006, 'connection failed') to the unexpectedCloseHandler
+    // and retries silently — the real Error is never surfaced via an 'error' event.
+    // Correct behaviour: an error event must be emitted so the caller sees what failed.
+    expect(onError).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('[BUG beforereopen-cancel] disconnect() mid-first-hook skips second onBeforeReopen', () => {
+  it('[BUG beforereopen-cancel] second primitive onBeforeReopen does not run when disconnect() fires during first hook', async () => {
+    vi.useFakeTimers();
+
+    let resolveFirst!: () => void;
+    const firstHookDone = vi.fn();
+    const secondHookRan = vi.fn();
+
+    const primitive1 = {
+      _tag: 'test-p1' as const,
+      setup() {
+        return {
+          id: 'test-p1',
+          onBeforeReopen() {
+            return new Promise<void>((resolve) => {
+              resolveFirst = () => {
+                firstHookDone();
+                resolve();
+              };
+            });
+          },
+        };
+      },
+    };
+
+    const primitive2 = {
+      _tag: 'test-p2' as const,
+      setup() {
+        return {
+          id: 'test-p2',
+          onBeforeReopen() {
+            secondHookRan();
+          },
+        };
+      },
+    };
+
+    const socket = c(
+      connect('wss://host/ws'),
+      reconnection(),
+      primitive1 as any,
+      primitive2 as any,
+    );
+
+    // First connect + open to make _isFirstConnect = false.
+    socket.connect();
+    MockWebSocket.last().open();
+    expect(socket.getState()).toBe('open');
+
+    // Trigger an unexpected drop so reconnection schedules a reopen.
+    MockWebSocket.last().serverClose(1006, 'drop');
+    expect(socket.getState()).toBe('reconnecting');
+
+    // Fire the reconnection timer so _openConnection is called (starts onBeforeReopen loop).
+    vi.runAllTimers();
+
+    // At this point the first primitive's onBeforeReopen is pending (resolveFirst not called yet).
+    // Disconnect now — this bumps _connectAttemptId so the reopen is stale.
+    socket.disconnect();
+
+    // Now resolve the first hook — the loop continues past it.
+    resolveFirst();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // BUG: the cancel check only runs AFTER the whole onBeforeReopen loop finishes,
+    // so the second primitive's hook has already run.
+    // Correct behaviour: once disconnect() is detected, the second hook must NOT run.
+    expect(secondHookRan).not.toHaveBeenCalled();
+  });
+});
+
 describe('ws.onerror reaches onError as a raw Event', () => {
   it('delivers the raw error event to an onError handler when the socket is live', () => {
     const socket = c(connect('wss://host/ws'));

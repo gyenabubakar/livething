@@ -81,6 +81,54 @@ describe('ack timeout and disconnect rejection', () => {
   });
 });
 
+describe('ack stale/duplicate frame handling', () => {
+  it('[BUG ack-stale-leak] a stale __ack__ frame (no matching waiter) must be swallowed, not forwarded to user handlers', () => {
+    const { socket, ws } = build();
+    const handler = vi.fn();
+    (socket as unknown as { on(event: string, handler: (data: unknown) => void): () => void }).on(
+      '__ack__',
+      handler,
+    );
+
+    // Emit an __ack__ frame with an ackId that has no registered waiter.
+    ws.emit({ event: '__ack__', payload: {}, __wskit: { ackId: 'stale-id-that-never-existed' } });
+
+    expect(handler).not.toHaveBeenCalled();
+  });
+});
+
+describe('ack lazy-socket hold', () => {
+  it('[BUG ack-hold-timeout] sendWithAck on a connecting lazy socket with no buffer rejects quickly and releases lazy hold', async () => {
+    vi.useFakeTimers();
+
+    // Build a lazy socket (idleTimeout=0 so no idle timer fires), short ack timeout.
+    const socket = client<C>()(
+      connect('wss://test', { lazy: true, idleTimeout: 0 }),
+      ack({ timeout: 5000 }),
+    );
+
+    const rawSocket = socket as unknown as { _lazyConsumers: number };
+    expect(rawSocket._lazyConsumers).toBe(0);
+
+    // sendWithAck triggers lazyAcquire → connect (socket enters 'connecting').
+    // The send is dropped because the socket is not open and no buffer is registered.
+    // Correct behavior: reject quickly (not after the full 5000 ms timeout).
+    const SENTINEL = Symbol('not-resolved');
+    const result = await Promise.race([
+      socket.sendWithAck('chat', { text: 'hi' }).catch((e: unknown) => e),
+      // Advance fake time a little, then resolve with sentinel so the race settles.
+      vi.advanceTimersByTimeAsync(50).then(() => SENTINEL),
+    ]);
+
+    // Correct behavior: the rejection (not the sentinel) should win the race.
+    // Today the ack timer hasn't fired yet after only 50 ms, so the sentinel wins.
+    expect(result).not.toBe(SENTINEL);
+
+    // And after quick rejection, the lazy hold must be released.
+    expect(rawSocket._lazyConsumers).toBe(0);
+  });
+});
+
 describe('ack ttl option passthrough', () => {
   it('includes ttl in the send options when callOptions.ttl is set', () => {
     const { socket, ws } = build();

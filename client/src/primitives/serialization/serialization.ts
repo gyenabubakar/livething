@@ -14,6 +14,10 @@ import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
  * ```ts
  * serialization({ binaryType: 'arraybuffer', parseBinary: (data) => decode(data) });
  * ```
+ *
+ * NOTE: binary support is not built yet — the socket rejects incoming binary
+ * frames before this decoder ever runs. This primitive is kept as the opt-in
+ * surface for when full binary support lands, and will likely change then.
  */
 export function serialization(
   options: ArrayBufferSerialization | BlobSerialization,

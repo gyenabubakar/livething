@@ -244,3 +244,31 @@ describe('incoming pipeline — primitive onIncoming throw is isolated', () => {
     }
   });
 });
+
+describe('[BUG dispatch-set-mutation] handler registered inside a dispatch does not receive the triggering message', () => {
+  it('[BUG dispatch-set-mutation] a handler added by another handler mid-dispatch must not fire for that same message', () => {
+    const { socket, ws } = connected();
+
+    const lateHandler = vi.fn();
+
+    // firstHandler is the only 'm' listener when the first message arrives,
+    // so dispatchToHandlers iterates the live Set (size === 1, no snapshot).
+    // Inside the loop it calls socket.on('m', lateHandler), which mutates that
+    // same Set. The bug causes lateHandler to be called for the triggering message.
+    socket.on('message', () => {
+      socket.on('message', lateHandler);
+    });
+
+    // First message: lateHandler is registered DURING dispatch of this message.
+    // Correct behavior: lateHandler must NOT be called for this message.
+    ws.emit({ event: 'message', payload: { text: 'first' } });
+
+    expect(lateHandler).not.toHaveBeenCalled();
+
+    // Second message: now lateHandler is already registered, so it must fire.
+    ws.emit({ event: 'message', payload: { text: 'second' } });
+
+    expect(lateHandler).toHaveBeenCalledTimes(1);
+    expect(lateHandler).toHaveBeenCalledWith({ text: 'second' });
+  });
+});

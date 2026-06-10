@@ -3,7 +3,7 @@ import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { plugin } from '~/plugins/plugins.ts';
 import { installMockWebSocket } from '~/test-helpers.ts';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Primitive, ValidatePrimitives } from '~/primitives/types.ts';
 
 interface C {
@@ -24,6 +24,44 @@ beforeEach(() => {
 });
 afterEach(() => {
   restore();
+});
+
+describe('Plugin.use — failed build is not retried (plugin-build-retry)', () => {
+  it('[BUG plugin-build-retry] a singleton whose build() throws must not re-run build on subsequent use() calls', () => {
+    const KEY = Symbol('acme:failing');
+    const buildSpy = vi.fn(() => {
+      throw new Error('build failed');
+    });
+
+    const Failing = plugin({
+      id: 'acme:failing',
+      key: KEY,
+      setup: () => buildSpy,
+    });
+
+    const socket = buildSocket(Failing());
+
+    // Each use() currently re-runs build because the entry has no 'api' key after a throw.
+    // We swallow the error to let subsequent calls happen.
+    try {
+      Failing.use(socket);
+    } catch {
+      /* expected */
+    }
+    try {
+      Failing.use(socket);
+    } catch {
+      /* expected */
+    }
+    try {
+      Failing.use(socket);
+    } catch {
+      /* expected */
+    }
+
+    // Correct behavior: build runs exactly once, even when it throws.
+    expect(buildSpy).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('Plugin.use — not-registered error branches', () => {

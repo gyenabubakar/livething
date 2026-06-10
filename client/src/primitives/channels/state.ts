@@ -158,6 +158,7 @@ export class ChannelState {
     // hold and clear any in-flight subscribe(), so a later subscribe() starts fresh
     // rather than reusing the stale pending state.
     this.releaseLazy();
+    this.pending?.reject(new Error('[wskit] unsubscribed before the subscribe was confirmed'));
     this.pending = null;
     this.pendingPromise = null;
     this.unsubscribed.each((callback) => callback());

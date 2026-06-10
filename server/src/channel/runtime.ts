@@ -292,7 +292,7 @@ export async function leaveChannel(
 
   const ctx = runtime.buildConnectionContext(connection, scope);
   const channelKey = scope.channel?.key ?? '';
-  const isPersistent = scope.channel ? runtime.isChannelPersistent(scope.channel.key) : false;
+  const isPersistent = scope.channel ? runtime.isChannelPersistent(scope.channel.key) : disconnect;
   // A disconnect on a persistent channel only ends the session. Every other
   // path also changes group membership.
   const isTrueLeave = !disconnect || !isPersistent;
@@ -302,7 +302,7 @@ export async function leaveChannel(
   removeChannelMembership(runtime.channelMembers, connection, scope);
   runtime.persistAttachment(connection);
 
-  if (isTrueLeave && isPersistent) {
+  if (isTrueLeave && (isPersistent || !scope.channel)) {
     runtime.deleteDurableMembership(connection.identity, scope.channelName, scope.channelScope);
   }
 
@@ -429,6 +429,10 @@ async function runSubscribeFlow(
       }
       checkResult = await checkHook.handler(ctx, validatedData);
     }
+  }
+
+  if (!rejoining && hasChannelMembership(connection, scope.channelName, scope.channelScope)) {
+    return;
   }
 
   // ── Phase 2: commit then membership write ────────────────────────────────

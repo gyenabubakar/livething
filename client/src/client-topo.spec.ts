@@ -2,6 +2,7 @@ import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { channels } from '~/primitives/channels/index.ts';
 import { dedup } from '~/primitives/dedup.ts';
+import { intercept } from '~/primitives/intercept.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
 import { replay } from '~/primitives/replay.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
@@ -228,5 +229,46 @@ describe('topoSort — optionalAfter ordering', () => {
     expect(sub).toBeGreaterThanOrEqual(0);
     expect(rep).toBeGreaterThanOrEqual(0);
     expect(sub).toBeLessThan(rep);
+  });
+});
+
+describe('topoSort — intercept tag collision', () => {
+  it('[BUG toposort-tag-collision] two intercepts keep original registration order (A before B) when a primitive with optionalAfter:[intercept] is listed first', () => {
+    // byTag = new Map(specs.map((s) => [s._tag, s])) overwrites duplicate tags,
+    // so byTag['intercept'] = B (the last one). When a primitive P with
+    // optionalAfter:['intercept'] is listed before the intercepts, visit(P) runs
+    // first and calls visit(byTag.get('intercept')) = visit(B). B is pushed to
+    // sorted before A. applyConfig then calls config.intercepts.push() for B
+    // first, so at runtime B runs before A — wrong.
+    const runOrder: string[] = [];
+
+    const interceptA = intercept(() => {
+      runOrder.push('A');
+    });
+    const interceptB = intercept(() => {
+      runOrder.push('B');
+    });
+
+    // P declares optionalAfter: ['intercept'] and is registered before A and B,
+    // so visit(P) fires before visit(A) and visit(B) in the outer loop.
+    const primWithOptAfter = {
+      _tag: 'order-probe',
+      optionalAfter: ['intercept'],
+    } satisfies Primitive;
+
+    const socket = client<C>()(
+      connect('wss://test'),
+      primWithOptAfter as unknown as Primitive,
+      interceptA,
+      interceptB,
+    );
+    socket.connect();
+    const ws = MockWebSocket.last();
+    ws.open();
+
+    ws.emit({ event: 'msg', payload: { text: 'hello' } });
+
+    // Correct behavior: A was registered first, so A must run before B.
+    expect(runOrder).toEqual(['A', 'B']);
   });
 });

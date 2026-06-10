@@ -6,6 +6,7 @@ import {
 } from '~/_engine/runtime/messages.ts';
 import { resolveScope } from '~/_engine/runtime/scope.ts';
 import { addChannelMembership } from '~/channel/runtime.ts';
+import { Defer } from '~/errors/errors.ts';
 import { localKey } from '~/local-key/local-key.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
@@ -1617,5 +1618,101 @@ describe('nudge intercepts', () => {
     );
 
     expect(activeStream.nudges).toHaveLength(0);
+  });
+});
+
+// ── Defer retry hook isolation ────────────────────────────────────────────────
+
+describe('Defer retry hook isolation', () => {
+  it('[BUG server-defer-raw-payload] incoming hooks run only once across original dispatch and Defer retry', async () => {
+    vi.useFakeTimers();
+    try {
+      const connection = createConnection('conn_1');
+      let hookCallCount = 0;
+      let handlerAttempt = 0;
+
+      const runtime = {
+        compiled: {
+          outgoing: new Map(),
+          incoming: new Map([
+            [
+              'work',
+              {
+                event: 'work',
+                handler: async () => {
+                  handlerAttempt += 1;
+                  if (handlerAttempt === 1) throw Defer(10);
+                },
+                validator: undefined,
+              },
+            ],
+          ]),
+          requests: new Map(),
+          streams: new Map(),
+          resumableStreams: new Map(),
+          recordedStreams: new Map(),
+          intercepts: [],
+          namespaces: new Map(),
+          channels: new Map(),
+          channelFamilies: new Map(),
+          scheduled: new Map(),
+          plugins: [],
+          requires: {},
+          replayClaimedChannelKeys: new Set(),
+        },
+        connections: new Map([[connection.id, connection]]),
+        toConnectionInfo() {
+          return { id: connection.id };
+        },
+        activeStreams: new Map(),
+        protocolHandlers: new Map(),
+        incomingHooks: [
+          (_msg: { event: string; payload: unknown }) => {
+            hookCallCount += 1;
+          },
+        ],
+        pluginRuntimes: [],
+        errorHooks: [],
+        requireTimers() {
+          return { setTimeout: () => undefined, clearTimeout() {} };
+        },
+        buildConnectionContext() {
+          return { id: connection.id };
+        },
+        broadcastToConnections() {},
+        sendProtocolMessage() {},
+        sendReplay() {},
+        persistAttachment() {},
+        async handleRuntimeError() {},
+        async handleValidationError() {},
+        async handleSubscribe() {},
+        async handleUnsubscribe() {},
+        waitUntil() {},
+        generateId() {
+          return 'id_1';
+        },
+      };
+
+      await dispatchIncoming(
+        runtime as unknown as Parameters<typeof dispatchIncoming>[0],
+        connection,
+        { event: 'work', payload: {}, wskit: undefined },
+      );
+
+      // First dispatch: handler throws Defer(10). Hook ran once.
+      expect(handlerAttempt).toBe(1);
+
+      await vi.advanceTimersByTimeAsync(10);
+
+      // Retry completed: handler ran a second time and succeeded.
+      expect(handlerAttempt).toBe(2);
+
+      // Correct behavior: the incoming hook must have run only ONCE total.
+      // Today the retry re-dispatches from the top of dispatchIncoming and
+      // re-runs incomingHooks, so hookCallCount is 2 — this assertion fails.
+      expect(hookCallCount).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -71,6 +71,7 @@ export class MessageBuffer {
    * not-yet-sent messages in the buffer and they go out on the next flush.
    */
   flush(send: (message: WireMessage) => void, onComplete?: () => void): void {
+    this.stopFlush();
     this.dropExpired();
 
     if (this.count === 0) {
@@ -142,7 +143,8 @@ export class MessageBuffer {
   private dropExpired(): void {
     const now = Date.now();
     const kept = this.drain().filter(
-      (buffered) => buffered.ttl === null || now - buffered.queuedAt < buffered.ttl,
+      (buffered) =>
+        buffered.ttl === null || buffered.ttl <= 0 || now - buffered.queuedAt < buffered.ttl,
     );
     for (const buffered of kept) {
       const tail = (this.head + this.count) % this.maxSize;

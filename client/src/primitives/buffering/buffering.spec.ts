@@ -226,6 +226,46 @@ describe('MessageBuffer — staggered flushInterval tick loop', () => {
   });
 });
 
+describe('MessageBuffer — double-flush / onComplete guard', () => {
+  it('[BUG buffer-double-complete] second flush before first timer fires calls onComplete exactly once', () => {
+    vi.useFakeTimers();
+    const buffer = new MessageBuffer({ enabled: true, flushInterval: 100 });
+    const send = vi.fn();
+    const onComplete = vi.fn();
+
+    buffer.enqueue({ event: 'a', payload: 1 });
+    buffer.enqueue({ event: 'b', payload: 2 });
+
+    // First flush: 'a' goes out immediately, timer pending for 'b'
+    buffer.flush(send, onComplete);
+    expect(send).toHaveBeenCalledTimes(1);
+
+    // Second flush before the first timer fires — should take over
+    buffer.flush(send, onComplete);
+
+    // Advance past all possible timers
+    vi.runAllTimers();
+
+    // onComplete should fire exactly once (from the second flush completing)
+    expect(onComplete).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('MessageBuffer — TTL zero means no expiry', () => {
+  it('[BUG ttl-zero] message with ttl=0 is sent (ttl=0 means no expiry, not instant-drop)', () => {
+    vi.useFakeTimers();
+    const buffer = new MessageBuffer({ enabled: true });
+    const send = vi.fn();
+
+    // ttl=0 should mean "no expiry" — message must be flushed
+    buffer.enqueue({ event: 'ping', payload: {} }, 0);
+
+    buffer.flush(send);
+
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('buffering disabled — outgoing fallback returns false', () => {
   it('send() returns false while disconnected when buffering is not enabled', () => {
     const socket = buildSocket(buffering({ enabled: false }));

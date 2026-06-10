@@ -506,3 +506,143 @@ describe('scope-handle-list-only-active', () => {
     expect(lobbiesFamily.list()).toEqual(['lobby-1']);
   });
 });
+
+describe('BUG async-subscribe', () => {
+  it('[BUG async-subscribe] unsubscribe before async payload resolves must not send __subscribe__', async () => {
+    vi.useFakeTimers();
+    try {
+      const { socket, ws } = build();
+      const room = socket.channel('general');
+
+      let gateResolve!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        gateResolve = resolve;
+      });
+
+      // subscribe with an async function that is held open by a gate
+      void room.subscribe(() => gate.then(() => ({ token: 'abc' })));
+
+      // unsubscribe before resolving the gate (channel is pending, not yet active)
+      room.unsubscribe();
+
+      const framesBefore = ws.sentFrames().filter((f) => f.event === '__subscribe__').length;
+
+      // now resolve the gate — the late sendSubscribe should NOT fire
+      gateResolve();
+      await vi.runAllTimersAsync();
+
+      const framesAfter = ws.sentFrames().filter((f) => f.event === '__subscribe__').length;
+
+      // The unsubscribe frame was sent but no __subscribe__ should follow it
+      expect(framesAfter).toBe(framesBefore);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('BUG subscribe-promise-hang', () => {
+  it('[BUG subscribe-promise-hang] unsubscribe while pending must reject the subscribe() promise', async () => {
+    const { socket, ws } = build();
+    const room = socket.channel('general');
+
+    const p = room.subscribe();
+
+    // unsubscribe before any server reply
+    room.unsubscribe();
+
+    // The promise should reject, not hang. Race it against a short timeout.
+    let settled = false;
+    const result = await Promise.race([
+      p
+        .then(
+          () => 'resolved',
+          () => 'rejected',
+        )
+        .then((v) => {
+          settled = true;
+          return v;
+        }),
+      new Promise<string>((resolve) => setTimeout(() => resolve('timed-out'), 100)),
+    ]);
+
+    // Must reject (not hang and not resolve)
+    expect(settled).toBe(true);
+    expect(result).toBe('rejected');
+
+    void ws; // just to reference ws so linters don't complain
+  });
+});
+
+describe('BUG subscribe-when-active', () => {
+  it('[BUG subscribe-when-active] second subscribe() on an active channel must not re-send __subscribe__ or re-fire onSubscribed', async () => {
+    const { socket, ws } = build();
+    const room = socket.channel('general');
+
+    // First subscribe — let server confirm so channel goes active
+    const firstPromise = room.subscribe();
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: { source: 'client' },
+      __wskit: { channel: 'general' },
+    });
+    await firstPromise;
+
+    const onSubscribed = vi.fn();
+    room.onSubscribed(onSubscribed);
+
+    const subscribeFramesBefore = ws.sentFrames().filter((f) => f.event === '__subscribe__').length;
+
+    // Call subscribe() again on an already-active channel
+    void room.subscribe();
+
+    const subscribeFramesAfter = ws.sentFrames().filter((f) => f.event === '__subscribe__').length;
+
+    // No second __subscribe__ frame should be sent
+    expect(subscribeFramesAfter).toBe(subscribeFramesBefore);
+    // onSubscribed must not fire again
+    expect(onSubscribed).not.toHaveBeenCalled();
+  });
+});
+
+describe('BUG persistence-flip', () => {
+  it('[BUG persistence-flip] persistent channel with no server auto-rejoin must eventually send __subscribe__ or fire onSubscriptionFailed', async () => {
+    vi.useFakeTimers();
+    try {
+      const socket = client<C>()(connect('wss://test'), channels(), reconnection());
+      socket.connect();
+      const first = MockWebSocket.last();
+      first.open();
+
+      const room = socket.channel('general');
+      room.subscribe();
+      // Server marks the channel persistent
+      first.emit({
+        event: '__subscribeOk__',
+        payload: { source: 'client' },
+        __wskit: { channel: 'general', channelPersistent: true },
+      });
+
+      // Drop and reconnect — server does NOT auto-resubscribe (sends nothing)
+      first.serverClose(1006, 'drop');
+      await vi.advanceTimersByTimeAsync(1500);
+      const second = MockWebSocket.last();
+      second.open();
+
+      const onSubFailed = vi.fn();
+      room.onSubscriptionFailed(onSubFailed);
+
+      // Advance a generous window (e.g. 10 seconds) — client should fall back
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      // Either the client sent its own __subscribe__ or fired onSubscriptionFailed
+      const clientSubscribe = second
+        .sentFrames()
+        .some((f) => f.event === '__subscribe__' && f.__wskit?.channel === 'general');
+
+      expect(clientSubscribe || onSubFailed.mock.calls.length > 0).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

@@ -7,6 +7,7 @@ import { ack } from '~/primitives/ack/index.ts';
 import { buffering } from '~/primitives/buffering/index.ts';
 import { keepalive } from '~/primitives/keepalive/index.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
+import { requestResponse } from '~/primitives/request-response/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ConnectDescriptor } from '~/connect.ts';
@@ -268,6 +269,52 @@ describe('getLatency() after disconnect', () => {
       expect(socket.getLatency()).not.toBeNull();
       socket.disconnect();
       expect(socket.getLatency()).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+interface RequestContract {
+  requests: { ping: { payload: null; response: null } };
+}
+
+describe('[BUG idle-timer-kills-reconnect] idle timer armed during close must not fire during reconnect', () => {
+  it('socket stays reconnecting when idle timeout elapses while a reconnect is in progress', async () => {
+    vi.useFakeTimers();
+    try {
+      const socket = client<RequestContract>()(
+        connect('wss://test', { lazy: true, idleTimeout: 1000 }),
+        reconnection(),
+        requestResponse({ timeout: 60_000 }),
+      );
+
+      // Make a request — this is the only lazy consumer (_lazyConsumers = 1).
+      // The promise will reject when the socket drops, releasing the lazy hold.
+      const pending = socket.request('ping', null);
+
+      // The lazy connect triggered by request() opens the socket.
+      MockWebSocket.last().open();
+
+      // Drop the connection. Inside ws.onclose the primitives' onClose fires
+      // while state is still 'open': requestResponse.onClose rejects the
+      // pending request (done() → lazyRelease()), which sees _state === 'open'
+      // and _lazyConsumers === 0, so it arms the idle timer. Reconnection then
+      // sets the state to 'reconnecting'. The idle timer is never cleared.
+      MockWebSocket.last().serverClose(1006);
+
+      // Consume the rejection so the unhandled-rejection detector stays quiet.
+      await pending.catch(() => {});
+
+      // At this point we should be reconnecting.
+      expect(socket.getState()).toBe('reconnecting');
+
+      // Advance past the idle timeout while the reconnect timer is still pending.
+      // Bug: the un-cleared idle timer fires disconnect(), setting state 'closed'.
+      // Correct behavior: state is 'reconnecting' (or 'open' if the retry fired).
+      vi.advanceTimersByTime(1500);
+
+      expect(socket.getState()).not.toBe('closed');
     } finally {
       vi.useRealTimers();
     }

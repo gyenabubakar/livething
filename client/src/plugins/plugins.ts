@@ -63,7 +63,13 @@ function usePlugin(socket: object, key: symbol, registrationId: string | undefin
         : `[wskit] no plugin instance with registrationId '${registrationId}' is registered on this socket.`,
     );
   }
-  if (!('api' in entry)) entry.api = entry.build(socket as WSKitSocket);
+  if (!('api' in entry)) {
+    try {
+      entry.api = entry.build(socket as WSKitSocket);
+    } finally {
+      if (!('api' in entry)) entry.api = undefined;
+    }
+  }
   return entry.api;
 }
 
@@ -170,65 +176,60 @@ export function plugin<TArgs = void, TApi = unknown>(
 
           install: (socket) => registerPlugin(socket, { key: def.key, registrationId, build }),
 
-          onIncoming: incoming
-            ? (message) => {
-                try {
-                  const result = incoming!(message);
-                  return result ?? message;
-                } catch (error) {
-                  if (error !== Block) {
-                    helpers.log.error(`plugin '${def.id}' onIncoming threw`, error);
-                  }
-                  return null;
-                }
+          onIncoming: (message) => {
+            if (!incoming) return message;
+            try {
+              const result = incoming(message);
+              return result ?? message;
+            } catch (error) {
+              if (error !== Block) {
+                helpers.log.error(`plugin '${def.id}' onIncoming threw`, error);
               }
-            : undefined,
+              return null;
+            }
+          },
 
-          onOutgoing: outgoing
-            ? (message) => {
-                try {
-                  const result = outgoing!(message);
-                  return result ?? message;
-                } catch (error) {
-                  if (error !== Block) {
-                    helpers.log.error(`plugin '${def.id}' onOutgoing threw`, error);
-                  }
-                  return null;
-                }
+          onOutgoing: (message) => {
+            if (!outgoing) return message;
+            try {
+              const result = outgoing(message);
+              return result ?? message;
+            } catch (error) {
+              if (error !== Block) {
+                helpers.log.error(`plugin '${def.id}' onOutgoing threw`, error);
               }
-            : undefined,
+              return null;
+            }
+          },
 
-          onOpen: open
-            ? () => {
-                try {
-                  return open!() ?? null;
-                } catch (error) {
-                  helpers.log.error(`plugin '${def.id}' onOpen threw`, error);
-                  return null;
-                }
-              }
-            : undefined,
+          onOpen: () => {
+            if (!open) return null;
+            try {
+              return open() ?? null;
+            } catch (error) {
+              helpers.log.error(`plugin '${def.id}' onOpen threw`, error);
+              return null;
+            }
+          },
 
-          onReconnect: reconnect
-            ? () => {
-                try {
-                  return reconnect!() ?? null;
-                } catch (error) {
-                  helpers.log.error(`plugin '${def.id}' onReconnect threw`, error);
-                  return null;
-                }
-              }
-            : undefined,
+          onReconnect: () => {
+            if (!reconnect) return null;
+            try {
+              return reconnect() ?? null;
+            } catch (error) {
+              helpers.log.error(`plugin '${def.id}' onReconnect threw`, error);
+              return null;
+            }
+          },
 
-          onClose: close
-            ? (code, reason) => {
-                try {
-                  close!(code, reason);
-                } catch (error) {
-                  helpers.log.error(`plugin '${def.id}' onClose threw`, error);
-                }
-              }
-            : undefined,
+          onClose: (code, reason) => {
+            if (!close) return;
+            try {
+              close(code, reason);
+            } catch (error) {
+              helpers.log.error(`plugin '${def.id}' onClose threw`, error);
+            }
+          },
         };
       },
     };

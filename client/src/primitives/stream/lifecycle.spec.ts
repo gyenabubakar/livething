@@ -305,3 +305,69 @@ describe('resumeStream default lastKnownSeq from state', () => {
     }
   });
 });
+
+describe('[BUG stream-resumable-noRelease] resumable stream releases lazy hold when socket closes with no reconnect', () => {
+  it('drops _lazyConsumers to 0 after a persistent stream on a lazy socket closes permanently (code 1006, no reconnect)', async () => {
+    // A lazy socket — _lazyConsumers tracks who is keeping it alive.
+    const socket = client<C>()(connect('wss://test', { lazy: true }), stream());
+    socket.connect();
+    const ws = MockWebSocket.last();
+    ws.open();
+
+    // Start a persistent (resumable) stream.
+    await start(socket, ws, { streamKind: 'persistent' });
+
+    // Exactly one lazy hold acquired by triggerStream.
+    expect((socket as unknown as WSKitSocket)._lazyConsumers).toBe(1);
+
+    // Server drops the connection unexpectedly — no reconnection primitive is
+    // registered, so the socket stays closed permanently.
+    ws.serverClose(1006, 'drop');
+
+    // The stream is dead: the socket cannot reconnect, so the hold MUST be
+    // released. Today it stays stuck at 1 for resumable streams.
+    expect((socket as unknown as WSKitSocket)._lazyConsumers).toBe(0);
+  });
+});
+
+describe('[BUG durable-timer-reconnect] per-chunk timeout must not start at reconnect for a resumed stream', () => {
+  it('does not abort a resumable stream with Timeout while waiting for the first resumed chunk after reconnect', async () => {
+    vi.useFakeTimers();
+    try {
+      // Use a short timeout so the test can advance time without waiting real ms.
+      const socket = client<C>()(connect('wss://test'), stream({ timeout: 1000 }), reconnection());
+      socket.connect();
+      const first = MockWebSocket.last();
+      first.open();
+
+      const { handle, sid } = await start(socket, first, { streamKind: 'persistent' });
+
+      // Deliver one chunk, then drop the connection before any more arrive.
+      first.emit({ event: 'ask-ai', payload: { text: 'a' }, __wskit: { streamId: sid, seq: 1 } });
+      first.serverClose(1006, 'drop');
+
+      // Reconnect.
+      vi.advanceTimersByTime(500);
+      const second = MockWebSocket.last();
+      second.open();
+
+      // The reconnect sends a __resumeStream__ frame. We have NOT yet received
+      // the first resumed chunk. Advance past the full per-chunk timeout — the
+      // stream is still waiting for its first resumed chunk and must NOT be aborted.
+      // If the timer started at reconnect (the bug), advancing past 1000ms fires
+      // Timeout before the first chunk arrives. Correct behavior: the timer should
+      // only start when the first resumed chunk is received.
+      vi.advanceTimersByTime(1100);
+
+      // Now deliver the first resumed chunk.
+      second.emit({ event: 'ask-ai', payload: { text: 'b' }, __wskit: { streamId: sid, seq: 2 } });
+      second.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: sid } });
+
+      // Both chunks must arrive — the stream must NOT have been aborted by a
+      // premature Timeout while waiting for the first resumed chunk.
+      await expect(collect(handle)).resolves.toEqual([{ text: 'a' }, { text: 'b' }]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

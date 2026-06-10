@@ -34,10 +34,7 @@ export class Emitter<TEvents extends Record<string, unknown[]> = Record<string, 
   emit<K extends keyof TEvents & string>(event: K, ...args: TEvents[K]): void {
     const set = this.listeners.get(event);
     if (!set) return;
-    // Copy before iterating only when there's more than one listener, so a
-    // listener that removes itself mid-loop can't skip the next one. With 0-1
-    // listeners the Set iterates safely on its own — no copy needed.
-    const snapshot = set.size <= 1 ? set : [...set];
+    const snapshot = [...set];
     for (const listener of snapshot) {
       try {
         listener(...args);

@@ -37,7 +37,6 @@ interface BroadcastRun {
   event: string;
   lastSeq: number;
   timer: ReturnType<typeof setTimeout> | null;
-  handlers: StreamHandlers<unknown>[];
 }
 
 /** True if a chunk's scope markers match what an `onStream` subscriber asked for. */
@@ -169,7 +168,12 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         const streamId = context.options?.streamId ?? helpers.generateId('stream');
         helpers.ensureConnected();
         helpers.lazyAcquire();
-        helpers.rawSend({ event, payload, __wskit: { streamId, ...context.markers } });
+        try {
+          helpers.rawSend({ event, payload, __wskit: { streamId, ...context.markers } });
+        } catch (error) {
+          helpers.lazyRelease();
+          throw error;
+        }
 
         return new Promise<StreamHandle<unknown>>((resolve, reject) => {
           const timer =
@@ -238,42 +242,53 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         const seq = envelope?.seq;
         const subscribers = broadcastSubs.get(event);
         if (!subscribers || subscribers.size === 0) return;
+        const recipients = [...subscribers].filter((subscriber) =>
+          scopeMatches(subscriber.scope, envelope),
+        );
+        if (recipients.length === 0) return;
         let run = broadcastRuns.get(streamId);
         if (!run) {
-          const handlers = [...subscribers]
-            .filter((subscriber) => scopeMatches(subscriber.scope, envelope))
-            .map((subscriber) => subscriber.handlers);
-          if (handlers.length === 0) return;
-          run = { event, lastSeq: Number.NEGATIVE_INFINITY, timer: null, handlers };
+          run = { event, lastSeq: Number.NEGATIVE_INFINITY, timer: null };
           broadcastRuns.set(streamId, run);
         }
         if (seq !== undefined && seq <= run.lastSeq) return; // already delivered
         if (seq !== undefined) run.lastSeq = seq;
         if (run.timer) clearTimeout(run.timer);
         if (timeout > 0) {
-          const current = run;
-          current.timer = setTimeout(() => {
+          run.timer = setTimeout(() => {
             helpers.log.info(`broadcast stream '${streamId}' timed out`);
             broadcastRuns.delete(streamId);
-            for (const handler of current.handlers)
-              callStreamHandler(helpers.log, () => handler.onTimeout?.(streamId));
+            for (const subscriber of broadcastSubs.get(event) ?? [])
+              if (scopeMatches(subscriber.scope, envelope))
+                callStreamHandler(helpers.log, () => subscriber.handlers.onTimeout?.(streamId));
           }, timeout);
         }
         helpers.log.info(`broadcast stream '${streamId}' chunk received`);
-        for (const handler of run.handlers)
-          callStreamHandler(helpers.log, () => handler.onChunk(payload, streamId));
+        for (const subscriber of recipients)
+          callStreamHandler(helpers.log, () => subscriber.handlers.onChunk(payload, streamId));
       }
 
       function endBroadcast(
         streamId: string,
+        envelope: WSKitEnvelope | undefined,
         notify: (handlers: StreamHandlers<unknown>) => void,
       ): void {
         const active = broadcastRuns.get(streamId);
-        if (!active) return;
-        if (active.timer) clearTimeout(active.timer);
+        if (active?.timer) clearTimeout(active.timer);
         broadcastRuns.delete(streamId);
-        for (const handler of active.handlers)
-          callStreamHandler(helpers.log, () => notify(handler));
+
+        const event = active?.event ?? envelope?.eventName;
+        if (event !== undefined) {
+          for (const subscriber of broadcastSubs.get(event) ?? [])
+            if (scopeMatches(subscriber.scope, envelope))
+              callStreamHandler(helpers.log, () => notify(subscriber.handlers));
+          return;
+        }
+
+        for (const subscribers of broadcastSubs.values())
+          for (const subscriber of subscribers)
+            if (scopeMatches(subscriber.scope, envelope))
+              callStreamHandler(helpers.log, () => notify(subscriber.handlers));
       }
 
       return {
@@ -301,7 +316,9 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
               helpers.log.info(`stream '${streamId}' completed`);
               const state = streams.get(streamId);
               if (state) finishStream(state);
-              endBroadcast(streamId, (handlers) => handlers.onEnd?.(streamId, envelope?.seq));
+              endBroadcast(streamId, envelope, (handlers) =>
+                handlers.onEnd?.(streamId, envelope?.seq),
+              );
               return null;
             }
             case '__nudgeOk__': {
@@ -343,7 +360,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
                   finishStream(state, error);
                 }
               }
-              endBroadcast(streamId, (handlers) => handlers.onError?.(error, streamId));
+              endBroadcast(streamId, envelope, (handlers) => handlers.onError?.(error, streamId));
               return null;
             }
             default: {
@@ -366,8 +383,8 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           const frames: WireMessage[] = [];
           for (const state of streams.values()) {
             if (state.active && state.resumable) {
+              helpers.lazyAcquire();
               frames.push(resumeFrame(state));
-              startChunkTimer(state);
             }
           }
           return frames.length ? frames : null;
@@ -390,7 +407,8 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
             if (state.timer) clearTimeout(state.timer);
             state.timer = null;
             // Durable streams survive an unexpected drop and resume on reconnect.
-            if (!(state.resumable && !intentional)) finishStream(state, Disconnected());
+            if (state.resumable && !intentional) helpers.lazyRelease();
+            else finishStream(state, Disconnected());
           }
 
           for (const run of broadcastRuns.values()) if (run.timer) clearTimeout(run.timer);

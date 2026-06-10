@@ -167,7 +167,12 @@ function assertDependenciesPresent(specs: readonly Primitive[]): void {
  * Throws if dependencies form a cycle.
  */
 function topoSort(specs: readonly Primitive[]): Primitive[] {
-  const byTag = new Map(specs.map((s) => [s._tag, s]));
+  const byTag = new Map<string, Primitive[]>();
+  for (const spec of specs) {
+    const group = byTag.get(spec._tag);
+    if (group) group.push(spec);
+    else byTag.set(spec._tag, [spec]);
+  }
   const sorted: Primitive[] = [];
   const state = new Map<Primitive, 'visiting' | 'done'>();
 
@@ -179,8 +184,7 @@ function topoSort(specs: readonly Primitive[]): Primitive[] {
     }
     state.set(spec, 'visiting');
     for (const dependency of [...(spec.dependencies ?? []), ...(spec.optionalAfter ?? [])]) {
-      const dependencySpec = byTag.get(dependency);
-      if (dependencySpec) visit(dependencySpec);
+      for (const dependencySpec of byTag.get(dependency) ?? []) visit(dependencySpec);
     }
     state.set(spec, 'done');
     sorted.push(spec);

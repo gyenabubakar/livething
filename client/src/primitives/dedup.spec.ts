@@ -29,6 +29,35 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+function buildWithWindow(windowMs: number) {
+  const socket = client<C>()(connect('wss://test'), dedup({ windowMs }));
+  socket.connect();
+  const ws = MockWebSocket.last();
+  ws.open();
+  return { socket, ws };
+}
+
+describe('dedup — keeps every id within the window', () => {
+  it('[BUG dedup-eviction] a still-fresh id stays blocked even after many later ids arrive', () => {
+    vi.useFakeTimers();
+    const { socket, ws } = buildWithWindow(60_000);
+    const handler = vi.fn();
+    socket.on('trade', handler);
+
+    ws.emit({ event: 'trade', payload: { id: 'A' }, __wskit: { messageId: 'A' } });
+    expect(handler).toHaveBeenCalledTimes(1);
+
+    for (const id of ['B', 'C', 'D', 'E']) {
+      ws.emit({ event: 'trade', payload: { id }, __wskit: { messageId: id } });
+    }
+    expect(handler).toHaveBeenCalledTimes(5);
+
+    // A is still within the window — replaying it MUST be blocked as a duplicate.
+    ws.emit({ event: 'trade', payload: { id: 'A' }, __wskit: { messageId: 'A' } });
+    expect(handler).toHaveBeenCalledTimes(5);
+  });
+});
+
 describe('dedup — window eviction', () => {
   it('re-delivers a message after its id has aged past windowMs', () => {
     vi.useFakeTimers();

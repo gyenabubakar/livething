@@ -763,7 +763,7 @@ async function runGenerator(
         },
       });
 
-      const endWSKit = { ...buildScopeRouting(scope), streamId, seq };
+      const endWSKit = { ...buildScopeRouting(scope), streamId, seq, eventName: def.event };
       forEachIsolated(
         peerTargets,
         (target) =>
@@ -804,9 +804,11 @@ async function runGenerator(
         },
       });
       const { payload, wskit } = normalizeRuntimeError(error, routing, runtime.declaredErrorCodes);
+      const peerWSKit = { ...wskit, eventName: def.event };
       forEachIsolated(
         peerTargets,
-        (target) => runtime.sendProtocolMessage(target, { event: '__error__', payload, wskit }),
+        (target) =>
+          runtime.sendProtocolMessage(target, { event: '__error__', payload, wskit: peerWSKit }),
         { context: `durable broadcast __error__ on error streamId="${streamId}"` },
       );
     }

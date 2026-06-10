@@ -12,10 +12,7 @@ export function dispatchToHandlers<A extends unknown[]>(
   ...args: A
 ): void {
   if (!handlers) return;
-  // Copy only when there's more than one handler, so a handler that unsubscribes
-  // a sibling mid-dispatch can't disturb the loop. With 0-1 handlers (the common
-  // case) the Set is safe to iterate directly — no copy.
-  const snapshot = handlers instanceof Set && handlers.size <= 1 ? handlers : [...handlers];
+  const snapshot = [...handlers];
   for (const handler of snapshot) {
     try {
       handler(...args);

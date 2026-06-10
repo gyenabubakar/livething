@@ -338,54 +338,58 @@ export async function dispatchIncoming(
 
   try {
     // A hook's return value becomes the new payload only. The event name is locked.
-    for (const hook of runtime.incomingHooks) {
-      const next = hook(message);
-      if (next !== undefined) message = { event: message.event, payload: next };
+    if (attempt === 0) {
+      for (const hook of runtime.incomingHooks) {
+        const next = hook(message);
+        if (next !== undefined) message = { event: message.event, payload: next };
+      }
+
+      for (const pluginRuntime of runtime.pluginRuntimes) {
+        if (!pluginRuntime.onIncoming) continue;
+        const next = pluginRuntime.onIncoming(message);
+        if (next !== undefined) message = { event: message.event, payload: next };
+      }
     }
 
-    for (const pluginRuntime of runtime.pluginRuntimes) {
-      if (!pluginRuntime.onIncoming) continue;
-      const next = pluginRuntime.onIncoming(message);
-      if (next !== undefined) message = { event: message.event, payload: next };
-    }
-
-    const interceptKind: 'incoming' | 'request' | 'stream' | 'unknown' = incoming
-      ? 'incoming'
-      : request
-        ? 'request'
-        : stream || resumableStream || recordedStream
-          ? 'stream'
-          : 'unknown';
-    const interceptRouting = buildInterceptRouting(wskit);
-    let frame: InterceptPrimitive.InterceptFrame = {
-      event,
-      payload: message.payload,
-      kind: interceptKind,
-      routing: interceptRouting,
-    };
-    frame = await InterceptPrimitive.runIntercepts(runtime, connection, {
-      intercepts: runtime.compiled.intercepts,
-      frame,
-      getCtx,
-    });
-
-    if (scope.namespace) {
+    if (attempt === 0) {
+      const interceptKind: 'incoming' | 'request' | 'stream' | 'unknown' = incoming
+        ? 'incoming'
+        : request
+          ? 'request'
+          : stream || resumableStream || recordedStream
+            ? 'stream'
+            : 'unknown';
+      const interceptRouting = buildInterceptRouting(wskit);
+      let frame: InterceptPrimitive.InterceptFrame = {
+        event,
+        payload: message.payload,
+        kind: interceptKind,
+        routing: interceptRouting,
+      };
       frame = await InterceptPrimitive.runIntercepts(runtime, connection, {
-        intercepts: scope.namespace.intercepts,
+        intercepts: runtime.compiled.intercepts,
         frame,
         getCtx,
       });
-    }
 
-    if (scope.channel) {
-      frame = await InterceptPrimitive.runIntercepts(runtime, connection, {
-        intercepts: scope.channel.intercepts,
-        frame,
-        getCtx,
-      });
-    }
+      if (scope.namespace) {
+        frame = await InterceptPrimitive.runIntercepts(runtime, connection, {
+          intercepts: scope.namespace.intercepts,
+          frame,
+          getCtx,
+        });
+      }
 
-    message = { event: frame.event, payload: frame.payload };
+      if (scope.channel) {
+        frame = await InterceptPrimitive.runIntercepts(runtime, connection, {
+          intercepts: scope.channel.intercepts,
+          frame,
+          getCtx,
+        });
+      }
+
+      message = { event: frame.event, payload: frame.payload };
+    }
 
     const primitive = incoming ?? request ?? stream ?? resumableStream ?? recordedStream;
     if (!primitive) return;
@@ -486,7 +490,7 @@ export async function dispatchIncoming(
   } catch (error) {
     await handleDispatchError(runtime, connection, {
       event,
-      payload,
+      payload: message.payload,
       wskit,
       scope,
       error,
