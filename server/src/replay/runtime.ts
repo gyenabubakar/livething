@@ -398,15 +398,13 @@ export function persistReplayMessage(
     const nextValue: ReplaySnapshotValue = { event, payload };
     const queued = scope.pendingReplaySnapshotRows.get(row.rowKey);
 
-    const previousValue =
-      queued !== undefined
-        ? queued.row === null
-          ? null
-          : toReplaySnapshotValue(queued.row)
-        : (() => {
-            const fromDisk = sql.transaction((tx) => getReplayRowByKey(tx, row.rowKey));
-            return fromDisk ? toReplaySnapshotValue(fromDisk) : null;
-          })();
+    let previousValue: ReplaySnapshotValue | null;
+    if (queued !== undefined) {
+      previousValue = queued.row === null ? null : toReplaySnapshotValue(queued.row);
+    } else {
+      const fromDisk = sql.transaction((tx) => getReplayRowByKey(tx, row.rowKey));
+      previousValue = fromDisk ? toReplaySnapshotValue(fromDisk) : null;
+    }
 
     const reduced = options.reduce ? options.reduce(previousValue, nextValue) : nextValue;
 

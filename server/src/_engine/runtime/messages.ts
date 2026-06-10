@@ -352,13 +352,10 @@ export async function dispatchIncoming(
     }
 
     if (attempt === 0) {
-      const interceptKind: 'incoming' | 'request' | 'stream' | 'unknown' = incoming
-        ? 'incoming'
-        : request
-          ? 'request'
-          : stream || resumableStream || recordedStream
-            ? 'stream'
-            : 'unknown';
+      let interceptKind: 'incoming' | 'request' | 'stream' | 'unknown' = 'unknown';
+      if (incoming) interceptKind = 'incoming';
+      else if (request) interceptKind = 'request';
+      else if (stream || resumableStream || recordedStream) interceptKind = 'stream';
       const interceptRouting = buildInterceptRouting(wskit);
       let frame: InterceptPrimitive.InterceptFrame = {
         event,

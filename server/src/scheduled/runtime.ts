@@ -123,6 +123,11 @@ function getRetryDelay(attempts: number, retry: boolean | readonly number[]): nu
   return schedule[attempts];
 }
 
+function serializeRetry(retry: ScheduledRun['retry']): number | string {
+  if (Array.isArray(retry)) return JSON.stringify(retry);
+  return retry ? 1 : 0;
+}
+
 /** Serialize one run row into its persisted column tuple for hashing/binding. */
 function serializeRunColumns(
   run: ScheduledRun,
@@ -137,7 +142,7 @@ function serializeRunColumns(
     run.every ?? null,
     run.attempts,
     run.recurring ? 1 : 0,
-    Array.isArray(run.retry) ? JSON.stringify(run.retry) : run.retry ? 1 : 0,
+    serializeRetry(run.retry),
   ];
 }
 
