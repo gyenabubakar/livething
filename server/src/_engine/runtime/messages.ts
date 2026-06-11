@@ -533,7 +533,7 @@ async function handleDispatchError(
       // unhandled rejection — this code runs inside `void dispatchIncoming`.
       await forEachIsolatedAsync(
         runtime.errorHooks,
-        (hook) => hook(runtime.buildConnectionContext(connection), exhausted, event),
+        (hook) => hook(runtime.buildConnectionContext(connection, scope), exhausted, event),
         { context: `onError hook (DeferExhausted) event="${event}"` },
       );
       return;

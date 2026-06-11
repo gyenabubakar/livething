@@ -489,8 +489,8 @@ export async function resumeDurableStream(
 
   let cursor: unknown = null;
   if (cursorRaw) {
-    const raw = JSON.parse(cursorRaw);
     try {
+      const raw = JSON.parse(cursorRaw);
       cursor = def.cursor ? validateValue(def.cursor, raw, '__resumeStream__') : raw;
     } catch {
       runtime.sendProtocolMessage(connection, {
@@ -501,7 +501,19 @@ export async function resumeDurableStream(
       return;
     }
   }
-  const payload = JSON.parse(row.payload);
+  let payload: unknown;
+  try {
+    payload = JSON.parse(row.payload);
+  } catch {
+    // A corrupt or partially-written row must not throw out of resume — send a
+    // terminal error so the client's resuming stream settles.
+    runtime.sendProtocolMessage(connection, {
+      event: '__error__',
+      payload: { code: StreamAborted.code, detail: { reason: 'cursor-invalid' as const } },
+      wskit: { ...scopeMarkers, streamId },
+    });
+    return;
+  }
   runtime.sendProtocolMessage(connection, {
     event: '__streamOk__',
     payload: {},
