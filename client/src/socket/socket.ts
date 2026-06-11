@@ -507,7 +507,7 @@ export class WSKitSocket {
       ws.onerror = (event) => {
         if (attemptId !== this._connectAttemptId) return;
         this._log('WebSocket error');
-        this._emitter.emit('error', event);
+        this._reportError(event);
       };
 
       ws.onmessage = (event) => {
@@ -551,9 +551,12 @@ export class WSKitSocket {
       return;
     }
 
-    // TODO: binary support is planned
+    // TODO: binary support is planned. Until then, surface a binary frame
+    // through the normal error path instead of throwing out of `onmessage`
+    // (an uncaught exception there would crash the WebSocket callback).
     if (typeof raw !== 'string') {
-      throw new Error('[wskit] binary frames are not supported yet');
+      this._reportError(new Error('[wskit] binary frames are not supported yet'));
+      return;
     }
 
     let parsed: WireMessage | null = null;
@@ -594,8 +597,10 @@ export class WSKitSocket {
     }
 
     // An `__error__` frame no module claimed becomes an onError call instead of a normal event.
+    // Route through _reportError so that with no listener it still reaches the
+    // host's global handler rather than being silently dropped by the emitter.
     if (message.event === '__error__') {
-      this._emitter.emit('error', toWSKitError(message.payload));
+      this._reportError(toWSKitError(message.payload));
       return;
     }
 

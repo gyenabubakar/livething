@@ -81,15 +81,31 @@ describe('incoming pipeline — malformed text frame', () => {
 });
 
 describe('incoming pipeline — binary frame', () => {
-  it('throws loudly when a binary frame arrives', () => {
+  it('surfaces a binary frame on the error event instead of throwing out of onmessage', () => {
     const handler = vi.fn();
     const { socket, ws } = connected();
     socket.on('anything', handler);
+    const onError = vi.fn();
+    socket.onError(onError);
 
-    expect(() => ws.emitRaw(new ArrayBuffer(4))).toThrow(
-      '[wskit] binary frames are not supported yet',
-    );
+    expect(() => ws.emitRaw(new ArrayBuffer(4))).not.toThrow();
+    expect(onError).toHaveBeenCalledWith(expect.any(Error));
     expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('rethrows an unclaimed __error__ out-of-band when no onError listener is attached', () => {
+    const scheduled: Array<() => void> = [];
+    const queue = vi.spyOn(globalThis, 'queueMicrotask').mockImplementation((cb) => {
+      scheduled.push(cb);
+    });
+    try {
+      const { ws } = connected();
+      ws.emit({ event: '__error__', payload: { code: 'server-boom' } });
+      expect(scheduled).toHaveLength(1);
+      expect(scheduled[0]).toThrow();
+    } finally {
+      queue.mockRestore();
+    }
   });
 });
 

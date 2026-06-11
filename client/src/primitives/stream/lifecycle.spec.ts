@@ -188,6 +188,7 @@ describe('__error__ with correlationId/ackId passthrough', () => {
     const { socket, ws } = build();
     const { handle, sid } = await start(socket, ws, { streamKind: 'persistent' });
 
+    socket.onError(() => {});
     // __error__ with a correlationId belongs to another primitive — stream must ignore it.
     ws.emit({
       event: '__error__',
@@ -206,6 +207,7 @@ describe('__error__ with correlationId/ackId passthrough', () => {
     const { socket, ws } = build();
     const { handle, sid } = await start(socket, ws, { streamKind: 'persistent' });
 
+    socket.onError(() => {});
     ws.emit({
       event: '__error__',
       payload: { code: 'not-found' },

@@ -193,7 +193,7 @@ describe('keepalive (opt-in)', () => {
 });
 
 describe('serialization (binary)', () => {
-  it('applies binaryType to the socket but throws when a binary frame arrives', () => {
+  it('applies binaryType to the socket but surfaces a binary frame on onError (not the decoder)', () => {
     const handler = vi.fn();
     const socket = client<TestContract>()(
       connect('wss://test'),
@@ -207,9 +207,10 @@ describe('serialization (binary)', () => {
     ws.open();
     expect(ws.binaryType).toBe('arraybuffer');
     socket.on('message', handler);
-    expect(() => ws.emitRaw(new ArrayBuffer(4))).toThrow(
-      '[wskit] binary frames are not supported yet',
-    );
+    const onError = vi.fn();
+    socket.onError(onError);
+    expect(() => ws.emitRaw(new ArrayBuffer(4))).not.toThrow();
+    expect(onError).toHaveBeenCalledWith(expect.any(Error));
     expect(handler).not.toHaveBeenCalled();
   });
 });

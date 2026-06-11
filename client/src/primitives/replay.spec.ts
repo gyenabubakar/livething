@@ -235,6 +235,7 @@ describe('replay — per-channel scope catch-up', () => {
       socket.setDebug(true);
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
+      socket.onError(() => {});
       ws.emit({
         event: '__error__',
         payload: { code: 'unsupported-protocol', detail: { event: '__resumeStream__' } },
