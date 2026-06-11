@@ -463,6 +463,45 @@ describe('durable stream runtime', () => {
     expect(returnSpy).toHaveBeenCalled();
   });
 
+  it('resumeDurableStream — a corrupt stored payload sends cursor-invalid instead of throwing', async () => {
+    const sql = makeSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime, protocolMessages } = createRuntime(sql);
+    const connection = createConnection();
+
+    // A partially-written / corrupt row: payload is not valid JSON.
+    Storage.insertStream(sql, {
+      identity: 'u1',
+      streamId: 'corrupt',
+      event: 'e',
+      payload: '{not valid json',
+      kind: 'resumable',
+      now: Date.now(),
+    });
+
+    await expect(
+      resumeDurableStream(runtime as never, connection, {
+        resolveDef: () => ({
+          scope: {},
+          def: baseDef({
+            kind: 'resumable',
+            generator: async function* () {
+              /* never reached — the payload parse fails first */
+            },
+          }),
+        }),
+        row: Storage.readStream(sql, 'u1', 'corrupt'),
+        streamId: 'corrupt',
+        lastKnownSeq: 0,
+      }),
+    ).resolves.toBeUndefined();
+
+    const err = protocolMessages.find((m) => m.event === '__error__');
+    expect(err?.payload.code).toBe('stream-aborted');
+    expect((err?.payload.detail as { reason: string } | undefined)?.reason).toBe('cursor-invalid');
+    expect(protocolMessages.find((m) => m.event === '__streamOk__')).toBeUndefined();
+  });
+
   it('resumeDurableStream — recorded stream replays missed chunks since `since` then _streamEnd', async () => {
     const sql = makeSql();
     Storage.ensureDurableStreamSchema(sql);

@@ -1699,4 +1699,104 @@ describe('Defer retry hook isolation', () => {
       vi.useRealTimers();
     }
   });
+
+  it('a DeferExhausted onError hook receives the channel-scoped ctx when the handler defers inside a channel', async () => {
+    vi.useFakeTimers();
+    try {
+      const channelMembers = new Map<string, Set<RuntimeConnection>>();
+      const connection = createConnection('conn_1');
+      addMembership(channelMembers, connection, { channelName: 'room' });
+
+      const channel = {
+        key: 'room',
+        kind: 'channel' as const,
+        pattern: 'room',
+        outgoing: new Map(),
+        incoming: new Map([
+          [
+            'work',
+            {
+              event: 'work',
+              validator: undefined,
+              handler: () => {
+                throw Defer(10);
+              },
+            },
+          ],
+        ]),
+        requests: new Map(),
+        streams: new Map(),
+        resumableStreams: new Map(),
+        recordedStreams: new Map(),
+        intercepts: [],
+      };
+
+      let capturedCtx: { id?: string; channel?: string } | undefined;
+
+      const runtime = {
+        compiled: {
+          outgoing: new Map(),
+          incoming: new Map(),
+          requests: new Map(),
+          streams: new Map(),
+          resumableStreams: new Map(),
+          recordedStreams: new Map(),
+          intercepts: [],
+          channels: new Map([['room', channel]]),
+          channelFamilies: new Map(),
+          scheduled: new Map(),
+          plugins: [],
+          requires: {},
+          replayClaimedChannelKeys: new Set(),
+        },
+        connections: new Map([[connection.id, connection]]),
+        channelMembers,
+        toConnectionInfo() {
+          return { id: connection.id };
+        },
+        activeStreams: new Map(),
+        protocolHandlers: new Map(),
+        incomingHooks: [],
+        pluginRuntimes: [],
+        errorHooks: [
+          (ctx: { id?: string; channel?: string }) => {
+            capturedCtx = ctx;
+          },
+        ],
+        requireTimers() {
+          return { setTimeout: () => undefined, clearTimeout() {} };
+        },
+        buildConnectionContext(_connection: RuntimeConnection, scope?: { channelName?: string }) {
+          // Reflect the resolved scope into ctx the way the real builder does.
+          return { id: connection.id, channel: scope?.channelName };
+        },
+        broadcastToConnections() {},
+        sendProtocolMessage() {},
+        sendReplay() {},
+        persistAttachment() {},
+        async handleRuntimeError() {},
+        async handleValidationError() {},
+        async handleSubscribe() {},
+        async handleUnsubscribe() {},
+        sendThroughPipeline: () => true,
+        waitUntil() {},
+        generateId() {
+          return 'id_1';
+        },
+      };
+
+      await dispatchIncoming(
+        runtime as unknown as Parameters<typeof dispatchIncoming>[0],
+        connection,
+        { event: 'work', payload: {}, wskit: { channel: 'room', channelScope: null } },
+      );
+      // Exhaust the defer retries (initial + 3 retries at 10ms each).
+      await vi.advanceTimersByTimeAsync(100);
+
+      expect(capturedCtx).toBeDefined();
+      expect(capturedCtx?.channel).toBe('room');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
