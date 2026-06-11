@@ -48,6 +48,11 @@ export function replay(): Primitive<EmptyTypeFn> {
             return message;
           }
 
+          // Stream chunks carry their own per-stream seq, unrelated to the
+          // per-scope replay sequence. Ignore them so one can't bump the replay
+          // high-water mark and make reconnect catch-up skip real channel messages.
+          if (message.__wskit?.streamId !== undefined) return message;
+
           const seq = message.__wskit?.seq;
           if (typeof seq !== 'number') return message;
 

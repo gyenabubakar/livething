@@ -285,4 +285,39 @@ describe('replay — per-channel scope catch-up', () => {
       });
     });
   });
+
+  describe('stream chunks do not corrupt channel catch-up', () => {
+    it('tracks the channel seq, not a stream chunk seq, as the high-water mark', () => {
+      const { ws } = build(dedup(), replay(), reconnection());
+      // A real channel message at seq 3.
+      ws.emit({ event: 'msg', payload: { text: 'hi' }, __wskit: { channel: 'room-a', seq: 3 } });
+      // A stream chunk on the SAME channel carries its own per-stream seq (50).
+      ws.emit({
+        event: 'tokens',
+        payload: { text: 'x' },
+        __wskit: { channel: 'room-a', streamId: 's-1', seq: 50 },
+      });
+      const second = reconnectAfterDrop(ws);
+
+      const frame = second
+        .sentFrames()
+        .find((f: { event: string; __wskit?: { channel?: string } }) => f.event === '__replay__');
+      // Must replay from the channel's real seq (3), not the stream's (50) — else
+      // channel messages 4..50 are silently skipped on reconnect.
+      expect(frame.payload).toEqual({ lastKnownSeq: 3 });
+    });
+
+    it('does not fabricate a catch-up request from a stream-only channel', () => {
+      const { ws } = build(dedup(), replay(), reconnection());
+      ws.emit({
+        event: 'tokens',
+        payload: { text: 'x' },
+        __wskit: { channel: 'room-b', streamId: 's-2', seq: 7 },
+      });
+      const second = reconnectAfterDrop(ws);
+
+      const frame = second.sentFrames().find((f: { event: string }) => f.event === '__replay__');
+      expect(frame).toBeUndefined();
+    });
+  });
 });
