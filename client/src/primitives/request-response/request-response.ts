@@ -29,9 +29,10 @@ export function requestResponse(
     _tag: 'requestResponse',
     setup(helpers) {
       const pending = new Map<string, Pending>();
-      // Frames for requests made before the socket is open. rawSend drops while
-      // closed, so we hold them here and send on onOpen — otherwise the request
-      // would be silently dropped and only fail by timing out.
+      // Frames for requests made before the socket is open when no buffering is
+      // installed to hold them. helpers.send drops while not open, so we keep them
+      // here and flush on onOpen — otherwise a request made during the connect
+      // window would be dropped and only fail by timing out.
       const outbox = new Map<string, WireMessage>();
 
       function sendRequest(
@@ -72,9 +73,12 @@ export function requestResponse(
             payload,
             __wskit: { correlationId, ...callOptions.markers },
           };
-          // Send now if the wire is open; otherwise queue it for onOpen.
-          if (helpers.getState() === 'open') helpers.rawSend(frame);
-          else outbox.set(correlationId, frame);
+          // Send through the normal path so buffering can take it — queueing it
+          // while offline, or behind a still-draining staggered flush so it can't
+          // race ahead of not-yet-flushed messages. If there is no buffering and
+          // we are not open yet, hold it and flush on onOpen.
+          const delivered = helpers.send(frame);
+          if (!delivered && helpers.getState() !== 'open') outbox.set(correlationId, frame);
         });
       }
 

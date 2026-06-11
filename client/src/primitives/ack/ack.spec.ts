@@ -98,10 +98,8 @@ describe('ack stale/duplicate frame handling', () => {
 });
 
 describe('ack lazy-socket hold', () => {
-  it('sendWithAck on a connecting lazy socket with no buffer rejects quickly and releases lazy hold', async () => {
-    vi.useFakeTimers();
-
-    // Build a lazy socket (idleTimeout=0 so no idle timer fires), short ack timeout.
+  it('holds a sendWithAck started on a connecting lazy socket and resolves it once open and acked', async () => {
+    // Lazy socket (idleTimeout=0 so no idle timer fires), no buffering.
     const socket = client<C>()(
       connect('wss://test', { lazy: true, idleTimeout: 0 }),
       ack({ timeout: 5000 }),
@@ -110,22 +108,23 @@ describe('ack lazy-socket hold', () => {
     const rawSocket = socket as unknown as { _lazyConsumers: number };
     expect(rawSocket._lazyConsumers).toBe(0);
 
-    // sendWithAck triggers lazyAcquire → connect (socket enters 'connecting').
-    // The send is dropped because the socket is not open and no buffer is registered.
-    // Correct behavior: reject quickly (not after the full 5000 ms timeout).
-    const SENTINEL = Symbol('not-resolved');
-    const result = await Promise.race([
-      socket.sendWithAck('chat', { text: 'hi' }).catch((e: unknown) => e),
-      // Advance fake time a little, then resolve with sentinel so the race settles.
-      vi.advanceTimersByTimeAsync(50).then(() => SENTINEL),
-    ]);
+    // sendWithAck triggers the lazy connect (socket enters 'connecting'). With no
+    // buffering the frame is held for the in-progress connect, not dropped, and
+    // the hold stays until the ack settles.
+    const pending = socket.sendWithAck('chat', { text: 'hi' });
+    void pending.catch(() => undefined);
+    expect(rawSocket._lazyConsumers).toBe(1);
 
-    // Correct behavior: the rejection (not the sentinel) should win the race.
-    // Today the ack timer hasn't fired yet after only 50 ms, so the sentinel wins.
-    expect(result).not.toBe(SENTINEL);
+    const ws = MockWebSocket.last(); // created by the lazy connect, not open yet
+    expect(ws.sentFrames()).toEqual([]); // held while connecting
 
-    // And after quick rejection, the lazy hold must be released.
-    expect(rawSocket._lazyConsumers).toBe(0);
+    ws.open(); // onOpen flushes the held frame
+    const frame = ws.sentFrames().at(-1);
+    expect(frame.event).toBe('chat');
+
+    ws.emit({ event: '__ack__', payload: {}, __wskit: { ackId: frame.__wskit.ackId } });
+    await expect(pending).resolves.toBeUndefined();
+    expect(rawSocket._lazyConsumers).toBe(0); // hold released after it settles
   });
 });
 

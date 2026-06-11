@@ -1,6 +1,7 @@
 import { Disconnected, Timeout } from '~/errors.ts';
 import { toWSKitError } from '~/internal/error-frame.ts';
 import { getAugmenters } from '~/internal/scoped.ts';
+import type { WireMessage } from '~/internal/runtime.ts';
 import type { ScopeMarkers } from '~/internal/scoped.ts';
 import type { AckOptions, AckTypeFn } from '~/primitives/ack/types.ts';
 import type { Primitive } from '~/primitives/types.ts';
@@ -25,6 +26,10 @@ export function ack(options: AckOptions = {}): Primitive<AckTypeFn> {
     _tag: 'ack',
     setup(helpers) {
       const pending = new Map<string, Pending>();
+      // Frames for acks made before the socket is open (lazy connect / reconnect)
+      // when no buffering is installed to hold them. Flushed on onOpen — same as
+      // request() — so a sendWithAck() started before open isn't dropped.
+      const outbox = new Map<string, WireMessage>();
 
       function sendWithAck(
         event: string,
@@ -33,10 +38,12 @@ export function ack(options: AckOptions = {}): Primitive<AckTypeFn> {
       ): Promise<void> {
         const ackId = helpers.generateId('ack');
         helpers.lazyAcquire();
+        helpers.ensureConnected();
 
         return new Promise<void>((resolve, reject) => {
           function done(): void {
             pending.delete(ackId);
+            outbox.delete(ackId);
             helpers.lazyRelease();
           }
           const timer = setTimeout(() => {
@@ -57,20 +64,33 @@ export function ack(options: AckOptions = {}): Primitive<AckTypeFn> {
             },
           });
 
+          const frame: WireMessage = { event, payload, __wskit: { ackId, ...callOptions.markers } };
           const delivered = helpers.send(
-            { event, payload, __wskit: { ackId, ...callOptions.markers } },
+            frame,
             callOptions.ttl !== undefined ? { ttl: callOptions.ttl } : undefined,
           );
           if (!delivered) {
-            clearTimeout(timer);
-            done();
-            reject(Disconnected());
+            // helpers.send declined. Not open yet (lazy/reconnecting, no buffering)
+            // → hold the frame and flush it on open, like request(). Otherwise the
+            // socket is open and a primitive cancelled the send → reject.
+            if (helpers.getState() !== 'open') outbox.set(ackId, frame);
+            else {
+              clearTimeout(timer);
+              done();
+              reject(Disconnected());
+            }
           }
         });
       }
 
       return {
         id: 'ack',
+        onOpen() {
+          if (outbox.size === 0) return null;
+          const frames = [...outbox.values()];
+          outbox.clear();
+          return frames;
+        },
         onIncoming(message) {
           const ackId = message.__wskit?.ackId;
           if (typeof ackId !== 'string') return message;
@@ -87,6 +107,7 @@ export function ack(options: AckOptions = {}): Primitive<AckTypeFn> {
           // Each reject() runs done(), which deletes its own entry, so the map
           // empties itself as we go.
           for (const waiter of pending.values()) waiter.reject(Disconnected());
+          outbox.clear();
         },
         install(socket) {
           // @ts-expect-error — install adds sendWithAck() to the socket dynamically
