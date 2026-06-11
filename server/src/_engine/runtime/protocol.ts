@@ -170,10 +170,13 @@ export const StreamEndFrame = v.object({
   event: v.literal('__streamEnd__'),
   payload: NoPayload,
   // `seq` is the final sequence number, so the client can check for missed chunks.
+  // `eventName` is the stream's declared event, carried on a broadcast fan-out so a
+  // listen-only subscriber can route this terminal frame (its `event` is the protocol name).
   __wskit: v.strictObject({
     ...OptionalScope,
     streamId: StreamIdString,
     seq: v.optional(NonNegativeSafeInt),
+    eventName: v.optional(EventName),
   }),
 });
 
@@ -197,6 +200,9 @@ export const ErrorFrame = v.object({
     streamNudgeId: v.optional(v.string()),
     // On a stream error: true ends the stream, false (e.g. a rejected nudge) leaves it running.
     streamTerminated: v.optional(v.boolean()),
+    // The stream's declared event, carried on a broadcast error fan-out so a
+    // listen-only subscriber can route this terminal frame.
+    eventName: v.optional(EventName),
   }),
 });
 

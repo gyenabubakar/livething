@@ -14,6 +14,10 @@ interface C {
       chunk: { text: string };
       nudges: { hint: { value: string } };
     };
+    'feed-b': {
+      payload: { topic: string };
+      chunk: { text: string };
+    };
   };
   channels: {
     rooms: {
@@ -404,5 +408,48 @@ describe('deliverBroadcast with no matching scope', () => {
     // for this subscriber — endBroadcast finds nothing in broadcastRuns.
     ws.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: 'bs6' } });
     expect(onEnd).not.toHaveBeenCalled();
+  });
+});
+
+describe('broadcast terminal-frame routing (eventName)', () => {
+  it('a terminal frame with no eventName does not fan out to unrelated subscribers', () => {
+    const { socket, ws } = buildWithStream();
+    const endAskAi = vi.fn();
+    const endFeedB = vi.fn();
+    socket.onStream('ask-ai', { onChunk: vi.fn(), onEnd: endAskAi });
+    socket.onStream('feed-b', { onChunk: vi.fn(), onEnd: endFeedB });
+
+    // A terminal __streamEnd__ with NO eventName and no preceding chunk (no run):
+    // it cannot be routed, so it must reach nobody — not every subscriber.
+    ws.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: 's1' } });
+
+    expect(endAskAi).not.toHaveBeenCalled();
+    expect(endFeedB).not.toHaveBeenCalled();
+  });
+
+  it('a broadcast terminal frame routes only to its eventName subscribers', () => {
+    const { socket, ws } = buildWithStream();
+    const endAskAi = vi.fn();
+    const endFeedB = vi.fn();
+    const errAskAi = vi.fn();
+    socket.onStream('ask-ai', { onChunk: vi.fn(), onEnd: endAskAi, onError: errAskAi });
+    socket.onStream('feed-b', { onChunk: vi.fn(), onEnd: endFeedB });
+
+    // __streamEnd__ for feed-b (carrying eventName) before any chunk reaches only feed-b.
+    ws.emit({
+      event: '__streamEnd__',
+      payload: {},
+      __wskit: { streamId: 's2', eventName: 'feed-b' },
+    });
+    expect(endFeedB).toHaveBeenCalledTimes(1);
+    expect(endAskAi).not.toHaveBeenCalled();
+
+    // A terminal __error__ for ask-ai (carrying eventName) reaches only ask-ai.
+    ws.emit({
+      event: '__error__',
+      payload: { code: 'internal-error' },
+      __wskit: { streamId: 's3', eventName: 'ask-ai', streamTerminated: true },
+    });
+    expect(errAskAi).toHaveBeenCalledTimes(1);
   });
 });

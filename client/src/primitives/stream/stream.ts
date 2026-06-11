@@ -292,18 +292,15 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         if (active?.timer) clearTimeout(active.timer);
         broadcastRuns.delete(streamId);
 
+        // Route only to subscribers of this stream's event (from a live run, or the
+        // eventName the server stamps on broadcast terminal frames). A frame whose
+        // event can't be resolved — e.g. a private stream's end, which has neither —
+        // is left alone; fanning out to every subscriber would misdeliver it.
         const event = active?.event ?? envelope?.eventName;
-        if (event !== undefined) {
-          for (const subscriber of broadcastSubs.get(event) ?? [])
-            if (scopeMatches(subscriber.scope, envelope))
-              callStreamHandler(helpers.log, () => notify(subscriber.handlers));
-          return;
-        }
-
-        for (const subscribers of broadcastSubs.values())
-          for (const subscriber of subscribers)
-            if (scopeMatches(subscriber.scope, envelope))
-              callStreamHandler(helpers.log, () => notify(subscriber.handlers));
+        if (event === undefined) return;
+        for (const subscriber of broadcastSubs.get(event) ?? [])
+          if (scopeMatches(subscriber.scope, envelope))
+            callStreamHandler(helpers.log, () => notify(subscriber.handlers));
       }
 
       return {

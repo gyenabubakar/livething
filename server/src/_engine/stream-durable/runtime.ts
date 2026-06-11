@@ -450,7 +450,7 @@ export async function resumeDurableStream(
     runtime.sendProtocolMessage(connection, {
       event: '__streamEnd__',
       payload: {},
-      wskit: { ...scopeMarkers, streamId, seq: row.lastSeq },
+      wskit: { ...scopeMarkers, streamId, seq: row.lastSeq, eventName: def.event },
     });
     return;
   }
@@ -465,7 +465,7 @@ export async function resumeDurableStream(
     runtime.sendProtocolMessage(connection, {
       event: '__streamEnd__',
       payload: {},
-      wskit: { ...scopeMarkers, streamId, seq: row.lastSeq },
+      wskit: { ...scopeMarkers, streamId, seq: row.lastSeq, eventName: def.event },
     });
     return;
   }
@@ -888,7 +888,12 @@ export async function cancelDurableStream(
         return sub !== null && sub.unsubscribedAt === null;
       },
     });
-    const endWSKit = { ...buildScopeRouting(cancelScope), streamId, seq: row.lastSeq };
+    const endWSKit = {
+      ...buildScopeRouting(cancelScope),
+      streamId,
+      seq: row.lastSeq,
+      eventName: row.event,
+    };
     forEachIsolated(
       peerTargets,
       (target) =>

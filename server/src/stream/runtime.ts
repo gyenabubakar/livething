@@ -381,13 +381,16 @@ export async function runStream(
         wskit: endWskit,
       });
       if (stream.stream.broadcast) {
+        // Peers route a terminal frame by the stream's event name (its own `event`
+        // field is the protocol name), so the fan-out carries eventName.
+        const peerEndWskit = { ...endWskit, eventName: event };
         await forEachIsolatedAsync(
           broadcastTargets(),
           (target) =>
             runtime.sendProtocolMessage(target, {
               event: '__streamEnd__',
               payload: {},
-              wskit: endWskit,
+              wskit: peerEndWskit,
             }),
           { context: `stream broadcast end streamId="${streamId}"` },
         );
@@ -406,9 +409,15 @@ export async function runStream(
         routing,
         runtime.declaredErrorCodes,
       );
+      const peerErrorWskit = { ...wskit, eventName: event };
       await forEachIsolatedAsync(
         broadcastTargets(),
-        (target) => runtime.sendProtocolMessage(target, { event: '__error__', payload, wskit }),
+        (target) =>
+          runtime.sendProtocolMessage(target, {
+            event: '__error__',
+            payload,
+            wskit: peerErrorWskit,
+          }),
         { context: `stream broadcast error streamId="${streamId}"` },
       );
     }
