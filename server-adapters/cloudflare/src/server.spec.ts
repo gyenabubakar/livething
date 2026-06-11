@@ -152,6 +152,31 @@ describe('WSKitDurableObject fetch / upgrade', () => {
     expect(fake.connectionHandle.handleMessage).not.toHaveBeenCalled();
   });
 
+  it('runs connection cleanup when the standard-mode binary close fires its close event', async () => {
+    const Cls = buildClass({ hibernation: false });
+    const state = makeFakeDOState();
+    fake.stageUpgrade({});
+
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+    await instance.fetch(upgradeRequest());
+
+    const [, server] = pairs[0]!;
+    // The real Workers runtime fires a 'close' event for a server-initiated close
+    // on an accepted socket; the fake's close() is a bare spy, so wire it to fire
+    // that event the way the runtime would. This pins that the adapter's close
+    // listener actually runs connection cleanup on the binary-frame close.
+    server.close.mockImplementation((code: number, reason: string) =>
+      server.dispatch('close', { code, reason }),
+    );
+
+    server.dispatch('message', { data: new ArrayBuffer(4) });
+
+    expect(fake.connectionHandle.handleClose).toHaveBeenCalledWith(
+      1003,
+      expect.stringContaining('binary'),
+    );
+  });
+
   it('calls state.acceptWebSocket(ws) without forwarding handler tags into the cf tag store', async () => {
     // WSKit tags are persisted inside the hibernation attachment, so
     // forwarding them into Cloudflare's per-socket tag store is redundant.

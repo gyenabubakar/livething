@@ -50,8 +50,8 @@ const StreamKind = v.picklist(['ephemeral', 'persistent']);
 const ChannelName = v.pipe(v.string(), v.minLength(1), v.maxLength(256));
 
 /**
- * A bounded family key / namespace name. These are short identifiers that must
- * match a declared scope, so 128 is never legitimately exceeded.
+ * A bounded family key for dynamic channels. These are short identifiers that
+ * must match a declared scope, so 128 is never legitimately exceeded.
  */
 const ScopeKey = v.pipe(v.string(), v.maxLength(128));
 
@@ -86,9 +86,8 @@ const OptionalScope = {
 
 /**
  * Scope markers for `__replay__`. Replay stores live at two scopes — top-level
- * and channel — so there is no `namespace` marker: a namespace is a scope but
- * has no replay store of its own, so its messages come back as part of a
- * top-level replay. The strict object rejects a stray `namespace`.
+ * and channel — so only those two markers are accepted; the strict object
+ * rejects any other key.
  */
 const ReplayScope = {
   channel: v.optional(ChannelName),
