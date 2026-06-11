@@ -2,7 +2,7 @@ import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
 
 /** Options for `dedup()`. */
 export interface DedupOptions {
-  /** How long to remember a message id, in ms. Default: `60_000`. */
+  /** How long to keep remembering a message id after it was last seen, in ms. Default: `60_000`. */
   windowMs?: number;
 }
 
@@ -36,6 +36,11 @@ export function dedup(options: DedupOptions = {}): Primitive<EmptyTypeFn> {
 
           if (seen.has(id)) {
             helpers.log.info(`dropped duplicate '${message.event}' (messageId ${id})`);
+            // Sliding window: refresh the timestamp so an id stays remembered as
+            // long as repeats keep arriving. delete + set moves it to the end, so
+            // the oldest-first eviction order above stays correct.
+            seen.delete(id);
+            seen.set(id, now);
             return null;
           }
           seen.set(id, now);

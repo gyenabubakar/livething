@@ -132,3 +132,25 @@ describe('dedup — window eviction', () => {
     expect(handler).toHaveBeenCalledTimes(7);
   });
 });
+
+describe('dedup — sliding window', () => {
+  it('keeps an id remembered as long as repeats keep arriving', () => {
+    vi.useFakeTimers();
+    const { socket, ws } = build(1000);
+    const handler = vi.fn();
+    socket.on('trade', handler);
+
+    ws.emit({ event: 'trade', payload: { id: 'A' }, __wskit: { messageId: 'A' } });
+    expect(handler).toHaveBeenCalledTimes(1); // delivered, last-seen = t0
+
+    vi.advanceTimersByTime(600);
+    ws.emit({ event: 'trade', payload: { id: 'A' }, __wskit: { messageId: 'A' } });
+    expect(handler).toHaveBeenCalledTimes(1); // dropped; refreshes last-seen to t600
+
+    vi.advanceTimersByTime(600); // t1200 — but only 600ms since the last sighting
+    ws.emit({ event: 'trade', payload: { id: 'A' }, __wskit: { messageId: 'A' } });
+    // Sliding window: still within 1000ms of the last sighting → still dropped.
+    // (A fixed-from-first-sight window would have evicted it at t1000 and let this through.)
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+});
