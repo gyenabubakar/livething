@@ -104,7 +104,7 @@ describe('Emitter.clear', () => {
 });
 
 describe('Emitter.emit — mid-emit mutation isolation', () => {
-  it('[BUG emitter-set-mutation] a listener added inside another listener during emit must not run in the same emit cycle', () => {
+  it('a listener added inside another listener during emit must not run in the same emit cycle', () => {
     const emitter = new Emitter<Events>();
     let fn2CallCount = 0;
 

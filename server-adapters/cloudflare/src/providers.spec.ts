@@ -93,7 +93,7 @@ describe('createKv', () => {
 });
 
 describe('createKv — list isolation', () => {
-  it('[BUG cf-kv-list] list returns only keys written via kv, not raw storage keys under the same prefix', async () => {
+  it('list returns only keys written via kv, not raw storage keys under the same prefix', async () => {
     const { kv, state } = (() => {
       const storageMap = new Map<string, unknown>();
       const s = {

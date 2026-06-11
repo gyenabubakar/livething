@@ -496,7 +496,7 @@ describe('scope-handle-list-only-active', () => {
 });
 
 describe('BUG async-subscribe', () => {
-  it('[BUG async-subscribe] unsubscribe before async payload resolves must not send __subscribe__', async () => {
+  it('unsubscribe before async payload resolves must not send __subscribe__', async () => {
     vi.useFakeTimers();
     try {
       const { socket, ws } = build();
@@ -530,7 +530,7 @@ describe('BUG async-subscribe', () => {
 });
 
 describe('BUG subscribe-promise-hang', () => {
-  it('[BUG subscribe-promise-hang] unsubscribe while pending must reject the subscribe() promise', async () => {
+  it('unsubscribe while pending must reject the subscribe() promise', async () => {
     const { socket, ws } = build();
     const room = socket.channel('general');
 
@@ -563,7 +563,7 @@ describe('BUG subscribe-promise-hang', () => {
 });
 
 describe('BUG subscribe-when-active', () => {
-  it('[BUG subscribe-when-active] second subscribe() on an active channel must not re-send __subscribe__ or re-fire onSubscribed', async () => {
+  it('second subscribe() on an active channel must not re-send __subscribe__ or re-fire onSubscribed', async () => {
     const { socket, ws } = build();
     const room = socket.channel('general');
 
@@ -594,7 +594,7 @@ describe('BUG subscribe-when-active', () => {
 });
 
 describe('BUG persistence-flip', () => {
-  it('[BUG persistence-flip] persistent channel with no server auto-rejoin must eventually send __subscribe__ or fire onSubscriptionFailed', async () => {
+  it('persistent channel with no server auto-rejoin must eventually send __subscribe__ or fire onSubscriptionFailed', async () => {
     vi.useFakeTimers();
     try {
       const socket = client<C>()(connect('wss://test'), channels(), reconnection());
@@ -635,7 +635,7 @@ describe('BUG persistence-flip', () => {
   });
 });
 
-describe('channels review fixes', () => {
+describe('channel reconnect, lazy-hold, and presence behavior', () => {
   it('releases the lazy hold when the socket drops mid-subscribe, so a zero-consumer reconnect idle-closes', () => {
     vi.useFakeTimers();
     try {

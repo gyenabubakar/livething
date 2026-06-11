@@ -233,7 +233,7 @@ describe('topoSort — optionalAfter ordering', () => {
 });
 
 describe('topoSort — intercept tag collision', () => {
-  it('[BUG toposort-tag-collision] two intercepts keep original registration order (A before B) when a primitive with optionalAfter:[intercept] is listed first', () => {
+  it('two intercepts keep original registration order (A before B) when a primitive with optionalAfter:[intercept] is listed first', () => {
     // byTag = new Map(specs.map((s) => [s._tag, s])) overwrites duplicate tags,
     // so byTag['intercept'] = B (the last one). When a primitive P with
     // optionalAfter:['intercept'] is listed before the intercepts, visit(P) runs

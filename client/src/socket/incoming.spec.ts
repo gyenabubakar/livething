@@ -273,8 +273,8 @@ describe('incoming pipeline — primitive onIncoming throw is isolated', () => {
   });
 });
 
-describe('[BUG dispatch-set-mutation] handler registered inside a dispatch does not receive the triggering message', () => {
-  it('[BUG dispatch-set-mutation] a handler added by another handler mid-dispatch must not fire for that same message', () => {
+describe('handler registered inside a dispatch does not receive the triggering message', () => {
+  it('a handler added by another handler mid-dispatch must not fire for that same message', () => {
     const { socket, ws } = connected();
 
     const lateHandler = vi.fn();

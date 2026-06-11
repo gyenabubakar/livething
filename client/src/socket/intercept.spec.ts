@@ -140,8 +140,8 @@ describe('intercept — transform chains to next intercept', () => {
   });
 });
 
-describe('[BUG intercept-throw] non-Block throw must not stop the chain', () => {
-  it('[BUG intercept-throw] intercept B still runs when intercept A throws a plain TypeError (non-Block)', () => {
+describe('non-Block throw must not stop the chain', () => {
+  it('intercept B still runs when intercept A throws a plain TypeError (non-Block)', () => {
     const interceptB = vi.fn();
     const { socket, ws } = build(
       intercept(() => {

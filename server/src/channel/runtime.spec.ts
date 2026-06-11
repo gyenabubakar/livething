@@ -1140,7 +1140,7 @@ describe('subscribeConnectionAsServer', () => {
 });
 
 describe('channel runtime bug tests', () => {
-  it('[BUG server-concurrent-subscribe] two concurrent client subscribes for same connection+channel fire subscribeOk and memberJoin exactly once each', async () => {
+  it('two concurrent client subscribes for same connection+channel fire subscribeOk and memberJoin exactly once each', async () => {
     const connection = createConnection('conn_1', { who: 'me' });
     const { runtime, connections, protocol, broadcasts } = createRuntime();
     connections.set(connection.id, connection);
@@ -1193,7 +1193,7 @@ describe('channel runtime bug tests', () => {
     expect(memberships).toHaveLength(1);
   });
 
-  it('[BUG server-leavechannel-undef] disconnect leave with undefined channel on a persistent connection does not broadcast __memberLeave__', async () => {
+  it('disconnect leave with undefined channel on a persistent connection does not broadcast __memberLeave__', async () => {
     const channelMembers = new Map<string, Set<RuntimeConnection>>();
     const connection = createConnection('conn_1');
     addChannelMembership(channelMembers, connection, {
@@ -1246,7 +1246,7 @@ describe('matchScopeParams', () => {
 // The server trusts no client. A duplicate or hostile subscribe/unsubscribe
 // frame must never push the server into wrong state or duplicate side effects.
 describe('server self-defense against untrusted client frames', () => {
-  it('[BUG server-subscribe-idempotent] a sequential second subscribe for an existing member is a no-op', async () => {
+  it('a sequential second subscribe for an existing member is a no-op', async () => {
     const connection = createConnection('conn_1', { who: 'me' });
     const { runtime, connections, protocol, broadcasts } = createRuntime();
     connections.set(connection.id, connection);

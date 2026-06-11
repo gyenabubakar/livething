@@ -1,6 +1,6 @@
-// Kernel regression tests from the phase 1-2 audit: throwing-listener isolation,
-// idempotent unsubscribe, close-state ordering, session reset on disconnect, and
-// stale-socket guards. Each one guards a fixed bug.
+// Kernel connection guarantees: throwing-listener isolation, idempotent
+// unsubscribe, close-state ordering, session reset on disconnect, and
+// stale-socket inertness.
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { ack } from '~/primitives/ack/index.ts';
@@ -285,7 +285,7 @@ interface RequestContract {
   requests: { ping: { payload: null; response: null } };
 }
 
-describe('[BUG idle-timer-kills-reconnect] idle timer armed during close must not fire during reconnect', () => {
+describe('idle timer armed during close must not fire during reconnect', () => {
   it('socket stays reconnecting when idle timeout elapses while a reconnect is in progress', async () => {
     vi.useFakeTimers();
     try {

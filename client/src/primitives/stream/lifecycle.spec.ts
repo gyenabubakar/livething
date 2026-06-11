@@ -308,7 +308,7 @@ describe('resumeStream default lastKnownSeq from state', () => {
   });
 });
 
-describe('[BUG stream-resumable-noRelease] resumable stream releases lazy hold when socket closes with no reconnect', () => {
+describe('resumable stream releases lazy hold when socket closes with no reconnect', () => {
   it('drops _lazyConsumers to 0 after a persistent stream on a lazy socket closes permanently (code 1006, no reconnect)', async () => {
     // A lazy socket — _lazyConsumers tracks who is keeping it alive.
     const socket = client<C>()(connect('wss://test', { lazy: true }), stream());
@@ -332,7 +332,7 @@ describe('[BUG stream-resumable-noRelease] resumable stream releases lazy hold w
   });
 });
 
-describe('[BUG durable-timer-reconnect] per-chunk timeout must not start at reconnect for a resumed stream', () => {
+describe('per-chunk timeout must not start at reconnect for a resumed stream', () => {
   it('does not abort a resumable stream with Timeout while waiting for the first resumed chunk after reconnect', async () => {
     vi.useFakeTimers();
     try {
@@ -374,7 +374,7 @@ describe('[BUG durable-timer-reconnect] per-chunk timeout must not start at reco
   });
 });
 
-describe('stream review fixes', () => {
+describe('stream teardown, pre-open triggers, and resume deadline', () => {
   it('a resumable stream ends with Disconnected on an unexpected drop when no reconnection is installed', async () => {
     const { socket, ws } = build(); // no reconnection() — an unexpected drop is terminal
     const { handle } = await start(socket, ws, { streamKind: 'persistent' });

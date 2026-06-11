@@ -381,7 +381,7 @@ describe('ordering', () => {
 });
 
 describe('async hook registration', () => {
-  it('[BUG plugin-async-hooks] onIncoming registered after an await inside setup runs when a message arrives', async () => {
+  it('onIncoming registered after an await inside setup runs when a message arrives', async () => {
     const seen: string[] = [];
 
     const AsyncHook = plugin({

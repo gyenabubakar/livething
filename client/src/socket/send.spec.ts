@@ -175,7 +175,7 @@ describe('_rawSend: dropped while socket is not open', () => {
   });
 });
 
-describe('[BUG droplog-name] dropped send debug log uses the renamed event name', () => {
+describe('dropped send debug log uses the renamed event name', () => {
   it('debug drop log contains the outgoing (renamed) event, not the original', () => {
     const renamingPrimitive: PrimitiveRuntime = {
       id: 'renamer',

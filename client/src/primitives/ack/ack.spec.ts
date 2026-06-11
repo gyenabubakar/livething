@@ -82,7 +82,7 @@ describe('ack timeout and disconnect rejection', () => {
 });
 
 describe('ack stale/duplicate frame handling', () => {
-  it('[BUG ack-stale-leak] a stale __ack__ frame (no matching waiter) must be swallowed, not forwarded to user handlers', () => {
+  it('a stale __ack__ frame (no matching waiter) must be swallowed, not forwarded to user handlers', () => {
     const { socket, ws } = build();
     const handler = vi.fn();
     (socket as unknown as { on(event: string, handler: (data: unknown) => void): () => void }).on(
@@ -98,7 +98,7 @@ describe('ack stale/duplicate frame handling', () => {
 });
 
 describe('ack lazy-socket hold', () => {
-  it('[BUG ack-hold-timeout] sendWithAck on a connecting lazy socket with no buffer rejects quickly and releases lazy hold', async () => {
+  it('sendWithAck on a connecting lazy socket with no buffer rejects quickly and releases lazy hold', async () => {
     vi.useFakeTimers();
 
     // Build a lazy socket (idleTimeout=0 so no idle timer fires), short ack timeout.

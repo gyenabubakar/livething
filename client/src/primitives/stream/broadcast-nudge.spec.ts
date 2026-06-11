@@ -285,8 +285,8 @@ describe('broadcast scope and seq deduplication', () => {
   });
 });
 
-describe('[BUG stream-broadcast-frozen] late onStream subscriber receives subsequent chunks', () => {
-  it('[BUG stream-broadcast-frozen] subscriber added after first chunk receives later chunks', () => {
+describe('late onStream subscriber receives subsequent chunks', () => {
+  it('subscriber added after first chunk receives later chunks', () => {
     const { socket, ws } = buildWithStream();
 
     const firstChunks = vi.fn();
@@ -318,8 +318,8 @@ describe('[BUG stream-broadcast-frozen] late onStream subscriber receives subseq
   });
 });
 
-describe('[BUG stream-broadcast-noend] pre-chunk error/end fires onError and onEnd', () => {
-  it('[BUG stream-broadcast-noend] onEnd fires when __streamEnd__ arrives before any chunk', () => {
+describe('pre-chunk error/end fires onError and onEnd', () => {
+  it('onEnd fires when __streamEnd__ arrives before any chunk', () => {
     const { socket, ws } = buildWithStream();
 
     const onEnd = vi.fn();
@@ -335,7 +335,7 @@ describe('[BUG stream-broadcast-noend] pre-chunk error/end fires onError and onE
     expect(onEnd).toHaveBeenCalledTimes(1);
   });
 
-  it('[BUG stream-broadcast-noend] onError fires when __error__ arrives before any chunk', () => {
+  it('onError fires when __error__ arrives before any chunk', () => {
     const { socket, ws } = buildWithStream();
 
     const onError = vi.fn();

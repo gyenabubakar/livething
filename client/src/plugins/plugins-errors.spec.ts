@@ -27,7 +27,7 @@ afterEach(() => {
 });
 
 describe('Plugin.use — failed build is not retried (plugin-build-retry)', () => {
-  it('[BUG plugin-build-retry] a singleton whose build() throws must not re-run build on subsequent use() calls', () => {
+  it('a singleton whose build() throws must not re-run build on subsequent use() calls', () => {
     const KEY = Symbol('acme:failing');
     const buildSpy = vi.fn(() => {
       throw new Error('build failed');

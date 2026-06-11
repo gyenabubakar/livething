@@ -161,7 +161,7 @@ describe('background disconnect', () => {
 });
 
 describe('manual connect while already hidden', () => {
-  it('[BUG platform-bg-on-connect] manual socket.connect() while hidden must not be auto-dropped by background timer', () => {
+  it('manual socket.connect() while hidden must not be auto-dropped by background timer', () => {
     // Build an environment that is already hidden and reports that state
     // immediately to any subscriber (mirrors WebEnvironment behaviour).
     let visCb: ((v: boolean) => void) | null = null;

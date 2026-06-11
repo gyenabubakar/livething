@@ -227,7 +227,7 @@ describe('MessageBuffer — staggered flushInterval tick loop', () => {
 });
 
 describe('MessageBuffer — double-flush / onComplete guard', () => {
-  it('[BUG buffer-double-complete] second flush before first timer fires calls onComplete exactly once', () => {
+  it('second flush before first timer fires calls onComplete exactly once', () => {
     vi.useFakeTimers();
     const buffer = new MessageBuffer({ enabled: true, flushInterval: 100 });
     const send = vi.fn();
@@ -252,7 +252,7 @@ describe('MessageBuffer — double-flush / onComplete guard', () => {
 });
 
 describe('MessageBuffer — TTL zero means no expiry', () => {
-  it('[BUG ttl-zero] message with ttl=0 is sent (ttl=0 means no expiry, not instant-drop)', () => {
+  it('message with ttl=0 is sent (ttl=0 means no expiry, not instant-drop)', () => {
     vi.useFakeTimers();
     const buffer = new MessageBuffer({ enabled: true });
     const send = vi.fn();

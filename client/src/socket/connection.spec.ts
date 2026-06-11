@@ -253,8 +253,8 @@ describe('connect-failed catch — reconnection handoff', () => {
   });
 });
 
-describe('[BUG openconn-catch-close] url-function rejection fires close event (no reconnection)', () => {
-  it('[BUG openconn-catch-close] onClose fires when url function rejects and no reconnection is present', async () => {
+describe('url-function rejection fires close event (no reconnection)', () => {
+  it('onClose fires when url function rejects and no reconnection is present', async () => {
     const urlFn = vi.fn().mockRejectedValue(new Error('DNS failed'));
     const socket = c(connect(urlFn));
     const onClose = vi.fn();
@@ -271,8 +271,8 @@ describe('[BUG openconn-catch-close] url-function rejection fires close event (n
   });
 });
 
-describe('[BUG openconn-catch-error] url-function rejection surfaces error event (with reconnection)', () => {
-  it('[BUG openconn-catch-error] onError fires when url function rejects and reconnection is present', async () => {
+describe('url-function rejection surfaces error event (with reconnection)', () => {
+  it('onError fires when url function rejects and reconnection is present', async () => {
     const urlFn = vi.fn().mockRejectedValue(new Error('DNS failed'));
     const socket = c(connect(urlFn), reconnection());
     const onError = vi.fn();
@@ -290,8 +290,8 @@ describe('[BUG openconn-catch-error] url-function rejection surfaces error event
   });
 });
 
-describe('[BUG beforereopen-cancel] disconnect() mid-first-hook skips second onBeforeReopen', () => {
-  it('[BUG beforereopen-cancel] second primitive onBeforeReopen does not run when disconnect() fires during first hook', async () => {
+describe('disconnect() mid-first-hook skips second onBeforeReopen', () => {
+  it('second primitive onBeforeReopen does not run when disconnect() fires during first hook', async () => {
     vi.useFakeTimers();
 
     let resolveFirst!: () => void;

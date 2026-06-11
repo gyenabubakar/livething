@@ -1609,7 +1609,7 @@ describe('nudge intercepts', () => {
 // ── Defer retry hook isolation ────────────────────────────────────────────────
 
 describe('Defer retry hook isolation', () => {
-  it('[BUG server-defer-raw-payload] incoming hooks run only once across original dispatch and Defer retry', async () => {
+  it('incoming hooks run only once across original dispatch and Defer retry', async () => {
     vi.useFakeTimers();
     try {
       const connection = createConnection('conn_1');

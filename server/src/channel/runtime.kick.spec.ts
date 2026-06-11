@@ -279,7 +279,7 @@ describe('channels.kick end-to-end', () => {
     expect(alsoBanned.channelMemberships.size).toBe(0);
   });
 
-  it('[BUG server-kick-durable] kick on persistent channel with missing compiled family must delete durable membership row', async () => {
+  it('kick on persistent channel with missing compiled family must delete durable membership row', async () => {
     // The channel family key exists in `channelScope` but is absent from
     // `compiled.channelFamilies`.  resolveCompiledChannel returns undefined,
     // which today makes leaveChannel treat the channel as non-persistent and

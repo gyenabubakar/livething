@@ -403,8 +403,8 @@ describe('quality change event and latency refresh', () => {
   });
 });
 
-describe('[BUG keepalive-forceclose] forceClose is called exactly once even when onclose is delayed', () => {
-  it('[BUG keepalive-forceclose] interval stops after forceClose — ws.close not called again on next tick', () => {
+describe('forceClose is called exactly once even when onclose is delayed', () => {
+  it('interval stops after forceClose — ws.close not called again on next tick', () => {
     vi.useFakeTimers();
     const { ws } = build(keepalive({ interval: 1000, maxMissedPongs: 2 }));
 
@@ -433,8 +433,8 @@ describe('[BUG keepalive-forceclose] forceClose is called exactly once even when
   });
 });
 
-describe('[BUG quality-fake-latency] onQualityChange reports null latency when no pong was received', () => {
-  it('[BUG quality-fake-latency] latency passed to onQualityChange is null when going poor via missed pongs', () => {
+describe('onQualityChange reports null latency when no pong was received', () => {
+  it('latency passed to onQualityChange is null when going poor via missed pongs', () => {
     vi.useFakeTimers();
     const { socket } = build(keepalive({ interval: 1000, maxMissedPongs: 2 }));
 

@@ -38,7 +38,7 @@ function buildWithWindow(windowMs: number) {
 }
 
 describe('dedup — keeps every id within the window', () => {
-  it('[BUG dedup-eviction] a still-fresh id stays blocked even after many later ids arrive', () => {
+  it('a still-fresh id stays blocked even after many later ids arrive', () => {
     vi.useFakeTimers();
     const { socket, ws } = buildWithWindow(60_000);
     const handler = vi.fn();
