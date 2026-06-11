@@ -74,7 +74,10 @@ export class KeepaliveLoop {
     this.pingSentAt = null;
     this.missedPongs = 0;
     this.samples = [];
-    this.quality = 'disconnected';
+    // Route through setQuality so event-only listeners hear the final
+    // 'disconnected' tier. It dedupes, so start()'s initial stop() (already
+    // 'disconnected') and repeated stops don't fire a spurious change.
+    this.setQuality('disconnected');
   }
 
   /** Call when a pong arrives: record the round-trip time and refresh quality. */

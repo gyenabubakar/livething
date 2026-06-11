@@ -169,6 +169,30 @@ describe('keepalive — quality tier transitions', () => {
 
     expect(onChange.mock.calls.length).toBe(callsAfterFirst);
   });
+
+  it('fires onQualityChange(disconnected) when missed pongs force the connection closed', () => {
+    vi.useFakeTimers();
+    const { socket, ws } = build(
+      quality({ thresholds: { excellent: 50, good: 150, degraded: 500 } }),
+      keepalive({ interval: 1000, maxMissedPongs: 2 }),
+    );
+    const tiers: string[] = [];
+    socket.onQualityChange((q) => tiers.push(q));
+
+    // One good measurement so the live tier is 'good'.
+    vi.advanceTimersByTime(1000); // tick: ping sent
+    vi.advanceTimersByTime(100); // 100ms RTT
+    ws.emit('pong');
+    expect(tiers.at(-1)).toBe('good');
+
+    // No more pongs: a tick re-arms, the next counts a miss → 'poor', the next
+    // hits maxMissedPongs → stop()+forceClose. The teardown must announce the
+    // final 'disconnected' tier to event-only listeners, not just the getter.
+    vi.advanceTimersByTime(2900);
+
+    expect(socket.getQuality()).toBe('disconnected');
+    expect(tiers.at(-1)).toBe('disconnected');
+  });
 });
 
 describe('keepalive — interval zero disables pings', () => {
