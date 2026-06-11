@@ -317,12 +317,9 @@ export class WSKitSocket {
 
       enterReconnecting: () => this._setState('reconnecting'),
 
-      giveUp: () => this._setState('closed'),
+      giveUp: () => this._abandonReconnect(false),
 
-      failReconnect: () => {
-        this._setState('closed');
-        this._emitter.emit('reconnectFailed');
-      },
+      failReconnect: () => this._abandonReconnect(true),
 
       forceClose: (code, reason) => this.ws?.close(code, reason),
 
@@ -364,6 +361,26 @@ export class WSKitSocket {
 
       connect: () => this.connect(),
     };
+  }
+
+  /**
+   * Reconnection has permanently given up — a non-retryable close, or out of
+   * retries. Notify primitives so they can finish state they kept alive for a
+   * reconnect that will never come; otherwise a resumable stream's loop hangs
+   * forever and an active channel's idle hold leaks. Then settle on 'closed'.
+   * Only the out-of-retries path emits the public `reconnectFailed` event, to
+   * keep its existing meaning.
+   */
+  private _abandonReconnect(emitEvent: boolean): void {
+    for (const primitive of this._primitives) {
+      try {
+        primitive.onReconnectFailed?.();
+      } catch (error) {
+        this._reportError(error);
+      }
+    }
+    this._setState('closed');
+    if (emitEvent) this._emitter.emit('reconnectFailed');
   }
 
   private _runShouldReconnect(code: number, reason: string): boolean | undefined {

@@ -151,6 +151,10 @@ export class ChannelState {
 
   /** Mark active and tell `onSubscribed` listeners who started it. */
   markSubscribed(source: SubscribeSource): void {
+    // A duplicate confirmation for an already-live subscription (e.g. a
+    // server-source ack racing the client's own) must not re-fire onSubscribed.
+    // A reconnect rejoin is let through so it can re-confirm.
+    if (this.active && !this.rejoining) return;
     this.active = true;
     this.rejoining = false;
     this.clearRejoinTimer();
@@ -170,6 +174,7 @@ export class ChannelState {
     this.rejoining = false;
     this.clearRejoinTimer();
     this.members.clear();
+    this.priorMembers = null;
     // The subscription ended (unsubscribed or kicked) — release the idle-prevention
     // hold and clear any in-flight subscribe(), so a later subscribe() starts fresh
     // rather than reusing the stale pending state.
@@ -198,6 +203,7 @@ export class ChannelState {
       this.persistent = false;
       this.rejoining = false;
       this.members.clear();
+      this.priorMembers = null;
     }
     // If there's a live subscribe() promise, reject it. Otherwise fire the failure event.
     if (this.pending) {

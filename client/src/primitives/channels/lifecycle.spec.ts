@@ -736,3 +736,154 @@ describe('channel reconnect, lazy-hold, and presence behavior', () => {
     }
   });
 });
+
+describe('reconnection give-up tears down active channels', () => {
+  it('releases an active channel lazy hold and fires onUnsubscribed when reconnection gives up', () => {
+    const socket = client<C>()(
+      connect('wss://test', { lazy: true }),
+      channels(),
+      reconnection({ nonRetryableCodes: [4001] }),
+    );
+    const room = socket.channel('general');
+    const onUnsub = vi.fn();
+    room.onUnsubscribed(onUnsub);
+    room.subscribe(); // lazy connect + take the idle-prevention hold
+    const ws = MockWebSocket.last();
+    ws.open();
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: { source: 'client' },
+      __wskit: { channel: 'general' },
+    });
+    expect((socket as unknown as { _lazyConsumers: number })._lazyConsumers).toBe(1);
+
+    ws.serverClose(4001, 'policy'); // non-retryable → reconnection gives up
+
+    expect(socket.getState()).toBe('closed');
+    expect((socket as unknown as { _lazyConsumers: number })._lazyConsumers).toBe(0);
+    expect(onUnsub).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('member join deltas after a failed rejoin', () => {
+  it('reports every peer as a join on a fresh subscribe once the rejoin was rejected', () => {
+    vi.useFakeTimers();
+    try {
+      const socket = client<C>()(connect('wss://test'), channels(), reconnection());
+      socket.connect();
+      const first = MockWebSocket.last();
+      first.open();
+
+      const room = socket.channel('general');
+      const joins: string[] = [];
+      room.onMemberJoin((id) => joins.push(id));
+      room.subscribe();
+      first.emit({
+        event: '__subscribeOk__',
+        payload: { source: 'client' },
+        __wskit: { channel: 'general' },
+      });
+      first.emit({
+        event: '__memberSync__',
+        payload: { members: [{ connectionId: 'a' }] },
+        __wskit: { channel: 'general' },
+      });
+
+      // Drop → priorMembers stashed = {a}; reconnect → rejoin goes out.
+      first.serverClose(1006, 'drop');
+      vi.advanceTimersByTime(1500);
+      const second = MockWebSocket.last();
+      second.open();
+
+      // Server rejects the reconnect rejoin → the channel deactivates, but the
+      // stale priorMembers={a} must NOT poison the next fresh subscribe.
+      second.emit({
+        event: '__error__',
+        payload: { code: 'forbidden' },
+        __wskit: { channel: 'general' },
+      });
+
+      joins.length = 0; // only the fresh subscribe's joins matter now
+
+      room.subscribe();
+      second.emit({
+        event: '__subscribeOk__',
+        payload: { source: 'client' },
+        __wskit: { channel: 'general' },
+      });
+      second.emit({
+        event: '__memberSync__',
+        payload: { members: [{ connectionId: 'a' }, { connectionId: 'b' }] },
+        __wskit: { channel: 'general' },
+      });
+
+      expect([...joins].sort()).toEqual(['a', 'b']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('reports every peer as a join on a fresh subscribe after an explicit unsubscribe', () => {
+    const { socket, ws } = build(); // no reconnection — a drop is terminal
+    const room = socket.channel('general');
+    const joins: string[] = [];
+    room.onMemberJoin((id) => joins.push(id));
+    room.subscribe();
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: { source: 'client' },
+      __wskit: { channel: 'general' },
+    });
+    ws.emit({
+      event: '__memberSync__',
+      payload: { members: [{ connectionId: 'a' }] },
+      __wskit: { channel: 'general' },
+    });
+
+    // Drop → priorMembers stashed = {a}; the channel stays active.
+    ws.serverClose(1006, 'drop');
+    // Explicit unsubscribe → markUnsubscribed must drop the stale priorMembers.
+    room.unsubscribe();
+
+    joins.length = 0;
+
+    // Reconnect and subscribe fresh.
+    socket.connect();
+    const second = MockWebSocket.last();
+    second.open();
+    room.subscribe();
+    second.emit({
+      event: '__subscribeOk__',
+      payload: { source: 'client' },
+      __wskit: { channel: 'general' },
+    });
+    second.emit({
+      event: '__memberSync__',
+      payload: { members: [{ connectionId: 'a' }, { connectionId: 'b' }] },
+      __wskit: { channel: 'general' },
+    });
+
+    expect([...joins].sort()).toEqual(['a', 'b']);
+  });
+});
+
+describe('duplicate subscribe confirmation', () => {
+  it('fires onSubscribed once when a server-source ack follows the client-source ack', () => {
+    const { socket, ws } = build();
+    const room = socket.channel('general');
+    const onSub = vi.fn();
+    room.onSubscribed(onSub);
+    room.subscribe();
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: { source: 'client' },
+      __wskit: { channel: 'general' },
+    });
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: { source: 'server' },
+      __wskit: { channel: 'general' },
+    });
+    expect(onSub).toHaveBeenCalledTimes(1);
+  });
+});

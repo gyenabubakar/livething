@@ -136,6 +136,15 @@ export interface PrimitiveRuntime {
    */
   onClose?(code: number, reason: string, intentional: boolean): void;
 
+  /**
+   * Runs when reconnection is permanently abandoned — out of retries, or the
+   * close was non-retryable. The socket is settling on `closed` for good, so a
+   * primitive must finish anything it kept alive across the drop expecting a
+   * reconnect: `stream` ends resumable streams with `Disconnected`, `channels`
+   * releases the idle-prevention holds it held for active channels.
+   */
+  onReconnectFailed?(): void;
+
   /** Vote on whether to reconnect: `true`/`false` is final, `void` means "no opinion." */
   shouldReconnect?(code: number, reason: string): boolean | void;
 

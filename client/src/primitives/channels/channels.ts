@@ -256,6 +256,16 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
             state.clearMembersForReconnect();
           }
         },
+        onReconnectFailed() {
+          // Reconnection is abandoned — active channels won't be revived by a
+          // reconnect, so release the idle-prevention holds they kept across the
+          // drop (else the lazy count leaks) and give them a terminal signal.
+          for (const state of states.values()) {
+            state.clearRejoinTimer();
+            if (state.active) state.markUnsubscribed();
+            else state.releaseLazy();
+          }
+        },
         install(installedSocket) {
           socket = installedSocket;
 
