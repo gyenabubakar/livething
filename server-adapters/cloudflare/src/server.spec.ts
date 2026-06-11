@@ -137,6 +137,21 @@ describe('WSKitDurableObject fetch / upgrade', () => {
     expect(fake.connectionHandle.handleError).toHaveBeenCalled();
   });
 
+  it('closes the connection on a binary frame in standard mode instead of silently dropping it', async () => {
+    const Cls = buildClass({ hibernation: false });
+    const state = makeFakeDOState();
+    fake.stageUpgrade({});
+
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+    await instance.fetch(upgradeRequest());
+
+    const [, server] = pairs[0]!;
+    server.dispatch('message', { data: new ArrayBuffer(4) });
+
+    expect(server.close).toHaveBeenCalledWith(1003, expect.stringContaining('binary'));
+    expect(fake.connectionHandle.handleMessage).not.toHaveBeenCalled();
+  });
+
   it('calls state.acceptWebSocket(ws) without forwarding handler tags into the cf tag store', async () => {
     // WSKit tags are persisted inside the hibernation attachment, so
     // forwarding them into Cloudflare's per-socket tag store is redundant.

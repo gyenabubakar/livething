@@ -146,8 +146,12 @@ const buildServe = adapter<undefined, CloudflareDurableObjectClass>({
           if (typeof event.data === 'string') {
             connection.handleMessage(event.data);
           } else {
-            // TODO: binary support is planned
-            throw new Error('[wskit] binary frames are not supported yet');
+            // TODO: binary support is planned. A throw here is swallowed by the
+            // WebSocket event dispatch (the frame would be silently dropped and the
+            // socket left open), so reject it loudly by closing the connection —
+            // matching the hibernation path, where a thrown webSocketMessage resets
+            // the socket. 1003 = "unsupported data". The close listener runs cleanup.
+            socket.close(1003, '[wskit] binary frames are not supported yet');
           }
         });
         socket.addEventListener('close', (event) => {
