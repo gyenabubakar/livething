@@ -90,7 +90,10 @@ export function requestResponse(
           const correlationId = message.__wskit?.correlationId;
           if (typeof correlationId !== 'string') return message;
           const waiter = pending.get(correlationId);
-          if (!waiter) return message;
+          // A reply with no pending waiter is a late/duplicate response to a request
+          // that already settled (timed out, rejected on disconnect, or resolved by an
+          // earlier reply). Drop it so it can't leak to on() handlers or onError.
+          if (!waiter) return null;
 
           helpers.log.info(`matched response for request '${correlationId}'`);
           if (message.event === '__error__') waiter.reject(toWSKitError(message.payload));

@@ -102,4 +102,27 @@ describe('requestResponse', () => {
       vi.useRealTimers();
     }
   });
+
+  it('drops a late reply to an already-settled request so it does not leak to onError', () => {
+    vi.useFakeTimers();
+    try {
+      const { socket, ws } = build({ timeout: 1000 });
+      const onError = vi.fn();
+      socket.onError(onError);
+      socket.request('get-balance', { user: 'u1' }).catch(() => undefined);
+
+      const sent = ws.sentFrames().find((f) => f.event === 'get-balance');
+      const correlationId = sent?.__wskit?.correlationId as string;
+      expect(typeof correlationId).toBe('string');
+
+      vi.advanceTimersByTime(1000); // the request times out — its waiter is removed
+
+      // A late error reply carrying the now-stale correlationId must be dropped,
+      // not forwarded to the unclaimed-__error__ path (which fires onError).
+      ws.emit({ event: '__error__', payload: { code: 'forbidden' }, __wskit: { correlationId } });
+      expect(onError).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
