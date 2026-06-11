@@ -167,8 +167,8 @@ _factoryDef({ field: 'name' });
 
 // These compile — lowercase kebab
 error('not-found');
-error('rate-limited');
-error('internal-error');
+error('too-fast');
+error('queue-full');
 
 // These also compile — TS doesn't enforce kebab at the type level,
 // but the convention is documented. Runtime enforcement is the engine's job.
