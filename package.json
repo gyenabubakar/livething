@@ -16,7 +16,7 @@
     "test:e2e:client-puppet": "pnpm --filter @wskit/tests-e2e-client run test:e2e",
     "test:e2e:cloudflare": "pnpm -r run test:e2e:cloudflare",
     "bench": "pnpm -r run bench",
-    "typecheck": "pnpm -r --parallel run typecheck",
+    "typecheck": "pnpm run build && pnpm -r --parallel run typecheck",
     "dup": "jscpd",
     "commitlint": "commitlint --edit",
     "commitlint:last": "commitlint --from HEAD~1 --to HEAD --verbose",
