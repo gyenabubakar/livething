@@ -269,27 +269,3 @@ export type ChannelCtx<TChannelContract, C extends Contract> = Omit<Ctx<C>, 'cha
     ): void;
   };
 };
-
-// ---------------------------------------------------------------------------
-// Namespace-scoped ctx
-// ---------------------------------------------------------------------------
-
-/**
- * The `ctx` your namespace handlers receive. Same as the top-level `Ctx<C>`,
- * but `ctx.namespace.send` and `.broadcast` are typed against this namespace's
- * own outgoing events and only reach clients in this namespace.
- */
-export type NamespaceCtx<TNamespaceContract, C extends Contract> = Omit<Ctx<C>, 'namespace'> & {
-  readonly namespace: {
-    readonly name: string;
-    send<E extends keyof ChannelOutgoingOf<TNamespaceContract> & string>(
-      event: E,
-      payload: ChannelOutgoingOf<TNamespaceContract>[E],
-    ): boolean;
-    broadcast<E extends keyof ChannelOutgoingOf<TNamespaceContract> & string>(
-      event: E,
-      payload: ChannelOutgoingOf<TNamespaceContract>[E],
-      options?: { excludeSelf?: boolean },
-    ): void;
-  };
-};

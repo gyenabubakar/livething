@@ -7,9 +7,9 @@ export type { DurableStreamKind, OnDisconnect };
 
 /**
  * Synthetic key used as the storage row's `identity` column for broadcast
- * durable streams. Encodes the scope (top-level / namespace / channel /
- * channel-family) so every connection in scope can resolve the same row
- * regardless of which user identity is holding the lookup.
+ * durable streams. Encodes the scope (top-level / channel / channel-family)
+ * so every connection in scope can resolve the same row regardless of which
+ * user identity is holding the lookup.
  */
 export function computeBroadcastScopeKey(scope: ResolvedScope): string {
   if (scope.channelName) {
@@ -20,7 +20,6 @@ export function computeBroadcastScopeKey(scope: ResolvedScope): string {
       ? `__bcast:chf:${JSON.stringify([scope.channelScope, scope.channelName])}__`
       : `__bcast:ch:${scope.channelName}__`;
   }
-  if (scope.namespace) return `__bcast:ns:${scope.namespace.name}__`;
   return '__bcast:top__';
 }
 

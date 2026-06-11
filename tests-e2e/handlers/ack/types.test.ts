@@ -8,7 +8,6 @@ describe('AckClient — no-any guard', () => {
     expectTypeOf<AckClient['requests']>().not.toBeAny();
     expectTypeOf<AckClient['streams']>().not.toBeAny();
     expectTypeOf<AckClient['channels']>().not.toBeAny();
-    expectTypeOf<AckClient['namespaces']>().not.toBeAny();
     expectTypeOf<AckClient['errors']>().not.toBeAny();
   });
 });
@@ -49,10 +48,6 @@ describe('AckClient — empty slots', () => {
   it('channels is empty', () => {
     expectTypeOf<keyof AckClient['channels']>().toBeNever();
   });
-
-  it('namespaces is empty', () => {
-    expectTypeOf<keyof AckClient['namespaces']>().toBeNever();
-  });
 });
 
 describe('AckClient — builtin errors', () => {
@@ -60,7 +55,6 @@ describe('AckClient — builtin errors', () => {
     expectTypeOf<AckClient['errors']>().toHaveProperty('validation-failed');
     expectTypeOf<AckClient['errors']>().toHaveProperty('channel-not-found');
     expectTypeOf<AckClient['errors']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<AckClient['errors']>().toHaveProperty('namespace-not-found');
     expectTypeOf<AckClient['errors']>().toHaveProperty('internal-error');
   });
 });

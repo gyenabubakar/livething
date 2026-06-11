@@ -18,7 +18,7 @@
  */
 
 import { assertPositiveInteger } from '~/_engine/validation.ts';
-import type { ChannelDef, Definition, NamespaceDef } from '~/_api/definitions.ts';
+import type { ChannelDef, Definition } from '~/_api/definitions.ts';
 import type { ScopeDeclaration } from '~/channel/channel.ts';
 import { RATE_LIMIT_DEFAULTS } from './rate-limit.ts';
 import type { RateLimitConfig } from './rate-limit.ts';
@@ -87,11 +87,6 @@ function readChannelRateLimit(def: ChannelDef): RateLimitConfig | undefined {
   return value;
 }
 
-function readNamespaceRateLimit(def: NamespaceDef): RateLimitConfig | undefined {
-  const value = (def as unknown as { rateLimit?: RateLimitConfig }).rateLimit;
-  return value;
-}
-
 /**
  * Walk the contract once and compute the flat scope→rule plan.
  *
@@ -118,19 +113,7 @@ export function resolvePlan(input: PlanInput): ResolvedRateLimitPlan | null {
     parentKey: string,
   ): void {
     for (const def of defs) {
-      if (def._ === 'namespace') {
-        const ns = def as NamespaceDef;
-        const selfCfg = readNamespaceRateLimit(ns);
-        const key = parentKey === 'top' ? `ns:${ns.name}` : `${parentKey}:ns:${ns.name}`;
-        const rule = mergeRule({
-          parent: parentRule,
-          self: selfCfg,
-          alloc,
-          context: `namespace "${ns.name}"`,
-        });
-        scopeRules.set(key, rule);
-        walk(ns.definitions, rule, key);
-      } else if (def._ === 'channel') {
+      if (def._ === 'channel') {
         const ch = def as ChannelDef;
         const selfCfg = readChannelRateLimit(ch);
         const key =

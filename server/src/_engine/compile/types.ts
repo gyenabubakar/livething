@@ -2,7 +2,6 @@
 import type * as ChannelPrimitive from '~/channel/channel.ts';
 import type * as IncomingPrimitive from '~/incoming/index.ts';
 import type * as InterceptPrimitive from '~/intercept/intercept.ts';
-import type * as NamespacePrimitive from '~/namespace/namespace.ts';
 import type * as OutgoingPrimitive from '~/outgoing/index.ts';
 import type * as DefinePlugin from '~/plugins/define.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
@@ -47,35 +46,10 @@ export type AnyPlugin = DefinePlugin.PluginInstance<
   Record<string, unknown>,
   DefinePlugin.PluginErrorMap
 >;
-/** Widened `.namespace()` primitive type for the compile layer. */
-export type NamespacePrimitiveType = NamespacePrimitive.NamespacePrimitive;
 /** Widened `.channel()` primitive type for the compile layer. */
 export type ChannelPrimitiveType = ChannelPrimitive.ChannelPrimitive;
 /** Adapter dependency manifest — which platform features a primitive needs. */
 export type RequiresManifest = PrimitiveCore.RequiresManifest;
-
-/**
- * Precomputed namespace view used by the runtime for fast event lookup.
- */
-export interface CompiledNamespace {
-  kind: 'namespace';
-
-  name: string;
-
-  outgoing: Map<string, AnyOutgoing>;
-
-  incoming: Map<string, AnyIncoming>;
-
-  requests: Map<string, AnyRequest>;
-
-  streams: Map<string, AnyGenerate>;
-
-  resumableStreams: Map<string, AnyResumableStream>;
-
-  recordedStreams: Map<string, AnyRecordedStream>;
-
-  intercepts: AnyIntercept[];
-}
 
 /**
  * Precomputed channel or channel-family view used by the runtime.
@@ -123,8 +97,6 @@ export interface CompiledServer {
 
   intercepts: AnyIntercept[];
 
-  namespaces: Map<string, CompiledNamespace>;
-
   channels: Map<string, CompiledChannel>;
 
   channelFamilies: Map<string, CompiledChannel>;
@@ -146,4 +118,4 @@ export interface CompiledServer {
   replayClaimedChannelKeys: Set<string>;
 }
 
-export type { ChannelPrimitive, NamespacePrimitive, OutgoingPrimitive, RequestPrimitive };
+export type { ChannelPrimitive, OutgoingPrimitive, RequestPrimitive };

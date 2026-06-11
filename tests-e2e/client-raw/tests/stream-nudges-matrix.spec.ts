@@ -48,38 +48,6 @@ test.describe('stream-nudges matrix', () => {
     expect(tokens).toBeGreaterThanOrEqual(1);
   });
 
-  test('plain stream() in a namespace — nudge stops the generator mid-flight', async ({
-    page,
-  }, testInfo) => {
-    const room = `snm-${testInfo.testId}-${Date.now()}`;
-    await openRig(page);
-    const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
-
-    await send(page, a, { event: 'ns-tokens', payload: {}, __wskit: { namespace: 'v1' } });
-    const ok = await waitForFrame(page, a, { match: (f) => f.event === '__streamOk__' });
-    const streamId = ok.__wskit?.streamId as string;
-    await page.waitForFunction(
-      ([sid]) =>
-        (window.__wskitFrames!(sid as string) ?? []).filter(
-          (f) => f.event === 'ns-tokens' && typeof f.payload?.token === 'string',
-        ).length >= 1,
-      [a],
-    );
-
-    await send(page, a, {
-      event: 'stop',
-      payload: {},
-      __wskit: { namespace: 'v1', streamId },
-    });
-    await waitForFrame(page, a, {
-      match: (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
-    });
-
-    const tokens = await countChunks(page, a, 'ns-tokens');
-    expect(tokens).toBeLessThan(20);
-    expect(tokens).toBeGreaterThanOrEqual(1);
-  });
-
   test('recordedStream in a channel — nudge stops the generator mid-flight', async ({
     page,
   }, testInfo) => {
@@ -114,42 +82,6 @@ test.describe('stream-nudges matrix', () => {
     });
 
     const chunks = await countChunks(page, a, 'history-nudged');
-    expect(chunks).toBeLessThan(20);
-    expect(chunks).toBeGreaterThanOrEqual(1);
-  });
-
-  test('resumableStream in a namespace — nudge stops the generator mid-flight', async ({
-    page,
-  }, testInfo) => {
-    const room = `snm-${testInfo.testId}-${Date.now()}`;
-    await openRig(page);
-    const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
-
-    const streamId = 'audit-nudged-1';
-    await send(page, a, {
-      event: 'audit-nudged',
-      payload: {},
-      __wskit: { namespace: 'v1', streamId },
-    });
-    await waitForFrame(page, a, { match: (f) => f.event === '__streamOk__' });
-    await page.waitForFunction(
-      ([sid]) =>
-        (window.__wskitFrames!(sid as string) ?? []).filter(
-          (f) => f.event === 'audit-nudged' && typeof f.payload?.row === 'number',
-        ).length >= 1,
-      [a],
-    );
-
-    await send(page, a, {
-      event: 'stop',
-      payload: {},
-      __wskit: { namespace: 'v1', streamId },
-    });
-    await waitForFrame(page, a, {
-      match: (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
-    });
-
-    const chunks = await countChunks(page, a, 'audit-nudged');
     expect(chunks).toBeLessThan(20);
     expect(chunks).toBeGreaterThanOrEqual(1);
   });
@@ -200,38 +132,6 @@ test.describe('stream-nudges matrix', () => {
           .length > (cnt as number),
       [a, tokensWhenNudged],
     );
-  });
-
-  test('recordedStream in a namespace — nudge stops the generator mid-flight', async ({
-    page,
-  }, testInfo) => {
-    const room = `snm-rec-ns-${testInfo.testId}-${Date.now()}`;
-    await openRig(page);
-    const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
-
-    const streamId = 'logs-nudged-1';
-    await send(page, a, {
-      event: 'logs-nudged',
-      payload: {},
-      __wskit: { namespace: 'v1', streamId },
-    });
-    await waitForFrame(page, a, { match: (f) => f.event === '__streamOk__' });
-    await page.waitForFunction(
-      ([sid]) =>
-        (window.__wskitFrames!(sid as string) ?? []).filter(
-          (f) => f.event === 'logs-nudged' && typeof f.payload?.line === 'string',
-        ).length >= 1,
-      [a],
-    );
-
-    await send(page, a, { event: 'stop', payload: {}, __wskit: { namespace: 'v1', streamId } });
-    await waitForFrame(page, a, {
-      match: (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
-    });
-
-    const chunks = await countChunks(page, a, 'logs-nudged');
-    expect(chunks).toBeLessThan(20);
-    expect(chunks).toBeGreaterThanOrEqual(1);
   });
 
   test('resumableStream in a channel — nudge stops the generator mid-flight', async ({

@@ -1,34 +1,8 @@
 import { expect, test } from '@playwright/test';
-import type { Page } from '@playwright/test';
 import { connect, frames, installRig, send, waitForFrame } from './_ws-rig.ts';
 
-async function openRig(page: Page, route: string) {
-  await page.goto(route);
-  await installRig(page);
-}
-
 test.describe('surface-area gaps', () => {
-  test('request() inside a namespace returns the namespace-scoped response', async ({
-    page,
-  }, testInfo) => {
-    const room = `sag-${testInfo.testId}`;
-    await openRig(page, '/namespace');
-    const a = await connect(page, { path: '/ws/namespace', username: 'alice', room: room });
-
-    await send(page, a, {
-      event: 'get-ns-info',
-      payload: {},
-      __wskit: { namespace: 'ns', correlationId: 'corr-1' },
-    });
-
-    const reply = await waitForFrame(page, a, {
-      match: (f) => f.event === 'get-ns-info' && f.__wskit?.correlationId === 'corr-1',
-    });
-    expect(reply.__wskit?.namespace).toBe('ns');
-    expect(reply.payload.namespace).toBe('ns');
-  });
-
-  test('rateLimit cascade — contract → namespace → channel → per-handler override all observable in one contract', async ({
+  test('rateLimit cascade — contract → channel → per-handler override all observable in one contract', async ({
     page,
   }, testInfo) => {
     const room = `sag-${testInfo.testId}`;
@@ -58,36 +32,11 @@ test.describe('surface-area gaps', () => {
     );
     expect(topErrors.length).toBeGreaterThanOrEqual(1);
 
-    // Layer 2 — namespace cap (strict namespace max=2, tighter than contract).
-    // The namespace bucket is independent of the top-level bucket.
-    for (let i = 0; i < 2; i += 1) {
-      await send(page, a, { event: 'strict-ping', payload: {}, __wskit: { namespace: 'strict' } });
-    }
-    await page.waitForFunction(
-      ([sid]) =>
-        (window.__wskitFrames!(sid as string) ?? []).filter(
-          (f) => f.event === 'strict-pong' && f.__wskit?.namespace === 'strict',
-        ).length >= 2,
-      [a],
-    );
-    await send(page, a, { event: 'strict-ping', payload: {}, __wskit: { namespace: 'strict' } });
-    await page.waitForFunction(
-      ([sid]) =>
-        (window.__wskitFrames!(sid as string) ?? []).filter(
-          (f) => f.event === '__error__' && f.payload?.code === 'rate-limited',
-        ).length >= 2,
-      [a],
-    );
-    const allErrors = (await frames(page, a)).filter(
-      (f) => f.event === '__error__' && f.payload.code === 'rate-limited',
-    );
-    expect(allErrors.length).toBeGreaterThanOrEqual(2);
-
-    // Layer 3 — channel cap (rooms channel max=50, looser than contract).
+    // Layer 2 — channel cap (rooms channel max=50, looser than contract).
     // No errors when sending one chatter — it would have been rate-limited at
     // the contract level had the channel not raised the cap. But the channel
     // also has a per-handler override on 'chatter' (max=1), so a second
-    // 'chatter' is rejected at layer 4.
+    // 'chatter' is rejected at layer 3.
     await send(page, a, {
       event: '__subscribe__',
       payload: {},
@@ -107,7 +56,7 @@ test.describe('surface-area gaps', () => {
       [a],
     );
 
-    // Layer 4 — per-handler override (chatter max=1) — second chatter rejected.
+    // Layer 3 — per-handler override (chatter max=1) — second chatter rejected.
     await send(page, a, {
       event: 'chatter',
       payload: { text: 'hi2' },
@@ -117,13 +66,13 @@ test.describe('surface-area gaps', () => {
       ([sid]) =>
         (window.__wskitFrames!(sid as string) ?? []).filter(
           (f) => f.event === '__error__' && f.payload?.code === 'rate-limited',
-        ).length >= 3,
+        ).length >= 2,
       [a],
     );
     const chatErrors = (await frames(page, a)).filter(
       (f) => f.event === '__error__' && f.payload.code === 'rate-limited',
     );
-    expect(chatErrors.length).toBeGreaterThanOrEqual(3);
+    expect(chatErrors.length).toBeGreaterThanOrEqual(2);
   });
 
   test('customReplay on a channel that has a stream — stream chunks never enter the replay log', async ({
@@ -173,32 +122,5 @@ test.describe('surface-area gaps', () => {
     const events = logged.payload.events as string[];
     expect(events).toContain('room-note');
     expect(events).not.toContain('room-stream');
-  });
-
-  test('intercept on a sub-builder rewrites the payload of a stream trigger', async ({
-    page,
-  }, testInfo) => {
-    const room = `sag-${testInfo.testId}`;
-    await page.goto('/intercept');
-    await installRig(page);
-    const a = await connect(page, { path: '/ws/intercept', username: 'alice', room: room });
-
-    await send(page, a, {
-      event: 'intercepted-stream',
-      payload: { text: 'hello' },
-      __wskit: { namespace: 'ns' },
-    });
-    const ok = await waitForFrame(page, a, { match: (f) => f.event === '__streamOk__' });
-    const streamId = ok.__wskit?.streamId as string;
-
-    const chunk = await waitForFrame(page, a, {
-      match: (f) =>
-        f.event === 'intercepted-stream' &&
-        f.__wskit?.streamId === streamId &&
-        typeof f.payload?.text === 'string',
-    });
-    // The namespace's intercept appends `-rewritten` to payload.text via
-    // matches() narrowing before the generator receives it.
-    expect(chunk.payload.text).toBe('hello-rewritten');
   });
 });

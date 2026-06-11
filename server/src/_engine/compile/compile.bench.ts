@@ -15,7 +15,6 @@ import { implement } from '~/_api/implement.ts';
 import { scope } from '~/channel/channel.ts';
 import { channel } from '~/channel/definition.ts';
 import { incoming } from '~/incoming/definition.ts';
-import { namespace } from '~/namespace/definition.ts';
 import { outgoing } from '~/outgoing/definition.ts';
 import { request } from '~/request/definition.ts';
 import { recordedStream } from '~/stream-recorded/definition.ts';
@@ -38,7 +37,7 @@ const tinyHandler = implement(tinyContract)
   .on('noop', () => {})
   .build();
 
-// ── Medium: ~10 events, 2 channels, 1 namespace ──
+// ── Medium: ~10 events, 2 channels ──
 const mediumContract = contract('bench-medium', {
   env: t<Record<string, unknown>>(),
   persistence: true,
@@ -57,12 +56,6 @@ const mediumContract = contract('bench-medium', {
     channel(scope('rooms', 'room:{id}'), {
       definitions: [incoming('post', Text), outgoing('posted', Text)],
     }),
-    namespace('admin', {
-      definitions: [
-        incoming('kick', v.object({ id: v.string() })),
-        outgoing('kicked', v.object({ id: v.string() })),
-      ],
-    }),
   ],
 });
 const mediumHandler = implement(mediumContract)
@@ -77,10 +70,9 @@ const mediumHandler = implement(mediumContract)
   })
   .channel('lobby', (ch) => ch.on('say', () => {}))
   .channel('rooms', (ch) => ch.on('post', () => {}))
-  .namespace('admin', (ns) => ns.on('kick', () => {}))
   .build();
 
-// ── Heavy: ~50 events, 10 channels, 2 namespaces ──
+// ── Heavy: ~50 events, 10 channels ──
 function channelDefs(prefix: string) {
   return [
     incoming(`${prefix}-send`, Text),
@@ -124,20 +116,6 @@ const heavyContract = contract('bench-heavy', {
     channel(scope('rooms-3', 'r3:{id}'), { definitions: channelDefs('r3') }),
     channel(scope('rooms-4', 'r4:{id}'), { definitions: channelDefs('r4') }),
     channel(scope('rooms-5', 'r5:{id}'), { definitions: channelDefs('r5') }),
-    namespace('admin', {
-      definitions: [
-        incoming('kick', v.object({ id: v.string() })),
-        incoming('ban', v.object({ id: v.string() })),
-        outgoing('kicked', v.object({ id: v.string() })),
-      ],
-    }),
-    namespace('v1', {
-      definitions: [
-        incoming('noop', Empty),
-        outgoing('ack', Empty),
-        request('echo', { payload: Empty, response: Empty }),
-      ],
-    }),
   ],
 });
 
@@ -168,15 +146,6 @@ for (const def of heavyContract.definitions as readonly any[]) {
       return ch;
     });
   }
-  if (def._ === 'namespace') {
-    heavyImpl.namespace(def.name, (ns: any) => {
-      for (const child of def.definitions as readonly any[]) {
-        if (child._ === 'incoming') ns.on(child.name, () => {});
-        if (child._ === 'request') ns.request(child.name, (ctx: any) => ctx.respond({}));
-      }
-      return ns;
-    });
-  }
 }
 const heavyHandler = heavyImpl.build();
 
@@ -185,11 +154,11 @@ describe('compileHandlerDefinition', () => {
     compileHandlerDefinition(tinyHandler);
   });
 
-  bench('medium (~10 events, 2 channels, 1 namespace)', () => {
+  bench('medium (~10 events, 2 channels)', () => {
     compileHandlerDefinition(mediumHandler);
   });
 
-  bench('heavy (~50 events, 10 channels, 2 namespaces)', () => {
+  bench('heavy (~50 events, 10 channels)', () => {
     compileHandlerDefinition(heavyHandler);
   });
 });

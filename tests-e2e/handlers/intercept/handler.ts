@@ -4,7 +4,6 @@ import {
   implement,
   incoming,
   matches,
-  namespace,
   nudge,
   outgoing,
   request,
@@ -19,8 +18,6 @@ import { requireUsername } from '../_shared/upgrade.ts';
 
 const EchoPayload = v.object({ text: v.string() });
 const EchoedPayload = v.object({ text: v.string() });
-const InterceptedStreamPayload = v.object({ text: v.string() });
-const InterceptedStreamChunk = v.object({ text: v.string() });
 const NudgeStreamChunk = v.object({ saw: v.string() });
 const HintNudgePayload = v.object({ text: v.string() });
 const ReqPayload = v.object({ text: v.string() });
@@ -44,22 +41,6 @@ export const interceptContract = contract('intercept', {
       payload: v.object({}),
       chunk: NudgeStreamChunk,
       nudges: [nudge('hint', HintNudgePayload)],
-    }),
-
-    namespace('ns', {
-      definitions: [
-        incoming('echo', EchoPayload),
-        outgoing('echoed', EchoedPayload),
-        stream('intercepted-stream', {
-          payload: InterceptedStreamPayload,
-          chunk: InterceptedStreamChunk,
-        }),
-        stream('ns-nudge-stream', {
-          payload: v.object({}),
-          chunk: NudgeStreamChunk,
-          nudges: [nudge('ns-hint', HintNudgePayload)],
-        }),
-      ],
     }),
 
     channel('room', {
@@ -125,40 +106,6 @@ export const interceptHandler = implement(interceptContract)
     // test can prove the intercept ran by reading the request reply.
     ctx.respond({ text: payload.text });
   })
-  .namespace('ns', (ns) =>
-    ns
-      .intercept((_ctx, frame) => {
-        if (matches(interceptContract, '#ns::echo', frame)) {
-          if (frame.payload.text === 'ns-pre') return { text: 'ns-pre-rewritten' };
-          if (frame.payload.text === 'ns-pre-block') throw Block;
-        }
-        if (matches(interceptContract, '#ns::intercepted-stream', frame)) {
-          return { text: `${frame.payload.text}-rewritten` };
-        }
-        if (frame.kind === 'nudge' && frame.event === 'ns-hint') {
-          const p = frame.payload as { text: string };
-          if (p.text === 'ns-hint-block') throw Block;
-          return { text: `${p.text}-ns-intercepted` };
-        }
-      })
-      .on('echo', (ctx, payload) => {
-        ctx.namespace.send('echoed', { text: `ns:${payload.text}` });
-      })
-      .stream('intercepted-stream', async function* (_ctx, payload) {
-        yield { text: payload.text };
-      })
-      .stream('ns-nudge-stream', async function* (ctx) {
-        let nudges = ctx.nudges(yield { saw: 'started' });
-        let loops = 0;
-        while (!nudges.some((n: { event: string }) => n.event === 'ns-hint') && loops < 10) {
-          loops++;
-          await new Promise((r) => setTimeout(r, 50));
-          nudges = ctx.nudges(yield { saw: 'waiting' });
-        }
-        const hint = nudges.find((n: { event: string }) => n.event === 'ns-hint');
-        yield { saw: hint ? (hint.payload as { text: string }).text : 'no-hint' };
-      }),
-  )
   .channel('room', (ch) =>
     ch
       .intercept((_ctx, frame) => {

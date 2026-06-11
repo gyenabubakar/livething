@@ -8,7 +8,6 @@ describe('ReplayMembershipGateClient — no-any guard', () => {
     expectTypeOf<ReplayMembershipGateClient['requests']>().not.toBeAny();
     expectTypeOf<ReplayMembershipGateClient['streams']>().not.toBeAny();
     expectTypeOf<ReplayMembershipGateClient['channels']>().not.toBeAny();
-    expectTypeOf<ReplayMembershipGateClient['namespaces']>().not.toBeAny();
     expectTypeOf<ReplayMembershipGateClient['errors']>().not.toBeAny();
   });
 });
@@ -73,10 +72,6 @@ describe('ReplayMembershipGateClient — empty slots', () => {
   it('streams is empty', () => {
     expectTypeOf<keyof ReplayMembershipGateClient['streams']>().toBeNever();
   });
-
-  it('namespaces is empty', () => {
-    expectTypeOf<keyof ReplayMembershipGateClient['namespaces']>().toBeNever();
-  });
 });
 
 describe('ReplayMembershipGateClient — builtin errors', () => {
@@ -84,7 +79,6 @@ describe('ReplayMembershipGateClient — builtin errors', () => {
     expectTypeOf<ReplayMembershipGateClient['errors']>().toHaveProperty('validation-failed');
     expectTypeOf<ReplayMembershipGateClient['errors']>().toHaveProperty('channel-not-found');
     expectTypeOf<ReplayMembershipGateClient['errors']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<ReplayMembershipGateClient['errors']>().toHaveProperty('namespace-not-found');
     expectTypeOf<ReplayMembershipGateClient['errors']>().toHaveProperty('internal-error');
   });
 });

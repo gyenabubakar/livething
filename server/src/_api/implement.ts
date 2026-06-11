@@ -22,8 +22,6 @@ import {
   onUpgrade,
   onValidationError,
 } from '~/lifecycle/lifecycle.ts';
-import { compileNamespaceDef } from '~/namespace/compile.ts';
-import { NamespaceImplement } from '~/namespace/implement.ts';
 import { compileOutgoingDef } from '~/outgoing/compile.ts';
 import { persistence as persistenceFactory } from '~/persistence/persistence.ts';
 import { resolvePlan as resolveRateLimitPlan } from '~/rate-limit/plan.ts';
@@ -60,7 +58,6 @@ import type {
   ChannelDef,
   Definition,
   IncomingDef,
-  NamespaceDef,
   OutgoingDef,
   RecordedStreamDef,
   RequestDef,
@@ -76,7 +73,6 @@ import type {
 } from './stream-handler-types.ts';
 
 export { ChannelImplement } from '~/channel/implement.ts';
-export { NamespaceImplement } from '~/namespace/implement.ts';
 
 // ---------------------------------------------------------------------------
 // Type-level handler signatures
@@ -133,7 +129,6 @@ interface GroupRegistrations {
   scheduled: Map<string, (ctx: any, data: any) => void | Promise<void>>;
 
   channels: Map<string, ChannelImplement<any, any>>;
-  namespaces: Map<string, NamespaceImplement<any, any>>;
 
   intercept?: (ctx: any, frame: InterceptFrame) => any;
   rateLimitOverrides: Map<string, RateLimitConfig>;
@@ -165,7 +160,6 @@ export class GroupBuilder<C extends Contract> {
     recordedStreams: new Map(),
     scheduled: new Map(),
     channels: new Map(),
-    namespaces: new Map(),
     rateLimitOverrides: new Map(),
     lifecycle: {},
   };
@@ -253,17 +247,6 @@ export class GroupBuilder<C extends Contract> {
     const impl = new ChannelImplement<C, C['channels'][N]>();
     fn(impl);
     setOnce(this._reg.channels, name, { value: impl, kind: 'channel', where: 'this group' });
-    return this;
-  }
-
-  /** Wire up handlers for one namespace declared on the contract. */
-  namespace<N extends keyof C['namespaces'] & string>(
-    name: N,
-    fn: (ns: NamespaceImplement<C, C['namespaces'][N]>) => unknown,
-  ): this {
-    const impl = new NamespaceImplement<C, C['namespaces'][N]>();
-    fn(impl);
-    setOnce(this._reg.namespaces, name, { value: impl, kind: 'namespace', where: 'this group' });
     return this;
   }
 
@@ -462,7 +445,6 @@ interface ImplementerBag {
   scheduledHandlers: Map<string, (ctx: any, data: any) => void | Promise<void>>;
 
   channelImpls: Map<string, ChannelImplement<any, any>>;
-  namespaceImpls: Map<string, NamespaceImplement<any, any>>;
 
   intercept?: (ctx: any, frame: InterceptFrame) => any;
   rateLimitOverrides: Map<string, RateLimitConfig>;
@@ -497,7 +479,6 @@ export class Implementer<C extends Contract> {
     recordedStreamGenerators: new Map(),
     scheduledHandlers: new Map(),
     channelImpls: new Map(),
-    namespaceImpls: new Map(),
     rateLimitOverrides: new Map(),
     lifecycle: {},
   };
@@ -692,34 +673,6 @@ export class Implementer<C extends Contract> {
   }
 
   /**
-   * Wire up handlers for one namespace declared on the contract. The callback
-   * gets a namespace sub-builder where you attach handlers and intercepts
-   * that only apply inside that namespace.
-   *
-   * @example
-   * ```ts
-   * implement(chat).namespace('admin', ns =>
-   *   ns.on('kick-user', (ctx, p) => {
-   *     ctx.namespace.broadcast('kicked', { userId: p.userId });
-   *   })
-   * );
-   * ```
-   */
-  namespace<N extends keyof C['namespaces'] & string>(
-    name: N,
-    fn: (ns: NamespaceImplement<C, C['namespaces'][N]>) => unknown,
-  ): this {
-    const impl = new NamespaceImplement<C, C['namespaces'][N]>();
-    fn(impl);
-    setOnce(this._bag.namespaceImpls, name, {
-      value: impl,
-      kind: 'namespace',
-      where: 'the implementer',
-    });
-    return this;
-  }
-
-  /**
    * Mount a group's handlers into this implementation. Groups are defined
    * with `group(contract, ...)` and let you split handler code across files.
    */
@@ -753,9 +706,6 @@ export class Implementer<C extends Contract> {
     }
     for (const [name, impl] of g._reg.channels) {
       setOnce(this._bag.channelImpls, name, { value: impl, kind: 'channel', where: from });
-    }
-    for (const [name, impl] of g._reg.namespaces) {
-      setOnce(this._bag.namespaceImpls, name, { value: impl, kind: 'namespace', where: from });
     }
     for (const [event, cfg] of g._reg.rateLimitOverrides) {
       setOnce(this._bag.rateLimitOverrides, event, {
@@ -917,8 +867,8 @@ export class Implementer<C extends Contract> {
    * fields fall back to the top-level resolved rule (contract `rateLimit:`).
    *
    * Use this when one event needs a tighter or looser cap than the rest of
-   * its scope — for example a token-stream endpoint inside an otherwise
-   * generous AI namespace.
+   * its scope — for example one expensive endpoint in an otherwise generous
+   * contract.
    *
    * @example
    * ```ts
@@ -1037,11 +987,6 @@ export class Implementer<C extends Contract> {
       if (impl._bag.rateLimitOverrides.size === 0) continue;
       overrides.set(`channel:${name}`, new Map(impl._bag.rateLimitOverrides));
     }
-    for (const [nsName, nsImpl] of this._bag.namespaceImpls) {
-      if (nsImpl._bag.rateLimitOverrides.size > 0) {
-        overrides.set(`ns:${nsName}`, new Map(nsImpl._bag.rateLimitOverrides));
-      }
-    }
     const rateLimitPlan = resolveRateLimitPlan({
       contractRateLimit: config.rateLimit,
       definitions: config.definitions,
@@ -1112,7 +1057,6 @@ export class Implementer<C extends Contract> {
         recordedStreamGenerators: this._bag.recordedStreamGenerators,
         scheduledHandlers: this._bag.scheduledHandlers,
         channelImpls: this._bag.channelImpls,
-        namespaceImpls: this._bag.namespaceImpls,
       }),
     );
 
@@ -1178,9 +1122,6 @@ export class Implementer<C extends Contract> {
         case 'channel':
           out.push(compileChannelDef(def as ChannelDef, handlers.channelImpls, recurse));
           break;
-        case 'namespace':
-          out.push(compileNamespaceDef(def as NamespaceDef, handlers.namespaceImpls, recurse));
-          break;
         default: {
           // exhaustiveness check
           const _unreachable: never = def;
@@ -1209,8 +1150,6 @@ function hasDurableStreamDef(defs: readonly Definition[]): boolean {
   for (const def of defs) {
     if (def._ === 'resumable-stream' || def._ === 'recorded-stream') return true;
     if (def._ === 'channel' && hasDurableStreamDef((def as ChannelDef).definitions)) return true;
-    if (def._ === 'namespace' && hasDurableStreamDef((def as NamespaceDef).definitions))
-      return true;
   }
   return false;
 }

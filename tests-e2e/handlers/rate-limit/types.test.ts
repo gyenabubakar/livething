@@ -8,7 +8,6 @@ describe('RateLimitClient — no-any guard', () => {
     expectTypeOf<RateLimitClient['requests']>().not.toBeAny();
     expectTypeOf<RateLimitClient['streams']>().not.toBeAny();
     expectTypeOf<RateLimitClient['channels']>().not.toBeAny();
-    expectTypeOf<RateLimitClient['namespaces']>().not.toBeAny();
     expectTypeOf<RateLimitClient['errors']>().not.toBeAny();
   });
 });
@@ -144,46 +143,11 @@ describe('RateLimitClient — channels', () => {
   });
 });
 
-describe('RateLimitClient — namespaces', () => {
-  it('has strict namespace', () => {
-    expectTypeOf<RateLimitClient['namespaces']>().toHaveProperty('strict');
-  });
-
-  it('strict incoming has strict-pong (server outgoing)', () => {
-    expectTypeOf<
-      RateLimitClient['namespaces']['strict']['incoming']['strict-pong']
-    >().toEqualTypeOf<{}>();
-  });
-
-  it('strict outgoing has strict-ping (server incoming)', () => {
-    expectTypeOf<
-      RateLimitClient['namespaces']['strict']['outgoing']['strict-ping']
-    >().toEqualTypeOf<{}>();
-  });
-
-  it('has fast-refill namespace', () => {
-    expectTypeOf<RateLimitClient['namespaces']>().toHaveProperty('fast-refill');
-  });
-
-  it('fast-refill incoming has fast-pong', () => {
-    expectTypeOf<
-      RateLimitClient['namespaces']['fast-refill']['incoming']['fast-pong']
-    >().toEqualTypeOf<{}>();
-  });
-
-  it('fast-refill outgoing has fast-ping', () => {
-    expectTypeOf<
-      RateLimitClient['namespaces']['fast-refill']['outgoing']['fast-ping']
-    >().toEqualTypeOf<{}>();
-  });
-});
-
 describe('RateLimitClient — builtin errors', () => {
   it('has all builtin error codes', () => {
     expectTypeOf<RateLimitClient['errors']>().toHaveProperty('validation-failed');
     expectTypeOf<RateLimitClient['errors']>().toHaveProperty('channel-not-found');
     expectTypeOf<RateLimitClient['errors']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<RateLimitClient['errors']>().toHaveProperty('namespace-not-found');
     expectTypeOf<RateLimitClient['errors']>().toHaveProperty('internal-error');
   });
 });

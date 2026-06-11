@@ -4,7 +4,7 @@
  * Type-level machinery behind `matches(contract, key, frame)` and
  * `unsafeCast(contract, key, frame)`.
  *
- * The key grammar is `[<@channel | #namespace>::]event` — kind is derivable
+ * The key grammar is `[@channel::]event` — kind is derivable
  * from the event lookup so it's not in the key. Given a contract `TContract`
  * and a key literal `TKey`, `FrameFor` parses the key, walks the contract,
  * and returns the narrowed `InterceptFrame` shape (event, payload, kind, and
@@ -19,19 +19,15 @@ import type { InterceptFrame } from '~/intercept/intercept.ts';
  *
  * - `top` — no scope prefix; the event lives at the contract's top level.
  * - `channel` — `@<name>::<event>` form.
- * - `namespace` — `#<name>::<event>` form.
  */
 export type ParsedKey =
   | { readonly scope: 'top'; readonly event: string }
-  | { readonly scope: 'channel'; readonly name: string; readonly event: string }
-  | { readonly scope: 'namespace'; readonly name: string; readonly event: string };
+  | { readonly scope: 'channel'; readonly name: string; readonly event: string };
 
 /** Template-literal parser for the key grammar. */
 export type ParseKey<TKey extends string> = TKey extends `@${infer Name}::${infer Event}`
   ? { readonly scope: 'channel'; readonly name: Name; readonly event: Event }
-  : TKey extends `#${infer Name}::${infer Event}`
-    ? { readonly scope: 'namespace'; readonly name: Name; readonly event: Event }
-    : { readonly scope: 'top'; readonly event: TKey };
+  : { readonly scope: 'top'; readonly event: TKey };
 
 /** Read one slot off a contract/scope, falling back to `{}` when the slot is absent. */
 type Slot<TScope, TKey extends string> = TKey extends keyof TScope ? TScope[TKey] : {};
@@ -41,7 +37,7 @@ type PayloadField<TEntry> = TEntry extends { payload: infer P } ? P : unknown;
 
 /**
  * Find the scope object inside a contract for a parsed key. Returns `never`
- * when the scope doesn't exist (the user used a wrong channel/namespace name).
+ * when the scope doesn't exist (the user used a wrong channel name).
  */
 type ScopeFor<TContract, TParsed extends ParsedKey> = TParsed extends { scope: 'top' }
   ? TContract
@@ -49,11 +45,7 @@ type ScopeFor<TContract, TParsed extends ParsedKey> = TParsed extends { scope: '
     ? N extends keyof Slot<TContract, 'channels'>
       ? Slot<TContract, 'channels'>[N]
       : never
-    : TParsed extends { scope: 'namespace'; name: infer N extends string }
-      ? N extends keyof Slot<TContract, 'namespaces'>
-        ? Slot<TContract, 'namespaces'>[N]
-        : never
-      : never;
+    : never;
 
 /**
  * Find the payload type for an event in a scope object. Walks all five inbound
@@ -102,22 +94,13 @@ type RoutingFor<TParsed extends ParsedKey> = TParsed extends { scope: 'channel';
       readonly streamId?: string;
       readonly seq?: number;
     }
-  : TParsed extends { scope: 'namespace'; name: infer N }
-    ? {
-        readonly namespace: N;
-        readonly messageId?: string;
-        readonly ackId?: string;
-        readonly correlationId?: string;
-        readonly streamId?: string;
-        readonly seq?: number;
-      }
-    : {
-        readonly messageId?: string;
-        readonly ackId?: string;
-        readonly correlationId?: string;
-        readonly streamId?: string;
-        readonly seq?: number;
-      };
+  : {
+      readonly messageId?: string;
+      readonly ackId?: string;
+      readonly correlationId?: string;
+      readonly streamId?: string;
+      readonly seq?: number;
+    };
 
 /**
  * The narrowed `InterceptFrame` shape produced by a successful

@@ -2,7 +2,6 @@ import {
   channel,
   contract,
   incoming,
-  namespace,
   outgoing,
   recordedStream,
   request,
@@ -22,8 +21,6 @@ const TokenChunk = v.object({ token: v.string() });
 
 const SendMsgPayload = v.object({ text: v.string() });
 const RoomMsgPayload = v.object({ text: v.string(), from: v.string() });
-const V1PingPayload = v.object({});
-const V1PongPayload = v.object({});
 
 const WelcomePayload = v.object({ username: v.string() });
 const GoodbyePayload = v.object({ username: v.string() });
@@ -62,10 +59,6 @@ export const groupFullSurfaceContract = contract('group-full-surface', {
 
     channel('rooms', {
       definitions: [incoming('send-msg', SendMsgPayload), outgoing('room-msg', RoomMsgPayload)],
-    }),
-
-    namespace('v1', {
-      definitions: [incoming('v1-ping', V1PingPayload), outgoing('v1-pong', V1PongPayload)],
     }),
 
     outgoing('welcome', WelcomePayload),

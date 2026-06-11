@@ -18,9 +18,6 @@ export interface WSKitEnvelope {
   /** Links a `sendWithAck()` to its `__ack__`. */
   ackId?: string;
 
-  /** Names the namespace a message belongs to (routing only). */
-  namespace?: string;
-
   /** Names the channel a message belongs to. */
   channel?: string;
 

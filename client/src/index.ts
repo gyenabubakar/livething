@@ -26,8 +26,6 @@ export type { PlatformOptions } from '~/primitives/platform.ts';
 export { plugin } from '~/plugins/index.ts';
 export type { PluginDef, PluginHooks, PluginFactory } from '~/plugins/index.ts';
 
-export { namespaces } from '~/primitives/namespaces/index.ts';
-export type { NamespacesOptions } from '~/primitives/namespaces/index.ts';
 export { channels } from '~/primitives/channels/index.ts';
 export type {
   ChannelsOptions,
@@ -61,7 +59,6 @@ export type {
   ConnectionQuality,
   IncomingOf,
   OutgoingOf,
-  NamespacesOf,
   ChannelsOf,
   StreamsOf,
   RequestsOf,

@@ -5,7 +5,6 @@ describe('CtxLocalsClient — no-any guard', () => {
   it('no slot is any', () => {
     expectTypeOf<CtxLocalsClient['incoming']>().not.toBeAny();
     expectTypeOf<CtxLocalsClient['outgoing']>().not.toBeAny();
-    expectTypeOf<CtxLocalsClient['namespaces']>().not.toBeAny();
   });
 });
 
@@ -16,23 +15,5 @@ describe('CtxLocalsClient — top-level events', () => {
 
   it('incoming has echoed', () => {
     expectTypeOf<CtxLocalsClient['incoming']['echoed']>().toEqualTypeOf<{ text: string }>();
-  });
-});
-
-describe('CtxLocalsClient — namespace events', () => {
-  it('ns namespace exists', () => {
-    expectTypeOf<CtxLocalsClient['namespaces']>().toHaveProperty('ns');
-  });
-
-  it('ns outgoing has echo', () => {
-    expectTypeOf<CtxLocalsClient['namespaces']['ns']['outgoing']['echo']>().toEqualTypeOf<{
-      text: string;
-    }>();
-  });
-
-  it('ns incoming has echoed', () => {
-    expectTypeOf<CtxLocalsClient['namespaces']['ns']['incoming']['echoed']>().toEqualTypeOf<{
-      text: string;
-    }>();
   });
 });

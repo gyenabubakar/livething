@@ -22,10 +22,4 @@ test.describe('inject (conformance)', () => {
     await page.getByTestId('inject-channel').click();
     await expect(page.getByTestId('channel-result')).toHaveText('sys:hi');
   });
-
-  test('injectNamespace() routes to the namespace handler', async ({ page }, testInfo) => {
-    await open(page, `inject-ns-${testInfo.testId}`);
-    await page.getByTestId('inject-namespace').click();
-    await expect(page.getByTestId('namespace-result')).toHaveText('v1-pong');
-  });
 });

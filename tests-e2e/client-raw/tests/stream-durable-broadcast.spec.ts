@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Browser, BrowserContext, Page } from '@playwright/test';
-import { closeSocket, connect, frames, installRig, send, waitForFrame } from './_ws-rig.ts';
+import { connect, frames, installRig, send, waitForFrame } from './_ws-rig.ts';
 import type { WireFrame } from './_ws-rig.ts';
 
 const WS_PATH = '/ws/stream-durable-broadcast';
@@ -338,64 +338,6 @@ test.describe('stream-durable broadcast (channel scope)', () => {
       const tokensB = (await frames(pageB, b)).filter((f) => f.event === 'feed-nudged');
       expect(tokensB.length).toBeGreaterThanOrEqual(1);
       expect(tokensB.length).toBeLessThan(20);
-    } finally {
-      await ctxA.close();
-      await ctxB.close();
-    }
-  });
-});
-
-test.describe('stream-durable broadcast (namespace scope)', () => {
-  test('namespace-scoped recordedStream fans out to every connection, peer reconnect replays from buffer', async ({
-    browser,
-  }, testInfo) => {
-    const room = `sdbn-${testInfo.testId}-${Date.now()}`;
-    const streamId = 'news-1';
-    const { ctxA, ctxB, pageA, pageB } = await newPair(browser);
-    try {
-      const a = await connect(pageA, { path: WS_PATH, username: 'alice', room: room });
-      const b = await connect(pageB, { path: WS_PATH, username: 'bob', room: room });
-
-      await send(pageA, a, {
-        event: 'news',
-        payload: {},
-        __wskit: { namespace: 'v1', streamId },
-      });
-
-      await waitForFrame(pageA, a, {
-        match: (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
-      });
-      await waitForFrame(pageB, b, {
-        match: (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
-      });
-
-      const headlinesA = (await frames(pageA, a))
-        .filter((f) => f.event === 'news' && f.__wskit?.namespace === 'v1')
-        .map((f) => f.payload.headline as string);
-      const headlinesB = (await frames(pageB, b))
-        .filter((f) => f.event === 'news' && f.__wskit?.namespace === 'v1')
-        .map((f) => f.payload.headline as string);
-      expect(headlinesA).toEqual(['n1', 'n2', 'n3', 'n4', 'n5']);
-      expect(headlinesB).toEqual(['n1', 'n2', 'n3', 'n4', 'n5']);
-
-      // Bob drops, reconnects, resumes via the namespace marker. The row is
-      // keyed by the namespace broadcast scope key, not by bob's identity,
-      // so the resume has to carry the namespace.
-      await closeSocket(pageB, b);
-      await pageB.waitForTimeout(150);
-      const b2 = await connect(pageB, { path: WS_PATH, username: 'bob', room: room });
-      await send(pageB, b2, {
-        event: '__resumeStream__',
-        payload: { lastKnownSeq: 0 },
-        __wskit: { namespace: 'v1', streamId },
-      });
-      await waitForFrame(pageB, b2, {
-        match: (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
-      });
-      const replayed = (await frames(pageB, b2))
-        .filter((f) => f.event === 'news' && f.__wskit?.namespace === 'v1')
-        .map((f) => f.payload.headline as string);
-      expect(replayed).toEqual(['n1', 'n2', 'n3', 'n4', 'n5']);
     } finally {
       await ctxA.close();
       await ctxB.close();

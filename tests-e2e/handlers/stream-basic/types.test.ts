@@ -8,7 +8,6 @@ describe('StreamBasicClient — no-any guard', () => {
     expectTypeOf<StreamBasicClient['requests']>().not.toBeAny();
     expectTypeOf<StreamBasicClient['streams']>().not.toBeAny();
     expectTypeOf<StreamBasicClient['channels']>().not.toBeAny();
-    expectTypeOf<StreamBasicClient['namespaces']>().not.toBeAny();
     expectTypeOf<StreamBasicClient['errors']>().not.toBeAny();
   });
 });
@@ -130,7 +129,6 @@ describe('StreamBasicClient — builtin errors', () => {
     expectTypeOf<StreamBasicClient['errors']>().toHaveProperty('validation-failed');
     expectTypeOf<StreamBasicClient['errors']>().toHaveProperty('channel-not-found');
     expectTypeOf<StreamBasicClient['errors']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<StreamBasicClient['errors']>().toHaveProperty('namespace-not-found');
     expectTypeOf<StreamBasicClient['errors']>().toHaveProperty('internal-error');
   });
 });

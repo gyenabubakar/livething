@@ -8,7 +8,6 @@ describe('PersistenceClient — no-any guard', () => {
     expectTypeOf<PersistenceClient['requests']>().not.toBeAny();
     expectTypeOf<PersistenceClient['streams']>().not.toBeAny();
     expectTypeOf<PersistenceClient['channels']>().not.toBeAny();
-    expectTypeOf<PersistenceClient['namespaces']>().not.toBeAny();
     expectTypeOf<PersistenceClient['errors']>().not.toBeAny();
   });
 });
@@ -108,10 +107,6 @@ describe('PersistenceClient — empty slots', () => {
   it('streams is empty', () => {
     expectTypeOf<keyof PersistenceClient['streams']>().toBeNever();
   });
-
-  it('namespaces is empty', () => {
-    expectTypeOf<keyof PersistenceClient['namespaces']>().toBeNever();
-  });
 });
 
 describe('PersistenceClient — builtin errors', () => {
@@ -119,7 +114,6 @@ describe('PersistenceClient — builtin errors', () => {
     expectTypeOf<PersistenceClient['errors']>().toHaveProperty('validation-failed');
     expectTypeOf<PersistenceClient['errors']>().toHaveProperty('channel-not-found');
     expectTypeOf<PersistenceClient['errors']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<PersistenceClient['errors']>().toHaveProperty('namespace-not-found');
     expectTypeOf<PersistenceClient['errors']>().toHaveProperty('internal-error');
   });
 });

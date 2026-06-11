@@ -97,10 +97,9 @@ interface DispatchRuntime
     opts: {
       channelName: string | null;
       channelScope: string | null;
-      namespace?: string | null;
       event: string;
       payload: unknown;
-      wire: { seq: number; messageId: string; channel?: string; namespace?: string | null };
+      wire: { seq: number; messageId: string; channel?: string };
     },
   ): void;
 
@@ -227,7 +226,6 @@ function buildInterceptRouting(
     streamId?: string;
     channel?: string;
     channelScope?: string | null;
-    namespace?: string;
     seq?: number;
   } = {};
   if (wskit.messageId !== undefined) routing.messageId = wskit.messageId;
@@ -238,7 +236,6 @@ function buildInterceptRouting(
     routing.channel = wskit.channel;
     routing.channelScope = wskit.channelScope ?? null;
   }
-  if (wskit.namespace !== undefined) routing.namespace = wskit.namespace;
   if (wskit.seq !== undefined) routing.seq = wskit.seq;
   return routing;
 }
@@ -314,7 +311,7 @@ export async function dispatchIncoming(
   }
 
   // A scoped frame can only reach handlers declared in that scope — never top-level ones.
-  const scoped = scope.channel ?? scope.namespace;
+  const scoped = scope.channel;
   const incoming = scoped ? scoped.incoming.get(event) : runtime.compiled.incoming.get(event);
   const request = scoped ? scoped.requests.get(event) : runtime.compiled.requests.get(event);
   const stream = scoped ? scoped.streams.get(event) : runtime.compiled.streams.get(event);
@@ -368,14 +365,6 @@ export async function dispatchIncoming(
         frame,
         getCtx,
       });
-
-      if (scope.namespace) {
-        frame = await InterceptPrimitive.runIntercepts(runtime, connection, {
-          intercepts: scope.namespace.intercepts,
-          frame,
-          getCtx,
-        });
-      }
 
       if (scope.channel) {
         frame = await InterceptPrimitive.runIntercepts(runtime, connection, {
@@ -506,7 +495,7 @@ async function handleDispatchError(
   if (error === Block) return;
 
   if (error instanceof WSKitError && error.code === 'validation-failed') {
-    // Pass `scope` so onValidationError hooks get the right channel/namespace ctx.
+    // Pass `scope` so onValidationError hooks get the right channel ctx.
     await runtime.handleValidationError(connection, { event, validationError: error, scope });
     await runtime.handleRuntimeError(connection, {
       error,
@@ -594,12 +583,6 @@ function resolveDurableDefForRow(
     scope = { channel, channelName: row.channelKey, channelScope: row.channelScope };
     resumable = channel.resumableStreams.get(row.event);
     recorded = channel.recordedStreams.get(row.event);
-  } else if (row.namespace) {
-    const namespace = runtime.compiled.namespaces.get(row.namespace);
-    if (!namespace) return undefined;
-    scope = { namespace };
-    resumable = namespace.resumableStreams.get(row.event);
-    recorded = namespace.recordedStreams.get(row.event);
   } else {
     resumable = runtime.compiled.resumableStreams.get(row.event);
     recorded = runtime.compiled.recordedStreams.get(row.event);
@@ -890,7 +873,7 @@ export async function processTextMessage(
     });
     return;
   }
-  const triggerScoped = triggerScope.channel ?? triggerScope.namespace;
+  const triggerScoped = triggerScope.channel;
   const isStreamTrigger = triggerScoped
     ? triggerScoped.streams.has(event) ||
       triggerScoped.resumableStreams.has(event) ||
@@ -903,14 +886,9 @@ export async function processTextMessage(
 
     if (wskit?.streamId) {
       const topIntercepts = runtime.compiled.intercepts;
-      const nsIntercepts = triggerScope.namespace?.intercepts;
       const chIntercepts = triggerScope.channel?.intercepts;
 
-      if (
-        topIntercepts.length > 0 ||
-        (nsIntercepts?.length ?? 0) > 0 ||
-        (chIntercepts?.length ?? 0) > 0
-      ) {
+      if (topIntercepts.length > 0 || (chIntercepts?.length ?? 0) > 0) {
         let sharedCtx: Record<PropertyKey, unknown> | undefined;
         function getCtx() {
           return (sharedCtx ??= runtime.buildConnectionContext(connection, triggerScope));
@@ -928,13 +906,6 @@ export async function processTextMessage(
             frame: nudgeFrame,
             getCtx,
           });
-          if (nsIntercepts) {
-            nudgeFrame = await InterceptPrimitive.runIntercepts(runtime, connection, {
-              intercepts: nsIntercepts,
-              frame: nudgeFrame,
-              getCtx,
-            });
-          }
           if (chIntercepts) {
             nudgeFrame = await InterceptPrimitive.runIntercepts(runtime, connection, {
               intercepts: chIntercepts,

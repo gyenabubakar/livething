@@ -69,16 +69,6 @@ export function isDeclaredOutgoingEvent(
   if (Protocol.OUTGOING_PROTOCOL_EVENT_NAMES.has(event)) return true;
   if (event.startsWith('__')) return isDeclaredPluginEvent(compiled, event);
 
-  if (routing?.namespace) {
-    const namespace = compiled.namespaces.get(routing.namespace);
-    return (
-      (namespace?.outgoing.has(event) ?? false) ||
-      (namespace?.streams.has(event) ?? false) ||
-      (namespace?.resumableStreams.has(event) ?? false) ||
-      (namespace?.recordedStreams.has(event) ?? false)
-    );
-  }
-
   if (routing?.channel) {
     const channel =
       routing.channelScope === null || routing.channelScope === undefined
@@ -150,7 +140,6 @@ function buildWSKit(
   routing: EngineRuntimeTypes.RoutingTarget | undefined,
 ): Partial<Protocol.WSKitProtocol> {
   const wskit: Partial<Protocol.WSKitProtocol> = {};
-  if (routing?.namespace) wskit.namespace = routing.namespace;
   if (routing?.channel) wskit.channel = routing.channel;
   if (routing?.channelScope !== null && routing?.channelScope !== undefined) {
     wskit.channelScope = routing.channelScope;
@@ -421,7 +410,6 @@ export interface BroadcastToConnectionsOptions {
   payload: unknown;
 
   options?: PublicApi.BroadcastOptions & {
-    namespace?: string;
     channel?: string;
     channelScope?: string | null;
   };
@@ -452,7 +440,6 @@ export function broadcastToConnections(
   try {
     prepared = prepareBroadcast(runtime, {
       routing: {
-        namespace: options?.namespace,
         channel: options?.channel,
         channelScope: options?.channelScope,
       },

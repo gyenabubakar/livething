@@ -6,7 +6,6 @@ import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { ack } from '~/primitives/ack/index.ts';
 import { channels } from '~/primitives/channels/index.ts';
-import { namespaces } from '~/primitives/namespaces/index.ts';
 import { requestResponse } from '~/primitives/request-response/index.ts';
 import { stream } from '~/primitives/stream/index.ts';
 import { expectTypeOf } from 'vitest';
@@ -15,8 +14,8 @@ import type { StreamHandle } from '~/types.ts';
 
 // ───────────────────────────────────────────────────────────────────────────
 // One contract covering every slot, in the exact shape `InferClient<typeof
-// server>` returns: top-level incoming/outgoing/requests/streams, a namespace,
-// a channel (with `subscribePayload` from a server `check`), and errors. Stream
+// server>` returns: top-level incoming/outgoing/requests/streams, a channel
+// (with `subscribePayload` from a server `check`), and errors. Stream
 // entries carry `chunk` (singular), a `kind` discriminator, and — only when
 // declared — `nudges`/`cursor`. This is the wire-faithful client contract.
 // ───────────────────────────────────────────────────────────────────────────
@@ -35,14 +34,6 @@ interface Full {
     resumable: { payload: {}; chunk: { row: number }; kind: 'persistent'; cursor: { idx: number } };
     recorded: { payload: {}; chunk: { token: string }; kind: 'persistent' };
   };
-  namespaces: {
-    ns: {
-      incoming: { 'ns-push': { value: number } };
-      outgoing: { 'ns-send': { text: string } };
-      requests: { 'ns-request': { payload: { id: string }; response: { ok: boolean } } };
-      streams: { 'ns-stream': { payload: {}; chunk: { idx: number }; kind: 'ephemeral' } };
-    };
-  };
   channels: {
     room: {
       incoming: { 'ch-push': { value: number } };
@@ -58,7 +49,6 @@ interface Full {
 const socket = client<Full>()(
   connect('wss://example.com'),
   channels(),
-  namespaces(),
   requestResponse(),
   ack(),
   stream(),
@@ -140,15 +130,6 @@ room.subscribe();
 // @ts-expect-error — 'nope' is not a channel
 socket.channel('nope');
 
-// ── namespaces: namespace() ──────────────────────────────────────────────────
-const ns = socket.namespace('ns');
-ns.on('ns-push', (data) => expectTypeOf(data).toEqualTypeOf<{ value: number }>());
-ns.send('ns-send', { text: 'hi' });
-expectTypeOf(ns.request('ns-request', { id: '1' })).resolves.toEqualTypeOf<{ ok: boolean }>();
-ns.onStream('ns-stream', { onChunk: (c) => expectTypeOf(c).toEqualTypeOf<{ idx: number }>() });
-// @ts-expect-error — 'nope' is not a namespace
-socket.namespace('nope');
-
 // ── connection methods are always present ────────────────────────────────────
 expectTypeOf(socket.getState()).toBeString();
 expectTypeOf(socket.connect()).toEqualTypeOf<void>();
@@ -161,8 +142,6 @@ expectTypeOf(socket.connect()).toEqualTypeOf<void>();
 const bare = client<Full>()(connect('wss://example.com'));
 // @ts-expect-error — socket.channel needs the channels() primitive
 bare.channel('room');
-// @ts-expect-error — socket.namespace needs the namespaces() primitive
-bare.namespace('ns');
 // @ts-expect-error — socket.request needs the requestResponse() primitive
 bare.request('do-request', { id: '1' });
 // @ts-expect-error — socket.onStream needs the stream() primitive

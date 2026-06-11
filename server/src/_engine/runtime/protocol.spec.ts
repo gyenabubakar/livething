@@ -19,7 +19,6 @@ describe('wire-string length caps', () => {
         messageId: 'm'.repeat(ID_MAX),
         correlationId: 'r'.repeat(ID_MAX),
         ackId: 'k'.repeat(ID_MAX),
-        namespace: 'n'.repeat(ID_MAX),
         streamId: 's'.repeat(ID_MAX),
       },
     });
@@ -38,7 +37,7 @@ describe('wire-string length caps', () => {
     expect(result.success).toBe(false);
   });
 
-  it.each(['messageId', 'correlationId', 'ackId', 'namespace', 'streamId'])(
+  it.each(['messageId', 'correlationId', 'ackId', 'streamId'])(
     'rejects an over-long %s',
     (field) => {
       const result = parseFrame({ event: 'go', __wskit: { [field]: 'x'.repeat(ID_MAX + 1) } });

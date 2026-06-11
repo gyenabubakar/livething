@@ -148,49 +148,6 @@ test.describe('replay handler', () => {
     expect(liveChunks[0]!.payload.value).toBe('one');
   });
 
-  test('top-level __replay__ resends namespace-tagged outgoing frames', async ({ page }) => {
-    // Top-level replay covers every outgoing frame that is not channel-scoped,
-    // including frames the server emits inside a namespace handler via
-    // `ctx.namespace.send(...)`. The stored row carries `namespace` so the
-    // replayed frame keeps its `__wskit.namespace` marker and the client can
-    // dispatch it into the right namespace handler on reconnect.
-    const tag = `ns-replay-${Date.now()}`;
-    const replayed = await page.evaluate(async (tag) => {
-      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
-      if (!ws) throw new Error('socket not exposed');
-
-      // Trigger a namespace outgoing through the admin handler.
-      ws.send(
-        JSON.stringify({
-          event: 'send-admin-msg',
-          payload: { text: tag },
-          __wskit: { namespace: 'admin' },
-        }),
-      );
-      await new Promise((r) => setTimeout(r, 300));
-
-      const got: {
-        event: string;
-        payload: Record<string, unknown>;
-        __wskit?: Record<string, unknown>;
-      }[] = [];
-      const original = ws.onmessage;
-      ws.onmessage = (ev) => {
-        if (typeof ev.data === 'string') got.push(JSON.parse(ev.data));
-        if (typeof original === 'function') original.call(ws, ev);
-      };
-      ws.send(JSON.stringify({ event: '__replay__', payload: { lastKnownSeq: 0 }, __wskit: {} }));
-      await new Promise((r) => setTimeout(r, 400));
-      ws.onmessage = original;
-      return got.filter(
-        (m) => m.event === 'chat-msg' && (m.payload as { text?: string }).text === tag,
-      );
-    }, tag);
-
-    expect(replayed.length).toBeGreaterThan(0);
-    expect(replayed[0]!.__wskit?.namespace).toBe('admin');
-  });
-
   test('sequence numbers present', async ({ page }) => {
     await page.getByTestId('send-msg-btn').click();
     await waitForText(page, 'messages', /hello from replay/);

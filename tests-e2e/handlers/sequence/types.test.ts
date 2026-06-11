@@ -8,7 +8,6 @@ describe('SequenceClient — no-any guard', () => {
     expectTypeOf<SequenceClient['requests']>().not.toBeAny();
     expectTypeOf<SequenceClient['streams']>().not.toBeAny();
     expectTypeOf<SequenceClient['channels']>().not.toBeAny();
-    expectTypeOf<SequenceClient['namespaces']>().not.toBeAny();
     expectTypeOf<SequenceClient['errors']>().not.toBeAny();
   });
 });
@@ -45,10 +44,6 @@ describe('SequenceClient — empty slots', () => {
   it('channels is empty', () => {
     expectTypeOf<keyof SequenceClient['channels']>().toBeNever();
   });
-
-  it('namespaces is empty', () => {
-    expectTypeOf<keyof SequenceClient['namespaces']>().toBeNever();
-  });
 });
 
 describe('SequenceClient — builtin errors', () => {
@@ -56,7 +51,6 @@ describe('SequenceClient — builtin errors', () => {
     expectTypeOf<SequenceClient['errors']>().toHaveProperty('validation-failed');
     expectTypeOf<SequenceClient['errors']>().toHaveProperty('channel-not-found');
     expectTypeOf<SequenceClient['errors']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<SequenceClient['errors']>().toHaveProperty('namespace-not-found');
     expectTypeOf<SequenceClient['errors']>().toHaveProperty('internal-error');
   });
 });

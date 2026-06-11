@@ -8,7 +8,6 @@ describe('DedupClient — no-any guard', () => {
     expectTypeOf<DedupClient['requests']>().not.toBeAny();
     expectTypeOf<DedupClient['streams']>().not.toBeAny();
     expectTypeOf<DedupClient['channels']>().not.toBeAny();
-    expectTypeOf<DedupClient['namespaces']>().not.toBeAny();
     expectTypeOf<DedupClient['errors']>().not.toBeAny();
   });
 });
@@ -56,10 +55,6 @@ describe('DedupClient — empty slots', () => {
   it('streams is empty', () => {
     expectTypeOf<keyof DedupClient['streams']>().toBeNever();
   });
-
-  it('namespaces is empty', () => {
-    expectTypeOf<keyof DedupClient['namespaces']>().toBeNever();
-  });
 });
 
 describe('DedupClient — builtin errors', () => {
@@ -67,7 +62,6 @@ describe('DedupClient — builtin errors', () => {
     expectTypeOf<DedupClient['errors']>().toHaveProperty('validation-failed');
     expectTypeOf<DedupClient['errors']>().toHaveProperty('channel-not-found');
     expectTypeOf<DedupClient['errors']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<DedupClient['errors']>().toHaveProperty('namespace-not-found');
     expectTypeOf<DedupClient['errors']>().toHaveProperty('internal-error');
   });
 });

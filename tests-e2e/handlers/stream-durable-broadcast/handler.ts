@@ -2,7 +2,6 @@ import {
   channel,
   contract,
   implement,
-  namespace,
   nudge,
   recordedStream,
   resumableStream,
@@ -15,7 +14,6 @@ import { requireUsername } from '../_shared/upgrade.ts';
 const Empty = v.object({});
 const TokenChunk = v.object({ token: v.string() });
 const RowChunk = v.object({ row: v.number() });
-const HeadlineChunk = v.object({ headline: v.string() });
 const AttemptChunk = v.object({ attempt: v.number() });
 
 export const streamDurableBroadcastContract = contract('stream-durable-broadcast', {
@@ -60,18 +58,6 @@ export const streamDurableBroadcastContract = contract('stream-durable-broadcast
         }),
       ],
     }),
-    namespace('v1', {
-      definitions: [
-        recordedStream('news', {
-          payload: Empty,
-          chunk: HeadlineChunk,
-          broadcast: true,
-          maxChunks: 100,
-          maxAgeMs: 60_000,
-          retentionAfterEndMs: 30_000,
-        }),
-      ],
-    }),
   ],
 });
 
@@ -107,15 +93,6 @@ export const streamDurableBroadcastHandler = implement(streamDurableBroadcastCon
           await new Promise((r) => setTimeout(r, 100));
         }
       }),
-  )
-
-  .namespace('v1', (ns) =>
-    ns.recordedStream('news', async function* () {
-      for (let i = 1; i <= 5; i += 1) {
-        yield { headline: `n${i}` };
-        await new Promise((r) => setTimeout(r, 250));
-      }
-    }),
   )
 
   .build();

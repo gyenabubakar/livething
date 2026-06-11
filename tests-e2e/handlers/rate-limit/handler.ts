@@ -1,13 +1,4 @@
-import {
-  channel,
-  contract,
-  implement,
-  incoming,
-  namespace,
-  outgoing,
-  request,
-  t,
-} from '@wskit/server';
+import { channel, contract, implement, incoming, outgoing, request, t } from '@wskit/server';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
@@ -19,10 +10,6 @@ const ExpensiveDonePayload = v.object({});
 const RoomMsgPayload = v.object({ text: v.string() });
 const EchoReqPayload = v.object({ text: v.string() });
 const EchoResPayload = v.object({ text: v.string() });
-const StrictPingPayload = v.object({});
-const StrictPongPayload = v.object({});
-const FastPingPayload = v.object({});
-const FastPongPayload = v.object({});
 const SharedTickPayload = v.object({});
 const SharedDonePayload = v.object({});
 const TightMsgPayload = v.object({ text: v.string() });
@@ -78,21 +65,6 @@ export const rateLimitContract = contract('rate-limit', {
         outgoing('chatter-broadcast', RoomMsgPayload),
       ],
     }),
-
-    // Namespace with a stricter cap than the top-level.
-    namespace('strict', {
-      rateLimit: { enabled: true, max: 2 },
-      definitions: [
-        incoming('strict-ping', StrictPingPayload),
-        outgoing('strict-pong', StrictPongPayload),
-      ],
-    }),
-
-    // Namespace with a tight window so a recovery test stays fast.
-    namespace('fast-refill', {
-      rateLimit: { enabled: true, windowMs: 2_000, max: 2 },
-      definitions: [incoming('fast-ping', FastPingPayload), outgoing('fast-pong', FastPongPayload)],
-    }),
   ],
 });
 
@@ -139,16 +111,6 @@ export const rateLimitHandler = implement(rateLimitContract)
       .on('beta', (ctx, p) => {
         ctx.channel.broadcast('tight-broadcast', p, { excludeSelf: false });
       }),
-  )
-  .namespace('strict', (ns) =>
-    ns.on('strict-ping', (ctx) => {
-      ctx.namespace.send('strict-pong', {});
-    }),
-  )
-  .namespace('fast-refill', (ns) =>
-    ns.on('fast-ping', (ctx) => {
-      ctx.namespace.send('fast-pong', {});
-    }),
   )
   .build();
 

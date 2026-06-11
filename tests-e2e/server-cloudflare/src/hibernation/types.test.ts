@@ -8,7 +8,6 @@ describe('HibernationClient — no-any guard', () => {
     expectTypeOf<HibernationClient['requests']>().not.toBeAny();
     expectTypeOf<HibernationClient['streams']>().not.toBeAny();
     expectTypeOf<HibernationClient['channels']>().not.toBeAny();
-    expectTypeOf<HibernationClient['namespaces']>().not.toBeAny();
     expectTypeOf<HibernationClient['errors']>().not.toBeAny();
   });
 });
@@ -143,7 +142,6 @@ describe('HibernationClient — builtin errors', () => {
     expectTypeOf<HibernationClient['errors']>().toHaveProperty('validation-failed');
     expectTypeOf<HibernationClient['errors']>().toHaveProperty('channel-not-found');
     expectTypeOf<HibernationClient['errors']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<HibernationClient['errors']>().toHaveProperty('namespace-not-found');
     expectTypeOf<HibernationClient['errors']>().toHaveProperty('internal-error');
   });
 });

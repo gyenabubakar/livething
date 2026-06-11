@@ -1,10 +1,9 @@
-import { channel, contract, implement, namespace, request, t } from '@wskit/server';
+import { channel, contract, implement, request, t } from '@wskit/server';
 import * as v from 'valibot';
 import type { InferClient } from '@wskit/server';
 import { requireUsername } from '../_shared/upgrade.ts';
 
 const TimeResponseSchema = v.object({ now: v.string() });
-const NsInfoSchema = v.object({ namespace: v.string() });
 const ChannelInfoSchema = v.object({ channel: v.string() });
 const NoResponseSchema = v.object({ ok: v.boolean() });
 const DoubleResponseSchema = v.object({ count: v.number() });
@@ -31,10 +30,6 @@ export const requestContract = contract('request', {
     // Test support: a request the server never answers (the handler hangs), so a
     // client can observe disconnect() rejecting a still-pending request.
     request('hang', { payload: v.object({}), response: v.object({ never: v.string() }) }),
-
-    namespace('ns', {
-      definitions: [request('get-ns-info', { payload: v.object({}), response: NsInfoSchema })],
-    }),
 
     channel('room', {
       definitions: [
@@ -70,11 +65,6 @@ export const requestHandler = implement(requestContract)
   .request('hang', async () => {
     await new Promise<void>(() => {});
   })
-  .namespace('ns', (ns) =>
-    ns.request('get-ns-info', (ctx) => {
-      ctx.respond({ namespace: ctx.namespace.name });
-    }),
-  )
   .channel('room', (ch) =>
     ch.request('get-channel-info', (ctx) => {
       ctx.respond({ channel: ctx.channel.name });

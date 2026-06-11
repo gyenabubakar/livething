@@ -313,10 +313,9 @@ function buildDispatchRuntime(core: EngineCore) {
       opts: {
         channelName: string | null;
         channelScope: string | null;
-        namespace?: string | null;
         event: string;
         payload: unknown;
-        wire: { seq: number; messageId: string; channel?: string; namespace?: string | null };
+        wire: { seq: number; messageId: string; channel?: string };
       },
     ) => sendReplay(core, connection, opts),
 
@@ -348,7 +347,7 @@ function buildDispatchRuntime(core: EngineCore) {
       opts: {
         event: string;
         payload: unknown;
-        options?: BroadcastOptions & { namespace?: string };
+        options?: BroadcastOptions;
         excludeConnectionId?: string;
       },
     ) => EngineMessageRuntime.broadcastToConnections(outgoingRuntime(core), connections, opts),

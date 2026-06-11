@@ -14,13 +14,6 @@
 	let sendHintOnStarted = $state(false);
 	let sendBlockHintOnStarted = $state(false);
 
-	// namespace ns-nudge-stream state
-	let nsNudgeChunks = $state<string[]>([]);
-	let nsNudgeStreamEnd = $state(false);
-	let nsNudgeStreamId = $state('');
-	let sendNsHintOnStarted = $state(false);
-	let sendNsHintBlockOnStarted = $state(false);
-
 	// channel ch-nudge-stream state
 	let chNudgeChunks = $state<string[]>([]);
 	let chNudgeStreamEnd = $state(false);
@@ -55,8 +48,7 @@
 			if (data.event === '__error__') lastErrorCode = data.payload?.code ?? '';
 			if (data.event === '__streamOk__' && data.__wskit?.streamId) {
 				const sid = data.__wskit.streamId as string;
-				if (data.__wskit.namespace === 'ns') nsNudgeStreamId = sid;
-				else if (data.__wskit.channel === 'room') chNudgeStreamId = sid;
+				if (data.__wskit.channel === 'room') chNudgeStreamId = sid;
 				else nudgeStreamId = sid;
 			}
 			if (data.event === 'nudge-stream') {
@@ -80,32 +72,6 @@
 								event: 'hint',
 								payload: { text: 'hint-block' },
 								__wskit: { streamId: nudgeStreamId },
-							}),
-						);
-					}
-				}
-			}
-			if (data.event === 'ns-nudge-stream') {
-				const saw = data.payload?.saw ?? '';
-				nsNudgeChunks = [...nsNudgeChunks, saw];
-				if (saw === 'started' && nsNudgeStreamId) {
-					if (sendNsHintOnStarted) {
-						sendNsHintOnStarted = false;
-						ws?.send(
-							JSON.stringify({
-								event: 'ns-hint',
-								payload: { text: 'hello' },
-								__wskit: { streamId: nsNudgeStreamId, namespace: 'ns' },
-							}),
-						);
-					}
-					if (sendNsHintBlockOnStarted) {
-						sendNsHintBlockOnStarted = false;
-						ws?.send(
-							JSON.stringify({
-								event: 'ns-hint',
-								payload: { text: 'ns-hint-block' },
-								__wskit: { streamId: nsNudgeStreamId, namespace: 'ns' },
 							}),
 						);
 					}
@@ -139,17 +105,15 @@
 			}
 			if (data.event === '__streamEnd__') {
 				const endId = data.__wskit?.streamId as string;
-				if (endId === nsNudgeStreamId) nsNudgeStreamEnd = true;
-				else if (endId === chNudgeStreamId) chNudgeStreamEnd = true;
+				if (endId === chNudgeStreamId) chNudgeStreamEnd = true;
 				else nudgeStreamEnd = true;
 			}
 		};
 	}
 
-	function send(text: string, scope?: 'ns' | 'room' | 'dyn-room') {
+	function send(text: string, scope?: 'room' | 'dyn-room') {
 		const payload: Record<string, unknown> = { text };
 		let wskit: Record<string, unknown> | undefined;
-		if (scope === 'ns') wskit = { namespace: 'ns' };
 		if (scope === 'room') wskit = { channel: 'room' };
 		if (scope === 'dyn-room') wskit = { channel: 'room:dyn', channelScope: 'rooms' };
 		ws?.send(
@@ -181,20 +145,6 @@
 		nudgeStreamId = '';
 		sendBlockHintOnStarted = true;
 		ws?.send(JSON.stringify({ event: 'nudge-stream', payload: {} }));
-	}
-	function startNsNudgeStream() {
-		nsNudgeChunks = [];
-		nsNudgeStreamEnd = false;
-		nsNudgeStreamId = '';
-		sendNsHintOnStarted = true;
-		ws?.send(JSON.stringify({ event: 'ns-nudge-stream', payload: {}, __wskit: { namespace: 'ns' } }));
-	}
-	function startNsNudgeStreamBlock() {
-		nsNudgeChunks = [];
-		nsNudgeStreamEnd = false;
-		nsNudgeStreamId = '';
-		sendNsHintBlockOnStarted = true;
-		ws?.send(JSON.stringify({ event: 'ns-nudge-stream', payload: {}, __wskit: { namespace: 'ns' } }));
 	}
 	function startChNudgeStream() {
 		chNudgeChunks = [];
@@ -232,16 +182,12 @@
 
 <button data-testid="send-top-pre" onclick={() => send('top-pre')}>Send top-pre</button>
 <button data-testid="send-top-passthrough" onclick={() => send('top-passthrough')}>Send top-passthrough</button>
-<button data-testid="send-ns-pre" onclick={() => send('ns-pre', 'ns')}>Send ns-pre</button>
-<button data-testid="send-ns-pre-block" onclick={() => send('ns-pre-block', 'ns')}>Send ns-pre-block</button>
 <button data-testid="send-ch-pre" onclick={() => send('ch-pre', 'room')}>Send ch-pre</button>
 <button data-testid="send-ch-pre-block" onclick={() => send('ch-pre-block', 'room')}>Send ch-pre-block</button>
 <button data-testid="send-dyn-pre" onclick={() => send('dyn-pre', 'dyn-room')}>Send dyn-pre</button>
 <button data-testid="send-dyn-pre-block" onclick={() => send('dyn-pre-block', 'dyn-room')}>Send dyn-pre-block</button>
 <button data-testid="start-nudge-stream" onclick={startNudgeStream}>Start nudge stream</button>
 <button data-testid="start-nudge-stream-block" onclick={startNudgeStreamBlock}>Start nudge stream (block)</button>
-<button data-testid="start-ns-nudge-stream" onclick={startNsNudgeStream}>Start ns nudge stream</button>
-<button data-testid="start-ns-nudge-stream-block" onclick={startNsNudgeStreamBlock}>Start ns nudge stream (block)</button>
 <button data-testid="start-ch-nudge-stream" onclick={startChNudgeStream}>Start ch nudge stream</button>
 <button data-testid="start-ch-nudge-stream-block" onclick={startChNudgeStreamBlock}>Start ch nudge stream (block)</button>
 
@@ -252,7 +198,5 @@
 <span data-testid="last-error-code">{lastErrorCode}</span>
 <span data-testid="nudge-chunks">{nudgeChunks.join(',')}</span>
 <span data-testid="nudge-stream-end">{nudgeStreamEnd ? 'yes' : 'no'}</span>
-<span data-testid="ns-nudge-chunks">{nsNudgeChunks.join(',')}</span>
-<span data-testid="ns-nudge-stream-end">{nsNudgeStreamEnd ? 'yes' : 'no'}</span>
 <span data-testid="ch-nudge-chunks">{chNudgeChunks.join(',')}</span>
 <span data-testid="ch-nudge-stream-end">{chNudgeStreamEnd ? 'yes' : 'no'}</span>

@@ -8,7 +8,6 @@ describe('ReplaySnapshotClient — no-any guard', () => {
     expectTypeOf<ReplaySnapshotClient['requests']>().not.toBeAny();
     expectTypeOf<ReplaySnapshotClient['streams']>().not.toBeAny();
     expectTypeOf<ReplaySnapshotClient['channels']>().not.toBeAny();
-    expectTypeOf<ReplaySnapshotClient['namespaces']>().not.toBeAny();
     expectTypeOf<ReplaySnapshotClient['errors']>().not.toBeAny();
   });
 });
@@ -115,10 +114,6 @@ describe('ReplaySnapshotClient — empty slots', () => {
   it('streams is empty', () => {
     expectTypeOf<keyof ReplaySnapshotClient['streams']>().toBeNever();
   });
-
-  it('namespaces is empty', () => {
-    expectTypeOf<keyof ReplaySnapshotClient['namespaces']>().toBeNever();
-  });
 });
 
 describe('ReplaySnapshotClient — builtin errors', () => {
@@ -126,7 +121,6 @@ describe('ReplaySnapshotClient — builtin errors', () => {
     expectTypeOf<ReplaySnapshotClient['errors']>().toHaveProperty('validation-failed');
     expectTypeOf<ReplaySnapshotClient['errors']>().toHaveProperty('channel-not-found');
     expectTypeOf<ReplaySnapshotClient['errors']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<ReplaySnapshotClient['errors']>().toHaveProperty('namespace-not-found');
     expectTypeOf<ReplaySnapshotClient['errors']>().toHaveProperty('internal-error');
   });
 });

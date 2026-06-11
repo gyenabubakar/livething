@@ -4,8 +4,6 @@ import type {
   ChannelNotSubscribed,
   ErrorDef,
   InternalError,
-  InvalidScopeMarkers,
-  NamespaceNotFound,
   NudgeOverflow,
   RateLimited,
   RejoinRejected,
@@ -79,9 +77,7 @@ type BuiltInErrorUnion =
   | typeof ChannelNotFound
   | typeof ChannelNotSubscribed
   | typeof RejoinRejected
-  | typeof NamespaceNotFound
   | typeof InternalError
-  | typeof InvalidScopeMarkers
   | typeof RateLimited
   | typeof RequestNoCorrelation
   | typeof RequestNoResponse
@@ -138,7 +134,7 @@ type ClientStreams<TContract> = ClientStreamSlot<Slot<TContract, 'streams'>, 'ep
   ClientStreamSlot<Slot<TContract, 'recordedStreams'>, 'persistent'>;
 
 /**
- * One channel or namespace turned into the client's perspective: the server's
+ * One channel turned into the client's perspective: the server's
  * `outgoing` events are what the client receives, its `incoming` events are
  * what the client sends. Channels with a `check` validator also expose a
  * `subscribePayload` field showing what the client must pass when subscribing.
@@ -151,9 +147,6 @@ type ClientScope<TScope> = {
 } & ('subscribePayload' extends keyof TScope
   ? { subscribePayload: TScope['subscribePayload'] }
   : {});
-
-/** Apply `ClientScope` to every entry of a channel or namespace map. */
-type ClientScopeMap<TScopes> = { [TKey in keyof TScopes]: ClientScope<TScopes[TKey]> };
 
 /**
  * Like `ClientScopeMap`, but channel-aware: each channel scope is stamped with
@@ -173,8 +166,8 @@ type ClientChannelMap<TChannels> = {
  * Read a WSKit `ServerDefinition` and turn it into the full client contract type.
  *
  * Pass the type of your server definition (the value returned by `.build()`)
- * and get back a type that describes every event, request, stream, namespace,
- * channel, and error the server exposes to clients.
+ * and get back a type that describes every event, request, stream, channel,
+ * and error the server exposes to clients.
  *
  * The client SDK accepts this type as a generic parameter so all client calls
  * are fully type-safe.
@@ -223,8 +216,6 @@ export type InferClient<TServer extends ServerDefinition> = SimplifyDeep<{
    * client can gate resume-only methods at the type level.
    */
   streams: ClientStreams<ContractOf<TServer>>;
-  /** Per-namespace sub-contracts, each flipped into the client's perspective. */
-  namespaces: ClientScopeMap<Slot<ContractOf<TServer>, 'namespaces'>>;
   /** Per-channel sub-contracts, each flipped into the client's perspective. */
   channels: ClientChannelMap<Slot<ContractOf<TServer>, 'channels'>>;
   /** Built-in engine errors (e.g. `validation-failed`) merged with developer-defined errors. */

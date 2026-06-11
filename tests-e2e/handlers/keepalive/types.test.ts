@@ -8,7 +8,6 @@ describe('KeepaliveClient — no-any guard', () => {
     expectTypeOf<KeepaliveClient['requests']>().not.toBeAny();
     expectTypeOf<KeepaliveClient['streams']>().not.toBeAny();
     expectTypeOf<KeepaliveClient['channels']>().not.toBeAny();
-    expectTypeOf<KeepaliveClient['namespaces']>().not.toBeAny();
     expectTypeOf<KeepaliveClient['errors']>().not.toBeAny();
   });
 });
@@ -33,10 +32,6 @@ describe('KeepaliveClient — all slots are empty (no definitions)', () => {
   it('channels is empty', () => {
     expectTypeOf<keyof KeepaliveClient['channels']>().toBeNever();
   });
-
-  it('namespaces is empty', () => {
-    expectTypeOf<keyof KeepaliveClient['namespaces']>().toBeNever();
-  });
 });
 
 describe('KeepaliveClient — builtin errors', () => {
@@ -44,7 +39,6 @@ describe('KeepaliveClient — builtin errors', () => {
     expectTypeOf<KeepaliveClient['errors']>().toHaveProperty('validation-failed');
     expectTypeOf<KeepaliveClient['errors']>().toHaveProperty('channel-not-found');
     expectTypeOf<KeepaliveClient['errors']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<KeepaliveClient['errors']>().toHaveProperty('namespace-not-found');
     expectTypeOf<KeepaliveClient['errors']>().toHaveProperty('internal-error');
   });
 });

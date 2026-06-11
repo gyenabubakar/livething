@@ -56,25 +56,6 @@ test.describe('rate-limit', () => {
     await expect(page.getByTestId('rate-limited-count')).toHaveText('0');
   });
 
-  test('namespace cascade applies its own cap; top-level bucket is independent', async ({
-    page,
-  }) => {
-    // Namespace 'strict' has max=2.
-    await page.getByTestId('strict-ping').click();
-    await page.getByTestId('strict-ping').click();
-    await expect(page.getByTestId('strict-pong-count')).toHaveText('2');
-
-    await page.getByTestId('strict-ping').click();
-    await expect(page.getByTestId('rate-limited-count')).toHaveText('1');
-    await expect(page.getByTestId('strict-pong-count')).toHaveText('2');
-
-    // Top-level bucket (max=3) is separate — three ticks all succeed.
-    await page.getByTestId('tick').click();
-    await page.getByTestId('tick').click();
-    await page.getByTestId('tick').click();
-    await expect(page.getByTestId('tock-count')).toHaveText('3');
-  });
-
   test('per-handler override inside a channel scopes the tighter cap to one event', async ({
     page,
   }) => {
@@ -156,25 +137,6 @@ test.describe('rate-limit', () => {
       await ctxA.close();
       await ctxB.close();
     }
-  });
-
-  test('bucket refills over time — recovery after waiting for a slot', async ({ page }) => {
-    // 'fast-refill' namespace has windowMs=2000, max=2 → one slot per 1000ms.
-    await page.getByTestId('fast-ping').click();
-    await page.getByTestId('fast-ping').click();
-    await expect(page.getByTestId('fast-pong-count')).toHaveText('2');
-
-    // Bucket empty — 3rd rejected.
-    await page.getByTestId('fast-ping').click();
-    await expect(page.getByTestId('rate-limited-count')).toHaveText('1');
-    await expect(page.getByTestId('fast-pong-count')).toHaveText('2');
-
-    // Wait for at least one token to refill.
-    await page.waitForTimeout(1200);
-
-    await page.getByTestId('fast-ping').click();
-    await expect(page.getByTestId('fast-pong-count')).toHaveText('3');
-    await expect(page.getByTestId('rate-limited-count')).toHaveText('1');
   });
 
   test('custom `per` key groups two connections of the same user into one shared budget', async ({

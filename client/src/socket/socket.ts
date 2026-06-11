@@ -620,14 +620,10 @@ export class WSKitSocket {
     }
 
     // Top-level handlers only see top-level events. Messages tagged with a
-    // channel, namespace, or stream id are delivered by the matching add-on
-    // module, so they don't fire here too.
+    // channel or stream id are delivered by the matching add-on module, so they
+    // don't fire here too.
     const envelope = message.__wskit;
-    if (
-      envelope?.channel === undefined &&
-      envelope?.namespace === undefined &&
-      envelope?.streamId === undefined
-    ) {
+    if (envelope?.channel === undefined && envelope?.streamId === undefined) {
       // Guard the log so the message string and args aren't built on every
       // frame when debug is off (they would be, even though _logAt no-ops).
       if (this._debug) this._log(`received '${message.event}'`, message.payload);

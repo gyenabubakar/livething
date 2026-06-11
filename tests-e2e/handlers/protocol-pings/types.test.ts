@@ -8,7 +8,6 @@ describe('ProtocolPingsClient — no-any guard', () => {
     expectTypeOf<ProtocolPingsClient['requests']>().not.toBeAny();
     expectTypeOf<ProtocolPingsClient['streams']>().not.toBeAny();
     expectTypeOf<ProtocolPingsClient['channels']>().not.toBeAny();
-    expectTypeOf<ProtocolPingsClient['namespaces']>().not.toBeAny();
     expectTypeOf<ProtocolPingsClient['errors']>().not.toBeAny();
   });
 });
@@ -33,10 +32,6 @@ describe('ProtocolPingsClient — all slots are empty (no definitions)', () => {
   it('channels is empty', () => {
     expectTypeOf<keyof ProtocolPingsClient['channels']>().toBeNever();
   });
-
-  it('namespaces is empty', () => {
-    expectTypeOf<keyof ProtocolPingsClient['namespaces']>().toBeNever();
-  });
 });
 
 describe('ProtocolPingsClient — builtin errors', () => {
@@ -44,7 +39,6 @@ describe('ProtocolPingsClient — builtin errors', () => {
     expectTypeOf<ProtocolPingsClient['errors']>().toHaveProperty('validation-failed');
     expectTypeOf<ProtocolPingsClient['errors']>().toHaveProperty('channel-not-found');
     expectTypeOf<ProtocolPingsClient['errors']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<ProtocolPingsClient['errors']>().toHaveProperty('namespace-not-found');
     expectTypeOf<ProtocolPingsClient['errors']>().toHaveProperty('internal-error');
   });
 });

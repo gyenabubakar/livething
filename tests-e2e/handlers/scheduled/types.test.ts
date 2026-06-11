@@ -8,7 +8,6 @@ describe('ScheduledClient — no-any guard', () => {
     expectTypeOf<ScheduledClient['requests']>().not.toBeAny();
     expectTypeOf<ScheduledClient['streams']>().not.toBeAny();
     expectTypeOf<ScheduledClient['channels']>().not.toBeAny();
-    expectTypeOf<ScheduledClient['namespaces']>().not.toBeAny();
     expectTypeOf<ScheduledClient['errors']>().not.toBeAny();
   });
 });
@@ -147,10 +146,6 @@ describe('ScheduledClient — empty slots', () => {
   it('channels is empty', () => {
     expectTypeOf<keyof ScheduledClient['channels']>().toBeNever();
   });
-
-  it('namespaces is empty', () => {
-    expectTypeOf<keyof ScheduledClient['namespaces']>().toBeNever();
-  });
 });
 
 describe('ScheduledClient — builtin errors', () => {
@@ -158,7 +153,6 @@ describe('ScheduledClient — builtin errors', () => {
     expectTypeOf<ScheduledClient['errors']>().toHaveProperty('validation-failed');
     expectTypeOf<ScheduledClient['errors']>().toHaveProperty('channel-not-found');
     expectTypeOf<ScheduledClient['errors']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<ScheduledClient['errors']>().toHaveProperty('namespace-not-found');
     expectTypeOf<ScheduledClient['errors']>().toHaveProperty('internal-error');
   });
 });

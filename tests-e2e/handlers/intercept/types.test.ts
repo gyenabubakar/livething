@@ -8,7 +8,6 @@ describe('InterceptClient — no-any guard', () => {
     expectTypeOf<InterceptClient['requests']>().not.toBeAny();
     expectTypeOf<InterceptClient['streams']>().not.toBeAny();
     expectTypeOf<InterceptClient['channels']>().not.toBeAny();
-    expectTypeOf<InterceptClient['namespaces']>().not.toBeAny();
     expectTypeOf<InterceptClient['errors']>().not.toBeAny();
   });
 });
@@ -30,69 +29,6 @@ describe('InterceptClient — top-level outgoing (server incoming)', () => {
 
   it('only echo in top-level outgoing', () => {
     expectTypeOf<keyof InterceptClient['outgoing']>().toEqualTypeOf<'echo'>();
-  });
-});
-
-describe('InterceptClient — namespaces', () => {
-  it('has ns namespace', () => {
-    expectTypeOf<InterceptClient['namespaces']>().toHaveProperty('ns');
-  });
-
-  it('ns incoming has echoed (server outgoing → client receives)', () => {
-    expectTypeOf<InterceptClient['namespaces']['ns']['incoming']['echoed']>().toEqualTypeOf<{
-      text: string;
-    }>();
-  });
-
-  it('ns outgoing has echo (server incoming → client sends)', () => {
-    expectTypeOf<InterceptClient['namespaces']['ns']['outgoing']['echo']>().toEqualTypeOf<{
-      text: string;
-    }>();
-  });
-
-  it('ns streams has intercepted-stream', () => {
-    expectTypeOf<InterceptClient['namespaces']['ns']['streams']>().toHaveProperty(
-      'intercepted-stream',
-    );
-  });
-
-  it('ns streams has ns-nudge-stream', () => {
-    expectTypeOf<InterceptClient['namespaces']['ns']['streams']>().toHaveProperty(
-      'ns-nudge-stream',
-    );
-  });
-
-  it('intercepted-stream has correct payload and chunk', () => {
-    expectTypeOf<
-      InterceptClient['namespaces']['ns']['streams']['intercepted-stream']['payload']
-    >().toEqualTypeOf<{
-      text: string;
-    }>();
-    expectTypeOf<
-      InterceptClient['namespaces']['ns']['streams']['intercepted-stream']['chunk']
-    >().toEqualTypeOf<{
-      text: string;
-    }>();
-  });
-
-  it('intercepted-stream has no cursor or nudges', () => {
-    expectTypeOf<
-      InterceptClient['namespaces']['ns']['streams']['intercepted-stream']
-    >().not.toHaveProperty('cursor');
-    expectTypeOf<
-      InterceptClient['namespaces']['ns']['streams']['intercepted-stream']
-    >().not.toHaveProperty('nudges');
-    expectTypeOf<
-      InterceptClient['namespaces']['ns']['streams']['intercepted-stream']
-    >().not.toHaveProperty('broadcast');
-  });
-});
-
-describe('InterceptClient — stream kind', () => {
-  it('intercepted-stream is ephemeral', () => {
-    expectTypeOf<
-      InterceptClient['namespaces']['ns']['streams']['intercepted-stream']['kind']
-    >().toEqualTypeOf<'ephemeral'>();
   });
 });
 
@@ -161,7 +97,6 @@ describe('InterceptClient — builtin errors', () => {
     expectTypeOf<InterceptClient['errors']>().toHaveProperty('validation-failed');
     expectTypeOf<InterceptClient['errors']>().toHaveProperty('channel-not-found');
     expectTypeOf<InterceptClient['errors']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<InterceptClient['errors']>().toHaveProperty('namespace-not-found');
     expectTypeOf<InterceptClient['errors']>().toHaveProperty('internal-error');
   });
 });

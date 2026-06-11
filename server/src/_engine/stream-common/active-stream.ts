@@ -113,9 +113,9 @@ export interface BroadcastTargetInput {
 /**
  * Walk every connection on the runtime and return the ones that should
  * receive a broadcast chunk. Channel-scoped streams require channel
- * membership; namespace and top-level fan out to every connection minus the
- * creator. Pass `extraFilter` to drop subscribers selectively (e.g.
- * identities that unsubscribed from a broadcast stream).
+ * membership; top-level fans out to every connection minus the creator. Pass
+ * `extraFilter` to drop subscribers selectively (e.g. identities that
+ * unsubscribed from a broadcast stream).
  */
 export function resolveBroadcastTargets(input: BroadcastTargetInput): RuntimeConnection[] {
   const targets: RuntimeConnection[] = [];

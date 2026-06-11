@@ -21,7 +21,6 @@ export { ReplayCustomCascadeServer } from './replay-custom-cascade.ts';
 export { StaticVsFamilyIsolationServer } from './static-vs-family-isolation.ts';
 export { ReplayFamilyKeyEqualsNameServer } from './replay-family-key-equals-name.ts';
 export { LifecycleHooksServer } from './lifecycle-hooks.ts';
-export { NamespaceServer } from './namespace.ts';
 export { InterceptServer } from './intercept.ts';
 export { SequenceServer } from './sequence.ts';
 export { DedupServer } from './dedup.ts';
@@ -67,7 +66,6 @@ const FEATURE_ROUTES: Record<string, keyof Env> = {
   '/ws/static-vs-family-isolation': 'STATIC_VS_FAMILY_ISOLATION_SERVER',
   '/ws/replay-family-key-equals-name': 'REPLAY_FAMILY_KEY_EQUALS_NAME_SERVER',
   '/ws/lifecycle-hooks': 'LIFECYCLE_HOOKS_SERVER',
-  '/ws/namespace': 'NAMESPACE_SERVER',
   '/ws/intercept': 'INTERCEPT_SERVER',
   '/ws/sequence': 'SEQUENCE_SERVER',
   '/ws/dedup': 'DEDUP_SERVER',

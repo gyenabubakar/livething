@@ -2,7 +2,6 @@ import {
   channel,
   contract,
   implement,
-  namespace,
   nudge,
   recordedStream,
   resumableStream,
@@ -16,7 +15,6 @@ import { requireUsername } from '../_shared/upgrade.ts';
 const Empty = v.object({});
 const RowChunk = v.object({ row: v.number() });
 const IdxChunk = v.object({ idx: v.number() });
-const LineChunk = v.object({ line: v.string() });
 const PausePayload = v.object({ at: v.number() });
 const TokenChunk = v.object({ token: v.string() });
 const StopPayload = v.object({});
@@ -97,44 +95,6 @@ export const streamDurableScopedContract = contract('stream-durable-scoped', {
       retentionAfterEndMs: 30_000,
       onDisconnect: 'keep-running',
     }),
-
-    namespace('v1', {
-      definitions: [
-        recordedStream('logs', {
-          payload: Empty,
-          chunk: LineChunk,
-          maxChunks: 100,
-          maxAgeMs: 60_000,
-          retentionAfterEndMs: 30_000,
-        }),
-        resumableStream('audit-export', {
-          payload: Empty,
-          chunk: RowChunk,
-          maxAgeMs: 60_000,
-          retentionAfterEndMs: 30_000,
-        }),
-        stream('ns-tokens', {
-          payload: Empty,
-          chunk: TokenChunk,
-          nudges: [nudge('stop', StopPayload)],
-        }),
-        resumableStream('audit-nudged', {
-          payload: Empty,
-          chunk: RowChunk,
-          nudges: [nudge('stop', StopPayload)],
-          maxAgeMs: 60_000,
-          retentionAfterEndMs: 30_000,
-        }),
-        recordedStream('logs-nudged', {
-          payload: Empty,
-          chunk: LineChunk,
-          nudges: [nudge('stop', StopPayload)],
-          maxChunks: 100,
-          maxAgeMs: 60_000,
-          retentionAfterEndMs: 30_000,
-        }),
-      ],
-    }),
   ],
 });
 
@@ -209,45 +169,6 @@ export const streamDurableScopedHandler = implement(streamDurableScopedContract)
       .recordedStream('history-nudged', async function* (ctx) {
         for (let i = 1; i <= 20; i += 1) {
           const nudges = ctx.nudges(yield { idx: i });
-          if (nudges.some((n: { event: string }) => n.event === 'stop')) return;
-          await new Promise((r) => setTimeout(r, 100));
-        }
-      }),
-  )
-
-  .namespace('v1', (ns) =>
-    ns
-      .recordedStream('logs', async function* () {
-        for (let i = 1; i <= 5; i += 1) {
-          yield { line: `line-${i}` };
-          await new Promise((r) => setTimeout(r, 150));
-        }
-      })
-      .resumableStream('audit-export', async function* (ctx) {
-        const startAt = (ctx.stream.cursor as { idx: number } | null)?.idx ?? 0;
-        for (let i = startAt + 1; i <= 10; i += 1) {
-          yield ctx.stream.withCursor({ row: i }, { idx: i });
-          await new Promise((r) => setTimeout(r, 150));
-        }
-      })
-      .stream('ns-tokens', async function* (ctx) {
-        for (let i = 1; i <= 20; i += 1) {
-          const nudges = ctx.nudges(yield { token: `t${i}` });
-          if (nudges.some((n: { event: string }) => n.event === 'stop')) return;
-          await new Promise((r) => setTimeout(r, 100));
-        }
-      })
-      .resumableStream('audit-nudged', async function* (ctx) {
-        const startAt = (ctx.stream.cursor as { idx: number } | null)?.idx ?? 0;
-        for (let i = startAt + 1; i <= 20; i += 1) {
-          const nudges = ctx.nudges(yield ctx.stream.withCursor({ row: i }, { idx: i }));
-          if (nudges.some((n: { event: string }) => n.event === 'stop')) return;
-          await new Promise((r) => setTimeout(r, 100));
-        }
-      })
-      .recordedStream('logs-nudged', async function* (ctx) {
-        for (let i = 1; i <= 20; i += 1) {
-          const nudges = ctx.nudges(yield { line: `line-${i}` });
           if (nudges.some((n: { event: string }) => n.event === 'stop')) return;
           await new Promise((r) => setTimeout(r, 100));
         }

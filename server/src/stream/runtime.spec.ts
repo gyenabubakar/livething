@@ -52,7 +52,7 @@ function createStreamRuntime() {
   const broadcasts: {
     event: string;
     payload: unknown;
-    options?: { namespace?: string; channel?: string; excludeSelf?: boolean };
+    options?: { channel?: string; excludeSelf?: boolean };
     excludeConnectionId?: string;
     targetIds: string[];
   }[] = [];
@@ -113,29 +113,6 @@ function createStreamRuntime() {
 }
 
 describe('stream/runtime', () => {
-  it('__streamEnd__ includes namespace routing metadata', async () => {
-    const { runtime, protocolMessages } = createStreamRuntime();
-    const connection = createConnection();
-
-    const stream = {
-      stream: { nudges: [], broadcast: false },
-      generator: async function* () {
-        yield { token: 'hi' };
-      },
-    };
-
-    await runStream(runtime as Parameters<typeof runStream>[0], connection, {
-      scope: { namespace: { name: 'ai' } as never },
-      event: 'stream-prompt',
-      stream: stream as never,
-      payload: {},
-    });
-
-    const streamEnd = protocolMessages.find((m) => m.event === '__streamEnd__');
-    expect(streamEnd).toBeDefined();
-    expect(streamEnd!.wskit.namespace).toBe('ai');
-  });
-
   it('__streamEnd__ includes channel routing metadata', async () => {
     const { runtime, protocolMessages } = createStreamRuntime();
     const connection = createConnection();

@@ -4,7 +4,6 @@ import {
   compileChannelPrimitive,
   validateChannelFamilyPatternsDisjointFromStaticNames,
 } from '~/channel/compile.ts';
-import { compileNamespacePrimitive } from '~/namespace/compile.ts';
 import { collectReplayClaimedScopes } from '~/replay/compile.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
 import type * as DefineServer from '~/server-definition.ts';
@@ -13,7 +12,7 @@ import type * as EngineCompileTypes from './types.ts';
 
 // Walk the declarative primitive tree and fill the compiled runtime shape.
 // Per-kind work lives next to the primitive (channel/compile.ts,
-// namespace/compile.ts, intercept/compile.ts); this function dispatches.
+// intercept/compile.ts); this function dispatches.
 function visitCompiledPrimitives(
   compiled: EngineCompileTypes.CompiledServer,
   primitives: readonly PrimitiveCore.Primitive[],
@@ -103,14 +102,6 @@ function visitCompiledPrimitives(
         continue;
     }
 
-    if (EngineCompileUtils.isNamespacePrimitive(primitive)) {
-      EngineCompileUtils.setUniqueOrThrow(compiled.namespaces, primitive.pattern, {
-        value: compileNamespacePrimitive(primitive),
-        kind: 'namespace',
-      });
-      continue;
-    }
-
     if (EngineCompileUtils.isChannelPrimitive(primitive)) {
       const compiledChannel = compileChannelPrimitive(primitive);
 
@@ -158,7 +149,6 @@ export function compileHandlerDefinition(
     resumableStreams: new Map(),
     recordedStreams: new Map(),
     intercepts: [],
-    namespaces: new Map(),
     channels: new Map(),
     channelFamilies: new Map(),
     scheduled: new Map(),
@@ -236,12 +226,6 @@ function hasAnyReplayPrimitive(primitives: readonly PrimitiveCore.Primitive[]): 
     ) {
       return true;
     }
-    if (
-      EngineCompileUtils.isNamespacePrimitive(primitive) &&
-      hasAnyReplayPrimitive(primitive.primitives)
-    ) {
-      return true;
-    }
   }
   return false;
 }
@@ -257,8 +241,8 @@ function hasAnyReplayPrimitive(primitives: readonly PrimitiveCore.Primitive[]): 
  */
 function validateReplayDependencies(primitives: readonly PrimitiveCore.Primitive[]): void {
   // dedup and sequence are top-level only — they have no meaning nested inside
-  // a channel/namespace. Replay primitives, however, can appear at the top
-  // level OR inside any channel/namespace block, so we walk recursively to
+  // a channel. Replay primitives, however, can appear at the top
+  // level OR inside any channel block, so we walk recursively to
   // catch nested cases that the top-level scan would miss.
   let hasDedup = false;
   let hasPersistentSequence = false;
@@ -302,9 +286,9 @@ function validateUniquePluginEventNames(compiled: EngineCompileTypes.CompiledSer
  * Refuse to boot when a scope or event name uses characters reserved by the
  * `contract.matches(...)` / `contract.unsafeCast(...)` path key grammar.
  *
- * Path keys take the form `[<@channel | #namespace>::]event`, so:
- * - Scope names (channel + namespace) starting with `@` or `#` would be
- *   indistinguishable from the scope prefix.
+ * Path keys take the form `[<@channel>::]event`, so:
+ * - Channel names starting with `@` would be indistinguishable from the scope
+ *   prefix.
  * - `::` is the separator between scope name and event name, so neither side
  *   may contain it.
  *
@@ -312,7 +296,7 @@ function validateUniquePluginEventNames(compiled: EngineCompileTypes.CompiledSer
  * at parse time; real-world names don't need any of these characters.
  */
 function validateScopeAndEventNameSyntax(compiled: EngineCompileTypes.CompiledServer): void {
-  function checkScopeName(name: string, kind: 'channel' | 'namespace'): void {
+  function checkScopeName(name: string, kind: 'channel'): void {
     assertValidWSKitIdentifier(name, `${kind} name`);
     if (name.startsWith('@') || name.startsWith('#')) {
       throw new Error(
@@ -361,11 +345,6 @@ function validateScopeAndEventNameSyntax(compiled: EngineCompileTypes.CompiledSe
   }
 
   checkEventsInScope(compiled, 'top-level');
-
-  for (const namespace of compiled.namespaces.values()) {
-    checkScopeName(namespace.name, 'namespace');
-    checkEventsInScope(namespace, `namespace '${namespace.name}'`);
-  }
 
   for (const channel of compiled.channels.values()) {
     checkScopeName(channel.key, 'channel');
@@ -428,9 +407,6 @@ function validateNoCrossPrimitiveEventCollisions(
   }
 
   check(compiled, 'top-level');
-  for (const namespace of compiled.namespaces.values()) {
-    check(namespace, `namespace '${namespace.name}'`);
-  }
   for (const channel of compiled.channels.values()) {
     check(channel, `channel '${channel.key}'`);
   }
@@ -527,9 +503,6 @@ function validateNoReservedEventNames(
   }
 
   checkScope(compiled, 'top-level');
-  for (const namespace of compiled.namespaces.values()) {
-    checkScope(namespace, `namespace '${namespace.name}'`);
-  }
   for (const channel of compiled.channels.values()) {
     checkScope(channel, `channel '${channel.key}'`);
   }

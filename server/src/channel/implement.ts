@@ -282,9 +282,9 @@ export class ChannelImplement<C extends Contract, ChC = any, TCheck = unknown> {
   /**
    * Override the resolved rate-limit rule for one event inside this channel.
    *
-   * The override sits below the cascade — channel `rateLimit:`, then namespace,
-   * then contract — and applies only to this one event. Missing fields fall
-   * back to the channel's resolved rule.
+   * The override sits below the cascade — channel `rateLimit:`, then contract
+   * — and applies only to this one event. Missing fields fall back to the
+   * channel's resolved rule.
    *
    * @example
    * ```ts

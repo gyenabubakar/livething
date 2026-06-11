@@ -8,7 +8,6 @@ describe('ChannelStaticClient — no-any guard', () => {
     expectTypeOf<ChannelStaticClient['requests']>().not.toBeAny();
     expectTypeOf<ChannelStaticClient['streams']>().not.toBeAny();
     expectTypeOf<ChannelStaticClient['channels']>().not.toBeAny();
-    expectTypeOf<ChannelStaticClient['namespaces']>().not.toBeAny();
     expectTypeOf<ChannelStaticClient['errors']>().not.toBeAny();
   });
 });
@@ -138,10 +137,6 @@ describe('ChannelStaticClient — empty slots', () => {
   it('top-level streams is empty', () => {
     expectTypeOf<keyof ChannelStaticClient['streams']>().toBeNever();
   });
-
-  it('namespaces is empty', () => {
-    expectTypeOf<keyof ChannelStaticClient['namespaces']>().toBeNever();
-  });
 });
 
 describe('ChannelStaticClient — stream kind', () => {
@@ -157,7 +152,6 @@ describe('ChannelStaticClient — builtin errors', () => {
     expectTypeOf<ChannelStaticClient['errors']>().toHaveProperty('validation-failed');
     expectTypeOf<ChannelStaticClient['errors']>().toHaveProperty('channel-not-found');
     expectTypeOf<ChannelStaticClient['errors']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<ChannelStaticClient['errors']>().toHaveProperty('namespace-not-found');
     expectTypeOf<ChannelStaticClient['errors']>().toHaveProperty('internal-error');
   });
 });

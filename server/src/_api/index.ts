@@ -5,7 +5,6 @@ export {
   channel,
   error,
   incoming,
-  namespace,
   nudge,
   outgoing,
   recordedStream,
@@ -23,21 +22,13 @@ export type {
   CommitHandler,
   CommitPrimitive,
 } from '~/channel/lifecycle.ts';
-export {
-  ChannelImplement,
-  GroupBuilder,
-  Implementer,
-  NamespaceImplement,
-  group,
-  implement,
-} from './implement.ts';
+export { ChannelImplement, GroupBuilder, Implementer, group, implement } from './implement.ts';
 
 export type {
   ChannelDef,
   Definition,
   ErrorContractDef,
   IncomingDef,
-  NamespaceDef,
   NudgeDef,
   OutgoingDef,
   RecordedStreamDef,
@@ -47,17 +38,5 @@ export type {
   StreamDef,
   TypeMarker,
 } from './definitions.ts';
-export type {
-  ChannelContract,
-  Contract,
-  ContractConfig,
-  NamespaceContract,
-} from './contract-types.ts';
-export type {
-  ChannelCtx,
-  Ctx,
-  TagGroupHandle,
-  NamespaceCtx,
-  TagsApi,
-  TagRefHandle,
-} from './ctx-types.ts';
+export type { ChannelContract, Contract, ContractConfig } from './contract-types.ts';
+export type { ChannelCtx, Ctx, TagGroupHandle, TagsApi, TagRefHandle } from './ctx-types.ts';

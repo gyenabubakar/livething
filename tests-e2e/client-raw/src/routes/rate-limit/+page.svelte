@@ -10,8 +10,6 @@
 	let inheritMsgCount = $state(0);
 	let noLimitMsgCount = $state(0);
 	let chatterMsgCount = $state(0);
-	let strictPongCount = $state(0);
-	let fastPongCount = $state(0);
 	let subscribedNoLimit = $state(false);
 	let subscribedInherit = $state(false);
 	let subscribedRooms = $state(false);
@@ -46,8 +44,6 @@
 				if (data.__wskit?.channel === 'inherit-room') inheritMsgCount += 1;
 				else if (data.__wskit?.channel === 'no-limit') noLimitMsgCount += 1;
 			} else if (data.event === 'chatter-broadcast') chatterMsgCount += 1;
-			else if (data.event === 'strict-pong') strictPongCount += 1;
-			else if (data.event === 'fast-pong') fastPongCount += 1;
 			else if (data.event === 'echo-req' && cid) {
 				echoOutcomes = { ...echoOutcomes, [cid]: 'ok' };
 			} else if (data.event === '__subscribeOk__') {
@@ -101,15 +97,6 @@
 
 <button data-testid="tick" onclick={() => send('tick')}>Tick</button>
 <button data-testid="expensive" onclick={() => send('expensive')}>Expensive</button>
-<button data-testid="strict-ping" onclick={() => send('strict-ping', {}, { namespace: 'strict' })}>
-	Strict ping
-</button>
-<button
-	data-testid="fast-ping"
-	onclick={() => send('fast-ping', {}, { namespace: 'fast-refill' })}
->
-	Fast ping
-</button>
 
 <button data-testid="subscribe-no-limit" onclick={() => subscribe('no-limit')}>
 	Subscribe no-limit
@@ -154,7 +141,5 @@
 <span data-testid="inherit-msg-count">{inheritMsgCount}</span>
 <span data-testid="no-limit-msg-count">{noLimitMsgCount}</span>
 <span data-testid="chatter-msg-count">{chatterMsgCount}</span>
-<span data-testid="strict-pong-count">{strictPongCount}</span>
-<span data-testid="fast-pong-count">{fastPongCount}</span>
 <span data-testid="echo-1-outcome">{echoOutcomes['echo-1'] ?? ''}</span>
 <span data-testid="echo-2-outcome">{echoOutcomes['echo-2'] ?? ''}</span>

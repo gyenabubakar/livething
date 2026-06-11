@@ -2,7 +2,6 @@ import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { buffering } from '~/primitives/buffering/index.ts';
 import { channels } from '~/primitives/channels/channels.ts';
-import { namespaces } from '~/primitives/namespaces/namespaces.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { PrimitiveRuntime, WireMessage } from '~/internal/runtime.ts';
@@ -12,7 +11,6 @@ import type { WSKitSocket } from '~/socket/socket.ts';
 interface TestContract {
   incoming: { response: { data: string } };
   outgoing: { action: { id: number }; update: { value: string } };
-  namespaces: { chat: { outgoing: { action: { id: number } } } };
   channels: { room: { outgoing: { update: { value: string } } } };
 }
 
@@ -94,29 +92,6 @@ describe('_send: onOutgoing null cancels before buffering fallback', () => {
 });
 
 describe('_send: return value — true when buffered, false when dropped', () => {
-  it('returns false (not queued) for a plain namespace.send while disconnected without buffering', () => {
-    const socket = client<TestContract>()(connect('wss://test'), namespaces());
-    const ns = socket.namespace('chat');
-    expect(socket.getState()).toBe('closed');
-
-    const result = ns.send('action', { id: 1 });
-
-    expect(result).toBe(false);
-  });
-
-  it('a dropped scoped send is not replayed on the next connect', () => {
-    const socket = client<TestContract>()(connect('wss://test'), namespaces());
-    const ns = socket.namespace('chat');
-    ns.send('action', { id: 3 });
-
-    socket.connect();
-    const ws = MockWebSocket.last();
-    ws.open();
-
-    const frames = ws.sentFrames();
-    expect(frames.some((f) => f.event === 'action')).toBe(false);
-  });
-
   it('channel.send throws ChannelNotSubscribed before reaching _send when unsubscribed', () => {
     // Channel enforces subscription at the messaging level — the _send false-return
     // path is unreachable for channels without a prior subscribe(). This is the

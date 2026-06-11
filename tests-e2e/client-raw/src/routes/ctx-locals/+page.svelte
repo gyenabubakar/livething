@@ -33,12 +33,6 @@
 		ws?.send(JSON.stringify({ event: 'echo', payload: { text: 'hello' } }));
 	}
 
-	function sendNsEcho() {
-		ws?.send(
-			JSON.stringify({ event: 'echo', payload: { text: 'hello' }, __wskit: { namespace: 'ns' } }),
-		);
-	}
-
 	function subscribeRoom() {
 		ws?.send(JSON.stringify({ event: '__subscribe__', payload: {}, __wskit: { channel: 'room' } }));
 	}
@@ -59,16 +53,6 @@
 		);
 	}
 
-	function sendLookupNs() {
-		ws?.send(
-			JSON.stringify({
-				event: 'lookup',
-				payload: { text: 'hello' },
-				__wskit: { correlationId: 'ns-1', namespace: 'ns' },
-			}),
-		);
-	}
-
 	function sendLookupChannel() {
 		ws?.send(
 			JSON.stringify({
@@ -83,11 +67,9 @@
 <h1>ctx-locals feature</h1>
 <button data-testid="connect" onclick={connect}>Connect</button>
 <button data-testid="send-echo" onclick={sendEcho}>Send echo</button>
-<button data-testid="send-ns-echo" onclick={sendNsEcho}>Send ns echo</button>
 <button data-testid="subscribe-room" onclick={subscribeRoom}>Subscribe room</button>
 <button data-testid="send-channel-echo" onclick={sendChannelEcho}>Send channel echo</button>
 <button data-testid="lookup-top" onclick={sendLookupTop}>Lookup top</button>
-<button data-testid="lookup-ns" onclick={sendLookupNs}>Lookup ns</button>
 <button data-testid="lookup-channel" onclick={sendLookupChannel}>Lookup channel</button>
 <span data-testid="status">{status}</span>
 <span data-testid="subscribed">{subscribed}</span>

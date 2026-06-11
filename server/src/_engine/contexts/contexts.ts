@@ -1,5 +1,4 @@
 import { buildChannelsApi, buildChannelScopeExtra } from '~/channel/context.ts';
-import { buildNamespaceScopeExtra } from '~/namespace/context.ts';
 import * as TagsRuntime from '~/tags/runtime.ts';
 import type * as PublicApi from '~/context.ts';
 import type { LocalKey } from '~/local-key/local-key.ts';
@@ -58,14 +57,13 @@ function buildMessagingApi(
 /**
  * Build the per-connection handler context.
  *
- * Top-level send/broadcast live on the root object. Scoped namespace/channel
- * APIs are attached under `ctx.namespace` and `ctx.channel`.
+ * Top-level send/broadcast live on the root object. The scoped channel
+ * API is attached under `ctx.channel`.
  */
 export function buildConnectionContext(
   deps: EngineContextTypes.BuildConnectionContextDeps,
   connection: EngineContextTypes.RuntimeConnection,
   scope?: {
-    namespace?: EngineContextTypes.CompiledNamespace;
     channel?: EngineContextTypes.CompiledChannel;
     channelName?: string;
     channelScope?: string | null;
@@ -96,7 +94,6 @@ export function buildConnectionContext(
   > &
     Record<PropertyKey, unknown> = {
     [EngineContextTypes.ENGINE_SCOPE_META]: {
-      namespaceName: scope?.namespace?.name,
       channelName: scope?.channelName,
       channelScope: scope?.channelScope,
     } satisfies EngineContextTypes.EngineScopeMeta,
@@ -153,7 +150,6 @@ export function buildConnectionContext(
       void deps.getTimers()?.setAlarm?.(time);
     },
 
-    ...buildNamespaceScopeExtra(connection, scope, deps),
     ...buildChannelScopeExtra(connection, scope, deps),
 
     sql,

@@ -9,7 +9,7 @@ export interface SendOptions {
 
 /**
  * The shared shape of anything you can listen and send on — the socket itself,
- * and later namespaces and channels.
+ * and later channels.
  *
  * `on()` only appears when the contract has `incoming` events, and `send()` only
  * when it has `outgoing` events. If a contract has neither, the messaging is

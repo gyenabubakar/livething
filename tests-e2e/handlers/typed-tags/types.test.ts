@@ -8,7 +8,6 @@ describe('TypedTagsClient — no-any guard', () => {
     expectTypeOf<TypedTagsClient['requests']>().not.toBeAny();
     expectTypeOf<TypedTagsClient['streams']>().not.toBeAny();
     expectTypeOf<TypedTagsClient['channels']>().not.toBeAny();
-    expectTypeOf<TypedTagsClient['namespaces']>().not.toBeAny();
     expectTypeOf<TypedTagsClient['errors']>().not.toBeAny();
   });
 });
@@ -139,10 +138,6 @@ describe('TypedTagsClient — empty slots', () => {
   it('streams is empty', () => {
     expectTypeOf<keyof TypedTagsClient['streams']>().toBeNever();
   });
-
-  it('namespaces is empty', () => {
-    expectTypeOf<keyof TypedTagsClient['namespaces']>().toBeNever();
-  });
 });
 
 describe('TypedTagsClient — builtin errors', () => {
@@ -150,7 +145,6 @@ describe('TypedTagsClient — builtin errors', () => {
     expectTypeOf<TypedTagsClient['errors']>().toHaveProperty('validation-failed');
     expectTypeOf<TypedTagsClient['errors']>().toHaveProperty('channel-not-found');
     expectTypeOf<TypedTagsClient['errors']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<TypedTagsClient['errors']>().toHaveProperty('namespace-not-found');
     expectTypeOf<TypedTagsClient['errors']>().toHaveProperty('internal-error');
   });
 });

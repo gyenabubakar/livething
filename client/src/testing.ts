@@ -1,7 +1,7 @@
 import type { WireMessage } from '~/internal/runtime.ts';
 import type { Socket } from '~/socket/api.ts';
 import type { WSKitSocket } from '~/socket/socket.ts';
-import type { ChannelsOf, IncomingOf, NamespacesOf, SocketContract } from '~/types.ts';
+import type { ChannelsOf, IncomingOf, SocketContract } from '~/types.ts';
 
 /** Push a message object through the real incoming pipeline, even if the socket is disconnected. */
 function deliver(socket: object, message: WireMessage): void {
@@ -45,28 +45,6 @@ export function injectChannel<
   payload: IncomingOf<ChannelsOf<TContract>[TChannel]>[K],
 ): void {
   deliver(socket, { event, payload, __wskit: { channel } });
-}
-
-/**
- * Inject a fake message into a namespace. Tags the frame with
- * `__wskit.namespace` so the `namespaces` primitive routes it to that
- * namespace's handlers.
- *
- * ```ts
- * injectNamespace(socket, 'alerts', 'new-alert', { level: 'critical', text: 'Server down' });
- * ```
- */
-export function injectNamespace<
-  TContract extends SocketContract,
-  TNamespace extends keyof NamespacesOf<TContract> & string,
-  K extends keyof IncomingOf<NamespacesOf<TContract>[TNamespace]> & string,
->(
-  socket: Socket<TContract>,
-  namespace: TNamespace,
-  event: K,
-  payload: IncomingOf<NamespacesOf<TContract>[TNamespace]>[K],
-): void {
-  deliver(socket, { event, payload, __wskit: { namespace } });
 }
 
 // oxlint-enable max-params

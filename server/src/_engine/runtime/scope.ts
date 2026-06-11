@@ -1,4 +1,4 @@
-import { ChannelNotFound, InvalidScopeMarkers, NamespaceNotFound } from '@wskit/core';
+import { ChannelNotFound } from '@wskit/core';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import type * as EngineCompileTypes from '~/_engine/compile/types.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
@@ -13,17 +13,6 @@ export function resolveScope(
   wskit: Protocol.WSKitProtocol | undefined,
 ): EngineRuntimeTypes.ResolvedScope {
   if (!wskit) return {};
-
-  // A frame names one scope only. Two at once would let a sender bypass channel rules.
-  if (wskit.namespace !== undefined && wskit.channel !== undefined) {
-    throw InvalidScopeMarkers();
-  }
-
-  if (wskit.namespace !== undefined) {
-    const namespace = compiled.namespaces.get(wskit.namespace);
-    if (!namespace) throw NamespaceNotFound();
-    return { namespace };
-  }
 
   if (wskit.channel !== undefined) {
     if (wskit.channelScope !== null) {
@@ -68,6 +57,5 @@ export function routingFromWSKit(
     routing.channel = wskit.channel;
     routing.channelScope = wskit.channelScope ?? null;
   }
-  if (wskit.namespace !== undefined) routing.namespace = wskit.namespace;
   return Object.keys(routing).length > 0 ? routing : undefined;
 }

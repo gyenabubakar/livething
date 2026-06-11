@@ -19,7 +19,6 @@
 		'intercept',
 		'lifecycle-hooks',
 		'plugins',
-		'namespace',
 		'protocol-pings',
 		'replay',
 		'replay-custom',

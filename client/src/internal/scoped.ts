@@ -2,10 +2,10 @@ import type { WSKitEnvelope } from '~/internal/runtime.ts';
 import type { WSKitSocket } from '~/socket/socket.ts';
 
 /** The `__wskit` fields that identify which scope a frame belongs to. */
-export type ScopeMarkers = Pick<WSKitEnvelope, 'namespace' | 'channel' | 'channelScope'>;
+export type ScopeMarkers = Pick<WSKitEnvelope, 'channel' | 'channelScope'>;
 
 /**
- * The runtime shape of a scoped messaging (what `socket.namespace('x')` returns).
+ * The runtime shape of a scoped messaging (what `socket.channel('x')` returns).
  * `on` and `send` are always present; augmenters (requestResponse, ack, stream)
  * add extra methods via the index signature. The typed view exposed to developers
  * is `ScopedMessaging` — this is the loose internal object the library builds

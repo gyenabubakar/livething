@@ -8,7 +8,6 @@ describe('ErrorHookIsolationClient — no-any guard', () => {
     expectTypeOf<ErrorHookIsolationClient['requests']>().not.toBeAny();
     expectTypeOf<ErrorHookIsolationClient['streams']>().not.toBeAny();
     expectTypeOf<ErrorHookIsolationClient['channels']>().not.toBeAny();
-    expectTypeOf<ErrorHookIsolationClient['namespaces']>().not.toBeAny();
     expectTypeOf<ErrorHookIsolationClient['errors']>().not.toBeAny();
   });
 });
@@ -51,10 +50,6 @@ describe('ErrorHookIsolationClient — empty slots', () => {
   it('channels is empty', () => {
     expectTypeOf<keyof ErrorHookIsolationClient['channels']>().toBeNever();
   });
-
-  it('namespaces is empty', () => {
-    expectTypeOf<keyof ErrorHookIsolationClient['namespaces']>().toBeNever();
-  });
 });
 
 describe('ErrorHookIsolationClient — builtin errors', () => {
@@ -62,7 +57,6 @@ describe('ErrorHookIsolationClient — builtin errors', () => {
     expectTypeOf<ErrorHookIsolationClient['errors']>().toHaveProperty('validation-failed');
     expectTypeOf<ErrorHookIsolationClient['errors']>().toHaveProperty('channel-not-found');
     expectTypeOf<ErrorHookIsolationClient['errors']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<ErrorHookIsolationClient['errors']>().toHaveProperty('namespace-not-found');
     expectTypeOf<ErrorHookIsolationClient['errors']>().toHaveProperty('internal-error');
   });
 });

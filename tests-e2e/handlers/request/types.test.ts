@@ -8,7 +8,6 @@ describe('RequestClient — no-any guard', () => {
     expectTypeOf<RequestClient['requests']>().not.toBeAny();
     expectTypeOf<RequestClient['streams']>().not.toBeAny();
     expectTypeOf<RequestClient['channels']>().not.toBeAny();
-    expectTypeOf<RequestClient['namespaces']>().not.toBeAny();
     expectTypeOf<RequestClient['errors']>().not.toBeAny();
   });
 });
@@ -79,32 +78,6 @@ describe('RequestClient — top-level requests', () => {
   });
 });
 
-describe('RequestClient — namespaces', () => {
-  it('has ns namespace', () => {
-    expectTypeOf<RequestClient['namespaces']>().toHaveProperty('ns');
-  });
-
-  it('ns requests has get-ns-info', () => {
-    expectTypeOf<RequestClient['namespaces']['ns']['requests']>().toHaveProperty('get-ns-info');
-  });
-
-  it('get-ns-info has correct payload and response', () => {
-    expectTypeOf<
-      RequestClient['namespaces']['ns']['requests']['get-ns-info']['payload']
-    >().toEqualTypeOf<{}>();
-    expectTypeOf<
-      RequestClient['namespaces']['ns']['requests']['get-ns-info']['response']
-    >().toEqualTypeOf<{
-      namespace: string;
-    }>();
-  });
-
-  it('ns incoming and outgoing are empty', () => {
-    expectTypeOf<keyof RequestClient['namespaces']['ns']['incoming']>().toBeNever();
-    expectTypeOf<keyof RequestClient['namespaces']['ns']['outgoing']>().toBeNever();
-  });
-});
-
 describe('RequestClient — channels', () => {
   it('addressing: room is a static channel', () => {
     expectTypeOf<RequestClient['channels']['room']['addressing']>().toEqualTypeOf<'static'>();
@@ -156,7 +129,6 @@ describe('RequestClient — builtin errors', () => {
     expectTypeOf<RequestClient['errors']>().toHaveProperty('validation-failed');
     expectTypeOf<RequestClient['errors']>().toHaveProperty('channel-not-found');
     expectTypeOf<RequestClient['errors']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<RequestClient['errors']>().toHaveProperty('namespace-not-found');
     expectTypeOf<RequestClient['errors']>().toHaveProperty('internal-error');
   });
 });

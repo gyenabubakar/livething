@@ -9,7 +9,6 @@ describe('PluginsClient — no-any guard', () => {
     expectTypeOf<PluginsClient['requests']>().not.toBeAny();
     expectTypeOf<PluginsClient['streams']>().not.toBeAny();
     expectTypeOf<PluginsClient['channels']>().not.toBeAny();
-    expectTypeOf<PluginsClient['namespaces']>().not.toBeAny();
     expectTypeOf<PluginsClient['errors']>().not.toBeAny();
   });
 });
@@ -146,11 +145,6 @@ describe('PluginsClient — empty slots', () => {
   it('channels is empty', () => {
     expectTypeOf<keyof PluginsClient['channels']>().toBeNever();
   });
-
-  it('namespaces is empty', () => {
-    expectTypeOf<keyof PluginsClient['namespaces']>().toBeNever();
-  });
-
   it('requests is empty', () => {
     expectTypeOf<keyof PluginsClient['requests']>().toBeNever();
   });
@@ -201,7 +195,6 @@ describe('PluginsClient — builtin errors', () => {
     expectTypeOf<PluginsClient['errors']>().toHaveProperty('validation-failed');
     expectTypeOf<PluginsClient['errors']>().toHaveProperty('channel-not-found');
     expectTypeOf<PluginsClient['errors']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<PluginsClient['errors']>().toHaveProperty('namespace-not-found');
     expectTypeOf<PluginsClient['errors']>().toHaveProperty('internal-error');
   });
 });

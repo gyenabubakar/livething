@@ -21,7 +21,6 @@ import { implement } from '~/_api/implement.ts';
 import { scope } from '~/channel/channel.ts';
 import { channel } from '~/channel/definition.ts';
 import { incoming } from '~/incoming/definition.ts';
-import { namespace } from '~/namespace/definition.ts';
 import { outgoing } from '~/outgoing/definition.ts';
 import { request } from '~/request/definition.ts';
 import { recordedStream } from '~/stream-recorded/definition.ts';
@@ -170,12 +169,6 @@ const mediumHandler = implement(
       channel(scope('rooms', 'room:{id}'), {
         definitions: [incoming('post', Text), outgoing('posted', Text)],
       }),
-      namespace('admin', {
-        definitions: [
-          incoming('kick', v.object({ id: v.string() })),
-          outgoing('kicked', v.object({ id: v.string() })),
-        ],
-      }),
     ],
   }),
 )
@@ -190,7 +183,6 @@ const mediumHandler = implement(
   })
   .channel('lobby', (ch) => ch.on('say', () => {}))
   .channel('rooms', (ch) => ch.on('post', () => {}))
-  .namespace('admin', (ns) => ns.on('kick', () => {}))
   .build();
 
 function channelDefs(prefix: string) {
@@ -237,20 +229,6 @@ const heavyContract = contract('rt-heavy', {
     channel(scope('rooms-3', 'r3:{id}'), { definitions: channelDefs('r3') }),
     channel(scope('rooms-4', 'r4:{id}'), { definitions: channelDefs('r4') }),
     channel(scope('rooms-5', 'r5:{id}'), { definitions: channelDefs('r5') }),
-    namespace('admin', {
-      definitions: [
-        incoming('kick', v.object({ id: v.string() })),
-        incoming('ban', v.object({ id: v.string() })),
-        outgoing('kicked', v.object({ id: v.string() })),
-      ],
-    }),
-    namespace('v1', {
-      definitions: [
-        incoming('noop', Empty),
-        outgoing('ack', Empty),
-        request('echo', { payload: Empty, response: Empty }),
-      ],
-    }),
   ],
 });
 
@@ -277,15 +255,6 @@ for (const def of heavyContract.definitions as readonly any[]) {
         if (child._ === 'incoming') ch.on(child.name, () => {});
       }
       return ch;
-    });
-  }
-  if (def._ === 'namespace') {
-    heavyImpl.namespace(def.name, (ns: any) => {
-      for (const child of def.definitions as readonly any[]) {
-        if (child._ === 'incoming') ns.on(child.name, () => {});
-        if (child._ === 'request') ns.request(child.name, (ctx: any) => ctx.respond({}));
-      }
-      return ns;
     });
   }
 }

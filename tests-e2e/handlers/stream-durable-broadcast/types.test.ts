@@ -8,7 +8,6 @@ describe('StreamDurableBroadcastClient — no-any guard', () => {
     expectTypeOf<StreamDurableBroadcastClient['requests']>().not.toBeAny();
     expectTypeOf<StreamDurableBroadcastClient['streams']>().not.toBeAny();
     expectTypeOf<StreamDurableBroadcastClient['channels']>().not.toBeAny();
-    expectTypeOf<StreamDurableBroadcastClient['namespaces']>().not.toBeAny();
     expectTypeOf<StreamDurableBroadcastClient['errors']>().not.toBeAny();
   });
 });
@@ -91,41 +90,6 @@ describe('StreamDurableBroadcastClient — channels', () => {
   });
 });
 
-describe('StreamDurableBroadcastClient — namespaces', () => {
-  it('has v1 namespace', () => {
-    expectTypeOf<StreamDurableBroadcastClient['namespaces']>().toHaveProperty('v1');
-  });
-
-  it('v1 streams has news (recordedStream)', () => {
-    expectTypeOf<StreamDurableBroadcastClient['namespaces']['v1']['streams']>().toHaveProperty(
-      'news',
-    );
-  });
-
-  it('news has correct payload and chunk', () => {
-    expectTypeOf<
-      StreamDurableBroadcastClient['namespaces']['v1']['streams']['news']['payload']
-    >().toEqualTypeOf<{}>();
-    expectTypeOf<
-      StreamDurableBroadcastClient['namespaces']['v1']['streams']['news']['chunk']
-    >().toEqualTypeOf<{
-      headline: string;
-    }>();
-  });
-
-  it('news has no cursor, nudges, or broadcast key', () => {
-    expectTypeOf<
-      StreamDurableBroadcastClient['namespaces']['v1']['streams']['news']
-    >().not.toHaveProperty('cursor');
-    expectTypeOf<
-      StreamDurableBroadcastClient['namespaces']['v1']['streams']['news']
-    >().not.toHaveProperty('nudges');
-    expectTypeOf<
-      StreamDurableBroadcastClient['namespaces']['v1']['streams']['news']
-    >().not.toHaveProperty('broadcast');
-  });
-});
-
 describe('StreamDurableBroadcastClient — stream kind', () => {
   it('all streams are persistent', () => {
     expectTypeOf<
@@ -136,9 +100,6 @@ describe('StreamDurableBroadcastClient — stream kind', () => {
     >().toEqualTypeOf<'persistent'>();
     expectTypeOf<
       StreamDurableBroadcastClient['channels']['rooms']['streams']['feed']['kind']
-    >().toEqualTypeOf<'persistent'>();
-    expectTypeOf<
-      StreamDurableBroadcastClient['namespaces']['v1']['streams']['news']['kind']
     >().toEqualTypeOf<'persistent'>();
   });
 });
@@ -166,7 +127,6 @@ describe('StreamDurableBroadcastClient — builtin errors', () => {
     expectTypeOf<StreamDurableBroadcastClient['errors']>().toHaveProperty('validation-failed');
     expectTypeOf<StreamDurableBroadcastClient['errors']>().toHaveProperty('channel-not-found');
     expectTypeOf<StreamDurableBroadcastClient['errors']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<StreamDurableBroadcastClient['errors']>().toHaveProperty('namespace-not-found');
     expectTypeOf<StreamDurableBroadcastClient['errors']>().toHaveProperty('internal-error');
   });
 });

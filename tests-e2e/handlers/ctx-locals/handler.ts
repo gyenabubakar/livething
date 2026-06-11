@@ -4,7 +4,6 @@ import {
   implement,
   incoming,
   localKey,
-  namespace,
   outgoing,
   request,
   t,
@@ -29,13 +28,6 @@ export const ctxLocalsContract = contract('ctx-locals', {
     incoming('echo', EchoPayload),
     outgoing('echoed', EchoedPayload),
     request('lookup', { payload: LookupPayload, response: LookupResponse }),
-    namespace('ns', {
-      definitions: [
-        incoming('echo', EchoPayload),
-        outgoing('echoed', EchoedPayload),
-        request('lookup', { payload: LookupPayload, response: LookupResponse }),
-      ],
-    }),
     channel('room', {
       definitions: [
         incoming('echo', EchoPayload),
@@ -61,24 +53,6 @@ export const ctxLocalsHandler = implement(ctxLocalsContract)
     const ns = ctx.inject(NsKey);
     ctx.respond({ text: `${payload.text}:${top?.tag ?? 'none'}:${ns?.tag ?? 'none'}` });
   })
-  .namespace('ns', (ns) =>
-    ns
-      .intercept((ctx) => {
-        ctx.provide(NsKey, { tag: 'ns' });
-      })
-      .on('echo', (ctx, payload) => {
-        const top = ctx.inject(TopKey);
-        const nsk = ctx.inject(NsKey);
-        ctx.namespace.send('echoed', {
-          text: `${payload.text}:${top?.tag ?? 'none'}:${nsk?.tag ?? 'none'}`,
-        });
-      })
-      .request('lookup', (ctx, payload) => {
-        const top = ctx.inject(TopKey);
-        const nsk = ctx.inject(NsKey);
-        ctx.respond({ text: `${payload.text}:${top?.tag ?? 'none'}:${nsk?.tag ?? 'none'}` });
-      }),
-  )
   .channel('room', (ch) =>
     ch
       .intercept((ctx) => {

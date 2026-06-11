@@ -32,9 +32,9 @@ function readMember(
 }
 
 /**
- * Server-managed rooms. Unlike namespaces, a channel must be subscribed before
- * you can send or receive on it; the server tracks membership and limits
- * broadcasts to subscribers only. This primitive owns all per-channel state —
+ * Server-managed rooms. A channel must be subscribed before you can send or
+ * receive on it; the server tracks membership and limits broadcasts to
+ * subscribers only. This primitive owns all per-channel state —
  * subscriptions, members, presence — and routes incoming channel messages.
  */
 export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {

@@ -8,7 +8,6 @@ describe('ErrorsFactoryClient — no-any guard', () => {
     expectTypeOf<ErrorsFactoryClient['requests']>().not.toBeAny();
     expectTypeOf<ErrorsFactoryClient['streams']>().not.toBeAny();
     expectTypeOf<ErrorsFactoryClient['channels']>().not.toBeAny();
-    expectTypeOf<ErrorsFactoryClient['namespaces']>().not.toBeAny();
     expectTypeOf<ErrorsFactoryClient['errors']>().not.toBeAny();
   });
 });
@@ -70,7 +69,6 @@ describe('ErrorsFactoryClient — builtin errors present', () => {
     expectTypeOf<ErrorsFactoryClient['errors']>().toHaveProperty('validation-failed');
     expectTypeOf<ErrorsFactoryClient['errors']>().toHaveProperty('channel-not-found');
     expectTypeOf<ErrorsFactoryClient['errors']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<ErrorsFactoryClient['errors']>().toHaveProperty('namespace-not-found');
     expectTypeOf<ErrorsFactoryClient['errors']>().toHaveProperty('internal-error');
   });
 });
@@ -90,9 +88,5 @@ describe('ErrorsFactoryClient — empty slots', () => {
 
   it('channels is empty', () => {
     expectTypeOf<keyof ErrorsFactoryClient['channels']>().toBeNever();
-  });
-
-  it('namespaces is empty', () => {
-    expectTypeOf<keyof ErrorsFactoryClient['namespaces']>().toBeNever();
   });
 });

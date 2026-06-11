@@ -7,7 +7,6 @@ import {
 } from '@wskit/core';
 import type { StandardSchemaV1 } from '@standard-schema/spec';
 import type * as ChannelPrimitive from '~/channel/channel.ts';
-import type * as NamespacePrimitive from '~/namespace/namespace.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
 
 /**
@@ -38,7 +37,7 @@ export function collectUnique<T>(
 /**
  * Insert into a compile-time map and throw if the key already exists. Each
  * primitive kind (incoming, outgoing, request, stream variants, scheduled,
- * channel, namespace) owns its own slot on `CompiledServer`, and a duplicate
+ * channel) owns its own slot on `CompiledServer`, and a duplicate
  * declaration in the same slot was previously silent — the second declaration
  * just overwrote the first. With this helper, a duplicate fails build with a
  * clear `WSKitConfigError` so the engine refuses to construct and the server
@@ -72,15 +71,6 @@ export function assertNonReservedEventName(name: string, factory: string): void 
       `[wskit] '${name}' is a reserved keepalive frame name. Pick a different name for ${factory}().`,
     );
   }
-}
-
-/**
- * Narrow a primitive to a namespace block.
- */
-export function isNamespacePrimitive(
-  primitive: PrimitiveCore.Primitive,
-): primitive is NamespacePrimitive.NamespacePrimitive {
-  return primitive.__wskit === 'namespace';
 }
 
 /**

@@ -2,7 +2,6 @@
 import { scope } from '~/channel/channel.ts';
 import { channel } from '~/channel/definition.ts';
 import { incoming } from '~/incoming/definition.ts';
-import { namespace } from '~/namespace/definition.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import { resolvePlan } from './plan.ts';
@@ -33,45 +32,45 @@ describe('resolvePlan — cascade', () => {
   it('inherits parent rule for scopes with no rateLimit', () => {
     const plan = resolvePlan({
       contractRateLimit: { enabled: true, max: 60 },
-      definitions: [namespace('ai', { definitions: [] })],
+      definitions: [channel('ai', { definitions: [] })],
       overrides: emptyOverrides,
     });
     // Inheritance shares the parent rule (same id, same bucket).
-    expect(plan!.scopeRules.get('ns:ai')?.id).toBe(plan!.scopeRules.get('top')?.id);
+    expect(plan!.scopeRules.get('channel:ai')?.id).toBe(plan!.scopeRules.get('top')?.id);
   });
 
   it('partial override at a child scope keeps parent fields', () => {
     const plan = resolvePlan({
       contractRateLimit: { enabled: true, max: 60, windowMs: 30_000 },
-      definitions: [namespace('ai', { rateLimit: { enabled: true, max: 100 }, definitions: [] })],
+      definitions: [channel('ai', { rateLimit: { enabled: true, max: 100 }, definitions: [] })],
       overrides: emptyOverrides,
     });
-    const nsRule = plan!.scopeRules.get('ns:ai');
-    expect(nsRule?.max).toBe(100);
-    expect(nsRule?.windowMs).toBe(30_000);
+    const chRule = plan!.scopeRules.get('channel:ai');
+    expect(chRule?.max).toBe(100);
+    expect(chRule?.windowMs).toBe(30_000);
     // New rule id — different bucket than top.
-    expect(nsRule?.id).not.toBe(plan!.scopeRules.get('top')?.id);
+    expect(chRule?.id).not.toBe(plan!.scopeRules.get('top')?.id);
   });
 
   it('disable at a child scope nulls that scope', () => {
     const plan = resolvePlan({
       contractRateLimit: { enabled: true, max: 60 },
       definitions: [
-        namespace('public', {
+        channel('public', {
           rateLimit: { enabled: false },
           definitions: [incoming('msg', v.object({}))],
         }),
       ],
       overrides: emptyOverrides,
     });
-    expect(plan!.scopeRules.get('ns:public')).toBeNull();
+    expect(plan!.scopeRules.get('channel:public')).toBeNull();
   });
 
   it('child can re-enable inside a disabled parent', () => {
     const plan = resolvePlan({
       contractRateLimit: { enabled: false },
       definitions: [
-        namespace('strict', {
+        channel('strict', {
           rateLimit: { enabled: true, max: 5 },
           definitions: [],
         }),
@@ -79,7 +78,7 @@ describe('resolvePlan — cascade', () => {
       overrides: emptyOverrides,
     });
     expect(plan!.scopeRules.get('top')).toBeNull();
-    expect(plan!.scopeRules.get('ns:strict')?.max).toBe(5);
+    expect(plan!.scopeRules.get('channel:strict')?.max).toBe(5);
   });
 
   it('uses family key (not concrete name) for dynamic channels', () => {
@@ -162,11 +161,11 @@ describe('resolvePlan — cascade', () => {
     }
     const plan = resolvePlan({
       contractRateLimit: { enabled: true, max: 60, per: perByIdentity },
-      definitions: [namespace('ai', { rateLimit: { enabled: true, max: 100 }, definitions: [] })],
+      definitions: [channel('ai', { rateLimit: { enabled: true, max: 100 }, definitions: [] })],
       overrides: emptyOverrides,
     });
-    // namespace inherited `per` from contract.
-    expect(plan!.scopeRules.get('ns:ai')?.per).toBe(perByIdentity);
+    // channel inherited `per` from contract.
+    expect(plan!.scopeRules.get('channel:ai')?.per).toBe(perByIdentity);
   });
 
   it('emits a plan when only per-event overrides exist (no scope rules)', () => {

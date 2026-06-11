@@ -4,7 +4,6 @@ import { t } from '~/_api/definitions.ts';
 import { group, implement } from '~/_api/implement.ts';
 import { channel } from '~/channel/definition.ts';
 import { incoming } from '~/incoming/definition.ts';
-import { namespace } from '~/namespace/definition.ts';
 import { request } from '~/request/definition.ts';
 import { recordedStream } from '~/stream-recorded/definition.ts';
 import { resumableStream } from '~/stream-resumable/definition.ts';
@@ -27,9 +26,6 @@ function makeContract() {
           incoming('send', v.object({ text: v.string() })),
           stream('history', { payload: v.object({}), chunk: v.object({}) }),
         ],
-      }),
-      namespace('admin', {
-        definitions: [incoming('kick', v.object({ id: v.string() }))],
       }),
     ],
   });
@@ -90,15 +86,6 @@ describe('Implementer — duplicate-handler detection', () => {
     ).toThrow(/Duplicate channel handler for 'rooms'/);
   });
 
-  it('rejects a second .namespace for the same namespace name', () => {
-    const c = makeContract();
-    expect(() =>
-      implement(c)
-        .namespace('admin', () => {})
-        .namespace('admin', () => {}),
-    ).toThrow(/Duplicate namespace handler for 'admin'/);
-  });
-
   it('rejects a second intercept', () => {
     const c = makeContract();
     expect(() =>
@@ -113,13 +100,6 @@ describe('Implementer — duplicate-handler detection', () => {
     expect(() =>
       implement(c).channel('rooms', (ch) => ch.on('send', () => {}).on('send', () => {})),
     ).toThrow(/Duplicate incoming handler for 'send' in this channel/);
-  });
-
-  it('rejects a duplicate handler inside a namespace sub-builder', () => {
-    const c = makeContract();
-    expect(() =>
-      implement(c).namespace('admin', (ns) => ns.on('kick', () => {}).on('kick', () => {})),
-    ).toThrow(/Duplicate incoming handler for 'kick' in this namespace/);
   });
 });
 

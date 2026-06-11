@@ -3,33 +3,8 @@ import { describe, expect, it } from 'vitest';
 import type { CompiledServer } from '~/_engine/compile/types.ts';
 
 describe('resolveScope', () => {
-  it('throws NamespaceNotFound when namespace targets an unregistered namespace', () => {
-    const compiled = {
-      namespaces: new Map(),
-      channels: new Map(),
-      channelFamilies: new Map(),
-    } as unknown as CompiledServer;
-
-    expect(() => resolveScope(compiled, { namespace: 'typo', channelScope: null })).toThrowError(
-      /namespace-not-found/i,
-    );
-  });
-
-  it('throws InvalidScopeMarkers when both namespace and channel are set', () => {
-    const compiled = {
-      namespaces: new Map([['admin', { name: 'admin' }]]),
-      channels: new Map([['private-room', { pattern: 'private-room' }]]),
-      channelFamilies: new Map(),
-    } as unknown as CompiledServer;
-
-    expect(() =>
-      resolveScope(compiled, { namespace: 'admin', channel: 'private-room', channelScope: null }),
-    ).toThrowError(/invalid-scope-markers/i);
-  });
-
   it('throws ChannelNotFound when channel targets an unregistered static channel', () => {
     const compiled = {
-      namespaces: new Map(),
       channels: new Map(), // 'unknown-room' not registered
       channelFamilies: new Map(),
     } as unknown as CompiledServer;
@@ -41,7 +16,6 @@ describe('resolveScope', () => {
 
   it('throws ChannelNotFound when channelScope targets an unregistered family', () => {
     const compiled = {
-      namespaces: new Map(),
       channels: new Map(),
       channelFamilies: new Map(), // 'unknown-family' not registered
     } as unknown as CompiledServer;
@@ -53,7 +27,6 @@ describe('resolveScope', () => {
 
   it('throws ChannelNotFound when channel does not match the family regex', () => {
     const compiled = {
-      namespaces: new Map(),
       channels: new Map(),
       channelFamilies: new Map([
         [
@@ -93,7 +66,6 @@ describe('resolveScope', () => {
       intercepts: [],
     };
     const compiled = {
-      namespaces: new Map(),
       channels: new Map(),
       channelFamilies: new Map([['rooms', family]]),
     } as unknown as CompiledServer;

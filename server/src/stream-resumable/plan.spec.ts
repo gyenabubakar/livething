@@ -3,7 +3,6 @@ import { contract } from '~/_api/contract.ts';
 import { t } from '~/_api/definitions.ts';
 import { implement } from '~/_api/implement.ts';
 import { channel } from '~/channel/definition.ts';
-import { namespace } from '~/namespace/definition.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import { resumableStream } from './definition.ts';
@@ -67,32 +66,6 @@ describe('resumableStream build-time validation', () => {
       implement(c)
         .channel('rooms', (ch) =>
           ch.resumableStream('feed', async function* () {
-            yield { idx: 1 };
-          }),
-        )
-        .build(),
-    ).not.toThrow();
-  });
-
-  it('builds when declared inside a namespace', () => {
-    const c = contract('app', {
-      env: t<Record<string, unknown>>(),
-      persistence: true,
-      definitions: [
-        namespace('v1', {
-          definitions: [
-            resumableStream('feed', {
-              payload: v.object({}),
-              chunk: v.object({ idx: v.number() }),
-            }),
-          ],
-        }),
-      ],
-    });
-    expect(() =>
-      implement(c)
-        .namespace('v1', (ns) =>
-          ns.resumableStream('feed', async function* () {
             yield { idx: 1 };
           }),
         )

@@ -2,22 +2,14 @@ import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { ack } from '~/primitives/ack/index.ts';
 import { dedup } from '~/primitives/dedup.ts';
-import { namespaces } from '~/primitives/namespaces/index.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
 import { replay } from '~/primitives/replay.ts';
-import { stream } from '~/primitives/stream/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 interface C {
   incoming: { msg: { text: string }; trade: { id: string } };
   outgoing: { chat: { text: string } };
-  namespaces: {
-    alerts: {
-      incoming: { alert: { n: number }; feed: { token: string } };
-      outgoing: { dismiss: { id: string } };
-    };
-  };
   requests: {
     'get-balance': { payload: { user: string }; response: { balance: number } };
   };
@@ -33,30 +25,6 @@ function buildDedup() {
 
 function buildAck() {
   const socket = client<C>()(connect('wss://test'), ack());
-  socket.connect();
-  const ws = MockWebSocket.last();
-  ws.open();
-  return { socket, ws };
-}
-
-function buildNamespaces() {
-  const socket = client<C>()(connect('wss://test'), namespaces());
-  socket.connect();
-  const ws = MockWebSocket.last();
-  ws.open();
-  return { socket, ws };
-}
-
-function buildNamespacesStream() {
-  const socket = client<C>()(connect('wss://test'), namespaces(), stream());
-  socket.connect();
-  const ws = MockWebSocket.last();
-  ws.open();
-  return { socket, ws };
-}
-
-function buildNamespacesAck() {
-  const socket = client<C>()(connect('wss://test'), namespaces(), ack());
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
@@ -107,56 +75,6 @@ describe('ack', () => {
     const ackId = ws.sentFrames().at(-1).__wskit.ackId;
     ws.emit({ event: '__error__', payload: { code: 'rate-limited' }, __wskit: { ackId } });
     await expect(promise).rejects.toMatchObject({ code: 'rate-limited' });
-  });
-});
-
-describe('namespaces', () => {
-  it('routes namespaced events to namespace handlers only', () => {
-    const { socket, ws } = buildNamespaces();
-    const nsHandler = vi.fn();
-    const topHandler = vi.fn();
-    socket.namespace('alerts').on('alert', nsHandler);
-    socket.on('msg', topHandler);
-    ws.emit({ event: 'alert', payload: { n: 1 }, __wskit: { namespace: 'alerts' } });
-    expect(nsHandler).toHaveBeenCalledWith({ n: 1 });
-    expect(topHandler).not.toHaveBeenCalled();
-  });
-
-  it('tags namespace sends with __wskit.namespace', () => {
-    const { socket, ws } = buildNamespaces();
-    socket.namespace('alerts').send('dismiss', { id: '7' });
-    expect(ws.sentFrames().at(-1)).toEqual({
-      event: 'dismiss',
-      payload: { id: '7' },
-      __wskit: { namespace: 'alerts' },
-    });
-  });
-
-  it('returns the same messaging object for the same name', () => {
-    const { socket } = buildNamespaces();
-    expect(socket.namespace('alerts')).toBe(socket.namespace('alerts'));
-  });
-
-  it('does not deliver a namespace-scoped stream chunk to namespace.on()', () => {
-    const { socket, ws } = buildNamespacesStream();
-    const nsHandler = vi.fn();
-    socket.namespace('alerts').on('feed', nsHandler);
-    ws.emit({
-      event: 'feed',
-      payload: { token: 'a' },
-      __wskit: { namespace: 'alerts', streamId: 's1', seq: 1 },
-    });
-    expect(nsHandler).not.toHaveBeenCalled();
-  });
-
-  it('adds scoped sendWithAck when ack is registered', async () => {
-    const { socket, ws } = buildNamespacesAck();
-    const promise = socket.namespace('alerts').sendWithAck('dismiss', { id: '7' });
-    const frame = ws.sentFrames().at(-1);
-    expect(frame.__wskit.namespace).toBe('alerts');
-    expect(typeof frame.__wskit.ackId).toBe('string');
-    ws.emit({ event: '__ack__', payload: {}, __wskit: { ackId: frame.__wskit.ackId } });
-    await expect(promise).resolves.toBeUndefined();
   });
 });
 

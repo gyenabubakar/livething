@@ -8,7 +8,6 @@ describe('LifecycleHooksClient — no-any guard', () => {
     expectTypeOf<LifecycleHooksClient['requests']>().not.toBeAny();
     expectTypeOf<LifecycleHooksClient['streams']>().not.toBeAny();
     expectTypeOf<LifecycleHooksClient['channels']>().not.toBeAny();
-    expectTypeOf<LifecycleHooksClient['namespaces']>().not.toBeAny();
     expectTypeOf<LifecycleHooksClient['errors']>().not.toBeAny();
   });
 });
@@ -108,10 +107,6 @@ describe('LifecycleHooksClient — empty slots', () => {
   it('channels is empty', () => {
     expectTypeOf<keyof LifecycleHooksClient['channels']>().toBeNever();
   });
-
-  it('namespaces is empty', () => {
-    expectTypeOf<keyof LifecycleHooksClient['namespaces']>().toBeNever();
-  });
 });
 
 describe('LifecycleHooksClient — builtin errors', () => {
@@ -119,7 +114,6 @@ describe('LifecycleHooksClient — builtin errors', () => {
     expectTypeOf<LifecycleHooksClient['errors']>().toHaveProperty('validation-failed');
     expectTypeOf<LifecycleHooksClient['errors']>().toHaveProperty('channel-not-found');
     expectTypeOf<LifecycleHooksClient['errors']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<LifecycleHooksClient['errors']>().toHaveProperty('namespace-not-found');
     expectTypeOf<LifecycleHooksClient['errors']>().toHaveProperty('internal-error');
   });
 });

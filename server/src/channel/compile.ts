@@ -73,7 +73,6 @@ export function compileChannelDef(
     recordedStreamGenerators: impl?._bag.recordedStreamGenerators ?? new Map(),
     scheduledHandlers: new Map(),
     channelImpls: new Map(),
-    namespaceImpls: new Map(),
   };
   childPrimitives.push(...buildDefinitions(def.definitions, childHandlers));
 

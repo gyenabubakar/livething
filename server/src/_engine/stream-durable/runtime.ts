@@ -108,7 +108,6 @@ export interface DurableStreamRuntimeDef {
 /** Build the `__wskit` routing block for a durable-stream frame from a live scope. */
 function buildScopeRouting(scope: ResolvedScope): Partial<Protocol.WSKitProtocol> {
   const wskit: Partial<Protocol.WSKitProtocol> = {};
-  if (scope.namespace?.name) wskit.namespace = scope.namespace.name;
   if (scope.channelName) wskit.channel = scope.channelName;
   if (scope.channelScope) wskit.channelScope = scope.channelScope;
   return wskit;
@@ -118,7 +117,6 @@ function buildScopeRouting(scope: ResolvedScope): Partial<Protocol.WSKitProtocol
 function buildRowRouting(row: Storage.DurableStreamRow): Partial<Protocol.WSKitProtocol> {
   const wskit: Partial<Protocol.WSKitProtocol> = {};
 
-  if (row.namespace) wskit.namespace = row.namespace;
   if (row.channelKey) wskit.channel = row.channelKey;
   if (row.channelScope) wskit.channelScope = row.channelScope;
 
@@ -226,7 +224,6 @@ export async function runDurableStream(
     ),
     kind: def.kind,
     now,
-    namespace: scope.namespace?.name ?? null,
     channelKey: scope.channelName ?? null,
     channelScope: scope.channelScope ?? null,
     broadcast: def.broadcast ?? false,
@@ -692,7 +689,6 @@ async function runGenerator(
           (target) =>
             runtime.sendThroughPipeline(target, {
               routing: {
-                namespace: scope.namespace?.name,
                 channel: scope.channelName,
                 channelScope: scope.channelScope,
                 streamId,
@@ -714,7 +710,6 @@ async function runGenerator(
       if (!activeStream.detached) {
         runtime.sendThroughPipeline(wireTarget, {
           routing: {
-            namespace: scope.namespace?.name,
             channel: scope.channelName,
             channelScope: scope.channelScope,
             streamId,
@@ -778,7 +773,6 @@ async function runGenerator(
   } catch (error) {
     rethrowIfConfigError(error);
     const routing: Protocol.WSKitRouting = { streamId, streamTerminated: true };
-    if (scope.namespace?.name) routing.namespace = scope.namespace.name;
     if (scope.channelName) routing.channel = scope.channelName;
     if (scope.channelScope) routing.channelScope = scope.channelScope;
     await runtime.handleRuntimeError(connection, {

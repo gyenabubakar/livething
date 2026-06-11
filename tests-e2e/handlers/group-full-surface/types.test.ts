@@ -8,7 +8,6 @@ describe('GroupFullSurfaceClient — no-any guard', () => {
     expectTypeOf<GroupFullSurfaceClient['requests']>().not.toBeAny();
     expectTypeOf<GroupFullSurfaceClient['streams']>().not.toBeAny();
     expectTypeOf<GroupFullSurfaceClient['channels']>().not.toBeAny();
-    expectTypeOf<GroupFullSurfaceClient['namespaces']>().not.toBeAny();
     expectTypeOf<GroupFullSurfaceClient['errors']>().not.toBeAny();
   });
 });
@@ -221,30 +220,11 @@ describe('GroupFullSurfaceClient — channels', () => {
   });
 });
 
-describe('GroupFullSurfaceClient — namespaces', () => {
-  it('has v1 namespace', () => {
-    expectTypeOf<GroupFullSurfaceClient['namespaces']>().toHaveProperty('v1');
-  });
-
-  it('v1 incoming has v1-pong (server outgoing)', () => {
-    expectTypeOf<
-      GroupFullSurfaceClient['namespaces']['v1']['incoming']['v1-pong']
-    >().toEqualTypeOf<{}>();
-  });
-
-  it('v1 outgoing has v1-ping (server incoming)', () => {
-    expectTypeOf<
-      GroupFullSurfaceClient['namespaces']['v1']['outgoing']['v1-ping']
-    >().toEqualTypeOf<{}>();
-  });
-});
-
 describe('GroupFullSurfaceClient — builtin errors', () => {
   it('has all builtin error codes', () => {
     expectTypeOf<GroupFullSurfaceClient['errors']>().toHaveProperty('validation-failed');
     expectTypeOf<GroupFullSurfaceClient['errors']>().toHaveProperty('channel-not-found');
     expectTypeOf<GroupFullSurfaceClient['errors']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<GroupFullSurfaceClient['errors']>().toHaveProperty('namespace-not-found');
     expectTypeOf<GroupFullSurfaceClient['errors']>().toHaveProperty('internal-error');
   });
 });
@@ -290,9 +270,5 @@ describe('GroupFullSurfaceClient — exact key sets', () => {
 
   it('channels has exactly rooms', () => {
     expectTypeOf<keyof GroupFullSurfaceClient['channels']>().toEqualTypeOf<'rooms'>();
-  });
-
-  it('namespaces has exactly v1', () => {
-    expectTypeOf<keyof GroupFullSurfaceClient['namespaces']>().toEqualTypeOf<'v1'>();
   });
 });

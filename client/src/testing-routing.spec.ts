@@ -1,9 +1,8 @@
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { channels } from '~/primitives/channels/index.ts';
-import { namespaces } from '~/primitives/namespaces/index.ts';
 import { installMockWebSocket } from '~/test-helpers.ts';
-import { inject, injectChannel, injectNamespace } from '~/testing.ts';
+import { inject, injectChannel } from '~/testing.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Socket } from '~/socket/api.ts';
 
@@ -19,24 +18,10 @@ interface C {
       outgoing: never;
     };
   };
-  namespaces: {
-    alerts: {
-      incoming: { 'new-alert': { level: string }; dismissed: { id: string } };
-      outgoing: { dismiss: { id: string } };
-    };
-  };
 }
 
 function makeWithChannels() {
   return client<C>()(connect('wss://test'), channels());
-}
-
-function makeWithNamespaces() {
-  return client<C>()(connect('wss://test'), namespaces());
-}
-
-function makeWithBoth() {
-  return client<C>()(connect('wss://test'), channels(), namespaces());
 }
 
 let restore: () => void;
@@ -91,70 +76,5 @@ describe('injectChannel — channels primitive routing while disconnected', () =
     injectChannel(socket as Socket<C>, 'general', 'message', { text: 'both' });
     expect(handlerA).toHaveBeenCalledWith({ text: 'both' });
     expect(handlerB).toHaveBeenCalledWith({ text: 'both' });
-  });
-});
-
-describe('injectNamespace — namespaces primitive routing while disconnected', () => {
-  it('routes to namespace on() handler via namespaces.onIncoming, no live socket needed', () => {
-    const socket = makeWithNamespaces();
-    const handler = vi.fn();
-    socket.namespace('alerts').on('new-alert', handler);
-
-    expect(socket.getState()).toBe('closed');
-    injectNamespace(socket as Socket<C>, 'alerts', 'new-alert', { level: 'critical' });
-    expect(handler).toHaveBeenCalledWith({ level: 'critical' });
-  });
-
-  it('does NOT fire a namespace handler when the namespace tag is absent', () => {
-    const socket = makeWithNamespaces();
-    const nsHandler = vi.fn();
-    socket.namespace('alerts').on('new-alert', nsHandler);
-
-    // A plain inject has no __wskit.namespace — namespaces.onIncoming passes it
-    // straight through without dispatching to namespace handlers.
-    inject(socket as Socket<C>, 'new-alert' as keyof C['incoming'], {} as never);
-    expect(nsHandler).not.toHaveBeenCalled();
-  });
-
-  it('does NOT fire the alerts handler when the tag targets a different namespace', () => {
-    const socket = makeWithNamespaces();
-    const alertsHandler = vi.fn();
-    const otherHandler = vi.fn();
-    socket.namespace('alerts').on('new-alert', alertsHandler);
-    // oxlint-disable-next-line @typescript-eslint/no-explicit-any -- 'other' is outside C['namespaces']; cast the unknown name to reach the runtime handler
-    (socket.namespace('other' as any) as { on: (e: string, h: (p: unknown) => void) => void }).on(
-      'new-alert',
-      otherHandler,
-    );
-
-    injectNamespace(socket as Socket<C>, 'alerts', 'new-alert', { level: 'warn' });
-    expect(alertsHandler).toHaveBeenCalledWith({ level: 'warn' });
-    expect(otherHandler).not.toHaveBeenCalled();
-  });
-
-  it('routes multiple events in the same namespace independently', () => {
-    const socket = makeWithNamespaces();
-    const alertHandler = vi.fn();
-    const dismissHandler = vi.fn();
-    socket.namespace('alerts').on('new-alert', alertHandler);
-    socket.namespace('alerts').on('dismissed', dismissHandler);
-
-    injectNamespace(socket as Socket<C>, 'alerts', 'new-alert', { level: 'info' });
-    expect(alertHandler).toHaveBeenCalledWith({ level: 'info' });
-    expect(dismissHandler).not.toHaveBeenCalled();
-
-    injectNamespace(socket as Socket<C>, 'alerts', 'dismissed', { id: '42' });
-    expect(dismissHandler).toHaveBeenCalledWith({ id: '42' });
-  });
-
-  it('channel-tagged frames are not dispatched to namespace handlers', () => {
-    const socket = makeWithBoth();
-    const nsHandler = vi.fn();
-    socket.namespace('alerts').on('new-alert', nsHandler);
-
-    // A channel-scoped inject carries __wskit.channel, not __wskit.namespace, so
-    // namespaces.onIncoming passes it through untouched.
-    injectChannel(socket as Socket<C>, 'general', 'new-alert' as never, {} as never);
-    expect(nsHandler).not.toHaveBeenCalled();
   });
 });

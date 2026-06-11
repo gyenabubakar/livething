@@ -314,44 +314,6 @@ export const ValidationFailed = /* @__PURE__ */ error(
  */
 export const ChannelNotFound = /* @__PURE__ */ error('channel-not-found');
 
-/**
- * The error you get when you target a namespace the server doesn't
- * recognise. Usually a typo in the namespace name or a mismatch between
- * your client and server versions.
- *
- * @example
- * ```ts
- * try {
- *   await client.namespace('amdin').do('something');
- * } catch (err) {
- *   if (NamespaceNotFound.matches(err)) {
- *     showToast('Unknown namespace.');
- *   }
- * }
- * ```
- */
-export const NamespaceNotFound = /* @__PURE__ */ error('namespace-not-found');
-
-/**
- * The error you get when an incoming frame carries more than one scope
- * marker at once — for example both `__wskit.namespace` and
- * `__wskit.channel`. WSKit routes a frame to exactly one scope, so a
- * frame that names two scopes is ambiguous and the server rejects it
- * instead of silently picking one.
- *
- * @example
- * ```ts
- * try {
- *   await client.namespace('admin').do('something');
- * } catch (err) {
- *   if (InvalidScopeMarkers.matches(err)) {
- *     // a client-side bug attached two scope markers to the same frame
- *   }
- * }
- * ```
- */
-export const InvalidScopeMarkers = /* @__PURE__ */ error('invalid-scope-markers');
-
 const UNSUPPORTED_PROTOCOL_EVENTS = v.picklist(['__replay__', '__resumeStream__']);
 
 export type UnsupportedProtocolEvent = v.InferInput<typeof UNSUPPORTED_PROTOCOL_EVENTS>;

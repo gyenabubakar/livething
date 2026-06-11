@@ -459,10 +459,9 @@ export interface EngineAccess {
     options: {
       channelName: string | null;
       channelScope: string | null;
-      namespace?: string | null;
       event: string;
       payload: unknown;
-      wire: { seq: number; messageId: string; channel?: string; namespace?: string | null };
+      wire: { seq: number; messageId: string; channel?: string };
     },
   ): void;
 
@@ -477,7 +476,7 @@ export interface EngineAccess {
   assertReplaySendContract(
     event: string,
     payload: unknown,
-    routing: { channel?: string; channelScope?: string | null; namespace?: string } | undefined,
+    routing: { channel?: string; channelScope?: string | null } | undefined,
   ): asserts payload is Record<string, unknown>;
 
   /**

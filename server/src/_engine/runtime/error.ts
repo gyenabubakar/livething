@@ -21,18 +21,14 @@ interface ErrorHandlerDeps {
 
 /**
  * Pull a `ResolvedScope` out of the `__wskit` routing markers on a runtime
- * error so `onError` sees `ctx.namespace` / `ctx.channel` matching the throwing
- * handler. Returns `undefined` for unknown or malformed routing — hooks still
- * observe the error at top level.
+ * error so `onError` sees `ctx.channel` matching the throwing handler. Returns
+ * `undefined` for unknown or malformed routing — hooks still observe the error
+ * at top level.
  */
 export function resolveScopeFromRouting(
   core: EngineCore,
   routing: Protocol.WSKitRouting,
 ): ResolvedScope | undefined {
-  if (routing.namespace !== undefined) {
-    const namespace = core.compiled.namespaces.get(routing.namespace);
-    if (namespace) return { namespace };
-  }
   if (routing.channel !== undefined) {
     if (routing.channelScope != null) {
       const family = core.compiled.channelFamilies.get(routing.channelScope);

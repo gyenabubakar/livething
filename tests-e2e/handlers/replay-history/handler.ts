@@ -3,7 +3,6 @@ import {
   contract,
   implement,
   incoming,
-  namespace,
   outgoing,
   request,
   scope,
@@ -61,10 +60,6 @@ export const replayContract = contract('replay-test', {
 
     request('get-token', { payload: GetToken, response: TokenResponse }),
     stream('start-tiny-stream', { payload: StartTinyStream, chunk: TinyChunk }),
-
-    namespace('admin', {
-      definitions: [outgoing('chat-msg', ChatMsg), incoming('send-admin-msg', SendMsg)],
-    }),
 
     channel('replay-room', {
       replay: true,
@@ -156,11 +151,6 @@ export const replayHandler = implement(replayContract)
   .stream('start-tiny-stream', async function* () {
     yield { value: 'one' };
   })
-  .namespace('admin', (ns) =>
-    ns.on('send-admin-msg', (ctx, payload) => {
-      ctx.namespace.send('chat-msg', { text: payload.text, from: ctx.meta.username });
-    }),
-  )
   .channel('replay-room', (ch) =>
     ch
       .on('send-room-msg', (ctx, payload) => {

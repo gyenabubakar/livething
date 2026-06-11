@@ -11,7 +11,7 @@ const ACK_KEY = Symbol('ack');
  * Internal factory for the ack primitive. Enable ack on a contract by setting
  * `ack: true` in the contract config; the implementer compiles that flag into
  * this primitive and the engine extends every top-level connection context
- * with `ctx.ack()`. Namespace and channel contexts do not receive `ctx.ack()`.
+ * with `ctx.ack()`. Channel contexts do not receive `ctx.ack()`.
  *
  * Calling `ctx.ack()` confirms a message was received and processed; the
  * client's `send.withAck()` promise resolves when the ack frame arrives.
@@ -42,14 +42,11 @@ export function ack(): AckPrimitive {
         const base = ctx as Record<PropertyKey, unknown> & { id?: string; ack?: () => void };
 
         // Read the internal scope metadata the engine attaches to every context.
-        // If this context belongs to a namespace or channel, skip adding ack —
-        // those scopes do not represent a single connection and cannot ack.
-        const scope =
-          (base[ENGINE_SCOPE_META] as
-            | { namespaceName?: string; channelName?: string }
-            | undefined) ?? {};
+        // If this context belongs to a channel, skip adding ack — that scope
+        // does not represent a single connection and cannot ack.
+        const scope = (base[ENGINE_SCOPE_META] as { channelName?: string } | undefined) ?? {};
 
-        if (scope.namespaceName || scope.channelName || !base.id) {
+        if (scope.channelName || !base.id) {
           return {};
         }
 

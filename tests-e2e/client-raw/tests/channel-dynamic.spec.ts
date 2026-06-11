@@ -294,43 +294,6 @@ test.describe('channel-dynamic', () => {
     );
   });
 
-  test('regular events tagged with an unknown namespace do not fall back to top-level handlers', async ({
-    page,
-  }, testInfo) => {
-    // A client tagging `top-only-action` with `namespace: 'typo'` claims
-    // the event happens inside a namespace scope. The namespace doesn't
-    // exist — the engine must reject the message rather than fall through
-    // to the top-level handler.
-    await openPage(page, `test-${testInfo.testId}`);
-
-    // Sanity: the top-level handler fires when no scope marker is present.
-    await page.evaluate(() => {
-      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
-      ws?.send(JSON.stringify({ event: 'top-only-action', payload: {} }));
-    });
-    await expect(page.getByTestId('top-only-action-fired')).toHaveText('testuser');
-
-    // Now claim an unknown namespace. Pre-fix this fell back to the
-    // top-level handler. Post-fix the engine emits a `__error__` with code
-    // `namespace-not-found` and the top-level handler does not fire again.
-    await page.evaluate(() => {
-      const ws = (window as unknown as { __ws?: WebSocket }).__ws;
-      ws?.send(
-        JSON.stringify({
-          event: 'top-only-action',
-          payload: {},
-          __wskit: { namespace: 'typo' },
-        }),
-      );
-    });
-
-    // Wait for any rogue dispatch to have arrived.
-    await page.waitForTimeout(1000);
-    // The top-level handler did NOT fire a second time — value still from
-    // the sanity check (the page overwrites on each fire).
-    expect(await page.getByTestId('top-only-action-fired').textContent()).toBe('testuser');
-  });
-
   test('two concurrent _subscribe with an awaited check each see the other on initial sync', async ({
     page,
   }, testInfo) => {

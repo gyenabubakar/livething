@@ -44,10 +44,6 @@ describe('resolveScopeKey', () => {
     expect(resolveScopeKey({ id: 'c1' })).toBe('top');
   });
 
-  it('uses namespace name', () => {
-    expect(resolveScopeKey({ id: 'c1', namespace: { name: 'ai' } })).toBe('ns:ai');
-  });
-
   it('uses channel family key when present', () => {
     expect(resolveScopeKey({ id: 'c1', channel: { name: 'room-1', scope: 'rooms' } })).toBe(
       'channel:rooms',
@@ -58,16 +54,6 @@ describe('resolveScopeKey', () => {
     expect(resolveScopeKey({ id: 'c1', channel: { name: 'lobby', scope: null } })).toBe(
       'channel:lobby',
     );
-  });
-
-  it('combines namespace and channel', () => {
-    expect(
-      resolveScopeKey({
-        id: 'c1',
-        namespace: { name: 'admin' },
-        channel: { name: 'audit-42', scope: 'audit' },
-      }),
-    ).toBe('ns:admin:channel:audit');
   });
 });
 

@@ -8,7 +8,6 @@ export {
   implement,
   incoming,
   matches,
-  namespace,
   nudge,
   outgoing,
   recordedStream,
@@ -33,8 +32,6 @@ export type {
   Definition,
   FrameFor,
   TagGroupHandle,
-  NamespaceContract,
-  NamespaceCtx,
   TagRefHandle,
   TagsApi,
 } from './_api/index.ts';

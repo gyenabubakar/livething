@@ -8,7 +8,6 @@ describe('ReplayCustomClient — no-any guard', () => {
     expectTypeOf<ReplayCustomClient['requests']>().not.toBeAny();
     expectTypeOf<ReplayCustomClient['streams']>().not.toBeAny();
     expectTypeOf<ReplayCustomClient['channels']>().not.toBeAny();
-    expectTypeOf<ReplayCustomClient['namespaces']>().not.toBeAny();
     expectTypeOf<ReplayCustomClient['errors']>().not.toBeAny();
   });
 });
@@ -145,7 +144,6 @@ describe('ReplayCustomClient — builtin errors', () => {
     expectTypeOf<ReplayCustomClient['errors']>().toHaveProperty('validation-failed');
     expectTypeOf<ReplayCustomClient['errors']>().toHaveProperty('channel-not-found');
     expectTypeOf<ReplayCustomClient['errors']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<ReplayCustomClient['errors']>().toHaveProperty('namespace-not-found');
     expectTypeOf<ReplayCustomClient['errors']>().toHaveProperty('internal-error');
   });
 });

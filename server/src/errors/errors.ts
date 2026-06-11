@@ -19,8 +19,6 @@ export {
   ChannelNotFound,
   ChannelNotSubscribed,
   InternalError,
-  InvalidScopeMarkers,
-  NamespaceNotFound,
   NudgeOverflow,
   RateLimited,
   RejoinRejected,

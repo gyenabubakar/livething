@@ -43,12 +43,6 @@ test.describe('group-full-surface (conformance)', () => {
     await expect(page.getByTestId('feed-end')).toHaveText('yes');
   });
 
-  test('namespace v1-ping returns v1-pong', async ({ page }, testInfo) => {
-    await open(page, `gfs-ns-${testInfo.testId}`, 'alice');
-    await page.getByTestId('ns-ping').click();
-    await expect(page.getByTestId('ns-pong')).toHaveText('yes');
-  });
-
   test('channel send-msg broadcasts back as room-msg to subscribers', async ({
     browser,
   }, testInfo) => {

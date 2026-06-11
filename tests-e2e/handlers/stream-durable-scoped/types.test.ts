@@ -8,7 +8,6 @@ describe('StreamDurableScopedClient — no-any guard', () => {
     expectTypeOf<StreamDurableScopedClient['requests']>().not.toBeAny();
     expectTypeOf<StreamDurableScopedClient['streams']>().not.toBeAny();
     expectTypeOf<StreamDurableScopedClient['channels']>().not.toBeAny();
-    expectTypeOf<StreamDurableScopedClient['namespaces']>().not.toBeAny();
     expectTypeOf<StreamDurableScopedClient['errors']>().not.toBeAny();
   });
 });
@@ -161,51 +160,6 @@ describe('StreamDurableScopedClient — channels.rooms streams', () => {
   });
 });
 
-describe('StreamDurableScopedClient — namespaces.v1 streams', () => {
-  it('has v1 namespace', () => {
-    expectTypeOf<StreamDurableScopedClient['namespaces']>().toHaveProperty('v1');
-  });
-
-  it('v1 has logs (recordedStream)', () => {
-    expectTypeOf<StreamDurableScopedClient['namespaces']['v1']['streams']>().toHaveProperty('logs');
-  });
-
-  it('logs chunk is correct', () => {
-    expectTypeOf<
-      StreamDurableScopedClient['namespaces']['v1']['streams']['logs']['chunk']
-    >().toEqualTypeOf<{
-      line: string;
-    }>();
-  });
-
-  it('v1 has audit-export (resumableStream — no cursor)', () => {
-    expectTypeOf<StreamDurableScopedClient['namespaces']['v1']['streams']>().toHaveProperty(
-      'audit-export',
-    );
-    expectTypeOf<
-      StreamDurableScopedClient['namespaces']['v1']['streams']['audit-export']
-    >().not.toHaveProperty('cursor');
-  });
-
-  it('v1 has ns-tokens (basic stream with nudges)', () => {
-    expectTypeOf<StreamDurableScopedClient['namespaces']['v1']['streams']>().toHaveProperty(
-      'ns-tokens',
-    );
-    expectTypeOf<
-      StreamDurableScopedClient['namespaces']['v1']['streams']['ns-tokens']
-    >().toHaveProperty('nudges');
-  });
-
-  it('v1 has audit-nudged (resumableStream with nudges)', () => {
-    expectTypeOf<StreamDurableScopedClient['namespaces']['v1']['streams']>().toHaveProperty(
-      'audit-nudged',
-    );
-    expectTypeOf<
-      StreamDurableScopedClient['namespaces']['v1']['streams']['audit-nudged']
-    >().toHaveProperty('nudges');
-  });
-});
-
 describe('StreamDurableScopedClient — stream kind', () => {
   it('top-level streams have correct resumable flags', () => {
     expectTypeOf<
@@ -242,21 +196,6 @@ describe('StreamDurableScopedClient — stream kind', () => {
       StreamDurableScopedClient['channels']['rooms']['streams']['history-nudged']['kind']
     >().toEqualTypeOf<'persistent'>();
   });
-
-  it('namespace streams have correct resumable flags', () => {
-    expectTypeOf<
-      StreamDurableScopedClient['namespaces']['v1']['streams']['ns-tokens']['kind']
-    >().toEqualTypeOf<'ephemeral'>();
-    expectTypeOf<
-      StreamDurableScopedClient['namespaces']['v1']['streams']['audit-export']['kind']
-    >().toEqualTypeOf<'persistent'>();
-    expectTypeOf<
-      StreamDurableScopedClient['namespaces']['v1']['streams']['audit-nudged']['kind']
-    >().toEqualTypeOf<'persistent'>();
-    expectTypeOf<
-      StreamDurableScopedClient['namespaces']['v1']['streams']['logs']['kind']
-    >().toEqualTypeOf<'persistent'>();
-  });
 });
 
 describe('StreamDurableScopedClient — empty slots', () => {
@@ -278,7 +217,6 @@ describe('StreamDurableScopedClient — builtin errors', () => {
     expectTypeOf<StreamDurableScopedClient['errors']>().toHaveProperty('validation-failed');
     expectTypeOf<StreamDurableScopedClient['errors']>().toHaveProperty('channel-not-found');
     expectTypeOf<StreamDurableScopedClient['errors']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<StreamDurableScopedClient['errors']>().toHaveProperty('namespace-not-found');
     expectTypeOf<StreamDurableScopedClient['errors']>().toHaveProperty('internal-error');
   });
 });

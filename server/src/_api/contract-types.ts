@@ -8,7 +8,6 @@ import type {
   ChannelDef,
   Definition,
   IncomingDef,
-  NamespaceDef,
   NudgeDef,
   OutgoingDef,
   RecordedStreamDef,
@@ -62,7 +61,6 @@ interface EmptyCats {
   readonly recordedStreams: {};
   readonly scheduled: {};
   readonly channels: {};
-  readonly namespaces: {};
 }
 
 type AddOne<Acc, D> =
@@ -104,9 +102,7 @@ type AddOne<Acc, D> =
                         >
                       >;
                     }
-                  : D extends NamespaceDef<infer N, infer Defs>
-                    ? Acc & { readonly namespaces: Record<N, NamespaceContract<Defs>> }
-                    : Acc;
+                  : Acc;
 
 type Categorize<TDefs extends readonly Definition[], Acc = EmptyCats> = TDefs extends readonly [
   infer Head,
@@ -138,11 +134,6 @@ export type ChannelContract<
      */
     readonly __addressing: TAddressing;
   };
-
-export type NamespaceContract<TDefs extends readonly Definition[] = readonly Definition[]> = Pick<
-  Categorize<TDefs>,
-  'incoming' | 'outgoing' | 'requests' | 'streams' | 'resumableStreams' | 'recordedStreams'
->;
 
 // ---------------------------------------------------------------------------
 // ContractConfig — the shape passed to contract()
@@ -191,7 +182,7 @@ export interface ContractConfig {
   readonly keepalive?: KeepaliveOptions;
   /**
    * Top-level rate-limit rule. Applies to every event in every scope unless a
-   * channel, namespace, or per-handler override replaces it. `{ enabled: false }`
+   * channel or per-handler override replaces it. `{ enabled: false }`
    * here means "no enforcement anywhere by default" — children can still opt in.
    */
   readonly rateLimit?: RateLimitConfig;
@@ -382,7 +373,6 @@ export interface Contract<TConfig = unknown, TEnv = unknown> {
   readonly resumableStreams: ContractCats<TConfig>['resumableStreams'];
   readonly recordedStreams: ContractCats<TConfig>['recordedStreams'];
   readonly channels: ContractCats<TConfig>['channels'];
-  readonly namespaces: ContractCats<TConfig>['namespaces'];
   readonly scheduled: ContractCats<TConfig>['scheduled'] &
     PluginScheduledFromPlugins<PluginsFromConfig<TConfig>>;
   readonly errors: ErrorMapFromConfig<TConfig> &

@@ -44,12 +44,8 @@ function scopeMatches(
   scope: ScopeMarkers | undefined,
   envelope: WSKitEnvelope | undefined,
 ): boolean {
-  if (!scope) return envelope?.channel === undefined && envelope?.namespace === undefined;
-  return (
-    scope.channel === envelope?.channel &&
-    scope.channelScope === envelope?.channelScope &&
-    scope.namespace === envelope?.namespace
-  );
+  if (!scope) return envelope?.channel === undefined;
+  return scope.channel === envelope?.channel && scope.channelScope === envelope?.channelScope;
 }
 
 /** The `stream-aborted` reason on an error, if any. */

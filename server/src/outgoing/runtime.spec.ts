@@ -36,7 +36,6 @@ function createRuntime(overrides: Partial<OutgoingRuntime> = {}): OutgoingRuntim
       streams: new Map(),
       resumableStreams: new Map(),
       recordedStreams: new Map(),
-      namespaces: new Map(),
       channels: new Map(),
       channelFamilies: new Map(),
       plugins: [],
@@ -221,40 +220,6 @@ describe('outgoing/runtime sendThroughPipeline', () => {
     ).toThrow(/Outgoing event "__madeUp__" was not declared in the active scope/);
   });
 
-  it('accepts an event declared in a namespace scope when namespace routing is provided', () => {
-    const runtime = createRuntime({
-      compiled: {
-        outgoing: new Map(),
-        streams: new Map(),
-        resumableStreams: new Map(),
-        recordedStreams: new Map(),
-        namespaces: new Map([
-          [
-            'admin',
-            {
-              outgoing: new Map([['ns-event', { event: 'ns-event' }]]),
-              streams: new Map(),
-              resumableStreams: new Map(),
-              recordedStreams: new Map(),
-            },
-          ],
-        ]),
-        channels: new Map(),
-        channelFamilies: new Map(),
-        plugins: [],
-      } as unknown as OutgoingRuntime['compiled'],
-    });
-    const connection = createConnection();
-
-    expect(() =>
-      sendThroughPipeline(runtime, connection, {
-        routing: { namespace: 'admin' },
-        event: 'ns-event',
-        payload: { a: 1 },
-      }),
-    ).not.toThrow();
-  });
-
   it('accepts an event declared in a channel family scope when channelScope routing is provided', () => {
     const runtime = createRuntime({
       compiled: {
@@ -262,7 +227,6 @@ describe('outgoing/runtime sendThroughPipeline', () => {
         streams: new Map(),
         resumableStreams: new Map(),
         recordedStreams: new Map(),
-        namespaces: new Map(),
         channels: new Map(),
         channelFamilies: new Map([
           [
@@ -289,41 +253,6 @@ describe('outgoing/runtime sendThroughPipeline', () => {
     ).not.toThrow();
   });
 
-  it('throws when an undeclared event is sent inside a namespace scope', () => {
-    const runtime = createRuntime({
-      compiled: {
-        outgoing: new Map(),
-        streams: new Map(),
-        resumableStreams: new Map(),
-        recordedStreams: new Map(),
-        namespaces: new Map([
-          [
-            'admin',
-            {
-              outgoing: new Map([['ns-event', { event: 'ns-event' }]]),
-              streams: new Map(),
-              resumableStreams: new Map(),
-              recordedStreams: new Map(),
-            },
-          ],
-        ]),
-        channels: new Map(),
-        channelFamilies: new Map(),
-        plugins: [],
-      } as unknown as OutgoingRuntime['compiled'],
-    });
-    const connection = createConnection();
-
-    // 'other-event' is not in the admin namespace's outgoing declarations.
-    expect(() =>
-      sendThroughPipeline(runtime, connection, {
-        routing: { namespace: 'admin' },
-        event: 'other-event',
-        payload: {},
-      }),
-    ).toThrow(/Outgoing event "other-event" was not declared in the active scope/);
-  });
-
   it('accepts an event declared in a named channel scope when channel routing is provided', () => {
     const runtime = createRuntime({
       compiled: {
@@ -331,7 +260,6 @@ describe('outgoing/runtime sendThroughPipeline', () => {
         streams: new Map(),
         resumableStreams: new Map(),
         recordedStreams: new Map(),
-        namespaces: new Map(),
         channels: new Map([
           [
             'general',
@@ -571,7 +499,6 @@ describe('broadcastToChannel — fanout resilience', () => {
           streams: new Map(),
           resumableStreams: new Map(),
           recordedStreams: new Map(),
-          namespaces: new Map(),
           channels: new Map([['general', { outgoing: new Map([['msg', { event: 'msg' }]]) }]]),
           channelFamilies: new Map(),
           plugins: [],

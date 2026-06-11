@@ -8,7 +8,6 @@ describe('StaticVsFamilyIsolationClient — no-any guard', () => {
     expectTypeOf<StaticVsFamilyIsolationClient['requests']>().not.toBeAny();
     expectTypeOf<StaticVsFamilyIsolationClient['streams']>().not.toBeAny();
     expectTypeOf<StaticVsFamilyIsolationClient['channels']>().not.toBeAny();
-    expectTypeOf<StaticVsFamilyIsolationClient['namespaces']>().not.toBeAny();
     expectTypeOf<StaticVsFamilyIsolationClient['errors']>().not.toBeAny();
   });
 });
@@ -139,10 +138,6 @@ describe('StaticVsFamilyIsolationClient — empty slots', () => {
   it('streams is empty', () => {
     expectTypeOf<keyof StaticVsFamilyIsolationClient['streams']>().toBeNever();
   });
-
-  it('namespaces is empty', () => {
-    expectTypeOf<keyof StaticVsFamilyIsolationClient['namespaces']>().toBeNever();
-  });
 });
 
 describe('StaticVsFamilyIsolationClient — builtin errors', () => {
@@ -152,7 +147,6 @@ describe('StaticVsFamilyIsolationClient — builtin errors', () => {
     expectTypeOf<StaticVsFamilyIsolationClient['errors']>().toHaveProperty(
       'channel-not-subscribed',
     );
-    expectTypeOf<StaticVsFamilyIsolationClient['errors']>().toHaveProperty('namespace-not-found');
     expectTypeOf<StaticVsFamilyIsolationClient['errors']>().toHaveProperty('internal-error');
   });
 });

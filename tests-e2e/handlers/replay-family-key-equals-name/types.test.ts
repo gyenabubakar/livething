@@ -8,7 +8,6 @@ describe('ReplayFamilyKeyEqualsNameClient — no-any guard', () => {
     expectTypeOf<ReplayFamilyKeyEqualsNameClient['requests']>().not.toBeAny();
     expectTypeOf<ReplayFamilyKeyEqualsNameClient['streams']>().not.toBeAny();
     expectTypeOf<ReplayFamilyKeyEqualsNameClient['channels']>().not.toBeAny();
-    expectTypeOf<ReplayFamilyKeyEqualsNameClient['namespaces']>().not.toBeAny();
     expectTypeOf<ReplayFamilyKeyEqualsNameClient['errors']>().not.toBeAny();
   });
 });
@@ -28,10 +27,6 @@ describe('ReplayFamilyKeyEqualsNameClient — top-level slots are empty', () => 
 
   it('streams is empty', () => {
     expectTypeOf<keyof ReplayFamilyKeyEqualsNameClient['streams']>().toBeNever();
-  });
-
-  it('namespaces is empty', () => {
-    expectTypeOf<keyof ReplayFamilyKeyEqualsNameClient['namespaces']>().toBeNever();
   });
 });
 
@@ -70,7 +65,6 @@ describe('ReplayFamilyKeyEqualsNameClient — builtin errors', () => {
     expectTypeOf<ReplayFamilyKeyEqualsNameClient['errors']>().toHaveProperty(
       'channel-not-subscribed',
     );
-    expectTypeOf<ReplayFamilyKeyEqualsNameClient['errors']>().toHaveProperty('namespace-not-found');
     expectTypeOf<ReplayFamilyKeyEqualsNameClient['errors']>().toHaveProperty('internal-error');
   });
 });

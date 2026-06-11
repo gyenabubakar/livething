@@ -8,7 +8,6 @@ describe('ErrorsControlFlowClient — no-any guard', () => {
     expectTypeOf<ErrorsControlFlowClient['requests']>().not.toBeAny();
     expectTypeOf<ErrorsControlFlowClient['streams']>().not.toBeAny();
     expectTypeOf<ErrorsControlFlowClient['channels']>().not.toBeAny();
-    expectTypeOf<ErrorsControlFlowClient['namespaces']>().not.toBeAny();
     expectTypeOf<ErrorsControlFlowClient['errors']>().not.toBeAny();
   });
 });
@@ -146,7 +145,6 @@ describe('ErrorsControlFlowClient — builtin errors', () => {
     expectTypeOf<ErrorsControlFlowClient['errors']>().toHaveProperty('validation-failed');
     expectTypeOf<ErrorsControlFlowClient['errors']>().toHaveProperty('channel-not-found');
     expectTypeOf<ErrorsControlFlowClient['errors']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<ErrorsControlFlowClient['errors']>().toHaveProperty('namespace-not-found');
     expectTypeOf<ErrorsControlFlowClient['errors']>().toHaveProperty('internal-error');
   });
 });

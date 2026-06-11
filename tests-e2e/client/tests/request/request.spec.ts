@@ -26,12 +26,6 @@ test.describe('request (conformance)', () => {
     await expect(page.getByTestId('no-response-error')).toHaveText('request-no-response');
   });
 
-  test('namespace-scoped request resolves inside the namespace', async ({ page }, testInfo) => {
-    await open(page, `req-ns-${testInfo.testId}`);
-    await page.getByTestId('ns-info').click();
-    await expect(page.getByTestId('ns-result')).toHaveText('ns');
-  });
-
   test('channel-scoped request resolves after subscribe', async ({ page }, testInfo) => {
     await open(page, `req-ch-${testInfo.testId}`);
     await page.getByTestId('sub-room').click();

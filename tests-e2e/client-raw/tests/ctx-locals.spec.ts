@@ -18,16 +18,6 @@ test.describe('ctx-locals', () => {
     await expect(page.getByTestId('echoed')).toHaveText('hello:top:none');
   });
 
-  test('top-level provide is visible inside a namespace handler; namespace provide adds its value', async ({
-    page,
-  }, testInfo) => {
-    await openPage(page, `test-${testInfo.testId}`);
-    await page.getByTestId('send-ns-echo').click();
-    // Top intercept ran first → TopKey = 'top'
-    // Ns intercept ran next → NsKey = 'ns'
-    await expect(page.getByTestId('echoed')).toHaveText('hello:top:ns');
-  });
-
   test('channel intercept provides a value the channel handler can inject', async ({
     page,
   }, testInfo) => {
@@ -66,14 +56,6 @@ test.describe('ctx-locals', () => {
     await openPage(page, `test-${testInfo.testId}`);
     await page.getByTestId('lookup-top').click();
     await expect(page.getByTestId('lookup-result')).toHaveText('hello:top:none');
-  });
-
-  test('namespace request handler can inject values from top-level and namespace intercepts', async ({
-    page,
-  }, testInfo) => {
-    await openPage(page, `test-${testInfo.testId}`);
-    await page.getByTestId('lookup-ns').click();
-    await expect(page.getByTestId('lookup-result')).toHaveText('hello:top:ns');
   });
 
   test('channel request handler can inject values from top-level and channel intercepts', async ({

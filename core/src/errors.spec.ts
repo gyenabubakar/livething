@@ -5,8 +5,6 @@ import {
   CloseCodes,
   error,
   InternalError,
-  InvalidScopeMarkers,
-  NamespaceNotFound,
   RateLimited,
   RequestNoResponse,
   StreamAborted,
@@ -396,8 +394,6 @@ describe.each([
     code: 'channel-not-subscribed' as const,
   },
   { name: 'InternalError', def: InternalError, code: 'internal-error' as const },
-  { name: 'InvalidScopeMarkers', def: InvalidScopeMarkers, code: 'invalid-scope-markers' as const },
-  { name: 'NamespaceNotFound', def: NamespaceNotFound, code: 'namespace-not-found' as const },
   { name: 'RequestNoResponse', def: RequestNoResponse, code: 'request-no-response' as const },
   { name: 'StreamIdCollision', def: StreamIdCollision, code: 'stream-id-collision' as const },
 ])('$name (code-only built-in)', ({ def, code }) => {
@@ -619,7 +615,7 @@ describe('factory throw + catch + .matches() roundtrip', () => {
       throw ChannelNotFound();
     } catch (err) {
       expect(ChannelNotFound.matches(err)).toBe(true);
-      expect(NamespaceNotFound.matches(err)).toBe(false);
+      expect(StreamAborted.matches(err)).toBe(false);
     }
   });
 
@@ -652,8 +648,6 @@ describe('built-in error codes', () => {
       ChannelNotFound: ChannelNotFound.code,
       ChannelNotSubscribed: ChannelNotSubscribed.code,
       InternalError: InternalError.code,
-      InvalidScopeMarkers: InvalidScopeMarkers.code,
-      NamespaceNotFound: NamespaceNotFound.code,
       RequestNoResponse: RequestNoResponse.code,
       StreamAborted: StreamAborted.code,
       StreamAlreadyActive: StreamAlreadyActive.code,
@@ -663,8 +657,6 @@ describe('built-in error codes', () => {
       ChannelNotFound: 'channel-not-found',
       ChannelNotSubscribed: 'channel-not-subscribed',
       InternalError: 'internal-error',
-      InvalidScopeMarkers: 'invalid-scope-markers',
-      NamespaceNotFound: 'namespace-not-found',
       RequestNoResponse: 'request-no-response',
       StreamAborted: 'stream-aborted',
       StreamAlreadyActive: 'stream-already-active',

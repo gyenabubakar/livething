@@ -76,14 +76,12 @@ const RequiredChannelScope = {
 };
 
 /**
- * Scope markers for a frame that may be top-level, namespace-, or
- * channel-scoped. Every field is optional; `channelScope` still resolves to
- * `null` when absent.
+ * Scope markers for a frame that may be top-level or channel-scoped. Every
+ * field is optional; `channelScope` still resolves to `null` when absent.
  */
 const OptionalScope = {
   channel: v.optional(ChannelName),
   channelScope: v.nullish(ScopeKey, null),
-  namespace: v.optional(ScopeKey),
 };
 
 /**
@@ -283,7 +281,6 @@ export const WSKitProtocolSchema = v.strictObject({
   correlationId: v.optional(WireId),
   channel: v.optional(ChannelName),
   channelScope: v.nullish(ScopeKey, null),
-  namespace: v.optional(ScopeKey),
   ackId: v.optional(WireId),
   streamId: v.optional(StreamIdString),
   streamKind: v.optional(StreamKind),

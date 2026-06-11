@@ -8,7 +8,6 @@ describe('CtxSqlClient — no-any guard', () => {
     expectTypeOf<CtxSqlClient['requests']>().not.toBeAny();
     expectTypeOf<CtxSqlClient['streams']>().not.toBeAny();
     expectTypeOf<CtxSqlClient['channels']>().not.toBeAny();
-    expectTypeOf<CtxSqlClient['namespaces']>().not.toBeAny();
     expectTypeOf<CtxSqlClient['errors']>().not.toBeAny();
   });
 });
@@ -96,10 +95,6 @@ describe('CtxSqlClient — empty slots', () => {
   it('channels is empty', () => {
     expectTypeOf<keyof CtxSqlClient['channels']>().toBeNever();
   });
-
-  it('namespaces is empty', () => {
-    expectTypeOf<keyof CtxSqlClient['namespaces']>().toBeNever();
-  });
 });
 
 describe('CtxSqlClient — builtin errors', () => {
@@ -107,7 +102,6 @@ describe('CtxSqlClient — builtin errors', () => {
     expectTypeOf<CtxSqlClient['errors']>().toHaveProperty('validation-failed');
     expectTypeOf<CtxSqlClient['errors']>().toHaveProperty('channel-not-found');
     expectTypeOf<CtxSqlClient['errors']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<CtxSqlClient['errors']>().toHaveProperty('namespace-not-found');
     expectTypeOf<CtxSqlClient['errors']>().toHaveProperty('internal-error');
   });
 });

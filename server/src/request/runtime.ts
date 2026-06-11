@@ -91,7 +91,6 @@ export async function handleRequest(
 
   runtime.sendThroughPipeline(connection, {
     routing: {
-      namespace: scope.namespace?.name,
       channel: scope.channelName,
       channelScope: scope.channelScope,
       correlationId,

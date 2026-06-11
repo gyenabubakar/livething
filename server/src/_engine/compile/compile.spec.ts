@@ -5,7 +5,6 @@ import { implement } from '~/_api/implement.ts';
 import { scope } from '~/channel/channel.ts';
 import { channel } from '~/channel/definition.ts';
 import { incoming } from '~/incoming/definition.ts';
-import { namespace } from '~/namespace/definition.ts';
 import { plugin } from '~/plugins/plugin.ts';
 import { recordedStream } from '~/stream-recorded/definition.ts';
 import { resumableStream } from '~/stream-resumable/definition.ts';
@@ -114,38 +113,6 @@ describe('boot-time cross-primitive collision guard', () => {
     );
   });
 
-  it('rejects the collision inside a namespace scope', () => {
-    const c = contract('app', {
-      env: t<Record<string, unknown>>(),
-      persistence: true,
-      definitions: [
-        namespace('v1', {
-          definitions: [
-            resumableStream('feed', { payload: v.object({}), chunk: v.object({}) }),
-            recordedStream('feed', { payload: v.object({}), chunk: v.object({}) }),
-          ],
-        }),
-      ],
-    });
-    expect(() =>
-      compileHandlerDefinition(
-        implement(c)
-          .namespace('v1', (ns) =>
-            ns
-              .resumableStream('feed', async function* () {
-                yield {};
-              })
-              .recordedStream('feed', async function* () {
-                yield {};
-              }),
-          )
-          .build(),
-      ),
-    ).toThrow(
-      /Event name 'feed' is registered as both 'resumableStream' and 'recordedStream' in namespace 'v1'/,
-    );
-  });
-
   it('rejects the collision inside a channel-family scope', () => {
     const c = contract('app', {
       env: t<Record<string, unknown>>(),
@@ -206,38 +173,6 @@ describe('boot-time cross-primitive collision guard', () => {
   });
 });
 
-describe('namespace cannot contain a channel or another namespace', () => {
-  it('build throws when a channel is declared inside a namespace via `as any`', () => {
-    const sneakyContract = contract('app', {
-      env: t<Record<string, unknown>>(),
-      definitions: [
-        namespace('admin', {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          definitions: [channel('audit', { definitions: [] }) as any],
-        }),
-      ],
-    });
-    expect(() => compileHandlerDefinition(implement(sneakyContract).build())).toThrow(
-      /namespace 'admin' contains channel 'audit'/,
-    );
-  });
-
-  it('build throws when a namespace is nested inside another namespace via `as any`', () => {
-    const sneakyContract = contract('app', {
-      env: t<Record<string, unknown>>(),
-      definitions: [
-        namespace('outer', {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          definitions: [namespace('inner', { definitions: [] }) as any],
-        }),
-      ],
-    });
-    expect(() => compileHandlerDefinition(implement(sneakyContract).build())).toThrow(
-      /namespace 'outer' contains namespace 'inner'/,
-    );
-  });
-});
-
 describe('scope and event name syntax — reserved characters', () => {
   it('rejects a channel name starting with @', () => {
     const c = contract('app', {
@@ -259,26 +194,6 @@ describe('scope and event name syntax — reserved characters', () => {
     );
   });
 
-  it('rejects a namespace name starting with @', () => {
-    const c = contract('app', {
-      env: t<Record<string, unknown>>(),
-      definitions: [namespace('@admin', { definitions: [] })],
-    });
-    expect(() => compileHandlerDefinition(implement(c).build())).toThrow(
-      /namespace name '@admin' starts with a reserved prefix character/,
-    );
-  });
-
-  it('rejects a namespace name starting with #', () => {
-    const c = contract('app', {
-      env: t<Record<string, unknown>>(),
-      definitions: [namespace('#admin', { definitions: [] })],
-    });
-    expect(() => compileHandlerDefinition(implement(c).build())).toThrow(
-      /namespace name '#admin' starts with a reserved prefix character/,
-    );
-  });
-
   it('rejects a channel name containing ::', () => {
     const c = contract('app', {
       env: t<Record<string, unknown>>(),
@@ -286,16 +201,6 @@ describe('scope and event name syntax — reserved characters', () => {
     });
     expect(() => compileHandlerDefinition(implement(c).build())).toThrow(
       /channel name 'chat::rooms' contains '::'/,
-    );
-  });
-
-  it('rejects a namespace name containing ::', () => {
-    const c = contract('app', {
-      env: t<Record<string, unknown>>(),
-      definitions: [namespace('admin::v1', { definitions: [] })],
-    });
-    expect(() => compileHandlerDefinition(implement(c).build())).toThrow(
-      /namespace name 'admin::v1' contains '::'/,
     );
   });
 
@@ -337,20 +242,6 @@ describe('scope and event name syntax — reserved characters', () => {
     ).toThrow(/Event name 'send::message' in channel 'chat' contains '::'/);
   });
 
-  it('rejects an event name containing :: inside a namespace', () => {
-    const c = contract('app', {
-      env: t<Record<string, unknown>>(),
-      definitions: [namespace('admin', { definitions: [incoming('send::message', v.object({}))] })],
-    });
-    expect(() =>
-      compileHandlerDefinition(
-        implement(c)
-          .namespace('admin', (ns) => ns.on('send::message', () => {}))
-          .build(),
-      ),
-    ).toThrow(/Event name 'send::message' in namespace 'admin' contains '::'/);
-  });
-
   it('rejects a stream event name containing ::', () => {
     const c = contract('app', {
       env: t<Record<string, unknown>>(),
@@ -372,7 +263,6 @@ describe('scope and event name syntax — reserved characters', () => {
       env: t<Record<string, unknown>>(),
       definitions: [
         channel('chat@v1', { definitions: [] }),
-        namespace('admin#v2', { definitions: [] }),
         incoming('user:created', v.object({})),
       ],
     });
@@ -423,23 +313,6 @@ describe('boot-time same-kind duplicate guard', () => {
           .build(),
       ),
     ).toThrow(/Duplicate channel declaration for "room"/);
-  });
-
-  it('rejects two namespace declarations with the same name', () => {
-    const c = contract('app', {
-      env: t<Record<string, unknown>>(),
-      definitions: [
-        namespace('admin', { definitions: [incoming('hello', v.object({}))] }),
-        namespace('admin', { definitions: [incoming('world', v.object({}))] }),
-      ],
-    });
-    expect(() =>
-      compileHandlerDefinition(
-        implement(c)
-          .namespace('admin', (ns) => ns.on('hello', () => {}).on('world', () => {}))
-          .build(),
-      ),
-    ).toThrow(/Duplicate namespace declaration for "admin"/);
   });
 
   it('rejects a plugin whose dependencies are not enabled on the contract', () => {

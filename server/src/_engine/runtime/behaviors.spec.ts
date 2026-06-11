@@ -38,7 +38,6 @@ function baseCompiled() {
     resumableStreams: new Map(),
     recordedStreams: new Map(),
     intercepts: [],
-    namespaces: new Map(),
     channels: new Map(),
     channelFamilies: new Map(),
     scheduled: new Map(),

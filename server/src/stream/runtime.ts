@@ -55,7 +55,6 @@ interface StreamRuntime {
     opts: {
       routing:
         | {
-            namespace?: string;
             channel?: string;
             channelScope?: string | null;
             streamId?: string;
@@ -91,7 +90,6 @@ function buildStreamRouting(
   scope: ResolvedScope,
 ): Partial<Protocol.WSKitProtocol> {
   const wskit: Partial<Protocol.WSKitProtocol> = { streamId };
-  if (scope.namespace?.name) wskit.namespace = scope.namespace.name;
   if (scope.channelName) wskit.channel = scope.channelName;
   if (scope.channelScope) wskit.channelScope = scope.channelScope;
   return wskit;
@@ -343,7 +341,6 @@ export async function runStream(
 
       seq += 1;
       const chunkRouting = {
-        namespace: scope.namespace?.name,
         channel: scope.channelName,
         channelScope: scope.channelScope,
         streamId,
@@ -398,7 +395,6 @@ export async function runStream(
     }
   } catch (streamError) {
     const routing: Protocol.WSKitRouting = { streamId, streamTerminated: true };
-    if (scope.namespace?.name) routing.namespace = scope.namespace.name;
     if (scope.channelName) routing.channel = scope.channelName;
     if (scope.channelScope) routing.channelScope = scope.channelScope;
 

@@ -315,20 +315,20 @@ export interface BroadcastOptions {
 }
 
 /**
- * Send and broadcast helpers scoped to one namespace or channel.
+ * Send and broadcast helpers scoped to one channel.
  *
- * Available as `ctx.namespace` inside namespace handlers and `ctx.channel`
- * inside channel handlers. Both `send` and `broadcast` automatically scope
- * the outgoing event to the current namespace or channel name.
+ * Available as `ctx.channel` inside channel handlers. Both `send` and
+ * `broadcast` automatically scope the outgoing event to the current channel
+ * name.
  */
 export interface ScopeSendApi {
-  /** The resolved name of this namespace or channel instance. */
+  /** The resolved name of this channel instance. */
   readonly name: string;
 
-  /** Send an event only to the current connection, scoped to this namespace/channel. */
+  /** Send an event only to the current connection, scoped to this channel. */
   send(event: string, payload: unknown): boolean;
 
-  /** Broadcast an event to every connection in this namespace/channel. */
+  /** Broadcast an event to every connection in this channel. */
   broadcast(event: string, payload: unknown, options?: BroadcastOptions): void;
 }
 
@@ -342,7 +342,7 @@ export interface ScopeSendApi {
  */
 export interface ReplayScopeSendApi extends ScopeSendApi {
   /**
-   * Send a replayable event scoped to this namespace or channel.
+   * Send a replayable event scoped to this channel.
    *
    * Provide replay wire metadata so reconnecting clients can request missed
    * messages and deduplicate anything they already received.
@@ -520,7 +520,7 @@ export interface ChannelsManager<
  * Mental model, grouped by purpose:
  * - **identity** — `id`, `identity`, `self`, `meta`, `tags` (when `tagGroups` is set on the contract)
  * - **messaging** — `send`, `broadcast`, `sendToConnection`
- * - **scope helpers** — `namespace`, `channel`, `channels`
+ * - **scope helpers** — `channel`, `channels`
  * - **durability / platform** — `schedule`, `cancelScheduled`, `sql`, `kv`,
  *   `env`, `log`, `platform`, `waitUntil`
  */
@@ -604,9 +604,6 @@ export interface ConnectionContext<
   closeReason?: string;
 
   // Scope-aware routing helpers
-  /** Scoped send/broadcast when inside a namespace handler. */
-  namespace?: ScopeSendApi;
-
   /** Scoped send/broadcast when inside a channel handler, with optional replay support. */
   channel?: ReplayScopeSendApi;
 

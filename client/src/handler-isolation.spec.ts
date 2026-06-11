@@ -4,14 +4,12 @@
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { channels } from '~/primitives/channels/index.ts';
-import { namespaces } from '~/primitives/namespaces/index.ts';
 import { stream } from '~/primitives/stream/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 interface C {
   incoming: { message: unknown };
-  namespaces: { alerts: { incoming: { 'new-alert': unknown } } };
   channels: {
     general: { incoming: { message: unknown } };
     rooms: { addressing: 'dynamic'; incoming: { message: unknown } };
@@ -21,14 +19,6 @@ interface C {
 
 function connectedBase() {
   const socket = client<C>()(connect('wss://test'));
-  socket.connect();
-  const ws = MockWebSocket.last();
-  ws.open();
-  return { socket, ws };
-}
-
-function connectedNs() {
-  const socket = client<C>()(connect('wss://test'), namespaces());
   socket.connect();
   const ws = MockWebSocket.last();
   ws.open();
@@ -71,23 +61,6 @@ describe('a throwing message handler is isolated from its siblings', () => {
     socket.on('message', () => calls.push('B'));
 
     expect(() => ws.emit({ event: 'message', payload: {} })).not.toThrow();
-    expect(calls).toEqual(['A', 'B']);
-  });
-
-  it('namespace: a throwing handler still lets the other one run', () => {
-    const { socket, ws } = connectedNs();
-    socket.onError(() => {});
-    const alerts = socket.namespace('alerts');
-    const calls: string[] = [];
-    alerts.on('new-alert', () => {
-      calls.push('A');
-      throw new Error('boom');
-    });
-    alerts.on('new-alert', () => calls.push('B'));
-
-    expect(() =>
-      ws.emit({ event: 'new-alert', payload: {}, __wskit: { namespace: 'alerts' } }),
-    ).not.toThrow();
     expect(calls).toEqual(['A', 'B']);
   });
 

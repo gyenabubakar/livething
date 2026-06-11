@@ -90,7 +90,6 @@ describe('ChannelCheckCommitClient — builtin errors', () => {
     expectTypeOf<ChannelCheckCommitClient['errors']>().toHaveProperty('validation-failed');
     expectTypeOf<ChannelCheckCommitClient['errors']>().toHaveProperty('channel-not-found');
     expectTypeOf<ChannelCheckCommitClient['errors']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<ChannelCheckCommitClient['errors']>().toHaveProperty('namespace-not-found');
     expectTypeOf<ChannelCheckCommitClient['errors']>().toHaveProperty('internal-error');
   });
 });

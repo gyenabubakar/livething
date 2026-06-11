@@ -176,11 +176,5 @@ export const fullSurfaceGroup = group(groupFullSurfaceContract, (g) =>
           { excludeSelf: false },
         );
       }),
-    )
-
-    .namespace('v1', (ns) =>
-      ns.on('v1-ping', (ctx) => {
-        ctx.namespace.send('v1-pong', {});
-      }),
     ),
 );

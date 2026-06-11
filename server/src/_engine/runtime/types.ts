@@ -400,18 +400,16 @@ export interface PluginRuntime {
 /**
  * Extra routing metadata attached to one outgoing message.
  *
- * The engine uses this to carry namespace, channel, correlation, and stream
+ * The engine uses this to carry channel, correlation, and stream
  * routing information through the send pipeline.
  */
 export interface RoutingTarget {
-  namespace?: string;
-
   channel?: string;
 
   /**
    * Channel scope marker. `null` for static channels (no scope), a non-empty
    * family key for dynamic channel families, `undefined` when the route does
-   * not target a channel at all (e.g. a top-level or namespace send).
+   * not target a channel at all (e.g. a top-level send).
    */
   channelScope?: string | null;
 
@@ -437,12 +435,10 @@ export interface RoutingTarget {
 /**
  * The resolved scope for one incoming message.
  *
- * This is the engine's parsed view of `__wskit.namespace`, `__wskit.channel`,
- * and `__wskit.channelScope` markers from the incoming frame.
+ * This is the engine's parsed view of `__wskit.channel` and
+ * `__wskit.channelScope` markers from the incoming frame.
  */
 export interface ResolvedScope {
-  namespace?: EngineCompileTypes.CompiledNamespace;
-
   channel?: EngineCompileTypes.CompiledChannel;
 
   channelName?: string;

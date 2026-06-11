@@ -4,7 +4,6 @@ import {
   channel,
   contract,
   implement,
-  namespace,
   nudge,
   recordedStream,
   resumableStream,
@@ -36,26 +35,6 @@ const c = contract('stream-handler-types', {
       payload: TextPayload,
       chunk: ChunkPayload,
       nudges: [nudge('top-record-hint', HintPayload)],
-    }),
-    namespace('ns', {
-      definitions: [
-        stream('ns-stream', {
-          payload: TextPayload,
-          chunk: ChunkPayload,
-          nudges: [nudge('ns-hint', HintPayload)],
-        }),
-        resumableStream('ns-resumable', {
-          payload: TextPayload,
-          chunk: ChunkPayload,
-          cursor: CursorPayload,
-          nudges: [nudge('ns-resume-hint', HintPayload)],
-        }),
-        recordedStream('ns-recorded', {
-          payload: TextPayload,
-          chunk: ChunkPayload,
-          nudges: [nudge('ns-record-hint', HintPayload)],
-        }),
-      ],
     }),
     channel('room', {
       definitions: [
@@ -104,33 +83,6 @@ describe('stream handler types', () => {
         >();
         yield { ok: true };
       });
-  });
-
-  it('preserves namespace nudge payload types across stream kinds', () => {
-    implement(c).namespace('ns', (ns) =>
-      ns
-        .stream('ns-stream', async function* (ctx, payload) {
-          expectTypeOf(payload).toEqualTypeOf<{ text: string }>();
-          expectTypeOf(ctx.nudges(undefined as unknown)).toEqualTypeOf<
-            readonly { event: 'ns-hint'; payload: { text: string } }[]
-          >();
-          yield { ok: true };
-        })
-        .resumableStream('ns-resumable', async function* (ctx, payload) {
-          expectTypeOf(payload).toEqualTypeOf<{ text: string }>();
-          expectTypeOf(ctx.nudges(undefined as unknown)).toEqualTypeOf<
-            readonly { event: 'ns-resume-hint'; payload: { text: string } }[]
-          >();
-          yield { ok: true };
-        })
-        .recordedStream('ns-recorded', async function* (ctx, payload) {
-          expectTypeOf(payload).toEqualTypeOf<{ text: string }>();
-          expectTypeOf(ctx.nudges(undefined as unknown)).toEqualTypeOf<
-            readonly { event: 'ns-record-hint'; payload: { text: string } }[]
-          >();
-          yield { ok: true };
-        }),
-    );
   });
 
   it('preserves channel nudge payload types across stream kinds', () => {

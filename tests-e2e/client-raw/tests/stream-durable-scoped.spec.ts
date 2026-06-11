@@ -4,7 +4,7 @@ import type { WireFrame } from './_ws-rig.ts';
 
 const WS_PATH = '/ws/stream-durable-scoped';
 
-test.describe('stream-durable scoped (channel + namespace)', () => {
+test.describe('stream-durable scoped (channel)', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/stream-durable-scoped');
     await installRig(page);
@@ -170,42 +170,6 @@ test.describe('stream-durable scoped (channel + namespace)', () => {
       .filter((f) => f.event === 'history' && f.__wskit?.channel === 'rooms')
       .map((f) => f.payload.idx as number);
     expect(replayed).toEqual([3, 4, 5]);
-  });
-
-  test('namespace-scoped recordedStream replays via _namespace marker', async ({
-    page,
-  }, testInfo) => {
-    const room = `sds-${testInfo.testId}-${Date.now()}`;
-    const streamId = 'logs-1';
-
-    const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
-    await send(page, a, {
-      event: 'logs',
-      payload: {},
-      __wskit: { namespace: 'v1', streamId },
-    });
-    await waitForFrame(page, a, {
-      match: (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
-    });
-
-    await closeSocket(page, a);
-    await page.waitForTimeout(150);
-
-    const b = await connect(page, { path: WS_PATH, username: 'alice', room: room });
-    await send(page, b, {
-      event: '__resumeStream__',
-      payload: { lastKnownSeq: 0 },
-      __wskit: { namespace: 'v1', streamId },
-    });
-
-    await waitForFrame(page, b, {
-      match: (f) => f.event === '__streamEnd__' && f.__wskit?.streamId === streamId,
-    });
-
-    const lines = (await frames(page, b))
-      .filter((f) => f.event === 'logs' && f.__wskit?.namespace === 'v1')
-      .map((f) => f.payload.line as string);
-    expect(lines).toEqual(['line-1', 'line-2', 'line-3', 'line-4', 'line-5']);
   });
 
   test('non-member resume of a channel-scoped stream returns not-found', async ({

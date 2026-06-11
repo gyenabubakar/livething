@@ -16,14 +16,6 @@ test.describe('request', () => {
     await expect(page.getByTestId('last-response')).toContainText('fixed-now-string');
   });
 
-  test('namespace-scoped request returns a response inside the namespace', async ({
-    page,
-  }, testInfo) => {
-    await openPage(page, `test-${testInfo.testId}`);
-    await page.getByTestId('get-ns-info').click();
-    await expect(page.getByTestId('last-response')).toContainText('"namespace":"ns"');
-  });
-
   test('channel-scoped request returns the matched channel name', async ({ page }, testInfo) => {
     await openPage(page, `test-${testInfo.testId}`);
     await page.getByTestId('subscribe-room').click();

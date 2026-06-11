@@ -21,12 +21,10 @@ import type { Messaging } from '~/messaging.ts';
  * ```
  */
 export interface SocketContract {
-  /** Events the server sends you (top-level, not inside a namespace or channel). */
+  /** Events the server sends you (top-level, not inside a channel). */
   incoming?: Record<string, unknown>;
   /** Events you send the server (top-level). */
   outgoing?: Record<string, unknown>;
-  /** Named groups of events over the one connection. Needs the `namespaces` primitive. */
-  namespaces?: Record<string, ScopeContract>;
   /** Server-managed rooms you subscribe to. Needs the `channels` primitive. */
   channels?: Record<string, ScopeContract>;
   /** Streaming event definitions. Needs the `stream` primitive. */
@@ -38,8 +36,8 @@ export interface SocketContract {
 }
 
 /**
- * The events for one namespace or channel. Each scope has its own events, so the
- * same name (like `'message'`) can mean different things in different scopes.
+ * The events for one channel. Each scope has its own events, so the same name
+ * (like `'message'`) can mean different things in different scopes.
  */
 export interface ScopeContract {
   incoming?: Record<string, unknown>;
@@ -73,7 +71,6 @@ export interface StreamContract {
 /** Pull one key out of a contract, or fall back to `{}` if it's missing. */
 export type IncomingOf<T> = T extends { incoming: infer I } ? I : {};
 export type OutgoingOf<T> = T extends { outgoing: infer O } ? O : {};
-export type NamespacesOf<T> = T extends { namespaces: infer N } ? N : {};
 export type ChannelsOf<T> = T extends { channels: infer C } ? C : {};
 export type StreamsOf<T> = T extends { streams: infer S } ? S : {};
 export type RequestsOf<T> = T extends { requests: infer R } ? R : {};
@@ -89,13 +86,11 @@ export type Requires<
   R extends {
     incoming?: string[];
     outgoing?: string[];
-    namespaces?: string[];
     channels?: string[];
     requests?: string[];
   },
 > = (R['incoming'] extends string[] ? { incoming: Record<R['incoming'][number], any> } : {}) &
   (R['outgoing'] extends string[] ? { outgoing: Record<R['outgoing'][number], any> } : {}) &
-  (R['namespaces'] extends string[] ? { namespaces: Record<R['namespaces'][number], any> } : {}) &
   (R['channels'] extends string[] ? { channels: Record<R['channels'][number], any> } : {}) &
   (R['requests'] extends string[] ? { requests: Record<R['requests'][number], any> } : {});
 
@@ -186,7 +181,7 @@ export type RequestMethod<TContract, TMethod extends string> = TContract extends
   : {};
 
 /**
- * The full messaging type for one scope (a namespace or channel): `on`/`send`
+ * The full messaging type for one scope (a channel): `on`/`send`
  * plus `request()` when the scope has requests, `sendWithAck()` when it has
  * outgoing events, and the stream methods when it has streams.
  */
@@ -230,8 +225,8 @@ export type ScopedMessaging<C> = Messaging<IncomingOf<C> & object, OutgoingOf<C>
 
 /**
  * Turns a contract key holding many scopes into a lookup method. For example
- * `ScopedApi<C, 'namespaces', 'namespace'>` produces
- * `namespace(name): ScopedMessaging` typed for each name.
+ * `ScopedApi<C, 'channels', 'channel'>` produces
+ * `channel(name): ScopedMessaging` typed for each name.
  */
 export type ScopedApi<TContract, TKey extends string, TMethod extends string> =
   TContract extends Record<TKey, infer Map extends Record<string, any>>

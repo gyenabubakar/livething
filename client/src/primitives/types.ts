@@ -136,13 +136,11 @@ type SectionDeclared<TContract, Section extends string> = Section extends keyof 
 type AnyScopedSectionDeclared<TContract> =
   SectionDeclared<TContract, 'channels'> extends true
     ? true
-    : SectionDeclared<TContract, 'namespaces'> extends true
+    : SectionDeclared<TContract, 'requests'> extends true
       ? true
-      : SectionDeclared<TContract, 'requests'> extends true
+      : SectionDeclared<TContract, 'streams'> extends true
         ? true
-        : SectionDeclared<TContract, 'streams'> extends true
-          ? true
-          : false;
+        : false;
 
 /**
  * If a contract section needs a primitive that wasn't installed, add a stub
@@ -162,13 +160,6 @@ export type MissingPrimitiveStubs<TContract, TPrimitives extends readonly Primit
                 channel: NeedsPrimitive<'[wskit] socket.channel needs the channels() primitive — add channels() to client()'>;
               }
           : {}) &
-          (SectionDeclared<TContract, 'namespaces'> extends true
-            ? 'namespace' extends keyof Api
-              ? {}
-              : {
-                  namespace: NeedsPrimitive<'[wskit] socket.namespace needs the namespaces() primitive — add namespaces() to client()'>;
-                }
-            : {}) &
           (SectionDeclared<TContract, 'requests'> extends true
             ? 'request' extends keyof Api
               ? {}

@@ -1,12 +1,4 @@
-import {
-  channels,
-  client,
-  connect,
-  dedup,
-  namespaces,
-  requestResponse,
-  stream,
-} from '@wskit/client';
+import { channels, client, connect, dedup, requestResponse, stream } from '@wskit/client';
 import type { GroupFullSurfaceClient } from '@wskit/tests-e2e-handlers/group-full-surface';
 import { button, el, mount, ready, wsUrl } from '../_shared.ts';
 
@@ -20,7 +12,6 @@ export function setup(): void {
     <button data-testid="feed">feed</button>
     <button data-testid="sub-rooms">sub-rooms</button>
     <button data-testid="send-msg">send-msg</button>
-    <button data-testid="ns-ping">ns-ping</button>
     <span data-testid="status"></span>
     <span data-testid="welcome"></span>
     <span data-testid="lookup-hit"></span>
@@ -28,7 +19,6 @@ export function setup(): void {
     <span data-testid="feed-end"></span>
     <span data-testid="subscribed"></span>
     <span data-testid="room-msg"></span>
-    <span data-testid="ns-pong"></span>
   `);
 
   const socket = client<GroupFullSurfaceClient>()(
@@ -36,12 +26,10 @@ export function setup(): void {
     requestResponse(),
     stream(),
     channels(),
-    namespaces(),
     dedup(),
   );
 
   const rooms = socket.channel('rooms');
-  const v1 = socket.namespace('v1');
 
   socket.subscribe(() => {
     el('status').textContent = socket.getState();
@@ -53,10 +41,6 @@ export function setup(): void {
 
   rooms.on('room-msg', (data) => {
     el('room-msg').textContent = `${data.from}:${data.text}`;
-  });
-
-  v1.on('v1-pong', () => {
-    el('ns-pong').textContent = 'yes';
   });
 
   button('connect', () => socket.connect());
@@ -85,10 +69,6 @@ export function setup(): void {
 
   button('send-msg', () => {
     rooms.send('send-msg', { text: 'hello room' });
-  });
-
-  button('ns-ping', () => {
-    v1.send('v1-ping', {});
   });
 
   ready();

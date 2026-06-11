@@ -7,8 +7,7 @@ import type { Primitive } from '~/primitive.ts';
  * replay uses the resulting set to skip channels that opted out of cascade.
  *
  * Groups merge into the parent scope, so we descend into them with the
- * parent channel key. Namespaces don't currently support replay; we still
- * descend in case future code adds it.
+ * parent channel key.
  */
 export function collectReplayClaimedScopes(
   primitives: readonly Primitive[],
@@ -37,14 +36,6 @@ export function collectReplayClaimedScopes(
           ? channelPrimitive.pattern
           : channelPrimitive.pattern.key;
       collectReplayClaimedScopes(channelPrimitive.primitives, out, channelKey);
-      continue;
-    }
-
-    if (primitive.__wskit === 'namespace') {
-      const namespacePrimitive = primitive as Primitive & {
-        primitives: readonly Primitive[];
-      };
-      collectReplayClaimedScopes(namespacePrimitive.primitives, out, parentChannelKey);
       continue;
     }
   }

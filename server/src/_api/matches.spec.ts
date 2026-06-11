@@ -3,7 +3,6 @@ import { t } from '~/_api/definitions.ts';
 import { scope } from '~/channel/channel.ts';
 import { channel } from '~/channel/definition.ts';
 import { incoming } from '~/incoming/definition.ts';
-import { namespace } from '~/namespace/definition.ts';
 import { request } from '~/request/definition.ts';
 import { recordedStream } from '~/stream-recorded/definition.ts';
 import { resumableStream } from '~/stream-resumable/definition.ts';
@@ -41,9 +40,6 @@ const testContract = contract('app', {
     channel(scope('rooms', 'room:{id}'), {
       definitions: [incoming('join', v.object({ user: v.string() }))],
     }),
-    namespace('admin', {
-      definitions: [incoming('kick-user', v.object({ userId: v.string() }))],
-    }),
   ],
 });
 
@@ -56,20 +52,8 @@ describe('parseKey', () => {
     expect(parseKey('@chat::send')).toEqual({ scope: 'channel', name: 'chat', event: 'send' });
   });
 
-  it('parses a namespace-scoped key', () => {
-    expect(parseKey('#admin::kick-user')).toEqual({
-      scope: 'namespace',
-      name: 'admin',
-      event: 'kick-user',
-    });
-  });
-
   it('rejects a key starting with @ but missing the separator', () => {
     expect(() => parseKey('@chat-send')).toThrow(/missing the '::' separator/);
-  });
-
-  it('rejects a key starting with # but missing the separator', () => {
-    expect(() => parseKey('#admin-kick')).toThrow(/missing the '::' separator/);
   });
 
   it('rejects a key containing :: without a scope prefix', () => {
@@ -132,11 +116,6 @@ describe('matches — happy path', () => {
     );
     expect(matches(testContract, '@rooms::join', frame)).toBe(true);
   });
-
-  it('matches a namespace-scoped event', () => {
-    const frame = makeFrame('kick-user', { userId: 'u1' }, { routing: { namespace: 'admin' } });
-    expect(matches(testContract, '#admin::kick-user', frame)).toBe(true);
-  });
 });
 
 describe('matches — sad path', () => {
@@ -147,11 +126,6 @@ describe('matches — sad path', () => {
 
   it('returns false when top-level key gets a channel-scoped frame', () => {
     const frame = makeFrame('send-msg', { text: 'hi' }, { routing: { channel: 'chat' } });
-    expect(matches(testContract, 'send-msg', frame)).toBe(false);
-  });
-
-  it('returns false when top-level key gets a namespace-scoped frame', () => {
-    const frame = makeFrame('send-msg', { text: 'hi' }, { routing: { namespace: 'admin' } });
     expect(matches(testContract, 'send-msg', frame)).toBe(false);
   });
 
@@ -178,11 +152,6 @@ describe('matches — sad path', () => {
     expect(matches(testContract, '@rooms::join', frame)).toBe(false);
   });
 
-  it('returns false when namespace scope mismatches', () => {
-    const frame = makeFrame('kick-user', { userId: 'u1' }, { routing: { namespace: 'other' } });
-    expect(matches(testContract, '#admin::kick-user', frame)).toBe(false);
-  });
-
   it('returns false when the payload fails validation', () => {
     const frame = makeFrame('send-msg', { wrong: 'shape' });
     expect(matches(testContract, 'send-msg', frame)).toBe(false);
@@ -198,13 +167,6 @@ describe('matches — sad path', () => {
   it('throws on an unknown channel key', () => {
     const frame = makeFrame('send', { text: 'hi' });
     expect(() => matches(testContract, '@nonsense::send', frame)).toThrow(
-      /references an event the contract does not declare/,
-    );
-  });
-
-  it('throws on an unknown namespace key', () => {
-    const frame = makeFrame('kick-user', { userId: 'u1' });
-    expect(() => matches(testContract, '#nonsense::kick-user', frame)).toThrow(
       /references an event the contract does not declare/,
     );
   });

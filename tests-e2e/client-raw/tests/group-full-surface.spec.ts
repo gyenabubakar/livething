@@ -125,15 +125,6 @@ test.describe('group full surface', () => {
     expect(msg.payload.from).toBe('alice');
   });
 
-  test('group.namespace v1-ping returns v1-pong', async ({ page }, testInfo) => {
-    const room = `gfs-ns-${testInfo.testId}-${Date.now()}`;
-    const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });
-    await waitForFrame(page, a, { match: (f) => f.event === 'welcome' });
-
-    await send(page, a, { event: 'v1-ping', payload: {}, __wskit: { namespace: 'v1' } });
-    await waitForFrame(page, a, { match: (f) => f.event === 'v1-pong' });
-  });
-
   test('group.intercept (pre) fires for every message', async ({ page }, testInfo) => {
     const room = `gfs-ipre-${testInfo.testId}-${Date.now()}`;
     const a = await connect(page, { path: WS_PATH, username: 'alice', room: room });

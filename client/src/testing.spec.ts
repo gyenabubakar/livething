@@ -3,9 +3,8 @@ import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
 import { channels } from '~/primitives/channels/index.ts';
 import { intercept } from '~/primitives/intercept.ts';
-import { namespaces } from '~/primitives/namespaces/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
-import { inject, injectChannel, injectNamespace } from '~/testing.ts';
+import { inject, injectChannel } from '~/testing.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Socket } from '~/socket/api.ts';
 
@@ -15,12 +14,6 @@ interface C {
     general: {
       incoming: { message: { text: string } };
       outgoing: { 'send-message': { text: string } };
-    };
-  };
-  namespaces: {
-    alerts: {
-      incoming: { 'new-alert': { level: string } };
-      outgoing: { dismiss: { id: string } };
     };
   };
 }
@@ -80,16 +73,5 @@ describe('injectChannel', () => {
 
     injectChannel(socket as Socket<C>, 'general', 'message', { text: 'in-channel' });
     expect(handler).toHaveBeenCalledWith({ text: 'in-channel' });
-  });
-});
-
-describe('injectNamespace', () => {
-  it('routes a tagged frame to namespace handlers, even while disconnected', () => {
-    const socket = client<C>()(connect('wss://test'), namespaces());
-    const handler = vi.fn();
-    socket.namespace('alerts').on('new-alert', handler);
-
-    injectNamespace(socket as Socket<C>, 'alerts', 'new-alert', { level: 'critical' });
-    expect(handler).toHaveBeenCalledWith({ level: 'critical' });
   });
 });

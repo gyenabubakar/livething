@@ -16,7 +16,7 @@ class FakeReplaySql {
 
     if (
       normalizedQuery.startsWith(
-        'SELECT rowKey, messageId, seq, event, payload, namespace, channel, channelScope, snapshotKey, createdAt FROM __wskit_replay WHERE rowKey = ?',
+        'SELECT rowKey, messageId, seq, event, payload, channel, channelScope, snapshotKey, createdAt FROM __wskit_replay WHERE rowKey = ?',
       )
     ) {
       const row = this.rows.get(String(params[0]));
@@ -55,11 +55,10 @@ class FakeReplaySql {
         seq: Number(params[2]),
         event: String(params[3]),
         payload: String(params[4]),
-        namespace: (params[5] as string | null) ?? null,
-        channel: (params[6] as string | null) ?? null,
-        channelScope: (params[7] as string | null) ?? null,
-        snapshotKey: (params[8] as string | null) ?? null,
-        createdAt: Number(params[9]),
+        channel: (params[5] as string | null) ?? null,
+        channelScope: (params[6] as string | null) ?? null,
+        snapshotKey: (params[7] as string | null) ?? null,
+        createdAt: Number(params[8]),
       };
       this.rows.set(row.rowKey, row);
       return {
@@ -464,7 +463,6 @@ describe('replay', () => {
         seq: 5,
         event: 'message',
         payload: JSON.stringify({ text: 'history' }),
-        namespace: null,
         channel: 'room-1',
         channelScope: 'rooms',
         snapshotKey: null,
@@ -597,10 +595,9 @@ describe('replay', () => {
         {
           channelName: 'room-1',
           channelScope: 'rooms',
-          namespace: null,
           event: 'message',
           payload: { text: 'history' },
-          wire: { seq: 5, messageId: 'msg-1', channel: 'room-1', namespace: null },
+          wire: { seq: 5, messageId: 'msg-1', channel: 'room-1' },
         },
       ],
     ]);

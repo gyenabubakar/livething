@@ -47,9 +47,6 @@
 	function getTime() {
 		return request('get-time');
 	}
-	function getNsInfo() {
-		return request('get-ns-info', {}, { namespace: 'ns' });
-	}
 	function getChannelInfo() {
 		return request('get-channel-info', {}, { channel: 'room' });
 	}
@@ -86,7 +83,6 @@
 <button data-testid="connect" onclick={connect}>Connect</button>
 <button data-testid="subscribe-room" onclick={subscribeRoom}>Subscribe room</button>
 <button data-testid="get-time" onclick={() => click(getTime)}>Get time</button>
-<button data-testid="get-ns-info" onclick={() => click(getNsInfo)}>Get ns info</button>
 <button data-testid="get-ch-info" onclick={() => click(getChannelInfo)}>Get channel info</button>
 <button data-testid="no-response" onclick={() => click(noResponse)}>No response</button>
 <button data-testid="double-response" onclick={() => click(doubleResponse)}>Double response</button>

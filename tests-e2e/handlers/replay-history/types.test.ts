@@ -8,7 +8,6 @@ describe('ReplayClient — no-any guard', () => {
     expectTypeOf<ReplayClient['requests']>().not.toBeAny();
     expectTypeOf<ReplayClient['streams']>().not.toBeAny();
     expectTypeOf<ReplayClient['channels']>().not.toBeAny();
-    expectTypeOf<ReplayClient['namespaces']>().not.toBeAny();
     expectTypeOf<ReplayClient['errors']>().not.toBeAny();
   });
 });
@@ -117,27 +116,6 @@ describe('ReplayClient — stream kind', () => {
   });
 });
 
-describe('ReplayClient — namespaces', () => {
-  it('has admin namespace', () => {
-    expectTypeOf<ReplayClient['namespaces']>().toHaveProperty('admin');
-  });
-
-  it('admin incoming has chat-msg (server outgoing)', () => {
-    expectTypeOf<ReplayClient['namespaces']['admin']['incoming']['chat-msg']>().toEqualTypeOf<{
-      text: string;
-      from: string;
-    }>();
-  });
-
-  it('admin outgoing has send-admin-msg', () => {
-    expectTypeOf<
-      ReplayClient['namespaces']['admin']['outgoing']['send-admin-msg']
-    >().toEqualTypeOf<{
-      text: string;
-    }>();
-  });
-});
-
 describe('ReplayClient — channels', () => {
   it('addressing: replay-room and optout-room are static, fams is a dynamic family', () => {
     expectTypeOf<ReplayClient['channels']['replay-room']['addressing']>().toEqualTypeOf<'static'>();
@@ -218,7 +196,6 @@ describe('ReplayClient — builtin errors', () => {
     expectTypeOf<ReplayClient['errors']>().toHaveProperty('validation-failed');
     expectTypeOf<ReplayClient['errors']>().toHaveProperty('channel-not-found');
     expectTypeOf<ReplayClient['errors']>().toHaveProperty('channel-not-subscribed');
-    expectTypeOf<ReplayClient['errors']>().toHaveProperty('namespace-not-found');
     expectTypeOf<ReplayClient['errors']>().toHaveProperty('internal-error');
   });
 });
