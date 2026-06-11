@@ -337,7 +337,7 @@ describe('lazy consumer leak on failed send', () => {
       original(data);
     };
 
-    // socket.stream() calls lazyAcquire then rawSend — rawSend throws, so the
+    // socket.stream() calls lazyAcquire then helpers.send — the send throws, so the
     // Promise (and its lazyRelease) is never created. The correct behavior is
     // that lazyAcquire is rolled back and _lazyConsumers stays at 0.
     expect(() => socket.stream('ask-ai', { prompt: 'hi' })).toThrow('network error');

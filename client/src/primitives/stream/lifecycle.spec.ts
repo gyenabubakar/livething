@@ -374,6 +374,65 @@ describe('per-chunk timeout must not start at reconnect for a resumed stream', (
   });
 });
 
+describe('resumable stream finishes when reconnection permanently gives up', () => {
+  it('ends a kept persistent stream with Disconnected when retries are exhausted', async () => {
+    vi.useFakeTimers();
+    try {
+      const socket = client<C>()(
+        connect('wss://test'),
+        stream({ timeout: 0 }), // no per-chunk timer: only the close path can settle it
+        reconnection({ maxAttempts: 1 }),
+      );
+      socket.connect();
+      const first = MockWebSocket.last();
+      first.open();
+      const { handle } = await start(socket, first, { streamKind: 'persistent' });
+
+      const drained = collect(handle).then(
+        () => null,
+        (error) => error,
+      );
+      await Promise.resolve(); // park the for-await on the queue
+
+      // Drop, fire the one retry, then drop the retry BEFORE it opens so the
+      // attempt counter is never reset — reconnection exhausts maxAttempts and
+      // calls failReconnect(), which must finish the kept stream.
+      first.serverClose(1006, 'drop');
+      await vi.advanceTimersByTimeAsync(1500);
+      const second = MockWebSocket.last();
+      second.serverClose(1006, 'retry failed');
+
+      expect(socket.getState()).toBe('closed');
+      expect(await drained).toMatchObject({ code: 'disconnected' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('ends a kept persistent stream with Disconnected on a non-retryable close', async () => {
+    const socket = client<C>()(
+      connect('wss://test'),
+      stream({ timeout: 0 }),
+      reconnection({ nonRetryableCodes: [4001] }),
+    );
+    socket.connect();
+    const ws = MockWebSocket.last();
+    ws.open();
+    const { handle } = await start(socket, ws, { streamKind: 'persistent' });
+
+    const drained = collect(handle).then(
+      () => null,
+      (error) => error,
+    );
+    await Promise.resolve();
+
+    ws.serverClose(4001, 'policy'); // non-retryable → reconnection gives up at once
+
+    expect(socket.getState()).toBe('closed');
+    expect(await drained).toMatchObject({ code: 'disconnected' });
+  });
+});
+
 describe('stream teardown, pre-open triggers, and resume deadline', () => {
   it('a resumable stream ends with Disconnected on an unexpected drop when no reconnection is installed', async () => {
     const { socket, ws } = build(); // no reconnection() — an unexpected drop is terminal
@@ -428,6 +487,46 @@ describe('stream teardown, pre-open triggers, and resume deadline', () => {
       // No resumed chunk ever arrives; the resume deadline must end the stream.
       await vi.advanceTimersByTimeAsync(31_000);
       expect(await drained).toMatchObject({ code: 'timeout' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps a resumed stream alive after a resume __streamOk__ even when the first chunk is slow', async () => {
+    vi.useFakeTimers();
+    try {
+      const socket = client<C>()(connect('wss://test'), stream({ timeout: 1000 }), reconnection());
+      socket.connect();
+      const first = MockWebSocket.last();
+      first.open();
+      const { handle, sid } = await start(socket, first, { streamKind: 'persistent' });
+
+      first.serverClose(1006, 'drop');
+      vi.advanceTimersByTime(500);
+      const second = MockWebSocket.last();
+      second.open(); // onReconnect sends __resumeStream__ and arms the 30s resume deadline
+
+      // The server acks the resume — proof the stream is alive — but the producer
+      // is slow, so no chunk arrives yet. The resume deadline must be dropped.
+      second.emit({
+        event: '__streamOk__',
+        payload: {},
+        __wskit: { streamId: sid, streamKind: 'persistent' },
+      });
+
+      // Advance well past the 30s resume deadline with no chunk: the acked stream
+      // must NOT be aborted by the now-stale deadline.
+      await vi.advanceTimersByTimeAsync(31_000);
+
+      // The slow first chunk and a clean end finally arrive.
+      second.emit({
+        event: 'ask-ai',
+        payload: { text: 'late' },
+        __wskit: { streamId: sid, seq: 1 },
+      });
+      second.emit({ event: '__streamEnd__', payload: {}, __wskit: { streamId: sid } });
+
+      await expect(collect(handle)).resolves.toEqual([{ text: 'late' }]);
     } finally {
       vi.useRealTimers();
     }

@@ -89,10 +89,11 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
       const broadcastRuns = new Map<string, BroadcastRun>();
       // Nudges awaiting a __nudgeOk__ / __error__, keyed by streamNudgeId.
       const pendingNudges = new Map<string, PendingNudge>();
-      // Trigger frames for streams started before the socket was open, keyed by
-      // streamId. rawSend drops while not open, so they are held here and flushed
-      // on open — otherwise the stream would never start (and with timeout 0 the
-      // promise would never settle, leaking the lazy hold).
+      // Trigger frames for streams started before the socket was open with no
+      // buffering installed to hold them, keyed by streamId. helpers.send drops
+      // while not open, so they are held here and flushed on open — otherwise the
+      // stream would never start (and with timeout 0 the promise would never
+      // settle, leaking the lazy hold).
       const triggerOutbox = new Map<string, WireMessage>();
 
       function startChunkTimer(state: StreamState): void {
@@ -105,7 +106,9 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
       }
 
       // `error` undefined means a clean end (the loop exits); an error makes it throw.
-      function finishStream(state: StreamState, error?: unknown): void {
+      // `releaseHold` is false only when the kept stream already released its lazy
+      // hold on the drop (see onClose) — finishing it later must not double-release.
+      function finishStream(state: StreamState, error?: unknown, releaseHold = true): void {
         if (!state.active) return;
         state.active = false;
         if (state.timer) clearTimeout(state.timer);
@@ -113,7 +116,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         if (state.resumeTimer) clearTimeout(state.resumeTimer);
         state.resumeTimer = null;
         streams.delete(state.streamId);
-        helpers.lazyRelease();
+        if (releaseHold) helpers.lazyRelease();
         if (error) state.queue.abort(error);
         else state.queue.end();
       }
@@ -177,17 +180,17 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         helpers.ensureConnected();
         helpers.lazyAcquire();
         const frame: WireMessage = { event, payload, __wskit: { streamId, ...context.markers } };
-        if (helpers.getState() === 'open') {
-          try {
-            helpers.rawSend(frame);
-          } catch (error) {
-            helpers.lazyRelease();
-            throw error;
-          }
-        } else {
-          // Lazily connecting — hold the trigger and flush it on open.
-          triggerOutbox.set(streamId, frame);
+        // Send through the normal path so buffering can take it — queued while
+        // offline, or held behind a draining staggered flush so it keeps order. If
+        // there is no buffering and we are not open yet, hold it and flush on open.
+        let delivered: boolean;
+        try {
+          delivered = helpers.send(frame);
+        } catch (error) {
+          helpers.lazyRelease(); // roll back the hold the trigger acquired above
+          throw error;
         }
+        if (!delivered && helpers.getState() !== 'open') triggerOutbox.set(streamId, frame);
 
         return new Promise<StreamHandle<unknown>>((resolve, reject) => {
           const timer =
@@ -313,7 +316,19 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           switch (message.event) {
             case '__streamOk__': {
               const trigger = triggers.get(streamId);
-              if (!trigger) return null; // a resume ack for an already-running stream
+              if (!trigger) {
+                // A resume ack for an already-running stream. The server confirmed
+                // the resume, so the stream is alive — drop the one-shot resume
+                // deadline. The per-chunk timer stays unstarted until the first
+                // resumed chunk lands (as on reconnect), so a slow first chunk
+                // can't trip a stale timeout.
+                const resumed = streams.get(streamId);
+                if (resumed?.resumeTimer) {
+                  clearTimeout(resumed.resumeTimer);
+                  resumed.resumeTimer = null;
+                }
+                return null;
+              }
               if (trigger.timer) clearTimeout(trigger.timer);
               triggers.delete(streamId);
               triggerOutbox.delete(streamId);
@@ -461,6 +476,13 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
 
           for (const run of broadcastRuns.values()) if (run.timer) clearTimeout(run.timer);
           broadcastRuns.clear();
+        },
+        onReconnectFailed() {
+          // Reconnection is abandoned — the resume that would revive a kept stream
+          // never comes. Each kept resumable stream already released its lazy hold
+          // on the drop (onClose), so finish it without releasing the hold again,
+          // making the for-await loop throw Disconnected instead of hanging forever.
+          for (const state of [...streams.values()]) finishStream(state, Disconnected(), false);
         },
         install(socket) {
           // @ts-expect-error — install adds stream() to the socket dynamically
