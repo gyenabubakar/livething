@@ -507,3 +507,26 @@ describe('keepalive — quality uses a rolling average of the last samples', () 
     expect(socket.getQuality()).toBe('degraded');
   });
 });
+
+describe('keepalive — latency cleared on missed pong', () => {
+  it('reports null latency on the poor change after a previously healthy pong', () => {
+    vi.useFakeTimers();
+    const { socket } = build(quality(), keepalive({ interval: 1000, maxMissedPongs: 5 }));
+
+    const calls: Array<[string, number | null]> = [];
+    socket.onQualityChange((q, l) => calls.push([q, l]));
+
+    vi.advanceTimersByTime(1000); // ping 1
+    vi.advanceTimersByTime(45);
+    socket.ws?.onmessage?.({ data: 'pong' } as MessageEvent); // pong: latency 45 → excellent
+    expect(socket.getLatency()).toBe(45);
+
+    vi.advanceTimersByTime(955); // ping 2 (t = 2000)
+    vi.advanceTimersByTime(1000); // tick at t = 3000: ping 2 unanswered → missed → poor
+
+    const last = calls.at(-1);
+    expect(last?.[0]).toBe('poor');
+    expect(last?.[1]).toBeNull(); // stale 45ms must not be reported with the degradation
+    expect(socket.getLatency()).toBeNull();
+  });
+});

@@ -297,3 +297,30 @@ describe('buffering disabled — outgoing fallback returns false', () => {
     expect(buffer.size).toBe(0);
   });
 });
+
+describe('buffering — live send during a staggered flush stays in order', () => {
+  it('queues a send made mid-flush behind the not-yet-flushed messages', () => {
+    vi.useFakeTimers();
+    const socket = buildSocket(buffering({ enabled: true, flushInterval: 100 }));
+    socket.connect();
+    let ws = MockWebSocket.last();
+    ws.open();
+    ws.serverClose(1006); // offline; the buffer keeps queued sends
+
+    socket.send('typing', { channelId: 'a' });
+    socket.send('typing', { channelId: 'b' });
+
+    socket.connect();
+    ws = MockWebSocket.last();
+    ws.open(); // onOpen flush: 'a' goes now, 'b' scheduled +100ms
+
+    // A live send while the flush is still draining must NOT jump ahead of 'b'.
+    socket.send('typing', { channelId: 'c' });
+
+    vi.advanceTimersByTime(300);
+    const order = ws
+      .sentFrames()
+      .map((f: WireMessage) => (f.payload as { channelId: string }).channelId);
+    expect(order).toEqual(['a', 'b', 'c']);
+  });
+});

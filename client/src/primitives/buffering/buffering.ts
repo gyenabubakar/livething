@@ -29,10 +29,15 @@ export function buffering(options: BufferingOptions = {}): Primitive<EmptyTypeFn
         flushInterval: options.flushInterval,
       });
 
-      // Called by the engine when you try to send while the socket is closed.
+      // Offered every outgoing message. Take it while the socket is closed, or
+      // while a staggered flush is still draining — a live send during the flush
+      // must queue behind the not-yet-flushed messages so order is preserved,
+      // not race ahead of them onto the wire. Decline otherwise (open and idle),
+      // so normal sends go straight to the wire.
       helpers.registerOutgoingFallback((message, ttl) => {
+        if (helpers.getState() === 'open' && !buffer.isFlushing) return false;
         const buffered = buffer.enqueue(message, ttl);
-        if (buffered) helpers.log.info(`buffered '${message.event}' while offline`);
+        if (buffered) helpers.log.info(`buffered '${message.event}'`);
         return buffered;
       });
 

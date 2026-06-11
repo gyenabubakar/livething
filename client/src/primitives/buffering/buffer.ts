@@ -121,6 +121,11 @@ export class MessageBuffer {
     return this.enabled;
   }
 
+  /** True while a staggered flush is still draining (its next tick is scheduled). */
+  get isFlushing(): boolean {
+    return this.flushTimer !== null;
+  }
+
   /** Stop an in-progress staggered flush, leaving any unsent messages in place. */
   stopFlush(): void {
     if (this.flushTimer !== null) {

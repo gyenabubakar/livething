@@ -12,8 +12,9 @@ export interface KeepaliveLoopOptions {
 interface KeepaliveCallbacks {
   sendPing: () => void;
   forceClose: () => void;
-  /** Report the latest single round-trip time so `getLatency()` stays fresh every pong. */
-  reportLatency: (latencyMs: number) => void;
+  /** Report the latest single round-trip time so `getLatency()` stays fresh every pong.
+   * `null` clears it — used when a pong goes missing and the last RTT is stale. */
+  reportLatency: (latencyMs: number | null) => void;
   /** Report a new quality tier (fired only when the tier actually changes). */
   onQualityChange: (quality: ConnectionQuality) => void;
   log: (message: string) => void;
@@ -101,6 +102,9 @@ export class KeepaliveLoop {
         this.callbacks.forceClose();
         return;
       }
+      // The last measured RTT is stale once a pong goes unanswered — clear it so
+      // the 'poor' change (and getLatency()) report null, not a healthy-looking value.
+      this.callbacks.reportLatency(null);
       this.setQuality('poor');
     }
 
