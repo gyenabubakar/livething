@@ -10,17 +10,21 @@ export class StreamQueue<T> {
   // so each pull is O(1) and draining a backlog is O(n), not O(n²). The consumed
   // front is compacted away once it passes half the array.
   private head = 0;
-  private resolveNext: ((result: IteratorResult<T>) => void) | null = null;
-  private rejectNext: ((error: unknown) => void) | null = null;
+  // Waiters parked by next() when nothing is buffered, oldest first. A FIFO (not a
+  // single slot) so two concurrent next() pulls can't overwrite each other's promise
+  // and orphan it forever.
+  private waiters: {
+    resolve: (result: IteratorResult<T>) => void;
+    reject: (error: unknown) => void;
+  }[] = [];
   private done = false;
   private error: unknown = null;
 
   /** A chunk arrived. */
   push(chunk: T): void {
-    if (this.resolveNext) {
-      const resolve = this.resolveNext;
-      this.resolveNext = this.rejectNext = null;
-      resolve({ value: chunk, done: false });
+    const waiter = this.waiters.shift();
+    if (waiter) {
+      waiter.resolve({ value: chunk, done: false });
     } else {
       this.chunks.push(chunk);
     }
@@ -42,10 +46,8 @@ export class StreamQueue<T> {
   /** The stream finished — the loop ends after draining what's buffered. */
   end(): void {
     this.done = true;
-    if (this.resolveNext) {
-      const resolve = this.resolveNext;
-      this.resolveNext = this.rejectNext = null;
-      resolve({ value: undefined, done: true });
+    while (this.waiters.length) {
+      this.waiters.shift()!.resolve({ value: undefined, done: true });
     }
   }
 
@@ -53,10 +55,8 @@ export class StreamQueue<T> {
   abort(error: unknown): void {
     if (this.done || this.error) return;
     this.error = error;
-    if (this.rejectNext) {
-      const reject = this.rejectNext;
-      this.resolveNext = this.rejectNext = null;
-      reject(error);
+    while (this.waiters.length) {
+      this.waiters.shift()!.reject(error);
     }
   }
 
@@ -68,8 +68,7 @@ export class StreamQueue<T> {
     if (this.error) return Promise.reject(this.error);
     if (this.done) return Promise.resolve({ value: undefined, done: true });
     return new Promise<IteratorResult<T>>((resolve, reject) => {
-      this.resolveNext = resolve;
-      this.rejectNext = reject;
+      this.waiters.push({ resolve, reject });
     });
   }
 }

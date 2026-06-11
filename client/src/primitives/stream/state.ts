@@ -11,6 +11,9 @@ export class StreamState {
   lastSeq = Number.NEGATIVE_INFINITY;
   /** The per-chunk timeout, reset on every chunk. */
   timer: ReturnType<typeof setTimeout> | null = null;
+  /** A bounded deadline armed while a reconnect resume is in flight, cleared on the
+   * first resumed chunk — so a server that never resumes can't hang the iterator. */
+  resumeTimer: ReturnType<typeof setTimeout> | null = null;
   /** Set from `__streamOk__`'s `streamKind`: persistent streams resume on reconnect. */
   resumable = false;
 

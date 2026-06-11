@@ -332,6 +332,9 @@ export class WSKitSocket {
 
       runShouldReconnect: (code, reason) => this._runShouldReconnect(code, reason),
 
+      willReconnect: (code, reason) =>
+        this._unexpectedCloseHandler !== null && this._runShouldReconnect(code, reason) !== false,
+
       onPong: (handler) => this._pongHandlers.push(handler),
 
       registerOutgoingFallback: (handler) => {

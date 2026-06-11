@@ -102,4 +102,34 @@ describe('StreamQueue', () => {
       await expect(pending).rejects.toThrow('aborted mid-wait');
     });
   });
+
+  describe('two concurrent next() pulls', () => {
+    it('does not orphan the first waiter — both receive chunks in order', async () => {
+      const queue = new StreamQueue<string>();
+      const a = queue.next();
+      const b = queue.next();
+      queue.push('one');
+      queue.push('two');
+      expect(await a).toEqual({ value: 'one', done: false });
+      expect(await b).toEqual({ value: 'two', done: false });
+    });
+
+    it('resolves all parked waiters as done when end() is called', async () => {
+      const queue = new StreamQueue<string>();
+      const a = queue.next();
+      const b = queue.next();
+      queue.end();
+      expect(await a).toEqual({ value: undefined, done: true });
+      expect(await b).toEqual({ value: undefined, done: true });
+    });
+
+    it('rejects all parked waiters when abort() is called', async () => {
+      const queue = new StreamQueue<string>();
+      const a = queue.next();
+      const b = queue.next();
+      queue.abort(new Error('boom'));
+      await expect(a).rejects.toThrow('boom');
+      await expect(b).rejects.toThrow('boom');
+    });
+  });
 });

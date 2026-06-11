@@ -202,6 +202,10 @@ export interface PrimitiveHelpers {
   /** Ask each primitive whether to reconnect; the first `true` or `false` answer wins. */
   runShouldReconnect(code: number, reason: string): boolean | undefined;
 
+  /** True if an unexpected close with this code would lead to a reconnect attempt
+   * (a reconnection module is installed and no primitive vetoes the code). */
+  willReconnect(code: number, reason: string): boolean;
+
   /** Register a callback that runs when a `pong` frame arrives. */
   onPong(handler: () => void): void;
 

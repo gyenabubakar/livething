@@ -373,3 +373,63 @@ describe('[BUG durable-timer-reconnect] per-chunk timeout must not start at reco
     }
   });
 });
+
+describe('stream review fixes', () => {
+  it('a resumable stream ends with Disconnected on an unexpected drop when no reconnection is installed', async () => {
+    const { socket, ws } = build(); // no reconnection() — an unexpected drop is terminal
+    const { handle } = await start(socket, ws, { streamKind: 'persistent' });
+
+    const drained = collect(handle);
+    await Promise.resolve(); // let the for-await park on the queue
+    ws.serverClose(1006, 'drop');
+
+    await expect(drained).rejects.toMatchObject({ code: 'disconnected' });
+  });
+
+  it('flushes a stream() trigger that was sent before the socket opened', async () => {
+    const socket = client<C>()(connect('wss://test', { lazy: true }), stream({ timeout: 0 }));
+    const promise = socket.stream('ask-ai', { prompt: 'hi' });
+
+    const ws = MockWebSocket.last(); // created by the lazy connect, not open yet
+    expect(ws.sentFrames()).toEqual([]); // held, not dropped
+
+    ws.open(); // onOpen flushes the held trigger
+    const sent = ws.sentFrames().find((f) => f.event === 'ask-ai');
+    expect(sent).toBeDefined();
+
+    const sid = sent.__wskit.streamId as string;
+    ws.emit({
+      event: '__streamOk__',
+      payload: {},
+      __wskit: { streamId: sid, streamKind: 'ephemeral' },
+    });
+    await expect(promise).resolves.toBeDefined();
+  });
+
+  it('aborts a resumed stream with Timeout if the server never sends a resumed chunk', async () => {
+    vi.useFakeTimers();
+    try {
+      const socket = client<C>()(connect('wss://test'), stream({ timeout: 1000 }), reconnection());
+      socket.connect();
+      const first = MockWebSocket.last();
+      first.open();
+      const { handle } = await start(socket, first, { streamKind: 'persistent' });
+
+      first.serverClose(1006, 'drop');
+      vi.advanceTimersByTime(500);
+      const second = MockWebSocket.last();
+      second.open(); // onReconnect sends __resumeStream__ and arms the resume deadline
+
+      // Capture the rejection up front so it can't surface as an unhandled one.
+      const drained = collect(handle).then(
+        () => null,
+        (error) => error,
+      );
+      // No resumed chunk ever arrives; the resume deadline must end the stream.
+      await vi.advanceTimersByTimeAsync(31_000);
+      expect(await drained).toMatchObject({ code: 'timeout' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
