@@ -51,6 +51,10 @@ export function setup(): void {
   });
   room.onMemberJoin(renderMembers);
   room.onMemberLeave(renderMembers);
+  // onMemberOnline is the reconnect presence signal: after a warm rejoin the
+  // server re-sends __memberSync__ and the roster comes back as "online" (not a
+  // fresh "join"), so presence UIs must re-render on it too.
+  room.onMemberOnline(renderMembers);
 
   // Top-level event the server sends from archive-room's onSubscribe hook.
   let flowRan = 0;
