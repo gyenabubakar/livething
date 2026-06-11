@@ -374,38 +374,26 @@ describe('channels-server-subscribe-and-kick-family-notify', () => {
 });
 
 describe('channel-subscribeok-server-leaves-pending-hanging', () => {
-  it('channel goes active but subscribe() promise stays unresolved when source=server', async () => {
+  it('resolves subscribe() and activates the channel when the confirmation is source=server', async () => {
     const { socket, ws } = build();
     const room = socket.channel('general');
 
     let resolved = false;
-    let rejected = false;
-    const subscribePromise = room.subscribe();
-    subscribePromise.then(
-      () => {
-        resolved = true;
-      },
-      () => {
-        rejected = true;
-      },
-    );
+    const subscribePromise = room.subscribe().then(() => {
+      resolved = true;
+    });
 
-    // Server pushes __subscribeOk__ with source 'server' while there is a pending promise.
+    // Server confirms with source 'server' while a subscribe() is pending.
     ws.emit({
       event: '__subscribeOk__',
       payload: { source: 'server' },
       __wskit: { channel: 'general' },
     });
 
-    // Flush microtasks.
-    await new Promise((r) => setTimeout(r, 0));
-
+    await subscribePromise;
+    expect(resolved).toBe(true);
     // Channel is active — send() works.
     expect(() => room.send('send-message', { text: 'ok' })).not.toThrow();
-
-    // But the subscribe() promise was never resolved or rejected.
-    expect(resolved).toBe(false);
-    expect(rejected).toBe(false);
   });
 });
 
@@ -641,6 +629,108 @@ describe('BUG persistence-flip', () => {
         .some((f) => f.event === '__subscribe__' && f.__wskit?.channel === 'general');
 
       expect(clientSubscribe || onSubFailed.mock.calls.length > 0).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('channels review fixes', () => {
+  it('releases the lazy hold when the socket drops mid-subscribe, so a zero-consumer reconnect idle-closes', () => {
+    vi.useFakeTimers();
+    try {
+      const socket = client<C>()(
+        connect('wss://test', { lazy: true, idleTimeout: 1000 }),
+        channels(),
+        reconnection(),
+      );
+      // The only consumer is this pending subscribe; the socket lazily connects.
+      socket
+        .channel('general')
+        .subscribe()
+        .catch(() => undefined);
+      const first = MockWebSocket.last();
+      first.open();
+      first.serverClose(1006); // drop before __subscribeOk__ — subscribe never activates
+      vi.advanceTimersByTime(1500);
+      MockWebSocket.last().open(); // reconnected with no live consumers
+      vi.advanceTimersByTime(2000); // past the idle timeout
+      expect(socket.getState()).toBe('closed');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a disconnect within the persistent-rejoin window does not later fire a stray subscribe', () => {
+    vi.useFakeTimers();
+    try {
+      const socket = client<C>()(connect('wss://test'), channels(), reconnection());
+      socket.connect();
+      MockWebSocket.last().open();
+      socket.channel('general').subscribe();
+      MockWebSocket.last().emit({
+        event: '__subscribeOk__',
+        payload: { source: 'client' },
+        __wskit: { channel: 'general', channelPersistent: true },
+      });
+      MockWebSocket.last().serverClose(1006);
+      vi.advanceTimersByTime(1500);
+      MockWebSocket.last().open(); // onReconnect schedules the 5s fallback timer
+      socket.disconnect(); // must cancel that timer
+      socket.connect();
+      const fresh = MockWebSocket.last();
+      fresh.open();
+      vi.advanceTimersByTime(6000); // a stale timer would fire here
+      const subs = fresh.sentFrames().filter((f) => f.event === '__subscribe__');
+      expect(subs).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not re-fire onMemberJoin for unchanged peers across a reconnect, and fires real deltas', () => {
+    vi.useFakeTimers();
+    try {
+      const socket = client<C>()(connect('wss://test'), channels(), reconnection());
+      socket.connect();
+      const first = MockWebSocket.last();
+      first.open();
+      const room = socket.channel('general');
+      room.subscribe();
+      first.emit({
+        event: '__subscribeOk__',
+        payload: { source: 'client' },
+        __wskit: { channel: 'general' },
+      });
+      first.emit({
+        event: '__memberSync__',
+        payload: { members: [{ connectionId: 'a' }, { connectionId: 'b' }] },
+        __wskit: { channel: 'general' },
+      });
+
+      const joins: string[] = [];
+      const leaves: string[] = [];
+      room.onMemberJoin((id) => joins.push(id));
+      room.onMemberLeave((id) => leaves.push(id));
+
+      first.serverClose(1006);
+      vi.advanceTimersByTime(1500);
+      const second = MockWebSocket.last();
+      second.open();
+      second.emit({
+        event: '__subscribeOk__',
+        payload: { source: 'client' },
+        __wskit: { channel: 'general' },
+      });
+      // Reconnect roster: 'b' left, 'c' joined; 'a' unchanged.
+      second.emit({
+        event: '__memberSync__',
+        payload: { members: [{ connectionId: 'a' }, { connectionId: 'c' }] },
+        __wskit: { channel: 'general' },
+      });
+
+      expect(joins).toEqual(['c']); // not 'a' (unchanged)
+      expect(leaves).toEqual(['b']);
     } finally {
       vi.useRealTimers();
     }

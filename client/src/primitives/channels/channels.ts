@@ -226,7 +226,9 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
               });
             } else {
               const rejoining = state;
-              setTimeout(() => {
+              rejoining.clearRejoinTimer();
+              rejoining.rejoinTimer = setTimeout(() => {
+                rejoining.rejoinTimer = null;
                 if (!rejoining.active || !rejoining.rejoining) return;
                 helpers.rawSend({
                   event: '__subscribe__',
@@ -242,10 +244,14 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
           // On disconnect: clear members and reject any pending subscribe() calls,
           // but keep the channel active so it re-subscribes when reconnected.
           for (const state of states.values()) {
+            state.clearRejoinTimer();
             if (state.pending) {
               state.pending.reject(Disconnected());
               state.pending = null;
               state.pendingPromise = null;
+              // A channel that never became active won't be re-subscribed on
+              // reconnect, so release its idle-prevention hold here or it leaks.
+              if (!state.active) state.releaseLazy();
             }
             state.clearMembersForReconnect();
           }

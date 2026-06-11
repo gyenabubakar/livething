@@ -70,6 +70,10 @@ export class ChannelState {
   pendingPromise: Promise<void> | null = null;
   /** Releases the idle-prevention hold taken by `subscribe()`. Held until the subscription ends. */
   private lazyRelease: (() => void) | null = null;
+  /** Handle for the persistent-rejoin fallback re-subscribe timer, so it can be cancelled. */
+  rejoinTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Roster captured at a network drop, so the next `__memberSync__` can fire only real deltas. */
+  private priorMembers: Set<string> | null = null;
 
   readonly members = new Map<string, ChannelMember>();
   readonly handlers = new Map<string, Set<Handler>>();
@@ -137,11 +141,22 @@ export class ChannelState {
     release?.();
   }
 
+  /** Cancel the persistent-rejoin fallback timer if one is scheduled. Safe to call more than once. */
+  clearRejoinTimer(): void {
+    if (this.rejoinTimer !== null) {
+      clearTimeout(this.rejoinTimer);
+      this.rejoinTimer = null;
+    }
+  }
+
   /** Mark active and tell `onSubscribed` listeners who started it. */
   markSubscribed(source: SubscribeSource): void {
     this.active = true;
     this.rejoining = false;
-    if (source === 'client' && this.pending) {
+    this.clearRejoinTimer();
+    // Resolve a waiting subscribe() on either ack: both a client-initiated and a
+    // server-initiated confirmation mean the subscription is now live.
+    if (this.pending) {
       this.pending.resolve();
       this.pending = null;
       this.pendingPromise = null;
@@ -153,6 +168,7 @@ export class ChannelState {
   markUnsubscribed(): void {
     this.active = false;
     this.rejoining = false;
+    this.clearRejoinTimer();
     this.members.clear();
     // The subscription ended (unsubscribed or kicked) — release the idle-prevention
     // hold and clear any in-flight subscribe(), so a later subscribe() starts fresh
@@ -169,8 +185,10 @@ export class ChannelState {
   }
 
   fireSubscriptionFailed(error: WSKitError): void {
-    // The subscription failed — release the idle-prevention hold.
+    // The subscription failed — release the idle-prevention hold and cancel any
+    // pending rejoin fallback.
     this.releaseLazy();
+    this.clearRejoinTimer();
     // Only deactivate the channel if a subscribe was actually in flight: either a
     // live subscribe() call (pending !== null) or a reconnect rejoin (rejoining).
     // A channel __error__ outside that window is a message error — leave the channel
@@ -191,14 +209,28 @@ export class ChannelState {
     }
   }
 
-  /** Replace the whole member list (from `__memberSync__`) and replay join/online. */
+  /**
+   * Replace the whole member list (from `__memberSync__`). `onMemberJoin` fires
+   * only for connections not already in the roster, `onMemberLeave` for ones that
+   * dropped out, and `onMemberOnline` for everyone in the snapshot. On a reconnect
+   * (where the prior roster was stashed by `clearMembersForReconnect`) this means
+   * an unchanged peer is reported online again but not re-joined.
+   */
   syncMembers(members: { connectionId: string; meta?: Record<string, unknown> }[]): void {
+    const prev = this.priorMembers ?? new Set(this.members.keys());
+    this.priorMembers = null;
+    const next = new Set<string>();
     this.members.clear();
     for (const { connectionId, meta } of members) {
+      next.add(connectionId);
       const member: ChannelMember = { meta: meta ?? {} };
       this.members.set(connectionId, member);
-      this.memberJoin.each((callback) => callback(connectionId, member));
+      if (!prev.has(connectionId))
+        this.memberJoin.each((callback) => callback(connectionId, member));
       this.memberOnline.each((callback) => callback(connectionId, member));
+    }
+    for (const connectionId of prev) {
+      if (!next.has(connectionId)) this.memberLeave.each((callback) => callback(connectionId));
     }
   }
 
@@ -221,8 +253,10 @@ export class ChannelState {
     this.memberOffline.each((callback) => callback(connectionId));
   }
 
-  /** Clear members but keep the subscription (used on a network drop). */
+  /** Clear members but keep the subscription (used on a network drop). The prior
+   * roster is stashed so the post-reconnect `__memberSync__` reports only deltas. */
   clearMembersForReconnect(): void {
+    this.priorMembers = new Set(this.members.keys());
     this.members.clear();
   }
 }
