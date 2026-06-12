@@ -4,6 +4,7 @@ import { query } from '~/primitives/query.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Primitive } from '~/primitives/types.ts';
 
 const c = client();
 
@@ -330,8 +331,8 @@ describe('disconnect() mid-first-hook skips second onBeforeReopen', () => {
     const socket = c(
       connect('wss://host/ws'),
       reconnection(),
-      primitive1 as any,
-      primitive2 as any,
+      primitive1 as unknown as Primitive,
+      primitive2 as unknown as Primitive,
     );
 
     // First connect + open to make _isFirstConnect = false.

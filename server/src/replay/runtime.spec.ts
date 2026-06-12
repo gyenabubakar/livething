@@ -702,14 +702,13 @@ describe('ReplayFrame schema', () => {
     expect(result.success).toBe(true);
   });
 
-  it('rejects a replay frame that carries a namespace marker', () => {
-    // Replay has no namespace dimension: namespace messages fold into the
-    // top-level replay. A stray namespace marker must fail validation, not be
-    // silently ignored.
+  it('rejects a replay frame that carries an unknown routing marker', () => {
+    // The replay frame's __wskit carries only known routing keys; a stray
+    // unknown marker must fail validation, not be silently ignored.
     const result = v.safeParse(ReplayFrame, {
       event: '__replay__',
       payload: {},
-      __wskit: { namespace: 'admin' },
+      __wskit: { bogus: 'admin' },
     });
     expect(result.success).toBe(false);
   });

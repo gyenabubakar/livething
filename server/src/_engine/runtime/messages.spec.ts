@@ -542,7 +542,7 @@ describe('message runtime', () => {
   it('manual ValidationFailed thrown from a channel handler reaches handleValidationError with the resolved scope', async () => {
     // Pre-fix the outer dispatch catch called handleValidationError
     // without scope, so onValidationError hooks saw a top-level ctx (no
-    // ctx.channel / ctx.namespace) for manually-thrown ValidationFailed
+    // ctx.channel) for manually-thrown ValidationFailed
     // — but a properly scoped ctx for schema-failed payloads. Same hook,
     // two different shapes.
     const { ValidationFailed } = await import('@wskit/core');
@@ -1349,7 +1349,6 @@ function makeScopedNode(intercepts: unknown[] = []) {
 
 interface MakeNudgeRuntimeOptions {
   handleRuntimeError?: ReturnType<typeof vi.fn>;
-  namespaces?: Map<string, unknown>;
   channels?: Map<string, unknown>;
 }
 
@@ -1358,7 +1357,7 @@ function makeNudgeRuntime(
   activeStreams: Map<string, unknown>,
   opts: MakeNudgeRuntimeOptions = {},
 ) {
-  const { handleRuntimeError = vi.fn(), namespaces = new Map(), channels = new Map() } = opts;
+  const { handleRuntimeError = vi.fn(), channels = new Map() } = opts;
   return {
     compiled: {
       outgoing: new Map(),
@@ -1368,7 +1367,6 @@ function makeNudgeRuntime(
       resumableStreams: new Map(),
       recordedStreams: new Map(),
       intercepts,
-      namespaces,
       channels,
       channelFamilies: new Map(),
       scheduled: new Map(),
@@ -1551,32 +1549,6 @@ describe('nudge intercepts', () => {
       streamTerminated: false,
       streamNudgeId: 'nudge_1',
     });
-  });
-
-  it('Block in namespace intercept drops a nudge sent with namespace routing', async () => {
-    const { Block } = await import('@wskit/core');
-    const connection = createConnection('conn_1');
-    const activeStream = makeActiveStream(connection.id, 'ns-nudge');
-    const activeStreams = new Map([['stream_1', activeStream]]);
-
-    const { intercept } = await import('~/intercept/intercept.ts');
-    const nsSpy = intercept(() => {
-      throw Block;
-    });
-    const namespaces = new Map([['ns', makeScopedNode([nsSpy])]]);
-    const runtime = makeNudgeRuntime([], activeStreams, { namespaces });
-
-    await processTextMessage(
-      runtime as unknown as Parameters<typeof processTextMessage>[0],
-      connection,
-      JSON.stringify({
-        event: 'ns-nudge',
-        payload: { value: 1 },
-        __wskit: { streamId: 'stream_1', namespace: 'ns' },
-      }),
-    );
-
-    expect(activeStream.nudges).toHaveLength(0);
   });
 
   it('Block in channel intercept drops a nudge sent with channel routing', async () => {
