@@ -240,9 +240,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
           }
           return resubscribes.length ? resubscribes : null;
         },
-        onClose() {
-          // On disconnect: clear members and reject any pending subscribe() calls,
-          // but keep the channel active so it re-subscribes when reconnected.
+        onClose(_code, _reason, intentional) {
           for (const state of states.values()) {
             state.clearRejoinTimer();
             if (state.pending) {
@@ -253,6 +251,12 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
               // reconnect, so release its idle-prevention hold here or it leaks.
               if (!state.active) state.releaseLazy();
             }
+
+            if (intentional) {
+              if (state.active) state.markUnsubscribed();
+              continue;
+            }
+
             state.clearMembersForReconnect();
           }
         },

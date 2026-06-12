@@ -21,10 +21,11 @@ export function setup(): void {
     <span data-testid="error-reason"></span>
   `);
 
+  const lazy = new URLSearchParams(location.search).get('lazy') === '1';
   const socket = client<StreamDurableClient>()(
-    connect(wsUrl('stream-durable')),
+    connect(wsUrl('stream-durable'), { lazy }),
     reconnection(),
-    stream(),
+    stream({ timeout: 1000 }),
   );
 
   socket.subscribe(() => {

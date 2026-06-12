@@ -104,6 +104,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
       // stream would never start (and with timeout 0 the promise would never
       // settle, leaking the lazy hold).
       const triggerOutbox = new Map<string, WireMessage>();
+      const resumeOutbox = new Map<string, WireMessage>();
       // Warn at most once: a resumable stream relies on detecting a dead socket,
       // which only keepalive can do for a half-open connection (no close event).
       let warnedNoKeepalive = false;
@@ -128,6 +129,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         if (state.resumeTimer) clearTimeout(state.resumeTimer);
         state.resumeTimer = null;
         streams.delete(state.streamId);
+        resumeOutbox.delete(state.streamId);
         if (releaseHold) helpers.lazyRelease();
         if (error) state.queue.abort(error);
         else state.queue.end();
@@ -246,7 +248,13 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           helpers.lazyAcquire();
         }
         startChunkTimer(state);
-        helpers.rawSend(resumeFrame(state, context.options?.lastKnownSeq));
+        const frame = resumeFrame(state, context.options?.lastKnownSeq);
+        const connectionState = helpers.getState();
+        if (connectionState === 'open') {
+          helpers.rawSend(frame);
+        } else if (connectionState === 'connecting' || connectionState === 'reconnecting') {
+          resumeOutbox.set(streamId, frame);
+        }
         return buildStreamHandle(state, handleDependencies);
       }
 
@@ -444,9 +452,10 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         onOpen() {
           // Flush trigger frames for streams started while the socket was still
           // connecting; rawSend would have dropped them before open.
-          if (triggerOutbox.size === 0) return null;
-          const frames = [...triggerOutbox.values()];
+          if (triggerOutbox.size === 0 && resumeOutbox.size === 0) return null;
+          const frames = [...triggerOutbox.values(), ...resumeOutbox.values()];
           triggerOutbox.clear();
+          resumeOutbox.clear();
           return frames;
         },
         onReconnect() {
@@ -470,7 +479,8 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           }
           return frames.length ? frames : null;
         },
-        onClose(code, reason, intentional) {
+        onClose(...args) {
+          const [code, reason, intentional, suspended] = args;
           for (const trigger of triggers.values()) {
             if (trigger.timer) clearTimeout(trigger.timer);
             helpers.lazyRelease();
@@ -478,6 +488,7 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           }
           triggers.clear();
           triggerOutbox.clear();
+          resumeOutbox.clear();
 
           for (const pending of pendingNudges.values()) {
             if (pending.timer) clearTimeout(pending.timer);
@@ -494,7 +505,11 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
             // actually reconnect; otherwise the resume that would revive its queue
             // never comes, so finish it (the for-await loop throws Disconnected
             // instead of hanging forever).
-            if (state.resumable && !intentional && helpers.willReconnect(code, reason)) {
+            if (
+              state.resumable &&
+              !intentional &&
+              (suspended || helpers.willReconnect(code, reason))
+            ) {
               helpers.lazyRelease();
             } else {
               finishStream(state, Disconnected());

@@ -195,9 +195,24 @@ describe('stale-attempt onclose is a no-op', () => {
 });
 
 describe('connect-failed catch — reconnection handoff', () => {
+  it('rethrows a rejected connection URL when no error listener is registered', async () => {
+    const thrown = new Promise<unknown>((resolve) => {
+      process.setUncaughtExceptionCaptureCallback(resolve);
+    });
+    const socket = c(connect(() => Promise.reject(new Error('DNS failed'))));
+
+    try {
+      socket.connect();
+      await expect(thrown).resolves.toMatchObject({ code: 'internal-error' });
+    } finally {
+      process.setUncaughtExceptionCaptureCallback(null);
+    }
+  });
+
   it('hands off to reconnection (state → reconnecting) when url function throws', async () => {
     const urlFn = vi.fn().mockRejectedValue(new Error('DNS failed'));
     const socket = c(connect(urlFn), reconnection());
+    socket.onError(() => undefined);
     socket.connect();
     await Promise.resolve();
     // The rejection should have been caught and handed to the unexpected-close handler.
@@ -207,6 +222,7 @@ describe('connect-failed catch — reconnection handoff', () => {
   it('goes to closed (no reconnection) when url function throws', async () => {
     const urlFn = vi.fn().mockRejectedValue(new Error('DNS failed'));
     const socket = c(connect(urlFn)); // no reconnection
+    socket.onError(() => undefined);
     socket.connect();
     await Promise.resolve();
     expect(socket.getState()).toBe('closed');
@@ -218,6 +234,7 @@ describe('connect-failed catch — reconnection handoff', () => {
       query(() => Promise.reject(new Error('token error'))),
       reconnection(),
     );
+    socket.onError(() => undefined);
     socket.connect();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(socket.getState()).toBe('reconnecting');
@@ -228,6 +245,7 @@ describe('connect-failed catch — reconnection handoff', () => {
       connect('wss://host/ws'),
       query(() => Promise.reject(new Error('token error'))),
     );
+    socket.onError(() => undefined);
     socket.connect();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(socket.getState()).toBe('closed');
@@ -259,6 +277,7 @@ describe('url-function rejection fires close event (no reconnection)', () => {
     const urlFn = vi.fn().mockRejectedValue(new Error('DNS failed'));
     const socket = c(connect(urlFn));
     const onClose = vi.fn();
+    socket.onError(() => undefined);
     socket.onClose(onClose);
 
     socket.connect();

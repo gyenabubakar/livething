@@ -60,4 +60,17 @@ test.describe('stream-durable (conformance)', () => {
     await expect.poll(() => page.getByTestId('error-code').textContent()).toBe('stream-aborted');
     await expect.poll(() => page.getByTestId('error-reason').textContent()).toBe('not-found');
   });
+
+  test('a lazy resume sends its frame after the connection opens', async ({ page }, testInfo) => {
+    await page.goto(
+      `/tests/stream-durable/index.html?room=sd-lazy-${testInfo.testId}&username=alice&lazy=1`,
+    );
+    await expect(page.getByTestId('app-ready')).toHaveText('yes');
+
+    await page.getByTestId('resume-unknown').click();
+
+    await expect(page.getByTestId('status')).toHaveText('open');
+    await expect.poll(() => page.getByTestId('error-code').textContent()).toBe('stream-aborted');
+    await expect.poll(() => page.getByTestId('error-reason').textContent()).toBe('not-found');
+  });
 });

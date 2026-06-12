@@ -205,7 +205,7 @@ export class WSKitSocket {
     // live listeners.
     for (const primitive of this._primitives) {
       try {
-        primitive.onClose?.(code, reason, true);
+        primitive.onClose?.(code, reason, true, false);
       } catch (error) {
         this._reportError(error);
       }
@@ -368,7 +368,49 @@ export class WSKitSocket {
       disconnect: (code, reason) => this.disconnect(code, reason),
 
       connect: () => this.connect(),
+
+      suspend: (code, reason) => this._suspend(code, reason),
+
+      resume: () => this._resume(),
     };
+  }
+
+  private _suspend(code = 1000, reason = 'background'): void {
+    this._intentionalClose = true;
+    this._connectAttemptId++;
+    this._clearLazyIdleTimer();
+
+    const wasActive = this._state !== 'closed';
+
+    if (this.ws) {
+      this.ws.onopen = null;
+      this.ws.onclose = null;
+      this.ws.onerror = null;
+      this.ws.onmessage = null;
+      this.ws.close(code, reason);
+      this.ws = null;
+    }
+    this.protocol = null;
+
+    for (const primitive of this._primitives) {
+      try {
+        primitive.onClose?.(code, reason, false, true);
+      } catch (error) {
+        this._reportError(error);
+      }
+    }
+    this._clearLazyIdleTimer();
+
+    if (wasActive) {
+      this._setState('closed');
+      this._emitter.emit('close', { code, reason, wasClean: true });
+    }
+  }
+
+  private _resume(): void {
+    if (this._state === 'open' || this._state === 'connecting') return;
+    this._intentionalClose = false;
+    this._openConnection();
   }
 
   /**
@@ -506,7 +548,7 @@ export class WSKitSocket {
 
         for (const primitive of this._primitives) {
           try {
-            primitive.onClose?.(event.code, event.reason, false);
+            primitive.onClose?.(event.code, event.reason, false, false);
           } catch (error) {
             this._reportError(error);
           }
@@ -546,14 +588,14 @@ export class WSKitSocket {
       if (attemptId !== this._connectAttemptId) return;
 
       this._log('connection failed', error);
-      this._emitter.emit('error', toWSKitError(error));
+      this._reportError(toWSKitError(error));
 
       if (this._unexpectedCloseHandler) {
         this._unexpectedCloseHandler(1006, 'connection failed');
       } else {
         for (const primitive of this._primitives) {
           try {
-            primitive.onClose?.(1006, 'connection failed', false);
+            primitive.onClose?.(1006, 'connection failed', false, false);
           } catch (closeError) {
             this._reportError(closeError);
           }

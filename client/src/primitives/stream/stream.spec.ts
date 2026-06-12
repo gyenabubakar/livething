@@ -239,6 +239,21 @@ describe('onStream (broadcast)', () => {
 });
 
 describe('durable resume', () => {
+  it('sends a lazy resume only after the socket opens', () => {
+    const socket = client<C>()(connect('wss://test', { lazy: true }), stream());
+
+    socket.resumeStream('ask-ai', 'feed-lazy', { lastKnownSeq: 4 });
+    const ws = MockWebSocket.last();
+    expect(ws.sentFrames()).toEqual([]);
+
+    ws.open();
+    expect(ws.sentFrames()).toContainEqual({
+      event: '__resumeStream__',
+      payload: { lastKnownSeq: 4 },
+      __wskit: { streamId: 'feed-lazy' },
+    });
+  });
+
   it('sends __resumeStream__ with lastKnownSeq after a reconnect', async () => {
     vi.useFakeTimers();
     try {

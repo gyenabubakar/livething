@@ -45,9 +45,6 @@ export function platform(options: PlatformOptions): Primitive<EmptyTypeFn> {
       // so we know to reopen it when the app comes back.
       let backgrounded = false;
 
-      // True only during our own disconnect() call, so onClose can tell a
-      // background drop apart from a real user disconnect().
-      let selfDisconnecting = false;
       let reportingInitialVisibility = false;
       let hiddenTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -90,7 +87,7 @@ export function platform(options: PlatformOptions): Primitive<EmptyTypeFn> {
           if (backgrounded) {
             backgrounded = false;
             helpers.log.info('foreground — reconnecting');
-            helpers.connect();
+            helpers.resume();
           }
           return;
         }
@@ -107,10 +104,8 @@ export function platform(options: PlatformOptions): Primitive<EmptyTypeFn> {
           // foreground would reconnect a socket we never closed.
           if (helpers.getState() !== 'open') return;
           backgrounded = true;
-          selfDisconnecting = true;
           helpers.log.info(`hidden ${backgroundDisconnectMs}ms — disconnecting`);
-          helpers.disconnect();
-          selfDisconnecting = false;
+          helpers.suspend();
         }, backgroundDisconnectMs);
       }
 
@@ -127,9 +122,9 @@ export function platform(options: PlatformOptions): Primitive<EmptyTypeFn> {
           bind();
           return null;
         },
-        onClose(_code, _reason, intentional) {
-          // Our own background drop keeps listening so it can reopen on return.
-          if (selfDisconnecting) return;
+        onClose(...args) {
+          const [, , intentional, suspended] = args;
+          if (suspended) return;
 
           if (intentional) {
             // A real user disconnect() detaches the environment.

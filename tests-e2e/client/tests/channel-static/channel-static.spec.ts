@@ -73,6 +73,56 @@ test.describe('channel-static (conformance)', () => {
     await bob.close();
   });
 
+  test('manual reconnect needs a fresh ephemeral channel subscribe', async ({
+    browser,
+  }, testInfo) => {
+    const room = `ch-manual-reconnect-${testInfo.testId}`;
+    const alice = await openMember(browser, room, 'alice');
+    const bob = await openMember(browser, room, 'bob');
+
+    await alice.page.getByTestId('sub-room').click();
+    await bob.page.getByTestId('sub-room').click();
+    await expect(alice.page.getByTestId('subscribed-count')).toHaveText('1');
+    await alice.page.getByTestId('disconnect').click();
+    await expect(alice.page.getByTestId('status')).toHaveText('closed');
+    await alice.page.getByTestId('connect').click();
+    await expect(alice.page.getByTestId('status')).toHaveText('open');
+    await expect(alice.page.getByTestId('subscribed-count')).toHaveText('1');
+
+    await alice.page.getByTestId('sub-room').click();
+    await expect(alice.page.getByTestId('subscribed-count')).toHaveText('2');
+    await expect(alice.page.getByTestId('on-subscribed-source')).toHaveText('client');
+    await alice.page.getByTestId('send-hello').click();
+    await expect(bob.page.getByTestId('user-messages')).toContainText('alice:hello');
+
+    await alice.close();
+    await bob.close();
+  });
+
+  test('background resume restores an ephemeral channel before sends continue', async ({
+    browser,
+  }, testInfo) => {
+    const room = `ch-background-resume-${testInfo.testId}`;
+    const alice = await openMember(browser, room, 'alice');
+    const bob = await openMember(browser, room, 'bob');
+
+    await alice.page.getByTestId('sub-room').click();
+    await bob.page.getByTestId('sub-room').click();
+    await expect(alice.page.getByTestId('subscribed-count')).toHaveText('1');
+    await alice.page.getByTestId('hide').click();
+    await expect(alice.page.getByTestId('status')).toHaveText('closed');
+    await alice.page.getByTestId('show').click();
+    await expect(alice.page.getByTestId('status')).toHaveText('open');
+    await expect(alice.page.getByTestId('subscribed-count')).toHaveText('2');
+    await expect(alice.page.getByTestId('on-subscribed-source')).toHaveText('client');
+
+    await alice.page.getByTestId('send-hello').click();
+    await expect(bob.page.getByTestId('user-messages')).toContainText('alice:hello');
+
+    await alice.close();
+    await bob.close();
+  });
+
   test('members and onMemberJoin update when a peer joins', async ({ browser }, testInfo) => {
     const room = `ch-join-${testInfo.testId}`;
     const alice = await openMember(browser, room, 'alice');

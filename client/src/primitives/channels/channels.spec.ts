@@ -121,6 +121,43 @@ describe('subscribe / unsubscribe', () => {
     await expect(promise).rejects.toMatchObject({ code: 'disconnected' });
   });
 
+  it('requires a new subscribe after an intentional disconnect', async () => {
+    const { socket, ws } = build(channels());
+    const room = socket.channel('general');
+    const onUnsubscribed = vi.fn();
+    room.onUnsubscribed(onUnsubscribed);
+    const first = room.subscribe();
+    ws.emit({
+      event: '__subscribeOk__',
+      payload: { source: 'client' },
+      __wskit: { channel: 'general' },
+    });
+    await first;
+
+    socket.disconnect();
+    expect(onUnsubscribed).toHaveBeenCalledTimes(1);
+    expect(() => room.send('send-message', { text: 'too early' })).toThrow(
+      /channel-not-subscribed/,
+    );
+    socket.connect();
+    const reopened = MockWebSocket.last();
+    reopened.open();
+
+    expect(reopened.sentFrames().filter((frame) => frame.event === '__subscribe__')).toEqual([]);
+    const second = room.subscribe();
+    expect(reopened.sentFrames().at(-1)).toEqual({
+      event: '__subscribe__',
+      payload: {},
+      __wskit: { channel: 'general' },
+    });
+    reopened.emit({
+      event: '__subscribeOk__',
+      payload: { source: 'client' },
+      __wskit: { channel: 'general' },
+    });
+    await expect(second).resolves.toBeUndefined();
+  });
+
   it('reuses the in-flight promise for an overlapping subscribe (no orphan, one frame)', async () => {
     const { socket, ws } = build(channels());
     const room = socket.channel('general');

@@ -41,25 +41,9 @@ describe('Plugin.use — failed build is not retried (plugin-build-retry)', () =
 
     const socket = buildSocket(Failing());
 
-    // Each use() currently re-runs build because the entry has no 'api' key after a throw.
-    // We swallow the error to let subsequent calls happen.
-    try {
-      Failing.use(socket);
-    } catch {
-      /* expected */
-    }
-    try {
-      Failing.use(socket);
-    } catch {
-      /* expected */
-    }
-    try {
-      Failing.use(socket);
-    } catch {
-      /* expected */
-    }
-
-    // Correct behavior: build runs exactly once, even when it throws.
+    expect(() => Failing.use(socket)).toThrow('build failed');
+    expect(() => Failing.use(socket)).toThrow('build failed');
+    expect(() => Failing.use(socket)).toThrow('build failed');
     expect(buildSpy).toHaveBeenCalledTimes(1);
   });
 });

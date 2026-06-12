@@ -30,7 +30,8 @@ function resolveTag(factory: PrimitiveFactory): string {
  * it's only here when `plugin()` is in the bundle. Keyed weakly by socket, so a
  * dropped socket takes its plugin entries with it.
  */
-type PluginEntry = { build: (socket: WSKitSocket) => unknown; api?: unknown };
+type PluginResult = { ok: true; api: unknown } | { ok: false; error: unknown };
+type PluginEntry = { build: (socket: WSKitSocket) => unknown; result?: PluginResult };
 const pluginRegistries = new WeakMap<object, Map<symbol, Map<string | undefined, PluginEntry>>>();
 
 function registerPlugin(
@@ -63,14 +64,15 @@ function usePlugin(socket: object, key: symbol, registrationId: string | undefin
         : `[wskit] no plugin instance with registrationId '${registrationId}' is registered on this socket.`,
     );
   }
-  if (!('api' in entry)) {
+  if (!entry.result) {
     try {
-      entry.api = entry.build(socket as WSKitSocket);
-    } finally {
-      if (!('api' in entry)) entry.api = undefined;
+      entry.result = { ok: true, api: entry.build(socket as WSKitSocket) };
+    } catch (error) {
+      entry.result = { ok: false, error };
     }
   }
-  return entry.api;
+  if (!entry.result.ok) throw entry.result.error;
+  return entry.result.api;
 }
 
 /**

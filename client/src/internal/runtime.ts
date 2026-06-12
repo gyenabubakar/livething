@@ -130,11 +130,11 @@ export interface PrimitiveRuntime {
   onReconnect?(): WireMessage[] | null;
 
   /**
-   * Runs when the socket closes. `intentional` is `true` for a `disconnect()`
-   * call and `false` for an unexpected drop — useful for deciding whether to
-   * throw away queued state.
+   * Runs when the socket closes. `intentional` is `true` for a public
+   * `disconnect()` call. `suspended` is `true` for a temporary platform pause
+   * that will resume as the same client session.
    */
-  onClose?(code: number, reason: string, intentional: boolean): void;
+  onClose?(code: number, reason: string, intentional: boolean, suspended?: boolean): void;
 
   /**
    * Runs when reconnection is permanently abandoned — out of retries, or the
@@ -242,4 +242,10 @@ export interface PrimitiveHelpers {
 
   /** Open the connection (the public `connect()`). */
   connect(): void;
+
+  /** Temporarily close the transport while keeping reconnectable primitive state. */
+  suspend(code?: number, reason?: string): void;
+
+  /** Reopen a suspended transport as a reconnect. */
+  resume(): void;
 }

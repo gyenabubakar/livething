@@ -1,4 +1,5 @@
-import { channels, client, connect, requestResponse, stream } from '@wskit/client';
+import { channels, client, connect, platform, requestResponse, stream } from '@wskit/client';
+import { WebEnvironment } from '@wskit/client/environment';
 import type { ChannelStaticClient } from '@wskit/tests-e2e-handlers/channel-static';
 import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
@@ -8,6 +9,9 @@ import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 export function setup(): void {
   mount(`
     <button data-testid="connect">connect</button>
+    <button data-testid="disconnect">disconnect</button>
+    <button data-testid="hide">hide</button>
+    <button data-testid="show">show</button>
     <button data-testid="sub-room">sub-room</button>
     <button data-testid="sub-bogus">sub-bogus</button>
     <button data-testid="unsub-room">unsub-room</button>
@@ -15,6 +19,7 @@ export function setup(): void {
     <button data-testid="start-stream">start-stream</button>
     <span data-testid="status"></span>
     <span data-testid="subscribed"></span>
+    <span data-testid="subscribed-count"></span>
     <span data-testid="on-subscribed-source"></span>
     <span data-testid="sub-error"></span>
     <span data-testid="user-messages"></span>
@@ -26,11 +31,21 @@ export function setup(): void {
     <span data-testid="stream-end"></span>
   `);
 
+  let visibility: DocumentVisibilityState = 'visible';
+  Object.defineProperty(document, 'visibilityState', {
+    configurable: true,
+    get: () => visibility,
+  });
+
   const socket = client<ChannelStaticClient>()(
     connect(wsUrl('channel-static')),
     requestResponse(),
     channels(),
     stream(),
+    platform({
+      environment: WebEnvironment,
+      backgroundDisconnectMs: 50,
+    }),
   );
 
   const room = socket.channel('room');
@@ -39,7 +54,10 @@ export function setup(): void {
     el('status').textContent = socket.getState();
   });
 
+  let subscribedCount = 0;
   room.onSubscribed((source) => {
+    subscribedCount += 1;
+    el('subscribed-count').textContent = String(subscribedCount);
     el('on-subscribed-source').textContent = source;
   });
 
@@ -66,6 +84,15 @@ export function setup(): void {
   });
 
   button('connect', () => socket.connect());
+  button('disconnect', () => socket.disconnect());
+  button('hide', () => {
+    visibility = 'hidden';
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  button('show', () => {
+    visibility = 'visible';
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
 
   button('sub-room', async () => {
     await room.subscribe();
@@ -102,6 +129,7 @@ export function setup(): void {
     el('stream-end').textContent = 'yes';
   });
 
+  el('subscribed-count').textContent = '0';
   ready();
 }
 
