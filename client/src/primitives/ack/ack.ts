@@ -18,6 +18,11 @@ type AckOptionsArg = { timeout?: number; ttl?: number };
  * works like `send()` but returns a promise that resolves once the server sends
  * back its "got it." Unlike `request()`, you don't get data back — just
  * confirmation. The promise rejects on timeout, a typed error, or disconnect.
+ *
+ * Call it while the socket is open or connecting. On a non-lazy socket that you
+ * have not `connect()`ed yet (state `closed`), it rejects at once with
+ * `disconnected` — a lazy socket connects on first use, and `buffering()` holds
+ * sends made while offline.
  */
 export function ack(options: AckOptions = {}): Primitive<AckTypeFn> {
   const defaultTimeout = options.timeout ?? 10_000;

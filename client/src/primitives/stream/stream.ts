@@ -72,6 +72,10 @@ function callStreamHandler(log: PrimitiveLogger, run: () => void): void {
  * stream waits for the next chunk, so on a half-open connection — one that died
  * with no close frame — only keepalive's pings can notice and force a reconnect.
  * Without it the stream can wait indefinitely (in debug mode this warns).
+ *
+ * Start a stream while the socket is open or connecting. On a non-lazy socket
+ * you have not `connect()`ed yet (state `closed`), `socket.stream()` rejects at
+ * once with `disconnected` — a lazy socket connects on first use.
  */
 export function stream(options: StreamOptions = {}): StreamPrimitive {
   const timeout = options.timeout ?? 30_000;

@@ -19,6 +19,11 @@ interface Pending {
  * message tagged with a unique id and returns a promise that resolves when the
  * server replies to that exact message. The promise rejects on timeout, on a
  * typed server error, or if you disconnect while waiting.
+ *
+ * Call it while the socket is open or connecting. On a non-lazy socket that you
+ * have not `connect()`ed yet (state `closed`), it rejects at once with
+ * `disconnected` — a lazy socket connects on first use, and `buffering()` holds
+ * sends made while offline.
  */
 export function requestResponse(
   options: RequestResponseOptions = {},
