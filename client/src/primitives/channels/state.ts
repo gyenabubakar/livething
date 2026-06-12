@@ -262,7 +262,12 @@ export class ChannelState {
   /** Clear members but keep the subscription (used on a network drop). The prior
    * roster is stashed so the post-reconnect `__memberSync__` reports only deltas. */
   clearMembersForReconnect(): void {
-    this.priorMembers = new Set(this.members.keys());
+    // Only stash on the first drop. A second drop before the post-reconnect
+    // __memberSync__ refills members would otherwise overwrite the real roster
+    // with an empty set, making the next sync re-fire onMemberJoin for unchanged
+    // peers. The reset paths (markUnsubscribed, fireSubscriptionFailed, syncMembers)
+    // null priorMembers, so this re-arms on a genuine resubscribe.
+    this.priorMembers ??= new Set(this.members.keys());
     this.members.clear();
   }
 }

@@ -867,6 +867,62 @@ describe('member join deltas after a failed rejoin', () => {
   });
 });
 
+describe('presence deltas across a double drop', () => {
+  it('does not re-fire onMemberJoin for unchanged peers when two drops precede the rejoin', () => {
+    vi.useFakeTimers();
+    try {
+      const socket = client<C>()(connect('wss://test'), channels(), reconnection());
+      socket.connect();
+      const first = MockWebSocket.last();
+      first.open();
+
+      const room = socket.channel('general');
+      room.subscribe();
+      first.emit({
+        event: '__subscribeOk__',
+        payload: { source: 'client' },
+        __wskit: { channel: 'general' },
+      });
+      first.emit({
+        event: '__memberSync__',
+        payload: { members: [{ connectionId: 'a' }, { connectionId: 'b' }] },
+        __wskit: { channel: 'general' },
+      });
+
+      const joins: string[] = [];
+      room.onMemberJoin((id) => joins.push(id));
+
+      // First drop → roster stashed {a,b}; reconnect re-subscribes (rejoin in flight).
+      first.serverClose(1006, 'drop');
+      vi.advanceTimersByTime(1500);
+      const second = MockWebSocket.last();
+      second.open();
+
+      // Second drop BEFORE any __memberSync__ refills members — must not clobber the stash.
+      second.serverClose(1006, 'drop again');
+      vi.advanceTimersByTime(1500);
+      const third = MockWebSocket.last();
+      third.open();
+
+      // Rejoin confirmed with the SAME roster — nobody actually joined.
+      third.emit({
+        event: '__subscribeOk__',
+        payload: { source: 'client' },
+        __wskit: { channel: 'general' },
+      });
+      third.emit({
+        event: '__memberSync__',
+        payload: { members: [{ connectionId: 'a' }, { connectionId: 'b' }] },
+        __wskit: { channel: 'general' },
+      });
+
+      expect(joins).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe('duplicate subscribe confirmation', () => {
   it('fires onSubscribed once when a server-source ack follows the client-source ack', () => {
     const { socket, ws } = build();
