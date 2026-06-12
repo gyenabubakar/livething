@@ -20,7 +20,7 @@ export default defineConfig({
   // `retries: 1` reopens the page with a FRESH connection, which is what a
   // dropped socket needs. It only fires on failure (no cost to green runs) and
   // can't mask a real bug — a deterministic failure fails the retry too.
-  workers: 4,
+  workers: 3,
   retries: 1,
   use: {
     baseURL: 'http://127.0.0.1:4173',
