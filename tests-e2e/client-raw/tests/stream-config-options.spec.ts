@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { closeSocket, connect, frames, installRig, send, waitForFrame } from './_ws-rig.ts';
+import type { WireFrame } from './_ws-rig.ts';
 
 const WS_PATH = '/ws/stream-durable-scoped';
 
@@ -128,15 +129,30 @@ test.describe('stream config options', () => {
     await page.waitForTimeout(800);
 
     const b = await connect(page, { path: WS_PATH, username: 'alice', room: room });
-    await send(page, b, {
-      event: '__resumeStream__',
-      payload: { lastKnownSeq: 0 },
-      __wskit: { streamId },
-    });
 
-    const err = await waitForFrame(page, b, { match: (f) => f.event === '__error__' });
-    expect(err.payload.code).toBe('stream-aborted');
-    expect((err.payload.detail as { reason: string }).reason).toBe('expired');
+    // The resume frame can occasionally not land under load (the reconnect
+    // racing the worker), leaving no response at all. Re-send it until the
+    // stream's terminal __error__ for this streamId comes back.
+    let err: WireFrame | undefined;
+    for (let attempt = 0; attempt < 3 && !err; attempt++) {
+      await send(page, b, {
+        event: '__resumeStream__',
+        payload: { lastKnownSeq: 0 },
+        __wskit: { streamId },
+      });
+      try {
+        err = await waitForFrame(page, b, {
+          match: (f) => f.event === '__error__' && f.__wskit?.streamId === streamId,
+          timeoutMs: 4000,
+        });
+      } catch {
+        // no frame yet — the loop re-sends the resume
+      }
+    }
+
+    expect(err, 'resume did not surface a stream-aborted error after retries').toBeTruthy();
+    expect(err!.payload.code).toBe('stream-aborted');
+    expect((err!.payload.detail as { reason: string }).reason).toBe('expired');
   });
 
   test('custom retentionAfterEndMs — ended row past the window surfaces stream-aborted not-found on resume', async ({

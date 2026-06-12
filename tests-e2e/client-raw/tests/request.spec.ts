@@ -108,8 +108,17 @@ test.describe('request', () => {
       return got.filter((m) => m.event === '__error__');
     });
 
-    expect(errors.length).toBeGreaterThan(0);
-    expect(errors[0]!.payload.code).toBe('validation-failed');
+    // Match the validation error to OUR frame, not errors[0]: under load a
+    // stray __error__ (e.g. an internal-error from a teardown elsewhere) can
+    // land in the collection window first. The non-string correlationId fails
+    // the envelope schema, so the server can't echo it back — but the error's
+    // detail carries the event name, which ties it to this get-time frame.
+    const err = errors.find(
+      (e) =>
+        e.payload.code === 'validation-failed' &&
+        (e.payload.detail as { event?: string } | undefined)?.event === 'get-time',
+    );
+    expect(err, 'expected a validation-failed __error__ for the get-time frame').toBeDefined();
   });
 
   test('strict-object request schema accepts the payload with correlationId in __wskit', async ({
