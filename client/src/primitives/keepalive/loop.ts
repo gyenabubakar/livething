@@ -74,9 +74,11 @@ export class KeepaliveLoop {
     this.pingSentAt = null;
     this.missedPongs = 0;
     this.samples = [];
-    // Route through setQuality so event-only listeners hear the final
-    // 'disconnected' tier. It dedupes, so start()'s initial stop() (already
-    // 'disconnected') and repeated stops don't fire a spurious change.
+    // Clear the stale round-trip time first, then route the tier through
+    // setQuality, so the final 'disconnected' change reaches event-only listeners
+    // with null latency, not the last live value. setQuality dedupes, so start()'s
+    // initial stop() (already 'disconnected') and repeated stops don't fire.
+    this.callbacks.reportLatency(null);
     this.setQuality('disconnected');
   }
 

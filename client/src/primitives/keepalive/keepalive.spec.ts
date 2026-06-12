@@ -193,6 +193,27 @@ describe('keepalive — quality tier transitions', () => {
     expect(socket.getQuality()).toBe('disconnected');
     expect(tiers.at(-1)).toBe('disconnected');
   });
+
+  it('fires onQualityChange(disconnected, null) on a clean close, not with a stale latency', () => {
+    vi.useFakeTimers();
+    const { socket, ws } = build(
+      quality({ thresholds: { excellent: 50, good: 150, degraded: 500 } }),
+      keepalive({ interval: 1000 }),
+    );
+    const calls: Array<[string, number | null]> = [];
+    socket.onQualityChange((q, l) => calls.push([q, l]));
+
+    // One good measurement so the last live tier is 'good' with latency 100.
+    vi.advanceTimersByTime(1000); // ping
+    vi.advanceTimersByTime(100); // 100ms RTT
+    ws.emit('pong');
+    expect(calls.at(-1)).toEqual(['good', 100]);
+
+    // A clean server close: the final 'disconnected' change must carry null
+    // latency, not the stale 100 from the last live measurement.
+    ws.serverClose(1000, 'bye');
+    expect(calls.at(-1)).toEqual(['disconnected', null]);
+  });
 });
 
 describe('keepalive — interval zero disables pings', () => {
