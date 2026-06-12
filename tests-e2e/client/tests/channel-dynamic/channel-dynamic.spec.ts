@@ -12,6 +12,39 @@ async function open(page: Page, room: string, username = 'alice'): Promise<void>
 }
 
 test.describe('channel-dynamic (conformance)', () => {
+  test('subscribe() waits for a lazy connection to open before sending', async ({
+    page,
+  }, testInfo) => {
+    await page.goto(
+      `/tests/channel-dynamic/index.html?room=cd-lazy-${testInfo.testId}&username=alice&lazy=true&probe=lazy`,
+    );
+    await expect(page.getByTestId('app-ready')).toHaveText('yes');
+
+    await page.getByTestId('sub-general').click();
+
+    await expect(page.getByTestId('status')).toHaveText('open');
+    await expect(page.getByTestId('sub-general-ok')).toHaveText('room:general');
+  });
+
+  test('a channel message error keeps an active lazy subscription open', async ({
+    page,
+  }, testInfo) => {
+    await page.goto(
+      `/tests/channel-dynamic/index.html?room=cd-error-${testInfo.testId}&username=alice&lazy=true&probe=hold`,
+    );
+    await expect(page.getByTestId('app-ready')).toHaveText('yes');
+    await page.getByTestId('connect').click();
+    await expect(page.getByTestId('status')).toHaveText('open');
+    await page.getByTestId('sub-general').click();
+    await expect(page.getByTestId('sub-general-ok')).toHaveText('room:general');
+
+    await page.getByTestId('fail-general').click();
+    await expect(page.getByTestId('subscription-failed')).toHaveText('yes');
+    await page.waitForTimeout(650);
+
+    await expect(page.getByTestId('status')).toHaveText('open');
+  });
+
   test('subscribe() to a name matching the family resolves', async ({ page }, testInfo) => {
     await open(page, `cd-join-${testInfo.testId}`);
     await page.getByTestId('sub-general').click();

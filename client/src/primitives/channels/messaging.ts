@@ -99,11 +99,17 @@ export function buildChannelMessaging(
       function sendSubscribe(resolved: unknown): void {
         if (state.pending !== thisPending) return;
         state.resolvedSubscribeData = resolved;
-        helpers.rawSend({
+        const frame = {
           event: '__subscribe__',
           payload: resolved ?? {},
           __wskit: channelMarkers(state),
-        });
+        };
+        const connectionState = helpers.getState();
+        if (connectionState === 'connecting' || connectionState === 'reconnecting') {
+          state.pendingSubscribeFrame = frame;
+        } else {
+          helpers.rawSend(frame);
+        }
       }
 
       if (typeof data === 'function') {

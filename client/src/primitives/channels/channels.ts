@@ -182,6 +182,15 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
             }
           }
         },
+        onOpen() {
+          const pending: WireMessage[] = [];
+          for (const state of states.values()) {
+            if (!state.pendingSubscribeFrame) continue;
+            pending.push(state.pendingSubscribeFrame);
+            state.pendingSubscribeFrame = null;
+          }
+          return pending.length ? pending : null;
+        },
         onBeforeReopen() {
           // Re-run function payloads (e.g. a token factory) before reconnecting, so
           // the re-subscribe sends a fresh value instead of the one from the original
@@ -247,6 +256,7 @@ export function channels(options: ChannelsOptions = {}): ChannelsPrimitive {
               state.pending.reject(Disconnected());
               state.pending = null;
               state.pendingPromise = null;
+              state.pendingSubscribeFrame = null;
               // A channel that never became active won't be re-subscribed on
               // reconnect, so release its idle-prevention hold here or it leaks.
               if (!state.active) state.releaseLazy();

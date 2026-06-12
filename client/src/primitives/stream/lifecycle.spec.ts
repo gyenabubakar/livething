@@ -586,3 +586,23 @@ describe('resumable stream without keepalive warns in debug mode', () => {
     }
   });
 });
+
+describe('connection setup retry exhaustion', () => {
+  it('rejects a queued stream when URL setup fails and reconnection gives up', async () => {
+    const socket = client<C>()(
+      connect(
+        async () => {
+          throw new Error('URL setup failed');
+        },
+        { lazy: true },
+      ),
+      stream({ timeout: 0 }),
+      reconnection({ maxAttempts: 0 }),
+    );
+    socket.onError(() => undefined);
+
+    const pending = socket.stream('ask-ai', { prompt: 'hi' });
+
+    await expect(pending).rejects.toMatchObject({ code: 'disconnected' });
+  });
+});

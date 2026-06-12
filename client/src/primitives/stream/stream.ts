@@ -520,6 +520,14 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           broadcastRuns.clear();
         },
         onReconnectFailed() {
+          for (const trigger of triggers.values()) {
+            if (trigger.timer) clearTimeout(trigger.timer);
+            helpers.lazyRelease();
+            trigger.reject(Disconnected());
+          }
+          triggers.clear();
+          triggerOutbox.clear();
+
           // Reconnection is abandoned — the resume that would revive a kept stream
           // never comes. Each kept resumable stream already released its lazy hold
           // on the drop (onClose), so finish it without releasing the hold again,

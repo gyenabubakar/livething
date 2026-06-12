@@ -1,6 +1,6 @@
 import { dispatchToHandlers } from '~/internal/dispatch.ts';
 import type { WSKitError } from '@wskit/core';
-import type { PrimitiveLogger } from '~/internal/runtime.ts';
+import type { PrimitiveLogger, WireMessage } from '~/internal/runtime.ts';
 import type { ChannelMember, SubscribeSource } from '~/primitives/channels/types.ts';
 
 type Handler = (data: unknown) => void;
@@ -68,6 +68,8 @@ export class ChannelState {
   pending: { resolve: () => void; reject: (err: unknown) => void } | null = null;
   /** The in-flight `subscribe()` promise, reused so overlapping calls don't orphan the first. */
   pendingPromise: Promise<void> | null = null;
+  /** A subscribe frame waiting for a connecting socket to open. */
+  pendingSubscribeFrame: WireMessage | null = null;
   /** Releases the idle-prevention hold taken by `subscribe()`. Held until the subscription ends. */
   private lazyRelease: (() => void) | null = null;
   /** Handle for the persistent-rejoin fallback re-subscribe timer, so it can be cancelled. */
@@ -157,6 +159,7 @@ export class ChannelState {
     if (this.active && !this.rejoining) return;
     this.active = true;
     this.rejoining = false;
+    this.pendingSubscribeFrame = null;
     this.clearRejoinTimer();
     // Resolve a waiting subscribe() on either ack: both a client-initiated and a
     // server-initiated confirmation mean the subscription is now live.
@@ -172,6 +175,7 @@ export class ChannelState {
   markUnsubscribed(): void {
     this.active = false;
     this.rejoining = false;
+    this.pendingSubscribeFrame = null;
     this.clearRejoinTimer();
     this.members.clear();
     this.priorMembers = null;
@@ -190,15 +194,15 @@ export class ChannelState {
   }
 
   fireSubscriptionFailed(error: WSKitError): void {
-    // The subscription failed — release the idle-prevention hold and cancel any
-    // pending rejoin fallback.
-    this.releaseLazy();
+    const subscriptionFailed = this.pending !== null || this.rejoining;
+    if (subscriptionFailed) this.releaseLazy();
+    this.pendingSubscribeFrame = null;
     this.clearRejoinTimer();
     // Only deactivate the channel if a subscribe was actually in flight: either a
     // live subscribe() call (pending !== null) or a reconnect rejoin (rejoining).
     // A channel __error__ outside that window is a message error — leave the channel
     // active so one bad send doesn't drop the subscription.
-    if (this.pending !== null || this.rejoining) {
+    if (subscriptionFailed) {
       this.active = false;
       this.persistent = false;
       this.rejoining = false;
