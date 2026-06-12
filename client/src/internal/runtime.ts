@@ -181,6 +181,9 @@ export interface PrimitiveHelpers {
   /** The current connection state. */
   getState(): ConnectionState;
 
+  /** Whether a primitive with this `_tag` is installed (e.g. `'keepalive'`). */
+  hasPrimitive(tag: string): boolean;
+
   /** Open the connection now if it's lazy and not yet connected. */
   ensureConnected(): void;
 

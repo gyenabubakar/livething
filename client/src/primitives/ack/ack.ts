@@ -70,11 +70,14 @@ export function ack(options: AckOptions = {}): Primitive<AckTypeFn> {
             callOptions.ttl !== undefined ? { ttl: callOptions.ttl } : undefined,
           );
           if (!delivered) {
-            // helpers.send declined. Not open yet (lazy/reconnecting, no buffering)
-            // → hold the frame and flush it on open, like request(). Otherwise the
-            // socket is open and a primitive cancelled the send → reject.
-            if (helpers.getState() !== 'open') outbox.set(ackId, frame);
-            else {
+            // helpers.send declined. Hold the frame only while a connect is
+            // actually in progress, to flush it on open (lazy/reconnect, no
+            // buffering). On a closed socket — or an open one whose send a
+            // primitive cancelled — nothing will ever flush it, so fail fast.
+            const state = helpers.getState();
+            if (state === 'connecting' || state === 'reconnecting') {
+              outbox.set(ackId, frame);
+            } else {
               clearTimeout(timer);
               done();
               reject(Disconnected());

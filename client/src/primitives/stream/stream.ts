@@ -67,6 +67,11 @@ function callStreamHandler(log: PrimitiveLogger, run: () => void): void {
  * an async iterable of chunks; `socket.onStream()` subscribes to server-pushed
  * broadcast streams. Chunks are matched by `streamId`, duplicates are dropped
  * by `seq`, and resumable streams restart automatically on reconnect.
+ *
+ * Pair resumable streams with `keepalive()` (and `reconnection()`): a resumable
+ * stream waits for the next chunk, so on a half-open connection — one that died
+ * with no close frame — only keepalive's pings can notice and force a reconnect.
+ * Without it the stream can wait indefinitely (in debug mode this warns).
  */
 export function stream(options: StreamOptions = {}): StreamPrimitive {
   const timeout = options.timeout ?? 30_000;
@@ -95,6 +100,9 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
       // stream would never start (and with timeout 0 the promise would never
       // settle, leaking the lazy hold).
       const triggerOutbox = new Map<string, WireMessage>();
+      // Warn at most once: a resumable stream relies on detecting a dead socket,
+      // which only keepalive can do for a half-open connection (no close event).
+      let warnedNoKeepalive = false;
 
       function startChunkTimer(state: StreamState): void {
         if (state.timer) clearTimeout(state.timer);
@@ -181,8 +189,9 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
         helpers.lazyAcquire();
         const frame: WireMessage = { event, payload, __wskit: { streamId, ...context.markers } };
         // Send through the normal path so buffering can take it — queued while
-        // offline, or held behind a draining staggered flush so it keeps order. If
-        // there is no buffering and we are not open yet, hold it and flush on open.
+        // offline, or held behind a draining staggered flush so it keeps order. With
+        // no buffering, hold it only while a connect is in progress (flushed on
+        // open); on a closed socket nothing will flush it, so fail fast.
         let delivered: boolean;
         try {
           delivered = helpers.send(frame);
@@ -190,7 +199,15 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
           helpers.lazyRelease(); // roll back the hold the trigger acquired above
           throw error;
         }
-        if (!delivered && helpers.getState() !== 'open') triggerOutbox.set(streamId, frame);
+        if (!delivered) {
+          const state = helpers.getState();
+          if (state === 'connecting' || state === 'reconnecting') {
+            triggerOutbox.set(streamId, frame);
+          } else {
+            helpers.lazyRelease();
+            return Promise.reject(Disconnected());
+          }
+        }
 
         return new Promise<StreamHandle<unknown>>((resolve, reject) => {
           const timer =
@@ -335,6 +352,12 @@ export function stream(options: StreamOptions = {}): StreamPrimitive {
               const state = new StreamState(streamId, trigger.event, trigger.markers);
               // The server tells us whether this stream is resumable.
               state.resumable = envelope?.streamKind === 'persistent';
+              if (state.resumable && !warnedNoKeepalive && !helpers.hasPrimitive('keepalive')) {
+                warnedNoKeepalive = true;
+                helpers.log.warn(
+                  'a resumable stream is active without keepalive() — if the connection half-dies (no close frame) the stream cannot tell and will wait forever. Add keepalive() so a dead connection is detected and the stream resumes.',
+                );
+              }
               streams.set(streamId, state);
               startChunkTimer(state);
               trigger.resolve(buildStreamHandle(state, handleDependencies));

@@ -76,6 +76,7 @@ export class WSKitSocket {
 
   /** @internal — set after construction, once add-on modules are ready. */
   _primitives: readonly PrimitiveRuntime[] = [];
+  private _knownTags: ReadonlySet<string> = new Set();
 
   /** @internal */
   _state: ConnectionState = 'closed';
@@ -154,6 +155,11 @@ export class WSKitSocket {
   /** @internal — attach the primitive runtimes after they're set up. */
   _setPrimitives(primitives: readonly PrimitiveRuntime[]): void {
     this._primitives = primitives;
+  }
+
+  /** @internal — the set of installed primitive tags, for `helpers.hasPrimitive`. */
+  _setKnownTags(tags: ReadonlySet<string>): void {
+    this._knownTags = tags;
   }
 
   /** Open the connection. Calling it again while open or connecting does nothing. */
@@ -306,6 +312,8 @@ export class WSKitSocket {
       },
 
       getState: () => this._state,
+
+      hasPrimitive: (tag) => this._knownTags.has(tag),
 
       ensureConnected: () => this._ensureConnected(),
 

@@ -75,10 +75,20 @@ export function requestResponse(
           };
           // Send through the normal path so buffering can take it — queueing it
           // while offline, or behind a still-draining staggered flush so it can't
-          // race ahead of not-yet-flushed messages. If there is no buffering and
-          // we are not open yet, hold it and flush on onOpen.
+          // race ahead of not-yet-flushed messages. With no buffering, hold it only
+          // while a connect is in progress (flushed on onOpen); on a closed socket
+          // nothing will flush it, so fail fast instead of hanging to the timeout.
           const delivered = helpers.send(frame);
-          if (!delivered && helpers.getState() !== 'open') outbox.set(correlationId, frame);
+          if (!delivered) {
+            const state = helpers.getState();
+            if (state === 'connecting' || state === 'reconnecting') {
+              outbox.set(correlationId, frame);
+            } else {
+              clearTimeout(timer);
+              done();
+              reject(Disconnected());
+            }
+          }
         });
       }
 

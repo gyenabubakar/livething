@@ -77,6 +77,7 @@ function buildSocket(
 
   // Build the socket first so each primitive's setup() can safely use it.
   const socket = new WSKitSocket(config);
+  socket._setKnownTags(new Set(sorted.map((spec) => spec._tag).filter(Boolean)));
   const helpers = socket._helpers();
 
   const runtimes: PrimitiveRuntime[] = [];

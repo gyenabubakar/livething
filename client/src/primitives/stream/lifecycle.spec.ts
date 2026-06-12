@@ -1,5 +1,6 @@
 import { client } from '~/client.ts';
 import { connect } from '~/connect.ts';
+import { keepalive } from '~/primitives/keepalive/index.ts';
 import { reconnection } from '~/primitives/reconnection/index.ts';
 import { stream } from '~/primitives/stream/index.ts';
 import { installMockWebSocket, MockWebSocket } from '~/test-helpers.ts';
@@ -529,6 +530,59 @@ describe('stream teardown, pre-open triggers, and resume deadline', () => {
       await expect(collect(handle)).resolves.toEqual([{ text: 'late' }]);
     } finally {
       vi.useRealTimers();
+    }
+  });
+});
+
+describe('resumable stream without keepalive warns in debug mode', () => {
+  function warnedAboutKeepalive(warn: ReturnType<typeof vi.spyOn>): boolean {
+    return warn.mock.calls.some((args: unknown[]) =>
+      args.some((a: unknown) => String(a).includes('keepalive')),
+    );
+  }
+
+  it('warns once when a persistent stream is confirmed and keepalive is absent', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const socket = client<C>()(connect('wss://test'), stream());
+      socket.setDebug(true);
+      socket.connect();
+      const ws = MockWebSocket.last();
+      ws.open();
+      await start(socket, ws, { streamKind: 'persistent' });
+      expect(warnedAboutKeepalive(warn)).toBe(true);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('does not warn when keepalive is installed', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const socket = client<C>()(connect('wss://test'), stream(), keepalive({ interval: 0 }));
+      socket.setDebug(true);
+      socket.connect();
+      const ws = MockWebSocket.last();
+      ws.open();
+      await start(socket, ws, { streamKind: 'persistent' });
+      expect(warnedAboutKeepalive(warn)).toBe(false);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('does not warn for an ephemeral (non-resumable) stream', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const socket = client<C>()(connect('wss://test'), stream());
+      socket.setDebug(true);
+      socket.connect();
+      const ws = MockWebSocket.last();
+      ws.open();
+      await start(socket, ws, { streamKind: 'ephemeral' });
+      expect(warnedAboutKeepalive(warn)).toBe(false);
+    } finally {
+      warn.mockRestore();
     }
   });
 });

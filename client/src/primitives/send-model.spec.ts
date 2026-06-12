@@ -124,3 +124,59 @@ describe('send-and-await frames are held (not dropped) before open without buffe
     await expect(pending).resolves.toEqual({ ok: true });
   });
 });
+
+describe('send-and-await frames fail fast on a closed socket (no buffering)', () => {
+  // A non-lazy socket that was never connected sits in 'closed' and is not heading
+  // anywhere; the held frame would never flush, so these must reject promptly with
+  // 'disconnected' rather than hang until their own timeout fires.
+  it('sendWithAck rejects with disconnected without waiting for the ack timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      const socket = client<C>()(connect('wss://test'), ack({ timeout: 10_000 }));
+      const settled = vi.fn();
+      socket.sendWithAck('typing', { id: 'a' }).then(
+        () => settled('resolved'),
+        (e: { code?: string }) => settled(e?.code),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(settled).toHaveBeenCalledWith('disconnected'); // settled with the 10s timer un-advanced
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('request rejects with disconnected without waiting for the request timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      const socket = client<C>()(connect('wss://test'), requestResponse({ timeout: 10_000 }));
+      const settled = vi.fn();
+      socket.request('ping', { id: 'r' }).then(
+        () => settled('resolved'),
+        (e: { code?: string }) => settled(e?.code),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(settled).toHaveBeenCalledWith('disconnected');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('stream() rejects with disconnected without waiting for the trigger timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      const socket = client<C>()(connect('wss://test'), stream({ timeout: 10_000 }));
+      const settled = vi.fn();
+      socket.stream('feed', { id: 's' }).then(
+        () => settled('resolved'),
+        (e: { code?: string }) => settled(e?.code),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(settled).toHaveBeenCalledWith('disconnected');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
