@@ -30,4 +30,9 @@ export {
   rethrowIfConfigError,
   assertSyncResult,
 } from './sync-guard.ts';
-export { isValidWSKitIdentifier, assertValidWSKitIdentifier } from './identifier.ts';
+export {
+  isValidWSKitIdentifier,
+  assertValidWSKitIdentifier,
+  WIRE_LIMITS,
+  exceedsWireLimit,
+} from './identifier.ts';
