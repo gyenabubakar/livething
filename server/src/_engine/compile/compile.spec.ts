@@ -1,4 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { WIRE_LIMITS } from '@wskit/core';
 import { contract } from '~/_api/contract.ts';
 import { t } from '~/_api/definitions.ts';
 import { implement } from '~/_api/implement.ts';
@@ -8,7 +9,7 @@ import { incoming } from '~/incoming/definition.ts';
 import { plugin } from '~/plugins/plugin.ts';
 import { recordedStream } from '~/stream-recorded/definition.ts';
 import { resumableStream } from '~/stream-resumable/definition.ts';
-import { stream } from '~/stream/definition.ts';
+import { nudge, stream } from '~/stream/definition.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import { compileHandlerDefinition } from './compile.ts';
@@ -228,6 +229,32 @@ describe('scope and event name syntax — reserved characters', () => {
     ).toThrow(/Event name 'send::message' in top-level contains '::'/);
   });
 
+  it('rejects a declared event name longer than the wire limit', () => {
+    const tooLong = 'e'.repeat(WIRE_LIMITS.event + 1);
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
+      definitions: [incoming(tooLong, v.object({}))],
+    });
+    expect(() =>
+      compileHandlerDefinition(
+        implement(c)
+          .on(tooLong, () => {})
+          .build(),
+      ),
+    ).toThrow(/the wire protocol limit\s+is 128/);
+  });
+
+  it('rejects a declared channel name longer than the wire limit', () => {
+    const tooLong = 'c'.repeat(WIRE_LIMITS.channel + 1);
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
+      definitions: [channel(tooLong, { definitions: [] })],
+    });
+    expect(() => compileHandlerDefinition(implement(c).build())).toThrow(
+      /channel name is \d+ characters; the wire protocol limit is 256/,
+    );
+  });
+
   it('rejects an event name containing :: inside a channel', () => {
     const c = contract('app', {
       env: t<Record<string, unknown>>(),
@@ -273,6 +300,107 @@ describe('scope and event name syntax — reserved characters', () => {
           .build(),
       ),
     ).not.toThrow();
+  });
+
+  it('allows a dynamic family key at the channelScope wire limit', () => {
+    const key = 'k'.repeat(WIRE_LIMITS.channelScope);
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
+      definitions: [channel(scope(key, 'room:{id}'), { definitions: [] })],
+    });
+    expect(() => compileHandlerDefinition(implement(c).build())).not.toThrow();
+  });
+
+  it('rejects a dynamic family key one over the channelScope wire limit', () => {
+    const key = 'k'.repeat(WIRE_LIMITS.channelScope + 1);
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
+      definitions: [channel(scope(key, 'room:{id}'), { definitions: [] })],
+    });
+    expect(() => compileHandlerDefinition(implement(c).build())).toThrow(
+      /channel name is \d+ characters; the wire protocol limit is 128/,
+    );
+  });
+
+  it('allows a static channel name up to the larger channel wire limit', () => {
+    const name = 'c'.repeat(WIRE_LIMITS.channel);
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
+      definitions: [channel(name, { definitions: [] })],
+    });
+    expect(() => compileHandlerDefinition(implement(c).build())).not.toThrow();
+  });
+
+  it('rejects an ephemeral stream nudge name over the wire limit', () => {
+    const tooLong = 'n'.repeat(WIRE_LIMITS.event + 1);
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
+      definitions: [
+        stream('feed', {
+          payload: v.object({}),
+          chunk: v.object({}),
+          nudges: [nudge(tooLong, v.object({}))],
+        }),
+      ],
+    });
+    expect(() =>
+      compileHandlerDefinition(
+        implement(c)
+          .stream('feed', async function* () {
+            yield {};
+          })
+          .build(),
+      ),
+    ).toThrow(/the wire protocol limit\s+is 128/);
+  });
+
+  it('rejects a resumable stream nudge name over the wire limit', () => {
+    const tooLong = 'n'.repeat(WIRE_LIMITS.event + 1);
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
+      persistence: true,
+      definitions: [
+        resumableStream('feed', {
+          payload: v.object({}),
+          chunk: v.object({}),
+          nudges: [nudge(tooLong, v.object({}))],
+        }),
+      ],
+    });
+    expect(() =>
+      compileHandlerDefinition(
+        implement(c)
+          .resumableStream('feed', async function* () {
+            yield {};
+          })
+          .build(),
+      ),
+    ).toThrow(/the wire protocol limit\s+is 128/);
+  });
+
+  it('rejects a recorded stream nudge name over the wire limit', () => {
+    const tooLong = 'n'.repeat(WIRE_LIMITS.event + 1);
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
+      persistence: true,
+      definitions: [
+        recordedStream('feed', {
+          payload: v.object({}),
+          chunk: v.object({}),
+          maxChunks: 10,
+          nudges: [nudge(tooLong, v.object({}))],
+        }),
+      ],
+    });
+    expect(() =>
+      compileHandlerDefinition(
+        implement(c)
+          .recordedStream('feed', async function* () {
+            yield {};
+          })
+          .build(),
+      ),
+    ).toThrow(/the wire protocol limit\s+is 128/);
   });
 });
 

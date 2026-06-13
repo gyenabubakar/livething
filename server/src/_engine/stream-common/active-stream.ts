@@ -32,6 +32,9 @@ export interface BuildActiveStreamInput {
    * `'cancel-but-buffer'` (and non-durable streams leave it undefined).
    */
   onDisconnect?: OnDisconnect;
+
+  /** The scope the stream runs in, used to gate nudges to the same scope. */
+  scope?: ResolvedScope;
 }
 
 /** Return value from `buildActiveStream`. */
@@ -62,6 +65,7 @@ export function buildActiveStream(input: BuildActiveStreamInput): ActiveStreamHa
     closed: false,
     onDisconnect: input.onDisconnect,
     connection: input.connection,
+    scope: input.scope,
   };
   return { active, nudgeBuffer };
 }

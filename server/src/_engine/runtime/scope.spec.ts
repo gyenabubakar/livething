@@ -1,4 +1,4 @@
-import { resolveScope } from '~/_engine/runtime/scope.ts';
+import { resolveScope, routingFromWSKit } from '~/_engine/runtime/scope.ts';
 import { describe, expect, it } from 'vitest';
 import type { CompiledServer } from '~/_engine/compile/types.ts';
 
@@ -75,5 +75,31 @@ describe('resolveScope', () => {
       channelName: 'room:lobby',
       channelScope: 'rooms',
     });
+  });
+});
+
+describe('routingFromWSKit', () => {
+  it('keeps correlationId for a request frame', () => {
+    expect(routingFromWSKit({ correlationId: 'corr-1' })).toEqual({ correlationId: 'corr-1' });
+  });
+
+  it('keeps ackId for an ack frame', () => {
+    expect(routingFromWSKit({ ackId: 'ack-1' })).toEqual({ ackId: 'ack-1' });
+  });
+
+  it('keeps streamId for a stream-trigger frame', () => {
+    expect(routingFromWSKit({ streamId: 'stream-1' })).toEqual({ streamId: 'stream-1' });
+  });
+
+  it('keeps both streamId and streamNudgeId for a nudge frame', () => {
+    expect(routingFromWSKit({ streamId: 'stream-1', streamNudgeId: 'nudge-1' })).toEqual({
+      streamId: 'stream-1',
+      streamNudgeId: 'nudge-1',
+    });
+  });
+
+  it('returns undefined when the block carries no routing ids', () => {
+    expect(routingFromWSKit({})).toBeUndefined();
+    expect(routingFromWSKit(undefined)).toBeUndefined();
   });
 });

@@ -1,5 +1,6 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import {
+  ChannelNotSubscribed,
   InternalError,
   NudgeOverflow,
   rethrowIfConfigError,
@@ -185,6 +186,32 @@ export async function bufferStreamNudge(
     return true;
   }
 
+  // The nudge must target the exact scope the stream runs in, and the
+  // connection must still hold that membership. A nudge claiming a different
+  // (or absent) scope for a channel stream is rejected — it must not reach
+  // the generator or run on the wrong scope.
+  const storedScope = activeStream.scope ?? {};
+  const claimedChannel = wskit?.channel;
+  const claimedScope = wskit?.channelScope ?? null;
+  const sameScope =
+    (storedScope.channelName ?? undefined) === (claimedChannel ?? undefined) &&
+    (storedScope.channelScope ?? null) === claimedScope;
+  const memberOk =
+    !storedScope.channelName ||
+    ChannelPrimitive.hasChannelMembership(
+      connection,
+      storedScope.channelName,
+      storedScope.channelScope ?? null,
+    );
+  if (!sameScope || !memberOk) {
+    await runtime.handleRuntimeError(connection, {
+      error: ChannelNotSubscribed(),
+      event,
+      routing: rejectRouting,
+    });
+    return true;
+  }
+
   const validator = activeStream.nudgeValidators.get(event);
   // The stream is live, but `event` is not a registered nudge for it. Treat as
   // handled so it does not fall through to top-level dispatch.
@@ -301,6 +328,7 @@ export async function runStream(
     event,
     connection,
     generator: iterator,
+    scope,
     nudges: stream.stream.nudges.map((declaration) => ({
       event: declaration.event,
       validator: declaration.validator,
@@ -338,6 +366,13 @@ export async function runStream(
         iterator.next(nextInput),
       );
       if (result.done) break;
+
+      // A cancel can land while next() was pending. Drop the resolved value —
+      // sending it would emit a chunk (and a later __streamEnd__) after cancel.
+      if (activeStream.closed) {
+        await iterator.return?.(undefined);
+        break;
+      }
 
       seq += 1;
       const chunkRouting = {

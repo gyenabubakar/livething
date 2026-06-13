@@ -1,3 +1,4 @@
+import { RejoinRejected, WSKitConfigError } from '@wskit/core';
 import { scope } from '~/channel/channel.ts';
 import {
   addChannelMembership,
@@ -495,6 +496,96 @@ describe('channel runtime', () => {
     ).rejects.toThrow(/commit\(\) must be synchronous/);
   });
 
+  it('native-Promise commit throws WSKitConfigError before membership is written', async () => {
+    const connection = createConnection('conn_1');
+    const { runtime, connections } = createRuntime();
+    connections.set(connection.id, connection);
+
+    await expect(
+      subscribeConnection(
+        {
+          ...runtime,
+          commitHooks: new Map([
+            [
+              'rooms',
+              [{ handler: (() => Promise.resolve()) as (ctx: unknown, r: unknown) => void }],
+            ],
+          ]),
+        },
+        connection,
+        { channelName: 'room:general', channelScope: 'rooms', data: undefined },
+      ),
+    ).rejects.toBeInstanceOf(WSKitConfigError);
+
+    expect([...connection.channelMemberships.values()]).toHaveLength(0);
+  });
+
+  it('cross-realm Promise commit throws WSKitConfigError before membership is written', async () => {
+    const connection = createConnection('conn_1');
+    const { runtime, connections } = createRuntime();
+    connections.set(connection.id, connection);
+
+    // A Promise from a different realm is not `instanceof Promise` here, so the
+    // guard must rely on the thenable shape, not the constructor identity.
+    const realm = await import('node:vm');
+    const foreignPromise = realm.runInNewContext('Promise.resolve(1)');
+
+    await expect(
+      subscribeConnection(
+        {
+          ...runtime,
+          commitHooks: new Map([
+            ['rooms', [{ handler: (() => foreignPromise) as (ctx: unknown, r: unknown) => void }]],
+          ]),
+        },
+        connection,
+        { channelName: 'room:general', channelScope: 'rooms', data: undefined },
+      ),
+    ).rejects.toBeInstanceOf(WSKitConfigError);
+
+    expect([...connection.channelMemberships.values()]).toHaveLength(0);
+  });
+
+  it('custom thenable commit throws WSKitConfigError before membership is written', async () => {
+    const connection = createConnection('conn_1');
+    const { runtime, connections } = createRuntime();
+    connections.set(connection.id, connection);
+
+    await expect(
+      subscribeConnection(
+        {
+          ...runtime,
+          commitHooks: new Map([
+            ['rooms', [{ handler: (() => ({ then() {} })) as (ctx: unknown, r: unknown) => void }]],
+          ]),
+        },
+        connection,
+        { channelName: 'room:general', channelScope: 'rooms', data: undefined },
+      ),
+    ).rejects.toBeInstanceOf(WSKitConfigError);
+
+    expect([...connection.channelMemberships.values()]).toHaveLength(0);
+  });
+
+  it('synchronous commit succeeds and membership is written', async () => {
+    const connection = createConnection('conn_1');
+    const { runtime, connections } = createRuntime();
+    connections.set(connection.id, connection);
+
+    await subscribeConnection(
+      {
+        ...runtime,
+        commitHooks: new Map([['rooms', [{ handler: () => undefined }]]]),
+      },
+      connection,
+      { channelName: 'room:general', channelScope: 'rooms', data: undefined },
+    );
+
+    expect(
+      [...connection.channelMemberships.values()].some((m) => m.channelName === 'room:general'),
+    ).toBe(true);
+  });
+
   it('check result flows as typed second arg to commit', async () => {
     const connection = createConnection('conn_1');
     const { runtime, connections } = createRuntime();
@@ -902,18 +993,60 @@ describe('subscribeConnectionAsServer', () => {
       ]),
     };
 
-    await expect(
-      subscribeConnectionAsServer(rejoinRuntime, target, {
+    let thrown: unknown;
+    try {
+      await subscribeConnectionAsServer(rejoinRuntime, target, {
         channelName: 'room:general',
         channelScope: 'rooms',
         payload: undefined,
         rejoining: true,
-      }),
-    ).rejects.toThrow('revoked');
+      });
+    } catch (error) {
+      thrown = error;
+    }
 
+    expect(RejoinRejected.matches(thrown)).toBe(true);
+    expect((thrown as { detail: { message: string } }).detail.message).toBe('revoked');
     expect(target.channelMemberships.has(createChannelMembershipKey('room:general', 'rooms'))).toBe(
       false,
     );
+  });
+
+  it('a revalidate config error propagates as a config error (not a revoke)', async () => {
+    const { connections, runtime } = createRuntime();
+    const target = createConnection('target', { userId: 't' });
+    connections.set(target.id, target);
+
+    const rejoinRuntime = {
+      ...runtime,
+      isChannelPersistent: () => true,
+      hasDurableMembership: () => true,
+      revalidateHooks: new Map([
+        [
+          'rooms',
+          [
+            () => {
+              throw new WSKitConfigError('bad gate config');
+            },
+          ],
+        ],
+      ]),
+    };
+
+    let thrown: unknown;
+    try {
+      await subscribeConnectionAsServer(rejoinRuntime, target, {
+        channelName: 'room:general',
+        channelScope: 'rooms',
+        payload: undefined,
+        rejoining: true,
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(WSKitConfigError);
+    expect(RejoinRejected.matches(thrown)).toBe(false);
   });
 
   it('runs check with the supplied payload', async () => {

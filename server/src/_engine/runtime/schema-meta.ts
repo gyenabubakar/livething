@@ -16,21 +16,40 @@ interface SqlExec {
   exec<T = unknown>(query: string, ...params: unknown[]): { toArray(): T[] };
 }
 
+export interface SchemaState {
+  /** Storage records the current schema version — schema-init can be skipped. */
+  initialized: boolean;
+  /**
+   * The meta table is absent, so storage has never been initialized. A present
+   * table with an older version is a migration, not a fresh DB, and may already
+   * hold membership/tag rows. Used to decide whether the first auto-rejoin can
+   * be safely skipped.
+   */
+  fresh: boolean;
+}
+
 /**
- * Returns `true` when storage records the current schema version. On a fresh
- * instance the meta table does not exist yet — the SELECT throws and we return
- * `false`. One round trip on the warm-boot path; the meta table itself is
- * only created when schema-init actually runs.
+ * Read the schema marker in one round trip. On a fresh instance the meta table
+ * does not exist yet — the SELECT throws and we report `fresh: true`. The meta
+ * table itself is only created when schema-init actually runs.
  */
-export function isSchemaInitialized(sql: SqlExec): boolean {
+export function readSchemaState(sql: SqlExec): SchemaState {
   try {
     const rows = sql
       .exec<{ value: string }>("SELECT value FROM __wskit_meta WHERE key = 'schema_version'")
       .toArray();
-    return rows.length > 0 && rows[0]?.value === CURRENT_SCHEMA_VERSION;
-  } catch {
-    // Meta table does not exist yet — treat as not initialized.
-    return false;
+    return {
+      initialized: rows.length > 0 && rows[0]?.value === CURRENT_SCHEMA_VERSION,
+      fresh: false,
+    };
+  } catch (error) {
+    // Only a missing meta table means a truly fresh database. Any other storage
+    // or query failure must propagate, not masquerade as fresh — which would
+    // skip the first auto-rejoin even though membership rows exist.
+    if (error instanceof Error && /no such table/i.test(error.message)) {
+      return { initialized: false, fresh: true };
+    }
+    throw error;
   }
 }
 

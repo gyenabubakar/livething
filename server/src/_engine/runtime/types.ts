@@ -371,6 +371,13 @@ export interface ActiveStream {
    * generator's next yield lands on the new wire.
    */
   connection?: RuntimeConnection;
+
+  /**
+   * The scope the stream was started in. A nudge must resolve to this exact
+   * scope and the connection must still hold its membership — a nudge that
+   * claims a different (or no) scope is rejected, not silently accepted.
+   */
+  scope?: ResolvedScope;
 }
 
 /**

@@ -2,7 +2,7 @@
 import * as EngineContexts from '~/_engine/contexts/contexts.ts';
 import { installPrimitiveHooks } from '~/_engine/registry/install.ts';
 import { createPluginHooks } from '~/_engine/registry/plugin-hooks.ts';
-import { isSchemaInitialized, markSchemaInitialized } from '~/_engine/runtime/schema-meta.ts';
+import { markSchemaInitialized, readSchemaState } from '~/_engine/runtime/schema-meta.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type { EngineAccessDeps } from '~/_engine/registry/engine-access.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
@@ -114,14 +114,18 @@ export async function initialize(core: EngineCore, accessDeps: EngineAccessDeps)
   // instance the SELECT throws and we treat it as not-initialized.
   const storageForSchema = core.storage;
   if (core.hooks.bootSchema.length > 0) {
-    const initialized = storageForSchema ? isSchemaInitialized(storageForSchema.sql) : false;
-    if (!initialized) {
+    const schemaState = storageForSchema
+      ? readSchemaState(storageForSchema.sql)
+      : { initialized: false, fresh: false };
+    if (!schemaState.initialized) {
       for (const hook of core.hooks.bootSchema) {
         await hook();
       }
       if (storageForSchema) {
         markSchemaInitialized(storageForSchema.sql);
-        core.freshBoot = true;
+        // A migration (meta table present, older version) may already hold
+        // membership rows, so the first auto-rejoin must not be skipped.
+        core.freshBoot = schemaState.fresh;
       }
     }
   }

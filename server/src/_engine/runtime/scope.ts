@@ -53,6 +53,7 @@ export function routingFromWSKit(
   if (wskit.correlationId !== undefined) routing.correlationId = wskit.correlationId;
   if (wskit.ackId !== undefined) routing.ackId = wskit.ackId;
   if (wskit.streamId !== undefined) routing.streamId = wskit.streamId;
+  if (wskit.streamNudgeId !== undefined) routing.streamNudgeId = wskit.streamNudgeId;
   if (wskit.channel !== undefined) {
     routing.channel = wskit.channel;
     routing.channelScope = wskit.channelScope ?? null;

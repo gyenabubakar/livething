@@ -1,8 +1,13 @@
-import { RejoinRejected } from '@wskit/core';
+import {
+  ChannelNotFound,
+  RejoinRejected,
+  rethrowIfConfigError,
+  ValidationFailed,
+} from '@wskit/core';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import { deleteMembership, listMembershipsByIdentity } from '~/persistence/storage.ts';
 import { addConnectionTag } from '~/tags/runtime.ts';
-import { listTagsByIdentity } from '~/tags/storage.ts';
+import { deleteTag, listTagsByIdentity } from '~/tags/storage.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
 import type { SendProtocolMessageOptions } from '~/_engine/runtime/wire.ts';
 import type { Logger, SQLProvider } from '~/context.ts';
@@ -106,12 +111,14 @@ export function restorePersistentTags(opts: RestorePersistentTagsOptions): void 
       try {
         validateValue(schema, tag.key, `tag persistent:${tag.group}`);
       } catch (error) {
-        // A stored value that no longer matches the group's schema (e.g. the
-        // schema tightened across a deploy). Drop it and move on rather than
-        // crashing the wake/rejoin.
+        // Only a genuine schema mismatch drops the row. A config error (e.g. an
+        // async validator) or any other throw propagates rather than silently
+        // deleting valid persisted data.
+        if (!ValidationFailed.matches(error)) throw error;
+        deleteTag(sql, { identity: connection.identity, group: tag.group, key: tag.key });
         opts.logger?.error('[wskit] dropped a stored persistent tag that failed validation', {
           group: tag.group,
-          error: error instanceof Error ? error.message : String(error),
+          error: error.detail.issues[0]?.message ?? 'validation failed',
         });
         continue;
       }
@@ -152,6 +159,11 @@ export async function autoRejoinIdentity(
         rejoining: true,
       });
     } catch (error) {
+      // A config error, or a storage/internal failure, is not the gate revoking
+      // access — propagate it so we never delete durable state on an infra blip.
+      rethrowIfConfigError(error);
+      if (!RejoinRejected.matches(error) && !ChannelNotFound.matches(error)) throw error;
+
       // The gate rejected (or the channel no longer exists). Drop the row
       // so the next reconnect does not retry the same dead membership, and
       // deliver an error scoped to that channel so the client knows.
@@ -161,15 +173,17 @@ export async function autoRejoinIdentity(
         channelScope: row.channelScope,
       });
 
+      let reason: string;
+      if (RejoinRejected.matches(error)) reason = error.detail.message;
+      else if (error instanceof Error) reason = error.message;
+      else reason = String(error);
+
       const wskit: Record<string, unknown> = { channel: row.channelName };
       if (row.channelScope !== null) wskit.channelScope = row.channelScope;
 
       runtime.sendProtocolMessage(connection, {
         event: '__error__',
-        payload: {
-          code: RejoinRejected.code,
-          detail: { message: error instanceof Error ? error.message : String(error) },
-        },
+        payload: { code: RejoinRejected.code, detail: { message: reason } },
         wskit,
       });
 
@@ -177,7 +191,7 @@ export async function autoRejoinIdentity(
         identity: connection.identity,
         channel: row.channelName,
         channelScope: row.channelScope,
-        error: error instanceof Error ? error.message : String(error),
+        error: reason,
       });
     }
   }

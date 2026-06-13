@@ -391,6 +391,54 @@ describe('stream/runtime', () => {
     expect((fields as { streamId?: string }).streamId).toBe('stream_1');
   });
 
+  it('a cancel while the generator next() is pending emits no chunk and no __streamEnd__', async () => {
+    const { runtime, protocolMessages, pipelineSends } = createStreamRuntime();
+    const connection = createConnection();
+
+    // The second yield blocks on a deferred we resolve only after cancelling,
+    // so the cancel lands while iterator.next() is in flight.
+    let releaseSecond!: () => void;
+    const secondPending = new Promise<void>((resolve) => {
+      releaseSecond = resolve;
+    });
+    let sawFirst!: () => void;
+    const firstYielded = new Promise<void>((resolve) => {
+      sawFirst = resolve;
+    });
+
+    const stream = {
+      stream: { nudges: [], broadcast: true },
+      generator: async function* () {
+        yield { token: 'one' };
+        sawFirst();
+        await secondPending;
+        yield { token: 'two' };
+      },
+    };
+
+    runtime.connections.set(connection.id, connection);
+
+    const run = runStream(runtime as Parameters<typeof runStream>[0], connection, {
+      scope: {},
+      event: 'late-stream',
+      stream: stream as never,
+      payload: {},
+    });
+
+    await firstYielded;
+    // A cancel marks the stream closed while the run loop's next() is parked on
+    // the deferred; releasing it then resolves next() with the second chunk.
+    runtime.activeStreams.get('stream_1')!.closed = true;
+    releaseSecond();
+    await run;
+
+    const tokens = pipelineSends
+      .filter((s) => s.event === 'late-stream')
+      .map((s) => (s.payload as { token: string }).token);
+    expect(tokens).toEqual(['one']);
+    expect(protocolMessages.some((m) => m.event === '__streamEnd__')).toBe(false);
+  });
+
   it('non-broadcast stream does not call broadcastToConnections', async () => {
     const { runtime, broadcasts } = createStreamRuntime();
     const connection = createConnection();
@@ -521,6 +569,116 @@ describe('stream/runtime', () => {
 
     expect(result).toBe(true);
     expect(handleRuntimeError).toHaveBeenCalledTimes(1);
+  });
+
+  it('bufferStreamNudge rejects a channel-stream nudge when the connection no longer holds the membership', async () => {
+    const { runtime } = createStreamRuntime();
+    const connection = createConnection();
+    const handleRuntimeError = vi.fn();
+    runtime.handleRuntimeError = handleRuntimeError;
+
+    // The stream runs in channel room:1/rooms, but the connection holds no
+    // membership (it left) — the nudge must be rejected, not buffered.
+    const active: ActiveStream = {
+      id: 'stream_1',
+      connectionId: connection.id,
+      event: 'channel-stream',
+      generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
+      nudges: [],
+      nudgeValidators: new Map([['known-nudge', undefined]]),
+      closed: false,
+      scope: { channelName: 'room:1', channelScope: 'rooms' },
+    };
+    runtime.activeStreams.set('stream_1', active);
+
+    const result = await bufferStreamNudge(
+      runtime as Parameters<typeof bufferStreamNudge>[0],
+      connection,
+      {
+        event: 'known-nudge',
+        payload: {},
+        wskit: { streamId: 'stream_1', channel: 'room:1', channelScope: 'rooms' },
+      },
+    );
+
+    expect(result).toBe(true);
+    expect(handleRuntimeError).toHaveBeenCalledTimes(1);
+    expect(handleRuntimeError.mock.calls[0]![1]).toMatchObject({
+      routing: { streamId: 'stream_1', streamTerminated: false },
+    });
+    expect(active.nudges).toHaveLength(0);
+  });
+
+  it('bufferStreamNudge rejects a nudge whose scope markers differ from the stream stored scope', async () => {
+    const { runtime } = createStreamRuntime();
+    const connection = createConnection();
+    connection.channelMemberships.set(createChannelMembershipKey('room:1', 'rooms'), {
+      channelName: 'room:1',
+      channelScope: 'rooms',
+    });
+    const handleRuntimeError = vi.fn();
+    runtime.handleRuntimeError = handleRuntimeError;
+
+    const active: ActiveStream = {
+      id: 'stream_1',
+      connectionId: connection.id,
+      event: 'channel-stream',
+      generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
+      nudges: [],
+      nudgeValidators: new Map([['known-nudge', undefined]]),
+      closed: false,
+      scope: { channelName: 'room:1', channelScope: 'rooms' },
+    };
+    runtime.activeStreams.set('stream_1', active);
+
+    // The nudge omits the channel markers — claimed scope is top-level, which
+    // does not match the stream's stored channel scope.
+    const result = await bufferStreamNudge(
+      runtime as Parameters<typeof bufferStreamNudge>[0],
+      connection,
+      { event: 'known-nudge', payload: {}, wskit: { streamId: 'stream_1', channelScope: null } },
+    );
+
+    expect(result).toBe(true);
+    expect(handleRuntimeError).toHaveBeenCalledTimes(1);
+    expect(active.nudges).toHaveLength(0);
+  });
+
+  it('bufferStreamNudge accepts a channel-stream nudge when the scope matches and membership holds', async () => {
+    const { runtime } = createStreamRuntime();
+    const connection = createConnection();
+    connection.channelMemberships.set(createChannelMembershipKey('room:1', 'rooms'), {
+      channelName: 'room:1',
+      channelScope: 'rooms',
+    });
+    const handleRuntimeError = vi.fn();
+    runtime.handleRuntimeError = handleRuntimeError;
+
+    const active: ActiveStream = {
+      id: 'stream_1',
+      connectionId: connection.id,
+      event: 'channel-stream',
+      generator: (async function* () {})() as AsyncGenerator<unknown, void, unknown>,
+      nudges: [],
+      nudgeValidators: new Map([['known-nudge', undefined]]),
+      closed: false,
+      scope: { channelName: 'room:1', channelScope: 'rooms' },
+    };
+    runtime.activeStreams.set('stream_1', active);
+
+    const result = await bufferStreamNudge(
+      runtime as Parameters<typeof bufferStreamNudge>[0],
+      connection,
+      {
+        event: 'known-nudge',
+        payload: {},
+        wskit: { streamId: 'stream_1', channel: 'room:1', channelScope: 'rooms' },
+      },
+    );
+
+    expect(result).toBe(true);
+    expect(handleRuntimeError).not.toHaveBeenCalled();
+    expect(active.nudges).toHaveLength(1);
   });
 
   it('bufferStreamNudge appends while under the buffer cap', async () => {

@@ -333,6 +333,26 @@ describe('engine.initialize — sql.exec round-trip budget', () => {
   });
 });
 
+describe('engine.initialize — freshBoot only on a truly empty DB', () => {
+  async function initAndGetEngine(opts?: { warmedSchemaVersion?: string }) {
+    const { storage } = makeFakeStorage(opts);
+    const engine = buildEngine(mediumHandler);
+    engine.core.storage = storage as never;
+    await engine.initialize();
+    return engine;
+  }
+
+  it('sets freshBoot on a cold boot with no prior schema', async () => {
+    const engine = await initAndGetEngine();
+    expect(engine.core.freshBoot).toBe(true);
+  });
+
+  it('does NOT set freshBoot on a migration (older schema version present)', async () => {
+    const engine = await initAndGetEngine({ warmedSchemaVersion: '0' });
+    expect(engine.core.freshBoot).toBe(false);
+  });
+});
+
 describe('engine declaredErrorCodes', () => {
   it('includes the internal-error fallback code', () => {
     const engine = buildEngine(tinyHandler);

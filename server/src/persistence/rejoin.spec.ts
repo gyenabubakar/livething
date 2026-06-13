@@ -1,10 +1,14 @@
-import { autoRejoinIdentity } from '~/persistence/rejoin.ts';
+import { RejoinRejected, WSKitConfigError } from '@wskit/core';
+import { autoRejoinIdentity, restorePersistentTags } from '~/persistence/rejoin.ts';
 import {
   ensurePersistenceSchema,
   insertMembership,
   listMembershipsByIdentity,
 } from '~/persistence/storage.ts';
+import { insertTag, listTagsByIdentity } from '~/tags/storage.ts';
+import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
+import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
 import type { SendProtocolMessageOptions } from '~/_engine/runtime/wire.ts';
 import type { SQLProvider, SqlResult } from '~/context.ts';
 
@@ -160,7 +164,7 @@ describe('autoRejoinIdentity', () => {
     insertMembership(sql, { identity: 'u-42', channelName: 'team-eng', channelScope: null });
 
     const subscribe = vi.fn(async () => {
-      throw new Error('not on the eng team');
+      throw RejoinRejected({ message: 'not on the eng team' });
     });
     const sent: Array<{
       event: string;
@@ -187,6 +191,58 @@ describe('autoRejoinIdentity', () => {
     expect((sent[0]!.payload.detail as { message: string }).message).toBe('not on the eng team');
   });
 
+  it('propagates a config error and keeps the durable row', async () => {
+    const sql = inMemorySql();
+    ensurePersistenceSchema(sql);
+    insertMembership(sql, { identity: 'u-42', channelName: 'team-eng', channelScope: null });
+
+    const subscribe = vi.fn(async () => {
+      throw new WSKitConfigError('misconfigured gate');
+    });
+    const sent: unknown[] = [];
+
+    await expect(
+      autoRejoinIdentity(
+        {
+          sql,
+          tagMembers: new Map(),
+          subscribeConnectionAsServer: subscribe,
+          sendProtocolMessage: () => sent.push(1),
+        },
+        fakeConnection('u-42'),
+      ),
+    ).rejects.toBeInstanceOf(WSKitConfigError);
+
+    expect(listMembershipsByIdentity(sql, 'u-42')).toHaveLength(1);
+    expect(sent).toHaveLength(0);
+  });
+
+  it('propagates an internal/storage error and keeps the durable row', async () => {
+    const sql = inMemorySql();
+    ensurePersistenceSchema(sql);
+    insertMembership(sql, { identity: 'u-42', channelName: 'team-eng', channelScope: null });
+
+    const subscribe = vi.fn(async () => {
+      throw new Error('transient storage failure');
+    });
+    const sent: unknown[] = [];
+
+    await expect(
+      autoRejoinIdentity(
+        {
+          sql,
+          tagMembers: new Map(),
+          subscribeConnectionAsServer: subscribe,
+          sendProtocolMessage: () => sent.push(1),
+        },
+        fakeConnection('u-42'),
+      ),
+    ).rejects.toThrow('transient storage failure');
+
+    expect(listMembershipsByIdentity(sql, 'u-42')).toHaveLength(1);
+    expect(sent).toHaveLength(0);
+  });
+
   it('one rejection does not stop the rest of the rejoin', async () => {
     const sql = inMemorySql();
     ensurePersistenceSchema(sql);
@@ -197,7 +253,7 @@ describe('autoRejoinIdentity', () => {
     let nth = 0;
     const subscribe = vi.fn(async () => {
       nth++;
-      if (nth === 2) throw new Error('gate-rejected on room-2');
+      if (nth === 2) throw RejoinRejected({ message: 'gate-rejected on room-2' });
     });
 
     await autoRejoinIdentity(
@@ -213,5 +269,103 @@ describe('autoRejoinIdentity', () => {
     expect(subscribe).toHaveBeenCalledTimes(3);
     const remaining = listMembershipsByIdentity(sql, 'u-42').map((r) => r.channelName);
     expect(remaining.sort()).toEqual(['room-1', 'room-3']);
+  });
+});
+
+function inMemoryTagSql(): SQLProvider {
+  type Row = { identity: string; group_name: string; key: string; added_at: number };
+  const rows = new Map<string, Row>();
+  function k(r: { identity: string; group_name: string; key: string }): string {
+    return `${r.identity}|${r.group_name}|${r.key}`;
+  }
+  function result<T>(items: T[]): SqlResult<T> {
+    return {
+      toArray: () => items.slice(),
+      one: () => (items.length === 0 ? null : items[0]!),
+      raw: () => items.map((it) => Object.values(it as Record<string, unknown>)),
+    };
+  }
+  function exec<TRow = unknown>(query: string, ...params: unknown[]): SqlResult<TRow> {
+    const q = query.trim().replace(/\s+/g, ' ');
+    if (q.startsWith('CREATE')) return result<TRow>([]);
+    if (q.startsWith('INSERT OR REPLACE INTO __wskit_tags')) {
+      const [identity, group_name, key, added_at] = params as [string, string, string, number];
+      const row = { identity, group_name, key, added_at };
+      rows.set(k(row), row);
+      return result<TRow>([]);
+    }
+    if (
+      q.startsWith('DELETE FROM __wskit_tags WHERE identity = ? AND group_name = ? AND key = ?')
+    ) {
+      const [identity, group_name, key] = params as [string, string, string];
+      rows.delete(k({ identity, group_name, key }));
+      return result<TRow>([]);
+    }
+    if (q.startsWith('SELECT group_name, key, added_at FROM __wskit_tags')) {
+      const [identity] = params as [string];
+      return result<TRow>([...rows.values()].filter((r) => r.identity === identity) as TRow[]);
+    }
+    throw new Error(`unrecognized tag SQL: ${q}`);
+  }
+  return { exec } as unknown as SQLProvider;
+}
+
+function tagConnection(identity: string): RuntimeConnection {
+  return {
+    id: 'c-1',
+    identity,
+    tags: { ephemeral: new Map(), persistent: new Map() },
+  } as unknown as RuntimeConnection;
+}
+
+describe('restorePersistentTags', () => {
+  it('deletes a stored tag whose value no longer matches its group schema', () => {
+    const sql = inMemoryTagSql();
+    insertTag(sql, { identity: 'u-1', group: 'role', key: 'admin' });
+    insertTag(sql, { identity: 'u-1', group: 'role', key: 'not-a-role!' });
+
+    const connection = tagConnection('u-1');
+    const errors: unknown[] = [];
+
+    restorePersistentTags({
+      sql,
+      tagMembers: new Map(),
+      connection,
+      // Only 'admin' or 'editor' are valid keys for this group now.
+      getSchema: () => v.picklist(['admin', 'editor']) as never,
+      logger: { error: () => errors.push(1) },
+    });
+
+    const remaining = listTagsByIdentity(sql, 'u-1').map((t) => t.key);
+    expect(remaining).toEqual(['admin']);
+    expect(connection.tags.persistent.get('role')?.has('admin')).toBe(true);
+    expect(errors).toHaveLength(1);
+  });
+
+  it('propagates a config error (async schema) and keeps the stored tag (#1)', () => {
+    const sql = inMemoryTagSql();
+    insertTag(sql, { identity: 'u-1', group: 'role', key: 'admin' });
+    const connection = tagConnection('u-1');
+    // An async validator is a config error, not invalid stored data.
+    const asyncSchema = {
+      '~standard': {
+        version: 1,
+        vendor: 'test',
+        validate: () => Promise.resolve({ value: 'admin' }),
+      },
+    } as never;
+
+    expect(() =>
+      restorePersistentTags({
+        sql,
+        tagMembers: new Map(),
+        connection,
+        getSchema: () => asyncSchema,
+        logger: { error: () => {} },
+      }),
+    ).toThrow(WSKitConfigError);
+
+    // The valid row must survive a config error, not be silently deleted.
+    expect(listTagsByIdentity(sql, 'u-1').map((t) => t.key)).toEqual(['admin']);
   });
 });

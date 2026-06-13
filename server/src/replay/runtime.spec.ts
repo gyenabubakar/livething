@@ -343,7 +343,7 @@ describe('replay/runtime', () => {
         now: 99,
       }),
     ).toMatchObject({
-      rowKey: 'snapshot|room-1|rooms|hello',
+      rowKey: JSON.stringify(['snapshot', 'room-1', 'rooms', 'hello']),
       messageId: 'msg_1',
       seq: 7,
       event: 'message',
@@ -361,6 +361,23 @@ describe('replay/runtime', () => {
     ).toEqual({
       text: 'hello',
     });
+  });
+
+  it('builds collision-safe snapshot keys for ambiguous channel/scope/key tuples (#6)', () => {
+    const base = { payload: {}, now: 0 } as const;
+    // channel `a|b`, no scope, key `c`  vs  channel `a`, scope `b`, key `|c`.
+    // A raw `|` join makes both `snapshot|a|b||c`; JSON encoding keeps them apart.
+    const a = buildReplayRow('e', {
+      options: { type: 'snapshot', snapshotKey: () => 'c' },
+      wskit: { seq: 1, messageId: 'm', channel: 'a|b' },
+      ...base,
+    });
+    const b = buildReplayRow('e', {
+      options: { type: 'snapshot', snapshotKey: () => '|c' },
+      wskit: { seq: 1, messageId: 'm', channel: 'a', channelScope: 'b' },
+      ...base,
+    });
+    expect(a.rowKey).not.toBe(b.rowKey);
   });
 
   it('persists history rows, supports snapshot reducers, and deletes snapshots on null', () => {
@@ -398,7 +415,7 @@ describe('replay/runtime', () => {
       now: 101,
     });
 
-    const snapshot = rows.get('snapshot|||doc-1');
+    const snapshot = rows.get(JSON.stringify(['snapshot', '', '', 'doc-1']));
     expect(snapshot).toMatchObject({
       event: 'doc-snapshot',
       snapshotKey: 'doc-1',
@@ -423,7 +440,7 @@ describe('replay/runtime', () => {
       now: 102,
     });
 
-    expect(rows.has('snapshot|||doc-1')).toBe(false);
+    expect(rows.has(JSON.stringify(['snapshot', '', '', 'doc-1']))).toBe(false);
   });
 
   it('prunes retained rows and loads replay rows in sequence order', () => {

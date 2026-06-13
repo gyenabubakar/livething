@@ -1,6 +1,11 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 
-import { rethrowIfConfigError, StreamAborted, StreamIdCollision } from '@wskit/core';
+import {
+  isWSKitConfigError,
+  rethrowIfConfigError,
+  StreamAborted,
+  StreamIdCollision,
+} from '@wskit/core';
 import { withConnectionContext } from '~/_engine/async-context.ts';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import { forEachIsolated } from '~/_engine/runtime/isolation.ts';
@@ -418,11 +423,16 @@ export async function resumeDurableStream(
 
     if (existing) {
       existing.closed = true;
-      try {
-        void existing.generator.return(undefined);
-      } catch {
-        /* drains in its own finally */
-      }
+      // Fire-and-forget cleanup. Call return() inside the .then so a synchronous
+      // throw becomes a caught rejection too, not just an async one.
+      void Promise.resolve()
+        .then(() => existing.generator.return(undefined))
+        .catch((error) => {
+          runtime.logger.warn('[wskit] durable stream stale-generator cleanup rejected', {
+            streamId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
     }
   }
 
@@ -580,26 +590,45 @@ async function runGenerator(
   };
   installCtxNudges(ctx);
 
-  const iterator = def.generator(ctx, payload) as AsyncGenerator<unknown, void, unknown>;
-  const { active: activeStream, nudgeBuffer } = buildActiveStream({
-    streamId,
-    event: def.event,
-    connection,
-    generator: iterator,
-    nudges: def.nudges ?? [],
-    onDisconnect: def.onDisconnect,
-  });
-
-  runtime.activeStreams.set(streamId, activeStream);
-  if (!connection.activeStreamIds) connection.activeStreamIds = new Set();
-  connection.activeStreamIds.add(streamId);
-  runtime.persistAttachment(connection);
-
-  const hasNudges = (def.nudges?.length ?? 0) > 0;
-  let nextInput: unknown = hasNudges ? [] : undefined;
-
+  // Single failure boundary: generator creation, registration, iteration, and
+  // status changes all run inside the try so no path can leave the DB row
+  // 'active'. A synchronous throw from def.generator(...) is caught here too.
+  let activeStream: ActiveStream | undefined;
   let seq = startSeq;
+
+  // A run "owns the slot" while no *other* ActiveStream holds this streamId. A
+  // resume/replace with the same streamId swaps in a new ActiveStream; once
+  // that happens this old run must not touch the shared row, attachment, or
+  // wire — doing so would corrupt the replacement. Before this run registers
+  // (activeStream undefined) the slot is its own to manage.
+  function stillOwnsSlot(): boolean {
+    if (!activeStream) return true;
+    const current = runtime.activeStreams.get(streamId);
+    return current === undefined || current === activeStream;
+  }
+
   try {
+    const iterator = def.generator(ctx, payload) as AsyncGenerator<unknown, void, unknown>;
+    const built = buildActiveStream({
+      streamId,
+      event: def.event,
+      connection,
+      generator: iterator,
+      nudges: def.nudges ?? [],
+      onDisconnect: def.onDisconnect,
+      scope,
+    });
+    activeStream = built.active;
+    const nudgeBuffer = built.nudgeBuffer;
+
+    runtime.activeStreams.set(streamId, activeStream);
+    if (!connection.activeStreamIds) connection.activeStreamIds = new Set();
+    connection.activeStreamIds.add(streamId);
+    runtime.persistAttachment(connection);
+
+    const hasNudges = (def.nudges?.length ?? 0) > 0;
+    let nextInput: unknown = hasNudges ? [] : undefined;
+
     while (!activeStream.closed) {
       // Advance the generator inside the connection's async context so plugin
       // APIs it calls (e.g. hooks.getState()) resolve to the stream owner.
@@ -607,6 +636,11 @@ async function runGenerator(
         iterator.next(nextInput),
       );
       if (result.done) break;
+
+      // A resume/replace took over this streamId while next() was pending. This
+      // old run no longer owns the slot, so it must stop before persisting or
+      // sending — its work would corrupt the replacement's shared state.
+      if (!stillOwnsSlot()) return;
 
       // Connection closed mid-advance: dropping this chunk keeps a resumable
       // cursor from moving past a row the client never received.
@@ -679,6 +713,10 @@ async function runGenerator(
 
       const wirePayload = chunkToPayload(chunkValue);
 
+      // A replacement may have taken the slot during the maxChunks iterator.throw
+      // above; never send a chunk once this run no longer owns the stream.
+      if (!stillOwnsSlot()) return;
+
       if (def.broadcast) {
         const targets = resolveBroadcastTargets({
           runtime,
@@ -740,13 +778,17 @@ async function runGenerator(
     }
 
     if (activeStream.closed) {
-      // Only suspend if still active — a cancel would have deleted the row.
+      // Only suspend if still active and this run still owns the slot — a
+      // replacement would otherwise have its 'active' row flipped to 'suspended'.
       const row = Storage.readStream(runtime.sql, identity, streamId);
-      if (row && row.status === 'active') {
+      if (row && row.status === 'active' && stillOwnsSlot()) {
         Storage.markSuspended(runtime.sql, { identity, streamId, now: Date.now() });
       }
       return;
     }
+
+    // A replacement run owns the row now; ending it would kill the live stream.
+    if (!stillOwnsSlot()) return;
 
     Storage.markEnded(runtime.sql, { identity, streamId, now: Date.now() });
     runtime.sendProtocolMessage(connection, {
@@ -783,7 +825,15 @@ async function runGenerator(
       );
     }
   } catch (error) {
-    rethrowIfConfigError(error);
+    // A config error must propagate, but the row still has to leave 'active' or
+    // it blocks every future start/resume — mark it ended before rethrowing.
+    // Only when this run still owns the slot; a replacement manages its own row.
+    if (isWSKitConfigError(error)) {
+      if (stillOwnsSlot()) {
+        Storage.markEnded(runtime.sql, { identity, streamId, now: Date.now() });
+      }
+      throw error;
+    }
     const routing: Protocol.WSKitRouting = { streamId, streamTerminated: true };
     if (scope.channelName) routing.channel = scope.channelName;
     if (scope.channelScope) routing.channelScope = scope.channelScope;
@@ -818,17 +868,24 @@ async function runGenerator(
         { context: `durable broadcast __error__ on error streamId="${streamId}"` },
       );
     }
-    Storage.markEnded(runtime.sql, { identity, streamId, now: Date.now() });
+    if (stillOwnsSlot()) {
+      Storage.markEnded(runtime.sql, { identity, streamId, now: Date.now() });
+    }
   } finally {
-    activeStream.closed = true;
-
-    // Don't remove a slot a resume run has already taken over.
-    if (runtime.activeStreams.get(streamId) === activeStream) {
-      runtime.activeStreams.delete(streamId);
+    // A resume run may have already taken over this streamId. Only the run that
+    // still owns the slot may tear down the shared connection/attachment state;
+    // otherwise an old run would delete the replacement's activeStreamIds entry
+    // and persist a stale attachment.
+    const ownsSlot = stillOwnsSlot();
+    if (activeStream) {
+      activeStream.closed = true;
+      if (ownsSlot) runtime.activeStreams.delete(streamId);
     }
 
-    connection.activeStreamIds?.delete(streamId);
-    runtime.persistAttachment(connection);
+    if (ownsSlot) {
+      connection.activeStreamIds?.delete(streamId);
+      runtime.persistAttachment(connection);
+    }
   }
 }
 

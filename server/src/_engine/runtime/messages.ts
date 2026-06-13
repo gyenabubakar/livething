@@ -302,10 +302,17 @@ export async function dispatchIncoming(
       scope.channelScope ?? null,
     )
   ) {
+    // Keep every incoming routing id (correlationId/ackId/streamId/…) so the
+    // client can match this error to its pending op, then stamp the channel markers.
+    const routing: Protocol.WSKitRouting = routingFromWSKit(wskit) ?? {};
+    routing.channel = scope.channelName;
+    routing.channelScope = scope.channelScope ?? null;
+    // A nudge frame's reject is non-terminal — keep the stream alive on the client.
+    if (wskit?.streamNudgeId !== undefined) routing.streamTerminated = false;
     await runtime.handleRuntimeError(connection, {
       error: ChannelNotSubscribed(),
       event,
-      routing: { channel: scope.channelName, channelScope: scope.channelScope ?? null },
+      routing,
     });
     return;
   }
@@ -866,10 +873,14 @@ export async function processTextMessage(
   // a streamId and scope resolution failed, surface the resolution error to
   // the client and stop.
   if (scopeError && wskit?.streamId) {
+    // Preserve the nudge routing so the client can match the rejected nudge
+    // Promise; a nudge reject is non-terminal, so the stream stays alive.
+    const routing: Protocol.WSKitRouting = routingFromWSKit(wskit) ?? { streamId: wskit.streamId };
+    if (wskit.streamNudgeId !== undefined) routing.streamTerminated = false;
     await runtime.handleRuntimeError(connection, {
       error: scopeError,
       event,
-      routing: { streamId: wskit.streamId },
+      routing,
     });
     return;
   }
@@ -885,13 +896,49 @@ export async function processTextMessage(
     let nudgePayload = frame.payload;
 
     if (wskit?.streamId) {
+      const activeStream = runtime.activeStreams.get(wskit.streamId);
+      // A nudge for a live owned stream must target the exact scope the stream
+      // runs in, and the connection must still hold that membership. A nudge
+      // that claims a different scope (or none) for a channel stream — e.g.
+      // after leaving the channel — is rejected here so it never reaches the
+      // generator and never runs the wrong scope's intercepts.
+      if (activeStream && activeStream.connectionId === connection.id && !activeStream.closed) {
+        const storedScope = activeStream.scope ?? {};
+        const sameScope =
+          (storedScope.channelName ?? undefined) === (triggerScope.channelName ?? undefined) &&
+          (storedScope.channelScope ?? null) === (triggerScope.channelScope ?? null);
+        const memberOk =
+          !storedScope.channelName ||
+          ChannelPrimitive.hasChannelMembership(
+            connection,
+            storedScope.channelName,
+            storedScope.channelScope ?? null,
+          );
+        if (!sameScope || !memberOk) {
+          const rejectRouting: Protocol.WSKitRouting = {
+            streamId: wskit.streamId,
+            streamTerminated: false,
+          };
+          if (wskit.streamNudgeId !== undefined) rejectRouting.streamNudgeId = wskit.streamNudgeId;
+          await runtime.handleRuntimeError(connection, {
+            error: ChannelNotSubscribed(),
+            event,
+            routing: rejectRouting,
+          });
+          return;
+        }
+      }
+
+      // Run intercepts in the stream's stored scope, not the nudge's claimed
+      // one, so a channel stream's intercepts always see the channel context.
+      const interceptScope = activeStream?.scope ?? triggerScope;
       const topIntercepts = runtime.compiled.intercepts;
-      const chIntercepts = triggerScope.channel?.intercepts;
+      const chIntercepts = interceptScope.channel?.intercepts;
 
       if (topIntercepts.length > 0 || (chIntercepts?.length ?? 0) > 0) {
         let sharedCtx: Record<PropertyKey, unknown> | undefined;
         function getCtx() {
-          return (sharedCtx ??= runtime.buildConnectionContext(connection, triggerScope));
+          return (sharedCtx ??= runtime.buildConnectionContext(connection, interceptScope));
         }
 
         try {

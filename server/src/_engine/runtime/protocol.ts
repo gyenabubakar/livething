@@ -10,6 +10,7 @@
  * with a discriminated union instead of hand-checking wire fields at each read
  * site.
  */
+import { WIRE_LIMITS } from '@wskit/core';
 import * as v from 'valibot';
 
 // ───── Section: reusable pieces ─────
@@ -31,7 +32,7 @@ const NonNegativeSafeInt = v.pipe(
  * server-side ids. Echoed back in error routing and used as a SQL key, so
  * unbounded length lets a client bloat logs and storage rows.
  */
-const StreamIdString = v.pipe(v.string(), v.minLength(1), v.maxLength(128));
+const StreamIdString = v.pipe(v.string(), v.minLength(1), v.maxLength(WIRE_LIMITS.streamId));
 
 /**
  * Whether a stream survives a reconnect. `ephemeral` is a plain `stream` — its
@@ -47,23 +48,23 @@ const StreamKind = v.picklist(['ephemeral', 'persistent']);
  * identifiers. The matcher runs the family regex against this value, so the cap
  * also bounds the worst-case match cost on attacker-controlled input.
  */
-const ChannelName = v.pipe(v.string(), v.minLength(1), v.maxLength(256));
+const ChannelName = v.pipe(v.string(), v.minLength(1), v.maxLength(WIRE_LIMITS.channel));
 
 /**
  * A bounded family key for dynamic channels. These are short identifiers that
  * must match a declared scope, so 128 is never legitimately exceeded.
  */
-const ScopeKey = v.pipe(v.string(), v.maxLength(128));
+const ScopeKey = v.pipe(v.string(), v.maxLength(WIRE_LIMITS.channelScope));
 
 /**
  * A bounded correlation / ack / message id. The client SDK stamps these as
  * UUID/ULID-shaped strings (~26-36 chars); 128 matches the streamId cap.
  * Capping stops a client bloating logs, the dedup ring, and storage rows.
  */
-const WireId = v.pipe(v.string(), v.minLength(1), v.maxLength(128));
+const WireId = v.pipe(v.string(), v.minLength(1), v.maxLength(WIRE_LIMITS.wireId));
 
 /** A bounded user-event name. Short identifier; 128 is generous. */
-const EventName = v.pipe(v.string(), v.minLength(1), v.maxLength(128));
+const EventName = v.pipe(v.string(), v.minLength(1), v.maxLength(WIRE_LIMITS.event));
 
 /**
  * Scope markers for a frame that must target a channel. `channelScope` is the

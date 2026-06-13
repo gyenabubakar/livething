@@ -458,9 +458,12 @@ function buildReplayRowKey(
   const { messageId, snapshotKey } = ids;
   if (type === 'history') return messageId;
 
-  return ['snapshot', scope.channel ?? '', scope.channelScope ?? '', snapshotKey ?? messageId].join(
-    '|',
-  );
+  return JSON.stringify([
+    'snapshot',
+    scope.channel ?? '',
+    scope.channelScope ?? '',
+    snapshotKey ?? messageId,
+  ]);
 }
 
 /**

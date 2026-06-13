@@ -1,5 +1,11 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { ChannelNotFound, ChannelNotSubscribed, rethrowIfConfigError } from '@wskit/core';
+import {
+  ChannelNotFound,
+  ChannelNotSubscribed,
+  RejoinRejected,
+  rethrowIfConfigError,
+  WSKitConfigError,
+} from '@wskit/core';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import type { CompiledChannel } from '~/_engine/compile/types.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
@@ -406,9 +412,19 @@ async function runSubscribeFlow(
   if (rejoining) {
     const revalidateHook = runtime.revalidateHooks.get(scope.channel.key)?.[0];
     if (revalidateHook) {
-      // A throw propagates to auto-rejoin, which drops the durable row and
-      // notifies the client — the revocation path.
-      await revalidateHook(ctx);
+      try {
+        await revalidateHook(ctx);
+      } catch (error) {
+        // A config error is a framework misconfig, not a revocation — let it
+        // propagate so auto-rejoin keeps the membership instead of dropping it.
+        rethrowIfConfigError(error);
+        // Any other throw is the gate revoking access. Normalize it so the
+        // auto-rejoin catch can tell a revoke apart from a storage/internal
+        // failure and only drop the durable row for a real revoke.
+        throw RejoinRejected({
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
   } else {
     const checkHook = runtime.checkHooks.get(scope.channel.key)?.[0];
@@ -455,8 +471,15 @@ async function runSubscribeFlow(
     const commitHook = runtime.commitHooks.get(scope.channel.key)?.[0];
     if (commitHook) {
       const r: unknown = commitHook.handler(ctx, checkResult);
-      if (r instanceof Promise) {
-        throw new Error(
+      // Detect any thenable — a native Promise, a cross-realm Promise, or a
+      // custom `{ then() {} }` — not just `instanceof Promise`. An async-like
+      // commit must fail before membership is written.
+      if (
+        r !== null &&
+        (typeof r === 'object' || typeof r === 'function') &&
+        typeof (r as { then?: unknown }).then === 'function'
+      ) {
+        throw new WSKitConfigError(
           '[wskit] commit() must be synchronous. Remove the async keyword from your commit handler.',
         );
       }
