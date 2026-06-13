@@ -110,7 +110,10 @@ export const SubscribeFrame = v.object({
 export const UnsubscribeFrame = v.object({
   event: v.literal('__unsubscribe__'),
   payload: NoPayload,
-  __wskit: v.strictObject(RequiredChannelScope),
+  // `unsubscribeId` correlates the leave with its `__unsubscribeOk__`. Optional
+  // because low-level senders may leave without one; the engine only acks when
+  // an id is present.
+  __wskit: v.strictObject({ ...RequiredChannelScope, unsubscribeId: v.optional(WireId) }),
 });
 
 export const ReplayFrame = v.object({
@@ -152,6 +155,14 @@ export const SubscribeOkFrame = v.object({
     ...RequiredChannelScope,
     channelPersistent: v.optional(v.boolean()),
   }),
+});
+
+export const UnsubscribeOkFrame = v.object({
+  event: v.literal('__unsubscribeOk__'),
+  payload: NoPayload,
+  // Echoes the leave's `unsubscribeId` so the client settles the exact pending
+  // leave op — never a stale one from an earlier connection.
+  __wskit: v.strictObject({ ...RequiredChannelScope, unsubscribeId: WireId }),
 });
 
 export const StreamOkFrame = v.object({
@@ -263,6 +274,7 @@ export const MemberSyncFrame = v.object({
 /** All frames the engine sends to clients, discriminated on `event`. */
 export const OutgoingProtocolFrame = v.variant('event', [
   SubscribeOkFrame,
+  UnsubscribeOkFrame,
   StreamOkFrame,
   NudgeOkFrame,
   StreamEndFrame,
@@ -321,6 +333,7 @@ export type StreamCancelFrame = v.InferOutput<typeof StreamCancelFrame>;
 export type ResumeStreamFrame = v.InferOutput<typeof ResumeStreamFrame>;
 
 export type SubscribeOkFrame = v.InferOutput<typeof SubscribeOkFrame>;
+export type UnsubscribeOkFrame = v.InferOutput<typeof UnsubscribeOkFrame>;
 export type StreamOkFrame = v.InferOutput<typeof StreamOkFrame>;
 export type NudgeOkFrame = v.InferOutput<typeof NudgeOkFrame>;
 export type StreamEndFrame = v.InferOutput<typeof StreamEndFrame>;

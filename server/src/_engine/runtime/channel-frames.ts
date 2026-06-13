@@ -228,5 +228,6 @@ export async function handleUnsubscribe(
   await ChannelPrimitive.unsubscribeConnection(runtime, connection, {
     channelName: frame.__wskit.channel,
     channelScope: frame.__wskit.channelScope,
+    unsubscribeId: frame.__wskit.unsubscribeId,
   });
 }

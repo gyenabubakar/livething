@@ -268,6 +268,153 @@ describe('channel runtime', () => {
     ]);
   });
 
+  it('confirms a member leave with __unsubscribeOk__ echoing the unsubscribeId', async () => {
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
+    const connection = createConnection('conn_1', { userId: 'a' });
+    addChannelMembership(channelMembers, connection, {
+      channelName: 'room:general',
+      channelScope: 'rooms',
+    });
+
+    const { runtime, connections, protocol } = createRuntime(channelMembers);
+    connections.set(connection.id, connection);
+
+    await unsubscribeConnection(
+      {
+        ...runtime,
+        leaveChannel: async (nextConnection: RuntimeConnection, opts: LeaveChannelOptions) =>
+          leaveChannel(runtime, nextConnection, opts),
+      },
+      connection,
+      { channelName: 'room:general', channelScope: 'rooms', unsubscribeId: 'unsub-1' },
+    );
+
+    expect(protocol).toContainEqual({
+      connectionId: 'conn_1',
+      event: '__unsubscribeOk__',
+      payload: {},
+      wskit: { channel: 'room:general', channelScope: 'rooms', unsubscribeId: 'unsub-1' },
+    });
+  });
+
+  it('idempotently re-acks a leave for a channel it is no longer in, with no hooks or broadcasts', async () => {
+    // A resent leave after the first ack was lost: the connection is no longer a
+    // member, so the engine just re-confirms — no membership change, no broadcast.
+    const connection = createConnection('conn_1', { userId: 'a' });
+    const { runtime, connections, protocol, broadcasts } = createRuntime();
+    connections.set(connection.id, connection);
+
+    await unsubscribeConnection(
+      {
+        ...runtime,
+        leaveChannel: async (nextConnection: RuntimeConnection, opts: LeaveChannelOptions) =>
+          leaveChannel(runtime, nextConnection, opts),
+      },
+      connection,
+      { channelName: 'room:general', channelScope: 'rooms', unsubscribeId: 'unsub-1' },
+    );
+
+    expect(broadcasts).toEqual([]);
+    expect(protocol).toEqual([
+      {
+        connectionId: 'conn_1',
+        event: '__unsubscribeOk__',
+        payload: {},
+        wskit: { channel: 'room:general', channelScope: 'rooms', unsubscribeId: 'unsub-1' },
+      },
+    ]);
+  });
+
+  it('confirms a leave whose onUnsubscribe hook throws, then rethrows the hook error', async () => {
+    // leaveChannel removes membership before running hooks, so a throwing hook still
+    // means the leave completed — the client must still get __unsubscribeOk__ (or its
+    // unsubscribe() would hang), and the hook error is still surfaced to the caller.
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
+    const connection = createConnection('conn_1', { userId: 'a' });
+    addChannelMembership(channelMembers, connection, {
+      channelName: 'room:general',
+      channelScope: 'rooms',
+    });
+
+    const { runtime, connections, protocol } = createRuntime(channelMembers);
+    connections.set(connection.id, connection);
+    const boom = new Error('onUnsubscribe boom');
+    runtime.unsubscribeHooks = new Map([
+      [
+        'rooms',
+        [
+          async () => {
+            throw boom;
+          },
+        ],
+      ],
+    ]);
+
+    await expect(
+      unsubscribeConnection(
+        {
+          ...runtime,
+          leaveChannel: async (nextConnection: RuntimeConnection, opts: LeaveChannelOptions) =>
+            leaveChannel(runtime, nextConnection, opts),
+        },
+        connection,
+        { channelName: 'room:general', channelScope: 'rooms', unsubscribeId: 'unsub-1' },
+      ),
+    ).rejects.toBe(boom);
+
+    expect(
+      [...connection.channelMemberships.values()].some((m) => m.channelName === 'room:general'),
+    ).toBe(false);
+    expect(protocol).toContainEqual({
+      connectionId: 'conn_1',
+      event: '__unsubscribeOk__',
+      payload: {},
+      wskit: { channel: 'room:general', channelScope: 'rooms', unsubscribeId: 'unsub-1' },
+    });
+  });
+
+  it('keeps the legacy channel-not-subscribed error for a no-id leave of a non-member', async () => {
+    const connection = createConnection('conn_1');
+    const { runtime, connections } = createRuntime();
+    connections.set(connection.id, connection);
+
+    await expect(
+      unsubscribeConnection(
+        {
+          ...runtime,
+          leaveChannel: async (nextConnection: RuntimeConnection, opts: LeaveChannelOptions) =>
+            leaveChannel(runtime, nextConnection, opts),
+        },
+        connection,
+        { channelName: 'room:general', channelScope: 'rooms' },
+      ),
+    ).rejects.toMatchObject({ code: 'channel-not-subscribed' });
+  });
+
+  it('sends no confirmation when the leave frame carried no unsubscribeId', async () => {
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
+    const connection = createConnection('conn_1', { userId: 'a' });
+    addChannelMembership(channelMembers, connection, {
+      channelName: 'room:general',
+      channelScope: 'rooms',
+    });
+
+    const { runtime, connections, protocol } = createRuntime(channelMembers);
+    connections.set(connection.id, connection);
+
+    await unsubscribeConnection(
+      {
+        ...runtime,
+        leaveChannel: async (nextConnection: RuntimeConnection, opts: LeaveChannelOptions) =>
+          leaveChannel(runtime, nextConnection, opts),
+      },
+      connection,
+      { channelName: 'room:general', channelScope: 'rooms' },
+    );
+
+    expect(protocol.some((p) => p.event === '__unsubscribeOk__')).toBe(false);
+  });
+
   it('keeps same-name memberships isolated across channel families', async () => {
     const channelMembers = new Map<string, Set<RuntimeConnection>>();
     const connection = createConnection('conn_1');

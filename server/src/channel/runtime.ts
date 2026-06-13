@@ -629,26 +629,67 @@ export async function subscribeConnectionAsServer(
   });
 }
 
+export interface UnsubscribeConnectionOptions extends ChannelMembership {
+  /** Correlation id from the `__unsubscribe__` frame; echoed on `__unsubscribeOk__`. */
+  unsubscribeId?: string;
+}
+
 /**
  * Unsubscribe one connection from a channel by delegating to the shared leave
- * helper.
+ * helper, then confirm the leave to the client.
+ *
+ * The `unsubscribeId` is a correlation id, not a stored dedup key — idempotency
+ * is judged against current membership. An id-bearing leave for a channel the
+ * connection is no longer in (a resend after the first ack was lost on a drop)
+ * is re-acked without re-running hooks or broadcasts. A leave with no id for a
+ * non-member keeps the legacy `ChannelNotSubscribed` error — the reliable client
+ * always sends an id, so only low-level senders hit that path. An unknown channel
+ * is always `ChannelNotFound`.
  */
 export async function unsubscribeConnection(
   runtime: ChannelRuntime & {
     leaveChannel(connection: RuntimeConnection, opts: LeaveChannelOptions): Promise<void>;
   },
   connection: RuntimeConnection,
-  membership: ChannelMembership,
+  opts: UnsubscribeConnectionOptions,
 ): Promise<void> {
-  const scope = resolveChannelByName(runtime, membership.channelName, membership.channelScope);
+  const scope = resolveChannelByName(runtime, opts.channelName, opts.channelScope);
   if (!scope) {
     throw ChannelNotFound();
   }
 
-  if (!hasChannelMembership(connection, scope.channelName, scope.channelScope)) {
+  const isMember = hasChannelMembership(connection, scope.channelName, scope.channelScope);
+  if (!isMember && opts.unsubscribeId === undefined) {
     throw ChannelNotSubscribed();
   }
-  await runtime.leaveChannel(connection, scope);
+
+  // leaveChannel removes the membership BEFORE running leave hooks, so a throwing
+  // `onUnsubscribe`/`onSessionEnd` still leaves a completed leave. Capture the
+  // throw, confirm the leave anyway (below), then rethrow so the engine still
+  // surfaces the hook error — otherwise the client's `unsubscribe()` would hang
+  // forever on a leave that actually succeeded.
+  let hookError: unknown;
+  let threw = false;
+  if (isMember) {
+    try {
+      await runtime.leaveChannel(connection, scope);
+    } catch (error) {
+      hookError = error;
+      threw = true;
+    }
+  }
+
+  // Confirm the leave so the client can settle its pending op. Only when the
+  // frame carried an id — a low-level sender that left without one gets no ack.
+  if (opts.unsubscribeId !== undefined) {
+    runtime.sendProtocolMessage(connection, {
+      event: '__unsubscribeOk__',
+      payload: {},
+      wskit: { ...buildChannelRouting(scope), unsubscribeId: opts.unsubscribeId },
+    });
+  }
+
+  if (threw) throw hookError;
 }
 
 /**
