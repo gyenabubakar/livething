@@ -4,8 +4,9 @@ import { button, el, errorCode, mount, ready, wsUrl } from '../_shared.ts';
 
 // Drives @wskit/client against the real `persistence` handler to prove that an
 // unsubscribe() issued WHILE the socket is reconnecting is not lost: the client
-// holds the __unsubscribe__ until the socket reopens, suppresses the persistent
-// channel's auto-rejoin, and the server truly removes the member. Reuses the
+// resends the __unsubscribe__ on reopen, suppresses the persistent channel's
+// auto-rejoin, and the server truly removes the member and confirms it with
+// __unsubscribeOk__ (so the unsubscribe() promise resolves). Reuses the
 // persistence handler's archive-room (persistent), server-drop (warm reconnect),
 // subscribe-flow-ran (counts subscribe flows), and true-leave (a real leave).
 export function setup(): void {
@@ -17,6 +18,7 @@ export function setup(): void {
     <button data-testid="send-after-leave">send-after-leave</button>
     <span data-testid="status"></span>
     <span data-testid="send-result"></span>
+    <span data-testid="leave-result"></span>
     <span data-testid="archive-subscribed"></span>
     <span data-testid="unsubscribed"></span>
     <span data-testid="subscribe-flows"></span>
@@ -75,9 +77,17 @@ export function setup(): void {
     socket.send('server-drop', {});
   });
 
-  // Called while the socket is reconnecting — the frame is held and flushed on open.
+  // Called while the socket is reconnecting — the leave is held and resent on open.
+  // The promise resolves only when the server's __unsubscribeOk__ confirms it.
   button('unsubscribe', () => {
-    archive.unsubscribe();
+    archive.unsubscribe().then(
+      () => {
+        el('leave-result').textContent = 'resolved';
+      },
+      (err) => {
+        el('leave-result').textContent = errorCode(err) || 'rejected';
+      },
+    );
   });
 
   // After the leave, a send must fail locally — the channel is inactive even if a
@@ -94,6 +104,7 @@ export function setup(): void {
   el('subscribe-flows').textContent = '0';
   el('true-leaves').textContent = '0';
   el('unsubscribed').textContent = '0';
+  el('leave-result').textContent = 'pending';
   ready();
 }
 

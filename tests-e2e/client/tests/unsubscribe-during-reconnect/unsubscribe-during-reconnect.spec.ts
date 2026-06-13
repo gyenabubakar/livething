@@ -2,11 +2,12 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
 // Conformance: an unsubscribe() issued while the socket is reconnecting must not
-// be lost. The client holds the __unsubscribe__ until the socket reopens, the
-// persistent channel does NOT auto-rejoin, and the server records a real leave.
-// Proof is the subscribe-flow count: if the unsubscribe were lost, the persistent
-// channel would auto-rejoin on reconnect and the server would run a SECOND
-// subscribe flow. Talks to the real `persistence` handler over the /ws proxy.
+// be lost. The client resends the __unsubscribe__ on reopen, the persistent
+// channel does NOT auto-rejoin, and the server records a real leave and confirms
+// it with __unsubscribeOk__ (so the unsubscribe() promise resolves). Proof is the
+// subscribe-flow count: if the unsubscribe were lost, the persistent channel would
+// auto-rejoin on reconnect and the server would run a SECOND subscribe flow. Talks
+// to the real `persistence` handler over the /ws proxy.
 async function open(page: Page, room: string, username: string): Promise<void> {
   await page.goto(
     `/tests/unsubscribe-during-reconnect/index.html?room=${room}&username=${username}`,
@@ -47,5 +48,9 @@ test.describe('unsubscribe during reconnect (conformance)', () => {
     // even though the server's auto-rejoin confirmation raced in during the reconnect.
     await page.getByTestId('send-after-leave').click();
     await expect(page.getByTestId('send-result')).toHaveText('channel-not-subscribed');
+
+    // The server confirmed the leave with __unsubscribeOk__, so the unsubscribe()
+    // promise resolved over the real wire.
+    await expect(page.getByTestId('leave-result')).toHaveText('resolved');
   });
 });
