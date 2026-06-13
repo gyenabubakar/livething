@@ -1,6 +1,11 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 
-import { rethrowIfConfigError, StreamAborted, StreamIdCollision } from '@wskit/core';
+import {
+  isWSKitConfigError,
+  rethrowIfConfigError,
+  StreamAborted,
+  StreamIdCollision,
+} from '@wskit/core';
 import { withConnectionContext } from '~/_engine/async-context.ts';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import { forEachIsolated } from '~/_engine/runtime/isolation.ts';
@@ -12,6 +17,7 @@ import {
   installCtxNudges,
   resolveBroadcastTargets,
 } from '~/_engine/stream-common/active-stream.ts';
+import { normalizeRuntimeError } from '~/errors/runtime.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
 import type {
@@ -39,6 +45,8 @@ export interface DurableStreamRuntime {
 
   errorHooks: readonly ((ctx: unknown, error: unknown, event?: string) => void | Promise<void>)[];
 
+  declaredErrorCodes: ReadonlySet<string>;
+
   buildConnectionContext(
     connection: RuntimeConnection,
     scope?: ResolvedScope,
@@ -53,16 +61,6 @@ export interface DurableStreamRuntime {
     connection: RuntimeConnection,
     opts: { routing: RoutingTarget | undefined; event: string; payload: unknown },
   ): boolean;
-
-  broadcastToConnections(
-    connections: readonly RuntimeConnection[],
-    opts: {
-      event: string;
-      payload: unknown;
-      options?: { namespace?: string; channel?: string; channelScope?: string | null };
-      excludeConnectionId?: string;
-    },
-  ): void;
 
   asyncContext: EngineAsyncContext;
 
@@ -113,19 +111,17 @@ export interface DurableStreamRuntimeDef {
 }
 
 /** Build the `__wskit` routing block for a durable-stream frame from a live scope. */
-function buildScopeRouting(scope: ResolvedScope): Record<string, unknown> {
-  const wskit: Record<string, unknown> = {};
-  if (scope.namespace?.name) wskit.namespace = scope.namespace.name;
+function buildScopeRouting(scope: ResolvedScope): Partial<Protocol.WSKitProtocol> {
+  const wskit: Partial<Protocol.WSKitProtocol> = {};
   if (scope.channelName) wskit.channel = scope.channelName;
   if (scope.channelScope) wskit.channelScope = scope.channelScope;
   return wskit;
 }
 
 /** Build the `__wskit` routing block from a stored stream row. */
-function buildRowRouting(row: Storage.DurableStreamRow): Record<string, unknown> {
-  const wskit: Record<string, unknown> = {};
+function buildRowRouting(row: Storage.DurableStreamRow): Partial<Protocol.WSKitProtocol> {
+  const wskit: Partial<Protocol.WSKitProtocol> = {};
 
-  if (row.namespace) wskit.namespace = row.namespace;
   if (row.channelKey) wskit.channel = row.channelKey;
   if (row.channelScope) wskit.channelScope = row.channelScope;
 
@@ -166,7 +162,9 @@ function sendChunkFrames(connection: RuntimeConnection, opts: SendChunkFramesOpt
   const eventJson = JSON.stringify(eventName);
   // Serialize the constant part of __wskit (scope fields + streamId), strip the
   // closing "}" so we can append ,"seq":N} per chunk without a full re-serialize.
-  const wskitPrefix = JSON.stringify({ ...scopeMarkers, streamId }).slice(0, -1) + ',"seq":';
+  const wskitPrefix =
+    JSON.stringify({ ...scopeMarkers, streamId, streamKind: 'persistent' }).slice(0, -1) +
+    ',"seq":';
 
   for (const chunk of chunks) {
     const wire =
@@ -176,13 +174,6 @@ function sendChunkFrames(connection: RuntimeConnection, opts: SendChunkFramesOpt
 
     connection.descriptor.send(wire);
   }
-}
-
-/** Read a client-supplied `streamId` from the trigger frame's `__wskit`. */
-function readSuppliedStreamId(wskit: Protocol.WSKitProtocol | undefined): string | undefined {
-  const value = wskit?.streamId;
-  if (typeof value !== 'string' || value.length === 0 || value.length > 256) return undefined;
-  return value;
 }
 
 function ensureUniqueStreamId(
@@ -222,8 +213,9 @@ export async function runDurableStream(
     allowConcurrent: def.allowConcurrent,
   });
 
-  const supplied = readSuppliedStreamId(wskit);
-  const streamId = supplied ?? runtime.generateId('dstream');
+  // The wire schema already bounds and non-empties `streamId` (`StreamIdString`),
+  // so its presence is the only thing left to check.
+  const streamId = wskit?.streamId ?? runtime.generateId('dstream');
   ensureUniqueStreamId(runtime, { streamId, storageIdentity });
 
   const now = Date.now();
@@ -237,7 +229,6 @@ export async function runDurableStream(
     ),
     kind: def.kind,
     now,
-    namespace: scope.namespace?.name ?? null,
     channelKey: scope.channelName ?? null,
     channelScope: scope.channelScope ?? null,
     broadcast: def.broadcast ?? false,
@@ -266,7 +257,7 @@ export async function runDurableStream(
   runtime.sendProtocolMessage(connection, {
     event: '__streamOk__',
     payload: {},
-    wskit: { ...buildScopeRouting(scope), streamId },
+    wskit: { ...buildScopeRouting(scope), streamId, streamKind: 'persistent' },
   });
 
   await runGenerator(runtime, connection, {
@@ -411,7 +402,7 @@ export async function resumeDurableStream(
       runtime.sendProtocolMessage(connection, {
         event: '__streamOk__',
         payload: {},
-        wskit: { ...scopeMarkers, streamId },
+        wskit: { ...scopeMarkers, streamId, streamKind: 'persistent' },
       });
 
       const chunks = Storage.readChunksSince(runtime.sql, {
@@ -432,11 +423,16 @@ export async function resumeDurableStream(
 
     if (existing) {
       existing.closed = true;
-      try {
-        void existing.generator.return(undefined);
-      } catch {
-        /* drains in its own finally */
-      }
+      // Fire-and-forget cleanup. Call return() inside the .then so a synchronous
+      // throw becomes a caught rejection too, not just an async one.
+      void Promise.resolve()
+        .then(() => existing.generator.return(undefined))
+        .catch((error) => {
+          runtime.logger.warn('[wskit] durable stream stale-generator cleanup rejected', {
+            streamId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
     }
   }
 
@@ -464,7 +460,7 @@ export async function resumeDurableStream(
     runtime.sendProtocolMessage(connection, {
       event: '__streamEnd__',
       payload: {},
-      wskit: { ...scopeMarkers, streamId, seq: row.lastSeq },
+      wskit: { ...scopeMarkers, streamId, seq: row.lastSeq, eventName: def.event },
     });
     return;
   }
@@ -479,7 +475,7 @@ export async function resumeDurableStream(
     runtime.sendProtocolMessage(connection, {
       event: '__streamEnd__',
       payload: {},
-      wskit: { ...scopeMarkers, streamId, seq: row.lastSeq },
+      wskit: { ...scopeMarkers, streamId, seq: row.lastSeq, eventName: def.event },
     });
     return;
   }
@@ -503,8 +499,8 @@ export async function resumeDurableStream(
 
   let cursor: unknown = null;
   if (cursorRaw) {
-    const raw = JSON.parse(cursorRaw);
     try {
+      const raw = JSON.parse(cursorRaw);
       cursor = def.cursor ? validateValue(def.cursor, raw, '__resumeStream__') : raw;
     } catch {
       runtime.sendProtocolMessage(connection, {
@@ -515,11 +511,23 @@ export async function resumeDurableStream(
       return;
     }
   }
-  const payload = JSON.parse(row.payload);
+  let payload: unknown;
+  try {
+    payload = JSON.parse(row.payload);
+  } catch {
+    // A corrupt or partially-written row must not throw out of resume — send a
+    // terminal error so the client's resuming stream settles.
+    runtime.sendProtocolMessage(connection, {
+      event: '__error__',
+      payload: { code: StreamAborted.code, detail: { reason: 'cursor-invalid' as const } },
+      wskit: { ...scopeMarkers, streamId },
+    });
+    return;
+  }
   runtime.sendProtocolMessage(connection, {
     event: '__streamOk__',
     payload: {},
-    wskit: { ...scopeMarkers, streamId },
+    wskit: { ...scopeMarkers, streamId, streamKind: 'persistent' },
   });
 
   runtime.sql.exec(
@@ -582,26 +590,45 @@ async function runGenerator(
   };
   installCtxNudges(ctx);
 
-  const iterator = def.generator(ctx, payload) as AsyncGenerator<unknown, void, unknown>;
-  const { active: activeStream, nudgeBuffer } = buildActiveStream({
-    streamId,
-    event: def.event,
-    connection,
-    generator: iterator,
-    nudges: def.nudges ?? [],
-    onDisconnect: def.onDisconnect,
-  });
-
-  runtime.activeStreams.set(streamId, activeStream);
-  if (!connection.activeStreamIds) connection.activeStreamIds = new Set();
-  connection.activeStreamIds.add(streamId);
-  runtime.persistAttachment(connection);
-
-  const hasNudges = (def.nudges?.length ?? 0) > 0;
-  let nextInput: unknown = hasNudges ? [] : undefined;
-
+  // Single failure boundary: generator creation, registration, iteration, and
+  // status changes all run inside the try so no path can leave the DB row
+  // 'active'. A synchronous throw from def.generator(...) is caught here too.
+  let activeStream: ActiveStream | undefined;
   let seq = startSeq;
+
+  // A run "owns the slot" while no *other* ActiveStream holds this streamId. A
+  // resume/replace with the same streamId swaps in a new ActiveStream; once
+  // that happens this old run must not touch the shared row, attachment, or
+  // wire — doing so would corrupt the replacement. Before this run registers
+  // (activeStream undefined) the slot is its own to manage.
+  function stillOwnsSlot(): boolean {
+    if (!activeStream) return true;
+    const current = runtime.activeStreams.get(streamId);
+    return current === undefined || current === activeStream;
+  }
+
   try {
+    const iterator = def.generator(ctx, payload) as AsyncGenerator<unknown, void, unknown>;
+    const built = buildActiveStream({
+      streamId,
+      event: def.event,
+      connection,
+      generator: iterator,
+      nudges: def.nudges ?? [],
+      onDisconnect: def.onDisconnect,
+      scope,
+    });
+    activeStream = built.active;
+    const nudgeBuffer = built.nudgeBuffer;
+
+    runtime.activeStreams.set(streamId, activeStream);
+    if (!connection.activeStreamIds) connection.activeStreamIds = new Set();
+    connection.activeStreamIds.add(streamId);
+    runtime.persistAttachment(connection);
+
+    const hasNudges = (def.nudges?.length ?? 0) > 0;
+    let nextInput: unknown = hasNudges ? [] : undefined;
+
     while (!activeStream.closed) {
       // Advance the generator inside the connection's async context so plugin
       // APIs it calls (e.g. hooks.getState()) resolve to the stream owner.
@@ -609,6 +636,11 @@ async function runGenerator(
         iterator.next(nextInput),
       );
       if (result.done) break;
+
+      // A resume/replace took over this streamId while next() was pending. This
+      // old run no longer owns the slot, so it must stop before persisting or
+      // sending — its work would corrupt the replacement's shared state.
+      if (!stillOwnsSlot()) return;
 
       // Connection closed mid-advance: dropping this chunk keeps a resumable
       // cursor from moving past a row the client never received.
@@ -681,6 +713,10 @@ async function runGenerator(
 
       const wirePayload = chunkToPayload(chunkValue);
 
+      // A replacement may have taken the slot during the maxChunks iterator.throw
+      // above; never send a chunk once this run no longer owns the stream.
+      if (!stillOwnsSlot()) return;
+
       if (def.broadcast) {
         const targets = resolveBroadcastTargets({
           runtime,
@@ -703,11 +739,11 @@ async function runGenerator(
           (target) =>
             runtime.sendThroughPipeline(target, {
               routing: {
-                namespace: scope.namespace?.name,
                 channel: scope.channelName,
                 channelScope: scope.channelScope,
                 streamId,
                 seq,
+                streamKind: 'persistent',
               },
               event: def.event,
               payload: wirePayload,
@@ -724,11 +760,11 @@ async function runGenerator(
       if (!activeStream.detached) {
         runtime.sendThroughPipeline(wireTarget, {
           routing: {
-            namespace: scope.namespace?.name,
             channel: scope.channelName,
             channelScope: scope.channelScope,
             streamId,
             seq,
+            streamKind: 'persistent',
           },
           event: def.event,
           payload: wirePayload,
@@ -742,13 +778,17 @@ async function runGenerator(
     }
 
     if (activeStream.closed) {
-      // Only suspend if still active — a cancel would have deleted the row.
+      // Only suspend if still active and this run still owns the slot — a
+      // replacement would otherwise have its 'active' row flipped to 'suspended'.
       const row = Storage.readStream(runtime.sql, identity, streamId);
-      if (row && row.status === 'active') {
+      if (row && row.status === 'active' && stillOwnsSlot()) {
         Storage.markSuspended(runtime.sql, { identity, streamId, now: Date.now() });
       }
       return;
     }
+
+    // A replacement run owns the row now; ending it would kill the live stream.
+    if (!stillOwnsSlot()) return;
 
     Storage.markEnded(runtime.sql, { identity, streamId, now: Date.now() });
     runtime.sendProtocolMessage(connection, {
@@ -772,7 +812,7 @@ async function runGenerator(
         },
       });
 
-      const endWSKit = { ...buildScopeRouting(scope), streamId, seq };
+      const endWSKit = { ...buildScopeRouting(scope), streamId, seq, eventName: def.event };
       forEachIsolated(
         peerTargets,
         (target) =>
@@ -785,15 +825,26 @@ async function runGenerator(
       );
     }
   } catch (error) {
-    rethrowIfConfigError(error);
+    // A config error must propagate, but the row still has to leave 'active' or
+    // it blocks every future start/resume — mark it ended before rethrowing.
+    // Only when this run still owns the slot; a replacement manages its own row.
+    if (isWSKitConfigError(error)) {
+      if (stillOwnsSlot()) {
+        Storage.markEnded(runtime.sql, { identity, streamId, now: Date.now() });
+      }
+      throw error;
+    }
+    const routing: Protocol.WSKitRouting = { streamId, streamTerminated: true };
+    if (scope.channelName) routing.channel = scope.channelName;
+    if (scope.channelScope) routing.channelScope = scope.channelScope;
     await runtime.handleRuntimeError(connection, {
       error,
       event: def.event,
-      routing: { streamId },
+      routing,
     });
-    // For broadcast streams, also tell every subscriber the source died.
-    // Without this they keep waiting indefinitely while the creator alone
-    // sees the error frame.
+    // For broadcast streams, tell every subscriber the source died — with the
+    // same terminal __error__ the creator gets (not a misleading clean end), so
+    // their onError fires instead of them waiting indefinitely.
     if (def.broadcast) {
       const peerTargets = resolveBroadcastTargets({
         runtime,
@@ -808,29 +859,33 @@ async function runGenerator(
           return sub !== null && sub.unsubscribedAt === null;
         },
       });
-      const endWSKit = { ...buildScopeRouting(scope), streamId, seq };
+      const { payload, wskit } = normalizeRuntimeError(error, routing, runtime.declaredErrorCodes);
+      const peerWSKit = { ...wskit, eventName: def.event };
       forEachIsolated(
         peerTargets,
         (target) =>
-          runtime.sendProtocolMessage(target, {
-            event: '__streamEnd__',
-            payload: {},
-            wskit: endWSKit,
-          }),
-        { context: `durable broadcast __streamEnd__ on error streamId="${streamId}"` },
+          runtime.sendProtocolMessage(target, { event: '__error__', payload, wskit: peerWSKit }),
+        { context: `durable broadcast __error__ on error streamId="${streamId}"` },
       );
     }
-    Storage.markEnded(runtime.sql, { identity, streamId, now: Date.now() });
+    if (stillOwnsSlot()) {
+      Storage.markEnded(runtime.sql, { identity, streamId, now: Date.now() });
+    }
   } finally {
-    activeStream.closed = true;
-
-    // Don't remove a slot a resume run has already taken over.
-    if (runtime.activeStreams.get(streamId) === activeStream) {
-      runtime.activeStreams.delete(streamId);
+    // A resume run may have already taken over this streamId. Only the run that
+    // still owns the slot may tear down the shared connection/attachment state;
+    // otherwise an old run would delete the replacement's activeStreamIds entry
+    // and persist a stale attachment.
+    const ownsSlot = stillOwnsSlot();
+    if (activeStream) {
+      activeStream.closed = true;
+      if (ownsSlot) runtime.activeStreams.delete(streamId);
     }
 
-    connection.activeStreamIds?.delete(streamId);
-    runtime.persistAttachment(connection);
+    if (ownsSlot) {
+      connection.activeStreamIds?.delete(streamId);
+      runtime.persistAttachment(connection);
+    }
   }
 }
 
@@ -902,7 +957,12 @@ export async function cancelDurableStream(
         return sub !== null && sub.unsubscribedAt === null;
       },
     });
-    const endWSKit = { ...buildScopeRouting(cancelScope), streamId, seq: row.lastSeq };
+    const endWSKit = {
+      ...buildScopeRouting(cancelScope),
+      streamId,
+      seq: row.lastSeq,
+      eventName: row.event,
+    };
     forEachIsolated(
       peerTargets,
       (target) =>

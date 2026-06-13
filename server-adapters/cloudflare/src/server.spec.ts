@@ -130,15 +130,51 @@ describe('WSKitDurableObject fetch / upgrade', () => {
     server.dispatch('message', { data: 'hi' });
     expect(fake.connectionHandle.handleMessage).toHaveBeenCalledWith('hi');
 
-    const buf = new Uint8Array([1, 2, 3]).buffer;
-    server.dispatch('message', { data: buf });
-    expect(fake.connectionHandle.handleBinary).toHaveBeenCalledTimes(1);
-
     server.dispatch('close', { code: 1000, reason: 'bye' });
     expect(fake.connectionHandle.handleClose).toHaveBeenCalledWith(1000, 'bye');
 
     server.dispatch('error', new Error('boom'));
     expect(fake.connectionHandle.handleError).toHaveBeenCalled();
+  });
+
+  it('closes the connection on a binary frame in standard mode instead of silently dropping it', async () => {
+    const Cls = buildClass({ hibernation: false });
+    const state = makeFakeDOState();
+    fake.stageUpgrade({});
+
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+    await instance.fetch(upgradeRequest());
+
+    const [, server] = pairs[0]!;
+    server.dispatch('message', { data: new ArrayBuffer(4) });
+
+    expect(server.close).toHaveBeenCalledWith(1003, expect.stringContaining('binary'));
+    expect(fake.connectionHandle.handleMessage).not.toHaveBeenCalled();
+  });
+
+  it('runs connection cleanup when the standard-mode binary close fires its close event', async () => {
+    const Cls = buildClass({ hibernation: false });
+    const state = makeFakeDOState();
+    fake.stageUpgrade({});
+
+    const instance = new Cls(state as unknown as DurableObjectState, {});
+    await instance.fetch(upgradeRequest());
+
+    const [, server] = pairs[0]!;
+    // The real Workers runtime fires a 'close' event for a server-initiated close
+    // on an accepted socket; the fake's close() is a bare spy, so wire it to fire
+    // that event the way the runtime would. This pins that the adapter's close
+    // listener actually runs connection cleanup on the binary-frame close.
+    server.close.mockImplementation((code: number, reason: string) =>
+      server.dispatch('close', { code, reason }),
+    );
+
+    server.dispatch('message', { data: new ArrayBuffer(4) });
+
+    expect(fake.connectionHandle.handleClose).toHaveBeenCalledWith(
+      1003,
+      expect.stringContaining('binary'),
+    );
   });
 
   it('calls state.acceptWebSocket(ws) without forwarding handler tags into the cf tag store', async () => {
@@ -276,20 +312,6 @@ describe('hibernation wake callbacks', () => {
 
     expect(fake.calls.handleHibernationWake).toEqual([ws]);
     expect(fake.connectionHandle.handleMessage).toHaveBeenCalledWith('hello');
-  });
-
-  it('webSocketMessage forwards binary payloads through normalizeBinary', async () => {
-    const Cls = buildClass({ hibernation: true });
-    const state = makeFakeDOState();
-    const instance = new Cls(state as unknown as DurableObjectState, {});
-
-    const ws = {} as unknown as WebSocket;
-    const view = new Uint8Array([7, 8, 9]);
-    await instance.webSocketMessage(ws, view as ArrayBufferView);
-
-    expect(fake.connectionHandle.handleBinary).toHaveBeenCalledTimes(1);
-    const arg = fake.connectionHandle.handleBinary.mock.calls[0]![0] as ArrayBuffer;
-    expect(new Uint8Array(arg)).toEqual(view);
   });
 
   it('webSocketClose invokes connection.handleClose with code and reason', async () => {

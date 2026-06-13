@@ -34,9 +34,7 @@ export interface ReplayRetention {
    * When the scope grows past this size, the oldest rows are deleted.
    *
    * The limit is per replay store, and there are only two kinds: the top-level
-   * store and one per channel. A namespace has no replay store of its own — its
-   * messages live in the top-level store, so they count toward the single
-   * top-level limit, not a per-namespace limit.
+   * store and one per channel.
    */
   readonly maxMessages?: number;
 }
@@ -122,7 +120,6 @@ export interface ReplayRow {
   seq: number;
   event: string;
   payload: string;
-  namespace: string | null;
   channel: string | null;
   channelScope: string | null;
   snapshotKey: string | null;
@@ -133,7 +130,6 @@ export interface ReplayRow {
 
 /** @internal */
 export interface ReplayPayloadScope {
-  namespace: string | null;
   channel: string | null;
   channelScope: string | null;
 }

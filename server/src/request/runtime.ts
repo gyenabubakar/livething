@@ -52,8 +52,9 @@ export async function handleRequest(
   // Refuse to run the handler when no correlationId is on the wire — the
   // response could never settle a pending client promise, but any side
   // effects (broadcasts, plugin state writes, scheduled enqueues) inside
-  // the handler would still happen.
-  if (typeof correlationId !== 'string' || correlationId.length === 0) {
+  // the handler would still happen. The wire schema bounds and non-empties it
+  // (`WireId`), so absent is the only failure mode left.
+  if (correlationId === undefined) {
     throw RequestNoCorrelation();
   }
   let response: unknown;
@@ -90,7 +91,6 @@ export async function handleRequest(
 
   runtime.sendThroughPipeline(connection, {
     routing: {
-      namespace: scope.namespace?.name,
       channel: scope.channelName,
       channelScope: scope.channelScope,
       correlationId,

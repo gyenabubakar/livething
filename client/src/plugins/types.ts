@@ -1,110 +1,88 @@
-/* oxlint-disable @typescript-eslint/no-explicit-any -- type-level variance requires `any` for Plugin generics in conditional types */
-import type { Plugin } from '~/plugins/base.ts';
-import type { Simplify } from '~/types.ts';
-
-// ---------------------------------------------------------------------------
-// HKT — the "type function" pattern
-// ---------------------------------------------------------------------------
+/* oxlint-disable @typescript-eslint/no-explicit-any -- plugin args/api stay generic across call sites */
+import type { WireMessage } from '~/internal/runtime.ts';
+import type { EmptyTypeFn, Primitive } from '~/primitives/types.ts';
+import type { ConnectionState } from '~/types.ts';
 
 /**
- * Base interface for plugin type functions.
- *
- * TypeScript doesn't support higher-kinded types (a type that takes another
- * type as a parameter and returns a new type). This pattern is the workaround.
- * Think of it as a function that takes a type and returns a type:
- *
- * - `_contract` — the "parameter" slot. It holds `unknown` by default, but
- *   `Apply` overrides it with the actual socket contract via intersection.
- * - `_api` — the "return value". It computes the methods this plugin exposes.
- *   Because `_api` can reference `this['_contract']`, it reactively updates
- *   when `_contract` is overridden.
- *
- * For plugins whose API depends on the contract (like Channels), `_api` reads
- * from `this['_contract']`. For static APIs, `_api` is a fixed shape and
- * `_contract` is ignored — use `StaticApi<{ ... }>` for convenience.
+ * A primitive factory you can name as a plugin dependency, e.g. `dependencies: [ack]`.
+ * The static `tag` is required: dependency resolution reads it without running the
+ * factory, so a factory that needs options can't throw or fire side effects here.
  */
-export interface TypeFn {
-  /** The input slot — overridden by `Apply` with the real contract. */
-  readonly _contract: unknown;
-  /** The output slot — computes the plugin's API surface from `_contract`. */
-  readonly _api: unknown;
+export type PrimitiveFactory = {
+  (...args: any[]): Primitive<any, any>;
+  readonly tag: string;
+};
+
+/**
+ * The hooks a plugin can register in `setup`. They follow the same lifecycle as
+ * a built-in primitive. Each hook can only be set once — registering the same
+ * one twice throws, so a plugin can't accidentally overwrite its own handler.
+ */
+export interface PluginHooks {
+  /** See an incoming message. Return it (maybe changed) to pass on; throw `Block` to drop. */
+  onIncoming(handler: (message: WireMessage) => WireMessage | void): void;
+
+  /** See an outgoing message. Return it (maybe changed) to send; throw `Block` to cancel. */
+  onOutgoing(handler: (message: WireMessage) => WireMessage | void): void;
+
+  /** Runs on every open. Return `{ event, payload }[]` to send right away. */
+  onOpen(handler: () => WireMessage[] | void): void;
+
+  /** Runs only on reconnects. Same return as `onOpen`. */
+  onReconnect(handler: () => WireMessage[] | void): void;
+
+  /** Runs when the socket closes, with the close code and reason. */
+  onClose(handler: (code: number, reason: string) => void): void;
+
+  /** Make a unique id, sharing the kernel's counter so ids never clash. */
+  generateId(prefix?: string): string;
+
+  /** The current connection state. */
+  getState(): ConnectionState;
+}
+
+/** What you pass to `plugin()`. */
+export interface PluginDef<TArgs, TApi> {
+  /**
+   * A human-readable name shown in logs and errors. A namespaced form like
+   * `'acme:metrics'` is recommended to avoid clashing with primitive names.
+   * This is NOT what uniquely identifies a plugin — that's `key` (+ `registrationId`).
+   * Two different plugins sharing the same `id` only produces a warning.
+   */
+  id: string;
+
+  /**
+   * A `Symbol` that uniquely identifies this plugin. The socket uses it to
+   * store and look up the plugin's API. The same plugin can't be registered
+   * twice on one socket unless it also provides a `registrationId` (see below).
+   */
+  key: symbol;
+
+  /**
+   * Makes the plugin repeatable. Given the args the caller passes, return a
+   * stable string that identifies this particular instance, so the same plugin
+   * can be registered more than once (e.g. two analytics configs). Two
+   * registrations with the same computed id throw; different ids are kept as
+   * separate instances. Leave this out for a one-per-socket (singleton) plugin.
+   */
+  registrationId?: (args: TArgs) => string;
+
+  /** Primitives this plugin needs registered — asserted and ordered before it. */
+  dependencies?: readonly PrimitiveFactory[];
+
+  /** Wire up the hooks and return a factory for the plugin's per-socket API. */
+  setup(args: TArgs, hooks: PluginHooks): (socket: any) => TApi;
 }
 
 /**
- * "Call" a type function: override its `_contract` with `Contract`, read `_api`.
- *
- * How it works: intersect `F` with `{ _contract: Contract }`. In an
- * intersection, when the same property appears in both sides, the more
- * specific type wins for reads — so `_contract` resolves to `Contract`
- * instead of the original `unknown`. Then we index into `_api`, which now
- * computes against the new contract.
- *
- * ```ts
- * type Result = Apply<ChannelsTypeFn, MySocket>;
- * // ChannelsTypeFn's _api evaluates with _contract = MySocket
- * ```
+ * What `plugin()` returns. Call it with args to register the plugin (passed
+ * alongside primitives to `client()`), and call `.use(socket)` to get its API
+ * from a socket it was registered on. For a repeatable plugin, pass the
+ * `registrationId` to `.use()` to pick a specific instance.
  */
-export type Apply<F extends TypeFn, Contract> = (F & {
-  readonly _contract: Contract;
-})['_api'];
+export interface PluginFactory<TArgs, TApi> {
+  (args: TArgs): Primitive<EmptyTypeFn>;
 
-// ---------------------------------------------------------------------------
-// Plugin tuple resolution
-// ---------------------------------------------------------------------------
-
-/**
- * Walk a tuple of plugins, apply each one's type function with the contract,
- * and intersect all the resulting APIs.
- *
- * Uses tuple recursion: peel the first plugin (`Head`) off the tuple, apply
- * its type function, then recurse on the remaining plugins (`Rest`). Each
- * result is combined with `&` (intersection), so the final type has every
- * plugin's methods merged together. The base case is an empty tuple → `{}`.
- *
- * `[Channels, RequestResponse, Stream]` with contract `T` produces:
- * `Apply<ChannelsTypeFn, T> & Apply<RequestResponseTypeFn, T> & Apply<StreamTypeFn, T>`
- */
-export type ApplyPlugins<
-  TPlugins extends readonly Plugin<any, any>[],
-  TContract,
-> = TPlugins extends readonly [
-  infer Head extends Plugin<any, any>, // Peel the first plugin
-  ...infer Rest extends Plugin<any, any>[], // Collect the rest
-]
-  ? Apply<Head['_typeFn'], TContract> & ApplyPlugins<Rest, TContract>
-  : {}; // Base case: no plugins left, return empty object
-
-/**
- * Validate that each plugin's requirements are satisfied by the contract.
- *
- * Uses the same tuple recursion as `ApplyPlugins`. For each plugin, it checks
- * whether the contract satisfies the plugin's `_requires` constraint. If yes,
- * the plugin passes through unchanged. If not, its slot becomes `never`.
- *
- * The `never` trick: when a caller passes `[PluginA, PluginB]` and the return
- * type expects `[never, PluginB]`, TypeScript can't assign `PluginA` to `never`
- * (nothing is assignable to `never`), so it errors at the call site with a
- * message pointing at the offending plugin. This gives plugin-level validation
- * without extra runtime checks.
- */
-export type ValidatePlugins<
-  TContract,
-  TPlugins extends readonly Plugin<any, any>[],
-> = TPlugins extends readonly [
-  infer Head extends Plugin<any, any>,
-  ...infer Rest extends Plugin<any, any>[],
-]
-  ? TContract extends Head['_requires'] // Does the contract satisfy this plugin's needs?
-    ? [Head, ...ValidatePlugins<TContract, Rest>] // Yes — keep it
-    : [never, ...ValidatePlugins<TContract, Rest>] // No — replace with `never` to trigger a type error
-  : [];
-
-/**
- * The final socket type: base socket merged with all plugin APIs, simplified
- * for clean editor tooltips.
- */
-export type SocketWithPlugins<
-  TContract,
-  TPlugins extends readonly Plugin<any, any>[],
-  TBase,
-> = Simplify<TBase & ApplyPlugins<TPlugins, TContract>>;
+  /** Get this plugin's API for a socket it was registered on. */
+  use(socket: object, registrationId?: string): TApi;
+}

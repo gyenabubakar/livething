@@ -15,8 +15,8 @@ interface RuntimeErrorDeps {
 
   /**
    * Resolve a scope from the `__wskit` routing markers carried alongside a
-   * runtime error so the hook context can carry `ctx.namespace` or
-   * `ctx.channel`. Returns undefined when no scope can be derived.
+   * runtime error so the hook context can carry `ctx.channel`. Returns
+   * undefined when no scope can be derived.
    */
   resolveScopeFromRouting?(routing: Protocol.WSKitRouting): ResolvedScope | undefined;
 

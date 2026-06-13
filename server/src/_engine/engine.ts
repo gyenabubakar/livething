@@ -92,7 +92,6 @@ export class Engine {
   private wrapHandle(handle: ConnectionHandle): ConnectionHandle {
     return {
       handleMessage: (data) => withInvocationScope(this.core, () => handle.handleMessage(data)),
-      handleBinary: (data) => withInvocationScope(this.core, () => handle.handleBinary(data)),
       handleClose: (code, reason) =>
         withInvocationScope(this.core, () => handle.handleClose(code, reason)),
       handleError: (error) => withInvocationScope(this.core, () => handle.handleError(error)),

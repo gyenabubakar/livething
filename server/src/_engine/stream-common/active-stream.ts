@@ -32,6 +32,9 @@ export interface BuildActiveStreamInput {
    * `'cancel-but-buffer'` (and non-durable streams leave it undefined).
    */
   onDisconnect?: OnDisconnect;
+
+  /** The scope the stream runs in, used to gate nudges to the same scope. */
+  scope?: ResolvedScope;
 }
 
 /** Return value from `buildActiveStream`. */
@@ -62,6 +65,7 @@ export function buildActiveStream(input: BuildActiveStreamInput): ActiveStreamHa
     closed: false,
     onDisconnect: input.onDisconnect,
     connection: input.connection,
+    scope: input.scope,
   };
   return { active, nudgeBuffer };
 }
@@ -113,9 +117,9 @@ export interface BroadcastTargetInput {
 /**
  * Walk every connection on the runtime and return the ones that should
  * receive a broadcast chunk. Channel-scoped streams require channel
- * membership; namespace and top-level fan out to every connection minus the
- * creator. Pass `extraFilter` to drop subscribers selectively (e.g.
- * identities that unsubscribed from a broadcast stream).
+ * membership; top-level fans out to every connection minus the creator. Pass
+ * `extraFilter` to drop subscribers selectively (e.g. identities that
+ * unsubscribed from a broadcast stream).
  */
 export function resolveBroadcastTargets(input: BroadcastTargetInput): RuntimeConnection[] {
   const targets: RuntimeConnection[] = [];

@@ -223,6 +223,7 @@ function buildChannelRuntime(core: EngineCore) {
     ...memberRuntime(core),
 
     checkHooks: core.hooks.check,
+    revalidateHooks: core.hooks.revalidate,
     commitHooks: core.hooks.commit,
     subscribeHooks: core.hooks.subscribe,
     unsubscribeHooks: core.hooks.unsubscribe,
@@ -295,6 +296,7 @@ function buildDispatchRuntime(core: EngineCore) {
     protocolHandlers: core.hooks.protocol,
     incomingHooks: core.hooks.incoming,
     errorHooks: core.hooks.error,
+    declaredErrorCodes: core.declaredErrorCodes,
     incomingDedupCap: core.incomingDedupCap,
 
     getTimers: () => core.timers,
@@ -311,10 +313,9 @@ function buildDispatchRuntime(core: EngineCore) {
       opts: {
         channelName: string | null;
         channelScope: string | null;
-        namespace?: string | null;
         event: string;
         payload: unknown;
-        wire: { seq: number; messageId: string; channel?: string; namespace?: string | null };
+        wire: { seq: number; messageId: string; channel?: string };
       },
     ) => sendReplay(core, connection, opts),
 
@@ -346,7 +347,7 @@ function buildDispatchRuntime(core: EngineCore) {
       opts: {
         event: string;
         payload: unknown;
-        options?: BroadcastOptions & { namespace?: string };
+        options?: BroadcastOptions;
         excludeConnectionId?: string;
       },
     ) => EngineMessageRuntime.broadcastToConnections(outgoingRuntime(core), connections, opts),
@@ -420,9 +421,6 @@ function buildConnectionRuntime(core: EngineCore) {
 
     processTextMessage: (connection: RuntimeConnection, data: string) =>
       EngineMessageRuntime.processTextMessage(dispatchRuntime(core), connection, data),
-
-    handleBinaryMessage: (connection: RuntimeConnection, data: ArrayBuffer) =>
-      handleBinaryMessage(core, connection, data),
 
     handleConnectionClose: (connection: RuntimeConnection, code: number, reason: string) =>
       handleConnectionClose(core, { connection, code, reason }),
@@ -512,30 +510,5 @@ export function handleConnectionClose(
       logger: core.logger,
     },
     opts,
-  );
-}
-
-/** Route one binary frame into the optional binary lifecycle hook. */
-export function handleBinaryMessage(
-  core: EngineCore,
-  connection: RuntimeConnection,
-  data: ArrayBuffer,
-): Promise<void> {
-  const buildCtx = buildConnectionContext(core);
-  return EngineConnectionRuntime.handleBinaryMessage(
-    {
-      buildConnectionContext: buildCtx,
-      handleRuntimeError: (targetConnection, error, event) =>
-        EngineErrorRuntime.handleRuntimeError(
-          { core, buildConnectionContext: buildCtx },
-          targetConnection,
-          { error, event },
-        ),
-      activityHooks: core.hooks.activity,
-      binaryHooks: core.hooks.binary,
-      logger: core.logger,
-    },
-    connection,
-    data,
   );
 }

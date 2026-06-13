@@ -14,7 +14,6 @@ import { compileIncomingDef } from '~/incoming/compile.ts';
 import { intercept as interceptFactory } from '~/intercept/intercept.ts';
 import { keepalive as keepaliveFactory } from '~/keepalive/keepalive.ts';
 import {
-  onBinary,
   onConnect,
   onDisconnect,
   onError,
@@ -23,8 +22,6 @@ import {
   onUpgrade,
   onValidationError,
 } from '~/lifecycle/lifecycle.ts';
-import { compileNamespaceDef } from '~/namespace/compile.ts';
-import { NamespaceImplement } from '~/namespace/implement.ts';
 import { compileOutgoingDef } from '~/outgoing/compile.ts';
 import { persistence as persistenceFactory } from '~/persistence/persistence.ts';
 import { resolvePlan as resolveRateLimitPlan } from '~/rate-limit/plan.ts';
@@ -41,7 +38,6 @@ import { compileStreamDef } from '~/stream/compile.ts';
 import { resolveTagGroupDefs, tagGroups as tagGroupsFactory } from '~/tags/tags.ts';
 import type { InterceptFrame } from '~/intercept/intercept.ts';
 import type {
-  BinaryHandler,
   ConnectHandler,
   DisconnectHandler,
   ErrorHandler,
@@ -62,7 +58,6 @@ import type {
   ChannelDef,
   Definition,
   IncomingDef,
-  NamespaceDef,
   OutgoingDef,
   RecordedStreamDef,
   RequestDef,
@@ -71,9 +66,13 @@ import type {
   StreamDef,
 } from './definitions.ts';
 import type { HandlerMaps } from './handler-maps.ts';
+import type {
+  PlainStreamGenerator,
+  RecordedStreamGenerator,
+  ResumableStreamGenerator,
+} from './stream-handler-types.ts';
 
 export { ChannelImplement } from '~/channel/implement.ts';
-export { NamespaceImplement } from '~/namespace/implement.ts';
 
 // ---------------------------------------------------------------------------
 // Type-level handler signatures
@@ -99,14 +98,16 @@ type RequestHandlerFor<C extends Contract, E extends keyof C['requests']> = (
 ) => void | Promise<void>;
 
 type StreamGeneratorFor<C extends Contract, E extends keyof C['streams']> = (
-  ctx: Ctx<C> & {
-    nudges(value: unknown): readonly {
-      event: string;
-      payload: unknown;
-    }[];
-  },
-  payload: C['streams'][E] extends { payload: infer P } ? P : never,
-) => AsyncGenerator<C['streams'][E] extends { chunk: infer Ch } ? Ch : unknown, void, unknown>;
+  ...args: Parameters<PlainStreamGenerator<Ctx<C>, C['streams'][E]>>
+) => ReturnType<PlainStreamGenerator<Ctx<C>, C['streams'][E]>>;
+
+type ResumableStreamGeneratorFor<C extends Contract, E extends keyof C['resumableStreams']> = (
+  ...args: Parameters<ResumableStreamGenerator<Ctx<C>, C['resumableStreams'][E]>>
+) => ReturnType<ResumableStreamGenerator<Ctx<C>, C['resumableStreams'][E]>>;
+
+type RecordedStreamGeneratorFor<C extends Contract, E extends keyof C['recordedStreams']> = (
+  ...args: Parameters<RecordedStreamGenerator<Ctx<C>, C['recordedStreams'][E]>>
+) => ReturnType<RecordedStreamGenerator<Ctx<C>, C['recordedStreams'][E]>>;
 
 type ScheduledHandlerFor<C extends Contract, I extends keyof C['scheduled']> = (
   ctx: any,
@@ -128,7 +129,6 @@ interface GroupRegistrations {
   scheduled: Map<string, (ctx: any, data: any) => void | Promise<void>>;
 
   channels: Map<string, ChannelImplement<any, any>>;
-  namespaces: Map<string, NamespaceImplement<any, any>>;
 
   intercept?: (ctx: any, frame: InterceptFrame) => any;
   rateLimitOverrides: Map<string, RateLimitConfig>;
@@ -142,7 +142,6 @@ interface GroupRegistrations {
     onShutdown?: ShutdownHandler;
     onError?: ErrorHandler;
     onValidationError?: ValidationErrorHandler;
-    onBinary?: BinaryHandler;
   };
 }
 
@@ -161,7 +160,6 @@ export class GroupBuilder<C extends Contract> {
     recordedStreams: new Map(),
     scheduled: new Map(),
     channels: new Map(),
-    namespaces: new Map(),
     rateLimitOverrides: new Map(),
     lifecycle: {},
   };
@@ -205,7 +203,7 @@ export class GroupBuilder<C extends Contract> {
   /** Attach the generator for a resumable stream. Same surface as `Implementer.resumableStream`. */
   resumableStream<E extends keyof C['resumableStreams'] & string>(
     event: E,
-    generator: (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>,
+    generator: ResumableStreamGeneratorFor<C, E>,
   ): this {
     setOnce(this._reg.resumableStreams, event, {
       value: generator,
@@ -218,7 +216,7 @@ export class GroupBuilder<C extends Contract> {
   /** Attach the generator for a recorded stream. Same surface as `Implementer.recordedStream`. */
   recordedStream<E extends keyof C['recordedStreams'] & string>(
     event: E,
-    generator: (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>,
+    generator: RecordedStreamGeneratorFor<C, E>,
   ): this {
     setOnce(this._reg.recordedStreams, event, {
       value: generator,
@@ -249,17 +247,6 @@ export class GroupBuilder<C extends Contract> {
     const impl = new ChannelImplement<C, C['channels'][N]>();
     fn(impl);
     setOnce(this._reg.channels, name, { value: impl, kind: 'channel', where: 'this group' });
-    return this;
-  }
-
-  /** Wire up handlers for one namespace declared on the contract. */
-  namespace<N extends keyof C['namespaces'] & string>(
-    name: N,
-    fn: (ns: NamespaceImplement<C, C['namespaces'][N]>) => unknown,
-  ): this {
-    const impl = new NamespaceImplement<C, C['namespaces'][N]>();
-    fn(impl);
-    setOnce(this._reg.namespaces, name, { value: impl, kind: 'namespace', where: 'this group' });
     return this;
   }
 
@@ -360,13 +347,6 @@ export class GroupBuilder<C extends Contract> {
     this._reg.lifecycle.onValidationError = handler as ValidationErrorHandler;
     return this;
   }
-
-  /** Attach the binary-frame hook. Same surface as `Implementer.onBinary`. */
-  onBinary(handler: (ctx: Ctx<C>, data: ArrayBuffer | Uint8Array) => void | Promise<void>): this {
-    assertLifecycleOnce(this._reg.lifecycle, 'onBinary', 'this group');
-    this._reg.lifecycle.onBinary = handler as BinaryHandler;
-    return this;
-  }
 }
 
 function mergeLifecycleHook(
@@ -379,8 +359,7 @@ function mergeLifecycleHook(
     | 'onDisconnect'
     | 'onShutdown'
     | 'onError'
-    | 'onValidationError'
-    | 'onBinary',
+    | 'onValidationError',
 ): void {
   const incoming = source[hook];
   if (!incoming) return;
@@ -399,8 +378,7 @@ type LifecycleHookName =
   | 'onDisconnect'
   | 'onShutdown'
   | 'onError'
-  | 'onValidationError'
-  | 'onBinary';
+  | 'onValidationError';
 
 function assertLifecycleOnce(
   lifecycle: Partial<Record<LifecycleHookName, unknown>>,
@@ -467,7 +445,6 @@ interface ImplementerBag {
   scheduledHandlers: Map<string, (ctx: any, data: any) => void | Promise<void>>;
 
   channelImpls: Map<string, ChannelImplement<any, any>>;
-  namespaceImpls: Map<string, NamespaceImplement<any, any>>;
 
   intercept?: (ctx: any, frame: InterceptFrame) => any;
   rateLimitOverrides: Map<string, RateLimitConfig>;
@@ -481,7 +458,6 @@ interface ImplementerBag {
     onShutdown?: ShutdownHandler;
     onError?: ErrorHandler;
     onValidationError?: ValidationErrorHandler;
-    onBinary?: BinaryHandler;
   };
 }
 
@@ -503,7 +479,6 @@ export class Implementer<C extends Contract> {
     recordedStreamGenerators: new Map(),
     scheduledHandlers: new Map(),
     channelImpls: new Map(),
-    namespaceImpls: new Map(),
     rateLimitOverrides: new Map(),
     lifecycle: {},
   };
@@ -606,7 +581,7 @@ export class Implementer<C extends Contract> {
    */
   resumableStream<E extends keyof C['resumableStreams'] & string>(
     event: E,
-    generator: (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>,
+    generator: ResumableStreamGeneratorFor<C, E>,
   ): this {
     setOnce(this._bag.resumableStreamGenerators, event, {
       value: generator,
@@ -637,7 +612,7 @@ export class Implementer<C extends Contract> {
    */
   recordedStream<E extends keyof C['recordedStreams'] & string>(
     event: E,
-    generator: (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>,
+    generator: RecordedStreamGeneratorFor<C, E>,
   ): this {
     setOnce(this._bag.recordedStreamGenerators, event, {
       value: generator,
@@ -698,34 +673,6 @@ export class Implementer<C extends Contract> {
   }
 
   /**
-   * Wire up handlers for one namespace declared on the contract. The callback
-   * gets a namespace sub-builder where you attach handlers and intercepts
-   * that only apply inside that namespace.
-   *
-   * @example
-   * ```ts
-   * implement(chat).namespace('admin', ns =>
-   *   ns.on('kick-user', (ctx, p) => {
-   *     ctx.namespace.broadcast('kicked', { userId: p.userId });
-   *   })
-   * );
-   * ```
-   */
-  namespace<N extends keyof C['namespaces'] & string>(
-    name: N,
-    fn: (ns: NamespaceImplement<C, C['namespaces'][N]>) => unknown,
-  ): this {
-    const impl = new NamespaceImplement<C, C['namespaces'][N]>();
-    fn(impl);
-    setOnce(this._bag.namespaceImpls, name, {
-      value: impl,
-      kind: 'namespace',
-      where: 'the implementer',
-    });
-    return this;
-  }
-
-  /**
    * Mount a group's handlers into this implementation. Groups are defined
    * with `group(contract, ...)` and let you split handler code across files.
    */
@@ -760,9 +707,6 @@ export class Implementer<C extends Contract> {
     for (const [name, impl] of g._reg.channels) {
       setOnce(this._bag.channelImpls, name, { value: impl, kind: 'channel', where: from });
     }
-    for (const [name, impl] of g._reg.namespaces) {
-      setOnce(this._bag.namespaceImpls, name, { value: impl, kind: 'namespace', where: from });
-    }
     for (const [event, cfg] of g._reg.rateLimitOverrides) {
       setOnce(this._bag.rateLimitOverrides, event, {
         value: cfg,
@@ -793,7 +737,6 @@ export class Implementer<C extends Contract> {
     mergeLifecycleHook(this._bag.lifecycle, g._reg.lifecycle, 'onShutdown');
     mergeLifecycleHook(this._bag.lifecycle, g._reg.lifecycle, 'onError');
     mergeLifecycleHook(this._bag.lifecycle, g._reg.lifecycle, 'onValidationError');
-    mergeLifecycleHook(this._bag.lifecycle, g._reg.lifecycle, 'onBinary');
     return this;
   }
 
@@ -882,16 +825,6 @@ export class Implementer<C extends Contract> {
     return this;
   }
 
-  /**
-   * Handle raw binary frames the client sends. Requires `binary: true` on the
-   * contract. Build-time check rejects this method if the flag is off.
-   */
-  onBinary(handler: (ctx: Ctx<C>, data: ArrayBuffer) => void | Promise<void>): this {
-    assertLifecycleOnce(this._bag.lifecycle, 'onBinary', 'the implementer');
-    this._bag.lifecycle.onBinary = handler as BinaryHandler;
-    return this;
-  }
-
   // ─────────────────── intercept ───────────────────
 
   /**
@@ -907,10 +840,12 @@ export class Implementer<C extends Contract> {
    * @example
    * ```ts
    * import { matches } from '@wskit/server';
+   * import { Disconnect } from '@wskit/server/errors';
+   * import { CloseCodes } from '@wskit/core';
    *
    * implement(chat)
    *   .intercept((ctx, frame) => {
-   *     if (isBanned(ctx.identity)) throw Disconnect(4003, 'banned');
+   *     if (isBanned(ctx.identity)) throw Disconnect(CloseCodes.BANNED, 'banned');
    *     if (matches(chat, 'send-msg', frame)) audit(frame.payload);
    *   });
    * ```
@@ -932,8 +867,8 @@ export class Implementer<C extends Contract> {
    * fields fall back to the top-level resolved rule (contract `rateLimit:`).
    *
    * Use this when one event needs a tighter or looser cap than the rest of
-   * its scope — for example a token-stream endpoint inside an otherwise
-   * generous AI namespace.
+   * its scope — for example one expensive endpoint in an otherwise generous
+   * contract.
    *
    * @example
    * ```ts
@@ -987,12 +922,6 @@ export class Implementer<C extends Contract> {
 
     // Catch handlers attached for features that aren't switched on. Easy to
     // mess up and silently never fire, so we fail loud at build time.
-    if (this._bag.lifecycle.onBinary && !config.binary) {
-      throw new Error(
-        '[wskit] onBinary handler registered but `binary: true` is not set on the contract. ' +
-          'Add `binary: true` to your contract config, or remove the onBinary handler.',
-      );
-    }
     if (this._bag.customReplayHooks && config.replay !== undefined) {
       throw new Error(
         '[wskit] .customReplay(...) is registered alongside `replay:` on the contract. ' +
@@ -1058,11 +987,6 @@ export class Implementer<C extends Contract> {
       if (impl._bag.rateLimitOverrides.size === 0) continue;
       overrides.set(`channel:${name}`, new Map(impl._bag.rateLimitOverrides));
     }
-    for (const [nsName, nsImpl] of this._bag.namespaceImpls) {
-      if (nsImpl._bag.rateLimitOverrides.size > 0) {
-        overrides.set(`ns:${nsName}`, new Map(nsImpl._bag.rateLimitOverrides));
-      }
-    }
     const rateLimitPlan = resolveRateLimitPlan({
       contractRateLimit: config.rateLimit,
       definitions: config.definitions,
@@ -1119,7 +1043,6 @@ export class Implementer<C extends Contract> {
     if (this._bag.lifecycle.onError) primitives.push(onError(this._bag.lifecycle.onError));
     if (this._bag.lifecycle.onValidationError)
       primitives.push(onValidationError(this._bag.lifecycle.onValidationError));
-    if (this._bag.lifecycle.onBinary) primitives.push(onBinary(this._bag.lifecycle.onBinary));
 
     // ── Intercept ────────────────────────────────────────────────────────────
     if (this._bag.intercept) primitives.push(interceptFactory(this._bag.intercept));
@@ -1134,7 +1057,6 @@ export class Implementer<C extends Contract> {
         recordedStreamGenerators: this._bag.recordedStreamGenerators,
         scheduledHandlers: this._bag.scheduledHandlers,
         channelImpls: this._bag.channelImpls,
-        namespaceImpls: this._bag.namespaceImpls,
       }),
     );
 
@@ -1153,7 +1075,6 @@ export class Implementer<C extends Contract> {
             config.dedup ? 'dedup' : undefined,
             config.hibernation ? 'hibernation' : undefined,
             config.keepalive ? 'keepalive' : undefined,
-            config.binary ? 'binary' : undefined,
           ].filter((feature): feature is string => feature !== undefined),
         ),
       ),
@@ -1201,9 +1122,6 @@ export class Implementer<C extends Contract> {
         case 'channel':
           out.push(compileChannelDef(def as ChannelDef, handlers.channelImpls, recurse));
           break;
-        case 'namespace':
-          out.push(compileNamespaceDef(def as NamespaceDef, handlers.namespaceImpls, recurse));
-          break;
         default: {
           // exhaustiveness check
           const _unreachable: never = def;
@@ -1232,8 +1150,6 @@ function hasDurableStreamDef(defs: readonly Definition[]): boolean {
   for (const def of defs) {
     if (def._ === 'resumable-stream' || def._ === 'recorded-stream') return true;
     if (def._ === 'channel' && hasDurableStreamDef((def as ChannelDef).definitions)) return true;
-    if (def._ === 'namespace' && hasDurableStreamDef((def as NamespaceDef).definitions))
-      return true;
   }
   return false;
 }

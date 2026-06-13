@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import type { EngineAccess } from '~/_engine/access.ts';
 
 const Forbidden = error('forbidden', v.object({ reason: v.string() }));
-const ChannelNotFound = error('channel-not-found', v.object({ channel: v.string() }));
+const OutOfStock = error('out-of-stock', v.object({ channel: v.string() }));
 
 describe('errors', () => {
   it('produces correct tag and kind', () => {
@@ -21,10 +21,10 @@ describe('errors', () => {
   });
 
   it('stores defs in order', () => {
-    const p = errors(Forbidden, ChannelNotFound);
+    const p = errors(Forbidden, OutOfStock);
     expect(p.defs).toHaveLength(2);
     expect(p.defs[0]).toBe(Forbidden);
-    expect(p.defs[1]).toBe(ChannelNotFound);
+    expect(p.defs[1]).toBe(OutOfStock);
   });
 
   it('instances have empty dependencies and requires', () => {
@@ -44,8 +44,8 @@ describe('errors', () => {
       },
     } as Pick<EngineAccess, 'registerErrorDefinitions'> as EngineAccess;
 
-    errors(Forbidden, ChannelNotFound).__setup?.(engine);
+    errors(Forbidden, OutOfStock).__setup?.(engine);
 
-    expect(registered).toEqual(['forbidden', 'channel-not-found']);
+    expect(registered).toEqual(['forbidden', 'out-of-stock']);
   });
 });

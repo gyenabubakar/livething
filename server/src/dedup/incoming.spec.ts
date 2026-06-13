@@ -40,7 +40,6 @@ function makeRuntime(cap: number) {
       streams: new Map(),
       resumableStreams: new Map(),
       recordedStreams: new Map(),
-      namespaces: new Map(),
       channels: new Map(),
       channelFamilies: new Map(),
       scheduled: new Map(),

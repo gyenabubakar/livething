@@ -8,20 +8,31 @@ export {
   ChannelNotFound,
   ChannelNotSubscribed,
   InternalError,
-  InvalidScopeMarkers,
-  NamespaceNotFound,
+  NudgeOverflow,
   RateLimited,
+  RejoinRejected,
   RequestNoCorrelation,
   RequestNoResponse,
   StreamAborted,
   StreamAlreadyActive,
   StreamIdCollision,
+  UnsupportedProtocol,
 } from './errors.ts';
-export type { ErrorDef, ErrorDefWithFactory, StreamAbortedReason } from './errors.ts';
+export type {
+  ErrorDef,
+  ErrorDefWithFactory,
+  StreamAbortedReason,
+  UnsupportedProtocolEvent,
+} from './errors.ts';
 export {
   WSKitConfigError,
   isWSKitConfigError,
   rethrowIfConfigError,
   assertSyncResult,
 } from './sync-guard.ts';
-export { isValidWSKitIdentifier, assertValidWSKitIdentifier } from './identifier.ts';
+export {
+  isValidWSKitIdentifier,
+  assertValidWSKitIdentifier,
+  WIRE_LIMITS,
+  exceedsWireLimit,
+} from './identifier.ts';

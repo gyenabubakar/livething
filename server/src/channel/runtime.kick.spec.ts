@@ -12,7 +12,6 @@ function createConnection(id: string) {
     wsKey: Symbol(id),
     descriptor: {
       send() {},
-      sendBinary() {},
       close() {},
       bufferedAmount() {
         return 0;
@@ -81,6 +80,7 @@ describe('channels.kick end-to-end', () => {
       connections,
       channelMembers,
       checkHooks: new Map(),
+      revalidateHooks: new Map(),
       commitHooks: new Map(),
       subscribeHooks: new Map(),
       unsubscribeHooks: new Map(),
@@ -214,6 +214,7 @@ describe('channels.kick end-to-end', () => {
       connections,
       channelMembers,
       checkHooks: new Map(),
+      revalidateHooks: new Map(),
       commitHooks: new Map(),
       subscribeHooks: new Map(),
       unsubscribeHooks: new Map([
@@ -276,5 +277,106 @@ describe('channels.kick end-to-end', () => {
     );
     expect(banned.channelMemberships.size).toBe(0);
     expect(alsoBanned.channelMemberships.size).toBe(0);
+  });
+
+  it('kick on persistent channel with missing compiled family must delete durable membership row', async () => {
+    // The channel family key exists in `channelScope` but is absent from
+    // `compiled.channelFamilies`.  resolveCompiledChannel returns undefined,
+    // which today makes leaveChannel treat the channel as non-persistent and
+    // skip deleteDurableMembership. The correct behaviour is to still delete
+    // the row so the member cannot auto-rejoin after being kicked.
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
+    const banned = createConnection('banned');
+
+    // Use a dynamic channel family scope so channelScope is non-null.
+    addChannelMembership(channelMembers, banned, {
+      channelName: 'room:123',
+      channelScope: 'room',
+    });
+    banned.tags.ephemeral.set('role', new Set(['spammer']));
+
+    const connections = new Map([[banned.id, banned]]);
+
+    const deletedRows: { identity: string; channelName: string; channelScope: string | null }[] =
+      [];
+
+    // channelFamilies is intentionally EMPTY — simulates the family missing at
+    // kick time (e.g. a hot-reload removed it while a member was still live).
+    const runtime = {
+      compiled: {
+        channels: new Map(),
+        channelFamilies: new Map(), // family 'room' is NOT registered
+      },
+      connections,
+      channelMembers,
+      checkHooks: new Map(),
+      revalidateHooks: new Map(),
+      commitHooks: new Map(),
+      subscribeHooks: new Map(),
+      unsubscribeHooks: new Map(),
+      sessionEndHooks: new Map(),
+      toConnectionInfo(c: ReturnType<typeof createConnection>) {
+        return {
+          id: c.id,
+          identity: c.identity,
+          meta: c.meta,
+          tags: [],
+          channels: [...c.channelMemberships.values()].map((m) => m.channelName),
+          latency: null,
+          quality: 'good' as const,
+          bufferedAmount: 0,
+          ref: () => ({
+            __wskit: 'connection-ref' as const,
+            id: c.id,
+            instance: undefined,
+            identity: c.identity,
+          }),
+        };
+      },
+      buildConnectionContext(c: ReturnType<typeof createConnection>) {
+        return { id: c.id };
+      },
+      persistAttachment() {},
+      sendProtocolMessage() {},
+      broadcastToChannel() {},
+      async handleValidationError() {},
+      // The channel IS persistent — isChannelPersistent would return true for
+      // any key associated with this family if the family were present.
+      isChannelPersistent: (_key: string) => true,
+      persistMembership() {},
+      deleteDurableMembership(identity: string, channelName: string, channelScope: string | null) {
+        deletedRows.push({ identity, channelName, channelScope });
+      },
+      hasDurableMembership: () => true,
+    };
+
+    await kickChannelMembers(
+      {
+        ...runtime,
+        leaveChannel: async (connection: any, opts: any) =>
+          leaveChannel(runtime as any, connection, opts),
+      } as any,
+      {
+        channelName: 'room:123',
+        target: {
+          __wskit: 'tag-ref' as const,
+          kind: 'ephemeral' as const,
+          group: 'role',
+          key: 'spammer',
+        },
+        reason: 'spam',
+        channelScope: 'room',
+      },
+    );
+
+    // The durable membership row must be deleted so the kicked member cannot
+    // auto-rejoin.  Today this fails because an undefined compiled family
+    // makes leaveChannel set isPersistent=false and skip deleteDurableMembership.
+    expect(deletedRows).toHaveLength(1);
+    expect(deletedRows[0]).toEqual({
+      identity: 'banned',
+      channelName: 'room:123',
+      channelScope: 'room',
+    });
   });
 });

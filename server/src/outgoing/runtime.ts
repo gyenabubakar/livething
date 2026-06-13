@@ -69,16 +69,6 @@ export function isDeclaredOutgoingEvent(
   if (Protocol.OUTGOING_PROTOCOL_EVENT_NAMES.has(event)) return true;
   if (event.startsWith('__')) return isDeclaredPluginEvent(compiled, event);
 
-  if (routing?.namespace) {
-    const namespace = compiled.namespaces.get(routing.namespace);
-    return (
-      (namespace?.outgoing.has(event) ?? false) ||
-      (namespace?.streams.has(event) ?? false) ||
-      (namespace?.resumableStreams.has(event) ?? false) ||
-      (namespace?.recordedStreams.has(event) ?? false)
-    );
-  }
-
   if (routing?.channel) {
     const channel =
       routing.channelScope === null || routing.channelScope === undefined
@@ -141,12 +131,15 @@ function runOutgoingHooks(
   return current;
 }
 
-/** Build the `__wskit` block for an outgoing frame from its routing target. */
+/**
+ * Build the `__wskit` block for an outgoing frame from its routing target.
+ * Returns the typed envelope so each field write is checked; the caller widens
+ * it to a loose bag only where plugin stampers add their own open-ended keys.
+ */
 function buildWSKit(
   routing: EngineRuntimeTypes.RoutingTarget | undefined,
-): Record<string, unknown> {
-  const wskit: Record<string, unknown> = {};
-  if (routing?.namespace) wskit.namespace = routing.namespace;
+): Partial<Protocol.WSKitProtocol> {
+  const wskit: Partial<Protocol.WSKitProtocol> = {};
   if (routing?.channel) wskit.channel = routing.channel;
   if (routing?.channelScope !== null && routing?.channelScope !== undefined) {
     wskit.channelScope = routing.channelScope;
@@ -154,6 +147,7 @@ function buildWSKit(
   if (routing?.correlationId) wskit.correlationId = routing.correlationId;
   if (routing?.streamId) wskit.streamId = routing.streamId;
   if (typeof routing?.seq === 'number') wskit.seq = routing.seq;
+  if (routing?.streamKind) wskit.streamKind = routing.streamKind;
   return wskit;
 }
 
@@ -230,7 +224,9 @@ export function sendThroughPipeline(
     );
   }
 
-  const wskit = buildWSKit(routing);
+  // Widen to a loose bag here: from this point plugin stampers contribute
+  // arbitrary, open-ended `__wskit` keys that no fixed type can enumerate.
+  const wskit = buildWSKit(routing) as Record<string, unknown>;
   applyWSKitStampers(runtime.wskitStampHooks, message.event, wskit);
 
   const finalPayload = message.payload as Record<string, unknown>;
@@ -414,7 +410,6 @@ export interface BroadcastToConnectionsOptions {
   payload: unknown;
 
   options?: PublicApi.BroadcastOptions & {
-    namespace?: string;
     channel?: string;
     channelScope?: string | null;
   };
@@ -445,7 +440,6 @@ export function broadcastToConnections(
   try {
     prepared = prepareBroadcast(runtime, {
       routing: {
-        namespace: options?.namespace,
         channel: options?.channel,
         channelScope: options?.channelScope,
       },

@@ -8,7 +8,7 @@
 import { validateValue } from '~/_engine/compile/utils.ts';
 import type { InterceptFrame } from '~/intercept/intercept.ts';
 import type { Contract } from './contract-types.ts';
-import type { Definition, NamespaceDefinition } from './definitions.ts';
+import type { Definition } from './definitions.ts';
 import type { FrameFor, ParsedKey } from './matches-types.ts';
 
 /** Parse a path key. Throws on syntactically invalid keys. */
@@ -36,29 +36,10 @@ export function parseKey(key: string): ParsedKey {
     return { scope: 'channel', name, event };
   }
 
-  if (key.startsWith('#')) {
-    const rest = key.slice(1);
-    const sepIdx = rest.indexOf('::');
-    if (sepIdx === -1) {
-      throw new Error(
-        `[wskit] contract.matches/unsafeCast key '${key}' starts with '#' but is missing the ` +
-          `'::' separator. Use '#<namespace>::<event>'.`,
-      );
-    }
-    const name = rest.slice(0, sepIdx);
-    const event = rest.slice(sepIdx + 2);
-    if (name.length === 0 || event.length === 0) {
-      throw new Error(
-        `[wskit] contract.matches/unsafeCast key '${key}' has an empty name or event.`,
-      );
-    }
-    return { scope: 'namespace', name, event };
-  }
-
   if (key.includes('::')) {
     throw new Error(
       `[wskit] contract.matches/unsafeCast key '${key}' contains '::' but no scope prefix. ` +
-        `Use '@<channel>::<event>' or '#<namespace>::<event>', or drop the '::' for a top-level event.`,
+        `Use '@<channel>::<event>', or drop the '::' for a top-level event.`,
     );
   }
 
@@ -72,7 +53,7 @@ interface EventLookup {
 
 /** Walk a definitions list and find the matching event's validator + kind. */
 function lookupEvent(
-  definitions: readonly (Definition | NamespaceDefinition)[],
+  definitions: readonly Definition[],
   eventName: string,
 ): EventLookup | undefined {
   for (const def of definitions) {
@@ -104,20 +85,11 @@ function lookupForParsedKey(
     return lookupEvent(contractDefinitions, parsed.event);
   }
 
-  if (parsed.scope === 'channel') {
-    for (const def of contractDefinitions) {
-      if (def._ !== 'channel') continue;
-      const channelKey =
-        typeof def.pattern === 'string' ? def.pattern : (def.pattern as { key: string }).key;
-      if (channelKey !== parsed.name) continue;
-      return lookupEvent(def.definitions, parsed.event);
-    }
-    return undefined;
-  }
-
   for (const def of contractDefinitions) {
-    if (def._ !== 'namespace') continue;
-    if (def.name !== parsed.name) continue;
+    if (def._ !== 'channel') continue;
+    const channelKey =
+      typeof def.pattern === 'string' ? def.pattern : (def.pattern as { key: string }).key;
+    if (channelKey !== parsed.name) continue;
     return lookupEvent(def.definitions, parsed.event);
   }
   return undefined;
@@ -163,7 +135,6 @@ export function matches<TContract extends Contract<any, any>, TKey extends strin
 
   if (parsed.scope === 'top') {
     if (frame.routing.channel !== undefined) return false;
-    if (frame.routing.namespace !== undefined) return false;
   } else if (parsed.scope === 'channel') {
     const channelDef = (contract.definitions as readonly Definition[]).find(
       (def): def is Extract<Definition, { _: 'channel' }> =>
@@ -179,8 +150,6 @@ export function matches<TContract extends Contract<any, any>, TKey extends strin
       if (typeof frame.routing.channel !== 'string') return false;
       if (!channelDef.pattern.pattern.test(frame.routing.channel)) return false;
     }
-  } else if (parsed.scope === 'namespace') {
-    if (frame.routing.namespace !== parsed.name) return false;
   }
 
   try {

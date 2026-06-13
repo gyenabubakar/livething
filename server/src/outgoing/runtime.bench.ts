@@ -13,7 +13,6 @@ function createConnection(id: string): RuntimeConnection {
     wsKey: Symbol(id),
     descriptor: {
       send() {},
-      sendBinary() {},
       close() {},
       bufferedAmount() {
         return 0;
@@ -49,7 +48,6 @@ function createRuntime(
       streams: new Map(),
       resumableStreams: new Map(),
       recordedStreams: new Map(),
-      namespaces: new Map(),
       channels: new Map([
         [
           'room',

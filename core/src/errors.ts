@@ -207,6 +207,29 @@ export const Block = Object.freeze({ __wskit: 'block' as const });
  * throw RateLimited({ retryAfter: 30 });
  * ```
  */
+/**
+ * Codes the framework ships as built-in errors. A developer's `error()` must not
+ * reuse one: on the wire a frame with that code would be ambiguous (the
+ * framework's error vs the developer's), and the inferred client detail would be
+ * an unsatisfiable intersection of both shapes. The built-ins themselves are
+ * minted via `buildErrorFactory`, which skips this check.
+ */
+const RESERVED_ERROR_CODES = new Set([
+  'validation-failed',
+  'channel-not-found',
+  'channel-not-subscribed',
+  'unsupported-protocol',
+  'rejoin-rejected',
+  'internal-error',
+  'request-no-response',
+  'request-no-correlation',
+  'stream-aborted',
+  'nudge-overflow',
+  'stream-id-collision',
+  'rate-limited',
+  'stream-already-active',
+]);
+
 export function error<TCode extends string>(code: TCode): ErrorDefWithFactory<TCode, void>;
 export function error<TCode extends string, TSchema extends StandardSchemaV1>(
   code: TCode,
@@ -214,15 +237,26 @@ export function error<TCode extends string, TSchema extends StandardSchemaV1>(
 ): ErrorDefWithFactory<TCode, StandardSchemaV1.InferOutput<TSchema>>;
 export function error(code: string, schema?: StandardSchemaV1): ErrorDefWithFactory<string, any> {
   assertValidWSKitIdentifier(code, 'error code');
-  return buildErrorFactory(code, schema);
+  if (RESERVED_ERROR_CODES.has(code)) {
+    throw new Error(
+      `[wskit] error code "${code}" is reserved by the framework — pick a different code.`,
+    );
+  }
+  return schema ? buildErrorFactory(code, schema) : buildErrorFactory(code);
 }
 
 /**
- * Build an error factory without checking the code against the identifier
- * rules. `error()` validates first and delegates here; `namespaceError()` uses
- * it to mint the engine-added `__pluginId:code` form (which is allowed to start
- * with `__` because the engine, not the developer, adds that prefix).
+ * Build an error factory without checking the code against the identifier rules
+ * or the reserved-code guard. `error()` validates and guards first, then delegates
+ * here; the framework's own built-ins use it directly (they're allowed to claim a
+ * reserved code), and `namespaceError()` uses it to mint the engine-added
+ * `__pluginId:code` form. The generic overloads preserve the literal `code` type.
  */
+function buildErrorFactory<TCode extends string>(code: TCode): ErrorDefWithFactory<TCode, void>;
+function buildErrorFactory<TCode extends string, TSchema extends StandardSchemaV1>(
+  code: TCode,
+  schema: TSchema,
+): ErrorDefWithFactory<TCode, StandardSchemaV1.InferOutput<TSchema>>;
 function buildErrorFactory(
   code: string,
   schema?: StandardSchemaV1,
@@ -260,7 +294,7 @@ export function namespaceError(
   code: string,
   def: ErrorDefWithFactory<string, any>,
 ): ErrorDefWithFactory<string, any> {
-  return buildErrorFactory(code, def.schema);
+  return def.schema ? buildErrorFactory(code, def.schema) : buildErrorFactory(code);
 }
 
 // ---------------------------------------------------------------------------
@@ -282,7 +316,7 @@ export function namespaceError(
  *
  * Detail contains the event name and the Standard Schema issues array.
  */
-export const ValidationFailed = error(
+export const ValidationFailed = /* @__PURE__ */ buildErrorFactory(
   'validation-failed',
   v.object({
     event: v.string(),
@@ -312,45 +346,35 @@ export const ValidationFailed = error(
  * }
  * ```
  */
-export const ChannelNotFound = error('channel-not-found');
+export const ChannelNotFound = /* @__PURE__ */ buildErrorFactory('channel-not-found');
+
+const UNSUPPORTED_PROTOCOL_EVENTS = v.picklist(['__replay__', '__resumeStream__']);
+
+export type UnsupportedProtocolEvent = v.InferInput<typeof UNSUPPORTED_PROTOCOL_EVENTS>;
 
 /**
- * The error you get when you target a namespace the server doesn't
- * recognise. Usually a typo in the namespace name or a mismatch between
- * your client and server versions.
+ * Sent to the client when it uses a protocol feature the server doesn't
+ * support. WSKit's client may send protocol frames like `__replay__` or
+ * `__resumeStream__` on reconnect; if the server never enabled the matching
+ * feature (no `replay`, or no durable streams because the adapter has no
+ * storage), it replies with this code instead of silently ignoring the frame.
+ * `detail.event` is the protocol event that was rejected.
+ *
+ * This almost always means a config mismatch: the client opted into a feature
+ * the server didn't enable. Turn the feature on server-side, or drop the
+ * matching client primitive.
  *
  * @example
  * ```ts
- * try {
- *   await client.namespace('amdin').do('something');
- * } catch (err) {
- *   if (NamespaceNotFound.matches(err)) {
- *     showToast('Unknown namespace.');
- *   }
+ * if (UnsupportedProtocol.matches(err)) {
+ *   console.warn('server does not support', err.detail.event);
  * }
  * ```
  */
-export const NamespaceNotFound = error('namespace-not-found');
-
-/**
- * The error you get when an incoming frame carries more than one scope
- * marker at once — for example both `__wskit.namespace` and
- * `__wskit.channel`. WSKit routes a frame to exactly one scope, so a
- * frame that names two scopes is ambiguous and the server rejects it
- * instead of silently picking one.
- *
- * @example
- * ```ts
- * try {
- *   await client.namespace('admin').do('something');
- * } catch (err) {
- *   if (InvalidScopeMarkers.matches(err)) {
- *     // a client-side bug attached two scope markers to the same frame
- *   }
- * }
- * ```
- */
-export const InvalidScopeMarkers = error('invalid-scope-markers');
+export const UnsupportedProtocol = /* @__PURE__ */ buildErrorFactory(
+  'unsupported-protocol',
+  v.object({ event: UNSUPPORTED_PROTOCOL_EVENTS }),
+);
 
 /**
  * Thrown when a client sends a message to a channel it isn't subscribed to,
@@ -367,7 +391,26 @@ export const InvalidScopeMarkers = error('invalid-scope-markers');
  * }
  * ```
  */
-export const ChannelNotSubscribed = error('channel-not-subscribed');
+export const ChannelNotSubscribed = /* @__PURE__ */ buildErrorFactory('channel-not-subscribed');
+
+/**
+ * Sent to the client when the server rejects a persistent channel's auto-rejoin
+ * on reconnect — the channel's `revalidate` hook threw. The durable membership
+ * is dropped and this error is delivered scoped to the channel, so the client
+ * knows the rejoin failed and clears the channel instead of staying stuck
+ * "subscribed" to a membership the server no longer has.
+ *
+ * @example
+ * ```ts
+ * room.onSubscriptionFailed((err) => {
+ *   if (RejoinRejected.matches(err)) showToast('You were removed from this room.');
+ * });
+ * ```
+ */
+export const RejoinRejected = /* @__PURE__ */ buildErrorFactory(
+  'rejoin-rejected',
+  v.object({ message: v.string() }),
+);
 
 /**
  * Sent to the client when an unhandled server-side error occurs that WSKit
@@ -381,7 +424,7 @@ export const ChannelNotSubscribed = error('channel-not-subscribed');
  * }
  * ```
  */
-export const InternalError = error('internal-error');
+export const InternalError = /* @__PURE__ */ buildErrorFactory('internal-error');
 
 /**
  * Sent to the client when a `request(...)` handler returned without calling
@@ -400,7 +443,7 @@ export const InternalError = error('internal-error');
  * }
  * ```
  */
-export const RequestNoResponse = error('request-no-response');
+export const RequestNoResponse = /* @__PURE__ */ buildErrorFactory('request-no-response');
 
 /**
  * Sent to the client when a request frame arrived without a `correlationId`
@@ -412,7 +455,7 @@ export const RequestNoResponse = error('request-no-response');
  * The client SDK stamps a `correlationId` automatically; this code only
  * fires for hand-crafted frames or non-SDK clients.
  */
-export const RequestNoCorrelation = error('request-no-correlation');
+export const RequestNoCorrelation = /* @__PURE__ */ buildErrorFactory('request-no-correlation');
 
 /**
  * Sent to the client when an in-flight stream terminates for a server-side
@@ -435,10 +478,6 @@ export const RequestNoCorrelation = error('request-no-correlation');
  *   declared on the `resumableStream`. The row stays in place; the resuming
  *   client gets this signal so it can pick a recovery strategy (drop the
  *   stream, start fresh, surface the bug).
- * - `'nudge-overflow'` — the client queued more nudges than the stream's buffer
- *   holds because the generator was draining them too slowly. The stream is
- *   torn down so the client can restart it, instead of the server buffering
- *   nudges without bound or silently dropping them.
  * - `'aborted'` — catch-all when the framework had to tear the stream down
  *   for an internal reason that does not match any of the above.
  *
@@ -465,7 +504,6 @@ export type StreamAbortedReason =
   | 'hibernation-wake'
   | 'unsubscribed'
   | 'cursor-invalid'
-  | 'nudge-overflow'
   | 'aborted';
 
 const STREAM_ABORTED_REASONS = [
@@ -476,13 +514,36 @@ const STREAM_ABORTED_REASONS = [
   'hibernation-wake',
   'unsubscribed',
   'cursor-invalid',
-  'nudge-overflow',
   'aborted',
 ] as const;
 
-export const StreamAborted = error(
+export const StreamAborted = /* @__PURE__ */ buildErrorFactory(
   'stream-aborted',
   v.object({ reason: v.picklist(STREAM_ABORTED_REASONS) }),
+);
+
+/**
+ * Sent to the client when a nudge can't be buffered because the stream's pending
+ * nudge buffer is full (the generator is draining nudges slower than they
+ * arrive). Unlike a `StreamAborted`, this is **non-terminal**: only the
+ * offending `nudge()` rejects (with `__wskit.streamTerminated: false`), and the
+ * stream keeps running — it is backpressure, not a teardown. `detail.cap` is the
+ * buffer limit so the client can pace itself and retry.
+ *
+ * @example
+ * ```ts
+ * try {
+ *   await stream.nudge('add-context', { context });
+ * } catch (err) {
+ *   if (NudgeOverflow.matches(err)) {
+ *     // sending too fast — back off, the stream is still alive
+ *   }
+ * }
+ * ```
+ */
+export const NudgeOverflow = /* @__PURE__ */ buildErrorFactory(
+  'nudge-overflow',
+  v.object({ cap: v.number() }),
 );
 
 /**
@@ -502,7 +563,7 @@ export const StreamAborted = error(
  * }
  * ```
  */
-export const StreamIdCollision = error('stream-id-collision');
+export const StreamIdCollision = /* @__PURE__ */ buildErrorFactory('stream-id-collision');
 
 /**
  * Sent to the client when an incoming frame is rejected because the connection
@@ -525,7 +586,7 @@ export const StreamIdCollision = error('stream-id-collision');
  * }
  * ```
  */
-export const RateLimited = error(
+export const RateLimited = /* @__PURE__ */ buildErrorFactory(
   'rate-limited',
   v.object({ retryAfter: v.pipe(v.number(), v.finite(), v.minValue(0)) }),
 );
@@ -553,7 +614,7 @@ export const RateLimited = error(
  * }
  * ```
  */
-export const StreamAlreadyActive = error(
+export const StreamAlreadyActive = /* @__PURE__ */ buildErrorFactory(
   'stream-already-active',
   v.object({ event: v.string(), streamId: v.string() }),
 );

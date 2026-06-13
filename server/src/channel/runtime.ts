@@ -1,5 +1,11 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { ChannelNotFound, ChannelNotSubscribed, rethrowIfConfigError } from '@wskit/core';
+import {
+  ChannelNotFound,
+  ChannelNotSubscribed,
+  RejoinRejected,
+  rethrowIfConfigError,
+  WSKitConfigError,
+} from '@wskit/core';
 import { validateValue } from '~/_engine/compile/utils.ts';
 import type { CompiledChannel } from '~/_engine/compile/types.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
@@ -160,6 +166,8 @@ interface ChannelRuntime {
     }[]
   >;
 
+  revalidateHooks: ReadonlyMap<string, readonly ((ctx: any) => void | Promise<void>)[]>;
+
   commitHooks: ReadonlyMap<
     string,
     readonly { handler: (ctx: any, checkResult: unknown) => void }[]
@@ -290,7 +298,7 @@ export async function leaveChannel(
 
   const ctx = runtime.buildConnectionContext(connection, scope);
   const channelKey = scope.channel?.key ?? '';
-  const isPersistent = scope.channel ? runtime.isChannelPersistent(scope.channel.key) : false;
+  const isPersistent = scope.channel ? runtime.isChannelPersistent(scope.channel.key) : disconnect;
   // A disconnect on a persistent channel only ends the session. Every other
   // path also changes group membership.
   const isTrueLeave = !disconnect || !isPersistent;
@@ -300,7 +308,7 @@ export async function leaveChannel(
   removeChannelMembership(runtime.channelMembers, connection, scope);
   runtime.persistAttachment(connection);
 
-  if (isTrueLeave && isPersistent) {
+  if (isTrueLeave && (isPersistent || !scope.channel)) {
     runtime.deleteDurableMembership(connection.identity, scope.channelName, scope.channelScope);
   }
 
@@ -396,52 +404,92 @@ async function runSubscribeFlow(
   const scope: ResolvedChannelScope = opts;
   const ctx = runtime.buildConnectionContext(connection, scope);
 
-  // ── Phase 1: check (async, concurrent) ───────────────────────────────────
+  // ── Phase 1: gate (async) ────────────────────────────────────────────────
+  // First subscribe runs `check` with the subscribe payload. Auto-rejoin runs
+  // `revalidate` instead — no payload, revocation only — so a payload-gated
+  // `check` is never handed an undefined payload on reconnect.
   let checkResult: unknown;
-  const checkHook = runtime.checkHooks.get(scope.channel.key)?.[0];
-  if (checkHook) {
-    let validatedData: unknown = data;
-    if (checkHook.validator) {
+  if (rejoining) {
+    const revalidateHook = runtime.revalidateHooks.get(scope.channel.key)?.[0];
+    if (revalidateHook) {
       try {
-        validatedData = validateValue(checkHook.validator, data, '__subscribe__');
+        await revalidateHook(ctx);
       } catch (error) {
+        // A config error is a framework misconfig, not a revocation — let it
+        // propagate so auto-rejoin keeps the membership instead of dropping it.
         rethrowIfConfigError(error);
-        await runtime.handleValidationError(connection, {
-          event: '__subscribe__',
-          validationError: error,
-          scope,
+        // Any other throw is the gate revoking access. Normalize it so the
+        // auto-rejoin catch can tell a revoke apart from a storage/internal
+        // failure and only drop the durable row for a real revoke.
+        throw RejoinRejected({
+          message: error instanceof Error ? error.message : String(error),
         });
-        throw error;
       }
     }
-    checkResult = await checkHook.handler(ctx, validatedData);
+  } else {
+    const checkHook = runtime.checkHooks.get(scope.channel.key)?.[0];
+    if (checkHook) {
+      let validatedData: unknown = data;
+      if (checkHook.validator) {
+        try {
+          validatedData = validateValue(checkHook.validator, data, '__subscribe__');
+        } catch (error) {
+          rethrowIfConfigError(error);
+          await runtime.handleValidationError(connection, {
+            event: '__subscribe__',
+            validationError: error,
+            scope,
+          });
+          throw error;
+        }
+      }
+      checkResult = await checkHook.handler(ctx, validatedData);
+    }
+  }
+
+  if (!rejoining && hasChannelMembership(connection, scope.channelName, scope.channelScope)) {
+    return;
   }
 
   // ── Phase 2: commit then membership write ────────────────────────────────
+  const isPersistent = runtime.isChannelPersistent(scope.channel.key);
+
   // Re-check durable membership here — a leave that finished after phase 1
   // may have already cleared the row.
   if (
     rejoining &&
-    runtime.isChannelPersistent(scope.channel.key) &&
+    isPersistent &&
     !runtime.hasDurableMembership(connection.identity, scope.channelName, scope.channelScope)
   ) {
     return;
   }
 
-  const commitHook = runtime.commitHooks.get(scope.channel.key)?.[0];
-  if (commitHook) {
-    const r: unknown = commitHook.handler(ctx, checkResult);
-    if (r instanceof Promise) {
-      throw new Error(
-        '[wskit] commit() must be synchronous. Remove the async keyword from your commit handler.',
-      );
+  // commit is the first-subscribe capacity/final gate. Auto-rejoin skips it — a
+  // returning member already holds a seat and must not be re-counted against a
+  // cap that filled while they were away.
+  if (!rejoining) {
+    const commitHook = runtime.commitHooks.get(scope.channel.key)?.[0];
+    if (commitHook) {
+      const r: unknown = commitHook.handler(ctx, checkResult);
+      // Detect any thenable — a native Promise, a cross-realm Promise, or a
+      // custom `{ then() {} }` — not just `instanceof Promise`. An async-like
+      // commit must fail before membership is written.
+      if (
+        r !== null &&
+        (typeof r === 'object' || typeof r === 'function') &&
+        typeof (r as { then?: unknown }).then === 'function'
+      ) {
+        throw new WSKitConfigError(
+          '[wskit] commit() must be synchronous. Remove the async keyword from your commit handler.',
+        );
+      }
     }
   }
 
   // Write the durable membership row first. If the SQL write throws, the
   // connection must not already be a live member of a channel it was never
   // saved into.
-  if (runtime.isChannelPersistent(scope.channel.key)) {
+  if (isPersistent) {
     runtime.persistMembership(connection.identity, scope.channelName, scope.channelScope);
   }
 
@@ -465,8 +513,14 @@ async function runSubscribeFlow(
   const wskit = buildChannelRouting(scope);
 
   // Send confirmation before running onSubscribe, so a throwing hook cannot
-  // delay or block it from reaching the client.
-  runtime.sendProtocolMessage(connection, { event: '__subscribeOk__', payload: { source }, wskit });
+  // delay or block it from reaching the client. The persistent flag tells the
+  // client to leave this channel to server-driven auto-rejoin on reconnect
+  // rather than re-subscribing it itself.
+  runtime.sendProtocolMessage(connection, {
+    event: '__subscribeOk__',
+    payload: { source },
+    wskit: { ...wskit, channelPersistent: isPersistent },
+  });
 
   // One snapshot frame with the whole member list, in place of a
   // __memberJoin__ + __memberOnline__ pair per existing peer.
@@ -492,14 +546,19 @@ async function runSubscribeFlow(
     channelScope: scope.channelScope,
   });
 
-  for (const hook of runtime.subscribeHooks.get(scope.channel.key) ?? []) {
-    try {
-      await hook(ctx);
-    } catch (error) {
-      const routing: Protocol.WSKitRouting = { channel: scope.channelName };
-      if (scope.channelScope !== null) routing.channelScope = scope.channelScope;
-      await runtime.handleRuntimeError(connection, { error, event: '__subscribe__', routing });
-      return;
+  // Auto-rejoin does not fire onSubscribe — the user already joined once, and
+  // the rejoin only restores a fresh socket. Re-running join side-effects (a
+  // welcome push, a "X joined" broadcast) on every reconnect would be wrong.
+  if (!rejoining) {
+    for (const hook of runtime.subscribeHooks.get(scope.channel.key) ?? []) {
+      try {
+        await hook(ctx);
+      } catch (error) {
+        const routing: Protocol.WSKitRouting = { channel: scope.channelName };
+        if (scope.channelScope !== null) routing.channelScope = scope.channelScope;
+        await runtime.handleRuntimeError(connection, { error, event: '__subscribe__', routing });
+        return;
+      }
     }
   }
 }
@@ -570,26 +629,67 @@ export async function subscribeConnectionAsServer(
   });
 }
 
+export interface UnsubscribeConnectionOptions extends ChannelMembership {
+  /** Correlation id from the `__unsubscribe__` frame; echoed on `__unsubscribeOk__`. */
+  unsubscribeId?: string;
+}
+
 /**
  * Unsubscribe one connection from a channel by delegating to the shared leave
- * helper.
+ * helper, then confirm the leave to the client.
+ *
+ * The `unsubscribeId` is a correlation id, not a stored dedup key — idempotency
+ * is judged against current membership. An id-bearing leave for a channel the
+ * connection is no longer in (a resend after the first ack was lost on a drop)
+ * is re-acked without re-running hooks or broadcasts. A leave with no id for a
+ * non-member keeps the legacy `ChannelNotSubscribed` error — the reliable client
+ * always sends an id, so only low-level senders hit that path. An unknown channel
+ * is always `ChannelNotFound`.
  */
 export async function unsubscribeConnection(
   runtime: ChannelRuntime & {
     leaveChannel(connection: RuntimeConnection, opts: LeaveChannelOptions): Promise<void>;
   },
   connection: RuntimeConnection,
-  membership: ChannelMembership,
+  opts: UnsubscribeConnectionOptions,
 ): Promise<void> {
-  const scope = resolveChannelByName(runtime, membership.channelName, membership.channelScope);
+  const scope = resolveChannelByName(runtime, opts.channelName, opts.channelScope);
   if (!scope) {
     throw ChannelNotFound();
   }
 
-  if (!hasChannelMembership(connection, scope.channelName, scope.channelScope)) {
+  const isMember = hasChannelMembership(connection, scope.channelName, scope.channelScope);
+  if (!isMember && opts.unsubscribeId === undefined) {
     throw ChannelNotSubscribed();
   }
-  await runtime.leaveChannel(connection, scope);
+
+  // leaveChannel removes the membership BEFORE running leave hooks, so a throwing
+  // `onUnsubscribe`/`onSessionEnd` still leaves a completed leave. Capture the
+  // throw, confirm the leave anyway (below), then rethrow so the engine still
+  // surfaces the hook error — otherwise the client's `unsubscribe()` would hang
+  // forever on a leave that actually succeeded.
+  let hookError: unknown;
+  let threw = false;
+  if (isMember) {
+    try {
+      await runtime.leaveChannel(connection, scope);
+    } catch (error) {
+      hookError = error;
+      threw = true;
+    }
+  }
+
+  // Confirm the leave so the client can settle its pending op. Only when the
+  // frame carried an id — a low-level sender that left without one gets no ack.
+  if (opts.unsubscribeId !== undefined) {
+    runtime.sendProtocolMessage(connection, {
+      event: '__unsubscribeOk__',
+      payload: {},
+      wskit: { ...buildChannelRouting(scope), unsubscribeId: opts.unsubscribeId },
+    });
+  }
+
+  if (threw) throw hookError;
 }
 
 /**

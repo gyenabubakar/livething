@@ -43,6 +43,15 @@ export type CheckHandler<TCtx = any, TData = unknown, TResult = unknown> = (
 ) => TResult | Promise<TResult>;
 
 /**
+ * A function that re-authorizes an existing durable membership on auto-rejoin.
+ * Runs only when a reconnecting identity is restored to a persistent channel —
+ * never on a first subscribe. Receives only the context (no subscribe payload).
+ * Throw to revoke the membership: the durable row is dropped and the connection
+ * is not brought back into the channel. Return value is ignored.
+ */
+export type RevalidateHandler<TCtx = any> = (ctx: TCtx) => void | Promise<void>;
+
+/**
  * A synchronous function that runs right before the subscriber is added to the channel.
  * Receives the value returned by `check` as `checkResult`.
  *
@@ -67,6 +76,11 @@ export interface CommitPrimitive<TCtx = any, TCheck = unknown> extends Primitive
   readonly handler: CommitHandler<TCtx, TCheck>;
 }
 
+/** Primitive produced by `revalidate()`. */
+export interface RevalidatePrimitive<TCtx = any> extends Primitive<'revalidate'> {
+  readonly handler: RevalidateHandler<TCtx>;
+}
+
 /** Primitive type produced by `onSubscribe()`. */
 export interface SubscribePrimitive<TCtx = any> extends Primitive<'onSubscribe'> {
   readonly handler: SubscribeHandler<TCtx>;
@@ -83,6 +97,7 @@ export interface SessionEndPrimitive<TCtx = any> extends Primitive<'onSessionEnd
 }
 
 const ON_CHECK_KEY = Symbol('check');
+const ON_REVALIDATE_KEY = Symbol('revalidate');
 const ON_COMMIT_KEY = Symbol('commit');
 const ON_SUBSCRIBE_KEY = Symbol('onSubscribe');
 const ON_UNSUBSCRIBE_KEY = Symbol('onUnsubscribe');
@@ -128,6 +143,41 @@ export function check<TCtx, TData = unknown, TResult = unknown>(
     validator: options?.validator,
     __setup(engine: EngineAccess) {
       engine.onCheck(handler as CheckHandler, options?.validator);
+    },
+  };
+}
+
+/**
+ * Re-authorize a durable membership when a reconnecting identity is auto-rejoined
+ * to a persistent channel. Runs only on auto-rejoin — never on a first subscribe,
+ * so it gets no subscribe payload. Throw to revoke: the durable row is dropped and
+ * the connection is not restored to the channel.
+ *
+ * Use it for revocation that must take effect across reconnects — a ban, a lapsed
+ * permission, a closed room. First-subscribe authorization stays in `check`.
+ *
+ * @example
+ * ```ts
+ * implement(chat).channel('archive-room', (ch) =>
+ *   ch
+ *     .check(async (ctx) => {
+ *       if (await isBanned(ctx.meta.username)) throw Forbidden();
+ *     })
+ *     .revalidate(async (ctx) => {
+ *       if (await isBanned(ctx.meta.username)) throw Forbidden();
+ *     }),
+ * );
+ * ```
+ */
+export function revalidate<TCtx>(handler: RevalidateHandler<TCtx>): RevalidatePrimitive<TCtx> {
+  return {
+    __wskit: 'revalidate',
+    __kind: 'lifecycle',
+    __identity: [ON_REVALIDATE_KEY],
+    __requires: {},
+    handler,
+    __setup(engine: EngineAccess) {
+      engine.onRevalidate(handler as RevalidateHandler);
     },
   };
 }
@@ -236,6 +286,8 @@ export function onSessionEnd<TCtx>(handler: SessionEndHandler<TCtx>): SessionEnd
 
 /** Symbol key used to reference `check` in dependency declarations. */
 check.__key = ON_CHECK_KEY;
+/** Symbol key used to reference `revalidate` in dependency declarations. */
+revalidate.__key = ON_REVALIDATE_KEY;
 /** Symbol key used to reference `commit` in dependency declarations. */
 commit.__key = ON_COMMIT_KEY;
 /** Symbol key used to reference `onSubscribe` in dependency declarations. */

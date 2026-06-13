@@ -5,8 +5,6 @@ import {
   CloseCodes,
   error,
   InternalError,
-  InvalidScopeMarkers,
-  NamespaceNotFound,
   RateLimited,
   RequestNoResponse,
   StreamAborted,
@@ -183,12 +181,12 @@ describe('error() with valibot', () => {
 });
 
 describe('error() with zod', () => {
-  const RateLimited = error('rate-limited', z.object({ retryAfter: z.number() }));
+  const RateLimited = error('rate-exceeded', z.object({ retryAfter: z.number() }));
 
   it('is callable and returns WSKitError with validated detail', () => {
     const err = RateLimited({ retryAfter: 5000 });
     expect(err).toBeInstanceOf(WSKitError);
-    expect(err.code).toBe('rate-limited');
+    expect(err.code).toBe('rate-exceeded');
     expect(err.detail).toEqual({ retryAfter: 5000 });
   });
 
@@ -198,7 +196,7 @@ describe('error() with zod', () => {
   });
 
   it('.matches() returns true for valid detail', () => {
-    const err = new WSKitError('rate-limited', { retryAfter: 3000 });
+    const err = new WSKitError('rate-exceeded', { retryAfter: 3000 });
     expect(RateLimited.matches(err)).toBe(true);
   });
 });
@@ -225,7 +223,7 @@ describe('error() async StandardSchema rejection', () => {
 
 describe('.matches() edge cases', () => {
   const CodeOnly = error('gone');
-  const WithDetail = error('rate-limited', v.object({ retryAfter: v.number() }));
+  const WithDetail = error('rate-exceeded', v.object({ retryAfter: v.number() }));
 
   it('code-only matches regardless of detail value', () => {
     expect(CodeOnly.matches(new WSKitError('gone', undefined))).toBe(true);
@@ -234,12 +232,12 @@ describe('.matches() edge cases', () => {
   });
 
   it('with-detail rejects when validate throws', () => {
-    expect(WithDetail.matches(new WSKitError('rate-limited', {}))).toBe(false);
-    expect(WithDetail.matches(new WSKitError('rate-limited', null))).toBe(false);
+    expect(WithDetail.matches(new WSKitError('rate-exceeded', {}))).toBe(false);
+    expect(WithDetail.matches(new WSKitError('rate-exceeded', null))).toBe(false);
   });
 
   it('with-detail accepts when validate passes', () => {
-    expect(WithDetail.matches(new WSKitError('rate-limited', { retryAfter: 5000 }))).toBe(true);
+    expect(WithDetail.matches(new WSKitError('rate-exceeded', { retryAfter: 5000 }))).toBe(true);
   });
 
   it('multiple error defs do not interfere', () => {
@@ -396,8 +394,6 @@ describe.each([
     code: 'channel-not-subscribed' as const,
   },
   { name: 'InternalError', def: InternalError, code: 'internal-error' as const },
-  { name: 'InvalidScopeMarkers', def: InvalidScopeMarkers, code: 'invalid-scope-markers' as const },
-  { name: 'NamespaceNotFound', def: NamespaceNotFound, code: 'namespace-not-found' as const },
   { name: 'RequestNoResponse', def: RequestNoResponse, code: 'request-no-response' as const },
   { name: 'StreamIdCollision', def: StreamIdCollision, code: 'stream-id-collision' as const },
 ])('$name (code-only built-in)', ({ def, code }) => {
@@ -619,7 +615,7 @@ describe('factory throw + catch + .matches() roundtrip', () => {
       throw ChannelNotFound();
     } catch (err) {
       expect(ChannelNotFound.matches(err)).toBe(true);
-      expect(NamespaceNotFound.matches(err)).toBe(false);
+      expect(StreamAborted.matches(err)).toBe(false);
     }
   });
 
@@ -652,8 +648,6 @@ describe('built-in error codes', () => {
       ChannelNotFound: ChannelNotFound.code,
       ChannelNotSubscribed: ChannelNotSubscribed.code,
       InternalError: InternalError.code,
-      InvalidScopeMarkers: InvalidScopeMarkers.code,
-      NamespaceNotFound: NamespaceNotFound.code,
       RequestNoResponse: RequestNoResponse.code,
       StreamAborted: StreamAborted.code,
       StreamAlreadyActive: StreamAlreadyActive.code,
@@ -663,12 +657,24 @@ describe('built-in error codes', () => {
       ChannelNotFound: 'channel-not-found',
       ChannelNotSubscribed: 'channel-not-subscribed',
       InternalError: 'internal-error',
-      InvalidScopeMarkers: 'invalid-scope-markers',
-      NamespaceNotFound: 'namespace-not-found',
       RequestNoResponse: 'request-no-response',
       StreamAborted: 'stream-aborted',
       StreamAlreadyActive: 'stream-already-active',
       StreamIdCollision: 'stream-id-collision',
     });
+  });
+});
+
+describe('error() reserved-code guard', () => {
+  it('throws when a developer redeclares a built-in framework code', () => {
+    expect(() => error('rate-limited')).toThrow(/reserved/);
+    expect(() => error('validation-failed')).toThrow(/reserved/);
+    expect(() => error('channel-not-found')).toThrow(/reserved/);
+    expect(() => error('stream-aborted')).toThrow(/reserved/);
+  });
+
+  it('allows a non-reserved code', () => {
+    expect(() => error('my-app-error')).not.toThrow();
+    expect(() => error('quota-exceeded', v.object({ limit: v.number() }))).not.toThrow();
   });
 });

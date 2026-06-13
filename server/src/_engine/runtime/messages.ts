@@ -3,6 +3,7 @@ import {
   Block,
   ChannelNotSubscribed,
   rethrowIfConfigError,
+  UnsupportedProtocol,
   ValidationFailed,
   WSKitError,
 } from '@wskit/core';
@@ -79,6 +80,8 @@ interface DispatchRuntime
 
   errorHooks: readonly ((ctx: any, error: unknown, event?: string) => void | Promise<void>)[];
 
+  declaredErrorCodes: ReadonlySet<string>;
+
   buildConnectionContext(
     connection: EngineRuntimeTypes.RuntimeConnection,
     scope?: EngineRuntimeTypes.ResolvedScope,
@@ -94,10 +97,9 @@ interface DispatchRuntime
     opts: {
       channelName: string | null;
       channelScope: string | null;
-      namespace?: string | null;
       event: string;
       payload: unknown;
-      wire: { seq: number; messageId: string; channel?: string; namespace?: string | null };
+      wire: { seq: number; messageId: string; channel?: string };
     },
   ): void;
 
@@ -186,7 +188,9 @@ function isDuplicateIncoming(
   cap: number,
 ): boolean {
   const messageId = wskit?.messageId;
-  if (typeof messageId !== 'string' || messageId.length === 0) return false;
+  // The wire schema bounds and non-empties `messageId` (`WireId`); absent means
+  // the client opted out of receiver-side dedup for this frame.
+  if (messageId === undefined) return false;
 
   let ring = connection.seenIncomingIds;
   if (!ring || ring.cap !== cap) {
@@ -222,7 +226,6 @@ function buildInterceptRouting(
     streamId?: string;
     channel?: string;
     channelScope?: string | null;
-    namespace?: string;
     seq?: number;
   } = {};
   if (wskit.messageId !== undefined) routing.messageId = wskit.messageId;
@@ -233,7 +236,6 @@ function buildInterceptRouting(
     routing.channel = wskit.channel;
     routing.channelScope = wskit.channelScope ?? null;
   }
-  if (wskit.namespace !== undefined) routing.namespace = wskit.namespace;
   if (wskit.seq !== undefined) routing.seq = wskit.seq;
   return routing;
 }
@@ -300,16 +302,23 @@ export async function dispatchIncoming(
       scope.channelScope ?? null,
     )
   ) {
+    // Keep every incoming routing id (correlationId/ackId/streamId/…) so the
+    // client can match this error to its pending op, then stamp the channel markers.
+    const routing: Protocol.WSKitRouting = routingFromWSKit(wskit) ?? {};
+    routing.channel = scope.channelName;
+    routing.channelScope = scope.channelScope ?? null;
+    // A nudge frame's reject is non-terminal — keep the stream alive on the client.
+    if (wskit?.streamNudgeId !== undefined) routing.streamTerminated = false;
     await runtime.handleRuntimeError(connection, {
       error: ChannelNotSubscribed(),
       event,
-      routing: { channel: scope.channelName, channelScope: scope.channelScope ?? null },
+      routing,
     });
     return;
   }
 
   // A scoped frame can only reach handlers declared in that scope — never top-level ones.
-  const scoped = scope.channel ?? scope.namespace;
+  const scoped = scope.channel;
   const incoming = scoped ? scoped.incoming.get(event) : runtime.compiled.incoming.get(event);
   const request = scoped ? scoped.requests.get(event) : runtime.compiled.requests.get(event);
   const stream = scoped ? scoped.streams.get(event) : runtime.compiled.streams.get(event);
@@ -333,54 +342,47 @@ export async function dispatchIncoming(
 
   try {
     // A hook's return value becomes the new payload only. The event name is locked.
-    for (const hook of runtime.incomingHooks) {
-      const next = hook(message);
-      if (next !== undefined) message = { event: message.event, payload: next };
+    if (attempt === 0) {
+      for (const hook of runtime.incomingHooks) {
+        const next = hook(message);
+        if (next !== undefined) message = { event: message.event, payload: next };
+      }
+
+      for (const pluginRuntime of runtime.pluginRuntimes) {
+        if (!pluginRuntime.onIncoming) continue;
+        const next = pluginRuntime.onIncoming(message);
+        if (next !== undefined) message = { event: message.event, payload: next };
+      }
     }
 
-    for (const pluginRuntime of runtime.pluginRuntimes) {
-      if (!pluginRuntime.onIncoming) continue;
-      const next = pluginRuntime.onIncoming(message);
-      if (next !== undefined) message = { event: message.event, payload: next };
-    }
-
-    const interceptKind: 'incoming' | 'request' | 'stream' | 'unknown' = incoming
-      ? 'incoming'
-      : request
-        ? 'request'
-        : stream || resumableStream || recordedStream
-          ? 'stream'
-          : 'unknown';
-    const interceptRouting = buildInterceptRouting(wskit);
-    let frame: InterceptPrimitive.InterceptFrame = {
-      event,
-      payload: message.payload,
-      kind: interceptKind,
-      routing: interceptRouting,
-    };
-    frame = await InterceptPrimitive.runIntercepts(runtime, connection, {
-      intercepts: runtime.compiled.intercepts,
-      frame,
-      getCtx,
-    });
-
-    if (scope.namespace) {
+    if (attempt === 0) {
+      let interceptKind: 'incoming' | 'request' | 'stream' | 'unknown' = 'unknown';
+      if (incoming) interceptKind = 'incoming';
+      else if (request) interceptKind = 'request';
+      else if (stream || resumableStream || recordedStream) interceptKind = 'stream';
+      const interceptRouting = buildInterceptRouting(wskit);
+      let frame: InterceptPrimitive.InterceptFrame = {
+        event,
+        payload: message.payload,
+        kind: interceptKind,
+        routing: interceptRouting,
+      };
       frame = await InterceptPrimitive.runIntercepts(runtime, connection, {
-        intercepts: scope.namespace.intercepts,
+        intercepts: runtime.compiled.intercepts,
         frame,
         getCtx,
       });
-    }
 
-    if (scope.channel) {
-      frame = await InterceptPrimitive.runIntercepts(runtime, connection, {
-        intercepts: scope.channel.intercepts,
-        frame,
-        getCtx,
-      });
-    }
+      if (scope.channel) {
+        frame = await InterceptPrimitive.runIntercepts(runtime, connection, {
+          intercepts: scope.channel.intercepts,
+          frame,
+          getCtx,
+        });
+      }
 
-    message = { event: frame.event, payload: frame.payload };
+      message = { event: frame.event, payload: frame.payload };
+    }
 
     const primitive = incoming ?? request ?? stream ?? resumableStream ?? recordedStream;
     if (!primitive) return;
@@ -481,7 +483,7 @@ export async function dispatchIncoming(
   } catch (error) {
     await handleDispatchError(runtime, connection, {
       event,
-      payload,
+      payload: message.payload,
       wskit,
       scope,
       error,
@@ -500,7 +502,7 @@ async function handleDispatchError(
   if (error === Block) return;
 
   if (error instanceof WSKitError && error.code === 'validation-failed') {
-    // Pass `scope` so onValidationError hooks get the right channel/namespace ctx.
+    // Pass `scope` so onValidationError hooks get the right channel ctx.
     await runtime.handleValidationError(connection, { event, validationError: error, scope });
     await runtime.handleRuntimeError(connection, {
       error,
@@ -538,7 +540,7 @@ async function handleDispatchError(
       // unhandled rejection — this code runs inside `void dispatchIncoming`.
       await forEachIsolatedAsync(
         runtime.errorHooks,
-        (hook) => hook(runtime.buildConnectionContext(connection), exhausted, event),
+        (hook) => hook(runtime.buildConnectionContext(connection, scope), exhausted, event),
         { context: `onError hook (DeferExhausted) event="${event}"` },
       );
       return;
@@ -588,12 +590,6 @@ function resolveDurableDefForRow(
     scope = { channel, channelName: row.channelKey, channelScope: row.channelScope };
     resumable = channel.resumableStreams.get(row.event);
     recorded = channel.recordedStreams.get(row.event);
-  } else if (row.namespace) {
-    const namespace = runtime.compiled.namespaces.get(row.namespace);
-    if (!namespace) return undefined;
-    scope = { namespace };
-    resumable = namespace.resumableStreams.get(row.event);
-    recorded = namespace.recordedStreams.get(row.event);
   } else {
     resumable = runtime.compiled.resumableStreams.get(row.event);
     recorded = runtime.compiled.recordedStreams.get(row.event);
@@ -647,9 +643,13 @@ async function handleResumeStream(
   const lastKnownSeq = frame.payload.lastKnownSeq ?? 0;
 
   if (!runtime.sql) {
+    // No storage means durable streams aren't supported at all. Say so, rather
+    // than implying this particular stream merely expired or went missing.
+    // streamId stays on the envelope so the client correlates the error to the
+    // stream it tried to resume and surfaces it to that consumer.
     runtime.sendProtocolMessage(connection, {
       event: '__error__',
-      payload: { code: 'stream-aborted', detail: { reason: 'not-found' as const } },
+      payload: { code: UnsupportedProtocol.code, detail: { event: '__resumeStream__' } },
       wskit: { streamId },
     });
     return;
@@ -760,6 +760,13 @@ async function dispatchProtocolFrame(
           const handled = await handler(ctx, frame);
           if (handled) return;
         }
+        // No replay handler owns this scope — replay is off, or off for this
+        // channel. Tell the client instead of silently dropping the request.
+        await runtime.handleRuntimeError(connection, {
+          error: UnsupportedProtocol({ event: '__replay__' }),
+          event: '__replay__',
+          routing: routingFromWSKit(frame.__wskit),
+        });
         return;
       }
     }
@@ -793,7 +800,6 @@ export async function processTextMessage(
     }
   }
 
-  // `ping` / `pong` stay raw text frames — never envelope-wrapped.
   if (data === 'ping') {
     connection.descriptor.send('pong');
     return;
@@ -812,7 +818,6 @@ export async function processTextMessage(
     return;
   }
 
-  // Drop anything that is not a plain object with a string `event`.
   if (
     !parsed ||
     typeof parsed !== 'object' ||
@@ -824,12 +829,6 @@ export async function processTextMessage(
   }
 
   const event = (parsed as { event: string }).event;
-
-  // A JSON `{ event: 'ping' }` frame answers with a JSON `{ event: 'pong' }`.
-  if (event === 'ping') {
-    connection.descriptor.send(JSON.stringify({ event: 'pong' }));
-    return;
-  }
 
   // Protocol frames skip dedup and nudge buffering — a retried one must still
   // reach its handler.
@@ -874,14 +873,18 @@ export async function processTextMessage(
   // a streamId and scope resolution failed, surface the resolution error to
   // the client and stop.
   if (scopeError && wskit?.streamId) {
+    // Preserve the nudge routing so the client can match the rejected nudge
+    // Promise; a nudge reject is non-terminal, so the stream stays alive.
+    const routing: Protocol.WSKitRouting = routingFromWSKit(wskit) ?? { streamId: wskit.streamId };
+    if (wskit.streamNudgeId !== undefined) routing.streamTerminated = false;
     await runtime.handleRuntimeError(connection, {
       error: scopeError,
       event,
-      routing: { streamId: wskit.streamId },
+      routing,
     });
     return;
   }
-  const triggerScoped = triggerScope.channel ?? triggerScope.namespace;
+  const triggerScoped = triggerScope.channel;
   const isStreamTrigger = triggerScoped
     ? triggerScoped.streams.has(event) ||
       triggerScoped.resumableStreams.has(event) ||
@@ -893,18 +896,49 @@ export async function processTextMessage(
     let nudgePayload = frame.payload;
 
     if (wskit?.streamId) {
-      const topIntercepts = runtime.compiled.intercepts;
-      const nsIntercepts = triggerScope.namespace?.intercepts;
-      const chIntercepts = triggerScope.channel?.intercepts;
+      const activeStream = runtime.activeStreams.get(wskit.streamId);
+      // A nudge for a live owned stream must target the exact scope the stream
+      // runs in, and the connection must still hold that membership. A nudge
+      // that claims a different scope (or none) for a channel stream — e.g.
+      // after leaving the channel — is rejected here so it never reaches the
+      // generator and never runs the wrong scope's intercepts.
+      if (activeStream && activeStream.connectionId === connection.id && !activeStream.closed) {
+        const storedScope = activeStream.scope ?? {};
+        const sameScope =
+          (storedScope.channelName ?? undefined) === (triggerScope.channelName ?? undefined) &&
+          (storedScope.channelScope ?? null) === (triggerScope.channelScope ?? null);
+        const memberOk =
+          !storedScope.channelName ||
+          ChannelPrimitive.hasChannelMembership(
+            connection,
+            storedScope.channelName,
+            storedScope.channelScope ?? null,
+          );
+        if (!sameScope || !memberOk) {
+          const rejectRouting: Protocol.WSKitRouting = {
+            streamId: wskit.streamId,
+            streamTerminated: false,
+          };
+          if (wskit.streamNudgeId !== undefined) rejectRouting.streamNudgeId = wskit.streamNudgeId;
+          await runtime.handleRuntimeError(connection, {
+            error: ChannelNotSubscribed(),
+            event,
+            routing: rejectRouting,
+          });
+          return;
+        }
+      }
 
-      if (
-        topIntercepts.length > 0 ||
-        (nsIntercepts?.length ?? 0) > 0 ||
-        (chIntercepts?.length ?? 0) > 0
-      ) {
+      // Run intercepts in the stream's stored scope, not the nudge's claimed
+      // one, so a channel stream's intercepts always see the channel context.
+      const interceptScope = activeStream?.scope ?? triggerScope;
+      const topIntercepts = runtime.compiled.intercepts;
+      const chIntercepts = interceptScope.channel?.intercepts;
+
+      if (topIntercepts.length > 0 || (chIntercepts?.length ?? 0) > 0) {
         let sharedCtx: Record<PropertyKey, unknown> | undefined;
         function getCtx() {
-          return (sharedCtx ??= runtime.buildConnectionContext(connection, triggerScope));
+          return (sharedCtx ??= runtime.buildConnectionContext(connection, interceptScope));
         }
 
         try {
@@ -919,13 +953,6 @@ export async function processTextMessage(
             frame: nudgeFrame,
             getCtx,
           });
-          if (nsIntercepts) {
-            nudgeFrame = await InterceptPrimitive.runIntercepts(runtime, connection, {
-              intercepts: nsIntercepts,
-              frame: nudgeFrame,
-              getCtx,
-            });
-          }
           if (chIntercepts) {
             nudgeFrame = await InterceptPrimitive.runIntercepts(runtime, connection, {
               intercepts: chIntercepts,
@@ -948,10 +975,18 @@ export async function processTextMessage(
             );
             return;
           }
+          // A thrown nudge intercept is non-terminal: tag the error with
+          // streamTerminated:false and the streamNudgeId so the client's nudge()
+          // Promise rejects while the stream stays live and keeps emitting chunks.
+          const rejectRouting: Protocol.WSKitRouting = {
+            streamId: wskit.streamId,
+            streamTerminated: false,
+          };
+          if (wskit.streamNudgeId !== undefined) rejectRouting.streamNudgeId = wskit.streamNudgeId;
           await runtime.handleRuntimeError(connection, {
             error,
             event,
-            routing: { streamId: wskit.streamId },
+            routing: rejectRouting,
           });
           return;
         }

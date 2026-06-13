@@ -19,12 +19,15 @@ export {
   ChannelNotFound,
   ChannelNotSubscribed,
   InternalError,
-  InvalidScopeMarkers,
-  NamespaceNotFound,
+  NudgeOverflow,
   RateLimited,
+  RejoinRejected,
+  RequestNoCorrelation,
+  RequestNoResponse,
   StreamAborted,
   StreamAlreadyActive,
   StreamIdCollision,
+  UnsupportedProtocol,
 } from '@wskit/core';
 export type { ErrorDef, ErrorDefWithFactory } from '@wskit/core';
 

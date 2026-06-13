@@ -212,7 +212,7 @@ class ReplayInstaller {
       return {};
     }
 
-    if (scope.namespaceName || scope.channelName || !base.id) return {};
+    if (scope.channelName || !base.id) return {};
 
     base.sendReplay = (event: string, payload: unknown, wire: ReplayWire) => {
       this.engine.assertReplaySendContract(event, payload, {
@@ -245,11 +245,10 @@ class ReplayInstaller {
 
     const { sql } = this.engine.requireStorage();
     const scope = this.engine.getInvocationScope();
-    // `replayScope` carries this frame's namespace/channel markers. For the
-    // row-count limit, only `channel`/`channelScope` pick the store: there are
-    // two replay stores (top-level and per-channel), and a namespace has none
-    // of its own — its rows live in the top-level store. So
-    // `pruneReplayScopeRows` keys on channel only, never namespace.
+    // `replayScope` carries this frame's channel markers. For the row-count
+    // limit, `channel`/`channelScope` pick the store: there are two replay
+    // stores (top-level and per-channel). `pruneReplayScopeRows` keys on
+    // channel only.
     const replayScope = readReplayScope(wireMessage.wskit);
     const retention = this.opts.retention;
 
@@ -266,6 +265,16 @@ class ReplayInstaller {
       now: Date.now(),
       scope,
       postFlush: runPrune,
+      // A reducer can return any { event, payload }; the live send only checked
+      // the original frame. Validate the reduced value here so the stored row
+      // conforms to the contract and the replay-from-storage path stays trusted.
+      validateReduced: this.opts.reduce
+        ? (event, payload) =>
+            this.engine.assertReplaySendContract(event, payload, {
+              channel: replayScope.channel ?? undefined,
+              channelScope: replayScope.channelScope,
+            })
+        : undefined,
     });
 
     // Only snapshot writes that ran inside an open handler scope get queued
@@ -318,14 +327,12 @@ class ReplayInstaller {
       this.engine.sendReplay(connectionId, {
         channelName: row.channel,
         channelScope: row.channelScope,
-        namespace: row.namespace,
         event: row.event,
         payload: rowPayload,
         wire: {
           seq: row.seq,
           messageId: row.messageId,
           channel: row.channel ?? undefined,
-          namespace: row.namespace,
         },
       });
     }

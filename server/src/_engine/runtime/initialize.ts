@@ -2,7 +2,7 @@
 import * as EngineContexts from '~/_engine/contexts/contexts.ts';
 import { installPrimitiveHooks } from '~/_engine/registry/install.ts';
 import { createPluginHooks } from '~/_engine/registry/plugin-hooks.ts';
-import { isSchemaInitialized, markSchemaInitialized } from '~/_engine/runtime/schema-meta.ts';
+import { markSchemaInitialized, readSchemaState } from '~/_engine/runtime/schema-meta.ts';
 import type { EngineCore } from '~/_engine/core.ts';
 import type { EngineAccessDeps } from '~/_engine/registry/engine-access.ts';
 import type * as EngineRuntimeTypes from '~/_engine/runtime/types.ts';
@@ -37,6 +37,25 @@ function validateEngineRequirements(core: EngineCore): void {
 }
 
 /**
+ * Throw if a channel registered a `.revalidate()` hook but is not persistent.
+ * `revalidate` only runs on auto-rejoin, which only happens for persistent
+ * channels — so on a non-persistent channel it is dead code, and almost always
+ * means the author meant to enable persistence or use `.check()` instead.
+ */
+function validateRevalidateRequiresPersistence(core: EngineCore): void {
+  for (const channelKey of core.hooks.revalidate.keys()) {
+    if (!core.isChannelPersistent(channelKey)) {
+      throw new Error(
+        `[wskit] Channel "${channelKey}" has a .revalidate() hook but is not persistent, so it would ` +
+          `never run — revalidate fires only on auto-rejoin, which only happens for persistent channels. ` +
+          `Enable persistence (contract \`persistence: true\`, and do not set \`persistent: false\` on this ` +
+          `channel), or remove the .revalidate() hook (use \`.check()\` for first-subscribe authorization).`,
+      );
+    }
+  }
+}
+
+/**
  * One-time startup. Validate capabilities, install primitives and plugins,
  * then run boot hooks and init hooks.
  */
@@ -48,6 +67,7 @@ export async function initialize(core: EngineCore, accessDeps: EngineAccessDeps)
     accessDeps.ensureScheduledRuntime();
   }
   validateEngineRequirements(core);
+  validateRevalidateRequiresPersistence(core);
 
   for (const pluginInstance of core.compiled.plugins) {
     // Plugins declare errors in their `errors: { name: error(...) }` map; the
@@ -94,14 +114,18 @@ export async function initialize(core: EngineCore, accessDeps: EngineAccessDeps)
   // instance the SELECT throws and we treat it as not-initialized.
   const storageForSchema = core.storage;
   if (core.hooks.bootSchema.length > 0) {
-    const initialized = storageForSchema ? isSchemaInitialized(storageForSchema.sql) : false;
-    if (!initialized) {
+    const schemaState = storageForSchema
+      ? readSchemaState(storageForSchema.sql)
+      : { initialized: false, fresh: false };
+    if (!schemaState.initialized) {
       for (const hook of core.hooks.bootSchema) {
         await hook();
       }
       if (storageForSchema) {
         markSchemaInitialized(storageForSchema.sql);
-        core.freshBoot = true;
+        // A migration (meta table present, older version) may already hold
+        // membership rows, so the first auto-rejoin must not be skipped.
+        core.freshBoot = schemaState.fresh;
       }
     }
   }

@@ -8,7 +8,6 @@ import type {
   ChannelDef,
   Definition,
   IncomingDef,
-  NamespaceDef,
   NudgeDef,
   OutgoingDef,
   RecordedStreamDef,
@@ -47,6 +46,12 @@ type ChannelKeyFromPattern<P> = P extends string
 // (string pattern) have no params.
 type ParamsFromPattern<P> = P extends ScopeDeclaration<string, infer Params> ? Params : {};
 
+// 'dynamic' for a `scope()` family (one entry matches many concrete names),
+// 'static' for a string-pattern channel. This is the reliable family signal:
+// a scope() template may declare zero `{name}` params, so non-empty params
+// alone can't tell the two apart.
+type AddressingFromPattern<P> = P extends ScopeDeclaration<string> ? 'dynamic' : 'static';
+
 interface EmptyCats {
   readonly incoming: {};
   readonly outgoing: {};
@@ -56,7 +61,6 @@ interface EmptyCats {
   readonly recordedStreams: {};
   readonly scheduled: {};
   readonly channels: {};
-  readonly namespaces: {};
 }
 
 type AddOne<Acc, D> =
@@ -90,12 +94,15 @@ type AddOne<Acc, D> =
                   ? Acc & {
                       readonly channels: Record<
                         ChannelKeyFromPattern<Pat>,
-                        ChannelContract<Defs, TCheckPayload, ParamsFromPattern<Pat>>
+                        ChannelContract<
+                          Defs,
+                          TCheckPayload,
+                          ParamsFromPattern<Pat>,
+                          AddressingFromPattern<Pat>
+                        >
                       >;
                     }
-                  : D extends NamespaceDef<infer N, infer Defs>
-                    ? Acc & { readonly namespaces: Record<N, NamespaceContract<Defs>> }
-                    : Acc;
+                  : Acc;
 
 type Categorize<TDefs extends readonly Definition[], Acc = EmptyCats> = TDefs extends readonly [
   infer Head,
@@ -112,6 +119,7 @@ export type ChannelContract<
   TDefs extends readonly Definition[] = readonly Definition[],
   TCheckPayload = unknown,
   TParams = Record<string, string>,
+  TAddressing extends 'static' | 'dynamic' = 'static' | 'dynamic',
 > = Pick<
   Categorize<TDefs>,
   'incoming' | 'outgoing' | 'requests' | 'streams' | 'resumableStreams' | 'recordedStreams'
@@ -119,12 +127,13 @@ export type ChannelContract<
   (unknown extends TCheckPayload ? {} : { readonly subscribePayload: TCheckPayload }) & {
     /** The `{name}` captures from the `scope()` template, surfaced as `ctx.channel.params`. */
     readonly params: TParams;
+    /**
+     * Whether this channel is a single static channel or a dynamic `scope()`
+     * family. Read by `InferClient` to give the client the right channel API
+     * shape; never used at runtime.
+     */
+    readonly __addressing: TAddressing;
   };
-
-export type NamespaceContract<TDefs extends readonly Definition[] = readonly Definition[]> = Pick<
-  Categorize<TDefs>,
-  'incoming' | 'outgoing' | 'requests' | 'streams' | 'resumableStreams' | 'recordedStreams'
->;
 
 // ---------------------------------------------------------------------------
 // ContractConfig — the shape passed to contract()
@@ -171,10 +180,9 @@ export interface ContractConfig {
   readonly dedup?: boolean | { cap?: number };
   readonly hibernation?: boolean;
   readonly keepalive?: KeepaliveOptions;
-  readonly binary?: boolean;
   /**
    * Top-level rate-limit rule. Applies to every event in every scope unless a
-   * channel, namespace, or per-handler override replaces it. `{ enabled: false }`
+   * channel or per-handler override replaces it. `{ enabled: false }`
    * here means "no enforcement anywhere by default" — children can still opt in.
    */
   readonly rateLimit?: RateLimitConfig;
@@ -229,8 +237,7 @@ type FeatureFromConfig<TConfig> =
   | (TConfig extends { sequence: true | { persist?: boolean } } ? 'sequence' : never)
   | (TConfig extends { dedup: true | { cap?: number } } ? 'dedup' : never)
   | (TConfig extends { hibernation: true } ? 'hibernation' : never)
-  | (TConfig extends { keepalive: KeepaliveOptions } ? 'keepalive' : never)
-  | (TConfig extends { binary: true } ? 'binary' : never);
+  | (TConfig extends { keepalive: KeepaliveOptions } ? 'keepalive' : never);
 
 type MetaFromConfig<TConfig> = TConfig extends { meta: TypeMarker<infer M> }
   ? M
@@ -366,7 +373,6 @@ export interface Contract<TConfig = unknown, TEnv = unknown> {
   readonly resumableStreams: ContractCats<TConfig>['resumableStreams'];
   readonly recordedStreams: ContractCats<TConfig>['recordedStreams'];
   readonly channels: ContractCats<TConfig>['channels'];
-  readonly namespaces: ContractCats<TConfig>['namespaces'];
   readonly scheduled: ContractCats<TConfig>['scheduled'] &
     PluginScheduledFromPlugins<PluginsFromConfig<TConfig>>;
   readonly errors: ErrorMapFromConfig<TConfig> &

@@ -1,4 +1,5 @@
 import { ENGINE_SCOPE_META } from '~/_engine/contexts/types.ts';
+import * as Protocol from '~/_engine/runtime/protocol.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
 import type { EngineScopeMeta } from '~/_engine/contexts/types.ts';
 import type { RuntimeConnection } from '~/_engine/runtime/types.ts';
@@ -18,7 +19,6 @@ const CREATE_REPLAY_TABLE_SQL = `
     seq INTEGER NOT NULL,
     event TEXT NOT NULL,
     payload TEXT NOT NULL,
-    namespace TEXT,
     channel TEXT,
     channelScope TEXT,
     snapshotKey TEXT,
@@ -93,13 +93,10 @@ function scopeMatchesReplayInstance(
  * store holds it. The cascade only decides which replay instance owns the
  * stored rows, not who is allowed to read them.
  *
- * A namespace is a scope in WSKit, but it has no replay store of its own, so
- * namespace traffic is handled here by the top-level store (no per-namespace
- * branch on purpose).
  */
 export function matchesReplayScope(
   channelKey: string | undefined,
-  scope: { namespaceName?: string; channelName?: string; channelScope?: string | null },
+  scope: { channelName?: string; channelScope?: string | null },
   claimedChannelKeys: ReadonlySet<string> = EMPTY_CLAIMED_CHANNEL_KEYS,
 ): boolean {
   return scopeMatchesReplayInstance(channelKey, scope, claimedChannelKeys);
@@ -136,7 +133,6 @@ export function readReplayContextScope(ctx: Record<PropertyKey, unknown>): Engin
  */
 export function readReplayScope(wskit: Record<string, unknown>): ReplayPayloadScope {
   return {
-    namespace: typeof wskit.namespace === 'string' ? wskit.namespace : null,
     channel: typeof wskit.channel === 'string' ? wskit.channel : null,
     channelScope: typeof wskit.channelScope === 'string' ? wskit.channelScope : null,
   };
@@ -169,6 +165,10 @@ export function shouldStoreReplayMessage(
 ): boolean {
   const { channelKey, wskit, exclude, claimedChannelKeys = EMPTY_CLAIMED_CHANNEL_KEYS } = options;
   if (exclude.has(event)) return false;
+  // Protocol/control frames (presence, subscribe-ok, errors, …) are bookkeeping,
+  // not user messages — they carry no sequence number, so storing them throws.
+  // They're re-derived on reconnect (e.g. __memberSync__), so never record them.
+  if (Protocol.isProtocolEventName(event)) return false;
   if (typeof wskit.correlationId === 'string') return false;
   if (typeof wskit.streamId === 'string') return false;
 
@@ -214,7 +214,6 @@ export function buildReplayRow(event: string, params: BuildReplayRowOptions): Re
     seq,
     event,
     payload: JSON.stringify(payload),
-    namespace: scope.namespace,
     channel: scope.channel,
     channelScope: scope.channelScope,
     snapshotKey,
@@ -240,7 +239,6 @@ export function getReplayRowByKey(
           seq,
           event,
           payload,
-          namespace,
           channel,
           channelScope,
           snapshotKey,
@@ -260,7 +258,6 @@ export function getReplayRowByKey(
     seq: Number(row.seq),
     event: String(row.event),
     payload: String(row.payload),
-    namespace: (row.namespace as string | null) ?? null,
     channel: (row.channel as string | null) ?? null,
     channelScope: (row.channelScope as string | null) ?? null,
     snapshotKey: (row.snapshotKey as string | null) ?? null,
@@ -339,6 +336,15 @@ export interface PersistReplayMessageOptions {
    * this callback.
    */
   postFlush?: (sql: Pick<SQLProvider, 'exec'>) => void;
+
+  /**
+   * Validate the value a `reduce` produced against the public contract before
+   * it is stored. Only the reducer can introduce a shape the live send didn't
+   * already check, so this runs solely on reduced values. It should throw if
+   * the event/payload doesn't conform — keeping the replay-from-storage path
+   * trusted. Not called when no `reduce` is configured.
+   */
+  validateReduced?: (event: string, payload: Record<string, unknown>) => void;
 }
 
 /**
@@ -363,7 +369,7 @@ export function persistReplayMessage(
   },
   opts: PersistReplayMessageOptions,
 ): ReplayRow | null {
-  const { options, event, payload, wskit, now, scope, postFlush } = opts;
+  const { options, event, payload, wskit, now, scope, postFlush, validateReduced } = opts;
   function noopPostFlush(): void {}
 
   const row = buildReplayRow(event, { options, payload, wskit, now });
@@ -384,15 +390,13 @@ export function persistReplayMessage(
     const nextValue: ReplaySnapshotValue = { event, payload };
     const queued = scope.pendingReplaySnapshotRows.get(row.rowKey);
 
-    const previousValue =
-      queued !== undefined
-        ? queued.row === null
-          ? null
-          : toReplaySnapshotValue(queued.row)
-        : (() => {
-            const fromDisk = sql.transaction((tx) => getReplayRowByKey(tx, row.rowKey));
-            return fromDisk ? toReplaySnapshotValue(fromDisk) : null;
-          })();
+    let previousValue: ReplaySnapshotValue | null;
+    if (queued !== undefined) {
+      previousValue = queued.row === null ? null : toReplaySnapshotValue(queued.row);
+    } else {
+      const fromDisk = sql.transaction((tx) => getReplayRowByKey(tx, row.rowKey));
+      previousValue = fromDisk ? toReplaySnapshotValue(fromDisk) : null;
+    }
 
     const reduced = options.reduce ? options.reduce(previousValue, nextValue) : nextValue;
 
@@ -403,6 +407,8 @@ export function persistReplayMessage(
       });
       return null;
     }
+
+    if (options.reduce) validateReduced?.(reduced.event, reduced.payload);
 
     const snapshotRow: ReplayRow = {
       ...row,
@@ -431,6 +437,8 @@ export function persistReplayMessage(
       return null;
     }
 
+    if (options.reduce) validateReduced?.(reduced.event, reduced.payload);
+
     const snapshotRow: ReplayRow = {
       ...row,
       event: reduced.event,
@@ -450,17 +458,12 @@ function buildReplayRowKey(
   const { messageId, snapshotKey } = ids;
   if (type === 'history') return messageId;
 
-  // Snapshot keys include the namespace so the same snapshotKey emitted from
-  // two different namespaces stays as two distinct current-values. This does
-  // not give the namespace its own replay store — a top-level snapshot replay
-  // still reads/returns all of them together (same two-store model as history).
-  return [
+  return JSON.stringify([
     'snapshot',
-    scope.namespace ?? '',
     scope.channel ?? '',
     scope.channelScope ?? '',
     snapshotKey ?? messageId,
-  ].join('|');
+  ]);
 }
 
 /**
@@ -480,19 +483,17 @@ export function storeReplayRow(
         seq,
         event,
         payload,
-        namespace,
         channel,
         channelScope,
         snapshotKey,
         createdAt
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     row.rowKey,
     row.messageId,
     row.seq,
     row.event,
     row.payload,
-    row.namespace,
     row.channel,
     row.channelScope,
     row.snapshotKey,
@@ -525,20 +526,16 @@ export function pruneExpiredReplayRows(
  * Trim one replay store down to the configured maximum row count.
  *
  * Replay has exactly two replay stores: the top-level one and one per channel.
- * A namespace is a scope in WSKit, but it has no replay store of its own — a
- * namespace's messages live in the top-level store and come back as part of a
- * top-level replay (see `buildLoadReplayQuery`). So the limit must be matched
- * to that read by keying ONLY on `channel`/`channelScope`, never on namespace:
+ * The limit is matched to the read by keying on `channel`/`channelScope`:
  *
  * - Top-level store (`channel` is null): keep the newest N across every
- *   non-channel row, namespace included. Keying on namespace here would keep N
- *   rows per namespace and let one top-level replay hand back far more than N.
+ *   non-channel row.
  * - Channel store: keep the newest N for that one `(channel, channelScope)`.
  *
  * Both cases fall out of the same query: a null `channel`/`channelScope` binds
  * to the top-level rows, a real channel binds to that channel's rows. Ordering
- * by `seq` is safe across namespaces because the sequence counter is global
- * (one counter for the whole server), so "newest N by seq" is well-defined.
+ * by `seq` is well-defined because the sequence counter is global (one counter
+ * for the whole server).
  */
 export function pruneReplayScopeRows(
   sql: {
@@ -585,7 +582,6 @@ export function buildLoadReplayQuery(
             seq,
             event,
             payload,
-            namespace,
             channel,
             channelScope,
             snapshotKey,
@@ -607,7 +603,6 @@ export function buildLoadReplayQuery(
           seq,
           event,
           payload,
-          namespace,
           channel,
           channelScope,
           snapshotKey,
@@ -622,14 +617,10 @@ export function buildLoadReplayQuery(
     };
   }
 
-  // Top-level replay returns every non-channel row regardless of namespace.
-  // This is BY DESIGN, not a leak. A namespace is a scope in WSKit, but it has
-  // no replay store of its own: there are only two replay stores, top-level and
-  // per-channel. A namespace's messages live in the top-level store, so a
-  // top-level replay returns them too. Each row still carries its namespace so
-  // the client routes it to the right handler. The limit in
-  // `pruneReplayScopeRows` matches this read (it counts the whole top-level
-  // store as one), so `maxMessages` bounds what this read returns.
+  // Top-level replay returns every non-channel row. There are only two replay
+  // stores, top-level and per-channel. The limit in `pruneReplayScopeRows`
+  // matches this read (it counts the whole top-level store as one), so
+  // `maxMessages` bounds what this read returns.
   return {
     sql: `
       SELECT
@@ -638,7 +629,6 @@ export function buildLoadReplayQuery(
         seq,
         event,
         payload,
-        namespace,
         channel,
         channelScope,
         snapshotKey,
@@ -672,7 +662,6 @@ export function loadReplayRows(
     seq: Number(row.seq),
     event: String(row.event),
     payload: String(row.payload),
-    namespace: (row.namespace as string | null) ?? null,
     channel: (row.channel as string | null) ?? null,
     channelScope: (row.channelScope as string | null) ?? null,
     snapshotKey: (row.snapshotKey as string | null) ?? null,

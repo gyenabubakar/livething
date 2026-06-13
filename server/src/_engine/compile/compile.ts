@@ -1,10 +1,9 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { assertValidWSKitIdentifier } from '@wskit/core';
+import { assertValidWSKitIdentifier, WIRE_LIMITS } from '@wskit/core';
 import {
   compileChannelPrimitive,
   validateChannelFamilyPatternsDisjointFromStaticNames,
 } from '~/channel/compile.ts';
-import { compileNamespacePrimitive } from '~/namespace/compile.ts';
 import { collectReplayClaimedScopes } from '~/replay/compile.ts';
 import type * as PrimitiveCore from '~/primitive.ts';
 import type * as DefineServer from '~/server-definition.ts';
@@ -13,7 +12,7 @@ import type * as EngineCompileTypes from './types.ts';
 
 // Walk the declarative primitive tree and fill the compiled runtime shape.
 // Per-kind work lives next to the primitive (channel/compile.ts,
-// namespace/compile.ts, intercept/compile.ts); this function dispatches.
+// intercept/compile.ts); this function dispatches.
 function visitCompiledPrimitives(
   compiled: EngineCompileTypes.CompiledServer,
   primitives: readonly PrimitiveCore.Primitive[],
@@ -103,14 +102,6 @@ function visitCompiledPrimitives(
         continue;
     }
 
-    if (EngineCompileUtils.isNamespacePrimitive(primitive)) {
-      EngineCompileUtils.setUniqueOrThrow(compiled.namespaces, primitive.pattern, {
-        value: compileNamespacePrimitive(primitive),
-        kind: 'namespace',
-      });
-      continue;
-    }
-
     if (EngineCompileUtils.isChannelPrimitive(primitive)) {
       const compiledChannel = compileChannelPrimitive(primitive);
 
@@ -158,7 +149,6 @@ export function compileHandlerDefinition(
     resumableStreams: new Map(),
     recordedStreams: new Map(),
     intercepts: [],
-    namespaces: new Map(),
     channels: new Map(),
     channelFamilies: new Map(),
     scheduled: new Map(),
@@ -205,7 +195,7 @@ function validateUniquePluginIds(compiled: EngineCompileTypes.CompiledServer): v
  * first request, deep in the handler stack, far from the real cause.
  *
  * Checks against `features`, the set of flags read straight from the contract
- * config (`replay`, `persistence`, `binary`, and so on). So a flag set to
+ * config (`replay`, `persistence`, and so on). So a flag set to
  * `false` reads as off and a flag set to `true` reads as on, whatever handlers
  * the contract did or did not register.
  */
@@ -236,12 +226,6 @@ function hasAnyReplayPrimitive(primitives: readonly PrimitiveCore.Primitive[]): 
     ) {
       return true;
     }
-    if (
-      EngineCompileUtils.isNamespacePrimitive(primitive) &&
-      hasAnyReplayPrimitive(primitive.primitives)
-    ) {
-      return true;
-    }
   }
   return false;
 }
@@ -257,8 +241,8 @@ function hasAnyReplayPrimitive(primitives: readonly PrimitiveCore.Primitive[]): 
  */
 function validateReplayDependencies(primitives: readonly PrimitiveCore.Primitive[]): void {
   // dedup and sequence are top-level only — they have no meaning nested inside
-  // a channel/namespace. Replay primitives, however, can appear at the top
-  // level OR inside any channel/namespace block, so we walk recursively to
+  // a channel. Replay primitives, however, can appear at the top
+  // level OR inside any channel block, so we walk recursively to
   // catch nested cases that the top-level scan would miss.
   let hasDedup = false;
   let hasPersistentSequence = false;
@@ -302,9 +286,9 @@ function validateUniquePluginEventNames(compiled: EngineCompileTypes.CompiledSer
  * Refuse to boot when a scope or event name uses characters reserved by the
  * `contract.matches(...)` / `contract.unsafeCast(...)` path key grammar.
  *
- * Path keys take the form `[<@channel | #namespace>::]event`, so:
- * - Scope names (channel + namespace) starting with `@` or `#` would be
- *   indistinguishable from the scope prefix.
+ * Path keys take the form `[<@channel>::]event`, so:
+ * - Channel names starting with `@` would be indistinguishable from the scope
+ *   prefix.
  * - `::` is the separator between scope name and event name, so neither side
  *   may contain it.
  *
@@ -312,14 +296,20 @@ function validateUniquePluginEventNames(compiled: EngineCompileTypes.CompiledSer
  * at parse time; real-world names don't need any of these characters.
  */
 function validateScopeAndEventNameSyntax(compiled: EngineCompileTypes.CompiledServer): void {
-  function checkScopeName(name: string, kind: 'channel' | 'namespace'): void {
-    assertValidWSKitIdentifier(name, `${kind} name`);
+  // A static channel name travels on the wire as `channel` (limit 256); a
+  // dynamic family key travels as `channelScope` (limit 128). Validating a
+  // family key against the larger channel limit lets a 129-char key boot that
+  // no client can ever address.
+  function checkScopeName(name: string, kind: 'channel', limit: number): void {
+    assertValidWSKitIdentifier(name, `${kind} name`, limit);
+
     if (name.startsWith('@') || name.startsWith('#')) {
       throw new Error(
         `[wskit] ${kind} name '${name}' starts with a reserved prefix character ('@' or '#'). ` +
           `Those prefixes are reserved for the contract.matches(...) path key syntax — pick a different name.`,
       );
     }
+
     if (name.includes('::')) {
       throw new Error(
         `[wskit] ${kind} name '${name}' contains '::', which is reserved as the separator in ` +
@@ -333,6 +323,13 @@ function validateScopeAndEventNameSyntax(compiled: EngineCompileTypes.CompiledSe
       throw new Error(
         `[wskit] Event name '${event}' in ${scopeLabel} contains '::', which is reserved as the ` +
           `separator in the contract.matches(...) path key syntax — pick a different name.`,
+      );
+    }
+
+    if (event.length > WIRE_LIMITS.event) {
+      throw new Error(
+        `[wskit] Event name in ${scopeLabel} is ${event.length} characters; the wire protocol limit ` +
+          `is ${WIRE_LIMITS.event}. A longer name can't travel over the wire, so no client could reach it.`,
       );
     }
   }
@@ -351,29 +348,38 @@ function validateScopeAndEventNameSyntax(compiled: EngineCompileTypes.CompiledSe
     for (const event of scope.outgoing.keys()) checkEventName(event, scopeLabel);
     for (const event of scope.incoming.keys()) checkEventName(event, scopeLabel);
     for (const event of scope.requests.keys()) checkEventName(event, scopeLabel);
-    for (const event of scope.streams.keys()) checkEventName(event, scopeLabel);
-    if (scope.resumableStreams) {
-      for (const event of scope.resumableStreams.keys()) checkEventName(event, scopeLabel);
+
+    for (const [event, generate] of scope.streams) {
+      checkEventName(event, scopeLabel);
+      // Nudges travel as their own user-event frames, so a nudge name too long
+      // for the wire can't be reached either — validate it like any event name.
+      for (const nudge of generate.stream.nudges) checkEventName(nudge.event, scopeLabel);
     }
+
+    if (scope.resumableStreams) {
+      for (const [event, generate] of scope.resumableStreams) {
+        checkEventName(event, scopeLabel);
+        for (const nudge of generate.nudges) checkEventName(nudge.event, scopeLabel);
+      }
+    }
+
     if (scope.recordedStreams) {
-      for (const event of scope.recordedStreams.keys()) checkEventName(event, scopeLabel);
+      for (const [event, generate] of scope.recordedStreams) {
+        checkEventName(event, scopeLabel);
+        for (const nudge of generate.nudges) checkEventName(nudge.event, scopeLabel);
+      }
     }
   }
 
   checkEventsInScope(compiled, 'top-level');
 
-  for (const namespace of compiled.namespaces.values()) {
-    checkScopeName(namespace.name, 'namespace');
-    checkEventsInScope(namespace, `namespace '${namespace.name}'`);
-  }
-
   for (const channel of compiled.channels.values()) {
-    checkScopeName(channel.key, 'channel');
+    checkScopeName(channel.key, 'channel', WIRE_LIMITS.channel);
     checkEventsInScope(channel, `channel '${channel.key}'`);
   }
 
   for (const family of compiled.channelFamilies.values()) {
-    checkScopeName(family.key, 'channel');
+    checkScopeName(family.key, 'channel', WIRE_LIMITS.channelScope);
     checkEventsInScope(family, `channel family '${family.key}'`);
   }
 }
@@ -411,13 +417,17 @@ function validateNoCrossPrimitiveEventCollisions(
       ...resumable.keys(),
       ...recorded.keys(),
     ]);
+
     for (const event of allNames) {
       const where: string[] = [];
+
       if (scope.incoming.has(event)) where.push('incoming');
       if (scope.requests.has(event)) where.push('request');
       if (scope.streams.has(event)) where.push('stream');
+
       if (resumable.has(event)) where.push('resumableStream');
       if (recorded.has(event)) where.push('recordedStream');
+
       if (where.length > 1) {
         throw new Error(
           `[wskit] Event name '${event}' is registered as both '${where[0]}' and '${where[1]}' in ${label}. ` +
@@ -428,12 +438,11 @@ function validateNoCrossPrimitiveEventCollisions(
   }
 
   check(compiled, 'top-level');
-  for (const namespace of compiled.namespaces.values()) {
-    check(namespace, `namespace '${namespace.name}'`);
-  }
+
   for (const channel of compiled.channels.values()) {
     check(channel, `channel '${channel.key}'`);
   }
+
   for (const family of compiled.channelFamilies.values()) {
     check(family, `channel family '${family.key}'`);
   }
@@ -445,11 +454,13 @@ function validateNoCrossPrimitiveEventCollisions(
 // underscore events.
 function collectPluginEventNames(compiled: EngineCompileTypes.CompiledServer): ReadonlySet<string> {
   const names = new Set<string>();
+
   for (const pluginInstance of compiled.plugins) {
     for (const eventName of Object.keys(pluginInstance.outgoing)) {
       names.add(EngineCompileUtils.prefixedPluginEvent(pluginInstance.id, eventName));
     }
   }
+
   return names;
 }
 
@@ -470,6 +481,7 @@ function validateNoReservedEventNames(
           `Pick a different name for your event.`,
       );
     }
+
     // The double-underscore prefix is reserved for WSKit protocol events
     // (__subscribe__, __error__, ...) and plugin-owned events. Allow only the
     // names installed plugins actually declared — anything else with the
@@ -496,6 +508,7 @@ function validateNoReservedEventNames(
     for (const event of scope.outgoing.keys()) check(event, `${label} outgoing`);
     for (const event of scope.incoming.keys()) check(event, `${label} incoming`);
     for (const event of scope.requests.keys()) check(event, `${label} request`);
+
     for (const [streamEvent, generate] of scope.streams) {
       check(streamEvent, `${label} stream`);
       // A stream can also declare nudges — client-to-server events that drive
@@ -508,6 +521,7 @@ function validateNoReservedEventNames(
         check(nudge.event, `${label} stream '${streamEvent}' nudge`);
       }
     }
+
     if (scope.resumableStreams) {
       for (const [streamEvent, primitive] of scope.resumableStreams) {
         check(streamEvent, `${label} resumableStream`);
@@ -516,6 +530,7 @@ function validateNoReservedEventNames(
         }
       }
     }
+
     if (scope.recordedStreams) {
       for (const [streamEvent, primitive] of scope.recordedStreams) {
         check(streamEvent, `${label} recordedStream`);
@@ -527,12 +542,10 @@ function validateNoReservedEventNames(
   }
 
   checkScope(compiled, 'top-level');
-  for (const namespace of compiled.namespaces.values()) {
-    checkScope(namespace, `namespace '${namespace.name}'`);
-  }
   for (const channel of compiled.channels.values()) {
     checkScope(channel, `channel '${channel.key}'`);
   }
+
   for (const family of compiled.channelFamilies.values()) {
     checkScope(family, `channel family '${family.key}'`);
   }

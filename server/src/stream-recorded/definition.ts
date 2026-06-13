@@ -20,7 +20,6 @@ interface CommonRecordedConfig {
    *
    * Scope is decided by where you declare the stream:
    * - Top-level — fans out to every connection on the handler.
-   * - Inside `namespace(...)` — fans out to every connection in that namespace.
    * - Inside `channel(...)` — fans out to every connection subscribed to the channel.
    *
    * A non-creator that sends `__streamCancel__` is unsubscribed from future

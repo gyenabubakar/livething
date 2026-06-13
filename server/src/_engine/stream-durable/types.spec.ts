@@ -33,13 +33,10 @@ describe('computeBroadcastScopeKey — channel-family keys never collide', () =>
     expect(chf(left[0], left[1])).not.toBe(chf(right[0], right[1]));
   });
 
-  it('non-family channel, namespace, and top-level keys are unchanged', () => {
+  it('non-family channel and top-level keys are unchanged', () => {
     expect(computeBroadcastScopeKey({ channelName: 'room:abc' } as unknown as ResolvedScope)).toBe(
       '__bcast:ch:room:abc__',
     );
-    expect(
-      computeBroadcastScopeKey({ namespace: { name: 'chat' } } as unknown as ResolvedScope),
-    ).toBe('__bcast:ns:chat__');
     expect(computeBroadcastScopeKey({} as unknown as ResolvedScope)).toBe('__bcast:top__');
   });
 });

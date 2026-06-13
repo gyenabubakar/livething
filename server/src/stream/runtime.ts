@@ -1,8 +1,9 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
 import {
+  ChannelNotSubscribed,
   InternalError,
+  NudgeOverflow,
   rethrowIfConfigError,
-  StreamAborted,
   StreamIdCollision,
   ValidationFailed,
 } from '@wskit/core';
@@ -15,6 +16,7 @@ import {
   installCtxNudges,
 } from '~/_engine/stream-common/active-stream.ts';
 import * as ChannelPrimitive from '~/channel/runtime.ts';
+import { normalizeRuntimeError } from '~/errors/runtime.ts';
 import type { EngineAsyncContext } from '~/_engine/async-context.ts';
 import type { AnyGenerate } from '~/_engine/compile/types.ts';
 import type * as Protocol from '~/_engine/runtime/protocol.ts';
@@ -37,6 +39,8 @@ interface StreamRuntime {
 
   errorHooks: readonly ((ctx: unknown, error: unknown, event?: string) => void | Promise<void>)[];
 
+  declaredErrorCodes: ReadonlySet<string>;
+
   buildConnectionContext(
     connection: RuntimeConnection,
     scope?: ResolvedScope,
@@ -51,7 +55,13 @@ interface StreamRuntime {
     connection: RuntimeConnection,
     opts: {
       routing:
-        | { namespace?: string; channel?: string; channelScope?: string | null; streamId?: string }
+        | {
+            channel?: string;
+            channelScope?: string | null;
+            streamId?: string;
+            seq?: number;
+            streamKind?: 'ephemeral' | 'persistent';
+          }
         | undefined;
       event: string;
       payload: unknown;
@@ -70,42 +80,17 @@ interface StreamRuntime {
     opts: { event: string; validationError: unknown; scope?: ResolvedScope },
   ): Promise<void>;
 
-  broadcastToConnections(
-    connections: readonly RuntimeConnection[],
-    opts: {
-      event: string;
-      payload: unknown;
-      options?: {
-        namespace?: string;
-        channel?: string;
-        channelScope?: string | null;
-        excludeSelf?: boolean;
-      };
-      excludeConnectionId?: string;
-    },
-  ): void;
-
   connections: Map<string, RuntimeConnection>;
 
   persistAttachment(connection: RuntimeConnection): void;
 }
 
-/**
- * Extract a client-supplied `streamId` from the incoming frame's `__wskit`.
- * Accepts only non-empty strings under 256 chars to keep the id reasonable for
- * SQL indexing and logging. Anything else is treated as "no id supplied" and
- * the runtime generates one.
- */
-function readSuppliedStreamId(wskit: Protocol.WSKitProtocol | undefined): string | undefined {
-  const value = wskit?.streamId;
-  if (typeof value !== 'string' || value.length === 0 || value.length > 256) return undefined;
-  return value;
-}
-
 /** Build the `__wskit` routing block for a stream protocol frame. */
-function buildStreamRouting(streamId: string, scope: ResolvedScope): Record<string, unknown> {
-  const wskit: Record<string, unknown> = { streamId };
-  if (scope.namespace?.name) wskit.namespace = scope.namespace.name;
+function buildStreamRouting(
+  streamId: string,
+  scope: ResolvedScope,
+): Partial<Protocol.WSKitProtocol> {
+  const wskit: Partial<Protocol.WSKitProtocol> = { streamId };
   if (scope.channelName) wskit.channel = scope.channelName;
   if (scope.channelScope) wskit.channelScope = scope.channelScope;
   return wskit;
@@ -174,7 +159,13 @@ export async function bufferStreamNudge(
 ): Promise<boolean> {
   const { event, payload, wskit } = options;
   const streamId = wskit?.streamId;
-  if (typeof streamId !== 'string') return false;
+  if (streamId === undefined) return false;
+  const streamNudgeId = wskit?.streamNudgeId;
+
+  // A rejected nudge is non-terminal: the error carries streamTerminated:false and
+  // the streamNudgeId, so the client's nudge() Promise rejects without ending the stream.
+  const rejectRouting: Protocol.WSKitRouting = { streamId, streamTerminated: false };
+  if (streamNudgeId !== undefined) rejectRouting.streamNudgeId = streamNudgeId;
 
   const activeStream = runtime.activeStreams.get(streamId);
 
@@ -191,7 +182,33 @@ export async function bufferStreamNudge(
         },
       ],
     });
-    await runtime.handleRuntimeError(connection, { error, event, routing: { streamId } });
+    await runtime.handleRuntimeError(connection, { error, event, routing: rejectRouting });
+    return true;
+  }
+
+  // The nudge must target the exact scope the stream runs in, and the
+  // connection must still hold that membership. A nudge claiming a different
+  // (or absent) scope for a channel stream is rejected — it must not reach
+  // the generator or run on the wrong scope.
+  const storedScope = activeStream.scope ?? {};
+  const claimedChannel = wskit?.channel;
+  const claimedScope = wskit?.channelScope ?? null;
+  const sameScope =
+    (storedScope.channelName ?? undefined) === (claimedChannel ?? undefined) &&
+    (storedScope.channelScope ?? null) === claimedScope;
+  const memberOk =
+    !storedScope.channelName ||
+    ChannelPrimitive.hasChannelMembership(
+      connection,
+      storedScope.channelName,
+      storedScope.channelScope ?? null,
+    );
+  if (!sameScope || !memberOk) {
+    await runtime.handleRuntimeError(connection, {
+      error: ChannelNotSubscribed(),
+      event,
+      routing: rejectRouting,
+    });
     return true;
   }
 
@@ -208,20 +225,20 @@ export async function bufferStreamNudge(
         },
       ],
     });
-    await runtime.handleRuntimeError(connection, { error, event, routing: { streamId } });
+    await runtime.handleRuntimeError(connection, { error, event, routing: rejectRouting });
     return true;
   }
 
   // The client is queueing nudges faster than the generator drains them.
-  // Growing the buffer without bound is a memory-exhaustion vector, and
-  // silently dropping nudges would corrupt the stream's input. Abort the
-  // stream so the client gets a clear signal and can restart it.
+  // Growing the buffer without bound is a memory-exhaustion vector, and silently
+  // dropping nudges would corrupt the stream's input. Reject THIS nudge as
+  // backpressure — non-terminal, so only its nudge() Promise rejects and the
+  // stream keeps running. The client can slow down and retry.
   if (activeStream.nudges.length >= NUDGE_BUFFER_CAP) {
-    await cancelStream(runtime, connection, streamId);
     runtime.sendProtocolMessage(connection, {
       event: '__error__',
-      payload: { code: StreamAborted.code, detail: { reason: 'nudge-overflow' } },
-      wskit: { streamId },
+      payload: { code: NudgeOverflow.code, detail: { cap: NUDGE_BUFFER_CAP } },
+      wskit: rejectRouting,
     });
     return true;
   }
@@ -236,8 +253,18 @@ export async function bufferStreamNudge(
     await runtime.handleValidationError(connection, { event, validationError: error });
     // Send `__error__` with `streamId` routing so the client hits the right
     // stream-error handler. Mark handled so it does not fall through.
-    await runtime.handleRuntimeError(connection, { error, event, routing: { streamId } });
+    await runtime.handleRuntimeError(connection, { error, event, routing: rejectRouting });
     return true;
+  }
+
+  // The nudge passed validation and is buffered — confirm it so the client's
+  // nudge() Promise resolves. (No streamNudgeId means a fire-and-forget nudge.)
+  if (streamNudgeId !== undefined) {
+    runtime.sendProtocolMessage(connection, {
+      event: '__nudgeOk__',
+      payload: {},
+      wskit: { streamId, streamNudgeId },
+    });
   }
 
   return true;
@@ -272,9 +299,10 @@ export async function runStream(
   });
 
   // Use the client's `streamId` if it sent one. Reject collisions with another
-  // active stream on this connection.
+  // active stream on this connection. The wire schema already bounds and
+  // non-empties it (`StreamIdString`), so its presence is the only question.
   let streamId: string;
-  const suppliedId = readSuppliedStreamId(wskit);
+  const suppliedId = wskit?.streamId;
   if (suppliedId !== undefined) {
     if (runtime.activeStreams.has(suppliedId)) {
       throw StreamIdCollision();
@@ -287,7 +315,7 @@ export async function runStream(
   runtime.sendProtocolMessage(connection, {
     event: '__streamOk__',
     payload: {},
-    wskit: buildStreamRouting(streamId, scope),
+    wskit: { ...buildStreamRouting(streamId, scope), streamKind: 'ephemeral' },
   });
 
   const ctx = runtime.buildConnectionContext(connection, scope) as Record<PropertyKey, unknown>;
@@ -300,6 +328,7 @@ export async function runStream(
     event,
     connection,
     generator: iterator,
+    scope,
     nudges: stream.stream.nudges.map((declaration) => ({
       event: declaration.event,
       validator: declaration.validator,
@@ -311,8 +340,24 @@ export async function runStream(
   connection.activeStreamIds.add(streamId);
   runtime.persistAttachment(connection);
 
+  // Who a broadcast fans out to: channel members for a channel stream, every
+  // connection otherwise — minus the creator, who gets its own copy.
+  function broadcastTargets(): RuntimeConnection[] {
+    const all = scope.channelName
+      ? [...runtime.connections.values()].filter((target) =>
+          ChannelPrimitive.hasChannelMembership(
+            target,
+            scope.channelName!,
+            scope.channelScope ?? null,
+          ),
+        )
+      : [...runtime.connections.values()];
+    return all.filter((target) => target.id !== connection.id);
+  }
+
   try {
     let nextInput: unknown = stream.stream.nudges.length > 0 ? [] : undefined;
+    let seq = 0;
 
     while (!activeStream.closed) {
       // Advance the generator inside the connection's async context so plugin
@@ -322,37 +367,39 @@ export async function runStream(
       );
       if (result.done) break;
 
+      // A cancel can land while next() was pending. Drop the resolved value —
+      // sending it would emit a chunk (and a later __streamEnd__) after cancel.
+      if (activeStream.closed) {
+        await iterator.return?.(undefined);
+        break;
+      }
+
+      seq += 1;
+      const chunkRouting = {
+        channel: scope.channelName,
+        channelScope: scope.channelScope,
+        streamId,
+        streamKind: 'ephemeral' as const,
+        seq,
+      };
+
       if (stream.stream.broadcast) {
-        // A channel-scoped stream broadcasts to channel members only. Top-level
-        // and namespace streams broadcast to every connection.
-        const targets = scope.channelName
-          ? [...runtime.connections.values()].filter((target) =>
-              ChannelPrimitive.hasChannelMembership(
-                target,
-                scope.channelName!,
-                scope.channelScope ?? null,
-              ),
-            )
-          : [...runtime.connections.values()];
-        runtime.broadcastToConnections(targets, {
-          event,
-          payload: result.value,
-          options: {
-            namespace: scope.namespace?.name,
-            channel: scope.channelName,
-            channelScope: scope.channelScope,
-            excludeSelf: true,
+        // Fan out per-target so each peer chunk carries streamId + seq + streamKind
+        // (same as the creator's), which onStream needs to group and complete it.
+        await forEachIsolatedAsync(
+          broadcastTargets(),
+          (target) => {
+            runtime.sendThroughPipeline(target, {
+              routing: chunkRouting,
+              event,
+              payload: result.value,
+            });
           },
-          excludeConnectionId: connection.id,
-        });
+          { context: `stream broadcast fan-out streamId="${streamId}" event="${event}"` },
+        );
       }
       runtime.sendThroughPipeline(connection, {
-        routing: {
-          namespace: scope.namespace?.name,
-          channel: scope.channelName,
-          channelScope: scope.channelScope,
-          streamId,
-        },
+        routing: chunkRouting,
         event,
         payload: result.value,
       });
@@ -362,17 +409,53 @@ export async function runStream(
     }
 
     if (!activeStream.closed) {
+      const endWskit = { ...buildStreamRouting(streamId, scope), seq };
       runtime.sendProtocolMessage(connection, {
         event: '__streamEnd__',
         payload: {},
-        wskit: buildStreamRouting(streamId, scope),
+        wskit: endWskit,
       });
+      if (stream.stream.broadcast) {
+        // Peers route a terminal frame by the stream's event name (its own `event`
+        // field is the protocol name), so the fan-out carries eventName.
+        const peerEndWskit = { ...endWskit, eventName: event };
+        await forEachIsolatedAsync(
+          broadcastTargets(),
+          (target) =>
+            runtime.sendProtocolMessage(target, {
+              event: '__streamEnd__',
+              payload: {},
+              wskit: peerEndWskit,
+            }),
+          { context: `stream broadcast end streamId="${streamId}"` },
+        );
+      }
     }
   } catch (streamError) {
-    const routing: Protocol.WSKitRouting = { streamId };
-    if (scope.namespace?.name) routing.namespace = scope.namespace.name;
+    const routing: Protocol.WSKitRouting = { streamId, streamTerminated: true };
     if (scope.channelName) routing.channel = scope.channelName;
     if (scope.channelScope) routing.channelScope = scope.channelScope;
+
+    // A terminal error reaches the creator (below) and, for a broadcast, every
+    // subscriber — so a peer's onError fires instead of a misleading clean end.
+    if (stream.stream.broadcast) {
+      const { payload, wskit } = normalizeRuntimeError(
+        streamError,
+        routing,
+        runtime.declaredErrorCodes,
+      );
+      const peerErrorWskit = { ...wskit, eventName: event };
+      await forEachIsolatedAsync(
+        broadcastTargets(),
+        (target) =>
+          runtime.sendProtocolMessage(target, {
+            event: '__error__',
+            payload,
+            wskit: peerErrorWskit,
+          }),
+        { context: `stream broadcast error streamId="${streamId}"` },
+      );
+    }
 
     if (
       streamError &&

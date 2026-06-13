@@ -40,4 +40,22 @@ describe('contract config validation', () => {
       }),
     ).toThrow(/duplicate error code/);
   });
+
+  it('rejects the same tag group name declared twice in one kind', () => {
+    expect(() =>
+      contract('app', {
+        tags: (ephemeral) => [ephemeral('role'), ephemeral('role')],
+        definitions: [],
+      }),
+    ).toThrow(/ephemeral tag group 'role' is declared twice/);
+  });
+
+  it('allows the same name across kinds — ephemeral and persistent are independent', () => {
+    expect(() =>
+      contract('app', {
+        tags: (ephemeral, persistent) => [ephemeral('role'), persistent('role')],
+        definitions: [],
+      }),
+    ).not.toThrow();
+  });
 });

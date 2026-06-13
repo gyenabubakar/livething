@@ -20,6 +20,8 @@ interface ChannelRuntime extends EngineRuntimeTypes.ConnectionMembersRuntime {
     }[]
   >;
 
+  revalidateHooks: ReadonlyMap<string, readonly ((ctx: any) => void | Promise<void>)[]>;
+
   commitHooks: ReadonlyMap<
     string,
     readonly { handler: (ctx: any, checkResult: unknown) => void }[]
@@ -226,5 +228,6 @@ export async function handleUnsubscribe(
   await ChannelPrimitive.unsubscribeConnection(runtime, connection, {
     channelName: frame.__wskit.channel,
     channelScope: frame.__wskit.channelScope,
+    unsubscribeId: frame.__wskit.unsubscribeId,
   });
 }

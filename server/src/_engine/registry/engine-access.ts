@@ -90,9 +90,6 @@ export function createEngineAccess(
       }
       core.hooks.builderUpgrade = handler;
     },
-    onBinary: (handler) => {
-      core.hooks.binary.push(handler);
-    },
     onValidationError: (handler) => {
       core.hooks.validationError.push(handler);
     },
@@ -108,6 +105,12 @@ export function createEngineAccess(
       pushChannelHook(core.hooks.check, scope?.channelKey, {
         hook: { handler, validator },
         hookName: 'onCheck',
+      });
+    },
+    onRevalidate: (handler) => {
+      pushChannelHook(core.hooks.revalidate, scope?.channelKey, {
+        hook: handler,
+        hookName: 'onRevalidate',
       });
     },
     onCommit: (handler) => {
@@ -237,7 +240,13 @@ export function createEngineAccess(
 
 interface PushChannelHookOptions<T> {
   hook: T;
-  hookName: 'onCheck' | 'onCommit' | 'onSubscribe' | 'onUnsubscribe' | 'onSessionEnd';
+  hookName:
+    | 'onCheck'
+    | 'onRevalidate'
+    | 'onCommit'
+    | 'onSubscribe'
+    | 'onUnsubscribe'
+    | 'onSessionEnd';
 }
 
 /**

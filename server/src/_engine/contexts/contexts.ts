@@ -1,5 +1,4 @@
 import { buildChannelsApi, buildChannelScopeExtra } from '~/channel/context.ts';
-import { buildNamespaceScopeExtra } from '~/namespace/context.ts';
 import * as TagsRuntime from '~/tags/runtime.ts';
 import type * as PublicApi from '~/context.ts';
 import type { LocalKey } from '~/local-key/local-key.ts';
@@ -23,7 +22,7 @@ function buildMessagingApi(
   deps: MessagingDeps,
 ): Pick<
   EngineContextTypes.ConnectionContext<Record<string, unknown>, Record<string, unknown>, unknown>,
-  'broadcast' | 'broadcastBinary' | 'close' | 'send' | 'sendBinary' | 'sendToConnection'
+  'broadcast' | 'close' | 'send' | 'sendToConnection'
 > {
   return {
     send: (event, payload) =>
@@ -51,18 +50,6 @@ function buildMessagingApi(
       return true;
     },
 
-    sendBinary: (data) => {
-      connection.descriptor.sendBinary(data);
-      return true;
-    },
-
-    broadcastBinary: (data, options) => {
-      for (const target of deps.connections.values()) {
-        if ((options?.excludeSelf ?? true) && target.id === connection.id) continue;
-        target.descriptor.sendBinary(data);
-      }
-    },
-
     close: (code, reason) => connection.descriptor.close(code, reason),
   };
 }
@@ -70,14 +57,13 @@ function buildMessagingApi(
 /**
  * Build the per-connection handler context.
  *
- * Top-level send/broadcast live on the root object. Scoped namespace/channel
- * APIs are attached under `ctx.namespace` and `ctx.channel`.
+ * Top-level send/broadcast live on the root object. The scoped channel
+ * API is attached under `ctx.channel`.
  */
 export function buildConnectionContext(
   deps: EngineContextTypes.BuildConnectionContextDeps,
   connection: EngineContextTypes.RuntimeConnection,
   scope?: {
-    namespace?: EngineContextTypes.CompiledNamespace;
     channel?: EngineContextTypes.CompiledChannel;
     channelName?: string;
     channelScope?: string | null;
@@ -108,7 +94,6 @@ export function buildConnectionContext(
   > &
     Record<PropertyKey, unknown> = {
     [EngineContextTypes.ENGINE_SCOPE_META]: {
-      namespaceName: scope?.namespace?.name,
       channelName: scope?.channelName,
       channelScope: scope?.channelScope,
     } satisfies EngineContextTypes.EngineScopeMeta,
@@ -144,7 +129,10 @@ export function buildConnectionContext(
     },
 
     get quality() {
-      return deps.hibernationEnabled ? null : connection.quality;
+      // Quality has no meaning until the first ping/pong lands; mirror `latency`,
+      // which stays null until measured. Also null in hibernation (no pings sent).
+      if (deps.hibernationEnabled || connection.latency === null) return null;
+      return connection.quality;
     },
 
     // Built on first access — most handlers never touch `ctx.channels`.
@@ -162,7 +150,6 @@ export function buildConnectionContext(
       void deps.getTimers()?.setAlarm?.(time);
     },
 
-    ...buildNamespaceScopeExtra(connection, scope, deps),
     ...buildChannelScopeExtra(connection, scope, deps),
 
     sql,
@@ -234,7 +221,7 @@ export function toConnectionInfo(
     tags: TagsRuntime.buildConnectionTagRefs(connection),
     channels: [...connection.channelMemberships.values()].map((m) => m.channelName),
     latency: connection.latency,
-    quality: hibernationEnabled ? null : connection.quality,
+    quality: hibernationEnabled || connection.latency === null ? null : connection.quality,
     bufferedAmount: connection.descriptor.bufferedAmount(),
     ref: () => buildConnectionRef(connection.id, connection.identity, instanceId),
   };

@@ -51,8 +51,9 @@ export function createKv(state: DurableObjectState, logger: Logger): KVProvider 
       const keys = [...result.keys()];
       const freshKeys = await Promise.all(
         keys.map(async (key) => {
-          const entry = result.get(key) as KvEntry | undefined;
-          return (await readFreshKvEntry(state, key, entry)) ? key : null;
+          const raw = result.get(key);
+          if (typeof raw !== 'object' || raw === null || !('value' in raw)) return null;
+          return (await readFreshKvEntry(state, key, raw as KvEntry)) ? key : null;
         }),
       );
       return freshKeys.filter((key): key is string => key !== null);

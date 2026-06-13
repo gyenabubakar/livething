@@ -4,7 +4,6 @@ import { DurableObject } from 'cloudflare:workers';
 import type { ConnectionHandle, Engine, Logger, ServerDefinition } from '@wskit/server/adapters';
 import { createPlatform } from './platform.ts';
 import { createStorage, createTimers } from './providers/index.ts';
-import { normalizeBinary } from './utils.ts';
 
 /**
  * The instance shape of a `server()`-produced Durable Object.
@@ -134,7 +133,6 @@ const buildServe = adapter<undefined, CloudflareDurableObjectClass>({
         // path defensive against an adapter that forgot to forward it.
         return {
           send: (data: string) => socket.send(data),
-          sendBinary: (data: ArrayBuffer | ArrayBufferView) => socket.send(data),
           close: (code?: number, reason?: string) => socket.close(code, reason),
           bufferedAmount: () => 0,
           identity: result.identity ?? '',
@@ -148,7 +146,12 @@ const buildServe = adapter<undefined, CloudflareDurableObjectClass>({
           if (typeof event.data === 'string') {
             connection.handleMessage(event.data);
           } else {
-            connection.handleBinary(normalizeBinary(event.data));
+            // TODO: binary support is planned. A throw here is swallowed by the
+            // WebSocket event dispatch (the frame would be silently dropped and the
+            // socket left open), so reject it loudly by closing the connection —
+            // matching the hibernation path, where a thrown webSocketMessage resets
+            // the socket. 1003 = "unsupported data". The close listener runs cleanup.
+            socket.close(1003, '[wskit] binary frames are not supported yet');
           }
         });
         socket.addEventListener('close', (event) => {
@@ -230,7 +233,8 @@ const buildServe = adapter<undefined, CloudflareDurableObjectClass>({
           return;
         }
 
-        await connection.handleBinary(normalizeBinary(message));
+        // TODO: binary support is planned; reject binary frames loudly until then
+        throw new Error('[wskit] binary frames are not supported yet');
       }
 
       // oxlint-disable-next-line max-params
@@ -299,6 +303,13 @@ const buildServe = adapter<undefined, CloudflareDurableObjectClass>({
  * The returned value is a class, not an instance. Export it from your worker
  * module like `export const Room = server(handler);` — Cloudflare instantiates
  * it per Durable Object id.
+ *
+ * **WSKit requires `compatibility_date` `2026-04-07` or later** in
+ * `wrangler.jsonc`. On that date the Workers runtime completes a
+ * client-initiated WebSocket close handshake itself; on earlier dates it does
+ * not, so a client that calls `socket.disconnect()` (or `ws.close()`) can hang
+ * until a timeout instead of closing promptly. Server-initiated closes are
+ * unaffected.
  *
  * @example
  * ```ts

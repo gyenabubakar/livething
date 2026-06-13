@@ -2,14 +2,14 @@ import {
   ChannelNotFound,
   ChannelNotSubscribed,
   InternalError,
-  InvalidScopeMarkers,
-  NamespaceNotFound,
   RateLimited,
+  RejoinRejected,
   RequestNoCorrelation,
   RequestNoResponse,
   StreamAborted,
   StreamAlreadyActive,
   StreamIdCollision,
+  UnsupportedProtocol,
   ValidationFailed,
 } from '@wskit/core';
 import { createAsyncContext } from '~/_engine/async-context.ts';
@@ -108,14 +108,14 @@ export class EngineCore {
     ValidationFailed.code,
     ChannelNotFound.code,
     ChannelNotSubscribed.code,
-    InvalidScopeMarkers.code,
-    NamespaceNotFound.code,
     RateLimited.code,
+    RejoinRejected.code,
     RequestNoCorrelation.code,
     RequestNoResponse.code,
     StreamAborted.code,
     StreamAlreadyActive.code,
     StreamIdCollision.code,
+    UnsupportedProtocol.code,
   ]);
 
   // ─────── runtime maps ───────

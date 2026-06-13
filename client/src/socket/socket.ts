@@ -1,44 +1,35 @@
-/* oxlint-disable @typescript-eslint/no-explicit-any -- plugin type merging requires `any` */
-import { MessageBuffer } from '~/socket/buffer.ts';
+import { Block } from '@wskit/core';
+import { dispatchToHandlers, runMessageHook } from '~/internal/dispatch.ts';
+import { toWSKitError } from '~/internal/error-frame.ts';
+import { isThenable } from '~/internal/thenable.ts';
+import { isReservedEventName } from '~/internal/wire-validation.ts';
 import { Emitter } from '~/socket/emitter.ts';
-import { Keepalive } from '~/socket/keepalive.ts';
-import { Platform } from '~/socket/platform.ts';
-import { Reconnection } from '~/socket/reconnection.ts';
-import type { SendOptions } from '~/endpoint.ts';
-import type { MiddlewareFn, MiddlewareMessage } from '~/middleware.ts';
-import type { FullSocketOptions } from '~/options.ts';
-import type { Plugin } from '~/plugins/base.ts';
+import type { SocketConfig } from '~/internal/config.ts';
 import type {
-  ConnectionQuality,
-  ConnectionState,
-  IncomingOf,
-  OutgoingOf,
-  SocketContract,
-} from '~/types.ts';
+  FrameOwner,
+  InterceptFn,
+  InternalSendOptions,
+  PrimitiveHelpers,
+  PrimitiveLogger,
+  PrimitiveRuntime,
+  SendResult,
+  WireMessage,
+  WSKitEnvelope,
+} from '~/internal/runtime.ts';
+import type { SendOptions } from '~/messaging.ts';
+import type { ConnectionState } from '~/types.ts';
 
-// ---------------------------------------------------------------------------
-// Close event
-// ---------------------------------------------------------------------------
-
-/**
- * Describes a WebSocket close, passed to `onClose` handlers.
- *
- * - `code` — numeric close code (e.g., 1000 = normal, 1006 = abnormal, 4001 = app-defined)
- * - `reason` — optional string from the server (e.g., "token expired")
- * - `wasClean` — `true` if the close handshake completed properly
- */
+/** What an `onClose` handler receives. */
 export interface CloseEvent {
-  /** WebSocket close code (e.g., 1000 for normal, 4001 for app-defined). */
+  /** The numeric close code (e.g. 1000 normal, 4001 app-defined). */
   code: number;
-  /** Optional close reason from the server. */
+
+  /** The reason text from the server, if any. */
   reason: string;
-  /** Whether the close handshake completed properly. */
+
+  /** Whether the close finished cleanly. */
   wasClean: boolean;
 }
-
-// ---------------------------------------------------------------------------
-// Internal event map
-// ---------------------------------------------------------------------------
 
 type SocketEvents = {
   state: [state: ConnectionState];
@@ -46,163 +37,193 @@ type SocketEvents = {
   reconnect: [];
   reconnectFailed: [];
   close: [event: CloseEvent];
-  error: [error: Event];
-  qualityChange: [quality: ConnectionQuality, latency: number];
+  error: [error: unknown];
 };
 
-// ---------------------------------------------------------------------------
-// Socket class
-// ---------------------------------------------------------------------------
-
-/** Default message parser: expects `{ event, payload }` JSON. */
-function defaultParse(raw: string): { event: string; payload: unknown } | null {
-  const parsed = JSON.parse(raw) as Record<string, unknown>;
-  if (typeof parsed.event !== 'string') return null;
-  return { event: parsed.event, payload: parsed.payload };
+/**
+ * A unique per-socket token mixed into every generated id. `randomUUID` is ideal;
+ * when it's missing (older runtimes) fall back to 16 bytes from `getRandomValues`,
+ * which is just as collision-resistant — crucially it does NOT share a seeded
+ * counter the way a weak RNG might, so two fresh sockets can't mint the same
+ * token. Only with no secure RNG at all does it drop to `Math.random`.
+ */
+function makeIdScope(): string {
+  const crypto = globalThis.crypto;
+  if (crypto?.randomUUID) return crypto.randomUUID();
+  if (crypto?.getRandomValues) {
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    let hex = '';
+    for (const byte of bytes) hex += byte.toString(16).padStart(2, '0');
+    return hex;
+  }
+  return Math.random().toString(36).slice(2, 10);
 }
 
-/** Default message serializer: `{ event, payload }` as JSON. */
-function defaultSerialize(event: string, payload: unknown): string {
-  return JSON.stringify({ event, payload });
+/** Default reader: turn a text frame into `{ event, payload, __wskit? }`. */
+function defaultParse(raw: string): WireMessage | null {
+  const parsed = JSON.parse(raw) as Record<string, unknown>;
+  if (typeof parsed.event !== 'string') return null;
+
+  const message: WireMessage = { event: parsed.event, payload: parsed.payload };
+  if (parsed.__wskit && typeof parsed.__wskit === 'object') {
+    message.__wskit = parsed.__wskit as WSKitEnvelope;
+  }
+
+  return message;
+}
+
+/** Default writer: turn a message into the JSON string sent over the wire. */
+function defaultSerialize(message: WireMessage): string {
+  return message.__wskit
+    ? JSON.stringify({ event: message.event, payload: message.payload, __wskit: message.__wskit })
+    : JSON.stringify({ event: message.event, payload: message.payload });
 }
 
 /**
- * The core WebSocket client. Handles connection lifecycle, reconnection,
- * keepalive, buffering, middleware, and event dispatch. Plugin APIs are
- * merged onto the type by `createSocket`.
+ * The core connection class behind every socket. It owns the WebSocket, the
+ * connection state, sending, receiving, and lazy connecting.
  *
- * Developers never instantiate this directly — use `createSocket()`.
+ * Reconnection, keepalive, and buffering are separate add-on modules (primitives)
+ * that plug in through `_helpers()`. This keeps code you don't use out of your
+ * bundle. You never create this directly — `client()` creates it and returns a
+ * typed `Socket`.
  */
-export class Socket<TContract extends SocketContract> {
-  /** The underlying native WebSocket instance. `null` when disconnected. */
+export class WSKitSocket {
+  /** The native WebSocket, or `null` when not connected. */
   ws: WebSocket | null = null;
 
-  /** The subprotocol selected by the server during handshake. `null` if none. */
+  /** The subprotocol the server picked, or `null`. */
   protocol: string | null = null;
 
   /** @internal */
-  _url: string | (() => string | Promise<string>);
-  /** @internal */
-  _options: FullSocketOptions<TContract>;
-  /** @internal */
-  _plugins: readonly Plugin<any, any>[];
+  _config: SocketConfig;
+
+  /** @internal — set after construction, once add-on modules are ready. */
+  _primitives: readonly PrimitiveRuntime[] = [];
+  private _knownTags: ReadonlySet<string> = new Set();
+
   /** @internal */
   _state: ConnectionState = 'closed';
-  /** @internal */
-  _emitter = new Emitter<SocketEvents>();
-  /** @internal */
-  _middleware: MiddlewareFn[] = [];
+
+  /** @internal — if a listener throws, the error is caught and surfaced (never
+   * re-thrown). A throwing `error` listener can't re-enter the error path, so it
+   * goes straight to the console instead of looping. */
+  _emitter = new Emitter<SocketEvents>((error, event) => {
+    // A thrown 'error' listener must not re-enter the error path. Rethrow it
+    // out-of-band straight to the host's global handler instead of re-emitting.
+    if (event === 'error') {
+      queueMicrotask(() => {
+        throw error;
+      });
+      return;
+    }
+    this._reportError(error);
+  });
+
   /** @internal */
   _debug = false;
+
   /** @internal */
   _isFirstConnect = true;
-  /** @internal — tracks whether disconnect() was called to prevent reconnection */
+
+  /** @internal — true once disconnect() is called, so we don't reconnect. */
   _intentionalClose = false;
-  /**
-   * @internal — cancel in-flight async URL/searchParams resolution.
-   * Async operations (URL resolution, searchParams) can overlap with disconnect().
-   * This counter invalidates stale callbacks: if disconnect() was called while we
-   * were resolving the URL, the attemptId won't match and we bail out.
-   */
+
+  /** @internal — incremented to cancel an in-progress connect attempt (e.g. still resolving the URL). */
   _connectAttemptId = 0;
+
   /** @internal */
-  _reconnection: Reconnection;
-  /** @internal */
-  _keepalive: Keepalive;
-  /** @internal */
-  _buffer: MessageBuffer;
-  /** @internal */
-  _platform: Platform;
-  /** @internal — whether platform listeners have been bound */
-  _platformBound = false;
-  /** @internal — inactivity disconnect timer */
-  _inactivityTimer: ReturnType<typeof setTimeout> | null = null;
-  /** @internal — lazy mode: whether to defer connection */
   _lazy: boolean;
-  /** @internal — lazy mode: idle disconnect timer */
+
   _lazyIdleTimer: ReturnType<typeof setTimeout> | null = null;
-  /** @internal — lazy mode: number of active consumers (on() listeners, pending requests, etc.) */
+
   _lazyConsumers = 0;
-  /** @internal — direct dispatch map for on() handlers, keyed by event name */
+
+  /** @internal — listeners by event name. */
   _messageHandlers = new Map<string, Set<(payload: unknown) => void>>();
 
-  private readonly _pongMessage: string;
-  private readonly _parse: (raw: string) => { event: string; payload: unknown } | null;
-  private readonly _parseBinary:
-    | ((data: unknown) => { event: string; payload: unknown } | null)
-    | null;
-  private readonly _serialize: (event: string, payload: unknown) => string;
+  // Filled in by add-on modules through _helpers().
+  private _unexpectedCloseHandler: ((code: number, reason: string) => void) | null = null;
+
+  // One reconnect decision per close: stream cleanup (willReconnect) and the
+  // reconnection module must not re-evaluate a stateful policy and disagree.
+  private _reconnectDecision: { code: number; reason: string; result: boolean | undefined } | null =
+    null;
+
+  private _pongHandlers: (() => void)[] = [];
+
+  private _outgoingFallback:
+    | ((message: WireMessage, options?: InternalSendOptions) => boolean)
+    | null = null;
+
+  private _signalHandlers = new Map<string, Set<(value: boolean) => void>>();
+
+  private _idCounter = 0;
+
+  // A collision-resistant per-socket token in every generated id, so two fresh
+  // clients (both counting from 0) can't mint the same id — stream ids key a
+  // shared server map, where a collision is a real cross-client failure.
+  // Prefer randomUUID; else 16 secure-random bytes from getRandomValues (still
+  // collision-resistant); Math.random is only a last resort with no secure RNG.
+  private readonly _idScope = makeIdScope();
+
+  private readonly _parse: (raw: string) => WireMessage | null;
+  private readonly _serialize: (message: WireMessage) => string;
+  private readonly _intercepts: readonly InterceptFn[];
+
+  // Shared logger for add-on modules and internal dispatch paths. Calls are
+  // no-ops when debug mode is off. `info` maps to console.log, warn/error to their levels.
+  private readonly _logger: PrimitiveLogger = {
+    info: (...args) => this._logAt('log', ...args),
+    warn: (...args) => this._logAt('warn', ...args),
+    error: (...args) => this._logAt('error', ...args),
+    report: (error) => this._reportError(error),
+  };
 
   /** @internal */
-  constructor(
-    url: string | (() => string | Promise<string>),
-    options: FullSocketOptions<TContract>,
-    plugins: readonly Plugin<any, any>[],
-  ) {
-    this._url = url;
-    this._options = options;
-    this._plugins = plugins;
-    this._debug = options.debug ?? false;
-    this._lazy = options.lazy ?? false;
-    this._pongMessage = options.pongMessage ?? 'pong';
-    this._parse = options.parse ?? defaultParse;
-    this._parseBinary =
-      (
-        options as {
-          parseBinary?: (data: unknown) => { event: string; payload: unknown } | null;
-        }
-      ).parseBinary ?? null;
-    this._serialize = options.serialize ?? defaultSerialize;
-    this._reconnection = new Reconnection(options, plugins);
-    this._buffer = new MessageBuffer(options);
-    this._platform = new Platform(options);
-    this._keepalive = new Keepalive(options, {
-      sendPing: (message) => {
-        if (!this.ws || this._state !== 'open') return;
-        this.ws.send(message);
-        this._log('ping sent');
-      },
-      forceClose: () => {
-        this._log('missed pong threshold reached — force closing');
-        if (this.ws) {
-          this.ws.close(4000, 'missed pong');
-        }
-      },
-      onQualityChange: (quality, latency) => {
-        this._emitter.emit('qualityChange', quality, latency);
-      },
-    });
+  constructor(config: SocketConfig) {
+    this._config = config;
+    this._debug = config.debug ?? false;
+    this._lazy = config.lazy ?? false;
+    this._parse = config.parse ?? defaultParse;
+    this._serialize = config.serialize ?? defaultSerialize;
+    this._intercepts = config.intercepts ?? [];
   }
 
-  // ── Connection lifecycle ─────────────────────────────────────
+  /** @internal — attach the primitive runtimes after they're set up. */
+  _setPrimitives(primitives: readonly PrimitiveRuntime[]): void {
+    this._primitives = primitives;
+  }
 
-  /** Open the WebSocket connection. Safe to call multiple times. */
+  /** @internal — the set of installed primitive tags, for `helpers.hasPrimitive`. */
+  _setKnownTags(tags: ReadonlySet<string>): void {
+    this._knownTags = tags;
+  }
+
+  /** Open the connection. Calling it again while open or connecting does nothing. */
   connect(): void {
     if (this._state === 'open' || this._state === 'connecting') return;
     this._intentionalClose = false;
-    this._bindPlatform();
     this._openConnection();
   }
 
   /**
-   * Close the connection and fully tear down the socket.
-   *
-   * Stops reconnection, clears the message buffer, rejects all pending
-   * `request()` and `send.withAck()` promises, and detaches platform listeners.
-   * All `.on()` handlers remain registered — call `connect()` to reconnect.
-   *
-   * @param code WebSocket close code. Default: `1000` (normal closure).
-   * @param reason Close reason string sent to the server. Default: `''`.
+   * Close the connection on purpose. This is a full stop: no reconnection, the
+   * outgoing buffer is cleared, and add-on modules clean up. Your `on()` handlers
+   * stay, so calling `connect()` later picks up where you left off.
    */
   disconnect(code = 1000, reason = ''): void {
     this._intentionalClose = true;
     this._connectAttemptId++;
-    this._reconnection.stop();
-    this._keepalive.stop();
-    this._buffer.clear();
+    // A deliberate teardown resets the session: the next connect() is treated
+    // as a first connect, not a reconnect (so onReconnect/replay don't fire).
+    this._isFirstConnect = true;
     this._clearLazyIdleTimer();
-    this._lazyConsumers = 0;
-    this._unbindPlatform();
+
+    // Was there anything to tear down? A disconnect() on an already-closed
+    // socket must not fire a second onClose. Closing a connecting/reconnecting
+    // socket still counts (matches native close-during-connecting).
+    const wasActive = this._state !== 'closed';
 
     if (this.ws) {
       this.ws.onopen = null;
@@ -212,264 +233,413 @@ export class Socket<TContract extends SocketContract> {
       this.ws.close(code, reason);
       this.ws = null;
     }
-
     this.protocol = null;
 
-    // Notify plugins
-    for (const plugin of this._plugins) {
-      plugin.onClose?.(code, reason);
+    // Add-on modules always clean up here — clear the buffer, reject pending
+    // request/ack promises — even when already closed, since work may have
+    // been queued since then. We do NOT zero `_lazyConsumers`: `on()` handlers
+    // survive a disconnect, so they still count as consumers. Wiping the count
+    // would let a later unsubscribe wrongly idle-close a socket that still has
+    // live listeners.
+    for (const primitive of this._primitives) {
+      try {
+        primitive.onClose?.(code, reason, true, false);
+      } catch (error) {
+        this._reportError(error);
+      }
     }
+    // Clear again in case a pending-op release above started an idle timer.
+    this._clearLazyIdleTimer();
 
-    this._setState('closed');
-    this._emitter.emit('close', { code, reason, wasClean: true });
+    // Fire the user-facing close only once: skip it when we were already closed
+    // so a redundant disconnect doesn't emit a second onClose.
+    if (wasActive) {
+      this._setState('closed');
+      this._emitter.emit('close', { code, reason, wasClean: true });
+    }
   }
 
-  // ── State ────────────────────────────────────────────────────
-
-  /** Current connection state. */
   getState(): ConnectionState {
     return this._state;
   }
 
-  /** Current connection quality based on ping latency. */
-  getQuality(): ConnectionQuality {
-    if (this._state !== 'open') return 'disconnected';
-    return this._keepalive.getQuality();
-  }
-
-  /** Last measured round-trip time in milliseconds, or `null` if unknown. */
-  getLatency(): number | null {
-    return this._keepalive.getLatency();
-  }
-
-  /**
-   * Subscribe to state changes. The callback receives no arguments —
-   * read the new state with `getState()`. Returns an unsubscribe function.
-   */
+  /** Run a callback whenever the state changes. Read the new value with `getState()`. */
   subscribe(callback: () => void): () => void {
     return this._emitter.on('state', callback);
   }
 
-  // ── Event callbacks ──────────────────────────────────────────
-
-  /** Listen for incoming events. Typed against `TContract['incoming']`. Returns an unsubscribe function. */
-  on<K extends keyof IncomingOf<TContract> & string>(
-    event: K,
-    handler: (data: IncomingOf<TContract>[K]) => void,
-  ): () => void {
+  on(event: string, handler: (data: unknown) => void): () => void {
     this._lazyAcquire();
 
     if (!this._messageHandlers.has(event)) {
       this._messageHandlers.set(event, new Set());
     }
-    const set = this._messageHandlers.get(event)!;
-    set.add(handler as (payload: unknown) => void);
 
+    const handlers = this._messageHandlers.get(event)!;
+    handlers.add(handler);
+
+    // Guard so calling this unsubscribe more than once releases the lazy hold
+    // only once — a second call must not steal another listener's hold.
+    let released = false;
     return () => {
-      set.delete(handler as (payload: unknown) => void);
-      if (set.size === 0) this._messageHandlers.delete(event);
+      if (released) return;
+
+      released = true;
+      handlers.delete(handler);
+
+      if (handlers.size === 0) this._messageHandlers.delete(event);
+
       this._lazyRelease();
     };
   }
 
-  /** Send an outgoing event. Typed against `TContract['outgoing']`. Returns `true` if sent or buffered. */
-  send<K extends keyof OutgoingOf<TContract> & string>(
-    event: K,
-    payload: OutgoingOf<TContract>[K],
-    options?: SendOptions,
-  ): boolean {
-    return this._send(event, payload, options);
-  }
-
-  /**
-   * @internal — untyped send that runs the full pipeline: lazy connect →
-   * onOutgoing hooks → buffer fallback → WebSocket. Used by `send()` and
-   * exposed to plugins via `helpers.send`.
-   *
-   * See also `_rawSend` which bypasses onOutgoing hooks — used by plugins to
-   * avoid infinite loops (e.g., an onOpen hook sending a message that re-triggers
-   * onOutgoing). Plugins that want buffer support use `helpers.send` (calls _send).
-   */
-  _send(event: string, payload: unknown, options?: SendOptions): boolean {
-    this._ensureConnected();
-
-    let msg: { event: string; payload: unknown } | null = { event, payload };
-    for (const plugin of this._plugins) {
-      if (!plugin.onOutgoing) continue;
-      msg = plugin.onOutgoing(msg.event, msg.payload);
-      if (msg === null) {
-        this._log('send cancelled by plugin');
-        return false;
-      }
-    }
-
-    if (this._state !== 'open' || !this.ws) {
-      if (this._buffer.enqueue(msg.event, msg.payload, options?.ttl)) {
-        this._log(`send('${msg.event}') buffered`);
-        return true;
-      }
-      this._log(`send('${event}') dropped — not connected`);
+  send(event: string, payload: unknown, options?: SendOptions): boolean {
+    // A reserved protocol name (ping/pong or the __ namespace) can't be a user
+    // event — the server drops it, so don't put it on the wire. Drop it locally.
+    if (isReservedEventName(event)) {
+      this._log(`send('${event}') dropped — reserved event name`);
       return false;
     }
-
-    this.ws.send(this._serialize(msg.event, msg.payload));
-    this._log(`send('${msg.event}')`, msg.payload);
-    return true;
+    const result = this._send({ event, payload }, options);
+    return result === 'sent' || result === 'buffered';
   }
 
-  /**
-   * Send raw binary data directly over the WebSocket. Bypasses the `serialize`
-   * option and contract typing — you handle the encoding.
-   */
-  sendBinary(data: ArrayBuffer | ArrayBufferView<ArrayBuffer> | Blob): void {
-    if (this._state !== 'open' || !this.ws) return;
-    this.ws.send(data);
-  }
-
-  // ── Lifecycle callbacks ──────────────────────────────────────
-
-  /** Fires on every connection open (first connect and reconnects). */
+  /** Runs on every open — the first connect and every reconnect. */
   onOpen(callback: () => void): () => void {
     return this._emitter.on('open', callback);
   }
 
-  /** Fires only on reconnects (not the first connect). */
+  /** Runs only on reconnects, not the first connect. */
   onReconnect(callback: () => void): () => void {
     return this._emitter.on('reconnect', callback);
   }
 
-  /** Fires when all reconnection attempts are exhausted. */
+  /** Runs once when reconnection gives up for good. */
   onReconnectFailed(callback: () => void): () => void {
     return this._emitter.on('reconnectFailed', callback);
   }
 
-  /** Fires on every WebSocket close, including closes that trigger reconnection. */
+  /** Runs on every close, including ones that lead to a reconnect. */
   onClose(callback: (event: CloseEvent) => void): () => void {
     return this._emitter.on('close', callback);
   }
 
-  /** Fires on WebSocket protocol errors. Not called on normal disconnection. */
-  onError(callback: (error: Event) => void): () => void {
+  /**
+   * An error worth knowing about: a WebSocket-level `Event`, a typed server error
+   * (`WSKitError`) that no request or stream claimed, or any value thrown by one of
+   * your handlers, listeners, or a plugin/primitive hook — surfaced here instead of
+   * swallowed. With no listener attached, the value is rethrown out of band (via
+   * `queueMicrotask`) so it surfaces to the global error handler.
+   */
+  onError(callback: (error: unknown) => void): () => void {
     return this._emitter.on('error', callback);
   }
 
-  /**
-   * Fires when connection quality transitions between tiers
-   * (e.g., `'good'` → `'degraded'`). Callback receives the new quality
-   * tier and the current round-trip latency in milliseconds.
-   */
-  onQualityChange(callback: (quality: ConnectionQuality, latency: number) => void): () => void {
-    return this._emitter.on('qualityChange', callback);
-  }
-
-  // ── Middleware ────────────────────────────────────────────────
-
-  /** Add incoming message middleware. Runs in registration order. */
-  use(middleware: MiddlewareFn): void {
-    this._middleware.push(middleware);
-  }
-
-  // ── Debug ────────────────────────────────────────────────────
-
-  /** Enable or disable console debug logging for connection events, message flow, and plugin activity. */
   setDebug(enabled: boolean): void {
     this._debug = enabled;
   }
 
-  // ── Internal ─────────────────────────────────────────────────
+  /** @internal — the set of actions an add-on module can call on the core engine. */
+  _helpers(): PrimitiveHelpers {
+    return {
+      config: this._config,
 
-  /** @internal */
+      log: this._logger,
+
+      rawSend: (message, owner) => this._rawSend(message, owner),
+
+      sendPing: () => this.ws?.send('ping'),
+
+      send: (message, options) => this._send(message, options),
+
+      generateId: (prefix) => {
+        const id = ++this._idCounter;
+        return prefix ? `${prefix}-${this._idScope}-${id}` : `${this._idScope}-${id}`;
+      },
+
+      getState: () => this._state,
+
+      hasPrimitive: (tag) => this._knownTags.has(tag),
+
+      ensureConnected: () => this._ensureConnected(),
+
+      lazyAcquire: () => this._lazyAcquire(),
+
+      lazyRelease: () => this._lazyRelease(),
+
+      reopen: () => this._openConnection(),
+
+      enterReconnecting: () => this._setState('reconnecting'),
+
+      giveUp: () => this._abandonReconnect(false),
+
+      failReconnect: () => this._abandonReconnect(true),
+
+      forceClose: (code, reason) => this.ws?.close(code, reason),
+
+      onUnexpectedClose: (handler) => {
+        this._unexpectedCloseHandler = handler;
+      },
+
+      runShouldReconnect: (code, reason) => this._runShouldReconnect(code, reason),
+
+      willReconnect: (code, reason) =>
+        this._unexpectedCloseHandler !== null && this._runShouldReconnect(code, reason) !== false,
+
+      onPong: (handler) => this._pongHandlers.push(handler),
+
+      registerOutgoingFallback: (handler) => {
+        this._outgoingFallback = handler;
+      },
+
+      emitSignal: (name, value) => {
+        const set = this._signalHandlers.get(name);
+        if (set) dispatchToHandlers(set, this._logger, value);
+      },
+
+      onSignal: (name, handler) => {
+        let set = this._signalHandlers.get(name);
+        if (!set) {
+          set = new Set();
+          this._signalHandlers.set(name, set);
+        }
+
+        set.add(handler);
+
+        return () => {
+          set.delete(handler);
+        };
+      },
+
+      disconnect: (code, reason) => this.disconnect(code, reason),
+
+      connect: () => this.connect(),
+
+      suspend: (code, reason) => this._suspend(code, reason),
+
+      resume: () => this._resume(),
+    };
+  }
+
+  private _suspend(code = 1000, reason = 'background'): void {
+    this._intentionalClose = true;
+    this._connectAttemptId++;
+    this._clearLazyIdleTimer();
+
+    const wasActive = this._state !== 'closed';
+
+    if (this.ws) {
+      this.ws.onopen = null;
+      this.ws.onclose = null;
+      this.ws.onerror = null;
+      this.ws.onmessage = null;
+      this.ws.close(code, reason);
+      this.ws = null;
+    }
+    this.protocol = null;
+
+    for (const primitive of this._primitives) {
+      try {
+        primitive.onClose?.(code, reason, false, true);
+      } catch (error) {
+        this._reportError(error);
+      }
+    }
+    this._clearLazyIdleTimer();
+
+    if (wasActive) {
+      this._setState('closed');
+      this._emitter.emit('close', { code, reason, wasClean: true });
+    }
+  }
+
+  private _resume(): void {
+    if (this._state === 'open' || this._state === 'connecting') return;
+    this._intentionalClose = false;
+    this._openConnection();
+  }
+
+  /**
+   * Reconnection has permanently given up — a non-retryable close, or out of
+   * retries. Notify primitives so they can finish state they kept alive for a
+   * reconnect that will never come; otherwise a resumable stream's loop hangs
+   * forever and an active channel's idle hold leaks. Then settle on 'closed'.
+   * Only the out-of-retries path emits the public `reconnectFailed` event, to
+   * keep its existing meaning.
+   */
+  private _abandonReconnect(emitEvent: boolean): void {
+    for (const primitive of this._primitives) {
+      try {
+        primitive.onReconnectFailed?.();
+      } catch (error) {
+        this._reportError(error);
+      }
+    }
+    this._setState('closed');
+    if (emitEvent) this._emitter.emit('reconnectFailed');
+  }
+
+  private _runShouldReconnect(code: number, reason: string): boolean | undefined {
+    if (
+      this._reconnectDecision &&
+      this._reconnectDecision.code === code &&
+      this._reconnectDecision.reason === reason
+    ) {
+      return this._reconnectDecision.result;
+    }
+
+    const result = this._evaluateShouldReconnect(code, reason);
+    this._reconnectDecision = { code, reason, result };
+    return result;
+  }
+
+  private _evaluateShouldReconnect(code: number, reason: string): boolean | undefined {
+    for (const primitive of this._primitives) {
+      if (!primitive.shouldReconnect) continue;
+      // Isolate each vote so a throwing policy can't abort the close flow.
+      let result: boolean | void;
+      try {
+        result = primitive.shouldReconnect(code, reason);
+      } catch (error) {
+        this._logger.report(error);
+        continue;
+      }
+      if (result === true || result === false) return result;
+    }
+    return undefined;
+  }
+
   private _setState(state: ConnectionState): void {
     if (this._state === state) return;
-    const prev = this._state;
+    const previous = this._state;
     this._state = state;
-    this._log(`${prev} → ${state}`);
+    this._log(`${previous} → ${state}`);
     this._emitter.emit('state', state);
   }
 
-  /** @internal — resolve the URL (string or async function) and open the WebSocket */
   private async _openConnection(): Promise<void> {
     const attemptId = ++this._connectAttemptId;
     this._setState('connecting');
 
     try {
-      // Resolve dynamic URL
-      const baseUrl = typeof this._url === 'function' ? await this._url() : this._url;
-      if (attemptId !== this._connectAttemptId) return; // cancelled by disconnect()
+      const baseUrl =
+        typeof this._config.url === 'function' ? await this._config.url() : this._config.url;
+      if (attemptId !== this._connectAttemptId) return; // a disconnect() cancelled us mid-resolve
 
-      // Append searchParams
+      // Let add-on modules rewrite the URL before connecting (e.g. query() adds
+      // params). They chain, each seeing the previous result. Only async hooks
+      // are awaited, so a connect with no URL hooks stays synchronous.
       let finalUrl = baseUrl;
-      if (this._options.searchParams) {
-        const params = await this._options.searchParams();
-        if (attemptId !== this._connectAttemptId) return; // cancelled
-        const separator = baseUrl.includes('?') ? '&' : '?';
-        finalUrl = `${baseUrl}${separator}${params.toString()}`;
+      for (const primitive of this._primitives) {
+        if (!primitive.resolveUrl) continue;
+        const result = primitive.resolveUrl(finalUrl);
+        if (isThenable<string>(result)) {
+          finalUrl = await result;
+          if (attemptId !== this._connectAttemptId) return;
+        } else {
+          finalUrl = result;
+        }
+      }
+
+      // On a reconnect, let add-on modules do any async work before the socket
+      // opens (e.g. channels refreshing a subscribe token). Skipped on the first
+      // connect since nothing is subscribed yet. Each module returns a Promise only
+      // when it has real async work, so a basic reconnect stays synchronous.
+      // After awaiting, re-check the attempt id so a disconnect() that happened
+      // mid-resolve still cancels us.
+      if (!this._isFirstConnect) {
+        for (const primitive of this._primitives) {
+          try {
+            const result = primitive.onBeforeReopen?.();
+            if (result) {
+              await result;
+              if (attemptId !== this._connectAttemptId) return;
+            }
+          } catch (error) {
+            this._reportError(error);
+          }
+        }
       }
 
       this._log(`connecting to ${finalUrl}`);
 
-      const ws = new WebSocket(finalUrl, this._options.protocols);
-      if ('binaryType' in this._options && this._options.binaryType) {
-        ws.binaryType = this._options.binaryType;
-      }
+      const ws = new WebSocket(finalUrl, this._config.protocols);
+      if (this._config.binaryType) ws.binaryType = this._config.binaryType;
 
       ws.onopen = () => {
         if (attemptId !== this._connectAttemptId) {
           ws.close();
           return;
         }
+
         this.ws = ws;
         this.protocol = ws.protocol || null;
-        this._reconnection.reset();
         this._setState('open');
 
         const isReconnect = !this._isFirstConnect;
         this._isFirstConnect = false;
 
-        this._keepalive.start();
-
-        // Plugin onOpen hooks (fire on every open)
-        for (const plugin of this._plugins) {
-          const messages = plugin.onOpen?.();
-          if (!messages) continue;
-          for (const msg of messages) {
-            this._rawSend(msg.event, msg.payload);
-          }
-        }
-
-        // Plugin onReconnect hooks (fire only on reconnect)
+        // On a reconnect, restore membership state BEFORE flushing queued ops:
+        // channels rejoin and durable streams resume in onReconnect, so a request,
+        // ack, scoped send, stream trigger, or nudge queued during the drop reaches
+        // the server only after its channel is rejoined and its stream resumed.
+        // Otherwise a queued channel op races ahead of the rejoin and the server
+        // answers ChannelNotSubscribed or it times out.
         if (isReconnect) {
-          for (const plugin of this._plugins) {
-            const messages = plugin.onReconnect?.();
-            if (!messages) continue;
-            for (const msg of messages) {
-              this._rawSend(msg.event, msg.payload);
+          for (const primitive of this._primitives) {
+            try {
+              this._flushPrimitiveFrames(primitive.onReconnect?.());
+            } catch (error) {
+              this._reportError(error);
             }
           }
         }
 
-        // Flush buffered messages
-        this._buffer.flush(
-          (event, payload) => this._rawSend(event, payload),
-          () => this._log('buffer flush complete'),
-        );
-
-        // Socket callbacks
-        this._emitter.emit('open');
-        if (isReconnect) {
-          this._emitter.emit('reconnect');
+        // Then the flush phase: replay, the request/ack/stream outboxes, the
+        // subscribe/unsubscribe flush, and the buffered messages — now ordered
+        // after the rejoin/resume above.
+        for (const primitive of this._primitives) {
+          try {
+            this._flushPrimitiveFrames(primitive.onOpen?.());
+          } catch (error) {
+            this._reportError(error);
+          }
         }
+
+        this._emitter.emit('open');
+        if (isReconnect) this._emitter.emit('reconnect');
+
+        // If we opened with no active listeners (e.g. the last one unsubscribed
+        // while reconnecting), start the idle timer now — onopen is the only
+        // place that can, because _lazyRelease only runs while the socket is open.
+        if (this._lazy && this._lazyConsumers === 0) this._startLazyIdleTimer();
       };
 
       ws.onclose = (event) => {
         if (attemptId !== this._connectAttemptId) return;
         this.ws = null;
         this.protocol = null;
-        this._keepalive.stop();
+        this._reconnectDecision = null;
 
-        // Notify plugins
-        for (const plugin of this._plugins) {
-          plugin.onClose?.(event.code, event.reason);
+        for (const primitive of this._primitives) {
+          try {
+            primitive.onClose?.(event.code, event.reason, false, false);
+          } catch (error) {
+            this._reportError(error);
+          }
+        }
+        this._clearLazyIdleTimer();
+
+        // Update the state BEFORE firing onClose so a handler that reads
+        // getState() sees the final state ('reconnecting' or 'closed').
+        if (this._intentionalClose) {
+          this._setState('closed');
+        } else if (this._unexpectedCloseHandler) {
+          // The reconnection module decides what to do next (sets 'reconnecting'
+          // or gives up to 'closed'); without it, an unexpected drop stays closed.
+          this._unexpectedCloseHandler(event.code, event.reason);
+        } else {
+          this._setState('closed');
         }
 
         this._emitter.emit('close', {
@@ -477,49 +647,46 @@ export class Socket<TContract extends SocketContract> {
           reason: event.reason,
           wasClean: event.wasClean,
         });
-
-        if (this._intentionalClose) {
-          this._setState('closed');
-          return;
-        }
-
-        if (!this._reconnection.shouldReconnect(event.code, event.reason)) {
-          this._log(`reconnection suppressed (code ${event.code})`);
-          this._setState('closed');
-          return;
-        }
-
-        this._setState('reconnecting');
-        this._log(`connection closed (code ${event.code}), reconnecting`);
-        this._scheduleReconnect();
       };
 
       ws.onerror = (event) => {
+        if (attemptId !== this._connectAttemptId) return;
         this._log('WebSocket error');
-        this._emitter.emit('error', event);
+        this._reportError(event);
       };
 
       ws.onmessage = (event) => {
+        if (attemptId !== this._connectAttemptId) return;
         this._handleMessage(event);
       };
     } catch (error) {
       if (attemptId !== this._connectAttemptId) return;
+
       this._log('connection failed', error);
-      this._setState('reconnecting');
-      this._scheduleReconnect();
+      this._reportError(toWSKitError(error));
+      this._reconnectDecision = null;
+
+      // Run primitive close cleanup first (same order as ws.onclose), so a failed
+      // first connect doesn't leave channel/request/ack state pending.
+      for (const primitive of this._primitives) {
+        try {
+          primitive.onClose?.(1006, 'connection failed', false, false);
+        } catch (closeError) {
+          this._reportError(closeError);
+        }
+      }
+
+      if (this._unexpectedCloseHandler) {
+        this._unexpectedCloseHandler(1006, 'connection failed');
+      } else {
+        this._setState('closed');
+        this._emitter.emit('close', { code: 1006, reason: 'connection failed', wasClean: false });
+      }
     }
   }
 
-  /** @internal — handle an incoming WebSocket message through the full pipeline */
   private _handleMessage(event: MessageEvent): void {
     const raw = event.data;
-
-    // Handle pong messages
-    if (raw === this._pongMessage) {
-      this._log('pong received');
-      this._keepalive.onPong();
-      return;
-    }
 
     if (raw === 'ping') {
       this._log('ping received');
@@ -527,202 +694,119 @@ export class Socket<TContract extends SocketContract> {
       return;
     }
 
-    // Parse: text or binary
-    let parsed: { event: string; payload: unknown } | null = null;
-
-    if (typeof raw === 'string') {
-      try {
-        parsed = this._parse(raw);
-      } catch {
-        this._log('parse error — message dropped');
-        return;
-      }
-    } else if (this._parseBinary) {
-      try {
-        parsed = this._parseBinary(raw);
-      } catch {
-        this._log('parseBinary error — message dropped');
-        return;
-      }
-    }
-
-    if (!parsed) return;
-
-    // Middleware chain — each middleware returns one of three values:
-    //   null      → drop the message entirely (stop processing)
-    //   new msg   → replace the message with the returned value
-    //   undefined → pass through unchanged (undefined and void mean "no change", null means "drop")
-    let msg: MiddlewareMessage | null = parsed;
-    for (const mw of this._middleware) {
-      const result = mw(msg!);
-      if (result === null) {
-        this._log(`middleware dropped '${msg!.event}'`);
-        return;
-      }
-      if (result !== undefined) {
-        msg = result;
-      }
-    }
-
-    // Plugin onIncoming hooks — same null = "consumed" convention as middleware.
-    // When a plugin returns null, it means the plugin fully handled the message
-    // (e.g., an ack plugin matching a response to a pending request), so we exit
-    // the loop and skip dispatch to on() handlers.
-    let pluginMsg: { event: string; payload: unknown } | null = msg;
-    for (const plugin of this._plugins) {
-      if (!plugin.onIncoming) continue;
-      pluginMsg = plugin.onIncoming(pluginMsg!);
-      if (pluginMsg === null) {
-        this._log(`plugin '${plugin.id}' consumed '${msg!.event}'`);
-        return;
-      }
-    }
-
-    // Dispatch to on() handlers
-    this._log(`received '${pluginMsg!.event}'`, pluginMsg!.payload);
-    this._dispatchMessage(pluginMsg!.event, pluginMsg!.payload);
-  }
-
-  /** @internal — schedule a reconnection attempt via the Reconnection class */
-  private _scheduleReconnect(): void {
-    const scheduled = this._reconnection.schedule(
-      () => {
-        this._log(`reconnect attempt ${this._reconnection.currentAttempt}`);
-        this._openConnection();
-      },
-      () => {
-        this._log('reconnection attempts exhausted');
-        this._setState('closed');
-        this._emitter.emit('reconnectFailed');
-      },
-    );
-
-    if (scheduled) {
-      this._log(`reconnect scheduled (attempt ${this._reconnection.currentAttempt})`);
-    }
-  }
-
-  /**
-   * @internal — bind platform event listeners (network online/offline, app visibility).
-   * Called once on first connect(); unbound on disconnect(). Idempotent — the
-   * `_platformBound` flag prevents double-binding across reconnects.
-   *
-   * The inactivity handler (onInactive) starts a timer when the app goes to the
-   * background. If the user doesn't return within `inactiveTimeout` ms, the socket
-   * closes cleanly to save resources. Returning (onActive) cancels the timer and
-   * reconnects if needed.
-   */
-  private _bindPlatform(): void {
-    if (this._platformBound) return;
-    this._platformBound = true;
-
-    const inactiveTimeout = this._options.inactiveTimeout ?? 0;
-
-    this._platform.bind({
-      onNetworkOnline: () => {
-        this._log('network online');
-        if (this._state === 'reconnecting') {
-          this._reconnection.resume(
-            () => {
-              this._log('reconnect attempt (network resumed)');
-              this._openConnection();
-            },
-            () => {
-              this._log('reconnection attempts exhausted');
-              this._setState('closed');
-              this._emitter.emit('reconnectFailed');
-            },
-          );
-        }
-      },
-      onNetworkOffline: () => {
-        this._log('network offline');
-        if (this._state === 'reconnecting') {
-          this._reconnection.pause();
-        }
-      },
-      onActive: () => {
-        this._log('app active');
-        this._clearInactivityTimer();
-        if (this._state === 'closed' && !this._intentionalClose) {
-          this.connect();
-        }
-      },
-      onInactive: () => {
-        this._log('app inactive');
-        if (inactiveTimeout > 0 && this._state === 'open') {
-          this._inactivityTimer = setTimeout(() => {
-            this._log('inactivity timeout — disconnecting');
-            this._intentionalClose = false;
-            this._keepalive.stop();
-            this._reconnection.stop();
-            if (this.ws) {
-              this.ws.onopen = null;
-              this.ws.onclose = null;
-              this.ws.onerror = null;
-              this.ws.onmessage = null;
-              this.ws.close(1000, 'inactive');
-              this.ws = null;
-            }
-            this.protocol = null;
-            this._setState('closed');
-            this._emitter.emit('close', { code: 1000, reason: 'inactive', wasClean: true });
-          }, inactiveTimeout);
-        }
-      },
-    });
-  }
-
-  /** @internal — unbind platform listeners and clear inactivity timer */
-  private _unbindPlatform(): void {
-    this._platform.unbind();
-    this._platformBound = false;
-    this._clearInactivityTimer();
-  }
-
-  /** @internal */
-  private _clearInactivityTimer(): void {
-    if (this._inactivityTimer !== null) {
-      clearTimeout(this._inactivityTimer);
-      this._inactivityTimer = null;
-    }
-  }
-
-  // ── Lazy mode ──────────────────────────────────────────────
-  //
-  // Consumer tracking model: every on() listener and pending request/ack is a
-  // "consumer". The socket stays open as long as consumers > 0. When the last
-  // consumer leaves and the socket is lazy, an idle timer starts. If no new
-  // consumers arrive before it fires, the socket disconnects automatically.
-
-  /**
-   * @internal — trigger connection if in lazy mode and not connected.
-   * Called by `send()` and exposed to plugins via `helpers.ensureConnected`.
-   */
-  _ensureConnected(): void {
-    if (!this._lazy) return;
-    if (this._state === 'open' || this._state === 'connecting' || this._state === 'reconnecting') {
+    if (raw === 'pong') {
+      this._log('pong received');
+      dispatchToHandlers(this._pongHandlers, this._logger);
       return;
     }
+
+    // TODO: binary support is planned. Until then, surface a binary frame
+    // through the normal error path instead of throwing out of `onmessage`
+    // (an uncaught exception there would crash the WebSocket callback).
+    if (typeof raw !== 'string') {
+      this._reportError(new Error('[wskit] binary frames are not supported yet'));
+      return;
+    }
+
+    let parsed: WireMessage | null = null;
+    try {
+      parsed = this._parse(raw);
+    } catch {
+      this._log('could not parse message — dropping it');
+      return;
+    }
+    if (!parsed) return;
+
+    this._processIncoming(parsed);
+  }
+
+  /**
+   * @internal — the pipeline a parsed message runs through: add-on module
+   * `onIncoming` hooks, then the error-frame check, then your intercepts, then
+   * top-level dispatch. Split out from `_handleMessage` so testing's `inject()`
+   * can push a message through the same path without a live socket.
+   */
+  _processIncoming(parsed: WireMessage): void {
+    // Let add-on modules see it first; any of them can consume it by returning null.
+    // A throw is isolated (same as intercepts and lifecycle callbacks): we log it
+    // and skip that module so the rest of the pipeline still runs.
+    let message: WireMessage = parsed;
+    for (const primitive of this._primitives) {
+      if (!primitive.onIncoming) continue;
+      try {
+        const result = primitive.onIncoming(message);
+        if (result === null) {
+          this._log(`primitive '${primitive.id}' handled '${parsed.event}'`);
+          return;
+        }
+        message = result;
+      } catch (error) {
+        this._reportError(error);
+      }
+    }
+
+    // An `__error__` frame no module claimed becomes an onError call instead of a normal event.
+    // Route through _reportError so that with no listener it still reaches the
+    // host's global handler rather than being silently dropped by the emitter.
+    if (message.event === '__error__') {
+      this._reportError(toWSKitError(message.payload));
+      return;
+    }
+
+    // Your intercepts run last and can change or drop the message (throw Block to drop).
+    if (this._intercepts.length) {
+      for (const intercept of this._intercepts) {
+        try {
+          const result = intercept(message);
+          if (result) message = result;
+        } catch (error) {
+          if (error === Block) {
+            // An intentional drop: stop the chain and drop the message.
+            this._log(`intercept dropped '${message.event}'`);
+            return;
+          }
+          // A real error is isolated like an onIncoming throw above: log it and
+          // skip this intercept so the message and the remaining intercepts still
+          // run — a bug in one intercept must not silently swallow messages.
+          this._reportError(error);
+        }
+      }
+    }
+
+    // Top-level handlers only see top-level events. Messages tagged with a
+    // channel or stream id are delivered by the matching add-on module, so they
+    // don't fire here too.
+    const envelope = message.__wskit;
+    if (envelope?.channel === undefined && envelope?.streamId === undefined) {
+      // Guard the log so the message string and args aren't built on every
+      // frame when debug is off (they would be, even though _logAt no-ops).
+      if (this._debug) this._log(`received '${message.event}'`, message.payload);
+      this._dispatchMessage(message.event, message.payload);
+    }
+  }
+
+  /** @internal — open the socket on demand if lazy mode is on and it's not already open. */
+  _ensureConnected(): void {
+    if (!this._lazy) return;
+
+    if (this._state === 'open' || this._state === 'connecting' || this._state === 'reconnecting')
+      return;
+
     this._clearLazyIdleTimer();
+
     this._log('lazy connect triggered');
+
     this.connect();
   }
 
-  /**
-   * @internal — increment lazy consumer count and trigger connection.
-   * Called when `on()` registers a listener or a plugin acquires a consumer.
-   */
+  /** @internal */
   _lazyAcquire(): void {
     this._lazyConsumers++;
     this._clearLazyIdleTimer();
     this._ensureConnected();
   }
 
-  /**
-   * @internal — decrement lazy consumer count and start idle timer if zero.
-   * Called when an `on()` listener unsubscribes or a plugin releases a consumer.
-   */
+  /** @internal */
   _lazyRelease(): void {
     this._lazyConsumers = Math.max(0, this._lazyConsumers - 1);
     if (this._lazy && this._lazyConsumers === 0 && this._state === 'open') {
@@ -730,18 +814,18 @@ export class Socket<TContract extends SocketContract> {
     }
   }
 
-  /** @internal */
   private _startLazyIdleTimer(): void {
     this._clearLazyIdleTimer();
-    const timeout = this._options.lazyIdleTimeout ?? 10_000;
+
+    const timeout = this._config.idleTimeout ?? 10_000;
     if (timeout <= 0) return;
+
     this._lazyIdleTimer = setTimeout(() => {
       this._log('lazy idle timeout — disconnecting');
       this.disconnect();
     }, timeout);
   }
 
-  /** @internal */
   private _clearLazyIdleTimer(): void {
     if (this._lazyIdleTimer !== null) {
       clearTimeout(this._lazyIdleTimer);
@@ -750,27 +834,131 @@ export class Socket<TContract extends SocketContract> {
   }
 
   /**
-   * @internal — send a raw message, bypassing plugin onOutgoing hooks.
-   * Used by plugins and internal code (buffer flush, onOpen hooks) to avoid
-   * infinite loops that would occur if outgoing hooks re-triggered themselves.
+   * @internal — the full send path: open the socket if lazy, let add-on modules
+   * adjust or cancel the message, then either write it, hand it to the outgoing
+   * buffer, or drop it.
    */
-  _rawSend(event: string, payload: unknown): void {
-    if (!this.ws || this._state !== 'open') return;
-    this.ws.send(this._serialize(event, payload));
+  _send(message: WireMessage, options?: InternalSendOptions): SendResult {
+    this._ensureConnected();
+
+    let outgoing: WireMessage | null = message;
+    for (const primitive of this._primitives) {
+      if (!primitive.onOutgoing) continue;
+
+      // Block cancels the send; any other throw is reported and the message
+      // passes through unchanged.
+      const onOutgoing = primitive.onOutgoing;
+      outgoing = runMessageHook(
+        (m) => onOutgoing(m),
+        outgoing!,
+        (error) => this._reportError(error),
+      );
+
+      if (outgoing === null) {
+        this._log('a primitive cancelled the send');
+        return 'blocked';
+      }
+    }
+
+    // Offer to the outgoing fallback (buffering) first: it takes the message
+    // while offline, or while a staggered flush is still draining so a live send
+    // can't jump ahead of not-yet-flushed messages. It declines when open and idle.
+    if (this._outgoingFallback?.(outgoing, options)) {
+      this._log(`send('${outgoing.event}') buffered`);
+      return 'buffered';
+    }
+
+    if (this._state !== 'open' || !this.ws) {
+      this._log(`send('${outgoing.event}') not sent — not connected`);
+      // connecting/reconnecting still has a flush coming; closed does not.
+      return this._state === 'connecting' || this._state === 'reconnecting'
+        ? 'connecting'
+        : 'closed';
+    }
+
+    this.ws.send(this._serialize(outgoing));
+    if (this._debug) this._log(`send('${outgoing.event}')`, outgoing.payload);
+
+    // A send counts as activity. In lazy mode with no active listeners the idle
+    // timer is running; restart it so a send-only client isn't closed mid-stream
+    // (matches the "no recent send()" idle condition in the spec).
+    if (this._lazy && this._lazyConsumers === 0 && this._state === 'open') {
+      this._startLazyIdleTimer();
+    }
+    return 'sent';
   }
 
-  /** @internal — dispatch a parsed message to on() handlers by event name */
-  _dispatchMessage(event: string, payload: unknown): void {
-    const handlers = this._messageHandlers.get(event);
-    if (!handlers) return;
-    for (const handler of handlers) {
-      handler(payload);
+  /**
+   * Send each frame a primitive returned from `onOpen`/`onReconnect`, isolating
+   * every frame so one that won't serialize is reported without stranding the rest.
+   */
+  private _flushPrimitiveFrames(messages: WireMessage[] | null | undefined): void {
+    if (!messages) return;
+    for (const message of messages) {
+      try {
+        this._rawSend(message);
+      } catch (error) {
+        this._reportError(error);
+      }
     }
   }
 
-  /** @internal */
+  /**
+   * @internal — write straight to the wire, skipping outgoing hooks. Returns
+   * where it went so a Promise-bearing protocol op can queue or fail fast.
+   *
+   * When an `owner` is given (a Promise-bearing op flushing a held frame), a
+   * serialization throw rejects that owner and is reported, instead of escaping
+   * to the caller — so a flush of one bad frame can't strand the owner or the
+   * frames queued behind it.
+   */
+  _rawSend(message: WireMessage, owner?: FrameOwner): SendResult {
+    if (this._state === 'open' && this.ws) {
+      if (owner) {
+        let serialized: string;
+        try {
+          serialized = this._serialize(message);
+        } catch (error) {
+          owner.reject(error);
+          this._reportError(error);
+          return 'sent';
+        }
+        this.ws.send(serialized);
+        return 'sent';
+      }
+      this.ws.send(this._serialize(message));
+      return 'sent';
+    }
+    return this._state === 'connecting' || this._state === 'reconnecting' ? 'connecting' : 'closed';
+  }
+
+  /** @internal — call every handler listening for this event. */
+  _dispatchMessage(event: string, payload: unknown): void {
+    dispatchToHandlers(this._messageHandlers.get(event), this._logger, payload);
+  }
+
   private _log(...args: unknown[]): void {
+    this._logAt('log', ...args);
+  }
+
+  /** @internal — all log output goes through here; checks debug mode and adds the `[wskit]` prefix. */
+  private _logAt(level: 'log' | 'warn' | 'error', ...args: unknown[]): void {
     if (!this._debug) return;
-    console.log('[better-ws]', ...args);
+    console[level]('[wskit]', ...args);
+  }
+
+  /**
+   * @internal — surface a caught throw on the `error` event. With no listener,
+   * rethrow it out-of-band so it reaches the host's global error handler
+   * (`window.onerror`, error trackers) without unwinding the dispatch loop.
+   */
+  private _reportError(error: unknown): void {
+    if (this._emitter.listenerCount('error') > 0) {
+      this._emitter.emit('error', error);
+    } else {
+      queueMicrotask(() => {
+        throw error;
+      });
+    }
   }
 }

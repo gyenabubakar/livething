@@ -10,6 +10,7 @@
  * with a discriminated union instead of hand-checking wire fields at each read
  * site.
  */
+import { WIRE_LIMITS } from '@wskit/core';
 import * as v from 'valibot';
 
 // ───── Section: reusable pieces ─────
@@ -31,7 +32,15 @@ const NonNegativeSafeInt = v.pipe(
  * server-side ids. Echoed back in error routing and used as a SQL key, so
  * unbounded length lets a client bloat logs and storage rows.
  */
-const StreamIdString = v.pipe(v.string(), v.minLength(1), v.maxLength(128));
+const StreamIdString = v.pipe(v.string(), v.minLength(1), v.maxLength(WIRE_LIMITS.streamId));
+
+/**
+ * Whether a stream survives a reconnect. `ephemeral` is a plain `stream` — its
+ * generator dies on disconnect. `persistent` is a `resumableStream` /
+ * `recordedStream` — the client auto-resumes it. Stamped on `__streamOk__` and
+ * every chunk so a subscriber knows regardless of when it joined.
+ */
+const StreamKind = v.picklist(['ephemeral', 'persistent']);
 
 /**
  * A bounded channel name. Channel names can be composite
@@ -39,23 +48,23 @@ const StreamIdString = v.pipe(v.string(), v.minLength(1), v.maxLength(128));
  * identifiers. The matcher runs the family regex against this value, so the cap
  * also bounds the worst-case match cost on attacker-controlled input.
  */
-const ChannelName = v.pipe(v.string(), v.minLength(1), v.maxLength(256));
+const ChannelName = v.pipe(v.string(), v.minLength(1), v.maxLength(WIRE_LIMITS.channel));
 
 /**
- * A bounded family key / namespace name. These are short identifiers that must
- * match a declared scope, so 128 is never legitimately exceeded.
+ * A bounded family key for dynamic channels. These are short identifiers that
+ * must match a declared scope, so 128 is never legitimately exceeded.
  */
-const ScopeKey = v.pipe(v.string(), v.maxLength(128));
+const ScopeKey = v.pipe(v.string(), v.maxLength(WIRE_LIMITS.channelScope));
 
 /**
  * A bounded correlation / ack / message id. The client SDK stamps these as
  * UUID/ULID-shaped strings (~26-36 chars); 128 matches the streamId cap.
  * Capping stops a client bloating logs, the dedup ring, and storage rows.
  */
-const WireId = v.pipe(v.string(), v.minLength(1), v.maxLength(128));
+const WireId = v.pipe(v.string(), v.minLength(1), v.maxLength(WIRE_LIMITS.wireId));
 
 /** A bounded user-event name. Short identifier; 128 is generous. */
-const EventName = v.pipe(v.string(), v.minLength(1), v.maxLength(128));
+const EventName = v.pipe(v.string(), v.minLength(1), v.maxLength(WIRE_LIMITS.event));
 
 /**
  * Scope markers for a frame that must target a channel. `channelScope` is the
@@ -68,21 +77,18 @@ const RequiredChannelScope = {
 };
 
 /**
- * Scope markers for a frame that may be top-level, namespace-, or
- * channel-scoped. Every field is optional; `channelScope` still resolves to
- * `null` when absent.
+ * Scope markers for a frame that may be top-level or channel-scoped. Every
+ * field is optional; `channelScope` still resolves to `null` when absent.
  */
 const OptionalScope = {
   channel: v.optional(ChannelName),
   channelScope: v.nullish(ScopeKey, null),
-  namespace: v.optional(ScopeKey),
 };
 
 /**
  * Scope markers for `__replay__`. Replay stores live at two scopes — top-level
- * and channel — so there is no `namespace` marker: a namespace is a scope but
- * has no replay store of its own, so its messages come back as part of a
- * top-level replay. The strict object rejects a stray `namespace`.
+ * and channel — so only those two markers are accepted; the strict object
+ * rejects any other key.
  */
 const ReplayScope = {
   channel: v.optional(ChannelName),
@@ -104,7 +110,10 @@ export const SubscribeFrame = v.object({
 export const UnsubscribeFrame = v.object({
   event: v.literal('__unsubscribe__'),
   payload: NoPayload,
-  __wskit: v.strictObject(RequiredChannelScope),
+  // `unsubscribeId` correlates the leave with its `__unsubscribeOk__`. Optional
+  // because low-level senders may leave without one; the engine only acks when
+  // an id is present.
+  __wskit: v.strictObject({ ...RequiredChannelScope, unsubscribeId: v.optional(WireId) }),
 });
 
 export const ReplayFrame = v.object({
@@ -140,23 +149,45 @@ export const IncomingProtocolFrame = v.variant('event', [
 export const SubscribeOkFrame = v.object({
   event: v.literal('__subscribeOk__'),
   payload: v.strictObject({ source: v.picklist(['client', 'server']) }),
-  __wskit: v.strictObject(RequiredChannelScope),
+  // `channelPersistent` tells the client whether this channel auto-rejoins on
+  // reconnect (server-driven) so it knows not to re-subscribe it itself.
+  __wskit: v.strictObject({
+    ...RequiredChannelScope,
+    channelPersistent: v.optional(v.boolean()),
+  }),
+});
+
+export const UnsubscribeOkFrame = v.object({
+  event: v.literal('__unsubscribeOk__'),
+  payload: NoPayload,
+  // Echoes the leave's `unsubscribeId` so the client settles the exact pending
+  // leave op — never a stale one from an earlier connection.
+  __wskit: v.strictObject({ ...RequiredChannelScope, unsubscribeId: WireId }),
 });
 
 export const StreamOkFrame = v.object({
   event: v.literal('__streamOk__'),
   payload: NoPayload,
-  __wskit: v.strictObject({ ...OptionalScope, streamId: StreamIdString }),
+  __wskit: v.strictObject({ ...OptionalScope, streamId: StreamIdString, streamKind: StreamKind }),
+});
+
+export const NudgeOkFrame = v.object({
+  event: v.literal('__nudgeOk__'),
+  payload: NoPayload,
+  __wskit: v.strictObject({ ...OptionalScope, streamId: StreamIdString, streamNudgeId: WireId }),
 });
 
 export const StreamEndFrame = v.object({
   event: v.literal('__streamEnd__'),
   payload: NoPayload,
   // `seq` is the final sequence number, so the client can check for missed chunks.
+  // `eventName` is the stream's declared event, carried on a broadcast fan-out so a
+  // listen-only subscriber can route this terminal frame (its `event` is the protocol name).
   __wskit: v.strictObject({
     ...OptionalScope,
     streamId: StreamIdString,
     seq: v.optional(NonNegativeSafeInt),
+    eventName: v.optional(EventName),
   }),
 });
 
@@ -177,6 +208,12 @@ export const ErrorFrame = v.object({
     correlationId: v.optional(v.string()),
     ackId: v.optional(v.string()),
     streamId: v.optional(v.string()),
+    streamNudgeId: v.optional(v.string()),
+    // On a stream error: true ends the stream, false (e.g. a rejected nudge) leaves it running.
+    streamTerminated: v.optional(v.boolean()),
+    // The stream's declared event, carried on a broadcast error fan-out so a
+    // listen-only subscriber can route this terminal frame.
+    eventName: v.optional(EventName),
   }),
 });
 
@@ -237,7 +274,9 @@ export const MemberSyncFrame = v.object({
 /** All frames the engine sends to clients, discriminated on `event`. */
 export const OutgoingProtocolFrame = v.variant('event', [
   SubscribeOkFrame,
+  UnsubscribeOkFrame,
   StreamOkFrame,
+  NudgeOkFrame,
   StreamEndFrame,
   AckFrame,
   ErrorFrame,
@@ -260,9 +299,12 @@ export const WSKitProtocolSchema = v.strictObject({
   correlationId: v.optional(WireId),
   channel: v.optional(ChannelName),
   channelScope: v.nullish(ScopeKey, null),
-  namespace: v.optional(ScopeKey),
   ackId: v.optional(WireId),
   streamId: v.optional(StreamIdString),
+  streamKind: v.optional(StreamKind),
+  streamNudgeId: v.optional(WireId),
+  streamTerminated: v.optional(v.boolean()),
+  eventName: v.optional(EventName),
   messageId: v.optional(WireId),
   seq: v.optional(NonNegativeSafeInt),
 });
@@ -291,7 +333,9 @@ export type StreamCancelFrame = v.InferOutput<typeof StreamCancelFrame>;
 export type ResumeStreamFrame = v.InferOutput<typeof ResumeStreamFrame>;
 
 export type SubscribeOkFrame = v.InferOutput<typeof SubscribeOkFrame>;
+export type UnsubscribeOkFrame = v.InferOutput<typeof UnsubscribeOkFrame>;
 export type StreamOkFrame = v.InferOutput<typeof StreamOkFrame>;
+export type NudgeOkFrame = v.InferOutput<typeof NudgeOkFrame>;
 export type StreamEndFrame = v.InferOutput<typeof StreamEndFrame>;
 export type AckFrame = v.InferOutput<typeof AckFrame>;
 export type ErrorFrame = v.InferOutput<typeof ErrorFrame>;

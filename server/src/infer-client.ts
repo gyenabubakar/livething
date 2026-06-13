@@ -4,7 +4,15 @@ import type {
   ChannelNotSubscribed,
   ErrorDef,
   InternalError,
-  NamespaceNotFound,
+  NudgeOverflow,
+  RateLimited,
+  RejoinRejected,
+  RequestNoCorrelation,
+  RequestNoResponse,
+  StreamAborted,
+  StreamAlreadyActive,
+  StreamIdCollision,
+  UnsupportedProtocol,
   ValidationFailed,
 } from '~/errors/errors.ts';
 import type { ServerContract, ServerDefinition } from '~/server-definition.ts';
@@ -59,13 +67,25 @@ type ErrorMap<TDefs> = SimplifyDeep<
 type ContractOf<TServer extends ServerDefinition> =
   TServer extends ServerDefinition<any, infer TContract> ? TContract : ServerContract;
 
-/** The set of error types that WSKit always adds to every server's error map. */
+/**
+ * The set of framework error types WSKit can send to any client, so they are
+ * always present in a server's typed error map for `.matches()`. Mirrors the
+ * exhaustive client-receivable error-code table in the client spec.
+ */
 type BuiltInErrorUnion =
   | typeof ValidationFailed
   | typeof ChannelNotFound
   | typeof ChannelNotSubscribed
-  | typeof NamespaceNotFound
-  | typeof InternalError;
+  | typeof RejoinRejected
+  | typeof InternalError
+  | typeof RateLimited
+  | typeof RequestNoCorrelation
+  | typeof RequestNoResponse
+  | typeof StreamAborted
+  | typeof StreamAlreadyActive
+  | typeof StreamIdCollision
+  | typeof NudgeOverflow
+  | typeof UnsupportedProtocol;
 
 /**
  * Read one slot off a contract type, falling back to `{}` when the contract
@@ -94,27 +114,27 @@ type TidyStreamEntry<TEntry> = Omit<
 
 /**
  * Map every entry of one server-side stream slot into its client shape:
- * tidied, and stamped with a `resumable` flag. `resumable` is `true` for the
- * durable kinds (`resumableStream` / `recordedStream`) that survive a
- * reconnect, and `false` for a plain `stream`. The client library reads this
- * flag to gate resume-only methods at the type level.
+ * tidied, and stamped with a `kind`. `kind` is `'persistent'` for the durable
+ * kinds (`resumableStream` / `recordedStream`) that survive a reconnect, and
+ * `'ephemeral'` for a plain `stream`. It mirrors the runtime `__wskit.streamKind`
+ * on the wire, and the client reads it to gate resume-only methods at the type level.
  */
-type ClientStreamSlot<TSlot, TResumable extends boolean> = {
-  [TName in keyof TSlot]: TidyStreamEntry<TSlot[TName]> & { resumable: TResumable };
+type ClientStreamSlot<TSlot, TKind extends 'ephemeral' | 'persistent'> = {
+  [TName in keyof TSlot]: TidyStreamEntry<TSlot[TName]> & { kind: TKind };
 };
 
 /**
  * The client's flat view of every server-pushed stream. The contract keeps
  * `stream(...)`, `resumableStream(...)`, and `recordedStream(...)` in three
  * separate slots; the client sees one merged map. Undeclared `cursor` /
- * `nudges` fields are omitted, and each entry carries a `resumable` flag.
+ * `nudges` fields are omitted, and each entry carries a `kind` discriminator.
  */
-type ClientStreams<TContract> = ClientStreamSlot<Slot<TContract, 'streams'>, false> &
-  ClientStreamSlot<Slot<TContract, 'resumableStreams'>, true> &
-  ClientStreamSlot<Slot<TContract, 'recordedStreams'>, true>;
+type ClientStreams<TContract> = ClientStreamSlot<Slot<TContract, 'streams'>, 'ephemeral'> &
+  ClientStreamSlot<Slot<TContract, 'resumableStreams'>, 'persistent'> &
+  ClientStreamSlot<Slot<TContract, 'recordedStreams'>, 'persistent'>;
 
 /**
- * One channel or namespace turned into the client's perspective: the server's
+ * One channel turned into the client's perspective: the server's
  * `outgoing` events are what the client receives, its `incoming` events are
  * what the client sends. Channels with a `check` validator also expose a
  * `subscribePayload` field showing what the client must pass when subscribing.
@@ -128,15 +148,26 @@ type ClientScope<TScope> = {
   ? { subscribePayload: TScope['subscribePayload'] }
   : {});
 
-/** Apply `ClientScope` to every entry of a channel or namespace map. */
-type ClientScopeMap<TScopes> = { [TKey in keyof TScopes]: ClientScope<TScopes[TKey]> };
+/**
+ * Like `ClientScopeMap`, but channel-aware: each channel scope is stamped with
+ * an `addressing` discriminator — `'dynamic'` for a `scope()` family, `'static'`
+ * for a string-pattern channel. The client's `channels` primitive reads it to
+ * decide between `channel(name)` and `channel(scope, name)` / `channel.scope`.
+ */
+type ClientChannelMap<TChannels> = {
+  [TKey in keyof TChannels]: ClientScope<TChannels[TKey]> & {
+    addressing: TChannels[TKey] extends { __addressing: infer A extends 'static' | 'dynamic' }
+      ? A
+      : 'static';
+  };
+};
 
 /**
  * Read a WSKit `ServerDefinition` and turn it into the full client contract type.
  *
  * Pass the type of your server definition (the value returned by `.build()`)
- * and get back a type that describes every event, request, stream, namespace,
- * channel, and error the server exposes to clients.
+ * and get back a type that describes every event, request, stream, channel,
+ * and error the server exposes to clients.
  *
  * The client SDK accepts this type as a generic parameter so all client calls
  * are fully type-safe.
@@ -180,15 +211,13 @@ export type InferClient<TServer extends ServerDefinition> = SimplifyDeep<{
   /**
    * Every server-pushed stream the client can subscribe to. Plain `stream(...)`,
    * `resumableStream(...)`, and `recordedStream(...)` all show up under this
-   * single slot. Each entry carries a `resumable` flag — `true` for the durable
-   * kinds that survive a reconnect, `false` for a plain stream — so the client
-   * can gate resume-only methods at the type level.
+   * single slot. Each entry carries a `kind` — `'persistent'` for the durable
+   * kinds that survive a reconnect, `'ephemeral'` for a plain stream — so the
+   * client can gate resume-only methods at the type level.
    */
   streams: ClientStreams<ContractOf<TServer>>;
-  /** Per-namespace sub-contracts, each flipped into the client's perspective. */
-  namespaces: ClientScopeMap<Slot<ContractOf<TServer>, 'namespaces'>>;
   /** Per-channel sub-contracts, each flipped into the client's perspective. */
-  channels: ClientScopeMap<Slot<ContractOf<TServer>, 'channels'>>;
+  channels: ClientChannelMap<Slot<ContractOf<TServer>, 'channels'>>;
   /** Built-in engine errors (e.g. `validation-failed`) merged with developer-defined errors. */
   errors: ErrorMap<BuiltInErrorUnion> & Slot<ContractOf<TServer>, 'errors'>;
 }>;

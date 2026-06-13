@@ -6,8 +6,8 @@ import { RateLimitRuntime } from './runtime.ts';
 import type { ResolvedRateLimitPlan } from './runtime.ts';
 
 /**
- * Public configuration shape for `rateLimit:` on the contract, channels, and
- * namespaces, and for the per-handler `.rateLimit(event, config)` override.
+ * Public configuration shape for `rateLimit:` on the contract and channels,
+ * and for the per-handler `.rateLimit(event, config)` override.
  *
  * Same shape at every level so cascade works by partial override:
  * a channel's `{ max: 200 }` keeps the parent's `windowMs` and `per`.
@@ -47,10 +47,9 @@ const RATE_LIMIT_KEY = Symbol('rate-limit');
  * routes to an `__error__` frame, preserving `__wskit.correlationId` / `__wskit.ackId` if the
  * original frame carried them.
  *
- * Use through the `rateLimit:` config on `contract({...})`, `channel({...})`,
- * or `namespace({...})` — or `.rateLimit(event, config)` on the
- * implementer / channel sub-builder / namespace sub-builder. The
- * `implement(...)` build step calls this factory; you should not normally
+ * Use through the `rateLimit:` config on `contract({...})` or `channel({...})`
+ * — or `.rateLimit(event, config)` on the implementer / channel sub-builder.
+ * The `implement(...)` build step calls this factory; you should not normally
  * call it directly.
  */
 export function rateLimit(plan: ResolvedRateLimitPlan): RateLimitPrimitive {

@@ -38,7 +38,6 @@ export interface InterceptRouting {
   readonly streamId?: string;
   readonly channel?: string;
   readonly channelScope?: string | null;
-  readonly namespace?: string;
   readonly seq?: number;
 }
 
@@ -82,7 +81,7 @@ const INTERCEPT_KEY = Symbol('intercept');
  *
  * For every incoming message the engine walks this pipeline:
  *
- * 1. **Intercept** (if any) — one per scope (top-level, namespace, channel).
+ * 1. **Intercept** (if any) — one per scope (top-level, channel).
  * 2. **Event routing** — match the event to its handler.
  * 3. **Validation** — the handler's validator runs (if declared).
  * 4. **Handler** — `incoming` / `request` / `stream` trigger.

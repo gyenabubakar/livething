@@ -16,7 +16,6 @@ function createConnection(id: string): RuntimeConnection {
     wsKey: Symbol(id),
     descriptor: {
       send: vi.fn(),
-      sendBinary: vi.fn(),
       close: vi.fn(),
       bufferedAmount() {
         return 0;
@@ -216,41 +215,26 @@ describe('ctx.setAlarm', () => {
   });
 });
 
-describe('ctx.broadcastBinary', () => {
-  it('skips self by default', () => {
-    const self = createConnection('self');
-    const peer = createConnection('peer');
-    const deps = baseDeps({
-      connections: new Map([
-        [self.id, self],
-        [peer.id, peer],
-      ]),
-    });
+describe('ctx.quality', () => {
+  it('is null until the first ping/pong measurement, then reflects connection.quality', () => {
+    const connection = createConnection('a');
+    const ctx = buildConnectionContext(baseDeps(), connection);
 
-    const ctx = buildConnectionContext(deps, self);
-    const bytes = new Uint8Array([1, 2, 3]).buffer;
-    ctx.broadcastBinary(bytes);
+    expect(ctx.latency).toBeNull();
+    expect(ctx.quality).toBeNull();
 
-    expect(self.descriptor.sendBinary).not.toHaveBeenCalled();
-    expect(peer.descriptor.sendBinary).toHaveBeenCalledWith(bytes);
+    connection.latency = 42;
+    connection.quality = 'excellent';
+    expect(ctx.quality).toBe('excellent');
   });
 
-  it('includes self when excludeSelf is false', () => {
-    const self = createConnection('self');
-    const peer = createConnection('peer');
-    const deps = baseDeps({
-      connections: new Map([
-        [self.id, self],
-        [peer.id, peer],
-      ]),
-    });
+  it('is null in hibernation even after a measurement', () => {
+    const connection = createConnection('a');
+    connection.latency = 42;
+    connection.quality = 'excellent';
+    const ctx = buildConnectionContext(baseDeps({ hibernationEnabled: true }), connection);
 
-    const ctx = buildConnectionContext(deps, self);
-    const bytes = new Uint8Array([9]).buffer;
-    ctx.broadcastBinary(bytes, { excludeSelf: false });
-
-    expect(self.descriptor.sendBinary).toHaveBeenCalledWith(bytes);
-    expect(peer.descriptor.sendBinary).toHaveBeenCalledWith(bytes);
+    expect(ctx.quality).toBeNull();
   });
 });
 

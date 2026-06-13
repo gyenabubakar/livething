@@ -105,7 +105,7 @@ export interface EngineAccess {
   /**
    * Observe activity from one live connection before normal routing continues.
    *
-   * This runs for each text or binary websocket frame the server receives.
+   * This runs for each text websocket frame the server receives.
    */
   onConnectionActivity(handler: (connectionId: string) => void | Promise<void>): void;
 
@@ -180,11 +180,6 @@ export interface EngineAccess {
   ): void;
 
   /**
-   * Observe binary websocket messages.
-   */
-  onBinary(handler: (ctx: unknown, data: ArrayBuffer) => void | Promise<void>): void;
-
-  /**
    * Observe validation failures for incoming payloads.
    */
   onValidationError(
@@ -223,6 +218,13 @@ export interface EngineAccess {
     handler: (ctx: unknown, data?: unknown) => unknown | Promise<unknown>,
     validator?: ValidationTypes.Validator<unknown>,
   ): void;
+
+  /**
+   * Register the re-authorization phase that runs on auto-rejoin only. The
+   * handler runs when a reconnecting identity is restored to a persistent
+   * channel; throwing revokes the membership. No subscribe payload is passed.
+   */
+  onRevalidate(handler: (ctx: unknown) => void | Promise<void>): void;
 
   /**
    * Register the sync commit phase for a channel subscribe guard.
@@ -457,10 +459,9 @@ export interface EngineAccess {
     options: {
       channelName: string | null;
       channelScope: string | null;
-      namespace?: string | null;
       event: string;
       payload: unknown;
-      wire: { seq: number; messageId: string; channel?: string; namespace?: string | null };
+      wire: { seq: number; messageId: string; channel?: string };
     },
   ): void;
 
@@ -475,7 +476,7 @@ export interface EngineAccess {
   assertReplaySendContract(
     event: string,
     payload: unknown,
-    routing: { channel?: string; channelScope?: string | null; namespace?: string } | undefined,
+    routing: { channel?: string; channelScope?: string | null } | undefined,
   ): asserts payload is Record<string, unknown>;
 
   /**

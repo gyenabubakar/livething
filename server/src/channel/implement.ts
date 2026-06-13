@@ -2,6 +2,11 @@
 import { setOnce } from '~/_api/handler-maps.ts';
 import type { Contract } from '~/_api/contract-types.ts';
 import type { ChannelCtx } from '~/_api/ctx-types.ts';
+import type {
+  PlainStreamGenerator,
+  RecordedStreamGenerator,
+  ResumableStreamGenerator,
+} from '~/_api/stream-handler-types.ts';
 import type { InterceptFrame } from '~/intercept/intercept.ts';
 import type { RateLimitConfig } from '~/rate-limit/rate-limit.ts';
 import type { CustomReplayOptions } from '~/replay/custom/custom.ts';
@@ -30,6 +35,7 @@ export interface ChannelHandlerBag {
     (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>
   >;
   checkHandler?: (ctx: any, data?: any) => unknown | Promise<unknown>;
+  revalidateHandler?: (ctx: any) => void | Promise<void>;
   commitHandler?: (ctx: any, checkResult: unknown) => void;
   onSubscribeHandler?: (ctx: any) => void | Promise<void>;
   onUnsubscribeHandler?: (ctx: any) => void | Promise<void>;
@@ -99,16 +105,7 @@ export class ChannelImplement<C extends Contract, ChC = any, TCheck = unknown> {
   /** Attach the generator for a server-pushed stream scoped to this channel. */
   stream<E extends keyof FieldOf<ChC, 'streams'> & string>(
     event: E,
-    generator: (
-      ctx: ChannelCtx<ChC, C> & {
-        nudges(v: unknown): readonly { event: string; payload: unknown }[];
-      },
-      payload: FieldOf<ChC, 'streams'>[E] extends { payload: infer P } ? P : never,
-    ) => AsyncGenerator<
-      FieldOf<ChC, 'streams'>[E] extends { chunk: infer Ch } ? Ch : unknown,
-      void,
-      unknown
-    >,
+    generator: PlainStreamGenerator<ChannelCtx<ChC, C>, FieldOf<ChC, 'streams'>[E]>,
   ): this {
     setOnce(this._bag.streamGenerators, event, {
       value: generator as any,
@@ -121,7 +118,7 @@ export class ChannelImplement<C extends Contract, ChC = any, TCheck = unknown> {
   /** Attach the generator for a resumable stream scoped to this channel. */
   resumableStream<E extends keyof FieldOf<ChC, 'resumableStreams'> & string>(
     event: E,
-    generator: (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>,
+    generator: ResumableStreamGenerator<ChannelCtx<ChC, C>, FieldOf<ChC, 'resumableStreams'>[E]>,
   ): this {
     setOnce(this._bag.resumableStreamGenerators, event, {
       value: generator,
@@ -134,7 +131,7 @@ export class ChannelImplement<C extends Contract, ChC = any, TCheck = unknown> {
   /** Attach the generator for a recorded stream scoped to this channel. */
   recordedStream<E extends keyof FieldOf<ChC, 'recordedStreams'> & string>(
     event: E,
-    generator: (ctx: any, payload: any) => AsyncGenerator<any, void, unknown>,
+    generator: RecordedStreamGenerator<ChannelCtx<ChC, C>, FieldOf<ChC, 'recordedStreams'>[E]>,
   ): this {
     setOnce(this._bag.recordedStreamGenerators, event, {
       value: generator,
@@ -172,6 +169,31 @@ export class ChannelImplement<C extends Contract, ChC = any, TCheck = unknown> {
     }
     this._bag.checkHandler = handler as any;
     return this as any as ChannelImplement<C, ChC, TResult>;
+  }
+
+  /**
+   * Re-authorize an existing durable membership when a reconnecting identity is
+   * auto-rejoined to this persistent channel.
+   *
+   * Runs only on auto-rejoin — never on a first subscribe — so it receives no
+   * subscribe payload. Throw to revoke: the durable membership is dropped and the
+   * connection is not restored. First-subscribe authorization stays in `.check()`.
+   *
+   * @example
+   * ```ts
+   * ch.revalidate(async (ctx) => {
+   *   if (await db.isBanned(ctx.meta.userId)) throw Forbidden();
+   * })
+   * ```
+   */
+  revalidate(handler: (ctx: ChannelCtx<ChC, C>) => void | Promise<void>): this {
+    if (this._bag.revalidateHandler) {
+      throw new Error(
+        '[wskit] Duplicate .revalidate() on this channel. Only one revalidate hook can be attached.',
+      );
+    }
+    this._bag.revalidateHandler = handler as any;
+    return this;
   }
 
   /**
@@ -260,9 +282,9 @@ export class ChannelImplement<C extends Contract, ChC = any, TCheck = unknown> {
   /**
    * Override the resolved rate-limit rule for one event inside this channel.
    *
-   * The override sits below the cascade — channel `rateLimit:`, then namespace,
-   * then contract — and applies only to this one event. Missing fields fall
-   * back to the channel's resolved rule.
+   * The override sits below the cascade — channel `rateLimit:`, then contract
+   * — and applies only to this one event. Missing fields fall back to the
+   * channel's resolved rule.
    *
    * @example
    * ```ts

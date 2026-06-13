@@ -221,14 +221,6 @@ export type Ctx<C extends Contract> = {
     payload: unknown,
     wire: { seq: number; messageId: string; channel?: string; channelScope?: string | null },
   ): void;
-  /** Send a raw binary frame to this connection. Requires `binary: true` on the contract. */
-  sendBinary(data: ArrayBuffer | ArrayBufferView): boolean;
-  /**
-   * Send a raw binary frame to every other connection by default. Requires
-   * `binary: true` on the contract. Pass `{ excludeSelf: false }` to include
-   * this connection too.
-   */
-  broadcastBinary(data: ArrayBuffer | ArrayBufferView, options?: { excludeSelf?: boolean }): void;
 } & TypedSendApi<C['outgoing']> &
   ScheduleApi<C['scheduled']> & {
     /** Look up channel handles by name. Each handle lets you send/broadcast into one channel. */
@@ -274,30 +266,6 @@ export type ChannelCtx<TChannelContract, C extends Contract> = Omit<Ctx<C>, 'cha
       event: keyof ChannelOutgoingOf<TChannelContract> & string,
       payload: unknown,
       wire: { seq: number; messageId: string; channel?: string; channelScope?: string | null },
-    ): void;
-  };
-};
-
-// ---------------------------------------------------------------------------
-// Namespace-scoped ctx
-// ---------------------------------------------------------------------------
-
-/**
- * The `ctx` your namespace handlers receive. Same as the top-level `Ctx<C>`,
- * but `ctx.namespace.send` and `.broadcast` are typed against this namespace's
- * own outgoing events and only reach clients in this namespace.
- */
-export type NamespaceCtx<TNamespaceContract, C extends Contract> = Omit<Ctx<C>, 'namespace'> & {
-  readonly namespace: {
-    readonly name: string;
-    send<E extends keyof ChannelOutgoingOf<TNamespaceContract> & string>(
-      event: E,
-      payload: ChannelOutgoingOf<TNamespaceContract>[E],
-    ): boolean;
-    broadcast<E extends keyof ChannelOutgoingOf<TNamespaceContract> & string>(
-      event: E,
-      payload: ChannelOutgoingOf<TNamespaceContract>[E],
-      options?: { excludeSelf?: boolean },
     ): void;
   };
 };

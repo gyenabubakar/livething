@@ -42,7 +42,10 @@ function createReplaySql() {
     const normalized = query.replaceAll(/\s+/g, ' ').trim();
     calls.push({ query: normalized, params });
 
-    if (normalized.startsWith('SELECT rowKey, messageId, seq, event, payload, namespace')) {
+    if (
+      normalized.startsWith('SELECT rowKey, messageId, seq, event, payload') &&
+      normalized.includes('channel IS')
+    ) {
       if (normalized.includes('channelScope IS NULL') && normalized.includes('channel IS ?')) {
         const [channel, since] = params;
         return new FakeSqlResult<TRow>(
@@ -72,7 +75,7 @@ function createReplaySql() {
         );
       }
 
-      // Top-level: every non-channel row regardless of namespace.
+      // Top-level: every non-channel row.
       const [since] = params;
       return new FakeSqlResult<TRow>(
         [...rows.values()]
@@ -96,7 +99,6 @@ function createReplaySql() {
         seq,
         event,
         payload,
-        namespace,
         channel,
         channelScope,
         snapshotKey,
@@ -108,7 +110,6 @@ function createReplaySql() {
         seq: Number(seq),
         event: String(event),
         payload: String(payload),
-        namespace: (namespace as string | null) ?? null,
         channel: (channel as string | null) ?? null,
         channelScope: (channelScope as string | null) ?? null,
         snapshotKey: (snapshotKey as string | null) ?? null,
@@ -131,8 +132,8 @@ function createReplaySql() {
     }
 
     if (normalized.startsWith('DELETE FROM __wskit_replay WHERE rowKey IN (')) {
-      // Limit keys on channel/channelScope only — never namespace. A null
-      // channel binds the top-level store (all non-channel rows together).
+      // Limit keys on channel/channelScope only. A null channel binds the
+      // top-level store (all non-channel rows together).
       const [channel, channelScope, offset] = params;
       const doomed = [...rows.values()]
         .filter(
@@ -290,6 +291,33 @@ describe('replay/runtime', () => {
     ).toBe(true);
   });
 
+  it('skips protocol/control frames — presence and other __…__ events are bookkeeping, not replayable', () => {
+    // Presence on a replay-enabled channel: must not be recorded (it carries no
+    // seq, so storing it would throw). It's re-derived via __memberSync__ on
+    // reconnect, so dropping it from replay loses nothing.
+    expect(
+      shouldStoreReplayMessage('__memberOffline__', {
+        channelKey: 'rooms',
+        wskit: { channel: 'room-1', channelScope: 'rooms' },
+        exclude: new Set(),
+      }),
+    ).toBe(false);
+    // A few more protocol frames at the top level.
+    for (const event of ['__memberJoin__', '__subscribeOk__', '__error__', '__streamEnd__']) {
+      expect(
+        shouldStoreReplayMessage(event, { channelKey: undefined, wskit: {}, exclude: new Set() }),
+      ).toBe(false);
+    }
+    // Sanity: a normal user event with the same scope is still captured.
+    expect(
+      shouldStoreReplayMessage('room-msg', {
+        channelKey: 'rooms',
+        wskit: { channel: 'room-1', channelScope: 'rooms' },
+        exclude: new Set(),
+      }),
+    ).toBe(true);
+  });
+
   it('builds replay rows from pure payloads and wskit metadata', () => {
     const payload = { text: 'hello' };
     const wskit = {
@@ -300,7 +328,6 @@ describe('replay/runtime', () => {
     };
 
     expect(readReplayScope(wskit)).toEqual({
-      namespace: null,
       channel: 'room-1',
       channelScope: 'rooms',
     });
@@ -316,7 +343,7 @@ describe('replay/runtime', () => {
         now: 99,
       }),
     ).toMatchObject({
-      rowKey: 'snapshot||room-1|rooms|hello',
+      rowKey: JSON.stringify(['snapshot', 'room-1', 'rooms', 'hello']),
       messageId: 'msg_1',
       seq: 7,
       event: 'message',
@@ -334,6 +361,23 @@ describe('replay/runtime', () => {
     ).toEqual({
       text: 'hello',
     });
+  });
+
+  it('builds collision-safe snapshot keys for ambiguous channel/scope/key tuples (#6)', () => {
+    const base = { payload: {}, now: 0 } as const;
+    // channel `a|b`, no scope, key `c`  vs  channel `a`, scope `b`, key `|c`.
+    // A raw `|` join makes both `snapshot|a|b||c`; JSON encoding keeps them apart.
+    const a = buildReplayRow('e', {
+      options: { type: 'snapshot', snapshotKey: () => 'c' },
+      wskit: { seq: 1, messageId: 'm', channel: 'a|b' },
+      ...base,
+    });
+    const b = buildReplayRow('e', {
+      options: { type: 'snapshot', snapshotKey: () => '|c' },
+      wskit: { seq: 1, messageId: 'm', channel: 'a', channelScope: 'b' },
+      ...base,
+    });
+    expect(a.rowKey).not.toBe(b.rowKey);
   });
 
   it('persists history rows, supports snapshot reducers, and deletes snapshots on null', () => {
@@ -371,7 +415,7 @@ describe('replay/runtime', () => {
       now: 101,
     });
 
-    const snapshot = rows.get('snapshot||||doc-1');
+    const snapshot = rows.get(JSON.stringify(['snapshot', '', '', 'doc-1']));
     expect(snapshot).toMatchObject({
       event: 'doc-snapshot',
       snapshotKey: 'doc-1',
@@ -396,7 +440,7 @@ describe('replay/runtime', () => {
       now: 102,
     });
 
-    expect(rows.has('snapshot||||doc-1')).toBe(false);
+    expect(rows.has(JSON.stringify(['snapshot', '', '', 'doc-1']))).toBe(false);
   });
 
   it('prunes retained rows and loads replay rows in sequence order', () => {
@@ -408,7 +452,6 @@ describe('replay/runtime', () => {
       seq: 1,
       event: 'message',
       payload: '{}',
-      namespace: null,
       channel: null,
       channelScope: null,
       snapshotKey: null,
@@ -420,7 +463,6 @@ describe('replay/runtime', () => {
       seq: 2,
       event: 'message',
       payload: '{}',
-      namespace: null,
       channel: null,
       channelScope: null,
       snapshotKey: null,
@@ -432,7 +474,6 @@ describe('replay/runtime', () => {
       seq: 3,
       event: 'message',
       payload: '{}',
-      namespace: null,
       channel: 'room-1',
       channelScope: 'rooms',
       snapshotKey: null,
@@ -444,7 +485,6 @@ describe('replay/runtime', () => {
       seq: 4,
       event: 'message',
       payload: '{}',
-      namespace: null,
       channel: 'room-1',
       channelScope: 'rooms',
       snapshotKey: null,
@@ -456,7 +496,6 @@ describe('replay/runtime', () => {
       seq: 5,
       event: 'message',
       payload: '{}',
-      namespace: null,
       channel: 'room-1',
       channelScope: 'rooms',
       snapshotKey: null,
@@ -466,11 +505,7 @@ describe('replay/runtime', () => {
     pruneExpiredReplayRows(sql, { maxAgeMs: 20 }, 100);
     expect(rows.has('old')).toBe(false);
 
-    pruneReplayScopeRows(
-      sql,
-      { maxMessages: 2 },
-      { namespace: null, channel: 'room-1', channelScope: 'rooms' },
-    );
+    pruneReplayScopeRows(sql, { maxMessages: 2 }, { channel: 'room-1', channelScope: 'rooms' });
     expect([...rows.keys()]).not.toContain('c1');
 
     expect(
@@ -486,39 +521,32 @@ describe('replay/runtime', () => {
     ).toEqual([4, 5]);
   });
 
-  it('top-level maxMessages counts every namespace as one scope, not per namespace', () => {
+  it('top-level maxMessages counts the whole top-level store as one scope', () => {
     const { rows, sql } = createReplaySql();
 
-    // Two top-level rows (no namespace) and two namespace rows. All four belong
-    // to the single top-level scope. With maxMessages: 2 the trim must keep the
-    // two newest across ALL of them, regardless of namespace.
-    function make(key: string, seq: number, namespace: string | null): ReplayRow {
+    // Four top-level rows. All belong to the single top-level scope. With
+    // maxMessages: 2 the trim must keep the two newest across ALL of them.
+    function make(key: string, seq: number): ReplayRow {
       return {
         rowKey: key,
         messageId: `msg_${key}`,
         seq,
         event: 'message',
         payload: '{}',
-        namespace,
         channel: null,
         channelScope: null,
         snapshotKey: null,
         createdAt: seq,
       };
     }
-    rows.set('a', make('a', 1, null));
-    rows.set('b', make('b', 2, 'admin'));
-    rows.set('c', make('c', 3, 'public'));
-    rows.set('d', make('d', 4, null));
+    rows.set('a', make('a', 1));
+    rows.set('b', make('b', 2));
+    rows.set('c', make('c', 3));
+    rows.set('d', make('d', 4));
 
-    pruneReplayScopeRows(
-      sql,
-      { maxMessages: 2 },
-      { namespace: null, channel: null, channelScope: null },
-    );
+    pruneReplayScopeRows(sql, { maxMessages: 2 }, { channel: null, channelScope: null });
 
-    // Only the two newest by seq survive: 3 and 4. A per-namespace trim would
-    // have kept all four (one or two per namespace).
+    // Only the two newest by seq survive: 3 and 4.
     const surviving = loadReplayRows(sql, 0, { channelScope: null } as {
       channelName?: string;
       channelScope: string | null;
@@ -581,7 +609,6 @@ describe('replay/runtime', () => {
       seq: 1,
       event: 'room-msg',
       payload: '{}',
-      namespace: null,
       channel: 'replay-room',
       channelScope: null,
       snapshotKey: null,
@@ -593,7 +620,6 @@ describe('replay/runtime', () => {
       seq: 2,
       event: 'room-msg',
       payload: '{}',
-      namespace: null,
       channel: 'replay-room',
       channelScope: null,
       snapshotKey: null,
@@ -607,11 +633,9 @@ describe('replay/runtime', () => {
     expect(result.map((row) => row.seq)).toEqual([1, 2]);
   });
 
-  it('top-level replay returns non-channel rows from every namespace, each keeping its namespace', () => {
-    // Replay has two scopes only: top-level and channel. Namespace messages
-    // fold into the top-level replay so one "catch me up since seq N" request
-    // returns the whole gap. Each row still carries its namespace so the client
-    // routes it to the right handler.
+  it('top-level replay returns every non-channel row in one gap', () => {
+    // Replay has two scopes only: top-level and channel. A top-level "catch me
+    // up since seq N" request returns the whole gap of non-channel rows.
     const { rows, sql } = createReplaySql();
 
     rows.set('n1', {
@@ -620,7 +644,6 @@ describe('replay/runtime', () => {
       seq: 1,
       event: 'notice',
       payload: '{}',
-      namespace: 'admin',
       channel: null,
       channelScope: null,
       snapshotKey: null,
@@ -632,7 +655,6 @@ describe('replay/runtime', () => {
       seq: 2,
       event: 'notice',
       payload: '{}',
-      namespace: 'public',
       channel: null,
       channelScope: null,
       snapshotKey: null,
@@ -641,7 +663,6 @@ describe('replay/runtime', () => {
 
     const result = loadReplayRows(sql, 0, { channelScope: null });
     expect(result.map((row) => row.seq)).toEqual([1, 2]);
-    expect(result.map((row) => row.namespace)).toEqual(['admin', 'public']);
   });
 });
 
@@ -670,11 +691,9 @@ describe('buildLoadReplayQuery', () => {
     expect(query.params).toEqual(['rooms', 'rooms', 0]);
   });
 
-  it('produces the top-level query that ignores namespace when no channelName is provided', () => {
-    // Namespace is not a replay request dimension: top-level replay returns
-    // every non-channel row regardless of namespace.
+  it('produces the top-level query when no channelName is provided', () => {
+    // Top-level replay returns every non-channel row.
     const query = buildLoadReplayQuery(0, { channelScope: null });
-    expect(query.sql).not.toMatch(/namespace IS \?/);
     expect(query.sql).toMatch(/channel IS NULL/);
     expect(query.sql).toMatch(/channelScope IS NULL/);
     expect(query.params).toEqual([0]);
@@ -700,14 +719,13 @@ describe('ReplayFrame schema', () => {
     expect(result.success).toBe(true);
   });
 
-  it('rejects a replay frame that carries a namespace marker', () => {
-    // Replay has no namespace dimension: namespace messages fold into the
-    // top-level replay. A stray namespace marker must fail validation, not be
-    // silently ignored.
+  it('rejects a replay frame that carries an unknown routing marker', () => {
+    // The replay frame's __wskit carries only known routing keys; a stray
+    // unknown marker must fail validation, not be silently ignored.
     const result = v.safeParse(ReplayFrame, {
       event: '__replay__',
       payload: {},
-      __wskit: { namespace: 'admin' },
+      __wskit: { bogus: 'admin' },
     });
     expect(result.success).toBe(false);
   });

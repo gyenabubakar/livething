@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { error } from './errors.ts';
-import { assertValidWSKitIdentifier, isValidWSKitIdentifier } from './identifier.ts';
+import {
+  assertValidWSKitIdentifier,
+  exceedsWireLimit,
+  isValidWSKitIdentifier,
+  WIRE_LIMITS,
+} from './identifier.ts';
 
 describe('isValidWSKitIdentifier', () => {
   it('accepts ordinary names, including a single colon for plugin ids', () => {
@@ -32,6 +37,40 @@ describe('assertValidWSKitIdentifier', () => {
 
   it('passes through a valid name', () => {
     expect(() => assertValidWSKitIdentifier('ok', 'event name')).not.toThrow();
+  });
+
+  it('throws a wire-limit message when the name is over maxLength', () => {
+    const tooLong = 'e'.repeat(WIRE_LIMITS.event + 1);
+    expect(() => assertValidWSKitIdentifier(tooLong, 'event name', WIRE_LIMITS.event)).toThrow(
+      /wire protocol limit is 128/,
+    );
+  });
+
+  it('allows a name exactly at maxLength', () => {
+    const atLimit = 'e'.repeat(WIRE_LIMITS.event);
+    expect(() =>
+      assertValidWSKitIdentifier(atLimit, 'event name', WIRE_LIMITS.event),
+    ).not.toThrow();
+  });
+});
+
+describe('WIRE_LIMITS / exceedsWireLimit', () => {
+  it('pins the protocol limits so client and server cannot drift', () => {
+    expect(WIRE_LIMITS).toEqual({
+      event: 128,
+      channel: 256,
+      channelScope: 128,
+      streamId: 128,
+      wireId: 128,
+    });
+  });
+
+  it('is true only for strings longer than the limit', () => {
+    expect(exceedsWireLimit('x'.repeat(129), 128)).toBe(true);
+    expect(exceedsWireLimit('x'.repeat(128), 128)).toBe(false);
+    expect(exceedsWireLimit('', 128)).toBe(false);
+    expect(exceedsWireLimit(undefined, 128)).toBe(false);
+    expect(exceedsWireLimit(42, 128)).toBe(false);
   });
 });
 

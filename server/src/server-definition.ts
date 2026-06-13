@@ -23,7 +23,6 @@ import type { Primitive } from '~/primitive.ts';
  * | `recordedStream('s', …)`    | `streams`            | server-sent streams       |
  * | `errors: [...]`             | `errors`             | typed server errors       |
  * | `channel('x', …)`           | `channels`           | per-channel sub-contracts |
- * | `namespace('y', …)`         | `namespaces`         | per-namespace sub-contracts|
  *
  * `resumableStream` and `recordedStream` collapse into the same client
  * `streams` slot as plain `stream` — the durability mechanism is a server
@@ -67,9 +66,6 @@ export interface ServerContract {
 
   /** Per-channel sub-contracts. Each entry mirrors this shape for one channel. */
   readonly channels: Record<string, any>;
-
-  /** Per-namespace sub-contracts. Each entry mirrors this shape for one namespace. */
-  readonly namespaces: Record<string, any>;
 }
 
 /**

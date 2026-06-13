@@ -6,6 +6,7 @@ import {
 } from '~/_engine/runtime/messages.ts';
 import { resolveScope } from '~/_engine/runtime/scope.ts';
 import { addChannelMembership } from '~/channel/runtime.ts';
+import { Defer } from '~/errors/errors.ts';
 import { localKey } from '~/local-key/local-key.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
@@ -20,7 +21,6 @@ function createConnection(id: string): RuntimeConnection {
     wsKey: Symbol(id),
     descriptor: {
       send: vi.fn(),
-      sendBinary() {},
       close() {},
       bufferedAmount() {
         return 0;
@@ -142,7 +142,6 @@ describe('message runtime', () => {
         resumableStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [],
-        namespaces: new Map(),
         channels: new Map(),
         channelFamilies: new Map([
           [
@@ -259,7 +258,6 @@ describe('message runtime', () => {
         resumableStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [],
-        namespaces: new Map(),
         channels: new Map(),
         channelFamilies: new Map(),
         scheduled: new Map(),
@@ -342,7 +340,6 @@ describe('message runtime', () => {
         resumableStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [],
-        namespaces: new Map(),
         channels: new Map(),
         channelFamilies: new Map(),
         scheduled: new Map(),
@@ -417,7 +414,6 @@ describe('message runtime', () => {
         resumableStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [],
-        namespaces: new Map(),
         channels: new Map(),
         channelFamilies: new Map(),
         scheduled: new Map(),
@@ -492,7 +488,6 @@ describe('message runtime', () => {
         resumableStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [],
-        namespaces: new Map(),
         channels: new Map(),
         channelFamilies: new Map(),
         scheduled: new Map(),
@@ -547,7 +542,7 @@ describe('message runtime', () => {
   it('manual ValidationFailed thrown from a channel handler reaches handleValidationError with the resolved scope', async () => {
     // Pre-fix the outer dispatch catch called handleValidationError
     // without scope, so onValidationError hooks saw a top-level ctx (no
-    // ctx.channel / ctx.namespace) for manually-thrown ValidationFailed
+    // ctx.channel) for manually-thrown ValidationFailed
     // — but a properly scoped ctx for schema-failed payloads. Same hook,
     // two different shapes.
     const { ValidationFailed } = await import('@wskit/core');
@@ -593,7 +588,6 @@ describe('message runtime', () => {
         resumableStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [],
-        namespaces: new Map(),
         channels: new Map([['room', channel]]),
         channelFamilies: new Map(),
         scheduled: new Map(),
@@ -672,7 +666,6 @@ describe('message runtime', () => {
         resumableStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [],
-        namespaces: new Map(),
         channels: new Map(),
         channelFamilies: new Map(),
         scheduled: new Map(),
@@ -753,7 +746,6 @@ describe('message runtime', () => {
         resumableStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [],
-        namespaces: new Map(),
         channels: new Map(),
         channelFamilies: new Map(),
         scheduled: new Map(),
@@ -849,7 +841,6 @@ describe('message runtime', () => {
             },
           },
         ],
-        namespaces: new Map(),
         channels: new Map(),
         channelFamilies: new Map(),
         scheduled: new Map(),
@@ -929,7 +920,6 @@ describe('message runtime', () => {
         resumableStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [],
-        namespaces: new Map(),
         channels: new Map([
           [
             'room',
@@ -1004,7 +994,6 @@ describe('message runtime', () => {
         resumableStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [],
-        namespaces: new Map(),
         channels: new Map(),
         // Family pattern requires room:N. The replay payload below uses the
         // family key but a name that fails the regex, so resolveScope throws
@@ -1097,7 +1086,6 @@ describe('message runtime', () => {
         resumableStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [],
-        namespaces: new Map(),
         channels: new Map(),
         channelFamilies: new Map(),
         scheduled: new Map(),
@@ -1166,7 +1154,6 @@ describe('message runtime', () => {
         resumableStreams: new Map(),
         recordedStreams: new Map(),
         intercepts: [],
-        namespaces: new Map(),
         channels: new Map(),
         channelFamilies: new Map(),
         scheduled: new Map(),
@@ -1220,6 +1207,133 @@ describe('message runtime', () => {
     expect(event).toBe('__unsubscribe__');
     expect((error as { code?: string }).code).toBe('validation-failed');
   });
+
+  it('replies UnsupportedProtocol for a __replay__ frame when no replay handler owns the scope', async () => {
+    // Replay off (or off for this scope) means no `__replay__` handler is
+    // registered. Instead of silently dropping the frame, the server tells the
+    // client the protocol feature is unsupported.
+    const connection = createConnection('conn_1');
+    const handleRuntimeError = vi.fn();
+
+    const runtime = {
+      compiled: {
+        outgoing: new Map(),
+        incoming: new Map(),
+        requests: new Map(),
+        streams: new Map(),
+        resumableStreams: new Map(),
+        recordedStreams: new Map(),
+        intercepts: [],
+        channels: new Map(),
+        channelFamilies: new Map(),
+        scheduled: new Map(),
+        plugins: [],
+        requires: {},
+        replayClaimedChannelKeys: new Set(),
+      },
+      connections: new Map([[connection.id, connection]]),
+      activeStreams: new Map(),
+      protocolHandlers: new Map(),
+      incomingHooks: [],
+      pluginRuntimes: [],
+      errorHooks: [],
+      activityHooks: [],
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      buildConnectionContext() {
+        return { id: connection.id };
+      },
+      sendProtocolMessage() {},
+      sendReplay() {},
+      persistAttachment() {},
+      handleRuntimeError,
+      async handleValidationError() {},
+      async handleSubscribe() {},
+      async handleUnsubscribe() {},
+      waitUntil() {},
+      generateId() {
+        return 'id_1';
+      },
+    };
+
+    await processTextMessage(
+      runtime as unknown as Parameters<typeof processTextMessage>[0],
+      connection,
+      JSON.stringify({ event: '__replay__', payload: {}, __wskit: {} }),
+    );
+
+    expect(handleRuntimeError).toHaveBeenCalledTimes(1);
+    const [, { error, event }] = handleRuntimeError.mock.calls[0]!;
+    expect(event).toBe('__replay__');
+    expect((error as { code?: string }).code).toBe('unsupported-protocol');
+    expect((error as { detail?: { event?: string } }).detail?.event).toBe('__replay__');
+  });
+
+  it('replies UnsupportedProtocol for a __resumeStream__ frame when the adapter has no storage', async () => {
+    // No storage means durable streams aren't supported at all. The reply names
+    // the unsupported protocol event and keeps the streamId so the client's
+    // stream layer surfaces it to the resuming consumer.
+    const connection = createConnection('conn_1');
+    const sent: Array<{
+      event: string;
+      payload: Record<string, unknown>;
+      wskit: Record<string, unknown>;
+    }> = [];
+
+    const runtime = {
+      compiled: {
+        outgoing: new Map(),
+        incoming: new Map(),
+        requests: new Map(),
+        streams: new Map(),
+        resumableStreams: new Map(),
+        recordedStreams: new Map(),
+        intercepts: [],
+        channels: new Map(),
+        channelFamilies: new Map(),
+        scheduled: new Map(),
+        plugins: [],
+        requires: {},
+        replayClaimedChannelKeys: new Set(),
+      },
+      connections: new Map([[connection.id, connection]]),
+      activeStreams: new Map(),
+      protocolHandlers: new Map(),
+      incomingHooks: [],
+      pluginRuntimes: [],
+      errorHooks: [],
+      activityHooks: [],
+      // no `sql` → storage absent
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      buildConnectionContext() {
+        return { id: connection.id };
+      },
+      sendProtocolMessage(_connection: RuntimeConnection, message: (typeof sent)[number]) {
+        sent.push(message);
+      },
+      sendReplay() {},
+      persistAttachment() {},
+      async handleRuntimeError() {},
+      async handleValidationError() {},
+      async handleSubscribe() {},
+      async handleUnsubscribe() {},
+      waitUntil() {},
+      generateId() {
+        return 'id_1';
+      },
+    };
+
+    await processTextMessage(
+      runtime as unknown as Parameters<typeof processTextMessage>[0],
+      connection,
+      JSON.stringify({ event: '__resumeStream__', payload: {}, __wskit: { streamId: 's-1' } }),
+    );
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.event).toBe('__error__');
+    expect(sent[0]!.payload.code).toBe('unsupported-protocol');
+    expect((sent[0]!.payload.detail as { event?: string }).event).toBe('__resumeStream__');
+    expect(sent[0]!.wskit.streamId).toBe('s-1');
+  });
 });
 
 // ── nudge intercept ───────────────────────────────────────────────────────────
@@ -1235,7 +1349,6 @@ function makeScopedNode(intercepts: unknown[] = []) {
 
 interface MakeNudgeRuntimeOptions {
   handleRuntimeError?: ReturnType<typeof vi.fn>;
-  namespaces?: Map<string, unknown>;
   channels?: Map<string, unknown>;
 }
 
@@ -1244,7 +1357,7 @@ function makeNudgeRuntime(
   activeStreams: Map<string, unknown>,
   opts: MakeNudgeRuntimeOptions = {},
 ) {
-  const { handleRuntimeError = vi.fn(), namespaces = new Map(), channels = new Map() } = opts;
+  const { handleRuntimeError = vi.fn(), channels = new Map() } = opts;
   return {
     compiled: {
       outgoing: new Map(),
@@ -1254,7 +1367,6 @@ function makeNudgeRuntime(
       resumableStreams: new Map(),
       recordedStreams: new Map(),
       intercepts,
-      namespaces,
       channels,
       channelFamilies: new Map(),
       scheduled: new Map(),
@@ -1404,7 +1516,7 @@ describe('nudge intercepts', () => {
     expect(activeStream.nudges[0]!.payload).toEqual({ passthrough: true });
   });
 
-  it('non-Block error in a nudge intercept calls handleRuntimeError with streamId routing', async () => {
+  it('non-Block error in a nudge intercept rejects the nudge without terminating the stream', async () => {
     const connection = createConnection('conn_1');
     const activeStream = makeActiveStream(connection.id, 'nudge-event');
     const activeStreams = new Map([['stream_1', activeStream]]);
@@ -1423,40 +1535,20 @@ describe('nudge intercepts', () => {
       JSON.stringify({
         event: 'nudge-event',
         payload: {},
-        __wskit: { streamId: 'stream_1', channelScope: null },
+        __wskit: { streamId: 'stream_1', streamNudgeId: 'nudge_1', channelScope: null },
       }),
     );
 
     expect(activeStream.nudges).toHaveLength(0);
     expect(handleRuntimeError).toHaveBeenCalledTimes(1);
     const [, { routing }] = handleRuntimeError.mock.calls[0]!;
-    expect((routing as { streamId?: string }).streamId).toBe('stream_1');
-  });
-
-  it('Block in namespace intercept drops a nudge sent with namespace routing', async () => {
-    const { Block } = await import('@wskit/core');
-    const connection = createConnection('conn_1');
-    const activeStream = makeActiveStream(connection.id, 'ns-nudge');
-    const activeStreams = new Map([['stream_1', activeStream]]);
-
-    const { intercept } = await import('~/intercept/intercept.ts');
-    const nsSpy = intercept(() => {
-      throw Block;
+    // The error must carry the full non-terminal envelope: streamTerminated:false
+    // keeps the stream live, streamNudgeId lets the client reject the right nudge().
+    expect(routing).toEqual({
+      streamId: 'stream_1',
+      streamTerminated: false,
+      streamNudgeId: 'nudge_1',
     });
-    const namespaces = new Map([['ns', makeScopedNode([nsSpy])]]);
-    const runtime = makeNudgeRuntime([], activeStreams, { namespaces });
-
-    await processTextMessage(
-      runtime as unknown as Parameters<typeof processTextMessage>[0],
-      connection,
-      JSON.stringify({
-        event: 'ns-nudge',
-        payload: { value: 1 },
-        __wskit: { streamId: 'stream_1', namespace: 'ns' },
-      }),
-    );
-
-    expect(activeStream.nudges).toHaveLength(0);
   });
 
   it('Block in channel intercept drops a nudge sent with channel routing', async () => {
@@ -1483,5 +1575,200 @@ describe('nudge intercepts', () => {
     );
 
     expect(activeStream.nudges).toHaveLength(0);
+  });
+});
+
+// ── Defer retry hook isolation ────────────────────────────────────────────────
+
+describe('Defer retry hook isolation', () => {
+  it('incoming hooks run only once across original dispatch and Defer retry', async () => {
+    vi.useFakeTimers();
+    try {
+      const connection = createConnection('conn_1');
+      let hookCallCount = 0;
+      let handlerAttempt = 0;
+
+      const runtime = {
+        compiled: {
+          outgoing: new Map(),
+          incoming: new Map([
+            [
+              'work',
+              {
+                event: 'work',
+                handler: async () => {
+                  handlerAttempt += 1;
+                  if (handlerAttempt === 1) throw Defer(10);
+                },
+                validator: undefined,
+              },
+            ],
+          ]),
+          requests: new Map(),
+          streams: new Map(),
+          resumableStreams: new Map(),
+          recordedStreams: new Map(),
+          intercepts: [],
+          channels: new Map(),
+          channelFamilies: new Map(),
+          scheduled: new Map(),
+          plugins: [],
+          requires: {},
+          replayClaimedChannelKeys: new Set(),
+        },
+        connections: new Map([[connection.id, connection]]),
+        toConnectionInfo() {
+          return { id: connection.id };
+        },
+        activeStreams: new Map(),
+        protocolHandlers: new Map(),
+        incomingHooks: [
+          (_msg: { event: string; payload: unknown }) => {
+            hookCallCount += 1;
+          },
+        ],
+        pluginRuntimes: [],
+        errorHooks: [],
+        requireTimers() {
+          return { setTimeout: () => undefined, clearTimeout() {} };
+        },
+        buildConnectionContext() {
+          return { id: connection.id };
+        },
+        broadcastToConnections() {},
+        sendProtocolMessage() {},
+        sendReplay() {},
+        persistAttachment() {},
+        async handleRuntimeError() {},
+        async handleValidationError() {},
+        async handleSubscribe() {},
+        async handleUnsubscribe() {},
+        waitUntil() {},
+        generateId() {
+          return 'id_1';
+        },
+      };
+
+      await dispatchIncoming(
+        runtime as unknown as Parameters<typeof dispatchIncoming>[0],
+        connection,
+        { event: 'work', payload: {}, wskit: undefined },
+      );
+
+      // First dispatch: handler throws Defer(10). Hook ran once.
+      expect(handlerAttempt).toBe(1);
+
+      await vi.advanceTimersByTimeAsync(10);
+
+      // Retry completed: handler ran a second time and succeeded.
+      expect(handlerAttempt).toBe(2);
+
+      // Correct behavior: the incoming hook must have run only ONCE total.
+      // Today the retry re-dispatches from the top of dispatchIncoming and
+      // re-runs incomingHooks, so hookCallCount is 2 — this assertion fails.
+      expect(hookCallCount).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a DeferExhausted onError hook receives the channel-scoped ctx when the handler defers inside a channel', async () => {
+    vi.useFakeTimers();
+    try {
+      const channelMembers = new Map<string, Set<RuntimeConnection>>();
+      const connection = createConnection('conn_1');
+      addMembership(channelMembers, connection, { channelName: 'room' });
+
+      const channel = {
+        key: 'room',
+        kind: 'channel' as const,
+        pattern: 'room',
+        outgoing: new Map(),
+        incoming: new Map([
+          [
+            'work',
+            {
+              event: 'work',
+              validator: undefined,
+              handler: () => {
+                throw Defer(10);
+              },
+            },
+          ],
+        ]),
+        requests: new Map(),
+        streams: new Map(),
+        resumableStreams: new Map(),
+        recordedStreams: new Map(),
+        intercepts: [],
+      };
+
+      let capturedCtx: { id?: string; channel?: string } | undefined;
+
+      const runtime = {
+        compiled: {
+          outgoing: new Map(),
+          incoming: new Map(),
+          requests: new Map(),
+          streams: new Map(),
+          resumableStreams: new Map(),
+          recordedStreams: new Map(),
+          intercepts: [],
+          channels: new Map([['room', channel]]),
+          channelFamilies: new Map(),
+          scheduled: new Map(),
+          plugins: [],
+          requires: {},
+          replayClaimedChannelKeys: new Set(),
+        },
+        connections: new Map([[connection.id, connection]]),
+        channelMembers,
+        toConnectionInfo() {
+          return { id: connection.id };
+        },
+        activeStreams: new Map(),
+        protocolHandlers: new Map(),
+        incomingHooks: [],
+        pluginRuntimes: [],
+        errorHooks: [
+          (ctx: { id?: string; channel?: string }) => {
+            capturedCtx = ctx;
+          },
+        ],
+        requireTimers() {
+          return { setTimeout: () => undefined, clearTimeout() {} };
+        },
+        buildConnectionContext(_connection: RuntimeConnection, scope?: { channelName?: string }) {
+          // Reflect the resolved scope into ctx the way the real builder does.
+          return { id: connection.id, channel: scope?.channelName };
+        },
+        broadcastToConnections() {},
+        sendProtocolMessage() {},
+        sendReplay() {},
+        persistAttachment() {},
+        async handleRuntimeError() {},
+        async handleValidationError() {},
+        async handleSubscribe() {},
+        async handleUnsubscribe() {},
+        sendThroughPipeline: () => true,
+        waitUntil() {},
+        generateId() {
+          return 'id_1';
+        },
+      };
+
+      await dispatchIncoming(
+        runtime as unknown as Parameters<typeof dispatchIncoming>[0],
+        connection,
+        { event: 'work', payload: {}, wskit: { channel: 'room', channelScope: null } },
+      );
+      // Exhaust the defer retries (initial + 3 retries at 10ms each).
+      await vi.advanceTimersByTimeAsync(100);
+
+      expect(capturedCtx).toBeDefined();
+      expect(capturedCtx?.channel).toBe('room');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

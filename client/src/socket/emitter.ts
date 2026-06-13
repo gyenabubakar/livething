@@ -1,14 +1,18 @@
-/* oxlint-disable @typescript-eslint/no-explicit-any -- internal emitter uses `any` for listener casting */
 /**
- * Minimal typed event emitter for internal use. Not exported from the package.
- *
- * Supports multiple listeners per event, returns unsubscribe functions,
- * and cleans up empty listener sets automatically.
+ * A tiny typed event emitter used inside the library. Each `on()` returns a
+ * function that removes the listener, and empty listener sets are cleaned up.
  */
-export class Emitter<TEvents extends Record<string, any[]> = Record<string, any[]>> {
-  private listeners = new Map<string, Set<(...args: any[]) => void>>();
+export class Emitter<TEvents extends Record<string, unknown[]> = Record<string, unknown[]>> {
+  // All listeners are stored with a loose signature internally; the typed `on`/`emit`
+  // methods enforce the correct argument types at the call site.
+  private listeners = new Map<string, Set<(...args: unknown[]) => void>>();
 
-  /** Register a listener. Returns an unsubscribe function. */
+  // A listener that throws must not stop the rest from running or bubble out of
+  // `emit()` (which runs inside WebSocket event handlers). The caller passes this
+  // to handle such errors; the event name lets it avoid re-entering the same event.
+  constructor(private onListenerError?: (error: unknown, event: string) => void) {}
+
+  /** Add a listener; call the returned function to remove it. */
   on<K extends string & keyof TEvents>(
     event: K,
     listener: (...args: TEvents[K]) => void,
@@ -17,29 +21,35 @@ export class Emitter<TEvents extends Record<string, any[]> = Record<string, any[
       this.listeners.set(event, new Set());
     }
     const set = this.listeners.get(event)!;
-    set.add(listener);
+    const erased = listener as (...args: unknown[]) => void;
+    set.add(erased);
 
     return () => {
-      set.delete(listener);
+      set.delete(erased);
       if (set.size === 0) this.listeners.delete(event);
     };
   }
 
-  /** Emit an event, calling all registered listeners synchronously in registration order. */
+  /** Call every listener for an event, in the order they were added. */
   emit<K extends keyof TEvents & string>(event: K, ...args: TEvents[K]): void {
     const set = this.listeners.get(event);
     if (!set) return;
-    for (const listener of set) {
-      listener(...args);
+    const snapshot = [...set];
+    for (const listener of snapshot) {
+      try {
+        listener(...args);
+      } catch (error) {
+        this.onListenerError?.(error, event);
+      }
     }
   }
 
-  /** Remove all listeners for all events. */
+  /** Remove every listener. */
   clear(): void {
     this.listeners.clear();
   }
 
-  /** Number of listeners for a given event. */
+  /** How many listeners an event has. */
   listenerCount<K extends keyof TEvents & string>(event: K): number {
     return this.listeners.get(event)?.size ?? 0;
   }

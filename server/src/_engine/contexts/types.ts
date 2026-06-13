@@ -12,7 +12,6 @@ import type { Validator } from '~/types.ts';
  * helpers and primitive context extenders.
  */
 export interface EngineScopeMeta {
-  namespaceName?: string;
   channelName?: string;
   /**
    * Scope marker for the active channel: `null` for static channels, the
@@ -23,7 +22,7 @@ export interface EngineScopeMeta {
 }
 
 /**
- * Symbol key used to attach scope metadata (namespace name, channel name) to a handler context.
+ * Symbol key used to attach scope metadata (channel name) to a handler context.
  *
  * @internal
  */
@@ -191,10 +190,6 @@ export type {
   TaskContext,
 } from '~/context.ts';
 
-export type {
-  CompiledChannel,
-  CompiledNamespace,
-  CompiledServer,
-} from '~/_engine/compile/types.ts';
+export type { CompiledChannel, CompiledServer } from '~/_engine/compile/types.ts';
 
 export type { PluginRuntime, RuntimeConnection } from '~/_engine/runtime/types.ts';

@@ -1,3 +1,4 @@
+import { RejoinRejected, WSKitConfigError } from '@wskit/core';
 import { scope } from '~/channel/channel.ts';
 import {
   addChannelMembership,
@@ -22,7 +23,6 @@ function createConnection(id = 'conn_1', meta: Record<string, unknown> = {}) {
     wsKey: Symbol(id),
     descriptor: {
       send() {},
-      sendBinary() {},
       close() {},
       bufferedAmount() {
         return 0;
@@ -82,6 +82,7 @@ function createRuntime(
       connections,
       channelMembers,
       checkHooks: new Map(),
+      revalidateHooks: new Map(),
       commitHooks: new Map(),
       subscribeHooks: new Map(),
       unsubscribeHooks: new Map(),
@@ -191,7 +192,7 @@ describe('channel runtime', () => {
         connectionId: 'conn_2',
         event: '__subscribeOk__',
         payload: { source: 'client' },
-        wskit: { channel: 'room:general', channelScope: 'rooms' },
+        wskit: { channel: 'room:general', channelScope: 'rooms', channelPersistent: false },
       },
       {
         connectionId: 'conn_2',
@@ -265,6 +266,153 @@ describe('channel runtime', () => {
         channelScope: 'rooms',
       },
     ]);
+  });
+
+  it('confirms a member leave with __unsubscribeOk__ echoing the unsubscribeId', async () => {
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
+    const connection = createConnection('conn_1', { userId: 'a' });
+    addChannelMembership(channelMembers, connection, {
+      channelName: 'room:general',
+      channelScope: 'rooms',
+    });
+
+    const { runtime, connections, protocol } = createRuntime(channelMembers);
+    connections.set(connection.id, connection);
+
+    await unsubscribeConnection(
+      {
+        ...runtime,
+        leaveChannel: async (nextConnection: RuntimeConnection, opts: LeaveChannelOptions) =>
+          leaveChannel(runtime, nextConnection, opts),
+      },
+      connection,
+      { channelName: 'room:general', channelScope: 'rooms', unsubscribeId: 'unsub-1' },
+    );
+
+    expect(protocol).toContainEqual({
+      connectionId: 'conn_1',
+      event: '__unsubscribeOk__',
+      payload: {},
+      wskit: { channel: 'room:general', channelScope: 'rooms', unsubscribeId: 'unsub-1' },
+    });
+  });
+
+  it('idempotently re-acks a leave for a channel it is no longer in, with no hooks or broadcasts', async () => {
+    // A resent leave after the first ack was lost: the connection is no longer a
+    // member, so the engine just re-confirms — no membership change, no broadcast.
+    const connection = createConnection('conn_1', { userId: 'a' });
+    const { runtime, connections, protocol, broadcasts } = createRuntime();
+    connections.set(connection.id, connection);
+
+    await unsubscribeConnection(
+      {
+        ...runtime,
+        leaveChannel: async (nextConnection: RuntimeConnection, opts: LeaveChannelOptions) =>
+          leaveChannel(runtime, nextConnection, opts),
+      },
+      connection,
+      { channelName: 'room:general', channelScope: 'rooms', unsubscribeId: 'unsub-1' },
+    );
+
+    expect(broadcasts).toEqual([]);
+    expect(protocol).toEqual([
+      {
+        connectionId: 'conn_1',
+        event: '__unsubscribeOk__',
+        payload: {},
+        wskit: { channel: 'room:general', channelScope: 'rooms', unsubscribeId: 'unsub-1' },
+      },
+    ]);
+  });
+
+  it('confirms a leave whose onUnsubscribe hook throws, then rethrows the hook error', async () => {
+    // leaveChannel removes membership before running hooks, so a throwing hook still
+    // means the leave completed — the client must still get __unsubscribeOk__ (or its
+    // unsubscribe() would hang), and the hook error is still surfaced to the caller.
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
+    const connection = createConnection('conn_1', { userId: 'a' });
+    addChannelMembership(channelMembers, connection, {
+      channelName: 'room:general',
+      channelScope: 'rooms',
+    });
+
+    const { runtime, connections, protocol } = createRuntime(channelMembers);
+    connections.set(connection.id, connection);
+    const boom = new Error('onUnsubscribe boom');
+    runtime.unsubscribeHooks = new Map([
+      [
+        'rooms',
+        [
+          async () => {
+            throw boom;
+          },
+        ],
+      ],
+    ]);
+
+    await expect(
+      unsubscribeConnection(
+        {
+          ...runtime,
+          leaveChannel: async (nextConnection: RuntimeConnection, opts: LeaveChannelOptions) =>
+            leaveChannel(runtime, nextConnection, opts),
+        },
+        connection,
+        { channelName: 'room:general', channelScope: 'rooms', unsubscribeId: 'unsub-1' },
+      ),
+    ).rejects.toBe(boom);
+
+    expect(
+      [...connection.channelMemberships.values()].some((m) => m.channelName === 'room:general'),
+    ).toBe(false);
+    expect(protocol).toContainEqual({
+      connectionId: 'conn_1',
+      event: '__unsubscribeOk__',
+      payload: {},
+      wskit: { channel: 'room:general', channelScope: 'rooms', unsubscribeId: 'unsub-1' },
+    });
+  });
+
+  it('keeps the legacy channel-not-subscribed error for a no-id leave of a non-member', async () => {
+    const connection = createConnection('conn_1');
+    const { runtime, connections } = createRuntime();
+    connections.set(connection.id, connection);
+
+    await expect(
+      unsubscribeConnection(
+        {
+          ...runtime,
+          leaveChannel: async (nextConnection: RuntimeConnection, opts: LeaveChannelOptions) =>
+            leaveChannel(runtime, nextConnection, opts),
+        },
+        connection,
+        { channelName: 'room:general', channelScope: 'rooms' },
+      ),
+    ).rejects.toMatchObject({ code: 'channel-not-subscribed' });
+  });
+
+  it('sends no confirmation when the leave frame carried no unsubscribeId', async () => {
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
+    const connection = createConnection('conn_1', { userId: 'a' });
+    addChannelMembership(channelMembers, connection, {
+      channelName: 'room:general',
+      channelScope: 'rooms',
+    });
+
+    const { runtime, connections, protocol } = createRuntime(channelMembers);
+    connections.set(connection.id, connection);
+
+    await unsubscribeConnection(
+      {
+        ...runtime,
+        leaveChannel: async (nextConnection: RuntimeConnection, opts: LeaveChannelOptions) =>
+          leaveChannel(runtime, nextConnection, opts),
+      },
+      connection,
+      { channelName: 'room:general', channelScope: 'rooms' },
+    );
+
+    expect(protocol.some((p) => p.event === '__unsubscribeOk__')).toBe(false);
   });
 
   it('keeps same-name memberships isolated across channel families', async () => {
@@ -493,6 +641,96 @@ describe('channel runtime', () => {
         { channelName: 'room:general', channelScope: 'rooms', data: undefined },
       ),
     ).rejects.toThrow(/commit\(\) must be synchronous/);
+  });
+
+  it('native-Promise commit throws WSKitConfigError before membership is written', async () => {
+    const connection = createConnection('conn_1');
+    const { runtime, connections } = createRuntime();
+    connections.set(connection.id, connection);
+
+    await expect(
+      subscribeConnection(
+        {
+          ...runtime,
+          commitHooks: new Map([
+            [
+              'rooms',
+              [{ handler: (() => Promise.resolve()) as (ctx: unknown, r: unknown) => void }],
+            ],
+          ]),
+        },
+        connection,
+        { channelName: 'room:general', channelScope: 'rooms', data: undefined },
+      ),
+    ).rejects.toBeInstanceOf(WSKitConfigError);
+
+    expect([...connection.channelMemberships.values()]).toHaveLength(0);
+  });
+
+  it('cross-realm Promise commit throws WSKitConfigError before membership is written', async () => {
+    const connection = createConnection('conn_1');
+    const { runtime, connections } = createRuntime();
+    connections.set(connection.id, connection);
+
+    // A Promise from a different realm is not `instanceof Promise` here, so the
+    // guard must rely on the thenable shape, not the constructor identity.
+    const realm = await import('node:vm');
+    const foreignPromise = realm.runInNewContext('Promise.resolve(1)');
+
+    await expect(
+      subscribeConnection(
+        {
+          ...runtime,
+          commitHooks: new Map([
+            ['rooms', [{ handler: (() => foreignPromise) as (ctx: unknown, r: unknown) => void }]],
+          ]),
+        },
+        connection,
+        { channelName: 'room:general', channelScope: 'rooms', data: undefined },
+      ),
+    ).rejects.toBeInstanceOf(WSKitConfigError);
+
+    expect([...connection.channelMemberships.values()]).toHaveLength(0);
+  });
+
+  it('custom thenable commit throws WSKitConfigError before membership is written', async () => {
+    const connection = createConnection('conn_1');
+    const { runtime, connections } = createRuntime();
+    connections.set(connection.id, connection);
+
+    await expect(
+      subscribeConnection(
+        {
+          ...runtime,
+          commitHooks: new Map([
+            ['rooms', [{ handler: (() => ({ then() {} })) as (ctx: unknown, r: unknown) => void }]],
+          ]),
+        },
+        connection,
+        { channelName: 'room:general', channelScope: 'rooms', data: undefined },
+      ),
+    ).rejects.toBeInstanceOf(WSKitConfigError);
+
+    expect([...connection.channelMemberships.values()]).toHaveLength(0);
+  });
+
+  it('synchronous commit succeeds and membership is written', async () => {
+    const connection = createConnection('conn_1');
+    const { runtime, connections } = createRuntime();
+    connections.set(connection.id, connection);
+
+    await subscribeConnection(
+      {
+        ...runtime,
+        commitHooks: new Map([['rooms', [{ handler: () => undefined }]]]),
+      },
+      connection,
+      { channelName: 'room:general', channelScope: 'rooms', data: undefined },
+    );
+
+    expect(
+      [...connection.channelMemberships.values()].some((m) => m.channelName === 'room:general'),
+    ).toBe(true);
   });
 
   it('check result flows as typed second arg to commit', async () => {
@@ -753,7 +991,7 @@ describe('subscribeConnectionAsServer', () => {
         connectionId: 'target',
         event: '__subscribeOk__',
         payload: { source: 'server' },
-        wskit: { channel: 'room:general', channelScope: 'rooms' },
+        wskit: { channel: 'room:general', channelScope: 'rooms', channelPersistent: false },
       },
       {
         connectionId: 'target',
@@ -803,6 +1041,159 @@ describe('subscribeConnectionAsServer', () => {
       false,
     );
     expect(protocol).toEqual([]);
+  });
+
+  it('marks the channel persistent on __subscribeOk__ when the channel is persistent', async () => {
+    const { protocol, connections, runtime } = createRuntime();
+    const target = createConnection('target', { userId: 't' });
+    connections.set(target.id, target);
+
+    const persistentRuntime = { ...runtime, isChannelPersistent: () => true };
+
+    await subscribeConnectionAsServer(persistentRuntime, target, {
+      channelName: 'room:general',
+      channelScope: 'rooms',
+      payload: undefined,
+    });
+
+    const ok = protocol.find((p) => p.event === '__subscribeOk__');
+    expect(ok?.wskit).toEqual({
+      channel: 'room:general',
+      channelScope: 'rooms',
+      channelPersistent: true,
+    });
+  });
+
+  it('runs revalidate (not check) on rejoin', async () => {
+    const { connections, runtime } = createRuntime();
+    const target = createConnection('target', { userId: 't' });
+    connections.set(target.id, target);
+
+    const checkHook = vi.fn();
+    const revalidateHook = vi.fn();
+    const rejoinRuntime = {
+      ...runtime,
+      isChannelPersistent: () => true,
+      hasDurableMembership: () => true,
+      checkHooks: new Map([['rooms', [{ handler: checkHook, validator: undefined }]]]),
+      revalidateHooks: new Map([['rooms', [revalidateHook]]]),
+    };
+
+    await subscribeConnectionAsServer(rejoinRuntime, target, {
+      channelName: 'room:general',
+      channelScope: 'rooms',
+      payload: undefined,
+      rejoining: true,
+    });
+
+    expect(revalidateHook).toHaveBeenCalledTimes(1);
+    expect(checkHook).not.toHaveBeenCalled();
+    expect(target.channelMemberships.has(createChannelMembershipKey('room:general', 'rooms'))).toBe(
+      true,
+    );
+  });
+
+  it('does not run commit or fire onSubscribe on rejoin', async () => {
+    const { connections, runtime } = createRuntime();
+    const target = createConnection('target', { userId: 't' });
+    connections.set(target.id, target);
+
+    const commitHook = vi.fn();
+    const onSubscribeHook = vi.fn();
+    const rejoinRuntime = {
+      ...runtime,
+      isChannelPersistent: () => true,
+      hasDurableMembership: () => true,
+      commitHooks: new Map([['rooms', [{ handler: commitHook }]]]),
+      subscribeHooks: new Map([['rooms', [onSubscribeHook]]]),
+    };
+
+    await subscribeConnectionAsServer(rejoinRuntime, target, {
+      channelName: 'room:general',
+      channelScope: 'rooms',
+      payload: undefined,
+      rejoining: true,
+    });
+
+    expect(commitHook).not.toHaveBeenCalled();
+    expect(onSubscribeHook).not.toHaveBeenCalled();
+  });
+
+  it('a throwing revalidate rejects rejoin and does not commit membership', async () => {
+    const { connections, runtime } = createRuntime();
+    const target = createConnection('target', { userId: 't' });
+    connections.set(target.id, target);
+
+    const rejoinRuntime = {
+      ...runtime,
+      isChannelPersistent: () => true,
+      hasDurableMembership: () => true,
+      revalidateHooks: new Map([
+        [
+          'rooms',
+          [
+            () => {
+              throw new Error('revoked');
+            },
+          ],
+        ],
+      ]),
+    };
+
+    let thrown: unknown;
+    try {
+      await subscribeConnectionAsServer(rejoinRuntime, target, {
+        channelName: 'room:general',
+        channelScope: 'rooms',
+        payload: undefined,
+        rejoining: true,
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(RejoinRejected.matches(thrown)).toBe(true);
+    expect((thrown as { detail: { message: string } }).detail.message).toBe('revoked');
+    expect(target.channelMemberships.has(createChannelMembershipKey('room:general', 'rooms'))).toBe(
+      false,
+    );
+  });
+
+  it('a revalidate config error propagates as a config error (not a revoke)', async () => {
+    const { connections, runtime } = createRuntime();
+    const target = createConnection('target', { userId: 't' });
+    connections.set(target.id, target);
+
+    const rejoinRuntime = {
+      ...runtime,
+      isChannelPersistent: () => true,
+      hasDurableMembership: () => true,
+      revalidateHooks: new Map([
+        [
+          'rooms',
+          [
+            () => {
+              throw new WSKitConfigError('bad gate config');
+            },
+          ],
+        ],
+      ]),
+    };
+
+    let thrown: unknown;
+    try {
+      await subscribeConnectionAsServer(rejoinRuntime, target, {
+        channelName: 'room:general',
+        channelScope: 'rooms',
+        payload: undefined,
+        rejoining: true,
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(WSKitConfigError);
+    expect(RejoinRejected.matches(thrown)).toBe(false);
   });
 
   it('runs check with the supplied payload', async () => {
@@ -929,7 +1320,7 @@ describe('subscribeConnectionAsServer', () => {
         connectionId: 'target',
         event: '__subscribeOk__',
         payload: { source: 'server' },
-        wskit: { channel: 'lobby' },
+        wskit: { channel: 'lobby', channelPersistent: false },
       },
       {
         connectionId: 'target',
@@ -1028,6 +1419,89 @@ describe('subscribeConnectionAsServer', () => {
   });
 });
 
+describe('channel runtime bug tests', () => {
+  it('two concurrent client subscribes for same connection+channel fire subscribeOk and memberJoin exactly once each', async () => {
+    const connection = createConnection('conn_1', { who: 'me' });
+    const { runtime, connections, protocol, broadcasts } = createRuntime();
+    connections.set(connection.id, connection);
+
+    let releaseGate!: () => void;
+    const gate = new Promise<void>((r) => (releaseGate = r));
+
+    const onSubscribeHook = vi.fn();
+    const runtimeWithHook = {
+      ...runtime,
+      checkHooks: new Map([
+        [
+          'rooms',
+          [
+            {
+              handler: async () => {
+                await gate;
+              },
+              validator: undefined,
+            },
+          ],
+        ],
+      ]),
+      subscribeHooks: new Map([['rooms', [onSubscribeHook]]]),
+    };
+
+    const subA = subscribeConnection(runtimeWithHook, connection, {
+      channelName: 'room:general',
+      channelScope: 'rooms',
+      data: undefined,
+    });
+    const subB = subscribeConnection(runtimeWithHook, connection, {
+      channelName: 'room:general',
+      channelScope: 'rooms',
+      data: undefined,
+    });
+
+    releaseGate();
+    await Promise.all([subA, subB]);
+
+    const subscribeOkCount = protocol.filter((p) => p.event === '__subscribeOk__').length;
+    const memberJoinCount = broadcasts.filter((b) => b.event === '__memberJoin__').length;
+    const memberships = [...connection.channelMemberships.values()].filter(
+      (m) => m.channelName === 'room:general',
+    );
+
+    expect(subscribeOkCount).toBe(1);
+    expect(memberJoinCount).toBe(1);
+    expect(onSubscribeHook).toHaveBeenCalledTimes(1);
+    expect(memberships).toHaveLength(1);
+  });
+
+  it('disconnect leave with undefined channel on a persistent connection does not broadcast __memberLeave__', async () => {
+    const channelMembers = new Map<string, Set<RuntimeConnection>>();
+    const connection = createConnection('conn_1');
+    addChannelMembership(channelMembers, connection, {
+      channelName: 'room:general',
+      channelScope: 'rooms',
+    });
+
+    const { runtime, broadcasts } = createRuntime(channelMembers);
+    const persistentRuntime = {
+      ...runtime,
+      // Simulate the channel definition being gone (hot-reload / upgrade).
+      // isChannelPersistent is not called when channel is undefined, but we still
+      // pass it to indicate intent. The fallback path in leaveChannel uses '' as key.
+      isChannelPersistent: (key: string) => key === '' || key === 'rooms',
+    };
+
+    await leaveChannel(persistentRuntime as never, connection, {
+      channel: undefined,
+      channelName: 'room:general',
+      channelScope: 'rooms',
+      disconnect: true,
+    });
+
+    const memberLeaveCount = broadcasts.filter((b) => b.event === '__memberLeave__').length;
+    expect(memberLeaveCount).toBe(0);
+  });
+});
+
 describe('matchScopeParams', () => {
   it('returns an empty object for a static channel (string pattern)', () => {
     expect(matchScopeParams('lobby', 'lobby')).toEqual({});
@@ -1046,5 +1520,44 @@ describe('matchScopeParams', () => {
   it('returns an empty object when the name does not match the family', () => {
     const decl = scope('rooms', 'room:{id}');
     expect(matchScopeParams(decl, 'lobby:1')).toEqual({});
+  });
+});
+
+// The server trusts no client. A duplicate or hostile subscribe/unsubscribe
+// frame must never push the server into wrong state or duplicate side effects.
+describe('server self-defense against untrusted client frames', () => {
+  it('a sequential second subscribe for an existing member is a no-op', async () => {
+    const connection = createConnection('conn_1', { who: 'me' });
+    const { runtime, connections, protocol, broadcasts } = createRuntime();
+    connections.set(connection.id, connection);
+
+    const onSubscribeHook = vi.fn();
+    const runtimeWithHook = {
+      ...runtime,
+      subscribeHooks: new Map([['rooms', [onSubscribeHook]]]),
+    };
+
+    // First subscribe — the connection becomes a member.
+    await subscribeConnection(runtimeWithHook, connection, {
+      channelName: 'room:general',
+      channelScope: 'rooms',
+      data: undefined,
+    });
+
+    // A SECOND subscribe for the same channel from the same connection must be
+    // ignored server-side: no extra __subscribeOk__, no extra __memberJoin__,
+    // no extra onSubscribe — exactly like subscribeConnectionAsServer already does.
+    await subscribeConnection(runtimeWithHook, connection, {
+      channelName: 'room:general',
+      channelScope: 'rooms',
+      data: undefined,
+    });
+
+    const subscribeOkCount = protocol.filter((p) => p.event === '__subscribeOk__').length;
+    const memberJoinCount = broadcasts.filter((b) => b.event === '__memberJoin__').length;
+
+    expect(subscribeOkCount).toBe(1);
+    expect(memberJoinCount).toBe(1);
+    expect(onSubscribeHook).toHaveBeenCalledTimes(1);
   });
 });

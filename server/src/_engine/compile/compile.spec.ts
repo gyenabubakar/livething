@@ -1,15 +1,15 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
+import { WIRE_LIMITS } from '@wskit/core';
 import { contract } from '~/_api/contract.ts';
 import { t } from '~/_api/definitions.ts';
 import { implement } from '~/_api/implement.ts';
 import { scope } from '~/channel/channel.ts';
 import { channel } from '~/channel/definition.ts';
 import { incoming } from '~/incoming/definition.ts';
-import { namespace } from '~/namespace/definition.ts';
 import { plugin } from '~/plugins/plugin.ts';
 import { recordedStream } from '~/stream-recorded/definition.ts';
 import { resumableStream } from '~/stream-resumable/definition.ts';
-import { stream } from '~/stream/definition.ts';
+import { nudge, stream } from '~/stream/definition.ts';
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
 import { compileHandlerDefinition } from './compile.ts';
@@ -114,38 +114,6 @@ describe('boot-time cross-primitive collision guard', () => {
     );
   });
 
-  it('rejects the collision inside a namespace scope', () => {
-    const c = contract('app', {
-      env: t<Record<string, unknown>>(),
-      persistence: true,
-      definitions: [
-        namespace('v1', {
-          definitions: [
-            resumableStream('feed', { payload: v.object({}), chunk: v.object({}) }),
-            recordedStream('feed', { payload: v.object({}), chunk: v.object({}) }),
-          ],
-        }),
-      ],
-    });
-    expect(() =>
-      compileHandlerDefinition(
-        implement(c)
-          .namespace('v1', (ns) =>
-            ns
-              .resumableStream('feed', async function* () {
-                yield {};
-              })
-              .recordedStream('feed', async function* () {
-                yield {};
-              }),
-          )
-          .build(),
-      ),
-    ).toThrow(
-      /Event name 'feed' is registered as both 'resumableStream' and 'recordedStream' in namespace 'v1'/,
-    );
-  });
-
   it('rejects the collision inside a channel-family scope', () => {
     const c = contract('app', {
       env: t<Record<string, unknown>>(),
@@ -206,38 +174,6 @@ describe('boot-time cross-primitive collision guard', () => {
   });
 });
 
-describe('namespace cannot contain a channel or another namespace', () => {
-  it('build throws when a channel is declared inside a namespace via `as any`', () => {
-    const sneakyContract = contract('app', {
-      env: t<Record<string, unknown>>(),
-      definitions: [
-        namespace('admin', {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          definitions: [channel('audit', { definitions: [] }) as any],
-        }),
-      ],
-    });
-    expect(() => compileHandlerDefinition(implement(sneakyContract).build())).toThrow(
-      /namespace 'admin' contains channel 'audit'/,
-    );
-  });
-
-  it('build throws when a namespace is nested inside another namespace via `as any`', () => {
-    const sneakyContract = contract('app', {
-      env: t<Record<string, unknown>>(),
-      definitions: [
-        namespace('outer', {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          definitions: [namespace('inner', { definitions: [] }) as any],
-        }),
-      ],
-    });
-    expect(() => compileHandlerDefinition(implement(sneakyContract).build())).toThrow(
-      /namespace 'outer' contains namespace 'inner'/,
-    );
-  });
-});
-
 describe('scope and event name syntax — reserved characters', () => {
   it('rejects a channel name starting with @', () => {
     const c = contract('app', {
@@ -259,26 +195,6 @@ describe('scope and event name syntax — reserved characters', () => {
     );
   });
 
-  it('rejects a namespace name starting with @', () => {
-    const c = contract('app', {
-      env: t<Record<string, unknown>>(),
-      definitions: [namespace('@admin', { definitions: [] })],
-    });
-    expect(() => compileHandlerDefinition(implement(c).build())).toThrow(
-      /namespace name '@admin' starts with a reserved prefix character/,
-    );
-  });
-
-  it('rejects a namespace name starting with #', () => {
-    const c = contract('app', {
-      env: t<Record<string, unknown>>(),
-      definitions: [namespace('#admin', { definitions: [] })],
-    });
-    expect(() => compileHandlerDefinition(implement(c).build())).toThrow(
-      /namespace name '#admin' starts with a reserved prefix character/,
-    );
-  });
-
   it('rejects a channel name containing ::', () => {
     const c = contract('app', {
       env: t<Record<string, unknown>>(),
@@ -286,16 +202,6 @@ describe('scope and event name syntax — reserved characters', () => {
     });
     expect(() => compileHandlerDefinition(implement(c).build())).toThrow(
       /channel name 'chat::rooms' contains '::'/,
-    );
-  });
-
-  it('rejects a namespace name containing ::', () => {
-    const c = contract('app', {
-      env: t<Record<string, unknown>>(),
-      definitions: [namespace('admin::v1', { definitions: [] })],
-    });
-    expect(() => compileHandlerDefinition(implement(c).build())).toThrow(
-      /namespace name 'admin::v1' contains '::'/,
     );
   });
 
@@ -323,6 +229,32 @@ describe('scope and event name syntax — reserved characters', () => {
     ).toThrow(/Event name 'send::message' in top-level contains '::'/);
   });
 
+  it('rejects a declared event name longer than the wire limit', () => {
+    const tooLong = 'e'.repeat(WIRE_LIMITS.event + 1);
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
+      definitions: [incoming(tooLong, v.object({}))],
+    });
+    expect(() =>
+      compileHandlerDefinition(
+        implement(c)
+          .on(tooLong, () => {})
+          .build(),
+      ),
+    ).toThrow(/the wire protocol limit\s+is 128/);
+  });
+
+  it('rejects a declared channel name longer than the wire limit', () => {
+    const tooLong = 'c'.repeat(WIRE_LIMITS.channel + 1);
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
+      definitions: [channel(tooLong, { definitions: [] })],
+    });
+    expect(() => compileHandlerDefinition(implement(c).build())).toThrow(
+      /channel name is \d+ characters; the wire protocol limit is 256/,
+    );
+  });
+
   it('rejects an event name containing :: inside a channel', () => {
     const c = contract('app', {
       env: t<Record<string, unknown>>(),
@@ -335,20 +267,6 @@ describe('scope and event name syntax — reserved characters', () => {
           .build(),
       ),
     ).toThrow(/Event name 'send::message' in channel 'chat' contains '::'/);
-  });
-
-  it('rejects an event name containing :: inside a namespace', () => {
-    const c = contract('app', {
-      env: t<Record<string, unknown>>(),
-      definitions: [namespace('admin', { definitions: [incoming('send::message', v.object({}))] })],
-    });
-    expect(() =>
-      compileHandlerDefinition(
-        implement(c)
-          .namespace('admin', (ns) => ns.on('send::message', () => {}))
-          .build(),
-      ),
-    ).toThrow(/Event name 'send::message' in namespace 'admin' contains '::'/);
   });
 
   it('rejects a stream event name containing ::', () => {
@@ -372,7 +290,6 @@ describe('scope and event name syntax — reserved characters', () => {
       env: t<Record<string, unknown>>(),
       definitions: [
         channel('chat@v1', { definitions: [] }),
-        namespace('admin#v2', { definitions: [] }),
         incoming('user:created', v.object({})),
       ],
     });
@@ -383,6 +300,107 @@ describe('scope and event name syntax — reserved characters', () => {
           .build(),
       ),
     ).not.toThrow();
+  });
+
+  it('allows a dynamic family key at the channelScope wire limit', () => {
+    const key = 'k'.repeat(WIRE_LIMITS.channelScope);
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
+      definitions: [channel(scope(key, 'room:{id}'), { definitions: [] })],
+    });
+    expect(() => compileHandlerDefinition(implement(c).build())).not.toThrow();
+  });
+
+  it('rejects a dynamic family key one over the channelScope wire limit', () => {
+    const key = 'k'.repeat(WIRE_LIMITS.channelScope + 1);
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
+      definitions: [channel(scope(key, 'room:{id}'), { definitions: [] })],
+    });
+    expect(() => compileHandlerDefinition(implement(c).build())).toThrow(
+      /channel name is \d+ characters; the wire protocol limit is 128/,
+    );
+  });
+
+  it('allows a static channel name up to the larger channel wire limit', () => {
+    const name = 'c'.repeat(WIRE_LIMITS.channel);
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
+      definitions: [channel(name, { definitions: [] })],
+    });
+    expect(() => compileHandlerDefinition(implement(c).build())).not.toThrow();
+  });
+
+  it('rejects an ephemeral stream nudge name over the wire limit', () => {
+    const tooLong = 'n'.repeat(WIRE_LIMITS.event + 1);
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
+      definitions: [
+        stream('feed', {
+          payload: v.object({}),
+          chunk: v.object({}),
+          nudges: [nudge(tooLong, v.object({}))],
+        }),
+      ],
+    });
+    expect(() =>
+      compileHandlerDefinition(
+        implement(c)
+          .stream('feed', async function* () {
+            yield {};
+          })
+          .build(),
+      ),
+    ).toThrow(/the wire protocol limit\s+is 128/);
+  });
+
+  it('rejects a resumable stream nudge name over the wire limit', () => {
+    const tooLong = 'n'.repeat(WIRE_LIMITS.event + 1);
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
+      persistence: true,
+      definitions: [
+        resumableStream('feed', {
+          payload: v.object({}),
+          chunk: v.object({}),
+          nudges: [nudge(tooLong, v.object({}))],
+        }),
+      ],
+    });
+    expect(() =>
+      compileHandlerDefinition(
+        implement(c)
+          .resumableStream('feed', async function* () {
+            yield {};
+          })
+          .build(),
+      ),
+    ).toThrow(/the wire protocol limit\s+is 128/);
+  });
+
+  it('rejects a recorded stream nudge name over the wire limit', () => {
+    const tooLong = 'n'.repeat(WIRE_LIMITS.event + 1);
+    const c = contract('app', {
+      env: t<Record<string, unknown>>(),
+      persistence: true,
+      definitions: [
+        recordedStream('feed', {
+          payload: v.object({}),
+          chunk: v.object({}),
+          maxChunks: 10,
+          nudges: [nudge(tooLong, v.object({}))],
+        }),
+      ],
+    });
+    expect(() =>
+      compileHandlerDefinition(
+        implement(c)
+          .recordedStream('feed', async function* () {
+            yield {};
+          })
+          .build(),
+      ),
+    ).toThrow(/the wire protocol limit\s+is 128/);
   });
 });
 
@@ -423,23 +441,6 @@ describe('boot-time same-kind duplicate guard', () => {
           .build(),
       ),
     ).toThrow(/Duplicate channel declaration for "room"/);
-  });
-
-  it('rejects two namespace declarations with the same name', () => {
-    const c = contract('app', {
-      env: t<Record<string, unknown>>(),
-      definitions: [
-        namespace('admin', { definitions: [incoming('hello', v.object({}))] }),
-        namespace('admin', { definitions: [incoming('world', v.object({}))] }),
-      ],
-    });
-    expect(() =>
-      compileHandlerDefinition(
-        implement(c)
-          .namespace('admin', (ns) => ns.on('hello', () => {}).on('world', () => {}))
-          .build(),
-      ),
-    ).toThrow(/Duplicate namespace declaration for "admin"/);
   });
 
   it('rejects a plugin whose dependencies are not enabled on the contract', () => {
@@ -490,21 +491,6 @@ describe('boot-time same-kind duplicate guard', () => {
     expect(() => compileHandlerDefinition(implement(c).build())).toThrow(
       /Plugin "acme:needs-replay" declares a dependency on "replay"/,
     );
-  });
-
-  it('accepts binary:true for a plugin that depends on binary even without onBinary', () => {
-    const NeedsBinary = plugin('acme:needs-binary', {
-      dependencies: ['binary'],
-      setup: () => () => ({}),
-    });
-    const c = contract('app', {
-      env: t<Record<string, unknown>>(),
-      binary: true,
-      plugins: [NeedsBinary()],
-      definitions: [],
-    });
-
-    expect(() => compileHandlerDefinition(implement(c).build())).not.toThrow();
   });
 
   it('rejects two incoming declarations with the same event name inside a channel scope', () => {

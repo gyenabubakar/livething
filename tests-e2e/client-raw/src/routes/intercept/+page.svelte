@@ -1,0 +1,202 @@
+<script lang="ts">
+	let ws: WebSocket | null = $state(null);
+	let status = $state<'disconnected' | 'connecting' | 'connected'>('disconnected');
+	let username = $state('testuser');
+	let subscribed = $state(false);
+	let dynamicSubscribed = $state(false);
+	let echoed = $state<string[]>([]);
+	let lastErrorCode = $state('');
+
+	// top-level nudge-stream state
+	let nudgeChunks = $state<string[]>([]);
+	let nudgeStreamEnd = $state(false);
+	let nudgeStreamId = $state('');
+	let sendHintOnStarted = $state(false);
+	let sendBlockHintOnStarted = $state(false);
+
+	// channel ch-nudge-stream state
+	let chNudgeChunks = $state<string[]>([]);
+	let chNudgeStreamEnd = $state(false);
+	let chNudgeStreamId = $state('');
+	let sendChHintOnStarted = $state(false);
+	let sendChHintBlockOnStarted = $state(false);
+
+	function connect() {
+		if (ws) return;
+		status = 'connecting';
+		const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+		const room = new URL(location.href).searchParams.get('room') ?? 'default';
+		ws = new WebSocket(
+			`${protocol}//${location.host}/ws/intercept?username=${encodeURIComponent(username)}&room=${encodeURIComponent(room)}`,
+		);
+		ws.onopen = () => {
+			status = 'connected';
+			(window as unknown as { __ws?: WebSocket }).__ws = ws ?? undefined;
+		};
+		ws.onclose = () => {
+			status = 'disconnected';
+			ws = null;
+		};
+		ws.onmessage = (ev) => {
+			if (typeof ev.data !== 'string') return;
+			const data = JSON.parse(ev.data);
+			if (data.event === '__subscribeOk__') {
+				if (data.__wskit?.channelScope === 'rooms') dynamicSubscribed = true;
+				else subscribed = true;
+			}
+			if (data.event === 'echoed') echoed = [...echoed, data.payload?.text ?? ''];
+			if (data.event === '__error__') lastErrorCode = data.payload?.code ?? '';
+			if (data.event === '__streamOk__' && data.__wskit?.streamId) {
+				const sid = data.__wskit.streamId as string;
+				if (data.__wskit.channel === 'room') chNudgeStreamId = sid;
+				else nudgeStreamId = sid;
+			}
+			if (data.event === 'nudge-stream') {
+				const saw = data.payload?.saw ?? '';
+				nudgeChunks = [...nudgeChunks, saw];
+				if (saw === 'started' && nudgeStreamId) {
+					if (sendHintOnStarted) {
+						sendHintOnStarted = false;
+						ws?.send(
+							JSON.stringify({
+								event: 'hint',
+								payload: { text: 'hello' },
+								__wskit: { streamId: nudgeStreamId },
+							}),
+						);
+					}
+					if (sendBlockHintOnStarted) {
+						sendBlockHintOnStarted = false;
+						ws?.send(
+							JSON.stringify({
+								event: 'hint',
+								payload: { text: 'hint-block' },
+								__wskit: { streamId: nudgeStreamId },
+							}),
+						);
+					}
+				}
+			}
+			if (data.event === 'ch-nudge-stream') {
+				const saw = data.payload?.saw ?? '';
+				chNudgeChunks = [...chNudgeChunks, saw];
+				if (saw === 'started' && chNudgeStreamId) {
+					if (sendChHintOnStarted) {
+						sendChHintOnStarted = false;
+						ws?.send(
+							JSON.stringify({
+								event: 'ch-hint',
+								payload: { text: 'hello' },
+								__wskit: { streamId: chNudgeStreamId, channel: 'room', channelScope: null },
+							}),
+						);
+					}
+					if (sendChHintBlockOnStarted) {
+						sendChHintBlockOnStarted = false;
+						ws?.send(
+							JSON.stringify({
+								event: 'ch-hint',
+								payload: { text: 'ch-hint-block' },
+								__wskit: { streamId: chNudgeStreamId, channel: 'room', channelScope: null },
+							}),
+						);
+					}
+				}
+			}
+			if (data.event === '__streamEnd__') {
+				const endId = data.__wskit?.streamId as string;
+				if (endId === chNudgeStreamId) chNudgeStreamEnd = true;
+				else nudgeStreamEnd = true;
+			}
+		};
+	}
+
+	function send(text: string, scope?: 'room' | 'dyn-room') {
+		const payload: Record<string, unknown> = { text };
+		let wskit: Record<string, unknown> | undefined;
+		if (scope === 'room') wskit = { channel: 'room' };
+		if (scope === 'dyn-room') wskit = { channel: 'room:dyn', channelScope: 'rooms' };
+		ws?.send(
+			JSON.stringify(wskit ? { event: 'echo', payload, __wskit: wskit } : { event: 'echo', payload }),
+		);
+	}
+	function subscribeRoom() {
+		ws?.send(JSON.stringify({ event: '__subscribe__', payload: {}, __wskit: { channel: 'room' } }));
+	}
+	function subscribeDynamicRoom() {
+		ws?.send(
+			JSON.stringify({
+				event: '__subscribe__',
+				payload: {},
+				__wskit: { channel: 'room:dyn', channelScope: 'rooms' },
+			}),
+		);
+	}
+	function startNudgeStream() {
+		nudgeChunks = [];
+		nudgeStreamEnd = false;
+		nudgeStreamId = '';
+		sendHintOnStarted = true;
+		ws?.send(JSON.stringify({ event: 'nudge-stream', payload: {} }));
+	}
+	function startNudgeStreamBlock() {
+		nudgeChunks = [];
+		nudgeStreamEnd = false;
+		nudgeStreamId = '';
+		sendBlockHintOnStarted = true;
+		ws?.send(JSON.stringify({ event: 'nudge-stream', payload: {} }));
+	}
+	function startChNudgeStream() {
+		chNudgeChunks = [];
+		chNudgeStreamEnd = false;
+		chNudgeStreamId = '';
+		sendChHintOnStarted = true;
+		ws?.send(
+			JSON.stringify({
+				event: 'ch-nudge-stream',
+				payload: {},
+				__wskit: { channel: 'room', channelScope: null },
+			}),
+		);
+	}
+	function startChNudgeStreamBlock() {
+		chNudgeChunks = [];
+		chNudgeStreamEnd = false;
+		chNudgeStreamId = '';
+		sendChHintBlockOnStarted = true;
+		ws?.send(
+			JSON.stringify({
+				event: 'ch-nudge-stream',
+				payload: {},
+				__wskit: { channel: 'room', channelScope: null },
+			}),
+		);
+	}
+</script>
+
+<h1>intercept feature</h1>
+<input data-testid="username" bind:value={username} />
+<button data-testid="connect" onclick={connect}>Connect</button>
+<button data-testid="subscribe-room" onclick={subscribeRoom}>Subscribe room</button>
+<button data-testid="subscribe-dynamic-room" onclick={subscribeDynamicRoom}>Subscribe dynamic room</button>
+
+<button data-testid="send-top-pre" onclick={() => send('top-pre')}>Send top-pre</button>
+<button data-testid="send-top-passthrough" onclick={() => send('top-passthrough')}>Send top-passthrough</button>
+<button data-testid="send-ch-pre" onclick={() => send('ch-pre', 'room')}>Send ch-pre</button>
+<button data-testid="send-ch-pre-block" onclick={() => send('ch-pre-block', 'room')}>Send ch-pre-block</button>
+<button data-testid="send-dyn-pre" onclick={() => send('dyn-pre', 'dyn-room')}>Send dyn-pre</button>
+<button data-testid="send-dyn-pre-block" onclick={() => send('dyn-pre-block', 'dyn-room')}>Send dyn-pre-block</button>
+<button data-testid="start-nudge-stream" onclick={startNudgeStream}>Start nudge stream</button>
+<button data-testid="start-nudge-stream-block" onclick={startNudgeStreamBlock}>Start nudge stream (block)</button>
+<button data-testid="start-ch-nudge-stream" onclick={startChNudgeStream}>Start ch nudge stream</button>
+<button data-testid="start-ch-nudge-stream-block" onclick={startChNudgeStreamBlock}>Start ch nudge stream (block)</button>
+
+<span data-testid="status">{status}</span>
+<span data-testid="subscribed">{subscribed ? 'yes' : 'no'}</span>
+<span data-testid="dynamic-subscribed">{dynamicSubscribed ? 'yes' : 'no'}</span>
+<span data-testid="echoed">{echoed.join(',')}</span>
+<span data-testid="last-error-code">{lastErrorCode}</span>
+<span data-testid="nudge-chunks">{nudgeChunks.join(',')}</span>
+<span data-testid="nudge-stream-end">{nudgeStreamEnd ? 'yes' : 'no'}</span>
+<span data-testid="ch-nudge-chunks">{chNudgeChunks.join(',')}</span>
+<span data-testid="ch-nudge-stream-end">{chNudgeStreamEnd ? 'yes' : 'no'}</span>

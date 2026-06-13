@@ -78,11 +78,6 @@ interface ConnectionRuntime {
 
   processTextMessage(connection: EngineRuntimeTypes.RuntimeConnection, data: string): Promise<void>;
 
-  handleBinaryMessage(
-    connection: EngineRuntimeTypes.RuntimeConnection,
-    data: ArrayBuffer,
-  ): Promise<void>;
-
   handleConnectionClose(
     connection: EngineRuntimeTypes.RuntimeConnection,
     code: number,
@@ -125,10 +120,6 @@ function createHandle(
     handleMessage: async (data) => {
       await waitForLifecycle();
       return runtime.processTextMessage(connection, data);
-    },
-    handleBinary: async (data) => {
-      await waitForLifecycle();
-      return runtime.handleBinaryMessage(connection, data);
     },
     handleClose: async (code, reason) => {
       await waitForLifecycle();
@@ -357,48 +348,6 @@ export async function handleConnectionClose(
 }
 
 /**
- * Route binary frames into the optional binary lifecycle hook.
- *
- * A throw from any hook is routed through the engine's runtime-error path
- * so the client gets `__error__` and `onError` hooks fire — the same shape
- * text-message handlers already follow. The first throw stops the
- * remaining binary hooks for this frame.
- */
-export async function handleBinaryMessage(
-  runtime: Pick<ConnectionRuntime, 'buildConnectionContext' | 'handleRuntimeError'> & {
-    activityHooks: readonly ((connectionId: string) => void | Promise<void>)[];
-    binaryHooks: readonly ((
-      ctx: Record<PropertyKey, unknown>,
-      data: ArrayBuffer,
-    ) => void | Promise<void>)[];
-    logger?: Pick<PublicApi.Logger, 'error'>;
-  },
-  connection: EngineRuntimeTypes.RuntimeConnection,
-  data: ArrayBuffer,
-): Promise<void> {
-  for (const hook of runtime.activityHooks) {
-    try {
-      await hook(connection.id);
-    } catch (error) {
-      runtime.logger?.error('[wskit] connection activity hook threw', {
-        connectionId: connection.id,
-        error,
-      });
-    }
-  }
-  if (runtime.binaryHooks.length === 0) return;
-  const ctx = runtime.buildConnectionContext(connection);
-  for (const hook of runtime.binaryHooks) {
-    try {
-      await hook(ctx, data);
-    } catch (error) {
-      await runtime.handleRuntimeError(connection, error, undefined);
-      return;
-    }
-  }
-}
-
-/**
  * Create runtime state for a newly accepted connection and return the adapter
  * callbacks that feed events into the engine.
  */
@@ -538,7 +487,6 @@ export function wakeHibernatedConnection(
 
   const descriptor: EngineAdapterTypes.ConnectionDescriptor = {
     send: (data) => wsLike.send?.(data),
-    sendBinary: (data) => wsLike.send?.(data),
     close: (code, reason) => wsLike.close?.(code, reason),
     bufferedAmount: () => 0,
     identity,

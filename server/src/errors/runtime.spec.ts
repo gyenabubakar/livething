@@ -263,7 +263,7 @@ describe('errors runtime', () => {
         sendProtocolMessage() {},
       },
       { id: 'c1' } as never,
-      { error: new Error('boom'), event: 'post', routing: { namespace: 'unknown' } },
+      { error: new Error('boom'), event: 'post', routing: { channel: 'unknown' } },
     );
 
     expect(builtScopes).toEqual([undefined]);

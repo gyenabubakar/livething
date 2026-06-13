@@ -15,7 +15,6 @@ function createConnection(id = 'conn_1'): RuntimeConnection {
     wsKey: Symbol(id),
     descriptor: {
       send: vi.fn(),
-      sendBinary: vi.fn(),
       close: vi.fn(),
       bufferedAmount() {
         return 0;
@@ -39,7 +38,6 @@ function baseCompiled() {
     resumableStreams: new Map(),
     recordedStreams: new Map(),
     intercepts: [],
-    namespaces: new Map(),
     channels: new Map(),
     channelFamilies: new Map(),
     scheduled: new Map(),
@@ -586,7 +584,6 @@ describe('wakeHibernatedConnection — channel memberships restore', () => {
       },
       async runConnectionLifecycle() {},
       async processTextMessage() {},
-      async handleBinaryMessage() {},
       async handleConnectionClose() {},
       async handleRuntimeError() {},
     };

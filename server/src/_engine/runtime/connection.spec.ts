@@ -2,7 +2,6 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import {
   acceptConnection,
   cancelActiveStreamsForConnection,
-  handleBinaryMessage,
   handleConnectionClose,
   handleShutdown,
   runConnectionLifecycle,
@@ -40,7 +39,6 @@ describe('connection runtime', () => {
           resumableStreams: new Map(),
           recordedStreams: new Map(),
           intercepts: [],
-          namespaces: new Map(),
           channels: new Map(),
           channelFamilies: new Map(),
           scheduled: new Map(),
@@ -67,9 +65,6 @@ describe('connection runtime', () => {
         async processTextMessage() {
           events.push('message');
         },
-        async handleBinaryMessage() {
-          events.push('binary');
-        },
         async handleConnectionClose() {
           events.push('close');
         },
@@ -80,7 +75,6 @@ describe('connection runtime', () => {
       Symbol('ws'),
       {
         send() {},
-        sendBinary() {},
         close() {},
         bufferedAmount() {
           return 0;
@@ -114,7 +108,6 @@ describe('connection runtime', () => {
           resumableStreams: new Map(),
           recordedStreams: new Map(),
           intercepts: [],
-          namespaces: new Map(),
           channels: new Map(),
           channelFamilies: new Map(),
           scheduled: new Map(),
@@ -141,9 +134,6 @@ describe('connection runtime', () => {
         async processTextMessage(_conn, data) {
           events.push(`message:${data}`);
         },
-        async handleBinaryMessage() {
-          events.push('binary');
-        },
         async handleConnectionClose() {
           events.push('close');
         },
@@ -154,7 +144,6 @@ describe('connection runtime', () => {
       Symbol('ws'),
       {
         send() {},
-        sendBinary() {},
         close() {},
         bufferedAmount() {
           return 0;
@@ -198,7 +187,6 @@ describe('connection runtime', () => {
           resumableStreams: new Map(),
           recordedStreams: new Map(),
           intercepts: [],
-          namespaces: new Map(),
           channels: new Map(),
           channelFamilies: new Map(),
           scheduled: new Map(),
@@ -224,9 +212,6 @@ describe('connection runtime', () => {
         async processTextMessage() {
           events.push('message');
         },
-        async handleBinaryMessage() {
-          events.push('binary');
-        },
         async handleConnectionClose() {
           events.push('close');
         },
@@ -237,7 +222,6 @@ describe('connection runtime', () => {
       Symbol('ws'),
       {
         send() {},
-        sendBinary() {},
         close() {},
         bufferedAmount() {
           return 0;
@@ -271,7 +255,6 @@ describe('connection runtime', () => {
       resumableStreams: new Map(),
       recordedStreams: new Map(),
       intercepts: [],
-      namespaces: new Map(),
       channels: new Map(),
       channelFamilies: new Map(),
       scheduled: new Map(),
@@ -299,7 +282,6 @@ describe('connection runtime', () => {
         },
         async runConnectionLifecycle() {},
         async processTextMessage() {},
-        async handleBinaryMessage() {},
         async handleConnectionClose() {},
         async handleRuntimeError() {},
       },
@@ -308,7 +290,6 @@ describe('connection runtime', () => {
         send(data: string) {
           sentA.push(data);
         },
-        sendBinary() {},
         close() {},
         bufferedAmount() {
           return 0;
@@ -340,7 +321,6 @@ describe('connection runtime', () => {
         },
         async runConnectionLifecycle() {},
         async processTextMessage() {},
-        async handleBinaryMessage() {},
         async handleConnectionClose() {},
         async handleRuntimeError() {},
       },
@@ -349,7 +329,6 @@ describe('connection runtime', () => {
         send(data: string) {
           sentB.push(data);
         },
-        sendBinary() {},
         close() {},
         bufferedAmount() {
           return 0;
@@ -384,7 +363,6 @@ describe('connection runtime', () => {
           resumableStreams: new Map(),
           recordedStreams: new Map(),
           intercepts: [],
-          namespaces: new Map(),
           channels: new Map(),
           channelFamilies: new Map(),
           scheduled: new Map(),
@@ -414,7 +392,6 @@ describe('connection runtime', () => {
         },
         async runConnectionLifecycle() {},
         async processTextMessage() {},
-        async handleBinaryMessage() {},
         async handleConnectionClose() {},
         async handleRuntimeError() {},
       },
@@ -459,7 +436,6 @@ describe('connection runtime', () => {
           resumableStreams: new Map(),
           recordedStreams: new Map(),
           intercepts: [],
-          namespaces: new Map(),
           channels: new Map(),
           channelFamilies: new Map(),
           scheduled: new Map(),
@@ -481,7 +457,6 @@ describe('connection runtime', () => {
         },
         async runConnectionLifecycle() {},
         async processTextMessage() {},
-        async handleBinaryMessage() {},
         async handleConnectionClose() {},
         async handleRuntimeError() {},
       },
@@ -513,7 +488,6 @@ describe('connection runtime', () => {
           resumableStreams: new Map(),
           recordedStreams: new Map(),
           intercepts: [],
-          namespaces: new Map(),
           channels: new Map(),
           channelFamilies: new Map(),
           scheduled: new Map(),
@@ -548,7 +522,6 @@ describe('connection runtime', () => {
         },
         async runConnectionLifecycle() {},
         async processTextMessage() {},
-        async handleBinaryMessage() {},
         async handleConnectionClose() {},
         async handleRuntimeError() {},
       },
@@ -803,7 +776,6 @@ describe('connection runtime', () => {
       wsKey: Symbol('ws'),
       descriptor: {
         send() {},
-        sendBinary() {},
         close() {},
         bufferedAmount: () => 0,
         identity: 'c1',
@@ -856,7 +828,6 @@ describe('connection runtime', () => {
       wsKey,
       descriptor: {
         send() {},
-        sendBinary() {},
         close() {},
         bufferedAmount: () => 0,
         identity: 'c1',
@@ -913,7 +884,6 @@ describe('connection runtime', () => {
       wsKey,
       descriptor: {
         send() {},
-        sendBinary() {},
         close() {},
         bufferedAmount() {
           return 0;
@@ -983,7 +953,6 @@ describe('connection runtime', () => {
       wsKey,
       descriptor: {
         send() {},
-        sendBinary() {},
         close() {},
         bufferedAmount() {
           return 0;
@@ -1048,7 +1017,6 @@ describe('connection runtime', () => {
       wsKey,
       descriptor: {
         send() {},
-        sendBinary() {},
         close() {},
         bufferedAmount() {
           return 0;
@@ -1144,115 +1112,5 @@ describe('connection runtime', () => {
     const [message, fields] = logger.error.mock.calls[0]!;
     expect(message).toMatch(/stream cleanup threw/);
     expect((fields as { streamId?: string }).streamId).toBe('stream_throwing');
-  });
-
-  describe('handleBinaryMessage', () => {
-    function makeConnection(id = 'conn_1') {
-      return {
-        id,
-        identity: id,
-        wsKey: Symbol(id),
-        descriptor: {
-          send: vi.fn(),
-          sendBinary: vi.fn(),
-          close: vi.fn(),
-          bufferedAmount() {
-            return 0;
-          },
-          identity: id,
-        },
-        meta: {},
-        tags: {
-          ephemeral: new Map<string, Set<string>>(),
-          persistent: new Map<string, Set<string>>(),
-        },
-        channelMemberships: new Map(),
-        latency: null,
-        quality: 'good' as const,
-      };
-    }
-
-    it('routes a thrown hook error through handleRuntimeError instead of escaping', async () => {
-      const handleRuntimeError = vi.fn(async () => {});
-      const buildConnectionContext = vi.fn(() => ({ id: 'conn_1' }));
-      const failingHook = vi.fn(async () => {
-        throw new Error('bad protobuf bytes');
-      });
-      const followUpHook = vi.fn();
-
-      const connection = makeConnection();
-
-      await expect(
-        handleBinaryMessage(
-          {
-            buildConnectionContext,
-            handleRuntimeError,
-            activityHooks: [],
-            binaryHooks: [failingHook, followUpHook],
-          } as never,
-          connection as never,
-          new ArrayBuffer(4),
-        ),
-      ).resolves.toBeUndefined();
-
-      expect(handleRuntimeError).toHaveBeenCalledTimes(1);
-      const call = handleRuntimeError.mock.calls[0] as unknown as [unknown, unknown];
-      const routedConnection = call[0] as { id: string };
-      const routedError = call[1] as Error;
-      expect(routedConnection.id).toBe('conn_1');
-      expect(routedError.message).toBe('bad protobuf bytes');
-      // First throw stops the loop — later hooks do not run for this frame.
-      expect(followUpHook).not.toHaveBeenCalled();
-    });
-
-    it('does not call handleRuntimeError when every hook succeeds', async () => {
-      const handleRuntimeError = vi.fn(async () => {});
-      const hook = vi.fn(async () => {});
-      const connection = makeConnection();
-
-      await handleBinaryMessage(
-        {
-          buildConnectionContext: () => ({ id: 'conn_1' }),
-          handleRuntimeError,
-          activityHooks: [],
-          binaryHooks: [hook],
-        } as never,
-        connection as never,
-        new ArrayBuffer(2),
-      );
-
-      expect(hook).toHaveBeenCalledTimes(1);
-      expect(handleRuntimeError).not.toHaveBeenCalled();
-    });
-
-    it('logs activity hook failures and still runs binary hooks', async () => {
-      const handleRuntimeError = vi.fn(async () => {});
-      const binaryHook = vi.fn(async () => {});
-      const error = vi.fn();
-      const connection = makeConnection();
-
-      await handleBinaryMessage(
-        {
-          buildConnectionContext: () => ({ id: 'conn_1' }),
-          handleRuntimeError,
-          activityHooks: [
-            vi.fn(async () => {
-              throw new Error('activity failed');
-            }),
-          ],
-          binaryHooks: [binaryHook],
-          logger: { error },
-        } as never,
-        connection as never,
-        new ArrayBuffer(2),
-      );
-
-      expect(error).toHaveBeenCalledWith(
-        '[wskit] connection activity hook threw',
-        expect.objectContaining({ connectionId: 'conn_1' }),
-      );
-      expect(binaryHook).toHaveBeenCalledTimes(1);
-      expect(handleRuntimeError).not.toHaveBeenCalled();
-    });
   });
 });

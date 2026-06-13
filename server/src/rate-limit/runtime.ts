@@ -35,10 +35,8 @@ export interface RuleInstance {
  *
  * Scope keys:
  * - `'top'` — top-level events.
- * - `'ns:<name>'` — events inside namespace `<name>`.
  * - `'channel:<key>'` — events inside the channel whose family key (or
  *   static name) is `<key>`.
- * - `'ns:<name>:channel:<key>'` — channel nested under namespace.
  */
 export interface ResolvedRateLimitPlan {
   readonly scopeRules: ReadonlyMap<string, RuleInstance | null>;
@@ -55,11 +53,8 @@ interface BucketState {
  * fields populated by the engine when it builds a scoped connection context.
  */
 export function resolveScopeKey(ctx: any): string {
-  const ns = ctx?.namespace?.name as string | undefined;
   const ch = ctx?.channel as { name?: string; scope?: string | null } | undefined;
   const chKey = ch ? (ch.scope ?? ch.name) : undefined;
-  if (ns && chKey) return `ns:${ns}:channel:${chKey}`;
-  if (ns) return `ns:${ns}`;
   if (chKey) return `channel:${chKey}`;
   return 'top';
 }

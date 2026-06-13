@@ -14,11 +14,6 @@ export function installPrimitiveHooks(core: EngineCore, deps: EngineAccessDeps):
     for (const primitive of primitives) {
       primitive.__setup?.(createEngineAccess(core, deps, scope));
 
-      if (primitive.__wskit === 'namespace') {
-        visit((primitive as Primitive & { primitives: readonly Primitive[] }).primitives, scope);
-        continue;
-      }
-
       if (primitive.__wskit === 'channel') {
         const channelPrimitive = primitive as Primitive & {
           pattern: string | { key: string };

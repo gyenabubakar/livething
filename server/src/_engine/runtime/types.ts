@@ -62,7 +62,7 @@ export type { IncomingProtocolEvent } from './protocol.ts';
 export interface RegisteredEngineHooks {
   // -- Message pipeline hooks -------------------------------------------------
 
-  /** Fires on every text/binary frame — used by keepalive to reset idle timers. */
+  /** Fires on every text frame — used by keepalive to reset idle timers. */
   activity: ((connectionId: string) => void | Promise<void>)[];
 
   /** Runs before routing — can observe or rewrite the payload (event is locked). */
@@ -159,9 +159,6 @@ export interface RegisteredEngineHooks {
           }>)
     | undefined;
 
-  /** Handles raw binary frames that bypass the JSON pipeline. */
-  binary: ((ctx: any, data: ArrayBuffer) => void | Promise<void>)[];
-
   /** Observes incoming payloads that fail schema validation. */
   validationError: ((ctx: any, event: string, validationError: unknown) => void | Promise<void>)[];
 
@@ -174,6 +171,8 @@ export interface RegisteredEngineHooks {
 
   /** Async check phase per channel key — runs before a subscription is confirmed. */
   check: Map<string, ChannelCheckHook[]>;
+  /** Re-authorization phase per channel key — runs only on auto-rejoin, for revocation. */
+  revalidate: Map<string, ((ctx: any) => void | Promise<void>)[]>;
   /** Sync commit phase per channel key — runs immediately before membership is written. */
   commit: Map<string, ChannelCommitHook[]>;
 
@@ -372,6 +371,13 @@ export interface ActiveStream {
    * generator's next yield lands on the new wire.
    */
   connection?: RuntimeConnection;
+
+  /**
+   * The scope the stream was started in. A nudge must resolve to this exact
+   * scope and the connection must still hold its membership — a nudge that
+   * claims a different (or no) scope is rejected, not silently accepted.
+   */
+  scope?: ResolvedScope;
 }
 
 /**
@@ -401,18 +407,16 @@ export interface PluginRuntime {
 /**
  * Extra routing metadata attached to one outgoing message.
  *
- * The engine uses this to carry namespace, channel, correlation, and stream
+ * The engine uses this to carry channel, correlation, and stream
  * routing information through the send pipeline.
  */
 export interface RoutingTarget {
-  namespace?: string;
-
   channel?: string;
 
   /**
    * Channel scope marker. `null` for static channels (no scope), a non-empty
    * family key for dynamic channel families, `undefined` when the route does
-   * not target a channel at all (e.g. a top-level or namespace send).
+   * not target a channel at all (e.g. a top-level send).
    */
   channelScope?: string | null;
 
@@ -421,22 +425,27 @@ export interface RoutingTarget {
   streamId?: string;
 
   /**
-   * Sequence number to stamp on the outgoing frame as `__wskit.seq`. Used by
-   * durable streams to give resume a stable cursor; plain streams rely on
-   * the `sequence` primitive to inject this via onOutgoing instead.
+   * Sequence number to stamp on the outgoing frame as `__wskit.seq`. Durable
+   * streams use it to give resume a stable cursor; every stream chunk (plain
+   * included) carries it directly via the chunk's routing.
    */
   seq?: number;
+
+  /**
+   * Stamped on a stream's outgoing frames as `__wskit.streamKind`: `ephemeral`
+   * for a plain stream, `persistent` for a durable one. Lets a subscriber know
+   * whether the stream is resumable regardless of when it joined.
+   */
+  streamKind?: 'ephemeral' | 'persistent';
 }
 
 /**
  * The resolved scope for one incoming message.
  *
- * This is the engine's parsed view of `__wskit.namespace`, `__wskit.channel`,
- * and `__wskit.channelScope` markers from the incoming frame.
+ * This is the engine's parsed view of `__wskit.channel` and
+ * `__wskit.channelScope` markers from the incoming frame.
  */
 export interface ResolvedScope {
-  namespace?: EngineCompileTypes.CompiledNamespace;
-
   channel?: EngineCompileTypes.CompiledChannel;
 
   channelName?: string;

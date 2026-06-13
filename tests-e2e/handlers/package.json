@@ -1,0 +1,23 @@
+{
+  "name": "@wskit/tests-e2e-handlers",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    "./_shared/*": "./_shared/*.ts",
+    "./*": "./*/handler.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf node_modules"
+  },
+  "dependencies": {
+    "@wskit/core": "workspace:*",
+    "@wskit/server": "workspace:*",
+    "valibot": "^1.3.1"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.2"
+  }
+}

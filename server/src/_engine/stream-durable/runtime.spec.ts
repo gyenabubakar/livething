@@ -1,5 +1,5 @@
 /* oxlint-disable @typescript-eslint/no-explicit-any */
-import { StreamAborted } from '@wskit/core';
+import { StreamAborted, WSKitConfigError } from '@wskit/core';
 import * as ConnectionLifecycle from '~/_engine/runtime/connection.ts';
 import * as v from 'valibot';
 import { describe, expect, it, vi } from 'vitest';
@@ -34,7 +34,6 @@ function makeSql() {
           event,
           payload,
           kind,
-          namespace,
           channelKey,
           channelScope,
           broadcast,
@@ -54,7 +53,6 @@ function makeSql() {
           status: 'active',
           cursor: null,
           last_seq: 0,
-          namespace,
           channel_key: channelKey,
           channel_scope: channelScope,
           broadcast,
@@ -213,7 +211,6 @@ function createConnection(id = 'c1', identity = 'u1'): RuntimeConnection {
     wsKey: Symbol(id),
     descriptor: {
       send: vi.fn(),
-      sendBinary() {},
       close() {},
       bufferedAmount() {
         return 0;
@@ -464,6 +461,183 @@ describe('durable stream runtime', () => {
     expect(protocolMessages.find((m) => m.event === '__error__')).toBeUndefined();
     expect(protocolMessages.find((m) => m.event === '__streamOk__')).toBeDefined();
     expect(returnSpy).toHaveBeenCalled();
+  });
+
+  it('an old run that lost its slot to a replacement does not suspend or end the replacement row', async () => {
+    const sql = makeSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime } = createRuntime(sql);
+    const connection = createConnection();
+
+    // The generator parks after the first yield; we swap in a replacement
+    // ActiveStream while it's parked, then release it.
+    let release!: () => void;
+    const parked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let yielded!: () => void;
+    const firstYield = new Promise<void>((resolve) => {
+      yielded = resolve;
+    });
+
+    const run = runDurableStream(runtime as never, connection, {
+      scope: {},
+      def: baseDef({
+        kind: 'resumable',
+        generator: async function* (ctx: any) {
+          yield ctx.stream.withCursor({ i: 1 }, { idx: 1 });
+          yielded();
+          await parked;
+          yield ctx.stream.withCursor({ i: 2 }, { idx: 2 });
+        },
+      }),
+      payload: {},
+      wskit: { streamId: 'shared', channelScope: null },
+    });
+
+    await firstYield;
+
+    // A resume swaps the live ActiveStream for this streamId and re-attaches it
+    // to the same connection. The old parked run must not touch it afterward.
+    const replacement = { id: 'shared', closed: false } as unknown as ActiveStream;
+    runtime.activeStreams.set('shared', replacement);
+    connection.activeStreamIds = new Set(['shared']);
+
+    release();
+    await run;
+
+    const row = Storage.readStream(sql, 'u1', 'shared');
+    expect(row?.status).toBe('active');
+    expect(runtime.activeStreams.get('shared')).toBe(replacement);
+  });
+
+  it('an old run that lost its slot does not remove the replacement attachment', async () => {
+    const sql = makeSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime } = createRuntime(sql);
+    const connection = createConnection();
+
+    let release!: () => void;
+    const parked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let yielded!: () => void;
+    const firstYield = new Promise<void>((resolve) => {
+      yielded = resolve;
+    });
+
+    const run = runDurableStream(runtime as never, connection, {
+      scope: {},
+      def: baseDef({
+        kind: 'resumable',
+        generator: async function* (ctx: any) {
+          yield ctx.stream.withCursor({ i: 1 }, { idx: 1 });
+          yielded();
+          await parked;
+          yield ctx.stream.withCursor({ i: 2 }, { idx: 2 });
+        },
+      }),
+      payload: {},
+      wskit: { streamId: 'shared', channelScope: null },
+    });
+
+    await firstYield;
+
+    const replacement = { id: 'shared', closed: false } as unknown as ActiveStream;
+    runtime.activeStreams.set('shared', replacement);
+    connection.activeStreamIds = new Set(['shared']);
+    (runtime.persistAttachment as ReturnType<typeof vi.fn>).mockClear();
+
+    release();
+    await run;
+
+    // The replacement's attachment must survive: the streamId stays in the set
+    // and the old run never persists a stale attachment over it.
+    expect(connection.activeStreamIds.has('shared')).toBe(true);
+    expect(runtime.persistAttachment).not.toHaveBeenCalled();
+  });
+
+  it('an old recorded generator cannot emit a chunk after a replacement takes the slot', async () => {
+    const sql = makeSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime, pipelineSends } = createRuntime(sql);
+    const connection = createConnection();
+
+    let release!: () => void;
+    const parked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let yielded!: () => void;
+    const firstYield = new Promise<void>((resolve) => {
+      yielded = resolve;
+    });
+
+    const run = runDurableStream(runtime as never, connection, {
+      scope: {},
+      def: baseDef({
+        kind: 'recorded',
+        maxChunks: 100,
+        generator: async function* () {
+          yield { i: 1 };
+          yielded();
+          await parked;
+          yield { i: 2 };
+        },
+      }),
+      payload: {},
+      wskit: { streamId: 'shared', channelScope: null },
+    });
+
+    await firstYield;
+
+    const replacement = { id: 'shared', closed: false } as unknown as ActiveStream;
+    runtime.activeStreams.set('shared', replacement);
+
+    release();
+    await run;
+
+    // Only the first chunk reached the wire — the post-replacement yield is dropped.
+    const sentValues = pipelineSends.map((s) => (s.payload as { i: number }).i);
+    expect(sentValues).toEqual([1]);
+  });
+
+  it('resumeDurableStream — a corrupt stored payload sends cursor-invalid instead of throwing', async () => {
+    const sql = makeSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime, protocolMessages } = createRuntime(sql);
+    const connection = createConnection();
+
+    // A partially-written / corrupt row: payload is not valid JSON.
+    Storage.insertStream(sql, {
+      identity: 'u1',
+      streamId: 'corrupt',
+      event: 'e',
+      payload: '{not valid json',
+      kind: 'resumable',
+      now: Date.now(),
+    });
+
+    await expect(
+      resumeDurableStream(runtime as never, connection, {
+        resolveDef: () => ({
+          scope: {},
+          def: baseDef({
+            kind: 'resumable',
+            generator: async function* () {
+              /* never reached — the payload parse fails first */
+            },
+          }),
+        }),
+        row: Storage.readStream(sql, 'u1', 'corrupt'),
+        streamId: 'corrupt',
+        lastKnownSeq: 0,
+      }),
+    ).resolves.toBeUndefined();
+
+    const err = protocolMessages.find((m) => m.event === '__error__');
+    expect(err?.payload.code).toBe('stream-aborted');
+    expect((err?.payload.detail as { reason: string } | undefined)?.reason).toBe('cursor-invalid');
+    expect(protocolMessages.find((m) => m.event === '__streamOk__')).toBeUndefined();
   });
 
   it('resumeDurableStream — recorded stream replays missed chunks since `since` then _streamEnd', async () => {
@@ -952,6 +1126,42 @@ describe('durable stream runtime', () => {
     expect(protocolMessages.filter((m) => m.event === '__streamEnd__')).toHaveLength(2);
   });
 
+  it('broadcast recordedStream — a generator error fans a terminal __error__ to peers, not __streamEnd__', async () => {
+    const sql = makeSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime, protocolMessages } = createRuntime(sql);
+    const creator = createConnection('c-creator', 'u-creator');
+    const peer = createConnection('c-peer', 'u-peer');
+    runtime.connections.set(creator.id, creator);
+    runtime.connections.set(peer.id, peer);
+
+    await runDurableStream(runtime as never, creator, {
+      scope: {},
+      def: baseDef({
+        kind: 'recorded',
+        broadcast: true,
+        maxChunks: 10,
+        generator: async function* () {
+          yield { i: 1 };
+          throw new Error('boom');
+        },
+      }),
+      payload: {},
+      wskit: undefined,
+    });
+
+    // The creator's terminal error goes through handleRuntimeError, tagged terminal.
+    expect(runtime.handleRuntimeError).toHaveBeenCalledWith(
+      creator,
+      expect.objectContaining({ routing: expect.objectContaining({ streamTerminated: true }) }),
+    );
+    // Peers get a terminal __error__ (not a misleading clean __streamEnd__).
+    const peerError = protocolMessages.find((m) => m.event === '__error__');
+    expect(peerError).toBeDefined();
+    expect(peerError!.wskit).toMatchObject({ streamTerminated: true });
+    expect(protocolMessages.find((m) => m.event === '__streamEnd__')).toBeUndefined();
+  });
+
   it('broadcast recordedStream — late joiner resume replays from the scope-keyed buffer', async () => {
     const sql = makeSql();
     Storage.ensureDurableStreamSchema(sql);
@@ -1333,5 +1543,159 @@ describe('durable stream runtime', () => {
     // (wireTarget = live.connection = c-new), not the stale c-orig.
     const sentAfterResume = pipelineSends.length;
     expect(sentAfterResume).toBeGreaterThan(sentBeforeResume);
+  });
+
+  it('synchronous throw while creating the generator marks the row ended (not stuck active)', async () => {
+    const sql = makeSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime } = createRuntime(sql);
+    const connection = createConnection();
+
+    await runDurableStream(runtime as never, connection, {
+      scope: {},
+      def: baseDef({
+        kind: 'recorded',
+        generator: (() => {
+          throw new Error('generator factory blew up');
+        }) as never,
+      }),
+      payload: {},
+      wskit: undefined,
+    });
+
+    expect(Storage.readStream(sql, 'u1', 'gen-1')?.status).toBe('ended');
+    expect(runtime.activeStreams.has('gen-1')).toBe(false);
+    expect(connection.activeStreamIds?.has('gen-1')).toBeFalsy();
+  });
+
+  it('WSKitConfigError during iteration marks the row ended then rethrows', async () => {
+    const sql = makeSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime } = createRuntime(sql);
+    const connection = createConnection();
+
+    await expect(
+      runDurableStream(runtime as never, connection, {
+        scope: {},
+        def: baseDef({
+          kind: 'recorded',
+          generator: async function* () {
+            yield { i: 1 };
+            throw new WSKitConfigError('bad stream config');
+          },
+        }),
+        payload: {},
+        wskit: undefined,
+      }),
+    ).rejects.toBeInstanceOf(WSKitConfigError);
+
+    expect(Storage.readStream(sql, 'u1', 'gen-1')?.status).toBe('ended');
+    expect(runtime.activeStreams.has('gen-1')).toBe(false);
+  });
+
+  it('stale-generator cleanup on resume reports a rejected return() instead of leaking it', async () => {
+    const sql = makeSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime } = createRuntime(sql);
+    const connection = createConnection();
+
+    Storage.insertStream(sql, {
+      identity: 'u1',
+      streamId: 'a',
+      event: 'e',
+      payload: '{}',
+      kind: 'resumable',
+      now: Date.now(),
+    });
+
+    let returnCalled!: () => void;
+    const returned = new Promise<void>((resolve) => {
+      returnCalled = resolve;
+    });
+    const stale = {
+      streamId: 'a',
+      connection,
+      closed: false,
+      detached: false,
+      generator: {
+        return: () => {
+          returnCalled();
+          return Promise.reject(new Error('return blew up'));
+        },
+        next: () => Promise.resolve({ done: true, value: undefined }),
+        throw: () => Promise.resolve({ done: true, value: undefined }),
+      },
+    } as unknown as ActiveStream;
+    runtime.activeStreams.set('a', stale);
+
+    await resumeDurableStream(runtime as never, connection, {
+      resolveDef: () => ({
+        scope: {},
+        def: baseDef({
+          kind: 'resumable',
+          generator: async function* () {},
+        }),
+      }),
+      row: Storage.readStream(sql, 'u1', 'a'),
+      streamId: 'a',
+      lastKnownSeq: 0,
+    });
+
+    await returned;
+    // Let the fire-and-forget .catch microtask settle.
+    await Promise.resolve();
+    expect(runtime.logger.warn).toHaveBeenCalledWith(
+      '[wskit] durable stream stale-generator cleanup rejected',
+      expect.objectContaining({ streamId: 'a', error: 'return blew up' }),
+    );
+  });
+
+  it('stale-generator cleanup tolerates a synchronous return() throw on resume (#5)', async () => {
+    const sql = makeSql();
+    Storage.ensureDurableStreamSchema(sql);
+    const { runtime } = createRuntime(sql);
+    const connection = createConnection();
+
+    Storage.insertStream(sql, {
+      identity: 'u1',
+      streamId: 'a',
+      event: 'e',
+      payload: '{}',
+      kind: 'resumable',
+      now: Date.now(),
+    });
+
+    const stale = {
+      streamId: 'a',
+      connection,
+      closed: false,
+      detached: false,
+      generator: {
+        return: () => {
+          throw new Error('sync return boom');
+        },
+        next: () => Promise.resolve({ done: true, value: undefined }),
+        throw: () => Promise.resolve({ done: true, value: undefined }),
+      },
+    } as unknown as ActiveStream;
+    runtime.activeStreams.set('a', stale);
+
+    // The synchronous throw must not abort the resume — it resolves normally.
+    await resumeDurableStream(runtime as never, connection, {
+      resolveDef: () => ({
+        scope: {},
+        def: baseDef({ kind: 'resumable', generator: async function* () {} }),
+      }),
+      row: Storage.readStream(sql, 'u1', 'a'),
+      streamId: 'a',
+      lastKnownSeq: 0,
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(runtime.logger.warn).toHaveBeenCalledWith(
+      '[wskit] durable stream stale-generator cleanup rejected',
+      expect.objectContaining({ streamId: 'a', error: 'sync return boom' }),
+    );
   });
 });

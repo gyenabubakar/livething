@@ -153,7 +153,6 @@ export interface FakeEngine {
   setHibernation: (enabled: boolean) => void;
   connectionHandle: {
     handleMessage: ReturnType<typeof vi.fn>;
-    handleBinary: ReturnType<typeof vi.fn>;
     handleClose: ReturnType<typeof vi.fn>;
     handleError: ReturnType<typeof vi.fn>;
   };
@@ -176,7 +175,6 @@ export function makeFakeEngine(): FakeEngine {
 
   const connectionHandle: FakeEngine['connectionHandle'] = {
     handleMessage: vi.fn(async () => {}),
-    handleBinary: vi.fn(async () => {}),
     handleClose: vi.fn(async () => {}),
     handleError: vi.fn(async () => {}),
   };

@@ -20,7 +20,6 @@ function createConnection(): RuntimeConnection {
     wsKey: 'ws1',
     descriptor: {
       send() {},
-      sendBinary() {},
       close() {},
       bufferedAmount() {
         return 0;
@@ -64,7 +63,6 @@ describe('request/runtime', () => {
 
     expect(sendThroughPipeline).toHaveBeenCalledWith(connection, {
       routing: {
-        namespace: undefined,
         channel: 'room-1',
         channelScope: 'rooms',
         correlationId: 'req-1',
@@ -111,7 +109,6 @@ describe('request/runtime', () => {
     expect(sendThroughPipeline).toHaveBeenCalledTimes(1);
     expect(sendThroughPipeline).toHaveBeenCalledWith(connection, {
       routing: {
-        namespace: undefined,
         channel: undefined,
         channelScope: undefined,
         correlationId: 'req-1',
@@ -232,7 +229,6 @@ describe('request/runtime', () => {
 
     expect(sendThroughPipeline).toHaveBeenCalledWith(connection, {
       routing: {
-        namespace: undefined,
         channel: undefined,
         channelScope: undefined,
         correlationId: 'req-2',
